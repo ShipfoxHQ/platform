@@ -1,0 +1,52 @@
+{
+  "name": "@shipfox/node-error-monitoring",
+  "license": "MIT",
+  "private": false,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "imports": {
+    "#test/*": "./test/*",
+    "#*": "./src/*"
+  },
+  "exports": {
+    ".": {
+      "development": {
+        "types": "./src/index.ts",
+        "default": "./src/index.ts"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./init": {
+      "development": {
+        "types": "./src/init.ts",
+        "default": "./src/init.ts"
+      },
+      "default": {
+        "types": "./dist/init.d.ts",
+        "default": "./dist/init.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "shipfox-swc",
+    "check": "shipfox-biome-check",
+    "check:fix": "shipfox-biome-check --write",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@sentry/node": "^10.44.0",
+    "@shipfox/config": "workspace:*"
+  },
+  "devDependencies": {
+    "@shipfox/biome": "workspace:*",
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*"
+  }
+}

@@ -1,0 +1,6 @@
+name: Bad YAML
+jobs:
+  build:
+    steps:
+      - run: echo hello
+      invalid indentation here

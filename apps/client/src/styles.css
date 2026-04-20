@@ -1,0 +1,9 @@
+@import "@shipfox/react-ui/index.css";
+
+@source ".";
+@source "../../../libs/client";
+@source "../../../libs/shared/react/ui/src";
+
+#app {
+  min-height: 100vh;
+}

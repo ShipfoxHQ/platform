@@ -1,0 +1,35 @@
+{
+  "name": "@shipfox/vite",
+  "version": "1.2.2",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "vite-dev": "./bin/vite-dev.js",
+    "vite-build": "./bin/vite-build.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": "./client.d.ts"
+  },
+  "scripts": {
+    "build": "shipfox-swc",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@shipfox/tool-utils": "workspace:*",
+    "vite": "^8.0.3",
+    "vite-tsconfig-paths": "^6.0.0"
+  },
+  "devDependencies": {
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*"
+  }
+}

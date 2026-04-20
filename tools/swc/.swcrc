@@ -1,0 +1,42 @@
+{
+  "jsc": {
+    "target": "es2023",
+    "parser": {
+      "syntax": "typescript",
+      "decorators": true,
+      "dynamicImport": true,
+      "tsx": true
+    },
+    "transform": {
+      "decoratorMetadata": true,
+      "legacyDecorator": true,
+      "react": {
+        "runtime": "automatic"
+      }
+    },
+    "keepClassNames": true,
+    "externalHelpers": true,
+    "loose": true,
+    "experimental": {
+      "keepImportAttributes": true
+    }
+  },
+  "module": {
+    "type": "es6",
+    "strict": true,
+    "strictMode": true,
+    "noInterop": true,
+    "resolveFully": true
+  },
+  "sourceMaps": true,
+  "minify": false,
+  "exclude": [
+    "node_modules",
+    "jest.config.ts",
+    ".*\\.spec.tsx?$",
+    ".*\\.test.tsx?$",
+    "./src/jest-setup.ts$",
+    "./**/jest-setup.ts$",
+    ".*.js$"
+  ]
+}

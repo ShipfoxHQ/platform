@@ -1,0 +1,16 @@
+name: Simple build
+
+triggers:
+  on_push:
+    type: github.push
+    on: push
+    with:
+      branch: main
+    filter: event.ref == "refs/heads/main"
+
+jobs:
+  build:
+    steps:
+      - run: npm install
+      - run: npm run build
+        name: build_output

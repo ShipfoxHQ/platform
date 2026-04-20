@@ -1,0 +1,34 @@
+{
+  "name": "@shipfox/biome",
+  "version": "1.8.0",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "imports": {
+    "#*": "./src/*"
+  },
+  "bin": {
+    "shipfox-biome-lint": "./bin/biome-lint.js",
+    "shipfox-biome-format": "./bin/biome-format.js",
+    "shipfox-biome-check": "./bin/biome-check.js"
+  },
+  "scripts": {
+    "build": "shipfox-swc",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@biomejs/biome": "2.4.10",
+    "@biomejs/cli-darwin-arm64": "2.4.10",
+    "@biomejs/cli-darwin-x64": "2.4.10",
+    "@biomejs/cli-linux-arm64": "2.4.10",
+    "@biomejs/cli-linux-x64": "2.4.10",
+    "@shipfox/tool-utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*",
+    "@types/node": "25.5.2"
+  }
+}

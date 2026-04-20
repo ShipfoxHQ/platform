@@ -1,0 +1,15 @@
+{
+  "name": "@shipfox/ts-config",
+  "version": "1.3.5",
+  "license": "MIT",
+  "private": false,
+  "files": [
+    "tsconfig.json"
+  ],
+  "main": "tsconfig.json",
+  "exports": {
+    ".": "./tsconfig.base.json",
+    "./node": "./tsconfig.node.json",
+    "./react": "./tsconfig.react.json"
+  }
+}

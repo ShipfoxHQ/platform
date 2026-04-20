@@ -1,0 +1,12 @@
+name: Cyclic workflow
+
+jobs:
+  a:
+    needs: b
+    steps:
+      - run: echo a
+
+  b:
+    needs: a
+    steps:
+      - run: echo b

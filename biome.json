@@ -1,0 +1,195 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": { "ignoreUnknown": false },
+  "formatter": {
+    "enabled": true,
+    "useEditorconfig": true,
+    "formatWithErrors": false,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf",
+    "lineWidth": 100,
+    "attributePosition": "auto",
+    "bracketSpacing": true
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedFunctionParameters": "error",
+        "noUnusedVariables": "error",
+        "useHookAtTopLevel": "error"
+      },
+      "performance": {
+        "useTopLevelRegex": "error"
+      },
+      "style": {
+        "noNonNullAssertion": "error",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "@swc/core": "Use @shipfox/swc instead",
+              "@swc/cli": "Use @shipfox/swc instead",
+              "@biomejs/biome": "Use @shipfox/biome instead",
+              "typescript": "Use @shipfox/typescript instead",
+              "vitest": "Use @shipfox/vitest instead",
+              "@shipfox/node-log": "Use @shipfox/node-opentelemetry logger instead"
+            },
+            "patterns": [
+              {
+                "group": ["./core/**", "../core/**", "../../core/**", "../../../core/**"],
+                "message": "Use #core/ instead of relative path for cross-domain imports"
+              },
+              {
+                "group": ["./db/**", "../db/**", "../../db/**", "../../../db/**"],
+                "message": "Use #db/ instead of relative path for cross-domain imports"
+              },
+              {
+                "group": [
+                  "./presentation/**",
+                  "../presentation/**",
+                  "../../presentation/**",
+                  "../../../presentation/**"
+                ],
+                "message": "Use #presentation/ instead of relative path for cross-domain imports"
+              },
+              {
+                "group": ["../hooks/**", "../../hooks/**", "../../../hooks/**"],
+                "message": "Use #hooks/ instead of relative path for hooks imports"
+              },
+              {
+                "group": ["../state/**", "../../state/**", "../../../state/**"],
+                "message": "Use #state/ instead of relative path for state imports"
+              },
+              {
+                "group": ["../components/**", "../../components/**", "../../../components/**"],
+                "message": "Use #components/ instead of relative path for components imports"
+              },
+              {
+                "group": ["../src/**", "../../src/**", "../../../src/**"],
+                "message": "Use # instead of relative path for src imports"
+              },
+              {
+                "group": ["../test/**", "../../test/**", "../../../test/**"],
+                "message": "Use #test/ instead of relative path for test imports"
+              }
+            ]
+          }
+        },
+        "noYodaExpression": "error",
+        "useForOf": "error",
+        "useThrowNewError": "error",
+        "useThrowOnlyError": "error"
+      },
+      "suspicious": {
+        "noConsole": "error",
+        "noEmptyBlockStatements": "error",
+        "noEvolvingTypes": "error",
+        "useAwait": "error",
+        "useErrorMessage": "error"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "enabled": true,
+      "jsxQuoteStyle": "double",
+      "quoteProperties": "asNeeded",
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "arrowParentheses": "always",
+      "bracketSameLine": false,
+      "quoteStyle": "single",
+      "attributePosition": "auto",
+      "bracketSpacing": false
+    },
+    "jsxRuntime": "transparent"
+  },
+  "json": {
+    "formatter": {
+      "enabled": true,
+      "trailingCommas": "none"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["libs/client/router/src/routeTree.gen.ts"],
+      "assist": {
+        "enabled": false
+      },
+      "formatter": {
+        "enabled": false
+      },
+      "linter": {
+        "enabled": false
+      }
+    },
+    {
+      "includes": ["tools/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["libs/shared/node/opentelemetry/**", "libs/shared/node/log/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@swc/core": "Use @shipfox/swc instead",
+                  "@swc/cli": "Use @shipfox/swc instead",
+                  "@biomejs/biome": "Use @shipfox/biome instead",
+                  "typescript": "Use @shipfox/typescript instead",
+                  "vitest": "Use @shipfox/vitest instead"
+                },
+                "patterns": [
+                  {
+                    "group": ["./core/**", "../core/**", "../../core/**", "../../../core/**"],
+                    "message": "Use #core/ instead of relative path for cross-domain imports"
+                  },
+                  {
+                    "group": ["./db/**", "../db/**", "../../db/**", "../../../db/**"],
+                    "message": "Use #db/ instead of relative path for cross-domain imports"
+                  },
+                  {
+                    "group": [
+                      "./presentation/**",
+                      "../presentation/**",
+                      "../../presentation/**",
+                      "../../../presentation/**"
+                    ],
+                    "message": "Use #presentation/ instead of relative path for cross-domain imports"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

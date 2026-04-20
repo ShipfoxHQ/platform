@@ -1,0 +1,33 @@
+services:
+  postgres:
+    container_name: postgres
+    image: postgres:18.3
+    environment:
+      POSTGRES_USER: "shipfox"
+      POSTGRES_PASSWORD: "password"
+      PGDATA: "/data/postgres"
+    volumes:
+      - postgres:/data/postgres
+      - ./dev/postgres/init.sql:/docker-entrypoint-initdb.d/docker_postgres_init.sql
+    ports:
+      - 127.0.0.1:5432:5432
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, pg_isready, -U, shipfox, -d, api]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  temporal:
+    container_name: temporal
+    image: temporalio/temporal:1.6.2
+    ports:
+      - 127.0.0.1:7233:7233
+      - 127.0.0.1:8233:8233
+    volumes:
+      - temporal:/home/temporal
+    command: "server start-dev --ip 0.0.0.0 --db-filename /home/temporal/temporal.db"
+
+volumes:
+  postgres:
+  temporal:

@@ -1,0 +1,24 @@
+name: Multi-job pipeline
+
+jobs:
+  build:
+    steps:
+      - run: npm install
+      - run: npm run build
+
+  test-unit:
+    needs: build
+    steps:
+      - run: npm run test:unit
+
+  test-integration:
+    needs: build
+    steps:
+      - run: npm run test:integration
+
+  deploy:
+    needs:
+      - test-unit
+      - test-integration
+    steps:
+      - run: ./deploy.sh staging

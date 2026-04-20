@@ -1,0 +1,47 @@
+{
+  "name": "@shipfox/vitest",
+  "version": "1.2.0",
+  "license": "MIT",
+  "private": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./vi": {
+      "types": "./dist/vitest-export.d.ts",
+      "import": "./dist/vitest-export.js",
+      "default": "./dist/vitest-export.js"
+    },
+    "./vitest": {
+      "types": "./dist/vitest-export.d.ts",
+      "import": "./dist/vitest-export.js",
+      "default": "./dist/vitest-export.js"
+    }
+  },
+  "type": "module",
+  "imports": {
+    "#*": "./src/*"
+  },
+  "bin": {
+    "shipfox-vitest-run": "./bin/vitest-run.js",
+    "shipfox-vitest-watch": "./bin/vitest-watch.js"
+  },
+  "scripts": {
+    "build": "shipfox-swc",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@shipfox/tool-utils": "workspace:*",
+    "vitest": "^4.0.8"
+  },
+  "devDependencies": {
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*"
+  }
+}

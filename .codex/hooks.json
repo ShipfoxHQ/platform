@@ -1,0 +1,13 @@
+{
+  "post-tool-use": [
+    {
+      "matcher": "apply_patch",
+      "handlers": [
+        {
+          "type": "command",
+          "command": "node ./.codex/post-tool-use-biome.mjs"
+        }
+      ]
+    }
+  ]
+}

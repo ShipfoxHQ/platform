@@ -1,0 +1,33 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["mise.toml", "biome.json"],
+  "globalPassThroughEnv": ["GITHUB_*", "ACTIONS_*", "LOG_*"],
+  "tasks": {
+    "build": {
+      "cache": true,
+      "outputs": ["dist/**/*", "!dist/**/*.d.ts", "!dist/**/*.d.ts.map", ".vercel/**/*"],
+      "dependsOn": ["^build"]
+    },
+    "check": {
+      "cache": true,
+      "dependsOn": ["@shipfox/biome#build"]
+    },
+    "type": {
+      "cache": true,
+      "dependsOn": ["@shipfox/typescript#build", "^type:emit"]
+    },
+    "type:emit": {
+      "cache": true,
+      "outputs": ["dist/**/*.d.ts", "dist/**/*.d.ts.map"],
+      "dependsOn": ["@shipfox/typescript#build", "^type:emit"]
+    },
+    "test": {
+      "cache": true,
+      "dependsOn": ["^build"]
+    },
+    "depcruise": {
+      "cache": true,
+      "dependsOn": ["@shipfox/depcruise#build"]
+    }
+  }
+}

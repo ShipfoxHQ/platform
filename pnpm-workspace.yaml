@@ -1,0 +1,13 @@
+
+strictPeerDependencies: true
+dedupePeerDependents: true
+nodeLinker: isolated
+
+packages:
+  - "apps/*"
+  - "libs/**"
+  - "infra/**"
+  - "tools/**"
+  - "turbo/**"
+  - "!**/vite/types/**"
+  - "!**/node_modules/**"

@@ -1,0 +1,35 @@
+{
+  "name": "@shipfox/client",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite-build",
+    "check": "shipfox-biome-check",
+    "check:fix": "shipfox-biome-check --write",
+    "dev": "vite-dev",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@shipfox/client-auth": "workspace:*",
+    "@shipfox/client-projects": "workspace:*",
+    "@shipfox/client-router": "workspace:*",
+    "@shipfox/react-ui": "workspace:*",
+    "@swc/helpers": "^0.5.17",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@shipfox/biome": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*",
+    "@shipfox/vite": "workspace:*",
+    "@tailwindcss/vite": "^4.1.13",
+    "tailwindcss": "^4.1.13",
+    "@types/react": "^19.1.11",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "vite": "^8.0.3"
+  }
+}

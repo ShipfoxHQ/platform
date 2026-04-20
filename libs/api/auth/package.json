@@ -1,0 +1,61 @@
+{
+  "name": "@shipfox/api-auth",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "imports": {
+    "#test/*": "./test/*",
+    "#*": "./src/*"
+  },
+  "exports": {
+    ".": {
+      "development": {
+        "types": "./src/index.ts",
+        "default": "./src/index.ts"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "shipfox-swc",
+    "check": "shipfox-biome-check",
+    "check:fix": "shipfox-biome-check --write",
+    "test": "shipfox-vitest-run",
+    "test:watch": "shipfox-vitest-watch",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@shipfox/api-auth-context": "workspace:*",
+    "@fastify/cookie": "^11.0.2",
+    "@node-rs/argon2": "^2.0.2",
+    "@shipfox/api-auth-dto": "workspace:*",
+    "@shipfox/config": "workspace:*",
+    "@shipfox/node-drizzle": "workspace:*",
+    "@shipfox/node-fastify": "workspace:*",
+    "@shipfox/node-mailer": "workspace:*",
+    "@shipfox/node-module": "workspace:*",
+    "@shipfox/node-postgres": "workspace:*",
+    "@shipfox/node-tokens": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "jose": "^5.9.6",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@shipfox/biome": "workspace:*",
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*",
+    "@shipfox/vitest": "workspace:*",
+    "@types/pg": "^8.15.5",
+    "drizzle-kit": "^0.31.10",
+    "fastify": "^5.3.3",
+    "fastify-type-provider-zod": "^4.0.2",
+    "fishery": "^2.2.2"
+  }
+}

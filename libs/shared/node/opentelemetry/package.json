@@ -1,0 +1,66 @@
+{
+  "name": "@shipfox/node-opentelemetry",
+  "license": "MIT",
+  "private": false,
+  "version": "0.4.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "imports": {
+    "#test/*": "./test/*",
+    "#*": "./src/*"
+  },
+  "exports": {
+    ".": {
+      "development": {
+        "types": "./src/index.ts",
+        "default": "./src/index.ts"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "shipfox-swc",
+    "check": "shipfox-biome-check",
+    "check:fix": "shipfox-biome-check --write",
+    "test": "shipfox-vitest-run",
+    "test:watch": "shipfox-vitest-watch",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@fastify/otel": "^0.18.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.72.0",
+    "@opentelemetry/core": "^2.0.0",
+    "@opentelemetry/exporter-prometheus": "^0.214.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
+    "@opentelemetry/instrumentation": "^0.214.0",
+    "@opentelemetry/instrumentation-cassandra-driver": "^0.59.0",
+    "@opentelemetry/instrumentation-dns": "^0.57.0",
+    "@opentelemetry/instrumentation-grpc": "^0.214.0",
+    "@opentelemetry/instrumentation-http": "^0.214.0",
+    "@opentelemetry/instrumentation-ioredis": "^0.62.0",
+    "@opentelemetry/instrumentation-net": "^0.58.0",
+    "@opentelemetry/instrumentation-pg": "^0.66.0",
+    "@opentelemetry/instrumentation-pino": "^0.60.0",
+    "@opentelemetry/instrumentation-undici": "^0.24.0",
+    "@opentelemetry/resources": "^2.0.0",
+    "@opentelemetry/sdk-metrics": "^2.6.0",
+    "@opentelemetry/sdk-node": "^0.214.0",
+    "@opentelemetry/sdk-trace-node": "^2.6.0",
+    "@opentelemetry/semantic-conventions": "^1.33.0",
+    "@shipfox/config": "workspace:*",
+    "@shipfox/node-log": "workspace:*"
+  },
+  "devDependencies": {
+    "@shipfox/biome": "workspace:*",
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*",
+    "@shipfox/vitest": "workspace:*"
+  }
+}

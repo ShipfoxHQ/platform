@@ -1,0 +1,12 @@
+[tools]
+gh = "2.89.0"
+"node"      = "24.15.0"
+"npm:pnpm"  = "10.33.0"
+"npm:turbo" = "2.9.6"
+
+[env]
+_.path = ['{{config_root}}/node_modules/.bin']
+
+[settings]
+lockfile       = true
+install_before = "7d"

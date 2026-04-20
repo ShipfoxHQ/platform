@@ -1,0 +1,1043 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap")
+  layer(base);
+
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Commented because it breaks default Tailwind theme with breakpoints */
+/* @theme {
+  --\*: initial;
+} */
+
+@custom-variant hover (&:hover);
+
+@font-face {
+  font-family: "Commit Mono";
+  src: url("https://a.storyblok.com/f/338460/x/5b4955e226/commitmono-400-regular.otf")
+    format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Commit Mono";
+  src: url("https://a.storyblok.com/f/338460/x/b0c8dab698/commitmono-700-regular.otf")
+    format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Color Primitives */
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #fafafa;
+  --color-neutral-100: #f4f4f5;
+  --color-neutral-200: #e4e4e7;
+  --color-neutral-300: #d4d4d8;
+  --color-neutral-400: #a1a1aa;
+  --color-neutral-500: #71717a;
+  --color-neutral-600: #52525b;
+  --color-neutral-700: #3f3f46;
+  --color-neutral-800: #27272a;
+  --color-neutral-900: #1a1a1b;
+  --color-neutral-950: #0f0f10;
+  --color-neutral-1000: #030303;
+
+  --color-purple-50: #f5f3ff;
+  --color-purple-100: #ede9fe;
+  --color-purple-200: #ddd6fe;
+  --color-purple-300: #c4b5fd;
+  --color-purple-400: #a78bfa;
+  --color-purple-500: #8b5cf6;
+  --color-purple-600: #7c3aed;
+  --color-purple-700: #6d28d9;
+  --color-purple-800: #5b21b6;
+  --color-purple-900: #4c1d95;
+  --color-purple-950: #2e1065;
+
+  --color-blue-50: #eff6ff;
+  --color-blue-100: #dbeafe;
+  --color-blue-200: #bfdbfe;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-700: #1d4ed8;
+  --color-blue-800: #1e40af;
+  --color-blue-900: #1e3a8a;
+  --color-blue-950: #172554;
+
+  --color-green-50: #ecfdf5;
+  --color-green-100: #d1fae5;
+  --color-green-200: #a7f3d0;
+  --color-green-300: #6ee7b7;
+  --color-green-400: #34d399;
+  --color-green-500: #10b981;
+  --color-green-600: #059669;
+  --color-green-700: #047857;
+  --color-green-800: #065f46;
+  --color-green-900: #064e3b;
+  --color-green-950: #022c22;
+
+  --color-primary-50: #fff4f0;
+  --color-primary-100: #ffe6db;
+  --color-primary-200: #ffccb8;
+  --color-primary-300: #ff9e7a;
+  --color-primary-400: #ff4b00;
+  --color-primary-500: #e63e00;
+  --color-primary-600: #cc3700;
+  --color-primary-700: #b32f00;
+  --color-primary-800: #992800;
+  --color-primary-900: #802000;
+  --color-primary-950: #4d1300;
+
+  --color-red-50: #fff1f2;
+  --color-red-100: #ffe4e6;
+  --color-red-200: #fecdd3;
+  --color-red-300: #fda4af;
+  --color-red-400: #fb7185;
+  --color-red-500: #f43f5e;
+  --color-red-600: #e11d48;
+  --color-red-700: #be123c;
+  --color-red-800: #9f1239;
+  --color-red-900: #881337;
+  --color-red-950: #4c0519;
+
+  --color-orange-50: #fff7ed;
+  --color-orange-100: #ffedd5;
+  --color-orange-200: #fed7aa;
+  --color-orange-300: #fdba74;
+  --color-orange-400: #fb923c;
+  --color-orange-500: #f97316;
+  --color-orange-600: #ea580c;
+  --color-orange-700: #c2410c;
+  --color-orange-800: #9a3412;
+  --color-orange-900: #7c2d12;
+  --color-orange-950: #431407;
+
+  --color-accent-purple: #af52de;
+  --color-accent-indigo: #5856d6;
+  --color-accent-mint: #00c7be;
+  --color-accent-green: #28cd41;
+  --color-accent-teal: #59adc4;
+  --color-accent-brown: #a2845e;
+  --color-accent-blue: #007aff;
+  --color-accent-orange: #ff9500;
+  --color-accent-yellow: #ffcc00;
+  --color-accent-pink: #ff2d55;
+  --color-accent-gray: #8e8e93;
+  --color-accent-cyan: #55bef0;
+  --color-accent-red: #ff3b30;
+
+  --color-alpha-white-0: rgba(255, 255, 255, 0);
+  --color-alpha-white-2: rgba(255, 255, 255, 0.02);
+  --color-alpha-white-4: rgba(255, 255, 255, 0.04);
+  --color-alpha-white-6: rgba(255, 255, 255, 0.06);
+  --color-alpha-white-8: rgba(255, 255, 255, 0.08);
+  --color-alpha-white-10: rgba(255, 255, 255, 0.1);
+  --color-alpha-white-12: rgba(255, 255, 255, 0.12);
+  --color-alpha-white-16: rgba(255, 255, 255, 0.16);
+  --color-alpha-white-24: rgba(255, 255, 255, 0.24);
+  --color-alpha-white-40: rgba(255, 255, 255, 0.4);
+  --color-alpha-white-56: rgba(255, 255, 255, 0.56);
+  --color-alpha-white-64: rgba(255, 255, 255, 0.64);
+  --color-alpha-white-72: rgba(255, 255, 255, 0.72);
+  --color-alpha-white-80: rgba(255, 255, 255, 0.8);
+  --color-alpha-white-88: rgba(255, 255, 255, 0.88);
+
+  --color-alpha-black-0: rgba(24, 24, 27, 0);
+  --color-alpha-black-2: rgba(24, 24, 27, 0.02);
+  --color-alpha-black-4: rgba(24, 24, 27, 0.04);
+  --color-alpha-black-6: rgba(24, 24, 27, 0.06);
+  --color-alpha-black-8: rgba(24, 24, 27, 0.08);
+  --color-alpha-black-10: rgba(24, 24, 27, 0.1);
+  --color-alpha-black-12: rgba(24, 24, 27, 0.12);
+  --color-alpha-black-16: rgba(24, 24, 27, 0.16);
+  --color-alpha-black-24: rgba(24, 24, 27, 0.24);
+  --color-alpha-black-40: rgba(24, 24, 27, 0.4);
+  --color-alpha-black-56: rgba(24, 24, 27, 0.56);
+  --color-alpha-black-64: rgba(24, 24, 27, 0.64);
+  --color-alpha-black-72: rgba(24, 24, 27, 0.72);
+  --color-alpha-black-80: rgba(24, 24, 27, 0.8);
+  --color-alpha-black-88: rgba(24, 24, 27, 0.88);
+
+  /* Design Token Variables - Light Mode */
+  /* Background */
+  --background-components-hover: var(--color-neutral-100);
+  --background-neutral-base: var(--color-neutral-0);
+  --background-components-pressed: var(--color-neutral-200);
+  --background-subtle-pressed: var(--color-neutral-200);
+  --background-highlight-interactive: var(--color-primary-500);
+  --background-subtle-hover: var(--color-neutral-100);
+  --background-highlight-hover: var(--color-primary-100);
+  --background-field-base: var(--color-neutral-0);
+  --background-neutral-pressed: var(--color-neutral-200);
+  --background-highlight-base: var(--color-primary-50);
+  --background-neutral-hover: var(--color-neutral-100);
+  --background-neutral-overlay: var(--color-neutral-0);
+  --background-components-base: var(--color-neutral-50);
+  --background-field-component: var(--color-neutral-0);
+  --background-switch-off-hover: var(--color-neutral-300);
+  --background-field-component-hover: var(--color-neutral-50);
+  --background-subtle-base: var(--color-alpha-black-2);
+  --background-neutral-disabled: var(--color-neutral-100);
+  --background-field-hover: var(--color-neutral-100);
+  --background-switch-off: var(--color-neutral-200);
+  --background-contrast-subtle: var(--color-neutral-800);
+  --background-contrast-hover: var(--color-neutral-800);
+  --background-contrast-pressed: var(--color-neutral-700);
+  --background-contrast-base: var(--color-neutral-900);
+  --background-neutral-background: var(--color-neutral-50);
+  --background-backdrop-backdrop: var(--color-alpha-black-64);
+  --background-modal-overlay: var(--color-alpha-black-88);
+
+  /* Button Background */
+  --background-button-transparent-default: var(--color-alpha-white-0);
+  --background-button-neutral-hover: var(--color-neutral-100);
+  --background-button-danger-hover: var(--color-red-700);
+  --background-button-success-hover: var(--color-green-700);
+  --background-button-neutral-pressed: var(--color-neutral-200);
+  --background-button-neutral-default: var(--color-neutral-0);
+  --background-button-transparent-hover: var(--color-alpha-black-6);
+  --background-button-inverted-pressed: var(--color-neutral-600);
+  --background-button-transparent-pressed: var(--color-alpha-black-10);
+  --background-button-danger-pressed: var(--color-red-800);
+  --background-button-success-pressed: var(--color-green-800);
+  --background-button-inverted-hover: var(--color-neutral-700);
+  --background-button-danger-default: var(--color-red-600);
+  --background-button-success-default: var(--color-green-600);
+  --background-button-inverted-default: var(--color-neutral-800);
+
+  /* Accent Background */
+  --background-accent-neutral-soft: var(--color-neutral-600);
+  --background-accent-neutral-strong: var(--color-neutral-500);
+  --background-accent-neutral-white: var(--color-neutral-600);
+  --background-accent-blue-soft: var(--color-blue-800);
+  --background-accent-blue-base: var(--color-blue-500);
+  --background-accent-blue-strong: var(--color-blue-500);
+  --background-accent-purple-soft: var(--color-purple-800);
+  --background-accent-purple-base: var(--color-purple-500);
+  --background-accent-purple-strong: var(--color-purple-500);
+  --background-accent-success-soft: var(--color-green-800);
+  --background-accent-success-base: var(--color-green-500);
+  --background-accent-success-strong: var(--color-green-500);
+  --background-accent-warning-soft: var(--color-orange-800);
+  --background-accent-warning-base: var(--color-orange-500);
+  --background-accent-warning-strong: var(--color-orange-500);
+  --background-accent-error-soft: var(--color-red-800);
+  --background-accent-error-base: var(--color-red-500);
+  --background-accent-error-strong: var(--color-red-500);
+
+  /* Foreground */
+  --foreground-highlight-interactive-hover: var(--color-primary-500);
+  --foreground-neutral-muted: var(--color-neutral-500);
+  --foreground-neutral-base: var(--color-neutral-950);
+  --foreground-neutral-subtle: var(--color-neutral-600);
+  --foreground-highlight-interactive: var(--color-primary-400);
+  --foreground-neutral-on-color: var(--color-neutral-0);
+  --foreground-highlight-error: var(--color-red-600);
+  --foreground-neutral-on-inverted: var(--color-neutral-0);
+  --foreground-neutral-disabled: var(--color-neutral-400);
+  --foreground-contrast-base: var(--color-neutral-900);
+  --foreground-contrast-primary: var(--color-alpha-white-88);
+  --foreground-contrast-secondary: var(--color-alpha-white-56);
+
+  /* Border */
+  --border-neutral-transparent: var(--color-alpha-white-0);
+  --border-neutral-menu-top: var(--color-neutral-200);
+  --border-highlights-danger: var(--color-red-700);
+  --border-highlights-interactive: var(--color-primary-500);
+  --border-highlights-error: var(--color-red-600);
+  --border-neutral-strong: var(--color-neutral-300);
+  --border-neutral-menu-bottom: var(--color-neutral-0);
+  --border-neutral-base-component: var(--color-neutral-300);
+  --border-neutral-base: var(--color-neutral-300);
+  --border-contrast-top: var(--color-neutral-900);
+  --border-contrast-base: var(--color-alpha-white-16);
+  --border-contrast-bottom: var(--color-alpha-white-8);
+
+  /* Tag Colors */
+  --tag-blue-text: var(--color-blue-800);
+  --tag-neutral-bg-hover: var(--color-neutral-200);
+  --tag-error-bg-hover: var(--color-red-200);
+  --tag-error-bg: var(--color-red-100);
+  --tag-success-bg-hover: var(--color-green-200);
+  --tag-error-border: var(--color-red-200);
+  --tag-neutral-text: var(--color-neutral-600);
+  --tag-warning-bg: var(--color-orange-100);
+  --tag-error-icon: var(--color-red-500);
+  --tag-error-text: var(--color-red-800);
+  --tag-warning-icon: var(--color-orange-400);
+  --tag-warning-text: var(--color-orange-800);
+  --tag-success-bg: var(--color-green-100);
+  --tag-success-border: var(--color-green-200);
+  --tag-success-text: var(--color-green-800);
+  --tag-purple-icon: var(--color-purple-500);
+  --tag-neutral-icon: var(--color-neutral-500);
+  --tag-success-icon: var(--color-green-500);
+  --tag-purple-bg-hover: var(--color-purple-200);
+  --tag-neutral-bg: var(--color-neutral-100);
+  --tag-neutral-border: var(--color-neutral-200);
+  --tag-blue-icon: var(--color-blue-500);
+  --tag-purple-bg: var(--color-purple-100);
+  --tag-blue-bg: var(--color-blue-100);
+  --tag-blue-border: var(--color-blue-200);
+  --tag-purple-border: var(--color-purple-200);
+  --tag-warning-bg-hover: var(--color-orange-200);
+  --tag-warning-border: var(--color-orange-200);
+  --tag-purple-text: var(--color-purple-800);
+  --tag-blue-bg-hover: var(--color-blue-200);
+
+  /* Alpha */
+  --alpha-250: var(--color-alpha-black-10);
+  --alpha-400: var(--color-alpha-black-24);
+
+  /* Shadow */
+  --shadow-border-base:
+    0 -1px 0 0 var(--color-alpha-white-6), 0 0 0 1px var(--color-alpha-white-6),
+    0 0 0 1px var(--color-neutral-800), 0 0 1px 1.5px var(--color-alpha-black-24),
+    0 2px 2px 0 var(--color-alpha-black-24);
+  --shadow-border-interactive-with-active: 0 0 0 1px #ff8b16, 0 0 0 4px rgba(255, 49, 0, 0.25);
+  --shadow-border-error: 0 0 0 1px #ff1f5a, 0 0 0 3px rgba(246, 0, 67, 0.25);
+  --shadow-button-inverted:
+    0 -1px 0 0 var(--color-alpha-white-12), 0 0 0 1px var(--color-alpha-white-10),
+    0 0 0 1px var(--color-neutral-600), 0 0 1px 1.5px var(--color-alpha-black-24),
+    0 2px 2px 0 var(--color-alpha-black-24);
+  --shadow-button-inverted-focus:
+    0 -1px 0 0 var(--color-alpha-white-12), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-neutral-600), 0 0 0 2px var(--color-alpha-white-88),
+    0 0 0 4px var(--color-primary-500);
+  --shadow-button-neutral:
+    0 0 0 1px var(--color-alpha-black-8), 0 2px 4px 0 var(--color-alpha-black-8),
+    0 4px 8px 0 var(--color-alpha-black-8);
+  --shadow-button-neutral-focus:
+    0 -1px 0 0 var(--color-alpha-white-6), 0 0 0 1px var(--color-alpha-white-6),
+    0 0 0 1px var(--color-alpha-black-8), 0 0 0 2px var(--color-alpha-white-88),
+    0 0 0 4px var(--color-primary-500);
+  --shadow-button-danger:
+    0 -1px 0 0 var(--color-alpha-white-16), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-red-700), 0 0 1px 1.5px var(--color-alpha-black-24),
+    0 2px 2px 0 var(--color-alpha-black-24);
+  --shadow-button-danger-focus:
+    0 -1px 0 0 var(--color-alpha-white-16), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-red-700), 0 0 0 2px var(--color-alpha-white-88),
+    0 0 0 4px var(--color-primary-500);
+  --shadow-button-success:
+    0 -1px 0 0 var(--color-alpha-white-16), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-green-700), 0 0 1px 1.5px var(--color-alpha-black-24),
+    0 2px 2px 0 var(--color-alpha-black-24);
+  --shadow-button-success-focus:
+    0 -1px 0 0 var(--color-alpha-white-16), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-green-700), 0 0 0 2px var(--color-alpha-white-88),
+    0 0 0 4px var(--color-primary-500);
+
+  /* Checkbox */
+  /* Checkbox - Unchecked States */
+  --checkbox-unchecked-bg: var(--background-components-base);
+  --checkbox-unchecked-bg-hover: var(--background-components-hover);
+  --checkbox-unchecked-border: var(--color-alpha-black-8);
+  --checkbox-unchecked-shadow:
+    0px 1px 2px 0px var(--color-alpha-black-12), 0px 0px 0px 1px var(--color-alpha-black-8);
+  --checkbox-unchecked-focus-shadow:
+    0px 1px 2px 0px rgba(30, 58, 138, 0.5), 0px 0px 0px 1px #ff4b00,
+    0px 0px 0px 2px var(--color-neutral-0),
+    0px 0px 0px 4px rgba(255, 75, 0, 0.6);
+
+  /* Checkbox - Checked States */
+  --checkbox-checked-bg: var(--foreground-highlight-interactive);
+  --checkbox-checked-bg-hover: var(--foreground-highlight-interactive-hover);
+  --checkbox-checked-border: rgba(255, 75, 0, 0.69);
+  --checkbox-checked-shadow:
+    0px 1px 2px 0px rgba(30, 58, 138, 0.5), 0px 0px 0px 1px rgba(255, 75, 0, 0.69);
+  --checkbox-checked-focus-shadow:
+    0px 1px 2px 0px rgba(30, 58, 138, 0.5), 0px 0px 0px 1px #ff4b00,
+    0px 0px 0px 2px var(--color-neutral-0),
+    0px 0px 0px 4px rgba(255, 75, 0, 0.6);
+
+  /* Checkbox - Indeterminate States */
+  --checkbox-indeterminate-bg: var(--foreground-highlight-interactive);
+  --checkbox-indeterminate-bg-hover: var(--foreground-highlight-interactive-hover);
+  --checkbox-indeterminate-border: rgba(255, 75, 0, 0.69);
+  --checkbox-indeterminate-shadow:
+    0px 1px 2px 0px rgba(30, 58, 138, 0.5), 0px 0px 0px 1px rgba(255, 75, 0, 0.69);
+  --checkbox-indeterminate-focus-shadow:
+    0px 0px 0px 1px var(--color-neutral-0), 0px 0px 0px 3px rgba(255, 75, 0, 0.6);
+  --shadow-tooltip:
+    0 0 0 1px var(--color-alpha-black-8), 0 2px 4px 0 var(--color-alpha-black-8),
+    0 4px 8px 0 var(--color-alpha-black-8);
+  --shadow-separator-inset:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.06);
+}
+
+.dark {
+  /* Design Token Variables - Dark Mode */
+  /* Background */
+  --background-components-hover: var(--color-alpha-white-10);
+  --background-neutral-base: var(--color-neutral-900);
+  --background-components-pressed: var(--color-alpha-white-16);
+  --background-subtle-pressed: var(--color-neutral-800);
+  --background-highlight-interactive: var(--color-primary-400);
+  --background-subtle-hover: var(--color-neutral-900);
+  --background-highlight-hover: var(--color-primary-900);
+  --background-field-base: var(--color-alpha-white-4);
+  --background-neutral-pressed: var(--color-neutral-700);
+  --background-highlight-base: var(--color-primary-950);
+  --background-neutral-hover: var(--color-neutral-800);
+  --background-neutral-overlay: var(--color-neutral-800);
+  --background-components-base: var(--color-neutral-800);
+  --background-field-component: var(--color-neutral-900);
+  --background-switch-off-hover: var(--color-neutral-600);
+  --background-field-component-hover: var(--color-neutral-800);
+  --background-subtle-base: var(--color-neutral-950);
+  --background-neutral-disabled: var(--color-neutral-800);
+  --background-field-hover: var(--color-alpha-white-8);
+  --background-switch-off: var(--color-neutral-700);
+  --background-contrast-subtle: var(--color-alpha-white-2);
+  --background-contrast-hover: var(--color-alpha-white-8);
+  --background-contrast-pressed: var(--color-alpha-white-12);
+  --background-contrast-base: var(--color-neutral-800);
+  --background-neutral-background: var(--color-neutral-1000);
+  --background-backdrop-backdrop: var(--color-alpha-black-64);
+  --background-modal-overlay: var(--color-alpha-black-88);
+
+  /* Button Background */
+  --background-button-transparent-default: var(--color-alpha-white-0);
+  --background-button-neutral-hover: var(--color-alpha-white-8);
+  --background-button-danger-hover: var(--color-red-700);
+  --background-button-success-hover: var(--color-green-700);
+  --background-button-neutral-pressed: var(--color-alpha-white-12);
+  --background-button-neutral-default: var(--color-alpha-white-4);
+  --background-button-transparent-hover: var(--color-alpha-white-8);
+  --background-button-inverted-pressed: var(--color-neutral-400);
+  --background-button-transparent-pressed: var(--color-alpha-white-12);
+  --background-button-danger-pressed: var(--color-red-600);
+  --background-button-success-pressed: var(--color-green-600);
+  --background-button-inverted-hover: var(--color-neutral-500);
+  --background-button-danger-default: var(--color-red-800);
+  --background-button-success-default: var(--color-green-800);
+  --background-button-inverted-default: var(--color-neutral-600);
+
+  /* Accent Background */
+  --background-accent-neutral-soft: var(--color-neutral-300);
+  --background-accent-neutral-strong: var(--color-neutral-400);
+  --background-accent-neutral-white: var(--color-neutral-0);
+  --background-accent-blue-soft: var(--color-blue-300);
+  --background-accent-blue-base: var(--color-blue-400);
+  --background-accent-blue-strong: var(--color-blue-500);
+  --background-accent-purple-soft: var(--color-purple-300);
+  --background-accent-purple-base: var(--color-purple-400);
+  --background-accent-purple-strong: var(--color-purple-500);
+  --background-accent-success-soft: var(--color-green-400);
+  --background-accent-success-base: var(--color-green-500);
+  --background-accent-success-strong: var(--color-green-600);
+  --background-accent-warning-soft: var(--color-orange-300);
+  --background-accent-warning-base: var(--color-orange-400);
+  --background-accent-warning-strong: var(--color-orange-500);
+  --background-accent-error-soft: var(--color-red-300);
+  --background-accent-error-base: var(--color-red-400);
+  --background-accent-error-strong: var(--color-red-500);
+
+  /* Foreground */
+  --foreground-highlight-interactive-hover: var(--color-primary-300);
+  --foreground-neutral-muted: var(--color-neutral-500);
+  --foreground-neutral-base: var(--color-neutral-100);
+  --foreground-neutral-subtle: var(--color-neutral-400);
+  --foreground-highlight-interactive: var(--color-primary-400);
+  --foreground-neutral-on-color: var(--color-neutral-0);
+  --foreground-highlight-error: var(--color-red-400);
+  --foreground-neutral-on-inverted: var(--color-neutral-950);
+  --foreground-neutral-disabled: var(--color-neutral-600);
+  --foreground-contrast-base: var(--color-neutral-800);
+  --foreground-contrast-primary: var(--color-alpha-white-88);
+  --foreground-contrast-secondary: var(--color-alpha-white-56);
+
+  /* Border */
+  --border-neutral-transparent: var(--color-alpha-white-0);
+  --border-neutral-menu-top: var(--color-neutral-900);
+  --border-highlights-danger: var(--color-red-700);
+  --border-highlights-interactive: var(--color-primary-400);
+  --border-highlights-error: var(--color-red-400);
+  --border-neutral-strong: var(--color-alpha-white-16);
+  --border-neutral-menu-bottom: var(--color-alpha-white-8);
+  --border-neutral-base-component: var(--color-alpha-white-10);
+  --border-neutral-base: var(--color-neutral-800);
+  --border-contrast-top: var(--color-neutral-950);
+  --border-contrast-base: var(--color-alpha-white-16);
+  --border-contrast-bottom: var(--color-alpha-white-10);
+
+  /* Tag Colors */
+  --tag-blue-text: var(--color-blue-300);
+  --tag-neutral-bg-hover: var(--color-neutral-600);
+  --tag-error-bg-hover: var(--color-red-900);
+  --tag-error-bg: var(--color-red-950);
+  --tag-success-bg-hover: var(--color-green-900);
+  --tag-error-border: var(--color-red-900);
+  --tag-neutral-text: var(--color-neutral-300);
+  --tag-warning-bg: var(--color-orange-950);
+  --tag-error-icon: var(--color-red-400);
+  --tag-error-text: var(--color-red-300);
+  --tag-warning-icon: var(--color-orange-400);
+  --tag-warning-text: var(--color-orange-300);
+  --tag-success-bg: var(--color-green-950);
+  --tag-success-border: var(--color-green-900);
+  --tag-success-text: var(--color-green-400);
+  --tag-purple-icon: var(--color-purple-400);
+  --tag-neutral-icon: var(--color-neutral-400);
+  --tag-success-icon: var(--color-green-500);
+  --tag-purple-bg-hover: var(--color-purple-800);
+  --tag-neutral-bg: var(--color-neutral-700);
+  --tag-neutral-border: var(--color-alpha-white-10);
+  --tag-blue-icon: var(--color-blue-400);
+  --tag-purple-bg: var(--color-purple-950);
+  --tag-blue-bg: var(--color-blue-950);
+  --tag-blue-border: var(--color-blue-900);
+  --tag-purple-border: var(--color-purple-800);
+  --tag-warning-bg-hover: var(--color-orange-900);
+  --tag-warning-border: var(--color-orange-900);
+  --tag-purple-text: var(--color-purple-300);
+  --tag-blue-bg-hover: var(--color-blue-900);
+
+  /* Alpha Values */
+  --alpha-250: var(--color-alpha-white-10);
+  --alpha-400: var(--color-alpha-white-24);
+
+  /* Shadow */
+  --shadow-border-base:
+    0 -1px 0 0 var(--color-alpha-white-6), 0 0 0 1px var(--color-alpha-white-6),
+    0 0 0 1px var(--color-neutral-800), 0 0 1px 1.5px var(--color-alpha-black-24),
+    0 2px 2px 0 var(--color-alpha-black-24);
+  --shadow-border-interactive-with-active: 0 0 0 1px #ff8b16, 0 0 0 4px rgba(255, 49, 0, 0.25);
+  --shadow-border-error: 0 0 0 1px #ff1f5a, 0 0 0 3px rgba(246, 0, 67, 0.25);
+  --shadow-button-inverted:
+    0 -1px 0 0 var(--color-alpha-white-12), 0 0 0 1px var(--color-alpha-white-10),
+    0 0 0 1px var(--color-neutral-600), 0 0 1px 1.5px var(--color-alpha-black-24),
+    0 2px 2px 0 var(--color-alpha-black-24);
+  --shadow-button-inverted-focus:
+    0 -1px 0 0 var(--color-alpha-white-12), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-neutral-600), 0 0 0 2px var(--color-neutral-950),
+    0 0 0 4px var(--color-primary-500);
+  --shadow-button-neutral:
+    0 -1px 0 0 var(--color-alpha-white-4), 0 2px 4px 0 var(--color-alpha-black-40),
+    0 0 0 1px var(--color-alpha-white-10), 0 4px 8px 0 var(--color-alpha-black-40);
+  --shadow-button-neutral-focus:
+    0 -1px 0 0 var(--color-alpha-white-6), 0 0 0 1px var(--color-alpha-white-6),
+    0 0 0 1px var(--color-neutral-800), 0 0 0 2px var(--color-neutral-950),
+    0 0 0 4px var(--color-primary-500);
+  --shadow-button-danger:
+    0 -1px 0 0 var(--color-alpha-white-16), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-red-700), 0 0 1px 1.5px var(--color-alpha-black-24),
+    0 2px 2px 0 var(--color-alpha-black-24);
+  --shadow-button-danger-focus:
+    0 -1px 0 0 var(--color-alpha-white-16), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-red-700), 0 0 0 2px var(--color-neutral-950),
+    0 0 0 4px var(--color-primary-500);
+  --shadow-button-success:
+    0 -1px 0 0 var(--color-alpha-white-16), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-green-700), 0 0 1px 1.5px var(--color-alpha-black-24),
+    0 2px 2px 0 var(--color-alpha-black-24);
+  --shadow-button-success-focus:
+    0 -1px 0 0 var(--color-alpha-white-16), 0 0 0 1px var(--color-alpha-white-12),
+    0 0 0 1px var(--color-green-700), 0 0 0 2px var(--color-neutral-950),
+    0 0 0 4px var(--color-primary-500);
+
+  /* Checkbox */
+  /* Checkbox - Unchecked States */
+  --checkbox-unchecked-bg: var(--background-components-base);
+  --checkbox-unchecked-bg-hover: var(--background-components-hover);
+  --checkbox-unchecked-border: var(--color-alpha-white-10);
+  --checkbox-unchecked-shadow:
+    0px 1px 2px 0px var(--color-alpha-black-12), 0px 0px 0px 1px var(--color-alpha-white-10);
+  --checkbox-unchecked-focus-shadow:
+    0px 1px 2px 0px rgba(30, 58, 138, 0.5), 0px 0px 0px 1px #ff4b00,
+    0px 0px 0px 2px var(--color-alpha-black-80),
+    0px 0px 0px 4px rgba(255, 75, 0, 0.6);
+
+  /* Checkbox - Checked States */
+  --checkbox-checked-bg: var(--foreground-highlight-interactive);
+  --checkbox-checked-bg-hover: var(--foreground-highlight-interactive-hover);
+  --checkbox-checked-border: rgba(255, 75, 0, 0.69);
+  --checkbox-checked-shadow:
+    0px 1px 2px 0px rgba(30, 58, 138, 0.5), 0px 0px 0px 1px rgba(255, 75, 0, 0.69);
+  --checkbox-checked-focus-shadow:
+    0px 1px 2px 0px rgba(30, 58, 138, 0.5), 0px 0px 0px 1px #ff4b00,
+    0px 0px 0px 2px var(--color-alpha-black-80),
+    0px 0px 0px 4px rgba(255, 75, 0, 0.6);
+
+  /* Checkbox - Indeterminate States */
+  --checkbox-indeterminate-bg: var(--foreground-highlight-interactive);
+  --checkbox-indeterminate-bg-hover: var(--foreground-highlight-interactive-hover);
+  --checkbox-indeterminate-border: rgba(255, 75, 0, 0.69);
+  --checkbox-indeterminate-shadow:
+    0px 1px 2px 0px rgba(30, 58, 138, 0.5), 0px 0px 0px 1px rgba(255, 75, 0, 0.69);
+  --checkbox-indeterminate-focus-shadow:
+    0px 0px 0px 1px var(--color-alpha-black-80), 0px 0px 0px 3px rgba(255, 75, 0, 0.6);
+  --shadow-tooltip:
+    0 -1px 0 0 var(--color-alpha-white-4), 0 2px 4px 0 var(--color-alpha-black-40),
+    0 0 0 1px var(--color-alpha-white-10), 0 4px 8px 0 var(--color-alpha-black-40);
+  --shadow-separator-inset:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1);
+}
+
+@theme inline {
+  /* Color Primitives */
+  --color-neutral-0: var(--color-neutral-0);
+  --color-neutral-50: var(--color-neutral-50);
+  --color-neutral-100: var(--color-neutral-100);
+  --color-neutral-200: var(--color-neutral-200);
+  --color-neutral-300: var(--color-neutral-300);
+  --color-neutral-400: var(--color-neutral-400);
+  --color-neutral-500: var(--color-neutral-500);
+  --color-neutral-600: var(--color-neutral-600);
+  --color-neutral-700: var(--color-neutral-700);
+  --color-neutral-800: var(--color-neutral-800);
+  --color-neutral-900: var(--color-neutral-900);
+  --color-neutral-950: var(--color-neutral-950);
+  --color-neutral-1000: var(--color-neutral-1000);
+
+  --color-purple-50: var(--color-purple-50);
+  --color-purple-100: var(--color-purple-100);
+  --color-purple-200: var(--color-purple-200);
+  --color-purple-300: var(--color-purple-300);
+  --color-purple-400: var(--color-purple-400);
+  --color-purple-500: var(--color-purple-500);
+  --color-purple-600: var(--color-purple-600);
+  --color-purple-700: var(--color-purple-700);
+  --color-purple-800: var(--color-purple-800);
+  --color-purple-900: var(--color-purple-900);
+  --color-purple-950: var(--color-purple-950);
+
+  --color-blue-50: var(--color-blue-50);
+  --color-blue-100: var(--color-blue-100);
+  --color-blue-200: var(--color-blue-200);
+  --color-blue-300: var(--color-blue-300);
+  --color-blue-400: var(--color-blue-400);
+  --color-blue-500: var(--color-blue-500);
+  --color-blue-600: var(--color-blue-600);
+  --color-blue-700: var(--color-blue-700);
+  --color-blue-800: var(--color-blue-800);
+  --color-blue-900: var(--color-blue-900);
+  --color-blue-950: var(--color-blue-950);
+
+  --color-green-50: var(--color-green-50);
+  --color-green-100: var(--color-green-100);
+  --color-green-200: var(--color-green-200);
+  --color-green-300: var(--color-green-300);
+  --color-green-400: var(--color-green-400);
+  --color-green-500: var(--color-green-500);
+  --color-green-600: var(--color-green-600);
+  --color-green-700: var(--color-green-700);
+  --color-green-800: var(--color-green-800);
+  --color-green-900: var(--color-green-900);
+  --color-green-950: var(--color-green-950);
+
+  --color-primary-50: var(--color-primary-50);
+  --color-primary-100: var(--color-primary-100);
+  --color-primary-200: var(--color-primary-200);
+  --color-primary-300: var(--color-primary-300);
+  --color-primary-400: var(--color-primary-400);
+  --color-primary-500: var(--color-primary-500);
+  --color-primary-600: var(--color-primary-600);
+  --color-primary-700: var(--color-primary-700);
+  --color-primary-800: var(--color-primary-800);
+  --color-primary-900: var(--color-primary-900);
+  --color-primary-950: var(--color-primary-950);
+
+  --color-red-50: var(--color-red-50);
+  --color-red-100: var(--color-red-100);
+  --color-red-200: var(--color-red-200);
+  --color-red-300: var(--color-red-300);
+  --color-red-400: var(--color-red-400);
+  --color-red-500: var(--color-red-500);
+  --color-red-600: var(--color-red-600);
+  --color-red-700: var(--color-red-700);
+  --color-red-800: var(--color-red-800);
+  --color-red-900: var(--color-red-900);
+  --color-red-950: var(--color-red-950);
+
+  --color-orange-50: var(--color-orange-50);
+  --color-orange-100: var(--color-orange-100);
+  --color-orange-200: var(--color-orange-200);
+  --color-orange-300: var(--color-orange-300);
+  --color-orange-400: var(--color-orange-400);
+  --color-orange-500: var(--color-orange-500);
+  --color-orange-600: var(--color-orange-600);
+  --color-orange-700: var(--color-orange-700);
+  --color-orange-800: var(--color-orange-800);
+  --color-orange-900: var(--color-orange-900);
+  --color-orange-950: var(--color-orange-950);
+
+  --color-accent-purple: var(--color-accent-purple);
+  --color-accent-indigo: var(--color-accent-indigo);
+  --color-accent-mint: var(--color-accent-mint);
+  --color-accent-green: var(--color-accent-green);
+  --color-accent-teal: var(--color-accent-teal);
+  --color-accent-brown: var(--color-accent-brown);
+  --color-accent-blue: var(--color-accent-blue);
+  --color-accent-orange: var(--color-accent-orange);
+  --color-accent-yellow: var(--color-accent-yellow);
+  --color-accent-pink: var(--color-accent-pink);
+  --color-accent-gray: var(--color-accent-gray);
+  --color-accent-cyan: var(--color-accent-cyan);
+  --color-accent-red: var(--color-accent-red);
+
+  /* Alpha */
+  --color-alpha-white-0: var(--color-alpha-white-0);
+  --color-alpha-white-2: var(--color-alpha-white-2);
+  --color-alpha-white-4: var(--color-alpha-white-4);
+  --color-alpha-white-6: var(--color-alpha-white-6);
+  --color-alpha-white-8: var(--color-alpha-white-8);
+  --color-alpha-white-10: var(--color-alpha-white-10);
+  --color-alpha-white-12: var(--color-alpha-white-12);
+  --color-alpha-white-16: var(--color-alpha-white-16);
+  --color-alpha-white-24: var(--color-alpha-white-24);
+  --color-alpha-white-40: var(--color-alpha-white-40);
+  --color-alpha-white-56: var(--color-alpha-white-56);
+  --color-alpha-white-64: var(--color-alpha-white-64);
+  --color-alpha-white-72: var(--color-alpha-white-72);
+  --color-alpha-white-80: var(--color-alpha-white-80);
+  --color-alpha-white-88: var(--color-alpha-white-88);
+
+  --color-alpha-black-0: var(--color-alpha-black-0);
+  --color-alpha-black-2: var(--color-alpha-black-2);
+  --color-alpha-black-4: var(--color-alpha-black-4);
+  --color-alpha-black-6: var(--color-alpha-black-6);
+  --color-alpha-black-8: var(--color-alpha-black-8);
+  --color-alpha-black-10: var(--color-alpha-black-10);
+  --color-alpha-black-12: var(--color-alpha-black-12);
+  --color-alpha-black-16: var(--color-alpha-black-16);
+  --color-alpha-black-24: var(--color-alpha-black-24);
+  --color-alpha-black-40: var(--color-alpha-black-40);
+  --color-alpha-black-56: var(--color-alpha-black-56);
+  --color-alpha-black-64: var(--color-alpha-black-64);
+  --color-alpha-black-72: var(--color-alpha-black-72);
+  --color-alpha-black-80: var(--color-alpha-black-80);
+  --color-alpha-black-88: var(--color-alpha-black-88);
+
+  /* Aliases for common utilities */
+  --color-background: var(--background-neutral-base);
+  --color-foreground: var(--foreground-neutral-base);
+  --color-text: var(--foreground-neutral-base);
+  --color-border: var(--border-neutral-base);
+
+  /* Theme tokens - background */
+  --color-background-components-hover: var(--background-components-hover);
+  --color-background-neutral-base: var(--background-neutral-base);
+  --color-background-components-pressed: var(--background-components-pressed);
+  --color-background-subtle-pressed: var(--background-subtle-pressed);
+  --color-background-highlight-interactive: var(--background-highlight-interactive);
+  --color-background-subtle-hover: var(--background-subtle-hover);
+  --color-background-highlight-hover: var(--background-highlight-hover);
+  --color-background-field-base: var(--background-field-base);
+  --color-background-neutral-pressed: var(--background-neutral-pressed);
+  --color-background-highlight-base: var(--background-highlight-base);
+  --color-background-neutral-hover: var(--background-neutral-hover);
+  --color-background-neutral-overlay: var(--background-neutral-overlay);
+  --color-background-components-base: var(--background-components-base);
+  --color-background-field-component: var(--background-field-component);
+  --color-background-switch-off-hover: var(--background-switch-off-hover);
+  --color-background-field-component-hover: var(--background-field-component-hover);
+  --color-background-subtle-base: var(--background-subtle-base);
+  --color-background-neutral-disabled: var(--background-neutral-disabled);
+  --color-background-field-hover: var(--background-field-hover);
+  --color-background-switch-off: var(--background-switch-off);
+  --color-background-contrast-subtle: var(--background-contrast-subtle);
+  --color-background-contrast-hover: var(--background-contrast-hover);
+  --color-background-contrast-pressed: var(--background-contrast-pressed);
+  --color-background-contrast-base: var(--background-contrast-base);
+  --color-background-neutral-background: var(--background-neutral-background);
+  --color-background-backdrop-backdrop: var(--background-backdrop-backdrop);
+  --color-background-modal-overlay: var(--background-modal-overlay);
+
+  /* Theme tokens - button background */
+  --color-background-button-transparent-default: var(--background-button-transparent-default);
+  --color-background-button-neutral-hover: var(--background-button-neutral-hover);
+  --color-background-button-danger-hover: var(--background-button-danger-hover);
+  --color-background-button-success-hover: var(--background-button-success-hover);
+  --color-background-button-neutral-pressed: var(--background-button-neutral-pressed);
+  --color-background-button-neutral-default: var(--background-button-neutral-default);
+  --color-background-button-transparent-hover: var(--background-button-transparent-hover);
+  --color-background-button-inverted-pressed: var(--background-button-inverted-pressed);
+  --color-background-button-transparent-pressed: var(--background-button-transparent-pressed);
+  --color-background-button-danger-pressed: var(--background-button-danger-pressed);
+  --color-background-button-success-pressed: var(--background-button-success-pressed);
+  --color-background-button-inverted-hover: var(--background-button-inverted-hover);
+  --color-background-button-danger-default: var(--background-button-danger-default);
+  --color-background-button-success-default: var(--background-button-success-default);
+  --color-background-button-inverted-default: var(--background-button-inverted-default);
+
+  /* Theme tokens - accent background */
+  --color-background-accent-neutral-soft: var(--background-accent-neutral-soft);
+  --color-background-accent-neutral-strong: var(--background-accent-neutral-strong);
+  --color-background-accent-neutral-white: var(--background-accent-neutral-white);
+  --color-background-accent-blue-soft: var(--background-accent-blue-soft);
+  --color-background-accent-blue-base: var(--background-accent-blue-base);
+  --color-background-accent-blue-strong: var(--background-accent-blue-strong);
+  --color-background-accent-purple-soft: var(--background-accent-purple-soft);
+  --color-background-accent-purple-base: var(--background-accent-purple-base);
+  --color-background-accent-purple-strong: var(--background-accent-purple-strong);
+  --color-background-accent-success-soft: var(--background-accent-success-soft);
+  --color-background-accent-success-base: var(--background-accent-success-base);
+  --color-background-accent-success-strong: var(--background-accent-success-strong);
+  --color-background-accent-warning-soft: var(--background-accent-warning-soft);
+  --color-background-accent-warning-base: var(--background-accent-warning-base);
+  --color-background-accent-warning-strong: var(--background-accent-warning-strong);
+  --color-background-accent-error-soft: var(--background-accent-error-soft);
+  --color-background-accent-error-base: var(--background-accent-error-base);
+  --color-background-accent-error-strong: var(--background-accent-error-strong);
+
+  /* Theme tokens - foreground */
+  --color-foreground-highlight-interactive-hover: var(--foreground-highlight-interactive-hover);
+  --color-foreground-neutral-muted: var(--foreground-neutral-muted);
+  --color-foreground-neutral-base: var(--foreground-neutral-base);
+  --color-foreground-neutral-subtle: var(--foreground-neutral-subtle);
+  --color-foreground-highlight-interactive: var(--foreground-highlight-interactive);
+  --color-foreground-neutral-on-color: var(--foreground-neutral-on-color);
+  --color-foreground-highlight-error: var(--foreground-highlight-error);
+  --color-foreground-neutral-on-inverted: var(--foreground-neutral-on-inverted);
+  --color-foreground-neutral-disabled: var(--foreground-neutral-disabled);
+  --color-foreground-contrast-base: var(--foreground-contrast-base);
+  --color-foreground-contrast-primary: var(--foreground-contrast-primary);
+  --color-foreground-contrast-secondary: var(--foreground-contrast-secondary);
+
+  /* Theme tokens - border */
+  --color-border-neutral-transparent: var(--border-neutral-transparent);
+  --color-border-neutral-menu-top: var(--border-neutral-menu-top);
+  --color-border-highlights-danger: var(--border-highlights-danger);
+  --color-border-highlights-interactive: var(--border-highlights-interactive);
+  --color-border-highlights-error: var(--border-highlights-error);
+  --color-border-neutral-strong: var(--border-neutral-strong);
+  --color-border-neutral-menu-bottom: var(--border-neutral-menu-bottom);
+  --color-border-neutral-base-component: var(--border-neutral-base-component);
+  --color-border-neutral-base: var(--border-neutral-base);
+  --color-border-contrast-top: var(--border-contrast-top);
+  --color-border-contrast-base: var(--border-contrast-base);
+  --color-border-contrast-bottom: var(--border-contrast-bottom);
+
+  /* Theme tokens - tag */
+  --color-tag-blue-text: var(--tag-blue-text);
+  --color-tag-neutral-bg-hover: var(--tag-neutral-bg-hover);
+  --color-tag-error-bg-hover: var(--tag-error-bg-hover);
+  --color-tag-error-bg: var(--tag-error-bg);
+  --color-tag-success-bg-hover: var(--tag-success-bg-hover);
+  --color-tag-error-border: var(--tag-error-border);
+  --color-tag-neutral-text: var(--tag-neutral-text);
+  --color-tag-warning-bg: var(--tag-warning-bg);
+  --color-tag-error-icon: var(--tag-error-icon);
+  --color-tag-error-text: var(--tag-error-text);
+  --color-tag-warning-icon: var(--tag-warning-icon);
+  --color-tag-warning-text: var(--tag-warning-text);
+  --color-tag-success-bg: var(--tag-success-bg);
+  --color-tag-success-border: var(--tag-success-border);
+  --color-tag-success-text: var(--tag-success-text);
+  --color-tag-purple-icon: var(--tag-purple-icon);
+  --color-tag-neutral-icon: var(--tag-neutral-icon);
+  --color-tag-success-icon: var(--tag-success-icon);
+  --color-tag-purple-bg-hover: var(--tag-purple-bg-hover);
+  --color-tag-neutral-bg: var(--tag-neutral-bg);
+  --color-tag-neutral-border: var(--tag-neutral-border);
+  --color-tag-blue-icon: var(--tag-blue-icon);
+  --color-tag-purple-bg: var(--tag-purple-bg);
+  --color-tag-blue-bg: var(--tag-blue-bg);
+  --color-tag-blue-border: var(--tag-blue-border);
+  --color-tag-purple-border: var(--tag-purple-border);
+  --color-tag-warning-bg-hover: var(--tag-warning-bg-hover);
+  --color-tag-warning-border: var(--tag-warning-border);
+  --color-tag-purple-text: var(--tag-purple-text);
+  --color-tag-blue-bg-hover: var(--tag-blue-bg-hover);
+
+  /* Theme tokens - alpha */
+  --color-alpha-250: var(--alpha-250);
+  --color-alpha-400: var(--alpha-400);
+
+  /* Spacing */
+  --spacing: 1px;
+
+  /* Radius */
+  --radius-2: 2px;
+  --radius-3: 3px;
+  --radius-4: 4px;
+  --radius-6: 6px;
+  --radius-8: 8px;
+  --radius-10: 10px;
+  --radius-12: 12px;
+  --radius-16: 16px;
+  --radius-20: 20px;
+  --radius-24: 24px;
+
+  /* Font Size */
+  --text-xs: 12px;
+  --text-xs--line-height: 20px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-md: 14px;
+  --text-md--line-height: 24px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-xl: 18px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  --text-3xl: 28px;
+  --text-3xl--line-height: 44px;
+  --text-4xl: 40px;
+  --text-4xl--line-height: 56px;
+  --text-5xl: 56px;
+  --text-5xl--line-height: 64px;
+
+  /* Font Weight */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+
+  /* Font Family */
+  --font-code: "Commit Mono", monospace;
+  --font-display: "Inter", sans-serif;
+
+  /* Shadow */
+  --shadow-border-base: var(--shadow-border-base);
+  --shadow-border-interactive-with-active: var(--shadow-border-interactive-with-active);
+  --shadow-border-error: var(--shadow-border-error);
+  --shadow-button-inverted: var(--shadow-button-inverted);
+  --shadow-button-inverted-focus: var(--shadow-button-inverted-focus);
+  --shadow-button-neutral: var(--shadow-button-neutral);
+  --shadow-button-neutral-focus: var(--shadow-button-neutral-focus);
+  --shadow-button-danger: var(--shadow-button-danger);
+  --shadow-button-danger-focus: var(--shadow-button-danger-focus);
+  --shadow-button-success: var(--shadow-button-success);
+  --shadow-button-success-focus: var(--shadow-button-success-focus);
+
+  /* Checkbox */
+  --color-checkbox-unchecked-bg: var(--checkbox-unchecked-bg);
+  --color-checkbox-unchecked-bg-hover: var(--checkbox-unchecked-bg-hover);
+  --color-checkbox-unchecked-border: var(--checkbox-unchecked-border);
+  --shadow-checkbox-unchecked: var(--checkbox-unchecked-shadow);
+  --shadow-checkbox-unchecked-focus: var(--checkbox-unchecked-focus-shadow);
+  --color-checkbox-checked-bg: var(--checkbox-checked-bg);
+  --color-checkbox-checked-bg-hover: var(--checkbox-checked-bg-hover);
+  --color-checkbox-checked-border: var(--checkbox-checked-border);
+  --shadow-checkbox-checked: var(--checkbox-checked-shadow);
+  --shadow-checkbox-checked-focus: var(--checkbox-checked-focus-shadow);
+  --color-checkbox-indeterminate-bg: var(--checkbox-indeterminate-bg);
+  --color-checkbox-indeterminate-bg-hover: var(--checkbox-indeterminate-bg-hover);
+  --color-checkbox-indeterminate-border: var(--checkbox-indeterminate-border);
+  --shadow-checkbox-indeterminate: var(--checkbox-indeterminate-shadow);
+  --shadow-checkbox-indeterminate-focus: var(--checkbox-indeterminate-focus-shadow);
+  --shadow-tooltip: var(--shadow-tooltip);
+  --shadow-separator-inset: var(--shadow-separator-inset);
+}
+
+@layer base {
+  * {
+    @apply border-border-neutral-base font-display;
+  }
+  html {
+    @apply bg-background-neutral-base text-foreground-neutral-base;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1,
+      "lnum" 1;
+  }
+}
+
+.shiny-text {
+  color: var(--foreground-neutral-subtle);
+  background: linear-gradient(
+    120deg,
+    var(--foreground-neutral-subtle) 0%,
+    var(--foreground-neutral-subtle) 30%,
+    rgba(255, 255, 255, 0.95) 50%,
+    var(--foreground-neutral-subtle) 70%,
+    var(--foreground-neutral-subtle) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: inline-block;
+  animation: shine 5s linear infinite;
+}
+
+@keyframes shine {
+  0% {
+    background-position: 100%;
+  }
+  100% {
+    background-position: -100%;
+  }
+}
+
+.shiny-text.disabled {
+  animation: none;
+}
+
+/* Custom Scrollbar Styles */
+.scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-neutral-base) transparent;
+}
+
+.scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--border-neutral-base);
+  border-radius: 8px;
+}
+
+.scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-neutral-strong);
+}
+
+/* Dark mode scrollbar */
+.dark .scrollbar {
+  scrollbar-color: var(--border-neutral-strong) transparent;
+}
+
+.dark .scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--border-neutral-strong);
+}
+
+.dark .scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-neutral-strong);
+}
+
+/* Hide scrollbar variant */
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-4px);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(4px);
+  }
+}

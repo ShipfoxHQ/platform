@@ -1,0 +1,44 @@
+{
+  "editor.formatOnSave": true,
+  "editor.tabSize": 2,
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "explicit"
+  },
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[javascript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[css]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+  "biome.lsp.bin": {
+    "darwin-arm64": "tools/biome/node_modules/@biomejs/cli-darwin-arm64/biome",
+    "darwin-x64": "tools/biome/node_modules/@biomejs/cli-darwin-x64/biome",
+    "linux-arm64": "tools/biome/node_modules/@biomejs/cli-linux-arm64/biome",
+    "linux-x64": "tools/biome/node_modules/@biomejs/cli-linux-x64/biome"
+  },
+  "typescript.tsdk": "tools/typescript/node_modules/typescript/lib",
+  "vitest.shellType": "terminal",
+  "vitest.logLevel": "info"
+}

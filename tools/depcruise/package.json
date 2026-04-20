@@ -1,0 +1,26 @@
+{
+  "name": "@shipfox/depcruise",
+  "version": "1.0.0",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "imports": {
+    "#*": "./src/*"
+  },
+  "bin": {
+    "shipfox-depcruise": "./bin/depcruise.js"
+  },
+  "scripts": {
+    "build": "shipfox-swc"
+  },
+  "dependencies": {
+    "dependency-cruiser": "^17.3.10",
+    "@shipfox/tool-utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*",
+    "@types/node": "25.5.2"
+  }
+}

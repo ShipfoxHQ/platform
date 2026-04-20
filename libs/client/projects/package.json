@@ -1,0 +1,64 @@
+{
+  "name": "@shipfox/client-projects",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "imports": {
+    "#*": "./src/*",
+    "#test/*": "./test/*"
+  },
+  "exports": {
+    ".": {
+      "development": {
+        "types": "./src/index.ts",
+        "default": "./src/index.ts"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "shipfox-swc",
+    "check": "shipfox-biome-check",
+    "check:fix": "shipfox-biome-check --write",
+    "test": "shipfox-vitest-run",
+    "test:watch": "shipfox-vitest-watch",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@shipfox/api-projects-dto": "workspace:*",
+    "@shipfox/client-api": "workspace:*",
+    "@shipfox/client-auth": "workspace:*",
+    "@shipfox/react-ui": "workspace:*",
+    "@swc/helpers": "^0.5.17",
+    "@tanstack/react-query": "^5.100.5",
+    "zod": "^4.2.1"
+  },
+  "peerDependencies": {
+    "@tanstack/react-router": "^1.168.25",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@shipfox/biome": "workspace:*",
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*",
+    "@shipfox/vite": "workspace:*",
+    "@shipfox/vitest": "workspace:*",
+    "@tanstack/react-router": "^1.168.25",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.1.11",
+    "@types/react-dom": "^19.1.7",
+    "jsdom": "^29.0.0",
+    "jotai": "^2.19.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  }
+}

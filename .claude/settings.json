@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "companyAnnouncements": ["Let's get shipping like a fox !"],
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "enableAllProjectMcpServers": true,
+  "plansDirectory": "./.claude/plans",
+  "disableBypassPermissionsMode": "enabled",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r \".tool_input.file_path // empty\"); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE \"\\.(js|jsx|ts|tsx|json|jsonc|css)$\"; then ./tools/biome/node_modules/.bin/biome check --write --enforce-assist=true --config-path biome.json \"$FILE\" >/dev/null 2>&1 || true; fi'"
+          }
+        ]
+      }
+    ]
+  }
+}
