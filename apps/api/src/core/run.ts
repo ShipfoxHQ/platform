@@ -1,6 +1,7 @@
 import {authModule} from '@shipfox/api-auth';
 import {definitionsModule} from '@shipfox/api-definitions';
 import {dispatcherModule} from '@shipfox/api-dispatcher';
+import {integrationsModule} from '@shipfox/api-integration-core';
 import {projectsModule} from '@shipfox/api-projects';
 import {runnersModule} from '@shipfox/api-runners';
 import {workflowsModule} from '@shipfox/api-workflows';
@@ -27,6 +28,7 @@ export async function run(): Promise<void> {
     modules: [
       authModule,
       workspacesModule,
+      integrationsModule,
       projectsModule,
       definitionsModule,
       workflowsModule,

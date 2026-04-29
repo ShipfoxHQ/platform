@@ -23,6 +23,9 @@ importers:
       '@shipfox/api-dispatcher':
         specifier: workspace:*
         version: link:../../libs/api/dispatcher
+      '@shipfox/api-integration-core':
+        specifier: workspace:*
+        version: link:../../libs/api/integration/core
       '@shipfox/api-projects':
         specifier: workspace:*
         version: link:../../libs/api/projects
@@ -424,6 +427,175 @@ importers:
       '@temporalio/workflow':
         specifier: ^1.16.1
         version: 1.16.1
+
+  libs/api/integration/core:
+    dependencies:
+      '@shipfox/api-auth-context':
+        specifier: workspace:*
+        version: link:../../auth-context
+      '@shipfox/api-integration-core-dto':
+        specifier: workspace:*
+        version: link:../core-dto
+      '@shipfox/api-integration-debug':
+        specifier: workspace:*
+        version: link:../debug
+      '@shipfox/api-workspaces':
+        specifier: workspace:*
+        version: link:../../workspaces
+      '@shipfox/config':
+        specifier: workspace:*
+        version: link:../../../shared/common/config
+      '@shipfox/node-drizzle':
+        specifier: workspace:*
+        version: link:../../../shared/node/drizzle
+      '@shipfox/node-fastify':
+        specifier: workspace:*
+        version: link:../../../shared/node/fastify
+      '@shipfox/node-module':
+        specifier: workspace:*
+        version: link:../../../shared/node/module
+      '@shipfox/node-postgres':
+        specifier: workspace:*
+        version: link:../../../shared/node/postgres
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.20.0)
+      zod:
+        specifier: ^3.25.67
+        version: 3.25.76
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../../tools/biome
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../../tools/vitest
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.20.0
+      drizzle-kit:
+        specifier: ^0.31.10
+        version: 0.31.10
+      fastify:
+        specifier: ^5.3.3
+        version: 5.8.5
+      fastify-type-provider-zod:
+        specifier: ^4.0.2
+        version: 4.0.2(fastify@5.8.5)(zod@3.25.76)
+      fishery:
+        specifier: ^2.2.2
+        version: 2.4.0
+
+  libs/api/integration/core-dto:
+    dependencies:
+      zod:
+        specifier: ^3.25.67
+        version: 3.25.76
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../../tools/biome
+      '@shipfox/depcruise':
+        specifier: workspace:*
+        version: link:../../../../tools/depcruise
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../../tools/vitest
+
+  libs/api/integration/debug:
+    dependencies:
+      '@shipfox/api-auth-context':
+        specifier: workspace:*
+        version: link:../../auth-context
+      '@shipfox/api-integration-core-dto':
+        specifier: workspace:*
+        version: link:../core-dto
+      '@shipfox/api-integration-debug-dto':
+        specifier: workspace:*
+        version: link:../debug-dto
+      '@shipfox/api-workspaces':
+        specifier: workspace:*
+        version: link:../../workspaces
+      '@shipfox/node-fastify':
+        specifier: workspace:*
+        version: link:../../../shared/node/fastify
+      zod:
+        specifier: ^3.25.67
+        version: 3.25.76
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../../tools/biome
+      '@shipfox/node-drizzle':
+        specifier: workspace:*
+        version: link:../../../shared/node/drizzle
+      '@shipfox/node-postgres':
+        specifier: workspace:*
+        version: link:../../../shared/node/postgres
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../../tools/vitest
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.20.0)
+      fastify:
+        specifier: ^5.3.3
+        version: 5.8.5
+      fastify-type-provider-zod:
+        specifier: ^4.0.2
+        version: 4.0.2(fastify@5.8.5)(zod@3.25.76)
+
+  libs/api/integration/debug-dto:
+    dependencies:
+      zod:
+        specifier: ^3.25.67
+        version: 3.25.76
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../../tools/biome
+      '@shipfox/depcruise':
+        specifier: workspace:*
+        version: link:../../../../tools/depcruise
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../../tools/vitest
 
   libs/api/projects:
     dependencies:
