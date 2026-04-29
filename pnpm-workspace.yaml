@@ -5,6 +5,7 @@ nodeLinker: isolated
 
 packages:
   - "apps/*"
+  - "e2e/**"
   - "libs/**"
   - "infra/**"
   - "tools/**"

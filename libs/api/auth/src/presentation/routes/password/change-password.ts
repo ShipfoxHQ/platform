@@ -2,8 +2,8 @@ import {AUTH_USER} from '@shipfox/api-auth-context';
 import {changePasswordBodySchema} from '@shipfox/api-auth-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
+import {changePassword} from '#core/auth.js';
 import {InvalidCredentialsError, UserNotFoundError} from '#core/errors.js';
-import {changePassword} from '#core/index.js';
 import {getClientContext} from '#presentation/auth/jwt-auth.js';
 import {getRefreshTokenCookie} from '#presentation/auth/refresh-cookie.js';
 

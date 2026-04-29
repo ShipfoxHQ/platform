@@ -35,6 +35,7 @@ export interface ShipfoxModule {
   database?: ModuleDatabase;
   auth?: AuthMethod[];
   routes?: RouteExport[];
+  e2eRoutes?: RouteExport[];
   publishers?: ModulePublisher[];
   subscribers?: ModuleSubscriber[];
   workers?: ModuleWorker[];

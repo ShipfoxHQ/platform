@@ -10,7 +10,7 @@ import {
   rotateActiveRefreshToken,
 } from '#db/refresh-tokens.js';
 import {
-  createUser,
+  createUser as createDbUser,
   findUserByEmail,
   findUserById,
   markEmailVerified,
@@ -99,7 +99,7 @@ export async function signup(params: SignupParams): Promise<User> {
   }
 
   const hashedPassword = await hashPassword({password: params.password});
-  const user = await createUser({
+  const user = await createDbUser({
     email: params.email,
     hashedPassword,
     name: params.name ?? null,
@@ -108,6 +108,33 @@ export async function signup(params: SignupParams): Promise<User> {
   await createAndSendEmailVerification(user);
 
   return user;
+}
+
+export interface CreateUserParams extends SignupParams {
+  verified: boolean;
+}
+
+export async function createUser(params: CreateUserParams): Promise<User> {
+  const existing = await findUserByEmail({email: params.email});
+  if (existing) {
+    throw new EmailTakenError(params.email);
+  }
+
+  const hashedPassword = await hashPassword({password: params.password});
+  const user = await createDbUser({
+    email: params.email,
+    hashedPassword,
+    name: params.name ?? null,
+  });
+
+  if (!params.verified) return user;
+
+  const verified = await markEmailVerified({userId: user.id});
+  if (!verified) {
+    throw new UserNotFoundError(user.id);
+  }
+
+  return verified;
 }
 
 export interface LoginParams {
@@ -136,6 +163,36 @@ export async function login(params: LoginParams): Promise<LoginResult> {
 
   if (user.emailVerifiedAt === null) {
     throw new EmailNotVerifiedError();
+  }
+
+  const token = await signAccessToken(user);
+  const refreshToken = await createRefreshSession(user);
+
+  return {token, refreshToken, user};
+}
+
+export interface CreateSessionForUserParams {
+  userId?: string | undefined;
+  email?: string | undefined;
+}
+
+export async function createSessionForUser(
+  params: CreateSessionForUserParams,
+): Promise<LoginResult> {
+  const user = params.userId
+    ? await findUserById({id: params.userId})
+    : params.email
+      ? await findUserByEmail({email: params.email})
+      : undefined;
+
+  if (!user) {
+    throw new UserNotFoundError(params.userId ?? params.email ?? 'unknown');
+  }
+  if (user.emailVerifiedAt === null) {
+    throw new EmailNotVerifiedError();
+  }
+  if (user.status !== 'active') {
+    throw new InvalidCredentialsError();
   }
 
   const token = await signAccessToken(user);

@@ -1,0 +1,35 @@
+{
+  "name": "@shipfox/playwright",
+  "version": "1.0.0",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "shipfox-playwright-test": "./bin/playwright-test.js"
+  },
+  "imports": {
+    "#test/*": "./test/*",
+    "#*": "./src/*"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "shipfox-swc",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.57.0"
+  },
+  "devDependencies": {
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*"
+  }
+}

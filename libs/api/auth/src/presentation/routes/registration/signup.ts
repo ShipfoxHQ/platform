@@ -1,8 +1,8 @@
 import {signupBodySchema, signupResponseSchema} from '@shipfox/api-auth-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
+import {signup} from '#core/auth.js';
 import {EmailTakenError} from '#core/errors.js';
-import {signup} from '#core/index.js';
-import {toUserDto} from '#presentation/dto/index.js';
+import {toUserDto} from '#presentation/dto/user.js';
 
 export const signupRoute = defineRoute({
   method: 'POST',

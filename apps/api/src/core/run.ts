@@ -13,6 +13,8 @@ import {
   startServiceMetrics,
 } from '@shipfox/node-opentelemetry';
 import {createPostgresClient} from '@shipfox/node-postgres';
+import {config} from '../config.js';
+import {createE2eAdminAuthMethod, createE2eRouteGroup} from './e2e.js';
 
 export async function run(): Promise<void> {
   await startInstanceInstrumentation({
@@ -23,7 +25,7 @@ export async function run(): Promise<void> {
 
   createPostgresClient();
 
-  const {auth, routes, workers} = await initializeModules({
+  const {auth, routes, e2eRoutes, workers} = await initializeModules({
     modules: [
       authModule,
       workspacesModule,
@@ -34,9 +36,11 @@ export async function run(): Promise<void> {
       dispatcherModule,
     ],
   });
+  const e2eAuth = config.E2E_ENABLED ? [createE2eAdminAuthMethod(config)] : [];
+  const mountedE2eRoutes = createE2eRouteGroup(e2eRoutes, config);
 
   logger().info('Creating HTTP server');
-  await createApp({auth, routes});
+  await createApp({auth: [...auth, ...e2eAuth], routes: [...routes, ...mountedE2eRoutes]});
   logger().info('Starting HTTP server');
   const address = await listen();
   logger().info({address}, 'HTTP server listening');
