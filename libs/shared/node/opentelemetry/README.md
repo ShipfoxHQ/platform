@@ -1,31 +1,29 @@
 # Shipfox OpenTelemetry
 
-Opinionated OpenTelemetry setup for Node services with:
-
-- One-call initialization (traces + instance Prometheus metrics)
-- A separate provider for service-level Prometheus metrics
-- Sensible defaults and environment-based config
-
-It should be used with other packages from [Shipfox](https://www.shipfox.io/).
+OpenTelemetry setup for Shipfox Node services. It starts tracing, Prometheus metrics, Fastify tracing, and trace-aware logging helpers.
 
 ## What it does
 
-- **startInstanceInstrumentation(options)**: Boots a NodeSDK with auto-instrumentations, Fastify instrumentation, Prometheus metrics reader, and optional OTLP trace exporter.
-- **getFastifyInstrumentation()**: Access the Fastify instrumentation instance created during startup.
-- **startServiceMetrics(options?)**: Creates a standalone `MeterProvider` for custom service metrics with its own Prometheus reader.
-- **getServiceMetricsProvider()**: Returns the service metrics provider (creates one if missing).
-- **instanceMetrics**: Re-export of `@opentelemetry/api` `metrics` for convenience.
-- **shutdownInstrumentation()**: Gracefully shuts down instance and service metrics.
+- **`startInstanceInstrumentation(options)`** starts the OpenTelemetry Node SDK.
+- **`getFastifyInstrumentation()`** returns the Fastify tracing plugin.
+- **`startServiceMetrics(options?)`** starts a separate provider for app metrics.
+- **`getServiceMetricsProvider()`** returns the app metrics provider.
+- **`instanceMetrics`** re-exports OpenTelemetry `metrics`.
+- **`logger(options?)`** returns a logger with active trace IDs when a span exists.
+- **`shutdownInstrumentation()`** shuts down tracing and metrics.
 
 Environment variables (via `@shipfox/config`):
 
-- `OTEL_SERVICE_NAME` (optional if you pass `serviceName` in code)
-- `TRACES_COLLECTOR_URL` (optional; if set, enables OTLP trace export over HTTP)
+- `OTEL_SERVICE_NAME` is optional if you pass `serviceName` in code.
+- `TRACES_COLLECTOR_URL` is optional. Set it to send traces over OTLP HTTP.
+- `OTEL_INSTANCE_METRICS_PORT` defaults to `9464`.
+- `OTEL_SERVICE_METRICS_PORT` defaults to `9474`.
+- `OTEL_DIAG_LOG_LEVEL` defaults to `none`.
 
-Exported ports and endpoints (defaults):
+Default metrics endpoints:
 
-- Instance metrics: `:9464/metrics`
-- Service metrics: `:9474/metrics`
+- Instance metrics use `:9464/metrics`.
+- Service metrics use `:9474/metrics`.
 
 ## Installation
 
@@ -46,22 +44,19 @@ import {
   instanceMetrics,
 } from "@shipfox/node-opentelemetry";
 
-// Start as early as possible in your process
 startInstanceInstrumentation({
-  serviceName: "billing-api", // falls back to OTEL_SERVICE_NAME if omitted
+  serviceName: "billing-api",
   exporter: {
-    instance: { port: 9464, endpoint: "/metrics" },
-    service: { port: 9474, endpoint: "/metrics" },
+    instance: {port: 9464, endpoint: "/metrics"},
+    service: {port: 9474, endpoint: "/metrics"},
   },
 });
 
-// Optionally expose a health handler and ensure graceful shutdown
 process.on("SIGTERM", async () => {
   await shutdownInstrumentation();
   process.exit(0);
 });
 
-// You can still access the global API directly when creating metrics on the instance provider
 const meter = instanceMetrics.getMeter("billing-api");
 const requestCounter = meter.createCounter("http_requests_total");
 
@@ -72,7 +67,7 @@ function onRequestHandled() {
 
 ## Service-level custom metrics
 
-Use a dedicated provider (separate port) for application-specific metrics:
+Use a separate provider for app metrics:
 
 ```ts
 import { getServiceMetricsProvider } from "@shipfox/node-opentelemetry";
@@ -88,13 +83,27 @@ meter.addBatchObservableCallback((observableResult) => {
 
 ## Traces (OTLP over HTTP)
 
-If `TRACES_COLLECTOR_URL` is set (e.g., to an OTLP endpoint like `http://otel-collector:4318/v1/traces`), the instance instrumentation will export traces via the OTLP HTTP exporter. Leave it unset to disable trace exporting.
+Set `TRACES_COLLECTOR_URL` to send traces to an OTLP HTTP endpoint. Leave it unset to disable trace export.
 
 ## Configuration via environment
 
 ```bash
 export OTEL_SERVICE_NAME="billing-api"
-# Enable OTLP HTTP traces export (optional)
 export TRACES_COLLECTOR_URL="http://otel-collector:4318/v1/traces"
-# Prometheus endpoints can be adjusted in code via start options
+export OTEL_INSTANCE_METRICS_PORT="9464"
+export OTEL_SERVICE_METRICS_PORT="9474"
 ```
+
+You can also set metrics ports in code with `startInstanceInstrumentation` options.
+
+## Development
+
+```sh
+turbo check --filter=@shipfox/node-opentelemetry
+turbo type --filter=@shipfox/node-opentelemetry
+turbo test --filter=@shipfox/node-opentelemetry
+```
+
+## License
+
+MIT

@@ -1,12 +1,12 @@
 # @shipfox/ts-config
 
-Shared TypeScript configuration used across Shipfox packages. Provides strict, opinionated base configs for Node.js and React projects. It should be used with other packages from [Shipfox](https://www.shipfox.io/).
+Shared TypeScript config for Shipfox packages. It provides strict base, Node, and React configs.
 
 ## What it does
 
-- **Base config** (`@shipfox/ts-config`): Strict compiler options, declaration-only emit, composite builds, and declaration maps.
-- **Node config** (`@shipfox/ts-config/node`): ES2022 target with NodeNext module resolution.
-- **React config** (`@shipfox/ts-config/react`): ES2022 target, ESNext modules, JSX support, and DOM types.
+- **Base config** (`@shipfox/ts-config`) sets strict compiler options.
+- **Node config** (`@shipfox/ts-config/node`) targets ES2022 with NodeNext modules.
+- **React config** (`@shipfox/ts-config/react`) targets ES2022 with JSX and DOM types.
 
 ## Installation
 
@@ -41,3 +41,7 @@ Extend the appropriate config in your `tsconfig.json`:
   "include": ["src"]
 }
 ```
+
+## License
+
+MIT

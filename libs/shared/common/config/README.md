@@ -1,14 +1,12 @@
-# Shipfox config
+# Shipfox Config
 
-This is a utility library handling configuration used by other packages for [Shipfox](https://www.shipfox.io/) projects.
+Typed config for Shipfox packages. It checks `process.env` at startup and returns a typed object.
 
 ## What it does
 
-Typed, validated environment configuration built on top of `envalid`.
-
-- **createConfig(schema)**: Validates `process.env` against your schema and returns a strongly-typed config object.
-- **Re-exports common validators**: `str`, `num`, `bool`, `email`, `host`, `port`, `url` (from `envalid`).
-- **Fail-fast**: Throws at startup if required variables are missing/invalid.
+- **`createConfig(schema, update?)`** checks environment values with `envalid`.
+- **Common validators** are re-exported: `str`, `num`, `bool`, `email`, `host`, `port`, and `url`.
+- **Fail-fast startup** means bad values throw before the app runs.
 
 ## Installation
 
@@ -23,15 +21,32 @@ npm install @shipfox/config
 ## Usage
 
 ```ts
-import { createConfig, str, num, bool } from "@shipfox/config";
+import {bool, createConfig, num, str} from "@shipfox/config";
 
 const config = createConfig({
-  NODE_ENV: str({ choices: ["development", "test", "production"] }),
-  PORT: num({ default: 3000 }),
-  DEBUG: bool({ default: false }),
+  NODE_ENV: str({choices: ["development", "test", "production"]}),
+  PORT: num({default: 3000}),
+  DEBUG: bool({default: false}),
 });
 
-// Typed access
 config.PORT; // number
 config.DEBUG; // boolean
 ```
+
+Pass `update` in tests to override `process.env`:
+
+```ts
+const testConfig = createConfig({PORT: num()}, {PORT: "4000"});
+```
+
+## Development
+
+```sh
+turbo check --filter=@shipfox/config
+turbo type --filter=@shipfox/config
+turbo test --filter=@shipfox/config
+```
+
+## License
+
+MIT
