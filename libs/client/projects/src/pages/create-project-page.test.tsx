@@ -69,12 +69,9 @@ describe('CreateProjectPage', () => {
 
     expect(await screen.findByRole('heading', {name: 'Project Detail'})).toBeInTheDocument();
     await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3));
-    const [connectionBody, projectBody] = requestBodies as [
-      Record<string, unknown>,
-      Record<string, unknown>,
-    ];
-    expect(connectionBody.provider).toBe('test');
-    expect(projectBody.external_repository_id).toBe('platform');
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[0]).toMatchObject({provider: 'test'});
+    expect(requestBodies[1]).toMatchObject({external_repository_id: 'platform'});
   });
 
   test('navigates to the existing project for duplicate recovery', async () => {

@@ -1,13 +1,13 @@
 import {refreshResponseSchema} from '@shipfox/api-auth-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
+import {refreshAccessToken} from '#core/auth.js';
 import {TokenInvalidError} from '#core/errors.js';
-import {refreshAccessToken} from '#core/index.js';
 import {
   clearRefreshTokenCookie,
   getRefreshTokenCookie,
   setRefreshTokenCookie,
 } from '#presentation/auth/refresh-cookie.js';
-import {toAuthSessionDto} from '#presentation/dto/index.js';
+import {toAuthSessionDto} from '#presentation/dto/user.js';
 
 export const refreshRoute = defineRoute({
   method: 'POST',

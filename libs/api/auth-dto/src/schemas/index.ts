@@ -30,4 +30,15 @@ export {
   verifyEmailConfirmResponseSchema,
   verifyEmailResendBodySchema,
 } from './auth.js';
+export {
+  type E2eCreateSessionBodyDto,
+  type E2eCreateSessionResponseDto,
+  type E2eCreateUserBodyDto,
+  type E2eCreateUserResponseDto,
+  type E2eSessionDto,
+  e2eCreateSessionBodySchema,
+  e2eCreateSessionResponseSchema,
+  e2eCreateUserBodySchema,
+  e2eCreateUserResponseSchema,
+} from './e2e.js';
 export {type UserDto, userDtoSchema, userStatusSchema} from './user.js';

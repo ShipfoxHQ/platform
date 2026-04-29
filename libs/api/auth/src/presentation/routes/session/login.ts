@@ -1,9 +1,9 @@
 import {loginBodySchema, loginResponseSchema} from '@shipfox/api-auth-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
+import {login} from '#core/auth.js';
 import {EmailNotVerifiedError, InvalidCredentialsError} from '#core/errors.js';
-import {login} from '#core/index.js';
 import {setRefreshTokenCookie} from '#presentation/auth/refresh-cookie.js';
-import {toAuthSessionDto} from '#presentation/dto/index.js';
+import {toAuthSessionDto} from '#presentation/dto/user.js';
 
 export const loginRoute = defineRoute({
   method: 'POST',

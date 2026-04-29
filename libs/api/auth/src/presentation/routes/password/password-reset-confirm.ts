@@ -3,10 +3,10 @@ import {
   passwordResetConfirmResponseSchema,
 } from '@shipfox/api-auth-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
+import {confirmPasswordReset} from '#core/auth.js';
 import {TokenInvalidError} from '#core/errors.js';
-import {confirmPasswordReset} from '#core/index.js';
 import {setRefreshTokenCookie} from '#presentation/auth/refresh-cookie.js';
-import {toAuthSessionDto} from '#presentation/dto/index.js';
+import {toAuthSessionDto} from '#presentation/dto/user.js';
 
 export const passwordResetConfirmRoute = defineRoute({
   method: 'POST',

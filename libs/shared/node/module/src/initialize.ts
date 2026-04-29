@@ -13,6 +13,7 @@ export interface InitializeModulesOptions {
 export interface InitializedModules {
   auth: AuthMethod[];
   routes: RouteExport[];
+  e2eRoutes: RouteExport[];
   workers: ModuleWorker[];
 }
 
@@ -28,6 +29,7 @@ export async function initializeModules(
 ): Promise<InitializedModules> {
   const auth: AuthMethod[] = [];
   const routes: RouteExport[] = [];
+  const e2eRoutes: RouteExport[] = [];
   const workers: ModuleWorker[] = [];
 
   for (const mod of options.modules) {
@@ -63,6 +65,10 @@ export async function initializeModules(
       routes.push(...mod.routes);
     }
 
+    if (mod.e2eRoutes) {
+      e2eRoutes.push(...mod.e2eRoutes);
+    }
+
     if (mod.workers) {
       workers.push(...mod.workers);
     }
@@ -70,7 +76,7 @@ export async function initializeModules(
     logger().info({module: mod.name}, 'Module initialized');
   }
 
-  return {auth, routes, workers};
+  return {auth, routes, e2eRoutes, workers};
 }
 
 /**

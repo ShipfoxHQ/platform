@@ -1,7 +1,7 @@
 import {passwordResetRequestBodySchema} from '@shipfox/api-auth-dto';
 import {defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
-import {requestPasswordReset} from '#core/index.js';
+import {requestPasswordReset} from '#core/auth.js';
 
 export const passwordResetRequestRoute = defineRoute({
   method: 'POST',

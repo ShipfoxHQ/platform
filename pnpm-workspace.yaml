@@ -9,6 +9,7 @@ onlyBuiltDependencies:
 
 packages:
   - "apps/*"
+  - "e2e/**"
   - "libs/**"
   - "infra/**"
   - "tools/**"
