@@ -26,7 +26,34 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Start test services
-        run: docker compose up --wait -d postgres
+        run: docker compose up --wait -d postgres temporal
 
       - name: Run verification
         run: turbo check type test build depcruise
+
+      - name: Run API E2E tests
+        env:
+          API_URL: http://localhost:16101
+          E2E_ADMIN_API_KEY: e2e-admin-api-key
+          E2E_ENABLED: "true"
+        run: |
+          pnpm --filter=@shipfox/api dev > /tmp/shipfox-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill $api_pid 2>/dev/null || true' EXIT
+
+          for _ in {1..60}; do
+            if curl --fail --silent --show-error "$API_URL/readyz" >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          if ! curl --fail --silent --show-error "$API_URL/readyz"; then
+            cat /tmp/shipfox-api.log
+            exit 1
+          fi
+
+          if ! turbo test:e2e --filter=@shipfox/e2e-api-auth; then
+            cat /tmp/shipfox-api.log
+            exit 1
+          fi
