@@ -33,6 +33,8 @@
     "build:css": "vite build --config vite.css.config.ts && rm -f dist/css-entry.js dist/css-entry.js.map",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
+    "storybook": "storybook dev",
+    "storybook:build": "storybook build -o storybook-static",
     "type": "shipfox-tsc-check",
     "type:emit": "shipfox-tsc-emit"
   },
@@ -61,10 +63,14 @@
     "@shipfox/ts-config": "workspace:*",
     "@shipfox/typescript": "workspace:*",
     "@shipfox/vite": "workspace:*",
+    "@storybook/react": "^10.0.0",
+    "@storybook/react-vite": "^10.0.0",
     "@tailwindcss/vite": "^4.1.13",
     "@types/react": "^19.1.11",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",
+    "storybook": "^10.0.0",
+    "storybook-addon-pseudo-states": "^10.0.0",
     "vite": "^8.0.3"
   }
 }
