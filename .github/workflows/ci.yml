@@ -28,14 +28,5 @@ jobs:
       - name: Start test services
         run: docker compose up --wait -d postgres
 
-      - name: Run checks
-        run: turbo check
-
-      - name: Run type check
-        run: turbo type
-
-      - name: Run tests
-        run: turbo test
-
-      - name: Run build
-        run: turbo build
+      - name: Run verification
+        run: turbo check type test build depcruise
