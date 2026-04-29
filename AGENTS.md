@@ -40,6 +40,73 @@ functions that are part of the package's public API. Do not export internal DB h
 routes, auth wiring, or test-only utilities from a package root unless another package
 is meant to depend on them directly.
 
+## Codebase conventions
+
+### Backend modules
+
+Backend feature packages are composed as declarative modules. A feature package
+typically exports a `ShipfoxModule` that declares its `database`, `routes`,
+`auth`, `e2eRoutes`, `publishers`, `subscribers`, and/or `workers`; apps should
+compose those module declarations rather than wiring feature internals directly.
+Module initialization runs in array order, so list modules with shared database
+dependencies before dependents.
+
+API feature packages usually follow a layered shape:
+
+```text
+src/
+  core/          Domain behavior, entities, providers, and typed errors
+  db/            Drizzle schema, migrations, persistence functions, row mappers
+  presentation/  Fastify routes, auth adapters, and DTO conversion
+```
+
+### HTTP routes and errors
+
+Domain and persistence code should throw typed domain errors. Translate those
+errors to `ClientError` only at the Fastify route edge with stable client-facing
+error codes and HTTP statuses. Unexpected errors should be allowed to reach the
+shared error handler.
+
+Define HTTP endpoints with `defineRoute`, Zod schemas, and named auth methods
+from `@shipfox/node-fastify` / `@shipfox/api-auth-context`. Prefer route groups
+for shared prefixes, plugins, and inherited auth instead of repeating those
+concerns in each route.
+
+### DTOs and API contracts
+
+Public HTTP contracts live in sibling `*-dto` packages. Put Zod request/response
+schemas, inferred DTO types, and public event names/payload types there so the
+backend, client, and E2E helpers all share the same contract.
+
+Use camelCase for internal domain objects and snake_case for external HTTP DTOs.
+Keep the conversion centralized in `presentation/dto/*` files; route handlers
+should call a mapper like `toProjectDto()` rather than manually shaping response
+objects inline.
+
+### Persistence and events
+
+Drizzle schema files own row-to-domain mapping. A table file should define the
+table, infer DB types, and export `toX()` mappers; higher layers should work with
+domain objects rather than raw Drizzle rows where possible.
+
+Outbox events are part of a module's public contract. Define event names and
+payload maps in the module's `*-dto` package, write outbox events in the same
+transaction as the state change, and register publisher tables on the module
+declaration.
+
+### Client packages
+
+Client feature packages should expose both transport functions and React Query
+hooks. Use `@shipfox/client-api` for JSON requests, auth refresh, and `ApiError`
+handling; colocate query keys, raw request functions, and hooks in the feature's
+`hooks/api/*` module.
+
+### E2E setup
+
+E2E setup must stay HTTP-first. Add module-owned setup routes under
+`/__e2e/<module>` and wrap them in `@shipfox/e2e-helper-*` helpers; do not create
+E2E data through direct database access.
+
 ## Unit Testing Strategy (Node Apps)
 
 Tests use **Vitest** and run against a real PostgreSQL database, not mocks. The philosophy is to test against real infrastructure where possible and only mock external dependencies (feature flags, cloud provider APIs, etc.).
