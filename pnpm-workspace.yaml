@@ -2,6 +2,10 @@
 strictPeerDependencies: true
 dedupePeerDependents: true
 nodeLinker: isolated
+onlyBuiltDependencies:
+  - "@swc/core"
+  - "esbuild"
+  - "protobufjs"
 
 packages:
   - "apps/*"
