@@ -1,7 +1,7 @@
 import {logoutBodySchema} from '@shipfox/api-auth-dto';
 import {defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
-import {logout} from '#core/index.js';
+import {logout} from '#core/auth.js';
 import {clearRefreshTokenCookie, getRefreshTokenCookie} from '#presentation/auth/refresh-cookie.js';
 
 export const logoutRoute = defineRoute({

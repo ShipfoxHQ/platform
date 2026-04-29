@@ -29,6 +29,17 @@ docker compose up -d
 pnpm --filter=@shipfox/api dev
 ```
 
+## Module exports and imports
+
+Avoid broad barrel files inside modules. Prefer importing from the file that owns the
+symbol, such as `#core/auth.js` or `#presentation/dto/user.js`, rather than
+`#core/index.js` or another catch-all index.
+
+Package root exports should stay intentionally small: export only shared entities and
+functions that are part of the package's public API. Do not export internal DB helpers,
+routes, auth wiring, or test-only utilities from a package root unless another package
+is meant to depend on them directly.
+
 ## Unit Testing Strategy (Node Apps)
 
 Tests use **Vitest** and run against a real PostgreSQL database, not mocks. The philosophy is to test against real infrastructure where possible and only mock external dependencies (feature flags, cloud provider APIs, etc.).

@@ -1,10 +1,10 @@
 import {AUTH_USER} from '@shipfox/api-auth-context';
 import {meResponseSchema} from '@shipfox/api-auth-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
+import {getCurrentUser} from '#core/auth.js';
 import {UserNotFoundError} from '#core/errors.js';
-import {getCurrentUser} from '#core/index.js';
 import {getClientContext} from '#presentation/auth/jwt-auth.js';
-import {toUserDto} from '#presentation/dto/index.js';
+import {toUserDto} from '#presentation/dto/user.js';
 
 export const meRoute = defineRoute({
   method: 'GET',

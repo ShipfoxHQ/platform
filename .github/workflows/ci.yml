@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Check, test, type, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start test services
+        run: docker compose up --wait -d postgres temporal
+
+      - name: Run verification
+        run: turbo check type test build depcruise
+
+      - name: Install E2E browser
+        run: pnpm --filter=@shipfox/playwright exec playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        env:
+          API_URL: http://localhost:16101
+          CLIENT_URL: http://localhost:5173
+          E2E_ADMIN_API_KEY: e2e-admin-api-key
+          E2E_ENABLED: "true"
+          VITE_API_URL: http://localhost:16101
+          VITE_ENABLE_TEST_VCS_PROVIDER: "true"
+        run: |
+          pnpm --filter=@shipfox/api dev > /tmp/shipfox-api.log 2>&1 &
+          api_pid=$!
+          pnpm --filter=@shipfox/client dev > /tmp/shipfox-client.log 2>&1 &
+          client_pid=$!
+          trap 'kill $api_pid $client_pid 2>/dev/null || true' EXIT
+
+          for _ in {1..60}; do
+            if curl --fail --silent --show-error "$API_URL/readyz" >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          if ! curl --fail --silent --show-error "$API_URL/readyz"; then
+            cat /tmp/shipfox-api.log
+            exit 1
+          fi
+
+          for _ in {1..60}; do
+            if curl --fail --silent --show-error "$CLIENT_URL" >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          if ! curl --fail --silent --show-error "$CLIENT_URL" >/dev/null; then
+            cat /tmp/shipfox-client.log
+            exit 1
+          fi
+
+          if ! turbo test:e2e --filter=@shipfox/e2e-api-auth --filter=@shipfox/e2e-client-auth; then
+            cat /tmp/shipfox-api.log
+            cat /tmp/shipfox-client.log
+            exit 1
+          fi

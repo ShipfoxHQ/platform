@@ -8,9 +8,11 @@
   },
   "scripts": {
     "build": "shipfox-swc",
-    "dev": "tsx watch --conditions=development --env-file-if-exists=.env --env-file-if-exists=.env.local src/index.ts",
+    "dev": "tsx watch --conditions=development --env-file-if-exists=../../.env --env-file-if-exists=.env --env-file-if-exists=.env.local src/index.ts",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
+    "test": "shipfox-vitest-run",
+    "test:watch": "shipfox-vitest-watch",
     "type": "shipfox-tsc-check",
     "type:emit": "shipfox-tsc-emit"
   },
@@ -23,6 +25,7 @@
     "@shipfox/api-runners": "workspace:*",
     "@shipfox/api-workspaces": "workspace:*",
     "@shipfox/api-workflows": "workspace:*",
+    "@shipfox/config": "workspace:*",
     "@shipfox/node-module": "workspace:*",
     "@shipfox/node-temporal": "workspace:*",
     "@shipfox/node-drizzle": "workspace:*",
@@ -36,6 +39,7 @@
     "@shipfox/swc": "workspace:*",
     "@shipfox/ts-config": "workspace:*",
     "@shipfox/typescript": "workspace:*",
+    "@shipfox/vitest": "workspace:*",
     "tsx": "^4.21.0"
   }
 }

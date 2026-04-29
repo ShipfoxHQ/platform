@@ -6,6 +6,7 @@ Opinionated wrapper around Biome for formatting and linting across Shipfox repos
 
 - **`shipfox-biome-lint`**: Lint the current package using the workspace-level `biome.json`.
 - **`shipfox-biome-format`**: Format files using the workspace-level `biome.json`.
+- **`shipfox-biome-check`**: Run Biome check with assist rules enabled. This is the command most package `check` scripts use.
 - Cross-platform support via bundled Biome binaries (Darwin ARM64/x64, Linux ARM64/x64).
 
 ## Installation
@@ -24,7 +25,9 @@ Add scripts to your `package.json`:
     "lint": "shipfox-biome-lint",
     "lint:fix": "shipfox-biome-lint --fix",
     "format": "shipfox-biome-format",
-    "format:fix": "shipfox-biome-format --write"
+    "format:fix": "shipfox-biome-format --write",
+    "check": "shipfox-biome-check",
+    "check:fix": "shipfox-biome-check --write"
   }
 }
 ```
@@ -35,6 +38,10 @@ Then run:
 # Lint
 shipfox-biome-lint
 shipfox-biome-lint --fix
+
+# Check
+shipfox-biome-check
+shipfox-biome-check --write
 
 # Format
 shipfox-biome-format

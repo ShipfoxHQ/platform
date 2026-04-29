@@ -1,21 +1,24 @@
 # Shipfox Fastify
 
-Opinionated Fastify setup for Node services with Zod validation, OpenTelemetry instrumentation, auth hooks, health checks, and structured error handling out of the box. It should be used with other packages from [Shipfox](https://www.shipfox.io/).
+Fastify setup for Shipfox Node services. It adds Zod validation, CORS, Swagger, auth hooks, health checks, routes, and structured error handling.
 
 ## What it does
 
-- **`createApp(config?)`**: Creates a Fastify instance wired with OpenTelemetry, Zod type providers, auth, health endpoints, routes, and error handling.
-- **`app()`**: Returns the current Fastify instance; throws if not yet created.
-- **`listen()`**: Starts listening on the configured host and port.
-- **`closeApp()`**: Gracefully shuts down the server.
-- **`defineRoute(route)`**: Type-safe route builder that infers request types from Zod schemas.
-- **`ClientError`**: Throw from handlers to return structured client-facing error responses.
-- **Health endpoints**: `GET /healthz` (liveness) and `GET /readyz` (readiness) registered automatically.
-- **Auth**: Register named auth methods and reference them per-route or per-group.
-- **Routing**: Supports nested route groups with prefix, auth inheritance, and scoped plugins.
+- **`createApp(config?)`** creates a Fastify app with Shipfox defaults.
+- **`app()`** returns the current Fastify app.
+- **`listen()`** starts the server on the configured host and port.
+- **`closeApp()`** shuts down the server.
+- **`defineRoute(route)`** infers request types from Zod schemas.
+- **`ClientError`** returns structured client errors from handlers.
+- **Health endpoints** are registered at `GET /healthz` and `GET /readyz`.
+- **Auth hooks** can be set on routes or route groups.
+- **Route groups** support prefixes, inherited auth, and scoped plugins.
+- **Swagger** is on by default and serves `GET /openapi.json`.
 
 Environment variables (via `@shipfox/config`):
 
+- `BROWSER_ALLOWED_ORIGIN` (default: `undefined`; comma-separated CORS origins)
+- `CLIENT_BASE_URL` (default: `http://localhost:3000`; CORS fallback when `BROWSER_ALLOWED_ORIGIN` is not set)
 - `HOST` (default: `0.0.0.0`)
 - `PORT` (default: `3000`)
 
@@ -35,10 +38,10 @@ npm install @shipfox/node-fastify
 import { createApp, listen, closeApp, defineRoute } from "@shipfox/node-fastify";
 import { z } from "zod";
 
-// Define a route with Zod schema validation
 const getUser = defineRoute({
   method: "GET",
   path: "/users/:id",
+  description: "Get a user by ID.",
   schema: {
     params: z.object({ id: z.string() }),
     response: { 200: z.object({ id: z.string(), name: z.string() }) },
@@ -49,15 +52,13 @@ const getUser = defineRoute({
   },
 });
 
-// Create and start the app
 const app = await createApp({
   routes: [getUser],
   readinessChecks: [{ name: "db", check: () => true }],
 });
 
-await listen(); // Listening on 0.0.0.0:3000
+await listen();
 
-// Graceful shutdown
 process.on("SIGTERM", async () => {
   await closeApp();
 });
@@ -66,13 +67,19 @@ process.on("SIGTERM", async () => {
 ### Route groups with auth
 
 ```ts
-import { createApp, defineRoute, type AuthMethod, type RouteGroup } from "@shipfox/node-fastify";
+import {
+  ClientError,
+  createApp,
+  defineRoute,
+  type AuthMethod,
+  type RouteGroup,
+} from "@shipfox/node-fastify";
 
 const bearerAuth: AuthMethod = {
   name: "bearer",
-  authenticate: async (request, reply) => {
+  authenticate: async (request) => {
     if (!request.headers.authorization) {
-      reply.code(401).send({ code: "unauthorized" });
+      throw new ClientError("Authentication required", "unauthorized", { status: 401 });
     }
   },
 };
@@ -81,7 +88,12 @@ const adminRoutes: RouteGroup = {
   prefix: "/admin",
   auth: "bearer",
   routes: [
-    defineRoute({ method: "GET", path: "/stats", handler: async () => ({ ok: true }) }),
+    defineRoute({
+      method: "GET",
+      path: "/stats",
+      description: "Get admin stats.",
+      handler: async () => ({ ok: true }),
+    }),
   ],
 };
 
@@ -93,6 +105,18 @@ await createApp({ auth: [bearerAuth], routes: [adminRoutes] });
 ```ts
 import { ClientError } from "@shipfox/node-fastify";
 
-// Inside a handler — returns { "code": "not-found" } with status 404
+// Returns { "code": "not-found" } with status 404.
 throw new ClientError("User not found", "not-found", { status: 404 });
 ```
+
+## Development
+
+```sh
+turbo check --filter=@shipfox/node-fastify
+turbo type --filter=@shipfox/node-fastify
+turbo test --filter=@shipfox/node-fastify
+```
+
+## License
+
+MIT

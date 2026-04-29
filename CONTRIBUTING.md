@@ -81,6 +81,7 @@ Available in most packages via `pnpm <script>`:
 | `turbo lint` / `turbo format` | Run checks across all packages |
 | `turbo type` | Type-check all packages in dependency order |
 | `turbo test` | Run tests across all packages |
+| `turbo test:e2e` | Run Playwright E2E packages against a pre-started local stack |
 
 `--filter` scopes a task to a specific package:
 
@@ -88,6 +89,32 @@ Available in most packages via `pnpm <script>`:
 turbo build --filter=@shipfox/api...
 turbo lint --filter=@shipfox/api-hello
 ```
+
+## E2E Testing
+
+E2E tests live under `e2e/` and mirror the application/library module structure.
+They use [Playwright](https://playwright.dev/) and run against an already-started
+local stack.
+
+Start the API and client before running E2E tests:
+
+```sh
+docker compose up -d
+pnpm --filter=@shipfox/api dev
+pnpm --filter=@shipfox/client dev
+```
+
+Local E2E defaults are set up for the standard dev ports. The API `.env`
+enables E2E routes with the local admin key, and the client `.env` points at
+the local API. Then run E2E packages directly:
+
+```sh
+turbo test:e2e --filter=@shipfox/e2e-client-auth
+```
+
+E2E setup APIs are module-owned routes under `/__e2e/<module>`. They are mounted only
+when both `E2E_ENABLED=true` and `E2E_ADMIN_API_KEY` are set. Tests must create data
+through these HTTP APIs, not through direct database access.
 
 ## Import Aliases
 

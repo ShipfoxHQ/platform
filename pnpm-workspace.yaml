@@ -2,9 +2,14 @@
 strictPeerDependencies: true
 dedupePeerDependents: true
 nodeLinker: isolated
+onlyBuiltDependencies:
+  - "@swc/core"
+  - "esbuild"
+  - "protobufjs"
 
 packages:
   - "apps/*"
+  - "e2e/**"
   - "libs/**"
   - "infra/**"
   - "tools/**"

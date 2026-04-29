@@ -1,0 +1,7 @@
+{
+  "extends": "@shipfox/ts-config/node",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["playwright.config.ts", "tests"]
+}

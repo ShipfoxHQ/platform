@@ -3,10 +3,10 @@ import {
   verifyEmailConfirmResponseSchema,
 } from '@shipfox/api-auth-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
+import {confirmEmailVerification} from '#core/auth.js';
 import {TokenInvalidError} from '#core/errors.js';
-import {confirmEmailVerification} from '#core/index.js';
 import {setRefreshTokenCookie} from '#presentation/auth/refresh-cookie.js';
-import {toAuthSessionDto} from '#presentation/dto/index.js';
+import {toAuthSessionDto} from '#presentation/dto/user.js';
 
 export const verifyEmailConfirmRoute = defineRoute({
   method: 'POST',

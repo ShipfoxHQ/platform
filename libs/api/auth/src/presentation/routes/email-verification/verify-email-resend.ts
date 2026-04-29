@@ -1,7 +1,7 @@
 import {verifyEmailResendBodySchema} from '@shipfox/api-auth-dto';
 import {defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
-import {resendEmailVerification} from '#core/index.js';
+import {resendEmailVerification} from '#core/auth.js';
 
 export const verifyEmailResendRoute = defineRoute({
   method: 'POST',
