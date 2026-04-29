@@ -14,7 +14,7 @@
     },
     "type": {
       "cache": true,
-      "dependsOn": ["@shipfox/typescript#build", "^type:emit"]
+      "dependsOn": ["@shipfox/typescript#build"]
     },
     "type:emit": {
       "cache": true,
