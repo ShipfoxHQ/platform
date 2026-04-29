@@ -29,6 +29,11 @@
       "cache": false,
       "dependsOn": ["^build"]
     },
+    "storybook:build": {
+      "cache": true,
+      "outputs": ["storybook-static/**/*"],
+      "dependsOn": ["^build"]
+    },
     "depcruise": {
       "cache": true,
       "dependsOn": ["@shipfox/depcruise#build"]
