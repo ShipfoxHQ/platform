@@ -1,11 +1,13 @@
 # @shipfox/typescript
 
-Thin wrappers around the TypeScript compiler for consistent type-checking and declaration emit across Shipfox packages. It should be used with other packages from [Shipfox](https://www.shipfox.io/).
+Thin wrappers around the TypeScript compiler for Shipfox packages. Use them for type checks and declaration output.
 
 ## What it does
 
-- **`shipfox-tsc-check`**: Type-check only (no emit). Uses `tsconfig.test.json` if present, otherwise `tsconfig.json`.
-- **`shipfox-tsc-emit`**: Emit `.d.ts` declaration files to `dist/` and automatically clean up orphaned declarations without matching source files.
+- **`shipfox-tsc-check`** checks types without writing files.
+- **`shipfox-tsc-check`** uses `tsconfig.test.json` when it exists. It falls back to `tsconfig.json`.
+- **`shipfox-tsc-emit`** writes `.d.ts` files to `dist/`.
+- **`shipfox-tsc-emit`** removes old declaration files that no longer match source files.
 
 Designed to work with `@shipfox/ts-config`.
 
@@ -22,8 +24,8 @@ Add scripts to your `package.json`:
 ```json
 {
   "scripts": {
-    "type": "shipfox-tsc-emit",
-    "type:check": "shipfox-tsc-check"
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
   }
 }
 ```
@@ -37,3 +39,7 @@ shipfox-tsc-check
 # Emit declarations to dist/
 shipfox-tsc-emit
 ```
+
+## License
+
+MIT

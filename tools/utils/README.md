@@ -4,9 +4,9 @@ Small utilities shared by Shipfox CLI tools for path resolution, shell command b
 
 ## What it does
 
-- **`@shipfox/tool-utils/path`**: Resolve project root, workspace root, binary paths, and file paths within the monorepo.
-- **`@shipfox/tool-utils/shell`**: Build properly quoted and escaped shell commands cross-platform.
-- **`@shipfox/tool-utils/log`**: Structured logging (`info`, `warning`, `error`, `debug`) via `@actions/core`.
+- **Path helpers**: Resolve project root, workspace root, binary paths, and file paths within the monorepo.
+- **Shell helpers**: Build properly quoted and escaped shell commands cross-platform.
+- **`log`**: Structured logging (`info`, `warning`, `error`, `debug`) via `@actions/core`.
 
 ## Installation
 
@@ -21,9 +21,9 @@ import {
   getProjectRootPath,
   getWorkspaceRootPath,
   getProjectBinaryPath,
-} from "@shipfox/tool-utils/path";
-import { buildShellCommand } from "@shipfox/tool-utils/shell";
-import { log } from "@shipfox/tool-utils/log";
+  buildShellCommand,
+  log,
+} from "@shipfox/tool-utils";
 
 // Resolve paths
 const projectRoot = getProjectRootPath(import.meta.url);
