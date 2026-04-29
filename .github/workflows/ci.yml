@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Check, test, type, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start test services
+        run: docker compose up --wait -d postgres
+
+      - name: Run checks
+        run: turbo check
+
+      - name: Run type check
+        run: turbo type
+
+      - name: Run tests
+        run: turbo test
+
+      - name: Run build
+        run: turbo build

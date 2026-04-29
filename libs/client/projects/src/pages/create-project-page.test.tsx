@@ -69,7 +69,10 @@ describe('CreateProjectPage', () => {
 
     expect(await screen.findByRole('heading', {name: 'Project Detail'})).toBeInTheDocument();
     await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3));
-    const [connectionBody, projectBody] = requestBodies as Array<Record<string, unknown>>;
+    const [connectionBody, projectBody] = requestBodies as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
     expect(connectionBody.provider).toBe('test');
     expect(projectBody.external_repository_id).toBe('platform');
   });
