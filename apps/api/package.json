@@ -20,6 +20,7 @@
     "@shipfox/api-auth": "workspace:*",
     "@shipfox/api-definitions": "workspace:*",
     "@shipfox/api-dispatcher": "workspace:*",
+    "@shipfox/api-integration-core": "workspace:*",
     "@shipfox/api-projects": "workspace:*",
     "@shipfox/api-runners": "workspace:*",
     "@shipfox/api-workspaces": "workspace:*",
