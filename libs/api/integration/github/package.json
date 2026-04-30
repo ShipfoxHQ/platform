@@ -40,6 +40,7 @@
     "@shipfox/node-fastify": "workspace:*",
     "@shipfox/node-postgres": "workspace:*",
     "drizzle-orm": "^0.45.2",
+    "ky": "^1.14.3",
     "octokit": "^5.0.3",
     "zod": "^3.25.67"
   },

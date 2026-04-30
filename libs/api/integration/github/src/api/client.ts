@@ -1,3 +1,4 @@
+import ky, {HTTPError, TimeoutError} from 'ky';
 import {App, Octokit, RequestError} from 'octokit';
 import {config, normalizedGithubPrivateKey} from '#config.js';
 import {GithubIntegrationProviderError} from '#core/errors.js';
@@ -62,27 +63,19 @@ class OctokitGithubApiClient implements GithubApiClient {
   private app: App | undefined;
 
   async exchangeOAuthCode(code: string): Promise<string> {
-    const response = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        client_id: config.GITHUB_APP_CLIENT_ID,
-        client_secret: config.GITHUB_APP_CLIENT_SECRET,
-        code,
-      }),
-    });
+    const body = await mapGithubOAuthError(() =>
+      ky
+        .post('https://github.com/login/oauth/access_token', {
+          headers: {accept: 'application/json'},
+          json: {
+            client_id: config.GITHUB_APP_CLIENT_ID,
+            client_secret: config.GITHUB_APP_CLIENT_SECRET,
+            code,
+          },
+        })
+        .json<{access_token?: unknown}>(),
+    );
 
-    if (!response.ok) {
-      throw new GithubIntegrationProviderError(
-        response.status === 429 ? 'rate-limited' : 'access-denied',
-        'GitHub OAuth code exchange failed',
-      );
-    }
-
-    const body = (await response.json()) as {access_token?: unknown};
     if (typeof body.access_token !== 'string') {
       throw new GithubIntegrationProviderError(
         'malformed-provider-response',
@@ -170,6 +163,36 @@ class OctokitGithubApiClient implements GithubApiClient {
   }
 }
 
+async function mapGithubOAuthError<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof HTTPError) {
+      if (error.response.status === 429) {
+        throw new GithubIntegrationProviderError(
+          'rate-limited',
+          'GitHub OAuth code exchange failed',
+          retryAfterSecondsFromHeaders(error.response.headers),
+        );
+      }
+      if (error.response.status >= 500) {
+        throw new GithubIntegrationProviderError(
+          'provider-unavailable',
+          'GitHub OAuth code exchange failed',
+        );
+      }
+      throw new GithubIntegrationProviderError(
+        'access-denied',
+        'GitHub OAuth code exchange failed',
+      );
+    }
+    if (error instanceof TimeoutError) {
+      throw new GithubIntegrationProviderError('timeout', 'GitHub OAuth request timed out');
+    }
+    throw error;
+  }
+}
+
 async function mapGithubError<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
@@ -205,9 +228,16 @@ async function mapGithubError<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 function retryAfterSeconds(error: RequestError): number | undefined {
-  const retryAfter = error.response?.headers['retry-after'];
-  if (typeof retryAfter !== 'string') return undefined;
-  const parsed = Number.parseInt(retryAfter, 10);
+  return parseRetryAfterSeconds(error.response?.headers['retry-after']);
+}
+
+function retryAfterSecondsFromHeaders(headers: Headers): number | undefined {
+  return parseRetryAfterSeconds(headers.get('retry-after'));
+}
+
+function parseRetryAfterSeconds(retryAfter: string | number | null | undefined): number | undefined {
+  if (!retryAfter) return undefined;
+  const parsed = Number.parseInt(String(retryAfter), 10);
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
