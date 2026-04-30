@@ -6,6 +6,10 @@
 
 - [ ] **Projects Playwright E2E** — Add browser coverage for Projects hub -> create -> detail once the client/API E2E harness exists.
 
+## Integrations
+
+- [ ] **GitHub lifecycle webhook handling** — Add GitHub App webhook verification and handlers for installation suspend/delete and repository access changes. The backend currently stores `latest_event`, `suspended_at`, and `deleted_at` on `integrations_github_installations`, but the first GitHub provider PR only updates those fields during callback. Webhook ingestion should keep connection lifecycle state accurate when GitHub changes app access after installation.
+
 ## Add cursor-based pagination to list endpoints
 
 **What:** Add cursor-based pagination to `listWorkflowRunsByProject`, `listDefinitionsByProject`, and future list queries.

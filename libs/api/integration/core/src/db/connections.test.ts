@@ -1,4 +1,6 @@
+import {upsertGithubInstallation} from '@shipfox/api-integration-github';
 import {listIntegrationConnections, upsertIntegrationConnection} from './connections.js';
+import {db} from './db.js';
 
 describe('integration connection queries', () => {
   let workspaceId: string;
@@ -69,5 +71,36 @@ describe('integration connection queries', () => {
     const result = await listIntegrationConnections({workspaceId});
 
     expect(result.map((connection) => connection.provider)).toEqual(['debug', 'github']);
+  });
+
+  it('rolls back a connection when provider-specific installation persistence fails', async () => {
+    const result = db().transaction(async (tx) => {
+      const connection = await upsertIntegrationConnection(
+        {
+          workspaceId,
+          provider: 'github',
+          externalAccountId: '123',
+          displayName: 'GitHub shipfox',
+        },
+        {tx},
+      );
+
+      await upsertGithubInstallation(
+        {
+          connectionId: connection.id,
+          installationId: '123',
+          accountLogin: null as unknown as string,
+          accountType: 'Organization',
+          repositorySelection: 'all',
+          latestEvent: {id: 123},
+        },
+        {tx},
+      );
+    });
+
+    await expect(result).rejects.toThrow();
+
+    const connections = await listIntegrationConnections({workspaceId});
+    expect(connections).toHaveLength(0);
   });
 });

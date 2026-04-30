@@ -4,7 +4,7 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {createTemporalClient, createTemporalWorker, temporalClient} from '@shipfox/node-temporal';
 import {registerPublisher} from './publisher-registry.js';
 import {subscribe} from './registry.js';
-import type {ModuleWorker, ShipfoxModule} from './types.js';
+import type {ModuleDatabase, ModuleWorker, ShipfoxModule} from './types.js';
 
 export interface InitializeModulesOptions {
   modules: ShipfoxModule[];
@@ -36,13 +36,16 @@ export async function initializeModules(
     logger().info({module: mod.name}, 'Initializing module');
 
     if (mod.database) {
-      logger().info({module: mod.name}, 'Running migrations');
-      await runMigrations(
-        mod.database.db(),
-        mod.database.migrationsPath,
-        `__drizzle_migrations_${mod.name}`,
-      );
-      logger().info({module: mod.name}, 'Migrations complete');
+      const databases = normalizeModuleDatabases(mod.database);
+      for (const [index, database] of databases.entries()) {
+        logger().info({module: mod.name, database: index}, 'Running migrations');
+        await runMigrations(
+          database.db(),
+          database.migrationsPath,
+          moduleMigrationTableName(mod.name, index),
+        );
+        logger().info({module: mod.name, database: index}, 'Migrations complete');
+      }
     }
 
     if (mod.publishers) {
@@ -77,6 +80,15 @@ export async function initializeModules(
   }
 
   return {auth, routes, e2eRoutes, workers};
+}
+
+function normalizeModuleDatabases(database: ModuleDatabase | ModuleDatabase[]): ModuleDatabase[] {
+  return Array.isArray(database) ? database : [database];
+}
+
+function moduleMigrationTableName(moduleName: string, index: number): string {
+  if (index === 0) return `__drizzle_migrations_${moduleName}`;
+  return `__drizzle_migrations_${moduleName}_${index}`;
 }
 
 /**
