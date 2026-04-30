@@ -24,6 +24,7 @@ const previewStateCopy: Record<
 
 interface ProjectPreviewRailProps {
   repositoryId: string;
+  connectionName?: string | undefined;
   projectName: string;
   state: ProjectPreviewState;
   createdProject?: ProjectResponseDto | undefined;
@@ -31,6 +32,7 @@ interface ProjectPreviewRailProps {
 
 export function ProjectPreviewRail({
   repositoryId,
+  connectionName,
   projectName,
   state,
   createdProject,
@@ -38,7 +40,7 @@ export function ProjectPreviewRail({
   const copy = previewStateCopy[state];
   const repositoryName = repositoryId.trim() || 'Waiting for repository';
   const displayProjectName = projectName.trim() || 'New Shipfox project';
-  const repository = createdProject?.repository;
+  const source = createdProject?.source;
 
   return (
     <Card className="gap-18 p-20">
@@ -54,21 +56,20 @@ export function ProjectPreviewRail({
       <CardContent className="flex flex-col gap-16">
         <div className="rounded-8 border border-border-neutral-base bg-background-subtle-base p-14">
           <div className="flex items-center gap-8">
-            <Badge variant="info">Test provider</Badge>
-            <Badge variant="warning">Local only</Badge>
+            <Badge variant="info">Source control</Badge>
+            <Badge variant="warning">Debug</Badge>
           </div>
           <Text size="lg" bold className="mt-12 break-words">
             {displayProjectName}
           </Text>
           <Text size="sm" className="text-foreground-neutral-muted break-words">
-            {repository?.full_name ?? `test-owner/${repositoryName}`}
+            {source?.external_repository_id ?? repositoryName}
           </Text>
         </div>
 
-        <PreviewRow label="Provider host" value={repository?.provider_host ?? 'test.local'} />
+        <PreviewRow label="Connection" value={connectionName ?? 'Not connected'} />
+        <PreviewRow label="Connection id" value={source?.connection_id ?? 'Not selected'} />
         <PreviewRow label="Repository id" value={repositoryId.trim() || 'Not selected'} />
-        <PreviewRow label="Default branch" value={repository?.default_branch ?? 'main'} />
-        <PreviewRow label="Visibility" value={repository?.visibility ?? 'private'} />
       </CardContent>
     </Card>
   );

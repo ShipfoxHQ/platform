@@ -3,6 +3,7 @@ import {
   IntegrationCapabilityUnavailableError,
   IntegrationConnectionInactiveError,
   IntegrationConnectionNotFoundError,
+  IntegrationConnectionWorkspaceMismatchError,
   IntegrationProviderError,
   type IntegrationProviderErrorReason,
   IntegrationProviderUnavailableError,
@@ -35,6 +36,9 @@ export function integrationRouteErrorHandler(error: unknown): never {
   }
   if (error instanceof IntegrationConnectionInactiveError) {
     throw new ClientError(error.message, 'integration-connection-inactive', {status: 422});
+  }
+  if (error instanceof IntegrationConnectionWorkspaceMismatchError) {
+    throw new ClientError(error.message, 'forbidden', {status: 403});
   }
   if (error instanceof IntegrationProviderUnavailableError) {
     throw new ClientError(error.message, 'integration-provider-unavailable', {status: 422});

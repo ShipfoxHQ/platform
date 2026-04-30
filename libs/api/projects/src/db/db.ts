@@ -2,12 +2,8 @@ import {drizzle, type NodePgDatabase} from '@shipfox/node-drizzle';
 import {pgClient} from '@shipfox/node-postgres';
 import {projectsOutbox} from './schema/outbox.js';
 import {projects} from './schema/projects.js';
-import {repositories} from './schema/repositories.js';
-import {vcsConnections} from './schema/vcs-connections.js';
 
 export const schema = {
-  vcsConnections,
-  repositories,
   projects,
   projectsOutbox,
 };

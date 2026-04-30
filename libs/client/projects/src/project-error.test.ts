@@ -17,7 +17,8 @@ describe('projectErrorCopy', () => {
     ['timeout', 'Provider timed out'],
     ['provider-unavailable', 'Provider unavailable'],
     ['malformed-provider-response', 'Provider response changed'],
-    ['test-provider-disabled', 'Test provider disabled'],
+    ['source-connection-not-found', 'Source connection not found'],
+    ['source-connection-inactive', 'Source connection inactive'],
   ])('maps %s', (code, title) => {
     const result = projectErrorCopy(apiError(code));
 

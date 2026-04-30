@@ -1,8 +1,8 @@
 import {authModule} from '@shipfox/api-auth';
 import {definitionsModule} from '@shipfox/api-definitions';
 import {dispatcherModule} from '@shipfox/api-dispatcher';
-import {integrationsModule} from '@shipfox/api-integration-core';
-import {projectsModule} from '@shipfox/api-projects';
+import {createIntegrationsContext} from '@shipfox/api-integration-core';
+import {createProjectsModule} from '@shipfox/api-projects';
 import {runnersModule} from '@shipfox/api-runners';
 import {workflowsModule} from '@shipfox/api-workflows';
 import {workspacesModule} from '@shipfox/api-workspaces';
@@ -26,11 +26,14 @@ export async function run(): Promise<void> {
 
   createPostgresClient();
 
+  const integrations = createIntegrationsContext();
+  const projectsModule = createProjectsModule({sourceControl: integrations.sourceControl});
+
   const {auth, routes, e2eRoutes, workers} = await initializeModules({
     modules: [
       authModule,
       workspacesModule,
-      integrationsModule,
+      integrations.module,
       projectsModule,
       definitionsModule,
       workflowsModule,

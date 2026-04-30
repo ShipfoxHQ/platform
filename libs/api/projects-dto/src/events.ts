@@ -1,24 +1,24 @@
 export const PROJECT_CREATED = 'projects.project.created' as const;
-export const PROJECT_VCS_BOUND = 'projects.project.vcs_bound' as const;
+export const PROJECT_SOURCE_BOUND = 'projects.project.source_bound' as const;
 
 export interface ProjectCreatedEvent {
   actorId: string;
   workspaceId: string;
   projectId: string;
-  repositoryId: string;
+  sourceConnectionId: string;
+  sourceExternalRepositoryId: string;
 }
 
-export interface ProjectVcsBoundEvent {
+export interface ProjectSourceBoundEvent {
   actorId: string;
   workspaceId: string;
   projectId: string;
-  repositoryId: string;
-  provider: 'test' | 'github' | 'gitlab';
-  providerHost: string;
+  sourceConnectionId: string;
+  provider: 'debug' | 'github';
   externalRepositoryId: string;
 }
 
 export interface ProjectsEventMap {
   [PROJECT_CREATED]: ProjectCreatedEvent;
-  [PROJECT_VCS_BOUND]: ProjectVcsBoundEvent;
+  [PROJECT_SOURCE_BOUND]: ProjectSourceBoundEvent;
 }

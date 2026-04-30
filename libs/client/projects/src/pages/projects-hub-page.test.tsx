@@ -4,14 +4,6 @@ import {jsonResponse, renderProjectPage} from '#test/pages.js';
 import {ProjectsHubPage} from './projects-hub-page.js';
 
 describe('ProjectsHubPage', () => {
-  beforeEach(() => {
-    vi.stubEnv('VITE_ENABLE_TEST_VCS_PROVIDER', 'true');
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   test('renders empty state with create CTA', async () => {
     configureApiClient({
       fetchImpl: vi.fn().mockResolvedValue(jsonResponse({projects: [], next_cursor: null})),
@@ -53,20 +45,6 @@ describe('ProjectsHubPage', () => {
     expect(secondRequest.url).toContain('cursor=cursor-1');
   });
 
-  test('shows disabled production CTA when the UI flag is off', async () => {
-    vi.stubEnv('VITE_ENABLE_TEST_VCS_PROVIDER', 'false');
-    configureApiClient({
-      fetchImpl: vi.fn().mockResolvedValue(jsonResponse({projects: [], next_cursor: null})),
-    });
-
-    renderProjectPage('/', <ProjectsHubPage />);
-
-    expect(
-      await screen.findByText('Project creation is disabled in this environment.'),
-    ).toBeInTheDocument();
-    expect(screen.getAllByRole('button', {name: 'Create project'})[0]).toBeDisabled();
-  });
-
   test('renders an error alert with retry', async () => {
     configureApiClient({
       fetchImpl: vi.fn().mockResolvedValue(jsonResponse({code: 'server-error'}, {status: 500})),
@@ -83,26 +61,12 @@ function projectDto({id, name}: {id: string; name: string}) {
   return {
     id,
     workspace_id: '11111111-1111-4111-8111-111111111111',
-    repository_id: `${id}-repo`,
     name,
+    source: {
+      connection_id: '33333333-3333-4333-8333-333333333333',
+      external_repository_id: name.toLowerCase(),
+    },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    repository: {
-      id: `${id}-repo`,
-      vcs_connection_id: '33333333-3333-4333-8333-333333333333',
-      provider: 'test',
-      provider_host: 'test.local',
-      external_repository_id: name.toLowerCase(),
-      owner: 'test-owner',
-      name: name.toLowerCase(),
-      full_name: `test-owner/${name.toLowerCase()}`,
-      default_branch: 'main',
-      visibility: 'private',
-      clone_url: `https://test.local/test-owner/${name.toLowerCase()}.git`,
-      html_url: `https://test.local/test-owner/${name.toLowerCase()}`,
-      metadata_fetched_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
   };
 }

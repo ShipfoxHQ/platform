@@ -12,6 +12,12 @@ export class IntegrationConnectionInactiveError extends Error {
   }
 }
 
+export class IntegrationConnectionWorkspaceMismatchError extends Error {
+  constructor(connectionId: string) {
+    super(`Integration connection does not belong to the requested workspace: ${connectionId}`);
+  }
+}
+
 export class IntegrationCapabilityUnavailableError extends Error {
   constructor(capability: IntegrationCapability, provider: IntegrationProviderKind) {
     super(`Integration provider ${provider} does not expose ${capability}`);

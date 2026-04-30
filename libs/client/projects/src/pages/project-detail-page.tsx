@@ -59,7 +59,7 @@ export function ProjectDetailPage({projectId}: {projectId: string}) {
                   {query.data.name}
                 </Header>
                 <Text size="md" className="text-foreground-neutral-muted break-words">
-                  {query.data.repository.full_name}
+                  {query.data.source.external_repository_id}
                 </Text>
               </div>
               <StatusBadge variant="success">Connected</StatusBadge>
@@ -68,20 +68,15 @@ export function ProjectDetailPage({projectId}: {projectId: string}) {
             <section className="grid gap-18 lg:grid-cols-[minmax(0,1fr)_360px]">
               <Card className="p-20">
                 <CardHeader>
-                  <CardTitle variant="h2">Repository identity</CardTitle>
-                  <CardDescription>Immutable provider binding for this project.</CardDescription>
+                  <CardTitle variant="h2">Source identity</CardTitle>
+                  <CardDescription>Source-control binding for this project.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-12 sm:grid-cols-2">
-                  <Metadata label="Provider" value={query.data.repository.provider} />
-                  <Metadata label="Provider host" value={query.data.repository.provider_host} />
+                  <Metadata label="Connection id" value={query.data.source.connection_id} />
                   <Metadata
                     label="External repository id"
-                    value={query.data.repository.external_repository_id}
+                    value={query.data.source.external_repository_id}
                   />
-                  <Metadata label="Default branch" value={query.data.repository.default_branch} />
-                  <Metadata label="Visibility" value={query.data.repository.visibility} />
-                  <Metadata label="Clone URL" value={query.data.repository.clone_url} />
-                  <Metadata label="HTML URL" value={query.data.repository.html_url} />
                 </CardContent>
               </Card>
 

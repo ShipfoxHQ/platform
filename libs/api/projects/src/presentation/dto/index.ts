@@ -1,1 +1,1 @@
-export {toProjectDto, toRepositoryDto, toVcsConnectionDto} from './project.js';
+export {toProjectDto} from './project.js';

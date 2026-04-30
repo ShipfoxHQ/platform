@@ -43,7 +43,19 @@ export function projectErrorCopy(error: unknown): ProjectErrorCopy {
   if (error.code === 'repository-not-found') {
     return {
       title: 'Repository not found',
-      message: 'Check the repository id and try again.',
+      message: 'Choose another repository and try again.',
+    };
+  }
+  if (error.code === 'source-connection-not-found') {
+    return {
+      title: 'Source connection not found',
+      message: 'Reconnect source control and try again.',
+    };
+  }
+  if (error.code === 'source-connection-inactive') {
+    return {
+      title: 'Source connection inactive',
+      message: 'Reconnect or choose another source-control connection.',
     };
   }
   if (error.code === 'access-denied') {
@@ -77,12 +89,6 @@ export function projectErrorCopy(error: unknown): ProjectErrorCopy {
     return {
       title: 'Provider response changed',
       message: 'The provider returned data Shipfox could not understand.',
-    };
-  }
-  if (error.code === 'test-provider-disabled') {
-    return {
-      title: 'Test provider disabled',
-      message: 'Local test project creation is disabled for this environment.',
     };
   }
   if (error.code === 'project-already-exists') {

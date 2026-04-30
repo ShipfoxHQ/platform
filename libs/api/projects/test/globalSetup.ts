@@ -11,8 +11,6 @@ export async function setup() {
   await runMigrations(db(), workspacesMigrationsPath, '__drizzle_migrations_workspaces');
   await runMigrations(db(), migrationsPath, '__drizzle_migrations_projects');
   await db().execute(sql`TRUNCATE projects_projects CASCADE`);
-  await db().execute(sql`TRUNCATE projects_repositories CASCADE`);
-  await db().execute(sql`TRUNCATE projects_vcs_connections CASCADE`);
   await db().execute(sql`TRUNCATE projects_outbox CASCADE`);
   await db().execute(sql`TRUNCATE workspaces_memberships CASCADE`);
   await db().execute(sql`TRUNCATE workspaces CASCADE`);
