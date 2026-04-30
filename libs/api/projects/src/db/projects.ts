@@ -1,13 +1,13 @@
 import {and, desc, eq, lt, or, type SQL} from 'drizzle-orm';
-import type {ProjectWithRepository} from '#core/entities/project.js';
+import type {Project} from '#core/entities/project.js';
 import {ProjectAlreadyExistsError, ProjectNotFoundError} from '#core/errors.js';
 import {db} from './db.js';
 import {projects, toProject} from './schema/projects.js';
-import {repositories, toRepository} from './schema/repositories.js';
 
 export interface CreateProjectParams {
   workspaceId: string;
-  repositoryId: string;
+  sourceConnectionId: string;
+  sourceExternalRepositoryId: string;
   name: string;
 }
 
@@ -23,18 +23,8 @@ export interface ListProjectsParams {
 }
 
 export interface ListProjectsResult {
-  projects: ProjectWithRepository[];
+  projects: Project[];
   nextCursor: ProjectCursor | null;
-}
-
-function toProjectWithRepository(row: {
-  project: typeof projects.$inferSelect;
-  repository: typeof repositories.$inferSelect;
-}): ProjectWithRepository {
-  return {
-    ...toProject(row.project),
-    repository: toRepository(row.repository),
-  };
 }
 
 function cursorWhere(params: ListProjectsParams): SQL | undefined {
@@ -45,79 +35,58 @@ function cursorWhere(params: ListProjectsParams): SQL | undefined {
   );
 }
 
-export async function createProject(params: CreateProjectParams): Promise<ProjectWithRepository> {
+export async function createProject(params: CreateProjectParams): Promise<Project> {
   return await db().transaction(async (tx) => {
-    const existing = await tx
-      .select({project: projects, repository: repositories})
-      .from(projects)
-      .innerJoin(repositories, eq(repositories.id, projects.repositoryId))
-      .where(
-        and(
-          eq(projects.workspaceId, params.workspaceId),
-          eq(projects.repositoryId, params.repositoryId),
-        ),
-      )
-      .limit(1);
-
-    const existingRow = existing[0];
-    if (existingRow) {
-      throw new ProjectAlreadyExistsError(existingRow.project.id, params.repositoryId);
-    }
-
     const [projectRow] = await tx
       .insert(projects)
       .values({
         workspaceId: params.workspaceId,
-        repositoryId: params.repositoryId,
+        sourceConnectionId: params.sourceConnectionId,
+        sourceExternalRepositoryId: params.sourceExternalRepositoryId,
         name: params.name,
       })
       .onConflictDoNothing({
-        target: [projects.workspaceId, projects.repositoryId],
+        target: [projects.sourceConnectionId, projects.sourceExternalRepositoryId],
       })
       .returning();
+
     if (!projectRow) {
       const [conflict] = await tx
-        .select({project: projects})
+        .select()
         .from(projects)
         .where(
           and(
-            eq(projects.workspaceId, params.workspaceId),
-            eq(projects.repositoryId, params.repositoryId),
+            eq(projects.sourceConnectionId, params.sourceConnectionId),
+            eq(projects.sourceExternalRepositoryId, params.sourceExternalRepositoryId),
           ),
         )
         .limit(1);
-      if (conflict) throw new ProjectAlreadyExistsError(conflict.project.id, params.repositoryId);
+      if (conflict) {
+        throw new ProjectAlreadyExistsError(
+          conflict.id,
+          params.sourceConnectionId,
+          params.sourceExternalRepositoryId,
+        );
+      }
       throw new Error('Insert returned no rows');
     }
 
-    const [row] = await tx
-      .select({project: projects, repository: repositories})
-      .from(projects)
-      .innerJoin(repositories, eq(repositories.id, projects.repositoryId))
-      .where(eq(projects.id, projectRow.id))
-      .limit(1);
-    if (!row) throw new Error('Inserted project could not be loaded');
-    return toProjectWithRepository(row);
+    return toProject(projectRow);
   });
 }
 
-export async function getProjectById(id: string): Promise<ProjectWithRepository | undefined> {
-  const rows = await db()
-    .select({project: projects, repository: repositories})
-    .from(projects)
-    .innerJoin(repositories, eq(repositories.id, projects.repositoryId))
-    .where(eq(projects.id, id))
-    .limit(1);
+export async function getProjectById(id: string): Promise<Project | undefined> {
+  const rows = await db().select().from(projects).where(eq(projects.id, id)).limit(1);
 
   const row = rows[0];
   if (!row) return undefined;
-  return toProjectWithRepository(row);
+  return toProject(row);
 }
 
 export async function requireProjectForWorkspace(params: {
   projectId: string;
   workspaceId: string;
-}): Promise<ProjectWithRepository> {
+}): Promise<Project> {
   const project = await getProjectById(params.projectId);
   if (!project) throw new ProjectNotFoundError(params.projectId);
   if (project.workspaceId !== params.workspaceId) throw new ProjectNotFoundError(params.projectId);
@@ -130,19 +99,18 @@ export async function listProjects(params: ListProjectsParams): Promise<ListProj
   if (cursorCondition) conditions.push(cursorCondition);
 
   const rows = await db()
-    .select({project: projects, repository: repositories})
+    .select()
     .from(projects)
-    .innerJoin(repositories, eq(repositories.id, projects.repositoryId))
     .where(and(...conditions))
     .orderBy(desc(projects.createdAt), desc(projects.id))
     .limit(params.limit + 1);
 
   const hasMore = rows.length > params.limit;
   const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
-  const last = pageRows.at(-1)?.project;
+  const last = pageRows.at(-1);
 
   return {
-    projects: pageRows.map(toProjectWithRepository),
+    projects: pageRows.map(toProject),
     nextCursor: hasMore && last ? {createdAt: last.createdAt, id: last.id} : null,
   };
 }

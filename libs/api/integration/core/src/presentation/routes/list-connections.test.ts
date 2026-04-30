@@ -17,14 +17,12 @@ describe('GET /integration-connections', () => {
       provider: 'debug',
       externalAccountId: 'debug',
       displayName: 'Debug',
-      capabilities: ['source_control'],
     });
     await upsertIntegrationConnection({
       workspaceId: context.workspaceId,
       provider: 'github',
       externalAccountId: 'team-1',
       displayName: 'GitHub',
-      capabilities: [],
     });
     await upsertIntegrationConnection({
       workspaceId: context.workspaceId,
@@ -32,7 +30,6 @@ describe('GET /integration-connections', () => {
       externalAccountId: 'installation-1',
       displayName: 'GitHub',
       lifecycleStatus: 'error',
-      capabilities: ['source_control'],
     });
 
     const res = await app.inject({

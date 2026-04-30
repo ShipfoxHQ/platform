@@ -1,56 +1,76 @@
+import type {IntegrationSourceControlService} from '@shipfox/api-integration-core';
+import {IntegrationProviderError} from '@shipfox/api-integration-core';
 import {sql} from 'drizzle-orm';
-import {createVcsConnection, db} from '#db/index.js';
+import {db} from '#db/index.js';
 import {projectsOutbox} from '#db/schema/outbox.js';
-import {createProjectFromRepository} from './projects.js';
+import {createProjectFromSource} from './projects.js';
 
-describe('createProjectFromRepository', () => {
+describe('createProjectFromSource', () => {
   let actorId: string;
   let workspaceId: string;
+  let sourceConnectionId: string;
+  let sourceControl: IntegrationSourceControlService;
 
   beforeEach(() => {
     actorId = crypto.randomUUID();
     workspaceId = crypto.randomUUID();
+    sourceConnectionId = crypto.randomUUID();
+    sourceControl = {
+      getConnection: vi.fn(),
+      listRepositories: vi.fn(),
+      resolveRepository: vi.fn(async () => {
+        await Promise.resolve();
+        return {
+          connection: {
+            id: sourceConnectionId,
+            workspaceId,
+            provider: 'debug' as const,
+            externalAccountId: 'debug',
+            displayName: 'Debug Source Control',
+            lifecycleStatus: 'active' as const,
+            capabilities: ['source_control' as const],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          repository: {
+            externalRepositoryId: 'platform',
+            owner: 'debug-owner',
+            name: 'platform',
+            fullName: 'debug-owner/platform',
+            defaultBranch: 'main',
+            visibility: 'private' as const,
+            cloneUrl: 'https://debug.local/debug-owner/platform.git',
+            htmlUrl: 'https://debug.local/debug-owner/platform',
+          },
+        };
+      }),
+    };
   });
 
-  test('creates a project bound to a repository snapshot', async () => {
-    const connection = await createVcsConnection({
-      workspaceId,
-      provider: 'test',
-      providerHost: 'test.local',
-      externalConnectionId: 'installation-1',
-      displayName: 'Test Installation',
-    });
-
-    const project = await createProjectFromRepository({
+  test('creates a project bound to a source repository', async () => {
+    const project = await createProjectFromSource({
       actorId,
       workspaceId,
       name: 'Platform',
-      vcsConnectionId: connection.id,
-      externalRepositoryId: 'platform',
+      sourceConnectionId,
+      sourceExternalRepositoryId: 'platform',
+      sourceControl,
     });
 
     expect(project.workspaceId).toBe(workspaceId);
     expect(project.name).toBe('Platform');
-    expect(project.repository.externalRepositoryId).toBe('platform');
-    expect(project.repository.fullName).toBe('test-owner/platform');
-    expect(project.repository.metadataFetchedAt).toBeInstanceOf(Date);
+    expect(project.sourceConnectionId).toBe(sourceConnectionId);
+    expect(project.sourceExternalRepositoryId).toBe('platform');
   });
 
   test('emits project lifecycle events in the same transaction', async () => {
-    const connection = await createVcsConnection({
-      workspaceId,
-      provider: 'test',
-      providerHost: 'test.local',
-      externalConnectionId: 'installation-1',
-      displayName: 'Test Installation',
-    });
-
-    const project = await createProjectFromRepository({
+    const project = await createProjectFromSource({
       actorId,
       workspaceId,
       name: 'Platform',
-      vcsConnectionId: connection.id,
-      externalRepositoryId: 'platform',
+      sourceConnectionId,
+      sourceExternalRepositoryId: 'platform',
+      sourceControl,
     });
 
     const events = await db()
@@ -60,52 +80,57 @@ describe('createProjectFromRepository', () => {
 
     expect(events.map((event) => event.eventType).sort()).toEqual([
       'projects.project.created',
-      'projects.project.vcs_bound',
+      'projects.project.source_bound',
     ]);
+    expect(events.map((event) => event.payload)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceConnectionId,
+          sourceExternalRepositoryId: 'platform',
+        }),
+        expect.objectContaining({
+          sourceConnectionId,
+          externalRepositoryId: 'platform',
+          provider: 'debug',
+        }),
+      ]),
+    );
   });
 
-  test('rejects a second active project for the same repository in a workspace', async () => {
-    const connection = await createVcsConnection({
-      workspaceId,
-      provider: 'test',
-      providerHost: 'test.local',
-      externalConnectionId: 'installation-1',
-      displayName: 'Test Installation',
-    });
-    await createProjectFromRepository({
+  test('rejects a second project for the same source repository', async () => {
+    await createProjectFromSource({
       actorId,
       workspaceId,
       name: 'Platform',
-      vcsConnectionId: connection.id,
-      externalRepositoryId: 'platform',
+      sourceConnectionId,
+      sourceExternalRepositoryId: 'platform',
+      sourceControl,
     });
 
-    const result = createProjectFromRepository({
+    const result = createProjectFromSource({
       actorId,
       workspaceId,
       name: 'Platform Again',
-      vcsConnectionId: connection.id,
-      externalRepositoryId: 'platform',
+      sourceConnectionId,
+      sourceExternalRepositoryId: 'platform',
+      sourceControl,
     });
 
     await expect(result).rejects.toThrow('Project already exists');
   });
 
   test('surfaces provider repository access failures', async () => {
-    const connection = await createVcsConnection({
-      workspaceId,
-      provider: 'test',
-      providerHost: 'test.local',
-      externalConnectionId: 'installation-1',
-      displayName: 'Test Installation',
-    });
+    vi.mocked(sourceControl.resolveRepository).mockRejectedValueOnce(
+      new IntegrationProviderError('repository-not-found', 'Repository not found'),
+    );
 
-    const result = createProjectFromRepository({
+    const result = createProjectFromSource({
       actorId,
       workspaceId,
       name: 'Missing',
-      vcsConnectionId: connection.id,
-      externalRepositoryId: 'not-found',
+      sourceConnectionId,
+      sourceExternalRepositoryId: 'not-found',
+      sourceControl,
     });
 
     await expect(result).rejects.toMatchObject({reason: 'repository-not-found'});

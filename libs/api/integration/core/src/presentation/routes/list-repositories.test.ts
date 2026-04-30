@@ -17,7 +17,6 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       provider: 'debug',
       externalAccountId: 'debug',
       displayName: 'Debug',
-      capabilities: ['source_control'],
     });
 
     const res = await app.inject({
@@ -54,7 +53,6 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       externalAccountId: 'debug',
       displayName: 'Debug',
       lifecycleStatus: 'disabled',
-      capabilities: ['source_control'],
     });
 
     const res = await app.inject({
@@ -68,13 +66,18 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
   });
 
   it('rejects connections without source-control capability', async () => {
-    const app = await createTestApp([sourceProvider()]);
+    const app = await createTestApp([
+      sourceProvider({
+        provider: 'github',
+        displayName: 'GitHub',
+        adapters: {},
+      }),
+    ]);
     const connection = await upsertIntegrationConnection({
       workspaceId: context.workspaceId,
       provider: 'github',
       externalAccountId: 'team-1',
       displayName: 'GitHub',
-      capabilities: [],
     });
 
     const res = await app.inject({
@@ -94,7 +97,6 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       provider: 'github',
       externalAccountId: 'installation-1',
       displayName: 'GitHub',
-      capabilities: ['source_control'],
     });
 
     const res = await app.inject({
@@ -110,14 +112,16 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
   it('maps provider repository listing errors', async () => {
     const app = await createTestApp([
       sourceProvider({
-        sourceControl: {
-          listRepositories: async () => {
-            await Promise.resolve();
-            throw new IntegrationProviderError('rate-limited', 'Provider rate limited', 60);
-          },
-          resolveRepository: async () => {
-            await Promise.resolve();
-            throw new Error('not used');
+        adapters: {
+          source_control: {
+            listRepositories: async () => {
+              await Promise.resolve();
+              throw new IntegrationProviderError('rate-limited', 'Provider rate limited', 60);
+            },
+            resolveRepository: async () => {
+              await Promise.resolve();
+              throw new Error('not used');
+            },
           },
         },
       }),
@@ -127,7 +131,6 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       provider: 'debug',
       externalAccountId: 'debug',
       displayName: 'Debug',
-      capabilities: ['source_control'],
     });
 
     const res = await app.inject({

@@ -10,8 +10,9 @@ export function createDebugIntegrationProvider(options: CreateDebugIntegrationRo
   return {
     provider: 'debug' as const,
     displayName: 'Debug Source Control',
-    capabilities: ['source_control' as const],
-    sourceControl: new DebugSourceControlProvider(),
+    adapters: {
+      source_control: new DebugSourceControlProvider(),
+    },
     routes: [createDebugIntegrationRoutes(options)],
   };
 }

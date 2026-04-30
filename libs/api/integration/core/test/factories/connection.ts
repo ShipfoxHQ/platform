@@ -13,7 +13,6 @@ export const integrationConnectionFactory = Factory.define<IntegrationConnection
       externalAccountId: `debug-${sequence}`,
       displayName: `Debug Connection ${sequence}`,
       lifecycleStatus: 'active',
-      capabilities: ['source_control'],
       createdAt: new Date(),
       updatedAt: new Date(),
     };

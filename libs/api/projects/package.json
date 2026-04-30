@@ -32,9 +32,9 @@
   },
   "dependencies": {
     "@shipfox/api-auth-context": "workspace:*",
+    "@shipfox/api-integration-core": "workspace:*",
     "@shipfox/api-projects-dto": "workspace:*",
     "@shipfox/api-workspaces": "workspace:*",
-    "@shipfox/config": "workspace:*",
     "@shipfox/node-drizzle": "workspace:*",
     "@shipfox/node-fastify": "workspace:*",
     "@shipfox/node-module": "workspace:*",

@@ -51,7 +51,6 @@ function createUpsertStub(): CreateDebugIntegrationRoutesOptions['upsertIntegrat
       externalAccountId: input.externalAccountId,
       displayName: input.displayName,
       lifecycleStatus: input.lifecycleStatus,
-      capabilities: input.capabilities,
       createdAt: now,
       updatedAt: now,
     };
@@ -127,7 +126,7 @@ describe('debug integration routes', () => {
     const provider = createDebugIntegrationProvider({
       upsertIntegrationConnection: createUpsertStub(),
     });
-    const result = await provider.sourceControl.listRepositories({
+    const result = await provider.adapters.source_control.listRepositories({
       connection: {},
       limit: 50,
     });

@@ -10,22 +10,22 @@ describe('integration provider registry', () => {
       {
         provider: 'debug',
         displayName: 'Debug',
-        capabilities: ['source_control'],
-        sourceControl: {
-          listRepositories: async () => {
-            await Promise.resolve();
-            return {repositories: [], nextCursor: null};
-          },
-          resolveRepository: async () => {
-            await Promise.resolve();
-            throw new Error('not used');
+        adapters: {
+          source_control: {
+            listRepositories: async () => {
+              await Promise.resolve();
+              return {repositories: [], nextCursor: null};
+            },
+            resolveRepository: async () => {
+              await Promise.resolve();
+              throw new Error('not used');
+            },
           },
         },
       },
       {
         provider: 'github',
         displayName: 'GitHub',
-        capabilities: [],
       },
     ]);
 
@@ -40,15 +40,16 @@ describe('integration provider registry', () => {
       {
         provider: 'debug',
         displayName: 'Debug',
-        capabilities: ['source_control'],
-        sourceControl: {
-          listRepositories: async () => {
-            await Promise.resolve();
-            return {repositories: [], nextCursor: null};
-          },
-          resolveRepository: async () => {
-            await Promise.resolve();
-            throw new Error('not used');
+        adapters: {
+          source_control: {
+            listRepositories: async () => {
+              await Promise.resolve();
+              return {repositories: [], nextCursor: null};
+            },
+            resolveRepository: async () => {
+              await Promise.resolve();
+              throw new Error('not used');
+            },
           },
         },
       },
@@ -63,12 +64,39 @@ describe('integration provider registry', () => {
       {
         provider: 'debug',
         displayName: 'Debug',
-        capabilities: ['source_control'],
       },
     ]);
 
     const result = () => registry.getSourceControl('debug');
 
     expect(result).toThrow(IntegrationCapabilityUnavailableError);
+  });
+
+  it('rejects duplicate provider registrations', () => {
+    const result = () =>
+      createIntegrationProviderRegistry([
+        {
+          provider: 'debug',
+          displayName: 'Debug',
+        },
+        {
+          provider: 'debug',
+          displayName: 'Debug Duplicate',
+        },
+      ]);
+
+    expect(result).toThrow('Duplicate integration provider registered');
+  });
+
+  it('rejects invalid provider ids', () => {
+    const result = () =>
+      createIntegrationProviderRegistry([
+        {
+          provider: 'GitHub',
+          displayName: 'GitHub',
+        },
+      ]);
+
+    expect(result).toThrow('Invalid integration provider id');
   });
 });

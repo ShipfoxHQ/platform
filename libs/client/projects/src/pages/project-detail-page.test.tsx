@@ -13,7 +13,7 @@ describe('ProjectDetailPage', () => {
     );
 
     expect(await screen.findByRole('heading', {name: 'Platform'})).toBeInTheDocument();
-    expect(screen.getByText('test-owner/platform')).toBeInTheDocument();
+    expect(screen.getAllByText('platform')[0]).toBeInTheDocument();
     expect(screen.getByText('Workflow discovery')).toBeInTheDocument();
   });
 
@@ -32,26 +32,12 @@ function projectDto() {
   return {
     id: '44444444-4444-4444-8444-444444444444',
     workspace_id: '11111111-1111-4111-8111-111111111111',
-    repository_id: '66666666-6666-4666-8666-666666666666',
     name: 'Platform',
+    source: {
+      connection_id: '33333333-3333-4333-8333-333333333333',
+      external_repository_id: 'platform',
+    },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    repository: {
-      id: '66666666-6666-4666-8666-666666666666',
-      vcs_connection_id: '33333333-3333-4333-8333-333333333333',
-      provider: 'test',
-      provider_host: 'test.local',
-      external_repository_id: 'platform',
-      owner: 'test-owner',
-      name: 'platform',
-      full_name: 'test-owner/platform',
-      default_branch: 'main',
-      visibility: 'private',
-      clone_url: 'https://test.local/test-owner/platform.git',
-      html_url: 'https://test.local/test-owner/platform',
-      metadata_fetched_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
   };
 }

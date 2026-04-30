@@ -1,9 +1,13 @@
 import type {
+  IntegrationConnectionDto,
+  ListIntegrationConnectionsResponseDto,
+  ListRepositoriesResponseDto,
+} from '@shipfox/api-integration-core-dto';
+import type {CreateDebugConnectionBodyDto} from '@shipfox/api-integration-debug-dto';
+import type {
   CreateProjectBodyDto,
-  CreateVcsConnectionBodyDto,
   ListProjectsResponseDto,
   ProjectResponseDto,
-  VcsConnectionDto,
 } from '@shipfox/api-projects-dto';
 import {apiRequest} from '@shipfox/client-api';
 import {useInfiniteQuery, useMutation, useQuery} from '@tanstack/react-query';
@@ -12,6 +16,14 @@ export const projectsQueryKeys = {
   all: ['projects'] as const,
   list: (workspaceId: string) => [...projectsQueryKeys.all, 'list', workspaceId] as const,
   detail: (projectId: string) => [...projectsQueryKeys.all, 'detail', projectId] as const,
+};
+
+export const integrationsQueryKeys = {
+  all: ['integrations'] as const,
+  sourceConnections: (workspaceId: string) =>
+    [...integrationsQueryKeys.all, 'source-connections', workspaceId] as const,
+  repositories: (connectionId: string) =>
+    [...integrationsQueryKeys.all, 'repositories', connectionId] as const,
 };
 
 export async function listProjects({
@@ -35,8 +47,41 @@ export async function getProject(projectId: string) {
   return await apiRequest<ProjectResponseDto>(`/projects/${projectId}`);
 }
 
-export async function createVcsConnection(body: CreateVcsConnectionBodyDto) {
-  return await apiRequest<VcsConnectionDto>('/vcs-connections', {method: 'POST', body});
+export async function listSourceConnections({
+  workspaceId,
+  signal,
+}: {
+  workspaceId: string;
+  signal?: AbortSignal;
+}) {
+  const search = new URLSearchParams({
+    workspace_id: workspaceId,
+    capability: 'source_control',
+  });
+  return await apiRequest<ListIntegrationConnectionsResponseDto>(
+    `/integration-connections?${search.toString()}`,
+    {signal},
+  );
+}
+
+export async function createDebugConnection(body: CreateDebugConnectionBodyDto) {
+  return await apiRequest<IntegrationConnectionDto>('/integrations/debug/connections', {
+    method: 'POST',
+    body,
+  });
+}
+
+export async function listRepositories({
+  connectionId,
+  signal,
+}: {
+  connectionId: string;
+  signal?: AbortSignal;
+}) {
+  return await apiRequest<ListRepositoriesResponseDto>(
+    `/integration-connections/${connectionId}/repositories`,
+    {signal},
+  );
 }
 
 export async function createProject(body: CreateProjectBodyDto) {
@@ -66,8 +111,28 @@ export function useProjectQuery(projectId: string | undefined) {
   });
 }
 
-export function useCreateVcsConnectionMutation() {
-  return useMutation({mutationFn: createVcsConnection});
+export function useSourceConnectionsQuery(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: workspaceId
+      ? integrationsQueryKeys.sourceConnections(workspaceId)
+      : [...integrationsQueryKeys.all, 'source-connections'],
+    enabled: Boolean(workspaceId),
+    queryFn: ({signal}) => listSourceConnections({workspaceId: workspaceId ?? '', signal}),
+  });
+}
+
+export function useRepositoriesQuery(connectionId: string | undefined) {
+  return useQuery({
+    queryKey: connectionId
+      ? integrationsQueryKeys.repositories(connectionId)
+      : [...integrationsQueryKeys.all, 'repositories'],
+    enabled: Boolean(connectionId),
+    queryFn: ({signal}) => listRepositories({connectionId: connectionId ?? '', signal}),
+  });
+}
+
+export function useCreateDebugConnectionMutation() {
+  return useMutation({mutationFn: createDebugConnection});
 }
 
 export function useCreateProjectMutation() {

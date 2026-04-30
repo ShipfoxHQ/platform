@@ -1,9 +1,10 @@
 import {AUTH_USER, setUserContext} from '@shipfox/api-auth-context';
+import type {IntegrationSourceControlService} from '@shipfox/api-integration-core';
+import {IntegrationConnectionNotFoundError} from '@shipfox/api-integration-core';
 import type {AuthMethod} from '@shipfox/node-fastify';
 import {closeApp, createApp} from '@shipfox/node-fastify';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
-import {createVcsConnection} from '#db/index.js';
-import {projectRoutes} from './index.js';
+import {createProjectRoutes} from './index.js';
 
 vi.mock('@shipfox/api-workspaces', () => ({
   requireMembership: vi.fn(({workspaceId, request}) =>
@@ -34,13 +35,46 @@ const fakeUserAuth: AuthMethod = {
 describe('project routes', () => {
   let app: FastifyInstance;
   let workspaceId: string;
+  let sourceConnectionId: string;
+  let sourceControl: IntegrationSourceControlService;
 
   beforeEach(async () => {
     await closeApp();
     workspaceId = crypto.randomUUID();
+    sourceConnectionId = crypto.randomUUID();
+    sourceControl = {
+      getConnection: vi.fn(),
+      listRepositories: vi.fn(),
+      resolveRepository: vi.fn(async () => {
+        await Promise.resolve();
+        return {
+          connection: {
+            id: sourceConnectionId,
+            workspaceId,
+            provider: 'debug' as const,
+            externalAccountId: 'debug',
+            displayName: 'Debug Source Control',
+            lifecycleStatus: 'active' as const,
+            capabilities: ['source_control' as const],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          repository: {
+            externalRepositoryId: 'platform',
+            owner: 'debug-owner',
+            name: 'platform',
+            fullName: 'debug-owner/platform',
+            defaultBranch: 'main',
+            visibility: 'private' as const,
+            cloneUrl: 'https://debug.local/debug-owner/platform.git',
+            htmlUrl: 'https://debug.local/debug-owner/platform',
+          },
+        };
+      }),
+    };
     app = await createApp({
       auth: [fakeUserAuth],
-      routes: projectRoutes,
+      routes: createProjectRoutes(sourceControl),
       swagger: false,
     });
     await app.ready();
@@ -50,34 +84,7 @@ describe('project routes', () => {
     await closeApp();
   });
 
-  test('creates a test VCS connection', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/vcs-connections',
-      headers: {authorization: 'Bearer user'},
-      payload: {
-        workspace_id: workspaceId,
-        provider: 'test',
-        provider_host: 'test.local',
-        external_connection_id: 'installation-1',
-        display_name: 'Test Installation',
-      },
-    });
-
-    expect(res.statusCode).toBe(201);
-    expect(res.json().workspace_id).toBe(workspaceId);
-    expect(res.json().provider).toBe('test');
-  });
-
-  test('creates a project for a repository without requiring workflow definitions', async () => {
-    const connection = await createVcsConnection({
-      workspaceId,
-      provider: 'test',
-      providerHost: 'test.local',
-      externalConnectionId: 'installation-1',
-      displayName: 'Test Installation',
-    });
-
+  test('creates a project for a source repository', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/projects',
@@ -85,24 +92,22 @@ describe('project routes', () => {
       payload: {
         workspace_id: workspaceId,
         name: 'Platform',
-        vcs_connection_id: connection.id,
-        external_repository_id: 'platform',
+        source: {
+          connection_id: sourceConnectionId,
+          external_repository_id: 'platform',
+        },
       },
     });
 
     expect(res.statusCode).toBe(201);
     expect(res.json().name).toBe('Platform');
-    expect(res.json().repository.full_name).toBe('test-owner/platform');
+    expect(res.json().source).toEqual({
+      connection_id: sourceConnectionId,
+      external_repository_id: 'platform',
+    });
   });
 
-  test('lists projects for a workspace', async () => {
-    const connection = await createVcsConnection({
-      workspaceId,
-      provider: 'test',
-      providerHost: 'test.local',
-      externalConnectionId: 'installation-1',
-      displayName: 'Test Installation',
-    });
+  test('lists projects for a workspace with source references', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/projects',
@@ -110,8 +115,10 @@ describe('project routes', () => {
       payload: {
         workspace_id: workspaceId,
         name: 'Platform',
-        vcs_connection_id: connection.id,
-        external_repository_id: 'platform',
+        source: {
+          connection_id: sourceConnectionId,
+          external_repository_id: 'platform',
+        },
       },
     });
 
@@ -126,21 +133,17 @@ describe('project routes', () => {
     expect(res.json().projects.map((project: {id: string}) => project.id)).toContain(
       createRes.json().id,
     );
+    expect(res.json().projects[0].source.connection_id).toBe(sourceConnectionId);
   });
 
-  test('returns 409 when a workspace already has a project for the repository', async () => {
-    const connection = await createVcsConnection({
-      workspaceId,
-      provider: 'test',
-      providerHost: 'test.local',
-      externalConnectionId: 'installation-1',
-      displayName: 'Test Installation',
-    });
+  test('returns 409 when the source repository already has a project', async () => {
     const payload = {
       workspace_id: workspaceId,
       name: 'Platform',
-      vcs_connection_id: connection.id,
-      external_repository_id: 'platform',
+      source: {
+        connection_id: sourceConnectionId,
+        external_repository_id: 'platform',
+      },
     };
     await app.inject({
       method: 'POST',
@@ -158,5 +161,29 @@ describe('project routes', () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.json().code).toBe('project-already-exists');
+    expect(res.json().details.source_connection_id).toBe(sourceConnectionId);
+  });
+
+  test('maps missing source connections to a stable error', async () => {
+    vi.mocked(sourceControl.resolveRepository).mockRejectedValueOnce(
+      new IntegrationConnectionNotFoundError(sourceConnectionId),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        workspace_id: workspaceId,
+        name: 'Platform',
+        source: {
+          connection_id: sourceConnectionId,
+          external_repository_id: 'platform',
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('source-connection-not-found');
   });
 });

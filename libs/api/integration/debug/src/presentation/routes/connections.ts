@@ -1,6 +1,5 @@
 import {AUTH_USER} from '@shipfox/api-auth-context';
 import {
-  type IntegrationCapabilityDto,
   type IntegrationConnectionLifecycleStatusDto,
   type IntegrationProviderKindDto,
   integrationConnectionDtoSchema,
@@ -16,7 +15,6 @@ interface DebugConnectionRecord {
   externalAccountId: string;
   displayName: string;
   lifecycleStatus: IntegrationConnectionLifecycleStatusDto;
-  capabilities: IntegrationCapabilityDto[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,7 +25,6 @@ interface UpsertDebugConnectionInput {
   externalAccountId: 'debug';
   displayName: 'Debug Source Control';
   lifecycleStatus: 'active';
-  capabilities: ['source_control'];
 }
 
 export interface CreateDebugIntegrationRoutesOptions {
@@ -44,7 +41,7 @@ function toIntegrationConnectionDto(connection: DebugConnectionRecord) {
     external_account_id: connection.externalAccountId,
     display_name: connection.displayName,
     lifecycle_status: connection.lifecycleStatus,
-    capabilities: connection.capabilities,
+    capabilities: ['source_control' as const],
     created_at: connection.createdAt.toISOString(),
     updated_at: connection.updatedAt.toISOString(),
   };
@@ -74,7 +71,6 @@ export function createDebugIntegrationRoutes({
         externalAccountId: 'debug',
         displayName: 'Debug Source Control',
         lifecycleStatus: 'active',
-        capabilities: ['source_control'],
       });
 
       reply.status(201);

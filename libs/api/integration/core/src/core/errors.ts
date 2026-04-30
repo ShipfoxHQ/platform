@@ -1,4 +1,4 @@
-import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/connection.js';
+import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/provider.js';
 
 export class IntegrationConnectionNotFoundError extends Error {
   constructor(connectionId: string) {
@@ -9,6 +9,12 @@ export class IntegrationConnectionNotFoundError extends Error {
 export class IntegrationConnectionInactiveError extends Error {
   constructor(connectionId: string) {
     super(`Integration connection is not active: ${connectionId}`);
+  }
+}
+
+export class IntegrationConnectionWorkspaceMismatchError extends Error {
+  constructor(connectionId: string) {
+    super(`Integration connection does not belong to the requested workspace: ${connectionId}`);
   }
 }
 
