@@ -1,6 +1,12 @@
 import {DEFINITION_RESOLVED} from '@shipfox/api-definitions-dto';
-import {drainAll, markDispatched, registerPublisher, resetPublishers} from '@shipfox/node-module';
-import {isNotNull, isNull, sql} from 'drizzle-orm';
+import {
+  type DrainedEvent,
+  drainAll,
+  markDispatched,
+  registerPublisher,
+  resetPublishers,
+} from '@shipfox/node-module';
+import {sql} from 'drizzle-orm';
 import type {WorkflowSpec} from '#core/entities/definition.js';
 import {db} from './db.js';
 import {
@@ -23,6 +29,13 @@ async function listOutboxRowsForProject(projectId: string) {
     .select()
     .from(definitionsOutbox)
     .where(sql`${definitionsOutbox.payload}->>'projectId' = ${projectId}`);
+}
+
+function eventsForProject(events: DrainedEvent[], projectId: string) {
+  return events.filter((event) => {
+    const payload = event.event.payload as {projectId?: unknown};
+    return payload.projectId === projectId;
+  });
 }
 
 describe('definition queries', () => {
@@ -375,10 +388,11 @@ describe('definition queries', () => {
       });
 
       const events = await drainAll();
+      const projectEvents = eventsForProject(events, projectId);
 
-      expect(events).toHaveLength(1);
-      expect(events[0]?.source).toBe('definitions');
-      expect(events[0]?.event.type).toBe(DEFINITION_RESOLVED);
+      expect(projectEvents).toHaveLength(1);
+      expect(projectEvents[0]?.source).toBe('definitions');
+      expect(projectEvents[0]?.event.type).toBe(DEFINITION_RESOLVED);
     });
 
     test('markDispatched sets dispatchedAt for a single event', async () => {
@@ -388,16 +402,14 @@ describe('definition queries', () => {
         name: 'Test',
         definition: spec(),
       });
-      const events = await drainAll();
+      const events = eventsForProject(await drainAll(), projectId);
 
       await markDispatched('definitions', [events[0]?.id as string]);
 
-      const rows = await db()
-        .select()
-        .from(definitionsOutbox)
-        .where(isNotNull(definitionsOutbox.dispatchedAt));
-      expect(rows).toHaveLength(1);
-      expect(rows[0]?.id).toBe(events[0]?.id);
+      const rows = await listOutboxRowsForProject(projectId);
+      const dispatched = rows.filter((row) => row.dispatchedAt !== null);
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0]?.id).toBe(events[0]?.id);
     });
 
     test('markDispatched sets dispatchedAt for multiple events', async () => {
@@ -413,15 +425,13 @@ describe('definition queries', () => {
         name: 'B',
         definition: spec('B'),
       });
-      const events = await drainAll();
+      const events = eventsForProject(await drainAll(), projectId);
       const ids = events.map((e) => e.id);
 
       await markDispatched('definitions', ids);
 
-      const pending = await db()
-        .select()
-        .from(definitionsOutbox)
-        .where(isNull(definitionsOutbox.dispatchedAt));
+      const rows = await listOutboxRowsForProject(projectId);
+      const pending = rows.filter((row) => row.dispatchedAt === null);
       expect(pending).toHaveLength(0);
     });
 
@@ -432,10 +442,10 @@ describe('definition queries', () => {
         name: 'Test',
         definition: spec(),
       });
-      const events = await drainAll();
+      const events = eventsForProject(await drainAll(), projectId);
       await markDispatched('definitions', [events[0]?.id as string]);
 
-      const secondDrain = await drainAll();
+      const secondDrain = eventsForProject(await drainAll(), projectId);
 
       expect(secondDrain).toHaveLength(0);
     });
