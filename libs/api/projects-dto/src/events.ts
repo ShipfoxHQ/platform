@@ -14,7 +14,7 @@ export interface ProjectSourceBoundEvent {
   workspaceId: string;
   projectId: string;
   sourceConnectionId: string;
-  provider: 'debug' | 'github';
+  provider: string;
   externalRepositoryId: string;
 }
 

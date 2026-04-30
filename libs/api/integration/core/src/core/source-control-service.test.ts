@@ -1,7 +1,7 @@
 import {IntegrationProviderError} from './errors.js';
 import {createIntegrationProviderRegistry} from './providers/registry.js';
 import type {RepositorySnapshot, SourceControlProvider} from './providers/source-control.js';
-import {createIntegrationSourceControlService} from './source-control-service.js';
+import {createSourceControlIntegrationService} from './source-control-service.js';
 
 const repository: RepositorySnapshot = {
   externalRepositoryId: 'platform',
@@ -39,13 +39,14 @@ describe('integration source-control service', () => {
       },
       ...overrides,
     };
-    return createIntegrationSourceControlService({
+    return createSourceControlIntegrationService({
       registry: createIntegrationProviderRegistry([
         {
           provider: 'debug',
           displayName: 'Debug',
-          capabilities: ['source_control'],
-          sourceControl,
+          adapters: {
+            source_control: sourceControl,
+          },
         },
       ]),
       getIntegrationConnectionById: async (connectionId) => {

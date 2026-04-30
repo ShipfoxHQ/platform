@@ -126,7 +126,7 @@ describe('debug integration routes', () => {
     const provider = createDebugIntegrationProvider({
       upsertIntegrationConnection: createUpsertStub(),
     });
-    const result = await provider.sourceControl.listRepositories({
+    const result = await provider.adapters.source_control.listRepositories({
       connection: {},
       limit: 50,
     });

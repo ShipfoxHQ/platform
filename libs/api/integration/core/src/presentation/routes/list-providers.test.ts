@@ -20,7 +20,6 @@ describe('GET /integration-providers', () => {
       {
         provider: 'github',
         displayName: 'GitHub',
-        capabilities: [],
       },
     ]);
 

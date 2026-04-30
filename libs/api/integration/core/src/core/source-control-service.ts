@@ -37,7 +37,7 @@ export interface CreateIntegrationSourceControlServiceOptions {
   ) => Promise<IntegrationConnection | undefined>;
 }
 
-export function createIntegrationSourceControlService({
+export function createSourceControlIntegrationService({
   registry,
   getIntegrationConnectionById,
 }: CreateIntegrationSourceControlServiceOptions): IntegrationSourceControlService {
@@ -55,7 +55,7 @@ export function createIntegrationSourceControlService({
     getConnection,
 
     async listRepositories({connection, limit, cursor}) {
-      const sourceControl = registry.getSourceControl(connection.provider);
+      const sourceControl = registry.getAdapter(connection.provider, 'source_control');
       return await sourceControl.listRepositories({
         connection,
         limit,
@@ -68,7 +68,7 @@ export function createIntegrationSourceControlService({
       if (connection.workspaceId !== workspaceId) {
         throw new IntegrationConnectionWorkspaceMismatchError(connectionId);
       }
-      const sourceControl = registry.getSourceControl(connection.provider);
+      const sourceControl = registry.getAdapter(connection.provider, 'source_control');
 
       const repository = await sourceControl.resolveRepository({
         connection,

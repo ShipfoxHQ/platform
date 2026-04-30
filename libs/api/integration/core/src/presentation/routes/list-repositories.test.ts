@@ -70,8 +70,7 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       sourceProvider({
         provider: 'github',
         displayName: 'GitHub',
-        capabilities: [],
-        sourceControl: undefined,
+        adapters: {},
       }),
     ]);
     const connection = await upsertIntegrationConnection({
@@ -113,14 +112,16 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
   it('maps provider repository listing errors', async () => {
     const app = await createTestApp([
       sourceProvider({
-        sourceControl: {
-          listRepositories: async () => {
-            await Promise.resolve();
-            throw new IntegrationProviderError('rate-limited', 'Provider rate limited', 60);
-          },
-          resolveRepository: async () => {
-            await Promise.resolve();
-            throw new Error('not used');
+        adapters: {
+          source_control: {
+            listRepositories: async () => {
+              await Promise.resolve();
+              throw new IntegrationProviderError('rate-limited', 'Provider rate limited', 60);
+            },
+            resolveRepository: async () => {
+              await Promise.resolve();
+              throw new Error('not used');
+            },
           },
         },
       }),

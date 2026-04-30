@@ -1,9 +1,12 @@
 import {createDebugIntegrationProvider} from '@shipfox/api-integration-debug';
 import type {ShipfoxModule} from '@shipfox/node-module';
 import type {IntegrationProvider} from '#core/entities/provider.js';
-import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
 import {
-  createIntegrationSourceControlService,
+  createIntegrationProviderRegistry,
+  type IntegrationProviderRegistry,
+} from '#core/providers/registry.js';
+import {
+  createSourceControlIntegrationService,
   type IntegrationSourceControlService,
 } from '#core/source-control-service.js';
 import {getIntegrationConnectionById, upsertIntegrationConnection} from '#db/connections.js';
@@ -19,7 +22,9 @@ export type {
 export type {
   IntegrationCapability,
   IntegrationProvider,
+  IntegrationProviderAdapters,
   IntegrationProviderKind,
+  RegisteredIntegrationProvider,
 } from '#core/entities/provider.js';
 export type {IntegrationProviderErrorReason} from '#core/errors.js';
 export {
@@ -40,6 +45,7 @@ export type {
   SourceControlProvider,
 } from '#core/providers/source-control.js';
 export type {IntegrationSourceControlService} from '#core/source-control-service.js';
+export {createSourceControlIntegrationService} from '#core/source-control-service.js';
 
 export interface CreateIntegrationsModuleOptions {
   providers?: IntegrationProvider[] | undefined;
@@ -47,6 +53,10 @@ export interface CreateIntegrationsModuleOptions {
 
 export interface IntegrationsContext {
   module: ShipfoxModule;
+  registry: IntegrationProviderRegistry;
+  capabilities: {
+    sourceControl: IntegrationSourceControlService;
+  };
   sourceControl: IntegrationSourceControlService;
 }
 
@@ -70,7 +80,7 @@ export function createIntegrationsContext(
   const registry = createIntegrationProviderRegistry(
     options.providers ?? createConfiguredProviders(),
   );
-  const sourceControl = createIntegrationSourceControlService({
+  const sourceControl = createSourceControlIntegrationService({
     registry,
     getIntegrationConnectionById,
   });
@@ -81,7 +91,7 @@ export function createIntegrationsContext(
     routes: createIntegrationRoutes(registry, sourceControl),
   };
 
-  return {module, sourceControl};
+  return {module, registry, capabilities: {sourceControl}, sourceControl};
 }
 
 export const integrationsModule: ShipfoxModule = createIntegrationsModule();

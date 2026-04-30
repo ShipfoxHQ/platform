@@ -1,8 +1,8 @@
 import type {IntegrationConnection} from '#core/entities/connection.js';
-import type {IntegrationProvider} from '#core/entities/provider.js';
+import type {RegisteredIntegrationProvider} from '#core/entities/provider.js';
 import type {RepositorySnapshot} from '#core/providers/source-control.js';
 
-export function toIntegrationProviderDto(provider: IntegrationProvider) {
+export function toIntegrationProviderDto(provider: RegisteredIntegrationProvider) {
   return {
     provider: provider.provider,
     display_name: provider.displayName,
@@ -12,7 +12,7 @@ export function toIntegrationProviderDto(provider: IntegrationProvider) {
 
 export function toIntegrationConnectionDto(
   connection: IntegrationConnection,
-  provider: IntegrationProvider,
+  provider: RegisteredIntegrationProvider,
 ) {
   return {
     id: connection.id,
