@@ -25,6 +25,10 @@
       "cache": true,
       "dependsOn": ["^build"]
     },
+    "@shipfox/api-projects#test": {
+      "cache": true,
+      "dependsOn": ["^build", "@shipfox/api-workspaces#test"]
+    },
     "test:e2e": {
       "cache": false,
       "dependsOn": ["^build"]
