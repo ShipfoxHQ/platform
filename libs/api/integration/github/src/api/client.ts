@@ -235,7 +235,9 @@ function retryAfterSecondsFromHeaders(headers: Headers): number | undefined {
   return parseRetryAfterSeconds(headers.get('retry-after'));
 }
 
-function parseRetryAfterSeconds(retryAfter: string | number | null | undefined): number | undefined {
+function parseRetryAfterSeconds(
+  retryAfter: string | number | null | undefined,
+): number | undefined {
   if (!retryAfter) return undefined;
   const parsed = Number.parseInt(String(retryAfter), 10);
   return Number.isNaN(parsed) ? undefined : parsed;

@@ -1,22 +1,14 @@
+import type {
+  IntegrationProvider as CoreIntegrationProvider,
+  RegisteredIntegrationProvider as CoreRegisteredIntegrationProvider,
+} from '@shipfox/api-integration-core-dto';
 import type {RouteExport} from '@shipfox/node-fastify';
-import type {SourceControlProvider} from '#core/providers/source-control.js';
 
-export type IntegrationProviderKind = string;
+export type {
+  IntegrationCapability,
+  IntegrationProviderAdapters,
+  IntegrationProviderKind,
+} from '@shipfox/api-integration-core-dto';
 
-export interface IntegrationProviderAdapters {
-  source_control?: SourceControlProvider | undefined;
-}
-
-export type IntegrationCapability = keyof IntegrationProviderAdapters;
-
-export interface IntegrationProvider {
-  provider: IntegrationProviderKind;
-  displayName: string;
-  adapters?: IntegrationProviderAdapters | undefined;
-  routes?: RouteExport[] | undefined;
-}
-
-export interface RegisteredIntegrationProvider extends IntegrationProvider {
-  adapters: IntegrationProviderAdapters;
-  capabilities: IntegrationCapability[];
-}
+export type IntegrationProvider = CoreIntegrationProvider<string, RouteExport>;
+export type RegisteredIntegrationProvider = CoreRegisteredIntegrationProvider<string, RouteExport>;
