@@ -1,0 +1,34 @@
+{
+  "name": "@shipfox/landing",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#*": "./src/*"
+  },
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev --port 8033",
+    "start": "next start --port 8033",
+    "check": "shipfox-biome-check",
+    "check:fix": "shipfox-biome-check --write",
+    "type": "shipfox-tsc-check"
+  },
+  "dependencies": {
+    "@shipfox/react-ui": "workspace:*",
+    "next": "^15.5.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@shipfox/biome": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^24.1.0",
+    "@types/react": "^19.1.11",
+    "@types/react-dom": "^19.1.7",
+    "tailwindcss": "^4.1.13",
+    "typescript": "~5.9.0"
+  }
+}

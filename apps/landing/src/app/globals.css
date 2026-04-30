@@ -1,0 +1,305 @@
+@import "@shipfox/react-ui/index.css";
+
+@source "../";
+@source "../../../../libs/shared/react/ui/src";
+
+html.dark {
+  background: var(--color-neutral-1000);
+}
+
+@layer base {
+  body {
+    background: var(--color-neutral-1000);
+  }
+}
+
+@utility wrap {
+  max-width: 1240px;
+  margin-inline: auto;
+  padding-inline: 32px;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+@keyframes flow-dash {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -286;
+  }
+}
+
+@keyframes node-pulse {
+  0% {
+    opacity: 0;
+    r: 36;
+  }
+  8% {
+    opacity: 0.9;
+  }
+  25% {
+    opacity: 0;
+    r: 56;
+  }
+  100% {
+    opacity: 0;
+    r: 56;
+  }
+}
+
+@keyframes mem-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes mem-glow {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@utility bg-grid-dots {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+@utility bg-grid-dots-subtle {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+.flow-svg .arc-track {
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 1.25;
+  fill: none;
+}
+.flow-svg .arc-fg {
+  stroke: var(--color-primary-400);
+  stroke-width: 1.25;
+  fill: none;
+  stroke-dasharray: 6 280;
+  stroke-linecap: round;
+  animation: flow-dash 9s linear infinite;
+}
+.flow-svg .arc-fg.s2 {
+  animation-delay: -2.25s;
+}
+.flow-svg .arc-fg.s3 {
+  animation-delay: -4.5s;
+}
+.flow-svg .arc-fg.s4 {
+  animation-delay: -6.75s;
+}
+.flow-svg .node-ring {
+  fill: var(--color-neutral-900);
+  stroke-width: 1;
+}
+.flow-svg .node-ring.is-run {
+  stroke: rgba(255, 75, 0, 0.45);
+}
+.flow-svg .node-ring.is-review {
+  stroke: rgba(96, 165, 250, 0.5);
+}
+.flow-svg .node-ring.is-suggest {
+  stroke: rgba(167, 139, 250, 0.5);
+}
+.flow-svg .node-ring.is-remember {
+  stroke: rgba(52, 211, 153, 0.5);
+}
+.flow-svg .node-pulse {
+  fill: none;
+  stroke-width: 1.25;
+  opacity: 0;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.flow-svg .node-pulse.is-run {
+  stroke: rgba(255, 75, 0, 0.6);
+  animation: node-pulse 9s linear infinite;
+}
+.flow-svg .node-pulse.is-review {
+  stroke: rgba(96, 165, 250, 0.7);
+  animation: node-pulse 9s linear infinite;
+  animation-delay: 2.25s;
+}
+.flow-svg .node-pulse.is-suggest {
+  stroke: rgba(167, 139, 250, 0.7);
+  animation: node-pulse 9s linear infinite;
+  animation-delay: 4.5s;
+}
+.flow-svg .node-pulse.is-remember {
+  stroke: rgba(52, 211, 153, 0.7);
+  animation: node-pulse 9s linear infinite;
+  animation-delay: 6.75s;
+}
+.flow-svg .mem-bubble {
+  animation: mem-breathe 9s ease-in-out infinite;
+  transform-origin: 230px 230px;
+  transform-box: fill-box;
+}
+.flow-svg .mem-glow {
+  animation: mem-glow 9s ease-in-out infinite;
+  transform-origin: 230px 230px;
+  transform-box: fill-box;
+}
+.flow-svg .traveler {
+  fill: var(--color-primary-400);
+  filter: drop-shadow(0 0 6px rgba(255, 75, 0, 0.7));
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-svg .arc-fg,
+  .flow-svg .node-pulse,
+  .flow-svg .mem-bubble,
+  .flow-svg .mem-glow {
+    animation: none;
+  }
+  .flow-svg .arc-fg {
+    stroke-dasharray: none;
+    opacity: 0.5;
+  }
+}
+
+.dag-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 0;
+}
+.dag-svg .dag-edge-anim {
+  animation: dash-flow 1.2s linear infinite;
+}
+
+.yaml-hover {
+  display: inline;
+  padding: 1px 6px 1px 18px;
+  margin: 0 -2px;
+  border-radius: 4px;
+  cursor: help;
+  position: relative;
+  background: rgba(255, 75, 0, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 75, 0, 0.18);
+  text-decoration: underline dotted rgba(255, 75, 0, 0.55);
+  text-underline-offset: 3px;
+  transition:
+    background 120ms,
+    box-shadow 120ms;
+  background-image: radial-gradient(
+    circle at 7px 50%,
+    rgba(255, 75, 0, 0.9) 0 2.2px,
+    transparent 2.2px
+  );
+}
+.yaml-hover:hover {
+  background: rgba(255, 75, 0, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 75, 0, 0.5);
+  text-decoration: none;
+  background-image: radial-gradient(
+    circle at 7px 50%,
+    rgba(255, 75, 0, 0.9) 0 2.2px,
+    transparent 2.2px
+  );
+}
+.yaml-hover[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 14px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--color-neutral-800);
+  color: var(--color-neutral-100);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font: 400 11px / 16px var(--font-display);
+  width: 240px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms;
+  box-shadow: var(--shadow-tooltip);
+  border: 1px solid var(--color-alpha-white-10);
+  z-index: 10;
+}
+.yaml-hover[data-tip]::before {
+  content: "";
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  background: var(--color-neutral-800);
+  border-left: 1px solid var(--color-alpha-white-10);
+  border-bottom: 1px solid var(--color-alpha-white-10);
+  opacity: 0;
+  transition: opacity 120ms;
+  z-index: 11;
+}
+.yaml-hover[data-tip]:hover::after,
+.yaml-hover[data-tip]:hover::before {
+  opacity: 1;
+}
+
+.yaml-token-k {
+  color: var(--color-orange-400);
+}
+.yaml-token-s {
+  color: var(--color-green-400);
+}
+.yaml-token-c {
+  color: var(--color-neutral-500);
+}
+.yaml-token-v {
+  color: var(--color-purple-400);
+}
+.yaml-token-a {
+  color: var(--color-blue-400);
+}
+.yaml-token-o {
+  color: var(--color-primary-400);
+}
+.yaml-token-n {
+  color: var(--color-red-400);
+}
+
+.shipfox-shadow-cta {
+  box-shadow:
+    0 0 0 1px rgba(255, 75, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 4px 12px rgba(255, 75, 0, 0.18);
+}
