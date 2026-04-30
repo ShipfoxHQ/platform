@@ -1,5 +1,5 @@
 {
-  "name": "@shipfox/api-integration-core",
+  "name": "@shipfox/api-integration-github-dto",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -25,35 +25,20 @@
     "build": "shipfox-swc",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
-    "test": "shipfox-vitest-run",
-    "test:watch": "shipfox-vitest-watch",
+    "depcruise": "shipfox-depcruise",
     "type": "shipfox-tsc-check",
     "type:emit": "shipfox-tsc-emit"
   },
   "dependencies": {
-    "@shipfox/api-auth-context": "workspace:*",
-    "@shipfox/api-integration-debug": "workspace:*",
     "@shipfox/api-integration-core-dto": "workspace:*",
-    "@shipfox/api-integration-github": "workspace:*",
-    "@shipfox/api-workspaces": "workspace:*",
-    "@shipfox/config": "workspace:*",
-    "@shipfox/node-drizzle": "workspace:*",
-    "@shipfox/node-fastify": "workspace:*",
-    "@shipfox/node-module": "workspace:*",
-    "@shipfox/node-postgres": "workspace:*",
-    "drizzle-orm": "^0.45.2",
     "zod": "^3.25.67"
   },
   "devDependencies": {
     "@shipfox/biome": "workspace:*",
+    "@shipfox/depcruise": "workspace:*",
     "@shipfox/swc": "workspace:*",
     "@shipfox/ts-config": "workspace:*",
     "@shipfox/typescript": "workspace:*",
-    "@shipfox/vitest": "workspace:*",
-    "@types/pg": "^8.15.5",
-    "drizzle-kit": "^0.31.10",
-    "fastify": "^5.3.3",
-    "fastify-type-provider-zod": "^4.0.2",
-    "fishery": "^2.2.2"
+    "@shipfox/vitest": "workspace:*"
   }
 }

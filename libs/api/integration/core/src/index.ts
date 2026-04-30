@@ -1,4 +1,12 @@
 import {createDebugIntegrationProvider} from '@shipfox/api-integration-debug';
+import {
+  type ConnectGithubInstallationInput,
+  createGithubIntegrationProvider,
+  type IntegrationConnection as GithubIntegrationConnection,
+  db as githubDb,
+  migrationsPath as githubMigrationsPath,
+  upsertGithubInstallation,
+} from '@shipfox/api-integration-github';
 import type {ShipfoxModule} from '@shipfox/node-module';
 import type {IntegrationProvider} from '#core/providers/provider.js';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
@@ -36,7 +44,42 @@ function createConfiguredProviders(): IntegrationProvider[] {
   if (config.INTEGRATIONS_ENABLE_DEBUG_PROVIDER) {
     providers.push(createDebugIntegrationProvider({upsertIntegrationConnection}));
   }
+  if (config.INTEGRATIONS_ENABLE_GITHUB_PROVIDER) {
+    providers.push(
+      createGithubIntegrationProvider({
+        connectGithubInstallation,
+      }),
+    );
+  }
   return providers;
+}
+
+async function connectGithubInstallation(
+  input: ConnectGithubInstallationInput,
+): Promise<GithubIntegrationConnection> {
+  return await db().transaction(async (tx) => {
+    const connection = await upsertIntegrationConnection(
+      {
+        workspaceId: input.workspaceId,
+        provider: 'github',
+        externalAccountId: input.installationId,
+        displayName: input.displayName,
+        lifecycleStatus: 'active',
+        capabilities: ['source_control'],
+      },
+      {tx},
+    );
+
+    await upsertGithubInstallation(
+      {
+        connectionId: connection.id,
+        ...input.installation,
+      },
+      {tx},
+    );
+
+    return connection as GithubIntegrationConnection;
+  });
 }
 
 export function createIntegrationsModule(
@@ -48,7 +91,12 @@ export function createIntegrationsModule(
 
   return {
     name: 'integrations',
-    database: {db, migrationsPath},
+    database: config.INTEGRATIONS_ENABLE_GITHUB_PROVIDER
+      ? [
+          {db, migrationsPath},
+          {db: githubDb, migrationsPath: githubMigrationsPath},
+        ]
+      : {db, migrationsPath},
     routes: createIntegrationRoutes(registry),
   };
 }

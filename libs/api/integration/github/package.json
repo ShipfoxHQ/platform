@@ -1,5 +1,5 @@
 {
-  "name": "@shipfox/api-integration-core",
+  "name": "@shipfox/api-integration-github",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -32,16 +32,15 @@
   },
   "dependencies": {
     "@shipfox/api-auth-context": "workspace:*",
-    "@shipfox/api-integration-debug": "workspace:*",
     "@shipfox/api-integration-core-dto": "workspace:*",
-    "@shipfox/api-integration-github": "workspace:*",
+    "@shipfox/api-integration-github-dto": "workspace:*",
     "@shipfox/api-workspaces": "workspace:*",
     "@shipfox/config": "workspace:*",
     "@shipfox/node-drizzle": "workspace:*",
     "@shipfox/node-fastify": "workspace:*",
-    "@shipfox/node-module": "workspace:*",
     "@shipfox/node-postgres": "workspace:*",
     "drizzle-orm": "^0.45.2",
+    "octokit": "^5.0.3",
     "zod": "^3.25.67"
   },
   "devDependencies": {
@@ -53,7 +52,6 @@
     "@types/pg": "^8.15.5",
     "drizzle-kit": "^0.31.10",
     "fastify": "^5.3.3",
-    "fastify-type-provider-zod": "^4.0.2",
-    "fishery": "^2.2.2"
+    "fastify-type-provider-zod": "^4.0.2"
   }
 }

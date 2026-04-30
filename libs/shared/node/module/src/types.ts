@@ -32,7 +32,7 @@ export interface ModuleWorker {
 
 export interface ShipfoxModule {
   name: string;
-  database?: ModuleDatabase;
+  database?: ModuleDatabase | ModuleDatabase[];
   auth?: AuthMethod[];
   routes?: RouteExport[];
   e2eRoutes?: RouteExport[];

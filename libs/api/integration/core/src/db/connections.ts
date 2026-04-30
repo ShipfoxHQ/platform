@@ -8,6 +8,9 @@ import type {
 import {db} from './db.js';
 import {integrationConnections, toIntegrationConnection} from './schema/connections.js';
 
+type IntegrationDb = ReturnType<typeof db>;
+type IntegrationTx = Parameters<Parameters<IntegrationDb['transaction']>[0]>[0];
+
 export interface UpsertIntegrationConnectionParams {
   workspaceId: string;
   provider: IntegrationProviderKind;
@@ -19,9 +22,11 @@ export interface UpsertIntegrationConnectionParams {
 
 export async function upsertIntegrationConnection(
   params: UpsertIntegrationConnectionParams,
+  options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<IntegrationConnection> {
+  const executor = options.tx ?? db();
   const now = new Date();
-  const [row] = await db()
+  const [row] = await executor
     .insert(integrationConnections)
     .values({
       workspaceId: params.workspaceId,
