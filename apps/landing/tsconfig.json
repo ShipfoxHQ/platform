@@ -1,0 +1,26 @@
+{
+  "extends": "@shipfox/ts-config/react",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": true,
+    "jsx": "preserve",
+    "allowJs": true,
+    "esModuleInterop": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "#*": ["./src/*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "next.config.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", ".next", "dist"]
+}
