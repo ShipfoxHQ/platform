@@ -51,7 +51,6 @@ function createUpsertStub(): CreateDebugIntegrationRoutesOptions['upsertIntegrat
       externalAccountId: input.externalAccountId,
       displayName: input.displayName,
       lifecycleStatus: input.lifecycleStatus,
-      capabilities: input.capabilities,
       createdAt: now,
       updatedAt: now,
     };

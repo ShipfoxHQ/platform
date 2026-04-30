@@ -1,6 +1,5 @@
 import type {IntegrationConnection} from './entities/connection.js';
 import {
-  IntegrationCapabilityUnavailableError,
   IntegrationConnectionInactiveError,
   IntegrationConnectionNotFoundError,
   IntegrationConnectionWorkspaceMismatchError,
@@ -47,9 +46,6 @@ export function createIntegrationSourceControlService({
     if (!connection) throw new IntegrationConnectionNotFoundError(connectionId);
     if (connection.lifecycleStatus !== 'active') {
       throw new IntegrationConnectionInactiveError(connection.id);
-    }
-    if (!connection.capabilities.includes('source_control')) {
-      throw new IntegrationCapabilityUnavailableError('source_control', connection.provider);
     }
 
     return connection;

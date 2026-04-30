@@ -1,6 +1,9 @@
 import type {RouteExport} from '@shipfox/node-fastify';
-import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/connection.js';
-import type {SourceControlProvider} from './source-control.js';
+import type {SourceControlProvider} from '#core/providers/source-control.js';
+
+export type IntegrationProviderKind = 'debug' | 'github';
+
+export type IntegrationCapability = 'source_control';
 
 export interface IntegrationProvider {
   provider: IntegrationProviderKind;

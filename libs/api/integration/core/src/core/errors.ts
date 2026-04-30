@@ -1,4 +1,4 @@
-import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/connection.js';
+import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/provider.js';
 
 export class IntegrationConnectionNotFoundError extends Error {
   constructor(connectionId: string) {

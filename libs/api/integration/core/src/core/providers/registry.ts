@@ -1,9 +1,12 @@
-import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/connection.js';
+import type {
+  IntegrationCapability,
+  IntegrationProvider,
+  IntegrationProviderKind,
+} from '#core/entities/provider.js';
 import {
   IntegrationCapabilityUnavailableError,
   IntegrationProviderUnavailableError,
 } from '#core/errors.js';
-import type {IntegrationProvider} from './provider.js';
 
 export interface IntegrationProviderRegistry {
   list(capability?: IntegrationCapability | undefined): IntegrationProvider[];

@@ -5,7 +5,6 @@ CREATE TABLE "integrations_connections" (
 	"external_account_id" text NOT NULL,
 	"display_name" text NOT NULL,
 	"lifecycle_status" text DEFAULT 'active' NOT NULL,
-	"capabilities" text[] DEFAULT '{}'::text[] NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );

@@ -1,7 +1,7 @@
 import type {RouteExport} from '@shipfox/node-fastify';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
 import type {IntegrationSourceControlService} from '#core/source-control-service.js';
-import {listIntegrationConnectionsRoute} from './list-connections.js';
+import {createListIntegrationConnectionsRoute} from './list-connections.js';
 import {createListIntegrationProvidersRoute} from './list-providers.js';
 import {createListRepositoriesRoute} from './list-repositories.js';
 
@@ -13,7 +13,7 @@ export function createIntegrationRoutes(
 
   return [
     createListIntegrationProvidersRoute(registry),
-    listIntegrationConnectionsRoute,
+    createListIntegrationConnectionsRoute(registry),
     createListRepositoriesRoute(sourceControl),
     ...providerRoutes,
   ];

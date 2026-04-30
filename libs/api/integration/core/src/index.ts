@@ -1,6 +1,6 @@
 import {createDebugIntegrationProvider} from '@shipfox/api-integration-debug';
 import type {ShipfoxModule} from '@shipfox/node-module';
-import type {IntegrationProvider} from '#core/providers/provider.js';
+import type {IntegrationProvider} from '#core/entities/provider.js';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
 import {
   createIntegrationSourceControlService,
@@ -13,11 +13,14 @@ import {createIntegrationRoutes} from '#presentation/routes/index.js';
 import {config} from './config.js';
 
 export type {
-  IntegrationCapability,
   IntegrationConnection,
   IntegrationConnectionLifecycleStatus,
-  IntegrationProviderKind,
 } from '#core/entities/connection.js';
+export type {
+  IntegrationCapability,
+  IntegrationProvider,
+  IntegrationProviderKind,
+} from '#core/entities/provider.js';
 export type {IntegrationProviderErrorReason} from '#core/errors.js';
 export {
   IntegrationCapabilityUnavailableError,
@@ -27,7 +30,6 @@ export {
   IntegrationProviderError,
   IntegrationProviderUnavailableError,
 } from '#core/errors.js';
-export type {IntegrationProvider} from '#core/providers/provider.js';
 export type {IntegrationProviderRegistry} from '#core/providers/registry.js';
 export type {
   ListRepositoriesInput,

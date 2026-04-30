@@ -1,5 +1,5 @@
 import type {IntegrationConnection} from '#core/entities/connection.js';
-import type {IntegrationProvider} from '#core/providers/provider.js';
+import type {IntegrationProvider} from '#core/entities/provider.js';
 import type {RepositorySnapshot} from '#core/providers/source-control.js';
 
 export function toIntegrationProviderDto(provider: IntegrationProvider) {
@@ -10,7 +10,10 @@ export function toIntegrationProviderDto(provider: IntegrationProvider) {
   };
 }
 
-export function toIntegrationConnectionDto(connection: IntegrationConnection) {
+export function toIntegrationConnectionDto(
+  connection: IntegrationConnection,
+  provider: IntegrationProvider,
+) {
   return {
     id: connection.id,
     workspace_id: connection.workspaceId,
@@ -18,7 +21,7 @@ export function toIntegrationConnectionDto(connection: IntegrationConnection) {
     external_account_id: connection.externalAccountId,
     display_name: connection.displayName,
     lifecycle_status: connection.lifecycleStatus,
-    capabilities: connection.capabilities,
+    capabilities: provider.capabilities,
     created_at: connection.createdAt.toISOString(),
     updated_at: connection.updatedAt.toISOString(),
   };
