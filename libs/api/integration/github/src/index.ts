@@ -8,7 +8,6 @@ import {
 } from '#presentation/routes/install.js';
 
 export type {GithubApiClient} from '#api/client.js';
-export type {IntegrationConnection, IntegrationProvider} from '#core/contracts.js';
 export {GithubIntegrationProviderError} from '#core/errors.js';
 export type {ConnectGithubInstallationInput} from '#core/install.js';
 export {handleGithubCallback} from '#core/install.js';

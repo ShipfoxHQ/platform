@@ -1,19 +1,26 @@
-import type {GithubApiClient, GithubRepository} from '#api/client.js';
-import {getGithubInstallationByConnectionId} from '#db/installations.js';
 import type {
+  IntegrationConnection,
   ListRepositoriesInput,
   RepositoryPage,
   RepositorySnapshot,
   RepositoryVisibility,
   ResolveRepositoryInput,
   SourceControlProvider,
-} from './contracts.js';
+} from '@shipfox/api-integration-core-dto';
+import type {GithubApiClient, GithubRepository} from '#api/client.js';
+import {getGithubInstallationByConnectionId} from '#db/installations.js';
 import {GithubIntegrationProviderError} from './errors.js';
 
-export class GithubSourceControlProvider implements SourceControlProvider {
+type GithubIntegrationConnection = IntegrationConnection<'github'>;
+
+export class GithubSourceControlProvider
+  implements SourceControlProvider<GithubIntegrationConnection>
+{
   constructor(private readonly github: GithubApiClient) {}
 
-  async listRepositories(input: ListRepositoriesInput): Promise<RepositoryPage> {
+  async listRepositories(
+    input: ListRepositoriesInput<GithubIntegrationConnection>,
+  ): Promise<RepositoryPage> {
     const installation = await getGithubInstallationByConnectionId(input.connection.id);
     if (!installation) {
       throw new GithubIntegrationProviderError(
@@ -34,7 +41,9 @@ export class GithubSourceControlProvider implements SourceControlProvider {
     };
   }
 
-  async resolveRepository(input: ResolveRepositoryInput): Promise<RepositorySnapshot> {
+  async resolveRepository(
+    input: ResolveRepositoryInput<GithubIntegrationConnection>,
+  ): Promise<RepositorySnapshot> {
     let cursor: string | undefined;
     do {
       const page = await this.listRepositories({

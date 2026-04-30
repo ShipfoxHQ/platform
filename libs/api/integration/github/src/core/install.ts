@@ -1,5 +1,5 @@
+import type {IntegrationConnection} from '@shipfox/api-integration-core-dto';
 import type {GithubApiClient, GithubInstallationDetails} from '#api/client.js';
-import type {IntegrationConnection} from './contracts.js';
 import {GithubInstallationNotAuthorizedError} from './errors.js';
 import {verifyGithubInstallState} from './state.js';
 
@@ -26,12 +26,12 @@ export interface HandleGithubCallbackParams {
   requireWorkspaceMembership: (params: {workspaceId: string; userId: string}) => Promise<unknown>;
   connectGithubInstallation: (
     input: ConnectGithubInstallationInput,
-  ) => Promise<IntegrationConnection>;
+  ) => Promise<IntegrationConnection<'github'>>;
 }
 
 export async function handleGithubCallback(
   params: HandleGithubCallbackParams,
-): Promise<IntegrationConnection> {
+): Promise<IntegrationConnection<'github'>> {
   const claims = verifyGithubInstallState(params.state);
   await params.requireWorkspaceMembership({
     workspaceId: claims.workspaceId,

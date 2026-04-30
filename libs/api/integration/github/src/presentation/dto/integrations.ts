@@ -1,6 +1,6 @@
-import type {IntegrationConnection} from '#core/contracts.js';
+import type {IntegrationConnection} from '@shipfox/api-integration-core-dto';
 
-export function toIntegrationConnectionDto(connection: IntegrationConnection) {
+export function toIntegrationConnectionDto(connection: IntegrationConnection<'github'>) {
   return {
     id: connection.id,
     workspace_id: connection.workspaceId,

@@ -1,8 +1,8 @@
+import type {IntegrationConnection as CoreIntegrationConnection} from '@shipfox/api-integration-core-dto';
 import {createDebugIntegrationProvider} from '@shipfox/api-integration-debug';
 import {
   type ConnectGithubInstallationInput,
   createGithubIntegrationProvider,
-  type IntegrationConnection as GithubIntegrationConnection,
   db as githubDb,
   migrationsPath as githubMigrationsPath,
   upsertGithubInstallation,
@@ -85,7 +85,7 @@ function createConfiguredProviders(): IntegrationProvider[] {
 
 async function connectGithubInstallation(
   input: ConnectGithubInstallationInput,
-): Promise<GithubIntegrationConnection> {
+): Promise<CoreIntegrationConnection<'github'>> {
   return await db().transaction(async (tx) => {
     const connection = await upsertIntegrationConnection(
       {
@@ -106,7 +106,7 @@ async function connectGithubInstallation(
       {tx},
     );
 
-    return connection as GithubIntegrationConnection;
+    return connection as CoreIntegrationConnection<'github'>;
   });
 }
 

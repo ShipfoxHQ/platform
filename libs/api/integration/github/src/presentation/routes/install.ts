@@ -1,4 +1,5 @@
 import {AUTH_USER, requireUserContext} from '@shipfox/api-auth-context';
+import type {IntegrationConnection} from '@shipfox/api-integration-core-dto';
 import {
   createGithubInstallBodySchema,
   createGithubInstallResponseSchema,
@@ -9,7 +10,6 @@ import {requireMembership, requireWorkspaceMembership} from '@shipfox/api-worksp
 import {defineRoute, type RouteGroup} from '@shipfox/node-fastify';
 import type {GithubApiClient} from '#api/client.js';
 import {config} from '#config.js';
-import type {IntegrationConnection} from '#core/contracts.js';
 import {type ConnectGithubInstallationInput, handleGithubCallback} from '#core/install.js';
 import {signGithubInstallState} from '#core/state.js';
 import {toIntegrationConnectionDto} from '#presentation/dto/integrations.js';
@@ -19,7 +19,7 @@ export interface CreateGithubIntegrationRoutesOptions {
   github: GithubApiClient;
   connectGithubInstallation: (
     input: ConnectGithubInstallationInput,
-  ) => Promise<IntegrationConnection>;
+  ) => Promise<IntegrationConnection<'github'>>;
 }
 
 export function createGithubIntegrationRoutes({
