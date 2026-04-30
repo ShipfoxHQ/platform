@@ -1,10 +1,9 @@
 import {and, eq} from 'drizzle-orm';
 import type {
-  IntegrationCapability,
   IntegrationConnection,
   IntegrationConnectionLifecycleStatus,
-  IntegrationProviderKind,
 } from '#core/entities/connection.js';
+import type {IntegrationProviderKind} from '#core/entities/provider.js';
 import {db} from './db.js';
 import {integrationConnections, toIntegrationConnection} from './schema/connections.js';
 
@@ -17,7 +16,6 @@ export interface UpsertIntegrationConnectionParams {
   externalAccountId: string;
   displayName: string;
   lifecycleStatus?: IntegrationConnectionLifecycleStatus | undefined;
-  capabilities: IntegrationCapability[];
 }
 
 export async function upsertIntegrationConnection(
@@ -34,7 +32,6 @@ export async function upsertIntegrationConnection(
       externalAccountId: params.externalAccountId,
       displayName: params.displayName,
       lifecycleStatus: params.lifecycleStatus ?? 'active',
-      capabilities: params.capabilities,
     })
     .onConflictDoUpdate({
       target: [
@@ -45,7 +42,6 @@ export async function upsertIntegrationConnection(
       set: {
         displayName: params.displayName,
         lifecycleStatus: params.lifecycleStatus ?? 'active',
-        capabilities: params.capabilities,
         updatedAt: now,
       },
     })
@@ -70,7 +66,6 @@ export async function getIntegrationConnectionById(
 
 export interface ListIntegrationConnectionsParams {
   workspaceId: string;
-  capability?: IntegrationCapability | undefined;
 }
 
 export async function listIntegrationConnections(
@@ -88,7 +83,5 @@ export async function listIntegrationConnections(
     .orderBy(integrationConnections.createdAt, integrationConnections.id);
 
   const connections = rows.map(toIntegrationConnection);
-  const {capability} = params;
-  if (!capability) return connections;
-  return connections.filter((connection) => connection.capabilities.includes(capability));
+  return connections;
 }

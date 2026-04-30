@@ -51,8 +51,7 @@ describe('GithubSourceControlProvider', () => {
         provider,
         external_account_id,
         display_name,
-        lifecycle_status,
-        capabilities
+        lifecycle_status
       )
       VALUES (
         ${connectionId},
@@ -60,8 +59,7 @@ describe('GithubSourceControlProvider', () => {
         'github',
         ${String(installationId)},
         'GitHub shipfox',
-        'active',
-        ARRAY['source_control']
+        'active'
       )
     `);
     await upsertGithubInstallation({

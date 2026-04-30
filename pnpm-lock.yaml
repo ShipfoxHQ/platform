@@ -798,15 +798,15 @@ importers:
       '@shipfox/api-auth-context':
         specifier: workspace:*
         version: link:../auth-context
+      '@shipfox/api-integration-core':
+        specifier: workspace:*
+        version: link:../integration/core
       '@shipfox/api-projects-dto':
         specifier: workspace:*
         version: link:../projects-dto
       '@shipfox/api-workspaces':
         specifier: workspace:*
         version: link:../workspaces
-      '@shipfox/config':
-        specifier: workspace:*
-        version: link:../../shared/common/config
       '@shipfox/node-drizzle':
         specifier: workspace:*
         version: link:../../shared/node/drizzle
@@ -1279,6 +1279,12 @@ importers:
 
   libs/client/projects:
     dependencies:
+      '@shipfox/api-integration-core-dto':
+        specifier: workspace:*
+        version: link:../../api/integration/core-dto
+      '@shipfox/api-integration-debug-dto':
+        specifier: workspace:*
+        version: link:../../api/integration/debug-dto
       '@shipfox/api-projects-dto':
         specifier: workspace:*
         version: link:../../api/projects-dto

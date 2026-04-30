@@ -9,10 +9,6 @@ export {
   listProjects,
   requireProjectForWorkspace,
 } from './projects.js';
-export type {RepositorySnapshot, UpsertRepositoryParams} from './repositories.js';
-export {upsertRepository} from './repositories.js';
 export {projectsOutbox} from './schema/outbox.js';
-export type {CreateVcsConnectionParams} from './vcs-connections.js';
-export {createVcsConnection, getVcsConnectionById} from './vcs-connections.js';
 
 export const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle');

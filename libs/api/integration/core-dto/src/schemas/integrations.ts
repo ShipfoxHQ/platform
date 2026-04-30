@@ -1,6 +1,6 @@
 import {z} from 'zod';
 
-export const integrationProviderKindSchema = z.enum(['debug', 'github']);
+export const integrationProviderKindSchema = z.string().min(1);
 export type IntegrationProviderKindDto = z.infer<typeof integrationProviderKindSchema>;
 
 export const integrationCapabilitySchema = z.enum(['source_control']);

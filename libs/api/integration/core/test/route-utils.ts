@@ -40,29 +40,30 @@ export function sourceProvider(overrides: Partial<IntegrationProvider> = {}): In
   return {
     provider: 'debug',
     displayName: 'Debug',
-    capabilities: ['source_control'],
-    sourceControl: {
-      listRepositories: async () => {
-        await Promise.resolve();
-        return {
-          repositories: [
-            {
-              externalRepositoryId: 'platform',
-              owner: 'debug-owner',
-              name: 'platform',
-              fullName: 'debug-owner/platform',
-              defaultBranch: 'main',
-              visibility: 'private',
-              cloneUrl: 'https://debug.local/debug-owner/platform.git',
-              htmlUrl: 'https://debug.local/debug-owner/platform',
-            },
-          ],
-          nextCursor: null,
-        };
-      },
-      resolveRepository: async () => {
-        await Promise.resolve();
-        throw new Error('not used');
+    adapters: {
+      source_control: {
+        listRepositories: async () => {
+          await Promise.resolve();
+          return {
+            repositories: [
+              {
+                externalRepositoryId: 'platform',
+                owner: 'debug-owner',
+                name: 'platform',
+                fullName: 'debug-owner/platform',
+                defaultBranch: 'main',
+                visibility: 'private',
+                cloneUrl: 'https://debug.local/debug-owner/platform.git',
+                htmlUrl: 'https://debug.local/debug-owner/platform',
+              },
+            ],
+            nextCursor: null,
+          };
+        },
+        resolveRepository: async () => {
+          await Promise.resolve();
+          throw new Error('not used');
+        },
       },
     },
     ...overrides,

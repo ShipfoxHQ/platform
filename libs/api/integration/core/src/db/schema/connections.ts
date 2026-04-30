@@ -1,12 +1,10 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
-import {sql} from 'drizzle-orm';
 import {index, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
 import type {
-  IntegrationCapability,
   IntegrationConnection,
   IntegrationConnectionLifecycleStatus,
-  IntegrationProviderKind,
 } from '#core/entities/connection.js';
+import type {IntegrationProviderKind} from '#core/entities/provider.js';
 import {pgTable} from './common.js';
 
 export const integrationConnections = pgTable(
@@ -18,7 +16,6 @@ export const integrationConnections = pgTable(
     externalAccountId: text('external_account_id').notNull(),
     displayName: text('display_name').notNull(),
     lifecycleStatus: text('lifecycle_status').notNull().default('active'),
-    capabilities: text('capabilities').array().notNull().default(sql`'{}'::text[]`),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
   },
@@ -43,7 +40,6 @@ export function toIntegrationConnection(row: IntegrationConnectionDb): Integrati
     externalAccountId: row.externalAccountId,
     displayName: row.displayName,
     lifecycleStatus: row.lifecycleStatus as IntegrationConnectionLifecycleStatus,
-    capabilities: row.capabilities as IntegrationCapability[],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

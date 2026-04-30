@@ -11,7 +11,6 @@ export interface IntegrationConnection {
   externalAccountId: string;
   displayName: string;
   lifecycleStatus: IntegrationConnectionLifecycleStatus;
-  capabilities: IntegrationCapability[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -53,7 +52,8 @@ export interface SourceControlProvider {
 export interface IntegrationProvider {
   provider: IntegrationProviderKind;
   displayName: string;
-  capabilities: IntegrationCapability[];
-  sourceControl?: SourceControlProvider | undefined;
+  adapters?: {
+    source_control?: SourceControlProvider | undefined;
+  };
   routes?: RouteExport[] | undefined;
 }

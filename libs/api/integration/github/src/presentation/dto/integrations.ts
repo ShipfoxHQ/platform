@@ -8,7 +8,7 @@ export function toIntegrationConnectionDto(connection: IntegrationConnection) {
     external_account_id: connection.externalAccountId,
     display_name: connection.displayName,
     lifecycle_status: connection.lifecycleStatus,
-    capabilities: connection.capabilities,
+    capabilities: ['source_control'],
     created_at: connection.createdAt.toISOString(),
     updated_at: connection.updatedAt.toISOString(),
   };

@@ -1,6 +1,4 @@
-export type IntegrationProviderKind = 'debug' | 'github';
-
-export type IntegrationCapability = 'source_control';
+import type {IntegrationProviderKind} from './provider.js';
 
 export type IntegrationConnectionLifecycleStatus = 'active' | 'disabled' | 'error';
 
@@ -11,7 +9,6 @@ export interface IntegrationConnection {
   externalAccountId: string;
   displayName: string;
   lifecycleStatus: IntegrationConnectionLifecycleStatus;
-  capabilities: IntegrationCapability[];
   createdAt: Date;
   updatedAt: Date;
 }

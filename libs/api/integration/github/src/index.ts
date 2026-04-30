@@ -31,8 +31,9 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
   return {
     provider: 'github' as const,
     displayName: 'GitHub',
-    capabilities: ['source_control' as const],
-    sourceControl: new GithubSourceControlProvider(github),
+    adapters: {
+      source_control: new GithubSourceControlProvider(github),
+    },
     routes: [
       createGithubIntegrationRoutes({
         github,

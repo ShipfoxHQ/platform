@@ -2,7 +2,7 @@ import {getApiKeyContext, getUserContext} from '@shipfox/api-auth-context';
 import {requireMembership} from '@shipfox/api-workspaces';
 import {ClientError} from '@shipfox/node-fastify';
 import type {FastifyRequest} from 'fastify';
-import type {ProjectWithRepository} from '#core/entities/index.js';
+import type {Project} from '#core/entities/index.js';
 import {getProjectById, requireProjectForWorkspace} from '#db/index.js';
 
 export interface RequireProjectAccessParams {
@@ -11,7 +11,7 @@ export interface RequireProjectAccessParams {
 }
 
 export interface RequireProjectAccessResult {
-  project: ProjectWithRepository;
+  project: Project;
   workspaceId: string;
 }
 

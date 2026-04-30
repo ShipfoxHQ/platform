@@ -1,10 +1,3 @@
-export class VcsConnectionNotFoundError extends Error {
-  constructor(vcsConnectionId: string) {
-    super(`VCS connection not found: ${vcsConnectionId}`);
-    this.name = 'VcsConnectionNotFoundError';
-  }
-}
-
 export class ProjectNotFoundError extends Error {
   constructor(projectId: string) {
     super(`Project not found: ${projectId}`);
@@ -22,35 +15,12 @@ export class ProjectAccessDeniedError extends Error {
 export class ProjectAlreadyExistsError extends Error {
   constructor(
     public readonly existingProjectId: string,
-    public readonly repositoryId: string,
+    public readonly sourceConnectionId: string,
+    public readonly sourceExternalRepositoryId: string,
   ) {
-    super(`Project already exists for repository: ${repositoryId}`);
+    super(
+      `Project already exists for source repository: ${sourceConnectionId}/${sourceExternalRepositoryId}`,
+    );
     this.name = 'ProjectAlreadyExistsError';
-  }
-}
-
-export class TestVcsProviderDisabledError extends Error {
-  constructor() {
-    super('Test VCS provider is disabled.');
-    this.name = 'TestVcsProviderDisabledError';
-  }
-}
-
-export type VcsProviderErrorReason =
-  | 'repository-not-found'
-  | 'access-denied'
-  | 'timeout'
-  | 'rate-limited'
-  | 'provider-unavailable'
-  | 'malformed-provider-response';
-
-export class VcsProviderError extends Error {
-  constructor(
-    public readonly reason: VcsProviderErrorReason,
-    message: string,
-    public readonly retryAfterSeconds?: number | undefined,
-  ) {
-    super(message);
-    this.name = 'VcsProviderError';
   }
 }

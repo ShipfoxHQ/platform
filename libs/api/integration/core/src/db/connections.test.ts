@@ -15,7 +15,6 @@ describe('integration connection queries', () => {
       provider: 'debug',
       externalAccountId: 'debug',
       displayName: 'Debug Source Control',
-      capabilities: ['source_control'],
     });
 
     const second = await upsertIntegrationConnection({
@@ -23,7 +22,6 @@ describe('integration connection queries', () => {
       provider: 'debug',
       externalAccountId: 'debug',
       displayName: 'Renamed Debug Source Control',
-      capabilities: ['source_control'],
     });
 
     expect(second.id).toBe(first.id);
@@ -36,14 +34,12 @@ describe('integration connection queries', () => {
       provider: 'debug',
       externalAccountId: 'debug-1',
       displayName: 'Debug One',
-      capabilities: ['source_control'],
     });
     await upsertIntegrationConnection({
       workspaceId,
       provider: 'debug',
       externalAccountId: 'debug-2',
       displayName: 'Debug Two',
-      capabilities: ['source_control'],
     });
 
     const result = await listIntegrationConnections({workspaceId});
@@ -51,20 +47,18 @@ describe('integration connection queries', () => {
     expect(result).toHaveLength(2);
   });
 
-  it('lists only active connections matching the requested capability', async () => {
+  it('lists only active connections for a workspace', async () => {
     await upsertIntegrationConnection({
       workspaceId,
       provider: 'debug',
       externalAccountId: 'debug',
       displayName: 'Debug Source Control',
-      capabilities: ['source_control'],
     });
     await upsertIntegrationConnection({
       workspaceId,
       provider: 'github',
       externalAccountId: 'team-1',
       displayName: 'GitHub',
-      capabilities: [],
     });
     await upsertIntegrationConnection({
       workspaceId,
@@ -72,12 +66,11 @@ describe('integration connection queries', () => {
       externalAccountId: 'installation-1',
       displayName: 'GitHub',
       lifecycleStatus: 'disabled',
-      capabilities: ['source_control'],
     });
 
-    const result = await listIntegrationConnections({workspaceId, capability: 'source_control'});
+    const result = await listIntegrationConnections({workspaceId});
 
-    expect(result.map((connection) => connection.provider)).toEqual(['debug']);
+    expect(result.map((connection) => connection.provider)).toEqual(['debug', 'github']);
   });
 
   it('rolls back a connection when provider-specific installation persistence fails', async () => {
@@ -88,7 +81,6 @@ describe('integration connection queries', () => {
           provider: 'github',
           externalAccountId: '123',
           displayName: 'GitHub shipfox',
-          capabilities: ['source_control'],
         },
         {tx},
       );

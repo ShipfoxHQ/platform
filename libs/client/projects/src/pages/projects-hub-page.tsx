@@ -18,14 +18,9 @@ import {Link} from '@tanstack/react-router';
 import {useProjectsInfiniteQuery} from '#hooks/api/projects.js';
 import {projectErrorCopy} from '#project-error.js';
 
-export function isTestProviderUiEnabled(): boolean {
-  return import.meta.env.VITE_ENABLE_TEST_VCS_PROVIDER === 'true';
-}
-
 export function ProjectsHubPage() {
   const auth = useAuthState();
   const workspace = auth.workspaces[0];
-  const createEnabled = isTestProviderUiEnabled();
   const query = useProjectsInfiniteQuery(workspace?.id);
   const projects = query.data?.pages.flatMap((page) => page.projects) ?? [];
   const errorCopy = query.error ? projectErrorCopy(query.error) : undefined;
@@ -42,14 +37,9 @@ export function ProjectsHubPage() {
             </Text>
           </div>
           <div className="flex flex-col items-end gap-8 max-[640px]:items-start">
-            <Button asChild={createEnabled} disabled={!createEnabled} iconLeft="addLine">
-              {createEnabled ? <Link to="/projects/new">Create project</Link> : 'Create project'}
+            <Button asChild iconLeft="addLine">
+              <Link to="/projects/new">Create project</Link>
             </Button>
-            {!createEnabled ? (
-              <Text size="xs" className="text-foreground-neutral-muted">
-                Enable the local test provider to create projects here.
-              </Text>
-            ) : null}
           </div>
         </header>
 
@@ -69,9 +59,7 @@ export function ProjectsHubPage() {
           </Alert>
         ) : null}
 
-        {!query.isPending && !query.isError && projects.length === 0 ? (
-          <EmptyProjects createEnabled={createEnabled} />
-        ) : null}
+        {!query.isPending && !query.isError && projects.length === 0 ? <EmptyProjects /> : null}
 
         {projects.length > 0 ? (
           <section className="flex flex-col gap-12" aria-label="Projects list">
@@ -114,7 +102,7 @@ function ProjectsSkeleton() {
   );
 }
 
-function EmptyProjects({createEnabled}: {createEnabled: boolean}) {
+function EmptyProjects() {
   return (
     <Card className="items-center gap-18 p-32 text-center">
       <div className="flex size-44 items-center justify-center rounded-8 border border-border-neutral-base bg-background-neutral-base">
@@ -126,14 +114,9 @@ function EmptyProjects({createEnabled}: {createEnabled: boolean}) {
           Connect a repository-backed project to start building workflows.
         </CardDescription>
       </CardHeader>
-      <Button asChild={createEnabled} disabled={!createEnabled} iconRight="chevronRight">
-        {createEnabled ? <Link to="/projects/new">Create project</Link> : 'Create project'}
+      <Button asChild iconRight="chevronRight">
+        <Link to="/projects/new">Create project</Link>
       </Button>
-      {!createEnabled ? (
-        <Text size="xs" className="text-foreground-neutral-muted">
-          Project creation is disabled in this environment.
-        </Text>
-      ) : null}
     </Card>
   );
 }
@@ -148,7 +131,7 @@ function ProjectRow({project}: {project: ProjectResponseDto}) {
               {project.name}
             </Text>
             <Text size="sm" className="text-foreground-neutral-muted truncate">
-              {project.repository.full_name}
+              {project.source.external_repository_id}
             </Text>
           </div>
           <StatusBadge variant="success">Connected</StatusBadge>
