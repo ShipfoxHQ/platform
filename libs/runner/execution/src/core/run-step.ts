@@ -43,6 +43,7 @@ export interface CommandShellMetadata {
 interface RunStepOptions {
   signal?: AbortSignal;
   cwd?: string;
+  systemEnv?: Readonly<Record<string, string>>;
   secretEnv?: Readonly<Record<string, string>>;
   secretValues?: readonly string[];
   onOutput?: OutputSink;
@@ -67,12 +68,16 @@ export function executeRunStep(step: StepDto, options: RunStepOptions = {}): Pro
     });
   }
 
-  return runShellCommand(command, {...readStepEnv(step), ...options.secretEnv}, options);
+  return runShellCommand(
+    {...readStepEnv(step), ...options.secretEnv, ...options.systemEnv},
+    command,
+    options,
+  );
 }
 
 async function runShellCommand(
-  command: string,
   stepEnv: Readonly<Record<string, string>>,
+  command: string,
   options: RunStepOptions,
 ): Promise<StepResult> {
   const scriptPath = join(tmpdir(), `shipfox-runner-${randomUUID()}.sh`);

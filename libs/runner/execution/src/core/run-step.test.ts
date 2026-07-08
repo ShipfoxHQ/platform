@@ -157,6 +157,34 @@ describe('executeRunStep', () => {
     }
   });
 
+  it('merges system env over step and secret env without mutating process.env', async () => {
+    const previous = process.env.SHIPFOX_ENV_TEST_SYSTEM;
+    delete process.env.SHIPFOX_ENV_TEST_SYSTEM;
+    try {
+      const step = buildStep({
+        config: {
+          run: nodeEnvDumpCommand(['SHIPFOX_ENV_TEST_SYSTEM']),
+          env: {SHIPFOX_ENV_TEST_SYSTEM: 'stored-step-value'},
+        },
+      });
+      const output = collectOutput();
+
+      const result = await executeRunStep(step, {
+        secretEnv: {SHIPFOX_ENV_TEST_SYSTEM: 'secret-value'},
+        systemEnv: {SHIPFOX_ENV_TEST_SYSTEM: 'system-value'},
+        onOutput: output.sink,
+      });
+
+      expect(result.success).toBe(true);
+      expect(JSON.parse(output.text())).toEqual({
+        SHIPFOX_ENV_TEST_SYSTEM: 'system-value',
+      });
+      expect(process.env.SHIPFOX_ENV_TEST_SYSTEM).toBeUndefined();
+    } finally {
+      if (previous !== undefined) process.env.SHIPFOX_ENV_TEST_SYSTEM = previous;
+    }
+  });
+
   it('populates outputs from SHIPFOX_OUTPUT on success', async () => {
     const step = buildStep({
       config: {run: 'echo "sha=abc123" >> "$SHIPFOX_OUTPUT"'},

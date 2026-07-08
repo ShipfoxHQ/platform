@@ -262,6 +262,12 @@ describe('runJobSteps', () => {
     expect(executeRunStepMock).toHaveBeenCalledWith(run, {
       signal: ac.signal,
       cwd: '/work',
+      systemEnv: {
+        SHIPFOX_STEP_ID: run.id,
+        SHIPFOX_STEP_ATTEMPT: '1',
+        SHIPFOX_JOB_LEASE_TOKEN: `lease-${run.id}-1`,
+      },
+      secretValues: [`lease-${run.id}-1`],
       onCommandStart: expect.any(Function),
       onOutput: expect.any(Function),
     });
@@ -455,10 +461,18 @@ describe('runJobSteps', () => {
     expect(requestStepSecretsMock).not.toHaveBeenCalled();
     expect(executeRunStepMock).toHaveBeenCalledWith(
       run,
-      expect.not.objectContaining({
-        secretEnv: expect.anything(),
-        secretValues: expect.anything(),
+      expect.objectContaining({
+        systemEnv: {
+          SHIPFOX_STEP_ID: run.id,
+          SHIPFOX_STEP_ATTEMPT: '1',
+          SHIPFOX_JOB_LEASE_TOKEN: `lease-${run.id}-1`,
+        },
+        secretValues: [`lease-${run.id}-1`],
       }),
+    );
+    expect(executeRunStepMock).toHaveBeenCalledWith(
+      run,
+      expect.not.objectContaining({secretEnv: expect.anything()}),
     );
   });
 
@@ -513,8 +527,13 @@ describe('runJobSteps', () => {
     expect(executeRunStepMock).toHaveBeenCalledWith(
       run,
       expect.objectContaining({
+        systemEnv: {
+          SHIPFOX_STEP_ID: run.id,
+          SHIPFOX_STEP_ATTEMPT: '2',
+          SHIPFOX_JOB_LEASE_TOKEN: `lease-${run.id}-2`,
+        },
         secretEnv: {TOKEN: 'prefix-runtime-secret', REUSED: 'runtime-secret'},
-        secretValues: ['runtime-secret'],
+        secretValues: ['runtime-secret', `lease-${run.id}-2`],
       }),
     );
   });
@@ -1495,6 +1514,7 @@ describe('runJobSteps', () => {
     const execution = await executeStep({
       step: agent,
       attempt: 1,
+      leaseToken: 'lease-agent-failure',
       cwd: '/work',
       logsDir: LOGS_DIR,
       jobContext: JOB_CONTEXT,
@@ -1533,6 +1553,7 @@ describe('runJobSteps', () => {
     const execution = await executeStep({
       step: agent,
       attempt: 1,
+      leaseToken: 'lease-agent-success',
       cwd: '/work',
       logsDir: LOGS_DIR,
       jobContext: JOB_CONTEXT,

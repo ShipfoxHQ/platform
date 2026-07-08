@@ -1,0 +1,28 @@
+name: Annotation demo
+runner: ubuntu-latest
+triggers:
+  on_demand:
+    source: manual
+    event: fire
+  on_push:
+    source: gitea
+    event: push
+    filter: 'event.ref == "refs/heads/main"'
+jobs:
+  checks:
+    steps:
+      - key: run-summary
+        name: Run summary annotations
+        run: node scripts/annotation-demo.mjs run-summary
+      - key: style-matrix
+        name: Annotation style matrix
+        run: node scripts/annotation-demo.mjs style-matrix
+  deploy:
+    needs: checks
+    steps:
+      - key: rollout
+        name: Deployment annotations
+        run: node scripts/annotation-demo.mjs job-rollout
+      - key: long-body
+        name: Long annotation body
+        run: node scripts/annotation-demo.mjs long-body
