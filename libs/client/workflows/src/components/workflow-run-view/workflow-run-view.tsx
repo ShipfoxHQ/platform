@@ -14,6 +14,7 @@ import {
   type WorkflowRunSelectionInput,
   withoutWorkflowRunSelectionSearch,
 } from '#core/workflow-run-url-state.js';
+import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
 import {
   useCancelWorkflowRunMutation,
   useRerunWorkflowRunMutation,
@@ -23,6 +24,7 @@ import {JobGraph} from '../job-graph/index.js';
 import {WorkflowRunSummary} from '../workflow-run-summary/index.js';
 import {WorkflowSourcePanel} from '../workflow-source-panel/index.js';
 import {JobCard} from './job-card.js';
+import {RunAnnotationsPanel} from './run-annotations-panel.js';
 import {resolveWorkflowRunSelection} from './workflow-run-selection.js';
 import {
   WorkflowRunNotFound,
@@ -103,6 +105,11 @@ function RunViewContent({
   const sourceAvailable =
     query.data?.sourceSnapshot !== null && query.data?.sourceSnapshot !== undefined;
   const cancelMutation = useCancelWorkflowRunMutation(query.data);
+  const annotationsQuery = useRunAnnotationsQuery({
+    workflowRunId: query.data?.id,
+    runAttempt: query.data?.runAttempt.attempt,
+    runStatus: query.data?.runAttempt.status,
+  });
 
   useEffect(() => {
     if (!sourceAvailable) {
@@ -141,6 +148,7 @@ function RunViewContent({
   if (query.data === undefined) return <WorkflowRunSkeleton />;
 
   const runData = query.data;
+  const annotations = annotationsQuery.data ?? [];
   const resolvedSelection = selectionControlled
     ? resolveWorkflowRunSelection({run: runData, selection})
     : undefined;
@@ -291,6 +299,7 @@ function RunViewContent({
         {query.isError ? <WorkflowRunStaleError query={query} /> : null}
         <div className="min-h-0 flex-1 overflow-auto bg-background-neutral-base p-16">
           <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-16">
+            <RunAnnotationsPanel annotations={annotations} jobs={runData.jobs} />
             <JobGraph
               run={runData}
               selectedJobId={selectedJob?.id}
@@ -308,6 +317,7 @@ function RunViewContent({
                 sourceAvailable={sourceAvailable}
                 focusedSourceStepId={sourceFocus?.stepId ?? null}
                 onOpenStepSource={openStepSource}
+                annotations={annotations}
               />
             ) : null}
           </div>

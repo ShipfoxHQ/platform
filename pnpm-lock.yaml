@@ -6029,6 +6029,9 @@ importers:
       '@shipfox/api-definitions-dto':
         specifier: workspace:*
         version: link:../../api/definitions-dto
+      '@shipfox/annotations-dto':
+        specifier: workspace:*
+        version: link:../../api/annotations-dto
       '@shipfox/api-workflows-dto':
         specifier: workspace:*
         version: link:../../api/workflows-dto

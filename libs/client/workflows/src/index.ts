@@ -6,6 +6,7 @@ export type {
   JobExecutionTime,
   JobStatus,
   ManualWorkflowLaunch,
+  RunAnnotation,
   Step,
   StepAttempt,
   StepAttemptDisplayDuration,
@@ -32,6 +33,10 @@ export {
   workflowRunShortId,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
+export {
+  runAnnotationsQueryKeys,
+  useRunAnnotationsQuery,
+} from './hooks/api/run-annotations.js';
 export {
   type FireManualWorkflowVariables,
   fireManualWorkflow,

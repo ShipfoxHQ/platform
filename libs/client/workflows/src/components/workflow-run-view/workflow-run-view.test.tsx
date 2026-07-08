@@ -4,6 +4,7 @@ import {toast} from '@shipfox/react-ui/toast';
 import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {workflowRunsQueryKeys} from '#hooks/api/workflow-runs.js';
+import {readAnnotationsResponseDto, runAnnotationDto} from '#test/fixtures/annotations.js';
 import {inlineLogBody, outputLine} from '#test/fixtures/logs.js';
 import {
   runAttemptsResponseDto,
@@ -53,6 +54,56 @@ describe('WorkflowRunView', () => {
     expect(
       screen.getByRole('button', {name: 'checkout, Succeeded, attempt 1'}),
     ).toBeInTheDocument();
+  });
+
+  test('renders run and selected-job annotations when the annotations read returns data', async () => {
+    const detail = workflowRunViewDetailDto();
+    const buildExecution = detail.jobs[0]?.job_executions[0];
+    if (!buildExecution) throw new Error('Expected build execution');
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.pathname === '/annotations') {
+        return Promise.resolve(
+          jsonResponse(
+            readAnnotationsResponseDto([
+              runAnnotationDto({
+                job_id: BUILD_JOB_ID,
+                job_execution_id: buildExecution.id,
+                origin_step_id: CHECKOUT_STEP_ID,
+                body: 'Build annotation',
+              }),
+            ]),
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse(detail));
+    });
+    configureApiClient({fetchImpl: fetchImpl as typeof fetch});
+
+    renderView();
+
+    const runAnnotations = await screen.findByRole('region', {name: 'Run annotations'});
+    expect(within(runAnnotations).getByText('Build annotation')).toBeInTheDocument();
+    const jobAnnotations = await screen.findByRole('region', {name: 'Job annotations'});
+    expect(within(jobAnnotations).getByText('Build annotation')).toBeInTheDocument();
+  });
+
+  test('does not render annotation surfaces when the annotations read is empty', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.pathname === '/annotations') {
+        return Promise.resolve(jsonResponse(readAnnotationsResponseDto([])));
+      }
+      return Promise.resolve(jsonResponse(workflowRunViewDetailDto()));
+    });
+    configureApiClient({fetchImpl: fetchImpl as typeof fetch});
+
+    renderView();
+
+    await screen.findByRole('region', {name: 'Workflow jobs'});
+    expect(screen.queryByRole('region', {name: 'Run annotations'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', {name: 'Job annotations'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', {name: 'Step annotations'})).not.toBeInTheDocument();
   });
 
   test('renders active step attempt logs inline when the selected job is running', async () => {
