@@ -24,6 +24,11 @@ export function RunAnnotationsPanel({
 
   if (groups.length === 0) return null;
 
+  const renderedAnnotationCount = groups.reduce(
+    (total, group) => total + group.annotations.length,
+    0,
+  );
+
   return (
     <section
       aria-label="Run annotations"
@@ -34,7 +39,7 @@ export function RunAnnotationsPanel({
           Run annotations
         </Text>
         <Text as="span" size="xs" className="font-code text-foreground-neutral-muted">
-          {annotations.length}
+          {renderedAnnotationCount}
         </Text>
       </div>
       <div className="relative min-h-0 border-t border-border-neutral-strong">

@@ -31,6 +31,7 @@ describe('RunAnnotationsPanel', () => {
         annotations={[
           runAnnotation({id: 'second', jobExecutionId: 'execution-2', body: 'Second note'}),
           runAnnotation({id: 'first', jobExecutionId: 'execution-1', body: 'First note'}),
+          runAnnotation({id: 'unknown', jobExecutionId: 'unknown-execution', body: 'Unknown note'}),
         ]}
       />,
     );
@@ -42,6 +43,7 @@ describe('RunAnnotationsPanel', () => {
     expect(within(region).getByText('build #2')).toBeInTheDocument();
     expect(within(region).getByText('First note')).toBeInTheDocument();
     expect(within(region).getByText('Second note')).toBeInTheDocument();
+    expect(within(region).queryByText('Unknown note')).not.toBeInTheDocument();
   });
 
   it('renders nothing when there are no grouped annotations', () => {

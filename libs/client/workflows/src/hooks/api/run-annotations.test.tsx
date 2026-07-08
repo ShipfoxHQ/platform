@@ -62,6 +62,23 @@ describe('run annotations API hooks', () => {
     expect(secondUrl.searchParams.get('cursor')).toBe('cursor-2');
   });
 
+  it('fails instead of returning partial annotations when pagination exceeds its guard', async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL) =>
+      jsonResponse(
+        readAnnotationsResponseDto([], {
+          has_more: true,
+          next_cursor: `cursor-${fetchImpl.mock.calls.length + 1}`,
+        }),
+      ),
+    );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    await expect(getRunAnnotationsDtos({workflowRunId: RUN_ID, runAttempt: 1})).rejects.toThrow(
+      'Annotation pagination exceeded the maximum page budget.',
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(100);
+  });
+
   it('maps annotation DTOs to run annotation models while keeping the cache DTO-shaped', async () => {
     const dto = runAnnotationDto({
       id: '11111111-1111-4111-8111-000000000003',

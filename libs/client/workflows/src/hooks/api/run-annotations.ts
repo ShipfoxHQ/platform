@@ -51,6 +51,9 @@ export async function getRunAnnotationsDtos({
 
     const nextCursor = response.next_cursor;
     if (!response.has_more || !nextCursor || seenCursors.has(nextCursor)) break;
+    if (page === MAX_ANNOTATION_PAGE_REQUESTS - 1) {
+      throw new Error('Annotation pagination exceeded the maximum page budget.');
+    }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
   }

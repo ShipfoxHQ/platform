@@ -18,10 +18,16 @@ describe('AnnotationCardBlock', () => {
     expect(screen.getByText(VISIBLE_BODY_PATTERN)).toBeInTheDocument();
     expect(screen.queryByText(HIDDEN_TAIL_PATTERN)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', {name: 'Show more'}));
+    const showMoreButton = screen.getByRole('button', {name: 'Show more'});
+    expect(showMoreButton).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(showMoreButton);
 
     expect(screen.getByText(HIDDEN_TAIL_PATTERN)).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Show less'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Show less'})).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 });
 

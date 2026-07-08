@@ -24,6 +24,7 @@ export function AnnotationCardBlock({annotation}: {annotation: RunAnnotation}) {
             type="button"
             variant="transparentMuted"
             size="2xs"
+            aria-expanded={expanded}
             onClick={() => setExpanded((current) => !current)}
           >
             {expanded ? 'Show less' : 'Show more'}
