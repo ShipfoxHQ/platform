@@ -161,7 +161,7 @@ jobs:
             fi
           fi
 
-          mkdir -p ../.vercel
+          mkdir -p ../../.vercel
           jq -n \
             --arg project "$VERCEL_PROJECT_ID" \
             --arg org "$VERCEL_ORG_ID" \
@@ -173,9 +173,9 @@ jobs:
                 directory: "apps/storybook",
                 orgId: $org
               }]
-            }' > ../.vercel/repo.json
-          if [[ ! -e ../.vercel/output ]]; then
-            ln -s "$(pwd)/.vercel/output" ../.vercel/output
+            }' > ../../.vercel/repo.json
+          if [[ ! -e ../../.vercel/output ]]; then
+            ln -s "$(pwd)/.vercel/output" ../../.vercel/output
           fi
 
           for attempt in 1 2 3; do
