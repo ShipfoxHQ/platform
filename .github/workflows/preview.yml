@@ -108,7 +108,6 @@ jobs:
           success() &&
           (github.event_name == 'push' ||
           github.event.pull_request.head.repo.full_name == github.repository)
-        working-directory: apps/storybook
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
