@@ -111,8 +111,8 @@ jobs:
         working-directory: apps/storybook
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_STORYBOOK_PROJECT_ID }}
           VERCEL_GIT_COMMIT_SHA: ${{ env.PREVIEW_COMMIT_SHA }}
           VERCEL_GIT_COMMIT_REF: ${{ github.head_ref || github.ref_name }}
           VERCEL_GIT_REPO_OWNER: ${{ github.repository_owner }}
