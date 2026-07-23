@@ -129,11 +129,19 @@ jobs:
             metadata_args+=(--meta "githubPullRequest=$PREVIEW_PR_NUMBER")
           fi
 
-          npx --yes "vercel@$VERCEL_CLI_VERSION" link \
-            --repo \
-            --yes \
-            --token="$VERCEL_TOKEN" \
-            --scope="$VERCEL_ORG_ID"
+          mkdir -p .vercel
+          jq -n \
+            --arg project "$VERCEL_PROJECT_ID" \
+            --arg org "$VERCEL_ORG_ID" \
+            '{
+              remoteName: "origin",
+              projects: [{
+                id: $project,
+                name: $project,
+                directory: "apps/storybook",
+                orgId: $org
+              }]
+            }' > .vercel/repo.json
 
           for attempt in 1 2 3; do
             echo "Vercel prebuilt upload attempt $attempt/3"
