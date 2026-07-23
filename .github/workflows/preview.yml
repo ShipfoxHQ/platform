@@ -288,6 +288,12 @@ jobs:
               --retry 2 --retry-delay 2 --max-time 30
           }
 
+          npx --yes "vercel@$VERCEL_CLI_VERSION" \
+            inspect "$deployment_url" \
+            --wait \
+            --timeout 180s \
+            --non-interactive >/dev/null
+
           vercel_curl / >/dev/null
 
           metadata="$(vercel_curl /preview-metadata.json)"
