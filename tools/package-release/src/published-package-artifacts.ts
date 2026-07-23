@@ -1,7 +1,7 @@
 import {globSync} from 'node:fs';
 import {access, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {dirname, join, resolve} from 'node:path';
+import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 import {parse as parseYaml} from 'yaml';
@@ -11,12 +11,17 @@ import {
   validateExternalEngineeringGuidanceArtifact,
 } from './engineering-guidance-artifact.js';
 import {
+  architectureMetadataForPackageDirectory,
+  assertPackageArchitectureMetadataMatches,
+} from './package-architecture-metadata.js';
+import {
   mapWithConcurrency,
   type PackageDependencyContext,
   packProductionizedPackage,
   resolveDependencyReference,
   run,
 } from './productionized-manifest-packer.js';
+import {getRepositoryRoot} from './repository-root.js';
 
 type DependencyMap = Record<string, string>;
 
@@ -45,7 +50,7 @@ interface WorkspaceConfig {
 type SourcePackageEntry = [string, SourcePackage];
 type SourcePackages = Map<string, SourcePackage>;
 
-const repositoryRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
+const repositoryRoot = getRepositoryRoot(import.meta.url);
 const registryShipfoxPackagePattern = /^@shipfox\+[^@]+@\d/u;
 const runtimeModulePattern = /\.(?:[cm]?js|node)$/u;
 
@@ -241,7 +246,7 @@ export function consumerOverrides(tarballs: DependencyMap): DependencyMap {
   );
 }
 
-async function validateInstalledPackages(
+export async function validateInstalledPackages(
   root: string,
   packages: SourcePackages,
   expectedDependencies: Map<string, DependencyMap>,
@@ -255,6 +260,11 @@ async function validateInstalledPackages(
         `Packed ${name} has version ${manifest.version}; expected ${sourcePackage.manifest.version}`,
       );
     }
+    assertPackageArchitectureMetadataMatches(
+      manifest,
+      architectureMetadataForPackageDirectory(sourcePackage.directory),
+      'Installed',
+    );
     const unsupportedProtocol = findUnsupportedProtocol(manifest);
     if (unsupportedProtocol) {
       throw new Error(`Packed ${name} contains an unsupported protocol at ${unsupportedProtocol}`);

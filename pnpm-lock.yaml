@@ -7849,6 +7849,9 @@ importers:
 
   tools/package-release:
     dependencies:
+      '@shipfox/architecture-policy':
+        specifier: workspace:*
+        version: link:../architecture-policy
       '@shipfox/repository-documentation-policy':
         specifier: workspace:*
         version: link:../repository-documentation-policy

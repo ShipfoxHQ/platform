@@ -27,6 +27,14 @@ export type BuiltInArchitectureClass =
   (typeof architectureClasses)[keyof typeof architectureClasses];
 export type ArchitectureClass = string;
 
+/** Architecture identity carried by a published Shipfox package manifest. */
+export interface PackageArchitectureMetadata {
+  schema: ArchitecturePolicySchemaVersion;
+  realm: string;
+  kind: ArchitectureClass;
+  context: string | null;
+}
+
 export interface PackageFact {
   schemaVersion: ArchitecturePolicySchemaVersion;
   name: string;
@@ -37,6 +45,11 @@ export interface PackageFact {
   realm: string | null;
   architectureClass: ArchitectureClass | null;
   boundedContext: string | null;
+}
+
+export interface PackageFactManifestOptions {
+  path: string;
+  origin?: PackageOrigin;
 }
 
 export interface ResolvedImportEdgeFact {

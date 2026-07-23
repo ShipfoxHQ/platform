@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join, resolve} from 'node:path';
 
 import {
   catalogDependencies,
@@ -8,7 +11,10 @@ import {
   findUnsupportedProtocol,
   runtimeEntryPoints,
   safePackageName,
+  validateInstalledPackages,
 } from '../src/published-package-artifacts.js';
+
+const repositoryRoot = resolve(new URL('../../../', import.meta.url).pathname);
 
 const workspace = {
   catalog: {react: '^19.1.1'},
@@ -130,4 +136,48 @@ describe('safePackageName', () => {
 
     assert.equal(tarballName, 'example-package');
   });
+});
+
+test('checks architecture metadata for a registry-matched installed package', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'shipfox-installed-artifact-test-'));
+  try {
+    const sourceDirectory = join(repositoryRoot, 'libs/api/agent');
+    const sourceManifestPath = join(sourceDirectory, 'package.json');
+    const sourceManifest = JSON.parse(await readFile(sourceManifestPath, 'utf8'));
+    const installedDirectory = join(root, 'node_modules', sourceManifest.name);
+    await mkdir(installedDirectory, {recursive: true});
+    await writeFile(
+      join(installedDirectory, 'package.json'),
+      JSON.stringify({
+        name: sourceManifest.name,
+        version: sourceManifest.version,
+        exports: {'.': './dist/index.js'},
+        shipfox: {
+          architecture: {
+            schema: 1,
+            realm: 'source-available',
+            kind: 'implementation',
+            context: 'agent',
+          },
+        },
+      }),
+    );
+
+    await validateInstalledPackages(
+      root,
+      new Map([
+        [
+          sourceManifest.name,
+          {
+            directory: sourceDirectory,
+            manifest: sourceManifest,
+            manifestPath: sourceManifestPath,
+          },
+        ],
+      ]),
+      new Map(),
+    );
+  } finally {
+    await rm(root, {force: true, recursive: true});
+  }
 });

@@ -1,10 +1,13 @@
 import {type ChildProcess, spawn} from 'node:child_process';
-import {existsSync, globSync, readFileSync, writeFileSync} from 'node:fs';
+import {globSync, readFileSync, writeFileSync} from 'node:fs';
 import {constants} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {pathToFileURL} from 'node:url';
 
 import {productionizePackageManifest} from './productionized-manifest-packer.js';
+import {getRepositoryRoot} from './repository-root.js';
+
+export {getRepositoryRoot} from './repository-root.js';
 
 type JsonRecord = Record<string, unknown>;
 const packageNamePattern = /^@shipfox\/[a-z0-9][a-z0-9._-]*$/u;
@@ -96,7 +99,7 @@ export async function publishProductionizedClosure<T>({
 
   for (const [manifestPath, originalManifest] of originalManifests) {
     const manifest = JSON.parse(originalManifest) as JsonRecord;
-    const productionized = productionizePackageManifest(manifest);
+    const productionized = productionizePackageManifest(manifest, dirname(manifestPath));
     if (productionized === manifest) continue;
     writeFileSync(manifestPath, `${JSON.stringify(productionized, null, 2)}\n`);
   }
@@ -116,18 +119,6 @@ export function publishChangesets(onSpawn?: (child: ChildProcess) => void): Prom
     child.once('error', reject);
     child.once('exit', (code) => resolvePublish(code ?? 1));
   });
-}
-
-export function getRepositoryRoot(entryPoint: string): string {
-  let directory = dirname(fileURLToPath(entryPoint));
-  while (true) {
-    if (existsSync(join(directory, 'publication-closure.json'))) return directory;
-    const parent = dirname(directory);
-    if (parent === directory) {
-      throw new Error('Could not find publication-closure.json above the package entrypoint');
-    }
-    directory = parent;
-  }
 }
 
 async function main() {

@@ -34,7 +34,9 @@ export {
   type JsonValue,
   type LocalPackageClassification,
   type ManifestEdgeFact,
+  type PackageArchitectureMetadata,
   type PackageFact,
+  type PackageFactManifestOptions,
   type PackageOrigin,
   type PolicyDiagnostic,
   type PolicyEvaluationOptions,
@@ -47,9 +49,15 @@ export {
 } from './types.js';
 export {
   assertArchitectureFacts,
+  assertPackageArchitectureMetadata,
   assertRepositoryConfiguration,
   isArchitectureFacts,
+  isPackageArchitectureMetadata,
   isRepositoryConfiguration,
+  packageArchitectureMetadataFromManifest,
+  packageFactFromInstalledManifest,
+  packageFactFromManifest,
   validateArchitectureFacts,
+  validatePackageArchitectureMetadata,
   validateRepositoryConfiguration,
 } from './validation.js';

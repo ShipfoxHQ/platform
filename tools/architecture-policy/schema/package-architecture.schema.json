@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ShipfoxHQ/shipfox/blob/main/tools/architecture-policy/schema/package-architecture.schema.json",
+  "title": "Shipfox published package architecture metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "realm", "kind", "context"],
+  "properties": {
+    "schema": { "const": 1 },
+    "realm": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string", "minLength": 1 },
+    "context": { "type": ["string", "null"] }
+  }
+}

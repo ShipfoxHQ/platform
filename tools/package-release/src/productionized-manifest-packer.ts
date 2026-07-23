@@ -4,6 +4,11 @@ import {basename, join} from 'node:path';
 
 import {productionizeManifest} from '@shipfox/tool-utils';
 
+import {
+  architectureMetadataForPackageDirectory,
+  assertPackageArchitectureMetadataMatches,
+} from './package-architecture-metadata.js';
+
 type JsonRecord = Record<string, unknown>;
 type DependencyMap = Record<string, string>;
 
@@ -41,7 +46,7 @@ export async function packProductionizedPackage<T>({
   const stagedManifestPath = join(stagedDirectory, 'package.json');
   const stagedManifest = JSON.parse(await readFile(stagedManifestPath, 'utf8')) as JsonRecord;
   const productionManifest = productionizeDependencyReferences(
-    productionizePackageManifest(stagedManifest),
+    productionizePackageManifest(stagedManifest, sourceDirectory),
     dependencyContext,
   );
   await writeFile(stagedManifestPath, `${JSON.stringify(productionManifest, null, 2)}\n`);
@@ -49,15 +54,38 @@ export async function packProductionizedPackage<T>({
   return packArtifact(stagedDirectory);
 }
 
-export function productionizePackageManifest(manifest: JsonRecord): JsonRecord {
+export function productionizePackageManifest(
+  manifest: JsonRecord,
+  sourceDirectory?: string,
+): JsonRecord {
   const productionManifest = productionizeManifest(manifest);
   const {devDependencies: _, imports, ...publishManifest} = productionManifest;
-  if (!isRecord(imports)) return publishManifest;
+  const productionizedManifest = isRecord(imports)
+    ? {
+        ...publishManifest,
+        imports: Object.fromEntries(
+          Object.entries(imports).filter(([specifier]) => !specifier.startsWith('#test/')),
+        ),
+      }
+    : publishManifest;
 
-  const publishImports = Object.fromEntries(
-    Object.entries(imports).filter(([specifier]) => !specifier.startsWith('#test/')),
+  const expectedMetadata = sourceDirectory
+    ? architectureMetadataForPackageDirectory(sourceDirectory)
+    : undefined;
+  if (expectedMetadata) {
+    const existingShipfox = isRecord(productionizedManifest.shipfox)
+      ? productionizedManifest.shipfox
+      : {};
+    if (!Object.hasOwn(existingShipfox, 'architecture')) {
+      productionizedManifest.shipfox = {...existingShipfox, architecture: expectedMetadata};
+    }
+  }
+  assertPackageArchitectureMetadataMatches(
+    productionizedManifest,
+    expectedMetadata,
+    'Productionized package',
   );
-  return {...publishManifest, imports: publishImports};
+  return productionizedManifest;
 }
 
 export function run(

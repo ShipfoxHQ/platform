@@ -28,6 +28,7 @@
       "default": "./dist/index.js"
     },
     "./schema/architecture-facts.schema.json": "./schema/architecture-facts.schema.json",
+    "./schema/package-architecture.schema.json": "./schema/package-architecture.schema.json",
     "./schema/repository-configuration.schema.json": "./schema/repository-configuration.schema.json",
     "./schema/rule-catalog.schema.json": "./schema/rule-catalog.schema.json"
   },
