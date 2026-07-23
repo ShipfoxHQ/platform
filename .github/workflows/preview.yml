@@ -132,8 +132,8 @@ jobs:
 
           for attempt in 1 2 3; do
             echo "Vercel prebuilt upload attempt $attempt/3"
-            if deployment_output="$(
-              npx --yes "vercel@$VERCEL_CLI_VERSION" deploy \
+            attempt_log="$RUNNER_TEMP/storybook-preview-deploy-$attempt.log"
+            if npx --yes "vercel@$VERCEL_CLI_VERSION" deploy \
                 --cwd . \
                 --prebuilt \
                 --archive=tgz \
@@ -141,14 +141,15 @@ jobs:
                 --scope="$VERCEL_ORG_ID" \
                 --project="$VERCEL_PROJECT_ID" \
                 --yes \
-                "${metadata_args[@]}" 2>&1 | tee -a "$deployment_log"
-            )"; then
-              deployment_url="$(printf '%s\n' "$deployment_output" | tail -n 1 | tr -d '\r')"
+                "${metadata_args[@]}" > "$attempt_log" 2>&1; then
+              tee -a "$deployment_log" < "$attempt_log"
+              deployment_url="$(sed '/^[[:space:]]*$/d' "$attempt_log" | tail -n 1 | tr -d '\r')"
               if [[ "$deployment_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app/?$ ]]; then
                 break
               fi
               echo "Vercel returned an unexpected deployment URL: $deployment_url" >&2
             else
+              tee -a "$deployment_log" < "$attempt_log" >&2
               echo "Vercel prebuilt upload failed on attempt $attempt" >&2
             fi
             if (( attempt < 3 )); then
