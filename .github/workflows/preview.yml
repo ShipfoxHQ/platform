@@ -129,6 +129,12 @@ jobs:
             metadata_args+=(--meta "githubPullRequest=$PREVIEW_PR_NUMBER")
           fi
 
+          npx --yes "vercel@$VERCEL_CLI_VERSION" link \
+            --repo \
+            --yes \
+            --token="$VERCEL_TOKEN" \
+            --scope="$VERCEL_ORG_ID"
+
           for attempt in 1 2 3; do
             echo "Vercel prebuilt upload attempt $attempt/3"
             attempt_log="$RUNNER_TEMP/storybook-preview-deploy-$attempt.log"
