@@ -108,6 +108,7 @@ jobs:
           success() &&
           (github.event_name == 'push' ||
           github.event.pull_request.head.repo.full_name == github.repository)
+        working-directory: apps/storybook
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -129,7 +130,7 @@ jobs:
             metadata_args+=(--meta "githubPullRequest=$PREVIEW_PR_NUMBER")
           fi
 
-          mkdir -p .vercel
+          mkdir -p ../.vercel
           jq -n \
             --arg project "$VERCEL_PROJECT_ID" \
             --arg org "$VERCEL_ORG_ID" \
@@ -141,7 +142,7 @@ jobs:
                 directory: "apps/storybook",
                 orgId: $org
               }]
-            }' > .vercel/repo.json
+            }' > ../.vercel/repo.json
 
           for attempt in 1 2 3; do
             echo "Vercel prebuilt upload attempt $attempt/3"
