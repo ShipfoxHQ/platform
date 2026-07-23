@@ -279,9 +279,10 @@ jobs:
           deployment_url="${DEPLOYMENT_URL%/}"
 
           vercel_curl() {
-            npx --yes "vercel@$VERCEL_CLI_VERSION" curl \
-              --deployment "$deployment_url" \
+            npx --yes "vercel@$VERCEL_CLI_VERSION" \
               --token="$VERCEL_TOKEN" \
+              curl \
+              --deployment "$deployment_url" \
               --yes \
               "$1" \
               -- --fail --silent --show-error --location \
