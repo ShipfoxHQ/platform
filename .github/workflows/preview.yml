@@ -288,11 +288,17 @@ jobs:
               --retry 2 --retry-delay 2 --max-time 30
           }
 
-          npx --yes "vercel@$VERCEL_CLI_VERSION" \
+          deployment_status="$(npx --yes "vercel@$VERCEL_CLI_VERSION" \
             inspect "$deployment_url" \
             --wait \
-            --timeout 180s \
-            --non-interactive >/dev/null
+            --timeout 600s \
+            --format=json \
+            --non-interactive)"
+          if ! jq -e '.readyState == "READY"' <<< "$deployment_status" >/dev/null; then
+            echo "Vercel deployment did not become ready within 10 minutes:" >&2
+            jq -r '.readyState // "unknown"' <<< "$deployment_status" >&2
+            exit 1
+          fi
 
           vercel_curl / >/dev/null
 
