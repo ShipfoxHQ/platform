@@ -130,6 +130,37 @@ jobs:
             metadata_args+=(--meta "githubPullRequest=$PREVIEW_PR_NUMBER")
           fi
 
+          if [[ ! "$VERCEL_ORG_ID" =~ ^team_ ]]; then
+            team_list="$RUNNER_TEMP/vercel-teams.json"
+            npx --yes "vercel@$VERCEL_CLI_VERSION" teams ls \
+              --format=json \
+              --token="$VERCEL_TOKEN" > "$team_list"
+            if ! VERCEL_ORG_ID="$(jq -er \
+              --arg team "$VERCEL_ORG_ID" \
+              '[.teams[] | select(.id == $team or .slug == $team or .name == $team) | .id][0]' \
+              "$team_list")"; then
+              echo "Vercel team '$VERCEL_ORG_ID' was not found for the token." >&2
+              exit 1
+            fi
+          fi
+
+          if [[ ! "$VERCEL_PROJECT_ID" =~ ^prj_ ]]; then
+            project_list="$RUNNER_TEMP/vercel-projects.json"
+            npx --yes "vercel@$VERCEL_CLI_VERSION" project ls \
+              --format=json \
+              --limit=100 \
+              --scope="$VERCEL_ORG_ID" \
+              --token="$VERCEL_TOKEN" > "$project_list"
+            configured_project="$VERCEL_PROJECT_ID"
+            if ! VERCEL_PROJECT_ID="$(jq -er \
+              --arg project "$configured_project" \
+              '[.projects[] | select(.id == $project or .name == $project) | .id][0]' \
+              "$project_list")"; then
+              echo "Vercel project '$configured_project' was not found in team '$VERCEL_ORG_ID'." >&2
+              exit 1
+            fi
+          fi
+
           mkdir -p ../.vercel
           jq -n \
             --arg project "$VERCEL_PROJECT_ID" \
