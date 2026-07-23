@@ -280,7 +280,6 @@ jobs:
 
           vercel_curl() {
             npx --yes "vercel@$VERCEL_CLI_VERSION" \
-              --token="$VERCEL_TOKEN" \
               curl \
               --deployment "$deployment_url" \
               --yes \
