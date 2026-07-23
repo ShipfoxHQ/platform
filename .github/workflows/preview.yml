@@ -188,11 +188,11 @@ jobs:
                 --archive=tgz \
                 --token="$VERCEL_TOKEN" \
                 --scope="$VERCEL_ORG_ID" \
-                --non-interactive \
+                --no-wait \
                 --yes \
                 "${metadata_args[@]}" > "$attempt_log" 2>&1; then
               tee -a "$deployment_log" < "$attempt_log"
-              deployment_url="$(sed '/^[[:space:]]*$/d' "$attempt_log" | tail -n 1 | tr -d '\r')"
+              deployment_url="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app/?' "$attempt_log" | tail -n 1 || true)"
               if [[ "$deployment_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app/?$ ]]; then
                 break
               fi
