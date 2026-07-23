@@ -269,22 +269,29 @@ jobs:
       - name: Verify deployed Storybook preview
         id: verify-deployment
         if: steps.register-deployment.outcome == 'success'
+        working-directory: apps/storybook
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         run: |
           set -euo pipefail
           deployment_verification_started="$(date +%s)"
           deployment_url="${DEPLOYMENT_URL%/}"
 
-          fetch_json() {
-            curl --fail --silent --show-error --location \
-              --retry 2 --retry-delay 2 --max-time 30 "$1"
+          vercel_curl() {
+            npx --yes "vercel@$VERCEL_CLI_VERSION" curl "$1" \
+              --deployment "$deployment_url" \
+              --scope="$VERCEL_ORG_ID" \
+              --token="$VERCEL_TOKEN" \
+              --yes \
+              -- --fail --silent --show-error --location \
+              --retry 2 --retry-delay 2 --max-time 30
           }
 
-          curl --fail --silent --show-error --location \
-            --retry 2 --retry-delay 2 --max-time 30 "$deployment_url/" >/dev/null
+          vercel_curl / >/dev/null
 
-          metadata="$(fetch_json "$deployment_url/preview-metadata.json")"
+          metadata="$(vercel_curl /preview-metadata.json)"
           if ! jq -e --arg expected_sha "$PREVIEW_COMMIT_SHA" \
             '.commitSha == $expected_sha' <<< "$metadata" >/dev/null; then
             echo "Deployed preview metadata does not match commit $PREVIEW_COMMIT_SHA." >&2
@@ -300,7 +307,7 @@ jobs:
 
           read -r -a preview_children <<< "$PREVIEW_CHILDREN"
           for child in "${preview_children[@]}"; do
-            child_index="$(fetch_json "$deployment_url/$child/index.json")"
+            child_index="$(vercel_curl "/$child/index.json")"
             if ! jq -e \
               '(.entries | type == "object") and ((.entries | length) > 0)' \
               <<< "$child_index" >/dev/null; then
