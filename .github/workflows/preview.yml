@@ -1,4 +1,4 @@
-name: Preview
+name: Storybook Preview
 
 on:
   pull_request:
@@ -12,6 +12,7 @@ on:
 permissions:
   actions: read
   contents: read
+  deployments: write
   pull-requests: read
 
 concurrency:
@@ -27,10 +28,13 @@ env:
   TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
   TURBO_SCM_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
   PREVIEW_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PREVIEW_PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+  PREVIEW_CHILDREN: react-ui client-agent client-auth client-integrations client-logs client-projects client-runners client-secrets client-triggers client-workflows
+  VERCEL_CLI_VERSION: 56.5.0
 
 jobs:
   build:
-    name: Build and validate preview
+    name: Storybook Preview
     if: github.event_name == 'push' || github.event.pull_request.head.ref != 'changeset-release/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -98,6 +102,195 @@ jobs:
           path: apps/storybook/.vercel/output
           if-no-files-found: error
 
+      - name: Deploy verified preview to Vercel
+        id: deploy
+        if: >-
+          success() &&
+          (github.event_name == 'push' ||
+          github.event.pull_request.head.repo.full_name == github.repository)
+        working-directory: apps/storybook
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_GIT_COMMIT_SHA: ${{ env.PREVIEW_COMMIT_SHA }}
+          VERCEL_GIT_COMMIT_REF: ${{ github.head_ref || github.ref_name }}
+          VERCEL_GIT_REPO_OWNER: ${{ github.repository_owner }}
+          VERCEL_GIT_REPO_SLUG: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          deployment_log="$RUNNER_TEMP/storybook-preview-deploy.log"
+          deployment_started="$(date +%s)"
+          deployment_url=
+          metadata_args=(
+            --meta "githubCommitSha=$PREVIEW_COMMIT_SHA"
+            --meta "githubRepository=$GITHUB_REPOSITORY"
+          )
+          if [[ -n "$PREVIEW_PR_NUMBER" ]]; then
+            metadata_args+=(--meta "githubPullRequest=$PREVIEW_PR_NUMBER")
+          fi
+
+          for attempt in 1 2 3; do
+            echo "Vercel prebuilt upload attempt $attempt/3"
+            if deployment_output="$(
+              npx --yes "vercel@$VERCEL_CLI_VERSION" deploy \
+                --cwd . \
+                --prebuilt \
+                --archive=tgz \
+                --token="$VERCEL_TOKEN" \
+                --scope="$VERCEL_ORG_ID" \
+                --project="$VERCEL_PROJECT_ID" \
+                --yes \
+                "${metadata_args[@]}" 2>&1 | tee -a "$deployment_log"
+            )"; then
+              deployment_url="$(printf '%s\n' "$deployment_output" | tail -n 1 | tr -d '\r')"
+              if [[ "$deployment_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app/?$ ]]; then
+                break
+              fi
+              echo "Vercel returned an unexpected deployment URL: $deployment_url" >&2
+            else
+              echo "Vercel prebuilt upload failed on attempt $attempt" >&2
+            fi
+            if (( attempt < 3 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+
+          if [[ ! "$deployment_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app/?$ ]]; then
+            echo 'Vercel prebuilt deployment failed after 3 attempts.' >&2
+            echo "Deployment log: $deployment_log" >&2
+            exit 1
+          fi
+
+          deployment_finished="$(date +%s)"
+          echo "deployment_seconds=$((deployment_finished - deployment_started))" >> "$GITHUB_OUTPUT"
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+          echo "deployment_url=$deployment_url" >> "$GITHUB_ENV"
+          echo "Vercel deployment: $deployment_url"
+
+      - name: Register Storybook Preview deployment
+        id: register-deployment
+        if: steps.deploy.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          deployment_payload="$(jq -n \
+            --arg ref "$PREVIEW_COMMIT_SHA" \
+            --arg description "Storybook Preview for $PREVIEW_COMMIT_SHA" \
+            --arg environment 'storybook-preview' \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg pullRequest "$PREVIEW_PR_NUMBER" \
+            '{
+              ref: $ref,
+              task: "deploy",
+              auto_merge: false,
+              required_contexts: [],
+              environment: $environment,
+              description: $description,
+              transient_environment: true,
+              production_environment: false,
+              payload: {
+                repository: $repository,
+                commitSha: $ref,
+                pullRequest: $pullRequest
+              }
+            }')"
+          deployment_id="$(printf '%s' "$deployment_payload" | gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/deployments" \
+            --input - \
+            --jq '.id')"
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+          jq -n \
+            --arg url "$DEPLOYMENT_URL" \
+            '{
+              state: "in_progress",
+              target_url: $url,
+              environment_url: $url,
+              description: "Vercel deployment uploaded; verifying all Storybook endpoints"
+            }' | gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses" \
+            --input - >/dev/null
+
+      - name: Verify deployed Storybook preview
+        id: verify-deployment
+        if: steps.register-deployment.outcome == 'success'
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          deployment_verification_started="$(date +%s)"
+          deployment_url="${DEPLOYMENT_URL%/}"
+
+          fetch_json() {
+            curl --fail --silent --show-error --location \
+              --retry 2 --retry-delay 2 --max-time 30 "$1"
+          }
+
+          curl --fail --silent --show-error --location \
+            --retry 2 --retry-delay 2 --max-time 30 "$deployment_url/" >/dev/null
+
+          metadata="$(fetch_json "$deployment_url/preview-metadata.json")"
+          if ! jq -e --arg expected_sha "$PREVIEW_COMMIT_SHA" \
+            '.commitSha == $expected_sha' <<< "$metadata" >/dev/null; then
+            echo "Deployed preview metadata does not match commit $PREVIEW_COMMIT_SHA." >&2
+            exit 1
+          fi
+          if [[ -n "$PREVIEW_PR_NUMBER" ]]; then
+            if ! jq -e --argjson expected_pr "$PREVIEW_PR_NUMBER" \
+              '.pullRequest.number == $expected_pr' <<< "$metadata" >/dev/null; then
+              echo "Deployed preview metadata does not match pull request $PREVIEW_PR_NUMBER." >&2
+              exit 1
+            fi
+          fi
+
+          read -r -a preview_children <<< "$PREVIEW_CHILDREN"
+          for child in "${preview_children[@]}"; do
+            child_index="$(fetch_json "$deployment_url/$child/index.json")"
+            if ! jq -e \
+              '(.entries | type == "object") and ((.entries | length) > 0)' \
+              <<< "$child_index" >/dev/null; then
+              echo "Deployed child $child has no Storybook entries." >&2
+              exit 1
+            fi
+            echo "Verified $deployment_url/$child/index.json"
+          done
+
+          deployment_verification_finished="$(date +%s)"
+          echo "verification_seconds=$((deployment_verification_finished - deployment_verification_started))" >> "$GITHUB_OUTPUT"
+          echo "Verified root, metadata, and ${#preview_children[@]} child Storybook indexes."
+
+      - name: Finalize Storybook Preview deployment
+        if: always() && steps.register-deployment.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_ID: ${{ steps.register-deployment.outputs.deployment_id }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          DEPLOYMENT_STATE: ${{ steps.verify-deployment.outcome == 'success' && 'success' || 'failure' }}
+        run: |
+          set -euo pipefail
+          deployment_description='Deployed Vercel preview failed post-deployment verification'
+          if [[ "$DEPLOYMENT_STATE" == success ]]; then
+            deployment_description='Verified Vercel preview for the exact commit'
+          fi
+          jq -n \
+            --arg state "$DEPLOYMENT_STATE" \
+            --arg url "$DEPLOYMENT_URL" \
+            --arg description "$deployment_description" \
+            '{
+              state: $state,
+              target_url: $url,
+              environment_url: $url,
+              description: $description
+            }' | gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+            --input - >/dev/null
+
       - name: Report preview metrics
         if: always()
         env:
@@ -106,6 +299,11 @@ jobs:
           VALIDATION_RESULT: ${{ steps.validation.outcome }}
           VALIDATION_SECONDS: ${{ steps.validation.outputs.validation_seconds || 'unavailable' }}
           QUEUE_SECONDS: ${{ steps.queue.outputs.queue_seconds || 'unavailable' }}
+          DEPLOYMENT_RESULT: ${{ steps.deploy.outcome || 'skipped' }}
+          DEPLOYMENT_SECONDS: ${{ steps.deploy.outputs.deployment_seconds || 'unavailable' }}
+          DEPLOYMENT_VERIFICATION_RESULT: ${{ steps.verify-deployment.outcome || 'skipped' }}
+          DEPLOYMENT_VERIFICATION_SECONDS: ${{ steps.verify-deployment.outputs.verification_seconds || 'unavailable' }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url || 'unavailable' }}
         run: |
           set -euo pipefail
           {
@@ -116,7 +314,10 @@ jobs:
             echo "| Queue | ${QUEUE_SECONDS} seconds |"
             echo "| Build and assembly | ${BUILD_SECONDS} seconds (${BUILD_RESULT}) |"
             echo "| Validation and browser smoke | ${VALIDATION_SECONDS} seconds (${VALIDATION_RESULT}) |"
+            echo "| Vercel upload | ${DEPLOYMENT_SECONDS} seconds (${DEPLOYMENT_RESULT}) |"
+            echo "| Deployment verification | ${DEPLOYMENT_VERIFICATION_SECONDS} seconds (${DEPLOYMENT_VERIFICATION_RESULT}) |"
             echo '| Remote cache | Pull requests read only; main reads and writes |'
+            echo "| Preview URL | ${DEPLOYMENT_URL} |"
             echo
             echo '### Turbo cache output'
             echo
