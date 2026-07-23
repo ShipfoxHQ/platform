@@ -272,7 +272,7 @@ jobs:
         working-directory: apps/storybook
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_SCOPE: ${{ vars.VERCEL_ORG_ID }}
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         run: |
           set -euo pipefail
@@ -282,7 +282,7 @@ jobs:
           vercel_curl() {
             npx --yes "vercel@$VERCEL_CLI_VERSION" curl "$1" \
               --deployment "$deployment_url" \
-              --scope="$VERCEL_ORG_ID" \
+              --scope="$VERCEL_SCOPE" \
               --token="$VERCEL_TOKEN" \
               --yes \
               -- --fail --silent --show-error --location \
