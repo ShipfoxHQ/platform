@@ -161,6 +161,29 @@ jobs:
             fi
           fi
 
+          if [[ -n "$PREVIEW_PR_NUMBER" ]]; then
+            stale_deployments="$RUNNER_TEMP/vercel-stale-deployments.json"
+            npx --yes "vercel@$VERCEL_CLI_VERSION" list "$VERCEL_PROJECT_ID" \
+              --format=json \
+              --limit=100 \
+              --status=QUEUED \
+              --meta "githubPullRequest=$PREVIEW_PR_NUMBER" \
+              --scope="$VERCEL_ORG_ID" \
+              --token="$VERCEL_TOKEN" > "$stale_deployments"
+            mapfile -t stale_deployment_ids < <(
+              jq -r '.deployments[]?.id // empty' "$stale_deployments"
+            )
+            if (( ${#stale_deployment_ids[@]} > 0 )); then
+              echo "Removing ${#stale_deployment_ids[@]} stale queued Vercel deployment(s)."
+              npx --yes "vercel@$VERCEL_CLI_VERSION" remove \
+                "${stale_deployment_ids[@]}" \
+                --safe \
+                --yes \
+                --scope="$VERCEL_ORG_ID" \
+                --token="$VERCEL_TOKEN"
+            fi
+          fi
+
           mkdir -p ../../.vercel
           jq -n \
             --arg project "$VERCEL_PROJECT_ID" \
