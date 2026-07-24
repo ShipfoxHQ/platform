@@ -1,5 +1,13 @@
 import {sanitizeLogoutRedirectPath, sanitizeRedirectPath} from './redirect-target.js';
 
+function encodeRepeatedly(value: string, times: number): string {
+  let encoded = value;
+  for (let iteration = 0; iteration < times; iteration += 1) {
+    encoded = encodeURIComponent(encoded);
+  }
+  return encoded;
+}
+
 describe('sanitizeRedirectPath', () => {
   describe.each([
     ['simple absolute path', '/foo'],
@@ -41,8 +49,12 @@ describe('sanitizeRedirectPath', () => {
   });
 
   describe('decode-then-check defenses', () => {
-    test('rejects percent-encoded /auth/* path', () => {
-      const result = sanitizeRedirectPath('/%61uth/login');
+    test.each([
+      ['single-encoded', '/%61uth/login'],
+      ['double-encoded', '/%2561uth/login'],
+      ['triple-encoded', '/%252561uth/login'],
+    ])('rejects %s /auth/* path', (_label, input) => {
+      const result = sanitizeRedirectPath(input);
 
       expect(result).toBeUndefined();
     });
@@ -61,6 +73,30 @@ describe('sanitizeRedirectPath', () => {
 
     test('rejects malformed percent-encoded input', () => {
       const result = sanitizeRedirectPath('/%E0%80%80');
+
+      expect(result).toBeUndefined();
+    });
+
+    test('fails closed when the path exceeds the decode iteration cap', () => {
+      const deeplyEncodedAuthPath = `/${encodeRepeatedly('%61', 10)}uth/login`;
+
+      expect(sanitizeRedirectPath(deeplyEncodedAuthPath)).toBeUndefined();
+    });
+
+    test('rejects malformed percent-encoding that only surfaces after the first decode', () => {
+      const result = sanitizeRedirectPath('/%25E0%2580%2580');
+
+      expect(result).toBeUndefined();
+    });
+
+    test('rejects an /auth/* path disguised behind encoded dot segments', () => {
+      const result = sanitizeRedirectPath('/safe/%25252e%25252e/auth/login');
+
+      expect(result).toBeUndefined();
+    });
+
+    test('rejects a protocol-relative URL revealed only after multiple decodes', () => {
+      const result = sanitizeRedirectPath('/%25252fevil.com');
 
       expect(result).toBeUndefined();
     });
@@ -90,7 +126,16 @@ describe('sanitizeLogoutRedirectPath', () => {
     ['login route with a query', '/auth/login?redirect=/workspaces/abc'],
     ['raw invitation token', '/invitations/accept?token=sf_i_raw-token'],
     ['raw invitation token with trailing slash', '/invitations/accept/?token=sf_i_raw-token'],
+    ['double-encoded auth route', '/%2561uth/login'],
+    ['triple-encoded auth route', '/%252561uth/login'],
+    ['double-encoded invitation token', '/%2569nvitations/accept?token=sf_i_raw-token'],
+    ['triple-encoded invitation token', '/%252569nvitations/accept?token=sf_i_raw-token'],
     ['malformed percent encoding', '/%E0%80%80'],
+    [
+      'invitation token disguised behind encoded dot segments',
+      '/safe/%25252e%25252e/invitations/accept?token=sf_i_raw-token',
+    ],
+    ['auth route disguised behind encoded dot segments', '/safe/%25252e%25252e/auth/login'],
   ])('falls back for %s', (_label, input) => {
     test('returns login without forwarding unsafe state', () => {
       expect(sanitizeLogoutRedirectPath(input)).toBe('/auth/login');
