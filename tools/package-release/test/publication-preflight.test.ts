@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict';
 import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join, resolve} from 'node:path';
 
-import {preflightPublicationClosure} from '../src/publication-preflight.js';
+import {
+  preflightPublicationClosure,
+  validatePackedPackageManifest,
+} from '../src/publication-preflight.js';
+
+const repositoryRoot = resolve(new URL('../../../', import.meta.url).pathname);
 
 const roots: string[] = [];
 const missingEntryPointError = /missing entry point/u;
+const staleArchitectureMetadataError = /stale or conflicting architecture metadata/u;
+const missingArchitectureMetadataError = /is missing architecture metadata/u;
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, {force: true, recursive: true});
@@ -36,6 +43,83 @@ test('rejects a packed package with a missing bin entry point', async () => {
   const root = createFixture({bin: './bin/cli.js'});
 
   await assert.rejects(preflightPublicationClosure(root), missingEntryPointError);
+});
+
+test('checks architecture metadata for a registry-matched packed package', () => {
+  const entry = {
+    directory: join(repositoryRoot, 'libs/api/agent'),
+    manifest: {name: '@shipfox/api-agent', version: '1.0.0'},
+    manifestPath: join(repositoryRoot, 'libs/api/agent/package.json'),
+  };
+
+  assert.doesNotThrow(() =>
+    validatePackedPackageManifest(
+      entry,
+      ['package/package.json', 'package/dist/index.js'],
+      {
+        ...entry.manifest,
+        exports: {'.': './dist/index.js'},
+        shipfox: {
+          architecture: {
+            schema: 1,
+            realm: 'source-available',
+            kind: 'implementation',
+            context: 'agent',
+          },
+        },
+      },
+      new Map(),
+    ),
+  );
+});
+
+test('rejects a registry-matched packed package with stale architecture metadata', () => {
+  const entry = {
+    directory: join(repositoryRoot, 'libs/api/agent'),
+    manifest: {name: '@shipfox/api-agent', version: '1.0.0'},
+    manifestPath: join(repositoryRoot, 'libs/api/agent/package.json'),
+  };
+
+  assert.throws(
+    () =>
+      validatePackedPackageManifest(
+        entry,
+        ['package/package.json', 'package/dist/index.js'],
+        {
+          ...entry.manifest,
+          exports: {'.': './dist/index.js'},
+          shipfox: {
+            architecture: {
+              schema: 1,
+              realm: 'source-available',
+              kind: 'dto',
+              context: 'agent',
+            },
+          },
+        },
+        new Map(),
+      ),
+    staleArchitectureMetadataError,
+  );
+});
+
+test('rejects a registry-matched packed package with missing architecture metadata', () => {
+  const entry = {
+    directory: join(repositoryRoot, 'libs/api/agent'),
+    manifest: {name: '@shipfox/api-agent', version: '1.0.0'},
+    manifestPath: join(repositoryRoot, 'libs/api/agent/package.json'),
+  };
+
+  assert.throws(
+    () =>
+      validatePackedPackageManifest(
+        entry,
+        ['package/package.json', 'package/dist/index.js'],
+        {...entry.manifest, exports: {'.': './dist/index.js'}},
+        new Map(),
+      ),
+    missingArchitectureMetadataError,
+  );
 });
 
 function createFixture({

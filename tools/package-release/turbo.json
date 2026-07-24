@@ -5,6 +5,8 @@
     "verify": {
       "dependsOn": [
         "$TURBO_EXTENDS$",
+        "@shipfox/architecture-policy#build",
+        "@shipfox/architecture-policy#type:emit",
         "@shipfox/application-release#build",
         "@shipfox/application-release#type:emit",
         "@shipfox/biome#build",
@@ -30,6 +32,7 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/pnpm-lock.yaml",
         "$TURBO_ROOT$/pnpm-workspace.yaml",
+        "$TURBO_ROOT$/api-contexts.cjs",
         "$TURBO_ROOT$/tools/**/package.json"
       ]
     }

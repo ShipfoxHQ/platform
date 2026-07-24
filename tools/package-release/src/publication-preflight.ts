@@ -12,6 +12,10 @@ import {
   validateExternalEngineeringGuidanceArtifact,
 } from './engineering-guidance-artifact.js';
 import {
+  architectureMetadataForPackageDirectory,
+  assertPackageArchitectureMetadataMatches,
+} from './package-architecture-metadata.js';
+import {
   mapWithConcurrency,
   type PackageDependencyContext,
   packProductionizedPackage,
@@ -36,7 +40,7 @@ interface PackageManifest extends JsonRecord {
   version?: string;
 }
 
-interface PublicationPackage {
+export interface PublicationPackage {
   directory: string;
   manifest: PackageManifest;
   manifestPath: string;
@@ -182,6 +186,20 @@ async function validatePackedPackage(
   const files = (await execFileText('tar', ['-tzf', tarball])).split('\n').filter(Boolean);
   const packedManifestText = await execFileText('tar', ['-xOzf', tarball, 'package/package.json']);
   const manifest = JSON.parse(packedManifestText) as PackageManifest;
+  validatePackedPackageManifest(entry, files, manifest, packagesByName);
+}
+
+export function validatePackedPackageManifest(
+  entry: PublicationPackage,
+  files: string[],
+  manifest: PackageManifest,
+  packagesByName: ReadonlyMap<string, PublicationPackage>,
+): void {
+  assertPackageArchitectureMetadataMatches(
+    manifest,
+    architectureMetadataForPackageDirectory(entry.directory),
+    'Packed',
+  );
   const unsupported = findUnsupportedProtocol(manifest);
   if (unsupported)
     throw new Error(`Packed ${manifest.name} contains unsupported protocol at ${unsupported}`);

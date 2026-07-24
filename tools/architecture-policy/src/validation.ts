@@ -1,8 +1,11 @@
-import {RULE_CATALOG} from './catalog.js';
+import {DEFAULT_ARCHITECTURE_CLASSES, RULE_CATALOG} from './catalog.js';
 import {
   type ArchitectureFacts,
   architecturePolicySchemaVersion,
   type JsonValue,
+  type PackageArchitectureMetadata,
+  type PackageFact,
+  type PackageFactManifestOptions,
   type RepositoryConfiguration,
 } from './types.js';
 
@@ -16,6 +19,82 @@ const dependencyGroups = new Set([
 const packageOrigins = new Set(['installed', 'local']);
 const boundaryDecisions = new Set(['allow', 'never', 'same-context']);
 const ruleIds = new Set(RULE_CATALOG.rules.map(({id}) => id));
+
+export function validatePackageArchitectureMetadata(value: unknown): string[] {
+  if (!isRecord(value)) return ['Package architecture metadata must be an object'];
+
+  const errors: string[] = [];
+  if (value.schema !== architecturePolicySchemaVersion)
+    errors.push(`Unsupported package architecture metadata schema: ${String(value.schema)}`);
+  requireNonEmptyString(value.realm, 'Package architecture metadata realm', errors);
+  requireNonEmptyString(value.kind, 'Package architecture metadata kind', errors);
+  requireNullableString(value.context, 'Package architecture metadata context', errors);
+
+  if (
+    typeof value.kind === 'string' &&
+    DEFAULT_ARCHITECTURE_CLASSES[value.kind]?.requiresBoundedContext === true &&
+    (typeof value.context !== 'string' || value.context.length === 0)
+  ) {
+    errors.push(
+      `Package architecture metadata context is required for architecture class: ${value.kind}`,
+    );
+  }
+
+  for (const key of Object.keys(value)) {
+    if (!['schema', 'realm', 'kind', 'context'].includes(key))
+      errors.push(`Unknown package architecture metadata property: ${key}`);
+  }
+
+  return [...new Set(errors)].sort();
+}
+
+export function isPackageArchitectureMetadata(
+  value: unknown,
+): value is PackageArchitectureMetadata {
+  return validatePackageArchitectureMetadata(value).length === 0;
+}
+
+export function assertPackageArchitectureMetadata(
+  value: unknown,
+): asserts value is PackageArchitectureMetadata {
+  const errors = validatePackageArchitectureMetadata(value);
+  if (errors.length > 0) throw new Error(errors.join('\n'));
+}
+
+export function packageArchitectureMetadataFromManifest(manifest: unknown): unknown | undefined {
+  if (!isRecord(manifest) || !isRecord(manifest.shipfox)) return undefined;
+  return Object.hasOwn(manifest.shipfox, 'architecture')
+    ? manifest.shipfox.architecture
+    : undefined;
+}
+
+export function packageFactFromManifest(
+  manifest: unknown,
+  {path, origin = 'installed'}: PackageFactManifestOptions,
+): PackageFact {
+  const record = isRecord(manifest) ? manifest : {};
+  const metadata = packageArchitectureMetadataFromManifest(record);
+  const metadataRecord = isRecord(metadata) ? metadata : {};
+
+  return {
+    schemaVersion: architecturePolicySchemaVersion,
+    name: typeof record.name === 'string' ? record.name : '',
+    version: typeof record.version === 'string' ? record.version : null,
+    path,
+    origin,
+    policyParticipant: metadata !== undefined,
+    realm: typeof metadataRecord.realm === 'string' ? metadataRecord.realm : null,
+    architectureClass: typeof metadataRecord.kind === 'string' ? metadataRecord.kind : null,
+    boundedContext:
+      metadataRecord.context === null || typeof metadataRecord.context === 'string'
+        ? metadataRecord.context
+        : null,
+  };
+}
+
+export function packageFactFromInstalledManifest(manifest: unknown, path: string): PackageFact {
+  return packageFactFromManifest(manifest, {path, origin: 'installed'});
+}
 
 export function validateArchitectureFacts(value: unknown): string[] {
   const errors: string[] = [];

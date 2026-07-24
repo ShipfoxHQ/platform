@@ -36,6 +36,26 @@ fact shape; a third-party package opts out with `policyParticipant: false`.
 Unknown classes, missing metadata, incomplete class matrices, and invalid realm
 relations fail closed.
 
+Published Shipfox packages carry the same identity in `package.json` under
+`shipfox.architecture`:
+
+```json
+{
+  "shipfox": {
+    "architecture": {
+      "schema": 1,
+      "realm": "source-available",
+      "kind": "implementation",
+      "context": "workspaces"
+    }
+  }
+}
+```
+
+Use `packageFactFromInstalledManifest()` to create a normalized fact from an
+installed manifest. The package-release tool generates this field from the
+repository registry when it stages a package for publication.
+
 The package also exports the serializable rule catalog and versioned JSON
 schemas. Diagnostics always include a stable rule ID, the rejected facts, the
 expected boundary, and a canonical architecture-validation guidance location.
