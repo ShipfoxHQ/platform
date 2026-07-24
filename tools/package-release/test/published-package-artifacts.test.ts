@@ -22,6 +22,7 @@ const workspace = {
 };
 const directDependencyErrorPattern = /must use a catalog or workspace reference for react/u;
 const missingCatalogEntryErrorPattern = /Catalog default does not define missing-package/u;
+const missingArchitectureMetadataError = /is missing architecture metadata/u;
 
 describe('catalogDependencies', () => {
   test('resolves default and named catalog references', () => {
@@ -176,6 +177,45 @@ test('checks architecture metadata for a registry-matched installed package', as
         ],
       ]),
       new Map(),
+    );
+  } finally {
+    await rm(root, {force: true, recursive: true});
+  }
+});
+
+test('rejects a registry-matched installed package with missing architecture metadata', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'shipfox-installed-artifact-test-'));
+  try {
+    const sourceDirectory = join(repositoryRoot, 'libs/api/agent');
+    const sourceManifestPath = join(sourceDirectory, 'package.json');
+    const sourceManifest = JSON.parse(await readFile(sourceManifestPath, 'utf8'));
+    const installedDirectory = join(root, 'node_modules', sourceManifest.name);
+    await mkdir(installedDirectory, {recursive: true});
+    await writeFile(
+      join(installedDirectory, 'package.json'),
+      JSON.stringify({
+        name: sourceManifest.name,
+        version: sourceManifest.version,
+        exports: {'.': './dist/index.js'},
+      }),
+    );
+
+    await assert.rejects(
+      validateInstalledPackages(
+        root,
+        new Map([
+          [
+            sourceManifest.name,
+            {
+              directory: sourceDirectory,
+              manifest: sourceManifest,
+              manifestPath: sourceManifestPath,
+            },
+          ],
+        ]),
+        new Map(),
+      ),
+      missingArchitectureMetadataError,
     );
   } finally {
     await rm(root, {force: true, recursive: true});
