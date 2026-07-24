@@ -1,5 +1,14 @@
 # @shipfox/client-logs
 
+## 6.0.2
+
+### Patch Changes
+
+- Updated dependencies [4b85404]
+- Updated dependencies [102c5f4]
+  - @shipfox/api-logs-dto@9.0.2
+  - @shipfox/react-ui@0.3.7
+
 ## 6.0.1
 
 ### Patch Changes

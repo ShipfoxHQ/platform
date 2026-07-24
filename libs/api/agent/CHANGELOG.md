@@ -1,5 +1,25 @@
 # @shipfox/api-agent
 
+## 9.0.2
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/api-agent-dto@9.0.2
+  - @shipfox/api-auth-context@9.0.2
+  - @shipfox/api-secrets-dto@9.0.2
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.2
+  - @shipfox/node-drizzle@0.3.4
+  - @shipfox/node-egress-guard@0.1.3
+  - @shipfox/node-error-monitoring@0.2.2
+  - @shipfox/node-fastify@0.3.2
+  - @shipfox/node-module@1.0.1
+  - @shipfox/node-opentelemetry@0.6.2
+  - @shipfox/node-postgres@0.4.4
+  - @shipfox/redact@0.2.5
+
 ## 9.0.1
 
 ### Patch Changes

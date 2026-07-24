@@ -1,5 +1,15 @@
 # @shipfox/node-fastify
 
+## 0.3.2
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/config@1.2.4
+  - @shipfox/node-error-monitoring@0.2.2
+  - @shipfox/node-opentelemetry@0.6.2
+
 ## 0.3.1
 
 ### Patch Changes

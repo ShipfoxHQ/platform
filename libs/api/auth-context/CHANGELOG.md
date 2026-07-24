@@ -1,5 +1,15 @@
 # @shipfox/api-auth-context
 
+## 9.0.2
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/api-auth-dto@9.0.2
+  - @shipfox/api-workspaces-dto@9.0.2
+  - @shipfox/node-fastify@0.3.2
+
 ## 9.0.1
 
 ### Patch Changes

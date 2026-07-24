@@ -1,5 +1,43 @@
 # @shipfox/api-server
 
+## 9.0.2
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/annotations@9.0.2
+  - @shipfox/annotations-dto@9.0.2
+  - @shipfox/api-agent@9.0.2
+  - @shipfox/api-agent-dto@9.0.2
+  - @shipfox/api-auth@9.0.2
+  - @shipfox/api-auth-dto@9.0.2
+  - @shipfox/api-definitions@9.0.2
+  - @shipfox/api-definitions-dto@9.0.2
+  - @shipfox/api-dispatcher@9.0.2
+  - @shipfox/api-email-challenges@1.1.1
+  - @shipfox/api-integration-core@9.0.2
+  - @shipfox/api-integration-core-dto@9.0.2
+  - @shipfox/api-logs@9.0.2
+  - @shipfox/api-projects@9.0.2
+  - @shipfox/api-projects-dto@9.0.2
+  - @shipfox/api-runners@9.0.2
+  - @shipfox/api-runners-dto@9.0.2
+  - @shipfox/api-secrets@9.0.2
+  - @shipfox/api-secrets-dto@9.0.2
+  - @shipfox/api-triggers@9.0.2
+  - @shipfox/api-workflows@9.0.2
+  - @shipfox/api-workflows-dto@9.0.2
+  - @shipfox/api-workspaces@9.0.2
+  - @shipfox/api-workspaces-dto@9.0.2
+  - @shipfox/config@1.2.4
+  - @shipfox/node-error-monitoring@0.2.2
+  - @shipfox/node-fastify@0.3.2
+  - @shipfox/node-jwt@0.3.2
+  - @shipfox/node-module@1.0.1
+  - @shipfox/node-opentelemetry@0.6.2
+  - @shipfox/node-postgres@0.4.4
+
 ## 9.0.1
 
 ### Patch Changes

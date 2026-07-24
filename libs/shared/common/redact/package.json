@@ -2,7 +2,7 @@
   "name": "@shipfox/redact",
   "license": "MIT",
   "private": false,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

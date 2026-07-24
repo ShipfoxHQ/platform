@@ -1,5 +1,11 @@
 # @shipfox/regex
 
+## 0.2.4
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+
 ## 0.2.3
 
 ### Patch Changes

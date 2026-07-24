@@ -1,5 +1,22 @@
 # @shipfox/api-integration-slack
 
+## 9.0.2
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/api-auth-context@9.0.2
+  - @shipfox/api-integration-slack-dto@9.0.2
+  - @shipfox/api-integration-spi@0.2.2
+  - @shipfox/api-workspaces-dto@9.0.2
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.2
+  - @shipfox/node-drizzle@0.3.4
+  - @shipfox/node-fastify@0.3.2
+  - @shipfox/node-opentelemetry@0.6.2
+  - @shipfox/node-postgres@0.4.4
+
 ## 9.0.1
 
 ### Patch Changes

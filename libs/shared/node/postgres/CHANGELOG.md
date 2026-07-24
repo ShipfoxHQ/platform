@@ -1,5 +1,13 @@
 # @shipfox/node-pg
 
+## 0.4.4
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/config@1.2.4
+
 ## 0.4.3
 
 ### Patch Changes

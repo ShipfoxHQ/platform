@@ -1,5 +1,13 @@
 # @shipfox/node-outbox
 
+## 0.2.6
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/node-drizzle@0.3.4
+
 ## 0.2.5
 
 ### Patch Changes

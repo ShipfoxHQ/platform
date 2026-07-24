@@ -1,5 +1,19 @@
 # @shipfox/api-dispatcher
 
+## 9.0.2
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/config@1.2.4
+  - @shipfox/node-error-monitoring@0.2.2
+  - @shipfox/node-module@1.0.1
+  - @shipfox/node-opentelemetry@0.6.2
+  - @shipfox/node-outbox@0.2.6
+  - @shipfox/node-postgres@0.4.4
+  - @shipfox/node-temporal@0.4.2
+
 ## 9.0.1
 
 ### Patch Changes

@@ -1,5 +1,21 @@
 # @shipfox/api-email-challenges
 
+## 1.1.1
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/api-common-dto@9.0.2
+  - @shipfox/config@1.2.4
+  - @shipfox/node-auth-root-key@0.2.3
+  - @shipfox/node-drizzle@0.3.4
+  - @shipfox/node-email@0.3.3
+  - @shipfox/node-mailer@0.2.3
+  - @shipfox/node-module@1.0.1
+  - @shipfox/node-opentelemetry@0.6.2
+  - @shipfox/node-postgres@0.4.4
+
 ## 1.1.0
 
 ### Minor Changes

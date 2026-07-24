@@ -1,5 +1,14 @@
 # @shipfox/node-mailer
 
+## 0.2.3
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/config@1.2.4
+  - @shipfox/node-opentelemetry@0.6.2
+
 ## 0.2.2
 
 ### Patch Changes
