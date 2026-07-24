@@ -7590,6 +7590,10 @@ importers:
         version: link:../../../../tools/vitest
 
   tools/api-architecture-policy:
+    dependencies:
+      '@shipfox/architecture-policy':
+        specifier: workspace:*
+        version: link:../architecture-policy
     devDependencies:
       '@shipfox/biome':
         specifier: workspace:*

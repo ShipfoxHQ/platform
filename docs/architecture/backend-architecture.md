@@ -132,13 +132,15 @@ These checks enforce the rules:
 | --- | --- |
 | Biome | Local import and export syntax, including DTO root and `/inter-module` source shape. |
 | Dependency Cruiser | Resolved source dependency graph, including context-aware API package edges. |
-| API architecture policy | Package inventory, classifications, declared manifest edges, and intended public-contract subpaths. |
+| `@shipfox/architecture-policy` through the Platform adapter | Normalized package metadata, class and realm relationships, manifest edges, export intent, diagnostics, and exact exceptions. |
 | Package release verification | Packed public entry-point correctness and external-consumer closure. |
 
 The root [API architecture Biome plugins](../../tools/biome/plugins/api-architecture/README.md)
 report local DTO import and export violations at the source expression.
-`pnpm check:api-context-inventory` checks package classification, stale registry
-entries, manifest edges, and structural `/inter-module` export parity. It does
+`pnpm check:api-context-inventory` discovers the workspace facts and evaluates
+them through `@shipfox/architecture-policy`. Its local adapter reads
+`api-contexts.cjs` for classifications and bounded contexts, and it does not
+copy the class, realm, manifest, export, or exception decision trees. It does
 not parse source imports; use Dependency Cruiser for resolved source edges.
 `pnpm check:dependencies` checks dependency policy and manifest hygiene.
 `pnpm check:published-artifacts` checks packed public entry points.
@@ -152,9 +154,11 @@ when it meets ADR 0004's joint-ownership rules. Keep a same-context SPI narrow
 and unavailable to other contexts. Consumer tests use DTO fixtures or contract
 fakes; only composition and E2E tests may compose real modules.
 
-[`tools/api-architecture-policy`](../../tools/api-architecture-policy) enforces
-the registry without migration exceptions. Update it when the durable policy
-changes, never to admit a completed violation.
+[`tools/api-architecture-policy`](../../tools/api-architecture-policy) is the
+Platform discovery adapter for the shared policy. Update `api-contexts.cjs`
+when the local classification or Dependency Cruiser edge matrix changes, and
+update the shared package when a reusable policy rule changes. Neither layer
+may admit a completed violation with a baseline or broad exception.
 
 Update this guide when the current model changes. Update an ADR, or add one,
 when the durable decision, ownership model, or accepted tradeoff changes.

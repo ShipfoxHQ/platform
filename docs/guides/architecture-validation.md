@@ -147,9 +147,11 @@ mise exec -- turbo test --filter=@shipfox/<composition-package>...
 
 ## Repository architecture policy
 
-**A repository verifier owns facts that cross files and manifests.** Current
-verifiers cover client architecture and the server package inventory while
-the shared policy package from ADR 0007 is built.
+**A repository verifier owns facts that cross files and manifests.** Platform
+uses `@shipfox/architecture-policy` through the local adapter in
+`tools/api-architecture-policy`. The adapter discovers Platform packages,
+manifests, classifications, export intent, and local configuration; the shared
+evaluator owns the reusable policy decisions.
 
 Use the repository layer for:
 
@@ -174,8 +176,9 @@ mise exec -- pnpm check:published-artifacts
 ```
 
 `check:client-architecture` is the Platform semantic client-policy gate. Do not
-copy its implementation into Cloud. Move shared rules into
-`@shipfox/architecture-policy` when that package is available.
+copy its implementation into Cloud. The API architecture command keeps
+Platform discovery local and evaluates the normalized facts through the shared
+package.
 
 ## Cross-repository rules
 
@@ -260,11 +263,12 @@ The repository currently uses:
 - `.dependency-cruiser.cjs` for package-local import topology.
 - `@shipfox/client-architecture-policy` for remaining client repository
   checks.
-- `@shipfox/api-architecture-policy` and `api-contexts.cjs` for server package
-  inventory, manifest edges, imports, and DTO exports.
+- `@shipfox/api-architecture-policy` for Platform discovery and shared-policy
+  evaluation over server package metadata and DTO export intent.
+- `api-contexts.cjs` and `.dependency-cruiser.cjs` for the local classification
+  registry and resolved source-import topology.
 - Focused composition tests for client and server runtime declarations.
 
-ADR 0007 targets a published `@shipfox/architecture-policy` package and
-architecture metadata in released manifests. Until that migration lands, keep
-the current gates passing and design new shared rules so their policy logic can
-move without copying repository discovery code.
+ADR 0007's normalized evaluator is now adopted by Platform. The remaining
+publication of the package and architecture metadata in released manifests are
+tracked separately; keep the local adapter thin while those contracts land.

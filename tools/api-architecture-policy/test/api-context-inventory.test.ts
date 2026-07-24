@@ -1,109 +1,82 @@
 import assert from 'node:assert/strict';
+import {evaluateArchitecturePolicy} from '@shipfox/architecture-policy';
 import {
   apiContextPackagePaths,
   auditApiContextInventory,
-  auditPolicyFixture,
   auditRepository,
+  discoverPlatformArchitecturePolicy,
 } from '../src/api-context-inventory.js';
 
-describe('auditApiContextInventory', () => {
-  test('requires every relevant server package to have one classification', () => {
-    const errors = auditApiContextInventory([...apiContextPackagePaths(), 'libs/api/new-context']);
-
-    assert.deepEqual(errors, ['Unclassified server package: libs/api/new-context']);
+describe('Platform architecture-policy adapter', () => {
+  test('keeps registry completeness as a narrow discovery check', () => {
+    assert.deepEqual(
+      auditApiContextInventory([...apiContextPackagePaths(), 'libs/api/new-context']),
+      ['Unclassified server package: libs/api/new-context'],
+    );
   });
 
-  test('accepts the repository inventory', async () => {
-    const errors = await auditRepository();
+  test('discovers normalized package, manifest, and export facts', async () => {
+    const {configuration, facts} = await discoverPlatformArchitecturePolicy();
 
-    assert.deepEqual(errors, []);
+    assert.equal(facts.schemaVersion, 1);
+    assert.equal(facts.importEdges.length, 0);
+    assert.ok(
+      facts.packages.some(
+        (packageFact) =>
+          packageFact.name === '@shipfox/api-runners' &&
+          packageFact.architectureClass === 'implementation' &&
+          packageFact.boundedContext === 'runners' &&
+          packageFact.realm === 'source-available',
+      ),
+    );
+    assert.ok(
+      facts.manifestEdges.some(
+        (edge) =>
+          edge.source === '@shipfox/api-runners' && edge.target === '@shipfox/api-runners-dto',
+      ),
+    );
+    assert.ok(
+      facts.publicExports.some(
+        (entry) =>
+          entry.package === '@shipfox/api-runners-dto' &&
+          entry.publicSubpath === './inter-module' &&
+          entry.resolvedTarget?.endsWith('libs/api/runners-dto/src/inter-module.ts'),
+      ),
+    );
+    assert.equal(configuration.realms['source-available']?.mayDependOn[0], 'source-available');
+    assert.equal(configuration.compositionRoots[0], '@shipfox/api-server');
+    assert.deepEqual(configuration.extensions, {
+      platform: {
+        classificationSource: 'api-contexts.cjs',
+        dependencyCruiserSource: 'api-contexts.cjs',
+        classifiedPackageCount: configuration.localPackages.length,
+      },
+    });
   });
 
-  test('rejects a new foreign manifest edge and missing DTO inter-module export', () => {
-    const manifestErrors = auditPolicyFixture({
+  test('accepts the current repository through the shared evaluator', async () => {
+    assert.deepEqual(await auditRepository(), []);
+  });
+
+  test('uses shared diagnostics for manifest and export policy', async () => {
+    const discovery = await discoverPlatformArchitecturePolicy();
+    const runners = discovery.facts.packages.find(({name}) => name === '@shipfox/api-runners');
+    const auth = discovery.facts.packages.find(({name}) => name === '@shipfox/api-auth');
+    assert.ok(runners);
+    assert.ok(auth);
+    discovery.facts.manifestEdges.push({
+      schemaVersion: 1,
+      source: runners.name,
+      target: auth.name,
       dependencyGroup: 'devDependencies',
-      importerPath: 'libs/api/runners',
-      targetPath: 'libs/api/auth',
     });
-    const dtoErrors = auditPolicyFixture({
-      dtoHasInterModuleEntry: false,
-      dtoHasInterModuleSource: true,
-      importerPath: 'libs/api/projects-dto',
-    });
-
-    assert.deepEqual(manifestErrors, ['Foreign implementation manifest edge: devDependencies']);
-    assert.deepEqual(dtoErrors, ['DTO inter-module source has no explicit package export']);
-
-    const orphanExportErrors = auditPolicyFixture({
-      dtoHasInterModuleEntry: true,
-      importerPath: 'libs/api/projects-dto',
-    });
-    assert.deepEqual(orphanExportErrors, ['DTO inter-module export has no source file']);
-  });
-
-  test('validates every workspace dependency group through the shared edge policy', () => {
-    const dependencyGroups = [
-      'dependencies',
-      'devDependencies',
-      'optionalDependencies',
-      'peerDependencies',
-    ] as const;
-
-    for (const dependencyGroup of dependencyGroups) {
-      assert.deepEqual(
-        auditPolicyFixture({
-          dependencyGroup,
-          importerPath: 'libs/api/workflows-dto',
-          targetPath: 'libs/api/workflows',
-        }),
-        [`DTO implementation manifest edge: ${dependencyGroup}`],
-      );
-    }
-
-    assert.deepEqual(
-      auditPolicyFixture({
-        dependencyGroup: 'dependencies',
-        importerPath: 'libs/shared/common/runner-labels',
-        targetPath: 'libs/api/runners',
-      }),
-      ['Shared semantic implementation manifest edge: dependencies'],
+    discovery.facts.publicExports = discovery.facts.publicExports.filter(
+      ({package: packageName, publicSubpath}) =>
+        !(packageName === '@shipfox/api-runners-dto' && publicSubpath === './inter-module'),
     );
 
-    assert.deepEqual(
-      auditPolicyFixture({
-        dependencyGroup: 'dependencies',
-        importerPath: 'libs/api/integration/spi',
-        targetPath: 'libs/api/workflows',
-      }),
-      ['Foreign SPI implementation manifest edge: dependencies'],
-    );
-
-    assert.deepEqual(
-      auditPolicyFixture({
-        dependencyGroup: 'dependencies',
-        importerPath: 'libs/api/projects-dto',
-        targetPath: 'libs/api/integration/spi',
-      }),
-      ['DTO SPI manifest edge: dependencies'],
-    );
-
-    assert.deepEqual(
-      auditPolicyFixture({
-        dependencyGroup: 'dependencies',
-        importerPath: 'libs/shared/common/runner-labels',
-        targetPath: 'libs/api/integration/spi',
-      }),
-      ['Shared semantic SPI manifest edge: dependencies'],
-    );
-  });
-
-  test('rejects foreign implementation dependencies on same-context SPIs', () => {
-    const errors = auditPolicyFixture({
-      dependencyGroup: 'dependencies',
-      importerPath: 'libs/api/workflows',
-      targetPath: 'libs/api/integration/spi',
-    });
-
-    assert.deepEqual(errors, ['Foreign same-context SPI manifest edge: dependencies']);
+    const diagnostics = evaluateArchitecturePolicy(discovery.facts, discovery.configuration);
+    assert.ok(diagnostics.some(({ruleId}) => ruleId === 'architecture/manifest-edge'));
+    assert.ok(diagnostics.some(({ruleId}) => ruleId === 'architecture/export-intent'));
   });
 });
