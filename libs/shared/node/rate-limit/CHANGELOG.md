@@ -1,5 +1,11 @@
 # @shipfox/node-rate-limit
 
+## 0.3.2
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+
 ## 0.3.1
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shipfox/workflow-document
 
+## 2.1.3
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+
 ## 2.1.2
 
 ### Patch Changes

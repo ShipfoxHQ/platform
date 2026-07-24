@@ -1,5 +1,13 @@
 # @shipfox/node-drizzle
 
+## 0.3.4
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/node-postgres@0.4.4
+
 ## 0.3.3
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/node-auth-root-key",
   "license": "MIT",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

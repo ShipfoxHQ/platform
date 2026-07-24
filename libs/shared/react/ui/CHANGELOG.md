@@ -1,5 +1,11 @@
 # @shipfox/react-ui
 
+## 0.3.7
+
+### Patch Changes
+
+- 102c5f4: Isolates private browser state and React Query data across authenticated principal transitions.
+
 ## 0.3.6
 
 ### Patch Changes

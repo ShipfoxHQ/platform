@@ -2,7 +2,7 @@
   "name": "@shipfox/node-rate-limit",
   "license": "MIT",
   "private": false,
-  "version": "0.3.1",
+  "version": "0.3.2",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

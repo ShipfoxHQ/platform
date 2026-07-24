@@ -1,5 +1,13 @@
 # @shipfox/api-common-dto
 
+## 9.0.2
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+- Updated dependencies [4b85404]
+  - @shipfox/regex@0.2.4
+
 ## 9.0.1
 
 ### Patch Changes

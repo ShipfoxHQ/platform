@@ -1,5 +1,11 @@
 # @shipfox/inter-module
 
+## 0.2.2
+
+### Patch Changes
+
+- 4b85404: Adds versioned architecture identity to participating package artifacts during publication.
+
 ## 0.2.1
 
 ### Patch Changes

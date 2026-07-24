@@ -1,5 +1,16 @@
 # @shipfox/client-ui
 
+## 6.0.2
+
+### Patch Changes
+
+- 102c5f4: Isolates private browser state and React Query data across authenticated principal transitions.
+- Updated dependencies [4b85404]
+- Updated dependencies [102c5f4]
+  - @shipfox/annotations-dto@9.0.2
+  - @shipfox/regex@0.2.4
+  - @shipfox/react-ui@0.3.7
+
 ## 6.0.1
 
 ### Patch Changes
