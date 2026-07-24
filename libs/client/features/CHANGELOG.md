@@ -1,5 +1,17 @@
 # @shipfox/client-features
 
+## 6.0.3
+
+### Patch Changes
+
+- Updated dependencies [e6f831e]
+  - @shipfox/client-auth@6.0.3
+  - @shipfox/client-integrations@6.0.3
+  - @shipfox/client-projects@6.0.3
+  - @shipfox/client-workspace-settings@6.0.3
+  - @shipfox/client-onboarding@6.0.3
+  - @shipfox/client-workflows@6.0.3
+
 ## 6.0.2
 
 ### Patch Changes
