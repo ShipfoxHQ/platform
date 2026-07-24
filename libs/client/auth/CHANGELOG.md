@@ -1,5 +1,11 @@
 # @shipfox/client-auth
 
+## 6.0.3
+
+### Patch Changes
+
+- e6f831e: Reject deeply encoded authentication and invitation redirect paths before they can bypass path validation.
+
 ## 6.0.2
 
 ### Patch Changes

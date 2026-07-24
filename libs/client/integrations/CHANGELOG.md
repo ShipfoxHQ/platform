@@ -1,5 +1,12 @@
 # @shipfox/client-integrations
 
+## 6.0.3
+
+### Patch Changes
+
+- Updated dependencies [e6f831e]
+  - @shipfox/client-auth@6.0.3
+
 ## 6.0.2
 
 ### Patch Changes
