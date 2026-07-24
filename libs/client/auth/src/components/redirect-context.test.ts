@@ -23,11 +23,24 @@ describe('parseRedirectContext', () => {
   });
 
   test.each([
+    ['/%2569nvitations/accept?token=double-encoded-token', 'double-encoded-token'],
+    ['/%252569nvitations/accept?token=triple-encoded-token', 'triple-encoded-token'],
+  ])('separates an invitation token from a deeply encoded path: %s', (redirect, token) => {
+    const context = parseRedirectContext(redirect);
+
+    expect(context).toEqual({invitationToken: token});
+    expect(context.returnTo).toBeUndefined();
+  });
+
+  test.each([
     'https://attacker.example',
     '//attacker.example',
     '/auth/login',
     '/%61uth/login',
+    '/%2561uth/login',
+    '/%252561uth/login',
     '/%E0%80%80',
+    '/safe/%25252e%25252e/auth/login',
   ])('rejects malformed or unsafe redirect %s', (redirect) => {
     const context = parseRedirectContext(redirect);
 
