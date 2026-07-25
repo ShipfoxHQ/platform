@@ -3,4 +3,4 @@ export {
   EmailCodeVerification,
   type EmailCodeVerificationProps,
 } from './components/email-code-verification.js';
-export {parseRedirectContext, type RedirectContext} from './components/redirect-context.js';
+export {parseRedirectContext, type RedirectContext} from './redirect-context.js';

@@ -1,4 +1,4 @@
-import {isAuthPath, resolveRedirectPath} from './redirect-target.js';
+import {isAuthPath, resolveRedirectPath} from './components/redirect-target.js';
 
 const INVITATION_ACCEPT_PATH = '/invitations/accept';
 
