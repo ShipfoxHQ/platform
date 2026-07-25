@@ -48,11 +48,8 @@ export function CallbackStatusShell({
           {switchAccount ? (
             <ButtonLink asChild className="min-h-44 w-full sm:w-fit">
               <Link
-                to={
-                  workspaceId
-                    ? `/auth/logout?redirect=${encodeURIComponent(logoutRedirect ?? '/')}`
-                    : '/auth/logout'
-                }
+                to="/auth/logout"
+                search={workspaceId ? {redirect: logoutRedirect ?? '/'} : undefined}
               >
                 Switch account
               </Link>

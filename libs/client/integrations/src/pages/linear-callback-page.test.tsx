@@ -128,11 +128,21 @@ describe('LinearCallbackPage', () => {
     renderCallback('?code=grant-code-account&state=signed-state-account');
 
     expect(await screen.findByRole('heading', {name: 'Different Shipfox account'})).toBeVisible();
-    expect(screen.getByRole('link', {name: 'Switch account'})).toHaveAttribute(
+    const switchAccountLink = screen.getByRole('link', {name: 'Switch account'});
+    const switchAccountUrl = new URL(
+      switchAccountLink.getAttribute('href') ?? '/',
+      window.location.origin,
+    );
+
+    expect(switchAccountLink).toHaveAttribute(
       'href',
       `/auth/logout?redirect=${encodeURIComponent(
         `/workspaces/${INTEGRATIONS_TEST_WID}/integrations/linear`,
       )}`,
+    );
+    expect(switchAccountUrl.pathname).toBe('/auth/logout');
+    expect(switchAccountUrl.searchParams.get('redirect')).toBe(
+      `/workspaces/${INTEGRATIONS_TEST_WID}/integrations/linear`,
     );
     expect(screen.getByRole('link', {name: 'Start over'})).toBeVisible();
   });
