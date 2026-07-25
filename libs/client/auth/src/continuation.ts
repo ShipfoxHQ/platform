@@ -3,4 +3,8 @@ export {
   EmailCodeVerification,
   type EmailCodeVerificationProps,
 } from './components/email-code-verification.js';
+export {
+  PasswordLoginForm,
+  type PasswordLoginFormProps,
+} from './components/password-login-form.js';
 export {parseRedirectContext, type RedirectContext} from './redirect-context.js';

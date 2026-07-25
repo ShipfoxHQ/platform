@@ -2,6 +2,7 @@ import {
   AuthActions,
   AuthShell,
   EmailCodeVerification,
+  PasswordLoginForm,
   parseRedirectContext,
 } from '@shipfox/client-auth/continuation';
 
@@ -10,6 +11,7 @@ describe('client-auth continuation exports', () => {
     expect(AuthActions).toBeTypeOf('function');
     expect(AuthShell).toBeTypeOf('function');
     expect(EmailCodeVerification).toBeTypeOf('function');
+    expect(PasswordLoginForm).toBeTypeOf('function');
     expect(parseRedirectContext).toBeTypeOf('function');
   });
 });
