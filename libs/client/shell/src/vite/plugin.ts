@@ -5,6 +5,8 @@ import {composeClientFeatures} from '#compose/compose-client-features.js';
 import {evaluateFeatures} from './evaluate-features.js';
 import {generateAppModule} from './generate.js';
 
+const manifestPluginName = 'shipfox-client-manifest';
+
 export interface ShipfoxClientCompositionOptions {
   features: string;
   out?: string;
@@ -66,6 +68,11 @@ export function shipfoxClientComposition({
     name: 'shipfox-client-composition',
     configResolved(resolvedConfig) {
       config = resolvedConfig;
+      if (!resolvedConfig.plugins.some(({name}) => name === manifestPluginName)) {
+        resolvedConfig.logger.warn(
+          `shipfoxClientComposition() is registered without the "${manifestPluginName}" plugin (shipfoxClientManifest()). Add shipfoxClientManifest() to the Vite plugins to serve Shipfox branding assets.`,
+        );
+      }
     },
     async buildStart() {
       await generate({

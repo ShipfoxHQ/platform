@@ -3,6 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {type Plugin, type ResolvedConfig, build as viteBuild} from 'vite';
+import {shipfoxClientManifest} from './manifest.js';
 import {shipfoxClientComposition} from './plugin.js';
 
 const fixtureFeatures = fileURLToPath(new URL('../../test/fixtures/features.ts', import.meta.url));
@@ -22,13 +23,17 @@ function configResolvedHandler(hook: NonNullable<Plugin['configResolved']>): Con
   return hookHandler(hook) as ConfigResolvedHandler;
 }
 
-function configure(plugin: Plugin): void {
+function configure(plugin: Plugin, plugins = [plugin]): ReturnType<typeof vi.fn> {
   if (!plugin.configResolved) {
     throw new Error('Expected the composition plugin to implement configResolved.');
   }
+  const warn = vi.fn();
   configResolvedHandler(plugin.configResolved)({
     root: process.cwd(),
-  } as ResolvedConfig);
+    plugins,
+    logger: {warn} as unknown as ResolvedConfig['logger'],
+  } as unknown as ResolvedConfig);
+  return warn;
 }
 
 function resolveRouteImplementation(source: string): string | undefined {
@@ -83,6 +88,26 @@ describe('shipfoxClientComposition', () => {
 
   afterEach(async () => {
     await rm(directory, {recursive: true, force: true});
+  });
+
+  test('warns when the manifest plugin is not registered', () => {
+    const plugin = shipfoxClientComposition({features: fixtureFeatures});
+
+    const warn = configure(plugin);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'shipfoxClientComposition() is registered without the "shipfox-client-manifest" plugin (shipfoxClientManifest()).',
+      ),
+    );
+  });
+
+  test('does not warn when the manifest plugin is registered', () => {
+    const plugin = shipfoxClientComposition({features: fixtureFeatures});
+
+    const warn = configure(plugin, [plugin, shipfoxClientManifest()]);
+
+    expect(warn).not.toHaveBeenCalled();
   });
 
   test('generates a static route tree and watches the manifest module graph', async () => {

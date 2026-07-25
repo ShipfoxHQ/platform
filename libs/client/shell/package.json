@@ -61,7 +61,8 @@
         "types": "./dist/vite/index.d.ts",
         "default": "./dist/vite/index.js"
       }
-    }
+    },
+    "./assets/*": "./assets/*"
   },
   "scripts": {
     "build": "shipfox-swc",

@@ -58,9 +58,15 @@ const closureTypeEntryPoints = entryPoints
 const runtimeEntryPoints = entryPoints
   .filter(({target}) => entryPointSupportsRuntimeImport(target))
   .map(({specifier}) => specifier);
+const assetEntryPoints = entryPoints
+  .filter(({specifier}) => specifier.startsWith('@shipfox/client-shell/assets/'))
+  .map(({specifier}) => specifier);
 const typeEntryPoints = consumerTypeEntryPoints
   .filter(({target}) => entryPointSupportsTypeResolution(target))
   .map(({specifier}) => specifier);
+if (!assetEntryPoints.includes('@shipfox/client-shell/assets/favicon.svg')) {
+  throw new Error('Published surface does not include @shipfox/client-shell/assets/favicon.svg.');
+}
 const temporaryRoot = await mkdtemp(join(tmpdir(), 'shipfox-client-composition-'));
 const fixtureRoot = join(temporaryRoot, 'fixture');
 
@@ -88,6 +94,8 @@ try {
     });
     await validateFullClosureTypeDeclarations(fixtureRoot, closureTypeEntryPoints);
   }
+
+  await validateAssetResolution(fixtureRoot, assetEntryPoints, {linkMode});
 
   await run('pnpm', ['exec', 'vite', 'build'], fixtureRoot, {capture: true});
   await validateGeneratedModule(fixtureRoot);
@@ -304,6 +312,36 @@ process.stdout.write(JSON.stringify(resolved));`,
   }
 }
 
+async function validateAssetResolution(root, specifiers, {linkMode}) {
+  const packageName = '@shipfox/client-shell';
+  const packageRoots = linkMode
+    ? [await realpath(join(root, 'node_modules', ...packageName.split('/')))]
+    : installedPackageRoots(root, packageName);
+  for (const packageRoot of packageRoots) {
+    const resolution = await run(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        `const specifiers = ${JSON.stringify(specifiers)};
+const resolved = Object.fromEntries(specifiers.map((specifier) => [specifier, import.meta.resolve(specifier)]));
+process.stdout.write(JSON.stringify(resolved));`,
+      ],
+      packageRoot,
+      {capture: true},
+    );
+    const resolved = JSON.parse(resolution.stdout);
+    const realPackageRoot = await realpath(packageRoot);
+    for (const specifier of specifiers) {
+      const resolvedPath = await realpath(fileURLToPath(resolved[specifier]));
+      if (!resolvedPath.startsWith(`${realPackageRoot}${sep}`)) {
+        throw new Error(`Published ${specifier} resolved outside ${packageName}: ${resolvedPath}`);
+      }
+      await readFile(resolvedPath);
+    }
+  }
+}
+
 async function validateFullClosureTypeDeclarations(root, specifiers) {
   const typeScriptCli = join(root, 'node_modules', 'typescript', 'bin', 'tsc');
   const specifiersByPackage = Map.groupBy(specifiers, packageNameFromSpecifier);
@@ -417,17 +455,17 @@ function listConcreteEntryPoints(name, workspacePackage) {
 }
 
 function concretePatternEntryPoints(entryPoint, packageDirectory) {
-  const runtimeTarget = defaultRuntimeTarget(entryPoint.target);
-  if (!runtimeTarget?.includes('*')) {
+  const targetPattern = defaultTarget(entryPoint.target);
+  if (!targetPattern?.includes('*')) {
     throw new Error(
-      `Wildcard export ${entryPoint.specifier} must define a default JavaScript target.`,
+      `Wildcard export ${entryPoint.specifier} must define a default target pattern.`,
     );
   }
 
-  const targetPattern = runtimeTarget.slice(2);
-  const globPattern = targetPattern.replace('*', '**/*');
+  const packageRelativePattern = targetPattern.slice(2);
+  const globPattern = packageRelativePattern.replace('*', '**/*');
   const capturePattern = new RegExp(
-    `^${targetPattern
+    `^${packageRelativePattern
       .split('*')
       .map((segment) => segment.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'))
       .join('(.+)')}$`,
@@ -437,7 +475,7 @@ function concretePatternEntryPoints(entryPoint, packageDirectory) {
     const match = capturePattern.exec(relativePath);
     if (!match) {
       throw new Error(
-        `Wildcard export ${entryPoint.specifier} resolved ${relativePath} outside ${runtimeTarget}.`,
+        `Wildcard export ${entryPoint.specifier} resolved ${relativePath} outside ${targetPattern}.`,
       );
     }
     return {...entryPoint, specifier: entryPoint.specifier.replace('*', match[1])};
@@ -445,18 +483,18 @@ function concretePatternEntryPoints(entryPoint, packageDirectory) {
 
   if (!concreteEntryPoints.length) {
     throw new Error(
-      `Wildcard export ${entryPoint.specifier} did not resolve any files matching ${runtimeTarget}.`,
+      `Wildcard export ${entryPoint.specifier} did not resolve any files matching ${targetPattern}.`,
     );
   }
 
   return concreteEntryPoints;
 }
 
-function defaultRuntimeTarget(target) {
-  if (typeof target === 'string') return target.endsWith('.js') ? target : undefined;
+function defaultTarget(target) {
+  if (typeof target === 'string') return target;
   if (!target || typeof target !== 'object' || Array.isArray(target)) return undefined;
-  const defaultTarget = target.default;
-  return defaultTarget === undefined ? undefined : defaultRuntimeTarget(defaultTarget);
+  const nestedTarget = target.default;
+  return nestedTarget === undefined ? undefined : defaultTarget(nestedTarget);
 }
 
 function findWorkspaceRange(value, path = 'package.json') {
