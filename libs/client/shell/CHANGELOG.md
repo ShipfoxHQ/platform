@@ -1,5 +1,11 @@
 # Changelog
 
+## 8.0.0
+
+### Minor Changes
+
+- 289d686: Expose shell branding assets through the package export map and warn when the Vite composition plugin is used without its manifest plugin.
+
 ## 6.0.2
 
 ### Patch Changes
