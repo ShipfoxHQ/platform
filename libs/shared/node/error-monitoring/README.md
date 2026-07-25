@@ -9,6 +9,7 @@ Sentry integration for Shipfox Node services. It reads Sentry settings from envi
 - **`markErrorReported(error)`** and **`isErrorReported(error)`** prevent duplicate reports when a failure crosses boundaries.
 - **`captureException(error)`** remains available for backward compatibility.
 - **`addEventProcessor(processor)`** adds a custom Sentry event processor.
+- **`flushErrorMonitoring(timeout)`** waits for pending events without shutting down the client.
 - **`closeErrorMonitoring()`** flushes pending events and shuts down the Sentry client.
 
 Environment variables (via `@shipfox/config`):
@@ -44,6 +45,10 @@ try {
   reportError(err, {boundary: "api.runtime", operation: "refresh-cache"});
 }
 ```
+
+Call `flushErrorMonitoring(timeout)` before a bounded runtime such as an AWS
+Lambda invocation returns. Use `closeErrorMonitoring(timeout)` only when the
+process is shutting down.
 
 ## Reporting policy
 
