@@ -1,5 +1,11 @@
 # @shipfox/client-workflows
 
+## 7.0.0
+
+### Patch Changes
+
+- @shipfox/client-projects@7.0.0
+
 ## 6.0.3
 
 ### Patch Changes

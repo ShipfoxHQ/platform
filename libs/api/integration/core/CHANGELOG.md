@@ -1,5 +1,23 @@
 # @shipfox/api-integration-core
 
+## 9.0.3
+
+### Patch Changes
+
+- Updated dependencies [a831b32]
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/api-integration-github@9.0.3
+  - @shipfox/node-fastify@0.3.3
+  - @shipfox/node-module@1.0.2
+  - @shipfox/node-temporal@0.4.3
+  - @shipfox/api-auth-context@9.0.3
+  - @shipfox/api-integration-gitea@9.0.3
+  - @shipfox/api-integration-jira@9.0.3
+  - @shipfox/api-integration-linear@9.0.3
+  - @shipfox/api-integration-sentry@9.0.3
+  - @shipfox/api-integration-slack@9.0.3
+  - @shipfox/api-integration-webhook@9.0.3
+
 ## 9.0.2
 
 ### Patch Changes

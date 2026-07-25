@@ -1,5 +1,12 @@
 # @shipfox/node-temporal
 
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [a831b32]
+  - @shipfox/node-error-monitoring@0.3.0
+
 ## 0.4.2
 
 ### Patch Changes

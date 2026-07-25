@@ -1,5 +1,11 @@
 # @shipfox/node-error-monitoring
 
+## 0.3.0
+
+### Minor Changes
+
+- a831b32: Expose a non-closing flush operation for bounded runtimes.
+
 ## 0.2.2
 
 ### Patch Changes
