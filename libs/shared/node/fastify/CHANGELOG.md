@@ -1,5 +1,12 @@
 # @shipfox/node-fastify
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [a831b32]
+  - @shipfox/node-error-monitoring@0.3.0
+
 ## 0.3.2
 
 ### Patch Changes

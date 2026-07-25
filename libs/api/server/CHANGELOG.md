@@ -1,5 +1,28 @@
 # @shipfox/api-server
 
+## 9.0.3
+
+### Patch Changes
+
+- Updated dependencies [a831b32]
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/api-agent@9.0.3
+  - @shipfox/api-definitions@9.0.3
+  - @shipfox/api-dispatcher@9.0.3
+  - @shipfox/api-integration-core@9.0.3
+  - @shipfox/api-logs@9.0.3
+  - @shipfox/api-runners@9.0.3
+  - @shipfox/api-triggers@9.0.3
+  - @shipfox/api-workflows@9.0.3
+  - @shipfox/node-fastify@0.3.3
+  - @shipfox/node-module@1.0.2
+  - @shipfox/annotations@9.0.3
+  - @shipfox/api-auth@9.0.3
+  - @shipfox/api-projects@9.0.3
+  - @shipfox/api-secrets@9.0.3
+  - @shipfox/api-workspaces@9.0.3
+  - @shipfox/api-email-challenges@1.1.2
+
 ## 9.0.2
 
 ### Patch Changes

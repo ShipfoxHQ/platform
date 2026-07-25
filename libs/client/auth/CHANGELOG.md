@@ -1,5 +1,11 @@
 # @shipfox/client-auth
 
+## 7.0.0
+
+### Minor Changes
+
+- 61309db: Adds a Node-safe redirect-context entrypoint for shared authentication continuation parsing.
+
 ## 6.0.3
 
 ### Patch Changes
