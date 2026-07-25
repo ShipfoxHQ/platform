@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/client-auth",
   "license": "MIT",
-  "version": "7.0.0",
+  "version": "8.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

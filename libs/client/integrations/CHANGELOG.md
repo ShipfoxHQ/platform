@@ -1,5 +1,15 @@
 # @shipfox/client-integrations
 
+## 8.0.0
+
+### Patch Changes
+
+- ac2ac4a: Fix the typed logout redirect link used when switching accounts after an integration callback failure.
+- Updated dependencies [25f5f42]
+- Updated dependencies [289d686]
+  - @shipfox/client-auth@8.0.0
+  - @shipfox/client-shell@8.0.0
+
 ## 7.0.0
 
 ### Patch Changes

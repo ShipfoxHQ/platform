@@ -1,5 +1,17 @@
 # @shipfox/client-auth
 
+## 8.0.0
+
+### Minor Changes
+
+- 25f5f42: Export the password login form from the continuation entrypoint for downstream route composition.
+
+### Patch Changes
+
+- Updated dependencies [289d686]
+  - @shipfox/client-shell@8.0.0
+  - @shipfox/client-invitations@8.0.0
+
 ## 7.0.0
 
 ### Minor Changes
