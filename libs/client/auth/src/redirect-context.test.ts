@@ -1,6 +1,12 @@
-import {parseRedirectContext} from './redirect-context.js';
+import {parseRedirectContext, type RedirectContext} from '@shipfox/client-auth/redirect-context';
 
-describe('parseRedirectContext', () => {
+describe('@shipfox/client-auth/redirect-context', () => {
+  test('imports the parser and its type through the Node-safe public subpath', () => {
+    const context: RedirectContext = parseRedirectContext('/workspaces/acme');
+
+    expect(context).toEqual({returnTo: '/workspaces/acme'});
+  });
+
   test('returns an ordinary safe return path', () => {
     const context = parseRedirectContext('/workspaces/acme?tab=runs');
 
@@ -25,6 +31,10 @@ describe('parseRedirectContext', () => {
   test.each([
     ['/%2569nvitations/accept?token=double-encoded-token', 'double-encoded-token'],
     ['/%252569nvitations/accept?token=triple-encoded-token', 'triple-encoded-token'],
+    [
+      '/safe%255c..%255cinvitations/accept?token=encoded-backslash-token',
+      'encoded-backslash-token',
+    ],
   ])('separates an invitation token from a deeply encoded path: %s', (redirect, token) => {
     const context = parseRedirectContext(redirect);
 
@@ -41,6 +51,7 @@ describe('parseRedirectContext', () => {
     '/%252561uth/login',
     '/%E0%80%80',
     '/safe/%25252e%25252e/auth/login',
+    '/safe%255c..%255cauth/login',
   ])('rejects malformed or unsafe redirect %s', (redirect) => {
     const context = parseRedirectContext(redirect);
 

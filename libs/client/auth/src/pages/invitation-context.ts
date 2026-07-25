@@ -3,7 +3,7 @@ import {
   pendingInvitation,
   usePreviewInvitation,
 } from '@shipfox/client-invitations';
-import {parseRedirectContext} from '#/components/redirect-context.js';
+import {parseRedirectContext} from '#/redirect-context.js';
 
 export function extractInvitationToken(redirect: unknown): string | undefined {
   return parseRedirectContext(redirect).invitationToken;

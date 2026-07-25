@@ -49,6 +49,16 @@
         "default": "./dist/continuation.js"
       }
     },
+    "./redirect-context": {
+      "workspace-source": {
+        "types": "./src/redirect-context.ts",
+        "default": "./src/redirect-context.ts"
+      },
+      "default": {
+        "types": "./dist/redirect-context.d.ts",
+        "default": "./dist/redirect-context.js"
+      }
+    },
     "./routes/*": {
       "workspace-source": {
         "types": "./src/routes/*.tsx",
