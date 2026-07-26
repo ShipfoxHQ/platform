@@ -14,7 +14,7 @@ auth-specific operational constraints.
 Register the module with the API module runner:
 
 ```ts
-import {createAuthModule} from '@shipfox/api-auth';
+import {createAuthModule, createEnvironmentSignupPolicy} from '@shipfox/api-auth';
 import {workspacesModule} from '@shipfox/api-workspaces';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createApp, listen} from '@shipfox/node-fastify';
@@ -26,7 +26,8 @@ import {createInMemoryInterModuleTransport} from '@shipfox/node-module/inter-mod
 
 const interModuleTransport = createInMemoryInterModuleTransport();
 const workspaces = interModuleTransport.createClient(workspacesInterModuleContract);
-const modules = [workspacesModule, createAuthModule({workspaces})];
+const signupPolicy = createEnvironmentSignupPolicy();
+const modules = [workspacesModule, createAuthModule({workspaces, signupPolicy})];
 registerInterModulePresentations({transport: interModuleTransport, modules});
 interModuleTransport.seal();
 const {auth, routes} = await initializeModules({
@@ -70,6 +71,13 @@ Required environment:
 | `CLIENT_BASE_URL` | `http://localhost:5173` | Base URL used in email verification and password reset links. |
 
 Email delivery uses the shared `@shipfox/node-mailer` configuration.
+
+The signup gate is off by default. When it is on, provide at least one non-empty
+entry in `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` or `AUTH_SIGNUP_ALLOWED_EMAILS`.
+Startup fails when both lists are empty. Values are trimmed and lowercased.
+The policy matches exact email addresses or exact domains. It does not match
+subdomains or wildcards. Pass `createEnvironmentSignupPolicy()` to
+`createAuthModule` to apply these settings.
 
 When `AUTH_PASSWORD_ENABLED=false`, the module does not register signup, login, password-reset, password-change, or email-verification routes. Refresh, logout, and current-session routes stay available. Another module must contribute a login method before the API server starts.
 
@@ -206,7 +214,7 @@ All routes are mounted under `/auth`.
 
 | Method | Path | Auth | Result |
 | --- | --- | --- | --- |
-| `POST` | `/signup` | none | Creates a user and sends an eight-digit email verification code. |
+| `POST` | `/signup` | none | Creates a user and sends an eight-digit email verification code. A denied new signup returns `403` with error code `signup-not-allowed` and the policy message. |
 | `POST` | `/verify-email/confirm` | none | Confirms a verification code, returns an access token, and sets the refresh cookie. |
 | `POST` | `/verify-email/resend` | none | Sends a new verification code when the account is eligible. |
 | `POST` | `/login` | none | Returns an access token and sets the refresh cookie. |
@@ -246,9 +254,12 @@ The package exports a module factory. Pass it the Workspaces inter-module client
 application composition:
 
 ```ts
-import {createAuthModule} from '@shipfox/api-auth';
+import {createAuthModule, createEnvironmentSignupPolicy} from '@shipfox/api-auth';
 
-const authModule = createAuthModule({workspaces});
+const authModule = createAuthModule({
+  workspaces,
+  signupPolicy: createEnvironmentSignupPolicy(),
+});
 ```
 
 It also exports lower-level pieces for tests and advanced integration:
@@ -260,6 +271,7 @@ It also exports lower-level pieces for tests and advanced integration:
 - `createLeaseTokenAuthMethod()`: the Fastify auth method for job lease tokens.
 - `issueRunnerSessionToken(claims)` / `verifyRunnerSessionToken(token)`: mint and verify runner session tokens.
 - `issueJobLeaseToken(claims)` / `verifyJobLeaseToken(token)`: mint and verify job lease tokens.
+- `createEnvironmentSignupPolicy()`: creates the default signup policy from the `AUTH_SIGNUP_*` environment variables.
 - `getClientContext(request)`: reads the authenticated user context from a Fastify request.
 - `getAuthenticatedSessionContext(request)`: resolves an authenticated request to its user ID and active refresh-session ID.
 - `findUserByEmail({email})`: read-only lookup of the current owner of a normalized email; see below.
@@ -274,18 +286,20 @@ create a normal Shipfox session and set its refresh cookie:
 import {
   authCookiePlugin,
   createSessionForUser,
+  createEnvironmentSignupPolicy,
   provisionUser,
   setRefreshTokenCookie,
 } from '@shipfox/api-auth';
 import type {FastifyReply} from 'fastify';
 
 export const callbackRoutePlugins = [authCookiePlugin];
+const signupPolicy = createEnvironmentSignupPolicy();
 
 export async function completeProviderCallback(
   reply: FastifyReply,
   profile: {email: string; name?: string},
 ): Promise<string> {
-  const user = await provisionUser(profile);
+  const user = await provisionUser({...profile, signupPolicy});
   const session = await createSessionForUser({userId: user.id});
 
   setRefreshTokenCookie(reply, session.refreshToken);
@@ -298,6 +312,12 @@ For OAuth providers, require a verified-email claim such as `email_verified`.
 `provisionUser` matches existing emails, and `createSessionForUser` can mint a
 session for any active, verified account. An unverified provider email could
 otherwise sign in as an existing password account with the same address.
+
+Pass the same `signupPolicy` to `provisionUser` when signup gating is enabled.
+The function checks for an existing user before it calls the policy, so existing
+users keep signing in even when their address is no longer allowed. For a new
+user, a denied policy throws `SignupNotAllowedError`. Call
+`createSessionForUser` only after provisioning succeeds.
 
 Add `authCookiePlugin` to the callback route group before calling a cookie
 helper. `getRefreshTokenCookie`, `setRefreshTokenCookie`, and
@@ -377,6 +397,9 @@ Passwords use Argon2id. Password reset tokens and refresh tokens are opaque toke
 ## Behavior Notes
 
 - Signup sends an eight-digit verification code and returns the new user with its challenge ID.
+- Signup gating blocks account creation only. Existing users keep signing in, even when their address is not on the current allowlist.
+- A denied password signup returns `403` with error code `signup-not-allowed`. The policy message is capped at 500 characters.
+- Invitation signup validates the invitation and bypasses the signup policy. Invitations remain a separate authorization path.
 - Login only succeeds for active users with verified email addresses and a password hash.
 - Refresh tokens rotate on each refresh.
 - Password reset tokens and email challenge proofs are consumed once.
