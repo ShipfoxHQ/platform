@@ -67,6 +67,8 @@
     "@shipfox/regex": "workspace:*"
   },
   "devDependencies": {
+    "@opentelemetry/api-logs": "catalog:",
+    "@opentelemetry/sdk-logs": "catalog:",
     "@shipfox/biome": "workspace:*",
     "@shipfox/swc": "workspace:*",
     "@shipfox/ts-config": "workspace:*",

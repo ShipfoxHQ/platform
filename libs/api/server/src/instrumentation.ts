@@ -8,5 +8,5 @@ const {version} = createRequire(import.meta.url)('../package.json') as {version:
 await startInstanceInstrumentation({
   serviceName: 'api',
   serviceVersion: version,
-  instrumentations: {fastify: true, http: true, pg: true, awsSdk: true},
+  instrumentations: {fastify: true, http: true, pg: true, awsSdk: true, pino: true},
 });

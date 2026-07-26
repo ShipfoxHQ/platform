@@ -20,7 +20,7 @@ export const env = createConfig({
     default: undefined,
   }),
   OTEL_EXPORTER_OTLP_ENDPOINT: url({
-    desc: 'Base OTLP endpoint used to export traces. The exporter appends /v1/traces. Leave it unset with OTEL_EXPORTER_OTLP_TRACES_ENDPOINT to disable trace export.',
+    desc: 'Base OTLP endpoint used to export telemetry signals. Signal-specific endpoints take precedence.',
     default: undefined,
   }),
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: url({
@@ -28,7 +28,7 @@ export const env = createConfig({
     default: undefined,
   }),
   OTEL_SDK_DISABLED: bool({
-    desc: 'Disables all OpenTelemetry tracing and metrics when set to true.',
+    desc: 'Disables all OpenTelemetry tracing, logs, and metrics when set to true.',
     default: false,
   }),
 });

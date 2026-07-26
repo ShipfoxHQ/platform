@@ -8,7 +8,7 @@ Runs a Shipfox API server.
 - **`createServer()`**: Builds an API server. The caller owns process signals.
 - **`runServer()`**: Starts the server. It listens for SIGTERM and SIGINT.
 - **`createLoginMethodsRoute()`**: Builds the public login-method catalog route. `createServer` mounts it automatically.
-- **Instrumentation preload**: Starts metrics early. Load it before feature modules.
+- **Instrumentation preload**: Starts metrics and optional logs early. Load it before feature modules.
 
 ## Installation
 
