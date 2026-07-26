@@ -133,6 +133,26 @@ describe('api-client auth contexts', () => {
     expect(calls[2]?.authorization).toBe('Bearer control-token');
   });
 
+  it('allows the assignment long-poll to outlive the ky default timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      stubFetch(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve(jsonResponse({activation_token: null})), 10_001),
+          ),
+      );
+
+      const assignment = pollRunnerAssignment('control-token');
+      const expectation = expect(assignment).resolves.toBeNull();
+      await vi.advanceTimersByTimeAsync(10_001);
+
+      await expectation;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('registerRunnerSession sends the registration token and configured labels', async () => {
     stubFetch(() => jsonResponse(registerResponse()));
 
@@ -804,7 +824,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function stubFetch(handler: (url: string) => Response): void {
+function stubFetch(handler: (url: string) => Response | Promise<Response>): void {
   globalThis.fetch = vi.fn(async (input: Request | string | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(String(input), init);
     calls.push({
