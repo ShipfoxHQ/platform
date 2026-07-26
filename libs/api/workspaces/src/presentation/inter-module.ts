@@ -14,7 +14,11 @@ import {
   WorkspaceNotFoundError,
 } from '#core/errors.js';
 import {acceptWorkspaceInvitation, peekInvitationByRawToken} from '#core/invitations.js';
-import {getWorkspaceCreator, requireWorkspaceMembership} from '#core/workspaces.js';
+import {
+  getWorkspaceCreator,
+  getWorkspaceOperatingState,
+  requireWorkspaceMembership,
+} from '#core/workspaces.js';
 import {listMembershipsByUser} from '#db/memberships.js';
 
 export function createWorkspacesInterModulePresentation(): InterModulePresentation<
@@ -34,6 +38,20 @@ export function createWorkspacesInterModulePresentation(): InterModulePresentati
         if (error instanceof WorkspaceNotFoundError) {
           throw createInterModuleKnownError(
             workspacesInterModuleContract.methods.getWorkspaceCreator,
+            'workspace-not-found',
+            {workspaceId: input.workspaceId},
+          );
+        }
+        throw error;
+      }
+    },
+    getWorkspaceOperatingState: async (input) => {
+      try {
+        return {status: await getWorkspaceOperatingState(input)};
+      } catch (error) {
+        if (error instanceof WorkspaceNotFoundError) {
+          throw createInterModuleKnownError(
+            workspacesInterModuleContract.methods.getWorkspaceOperatingState,
             'workspace-not-found',
             {workspaceId: input.workspaceId},
           );

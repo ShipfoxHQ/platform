@@ -106,6 +106,13 @@ export async function getWorkspaceCreator(params: {workspaceId: string}): Promis
   return workspace.createdBy;
 }
 
+export async function getWorkspaceOperatingState(params: {
+  workspaceId: string;
+}): Promise<Workspace['status']> {
+  const workspace = await getWorkspace(params);
+  return workspace.status;
+}
+
 export async function listUserWorkspaceMemberships(params: {
   userId: string;
 }): Promise<MembershipWithWorkspace[]> {

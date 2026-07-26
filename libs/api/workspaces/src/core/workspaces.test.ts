@@ -3,9 +3,14 @@ import {sql} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {findMembership} from '#db/memberships.js';
 import {workspacesOutbox} from '#db/schema/outbox.js';
+import {updateWorkspace} from '#db/workspaces.js';
 import {userFactory} from '#test/index.js';
 import {MembershipRequiredError, WorkspaceNotFoundError} from './errors.js';
-import {createWorkspaceForUser, requireWorkspaceMembership} from './workspaces.js';
+import {
+  createWorkspaceForUser,
+  getWorkspaceOperatingState,
+  requireWorkspaceMembership,
+} from './workspaces.js';
 
 describe('workspaces core', () => {
   test('createWorkspaceForUser creates a workspace and membership for the user', async () => {
@@ -65,6 +70,19 @@ describe('workspaces core', () => {
     expect(result.workspace.id).toBe(workspace.id);
     expect(result.userId).toBe(user.userId);
     expect(result.role).toBe('admin');
+  });
+
+  test('getWorkspaceOperatingState returns the current status without workspace details', async () => {
+    const workspace = await createWorkspaceForUser({
+      name: 'Operating State Workspace',
+      userId: crypto.randomUUID(),
+    });
+
+    expect(await getWorkspaceOperatingState({workspaceId: workspace.id})).toBe('active');
+
+    await updateWorkspace({id: workspace.id, status: 'suspended'});
+
+    expect(await getWorkspaceOperatingState({workspaceId: workspace.id})).toBe('suspended');
   });
 
   test('requireWorkspaceMembership rejects when memberships do not include the workspace', async () => {

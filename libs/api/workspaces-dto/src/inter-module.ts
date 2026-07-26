@@ -1,6 +1,7 @@
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
 import {workspaceRoleSchema} from '#schemas/membership.js';
+import {workspaceStatusSchema} from '#schemas/workspace.js';
 
 const idSchema = z.string().uuid();
 
@@ -17,6 +18,14 @@ export const workspacesInterModuleContract = defineInterModuleContract({
     getWorkspaceCreator: {
       input: z.object({workspaceId: idSchema}),
       output: z.object({creatorUserId: idSchema.nullable()}),
+      errors: {
+        'workspace-not-found': z.object({workspaceId: idSchema}),
+      },
+    },
+    /** Returns only the current workspace operating state needed by admission owners. */
+    getWorkspaceOperatingState: {
+      input: z.object({workspaceId: idSchema}),
+      output: z.object({status: workspaceStatusSchema}),
       errors: {
         'workspace-not-found': z.object({workspaceId: idSchema}),
       },
