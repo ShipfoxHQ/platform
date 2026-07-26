@@ -160,6 +160,71 @@ describe('auth core', () => {
     await expect(promise).rejects.toBeInstanceOf(EmailTakenError);
   });
 
+  test('signup normalizes the email before checking the policy', async () => {
+    const email = `signup-policy-${crypto.randomUUID()}@example.com`;
+    const isSignupAllowed = vi.fn().mockResolvedValue({allowed: true});
+
+    await signup({
+      email: `  ${email.toUpperCase()}  `,
+      password: 'correct horse battery staple',
+      signupPolicy: {isSignupAllowed},
+    });
+
+    expect(isSignupAllowed).toHaveBeenCalledWith({
+      email,
+      emailVerified: false,
+      source: 'password',
+    });
+  });
+
+  test('signup denies a new user when the policy does not allow it', async () => {
+    const email = `signup-policy-denied-${crypto.randomUUID()}@example.com`;
+    const isSignupAllowed = vi.fn().mockResolvedValue({allowed: false});
+
+    await expect(
+      signup({
+        email,
+        password: 'correct horse battery staple',
+        signupPolicy: {isSignupAllowed},
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: 'SignupNotAllowedError',
+        message: 'This Shipfox deployment does not accept new accounts right now.',
+      }),
+    );
+    expect(await findUserByEmail({email})).toBeUndefined();
+  });
+
+  test('signup fails closed when the policy throws', async () => {
+    const email = `signup-policy-error-${crypto.randomUUID()}@example.com`;
+    const policyError = new Error('policy unavailable');
+    const isSignupAllowed = vi.fn().mockRejectedValue(policyError);
+
+    await expect(
+      signup({
+        email,
+        password: 'correct horse battery staple',
+        signupPolicy: {isSignupAllowed},
+      }),
+    ).rejects.toBe(policyError);
+    expect(await findUserByEmail({email})).toBeUndefined();
+  });
+
+  test('signup does not check the policy for an existing user', async () => {
+    const existing = await userFactory.create({emailVerifiedAt: new Date()});
+    const isSignupAllowed = vi.fn().mockResolvedValue({allowed: false});
+
+    await expect(
+      signup({
+        email: `  ${existing.email.toUpperCase()}  `,
+        password: 'correct horse battery staple',
+        signupPolicy: {isSignupAllowed},
+      }),
+    ).rejects.toBeInstanceOf(EmailTakenError);
+    expect(isSignupAllowed).not.toHaveBeenCalled();
+  });
+
   test('signup with an invitation writes the signed-up event with its user insert', async () => {
     const email = `signup-invitation-${crypto.randomUUID()}@example.com`;
     const userId = crypto.randomUUID();
@@ -175,6 +240,9 @@ describe('auth core', () => {
       name: 'Invited User',
       invitationToken: `invite-${crypto.randomUUID()}`,
       workspaces,
+      signupPolicy: {
+        isSignupAllowed: vi.fn().mockRejectedValue(new Error('policy unavailable')),
+      },
     });
 
     const events = await outboxEventsTo(email, AUTH_USER_SIGNED_UP);
@@ -199,24 +267,66 @@ describe('auth core', () => {
     expect(user.status).toBe('active');
   });
 
+  test('provisionUser normalizes the email before checking the policy', async () => {
+    const email = `provision-policy-${crypto.randomUUID()}@example.com`;
+    const isSignupAllowed = vi.fn().mockResolvedValue({allowed: true});
+
+    await provisionUser({
+      email: `  ${email.toUpperCase()}  `,
+      signupPolicy: {isSignupAllowed},
+    });
+
+    expect(isSignupAllowed).toHaveBeenCalledWith({
+      email,
+      emailVerified: true,
+      source: 'external-identity',
+    });
+  });
+
+  test('provisionUser denies a new user when the policy does not allow it', async () => {
+    const email = `provision-policy-denied-${crypto.randomUUID()}@example.com`;
+    const isSignupAllowed = vi.fn().mockResolvedValue({allowed: false, message: 'Closed beta'});
+
+    await expect(provisionUser({email, signupPolicy: {isSignupAllowed}})).rejects.toEqual(
+      expect.objectContaining({
+        name: 'SignupNotAllowedError',
+        message: 'Closed beta',
+      }),
+    );
+    expect(await findUserByEmail({email})).toBeUndefined();
+  });
+
+  test('provisionUser fails closed when the policy throws', async () => {
+    const email = `provision-policy-error-${crypto.randomUUID()}@example.com`;
+    const policyError = new Error('policy unavailable');
+    const isSignupAllowed = vi.fn().mockRejectedValue(policyError);
+
+    await expect(provisionUser({email, signupPolicy: {isSignupAllowed}})).rejects.toBe(policyError);
+    expect(await findUserByEmail({email})).toBeUndefined();
+  });
+
   test('provisionUser returns existing unverified and suspended users unchanged', async () => {
     const unverified = await userFactory.create();
     const suspended = await userFactory.create({emailVerifiedAt: new Date()});
     await db().update(users).set({status: 'suspended'}).where(eq(users.id, suspended.id));
     const storedUnverified = await findUserById({id: unverified.id});
     const storedSuspended = await findUserById({id: suspended.id});
+    const isSignupAllowed = vi.fn().mockResolvedValue({allowed: false});
 
     const existingUnverified = await provisionUser({
       email: `  ${unverified.email.toUpperCase()}  `,
       name: 'Replacement Name',
+      signupPolicy: {isSignupAllowed},
     });
     const existingSuspended = await provisionUser({
       email: `  ${suspended.email.toUpperCase()}  `,
       name: 'Replacement Name',
+      signupPolicy: {isSignupAllowed},
     });
 
     expect(existingUnverified).toEqual(storedUnverified);
     expect(existingSuspended).toEqual(storedSuspended);
+    expect(isSignupAllowed).not.toHaveBeenCalled();
   });
 
   test('provisionUser returns one unchanged user for concurrent callbacks', async () => {

@@ -39,6 +39,7 @@ import {
   EmailTakenError,
   InvalidCredentialsError,
   InvitationEmailMismatchError,
+  SignupNotAllowedError,
   TokenAlreadyUsedError,
   TokenExpiredError,
   TokenInvalidError,
@@ -50,6 +51,29 @@ import type {SignupPolicy} from './ports.js';
 
 const RESET_TTL_HOURS = 1;
 const PASSWORD_VERIFICATION_PURPOSE = 'password-verification';
+const DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE =
+  'This Shipfox deployment does not accept new accounts right now.';
+
+const defaultSignupPolicy: SignupPolicy = {
+  isSignupAllowed: async () => ({allowed: true}),
+};
+
+async function assertSignupAllowed(params: {
+  signupPolicy?: SignupPolicy | undefined;
+  email: string;
+  emailVerified: boolean;
+  source: string;
+}): Promise<void> {
+  const result = await (params.signupPolicy ?? defaultSignupPolicy).isSignupAllowed({
+    email: params.email,
+    emailVerified: params.emailVerified,
+    source: params.source,
+  });
+
+  if (!result.allowed) {
+    throw new SignupNotAllowedError(result.message ?? DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE);
+  }
+}
 
 let dummyHashCache: string | undefined;
 async function getDummyHash(): Promise<string> {
@@ -171,8 +195,19 @@ export interface ProvisionUserParams {
  * Existing users are returned unchanged, including their password and profile.
  */
 export async function provisionUser(params: ProvisionUserParams): Promise<User> {
+  const email = emailSchema.parse(params.email);
+  const existing = await findUserByEmail({email});
+  if (existing) return existing;
+
+  await assertSignupAllowed({
+    signupPolicy: params.signupPolicy,
+    email,
+    emailVerified: true,
+    source: 'external-identity',
+  });
+
   return await provisionDbUser({
-    email: emailSchema.parse(params.email),
+    email,
     name: params.name ?? null,
   });
 }
@@ -182,7 +217,8 @@ export type SignupResult = User & {
 };
 
 export async function signup(params: SignupParams & {sourceIp?: string}): Promise<SignupResult> {
-  const existing = await findUserByEmail({email: params.email});
+  const email = emailSchema.parse(params.email);
+  const existing = await findUserByEmail({email});
   if (existing) {
     const canResumeVerification =
       existing.status === 'active' &&
@@ -199,12 +235,19 @@ export async function signup(params: SignupParams & {sourceIp?: string}): Promis
       });
       return {...existing, emailChallenge};
     }
-    throw new EmailTakenError(params.email);
+    throw new EmailTakenError(email);
   }
+
+  await assertSignupAllowed({
+    signupPolicy: params.signupPolicy,
+    email,
+    emailVerified: false,
+    source: 'password',
+  });
 
   const hashedPassword = await hashPassword({password: params.password});
   const user = await createDbUser({
-    email: params.email,
+    email,
     hashedPassword,
     name: params.name ?? null,
     signedUp: {viaInvitation: false},
