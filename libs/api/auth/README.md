@@ -14,7 +14,7 @@ auth-specific operational constraints.
 Register the module with the API module runner:
 
 ```ts
-import {createAuthModule, createEnvironmentSignupPolicy} from '@shipfox/api-auth';
+import {createAuthModule} from '@shipfox/api-auth';
 import {workspacesModule} from '@shipfox/api-workspaces';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createApp, listen} from '@shipfox/node-fastify';
@@ -26,8 +26,7 @@ import {createInMemoryInterModuleTransport} from '@shipfox/node-module/inter-mod
 
 const interModuleTransport = createInMemoryInterModuleTransport();
 const workspaces = interModuleTransport.createClient(workspacesInterModuleContract);
-const signupPolicy = createEnvironmentSignupPolicy();
-const modules = [workspacesModule, createAuthModule({workspaces, signupPolicy})];
+const modules = [workspacesModule, createAuthModule({workspaces})];
 registerInterModulePresentations({transport: interModuleTransport, modules});
 interModuleTransport.seal();
 const {auth, routes} = await initializeModules({
@@ -76,8 +75,8 @@ The signup gate is off by default. When it is on, provide at least one non-empty
 entry in `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` or `AUTH_SIGNUP_ALLOWED_EMAILS`.
 Startup fails when both lists are empty. Values are trimmed and lowercased.
 The policy matches exact email addresses or exact domains. It does not match
-subdomains or wildcards. Pass `createEnvironmentSignupPolicy()` to
-`createAuthModule` to apply these settings.
+subdomains or wildcards. `createAuthModule` applies these settings by default;
+pass a `signupPolicy` to replace the environment-backed policy.
 
 When `AUTH_PASSWORD_ENABLED=false`, the module does not register signup, login, password-reset, password-change, or email-verification routes. Refresh, logout, and current-session routes stay available. Another module must contribute a login method before the API server starts.
 
@@ -254,11 +253,10 @@ The package exports a module factory. Pass it the Workspaces inter-module client
 application composition:
 
 ```ts
-import {createAuthModule, createEnvironmentSignupPolicy} from '@shipfox/api-auth';
+import {createAuthModule} from '@shipfox/api-auth';
 
 const authModule = createAuthModule({
   workspaces,
-  signupPolicy: createEnvironmentSignupPolicy(),
 });
 ```
 
@@ -271,7 +269,7 @@ It also exports lower-level pieces for tests and advanced integration:
 - `createLeaseTokenAuthMethod()`: the Fastify auth method for job lease tokens.
 - `issueRunnerSessionToken(claims)` / `verifyRunnerSessionToken(token)`: mint and verify runner session tokens.
 - `issueJobLeaseToken(claims)` / `verifyJobLeaseToken(token)`: mint and verify job lease tokens.
-- `createEnvironmentSignupPolicy()`: creates the default signup policy from the `AUTH_SIGNUP_*` environment variables.
+- `createEnvironmentSignupPolicy()`: creates the environment-backed signup policy used by default. Pass `signupPolicy` to `createAuthModule` to replace it.
 - `getClientContext(request)`: reads the authenticated user context from a Fastify request.
 - `getAuthenticatedSessionContext(request)`: resolves an authenticated request to its user ID and active refresh-session ID.
 - `findUserByEmail({email})`: read-only lookup of the current owner of a normalized email; see below.
