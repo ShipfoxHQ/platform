@@ -63,6 +63,10 @@ Required environment:
 | `AUTH_REFRESH_ROTATION_GRACE_SECONDS` | `30` | Grace window for accepting a just-rotated refresh token during concurrent refreshes. |
 | `AUTH_REFRESH_COOKIE_NAME` | `shipfox_refresh_token` | HTTP cookie name for refresh sessions. |
 | `AUTH_PASSWORD_ENABLED` | `true` | Enables password and email-verification routes. Set to `false` when another module provides login. Server construction fails if no login method is available. |
+| `AUTH_SIGNUP_GATE_ENABLED` | `false` | Restricts new account creation to the configured signup email allowlist. Requires `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` or `AUTH_SIGNUP_ALLOWED_EMAILS` to be set. |
+| `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` | none | Comma-separated email domains allowed to create accounts, such as `shipfox.io,acme.com`. |
+| `AUTH_SIGNUP_ALLOWED_EMAILS` | none | Comma-separated exact email addresses allowed to create accounts. |
+| `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE` | none | Description returned when the signup gate blocks an account. Defaults to "This Shipfox deployment does not accept new accounts right now." |
 | `CLIENT_BASE_URL` | `http://localhost:5173` | Base URL used in email verification and password reset links. |
 
 Email delivery uses the shared `@shipfox/node-mailer` configuration.
