@@ -49,6 +49,8 @@ import {config} from '#config.js';
 /** Media type the append endpoint expects for the raw NDJSON request body. */
 const LOG_NDJSON_CONTENT_TYPE = 'application/x-ndjson';
 export const ANNOTATION_POST_TIMEOUT_MS = 2_500;
+/** Allows the API's 30-second assignment long-poll plus transport overhead. */
+const RUNNER_ASSIGNMENT_POLL_TIMEOUT_MS = 45_000;
 
 const ANNOTATION_CAPPED_CODES = new Set([
   'annotation-body-too-large',
@@ -220,6 +222,7 @@ export async function pollRunnerAssignment(
   const response = await createRunnerControlClient(controlSessionToken).get(
     'runner-control/assignment',
     {
+      timeout: RUNNER_ASSIGNMENT_POLL_TIMEOUT_MS,
       ...(signal ? {signal} : {}),
     },
   );
