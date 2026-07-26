@@ -1,5 +1,6 @@
 import {displayNameSchema, emailSchema} from '@shipfox/api-common-dto';
 import {z} from 'zod';
+import {adminRoleSchema} from './admin.js';
 import {userDtoSchema} from './user.js';
 
 export const passwordSchema = z.string().min(12).max(128);
@@ -66,6 +67,7 @@ export type LoginBodyDto = z.infer<typeof loginBodySchema>;
 export const loginResponseSchema = z.object({
   token: z.string(),
   user: userDtoSchema,
+  admin_role: adminRoleSchema.nullable().optional(),
 });
 
 export type LoginResponseDto = z.infer<typeof loginResponseSchema>;
@@ -76,6 +78,7 @@ export type RefreshResponseDto = z.infer<typeof refreshResponseSchema>;
 
 export const meResponseSchema = z.object({
   user: userDtoSchema,
+  admin_role: adminRoleSchema.nullable().optional(),
 });
 
 export type MeResponseDto = z.infer<typeof meResponseSchema>;

@@ -1,4 +1,4 @@
-import type {LoginResponseDto, UserDto} from '@shipfox/api-auth-dto';
+import type {AdminRole, LoginResponseDto, UserDto} from '@shipfox/api-auth-dto';
 import type {User} from '#core/entities/user.js';
 
 export function toUserDto(user: User): UserDto {
@@ -13,9 +13,14 @@ export function toUserDto(user: User): UserDto {
   };
 }
 
-export function toAuthSessionDto(result: {token: string; user: User}): LoginResponseDto {
+export function toAuthSessionDto(result: {
+  token: string;
+  user: User;
+  adminRole?: AdminRole | null;
+}): LoginResponseDto {
   return {
     token: result.token,
     user: toUserDto(result.user),
+    admin_role: result.adminRole ?? null,
   };
 }

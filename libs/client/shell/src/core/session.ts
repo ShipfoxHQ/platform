@@ -1,8 +1,11 @@
+export type AdminRole = 'admin-observer' | 'admin-operator' | 'admin-owner';
+
 export interface UserIdentity {
   id: string;
   email: string;
   name?: string;
   emailVerifiedAt?: string;
+  adminRole?: AdminRole;
 }
 
 export interface AuthenticatedSession {

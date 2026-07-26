@@ -8,4 +8,12 @@ export const workflowsTestAuthClient: AuthInterModuleClient = {
   async mintJobLeaseToken(claims) {
     return {token: await mintLeaseToken(claims)};
   },
+  getCurrentAdminRole() {
+    return Promise.resolve({role: null});
+  },
+  requireAdminRole() {
+    return Promise.reject(
+      new Error('Administrator role checks are not configured in workflow tests'),
+    );
+  },
 };

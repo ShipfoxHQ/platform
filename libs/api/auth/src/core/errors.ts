@@ -80,6 +80,23 @@ export class AuthDependencyUnavailableError extends Error {
   }
 }
 
+export class AdminRoleRequiredError extends Error {
+  readonly minimumRole: import('@shipfox/api-auth-dto').AdminRole;
+
+  constructor(minimumRole: import('@shipfox/api-auth-dto').AdminRole) {
+    super(`Administrator role required: ${minimumRole}`);
+    this.name = 'AdminRoleRequiredError';
+    this.minimumRole = minimumRole;
+  }
+}
+
+export class LastAdminOwnerError extends Error {
+  constructor() {
+    super('Cannot remove the final active administrator owner');
+    this.name = 'LastAdminOwnerError';
+  }
+}
+
 export class TokenInvalidError extends Error {
   constructor(reason?: string) {
     super(reason ? `Invalid token: ${reason}` : 'Invalid token');

@@ -11,5 +11,11 @@ export function toUserIdentity(dto: UserDto): UserIdentity {
 }
 
 export function toAuthenticatedSession(dto: LoginResponseDto): AuthenticatedSession {
-  return {accessToken: dto.token, user: toUserIdentity(dto.user)};
+  return {
+    accessToken: dto.token,
+    user: {
+      ...toUserIdentity(dto.user),
+      ...(dto.admin_role ? {adminRole: dto.admin_role} : {}),
+    },
+  };
 }

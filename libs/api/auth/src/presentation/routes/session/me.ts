@@ -1,6 +1,7 @@
 import {AUTH_USER} from '@shipfox/api-auth-context';
 import {meResponseSchema} from '@shipfox/api-auth-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
+import {getCurrentAdminRole} from '#core/admin-role.js';
 import {getCurrentUser} from '#core/auth.js';
 import {UserNotFoundError} from '#core/errors.js';
 import {getClientContext} from '#presentation/auth/jwt-auth.js';
@@ -30,6 +31,9 @@ export const meRoute = defineRoute({
 
     const result = await getCurrentUser({userId: client.userId});
 
-    return {user: toUserDto(result.user)};
+    return {
+      user: toUserDto(result.user),
+      admin_role: await getCurrentAdminRole({userId: client.userId}),
+    };
   },
 });

@@ -1,4 +1,4 @@
-import {emailSchema} from '@shipfox/api-auth-dto';
+import {type AdminRole, emailSchema} from '@shipfox/api-auth-dto';
 import {
   confirmEmailChallenge,
   consumeEmailChallengeProof,
@@ -31,6 +31,7 @@ import {
   updateUserPassword,
 } from '#db/users.js';
 import {type AuthTokenRefreshOutcome, recordTokenRefreshed} from '#metrics/index.js';
+import {getCurrentAdminRole} from './admin-role.js';
 import type {RefreshToken} from './entities/refresh-token.js';
 import type {User} from './entities/user.js';
 import {
@@ -139,11 +140,12 @@ async function createRefreshSession(
 async function createSessionTokens(
   user: User,
   workspaces: WorkspacesInterModuleClient,
-): Promise<{token: string; refreshToken: string}> {
+): Promise<{token: string; refreshToken: string; adminRole: AdminRole | null}> {
   const refreshSessionId = crypto.randomUUID();
   const token = await signAccessToken(user, workspaces, refreshSessionId);
+  const adminRole = await getCurrentAdminRole({userId: user.id});
   const {refreshToken} = await createRefreshSession(user, refreshSessionId);
-  return {token, refreshToken};
+  return {token, refreshToken, adminRole};
 }
 
 function passwordResetLink(rawToken: string): string {
@@ -335,12 +337,12 @@ export async function signupWithInvitation(
 
   // Step 4: Issue session. signAccessToken reads memberships through the
   // workspaces module API, so a successful accept is reflected in the JWT.
-  const {token, refreshToken} = await createSessionTokens(user, params.workspaces);
+  const {token, refreshToken, adminRole} = await createSessionTokens(user, params.workspaces);
 
   if (acceptError) {
-    return {token, refreshToken, user, membership, acceptError};
+    return {token, refreshToken, user, membership, acceptError, adminRole};
   }
-  return {token, refreshToken, user, membership};
+  return {token, refreshToken, user, membership, adminRole};
 }
 
 export interface CreateUserParams extends SignupParams {
@@ -374,6 +376,7 @@ export interface LoginResult {
   token: string;
   refreshToken: string;
   user: User;
+  adminRole: AdminRole | null;
 }
 
 export async function login(params: LoginParams): Promise<LoginResult> {
@@ -397,9 +400,9 @@ export async function login(params: LoginParams): Promise<LoginResult> {
     throw new EmailNotVerifiedError();
   }
 
-  const {token, refreshToken} = await createSessionTokens(user, params.workspaces);
+  const {token, refreshToken, adminRole} = await createSessionTokens(user, params.workspaces);
 
-  return {token, refreshToken, user};
+  return {token, refreshToken, user, adminRole};
 }
 
 export interface CreateSessionForUserParams {
@@ -412,6 +415,7 @@ export interface CreateSessionForUserResult {
   token: string;
   refreshToken: string;
   user: User;
+  adminRole: AdminRole | null;
 }
 
 export type CreateSessionForUserError =
@@ -439,9 +443,9 @@ export async function createSessionForUser(
     throw new InvalidCredentialsError();
   }
 
-  const {token, refreshToken} = await createSessionTokens(user, params.workspaces);
+  const {token, refreshToken, adminRole} = await createSessionTokens(user, params.workspaces);
 
-  return {token, refreshToken, user};
+  return {token, refreshToken, user, adminRole};
 }
 
 export interface RefreshAccessTokenResult {
@@ -449,6 +453,7 @@ export interface RefreshAccessTokenResult {
   /** Undefined on a grace-window hit: keep the existing cookie instead of rotating it. */
   refreshToken: string | undefined;
   user: User;
+  adminRole: AdminRole | null;
 }
 
 export async function refreshAccessToken(params: {
@@ -468,6 +473,7 @@ export async function refreshAccessToken(params: {
     recordRefreshOutcome('rejected');
     throw new TokenInvalidError('Refresh token is invalid or expired');
   }
+  const adminRole = await getCurrentAdminRole({userId: user.id});
 
   // Within the grace window a rotated token means a concurrent refresh (e.g. a
   // second tab); past it, reuse of a retired token means a compromised session.
@@ -475,7 +481,7 @@ export async function refreshAccessToken(params: {
     if (isWithinRotationGrace(current)) {
       const token = await signAccessToken(user, params.workspaces, current.sessionId);
       recordRefreshOutcome('grace');
-      return {token, refreshToken: undefined, user};
+      return {token, refreshToken: undefined, user, adminRole};
     }
     await revokeRefreshTokensForUser({userId: user.id});
     recordRefreshOutcome('rejected');
@@ -499,18 +505,19 @@ export async function refreshAccessToken(params: {
     }
     const token = await signAccessToken(user, params.workspaces, latest.sessionId);
     recordRefreshOutcome('grace');
-    return {token, refreshToken: undefined, user};
+    return {token, refreshToken: undefined, user, adminRole};
   }
 
   const token = await signAccessToken(user, params.workspaces, current.sessionId);
   recordRefreshOutcome('rotated');
-  return {token, refreshToken: nextRefreshToken, user};
+  return {token, refreshToken: nextRefreshToken, user, adminRole};
 }
 
 export interface ConfirmEmailVerificationResult {
   token: string;
   refreshToken: string;
   user: User;
+  adminRole: AdminRole | null;
 }
 
 export interface ResendEmailVerificationResult {
@@ -537,9 +544,12 @@ export async function confirmEmailVerification(params: {
     throw new TokenInvalidError('Verification code is invalid or expired');
   }
 
-  const {token, refreshToken} = await createSessionTokens(verifiedUser, params.workspaces);
+  const {token, refreshToken, adminRole} = await createSessionTokens(
+    verifiedUser,
+    params.workspaces,
+  );
 
-  return {token, refreshToken, user: verifiedUser};
+  return {token, refreshToken, user: verifiedUser, adminRole};
 }
 
 export async function resendEmailVerification(params: {
@@ -583,6 +593,7 @@ export interface ConfirmPasswordResetResult {
   token: string;
   refreshToken: string;
   user: User;
+  adminRole: AdminRole | null;
 }
 
 export async function confirmPasswordReset(params: {
@@ -608,9 +619,9 @@ export async function confirmPasswordReset(params: {
 
   await revokeRefreshTokensForUser({userId: consumed.userId});
 
-  const {token, refreshToken} = await createSessionTokens(user, params.workspaces);
+  const {token, refreshToken, adminRole} = await createSessionTokens(user, params.workspaces);
 
-  return {token, refreshToken, user};
+  return {token, refreshToken, user, adminRole};
 }
 
 export async function changePassword(params: {

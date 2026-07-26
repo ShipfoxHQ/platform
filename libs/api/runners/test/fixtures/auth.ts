@@ -82,4 +82,12 @@ export const runnersTestAuthClient: AuthInterModuleClient = {
   mintJobLeaseToken(claims) {
     return Promise.resolve({token: mintLeaseToken(claims)});
   },
+  getCurrentAdminRole() {
+    return Promise.resolve({role: null});
+  },
+  requireAdminRole(_input) {
+    return Promise.reject(
+      new Error('Administrator role checks are not configured in runner tests'),
+    );
+  },
 };

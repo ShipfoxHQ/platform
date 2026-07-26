@@ -35,6 +35,7 @@ describe('POST /auth/login', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().token).toBeDefined();
     expect(res.json().user.email).toBe(email);
+    expect(res.json().admin_role).toBeNull();
     expect(res.headers['set-cookie']).toContain('shipfox_refresh_token=');
     expect(res.headers['set-cookie']).toContain('HttpOnly');
     expect(res.headers['set-cookie']).toContain('Secure');
