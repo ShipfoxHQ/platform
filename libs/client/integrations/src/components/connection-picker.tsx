@@ -27,10 +27,10 @@ export function ConnectionPicker({
         aria-labelledby={labelId}
         value={selectedConnectionId ?? ''}
         onValueChange={onSelect}
-        className="grid grid-cols-2 gap-8 min-[1200px]:grid-cols-3 max-[760px]:grid-cols-1"
+        className="grid grid-cols-2 gap-8 max-[760px]:grid-cols-1"
       >
         {connections.map((connection) => (
-          <RadioGroupItem key={connection.id} value={connection.id} className="p-12">
+          <RadioGroupItem key={connection.id} value={connection.id}>
             <ConnectionOption connection={connection} />
           </RadioGroupItem>
         ))}
