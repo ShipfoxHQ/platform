@@ -5,6 +5,11 @@ function required(value, name) {
   return value;
 }
 
+function deploymentEnvironmentName(environment, appId) {
+  const displayEnvironment = environment.charAt(0).toUpperCase() + environment.slice(1);
+  return `${displayEnvironment} – ${appId}`;
+}
+
 function parseJsonOutput(output, command) {
   try {
     return JSON.parse(output);
@@ -190,7 +195,7 @@ export async function createGitHubDeployments({
         repository,
         ref,
         url: deployment.url,
-        environment: `${environment}/${deployment.appId}`,
+        environment: deploymentEnvironmentName(environment, deployment.appId),
         description: `Preview for ${deployment.appId} at ${ref}`,
         pullRequest,
         command,

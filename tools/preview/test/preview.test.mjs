@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   assertCurrentPreviewCommit,
   createGitHubDeployment,
+  createGitHubDeployments,
   createPreviewPlan,
   deployPreview,
   deployPreviewApps,
@@ -286,6 +287,23 @@ test('creates and finalizes GitHub deployments through the API adapter', async (
     runner,
   });
   assert.equal(requests[2].payload.state, 'success');
+});
+
+test('names app GitHub deployments with a readable preview label', async () => {
+  const requests = [];
+  const runner = (_command, args, options) => {
+    requests.push({args, payload: JSON.parse(options.input)});
+    return {output: JSON.stringify({id: 123})};
+  };
+
+  await createGitHubDeployments({
+    deployments: [{appId: 'storybook', ok: true, url: 'https://storybook.pages.dev'}],
+    repository: 'ShipfoxHQ/example',
+    ref: 'abc123',
+    runner,
+  });
+
+  assert.equal(requests[0].payload.environment, 'Preview – storybook');
 });
 
 test('calculates GitHub Actions queue time', async () => {
