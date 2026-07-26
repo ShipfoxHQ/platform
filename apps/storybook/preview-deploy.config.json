@@ -16,7 +16,7 @@
         "@shipfox/client-workflows"
       ],
       "directory": "storybook-output",
-      "provider": { "type": "cloudflare-pages", "project": "shipfox-storybook-preview" },
+      "provider": { "type": "cloudflare-pages", "project": "storybook" },
       "verify": {
         "metadataPath": "/preview-metadata.json",
         "endpoints": [
