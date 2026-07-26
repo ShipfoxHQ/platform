@@ -1,5 +1,6 @@
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import type {RouteGroup} from '@shipfox/node-fastify';
+import type {SignupPolicy} from '#core/ports.js';
 import {authCookiePlugin} from '#presentation/auth/refresh-cookie.js';
 import {createVerifyEmailConfirmRoute} from './email-verification/verify-email-confirm.js';
 import {verifyEmailResendRoute} from './email-verification/verify-email-resend.js';
@@ -15,10 +16,11 @@ import {createRefreshRoute} from './session/refresh.js';
 export function buildAuthRoutes(
   passwordEnabled: boolean,
   workspaces: WorkspacesInterModuleClient,
+  signupPolicy?: SignupPolicy,
 ): RouteGroup {
   const passwordRoutes = passwordEnabled
     ? [
-        createSignupRoute(workspaces),
+        createSignupRoute(workspaces, signupPolicy),
         createVerifyEmailConfirmRoute(workspaces),
         verifyEmailResendRoute,
         createLoginRoute(workspaces),

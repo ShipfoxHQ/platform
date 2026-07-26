@@ -46,6 +46,7 @@ import {
 } from './errors.js';
 import {signUserToken} from './jwt.js';
 import {hashPassword, verifyPassword} from './password.js';
+import type {SignupPolicy} from './ports.js';
 
 const RESET_TTL_HOURS = 1;
 const PASSWORD_VERIFICATION_PURPOSE = 'password-verification';
@@ -156,11 +157,13 @@ export interface SignupParams {
   email: string;
   password: string;
   name?: string | undefined;
+  signupPolicy?: SignupPolicy | undefined;
 }
 
 export interface ProvisionUserParams {
   email: string;
   name?: string | null | undefined;
+  signupPolicy?: SignupPolicy | undefined;
 }
 
 /**

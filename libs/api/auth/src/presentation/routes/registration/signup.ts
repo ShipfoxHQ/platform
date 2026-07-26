@@ -11,12 +11,16 @@ import {
   TokenExpiredError,
   TokenInvalidError,
 } from '#core/errors.js';
+import type {SignupPolicy} from '#core/ports.js';
 import {setRefreshTokenCookie} from '#presentation/auth/refresh-cookie.js';
 import {toUserDto} from '#presentation/dto/user.js';
 
 const SIGNUP_NOT_ALLOWED_MESSAGE_MAX_LENGTH = 500;
 
-export function createSignupRoute(workspaces: WorkspacesInterModuleClient) {
+export function createSignupRoute(
+  workspaces: WorkspacesInterModuleClient,
+  signupPolicy?: SignupPolicy,
+) {
   return defineRoute({
     method: 'POST',
     path: '/signup',
@@ -73,7 +77,13 @@ export function createSignupRoute(workspaces: WorkspacesInterModuleClient) {
       const {email, password, name, invitation_token} = request.body;
 
       if (invitation_token === undefined) {
-        const result = await signup({email, password, name, sourceIp: request.ip});
+        const result = await signup({
+          email,
+          password,
+          name,
+          sourceIp: request.ip,
+          signupPolicy,
+        });
         reply.code(201);
         return {
           user: toUserDto(result),

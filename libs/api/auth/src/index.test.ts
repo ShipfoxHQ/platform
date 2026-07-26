@@ -23,6 +23,9 @@ vi.mock('@shipfox/node-mailer', () => ({
 }));
 
 describe('authModule', () => {
+  const signupPolicy = {
+    isSignupAllowed: async () => ({allowed: true as const}),
+  };
   const authModule = createAuthModule({
     workspaces: {
       listMembershipsForTokenClaims: vi.fn(),
@@ -31,6 +34,7 @@ describe('authModule', () => {
       acceptInvitation: vi.fn(),
       requireActiveMembership: vi.fn(),
     },
+    signupPolicy,
   });
   test('declares password login only when password login is enabled', () => {
     expect(passwordLoginMethods(true)).toEqual([{id: 'password'}]);

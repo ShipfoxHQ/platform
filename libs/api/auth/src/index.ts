@@ -6,6 +6,7 @@ import {
 import type {ShipfoxModule} from '@shipfox/node-module';
 import {subscriberFactory} from '@shipfox/node-module';
 import {config} from '#config.js';
+import type {SignupPolicy} from '#core/ports.js';
 import {db} from '#db/db.js';
 import {migrationsPath} from '#db/migrations.js';
 import {authOutbox} from '#db/schema/outbox.js';
@@ -68,17 +69,21 @@ export {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-a
 
 const subscriber = subscriberFactory<AuthEventMap>();
 
+export interface CreateAuthModuleOptions {
+  workspaces: import('@shipfox/api-workspaces-dto/inter-module').WorkspacesInterModuleClient;
+  signupPolicy?: SignupPolicy;
+}
+
 export function createAuthModule({
   workspaces,
-}: {
-  workspaces: import('@shipfox/api-workspaces-dto/inter-module').WorkspacesInterModuleClient;
-}): ShipfoxModule {
+  signupPolicy,
+}: CreateAuthModuleOptions): ShipfoxModule {
   return {
     name: 'auth',
     database: {db, migrationsPath, databaseNamespace: 'auth'},
     auth: [createJwtAuthMethod(), createLeaseTokenAuthMethod(), createRunnerSessionAuthMethod()],
     loginMethods: passwordLoginMethods(config.AUTH_PASSWORD_ENABLED),
-    routes: [buildAuthRoutes(config.AUTH_PASSWORD_ENABLED, workspaces)],
+    routes: [buildAuthRoutes(config.AUTH_PASSWORD_ENABLED, workspaces, signupPolicy)],
     e2eRoutes: [createAuthE2eRoutes(workspaces)],
     publishers: [{name: 'auth', table: authOutbox, db, eventSchemas: authEventSchemas}],
     subscribers: [subscriber(AUTH_PASSWORD_RESET_SEND_REQUESTED, onPasswordResetSendRequested)],
