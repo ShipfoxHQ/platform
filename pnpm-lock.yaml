@@ -852,6 +852,9 @@ importers:
       '@shipfox/playwright':
         specifier: workspace:*
         version: link:../../tools/playwright
+      '@shipfox/preview':
+        specifier: workspace:*
+        version: link:../../tools/preview
       '@shipfox/ts-config':
         specifier: workspace:*
         version: link:../../tools/ts-config
@@ -7899,6 +7902,24 @@ importers:
       '@shipfox/typescript':
         specifier: workspace:*
         version: link:../typescript
+
+  tools/preview:
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../biome
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../typescript
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.2
 
   tools/repository-documentation-policy:
     devDependencies:
