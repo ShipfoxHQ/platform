@@ -1,5 +1,15 @@
 # @shipfox/client-integrations
 
+## 9.0.0
+
+### Patch Changes
+
+- 8e1820a: Improves source and repository picker cards for easier scanning.
+- Updated dependencies [56e2c58]
+- Updated dependencies [87170f8]
+  - @shipfox/client-shell@9.0.0
+  - @shipfox/client-auth@9.0.0
+
 ## 8.0.0
 
 ### Patch Changes

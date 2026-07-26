@@ -1,5 +1,12 @@
 # @shipfox/api-integration-core
 
+## 9.1.0
+
+### Patch Changes
+
+- Updated dependencies [ce9a452]
+  - @shipfox/api-integration-linear@9.1.0
+
 ## 9.0.3
 
 ### Patch Changes

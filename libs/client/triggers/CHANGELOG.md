@@ -1,5 +1,14 @@
 # @shipfox/client-triggers
 
+## 9.0.0
+
+### Patch Changes
+
+- 87170f8: Move event payload scrolling to the detail rail and bound the desktop rail to the available viewport height.
+- Updated dependencies [56e2c58]
+- Updated dependencies [87170f8]
+  - @shipfox/client-shell@9.0.0
+
 ## 8.0.0
 
 ### Patch Changes
