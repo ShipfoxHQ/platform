@@ -26,8 +26,8 @@ const withRouter: Decorator = (Story) => {
   function StoryRoute() {
     return (
       <RelativeTimeProvider>
-        <div className="min-h-screen bg-background-subtle-base p-24">
-          <div className="ml-auto w-[400px]">
+        <div className="min-h-screen bg-background-subtle-base p-24 [--app-content-h:calc(100dvh_-_96px)]">
+          <div className="@container ml-auto w-[860px]">
             <Story />
           </div>
         </div>

@@ -37,7 +37,10 @@ export function EventsPage({workspaceId, filters, onFiltersChange}: EventsPagePr
 
   return (
     <RelativeTimeProvider>
-      <section className="flex min-w-0 flex-col gap-16" aria-labelledby="trigger-events-heading">
+      <section
+        className="@container flex min-w-0 flex-col gap-16"
+        aria-labelledby="trigger-events-heading"
+      >
         <div className="flex flex-col gap-4">
           <Header id="trigger-events-heading" variant="h3">
             Events
@@ -48,8 +51,8 @@ export function EventsPage({workspaceId, filters, onFiltersChange}: EventsPagePr
           </Text>
         </div>
 
-        <div className="grid min-h-0 gap-16 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
-          <div className={cn('min-w-0', selectedEventId && 'max-[899px]:hidden')}>
+        <div className="grid min-h-0 items-start gap-16 @min-[820px]:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
+          <div className={cn('min-w-0', selectedEventId && '@max-[820px]:hidden')}>
             <EventsList
               events={events}
               query={query}
