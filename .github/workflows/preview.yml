@@ -53,7 +53,7 @@ jobs:
         uses: ./.github/actions/setup-pnpm
 
       - name: Build preview tooling
-        run: pnpm --filter=@shipfox/preview build
+        run: pnpm --filter=@shipfox/preview... build
 
       - name: Record workflow queue time
         id: queue
