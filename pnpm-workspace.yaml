@@ -31,6 +31,7 @@ catalog:
   "@node-rs/argon2": "^2.0.2"
   "@octokit/webhooks": "^14.2.0"
   "@opentelemetry/api": "^1.9.1"
+  '@opentelemetry/api-logs': ^0.219.0
   "@opentelemetry/auto-instrumentations-node": "^0.77.0"
   "@opentelemetry/core": "^2.0.0"
   "@opentelemetry/exporter-prometheus": "^0.219.0"
@@ -47,6 +48,7 @@ catalog:
   "@opentelemetry/instrumentation-pino": "^0.65.0"
   "@opentelemetry/instrumentation-undici": "^0.29.0"
   "@opentelemetry/resources": "^2.0.0"
+  '@opentelemetry/sdk-logs': ^0.219.0
   "@opentelemetry/sdk-metrics": "^2.6.0"
   "@opentelemetry/sdk-node": "^0.219.0"
   "@opentelemetry/sdk-trace-node": "^2.6.0"

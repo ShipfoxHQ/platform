@@ -18,9 +18,16 @@ Defaults include:
 Environment variables (via `@shipfox/config`):
 
 - `LOG_LEVEL` defaults to `info`. Set it to `silent` to suppress logs.
+- `LOG_STDOUT_LEVEL` defaults to `LOG_LEVEL`. It controls the minimum level written to stdout.
+- `LOG_FILE_LEVEL` defaults to `LOG_LEVEL`. It controls the minimum level written to `LOG_FILE`.
 - `LOG_PRETTY` defaults to `false`. Set it to `true` for pretty stdout logs.
 - `LOG_STDOUT` defaults to `true`. Set it to `false` to disable stdout logs.
 - `LOG_FILE` is optional. If set, logs are written to that file.
+
+`LOG_LEVEL` is the global minimum record level. Destination levels may be more
+restrictive, but not more verbose than `LOG_LEVEL`. A record written to stdout
+or the file is also available to OpenTelemetry when Pino instrumentation and an
+OTLP logs exporter are enabled.
 
 ## Installation
 
@@ -48,13 +55,16 @@ const moduleLogger = createLogger({
 moduleLogger.debug({ eventId: "evt_123" }, "Processing payment event");
 ```
 
-You can combine `LOG_PRETTY` and `LOG_LEVEL` during development for readability.
+You can combine `LOG_PRETTY` and `LOG_STDOUT_LEVEL` during development for
+readability. For example, `LOG_LEVEL=info` and `LOG_STDOUT_LEVEL=warn` keeps
+info records out of stdout while retaining them in the OpenTelemetry log stream.
 
 ## Development
 
 ```sh
 turbo check --filter=@shipfox/node-log
 turbo type --filter=@shipfox/node-log
+turbo test --filter=@shipfox/node-log
 ```
 
 ## License
