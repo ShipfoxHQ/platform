@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {storybookManifest} from '../preview-manifest.js';
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const staticRoot = resolve(appRoot, '.vercel/output/static');
+const staticRoot = resolve(appRoot, 'storybook-output');
 const port = Number(process.env.STORYBOOK_PREVIEW_PORT ?? 4173);
 const host = process.env.STORYBOOK_PREVIEW_HOST ?? '127.0.0.1';
 const leadingSlashPattern = /^\//;

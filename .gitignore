@@ -138,6 +138,7 @@ vite.config.ts.timestamp-*
 
 # Storybook static build output
 storybook-static/
+storybook-output/
 
 # Turbo cache
 .turbo

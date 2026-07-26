@@ -13,6 +13,8 @@
     "artifact:assemble": "tsx scripts/assemble.ts",
     "artifact:verify": "tsx scripts/verify.ts",
     "build:children": "tsx scripts/build-children.ts",
+    "preview:plan": "tsx scripts/preview-plan.ts",
+    "preview:verify": "tsx scripts/verify-remote.ts",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
     "storybook": "pnpm run build:children && storybook dev -p 6015",

@@ -2,7 +2,10 @@ import {readdir, readFile, stat} from 'node:fs/promises';
 import {dirname, extname, relative, resolve, sep} from 'node:path';
 import {storybookManifestVersion, storybooks} from '../preview-manifest.js';
 
-export const defaultMaxFileBytes = 100 * 1024 * 1024;
+// Cloudflare Pages Direct Upload currently rejects files larger than 25 MiB.
+// Keep the local gate aligned with the hosting limit so a bad artifact fails
+// before credentials are used for an upload.
+export const defaultMaxFileBytes = 25 * 1024 * 1024;
 
 type FileMetric = {
   path: string;
@@ -322,11 +325,7 @@ export async function verifyPreviewArtifact(
   return {shell, children, total};
 }
 
-const commitShaEnvironmentVariables = [
-  'PREVIEW_COMMIT_SHA',
-  'GITHUB_SHA',
-  'VERCEL_GIT_COMMIT_SHA',
-] as const;
+const commitShaEnvironmentVariables = ['PREVIEW_COMMIT_SHA', 'GITHUB_SHA'] as const;
 
 export function getCommitShaFromEnv(): string | undefined {
   return commitShaEnvironmentVariables

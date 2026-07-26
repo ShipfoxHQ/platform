@@ -4,7 +4,7 @@
   "tasks": {
     "build": {
       "cache": false,
-      "outputs": ["storybook-static/**/*", ".vercel/**/*"],
+      "outputs": ["storybook-static/**/*", ".vercel/**/*", "storybook-output/**/*"],
       "dependsOn": ["^build"],
       "env": ["PREVIEW_COMMIT_SHA"]
     },

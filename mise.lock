@@ -79,6 +79,10 @@ backend = "npm:pnpm"
 version = "2.9.18"
 backend = "npm:turbo"
 
+[[tools."npm:wrangler"]]
+version = "4.29.0"
+backend = "npm:wrangler"
+
 [[tools.ollama]]
 version = "0.30.11"
 backend = "aqua:ollama/ollama"

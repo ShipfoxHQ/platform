@@ -17,20 +17,8 @@ import {
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(appRoot, '../..');
 const shellOutput = resolve(appRoot, 'storybook-static');
-const outputParent = resolve(appRoot, '.vercel');
-const outputRoot = resolve(outputParent, 'output');
-
-const childIdPattern = storybooks.map(({id}) => id).join('|');
-
-const buildOutputConfig = {
-  version: 3,
-  routes: [
-    {handle: 'filesystem'},
-    {src: `^/(${childIdPattern})$`, dest: '/$1/index.html'},
-    {src: '^/([^/]+)/.*$', dest: '/$1/index.html'},
-    {src: '^/(.*)$', dest: '/index.html'},
-  ],
-};
+const outputParent = appRoot;
+const outputRoot = resolve(appRoot, 'storybook-output');
 
 type StorybookIndex = {
   entries?: Record<string, Record<string, unknown>>;
@@ -141,7 +129,7 @@ async function buildMetadata(metrics: PreviewMetadata['metrics']): Promise<Previ
 }
 
 async function replaceOutputAtomically(stagedOutput: string): Promise<void> {
-  const previousOutput = resolve(outputParent, `.output-previous-${randomUUID()}`);
+  const previousOutput = resolve(outputParent, `.storybook-output-previous-${randomUUID()}`);
   let movedPreviousOutput = false;
 
   try {
@@ -175,9 +163,8 @@ async function main(): Promise<void> {
 
   let stagedOutput: string | undefined;
   try {
-    stagedOutput = await mkdtemp(resolve(outputParent, '.output-staging-'));
-    const stagedStaticRoot = resolve(stagedOutput, 'static');
-    await mkdir(stagedStaticRoot, {recursive: true});
+    stagedOutput = await mkdtemp(resolve(outputParent, '.storybook-output-staging-'));
+    const stagedStaticRoot = stagedOutput;
 
     await cp(shellOutput, stagedStaticRoot, {recursive: true});
 
@@ -208,17 +195,13 @@ async function main(): Promise<void> {
       `${JSON.stringify(metadata, null, 2)}\n`,
       'utf8',
     );
-    await writeFile(
-      resolve(stagedOutput, 'config.json'),
-      `${JSON.stringify(buildOutputConfig, null, 2)}\n`,
-      'utf8',
-    );
-
     const verifiedMetrics = await verifyPreviewArtifact({
       staticRoot: stagedStaticRoot,
       maxFileBytes,
     });
-    process.stdout.write(`Assembled Storybook preview artifact at ${outputRoot}\n`);
+    process.stdout.write(
+      `Assembled provider-neutral Storybook preview artifact at ${outputRoot}\n`,
+    );
     process.stdout.write(`${formatMetrics(verifiedMetrics)}\n`);
 
     await replaceOutputAtomically(stagedOutput);

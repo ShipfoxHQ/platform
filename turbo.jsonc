@@ -17,7 +17,7 @@
   "tasks": {
     "build": {
       "cache": true,
-      "outputs": ["dist/**/*", "!dist/**/*.d.ts", "!dist/**/*.d.ts.map", ".vercel/**/*"],
+      "outputs": ["dist/**/*", "!dist/**/*.d.ts", "!dist/**/*.d.ts.map", "storybook-output/**/*"],
       "dependsOn": ["^build"]
     },
     "dev": {

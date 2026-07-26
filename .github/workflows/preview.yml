@@ -29,8 +29,6 @@ env:
   TURBO_SCM_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
   PREVIEW_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   PREVIEW_PR_NUMBER: ${{ github.event.pull_request.number || '' }}
-  PREVIEW_CHILDREN: react-ui client-agent client-auth client-integrations client-logs client-projects client-runners client-secrets client-triggers client-workflows
-  VERCEL_CLI_VERSION: 56.5.0
 
 jobs:
   build:
@@ -66,16 +64,32 @@ jobs:
       - name: Set up mise
         uses: ./.github/actions/setup-mise
         with:
-          tools: gh node npm:pnpm npm:turbo
+          tools: gh node npm:pnpm npm:turbo npm:wrangler
 
       - name: Set up pnpm
         uses: ./.github/actions/setup-pnpm
 
+      - name: Plan affected Storybook preview
+        id: plan
+        run: |
+          set -euo pipefail
+          plan_file="$RUNNER_TEMP/storybook-preview-plan.json"
+          pnpm --silent --filter=@shipfox/storybook preview:plan | tee "$RUNNER_TEMP/storybook-preview-plan.json"
+          should_deploy="$(jq -r '.shouldDeploy' "$RUNNER_TEMP/storybook-preview-plan.json")"
+          if [[ "$should_deploy" != true && "$should_deploy" != false ]]; then
+            echo 'Turbo preview plan did not return a boolean shouldDeploy value.' >&2
+            exit 1
+          fi
+          echo "should_deploy=$should_deploy" >> "$GITHUB_OUTPUT"
+          echo "reason=$(jq -r '.reason' "$plan_file")" >> "$GITHUB_OUTPUT"
+
       - name: Set up Playwright
+        if: steps.plan.outputs.should_deploy == 'true'
         uses: ./.github/actions/setup-playwright
 
       - name: Build and assemble all Storybooks
         id: build
+        if: steps.plan.outputs.should_deploy == 'true'
         run: |
           set -euo pipefail
           build_started="$(date +%s)"
@@ -86,6 +100,7 @@ jobs:
 
       - name: Verify artifact and run browser smoke tests
         id: validation
+        if: steps.plan.outputs.should_deploy == 'true'
         run: |
           set -euo pipefail
           validation_started="$(date +%s)"
@@ -95,142 +110,58 @@ jobs:
           echo "validation_seconds=$((validation_finished - validation_started))" >> "$GITHUB_OUTPUT"
 
       - name: Upload verified Storybook preview artifact
-        if: success()
+        if: steps.plan.outputs.should_deploy == 'true' && success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: storybook-preview-${{ github.event.pull_request.number || 'main' }}-${{ github.event.pull_request.head.sha || github.sha }}
-          path: apps/storybook/.vercel/output
+          path: apps/storybook/storybook-output
           if-no-files-found: error
 
-      - name: Deploy verified preview to Vercel
+      - name: Deploy verified preview to Cloudflare Pages
         id: deploy
         if: >-
+          steps.plan.outputs.should_deploy == 'true' &&
           success() &&
           (github.event_name == 'push' ||
           github.event.pull_request.head.repo.full_name == github.repository)
-        working-directory: apps/storybook
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ vars.VERCEL_STORYBOOK_PROJECT_ID }}
-          VERCEL_GIT_COMMIT_SHA: ${{ env.PREVIEW_COMMIT_SHA }}
-          VERCEL_GIT_COMMIT_REF: ${{ github.head_ref || github.ref_name }}
-          VERCEL_GIT_REPO_OWNER: ${{ github.repository_owner }}
-          VERCEL_GIT_REPO_SLUG: ${{ github.event.repository.name }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
         run: |
           set -euo pipefail
           deployment_log="$RUNNER_TEMP/storybook-preview-deploy.log"
           deployment_started="$(date +%s)"
           deployment_url=
-          metadata_args=(
-            --meta "githubCommitSha=$PREVIEW_COMMIT_SHA"
-            --meta "githubRepository=$GITHUB_REPOSITORY"
-          )
+          preview_branch="main"
           if [[ -n "$PREVIEW_PR_NUMBER" ]]; then
-            metadata_args+=(--meta "githubPullRequest=$PREVIEW_PR_NUMBER")
-          fi
-
-          if [[ ! "$VERCEL_ORG_ID" =~ ^team_ ]]; then
-            team_list="$RUNNER_TEMP/vercel-teams.json"
-            npx --yes "vercel@$VERCEL_CLI_VERSION" teams ls \
-              --format=json \
-              --token="$VERCEL_TOKEN" > "$team_list"
-            if ! VERCEL_ORG_ID="$(jq -er \
-              --arg team "$VERCEL_ORG_ID" \
-              '[.teams[] | select(.id == $team or .slug == $team or .name == $team) | .id][0]' \
-              "$team_list")"; then
-              echo "Vercel team '$VERCEL_ORG_ID' was not found for the token." >&2
-              exit 1
-            fi
-          fi
-
-          if [[ ! "$VERCEL_PROJECT_ID" =~ ^prj_ ]]; then
-            project_list="$RUNNER_TEMP/vercel-projects.json"
-            npx --yes "vercel@$VERCEL_CLI_VERSION" project ls \
-              --format=json \
-              --limit=100 \
-              --scope="$VERCEL_ORG_ID" \
-              --token="$VERCEL_TOKEN" > "$project_list"
-            configured_project="$VERCEL_PROJECT_ID"
-            if ! VERCEL_PROJECT_ID="$(jq -er \
-              --arg project "$configured_project" \
-              '[.projects[] | select(.id == $project or .name == $project) | .id][0]' \
-              "$project_list")"; then
-              echo "Vercel project '$configured_project' was not found in team '$VERCEL_ORG_ID'." >&2
-              exit 1
-            fi
-          fi
-
-          if [[ -n "$PREVIEW_PR_NUMBER" ]]; then
-            stale_deployments="$RUNNER_TEMP/vercel-stale-deployments.json"
-            npx --yes "vercel@$VERCEL_CLI_VERSION" list "$VERCEL_PROJECT_ID" \
-              --format=json \
-              --limit=100 \
-              --status=QUEUED \
-              --meta "githubPullRequest=$PREVIEW_PR_NUMBER" \
-              --scope="$VERCEL_ORG_ID" \
-              --token="$VERCEL_TOKEN" > "$stale_deployments"
-            mapfile -t stale_deployment_ids < <(
-              jq -r '.deployments[]?.id // empty' "$stale_deployments"
-            )
-            if (( ${#stale_deployment_ids[@]} > 0 )); then
-              echo "Removing ${#stale_deployment_ids[@]} stale queued Vercel deployment(s)."
-              npx --yes "vercel@$VERCEL_CLI_VERSION" remove \
-                "${stale_deployment_ids[@]}" \
-                --safe \
-                --yes \
-                --scope="$VERCEL_ORG_ID" \
-                --token="$VERCEL_TOKEN"
-            fi
-          fi
-
-          mkdir -p ../../.vercel
-          jq -n \
-            --arg project "$VERCEL_PROJECT_ID" \
-            --arg org "$VERCEL_ORG_ID" \
-            '{
-              remoteName: "origin",
-              projects: [{
-                id: $project,
-                name: $project,
-                directory: "apps/storybook",
-                orgId: $org
-              }]
-            }' > ../../.vercel/repo.json
-          if [[ ! -e ../../.vercel/output ]]; then
-            ln -s "$(pwd)/.vercel/output" ../../.vercel/output
+            preview_branch="pr-$PREVIEW_PR_NUMBER"
           fi
 
           for attempt in 1 2 3; do
-            echo "Vercel prebuilt upload attempt $attempt/3"
+            echo "Cloudflare Pages Direct Upload attempt $attempt/3"
             attempt_log="$RUNNER_TEMP/storybook-preview-deploy-$attempt.log"
-            if env -u VERCEL_ORG_ID -u VERCEL_PROJECT_ID \
-                npx --yes "vercel@$VERCEL_CLI_VERSION" deploy \
-                --cwd . \
-                --prebuilt \
-                --archive=tgz \
-                --token="$VERCEL_TOKEN" \
-                --scope="$VERCEL_ORG_ID" \
-                --no-wait \
-                --yes \
-                "${metadata_args[@]}" > "$attempt_log" 2>&1; then
+            if wrangler pages deploy apps/storybook/storybook-output \
+                --project-name="$CLOUDFLARE_PAGES_PROJECT" \
+                --branch="$preview_branch" \
+                --commit-hash="$PREVIEW_COMMIT_SHA" > "$attempt_log" 2>&1; then
               tee -a "$deployment_log" < "$attempt_log"
-              deployment_url="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app/?' "$attempt_log" | tail -n 1 || true)"
-              if [[ "$deployment_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app/?$ ]]; then
+              deployment_url="$(grep -Eo 'https://[A-Za-z0-9.-]+\.pages\.dev/?' "$attempt_log" | tail -n 1 || true)"
+              if [[ "$deployment_url" =~ ^https://[A-Za-z0-9.-]+\.pages\.dev/?$ ]]; then
                 break
               fi
-              echo "Vercel returned an unexpected deployment URL: $deployment_url" >&2
+              echo "Cloudflare returned an unexpected deployment URL: $deployment_url" >&2
             else
               tee -a "$deployment_log" < "$attempt_log" >&2
-              echo "Vercel prebuilt upload failed on attempt $attempt" >&2
+              echo "Cloudflare Pages upload failed on attempt $attempt" >&2
             fi
             if (( attempt < 3 )); then
               sleep $((attempt * 10))
             fi
           done
 
-          if [[ ! "$deployment_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app/?$ ]]; then
-            echo 'Vercel prebuilt deployment failed after 3 attempts.' >&2
+          if [[ ! "$deployment_url" =~ ^https://[A-Za-z0-9.-]+\.pages\.dev/?$ ]]; then
+            echo 'Cloudflare Pages Direct Upload failed after 3 attempts.' >&2
             echo "Deployment log: $deployment_log" >&2
             exit 1
           fi
@@ -239,7 +170,7 @@ jobs:
           echo "deployment_seconds=$((deployment_finished - deployment_started))" >> "$GITHUB_OUTPUT"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
           echo "deployment_url=$deployment_url" >> "$GITHUB_ENV"
-          echo "Vercel deployment: $deployment_url"
+          echo "Cloudflare Pages deployment: $deployment_url"
 
       - name: Register Storybook Preview deployment
         id: register-deployment
@@ -283,7 +214,7 @@ jobs:
               state: "in_progress",
               target_url: $url,
               environment_url: $url,
-              description: "Vercel deployment uploaded; verifying all Storybook endpoints"
+              description: "Cloudflare Pages upload completed; verifying all Storybook endpoints"
             }' | gh api \
             --method POST \
             "repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses" \
@@ -292,68 +223,14 @@ jobs:
       - name: Verify deployed Storybook preview
         id: verify-deployment
         if: steps.register-deployment.outcome == 'success'
-        working-directory: apps/storybook
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
         run: |
           set -euo pipefail
           deployment_verification_started="$(date +%s)"
-          deployment_url="${DEPLOYMENT_URL%/}"
-
-          vercel_curl() {
-            npx --yes "vercel@$VERCEL_CLI_VERSION" \
-              curl \
-              --deployment "$deployment_url" \
-              --yes \
-              "$1" \
-              -- --fail --silent --show-error --location \
-              --retry 2 --retry-delay 2 --max-time 30
-          }
-
-          deployment_status="$(npx --yes "vercel@$VERCEL_CLI_VERSION" \
-            inspect "$deployment_url" \
-            --wait \
-            --timeout 600s \
-            --format=json \
-            --non-interactive)"
-          if ! jq -e '.readyState == "READY"' <<< "$deployment_status" >/dev/null; then
-            echo "Vercel deployment did not become ready within 10 minutes:" >&2
-            jq -r '.readyState // "unknown"' <<< "$deployment_status" >&2
-            exit 1
-          fi
-
-          vercel_curl / >/dev/null
-
-          metadata="$(vercel_curl /preview-metadata.json)"
-          if ! jq -e --arg expected_sha "$PREVIEW_COMMIT_SHA" \
-            '.commitSha == $expected_sha' <<< "$metadata" >/dev/null; then
-            echo "Deployed preview metadata does not match commit $PREVIEW_COMMIT_SHA." >&2
-            exit 1
-          fi
-          if [[ -n "$PREVIEW_PR_NUMBER" ]]; then
-            if ! jq -e --argjson expected_pr "$PREVIEW_PR_NUMBER" \
-              '.pullRequest.number == $expected_pr' <<< "$metadata" >/dev/null; then
-              echo "Deployed preview metadata does not match pull request $PREVIEW_PR_NUMBER." >&2
-              exit 1
-            fi
-          fi
-
-          read -r -a preview_children <<< "$PREVIEW_CHILDREN"
-          for child in "${preview_children[@]}"; do
-            child_index="$(vercel_curl "/$child/index.json")"
-            if ! jq -e \
-              '(.entries | type == "object") and ((.entries | length) > 0)' \
-              <<< "$child_index" >/dev/null; then
-              echo "Deployed child $child has no Storybook entries." >&2
-              exit 1
-            fi
-            echo "Verified $deployment_url/$child/index.json"
-          done
-
+          pnpm --filter=@shipfox/storybook preview:verify
           deployment_verification_finished="$(date +%s)"
           echo "verification_seconds=$((deployment_verification_finished - deployment_verification_started))" >> "$GITHUB_OUTPUT"
-          echo "Verified root, metadata, and ${#preview_children[@]} child Storybook indexes."
 
       - name: Finalize Storybook Preview deployment
         if: always() && steps.register-deployment.outcome == 'success'
@@ -364,9 +241,9 @@ jobs:
           DEPLOYMENT_STATE: ${{ steps.verify-deployment.outcome == 'success' && 'success' || 'failure' }}
         run: |
           set -euo pipefail
-          deployment_description='Deployed Vercel preview failed post-deployment verification'
+          deployment_description='Deployed Cloudflare preview failed post-deployment verification'
           if [[ "$DEPLOYMENT_STATE" == success ]]; then
-            deployment_description='Verified Vercel preview for the exact commit'
+            deployment_description='Verified Cloudflare preview for the exact commit'
           fi
           jq -n \
             --arg state "$DEPLOYMENT_STATE" \
@@ -389,6 +266,8 @@ jobs:
           BUILD_SECONDS: ${{ steps.build.outputs.build_seconds || 'unavailable' }}
           VALIDATION_RESULT: ${{ steps.validation.outcome }}
           VALIDATION_SECONDS: ${{ steps.validation.outputs.validation_seconds || 'unavailable' }}
+          PLAN_RESULT: ${{ steps.plan.outputs.should_deploy || 'unavailable' }}
+          PLAN_REASON: ${{ steps.plan.outputs.reason || 'unavailable' }}
           QUEUE_SECONDS: ${{ steps.queue.outputs.queue_seconds || 'unavailable' }}
           DEPLOYMENT_RESULT: ${{ steps.deploy.outcome || 'skipped' }}
           DEPLOYMENT_SECONDS: ${{ steps.deploy.outputs.deployment_seconds || 'unavailable' }}
@@ -402,15 +281,21 @@ jobs:
             echo
             echo '| Metric | Value |'
             echo '| --- | --- |'
+            echo "| Turbo affected plan | ${PLAN_RESULT} (${PLAN_REASON}) |"
             echo "| Queue | ${QUEUE_SECONDS} seconds |"
             echo "| Build and assembly | ${BUILD_SECONDS} seconds (${BUILD_RESULT}) |"
             echo "| Validation and browser smoke | ${VALIDATION_SECONDS} seconds (${VALIDATION_RESULT}) |"
-            echo "| Vercel upload | ${DEPLOYMENT_SECONDS} seconds (${DEPLOYMENT_RESULT}) |"
+            echo "| Cloudflare upload | ${DEPLOYMENT_SECONDS} seconds (${DEPLOYMENT_RESULT}) |"
             echo "| Deployment verification | ${DEPLOYMENT_VERIFICATION_SECONDS} seconds (${DEPLOYMENT_VERIFICATION_RESULT}) |"
             echo '| Remote cache | Pull requests read only; main reads and writes |'
             echo "| Preview URL | ${DEPLOYMENT_URL} |"
             echo
             echo '### Turbo cache output'
+            echo
+            if [[ -f "$RUNNER_TEMP/storybook-preview-plan.json" ]]; then
+              echo '**Affected Storybook packages**'
+              jq -r '.affectedStorybooks[]? | "- `\(.)`"' "$RUNNER_TEMP/storybook-preview-plan.json"
+            fi
             echo
             if [[ -f "$RUNNER_TEMP/storybook-preview-build.log" ]]; then
               grep -E '^(Tasks:|Cached:|Time:)' "$RUNNER_TEMP/storybook-preview-build.log" | tail -n 6 || true
@@ -420,16 +305,16 @@ jobs:
             echo
             echo '### Verified artifact'
             echo
-            if [[ -f apps/storybook/.vercel/output/static/preview-metadata.json ]]; then
+            if [[ -f apps/storybook/storybook-output/preview-metadata.json ]]; then
               echo '| Storybook | Files | Bytes |'
               echo '| --- | ---: | ---: |'
               jq -r '
                 "| Composition shell | \(.metrics.shell.fileCount) | \(.metrics.shell.bytes) |",
                 (.metrics.children[] | "| \(.id) | \(.fileCount) | \(.bytes) |"),
                 "| Total | \(.metrics.total.fileCount) | \(.metrics.total.bytes) |"
-              ' apps/storybook/.vercel/output/static/preview-metadata.json
+              ' apps/storybook/storybook-output/preview-metadata.json
               echo
-              echo '- Assembly: atomic `.vercel/output` tree created by the Storybook build.'
+              echo '- Assembly: atomic `storybook-output` tree created by the Storybook build.'
               echo '- Validation: static output and one representative story per child passed.'
             else
               echo 'No verified artifact metadata was produced.'
