@@ -47,6 +47,10 @@ export {
   verifyRunnerSessionToken,
 } from '#core/runner-session-token.js';
 export {
+  createEnvironmentSignupPolicy,
+  DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE,
+} from '#core/signup-policy.js';
+export {
   type AuthenticatedSessionContext,
   createJwtAuthMethod,
   getAuthenticatedSessionContext,

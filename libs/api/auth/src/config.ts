@@ -29,8 +29,38 @@ export const config = createConfig({
     desc: 'Whether password login is available. Use true or false. Defaults to true. When false, password and email-verification routes are not registered, and server startup requires another module to contribute a login method.',
     default: true,
   }),
+  AUTH_SIGNUP_GATE_ENABLED: bool({
+    desc: 'Whether new account creation is restricted to the configured signup email allowlist. Defaults to false, which allows every signup.',
+    default: false,
+  }),
+  AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS: str({
+    desc: 'Comma-separated email domains allowed to create accounts, such as shipfox.io,acme.com. Required when AUTH_SIGNUP_GATE_ENABLED is true unless AUTH_SIGNUP_ALLOWED_EMAILS is set.',
+    default: '',
+  }),
+  AUTH_SIGNUP_ALLOWED_EMAILS: str({
+    desc: 'Comma-separated exact email addresses allowed to create accounts. Required when AUTH_SIGNUP_GATE_ENABLED is true unless AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS is set.',
+    default: '',
+  }),
+  AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: str({
+    desc: 'Description returned when the signup gate blocks an account. Optional. The default is This Shipfox deployment does not accept new accounts right now.',
+    default: undefined,
+  }),
   CLIENT_BASE_URL: str({
     desc: 'Base URL of the client app. Used to build links in emails such as password resets.',
     default: 'http://localhost:5173',
   }),
 });
+
+if (
+  config.AUTH_SIGNUP_GATE_ENABLED &&
+  !hasSignupAllowlistEntry(config.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS) &&
+  !hasSignupAllowlistEntry(config.AUTH_SIGNUP_ALLOWED_EMAILS)
+) {
+  throw new Error(
+    'AUTH_SIGNUP_GATE_ENABLED requires AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS or AUTH_SIGNUP_ALLOWED_EMAILS to be set.',
+  );
+}
+
+function hasSignupAllowlistEntry(value: string): boolean {
+  return value.split(',').some((entry) => entry.trim().length > 0);
+}
