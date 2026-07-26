@@ -1,5 +1,16 @@
 # @shipfox/api-server
 
+## 9.1.0
+
+### Patch Changes
+
+- Updated dependencies [2e9d82d]
+  - @shipfox/api-definitions@9.1.0
+  - @shipfox/api-auth@9.1.0
+  - @shipfox/api-email-challenges@1.1.3
+  - @shipfox/api-workspaces@9.1.0
+  - @shipfox/api-integration-core@9.1.0
+
 ## 9.0.3
 
 ### Patch Changes

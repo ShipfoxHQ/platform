@@ -1,5 +1,11 @@
 # @shipfox/api-integration-linear
 
+## 9.1.0
+
+### Patch Changes
+
+- ce9a452: Links Linear connections directly to the installed application's settings page.
+
 ## 9.0.3
 
 ### Patch Changes

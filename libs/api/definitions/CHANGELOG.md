@@ -1,5 +1,11 @@
 # @shipfox/api-definitions
 
+## 9.1.0
+
+### Minor Changes
+
+- 2e9d82d: Adds a configurable repository path for workflow definition sync.
+
 ## 9.0.3
 
 ### Patch Changes
