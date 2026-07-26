@@ -7,6 +7,7 @@ import type {ShipfoxModule} from '@shipfox/node-module';
 import {subscriberFactory} from '@shipfox/node-module';
 import {config} from '#config.js';
 import type {SignupPolicy} from '#core/ports.js';
+import {createEnvironmentSignupPolicy} from '#core/signup-policy.js';
 import {db} from '#db/db.js';
 import {migrationsPath} from '#db/migrations.js';
 import {authOutbox} from '#db/schema/outbox.js';
@@ -87,7 +88,7 @@ export interface CreateAuthModuleOptions {
 
 export function createAuthModule({
   workspaces,
-  signupPolicy,
+  signupPolicy = createEnvironmentSignupPolicy(),
 }: CreateAuthModuleOptions): ShipfoxModule {
   return {
     name: 'auth',

@@ -6,6 +6,22 @@ import {
 import {createAuthModule} from './index.js';
 import {passwordLoginMethods} from './login-methods.js';
 
+type SignupPolicyLike = {
+  isSignupAllowed(params: {
+    email: string;
+    emailVerified: boolean;
+    source: string;
+  }): Promise<{allowed: true} | {allowed: false; message?: string}>;
+};
+
+const buildAuthRoutes = vi.hoisted(() =>
+  vi.fn((_passwordEnabled: boolean, _workspaces: unknown, _signupPolicy?: SignupPolicyLike) => ({
+    prefix: '/auth',
+    plugins: [],
+    routes: [],
+  })),
+);
+
 vi.mock('#config.js', () => ({
   config: {
     AUTH_JWT_EXPIRES_IN: '15m',
@@ -14,9 +30,15 @@ vi.mock('#config.js', () => ({
     AUTH_REFRESH_ROTATION_GRACE_SECONDS: 30,
     AUTH_REFRESH_COOKIE_NAME: 'shipfox_refresh_token',
     AUTH_PASSWORD_ENABLED: true,
+    AUTH_SIGNUP_GATE_ENABLED: true,
+    AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS: 'example.com',
+    AUTH_SIGNUP_ALLOWED_EMAILS: '',
+    AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: undefined,
     CLIENT_BASE_URL: 'https://app.example.test',
   },
 }));
+
+vi.mock('#presentation/routes/index.js', () => ({buildAuthRoutes}));
 
 vi.mock('@shipfox/node-mailer', () => ({
   mailer: {send: vi.fn()},
@@ -40,6 +62,33 @@ describe('authModule', () => {
     expect(passwordLoginMethods(true)).toEqual([{id: 'password'}]);
     expect(passwordLoginMethods(false)).toEqual([]);
     expect(authModule.loginMethods).toEqual([{id: 'password'}]);
+  });
+
+  test('uses the environment signup policy when none is provided', async () => {
+    buildAuthRoutes.mockClear();
+    const module = createAuthModule({
+      workspaces: {
+        listMembershipsForTokenClaims: vi.fn(),
+        getWorkspaceCreator: vi.fn(),
+        preflightInvitationAcceptance: vi.fn(),
+        acceptInvitation: vi.fn(),
+        requireActiveMembership: vi.fn(),
+      },
+    });
+    expect(module.routes).toHaveLength(1);
+    const signupPolicy = buildAuthRoutes.mock.calls[0]?.[2];
+
+    expect(signupPolicy).toEqual(expect.objectContaining({isSignupAllowed: expect.any(Function)}));
+    await expect(
+      signupPolicy?.isSignupAllowed({
+        email: 'person@other.example',
+        emailVerified: false,
+        source: 'password',
+      }),
+    ).resolves.toEqual({
+      allowed: false,
+      message: 'This Shipfox deployment does not accept new accounts right now.',
+    });
   });
 
   test('registers auth email outbox publisher and subscribers', () => {
