@@ -199,29 +199,6 @@ async function main(): Promise<void> {
       staticRoot: stagedStaticRoot,
       maxFileBytes,
     });
-    for (const child of verifiedMetrics.children) {
-      const standaloneMetric = {
-        fileCount: child.fileCount,
-        bytes: child.bytes,
-        oversizedFiles: child.oversizedFiles,
-      };
-      await writeFile(
-        resolve(stagedStaticRoot, child.id, 'preview-metadata.json'),
-        `${JSON.stringify(
-          {
-            ...metadata,
-            metrics: {
-              shell: standaloneMetric,
-              children: [],
-              total: standaloneMetric,
-            },
-          },
-          null,
-          2,
-        )}\n`,
-        'utf8',
-      );
-    }
     process.stdout.write(
       `Assembled provider-neutral Storybook preview artifact at ${outputRoot}\n`,
     );

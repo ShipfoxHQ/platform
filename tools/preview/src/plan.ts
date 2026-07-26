@@ -13,6 +13,7 @@ export type PreviewEndpoint =
 export type PreviewApp = {
   id: string;
   target: string;
+  affectedTargets?: string[];
   directory: string;
   provider: {
     type: string;
@@ -80,6 +81,13 @@ export async function readPreviewConfig(configPath, cwd = process.cwd()) {
         throw new Error(`${configPath} app ${field} is required`);
       }
     }
+    if (
+      app.affectedTargets !== undefined &&
+      (!Array.isArray(app.affectedTargets) ||
+        app.affectedTargets.some((target) => typeof target !== 'string' || target.length === 0))
+    ) {
+      throw new Error(`${configPath} app ${app.id} affectedTargets must be strings`);
+    }
     if (ids.has(app.id)) throw new Error(`${configPath} contains duplicate app id ${app.id}`);
     ids.add(app.id);
 
@@ -146,9 +154,11 @@ export function createPreviewPlan({
     : runGit(['diff', '--name-only', `${base}...${head}`], cwd),
 }) {
   const affectedTargets = affectedPackages.filter((packageName) =>
-    apps.some((app) => app.target === packageName),
+    apps.some((app) => [app.target, ...(app.affectedTargets ?? [])].includes(packageName)),
   );
-  const affectedApps = apps.filter((app) => affectedTargets.includes(app.target));
+  const affectedApps = apps.filter((app) =>
+    [app.target, ...(app.affectedTargets ?? [])].some((target) => affectedTargets.includes(target)),
+  );
   const forcedByFile = hasForcedChange(changedFiles, forcePaths);
   const isMainPush = eventName === 'push';
   const shouldDeploy = isMainPush || forcedByFile || affectedTargets.length > 0;

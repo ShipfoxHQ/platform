@@ -73,6 +73,19 @@ test('selects every configured app for a main push', () => {
   assert.deepEqual(plan.selectedApps, ['example', 'other']);
 });
 
+test('selects a composed app when one of its affected targets changes', () => {
+  const plan = createPreviewPlan({
+    apps: [{...exampleApps[0], affectedTargets: ['@shipfox/example-child']}],
+    forcePaths: [],
+    eventName: 'pull_request',
+    affectedPackages: ['@shipfox/example-child'],
+    changedFiles: ['libs/example-child/src/index.ts'],
+  });
+
+  assert.deepEqual(plan.affectedApps, ['example']);
+  assert.deepEqual(plan.selectedApps, ['example']);
+});
+
 test('uploads through the Cloudflare adapter and retries transient failures', async () => {
   const calls = [];
   let attempts = 0;

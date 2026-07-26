@@ -61,6 +61,10 @@ Turbo selects apps through their `target` package. Main pushes and changes to
 provider project, verified against the exact source commit, and shown as a
 separate GitHub deployment and summary row.
 
+`apps` describes deployable sites, not necessarily every package rendered by a
+site. A composed site can use `affectedTargets` to list the packages whose
+changes require rebuilding that one deployment.
+
 Use it in CI:
 
 ```sh
