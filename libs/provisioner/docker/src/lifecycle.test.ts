@@ -15,6 +15,12 @@ import {type DockerContainerView, type DockerEngine, DockerEngineError} from '#d
 import {createDockerLifecycle} from '#lifecycle.js';
 import type {DockerTemplateSpec} from '#templates.js';
 
+const observability = vi.hoisted(() => ({
+  logger: {error: vi.fn(), info: vi.fn(), warn: vi.fn()},
+}));
+
+vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logger}));
+
 const NOW = new Date('2026-01-01T00:10:00.000Z');
 const RESERVATION_ID = '00000000-0000-4000-8000-000000000003';
 
@@ -27,6 +33,10 @@ const template: ProvisionerTemplate<DockerTemplateSpec> = {
 };
 
 describe('createDockerLifecycle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('launch reports starting and creates a labeled container with resources and env', async () => {
     const engine = fakeEngine();
     const client = fakeClient();
@@ -44,7 +54,10 @@ describe('createDockerLifecycle', () => {
     expect(engine.created[0]).toMatchObject({
       name: 'runner-1',
       image: 'runner:latest',
-      env: {SHIPFOX_RUNNER_BOOTSTRAP_TOKEN: 'sf_rbt_secret'},
+      env: {
+        SHIPFOX_RUNNER_BOOTSTRAP_TOKEN: 'sf_rbt_secret',
+        SHIPFOX_RUNNER_PROVIDER_KIND: 'docker',
+      },
       nanoCpus: 1_500_000_000,
       memoryBytes: 2 * 1024 ** 3,
     });
@@ -116,6 +129,29 @@ describe('createDockerLifecycle', () => {
     await lifecycle.observe();
 
     expect(client.reportBodies[0]?.events[0]?.state).toBe('stopped');
+    expect(engine.removed).toEqual(['runner-1']);
+    expect(observability.logger.error).not.toHaveBeenCalled();
+  });
+
+  it('logs an unsuccessful container exit before removing it', async () => {
+    const engine = fakeEngine({
+      containers: [container({state: 'exited', exitCode: 1})],
+    });
+    const lifecycle = makeLifecycle({engine});
+
+    await lifecycle.observe();
+
+    expect(observability.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerRunnerId: 'runner-1',
+        containerId: 'runner-1',
+        containerName: 'runner-1',
+        exitCode: 1,
+        oomKilled: false,
+        reason: 'exit-code-1',
+      }),
+      'Provisioned runner container exited unsuccessfully',
+    );
     expect(engine.removed).toEqual(['runner-1']);
   });
 

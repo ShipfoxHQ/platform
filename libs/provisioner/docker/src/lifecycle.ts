@@ -122,7 +122,10 @@ async function launch(
     await context.engine.createAndStart({
       name: runner.providerRunnerId,
       image: runner.template.spec.image,
-      env: runner.runnerEnv,
+      env: {
+        ...runner.runnerEnv,
+        SHIPFOX_RUNNER_PROVIDER_KIND: context.providerKind,
+      },
       labels,
       nanoCpus: Math.round(runner.template.spec.cpu * 1_000_000_000),
       memoryBytes: parseMemoryToBytes(runner.template.spec.memory),
@@ -311,6 +314,21 @@ function recordContainerObservation(
     };
     recordLiveContainer(context, plan, container, parsed, labels, liveState);
     return;
+  }
+
+  if (mapped.state === 'failed') {
+    logger().error(
+      {
+        providerRunnerId: parsed.providerRunnerId,
+        ...(parsed.runnerInstanceId ? {runnerInstanceId: parsed.runnerInstanceId} : {}),
+        containerId: container.id,
+        containerName: container.name,
+        exitCode: container.exitCode ?? null,
+        oomKilled: container.oomKilled ?? false,
+        reason: mapped.reason,
+      },
+      'Provisioned runner container exited unsuccessfully',
+    );
   }
 
   plan.terminalActions.push({
