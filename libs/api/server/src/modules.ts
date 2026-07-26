@@ -40,10 +40,14 @@ import {logger} from '@shipfox/node-opentelemetry';
 
 export interface DefaultModulesOptions {
   webhookDeliverySource?: WebhookDeliverySource | undefined;
+  authModule?: DefaultAuthModuleFactory | undefined;
   runnersModule?: DefaultRunnersModuleFactory | undefined;
   extension?: DefaultModulesExtension | undefined;
 }
 
+export type DefaultAuthModuleFactory = (options: {
+  workspaces: WorkspacesInterModuleClient;
+}) => ShipfoxModule;
 export type DefaultRunnersModuleFactory = (options: {auth: AuthInterModuleClient}) => ShipfoxModule;
 export type DefaultModulesExtension = (options: {
   workspaces: WorkspacesInterModuleClient;
@@ -165,7 +169,7 @@ export async function defaultModules(
 
   const modules = [
     emailChallengesModule,
-    createAuthModule({workspaces: workspacesClient}),
+    (options.authModule ?? createAuthModule)({workspaces: workspacesClient}),
     workspacesModule,
     createSecretsModule(projectsClient),
     createAgentModule({secrets: secretsClient}),

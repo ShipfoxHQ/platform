@@ -1,4 +1,5 @@
 export {
+  type DefaultAuthModuleFactory,
   type DefaultModulesExtension,
   type DefaultModulesOptions,
   type DefaultRunnersModuleFactory,

@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   buildAgentToolCatalogs: vi.fn(),
   buildAgentToolSelectionCatalogs: vi.fn(),
   createAgentModule: vi.fn(),
+  createAuthModule: vi.fn(),
   createDefinitionsModule: vi.fn(),
   createIntegrationsContext: vi.fn(),
   createLogsModule: vi.fn(),
@@ -51,20 +52,7 @@ vi.mock('@shipfox/annotations', () => ({
   },
 }));
 vi.mock('@shipfox/api-auth', () => ({
-  createAuthModule: () => ({
-    name: 'auth',
-    interModulePresentations: [
-      {
-        contract: authInterModuleContract,
-        handlers: {
-          mintJobLeaseToken: vi.fn(),
-          mintRunnerSessionToken: vi.fn(),
-          getCurrentAdminRole: vi.fn(),
-          requireAdminRole: vi.fn(),
-        },
-      },
-    ],
-  }),
+  createAuthModule: mocks.createAuthModule,
 }));
 vi.mock('@shipfox/api-agent', () => ({createAgentModule: mocks.createAgentModule}));
 vi.mock('@shipfox/api-auth/config', () => ({
@@ -121,6 +109,7 @@ describe('defaultModules', () => {
     mocks.buildAgentToolCatalogs.mockReset();
     mocks.buildAgentToolSelectionCatalogs.mockReset();
     mocks.createAgentModule.mockReset();
+    mocks.createAuthModule.mockReset();
     mocks.createDefinitionsModule.mockReset();
     mocks.createIntegrationsContext.mockReset();
     mocks.createLogsModule.mockReset();
@@ -157,6 +146,20 @@ describe('defaultModules', () => {
     mocks.buildAgentToolCatalogs.mockResolvedValue(new Map());
     mocks.buildAgentToolSelectionCatalogs.mockResolvedValue(new Map());
     mocks.createWorkspaceConnectionSnapshotLoader.mockReturnValue(vi.fn());
+    mocks.createAuthModule.mockReturnValue({
+      name: 'auth',
+      interModulePresentations: [
+        {
+          contract: authInterModuleContract,
+          handlers: {
+            mintJobLeaseToken: vi.fn(),
+            mintRunnerSessionToken: vi.fn(),
+            getCurrentAdminRole: vi.fn(),
+            requireAdminRole: vi.fn(),
+          },
+        },
+      ],
+    });
     mocks.deleteSecrets.mockResolvedValue({deleted: 1});
     mocks.getSecret.mockResolvedValue({value: 'secret'});
     mocks.listMembershipsForTokenClaims.mockResolvedValue({memberships: []});
@@ -291,6 +294,43 @@ describe('defaultModules', () => {
     await defaultModules();
 
     expect(mocks.createRunnersModule).toHaveBeenCalledWith({auth: expect.any(Object)});
+  });
+
+  it('uses the default Auth module factory when none is supplied', async () => {
+    await defaultModules();
+
+    expect(mocks.createAuthModule).toHaveBeenCalledWith({workspaces: expect.any(Object)});
+  });
+
+  it('composes Auth with the shared Workspaces client and registers the supplied module', async () => {
+    const signupPolicy = {isSignupAllowed: vi.fn().mockResolvedValue({allowed: true})};
+    const customAuthModule = mocks.createAuthModule();
+    mocks.createAuthModule.mockClear();
+    let extensionWorkspaces: WorkspacesInterModuleClient | undefined;
+    const extension = vi.fn(({workspaces}: {workspaces: WorkspacesInterModuleClient}) => {
+      extensionWorkspaces = workspaces;
+      return [];
+    });
+    const authModule = vi.fn(({workspaces}: {workspaces: WorkspacesInterModuleClient}) =>
+      mocks.createAuthModule({workspaces, signupPolicy}),
+    );
+
+    const modules = await defaultModules({authModule, extension});
+    const authWorkspaces = authModule.mock.calls[0]?.[0].workspaces;
+
+    expect(authModule).toHaveBeenCalledWith({workspaces: expect.any(Object)});
+    expect(mocks.createAuthModule).toHaveBeenCalledWith({
+      workspaces: authWorkspaces,
+      signupPolicy,
+    });
+    expect(extension).toHaveBeenCalledWith({workspaces: authWorkspaces});
+    expect(extensionWorkspaces).toBe(authWorkspaces);
+    expect(modules).toContain(customAuthModule);
+    expect(
+      modules.flatMap((module) =>
+        (module.interModulePresentations ?? []).map(({contract}) => contract.module),
+      ),
+    ).toContain(authInterModuleContract.module);
   });
 
   it('lets a host replace only the Runners module with the composed Auth client', async () => {
