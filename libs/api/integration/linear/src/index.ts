@@ -155,7 +155,7 @@ export function createLinearIntegrationProvider(
     async connectionExternalUrl(connection: {id: string}): Promise<string | undefined> {
       const installation = await getInstallationByConnectionId(connection.id);
       if (!installation?.organizationUrlKey) return undefined;
-      return `https://linear.app/${encodeURIComponent(installation.organizationUrlKey)}/settings`;
+      return `https://linear.app/${encodeURIComponent(installation.organizationUrlKey)}/settings/applications/${encodeURIComponent(config.LINEAR_OAUTH_CLIENT_ID)}`;
     },
     ...options.cleanup,
     routes,
