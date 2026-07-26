@@ -3,6 +3,7 @@ import {
   type AuthEventMap,
   authEventSchemas,
 } from '@shipfox/api-auth-dto';
+import {administrationActionEventSchemas} from '@shipfox/api-common-dto';
 import type {ShipfoxModule} from '@shipfox/node-module';
 import {subscriberFactory} from '@shipfox/node-module';
 import {config} from '#config.js';
@@ -16,9 +17,12 @@ import {createLeaseTokenAuthMethod} from '#presentation/auth/lease-token-auth.js
 import {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
 import {createAuthE2eRoutes} from '#presentation/e2eRoutes/index.js';
 import {createAuthInterModulePresentation} from '#presentation/inter-module.js';
+import {administrationRoutes} from '#presentation/routes/administration.js';
 import {buildAuthRoutes} from '#presentation/routes/index.js';
 import {onPasswordResetSendRequested} from '#presentation/subscribers/index.js';
 import {passwordLoginMethods} from './login-methods.js';
+
+const authPublisherEventSchemas = {...authEventSchemas, ...administrationActionEventSchemas};
 
 export type {AdminRole, JobLeaseTokenClaims, RunnerSessionTokenClaims} from '@shipfox/api-auth-dto';
 export {
@@ -29,6 +33,12 @@ export {
   requireAdminRole,
   revokeAdminGrant,
 } from '#core/admin-role.js';
+export {
+  bootstrapFirstAdminOwner,
+  grantAdministratorRole,
+  listAdministratorGrants,
+  revokeAdministratorGrant,
+} from '#core/administration.js';
 export type {
   CreateSessionForUserError,
   CreateSessionForUserParams,
@@ -41,9 +51,14 @@ export {findUserByEmail} from '#core/email-owner.js';
 export type {AdminGrant} from '#core/entities/admin-grant.js';
 export type {User, UserStatus} from '#core/entities/user.js';
 export {
+  AdminBootstrapClosedError,
+  AdminGrantAlreadyExistsError,
+  AdminGrantNotFoundError,
+  AdminIdempotencyKeyReuseError,
   AdminRoleRequiredError,
   AuthDependencyUnavailableError,
   EmailNotVerifiedError,
+  InvalidAdminBootstrapTokenError,
   InvalidCredentialsError,
   LastAdminOwnerError,
   SignupNotAllowedError,
@@ -95,9 +110,12 @@ export function createAuthModule({
     database: {db, migrationsPath, databaseNamespace: 'auth'},
     auth: [createJwtAuthMethod(), createLeaseTokenAuthMethod(), createRunnerSessionAuthMethod()],
     loginMethods: passwordLoginMethods(config.AUTH_PASSWORD_ENABLED),
-    routes: [buildAuthRoutes(config.AUTH_PASSWORD_ENABLED, workspaces, signupPolicy)],
+    routes: [
+      buildAuthRoutes(config.AUTH_PASSWORD_ENABLED, workspaces, signupPolicy),
+      administrationRoutes,
+    ],
     e2eRoutes: [createAuthE2eRoutes(workspaces)],
-    publishers: [{name: 'auth', table: authOutbox, db, eventSchemas: authEventSchemas}],
+    publishers: [{name: 'auth', table: authOutbox, db, eventSchemas: authPublisherEventSchemas}],
     subscribers: [subscriber(AUTH_PASSWORD_RESET_SEND_REQUESTED, onPasswordResetSendRequested)],
     interModulePresentations: [createAuthInterModulePresentation()],
   };

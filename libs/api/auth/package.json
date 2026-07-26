@@ -51,6 +51,7 @@
     "type:emit": "shipfox-tsc-emit"
   },
   "dependencies": {
+    "@shipfox/api-common-dto": "workspace:*",
     "@shipfox/api-auth-context": "workspace:*",
     "@fastify/cookie": "catalog:",
     "@node-rs/argon2": "catalog:",

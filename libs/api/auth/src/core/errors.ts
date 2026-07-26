@@ -97,6 +97,41 @@ export class LastAdminOwnerError extends Error {
   }
 }
 
+export class AdminGrantNotFoundError extends Error {
+  constructor() {
+    super('Administrator grant not found');
+    this.name = 'AdminGrantNotFoundError';
+  }
+}
+
+export class AdminGrantAlreadyExistsError extends Error {
+  constructor() {
+    super('Administrator grant already exists');
+    this.name = 'AdminGrantAlreadyExistsError';
+  }
+}
+
+export class AdminBootstrapClosedError extends Error {
+  constructor() {
+    super('First administrator owner has already been created');
+    this.name = 'AdminBootstrapClosedError';
+  }
+}
+
+export class InvalidAdminBootstrapTokenError extends Error {
+  constructor() {
+    super('Bootstrap token is invalid');
+    this.name = 'InvalidAdminBootstrapTokenError';
+  }
+}
+
+export class AdminIdempotencyKeyReuseError extends Error {
+  constructor() {
+    super('Idempotency key was already used for a different command');
+    this.name = 'AdminIdempotencyKeyReuseError';
+  }
+}
+
 export class TokenInvalidError extends Error {
   constructor(reason?: string) {
     super(reason ? `Invalid token: ${reason}` : 'Invalid token');

@@ -15,6 +15,13 @@
       "when": 1785065259979,
       "tag": "0001_brainy_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785075183023,
+      "tag": "0002_burly_whizzer",
+      "breakpoints": true
     }
   ]
 }

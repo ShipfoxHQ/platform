@@ -2175,6 +2175,9 @@ importers:
       '@shipfox/api-auth-dto':
         specifier: workspace:*
         version: link:../auth-dto
+      '@shipfox/api-common-dto':
+        specifier: workspace:*
+        version: link:../common-dto
       '@shipfox/api-email-challenges':
         specifier: workspace:*
         version: link:../email-challenges

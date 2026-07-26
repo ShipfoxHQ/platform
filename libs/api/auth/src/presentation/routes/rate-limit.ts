@@ -8,7 +8,10 @@ import {
   checkAuthRateLimit,
 } from '#core/rate-limit.js';
 
-const policies: Record<AuthRateLimitAction, Record<AuthRateLimitScope, AuthRateLimitPolicy>> = {
+const policies: Record<
+  AuthRateLimitAction,
+  Partial<Record<AuthRateLimitScope, AuthRateLimitPolicy>>
+> = {
   login: {
     ip: {limit: 60, windowSeconds: 5 * 60},
     email: {limit: 10, windowSeconds: 15 * 60},
@@ -16,6 +19,9 @@ const policies: Record<AuthRateLimitAction, Record<AuthRateLimitScope, AuthRateL
   'email-send': {
     ip: {limit: 30, windowSeconds: 60 * 60},
     email: {limit: 3, windowSeconds: 60 * 60},
+  },
+  bootstrap: {
+    ip: {limit: 5, windowSeconds: 15 * 60},
   },
 };
 
@@ -34,12 +40,15 @@ async function enforceRateLimit(params: {
   scope: AuthRateLimitScope;
   identifier: string;
 }): Promise<void> {
+  const policy = policies[params.action][params.scope];
+  if (!policy) return;
+
   try {
     await checkAuthRateLimit({
       action: params.action,
       scope: params.scope,
       identifier: params.identifier,
-      ...policies[params.action][params.scope],
+      ...policy,
     });
   } catch (error) {
     if (error instanceof AuthRateLimitExceededError) {
@@ -114,6 +123,18 @@ export function createAuthRateLimitPreHandler(action: AuthRateLimitAction) {
       action,
       scope: 'email',
       identifier: request.body.email,
+    });
+  };
+}
+
+export function createAuthIpRateLimitPreHandler(action: AuthRateLimitAction) {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    await enforceRateLimit({
+      request,
+      reply,
+      action,
+      scope: 'ip',
+      identifier: request.ip,
     });
   };
 }
