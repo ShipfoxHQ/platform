@@ -325,7 +325,7 @@ export async function verifyPreviewArtifact(
   return {shell, children, total};
 }
 
-const commitShaEnvironmentVariables = ['PREVIEW_COMMIT_SHA', 'GITHUB_SHA'] as const;
+const commitShaEnvironmentVariables = ['CLOUDFLARE_PAGES_COMMIT_SHA', 'GITHUB_SHA'] as const;
 
 export function getCommitShaFromEnv(): string | undefined {
   return commitShaEnvironmentVariables

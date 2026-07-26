@@ -1,6 +1,7 @@
 ---
-"@shipfox/preview": minor
+"@shipfox/cloudflare-pages": minor
 ---
 
-Add provider-neutral CI tooling for affected static previews, Cloudflare Pages
-Direct Upload, remote verification, and GitHub deployment lifecycle updates.
+Add Cloudflare Pages deployment tooling for Turbo-selected applications,
+environment-aware Direct Upload, remote verification, and GitHub deployment
+lifecycle updates.

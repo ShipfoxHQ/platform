@@ -13,7 +13,7 @@
     "artifact:assemble": "tsx scripts/assemble.ts",
     "artifact:verify": "tsx scripts/verify.ts",
     "build:children": "tsx scripts/build-children.ts",
-    "preview:plan": "shipfox-preview plan --config preview-deploy.config.json",
+    "pages:plan": "shipfox-cloudflare-pages plan --config cloudflare-pages.config.json",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
     "storybook": "pnpm run build:children && storybook dev -p 6015",
@@ -31,7 +31,7 @@
   "devDependencies": {
     "@shipfox/biome": "workspace:*",
     "@shipfox/playwright": "workspace:*",
-    "@shipfox/preview": "workspace:*",
+    "@shipfox/cloudflare-pages": "workspace:*",
     "@shipfox/ts-config": "workspace:*",
     "@shipfox/typescript": "workspace:*",
     "@shipfox/vitest": "workspace:*",

@@ -1,4 +1,9 @@
 {
+  "environments": {
+    "preview": { "branch": "pr-{pullRequest}" },
+    "staging": { "branch": "staging" },
+    "production": { "branch": "main" }
+  },
   "apps": [
     {
       "id": "storybook",
@@ -16,7 +21,7 @@
         "@shipfox/client-workflows"
       ],
       "directory": "storybook-output",
-      "provider": { "type": "cloudflare-pages", "project": "storybook" },
+      "project": "storybook",
       "verify": {
         "metadataPath": "/preview-metadata.json",
         "endpoints": [

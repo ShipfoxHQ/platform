@@ -12,7 +12,7 @@
     "ARGOS_TOKEN",
     "SHIPFOX_VITEST_MAX_WORKERS",
     "CI",
-    "PREVIEW_COMMIT_SHA"
+    "CLOUDFLARE_PAGES_COMMIT_SHA"
   ],
   "tasks": {
     "build": {

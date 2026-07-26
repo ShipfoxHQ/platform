@@ -121,7 +121,7 @@ async function buildMetadata(metrics: PreviewMetadata['metrics']): Promise<Previ
   return {
     version: 1,
     commitSha: getCommitSha(),
-    buildTime: process.env.PREVIEW_BUILD_TIME ?? new Date().toISOString(),
+    buildTime: process.env.CLOUDFLARE_PAGES_BUILD_TIME ?? new Date().toISOString(),
     manifestVersion: storybookManifestVersion,
     pullRequest: await getPullRequestMetadata(),
     metrics,
@@ -199,9 +199,7 @@ async function main(): Promise<void> {
       staticRoot: stagedStaticRoot,
       maxFileBytes,
     });
-    process.stdout.write(
-      `Assembled provider-neutral Storybook preview artifact at ${outputRoot}\n`,
-    );
+    process.stdout.write(`Assembled Storybook artifact for Cloudflare Pages at ${outputRoot}\n`);
     process.stdout.write(`${formatMetrics(verifiedMetrics)}\n`);
 
     await replaceOutputAtomically(stagedOutput);
