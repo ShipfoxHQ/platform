@@ -8,6 +8,7 @@ export {
   authPasswordResetSendRequestedSchema,
   authUserSignedUpSchema,
 } from '../events.js';
+export {type AdminRole, adminRoleSchema} from './admin.js';
 export {
   type ChangePasswordBodyDto,
   changePasswordBodySchema,

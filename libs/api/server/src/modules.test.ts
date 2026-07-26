@@ -58,6 +58,8 @@ vi.mock('@shipfox/api-auth', () => ({
         handlers: {
           mintJobLeaseToken: vi.fn(),
           mintRunnerSessionToken: vi.fn(),
+          getCurrentAdminRole: vi.fn(),
+          requireAdminRole: vi.fn(),
         },
       },
     ],

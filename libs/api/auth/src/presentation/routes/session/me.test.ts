@@ -1,10 +1,11 @@
 import type {FastifyInstance} from 'fastify';
 import {signUserToken} from '#core/jwt.js';
+import {createAdminGrant} from '#db/admin-grants.js';
 import {
   createAuthTestApp,
+  createVerifiedSession,
   ROUTE_TEST_SECRET,
   resetCapturedMail,
-  signupVerifyLogin,
 } from '#test/routes.js';
 
 describe('GET /auth/me', () => {
@@ -23,7 +24,7 @@ describe('GET /auth/me', () => {
   });
 
   test('returns the signed-in user', async () => {
-    const account = await signupVerifyLogin(app, 'me');
+    const account = await createVerifiedSession('me');
 
     const res = await app.inject({
       method: 'GET',
@@ -33,6 +34,21 @@ describe('GET /auth/me', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().user.email).toBe(account.email);
+    expect(res.json().admin_role).toBeNull();
+  });
+
+  test('returns the current Auth-owned role for dashboard presentation', async () => {
+    const account = await createVerifiedSession('me-admin');
+    await createAdminGrant({userId: account.userId, role: 'admin-observer'});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: {authorization: `Bearer ${account.token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().admin_role).toBe('admin-observer');
   });
 
   test('transforms a token for a missing user into 404', async () => {

@@ -1,5 +1,6 @@
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
+import {adminRoleSchema} from './schemas/admin.js';
 import {jobLeaseTokenClaimsSchema} from './schemas/job-lease-token.js';
 import {runnerSessionTokenClaimsSchema} from './schemas/runner-session-token.js';
 
@@ -20,6 +21,20 @@ export const authInterModuleContract = defineInterModuleContract({
     mintJobLeaseToken: {
       input: jobLeaseClaimsSchema,
       output: z.object({token: z.string().min(1)}),
+    },
+    getCurrentAdminRole: {
+      input: z.object({userId: z.string().uuid()}),
+      output: z.object({role: adminRoleSchema.nullable()}),
+    },
+    requireAdminRole: {
+      input: z.object({
+        userId: z.string().uuid(),
+        minimumRole: adminRoleSchema,
+      }),
+      output: z.object({role: adminRoleSchema}),
+      errors: {
+        'admin-role-required': z.object({requiredRole: adminRoleSchema}),
+      },
     },
   },
 });

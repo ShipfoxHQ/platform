@@ -19,7 +19,15 @@ import {buildAuthRoutes} from '#presentation/routes/index.js';
 import {onPasswordResetSendRequested} from '#presentation/subscribers/index.js';
 import {passwordLoginMethods} from './login-methods.js';
 
-export type {JobLeaseTokenClaims, RunnerSessionTokenClaims} from '@shipfox/api-auth-dto';
+export type {AdminRole, JobLeaseTokenClaims, RunnerSessionTokenClaims} from '@shipfox/api-auth-dto';
+export {
+  ADMIN_ROLES,
+  getCurrentAdminRole,
+  hasMinimumAdminRole,
+  highestAdminRole,
+  requireAdminRole,
+  revokeAdminGrant,
+} from '#core/admin-role.js';
 export type {
   CreateSessionForUserError,
   CreateSessionForUserParams,
@@ -29,11 +37,14 @@ export type {
 export {createSessionForUser, provisionUser} from '#core/auth.js';
 export type {EmailOwner, FindUserByEmailParams} from '#core/email-owner.js';
 export {findUserByEmail} from '#core/email-owner.js';
+export type {AdminGrant} from '#core/entities/admin-grant.js';
 export type {User, UserStatus} from '#core/entities/user.js';
 export {
+  AdminRoleRequiredError,
   AuthDependencyUnavailableError,
   EmailNotVerifiedError,
   InvalidCredentialsError,
+  LastAdminOwnerError,
   SignupNotAllowedError,
   UserNotFoundError,
 } from '#core/errors.js';

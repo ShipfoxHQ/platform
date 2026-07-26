@@ -30,6 +30,7 @@ describe('jwt', () => {
     expect(claims.email).toBe(email);
     expect(claims.name).toBe('Token User');
     expect(claims.memberships).toEqual(memberships);
+    expect(claims).not.toHaveProperty('adminRole');
     expect(claims.iat).toBeTypeOf('number');
     expect(claims.exp).toBeGreaterThan(claims.iat);
   });
