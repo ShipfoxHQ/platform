@@ -30,6 +30,8 @@ import {TriggerSourceIcon} from './trigger-source-icon.js';
 
 const PANEL_CLASS =
   'min-h-0 rounded-8 border border-border-neutral-base bg-background-neutral-base';
+const DETAIL_RAIL_CLASS =
+  '@min-[820px]:sticky @min-[820px]:top-16 @min-[820px]:max-h-[calc(var(--app-content-h,100dvh_-_96px)_-_32px)] @min-[820px]:min-h-[min(320px,calc(var(--app-content-h,100dvh_-_96px)_-_32px))]';
 
 export interface TriggerEventDetailProps {
   workspaceId: string;
@@ -69,7 +71,7 @@ export function TriggerEventDetailView({
   return (
     <aside
       aria-label="Event details"
-      className={cn(PANEL_CLASS, 'flex min-h-0 flex-col overflow-hidden')}
+      className={cn(PANEL_CLASS, DETAIL_RAIL_CLASS, 'flex min-h-0 flex-col overflow-hidden')}
     >
       <div className="flex shrink-0 flex-col gap-12 border-b border-border-neutral-base p-16">
         <Button
@@ -77,7 +79,7 @@ export function TriggerEventDetailView({
           variant="transparentMuted"
           size="sm"
           iconLeft="arrowLeftLine"
-          className="self-start min-[900px]:hidden"
+          className="self-start @min-[820px]:hidden"
           onClick={onBack}
         >
           Back to events
@@ -118,7 +120,10 @@ export function TriggerEventDetailView({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-20 overflow-y-auto p-16 scrollbar">
+      <div
+        key={event.id}
+        className="flex min-h-0 flex-1 flex-col gap-20 overflow-y-auto p-16 scrollbar"
+      >
         <EventRuns workspaceId={workspaceId} event={event} />
         <EventPayload payload={formattedPayload} />
       </div>
@@ -140,7 +145,7 @@ function TriggerEventDetailPlaceholder() {
       aria-label="Event details"
       className={cn(
         PANEL_CLASS,
-        'hidden min-h-[240px] items-center justify-center p-24 min-[900px]:flex',
+        'hidden min-h-[240px] items-center justify-center p-24 @min-[820px]:flex',
       )}
     >
       <EmptyState icon="pulseLine" variant="compact" title="No event selected" />
@@ -152,14 +157,14 @@ function TriggerEventDetailLoading({onBack}: {onBack: () => void}) {
   return (
     <aside
       aria-label="Event details"
-      className={cn(PANEL_CLASS, 'flex min-h-[320px] flex-col gap-16 p-16')}
+      className={cn(PANEL_CLASS, DETAIL_RAIL_CLASS, 'flex min-h-[320px] flex-col gap-16 p-16')}
     >
       <Button
         type="button"
         variant="transparentMuted"
         size="sm"
         iconLeft="arrowLeftLine"
-        className="self-start min-[900px]:hidden"
+        className="self-start @min-[820px]:hidden"
         onClick={onBack}
       >
         Back to events
@@ -176,13 +181,16 @@ function TriggerEventDetailLoading({onBack}: {onBack: () => void}) {
 
 function TriggerEventDetailError({onBack, onRetry}: {onBack: () => void; onRetry: () => void}) {
   return (
-    <aside aria-label="Event details" className={cn(PANEL_CLASS, 'flex flex-col gap-16 p-16')}>
+    <aside
+      aria-label="Event details"
+      className={cn(PANEL_CLASS, DETAIL_RAIL_CLASS, 'flex min-h-[320px] flex-col gap-16 p-16')}
+    >
       <Button
         type="button"
         variant="transparentMuted"
         size="sm"
         iconLeft="arrowLeftLine"
-        className="self-start min-[900px]:hidden"
+        className="self-start @min-[820px]:hidden"
         onClick={onBack}
       >
         Back to events
@@ -293,15 +301,15 @@ function EventPayload({payload}: {payload: string}) {
       </Text>
       <CodeBlock
         data={data}
-        className="flex h-auto max-h-[min(360px,45vh)] flex-col rounded-8 bg-background-contrast-base shadow-none"
+        className="flex h-auto flex-col overflow-visible rounded-8 bg-background-contrast-base shadow-none"
       >
-        <CodeBlockHeader className="shrink-0 border-b border-border-contrast-base bg-background-contrast-base px-10 py-6">
+        <CodeBlockHeader className="sticky top-0 z-10 shrink-0 border-b border-border-contrast-base bg-background-contrast-base px-10 py-6">
           <CodeBlockFiles>
             {(item) => <CodeBlockFilename value={item.filename}>{item.filename}</CodeBlockFilename>}
           </CodeBlockFiles>
           <CodeBlockCopyButton />
         </CodeBlockHeader>
-        <CodeBlockBody className="min-h-0 overflow-auto scrollbar">
+        <CodeBlockBody className="min-h-0 scrollbar">
           {(item) => (
             <CodeBlockItem
               value={item.filename}
