@@ -1,11 +1,16 @@
 import {Button} from '@shipfox/react-ui/button';
+import {useIsTextTruncated} from '@shipfox/react-ui/hooks';
 import {Input} from '@shipfox/react-ui/input';
 import {Label} from '@shipfox/react-ui/label';
 import {RadioGroup, RadioGroupItem} from '@shipfox/react-ui/radio-group';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Text} from '@shipfox/react-ui/typography';
 import {useId} from 'react';
 import type {Repository} from '#core/models.js';
+
+const REPOSITORY_GRID_CLASS_NAME = 'grid grid-cols-2 gap-8 max-[760px]:grid-cols-1';
+const REPOSITORY_SKELETON_WIDTHS = ['w-64', 'w-96', 'w-80', 'w-112'] as const;
 
 export function RepositoryPicker({
   repositories,
@@ -52,7 +57,7 @@ export function RepositoryPicker({
         />
       ) : null}
 
-      {isLoading ? <Skeleton className="h-58 w-full" /> : null}
+      {isLoading ? <RepositoryLoadingState /> : null}
 
       {!isLoading && repositories.length === 0 ? (
         <div className="rounded-8 border border-border-neutral-base bg-background-subtle-base p-14">
@@ -65,23 +70,10 @@ export function RepositoryPicker({
           aria-labelledby={labelId}
           value={selectedRepositoryId ?? ''}
           onValueChange={onSelect}
-          className="grid grid-cols-2 gap-8 min-[1200px]:grid-cols-3 max-[760px]:grid-cols-1"
+          className={REPOSITORY_GRID_CLASS_NAME}
         >
           {repositories.map((repository) => (
-            <RadioGroupItem
-              key={repository.externalRepositoryId}
-              value={repository.externalRepositoryId}
-              className="p-12"
-            >
-              <span className="flex min-w-0 items-center justify-between gap-10">
-                <Text as="span" size="sm" bold className="truncate">
-                  {repository.fullName}
-                </Text>
-                <Text as="span" size="xs" className="shrink-0 text-foreground-neutral-muted">
-                  {repository.defaultBranch}
-                </Text>
-              </span>
-            </RadioGroupItem>
+            <RepositoryCard key={repository.externalRepositoryId} repository={repository} />
           ))}
         </RadioGroup>
       ) : null}
@@ -98,5 +90,44 @@ export function RepositoryPicker({
         </Button>
       ) : null}
     </div>
+  );
+}
+
+function RepositoryCard({repository}: {repository: Repository}) {
+  const {ref: nameRef, isTruncated} = useIsTextTruncated<HTMLSpanElement>(repository.name);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <RadioGroupItem value={repository.externalRepositoryId} className="min-w-0">
+          <span ref={nameRef} className="block min-w-0 truncate">
+            <Text as="span" size="sm" bold>
+              {repository.name}
+            </Text>
+          </span>
+        </RadioGroupItem>
+      </TooltipTrigger>
+      {isTruncated ? <TooltipContent>{repository.name}</TooltipContent> : null}
+    </Tooltip>
+  );
+}
+
+function RepositoryLoadingState() {
+  return (
+    <>
+      <div role="status" className="sr-only">
+        Loading repositories.
+      </div>
+      <div aria-hidden="true" className={REPOSITORY_GRID_CLASS_NAME}>
+        {REPOSITORY_SKELETON_WIDTHS.map((width) => (
+          <div
+            key={width}
+            className="h-50 min-w-0 rounded-8 border border-border-neutral-base bg-background-neutral-base p-14"
+          >
+            <Skeleton className={`h-20 ${width}`} />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

@@ -245,6 +245,12 @@ function repositoriesForScenario(scenario: Scenario): RepositoryDto[] {
         full_name: 'acme-solutions/customer-deployment-pipelines',
         default_branch: 'release',
       }),
+      repository({
+        external_repository_id: 'observability-and-deployment-automation',
+        name: 'observability-and-deployment-automation',
+        full_name: 'acme-platform/observability-and-deployment-automation',
+        default_branch: 'main',
+      }),
     ];
   }
 
