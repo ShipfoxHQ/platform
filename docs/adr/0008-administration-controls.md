@@ -9,10 +9,10 @@
 
 ## Context
 
-**Shipfox needs one administration experience for Cloud and self-hosted
-instances.** Local operators need to inspect safe instance data. They also need
-to manage administrator grants, suspend or reactivate users, revoke sessions,
-and suspend or reactivate workspaces.
+**Shipfox needs one administration experience for every instance.** Local
+operators need to inspect safe instance data. They also need to manage
+administrator grants, suspend or reactivate users, revoke sessions, and suspend
+or reactivate workspaces.
 
 **Administration crosses existing module boundaries.** Auth owns users and
 sessions. Workspaces owns workspace state. Projects owns project data. Each
@@ -27,8 +27,9 @@ instance. External identity claims and deployment type do not define either
 kind of access.
 
 **Sensitive actions need stable retry and audit semantics.** Browser retries
-and network loss must not repeat a mutation. Every action must remain
-attributable even when a later cross-module audit view is delayed or absent.
+and network loss must not repeat a mutation. Each mutation must publish a
+redacted, attributable event without coupling the business action to audit
+storage or search.
 
 **Workspace suspension must have one predictable meaning.** It must stop new
 work without deleting data or turning into an incomplete emergency-stop
@@ -82,9 +83,9 @@ requires a completed replacement-owner operation first.
 **First-owner bootstrap requires installer intent.** An authenticated user can
 claim the first `admin-owner` grant only when no active owner exists and the
 request presents the deployment's `ADMIN_BOOTSTRAP_TOKEN`. Auth compares the
-token safely, records the action atomically, and rejects later bootstrap
-attempts while an active owner exists. The token never enters browser storage,
-API responses, logs, or audit metadata.
+token safely, publishes its administration-action event in the same
+transaction, and rejects later bootstrap attempts while an active owner exists.
+The token never enters browser storage, API responses, logs, or audit metadata.
 
 ### Domain modules own administration behavior
 
@@ -95,7 +96,7 @@ owner defines:
 - Its use cases and call to the Auth role check.
 - Its database reads and mutations.
 - Its safe dashboard read model and client feature.
-- Its local administration action records and audit outbox events.
+- Its redacted administration-action outbox events.
 
 The initial path families are:
 
@@ -155,10 +156,9 @@ command succeeds without changing the final state. Mutation requests include
 an operator reason. The dashboard confirms the action, target, and effect
 before it sends a suspension or grant-management command.
 
-**The owner records the action and its audit event atomically.** The state
-change, idempotency result, immutable local action record, and audit outbox
-event commit in one owner transaction. The local record and standard event
-contain:
+**The owner publishes a redacted administration-action event atomically.** The
+state change, idempotency result, and audit outbox event commit in one owner
+transaction. The standard event contains:
 
 - Stable actor user ID and actor role.
 - Required role and command name.
@@ -168,9 +168,12 @@ contain:
 - Outcome and timestamp.
 - The idempotency-key fingerprint, not the raw key.
 
-A later cross-module projection can consume these events for search. It does
-not own the business action and is not an Administration module. A delayed
-projection cannot erase or replace the durable module-owned record.
+**Modules do not write an audit table or retain audit history.** Their outbox
+rows are delivery infrastructure, not local audit ledgers. The event contract
+is the only audit integration boundary defined here. Downstream storage,
+retention, search, delivery monitoring, and consumer behavior are outside this
+ADR. No downstream consumer reads producer business tables or receives a
+producer database handle.
 
 Read access emits structured security logs with the actor, required role,
 target type, request ID, and result. Logs, traces, records, and events do not
@@ -207,18 +210,17 @@ recovery, and user communication.
 
 **The source-available Shipfox repository owns the common feature.** It owns
 the fixed role model, Auth and domain-module behavior, API contracts, dashboard
-features, and this decision.
+features, the standard administration-action event contract, and this decision.
 
-Cloud owns deployment configuration, initial operator setup, secret delivery
-and rotation, and Cloud-specific runbooks. Cloud consumes released Shipfox
-packages. It does not add a staff identity adapter, hidden grant path, or
-database bypass.
+Deployment configuration, initial operator setup, secret delivery and rotation,
+and operational runbooks are outside this ADR. They must not add a hidden grant
+path or database bypass.
 
 ## Consequences
 
 **Administration remains distributed by domain ownership.** Contributors add
-routes, reads, mutations, and audit records to the module that owns the
-resource. There is no central Administration database or business module.
+routes, reads, mutations, and redacted event producers to the module that owns
+the resource. There is no central Administration database or business module.
 
 **Auth becomes the single instance-administrator authority.** Domain modules
 use the Auth-owned fixed-role check instead of reimplementing role policy.
@@ -231,10 +233,10 @@ changing a route's minimum role or revisiting this decision.
 composition provides navigation and current-actor role access. Each module
 owns the behavior and presentation for its resources.
 
-**Mutations require more local persistence work.** Each owning module must
-store idempotency results and durable action records beside its state. This
-cost preserves retry safety and audit evidence without cross-owner
-transactions.
+**Mutations require transactional event publication.** Each owning module must
+store idempotency results and an outbox entry beside its state. Any downstream
+handling remains asynchronous, so it cannot block or replace the business
+transaction.
 
 **Workspace suspension cannot ship before admission coverage is complete.**
 Every current job-creation path needs an identified owner and a checked
@@ -259,8 +261,8 @@ business rules they protect.
 ### Derive administrators from external identity claims
 
 **External claims make authorization deployment-specific.** Local grants give
-Cloud and self-hosted instances the same model. They also keep changes
-attributable to a Shipfox user.
+every Shipfox instance the same model. They also keep changes attributable to a
+Shipfox user.
 
 ### Make the first authenticated user an owner
 
@@ -280,8 +282,9 @@ surface. The first contract serves only the same-origin dashboard.
 can strand jobs, runners, and external side effects. Suspension blocks new
 admission and lets existing work finish predictably.
 
-### Store only a cross-module audit projection
+### Retain audit history in source-available modules
 
-**A projection can be delayed or unavailable.** The module-owned record
-commits with the action and remains the durable evidence. A projection can add
-search without becoming the owner.
+**A local audit ledger would add storage outside the module's business
+responsibility.** The producer already commits a redacted outbox event with the
+business action. This ADR defines that portable producer contract, not the
+storage, retention, or search behavior of downstream systems.
