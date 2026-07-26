@@ -1,18 +1,17 @@
 import {appendFile, readFile, writeFile} from 'node:fs/promises';
-import {deployPreview} from './deploy.js';
+import {deployPreview, deployPreviewApps} from './deploy.js';
 import {
   assertCurrentPreviewCommit,
   createGitHubDeployment,
+  createGitHubDeployments,
   finishGitHubDeployment,
+  finishGitHubDeployments,
   getWorkflowQueueSeconds,
 } from './github.js';
 import {createPreviewPlan, readPreviewConfig} from './plan.js';
-import {verifyPreview} from './verify.js';
+import {verifyPreview, verifyPreviewApps} from './verify.js';
 
 const turboSummaryLinePattern = /^(Tasks:|Cached:|Time:)/;
-const leadingSlashPattern = /^\/+/;
-const indexJsonSuffixPattern = /\/index\.json$/;
-const trailingSlashPattern = /\/$/;
 
 function toOptionName(name) {
   return name.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase());
@@ -68,7 +67,7 @@ function configPath(options) {
 async function runPlan(options) {
   const config = await readPreviewConfig(configPath(options));
   const plan = createPreviewPlan({
-    targets: config.targets,
+    apps: config.apps,
     forcePaths: config.forcePaths,
   });
   await writeJson(options.output, plan);
@@ -98,6 +97,29 @@ async function runDeploy(options) {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
+async function runDeployApps(options) {
+  const config = await readPreviewConfig(configPath(options));
+  const plan = option(options, 'planFile')
+    ? await readJson(option(options, 'planFile'))
+    : {selectedApps: config.apps.map((app) => app.id)};
+  const startedAt = Date.now();
+  const result = await deployPreviewApps({
+    apps: config.apps,
+    selectedAppIds: plan.selectedApps ?? [],
+    branch: option(options, 'branch'),
+    commitSha: option(options, 'commit'),
+  });
+  result.durationSeconds = Math.round((Date.now() - startedAt) / 1000);
+  await writeJson(options.output, result);
+  await writeGitHubOutput(options.githubOutput, {
+    deployment_count: result.apps.length,
+    deployment_ok: result.ok,
+    deployment_seconds: result.durationSeconds,
+  });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (!result.ok) throw new Error(result.errors.join('; '));
+}
+
 async function runVerify(options) {
   const config = await readPreviewConfig(configPath(options));
   const startedAt = Date.now();
@@ -116,6 +138,33 @@ async function runVerify(options) {
   });
   process.stdout.write(
     `${result.ok ? 'Verified' : 'Verification failed'} ${result.url}: root, ${result.metadataPath}, and ${result.endpoints.length} endpoint(s)\n`,
+  );
+  if (!result.ok) throw new Error(result.errors.join('; '));
+}
+
+async function runVerifyApps(options) {
+  const config = await readPreviewConfig(configPath(options));
+  const deployments = (await readJson(option(options, 'deploymentsFile'))).apps ?? [];
+  const plan = option(options, 'planFile')
+    ? await readJson(option(options, 'planFile'))
+    : {selectedApps: deployments.map((deployment) => deployment.appId)};
+  const startedAt = Date.now();
+  const result = await verifyPreviewApps({
+    apps: config.apps,
+    deployments,
+    selectedAppIds: plan.selectedApps ?? [],
+    expectedCommitSha: option(options, 'commit'),
+    expectedPullRequest: option(options, 'pullRequest'),
+  });
+  result.durationSeconds = Math.round((Date.now() - startedAt) / 1000);
+  await writeJson(options.output, result);
+  await writeGitHubOutput(options.githubOutput, {
+    verification_count: result.apps.length,
+    verification_ok: result.ok,
+    verification_seconds: result.durationSeconds,
+  });
+  process.stdout.write(
+    `${result.ok ? 'Verified' : 'Verification failed'} ${result.apps.length} preview app(s)\n`,
   );
   if (!result.ok) throw new Error(result.errors.join('; '));
 }
@@ -148,6 +197,25 @@ async function runGitHub(action, options) {
     return;
   }
 
+  if (action === 'create-all') {
+    const deployments = (await readJson(option(options, 'deploymentsFile'))).apps ?? [];
+    const result = await createGitHubDeployments({
+      deployments,
+      repository: option(options, 'repository'),
+      ref: option(options, 'ref', process.env.PREVIEW_COMMIT_SHA ?? process.env.GITHUB_SHA),
+      environment: option(options, 'environment'),
+      pullRequest: option(options, 'pullRequest'),
+    });
+    await writeJson(options.output, result);
+    await writeGitHubOutput(options.githubOutput, {
+      deployment_count: result.apps.length,
+      deployment_ok: result.ok,
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (!result.ok) throw new Error(result.errors.join('; '));
+    return;
+  }
+
   if (action === 'status') {
     const result = await finishGitHubDeployment({
       repository: option(options, 'repository'),
@@ -158,6 +226,16 @@ async function runGitHub(action, options) {
     });
     await writeJson(options.output, result);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+
+  if (action === 'status-all') {
+    const deployments = (await readJson(option(options, 'deploymentsFile'))).apps ?? [];
+    const verification = await readJson(option(options, 'verificationReport'));
+    const result = await finishGitHubDeployments({deployments, verification});
+    await writeJson(options.output, result);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (!result.ok) throw new Error(result.errors.join('; '));
     return;
   }
 
@@ -202,27 +280,14 @@ function getMetric(value) {
   return value === undefined || value === '' ? 'unavailable' : value;
 }
 
-function endpointDetails(endpoint) {
-  return typeof endpoint === 'string'
-    ? {id: endpoint, path: endpoint}
-    : {id: endpoint.id ?? endpoint.path, path: endpoint.path};
-}
-
-function appPreviewUrl(deploymentUrl, endpointPath) {
-  if (deploymentUrl === undefined || deploymentUrl === '' || deploymentUrl === 'unavailable') {
-    return null;
-  }
-  const appPath = endpointPath.replace(leadingSlashPattern, '').replace(indexJsonSuffixPattern, '');
-  const baseUrl = deploymentUrl.replace(trailingSlashPattern, '');
-  return appPath.length === 0 ? `${baseUrl}/` : `${baseUrl}/${appPath}/`;
-}
-
 function markdownCell(value) {
   return String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
 }
 
-function appStatus({plan, report, endpoint}) {
-  if (plan.shouldDeploy !== true) return 'Not synced for this commit';
+function appStatus({plan, deployment, report, appId}) {
+  if (plan.shouldDeploy !== true || !plan.selectedApps?.includes(appId)) {
+    return 'Not synced for this commit';
+  }
   if (process.env.PRE_DEPLOY_HEAD_RESULT === 'failure') {
     return '❌ superseded before upload';
   }
@@ -230,18 +295,16 @@ function appStatus({plan, report, endpoint}) {
     return '❌ superseded during upload';
   }
 
-  const endpointReport = report?.endpoints?.find(
-    (candidate) => candidate.id === endpoint.id || candidate.path === endpoint.path,
-  );
-  if (report !== null && endpointReport !== undefined && !endpointReport.ok) {
-    return `❌ ${endpointReport.error}`;
+  if (deployment === undefined || !deployment.ok) {
+    return `❌ ${deployment?.error ?? 'application was not published'}`;
   }
-  if (report?.ok === true && endpointReport?.ok === true) return '✅ verified';
-  if (report !== null) {
-    const reason = report.errors?.[0] ?? 'deployment was not verified against the source commit';
+
+  const appReport = report?.apps?.find((candidate) => candidate.appId === appId);
+  if (appReport?.ok === true) return '✅ verified';
+  if (appReport !== undefined) {
+    const reason = appReport.errors?.[0] ?? 'deployment was not verified against the source commit';
     return `❌ ${reason}`;
   }
-  if (process.env.DEPLOYMENT_RESULT !== 'success') return 'Not published';
   return '⚠️ uploaded, not verified';
 }
 
@@ -252,11 +315,15 @@ async function runSummary(options) {
   const plan = await readJsonIfPresent(option(options, 'planFile'), {
     shouldDeploy: 'unavailable',
     reason: 'plan unavailable',
+    selectedApps: [],
     affectedTargets: [],
   });
   const config = option(options, 'config')
     ? await readPreviewConfig(option(options, 'config'))
-    : {verify: {endpoints: []}};
+    : {apps: [], forcePaths: []};
+  const deploymentManifest = await readJsonIfPresent(option(options, 'deploymentFile'), {
+    apps: [],
+  });
   const verificationReport = await readJsonIfPresent(option(options, 'verificationReport'), null);
   const metadataPath = option(options, 'artifactMetadata');
   const metadata = await readJsonIfPresent(metadataPath, null);
@@ -269,8 +336,7 @@ async function runSummary(options) {
   const provider = option(options, 'provider', process.env.PREVIEW_PROVIDER ?? 'preview provider');
   const title = option(options, 'title', 'Static preview');
   const sourceCommit = process.env.PREVIEW_COMMIT_SHA ?? verificationReport?.commitSha;
-  const deploymentUrl = process.env.DEPLOYMENT_URL;
-  const endpoints = (config.verify?.endpoints ?? []).map(endpointDetails);
+  const deployments = deploymentManifest.apps ?? [];
   const supersededBeforeUpload = process.env.PRE_DEPLOY_HEAD_RESULT === 'failure';
   const supersededDuringUpload = process.env.POST_DEPLOY_HEAD_RESULT === 'failure';
   const syncMessage =
@@ -281,11 +347,11 @@ async function runSummary(options) {
         : supersededDuringUpload
           ? 'A newer commit superseded this run during upload; the stale run did not register a GitHub deployment status.'
           : verificationReport?.ok === true
-            ? 'Every configured app endpoint was checked and matched the exact source commit above.'
+            ? 'Every selected app was checked and matched the exact source commit above.'
             : verificationReport !== null
-              ? 'The deployment was attempted, but one or more app endpoints could not be verified against the exact source commit above.'
+              ? 'The deployment was attempted, but one or more app previews could not be verified against the exact source commit above.'
               : process.env.DEPLOYMENT_RESULT === 'success'
-                ? 'The artifact was uploaded, but app endpoints were not verified for this source commit.'
+                ? 'The artifact was uploaded, but app previews were not verified for this source commit.'
                 : 'The deployment did not complete, so app previews are not available for this commit.';
   const lines = [
     `## ${title} metrics`,
@@ -299,7 +365,7 @@ async function runSummary(options) {
     `| ${provider} upload | ${getMetric(process.env.DEPLOYMENT_SECONDS)} seconds (${getMetric(process.env.DEPLOYMENT_RESULT)}) |`,
     `| Deployment verification | ${getMetric(process.env.DEPLOYMENT_VERIFICATION_SECONDS)} seconds (${getMetric(process.env.DEPLOYMENT_VERIFICATION_RESULT)}) |`,
     '| Remote cache | Pull requests read only; main reads and writes |',
-    `| Preview URL | ${getMetric(process.env.DEPLOYMENT_URL)} |`,
+    `| Published apps | ${deployments.filter((deployment) => deployment.ok).length}/${config.apps.length} |`,
     '',
     '### App previews',
     '',
@@ -309,13 +375,13 @@ async function runSummary(options) {
     '',
     '| App | Status | Preview | Source commit |',
     '| --- | --- | --- | --- |',
-    ...endpoints.map((endpoint) => {
-      const url = appPreviewUrl(deploymentUrl, endpoint.path);
-      const preview = url === null ? '—' : `[open preview](${url})`;
+    ...config.apps.map((app) => {
+      const deployment = deployments.find((candidate) => candidate.appId === app.id);
+      const preview = deployment?.url === undefined ? '—' : `[open preview](${deployment.url})`;
       const commit = sourceCommit === undefined ? '—' : `\`${sourceCommit.slice(0, 12)}\``;
-      return `| ${markdownCell(endpoint.id)} | ${markdownCell(appStatus({plan, report: verificationReport, endpoint}))} | ${preview} | ${commit} |`;
+      return `| ${markdownCell(app.id)} | ${markdownCell(appStatus({plan, report: verificationReport, deployment, appId: app.id}))} | ${preview} | ${commit} |`;
     }),
-    ...(endpoints.length === 0 ? ['No app endpoints are configured for this preview.'] : []),
+    ...(config.apps.length === 0 ? ['No apps are configured for this preview.'] : []),
     '',
     '### Turbo cache output',
     '',
@@ -350,7 +416,7 @@ async function runSummary(options) {
 
 function printHelp() {
   process.stdout.write(
-    `shipfox-preview <command> [options]\n\nCommands:\n  plan       Select an affected preview from Turbo and git\n  deploy     Upload a static directory through a provider adapter\n  verify     Check a deployed root, metadata, and JSON endpoints\n  github     Manage GitHub deployment lifecycle or queue timing\n  summary    Write standard GitHub Actions preview metrics\n`,
+    `shipfox-preview <command> [options]\n\nCommands:\n  plan       Select affected apps from Turbo and git\n  deploy     Upload one static directory through a provider adapter\n  deploy-all Upload configured apps through their provider adapters\n  verify     Check one deployed root, metadata, and JSON endpoints\n  verify-all Check configured apps against their deployment URLs\n  github     Manage GitHub deployment lifecycle or queue timing\n  summary    Write standard GitHub Actions preview metrics\n`,
   );
 }
 
@@ -366,7 +432,9 @@ function main() {
 
   if (command === 'plan') return runPlan(options);
   if (command === 'deploy') return runDeploy(options);
+  if (command === 'deploy-all') return runDeployApps(options);
   if (command === 'verify') return runVerify(options);
+  if (command === 'verify-all') return runVerifyApps(options);
   if (command === 'github') return runGitHub(action, options);
   if (command === 'summary') return runSummary(options);
   throw new Error(`Unsupported preview command: ${command}`);

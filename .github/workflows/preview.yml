@@ -130,14 +130,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
         run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-preview deploy
-          --provider cloudflare-pages
-          --directory storybook-output
-          --project "$CLOUDFLARE_PAGES_PROJECT"
+          pnpm --filter=@shipfox/storybook exec shipfox-preview deploy-all
+          --config preview-deploy.config.json
+          --plan-file "$RUNNER_TEMP/preview-plan.json"
           --commit "$PREVIEW_COMMIT_SHA"
-          --output "$RUNNER_TEMP/preview-deploy.json"
+          --output "$RUNNER_TEMP/preview-deployments.json"
           --github-output "$GITHUB_OUTPUT"
 
       - name: Confirm uploaded preview commit is still current
@@ -160,22 +158,22 @@ jobs:
           (github.event_name == 'push' || steps.confirm-upload-current.outcome == 'success')
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-preview github create
+          pnpm --filter=@shipfox/storybook exec shipfox-preview github create-all
+          --deployments-file "$RUNNER_TEMP/preview-deployments.json"
           --ref "$PREVIEW_COMMIT_SHA"
-          --url "$DEPLOYMENT_URL"
           --environment preview
-          --description "Preview for $PREVIEW_COMMIT_SHA"
+          --output "$RUNNER_TEMP/preview-github-deployments.json"
           --github-output "$GITHUB_OUTPUT"
 
       - name: Verify deployed preview
         id: verify-deployment
         if: steps.register-deployment.outcome == 'success'
-        env:
-          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
         run: >-
-          pnpm --filter=@shipfox/storybook preview:verify --
+          pnpm --filter=@shipfox/storybook exec shipfox-preview verify-all
+          --config preview-deploy.config.json
+          --plan-file "$RUNNER_TEMP/preview-plan.json"
+          --deployments-file "$RUNNER_TEMP/preview-deployments.json"
           --output "$RUNNER_TEMP/preview-verification.json"
           --github-output "$GITHUB_OUTPUT"
 
@@ -183,14 +181,10 @@ jobs:
         if: always() && steps.register-deployment.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPLOYMENT_ID: ${{ steps.register-deployment.outputs.deployment_id }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
-          DEPLOYMENT_STATE: ${{ steps.verify-deployment.outcome == 'success' && 'success' || 'failure' }}
         run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-preview github status
-          --deployment-id "$DEPLOYMENT_ID"
-          --state "$DEPLOYMENT_STATE"
-          --url "$DEPLOYMENT_URL"
+          pnpm --filter=@shipfox/storybook exec shipfox-preview github status-all
+          --deployments-file "$RUNNER_TEMP/preview-github-deployments.json"
+          --verification-report "$RUNNER_TEMP/preview-verification.json"
 
       - name: Report preview metrics
         if: always()
@@ -206,7 +200,6 @@ jobs:
           DEPLOYMENT_SECONDS: ${{ steps.deploy.outputs.deployment_seconds || 'unavailable' }}
           DEPLOYMENT_VERIFICATION_RESULT: ${{ steps.verify-deployment.outcome || 'skipped' }}
           DEPLOYMENT_VERIFICATION_SECONDS: ${{ steps.verify-deployment.outputs.verification_seconds || 'unavailable' }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url || 'unavailable' }}
           PRE_DEPLOY_HEAD_RESULT: ${{ steps.confirm-current.outcome || 'skipped' }}
           POST_DEPLOY_HEAD_RESULT: ${{ steps.confirm-upload-current.outcome || 'skipped' }}
         run: >-
@@ -215,6 +208,7 @@ jobs:
           --build-log "$RUNNER_TEMP/preview-build.log"
           --artifact-metadata storybook-output/preview-metadata.json
           --config preview-deploy.config.json
+          --deployment-file "$RUNNER_TEMP/preview-deployments.json"
           --verification-report "$RUNNER_TEMP/preview-verification.json"
           --provider "Cloudflare Pages"
           --title "Preview"

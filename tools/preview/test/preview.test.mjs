@@ -6,16 +6,34 @@ import {
   createGitHubDeployment,
   createPreviewPlan,
   deployPreview,
+  deployPreviewApps,
   finishGitHubDeployment,
   getWorkflowQueueSeconds,
   verifyPreview,
+  verifyPreviewApps,
 } from '../dist/index.js';
 
 const headMovedPattern = /no longer current/;
+const exampleApps = [
+  {
+    id: 'example',
+    target: '@shipfox/example',
+    directory: 'dist/example',
+    provider: {type: 'cloudflare-pages', project: 'example-preview'},
+    verify: {metadataPath: '/preview-metadata.json', endpoints: ['/index.json']},
+  },
+  {
+    id: 'other',
+    target: '@shipfox/other',
+    directory: 'dist/other',
+    provider: {type: 'cloudflare-pages', project: 'other-preview'},
+    verify: {metadataPath: '/preview-metadata.json', endpoints: ['/index.json']},
+  },
+];
 
 test('plans a preview from affected targets and forced paths', () => {
   const plan = createPreviewPlan({
-    targets: ['@shipfox/example'],
+    apps: exampleApps,
     forcePaths: ['.github/workflows/preview.yml'],
     eventName: 'pull_request',
     affectedPackages: ['@shipfox/example', '@shipfox/unrelated'],
@@ -24,12 +42,14 @@ test('plans a preview from affected targets and forced paths', () => {
 
   assert.equal(plan.shouldDeploy, true);
   assert.deepEqual(plan.affectedTargets, ['@shipfox/example']);
+  assert.deepEqual(plan.affectedApps, ['example']);
+  assert.deepEqual(plan.selectedApps, ['example']);
   assert.equal(plan.reason, 'Turbo affected preview target detected');
 });
 
 test('forces a preview when a configured path changes', () => {
   const plan = createPreviewPlan({
-    targets: ['@shipfox/example'],
+    apps: exampleApps,
     forcePaths: ['.github/workflows/preview.yml'],
     eventName: 'pull_request',
     affectedPackages: [],
@@ -38,6 +58,19 @@ test('forces a preview when a configured path changes', () => {
 
   assert.equal(plan.shouldDeploy, true);
   assert.equal(plan.reason, 'preview workflow or application configuration changed');
+  assert.deepEqual(plan.selectedApps, ['example', 'other']);
+});
+
+test('selects every configured app for a main push', () => {
+  const plan = createPreviewPlan({
+    apps: exampleApps,
+    forcePaths: [],
+    eventName: 'push',
+    affectedPackages: [],
+    changedFiles: [],
+  });
+
+  assert.deepEqual(plan.selectedApps, ['example', 'other']);
 });
 
 test('uploads through the Cloudflare adapter and retries transient failures', async () => {
@@ -65,6 +98,35 @@ test('uploads through the Cloudflare adapter and retries transient failures', as
     'deploy',
     'dist',
     '--project-name=example-previews',
+    '--branch=pr-42',
+    '--commit-hash=abc123',
+  ]);
+});
+
+test('uploads selected apps to their configured projects', async () => {
+  const calls = [];
+  const result = await deployPreviewApps({
+    apps: exampleApps,
+    selectedAppIds: ['other'],
+    branch: 'pr-42',
+    commitSha: 'abc123',
+    retryDelayMs: 0,
+    runner: (command, args) => {
+      calls.push({command, args});
+      return {output: 'https://other.example.pages.dev'};
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.apps.map(({appId, project, url}) => ({appId, project, url})),
+    [{appId: 'other', project: 'other-preview', url: 'https://other.example.pages.dev'}],
+  );
+  assert.deepEqual(calls[0].args, [
+    'pages',
+    'deploy',
+    'dist/other',
+    '--project-name=other-preview',
     '--branch=pr-42',
     '--commit-hash=abc123',
   ]);
@@ -131,6 +193,57 @@ test('reports every failed endpoint without stopping at the first failure', asyn
   assert.equal(result.endpoints[1].id, 'empty');
   assert.equal(result.endpoints[1].ok, false);
   assert.equal(result.errors.length, 2);
+});
+
+test('verifies each selected app against its own deployment URL', async () => {
+  const result = await verifyPreviewApps({
+    apps: exampleApps,
+    deployments: [
+      {
+        appId: 'example',
+        ok: true,
+        provider: 'cloudflare-pages',
+        directory: 'dist/example',
+        project: 'example-preview',
+        branch: 'pr-42',
+        commitSha: 'abc123',
+        url: 'https://example.example.pages.dev',
+      },
+      {
+        appId: 'other',
+        ok: true,
+        provider: 'cloudflare-pages',
+        directory: 'dist/other',
+        project: 'other-preview',
+        branch: 'pr-42',
+        commitSha: 'abc123',
+        url: 'https://other.example.pages.dev',
+      },
+    ],
+    expectedCommitSha: 'abc123',
+    expectedPullRequest: '42',
+    retryDelayMs: 0,
+    fetchImpl: (url) => {
+      if (url.endsWith('/preview-metadata.json')) {
+        return new Response(JSON.stringify({commitSha: 'abc123', pullRequest: {number: 42}}), {
+          status: 200,
+        });
+      }
+      if (url.endsWith('/index.json')) {
+        return new Response(JSON.stringify({entries: {story: {}}}), {status: 200});
+      }
+      return new Response('<html></html>', {status: 200});
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.apps.map(({appId, ok, url}) => ({appId, ok, url})),
+    [
+      {appId: 'example', ok: true, url: 'https://example.example.pages.dev'},
+      {appId: 'other', ok: true, url: 'https://other.example.pages.dev'},
+    ],
+  );
 });
 
 test('creates and finalizes GitHub deployments through the API adapter', async () => {

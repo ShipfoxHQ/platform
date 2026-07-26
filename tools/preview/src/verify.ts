@@ -1,9 +1,22 @@
+import type {PreviewDeployment} from './deploy.js';
+import type {PreviewApp} from './plan.js';
+
 type PreviewEndpointResult = {
   id: string;
   path: string;
   ok: boolean;
   status: number | null;
   error?: string;
+};
+
+type PreviewAppVerification = {
+  appId: string;
+  ok: boolean;
+  url: string | null;
+  commitSha: string | null | undefined;
+  pullRequest: string | null;
+  endpoints: PreviewEndpointResult[];
+  errors: string[];
 };
 
 function required(value, name) {
@@ -183,6 +196,95 @@ export async function verifyPreview({
     metadata,
     endpoints: verifiedEndpoints,
     errors,
+  };
+}
+
+/**
+ * Verify each selected application against its own deployed URL.
+ */
+export async function verifyPreviewApps({
+  apps,
+  deployments,
+  selectedAppIds = apps.map((app) => app.id),
+  expectedCommitSha = process.env.PREVIEW_COMMIT_SHA ?? process.env.GITHUB_SHA,
+  expectedPullRequest = process.env.PREVIEW_PR_NUMBER,
+  attempts = 3,
+  retryDelayMs = 2_000,
+  fetchImpl = globalThis.fetch,
+}: {
+  apps: PreviewApp[];
+  deployments: PreviewDeployment[];
+  selectedAppIds?: string[];
+  expectedCommitSha?: string;
+  expectedPullRequest?: string;
+  attempts?: number;
+  retryDelayMs?: number;
+  fetchImpl?: typeof globalThis.fetch;
+}) {
+  const selectedApps = apps.filter((app) => selectedAppIds.includes(app.id));
+  const deploymentByApp = new Map(deployments.map((deployment) => [deployment.appId, deployment]));
+  const reports: PreviewAppVerification[] = [];
+
+  for (const app of selectedApps) {
+    const deployment = deploymentByApp.get(app.id);
+    if (deployment === undefined) {
+      reports.push({
+        appId: app.id,
+        ok: false,
+        url: null,
+        commitSha: expectedCommitSha ?? null,
+        pullRequest: expectedPullRequest ?? null,
+        endpoints: [],
+        errors: ['application was not deployed'],
+      });
+      continue;
+    }
+    if (!deployment.ok || deployment.url === undefined) {
+      reports.push({
+        appId: app.id,
+        ok: false,
+        url: null,
+        commitSha: expectedCommitSha ?? deployment.commitSha,
+        pullRequest: expectedPullRequest ?? null,
+        endpoints: [],
+        errors: [deployment.error ?? 'application deployment did not complete'],
+      });
+      continue;
+    }
+
+    try {
+      const report = await verifyPreview({
+        baseUrl: deployment.url,
+        expectedCommitSha,
+        expectedPullRequest,
+        metadataPath: app.verify?.metadataPath ?? '/preview-metadata.json',
+        endpoints: app.verify?.endpoints ?? [],
+        attempts,
+        retryDelayMs,
+        fetchImpl,
+      });
+      reports.push({appId: app.id, ...report});
+    } catch (error) {
+      reports.push({
+        appId: app.id,
+        ok: false,
+        url: deployment.url,
+        commitSha: expectedCommitSha ?? deployment.commitSha,
+        pullRequest: expectedPullRequest ?? null,
+        endpoints: [],
+        errors: [errorMessage(error)],
+      });
+    }
+  }
+
+  return {
+    ok: reports.every((report) => report.ok),
+    commitSha: expectedCommitSha,
+    pullRequest: expectedPullRequest ?? null,
+    apps: reports,
+    errors: reports.flatMap((report) =>
+      report.ok ? [] : report.errors.map((error) => `${report.appId}: ${error}`),
+    ),
   };
 }
 const trailingSlashPattern = /\/$/;

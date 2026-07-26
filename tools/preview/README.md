@@ -4,10 +4,11 @@ CI tools for building and publishing static previews.
 
 ## What it does
 
-- **`shipfox-preview plan`** checks Turbo targets and changed paths.
-- **`shipfox-preview deploy`** uploads a static directory. Cloudflare Pages
-  Direct Upload is the first provider.
-- **`shipfox-preview verify`** checks a URL, metadata, and JSON endpoints.
+- **`shipfox-preview plan`** checks Turbo targets and changed paths for each app.
+- **`shipfox-preview deploy-all`** uploads each selected app to its configured
+  project. Cloudflare Pages Direct Upload is the first provider.
+- **`shipfox-preview verify-all`** checks each app URL, metadata, and JSON
+  endpoints.
 - **`shipfox-preview github`** checks the current pull-request commit and
   updates a GitHub deployment.
 - **`shipfox-preview summary`** writes a GitHub Actions job summary.
@@ -21,32 +22,44 @@ one place. A new static host can use the same application workflow.
 pnpm add -D @shipfox/preview
 ```
 
-The Cloudflare adapter expects `wrangler` on `PATH` and its normal environment
-variables.
+The Cloudflare adapter expects `wrangler` on `PATH`, `CLOUDFLARE_API_TOKEN`,
+and `CLOUDFLARE_ACCOUNT_ID`. Project names are application configuration, not
+secrets.
 
-The published package contains compiled output. In a workspace, CI can build
-it on demand with `pnpm --filter=@shipfox/preview build` before invoking the
-CLI.
+The published package contains compiled output. In this workspace, CI builds
+it on demand with `pnpm --filter=@shipfox/preview... build` before invoking the
+CLI, which also builds its workspace build helpers.
 
 ## Usage
 
-Create an application config:
+Create an application config. Directories are resolved from the working
+directory where the CLI runs:
 
 ```json
 {
-  "targets": ["@shipfox/example"],
-  "forcePaths": ["apps/example", ".github/workflows/preview.yml"],
-  "verify": {
-    "endpoints": [
-      {"id": "example", "path": "/example/index.json", "requireNonEmpty": true}
-    ]
-  }
+  "apps": [
+    {
+      "id": "example",
+      "target": "@shipfox/example",
+      "directory": "dist/example",
+      "provider": {
+        "type": "cloudflare-pages",
+        "project": "example-preview"
+      },
+      "verify": {
+        "metadataPath": "/preview-metadata.json",
+        "endpoints": ["/index.json"]
+      }
+    }
+  ],
+  "forcePaths": ["apps/example", ".github/workflows/preview.yml"]
 }
 ```
 
-Endpoint IDs are shown in the GitHub Actions summary. Each row links to the
-app preview and reports whether its endpoint was verified against the exact
-source commit.
+Turbo selects apps through their `target` package. Main pushes and changes to
+`forcePaths` select all configured apps. Each app is uploaded to its own
+provider project, verified against the exact source commit, and shown as a
+separate GitHub deployment and summary row.
 
 Use it in CI:
 
@@ -56,17 +69,18 @@ shipfox-preview plan \
   --output "$RUNNER_TEMP/preview-plan.json" \
   --github-output "$GITHUB_OUTPUT"
 
-shipfox-preview deploy \
-  --provider cloudflare-pages \
-  --directory dist \
-  --project "$CLOUDFLARE_PAGES_PROJECT" \
+shipfox-preview deploy-all \
+  --config preview-deploy.config.json \
+  --plan-file "$RUNNER_TEMP/preview-plan.json" \
   --commit "$PREVIEW_COMMIT_SHA" \
-  --output "$RUNNER_TEMP/preview-deployment.json" \
+  --output "$RUNNER_TEMP/preview-deployments.json" \
   --github-output "$GITHUB_OUTPUT"
 
-shipfox-preview verify \
+shipfox-preview verify-all \
   --config preview-deploy.config.json \
-  --url "$PREVIEW_URL"
+  --plan-file "$RUNNER_TEMP/preview-plan.json" \
+  --deployments-file "$RUNNER_TEMP/preview-deployments.json" \
+  --output "$RUNNER_TEMP/preview-verification.json"
 ```
 
 ## Development

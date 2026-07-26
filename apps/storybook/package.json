@@ -14,7 +14,6 @@
     "artifact:verify": "tsx scripts/verify.ts",
     "build:children": "tsx scripts/build-children.ts",
     "preview:plan": "shipfox-preview plan --config preview-deploy.config.json",
-    "preview:verify": "shipfox-preview verify --config preview-deploy.config.json",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
     "storybook": "pnpm run build:children && storybook dev -p 6015",

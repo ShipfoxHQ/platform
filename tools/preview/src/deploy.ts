@@ -1,4 +1,5 @@
 import {spawn} from 'node:child_process';
+import type {PreviewApp} from './plan.js';
 
 const pagesDevUrlPattern = /https:\/\/[A-Za-z0-9.-]+\.pages\.dev\/?/g;
 const trailingSlashPattern = /\/$/;
@@ -146,4 +147,71 @@ export function deployPreview({
 
   if (provider === 'cloudflare-pages') return deployCloudflarePages(deploymentOptions);
   throw new Error(`Unsupported preview provider: ${provider}`);
+}
+
+export type PreviewDeployment = {
+  appId: string;
+  ok: boolean;
+  provider: string;
+  directory: string;
+  project: string;
+  branch: string;
+  commitSha: string;
+  url?: string;
+  attempts?: number;
+  error?: string;
+};
+
+/**
+ * Upload each selected application through its configured provider adapter.
+ * Individual failures are collected so the caller can report every app.
+ */
+export async function deployPreviewApps({
+  apps,
+  selectedAppIds = apps.map((app) => app.id),
+  branch,
+  commitSha = process.env.PREVIEW_COMMIT_SHA ?? process.env.GITHUB_SHA,
+  ...options
+}: {
+  apps: PreviewApp[];
+  selectedAppIds?: string[];
+  branch?: string;
+  commitSha?: string;
+  [key: string]: unknown;
+}) {
+  const resolvedBranch = getBranch(branch);
+  required(commitSha, 'commitSha');
+  const selected = apps.filter((app) => selectedAppIds.includes(app.id));
+  const deployments: PreviewDeployment[] = [];
+
+  for (const app of selected) {
+    try {
+      const deployment = await deployPreview({
+        ...options,
+        provider: app.provider.type,
+        directory: app.directory,
+        project: app.provider.project,
+        branch: resolvedBranch,
+        commitSha,
+      });
+      deployments.push({appId: app.id, ok: true, ...deployment});
+    } catch (error) {
+      deployments.push({
+        appId: app.id,
+        ok: false,
+        provider: app.provider.type,
+        directory: app.directory,
+        project: app.provider.project,
+        branch: resolvedBranch,
+        commitSha,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const errors = deployments
+    .filter((deployment) => !deployment.ok)
+    .map((deployment) => `${deployment.appId}: ${deployment.error}`);
+
+  return {ok: errors.length === 0, apps: deployments, errors};
 }

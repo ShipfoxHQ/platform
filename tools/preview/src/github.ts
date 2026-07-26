@@ -162,6 +162,85 @@ export async function finishGitHubDeployment({
 }
 
 /**
+ * Create one GitHub deployment per successfully uploaded application.
+ */
+export async function createGitHubDeployments({
+  deployments,
+  ref,
+  environment = 'preview',
+  pullRequest = process.env.PREVIEW_PR_NUMBER ?? '',
+  repository,
+  command,
+  cwd,
+  runner,
+}) {
+  const created: Array<{
+    appId: string;
+    id: string;
+    url: string;
+    environment: string;
+    repository: string;
+  }> = [];
+  const errors: string[] = [];
+
+  for (const deployment of deployments) {
+    if (!deployment.ok || deployment.url === undefined) continue;
+    try {
+      const githubDeployment = await createGitHubDeployment({
+        repository,
+        ref,
+        url: deployment.url,
+        environment: `${environment}/${deployment.appId}`,
+        description: `Preview for ${deployment.appId} at ${ref}`,
+        pullRequest,
+        command,
+        cwd,
+        runner,
+      });
+      created.push({appId: deployment.appId, ...githubDeployment});
+    } catch (error) {
+      errors.push(`${deployment.appId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return {ok: errors.length === 0, apps: created, errors};
+}
+
+/**
+ * Finalize one GitHub deployment per application after aggregate verification.
+ */
+export async function finishGitHubDeployments({deployments, verification, command, cwd, runner}) {
+  const reports = new Map(verification.apps.map((report) => [report.appId, report]));
+  const finalized: Array<{appId: string; id: string; state: string; url: string}> = [];
+  const errors: string[] = [];
+
+  for (const deployment of deployments) {
+    const report = reports.get(deployment.appId);
+    const state = report?.ok === true ? 'success' : 'failure';
+    try {
+      const result = await finishGitHubDeployment({
+        repository: deployment.repository,
+        deploymentId: deployment.id,
+        state,
+        url: deployment.url,
+        description:
+          state === 'success'
+            ? `Verified ${deployment.appId} preview for the exact commit`
+            : `Failed ${deployment.appId} preview verification`,
+        command,
+        cwd,
+        runner,
+      });
+      finalized.push({appId: deployment.appId, ...result});
+    } catch (error) {
+      errors.push(`${deployment.appId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return {ok: errors.length === 0, apps: finalized, errors};
+}
+
+/**
  * Read the workflow run timestamps and return queue duration in seconds.
  */
 export async function getWorkflowQueueSeconds({

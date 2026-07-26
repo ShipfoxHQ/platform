@@ -2,6 +2,33 @@ import {execFileSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 
+export type PreviewEndpoint =
+  | string
+  | {
+      id?: string;
+      path: string;
+      requireNonEmpty?: boolean;
+    };
+
+export type PreviewApp = {
+  id: string;
+  target: string;
+  directory: string;
+  provider: {
+    type: string;
+    project: string;
+  };
+  verify?: {
+    metadataPath?: string;
+    endpoints?: PreviewEndpoint[];
+  };
+};
+
+export type PreviewConfig = {
+  apps: PreviewApp[];
+  forcePaths: string[];
+};
+
 function runGit(args, cwd) {
   return execFileSync('git', args, {cwd, encoding: 'utf8'})
     .split('\n')
@@ -39,27 +66,75 @@ export async function readPreviewConfig(configPath, cwd = process.cwd()) {
   const path = resolve(cwd, configPath);
   const config = JSON.parse(await readFile(path, 'utf8'));
 
-  if (
-    !Array.isArray(config.targets) ||
-    config.targets.some((target) => typeof target !== 'string')
-  ) {
-    throw new Error(`${configPath} must contain a string targets array`);
+  if (!Array.isArray(config.apps) || config.apps.length === 0) {
+    throw new Error(`${configPath} must contain a non-empty apps array`);
   }
-  if (
-    !Array.isArray(config.forcePaths) ||
-    config.forcePaths.some((forcePath) => typeof forcePath !== 'string')
-  ) {
+
+  const ids = new Set();
+  for (const app of config.apps) {
+    if (typeof app !== 'object' || app === null) {
+      throw new Error(`${configPath} apps must contain objects`);
+    }
+    for (const field of ['id', 'target', 'directory']) {
+      if (typeof app[field] !== 'string' || app[field].length === 0) {
+        throw new Error(`${configPath} app ${field} is required`);
+      }
+    }
+    if (ids.has(app.id)) throw new Error(`${configPath} contains duplicate app id ${app.id}`);
+    ids.add(app.id);
+
+    if (
+      typeof app.provider !== 'object' ||
+      app.provider === null ||
+      typeof app.provider.type !== 'string' ||
+      app.provider.type.length === 0 ||
+      typeof app.provider.project !== 'string' ||
+      app.provider.project.length === 0
+    ) {
+      throw new Error(`${configPath} app ${app.id} must define provider type and project`);
+    }
+
+    if (app.verify !== undefined) {
+      if (typeof app.verify !== 'object' || app.verify === null) {
+        throw new Error(`${configPath} app ${app.id} verify must be an object`);
+      }
+      if (
+        app.verify.metadataPath !== undefined &&
+        (typeof app.verify.metadataPath !== 'string' || app.verify.metadataPath.length === 0)
+      ) {
+        throw new Error(`${configPath} app ${app.id} metadataPath must be a string`);
+      }
+      if (
+        app.verify.endpoints !== undefined &&
+        (!Array.isArray(app.verify.endpoints) ||
+          app.verify.endpoints.some(
+            (endpoint) =>
+              (typeof endpoint === 'string' && endpoint.length === 0) ||
+              (typeof endpoint === 'object' &&
+                (endpoint === null ||
+                  typeof endpoint.path !== 'string' ||
+                  endpoint.path.length === 0)) ||
+              (typeof endpoint !== 'string' && typeof endpoint !== 'object'),
+          ))
+      ) {
+        throw new Error(`${configPath} app ${app.id} endpoints must define paths`);
+      }
+    }
+  }
+
+  const forcePaths = config.forcePaths ?? [];
+  if (!Array.isArray(forcePaths) || forcePaths.some((forcePath) => typeof forcePath !== 'string')) {
     throw new Error(`${configPath} must contain a string forcePaths array`);
   }
 
-  return config;
+  return {apps: config.apps, forcePaths} as PreviewConfig;
 }
 
 /**
  * Produce a provider-neutral affected preview decision from Turbo and git.
  */
 export function createPreviewPlan({
-  targets,
+  apps,
   forcePaths,
   eventName = process.env.GITHUB_EVENT_NAME,
   base = process.env.TURBO_SCM_BASE,
@@ -70,10 +145,14 @@ export function createPreviewPlan({
     ? []
     : runGit(['diff', '--name-only', `${base}...${head}`], cwd),
 }) {
-  const affectedTargets = affectedPackages.filter((packageName) => targets.includes(packageName));
+  const affectedTargets = affectedPackages.filter((packageName) =>
+    apps.some((app) => app.target === packageName),
+  );
+  const affectedApps = apps.filter((app) => affectedTargets.includes(app.target));
   const forcedByFile = hasForcedChange(changedFiles, forcePaths);
   const isMainPush = eventName === 'push';
   const shouldDeploy = isMainPush || forcedByFile || affectedTargets.length > 0;
+  const selectedApps = shouldDeploy ? (isMainPush || forcedByFile ? apps : affectedApps) : [];
 
   return {
     shouldDeploy,
@@ -86,6 +165,8 @@ export function createPreviewPlan({
           : 'no preview target is affected',
     affectedPackages,
     affectedTargets,
+    affectedApps: affectedApps.map((app) => app.id),
+    selectedApps: selectedApps.map((app) => app.id),
     changedFiles,
   };
 }
