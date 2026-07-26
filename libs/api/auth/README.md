@@ -68,6 +68,7 @@ Required environment:
 | `AUTH_SIGNUP_ALLOWED_EMAILS` | none | Comma-separated exact email addresses allowed to create accounts. |
 | `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE` | none | Description returned when the signup gate blocks an account. Defaults to "This Shipfox deployment does not accept new accounts right now." |
 | `CLIENT_BASE_URL` | `http://localhost:5173` | Base URL used in email verification and password reset links. |
+| `ADMIN_BOOTSTRAP_TOKEN` | none | Deployment secret accepted once to create the first administrator owner. Set it before bootstrap and remove or rotate it after successful bootstrap. |
 
 Email delivery uses the shared `@shipfox/node-mailer` configuration.
 
@@ -231,6 +232,19 @@ When password login is disabled, the password and email-verification rows in thi
 > [!IMPORTANT]
 > Refresh cookies are set with `secure: true`, `httpOnly: true`, and `sameSite: "lax"`. Local browser tests need HTTPS or a test path that handles secure cookies.
 
+### Administrator grants
+
+All routes are mounted under `/admin/v1/auth/admin-grants` and require an authenticated bearer token. Ownership is enforced in the core layer, not by route-level middleware.
+
+| Method | Path | Required role | Result |
+| --- | --- | --- | --- |
+| `POST` | `/bootstrap` | none (deployment token) | Claims the `admin-owner` role for the calling user using `ADMIN_BOOTSTRAP_TOKEN`. Fails with `409 bootstrap-closed` once an active owner exists. |
+| `GET` | `/` | `admin-owner` | Lists local administrator grants. |
+| `POST` | `/` | `admin-owner` | Grants a role to an active user. |
+| `DELETE` | `/:grantId` | `admin-owner` | Revokes a grant. Fails with `409 last-owner` when it would remove the final active owner. |
+
+`POST` and `DELETE` routes require an `Idempotency-Key` header; a repeated key replays the same result, and reusing a key with a different command returns `409 idempotency-key-reused`. Every mutation writes a redacted `administration.action.performed` outbox event.
+
 ### Rate limiting
 
 The public auth endpoints include an application-layer abuse baseline for open source installs:
@@ -240,6 +254,7 @@ The public auth endpoints include an application-layer abuse baseline for open s
 | `POST /auth/login` | 60 attempts per 5 minutes | 10 attempts per 15 minutes |
 | `POST /auth/password-reset` | 30 email-send attempts per hour | 3 email-send attempts per hour |
 | `POST /auth/verify-email/resend` | Shared with password reset | Shared with password reset |
+| `POST /admin/v1/auth/admin-grants/bootstrap` | 5 attempts per 15 minutes | n/a |
 
 Counters are stored in PostgreSQL as fixed windows in `auth_rate_limits`. IP addresses and email addresses are HMAC-SHA256 values before storage; raw identifiers are not persisted. The identifier key is derived from `AUTH_ROOT_KEY` separately from every token key.
 
@@ -389,6 +404,8 @@ The module creates tables with the `auth_` prefix:
 - `auth_refresh_tokens`
 - `auth_password_resets`
 - `auth_rate_limits`
+- `auth_admin_grants`
+- `auth_admin_command_results`
 
 Passwords use Argon2id. Password reset tokens and refresh tokens are opaque tokens stored as hashes. Email verification uses the shared email-challenges module.
 
