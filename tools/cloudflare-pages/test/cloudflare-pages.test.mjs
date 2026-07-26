@@ -525,6 +525,28 @@ test('names app GitHub deployments with a readable preview label', async () => {
   assert.equal(requests[0].payload.environment, 'Preview – storybook – PR 42');
 });
 
+test('uses the GitHub repository from the CI environment for deployment registration', async () => {
+  const previousRepository = process.env.GITHUB_REPOSITORY;
+  process.env.GITHUB_REPOSITORY = 'ShipfoxHQ/example';
+  const requests = [];
+  try {
+    const result = await createGitHubDeployments({
+      deployments: [{appId: 'storybook', ok: true, url: 'https://storybook.pages.dev'}],
+      ref: 'abc123',
+      runner: (_command, args, options) => {
+        requests.push({args, payload: JSON.parse(options.input)});
+        return {output: JSON.stringify({id: 123})};
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(requests[0].args[3], 'repos/ShipfoxHQ/example/deployments');
+  } finally {
+    if (previousRepository === undefined) delete process.env.GITHUB_REPOSITORY;
+    else process.env.GITHUB_REPOSITORY = previousRepository;
+  }
+});
+
 test('marks production GitHub deployments as non-transient production deployments', async () => {
   const requests = [];
   const runner = (_command, args, options) => {

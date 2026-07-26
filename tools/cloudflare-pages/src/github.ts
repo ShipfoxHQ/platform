@@ -274,7 +274,7 @@ export async function createGitHubDeployments({
   ref,
   environment = 'preview',
   pullRequest = process.env.CLOUDFLARE_PAGES_PR_NUMBER ?? '',
-  repository,
+  repository = process.env.GITHUB_REPOSITORY,
   command,
   cwd,
   runner,
