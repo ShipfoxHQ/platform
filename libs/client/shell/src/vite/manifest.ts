@@ -11,6 +11,9 @@ const assetNames = [
   'site.webmanifest',
   'web-app-manifest-192x192.png',
   'web-app-manifest-512x512.png',
+  // Transactional emails (@shipfox/node-email) link to this asset on the client
+  // origin, so every composed client must serve it.
+  'email-logo.png',
 ] as const;
 
 const assetDirectory = fileURLToPath(new URL('../../assets/', import.meta.url));
