@@ -10,14 +10,14 @@ This page is the canonical reference for configuring the Docker runner provision
 
 | Variable | Purpose |
 | --- | --- |
-| `SHIPFOX_API_URL` | Base URL of the Shipfox API the provisioner connects to. |
-| `SHIPFOX_PROVISIONER_TOKEN` | Long-lived token that authenticates control-plane calls. Create it for the provisioner scope you intend to run and keep it secret. The value is shown once and can be revoked. |
+| `SHIPFOX_PROVISIONER_TOKEN` | Long-lived token that authenticates control-plane calls. The dashboard creates a workspace-scoped token on **Settings → Runner Provisioners**. Keep it secret. The value is shown once and can be revoked. |
 | `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | Path to the YAML file describing the runner templates this provisioner can start. |
 
 ## Optional variables
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `SHIPFOX_API_URL` | `https://api.shipfox.io` | Base URL of the Shipfox API the provisioner connects to. Set it for a self-hosted API. |
 | `SHIPFOX_RUNNER_API_URL` | `SHIPFOX_API_URL` | Base URL injected into runner containers as their `SHIPFOX_API_URL`. Set it when containers reach the API through a different address than the provisioner uses. |
 | `SHIPFOX_RUNNER_POLL_MAX_DURATION_MS` | `300000` | Injected into each runner as `SHIPFOX_POLL_MAX_DURATION_MS`: how long a started runner polls for a job before exiting. Use `0` to poll forever. |
 | `SHIPFOX_PROVISIONER_DOCKER_HOST` | local socket | Docker daemon host. Set a Docker host URL when the daemon is remote. |
@@ -39,7 +39,7 @@ The templates file maps label sets to the containers that provide them:
 templates:
   docker-ubuntu22-2vcpu:
     labels: [ubuntu22, ubuntu22-2vcpu]
-    image: shipfox-runner:ubuntu22
+    image: ghcr.io/shipfoxhq/runner:revision-0123456789abcdef0123456789abcdef01234567
     cpu: 2
     memory: 4GiB
     max_concurrency: 100
@@ -48,7 +48,7 @@ templates:
 | Field | Type | Description |
 | --- | --- | --- |
 | `labels` | `string[]` | Labels the started runner registers with. A template can serve any job whose required labels are all in this list. |
-| `image` | `string` | Container image to start. |
+| `image` | `string` | Container image to start. Optional. Defaults to `ghcr.io/shipfoxhq/runner:latest`. Production deployments should set a tag from the same application release as the provisioner. |
 | `cpu` | `number` | vCPUs allocated to the container. Also the template's selection cost. |
 | `memory` | `string` | Memory allocation, such as `4GiB`. |
 | `max_concurrency` | `number` | Cap on live containers started from this template. |

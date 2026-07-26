@@ -55,12 +55,17 @@ until observation succeeds.
 ## Runner image
 
 When a template omits `image`, the provisioner uses the published
-`ghcr.io/shipfoxhq/runner:latest` image. This moving tag is intentional so new
-published runner releases become the default without changing the template. A
-template may override it with a custom image, including an immutable digest, which
-must run the Shipfox runner process and consume the injected environment. Omit the
-key to use the default; a blank value is invalid. Docker may reuse a locally cached
-`latest` image, so refresh the image on the host to pick up a newer release.
+`ghcr.io/shipfoxhq/runner:latest` image. This moving tag is intended for local
+development. The deployment bundle pins an immutable runner tag that matches
+the provisioner image. A template may override the default with a custom image
+or immutable digest. The image must run the Shipfox runner process and consume
+the injected environment. A blank value is invalid.
+
+The production-shaped Compose bundle is
+[`compose.yaml`](compose.yaml), [`.env.example`](.env.example), and
+[`templates.yaml`](templates.yaml). The public
+[Docker provisioner guide](../docs/content/docs/installation/runner-provisioner.mdx)
+owns the operator workflow.
 
 - `SHIPFOX_API_URL`
 - `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`

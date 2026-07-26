@@ -1,0 +1,8 @@
+templates:
+  docker-ubuntu:
+    labels: [docker, ubuntu]
+    image: ghcr.io/shipfoxhq/runner:revision-c0046d30e158915f6375b319880abf7c4ddbb623
+    cpu: 2
+    memory: 4GiB
+    max_concurrency: 4
+    target_concurrency: 0
