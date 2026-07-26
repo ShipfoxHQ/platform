@@ -4,10 +4,14 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DEFAULT_RUNNER_IMAGE, DockerTemplateConfigError, loadDockerTemplates} from '#templates.js';
 
+const mocks = vi.hoisted(() => ({warn: vi.fn()}));
+vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => mocks}));
+
 let dir: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'provisioner-docker-'));
+  mocks.warn.mockReset();
 });
 
 afterEach(() => {
@@ -75,6 +79,10 @@ templates:
     const [template] = loadDockerTemplates(path);
 
     expect(template?.spec.image).toBe(DEFAULT_RUNNER_IMAGE);
+    expect(mocks.warn).toHaveBeenCalledWith(
+      {filePath: path, templateKey: 'docker-ubuntu22', image: DEFAULT_RUNNER_IMAGE},
+      'Docker template image omitted; using default runner image',
+    );
   });
 
   it('canonicalizes labels (lowercase, dedupe, sort)', () => {
