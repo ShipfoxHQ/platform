@@ -41,7 +41,8 @@ await mailer.send({to: user.email, ...email});
 - Shared chrome (fonts, color tokens, the logo partial) lives in `emails/partials/` and
   is pulled in with `mj-include`.
 - The Shipfox logo is served from the client app's own origin: `CLIENT_BASE_URL` +
-  `/email-logo.png` (the asset lives at `apps/client/public/email-logo.png`). The package
+  `/email-logo.png`. `@shipfox/client-shell` ships the asset and its Vite manifest plugin
+  serves it, so any client composed with the shell answers that path. The package
   reads `CLIENT_BASE_URL` via `@shipfox/config`, so every deployment embeds its own logo
   URL and no recipient data leaks to a third-party CDN. The asset is a PNG because most
   mail clients do not render SVG.

@@ -12,9 +12,9 @@ import {renderText, type TemplateName, type TemplateVariables} from './text.js';
 // (dev/test) or from the compiled bundle (prod).
 const emailsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'emails');
 
-// The logo asset is served by the client app at /email-logo.png
-// (apps/client/public/email-logo.png), so its URL is built from the deployment's
-// CLIENT_BASE_URL and resolved once at module load.
+// The logo asset is served at /email-logo.png by every client composed with
+// @shipfox/client-shell (libs/client/shell/assets/email-logo.png), so its URL is
+// built from the deployment's CLIENT_BASE_URL and resolved once at module load.
 const logoUrl = new URL('/email-logo.png', config.CLIENT_BASE_URL).toString();
 
 // Subjects are plain text, not HTML, so compile them with `noEscape` to keep a
