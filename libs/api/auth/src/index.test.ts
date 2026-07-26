@@ -55,6 +55,7 @@ describe('authModule', () => {
       preflightInvitationAcceptance: vi.fn(),
       acceptInvitation: vi.fn(),
       requireActiveMembership: vi.fn(),
+      getWorkspaceOperatingState: vi.fn(),
     },
     signupPolicy,
   });
@@ -73,6 +74,7 @@ describe('authModule', () => {
         preflightInvitationAcceptance: vi.fn(),
         acceptInvitation: vi.fn(),
         requireActiveMembership: vi.fn(),
+        getWorkspaceOperatingState: vi.fn(),
       },
     });
     expect(module.routes).toHaveLength(1);

@@ -14,6 +14,7 @@ describe('auth E2E routes', () => {
           preflightInvitationAcceptance: vi.fn(),
           acceptInvitation: vi.fn(),
           requireActiveMembership: vi.fn(),
+          getWorkspaceOperatingState: vi.fn(),
         }),
       ],
       swagger: false,

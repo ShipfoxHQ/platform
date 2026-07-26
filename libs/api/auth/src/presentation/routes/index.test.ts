@@ -8,6 +8,7 @@ const workspaces = {
   preflightInvitationAcceptance: vi.fn(),
   acceptInvitation: vi.fn(),
   requireActiveMembership: vi.fn(),
+  getWorkspaceOperatingState: vi.fn(),
 };
 
 const disabledPasswordPaths = [

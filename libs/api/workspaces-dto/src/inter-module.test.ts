@@ -16,4 +16,12 @@ describe('workspacesInterModuleContract', () => {
 
     expect(schema.parse(details)).toEqual(details);
   });
+
+  test('defines a status-only operating-state result', () => {
+    const method = workspacesInterModuleContract.methods.getWorkspaceOperatingState;
+
+    expect(method.output.parse({status: 'active'})).toEqual({status: 'active'});
+    expect(method.output.parse({status: 'suspended'})).toEqual({status: 'suspended'});
+    expect(method.output.parse({status: 'deleted'})).toEqual({status: 'deleted'});
+  });
 });

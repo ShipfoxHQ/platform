@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   getIntegrationConnectionById: vi.fn(),
   getSecret: vi.fn(),
   getWorkspaceCreator: vi.fn(),
+  getWorkspaceOperatingState: vi.fn(),
   listMembershipsForTokenClaims: vi.fn(),
   setSecrets: vi.fn(),
 }));
@@ -105,6 +106,7 @@ vi.mock('@shipfox/api-workspaces', () => ({
         handlers: {
           listMembershipsForTokenClaims: mocks.listMembershipsForTokenClaims,
           getWorkspaceCreator: mocks.getWorkspaceCreator,
+          getWorkspaceOperatingState: mocks.getWorkspaceOperatingState,
           preflightInvitationAcceptance: vi.fn(),
           acceptInvitation: vi.fn(),
           requireActiveMembership: vi.fn(),

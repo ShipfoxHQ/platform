@@ -77,6 +77,7 @@ const workspaces = {
   preflightInvitationAcceptance: vi.fn(),
   acceptInvitation: vi.fn(),
   requireActiveMembership: vi.fn(),
+  getWorkspaceOperatingState: vi.fn(),
 };
 
 const login = (params: {email: string; password: string}) => coreLogin({...params, workspaces});
