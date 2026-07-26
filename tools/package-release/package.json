@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@shipfox/biome": "workspace:*",
+    "@shipfox/cloudflare-pages": "workspace:*",
     "@shipfox/swc": "workspace:*",
     "@shipfox/ts-config": "workspace:*",
     "@shipfox/typescript": "workspace:*",

@@ -7907,6 +7907,9 @@ importers:
       '@shipfox/biome':
         specifier: workspace:*
         version: link:../biome
+      '@shipfox/cloudflare-pages':
+        specifier: workspace:*
+        version: link:../cloudflare-pages
       '@shipfox/swc':
         specifier: workspace:*
         version: link:../swc
