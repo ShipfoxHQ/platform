@@ -5,6 +5,7 @@ Runs a Shipfox API server.
 ## What it does
 
 - **`defaultModules()`**: Returns the standard module list.
+- **`DefaultAuthModuleFactory`**: Builds the Auth module with the composed Workspaces client.
 - **`createServer()`**: Builds an API server. The caller owns process signals.
 - **`runServer()`**: Starts the server. It listens for SIGTERM and SIGINT.
 - **`createLoginMethodsRoute()`**: Builds the public login-method catalog route. `createServer` mounts it automatically.
@@ -30,6 +31,18 @@ than creating another inter-module transport:
 ```ts
 const modules = await defaultModules({
   extension: ({workspaces}) => [createCloudModule({workspaces})],
+});
+```
+
+To provide an Auth module with an application-specific signup policy, use the
+Auth factory. Its returned module is included in the standard composition and
+its inter-module presentations are registered with the same transport:
+
+```ts
+import {createAuthModule} from '@shipfox/api-auth';
+
+const modules = await defaultModules({
+  authModule: ({workspaces}) => createAuthModule({workspaces, signupPolicy}),
 });
 ```
 
