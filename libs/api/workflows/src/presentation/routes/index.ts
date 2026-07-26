@@ -6,6 +6,7 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
+import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import type {RouteGroup} from '@shipfox/node-fastify';
 import {createAgentRuntimeConfigRoute} from './agent-runtime-config.js';
 import {cancelRunRoute} from './cancel-run.js';
@@ -27,9 +28,12 @@ type WorkflowRouteClients = {
   projects: ProjectsModuleClient;
   runners: RunnersInterModuleClient;
   secrets: SecretsInterModuleClient;
+  workspaces: WorkspacesInterModuleClient;
 };
 
-export function createLeaseTokenRouteGroup(params: WorkflowRouteClients): RouteGroup {
+type LeaseTokenRouteClients = Omit<WorkflowRouteClients, 'workspaces'>;
+
+export function createLeaseTokenRouteGroup(params: LeaseTokenRouteClients): RouteGroup {
   return {
     // The lease token names the job, so the path carries no job id ("current").
     prefix: '/runs/jobs/current',
@@ -59,7 +63,7 @@ export function createWorkflowRoutes(params: WorkflowRouteClients): RouteGroup[]
         listRunAttemptsRoute(params.projects),
         getRunRoute(params.projects),
         cancelRunRoute(params.projects),
-        rerunRunRoute(params.projects),
+        rerunRunRoute(params.projects, params.workspaces),
       ],
     },
     createLeaseTokenRouteGroup(params),

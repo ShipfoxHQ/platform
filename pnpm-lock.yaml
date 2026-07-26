@@ -4305,6 +4305,9 @@ importers:
       '@shipfox/api-workflows-dto':
         specifier: workspace:*
         version: link:../workflows-dto
+      '@shipfox/api-workspaces-dto':
+        specifier: workspace:*
+        version: link:../workspaces-dto
       '@shipfox/expression':
         specifier: workspace:*
         version: link:../../shared/expression

@@ -3,7 +3,10 @@ import {findMatchingJobListenerSubscriptions} from '#db/job-listener-subscriptio
 import {evaluateStoredFilter, type StoredFilterEvaluation} from './config.js';
 import type {JobListenerSubscription} from './entities/job-listener-subscription.js';
 import {type TriggerHistoryRecorder, toReason} from './record-trigger-history.js';
-import type {WorkflowsModuleClient} from './workflows-client.js';
+import {
+  isPermanentDeliverEventToJobListenerError,
+  type WorkflowsModuleClient,
+} from './workflows-client.js';
 
 export interface RouteEventToJobListenersParams {
   workflows: WorkflowsModuleClient;
@@ -90,7 +93,7 @@ export async function routeEventToJobListeners(
     } catch (error) {
       dispatchErrorCount += 1;
       await params.history.listenerDispatchErrored(subscription, toReason(error));
-      if (!sawTransientError) {
+      if (!isPermanentDeliverEventToJobListenerError(error) && !sawTransientError) {
         sawTransientError = true;
         firstTransientError = error;
       }

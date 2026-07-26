@@ -8,7 +8,12 @@ import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
 import {ManualTriggerNotFoundError} from '#core/errors.js';
 import {fireManualSubscription} from '#core/fire-manual.js';
-import {isInterpolationUnresolvableError} from '#core/workflows-client.js';
+import {
+  isInterpolationUnresolvableError,
+  isWorkspaceDeletedError,
+  isWorkspaceNotFoundError,
+  isWorkspaceSuspendedError,
+} from '#core/workflows-client.js';
 import {getManualSubscriptionByDefinitionId} from '#db/subscriptions.js';
 
 export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
@@ -36,6 +41,24 @@ export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
     errorHandler: (error) => {
       if (error instanceof ManualTriggerNotFoundError) {
         throw new ClientError(error.message, 'manual-trigger-not-found', {status: 404});
+      }
+      if (isWorkspaceSuspendedError(error)) {
+        throw new ClientError('Workspace is suspended', 'workspace-suspended', {
+          status: 409,
+          cause: error,
+        });
+      }
+      if (isWorkspaceDeletedError(error)) {
+        throw new ClientError('Workspace is deleted', 'workspace-deleted', {
+          status: 404,
+          cause: error,
+        });
+      }
+      if (isWorkspaceNotFoundError(error)) {
+        throw new ClientError('Workspace not found', 'workspace-not-found', {
+          status: 404,
+          cause: error,
+        });
       }
       if (isInterpolationUnresolvableError(error)) {
         throw new ClientError(

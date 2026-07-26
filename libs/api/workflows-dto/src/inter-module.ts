@@ -57,6 +57,9 @@ export const workflowsInterModuleContract = defineInterModuleContract({
       }),
       output: z.object({id: idSchema, name: z.string()}),
       errors: {
+        'workspace-not-found': z.object({workspaceId: idSchema}),
+        'workspace-suspended': z.object({workspaceId: idSchema}),
+        'workspace-deleted': z.object({workspaceId: idSchema}),
         'definition-not-found': z.object({definitionId: idSchema}),
         'project-mismatch': z.object({}),
         'agent-config-unresolvable': z.object({definitionId: idSchema}),
@@ -83,6 +86,11 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         receivedAt: z.string().datetime(),
       }),
       output: z.object({buffered: z.boolean(), skipped: z.boolean()}),
+      errors: {
+        'workspace-not-found': z.object({workspaceId: idSchema}),
+        'workspace-suspended': z.object({workspaceId: idSchema}),
+        'workspace-deleted': z.object({workspaceId: idSchema}),
+      },
     },
     getStepLogContext: {
       input: z.object({stepId: idSchema}),

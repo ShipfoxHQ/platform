@@ -89,6 +89,72 @@ describe('POST /:definitionId/fire-manual', () => {
     });
   });
 
+  test('maps suspended workspace to 409', async () => {
+    const definitionId = crypto.randomUUID();
+    await triggerSubscriptionFactory.create({workspaceId, workflowDefinitionId: definitionId});
+    fireManualSubscriptionMock.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startRunFromTrigger,
+        'workspace-suspended',
+        {workspaceId},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/${definitionId}/fire-manual`,
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: 'workspace-suspended',
+      message: 'Workspace is suspended',
+    });
+  });
+
+  test('maps missing workspace to 404', async () => {
+    const definitionId = crypto.randomUUID();
+    await triggerSubscriptionFactory.create({workspaceId, workflowDefinitionId: definitionId});
+    fireManualSubscriptionMock.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startRunFromTrigger,
+        'workspace-not-found',
+        {workspaceId},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/${definitionId}/fire-manual`,
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({code: 'workspace-not-found', message: 'Workspace not found'});
+  });
+
+  test('maps deleted workspace to 404', async () => {
+    const definitionId = crypto.randomUUID();
+    await triggerSubscriptionFactory.create({workspaceId, workflowDefinitionId: definitionId});
+    fireManualSubscriptionMock.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startRunFromTrigger,
+        'workspace-deleted',
+        {workspaceId},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/${definitionId}/fire-manual`,
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({code: 'workspace-deleted', message: 'Workspace is deleted'});
+  });
+
   test('returns 404 when the manual trigger is unavailable', async () => {
     const res = await app.inject({
       method: 'POST',
