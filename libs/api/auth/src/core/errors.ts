@@ -47,6 +47,13 @@ export class EmailTakenError extends Error {
   }
 }
 
+export class SignupNotAllowedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SignupNotAllowedError';
+  }
+}
+
 export class InvalidCredentialsError extends Error {
   constructor() {
     super('Invalid credentials');
