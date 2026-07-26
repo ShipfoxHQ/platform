@@ -2,12 +2,16 @@ import {randomUUID} from 'node:crypto';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {DockerTemplateConfigError, loadDockerTemplates} from '#templates.js';
+import {DEFAULT_RUNNER_IMAGE, DockerTemplateConfigError, loadDockerTemplates} from '#templates.js';
+
+const mocks = vi.hoisted(() => ({warn: vi.fn()}));
+vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => mocks}));
 
 let dir: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'provisioner-docker-'));
+  mocks.warn.mockReset();
 });
 
 afterEach(() => {
@@ -60,6 +64,25 @@ describe('loadDockerTemplates', () => {
         spec: {image: 'shipfox-runner:ubuntu22', cpu: 4, memory: '8GiB'},
       },
     ]);
+  });
+
+  it('defaults the image to the published Shipfox runner', () => {
+    const path = writeTemplates(`
+templates:
+  docker-ubuntu22:
+    labels: [ubuntu22]
+    cpu: 1
+    memory: 2g
+    max_concurrency: 1
+`);
+
+    const [template] = loadDockerTemplates(path);
+
+    expect(template?.spec.image).toBe(DEFAULT_RUNNER_IMAGE);
+    expect(mocks.warn).toHaveBeenCalledWith(
+      {filePath: path, templateKey: 'docker-ubuntu22', image: DEFAULT_RUNNER_IMAGE},
+      'Docker template image omitted; using default runner image',
+    );
   });
 
   it('canonicalizes labels (lowercase, dedupe, sort)', () => {

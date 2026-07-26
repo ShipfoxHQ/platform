@@ -22,7 +22,6 @@ The template file is YAML keyed by template name:
 templates:
   docker-ubuntu22-2vcpu:
     labels: [ubuntu22, ubuntu22-2vcpu]
-    image: shipfox-runner:ubuntu22
     cpu: 2
     memory: 4GiB
     max_concurrency: 100
@@ -59,7 +58,7 @@ variables:
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | yes | - | YAML template file describing labels, image, cpu, memory, and max concurrency. |
+| `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | yes | - | YAML template file describing labels, optional image override, cpu, memory, and max concurrency. |
 | `SHIPFOX_PROVISIONER_DOCKER_HOST` | no | local Docker socket | Docker daemon host used by dockerode. |
 | `SHIPFOX_PROVISIONER_DOCKER_NETWORK` | no | - | Docker network attached to runner containers, useful for Compose-local API access. |
 | `SHIPFOX_PROVISIONER_DOCKER_EXTRA_HOSTS` | no | - | Comma-separated host mappings added to runner containers, such as `host.docker.internal:host-gateway`. |
@@ -71,8 +70,13 @@ API through a different hostname or network address than the provisioner process
 
 ## Runner image
 
-Template `image` values must point to an image that runs the Shipfox runner process and
-honors the injected environment:
+When a template omits `image`, it defaults to the published
+`ghcr.io/shipfoxhq/runner:latest` image. This moving tag is intentional so new
+published runner releases become the default without changing the template. Any
+explicit image value, including an immutable digest, must run the Shipfox runner
+process and honor the injected environment. Omit the key to use the default; a
+blank value is invalid. Docker may reuse a locally cached `latest` image, so refresh
+the image on the host to pick up a newer release.
 
 - `SHIPFOX_API_URL`
 - `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`

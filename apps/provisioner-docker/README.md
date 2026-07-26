@@ -54,8 +54,13 @@ until observation succeeds.
 
 ## Runner image
 
-Each template `image` must run the Shipfox runner process and consume the injected
-environment:
+When a template omits `image`, the provisioner uses the published
+`ghcr.io/shipfoxhq/runner:latest` image. This moving tag is intentional so new
+published runner releases become the default without changing the template. A
+template may override it with a custom image, including an immutable digest, which
+must run the Shipfox runner process and consume the injected environment. Omit the
+key to use the default; a blank value is invalid. Docker may reuse a locally cached
+`latest` image, so refresh the image on the host to pick up a newer release.
 
 - `SHIPFOX_API_URL`
 - `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`

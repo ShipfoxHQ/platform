@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import {logger} from '@shipfox/node-opentelemetry';
 import type {ProvisionerTemplate} from '@shipfox/provisioner-core';
 import {canonicalizeLabels, findInvalidLabels, MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import yaml from 'js-yaml';
@@ -12,6 +13,7 @@ export interface DockerTemplateSpec {
   readonly memory: string;
 }
 
+export const DEFAULT_RUNNER_IMAGE = 'ghcr.io/shipfoxhq/runner:latest';
 /** Raised when the template config file is missing, unparseable, or invalid. */
 export class DockerTemplateConfigError extends Error {
   constructor(message: string) {
@@ -24,7 +26,7 @@ const MAX_TEMPLATE_CONCURRENCY = 100_000;
 
 const dockerTemplateSchema = z.object({
   labels: z.array(z.string()).min(1),
-  image: z.string().trim().min(1),
+  image: z.string().trim().min(1).default(DEFAULT_RUNNER_IMAGE),
   cpu: z.number().positive(),
   memory: z.string().regex(MEMORY_PATTERN, 'must be a size like "4GiB", "512m", "2g", or "512"'),
   max_concurrency: z.number().int().positive().max(MAX_TEMPLATE_CONCURRENCY),
@@ -42,7 +44,8 @@ const dockerTemplatesFileSchema = z.object({
  * not validate, an invalid label, or an empty template set.
  */
 export function loadDockerTemplates(filePath: string): ProvisionerTemplate<DockerTemplateSpec>[] {
-  const parsed = dockerTemplatesFileSchema.safeParse(parseYamlFile(filePath));
+  const raw = parseYamlFile(filePath);
+  const parsed = dockerTemplatesFileSchema.safeParse(raw);
   if (!parsed.success) {
     throw new DockerTemplateConfigError(
       `Invalid Docker template config at ${filePath}: ${formatIssues(parsed.error)}`,
@@ -56,7 +59,25 @@ export function loadDockerTemplates(filePath: string): ProvisionerTemplate<Docke
     );
   }
 
-  return entries.map(([key, spec]) => toTemplate(filePath, key, spec));
+  return entries.map(([key, spec]) => {
+    if (!hasImageField(raw, key)) {
+      logger().warn(
+        {filePath, templateKey: key, image: spec.image},
+        'Docker template image omitted; using default runner image',
+      );
+    }
+    return toTemplate(filePath, key, spec);
+  });
+}
+
+function hasImageField(raw: unknown, key: string): boolean {
+  if (!isRecord(raw) || !isRecord(raw.templates)) return false;
+  const template = raw.templates[key];
+  return isRecord(template) && Object.hasOwn(template, 'image');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function toTemplate(
