@@ -17,6 +17,27 @@ export class ProjectMismatchError extends Error {
   }
 }
 
+export class WorkspaceSuspendedError extends Error {
+  constructor(readonly workspaceId: string) {
+    super(`Workspace is suspended: ${workspaceId}`);
+    this.name = 'WorkspaceSuspendedError';
+  }
+}
+
+export class WorkspaceDeletedError extends Error {
+  constructor(readonly workspaceId: string) {
+    super(`Workspace is deleted: ${workspaceId}`);
+    this.name = 'WorkspaceDeletedError';
+  }
+}
+
+export class WorkspaceNotFoundError extends Error {
+  constructor(readonly workspaceId: string) {
+    super(`Workspace not found: ${workspaceId}`);
+    this.name = 'WorkspaceNotFoundError';
+  }
+}
+
 export class AgentConfigUnresolvableError extends Error {
   constructor(
     readonly definitionId: string,

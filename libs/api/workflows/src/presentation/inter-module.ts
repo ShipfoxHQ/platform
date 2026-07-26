@@ -6,13 +6,20 @@ import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module'
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
+import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {
   createInterModuleKnownError,
   defineInterModulePresentation,
+  type InterModuleKnownErrorFor,
   type InterModulePresentation,
 } from '@shipfox/inter-module';
 import {DEFAULT_HARNESS, harnessSchema} from '@shipfox/workflow-document';
-import {InvalidJobRunnerLabelsError} from '#core/errors.js';
+import {
+  InvalidJobRunnerLabelsError,
+  WorkspaceDeletedError,
+  WorkspaceNotFoundError,
+  WorkspaceSuspendedError,
+} from '#core/errors.js';
 import {
   AgentConfigUnresolvableError,
   AgentIntegrationMaterializationError,
@@ -21,12 +28,18 @@ import {
   ProjectMismatchError,
   runWorkflow,
 } from '#core/index.js';
+import {assertWorkspaceAdmitsNewJobs} from '#core/workspace-admission.js';
 import {getJobScope, getStepById, getStepByIdForJobExecution} from '#db/index.js';
 import {deliverEventToListener} from '#db/job-listener-events.js';
+
+type WorkspaceAdmissionKnownError = InterModuleKnownErrorFor<
+  typeof workflowsInterModuleContract.methods.deliverEventToJobListener
+>;
 
 export function createWorkflowsInterModulePresentation(params: {
   agent: AgentInterModuleClient;
   definitions: DefinitionsInterModuleClient;
+  workspaces: WorkspacesInterModuleClient;
   secrets: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'>;
   runners: RunnersInterModuleClient;
   integrations: IntegrationsModuleClient;
@@ -35,6 +48,7 @@ export function createWorkflowsInterModulePresentation(params: {
   return defineInterModulePresentation(workflowsInterModuleContract, {
     startRunFromTrigger: async (input) => {
       try {
+        await assertWorkspaceAdmitsNewJobs(params.workspaces, input.workspaceId);
         const run = await runWorkflow(
           params.definitions,
           {
@@ -55,8 +69,20 @@ export function createWorkflowsInterModulePresentation(params: {
         throw toStartRunKnownError(error, input.definitionId);
       }
     },
-    deliverEventToJobListener: async (input) =>
-      await deliverEventToListener({...input, receivedAt: new Date(input.receivedAt)}),
+    deliverEventToJobListener: async (input) => {
+      const method = workflowsInterModuleContract.methods.deliverEventToJobListener;
+      try {
+        if (input.disposition === 'fire') {
+          const scope = await getJobScope(input.jobId);
+          if (scope) await assertWorkspaceAdmitsNewJobs(params.workspaces, scope.workspaceId);
+        }
+        return await deliverEventToListener({...input, receivedAt: new Date(input.receivedAt)});
+      } catch (error) {
+        const workspaceError = toWorkspaceAdmissionKnownError(method, error);
+        if (workspaceError !== undefined) throw workspaceError;
+        throw error;
+      }
+    },
     getStepLogContext: async ({stepId}) => {
       const step = await getStepById(stepId);
       const parsed = harnessSchema.safeParse(step?.config.harness);
@@ -98,6 +124,8 @@ export function createWorkflowsInterModulePresentation(params: {
 
 export function toStartRunKnownError(error: unknown, definitionId: string): unknown {
   const method = workflowsInterModuleContract.methods.startRunFromTrigger;
+  const workspaceError = toWorkspaceAdmissionKnownError(method, error);
+  if (workspaceError !== undefined) return workspaceError;
   if (error instanceof DefinitionNotFoundError) {
     return createInterModuleKnownError(method, 'definition-not-found', {definitionId});
   }
@@ -126,4 +154,28 @@ export function toStartRunKnownError(error: unknown, definitionId: string): unkn
     });
   }
   return error;
+}
+
+function toWorkspaceAdmissionKnownError(
+  method:
+    | typeof workflowsInterModuleContract.methods.startRunFromTrigger
+    | typeof workflowsInterModuleContract.methods.deliverEventToJobListener,
+  error: unknown,
+): WorkspaceAdmissionKnownError | undefined {
+  if (error instanceof WorkspaceSuspendedError) {
+    return createInterModuleKnownError(method, 'workspace-suspended', {
+      workspaceId: error.workspaceId,
+    });
+  }
+  if (error instanceof WorkspaceDeletedError) {
+    return createInterModuleKnownError(method, 'workspace-deleted', {
+      workspaceId: error.workspaceId,
+    });
+  }
+  if (error instanceof WorkspaceNotFoundError) {
+    return createInterModuleKnownError(method, 'workspace-not-found', {
+      workspaceId: error.workspaceId,
+    });
+  }
+  return undefined;
 }

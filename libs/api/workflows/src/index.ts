@@ -22,6 +22,7 @@ import {
   type WorkflowsEventMapDto,
   workflowsEventSchemas,
 } from '@shipfox/api-workflows-dto';
+import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {type ShipfoxModule, subscriberFactory} from '@shipfox/node-module';
 import {db, migrationsPath, workflowsOutbox} from '#db/index.js';
 import {registerWorkflowsServiceMetrics} from '#metrics/index.js';
@@ -83,6 +84,7 @@ export function createWorkflowsModule({
   projects,
   runners,
   secrets,
+  workspaces,
 }: {
   agent: AgentInterModuleClient;
   definitions: DefinitionsInterModuleClient;
@@ -92,6 +94,7 @@ export function createWorkflowsModule({
   projects: ProjectsModuleClient;
   runners: RunnersInterModuleClient;
   secrets: SecretsInterModuleClient;
+  workspaces: WorkspacesInterModuleClient;
 }): ShipfoxModule {
   return {
     name: 'workflows',
@@ -104,6 +107,7 @@ export function createWorkflowsModule({
       projects,
       runners,
       secrets,
+      workspaces,
     }),
     metrics: registerWorkflowsServiceMetrics,
     publishers: [
@@ -135,6 +139,7 @@ export function createWorkflowsModule({
         projects,
         runners,
         secrets,
+        workspaces,
       }),
     ],
   };

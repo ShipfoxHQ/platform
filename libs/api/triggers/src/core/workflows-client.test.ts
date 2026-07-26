@@ -8,7 +8,10 @@ import {
   defineInterModulePresentation,
 } from '@shipfox/inter-module';
 import {createFakeInterModuleClients} from '@shipfox/node-module/inter-module/testing';
-import {isPermanentStartRunError} from './workflows-client.js';
+import {
+  isPermanentDeliverEventToJobListenerError,
+  isPermanentStartRunError,
+} from './workflows-client.js';
 
 const input = {
   workspaceId: '00000000-0000-4000-8000-000000000001',
@@ -24,6 +27,20 @@ const input = {
   idempotencyKey: 'subscription-1:event-1',
 };
 
+const listenerInput = {
+  jobId: '00000000-0000-4000-8000-000000000006',
+  disposition: 'fire' as const,
+  eventRef: 'event-1',
+  deliveryId: 'delivery-1',
+  source: 'github',
+  event: 'push',
+  provider: 'github',
+  payload: {action: 'opened'},
+  receivedAt: '2026-07-26T00:00:00.000Z',
+};
+
+const listenerErrorInput = {...listenerInput, jobId: '00000000-0000-4000-8000-000000000007'};
+
 function localWorkflowsClient(): WorkflowsModuleClient {
   return createFakeInterModuleClients({
     workflows: defineInterModulePresentation(workflowsInterModuleContract, {
@@ -35,7 +52,16 @@ function localWorkflowsClient(): WorkflowsModuleClient {
           {definitionId},
         );
       },
-      deliverEventToJobListener: () => ({buffered: true, skipped: false}),
+      deliverEventToJobListener: ({jobId}) => {
+        if (jobId === listenerErrorInput.jobId) {
+          throw createInterModuleKnownError(
+            workflowsInterModuleContract.methods.deliverEventToJobListener,
+            'workspace-not-found',
+            {workspaceId: input.workspaceId},
+          );
+        }
+        return {buffered: true, skipped: false};
+      },
       getStepLogContext: () => ({harness: 'pi' as const}),
       getLeasedAgentToolContext: () => ({
         workspaceId: '00000000-0000-4000-8000-000000000006',
@@ -61,6 +87,15 @@ async function runConsumerSuite(client: WorkflowsModuleClient): Promise<void> {
 
   const result = client.startRunFromTrigger({...input, definitionId: crypto.randomUUID()});
   await expect(result).rejects.toSatisfy(isPermanentStartRunError);
+
+  await expect(client.deliverEventToJobListener(listenerInput)).resolves.toEqual({
+    buffered: true,
+    skipped: false,
+  });
+  await expect(client.deliverEventToJobListener(listenerErrorInput)).rejects.toMatchObject({
+    code: 'workspace-not-found',
+    details: {workspaceId: input.workspaceId},
+  });
 }
 
 describe('WorkflowsModuleClient consumer parity', () => {
@@ -69,5 +104,19 @@ describe('WorkflowsModuleClient consumer parity', () => {
 
     await runConsumerSuite(local);
     await runConsumerSuite(serializedWorkflowsClient(local));
+  });
+
+  test.each([
+    'workspace-not-found',
+    'workspace-suspended',
+    'workspace-deleted',
+  ] as const)('treats a %s listener delivery as permanent', (code) => {
+    const error = createInterModuleKnownError(
+      workflowsInterModuleContract.methods.deliverEventToJobListener,
+      code,
+      {workspaceId: input.workspaceId},
+    );
+
+    expect(isPermanentDeliverEventToJobListenerError(error)).toBe(true);
   });
 });

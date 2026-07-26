@@ -47,6 +47,9 @@ describe('workflowsInterModuleContract', () => {
   });
 
   test.each([
+    ['workspace-not-found', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    ['workspace-suspended', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    ['workspace-deleted', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
     ['definition-not-found', {definitionId: '00000000-0000-4000-8000-000000000001'}],
     ['project-mismatch', {}],
     ['agent-config-unresolvable', {definitionId: '00000000-0000-4000-8000-000000000001'}],
@@ -66,6 +69,16 @@ describe('workflowsInterModuleContract', () => {
     const parsed = schema.parse(details);
 
     expect(parsed).toEqual(details);
+  });
+
+  test.each([
+    ['workspace-not-found', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    ['workspace-suspended', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    ['workspace-deleted', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+  ] as const)('defines the %s listener-delivery failure', (code, details) => {
+    const schema = workflowsInterModuleContract.methods.deliverEventToJobListener.errors[code];
+
+    expect(schema.parse(details)).toEqual(details);
   });
 
   test.each([

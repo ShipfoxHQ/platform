@@ -1,5 +1,10 @@
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {
+  type WorkspacesInterModuleClient,
+  workspacesInterModuleContract,
+} from '@shipfox/api-workspaces-dto/inter-module';
+import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {ClientError} from '@shipfox/node-fastify';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
@@ -20,6 +25,8 @@ const projects = {
   getProjectById,
   requireProjectForWorkspace: vi.fn(),
 } as unknown as ProjectsModuleClient;
+const getWorkspaceOperatingState = vi.fn();
+const workspaces = {getWorkspaceOperatingState} as unknown as WorkspacesInterModuleClient;
 
 describe('POST /api/workflows/runs/:id/rerun', () => {
   let app: FastifyInstance;
@@ -41,7 +48,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       );
       done();
     });
-    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects));
+    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces));
     await app.ready();
   });
 
@@ -60,6 +67,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
         },
       }),
     );
+    getWorkspaceOperatingState.mockResolvedValue({status: 'active'});
   });
 
   async function createTerminalRun(status: 'succeeded' | 'failed' = 'failed') {
@@ -133,6 +141,55 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.json().code).toBe('no-failed-jobs');
+  });
+
+  test('returns workspace-suspended before creating a new attempt', async () => {
+    const source = await createTerminalRun('failed');
+    getWorkspaceOperatingState.mockResolvedValueOnce({status: 'suspended'});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/workflows/runs/${source.id}/rerun`,
+      payload: {mode: 'all'},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('workspace-suspended');
+    expect(getWorkspaceOperatingState).toHaveBeenCalledWith({workspaceId});
+  });
+
+  test('returns workspace-deleted before creating a new attempt', async () => {
+    const source = await createTerminalRun('failed');
+    getWorkspaceOperatingState.mockResolvedValueOnce({status: 'deleted'});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/workflows/runs/${source.id}/rerun`,
+      payload: {mode: 'all'},
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('workspace-deleted');
+  });
+
+  test('returns workspace-not-found before creating a new attempt', async () => {
+    const source = await createTerminalRun('failed');
+    getWorkspaceOperatingState.mockRejectedValueOnce(
+      createInterModuleKnownError(
+        workspacesInterModuleContract.methods.getWorkspaceOperatingState,
+        'workspace-not-found',
+        {workspaceId},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/workflows/runs/${source.id}/rerun`,
+      payload: {mode: 'all'},
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('workspace-not-found');
   });
 
   test('returns 409 when the source run is not terminal', async () => {

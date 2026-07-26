@@ -43,6 +43,7 @@ describe('workflow route auth', () => {
     projects: projectsTestClient,
     runners: runnersTestClient,
     secrets: createTestSecretsClient(),
+    workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
   });
   test('uses user auth', () => {
     expect(workflowRoutes[0]?.auth).toBe(AUTH_USER);

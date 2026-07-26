@@ -1,3 +1,5 @@
+import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
+import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {jobListenerSubscriptionFactory} from '#test/index.js';
 import type {TriggerHistoryRecorder} from './record-trigger-history.js';
 
@@ -192,6 +194,34 @@ describe('routeEventToJobListeners', () => {
       deliveredCount: 1,
       transientErrored: true,
       transientError: error,
+    });
+  });
+
+  it.each([
+    'workspace-not-found',
+    'workspace-suspended',
+    'workspace-deleted',
+  ] as const)('does not retry a %s workspace listener delivery', async (code) => {
+    const workspaceId = crypto.randomUUID();
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'pull_request_review',
+    });
+    const error = createInterModuleKnownError(
+      workflowsInterModuleContract.methods.deliverEventToJobListener,
+      code,
+      {workspaceId},
+    );
+    deliverEventToListener.mockRejectedValueOnce(error);
+
+    const result = await route({workspaceId});
+
+    expect(listenerDispatchErrored).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      engagedCount: 1,
+      acceptedJobCount: 0,
+      transientErrored: false,
     });
   });
 

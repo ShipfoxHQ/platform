@@ -1,5 +1,6 @@
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
-import {isInterModuleKnownError} from '@shipfox/inter-module';
+import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
+import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
 import {InvalidJobRunnerLabelsError} from '#core/errors.js';
 import {
   AgentConfigUnresolvableError,
@@ -11,12 +12,16 @@ import {
 import {createWorkflowsInterModulePresentation, toStartRunKnownError} from './inter-module.js';
 
 const mocks = vi.hoisted(() => ({
+  deliverEventToListener: vi.fn(),
   getJobScope: vi.fn(),
   getStepById: vi.fn(),
   getStepByIdForJobExecution: vi.fn(),
 }));
 
 vi.mock('#db/index.js', () => mocks);
+vi.mock('#db/job-listener-events.js', () => ({
+  deliverEventToListener: mocks.deliverEventToListener,
+}));
 
 const input = {
   workspaceId: '00000000-0000-4000-8000-000000000001',
@@ -37,6 +42,8 @@ describe('Workflows inter-module presentation', () => {
     mocks.getJobScope.mockReset();
     mocks.getStepById.mockReset();
     mocks.getStepByIdForJobExecution.mockReset();
+    mocks.deliverEventToListener.mockReset();
+    mocks.deliverEventToListener.mockResolvedValue({buffered: true, skipped: false});
   });
 
   it('returns only the resolved harness for Logs', async () => {
@@ -48,6 +55,7 @@ describe('Workflows inter-module presentation', () => {
       projects: {} as never,
       runners: {} as never,
       secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
     });
 
     const result = await presentation.handlers.getStepLogContext(
@@ -103,6 +111,7 @@ describe('Workflows inter-module presentation', () => {
       projects: {} as never,
       runners: runners as never,
       secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
     });
 
     const result = await presentation.handlers.getLeasedAgentToolContext(input, {
@@ -145,5 +154,193 @@ describe('Workflows inter-module presentation', () => {
       isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, result) &&
         result.code,
     ).toBe(code);
+  });
+
+  test('maps a missing workspace from the Workspace contract for start-run', async () => {
+    const getWorkspaceOperatingState = vi
+      .fn()
+      .mockRejectedValue(
+        createInterModuleKnownError(
+          workspacesInterModuleContract.methods.getWorkspaceOperatingState,
+          'workspace-not-found',
+          {workspaceId: input.workspaceId},
+        ),
+      );
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.startRunFromTrigger(input, {
+        signal: new AbortController().signal,
+      }),
+    ).catch((caught: unknown) => caught);
+
+    expect(
+      isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, error) &&
+        error.code,
+    ).toBe('workspace-not-found');
+  });
+
+  test.each([
+    ['suspended', 'workspace-suspended'],
+    ['deleted', 'workspace-deleted'],
+  ] as const)('rejects new workflow runs for %s workspaces before loading the definition', async (status, code) => {
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.startRunFromTrigger(input, {
+        signal: new AbortController().signal,
+      }),
+    ).catch((caught: unknown) => caught);
+
+    expect(getWorkspaceOperatingState).toHaveBeenCalledWith({workspaceId: input.workspaceId});
+    expect(
+      isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, error) &&
+        error.code,
+    ).toBe(code);
+  });
+
+  test('maps a missing workspace from the Workspace contract for listener delivery', async () => {
+    const jobId = '00000000-0000-4000-8000-000000000006';
+    const workspaceId = '00000000-0000-4000-8000-000000000007';
+    mocks.getJobScope.mockResolvedValue({workspaceId, projectId: input.projectId});
+    const getWorkspaceOperatingState = vi
+      .fn()
+      .mockRejectedValue(
+        createInterModuleKnownError(
+          workspacesInterModuleContract.methods.getWorkspaceOperatingState,
+          'workspace-not-found',
+          {workspaceId},
+        ),
+      );
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.deliverEventToJobListener(
+        {
+          jobId,
+          disposition: 'fire',
+          eventRef: 'event-1',
+          deliveryId: 'delivery-1',
+          source: 'github',
+          event: 'push',
+          provider: 'github',
+          payload: {},
+          receivedAt: '2026-07-20T12:00:00.000Z',
+        },
+        {signal: new AbortController().signal},
+      ),
+    ).catch((caught: unknown) => caught);
+
+    expect(
+      isInterModuleKnownError(
+        workflowsInterModuleContract.methods.deliverEventToJobListener,
+        error,
+      ) && error.code,
+    ).toBe('workspace-not-found');
+  });
+
+  test.each([
+    ['suspended', 'workspace-suspended'],
+    ['deleted', 'workspace-deleted'],
+  ] as const)('rejects listener execution materialization for %s workspaces', async (status, code) => {
+    const jobId = '00000000-0000-4000-8000-000000000006';
+    const workspaceId = '00000000-0000-4000-8000-000000000007';
+    mocks.getJobScope.mockResolvedValue({workspaceId, projectId: input.projectId});
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.deliverEventToJobListener(
+        {
+          jobId,
+          disposition: 'fire',
+          eventRef: 'event-1',
+          deliveryId: 'delivery-1',
+          source: 'github',
+          event: 'push',
+          provider: 'github',
+          payload: {},
+          receivedAt: '2026-07-20T12:00:00.000Z',
+        },
+        {signal: new AbortController().signal},
+      ),
+    ).catch((caught: unknown) => caught);
+
+    expect(getWorkspaceOperatingState).toHaveBeenCalledWith({workspaceId});
+    expect(mocks.deliverEventToListener).not.toHaveBeenCalled();
+    expect(
+      isInterModuleKnownError(
+        workflowsInterModuleContract.methods.deliverEventToJobListener,
+        error,
+      ) && error.code,
+    ).toBe(code);
+  });
+
+  test('allows resolve deliveries for suspended workspaces', async () => {
+    const jobId = '00000000-0000-4000-8000-000000000006';
+    mocks.getJobScope.mockResolvedValue({workspaceId: input.workspaceId});
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status: 'suspended'});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+    });
+
+    await expect(
+      presentation.handlers.deliverEventToJobListener(
+        {
+          jobId,
+          disposition: 'resolve',
+          eventRef: 'event-1',
+          deliveryId: 'delivery-1',
+          source: 'github',
+          event: 'push',
+          provider: 'github',
+          payload: {},
+          receivedAt: '2026-07-20T12:00:00.000Z',
+        },
+        {signal: new AbortController().signal},
+      ),
+    ).resolves.toEqual({buffered: true, skipped: false});
+    expect(mocks.getJobScope).not.toHaveBeenCalled();
+    expect(getWorkspaceOperatingState).not.toHaveBeenCalled();
+    expect(mocks.deliverEventToListener).toHaveBeenCalled();
   });
 });

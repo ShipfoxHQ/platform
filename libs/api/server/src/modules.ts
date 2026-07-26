@@ -180,6 +180,7 @@ export async function defaultModules(
       projects: projectsClient,
       runners: runnersClient,
       secrets: secretsClient,
+      workspaces: workspacesClient,
       integrations: integrationsClient,
     }),
     annotationsModule,
