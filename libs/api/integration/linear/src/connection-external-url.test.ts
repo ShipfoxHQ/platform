@@ -18,7 +18,7 @@ function installation(overrides: Partial<LinearInstallation> = {}): LinearInstal
 }
 
 describe('linear connectionExternalUrl', () => {
-  it('resolves the organization settings URL from the installation row', async () => {
+  it('resolves the organization application settings URL from the installation row', async () => {
     const connectionId = crypto.randomUUID();
     const provider = createLinearIntegrationProvider({
       getLinearInstallationByConnectionId: () =>
@@ -27,7 +27,7 @@ describe('linear connectionExternalUrl', () => {
 
     const url = await provider.connectionExternalUrl({id: connectionId});
 
-    expect(url).toBe('https://linear.app/acme/settings');
+    expect(url).toBe('https://linear.app/acme/settings/applications/test-client-id');
   });
 
   it('URL-encodes the organization URL key', async () => {
@@ -38,7 +38,7 @@ describe('linear connectionExternalUrl', () => {
 
     const url = await provider.connectionExternalUrl({id: crypto.randomUUID()});
 
-    expect(url).toBe('https://linear.app/a%2Fb%20c/settings');
+    expect(url).toBe('https://linear.app/a%2Fb%20c/settings/applications/test-client-id');
   });
 
   it('returns undefined when the installation row is missing', async () => {
