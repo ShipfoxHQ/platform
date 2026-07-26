@@ -3,6 +3,7 @@ import {
   AUTH_USER_SIGNED_UP,
   authEventSchemas,
 } from '@shipfox/api-auth-dto';
+import {ADMINISTRATION_ACTION_PERFORMED} from '@shipfox/api-common-dto';
 import {createAuthModule} from './index.js';
 import {passwordLoginMethods} from './login-methods.js';
 
@@ -75,7 +76,7 @@ describe('authModule', () => {
         requireActiveMembership: vi.fn(),
       },
     });
-    expect(module.routes).toHaveLength(1);
+    expect(module.routes).toHaveLength(2);
     const signupPolicy = buildAuthRoutes.mock.calls[0]?.[2];
 
     expect(signupPolicy).toEqual(expect.objectContaining({isSignupAllowed: expect.any(Function)}));
@@ -95,8 +96,9 @@ describe('authModule', () => {
     const publisher = authModule.publishers?.find((pub) => pub.name === 'auth');
     const events = authModule.subscribers?.map((subscriber) => subscriber.event);
 
-    expect(publisher?.eventSchemas).toBe(authEventSchemas);
+    expect(publisher?.eventSchemas).not.toBe(authEventSchemas);
     expect(Object.keys(publisher?.eventSchemas ?? {}).sort()).toEqual([
+      ADMINISTRATION_ACTION_PERFORMED,
       AUTH_PASSWORD_RESET_SEND_REQUESTED,
       AUTH_USER_SIGNED_UP,
     ]);

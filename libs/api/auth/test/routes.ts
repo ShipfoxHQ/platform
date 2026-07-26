@@ -8,6 +8,7 @@ import {and, desc, eq, sql} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {authOutbox} from '#db/schema/outbox.js';
 import {createJwtAuthMethod} from '#presentation/auth/jwt-auth.js';
+import {administrationRoutes} from '#presentation/routes/administration.js';
 import {buildAuthRoutes} from '#presentation/routes/index.js';
 
 const testConfig = vi.hoisted(
@@ -48,6 +49,7 @@ const workspaces = workspaceTestDoubles as unknown as WorkspacesInterModuleClien
 
 vi.mock('#config.js', () => ({
   config: {
+    ADMIN_BOOTSTRAP_TOKEN: 'test-bootstrap-token',
     AUTH_JWT_EXPIRES_IN: '15m',
     AUTH_REFRESH_TOKEN_EXPIRES_IN_DAYS: 14,
     AUTH_REFRESH_ROTATION_GRACE_SECONDS: 30,
@@ -147,7 +149,7 @@ export async function createAuthTestApp(params?: {
 }): Promise<FastifyInstance> {
   const appConfig: AppConfig = {
     auth: [createJwtAuthMethod()],
-    routes: [buildAuthRoutes(true, workspaces)],
+    routes: [buildAuthRoutes(true, workspaces), administrationRoutes],
     swagger: false,
   };
   if (params?.fastifyOptions) appConfig.fastifyOptions = params.fastifyOptions;

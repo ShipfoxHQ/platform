@@ -8,7 +8,26 @@ export {
   authPasswordResetSendRequestedSchema,
   authUserSignedUpSchema,
 } from '../events.js';
-export {type AdminRole, adminRoleSchema} from './admin.js';
+export {
+  type AdminGrantDto,
+  type AdminRole,
+  adminGrantDtoSchema,
+  adminRoleSchema,
+  type BootstrapAdminOwnerBodyDto,
+  type BootstrapAdminOwnerResponseDto,
+  bootstrapAdminOwnerBodySchema,
+  bootstrapAdminOwnerResponseSchema,
+  type GrantAdminRoleBodyDto,
+  type GrantAdminRoleResponseDto,
+  grantAdminRoleBodySchema,
+  grantAdminRoleResponseSchema,
+  type ListAdminGrantsResponseDto,
+  listAdminGrantsResponseSchema,
+  type RevokeAdminGrantBodyDto,
+  type RevokeAdminGrantResponseDto,
+  revokeAdminGrantBodySchema,
+  revokeAdminGrantResponseSchema,
+} from './admin.js';
 export {
   type ChangePasswordBodyDto,
   changePasswordBodySchema,

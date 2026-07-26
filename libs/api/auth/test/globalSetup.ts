@@ -1,5 +1,8 @@
 import './env.js';
-import {initializeEmailChallengesForTests} from '@shipfox/api-email-challenges/test';
+import {
+  initializeEmailChallengesForTests,
+  resetEmailChallengesForTests,
+} from '@shipfox/api-email-challenges/test';
 import {runMigrations} from '@shipfox/node-drizzle';
 import {closePostgresClient, createPostgresClient} from '@shipfox/node-postgres';
 import {sql} from 'drizzle-orm';
@@ -11,8 +14,9 @@ export async function setup() {
 
   await runMigrations(db(), migrationsPath, '__drizzle_migrations_auth');
   await initializeEmailChallengesForTests();
+  await resetEmailChallengesForTests();
   await db().execute(
-    sql`TRUNCATE auth_admin_grants, auth_outbox, auth_password_resets, auth_rate_limits, auth_refresh_tokens, auth_users CASCADE`,
+    sql`TRUNCATE auth_admin_command_results, auth_admin_grants, auth_outbox, auth_password_resets, auth_rate_limits, auth_refresh_tokens, auth_users CASCADE`,
   );
 
   closeDb();
