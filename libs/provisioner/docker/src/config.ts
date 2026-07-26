@@ -2,7 +2,7 @@ import {createConfig, num, str} from '@shipfox/config';
 
 export const config = createConfig({
   SHIPFOX_PROVISIONER_TEMPLATES_FILE: str({
-    desc: 'Path to the YAML file describing the Docker runner templates this provisioner can start. Required. Each template lists its labels, image, cpu, memory, and max_concurrency.',
+    desc: 'Path to the YAML file describing the Docker runner templates this provisioner can start. Required. Each template lists its labels, cpu, memory, and max_concurrency, and may override the default runner image.',
   }),
   SHIPFOX_PROVISIONER_DOCKER_HOST: str({
     desc: 'Docker daemon host used by dockerode. Leave unset to use the local Docker socket, or set a Docker host URL when the daemon is remote.',

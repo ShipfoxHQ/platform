@@ -5,7 +5,6 @@
 templates:
   docker-ubuntu22-2vcpu:
     labels: [ubuntu22, ubuntu22-2vcpu]
-    image: shipfox-runner:ubuntu22
     cpu: 2
     memory: 4GiB
     max_concurrency: 100
@@ -13,7 +12,6 @@ templates:
 
   docker-ubuntu22-4vcpu:
     labels: [ubuntu22, ubuntu22-4vcpu]
-    image: shipfox-runner:ubuntu22
     cpu: 4
     memory: 8GiB
     max_concurrency: 50
