@@ -71,9 +71,11 @@ API through a different hostname or network address than the provisioner process
 ## Runner image
 
 When a template omits `image`, it defaults to the published
-`ghcr.io/shipfoxhq/runner` image pinned to an immutable digest. Any explicit image
-value must run the Shipfox runner process and honor the injected environment. Omit
-the key to use the default; a blank value is invalid.
+`ghcr.io/shipfoxhq/runner:latest` image. This moving tag is intentional so new
+published runner releases become the default without changing the template. Any
+explicit image value, including an immutable digest, must run the Shipfox runner
+process and honor the injected environment. Omit the key to use the default; a
+blank value is invalid.
 
 - `SHIPFOX_API_URL`
 - `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`

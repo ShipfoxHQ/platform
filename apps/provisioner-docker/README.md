@@ -55,10 +55,11 @@ until observation succeeds.
 ## Runner image
 
 When a template omits `image`, the provisioner uses the published
-`ghcr.io/shipfoxhq/runner` image pinned to an immutable digest. A template may
-override it with a custom image, which must run the Shipfox runner process and
-consume the injected environment. Omit the key to use the default; a blank value
-is invalid.
+`ghcr.io/shipfoxhq/runner:latest` image. This moving tag is intentional so new
+published runner releases become the default without changing the template. A
+template may override it with a custom image, including an immutable digest, which
+must run the Shipfox runner process and consume the injected environment. Omit the
+key to use the default; a blank value is invalid.
 
 - `SHIPFOX_API_URL`
 - `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`

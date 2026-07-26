@@ -13,8 +13,7 @@ export interface DockerTemplateSpec {
   readonly memory: string;
 }
 
-export const DEFAULT_RUNNER_IMAGE =
-  'ghcr.io/shipfoxhq/runner@sha256:1eee915cf6d18b7aab019d17b592d8334ebd22fbc7a47658eb8053c4b0dc8a06';
+export const DEFAULT_RUNNER_IMAGE = 'ghcr.io/shipfoxhq/runner:latest';
 /** Raised when the template config file is missing, unparseable, or invalid. */
 export class DockerTemplateConfigError extends Error {
   constructor(message: string) {
