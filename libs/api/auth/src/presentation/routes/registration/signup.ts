@@ -6,12 +6,15 @@ import {signup, signupWithInvitation} from '#core/auth.js';
 import {
   EmailTakenError,
   InvitationEmailMismatchError,
+  SignupNotAllowedError,
   TokenAlreadyUsedError,
   TokenExpiredError,
   TokenInvalidError,
 } from '#core/errors.js';
 import {setRefreshTokenCookie} from '#presentation/auth/refresh-cookie.js';
 import {toUserDto} from '#presentation/dto/user.js';
+
+const SIGNUP_NOT_ALLOWED_MESSAGE_MAX_LENGTH = 500;
 
 export function createSignupRoute(workspaces: WorkspacesInterModuleClient) {
   return defineRoute({
@@ -34,6 +37,13 @@ export function createSignupRoute(workspaces: WorkspacesInterModuleClient) {
       }
       if (error instanceof EmailTakenError) {
         throw new ClientError('Email already registered', 'email-taken', {status: 409});
+      }
+      if (error instanceof SignupNotAllowedError) {
+        const message = error.message.slice(0, SIGNUP_NOT_ALLOWED_MESSAGE_MAX_LENGTH);
+        throw new ClientError(message, 'signup-not-allowed', {
+          status: 403,
+          details: {message},
+        });
       }
       if (error instanceof TokenInvalidError) {
         throw new ClientError('Invitation token is invalid', 'invitation-token-invalid', {

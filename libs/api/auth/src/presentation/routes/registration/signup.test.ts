@@ -1,6 +1,9 @@
+import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
+import {ClientError} from '@shipfox/node-fastify';
 import type {FastifyInstance} from 'fastify';
+import {SignupNotAllowedError} from '#core/errors.js';
 import {verifyUserToken} from '#core/jwt.js';
 import {
   acceptWorkspaceInvitationMock,
@@ -14,6 +17,7 @@ import {
   signup,
   uniqueEmail,
 } from '#test/routes.js';
+import {createSignupRoute} from './signup.js';
 
 describe('POST /auth/signup', () => {
   let app: FastifyInstance;
@@ -25,6 +29,28 @@ describe('POST /auth/signup', () => {
 
   beforeEach(() => {
     resetCapturedMail();
+  });
+
+  test('maps a denied signup to a bounded client error', () => {
+    const errorHandler = createSignupRoute({} as WorkspacesInterModuleClient).errorHandler as (
+      error: unknown,
+    ) => never;
+    const message = 'x'.repeat(501);
+    let mapped: unknown;
+
+    try {
+      errorHandler(new SignupNotAllowedError(message));
+    } catch (error) {
+      mapped = error;
+    }
+
+    expect(mapped).toBeInstanceOf(ClientError);
+    expect(mapped).toMatchObject({
+      message: 'x'.repeat(500),
+      status: 403,
+      code: 'signup-not-allowed',
+      details: {message: 'x'.repeat(500)},
+    });
   });
 
   afterAll(async () => {
