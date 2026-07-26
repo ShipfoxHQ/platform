@@ -1,5 +1,12 @@
 # @shipfox/client-runners
 
+## 10.0.0
+
+### Patch Changes
+
+- Updated dependencies [456c884]
+  - @shipfox/client-shell@10.0.0
+
 ## 9.0.0
 
 ### Patch Changes

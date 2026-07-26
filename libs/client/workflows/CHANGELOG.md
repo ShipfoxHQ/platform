@@ -1,5 +1,14 @@
 # @shipfox/client-workflows
 
+## 10.0.0
+
+### Patch Changes
+
+- Updated dependencies [456c884]
+  - @shipfox/client-shell@10.0.0
+  - @shipfox/client-projects@10.0.0
+  - @shipfox/client-triggers@10.0.0
+
 ## 9.0.0
 
 ### Patch Changes

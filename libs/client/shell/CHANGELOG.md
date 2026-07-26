@@ -1,5 +1,17 @@
 # Changelog
 
+## 10.0.0
+
+### Minor Changes
+
+- 456c884: Add Auth-owned local administrator grants and server-side role evaluation.
+
+### Patch Changes
+
+- Updated dependencies [456c884]
+  - @shipfox/api-auth-dto@9.2.0
+  - @shipfox/api-workspaces-dto@9.2.0
+
 ## 9.0.0
 
 ### Minor Changes

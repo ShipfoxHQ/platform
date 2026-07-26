@@ -1,5 +1,11 @@
 # @shipfox/api-integration-linear
 
+## 9.2.0
+
+### Patch Changes
+
+- @shipfox/api-auth-context@9.2.0
+
 ## 9.1.0
 
 ### Patch Changes

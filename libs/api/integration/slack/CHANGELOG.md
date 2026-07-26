@@ -1,5 +1,12 @@
 # @shipfox/api-integration-slack
 
+## 9.2.0
+
+### Patch Changes
+
+- @shipfox/api-workspaces-dto@9.2.0
+- @shipfox/api-auth-context@9.2.0
+
 ## 9.0.3
 
 ### Patch Changes

@@ -1,5 +1,23 @@
 # @shipfox/client-features
 
+## 10.0.0
+
+### Patch Changes
+
+- Updated dependencies [456c884]
+  - @shipfox/client-shell@10.0.0
+  - @shipfox/client-auth@10.0.0
+  - @shipfox/client-invitations@10.0.0
+  - @shipfox/client-agent@10.0.0
+  - @shipfox/client-integrations@10.0.0
+  - @shipfox/client-onboarding@10.0.0
+  - @shipfox/client-projects@10.0.0
+  - @shipfox/client-runners@10.0.0
+  - @shipfox/client-secrets@10.0.0
+  - @shipfox/client-triggers@10.0.0
+  - @shipfox/client-workflows@10.0.0
+  - @shipfox/client-workspace-settings@10.0.0
+
 ## 9.0.0
 
 ### Patch Changes

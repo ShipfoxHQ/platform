@@ -1,5 +1,14 @@
 # @shipfox/api-workflows
 
+## 9.2.0
+
+### Patch Changes
+
+- Updated dependencies [456c884]
+  - @shipfox/api-auth-dto@9.2.0
+  - @shipfox/api-projects-dto@9.2.0
+  - @shipfox/api-auth-context@9.2.0
+
 ## 9.0.3
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @shipfox/api-workspaces
 
+## 9.2.0
+
+### Patch Changes
+
+- Updated dependencies [36d8338]
+  - @shipfox/api-common-dto@9.2.0
+  - @shipfox/api-workspaces-dto@9.2.0
+  - @shipfox/api-auth-context@9.2.0
+
 ## 9.1.0
 
 ### Patch Changes

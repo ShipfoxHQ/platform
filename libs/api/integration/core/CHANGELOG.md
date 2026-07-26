@@ -1,5 +1,19 @@
 # @shipfox/api-integration-core
 
+## 9.2.0
+
+### Patch Changes
+
+- @shipfox/api-workspaces-dto@9.2.0
+- @shipfox/api-auth-context@9.2.0
+- @shipfox/api-integration-slack@9.2.0
+- @shipfox/api-integration-gitea@9.2.0
+- @shipfox/api-integration-github@9.2.0
+- @shipfox/api-integration-jira@9.2.0
+- @shipfox/api-integration-linear@9.2.0
+- @shipfox/api-integration-sentry@9.2.0
+- @shipfox/api-integration-webhook@9.2.0
+
 ## 9.1.0
 
 ### Patch Changes

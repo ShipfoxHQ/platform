@@ -1,5 +1,25 @@
 # @shipfox/api-auth
 
+## 9.2.0
+
+### Minor Changes
+
+- bd7c46b: Thread an optional signup policy through API Auth module composition in preparation for signup enforcement.
+- 456c884: Add Auth-owned local administrator grants and server-side role evaluation.
+- 36adf25: Guards password and external-identity account creation with the signup policy.
+- f31bee6: Adds the environment-variable signup policy and its Auth-prefixed configuration.
+- 63c0e5b: Adds the signup policy port and denial error to API Auth.
+
+### Patch Changes
+
+- b321700: Default the Auth module to its environment-backed signup policy when no custom policy is provided.
+- ad36e26: Return a bounded signup-not-allowed message from the password signup route.
+- Updated dependencies [456c884]
+  - @shipfox/api-auth-dto@9.2.0
+  - @shipfox/api-email-challenges@1.1.4
+  - @shipfox/api-workspaces-dto@9.2.0
+  - @shipfox/api-auth-context@9.2.0
+
 ## 9.1.0
 
 ### Patch Changes
