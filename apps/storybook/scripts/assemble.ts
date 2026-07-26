@@ -54,6 +54,11 @@ async function writeCompositionCompatibilityFiles(directory: string): Promise<vo
   await writeFile(resolve(directory, 'metadata.json'), '{}\n', 'utf8');
 }
 
+async function writeCloudflarePagesRedirects(directory: string): Promise<void> {
+  const redirects = storybooks.map(({id}) => `/${id}/* /${id}/index.html 200`).join('\n');
+  await writeFile(resolve(directory, '_redirects'), `${redirects}\n`, 'utf8');
+}
+
 function getCommitSha(): string {
   const configuredSha = getCommitShaFromEnv();
   if (configuredSha !== undefined) return configuredSha;
@@ -181,6 +186,8 @@ async function main(): Promise<void> {
       await rm(destination, {recursive: true, force: true});
       await cp(source, destination, {recursive: true});
     }
+
+    await writeCloudflarePagesRedirects(stagedStaticRoot);
 
     await writeCompositionCompatibilityFiles(stagedStaticRoot);
     for (const entry of storybooks) {

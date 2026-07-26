@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import {writeFile} from 'node:fs/promises';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import test from 'node:test';
 
 import {runCommand} from '../dist/deploy.js';
@@ -14,6 +16,7 @@ import {
   finishGitHubDeployment,
   finishGitHubDeployments,
   getWorkflowQueueSeconds,
+  readCloudflarePagesConfig,
   resolvePagesBranch,
   verifyCloudflarePagesApps,
   verifyPagesDeployment,
@@ -24,6 +27,7 @@ const timeoutPattern = /timed out after 20ms/;
 const missingCiEnvironmentPattern = /missing CI environment variable PREVIEW_SENTRY_DSN/;
 const missingPullRequestPattern = /pull request number is required/;
 const productionBranchPattern = /production branch is production, expected main/;
+const invalidEndpointConfigurationPattern = /endpoints must define paths/;
 const exampleApps = [
   {
     id: 'example',
@@ -94,6 +98,37 @@ test('selects a composed app when one of its affected targets changes', () => {
 
   assert.deepEqual(plan.affectedApps, ['example']);
   assert.deepEqual(plan.selectedApps, ['example']);
+});
+
+test('rejects invalid endpoint verification configuration', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shipfox-cloudflare-pages-config-'));
+  try {
+    for (const endpoint of [
+      {path: '/index.json', id: ''},
+      {path: '/index.json', requireNonEmpty: 'yes'},
+    ]) {
+      await writeFile(
+        join(directory, 'config.json'),
+        JSON.stringify({
+          apps: [
+            {
+              id: 'example',
+              target: '@shipfox/example',
+              directory: 'dist/example',
+              project: 'example',
+              verify: {endpoints: [endpoint]},
+            },
+          ],
+        }),
+      );
+      await assert.rejects(
+        readCloudflarePagesConfig('config.json', directory),
+        invalidEndpointConfigurationPattern,
+      );
+    }
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
 });
 
 test('uploads through Cloudflare Pages and retries transient failures', async () => {
@@ -352,6 +387,20 @@ test('rejects missing CI environment references before building', async () => {
   );
 });
 
+test('rejects builds when no configured app matches the plan', async () => {
+  const result = await buildCloudflarePagesApps({
+    apps: exampleApps,
+    selectedAppIds: ['missing'],
+    environment: 'preview',
+    runner: () => {
+      throw new Error('runner should not be called');
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.errors, ['No applications were selected for build']);
+});
+
 test('verifies metadata and configured endpoints', async () => {
   const requested = [];
   const result = await verifyPagesDeployment({
@@ -384,6 +433,27 @@ test('verifies metadata and configured endpoints', async () => {
     'https://example.pages.dev/preview-metadata.json',
     'https://example.pages.dev/child/index.json',
   ]);
+});
+
+test('accepts non-empty JSON arrays for required endpoints', async () => {
+  const result = await verifyPagesDeployment({
+    baseUrl: 'https://example.pages.dev',
+    expectedCommitSha: 'abc123',
+    retryDelayMs: 0,
+    attempts: 1,
+    endpoints: [{path: '/stories.json', requireNonEmpty: true}],
+    fetchImpl: (url) => {
+      if (url.endsWith('/preview-metadata.json')) {
+        return new Response(JSON.stringify({commitSha: 'abc123'}), {status: 200});
+      }
+      if (url.endsWith('/stories.json')) {
+        return new Response(JSON.stringify([{id: 'story'}]), {status: 200});
+      }
+      return new Response('<html></html>', {status: 200});
+    },
+  });
+
+  assert.equal(result.ok, true);
 });
 
 test('reports every failed endpoint without stopping at the first failure', async () => {

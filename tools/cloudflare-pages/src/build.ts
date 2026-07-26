@@ -108,6 +108,13 @@ export async function buildCloudflarePagesApps({
 }): Promise<{ok: boolean; apps: BuildResult[]; errors: string[]}> {
   required(environment, 'environment');
   const selected = apps.filter((app) => selectedAppIds.includes(app.id));
+  if (selected.length === 0) {
+    return {
+      ok: false,
+      apps: [],
+      errors: ['No applications were selected for build'],
+    };
+  }
   const prepared = selected.map((app) => ({
     app,
     task: app.build?.task ?? 'build',

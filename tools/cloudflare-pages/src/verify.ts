@@ -145,6 +145,7 @@ function assertEndpointResponse(response: unknown, endpoint: ConfiguredEndpoint)
     throw new Error(`Cloudflare Pages endpoint ${endpoint.path} returned an empty JSON object`);
   }
   if (
+    !Array.isArray(response) &&
     'entries' in response &&
     (typeof response.entries !== 'object' ||
       response.entries === null ||

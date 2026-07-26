@@ -229,8 +229,19 @@ export async function readCloudflarePagesConfig(
           app.verify.endpoints.some((endpoint: unknown) => {
             if (typeof endpoint === 'string') return endpoint.length === 0;
             if (typeof endpoint !== 'object' || endpoint === null) return true;
-            const endpointObject = endpoint as {path?: unknown};
-            return typeof endpointObject.path !== 'string' || endpointObject.path.length === 0;
+            const endpointObject = endpoint as {
+              id?: unknown;
+              path?: unknown;
+              requireNonEmpty?: unknown;
+            };
+            return (
+              typeof endpointObject.path !== 'string' ||
+              endpointObject.path.length === 0 ||
+              (endpointObject.id !== undefined &&
+                (typeof endpointObject.id !== 'string' || endpointObject.id.length === 0)) ||
+              (endpointObject.requireNonEmpty !== undefined &&
+                typeof endpointObject.requireNonEmpty !== 'boolean')
+            );
           }))
       ) {
         throw new Error(`${configPath} app ${app.id} endpoints must define paths`);

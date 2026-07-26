@@ -267,21 +267,20 @@ export async function deployCloudflarePages({
             'Cloudflare did not return structured deployment metadata for the production upload',
           );
         }
-        if (
-          typeof structuredOutput.environment === 'string' &&
-          structuredOutput.environment !== 'production'
-        ) {
+        if (structuredOutput.environment !== 'production') {
           throw new Error(
-            `Cloudflare deployment resolved to the ${structuredOutput.environment} environment instead of production`,
+            `Cloudflare deployment resolved to the ${typeof structuredOutput.environment === 'string' ? structuredOutput.environment : 'missing'} environment instead of production`,
           );
         }
         if (
-          typeof structuredOutput.production_branch === 'string' &&
-          branch !== null &&
+          typeof structuredOutput.production_branch !== 'string' ||
+          structuredOutput.production_branch.length === 0 ||
+          branch === null ||
+          branch.length === 0 ||
           structuredOutput.production_branch !== branch
         ) {
           throw new Error(
-            `Cloudflare Pages production branch is ${structuredOutput.production_branch}, expected ${branch}`,
+            `Cloudflare Pages production branch is ${typeof structuredOutput.production_branch === 'string' ? structuredOutput.production_branch : 'missing'}, expected ${branch !== null && branch.length > 0 ? branch : 'an explicit branch'}`,
           );
         }
       }

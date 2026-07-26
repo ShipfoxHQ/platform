@@ -87,6 +87,12 @@ test.describe('assembled Storybook preview', () => {
     }) => {
       const errors = collectBrowserErrors(page);
 
+      const redirectsResponse = await request.get('/_redirects');
+      expect(redirectsResponse.ok()).toBe(true);
+      expect(await redirectsResponse.text()).toContain(
+        `/${storybook.id}/* /${storybook.id}/index.html 200`,
+      );
+
       const storyId = await getRepresentativeStoryId(request, storybook.path);
       const standaloneResponse = await request.get(storybook.path);
       expect(standaloneResponse.ok()).toBe(true);
