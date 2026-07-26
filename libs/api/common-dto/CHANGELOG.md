@@ -1,5 +1,11 @@
 # @shipfox/api-common-dto
 
+## 9.2.0
+
+### Minor Changes
+
+- 36d8338: Adds the checked, redacted administration-action outbox event contract and constructor.
+
 ## 9.0.2
 
 ### Patch Changes
