@@ -299,20 +299,18 @@ create a normal Shipfox session and set its refresh cookie:
 import {
   authCookiePlugin,
   createSessionForUser,
-  createEnvironmentSignupPolicy,
   provisionUser,
   setRefreshTokenCookie,
 } from '@shipfox/api-auth';
 import type {FastifyReply} from 'fastify';
 
 export const callbackRoutePlugins = [authCookiePlugin];
-const signupPolicy = createEnvironmentSignupPolicy();
 
 export async function completeProviderCallback(
   reply: FastifyReply,
   profile: {email: string; name?: string},
 ): Promise<string> {
-  const user = await provisionUser({...profile, signupPolicy});
+  const user = await provisionUser(profile);
   const session = await createSessionForUser({userId: user.id});
 
   setRefreshTokenCookie(reply, session.refreshToken);
@@ -326,11 +324,13 @@ For OAuth providers, require a verified-email claim such as `email_verified`.
 session for any active, verified account. An unverified provider email could
 otherwise sign in as an existing password account with the same address.
 
-Pass the same `signupPolicy` to `provisionUser` when signup gating is enabled.
-The function checks for an existing user before it calls the policy, so existing
-users keep signing in even when their address is no longer allowed. For a new
-user, a denied policy throws `SignupNotAllowedError`. Call
-`createSessionForUser` only after provisioning succeeds.
+`provisionUser` uses the environment-backed signup policy by default. Pass an
+explicit `signupPolicy` only when the integration owns a replacement policy,
+such as Cloud's database-backed policy. The function checks for an existing
+user before it calls the policy, so existing users keep signing in even when
+their address is no longer allowed. For a new user, a denied policy throws
+`SignupNotAllowedError`. Call `createSessionForUser` only after provisioning
+succeeds.
 
 Add `authCookiePlugin` to the callback route group before calling a cookie
 helper. `getRefreshTokenCookie`, `setRefreshTokenCookie`, and

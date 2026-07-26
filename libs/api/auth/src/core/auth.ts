@@ -49,15 +49,14 @@ import {
 import {signUserToken} from './jwt.js';
 import {hashPassword, verifyPassword} from './password.js';
 import type {SignupPolicy} from './ports.js';
+import {createEnvironmentSignupPolicy} from './signup-policy.js';
 
 const RESET_TTL_HOURS = 1;
 const PASSWORD_VERIFICATION_PURPOSE = 'password-verification';
 const DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE =
   'This Shipfox deployment does not accept new accounts right now.';
 
-const defaultSignupPolicy: SignupPolicy = {
-  isSignupAllowed: async () => ({allowed: true}),
-};
+const defaultSignupPolicy: SignupPolicy = createEnvironmentSignupPolicy();
 
 async function assertSignupAllowed(params: {
   signupPolicy?: SignupPolicy | undefined;
