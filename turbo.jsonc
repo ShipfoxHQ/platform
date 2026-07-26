@@ -12,12 +12,12 @@
     "ARGOS_TOKEN",
     "SHIPFOX_VITEST_MAX_WORKERS",
     "CI",
-    "PREVIEW_COMMIT_SHA"
+    "CLOUDFLARE_PAGES_COMMIT_SHA"
   ],
   "tasks": {
     "build": {
       "cache": true,
-      "outputs": ["dist/**/*", "!dist/**/*.d.ts", "!dist/**/*.d.ts.map", ".vercel/**/*"],
+      "outputs": ["dist/**/*", "!dist/**/*.d.ts", "!dist/**/*.d.ts.map", "storybook-output/**/*"],
       "dependsOn": ["^build"]
     },
     "dev": {

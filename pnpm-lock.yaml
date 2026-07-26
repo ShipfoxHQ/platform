@@ -855,6 +855,9 @@ importers:
       '@shipfox/biome':
         specifier: workspace:*
         version: link:../../tools/biome
+      '@shipfox/cloudflare-pages':
+        specifier: workspace:*
+        version: link:../../tools/cloudflare-pages
       '@shipfox/playwright':
         specifier: workspace:*
         version: link:../../tools/playwright
@@ -7772,6 +7775,24 @@ importers:
       '@shipfox/vitest':
         specifier: workspace:*
         version: link:../vitest
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.2
+
+  tools/cloudflare-pages:
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../biome
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../typescript
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.2

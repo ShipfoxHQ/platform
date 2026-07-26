@@ -5,6 +5,7 @@ gh = "2.95.0"
 "node" = "24.17.0"
 "npm:pnpm" = "11.7.0"
 "npm:turbo" = "2.9.18"
+"npm:wrangler" = "4.29.0"
 ollama = "0.30.11"
 packer = "1.15.4"
 

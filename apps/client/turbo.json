@@ -8,7 +8,8 @@
       "dependsOn": ["^type:emit"]
     },
     "build": {
-      "dependsOn": ["generate", "^build"]
+      "dependsOn": ["generate", "^build"],
+      "env": ["VITE_API_URL"]
     },
     "type": {
       "dependsOn": ["generate", "@shipfox/typescript#build", "^type:emit"]

@@ -10,16 +10,10 @@ import {
 } from './artifact.js';
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const outputRoot = resolve(appRoot, '.vercel/output');
-const staticRoot = resolve(outputRoot, 'static');
+const outputRoot = resolve(appRoot, 'storybook-output');
+const staticRoot = outputRoot;
 
 async function main(): Promise<void> {
-  const config = JSON.parse(await readFile(resolve(outputRoot, 'config.json'), 'utf8')) as {
-    version?: unknown;
-  };
-  if (config.version !== 3)
-    throw new Error('.vercel/output/config.json must use Build Output API version 3');
-
   const metadata = JSON.parse(
     await readFile(resolve(staticRoot, 'preview-metadata.json'), 'utf8'),
   ) as unknown;

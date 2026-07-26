@@ -4,9 +4,9 @@
   "tasks": {
     "build": {
       "cache": false,
-      "outputs": ["storybook-static/**/*", ".vercel/**/*"],
+      "outputs": ["storybook-static/**/*", "storybook-output/**/*"],
       "dependsOn": ["^build"],
-      "env": ["PREVIEW_COMMIT_SHA"]
+      "env": ["CLOUDFLARE_PAGES_COMMIT_SHA"]
     },
     "test:e2e": {
       "cache": false,

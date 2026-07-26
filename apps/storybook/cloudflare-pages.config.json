@@ -1,0 +1,73 @@
+{
+  "environments": {
+    "preview": { "branch": "pr-{pullRequest}" },
+    "staging": { "branch": "staging" },
+    "production": { "branch": "main" }
+  },
+  "apps": [
+    {
+      "id": "storybook",
+      "target": "@shipfox/storybook",
+      "affectedTargets": [
+        "@shipfox/react-ui",
+        "@shipfox/client-agent",
+        "@shipfox/client-auth",
+        "@shipfox/client-integrations",
+        "@shipfox/client-logs",
+        "@shipfox/client-projects",
+        "@shipfox/client-runners",
+        "@shipfox/client-secrets",
+        "@shipfox/client-triggers",
+        "@shipfox/client-workflows"
+      ],
+      "directory": "storybook-output",
+      "project": "storybook",
+      "verify": {
+        "metadataPath": "/preview-metadata.json",
+        "endpoints": [
+          { "id": "react-ui", "path": "/react-ui/index.json", "requireNonEmpty": true },
+          { "id": "client-agent", "path": "/client-agent/index.json", "requireNonEmpty": true },
+          { "id": "client-auth", "path": "/client-auth/index.json", "requireNonEmpty": true },
+          {
+            "id": "client-integrations",
+            "path": "/client-integrations/index.json",
+            "requireNonEmpty": true
+          },
+          { "id": "client-logs", "path": "/client-logs/index.json", "requireNonEmpty": true },
+          {
+            "id": "client-projects",
+            "path": "/client-projects/index.json",
+            "requireNonEmpty": true
+          },
+          {
+            "id": "client-runners",
+            "path": "/client-runners/index.json",
+            "requireNonEmpty": true
+          },
+          {
+            "id": "client-secrets",
+            "path": "/client-secrets/index.json",
+            "requireNonEmpty": true
+          },
+          {
+            "id": "client-triggers",
+            "path": "/client-triggers/index.json",
+            "requireNonEmpty": true
+          },
+          {
+            "id": "client-workflows",
+            "path": "/client-workflows/index.json",
+            "requireNonEmpty": true
+          }
+        ]
+      }
+    }
+  ],
+  "forcePaths": [
+    ".github/workflows/preview.yml",
+    "apps/storybook",
+    "mise.toml",
+    "pnpm-lock.yaml",
+    "turbo.jsonc"
+  ]
+}

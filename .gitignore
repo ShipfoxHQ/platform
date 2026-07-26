@@ -138,6 +138,10 @@ vite.config.ts.timestamp-*
 
 # Storybook static build output
 storybook-static/
+storybook-output/
+# Staging and rollback trees left behind by an interrupted assembly
+.storybook-output-staging-*/
+.storybook-output-previous-*/
 
 # Turbo cache
 .turbo
