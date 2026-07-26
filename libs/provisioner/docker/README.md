@@ -75,7 +75,8 @@ When a template omits `image`, it defaults to the published
 published runner releases become the default without changing the template. Any
 explicit image value, including an immutable digest, must run the Shipfox runner
 process and honor the injected environment. Omit the key to use the default; a
-blank value is invalid.
+blank value is invalid. Docker may reuse a locally cached `latest` image, so refresh
+the image on the host to pick up a newer release.
 
 - `SHIPFOX_API_URL`
 - `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`
