@@ -24,6 +24,7 @@ import {
   onProjectSourceCommitObserved,
 } from '#presentation/subscribers/index.js';
 import {createDefinitionSyncActivities, DEFINITIONS_TASK_QUEUE} from '#temporal/index.js';
+import {definitionWorkflowPath} from './config.js';
 
 export type {
   WorkflowDefinition,
@@ -79,7 +80,10 @@ export function createDefinitionsModule({
       {
         taskQueue: DEFINITIONS_TASK_QUEUE,
         workflowsPath,
-        activities: () => createDefinitionSyncActivities(sourceControl, agent, integrations),
+        activities: () =>
+          createDefinitionSyncActivities(sourceControl, agent, integrations, {
+            workflowPath: definitionWorkflowPath,
+          }),
         workflows: [],
       },
     ],

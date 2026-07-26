@@ -146,6 +146,27 @@ describe('discoverWorkflowFiles', () => {
     expect(result.paths).toEqual(['.shipfox/workflows/ci.yml', '.shipfox/workflows/deploy.yaml']);
   });
 
+  it('lists workflows under the configured repository path', async () => {
+    const listFiles = vi.fn(() =>
+      Promise.resolve({
+        files: [{path: '.shipfox/staging/workflows/ci.yml', type: 'file' as const, size: 64}],
+        nextCursor: null,
+      }),
+    );
+
+    const result = await discoverWorkflowFiles({
+      ...baseContext,
+      ref: 'main',
+      workflowPath: '.shipfox/staging/workflows/',
+      sourceControl: sourceControl({listFiles}),
+    });
+
+    expect(listFiles).toHaveBeenCalledWith(
+      expect.objectContaining({prefix: '.shipfox/staging/workflows/'}),
+    );
+    expect(result.paths).toEqual(['.shipfox/staging/workflows/ci.yml']);
+  });
+
   it('throws no-workflow-files when nothing matches the yaml extensions', async () => {
     const result = discoverWorkflowFiles({
       ...baseContext,
@@ -161,6 +182,21 @@ describe('discoverWorkflowFiles', () => {
     });
 
     await expect(result).rejects.toMatchObject({code: 'no-workflow-files'});
+  });
+
+  it('includes the configured repository path when no workflow files are found', async () => {
+    const result = discoverWorkflowFiles({
+      ...baseContext,
+      ref: 'main',
+      workflowPath: '.shipfox/production/workflows/',
+      sourceControl: sourceControl({
+        listFiles: vi.fn(() => Promise.resolve({files: [], nextCursor: null})),
+      }),
+    });
+
+    await expect(result).rejects.toThrow(
+      'No workflow files were found under .shipfox/production/workflows/',
+    );
   });
 
   it('throws too-many-files when the listing reports more pages', async () => {

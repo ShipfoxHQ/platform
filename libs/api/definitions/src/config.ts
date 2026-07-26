@@ -6,6 +6,10 @@ export const config = createConfig({
     desc: 'Default runner label(s) applied to workflow jobs that do not declare a "runner" at the job or workflow level. Set it to a comma-separated list, for example ubuntu-latest or ubuntu-latest,node-22. Leave it empty to require every workflow job to declare runner labels explicitly; with no value set, a job without a runner fails definition validation.',
     default: '',
   }),
+  DEFINITION_WORKFLOW_PATH: str({
+    desc: 'Repository-relative path that contains workflow YAML files. Set a different path for each Shipfox instance when staging and production share a repository.',
+    default: '.shipfox/workflows/',
+  }),
 });
 
 export function parseDefinitionDefaultRunnerLabels(value: string): readonly string[] {
@@ -30,3 +34,5 @@ export function parseDefinitionDefaultRunnerLabels(value: string): readonly stri
 export const definitionDefaultRunnerLabels = parseDefinitionDefaultRunnerLabels(
   config.DEFINITION_DEFAULT_RUNNER_LABEL,
 );
+
+export const definitionWorkflowPath = config.DEFINITION_WORKFLOW_PATH;

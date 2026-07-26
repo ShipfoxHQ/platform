@@ -52,14 +52,22 @@ export interface FetchAndApplyActivityResult {
   deletedCount: number;
 }
 
+export interface DefinitionSyncActivityOptions {
+  workflowPath: string;
+}
+
 export function createDefinitionSyncActivities(
   sourceControl: DefinitionsSourceControl,
   agent: AgentInterModuleClient,
   integrations?: IntegrationsModuleClient | undefined,
+  options?: DefinitionSyncActivityOptions | undefined,
 ) {
   return {
     prepareDefinitionSync: createPrepareDefinitionSyncActivity(sourceControl),
-    discoverDefinitionWorkflows: createDiscoverDefinitionWorkflowsActivity(sourceControl),
+    discoverDefinitionWorkflows: createDiscoverDefinitionWorkflowsActivity(
+      sourceControl,
+      options?.workflowPath,
+    ),
     fetchAndApplyDefinitionWorkflows: createFetchAndApplyActivity(
       sourceControl,
       agent,
@@ -94,7 +102,10 @@ function createPrepareDefinitionSyncActivity(sourceControl: DefinitionsSourceCon
   };
 }
 
-function createDiscoverDefinitionWorkflowsActivity(sourceControl: DefinitionsSourceControl) {
+function createDiscoverDefinitionWorkflowsActivity(
+  sourceControl: DefinitionsSourceControl,
+  workflowPath?: string | undefined,
+) {
   return async function discoverDefinitionWorkflows(
     input: SyncRefScopedInput,
   ): Promise<DiscoverWorkflowsActivityResult> {
@@ -103,6 +114,7 @@ function createDiscoverDefinitionWorkflowsActivity(sourceControl: DefinitionsSou
         ...input,
         ref: input.sourceCommitSha ?? input.sourceRef,
         sourceControl,
+        workflowPath,
       });
     });
   };

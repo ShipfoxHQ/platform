@@ -11,7 +11,7 @@ import {hasAgentStepIntegrations} from './has-agent-step-integrations.js';
 import type {DefinitionsSourceControl} from './integrations.js';
 import {parseDefinition} from './parse-definition.js';
 
-export const WORKFLOW_PREFIX = '.shipfox/workflows/';
+export const DEFAULT_WORKFLOW_PATH = '.shipfox/workflows/';
 export const MAX_WORKFLOW_FILES = 100;
 export const MAX_WORKFLOW_FILE_BYTES = 1_000_000;
 export const FILE_FETCH_CONCURRENCY = 4;
@@ -39,17 +39,19 @@ export async function resolveSyncSource(params: SyncSourceContext): Promise<Reso
 
 export interface DiscoverWorkflowFilesParams extends SyncSourceContext {
   ref: string;
+  workflowPath?: string | undefined;
 }
 
 export async function discoverWorkflowFiles(
   params: DiscoverWorkflowFilesParams,
 ): Promise<{paths: string[]}> {
+  const workflowPath = params.workflowPath ?? DEFAULT_WORKFLOW_PATH;
   const page = await params.sourceControl.listFiles({
     workspaceId: params.workspaceId,
     connectionId: params.sourceConnectionId,
     externalRepositoryId: params.sourceExternalRepositoryId,
     ref: params.ref,
-    prefix: WORKFLOW_PREFIX,
+    prefix: workflowPath,
     limit: MAX_WORKFLOW_FILES,
   });
   if (page.nextCursor) {
@@ -65,7 +67,7 @@ export async function discoverWorkflowFiles(
   if (paths.length === 0) {
     throw new DefinitionSyncPermanentError(
       'no-workflow-files',
-      `No workflow files were found under ${WORKFLOW_PREFIX}`,
+      `No workflow files were found under ${workflowPath}`,
     );
   }
 

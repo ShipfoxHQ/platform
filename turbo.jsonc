@@ -29,6 +29,7 @@
         "BROWSER",
         "BROWSER_ARGS",
         "CLIENT_BASE_URL",
+        "DEFINITION_*",
         "GITEA_BASE_URL",
         "HOST",
         "INTEGRATIONS_ENABLE_SLACK_PROVIDER",

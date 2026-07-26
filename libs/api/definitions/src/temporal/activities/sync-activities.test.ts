@@ -180,6 +180,35 @@ describe('definition sync activities', () => {
     });
   });
 
+  describe('discoverDefinitionWorkflows', () => {
+    it('uses the configured workflow path', async () => {
+      const source = sourceControl({
+        listFiles: vi.fn(() =>
+          Promise.resolve({
+            files: [{path: '.shipfox/staging/workflows/ci.yml', type: 'file' as const, size: 64}],
+            nextCursor: null,
+          }),
+        ),
+      });
+      const activities = createDefinitionSyncActivities(source, agent, undefined, {
+        workflowPath: '.shipfox/staging/workflows/',
+      });
+
+      const result = await activities.discoverDefinitionWorkflows({
+        projectId,
+        workspaceId: crypto.randomUUID(),
+        sourceConnectionId,
+        sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
+        sourceRef: 'main',
+      });
+
+      expect(result.paths).toEqual(['.shipfox/staging/workflows/ci.yml']);
+      expect(source.listFiles).toHaveBeenCalledWith(
+        expect.objectContaining({prefix: '.shipfox/staging/workflows/'}),
+      );
+    });
+  });
+
   describe('fetchAndApplyDefinitionWorkflows', () => {
     it('upserts workflow definitions and soft-deletes orphans', async () => {
       const activities = createDefinitionSyncActivities(sourceControl(), agent);
