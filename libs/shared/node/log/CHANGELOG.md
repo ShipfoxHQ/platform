@@ -1,5 +1,11 @@
 # @shipfox/node-log
 
+## 0.3.7
+
+### Patch Changes
+
+- 4425c6d: Adds independent stdout and file log thresholds and enables standard OpenTelemetry Pino log export in the API instrumentation preload.
+
 ## 0.3.6
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shipfox/api-workflows-dto
 
+## 9.3.0
+
+### Minor Changes
+
+- 6017e56: Reject new workflow work for suspended or deleted workspaces with stable non-retryable results.
+
 ## 9.0.2
 
 ### Patch Changes

@@ -1,5 +1,40 @@
 # @shipfox/api-server
 
+## 9.3.0
+
+### Minor Changes
+
+- c8963f9: Expose an Auth module factory on `defaultModules()` for application-specific composition.
+
+### Patch Changes
+
+- 4425c6d: Adds independent stdout and file log thresholds and enables standard OpenTelemetry Pino log export in the API instrumentation preload.
+- Updated dependencies [10cf63c]
+- Updated dependencies [c0046d3]
+- Updated dependencies [4425c6d]
+- Updated dependencies [6017e56]
+- Updated dependencies [7b6a409]
+  - @shipfox/api-auth@9.3.0
+  - @shipfox/api-auth-dto@9.3.0
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/api-triggers@9.3.0
+  - @shipfox/api-workflows@9.3.0
+  - @shipfox/api-workflows-dto@9.3.0
+  - @shipfox/api-workspaces@9.3.0
+  - @shipfox/api-workspaces-dto@9.3.0
+  - @shipfox/annotations@9.3.0
+  - @shipfox/api-logs@9.3.0
+  - @shipfox/api-runners@9.3.0
+  - @shipfox/api-agent@9.3.0
+  - @shipfox/api-definitions@9.3.0
+  - @shipfox/api-dispatcher@9.3.0
+  - @shipfox/api-email-challenges@1.1.5
+  - @shipfox/api-integration-core@9.3.0
+  - @shipfox/api-projects@9.3.0
+  - @shipfox/api-secrets@9.3.0
+  - @shipfox/node-fastify@0.3.4
+  - @shipfox/node-module@1.0.3
+
 ## 9.2.0
 
 ### Patch Changes

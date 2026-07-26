@@ -1,5 +1,11 @@
 # @shipfox/api-workspaces-dto
 
+## 9.3.0
+
+### Minor Changes
+
+- 7b6a409: Adds the checked Workspace operating-state contract for job-admission owners.
+
 ## 9.2.0
 
 ### Patch Changes

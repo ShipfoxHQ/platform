@@ -1,5 +1,14 @@
 # @shipfox/client-projects
 
+## 10.0.1
+
+### Patch Changes
+
+- @shipfox/client-auth@10.0.1
+- @shipfox/client-shell@10.0.1
+- @shipfox/client-integrations@10.0.1
+- @shipfox/client-agent@10.0.1
+
 ## 10.0.0
 
 ### Patch Changes

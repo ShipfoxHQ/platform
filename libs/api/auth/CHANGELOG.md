@@ -1,5 +1,26 @@
 # @shipfox/api-auth
 
+## 9.3.0
+
+### Minor Changes
+
+- 10cf63c: Add first-owner bootstrap and administrator grant management routes.
+
+### Patch Changes
+
+- c0046d3: Default low-level account creation to the environment-backed signup policy when no explicit policy is supplied.
+- Updated dependencies [10cf63c]
+- Updated dependencies [4425c6d]
+- Updated dependencies [7b6a409]
+  - @shipfox/api-auth-dto@9.3.0
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/api-workspaces-dto@9.3.0
+  - @shipfox/api-auth-context@9.3.0
+  - @shipfox/api-email-challenges@1.1.5
+  - @shipfox/node-fastify@0.3.4
+  - @shipfox/node-mailer@0.2.4
+  - @shipfox/node-module@1.0.3
+
 ## 9.2.0
 
 ### Minor Changes

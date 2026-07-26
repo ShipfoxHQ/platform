@@ -1,5 +1,11 @@
 # @shipfox/api-auth-dto
 
+## 9.3.0
+
+### Minor Changes
+
+- 10cf63c: Add first-owner bootstrap and administrator grant management routes.
+
 ## 9.2.0
 
 ### Minor Changes

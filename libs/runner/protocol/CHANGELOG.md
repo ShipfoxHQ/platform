@@ -1,5 +1,15 @@
 # @shipfox/runner-protocol
 
+## 0.2.7
+
+### Patch Changes
+
+- 4acf8bc: Allows managed runners to wait through the assignment long-poll without hitting the HTTP client's default request timeout.
+- Updated dependencies [4425c6d]
+- Updated dependencies [6017e56]
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/api-workflows-dto@9.3.0
+
 ## 0.2.6
 
 ### Patch Changes

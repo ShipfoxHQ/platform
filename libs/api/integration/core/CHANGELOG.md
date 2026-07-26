@@ -1,5 +1,27 @@
 # @shipfox/api-integration-core
 
+## 9.3.0
+
+### Patch Changes
+
+- Updated dependencies [4425c6d]
+- Updated dependencies [6017e56]
+- Updated dependencies [7b6a409]
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/api-workflows-dto@9.3.0
+  - @shipfox/api-workspaces-dto@9.3.0
+  - @shipfox/api-auth-context@9.3.0
+  - @shipfox/api-integration-gitea@9.3.0
+  - @shipfox/api-integration-github@9.3.0
+  - @shipfox/api-integration-jira@9.3.0
+  - @shipfox/api-integration-linear@9.3.0
+  - @shipfox/api-integration-sentry@9.3.0
+  - @shipfox/api-integration-slack@9.3.0
+  - @shipfox/api-integration-webhook@9.3.0
+  - @shipfox/node-fastify@0.3.4
+  - @shipfox/node-module@1.0.3
+  - @shipfox/node-temporal@0.4.4
+
 ## 9.2.0
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @shipfox/node-mailer
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [4425c6d]
+  - @shipfox/node-opentelemetry@0.6.3
+
 ## 0.2.3
 
 ### Patch Changes
