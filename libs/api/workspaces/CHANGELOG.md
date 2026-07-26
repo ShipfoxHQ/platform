@@ -1,5 +1,19 @@
 # @shipfox/api-workspaces
 
+## 9.3.0
+
+### Patch Changes
+
+- 7b6a409: Adds the checked Workspace operating-state contract for job-admission owners.
+- Updated dependencies [4425c6d]
+- Updated dependencies [7b6a409]
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/api-workspaces-dto@9.3.0
+  - @shipfox/api-auth-context@9.3.0
+  - @shipfox/node-fastify@0.3.4
+  - @shipfox/node-mailer@0.2.4
+  - @shipfox/node-module@1.0.3
+
 ## 9.2.0
 
 ### Patch Changes

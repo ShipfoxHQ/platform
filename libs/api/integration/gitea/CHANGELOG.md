@@ -1,5 +1,14 @@
 # @shipfox/api-integration-gitea
 
+## 9.3.0
+
+### Patch Changes
+
+- Updated dependencies [4425c6d]
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/api-auth-context@9.3.0
+  - @shipfox/node-fastify@0.3.4
+
 ## 9.2.0
 
 ### Patch Changes

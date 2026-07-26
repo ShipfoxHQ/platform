@@ -1,5 +1,26 @@
 # @shipfox/api-workflows
 
+## 9.3.0
+
+### Minor Changes
+
+- 6017e56: Reject new workflow work for suspended or deleted workspaces with stable non-retryable results.
+
+### Patch Changes
+
+- Updated dependencies [10cf63c]
+- Updated dependencies [4425c6d]
+- Updated dependencies [6017e56]
+- Updated dependencies [7b6a409]
+  - @shipfox/api-auth-dto@9.3.0
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/api-workflows-dto@9.3.0
+  - @shipfox/api-workspaces-dto@9.3.0
+  - @shipfox/api-auth-context@9.3.0
+  - @shipfox/node-fastify@0.3.4
+  - @shipfox/node-module@1.0.3
+  - @shipfox/node-temporal@0.4.4
+
 ## 9.2.0
 
 ### Patch Changes

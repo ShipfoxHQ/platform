@@ -1,5 +1,16 @@
 # @shipfox/api-integration-slack
 
+## 9.3.0
+
+### Patch Changes
+
+- Updated dependencies [4425c6d]
+- Updated dependencies [7b6a409]
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/api-workspaces-dto@9.3.0
+  - @shipfox/api-auth-context@9.3.0
+  - @shipfox/node-fastify@0.3.4
+
 ## 9.2.0
 
 ### Patch Changes

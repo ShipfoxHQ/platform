@@ -1,5 +1,14 @@
 # @shipfox/client-workspace-settings
 
+## 10.0.1
+
+### Patch Changes
+
+- Updated dependencies [7b6a409]
+  - @shipfox/api-workspaces-dto@9.3.0
+  - @shipfox/client-auth@10.0.1
+  - @shipfox/client-shell@10.0.1
+
 ## 10.0.0
 
 ### Patch Changes

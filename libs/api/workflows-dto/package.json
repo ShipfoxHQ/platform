@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-workflows-dto",
   "license": "MIT",
-  "version": "9.0.2",
+  "version": "9.3.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
