@@ -10,6 +10,11 @@ vi.mock('#config.js', () => ({
   },
 }));
 
+vi.mock('@shipfox/node-resilient-loop', async (importActual) => ({
+  ...(await importActual<typeof import('@shipfox/node-resilient-loop')>()),
+  interruptibleSleep: vi.fn(async () => undefined),
+}));
+
 vi.mock('#core/heartbeat-loop.js', () => ({
   startHeartbeatLoop: vi.fn(() => ({stop: vi.fn(), bumpGeneration: vi.fn()})),
 }));
@@ -69,6 +74,7 @@ vi.mock('@shipfox/runner-protocol', () => ({
 }));
 
 import {logger} from '@shipfox/node-opentelemetry';
+import {interruptibleSleep} from '@shipfox/node-resilient-loop';
 import {runnerToolCapabilities} from '@shipfox/runner-agent';
 import {
   consumeManagedRunnerBootstrapToken,
@@ -121,6 +127,7 @@ const mockRunnerStartupMode = vi.mocked(runnerStartupMode);
 const mockRequestJob = vi.mocked(requestJob);
 const mockStartHeartbeatLoop = vi.mocked(startHeartbeatLoop);
 const mockRunnerToolCapabilities = vi.mocked(runnerToolCapabilities);
+const mockInterruptibleSleep = vi.mocked(interruptibleSleep);
 
 const JOB = {
   workflow_run_id: '00000000-0000-0000-0000-000000000004',
@@ -385,7 +392,10 @@ describe('startRunner', () => {
     vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
     mockRunnerStartupMode.mockReturnValue('managed');
     mockConsumeManagedRunnerBootstrapToken.mockReturnValue('sf_rbt_bootstrap-token');
-    mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
+    mockExchangeRunnerBootstrapToken.mockImplementation(() => {
+      expect(mockInterruptibleSleep).not.toHaveBeenCalled();
+      return Promise.resolve({controlSessionToken: 'control-token'});
+    });
     mockEnrollRunnerControlSession.mockResolvedValue();
     mockHeartbeatRunnerControlSession.mockResolvedValue();
     mockPollRunnerAssignment.mockResolvedValue('activation-token');
@@ -411,6 +421,7 @@ describe('startRunner', () => {
       registrationToken: 'activation-token',
     });
     expect(mockRequestJob).toHaveBeenCalledWith('session-token');
+    expect(mockInterruptibleSleep).toHaveBeenCalledTimes(1);
   });
 
   it('retries a failed first direct registration', async () => {
