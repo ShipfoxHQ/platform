@@ -41,6 +41,24 @@ describe('providerRunnerReportEventSchema', () => {
 });
 
 describe('reportRunnerInstancesBodySchema', () => {
+  it('accepts a batch at the limit', () => {
+    const event = {
+      provider_runner_id: 'container-1',
+      labels: ['linux'],
+      state: 'running',
+      reported_at: new Date().toISOString(),
+    };
+
+    const result = reportRunnerInstancesBodySchema.safeParse({
+      events: Array.from({length: MAX_PROVIDER_RUNNER_REPORT_EVENTS}, (_, index) => ({
+        ...event,
+        provider_runner_id: `container-${index}`,
+      })),
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('enforces the batch size limit', () => {
     const event = {
       provider_runner_id: 'container-1',
