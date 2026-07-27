@@ -1,4 +1,4 @@
-import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
+import {mkdir, mkdtemp, open, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {TextDecoder} from 'node:util';
 import {
@@ -329,9 +329,9 @@ async function repositoryInstructions(cwd: string): Promise<string | undefined> 
 
   for (const candidate of candidates) {
     try {
-      const contents = await readFile(candidate, 'utf8');
+      const bytes = await readRepositoryInstructionBytes(candidate);
+      const contents = bytes.toString('utf8');
       if (contents.trim().length === 0) continue;
-      const bytes = Buffer.from(contents, 'utf8');
       if (bytes.byteLength <= MAX_REPOSITORY_INSTRUCTIONS_BYTES) {
         return contents;
       }
@@ -358,6 +358,23 @@ async function repositoryInstructions(cwd: string): Promise<string | undefined> 
     'No readable repository instructions found for Claude agent invocation',
   );
   return undefined;
+}
+
+async function readRepositoryInstructionBytes(path: string): Promise<Buffer> {
+  const file = await open(path, 'r');
+  const bytes = Buffer.alloc(MAX_REPOSITORY_INSTRUCTIONS_BYTES + 1);
+  let bytesRead = 0;
+
+  try {
+    while (bytesRead < bytes.length) {
+      const result = await file.read(bytes, bytesRead, bytes.length - bytesRead, bytesRead);
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+    }
+    return bytes.subarray(0, bytesRead);
+  } finally {
+    await file.close();
+  }
 }
 
 function truncateUtf8(bytes: Buffer, maxBytes: number): string {
