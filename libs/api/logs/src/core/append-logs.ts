@@ -16,6 +16,7 @@ import {
   casExtendCommittedLength,
   getAttemptStream,
   getOrCreateAttemptStreamWithStatus,
+  setClaudeParseContext,
   setDeclaredTotalBytes,
 } from '#db/streams.js';
 import {
@@ -27,7 +28,11 @@ import {
 import {allowedBudget} from './budget.js';
 import {closeStream, controlTombstone} from './close-stream.js';
 import {MalformedLogChunkError, OffsetGapError} from './errors.js';
-import {claudeInitSessionId, createClaudeParseContext} from './session/claude-parser.js';
+import {
+  type ClaudeParseContext,
+  claudeInitSessionId,
+  createClaudeParseContext,
+} from './session/claude-parser.js';
 import type {SessionParseContext} from './session/parse-session.js';
 import {parseSessionRecord} from './session/parse-session.js';
 import type {AgentSessionRecord} from './session/session-record.js';
@@ -168,6 +173,12 @@ interface StoreChunkResult extends AppendLogsResult {
   recordCounts: Partial<Record<LogRecord['type'], number>>;
 }
 
+interface StoredBody {
+  body: Buffer;
+  recordCounts: Partial<Record<LogRecord['type'], number>>;
+  claudeParseContext: ClaudeParseContext | undefined;
+}
+
 /**
  * Accrues the stored bytes, persists the chunk, and trips the per-job cap when
  * this append crosses the budget. Runs only after the offset-CAS extended
@@ -230,10 +241,16 @@ async function storeChunk(
 function buildStoredBody(
   records: readonly RawLogRecord[],
   harness: Harness,
-): {body: Buffer; recordCounts: Partial<Record<LogRecord['type'], number>>} {
+  initialClaudeParseContext?: ClaudeParseContext,
+): StoredBody {
   const storedRecords: LogRecord[] = [];
   const parseContext: SessionParseContext | undefined =
-    harness === 'claude' ? {claude: createClaudeParseContext(), isFinalResult: true} : undefined;
+    harness === 'claude'
+      ? {
+          claude: initialClaudeParseContext ?? createClaudeParseContext(),
+          isFinalResult: true,
+        }
+      : undefined;
   const latestClaudeInitIndicesBySessionId =
     harness === 'claude' ? latestClaudeInitIndices(records) : undefined;
 
@@ -262,7 +279,7 @@ function buildStoredBody(
     recordCounts[record.type] = (recordCounts[record.type] ?? 0) + 1;
   }
 
-  return {body, recordCounts};
+  return {body, recordCounts, claudeParseContext: parseContext?.claude};
 }
 
 function latestClaudeInitIndices(records: readonly RawLogRecord[]): Map<string, number> {
@@ -325,7 +342,6 @@ export async function appendLogs(
   const sessionHarness = parsed.hasAgentSessionRecord
     ? await getSessionHarness(workflows, params.stepId)
     : DEFAULT_HARNESS;
-  const stored = buildStoredBody(parsed.records, sessionHarness);
   const commitByteLen = params.body.length;
   const metrics = {
     recordCounts: {} as Partial<Record<LogRecordMetricKind, number>>,
@@ -363,6 +379,18 @@ export async function appendLogs(
       return {committedLength: cas.committedLength, capped: await isJobCapped(tx, params.jobId)};
     }
 
+    const stored = buildStoredBody(
+      parsed.records,
+      sessionHarness,
+      sessionHarness === 'claude'
+        ? {
+            hasInit: stream.claudeHasInit,
+            sessionId: stream.claudeSessionId,
+            turn: stream.claudeTurn,
+          }
+        : undefined,
+    );
+
     const {
       recordCounts,
       stored: chunkStored,
@@ -376,6 +404,14 @@ export async function appendLogs(
     });
     if (chunkStored) {
       addRecordCounts(metrics.recordCounts, stored.recordCounts);
+      if (stored.claudeParseContext !== undefined) {
+        await setClaudeParseContext(tx, {
+          streamId: stream.id,
+          hasInit: stored.claudeParseContext.hasInit,
+          sessionId: stored.claudeParseContext.sessionId,
+          turn: stored.claudeParseContext.turn,
+        });
+      }
     }
     addRecordCounts(metrics.recordCounts, recordCounts);
 

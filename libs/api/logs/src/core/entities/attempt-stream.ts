@@ -29,6 +29,9 @@ export interface AttemptStream {
   state: StreamState;
   closeReason: StreamCloseReason | null;
   declaredTotalBytes: number | null;
+  claudeHasInit: boolean;
+  claudeSessionId: string | null;
+  claudeTurn: number;
   truncated: boolean;
   objectKey: string | null;
   createdAt: Date;

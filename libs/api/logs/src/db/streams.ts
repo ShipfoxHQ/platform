@@ -160,6 +160,26 @@ export async function setDeclaredTotalBytes(
     .where(eq(attemptStreams.id, params.streamId));
 }
 
+export async function setClaudeParseContext(
+  tx: Transaction,
+  params: {
+    streamId: string;
+    hasInit: boolean;
+    sessionId: string | null;
+    turn: number;
+  },
+): Promise<void> {
+  await tx
+    .update(attemptStreams)
+    .set({
+      claudeHasInit: params.hasInit,
+      claudeSessionId: params.sessionId,
+      claudeTurn: params.turn,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(attemptStreams.id, params.streamId));
+}
+
 /**
  * Guarded close: flips `open → closed` and stamps `closed_at` iff the stream is
  * still open, returning the closed row (or null when another path already closed
