@@ -47,6 +47,10 @@ const {assertEgressAllowedMock, EgressDeniedErrorMock} = vi.hoisted(() => {
   return {assertEgressAllowedMock: vi.fn(), EgressDeniedErrorMock: EgressDeniedError};
 });
 
+const {isPiExtensionAvailableMock} = vi.hoisted(() => ({
+  isPiExtensionAvailableMock: vi.fn(),
+}));
+
 vi.mock('@earendil-works/pi-coding-agent', () => ({
   createAgentSessionFromServices: createAgentSessionMock,
   createAgentSessionServices: createAgentSessionServicesMock,
@@ -71,6 +75,7 @@ vi.mock('#core/pi-extensions.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#core/pi-extensions.js')>();
   return {
     ...actual,
+    isPiExtensionAvailable: isPiExtensionAvailableMock,
     piExtensionDirectories: (params: Parameters<typeof actual.piExtensionDirectories>[0]) =>
       piExtensionTestState.resolver === undefined
         ? actual.piExtensionDirectories(params)
@@ -214,6 +219,7 @@ describe('piHarnessAdapter', () => {
     piExtensionTestState.resolver = undefined;
     assertEgressAllowedMock.mockReset();
     assertEgressAllowedMock.mockResolvedValue(undefined);
+    isPiExtensionAvailableMock.mockReturnValue(true);
     findMock.mockReturnValue({provider: 'anthropic', id: 'claude-opus-4-8'});
     getAllMock.mockReturnValue([{provider: 'anthropic', id: 'claude-opus-4-8'}]);
     hasConfiguredAuthMock.mockReturnValue(true);
@@ -280,6 +286,19 @@ describe('piHarnessAdapter', () => {
       '/work',
     );
     expect(createAgentSessionMock.mock.calls[0]?.[0]).not.toHaveProperty('customTools');
+  });
+
+  it('keeps Pi built-ins available when pi-web-access is unavailable', async () => {
+    isPiExtensionAvailableMock.mockImplementation(
+      ({packageName}: {packageName: string}) => packageName !== 'pi-web-access',
+    );
+
+    await piHarnessAdapter.run(invocation());
+
+    expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
+      expect.objectContaining({resourceLoaderOptions: {additionalExtensionPaths: []}}),
+    );
+    expect(createAgentSessionMock).toHaveBeenCalled();
   });
 
   it('configures eager loopback MCP proxy access in the job workspace', async () => {
