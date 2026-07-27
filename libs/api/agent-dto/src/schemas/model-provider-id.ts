@@ -24,6 +24,8 @@ export const SUPPORTED_MODEL_PROVIDER_IDS = [
   'fireworks',
   'together',
   'kimi-coding',
+  'qwen-token-plan',
+  'qwen-token-plan-cn',
   'minimax',
   'minimax-cn',
   'moonshotai',

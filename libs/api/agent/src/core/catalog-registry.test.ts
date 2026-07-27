@@ -1,4 +1,4 @@
-import {getModels, getProviders, type KnownProvider} from '@earendil-works/pi-ai';
+import {getModels, getProviders} from '@earendil-works/pi-ai/compat';
 import {
   MODEL_PROVIDER_CATALOG_SEED,
   MODEL_PROVIDER_IDS,
@@ -30,7 +30,7 @@ describe('model provider catalog registry', () => {
     );
 
     const missingDefaults = supportedEntries.flatMap((entry) => {
-      const piModels = getModels(entry.id as KnownProvider);
+      const piModels = getModels(entry.id as Parameters<typeof getModels>[0]);
       const defaultExists = piModels.some((model) => model.id === entry.default_model);
       return defaultExists ? [] : [formatMissingDefault(entry.id, entry.default_model)];
     });

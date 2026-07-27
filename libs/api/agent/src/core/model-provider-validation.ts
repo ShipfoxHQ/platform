@@ -4,7 +4,7 @@ import {
   complete,
   getModels,
   type ProviderStreamOptions,
-} from '@earendil-works/pi-ai';
+} from '@earendil-works/pi-ai/compat';
 import type {
   CustomAgentModelDto,
   ModelProviderApi,

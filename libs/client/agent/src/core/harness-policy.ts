@@ -31,6 +31,8 @@ const harnesses: readonly HarnessDescriptor[] = [
       'fireworks',
       'together',
       'kimi-coding',
+      'qwen-token-plan',
+      'qwen-token-plan-cn',
       'minimax',
       'minimax-cn',
       'moonshotai',
