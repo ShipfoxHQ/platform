@@ -17,7 +17,7 @@ describe('model provider catalog', () => {
   it('parses the catalog seed', () => {
     const parsed = modelProviderCatalogSeedSchema.array().parse(MODEL_PROVIDER_CATALOG_SEED);
 
-    expect(parsed).toHaveLength(35);
+    expect(parsed).toHaveLength(37);
   });
 
   it('rejects a supported provider without a default model', () => {
@@ -149,7 +149,7 @@ describe('model provider catalog', () => {
 
     const parsed = modelProviderCatalogEntrySchema.array().parse(responseEntries);
 
-    expect(parsed).toHaveLength(35);
+    expect(parsed).toHaveLength(37);
   });
 
   it('rejects a supported response entry without models', () => {
@@ -194,7 +194,7 @@ describe('model provider catalog', () => {
 
     expect(found?.id).toBe('openai');
     expect(missing).toBeUndefined();
-    expect(supportedEntries).toHaveLength(31);
+    expect(supportedEntries).toHaveLength(33);
     expect(supportedEntries.every((entry) => entry.support_status === 'supported')).toBe(true);
   });
 

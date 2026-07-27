@@ -1,13 +1,17 @@
 import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import type {
+  ApiKeyCredential,
+  Credential,
+  CredentialInfo,
+  CredentialStore,
+} from '@earendil-works/pi-ai';
 import {
-  type ApiKeyCredential,
-  AuthStorage,
   type CreateAgentSessionOptions,
   createAgentSessionFromServices,
   createAgentSessionServices,
   defineTool,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import {
@@ -33,14 +37,15 @@ import {
   runOutputTurnLoop,
   withOutputGuidance,
 } from '#core/output-collector.js';
+import {assertPiExtensionsLoaded, piExtensionDirectories} from '#core/pi-extensions.js';
 import {type SessionForwarder, startSessionForwarder} from '#core/session-forwarder.js';
 
 const KEYLESS_CUSTOM_PROVIDER_API_KEY = 'shipfox-keyless-custom-provider-placeholder';
 const SECRET_HEADER_CREDENTIAL_PREFIX = 'header:';
 
 type PiThinkingLevel = NonNullable<CreateAgentSessionOptions['thinkingLevel']>;
-type ModelRegistryInstance = ReturnType<typeof ModelRegistry.create>;
-type CustomProviderConfig = Parameters<ModelRegistryInstance['registerProvider']>[1];
+type ModelRuntimeInstance = Awaited<ReturnType<typeof ModelRuntime.create>>;
+type CustomProviderConfig = Parameters<ModelRuntimeInstance['registerProvider']>[1];
 type CustomProviderModel = NonNullable<CustomProviderConfig['models']>[number];
 
 export const piHarnessAdapter: HarnessAdapter = {run: runPiAgent};
@@ -78,21 +83,21 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   // session exists so a mid-creation abort still stops pi.
   if (signal.aborted) throw new Error('Agent step aborted before the pi session started');
 
-  const authStorage =
-    customProvider === undefined
-      ? AuthStorage.inMemory({
-          [provider]: toPiRuntimeCredential(provider, credentials),
-        })
-      : AuthStorage.inMemory({});
-  const modelRegistry = ModelRegistry.create(authStorage);
+  const modelRuntime = await ModelRuntime.create({
+    credentials: createInMemoryCredentialStore(
+      customProvider === undefined
+        ? {[provider]: toPiRuntimeCredential(provider, credentials)}
+        : {},
+    ),
+  });
   if (customProvider !== undefined) {
-    await registerCustomProvider(modelRegistry, provider, credentials, customProvider);
+    await registerCustomProvider(modelRuntime, provider, credentials, customProvider);
   }
-  const model = resolveModel(modelRegistry, provider, modelId);
+  const model = resolveModel(modelRuntime, provider, modelId);
 
   // Surface a missing key up front as a config error: otherwise it fails deep inside the
   // provider call as an opaque invocation failure, hiding that the fix is workspace config.
-  if (!modelRegistry.hasConfiguredAuth(model)) {
+  if (!modelRuntime.hasConfiguredAuth(model.provider)) {
     throw new AgentConfigError(
       `No credentials configured for provider "${provider}". ` +
         'Verify the provider is configured for this workspace.',
@@ -105,17 +110,23 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
 
   try {
     mcpConfig = await createPiMcpConfig(cwd, mcpServers);
+    const extensionDirectories = piExtensionDirectories({
+      packageNames:
+        mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
+    });
     const services = await createAgentSessionServices({
       cwd,
-      authStorage,
-      modelRegistry,
+      modelRuntime,
       ...(mcpConfig === undefined
         ? {}
         : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
       resourceLoaderOptions: {
-        additionalExtensionPaths:
-          mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
+        additionalExtensionPaths: extensionDirectories,
       },
+    });
+    assertPiExtensionsLoaded({
+      resourceLoader: services.resourceLoader,
+      directories: extensionDirectories,
     });
     assertPiServiceDiagnostics(services.diagnostics, {
       cwd,
@@ -248,6 +259,32 @@ function assertPiServiceDiagnostics(
   throw new AgentHarnessUnavailableError({diagnostics, environment});
 }
 
+function createInMemoryCredentialStore(credentials: Record<string, Credential>): CredentialStore {
+  const values = new Map(Object.entries(credentials));
+  return {
+    read(providerId) {
+      return Promise.resolve(values.get(providerId));
+    },
+    list(): Promise<readonly CredentialInfo[]> {
+      return Promise.resolve(
+        [...values.entries()].map(([providerId, credential]) => ({
+          providerId,
+          type: credential.type,
+        })),
+      );
+    },
+    async modify(providerId, update) {
+      const next = await update(values.get(providerId));
+      if (next !== undefined) values.set(providerId, next);
+      return values.get(providerId);
+    },
+    delete(providerId) {
+      values.delete(providerId);
+      return Promise.resolve();
+    },
+  };
+}
+
 async function createPiMcpConfig(
   cwd: string,
   mcpServers: HarnessInvocation['mcpServers'],
@@ -364,7 +401,7 @@ function setOutputTool(collector: OutputCollector) {
 }
 
 async function registerCustomProvider(
-  modelRegistry: ModelRegistryInstance,
+  modelRuntime: ModelRuntimeInstance,
   provider: string,
   credentials: Record<string, string>,
   customProvider: CustomModelProviderRuntimeConfigDto,
@@ -376,7 +413,7 @@ async function registerCustomProvider(
   const apiKey = customProviderApiKey(provider, customProvider, credentials);
 
   try {
-    modelRegistry.registerProvider(provider, {
+    modelRuntime.registerProvider(provider, {
       name: provider,
       baseUrl: customProvider.base_url,
       api: customProvider.api,
@@ -466,20 +503,20 @@ function startForwarding(
   return startSessionForwarder({filePath: sessionFile, onEntry: onSessionEntry});
 }
 
-type ResolvedModel = NonNullable<ReturnType<ModelRegistry['find']>>;
+type ResolvedModel = NonNullable<ReturnType<ModelRuntimeInstance['getModel']>>;
 
 // pi's `find` returns undefined for both an unknown provider and a known provider that
 // lacks the model, so split them on the registry's provider set to give an actionable
 // message (and, when another provider carries the same id, a did-you-mean hint).
 function resolveModel(
-  modelRegistry: ModelRegistry,
+  modelRuntime: ModelRuntimeInstance,
   provider: string,
   modelId: string,
 ): ResolvedModel {
-  const model = modelRegistry.find(provider, modelId);
+  const model = modelRuntime.getModel(provider, modelId);
   if (model) return model;
 
-  const all = modelRegistry.getAll();
+  const all = modelRuntime.getModels();
   const knownProviders = new Set(all.map((entry) => entry.provider));
   if (!knownProviders.has(provider)) {
     throw new AgentConfigError(

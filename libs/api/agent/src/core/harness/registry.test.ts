@@ -1,5 +1,5 @@
 import type {AssistantMessage, Context, ProviderStreamOptions} from '@earendil-works/pi-ai';
-import {getModels} from '@earendil-works/pi-ai';
+import {getModels} from '@earendil-works/pi-ai/compat';
 import {
   claudeAgentThinkingSchema,
   harnessSchema,
@@ -32,7 +32,7 @@ const metrics = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@earendil-works/pi-ai', () => piAi);
+vi.mock('@earendil-works/pi-ai/compat', () => piAi);
 vi.mock('#metrics/index.js', () => metrics);
 
 describe('harness registry', () => {

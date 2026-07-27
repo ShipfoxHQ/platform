@@ -1,4 +1,4 @@
-import {complete} from '@earendil-works/pi-ai';
+import {complete} from '@earendil-works/pi-ai/compat';
 import type {ModelProviderRef} from '@shipfox/api-agent-dto';
 import {
   AUTH_USER,
@@ -22,8 +22,8 @@ import {modelProviderConfigs} from '#db/schema/model-provider-configs.js';
 import {getSecretsByNamespace, setSecrets} from '#test/fixtures/secrets-client.js';
 import {agentRoutes} from './index.js';
 
-vi.mock('@earendil-works/pi-ai', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@earendil-works/pi-ai')>();
+vi.mock('@earendil-works/pi-ai/compat', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@earendil-works/pi-ai/compat')>();
   return {...actual, complete: vi.fn()};
 });
 

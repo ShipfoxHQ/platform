@@ -5,6 +5,7 @@ const {
   getAllMock,
   hasConfiguredAuthMock,
   registerProviderMock,
+  modelRuntimeCreateMock,
   defineToolMock,
   promptMock,
   abortMock,
@@ -26,10 +27,7 @@ const {
   getLastAssistantTextMock: vi.fn(),
   disposeMock: vi.fn(),
   extensionShutdownMock: vi.fn(),
-}));
-const {authStorageCreateMock, authStorageInMemoryMock} = vi.hoisted(() => ({
-  authStorageCreateMock: vi.fn(),
-  authStorageInMemoryMock: vi.fn(),
+  modelRuntimeCreateMock: vi.fn(),
 }));
 const {assertEgressAllowedMock, EgressDeniedErrorMock} = vi.hoisted(() => {
   class EgressDeniedError extends Error {
@@ -49,14 +47,8 @@ vi.mock('@earendil-works/pi-coding-agent', () => ({
   createAgentSessionFromServices: createAgentSessionMock,
   createAgentSessionServices: createAgentSessionServicesMock,
   defineTool: defineToolMock,
-  AuthStorage: {create: authStorageCreateMock, inMemory: authStorageInMemoryMock},
-  ModelRegistry: {
-    create: () => ({
-      find: findMock,
-      getAll: getAllMock,
-      hasConfiguredAuth: hasConfiguredAuthMock,
-      registerProvider: registerProviderMock,
-    }),
+  ModelRuntime: {
+    create: modelRuntimeCreateMock,
   },
   SessionManager: {create: () => ({})},
 }));
@@ -85,6 +77,25 @@ import {AgentConfigError, AgentHarnessUnavailableError} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
+import {piExtensionDirectories} from '#core/pi-extensions.js';
+
+const piWebAccessDirectory = piExtensionDirectories({packageNames: ['pi-web-access']})[0];
+const piMcpAdapterDirectory = piExtensionDirectories({packageNames: ['pi-mcp-adapter']})[0];
+
+function piServices(cwd = '/work', diagnostics: Array<{type: string; message: string}> = []) {
+  return {
+    cwd,
+    diagnostics,
+    resourceLoader: {
+      getExtensions: () => ({
+        extensions: [piWebAccessDirectory, piMcpAdapterDirectory].map((directory) => ({
+          resolvedPath: `${directory}/index.ts`,
+        })),
+        errors: [],
+      }),
+    },
+  };
+}
 
 function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocation {
   return {
@@ -97,6 +108,11 @@ function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocati
     signal: new AbortController().signal,
     ...overrides,
   };
+}
+
+function runtimeCredential(provider: string): Promise<unknown> {
+  const options = modelRuntimeCreateMock.mock.calls[0]?.[0];
+  return options?.credentials.read(provider) ?? Promise.resolve(undefined);
 }
 
 function customProvider(
@@ -146,18 +162,21 @@ describe('piHarnessAdapter', () => {
     getLastAssistantTextMock.mockReset();
     disposeMock.mockReset();
     extensionShutdownMock.mockReset();
+    modelRuntimeCreateMock.mockReset();
     assertEgressAllowedMock.mockReset();
-    authStorageCreateMock.mockReset();
-    authStorageInMemoryMock.mockReset();
     assertEgressAllowedMock.mockResolvedValue(undefined);
-    authStorageCreateMock.mockReturnValue({});
-    authStorageInMemoryMock.mockReturnValue({});
     findMock.mockReturnValue({provider: 'anthropic', id: 'claude-opus-4-8'});
     getAllMock.mockReturnValue([{provider: 'anthropic', id: 'claude-opus-4-8'}]);
     hasConfiguredAuthMock.mockReturnValue(true);
+    modelRuntimeCreateMock.mockResolvedValue({
+      getModel: findMock,
+      getModels: getAllMock,
+      hasConfiguredAuth: hasConfiguredAuthMock,
+      registerProvider: registerProviderMock,
+    });
     promptMock.mockResolvedValue(undefined);
     getLastAssistantTextMock.mockReturnValue(undefined);
-    createAgentSessionServicesMock.mockResolvedValue({cwd: '/work', diagnostics: []});
+    createAgentSessionServicesMock.mockResolvedValue(piServices());
     createAgentSessionMock.mockResolvedValue({
       session: {
         prompt: promptMock,
@@ -172,7 +191,6 @@ describe('piHarnessAdapter', () => {
   });
 
   afterEach(() => {
-    expect(authStorageCreateMock).not.toHaveBeenCalled();
     if (priorGitConfigGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
     else process.env.GIT_CONFIG_GLOBAL = priorGitConfigGlobal;
     if (sessionDir) rmSync(sessionDir, {recursive: true, force: true});
@@ -189,7 +207,7 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd: '/work',
-        resourceLoaderOptions: {additionalExtensionPaths: ['pi-web-access']},
+        resourceLoaderOptions: {additionalExtensionPaths: [piWebAccessDirectory]},
       }),
     );
     expect(createAgentSessionMock).toHaveBeenCalledWith(
@@ -208,7 +226,7 @@ describe('piHarnessAdapter', () => {
 
     expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        resourceLoaderOptions: {additionalExtensionPaths: ['pi-web-access']},
+        resourceLoaderOptions: {additionalExtensionPaths: [piWebAccessDirectory]},
       }),
     );
     expect(createAgentSessionMock.mock.calls[0]?.[0]).not.toHaveProperty('customTools');
@@ -222,7 +240,7 @@ describe('piHarnessAdapter', () => {
     createAgentSessionServicesMock.mockImplementation((options) => {
       configPath = options.extensionFlagValues.get('mcp-config');
       config = JSON.parse(readFileSync(configPath, 'utf8'));
-      return {cwd: sessionDir, diagnostics: []};
+      return piServices(sessionDir);
     });
 
     await piHarnessAdapter.run(invocation({cwd: sessionDir, mcpServers: [bridge]}));
@@ -244,7 +262,7 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceLoaderOptions: {
-          additionalExtensionPaths: ['pi-web-access', 'pi-mcp-adapter'],
+          additionalExtensionPaths: [piWebAccessDirectory, piMcpAdapterDirectory],
         },
       }),
     );
@@ -282,8 +300,7 @@ describe('piHarnessAdapter', () => {
 
   it('fails before creating a Pi session when extension setup reports an error', async () => {
     createAgentSessionServicesMock.mockResolvedValue({
-      cwd: '/work',
-      diagnostics: [{type: 'error', message: 'Unknown option: --mcp-config'}],
+      ...piServices('/work', [{type: 'error', message: 'Unknown option: --mcp-config'}]),
     });
 
     const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
@@ -299,6 +316,22 @@ describe('piHarnessAdapter', () => {
         extensionPaths: ['pi-web-access'],
       },
     });
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('reports the Pi extension path error before the diagnostic symptom', async () => {
+    const piPathError = {
+      path: piWebAccessDirectory,
+      error: `Extension path does not exist: ${piWebAccessDirectory}`,
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [{type: 'error', message: 'Unknown option: --mcp-config'}]),
+      resourceLoader: {
+        getExtensions: () => ({extensions: [], errors: [piPathError]}),
+      },
+    });
+
+    await expect(piHarnessAdapter.run(invocation())).rejects.toThrow(piPathError.error);
     expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
 
@@ -499,8 +532,9 @@ describe('piHarnessAdapter', () => {
       }),
     );
 
-    expect(authStorageInMemoryMock).toHaveBeenCalledWith({
-      openai: {type: 'api_key', key: 'sk-runtime-secret'},
+    await expect(runtimeCredential('openai')).resolves.toEqual({
+      type: 'api_key',
+      key: 'sk-runtime-secret',
     });
     expect(createAgentSessionMock).toHaveBeenCalledWith(expect.objectContaining({model}));
   });
@@ -522,7 +556,7 @@ describe('piHarnessAdapter', () => {
       'https://models.example.test/v1',
       expect.objectContaining({allowPrivateNetworks: true}),
     );
-    expect(authStorageInMemoryMock).toHaveBeenCalledWith({});
+    await expect(runtimeCredential('ollama-workspace')).resolves.toBeUndefined();
     expect(registerProviderMock).toHaveBeenCalledWith(
       'ollama-workspace',
       expect.objectContaining({
@@ -827,12 +861,10 @@ describe('piHarnessAdapter', () => {
       }),
     );
 
-    expect(authStorageInMemoryMock).toHaveBeenCalledWith({
-      'azure-openai-responses': {
-        type: 'api_key',
-        key: 'sk-azure-secret',
-        env: {AZURE_OPENAI_BASE_URL: 'https://shipfox.openai.azure.com'},
-      },
+    await expect(runtimeCredential('azure-openai-responses')).resolves.toEqual({
+      type: 'api_key',
+      key: 'sk-azure-secret',
+      env: {AZURE_OPENAI_BASE_URL: 'https://shipfox.openai.azure.com'},
     });
   });
 
@@ -852,14 +884,12 @@ describe('piHarnessAdapter', () => {
       }),
     );
 
-    expect(authStorageInMemoryMock).toHaveBeenCalledWith({
-      'cloudflare-ai-gateway': {
-        type: 'api_key',
-        key: 'cf-secret',
-        env: {
-          CLOUDFLARE_ACCOUNT_ID: 'account-1',
-          CLOUDFLARE_GATEWAY_ID: 'gateway-1',
-        },
+    await expect(runtimeCredential('cloudflare-ai-gateway')).resolves.toEqual({
+      type: 'api_key',
+      key: 'cf-secret',
+      env: {
+        CLOUDFLARE_ACCOUNT_ID: 'account-1',
+        CLOUDFLARE_GATEWAY_ID: 'gateway-1',
       },
     });
   });
