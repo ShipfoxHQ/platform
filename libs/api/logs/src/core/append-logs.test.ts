@@ -228,6 +228,86 @@ describe('appendLogs', () => {
       ]);
     });
 
+    it('reports Claude re-prompts as turns and labels the re-prompt as platform input', async () => {
+      const ctx = newCtx();
+      await jobAccountingFactory.create({
+        jobId: ctx.jobId,
+        workspaceId: ctx.workspaceId,
+        startedAt: new Date(Date.now() - 60 * 60_000),
+      });
+      const workflows = createFakeInterModuleClients({
+        workflows: defineInterModulePresentation(workflowsInterModuleContract, {
+          startRunFromTrigger: vi.fn(),
+          deliverEventToJobListener: vi.fn(),
+          getStepLogContext: () => ({harness: 'claude' as const}),
+          getLeasedAgentToolContext: vi.fn(),
+        }),
+      }).workflows;
+      const init = sessionLine(
+        JSON.stringify({type: 'system', subtype: 'init', session_id: 'session-1'}),
+      );
+      const result = (text: string) =>
+        sessionLine(JSON.stringify({type: 'result', subtype: 'success', result: text}));
+      const reprompt = sessionLine(
+        JSON.stringify({
+          type: 'user',
+          message: {
+            role: 'user',
+            content:
+              'The previous turn ended without setting required workflow outputs: answer. ' +
+              'Call set_output for each missing key, then provide your final response.',
+          },
+        }),
+      );
+      const body = ndjsonBody(
+        init,
+        result('first response'),
+        reprompt,
+        init,
+        result('second response'),
+        reprompt,
+        init,
+        result('final response'),
+      );
+
+      await appendLogs({...ctx, attempt: 1, offset: 0, body}, workflows);
+
+      const stream = await findStream({...ctx, attempt: 1});
+      const rows = recordsFromChunks(await listChunks(stream?.id as string)).map((record) => {
+        expect(record.type).toBe('agent_session');
+        return record.type === 'agent_session' ? record.row : null;
+      });
+      const lifecycleRows = rows.filter(
+        (row): row is Extract<NonNullable<(typeof rows)[number]>, {kind: 'lifecycle'}> =>
+          row?.kind === 'lifecycle',
+      );
+      const messageRows = rows.filter(
+        (row): row is Extract<NonNullable<(typeof rows)[number]>, {kind: 'message'}> =>
+          row?.kind === 'message',
+      );
+
+      expect(lifecycleRows.map((row) => row.label)).toEqual([
+        'Session started',
+        'Turn 1 completed',
+        'Turn 2 started',
+        'Turn 2 completed',
+        'Turn 3 started',
+        'Session completed',
+      ]);
+      expect(
+        lifecycleRows.filter((row) => row.label.startsWith('Turn ')).map((row) => row.meta),
+      ).toEqual([
+        [{label: 'turn', value: '1'}],
+        [{label: 'turn', value: '2'}],
+        [{label: 'turn', value: '2'}],
+        [{label: 'turn', value: '3'}],
+      ]);
+      expect(messageRows.map((row) => ({role: row.role, label: row.label}))).toEqual([
+        {role: 'platform', label: 'platform'},
+        {role: 'platform', label: 'platform'},
+      ]);
+    });
+
     it('does not duplicate parsed rows on a retried append', async () => {
       const ctx = newCtx();
       await allowLargeLogBudget(ctx);

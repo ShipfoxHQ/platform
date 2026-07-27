@@ -27,6 +27,8 @@ import {
 import {allowedBudget} from './budget.js';
 import {closeStream, controlTombstone} from './close-stream.js';
 import {MalformedLogChunkError, OffsetGapError} from './errors.js';
+import {claudeInitSessionId, createClaudeParseContext} from './session/claude-parser.js';
+import type {SessionParseContext} from './session/parse-session.js';
 import {parseSessionRecord} from './session/parse-session.js';
 import type {AgentSessionRecord} from './session/session-record.js';
 
@@ -230,13 +232,24 @@ function buildStoredBody(
   harness: Harness,
 ): {body: Buffer; recordCounts: Partial<Record<LogRecord['type'], number>>} {
   const storedRecords: LogRecord[] = [];
-  for (const record of records) {
+  const parseContext: SessionParseContext | undefined =
+    harness === 'claude' ? {claude: createClaudeParseContext(), isFinalResult: true} : undefined;
+
+  for (const [index, record] of records.entries()) {
     if (record.type !== 'agent_session') {
       storedRecords.push(record);
       continue;
     }
 
-    for (const row of parseSessionRecord(agentSessionRecord(record), harness)) {
+    if (parseContext?.claude !== undefined) {
+      parseContext.isFinalResult = !hasFutureClaudeInit(
+        records,
+        index,
+        parseContext.claude.sessionId,
+      );
+    }
+
+    for (const row of parseSessionRecord(agentSessionRecord(record), harness, parseContext)) {
       storedRecords.push({v: 1, ts: row.timestamp, type: 'agent_session', row});
     }
   }
@@ -248,6 +261,19 @@ function buildStoredBody(
   }
 
   return {body, recordCounts};
+}
+
+function hasFutureClaudeInit(
+  records: readonly RawLogRecord[],
+  currentIndex: number,
+  sessionId: string | null,
+): boolean {
+  if (sessionId === null) return false;
+
+  return records.slice(currentIndex + 1).some((record) => {
+    if (record.type !== 'agent_session') return false;
+    return claudeInitSessionId(agentSessionRecord(record)) === sessionId;
+  });
 }
 
 function agentSessionRecord(

@@ -1,5 +1,5 @@
 import {PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES} from './claude/rows.js';
-import {parseClaudeSessionRecord} from './claude-parser.js';
+import {createClaudeParseContext, parseClaudeSessionRecord} from './claude-parser.js';
 
 const record = (data: unknown, ts = 1) => ({
   ts,
@@ -61,6 +61,114 @@ describe('parseClaudeSessionRecord', () => {
     const rows = parseClaudeSessionRecord(record({type: 'system', subtype}));
 
     expect(rows).toEqual([]);
+  });
+
+  it('reports repeated init and result records as turns within one session', () => {
+    const context = createClaudeParseContext();
+    const rows = [
+      ...parseClaudeSessionRecord(
+        record({type: 'system', subtype: 'init', session_id: 'session-1'}),
+        context,
+      ),
+      ...parseClaudeSessionRecord(
+        record({type: 'result', subtype: 'success', result: 'first response'}),
+        context,
+        false,
+      ),
+      ...parseClaudeSessionRecord(
+        record({type: 'system', subtype: 'init', session_id: 'session-1'}),
+        context,
+      ),
+      ...parseClaudeSessionRecord(
+        record({type: 'result', subtype: 'success', result: 'final response'}),
+        context,
+      ),
+    ];
+
+    expect(rows).toEqual([
+      {
+        kind: 'lifecycle',
+        timestamp: 1,
+        label: 'Session started',
+        detail: 'session-1',
+        meta: [],
+        tone: 'default',
+        terminalFailure: false,
+      },
+      {
+        kind: 'lifecycle',
+        timestamp: 1,
+        label: 'Turn 1 completed',
+        detail: 'first response',
+        meta: [{label: 'turn', value: '1'}],
+        tone: 'default',
+        terminalFailure: false,
+      },
+      {
+        kind: 'lifecycle',
+        timestamp: 1,
+        label: 'Turn 2 started',
+        detail: 'session-1',
+        meta: [{label: 'turn', value: '2'}],
+        tone: 'default',
+        terminalFailure: false,
+      },
+      {
+        kind: 'lifecycle',
+        timestamp: 1,
+        label: 'Session completed',
+        detail: 'final response',
+        meta: [],
+        tone: 'default',
+        terminalFailure: false,
+      },
+    ]);
+  });
+
+  it('keeps non-init system messages as session events', () => {
+    const rows = parseClaudeSessionRecord(
+      record({type: 'system', subtype: 'status', session_id: 'session-1'}),
+    );
+
+    expect(rows).toEqual([
+      {
+        kind: 'lifecycle',
+        timestamp: 1,
+        label: 'Session event',
+        detail: 'session-1',
+        meta: [],
+        tone: 'default',
+        terminalFailure: false,
+      },
+    ]);
+  });
+
+  it('labels workflow-output re-prompts as platform messages', () => {
+    const rows = parseClaudeSessionRecord(
+      record({
+        type: 'user',
+        message: {
+          role: 'user',
+          content:
+            'The previous turn ended without setting required workflow outputs: answer. ' +
+            'Call set_output for each missing key, then provide your final response.',
+        },
+      }),
+    );
+
+    expect(rows).toEqual([
+      {
+        kind: 'message',
+        timestamp: 1,
+        role: 'platform',
+        label: 'platform',
+        meta: [],
+        text:
+          'The previous turn ended without setting required workflow outputs: answer. ' +
+          'Call set_output for each missing key, then provide your final response.',
+        terminalFailure: false,
+      },
+    ]);
   });
 
   it('expands assistant text, thinking, and tool-use blocks in order', () => {

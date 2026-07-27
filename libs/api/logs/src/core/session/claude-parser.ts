@@ -7,6 +7,7 @@ import {
   systemRow,
   userRows,
 } from './claude/rows.js';
+import {stringField} from './object.js';
 import {rawRecordRow} from './rows.js';
 import type {AgentSessionRecord} from './session-record.js';
 
@@ -16,7 +17,43 @@ const claudeMessageSchema = z
   })
   .catchall(z.unknown());
 
-export function parseClaudeSessionRecord(record: AgentSessionRecord): readonly SessionViewRow[] {
+export interface ClaudeParseContext {
+  hasInit: boolean;
+  sessionId: string | null;
+  turn: number;
+}
+
+export function createClaudeParseContext(): ClaudeParseContext {
+  return {hasInit: false, sessionId: null, turn: 0};
+}
+
+export function claudeInitSessionId(record: AgentSessionRecord): string | undefined {
+  let json: unknown;
+  try {
+    json = JSON.parse(record.data);
+  } catch {
+    return undefined;
+  }
+
+  const parsed = claudeMessageSchema.safeParse(json);
+  if (!parsed.success) return undefined;
+
+  const message = parsed.data;
+  if (
+    message.type !== 'init' &&
+    !(message.type === 'system' && stringField(message, 'subtype') === 'init')
+  ) {
+    return undefined;
+  }
+
+  return stringField(message, 'session_id') ?? stringField(message, 'sessionId');
+}
+
+export function parseClaudeSessionRecord(
+  record: AgentSessionRecord,
+  context: ClaudeParseContext = createClaudeParseContext(),
+  isFinalResult = true,
+): readonly SessionViewRow[] {
   let json: unknown;
   try {
     json = JSON.parse(record.data);
@@ -39,13 +76,13 @@ export function parseClaudeSessionRecord(record: AgentSessionRecord): readonly S
   switch (message.type) {
     case 'system':
     case 'init':
-      return [systemRow(record.ts, message)];
+      return [systemRow(record.ts, message, context)];
     case 'assistant':
       return assistantRows(record.ts, message);
     case 'user':
       return userRows(record.ts, message);
     case 'result':
-      return [resultRow(record.ts, message)];
+      return [resultRow(record.ts, message, context.turn, isFinalResult)];
     default:
       return [rawRecordRow(record, `Unknown Claude message: ${message.type}`)];
   }
