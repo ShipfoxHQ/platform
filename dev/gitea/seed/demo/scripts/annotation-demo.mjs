@@ -1,3 +1,6 @@
+import {writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+
 const [, , scenario] = process.argv;
 
 const scenarioAnnotations = {
@@ -78,44 +81,23 @@ if (!scenario || !(scenario in scenarioAnnotations)) {
   process.exit(2);
 }
 
-const apiUrl = requiredEnv('SHIPFOX_API_URL').replace(/\/+$/, '');
-const leaseToken = requiredEnv('SHIPFOX_JOB_LEASE_TOKEN');
-const stepId = requiredEnv('SHIPFOX_STEP_ID');
-const attempt = Number.parseInt(requiredEnv('SHIPFOX_STEP_ATTEMPT'), 10);
-
-if (!Number.isInteger(attempt) || attempt < 1) {
-  console.error(
-    `SHIPFOX_STEP_ATTEMPT must be a positive integer; got ${process.env.SHIPFOX_STEP_ATTEMPT}`,
-  );
-  process.exit(2);
-}
-
-const response = await fetch(`${apiUrl}/runs/jobs/current/annotations`, {
-  method: 'POST',
-  headers: {
-    authorization: `Bearer ${leaseToken}`,
-    'content-type': 'application/json',
-  },
-  body: JSON.stringify({
-    step_id: stepId,
-    attempt,
-    annotations: scenarioAnnotations[scenario],
-  }),
-});
-
-if (!response.ok) {
-  const body = await response.text();
-  console.error(`Annotation write failed with ${response.status}: ${body.slice(0, 1000)}`);
-  process.exit(1);
-}
-
-const result = await response.json();
-console.log(`Wrote ${result.annotations.length} annotation operation(s) for ${scenario}.`);
+const annotationsDir = requiredEnv('SHIPFOX_ANNOTATIONS_DIR');
+const annotations = scenarioAnnotations[scenario];
+await Promise.all(
+  annotations.map((annotation, index) =>
+    writeFile(
+      join(annotationsDir, `${String(index).padStart(4, '0')}.json`),
+      JSON.stringify({...annotation, op: 'replace'}),
+      {mode: 0o600},
+    ),
+  ),
+);
+console.log(`Queued ${annotations.length} annotation operation(s) for ${scenario}.`);
 
 function requiredEnv(name) {
   const value = process.env[name];
   if (!value) {
-    console.error(`${name} is required to write demo annotations.`);
+    console.error(`${name} is required to queue demo annotations.`);
     process.exit(2);
   }
   return value;

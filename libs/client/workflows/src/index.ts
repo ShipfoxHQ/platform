@@ -35,6 +35,7 @@ export {
 } from '#core/workflow-run.js';
 export {
   runAnnotationsQueryKeys,
+  runAnnotationsQueryOptions,
   useRunAnnotationsQuery,
 } from './hooks/api/run-annotations.js';
 export {

@@ -6,36 +6,9 @@ import {
   runAnnotationsRefetchInterval,
   selectJobExecutionAnnotations,
   selectStepAnnotations,
-  toRunAnnotation,
 } from './run-annotation.js';
 
 describe('run annotations', () => {
-  it('maps annotation DTOs to the client model', () => {
-    const annotation = toRunAnnotation({
-      id: '11111111-1111-4111-8111-111111111111',
-      job_id: '22222222-2222-4222-8222-222222222222',
-      job_execution_id: '33333333-3333-4333-8333-333333333333',
-      origin_step_id: '44444444-4444-4444-8444-444444444444',
-      origin_step_attempt: 2,
-      context: 'summary',
-      style: 'warning',
-      sequence: 7,
-      body: 'body',
-    });
-
-    expect(annotation).toEqual({
-      id: '11111111-1111-4111-8111-111111111111',
-      jobId: '22222222-2222-4222-8222-222222222222',
-      jobExecutionId: '33333333-3333-4333-8333-333333333333',
-      originStepId: '44444444-4444-4444-8444-444444444444',
-      originStepAttempt: 2,
-      context: 'summary',
-      style: 'warning',
-      sequence: 7,
-      body: 'body',
-    });
-  });
-
   it('selects step annotations by step id and attempt in sequence order', () => {
     const annotations = [
       runAnnotation({id: 'b', originStepId: 'step-1', originStepAttempt: 1, sequence: 2}),
@@ -103,19 +76,29 @@ describe('run annotations', () => {
 
     expect(
       groups.map((group) => ({
-        job: group.job.displayName,
-        execution: group.jobExecution.id,
+        job: group.kind === 'matched' ? group.job.displayName : undefined,
+        execution: group.kind === 'matched' ? group.jobExecution.id : group.jobExecutionId,
         annotations: group.annotations.map((annotation) => annotation.id),
       })),
     ).toEqual([
       {job: 'build', execution: 'build-2', annotations: ['build-2a', 'build-2b']},
       {job: 'deploy', execution: 'deploy-1', annotations: ['deploy']},
+      {job: undefined, execution: 'unknown-execution', annotations: ['unknown']},
     ]);
   });
 
-  it('returns no run annotation groups when annotations or jobs are empty', () => {
+  it('returns no run annotation groups when annotations are empty', () => {
     expect(groupRunAnnotationsByExecution([], [workflowJob()])).toEqual([]);
-    expect(groupRunAnnotationsByExecution([runAnnotation()], [])).toEqual([]);
+  });
+
+  it('keeps annotations visible while job execution data is unavailable', () => {
+    expect(groupRunAnnotationsByExecution([runAnnotation()], [])).toEqual([
+      {
+        kind: 'unmatched',
+        jobExecutionId: 'execution-1',
+        annotations: [runAnnotation()],
+      },
+    ]);
   });
 
   it('computes the annotations polling cadence', () => {

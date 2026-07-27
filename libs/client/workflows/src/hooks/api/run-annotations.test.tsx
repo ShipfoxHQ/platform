@@ -1,12 +1,12 @@
 import type {ReadAnnotationsResponseDto} from '@shipfox/annotations-dto';
-import {configureApiClient} from '@shipfox/client-api';
+import {configureApiClient, isInvalidApiResponseError} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react';
 import type {ReactNode} from 'react';
 import {RUN_ANNOTATIONS_POLL_MS} from '#core/run-annotation.js';
 import {readAnnotationsResponseDto, runAnnotationDto} from '#test/fixtures/annotations.js';
 import {
-  getRunAnnotationsDtos,
+  getRunAnnotations,
   runAnnotationsQueryKeys,
   useRunAnnotationsQuery,
 } from './run-annotations.js';
@@ -37,7 +37,7 @@ describe('run annotations API hooks', () => {
     configureApiClient({baseUrl: '', fetchImpl: undefined});
   });
 
-  it('paginates annotation reads into one DTO array', async () => {
+  it('paginates annotation reads into one domain model array', async () => {
     const first = runAnnotationDto({id: '11111111-1111-4111-8111-000000000001'});
     const second = runAnnotationDto({id: '11111111-1111-4111-8111-000000000002'});
     const responses: ReadAnnotationsResponseDto[] = [
@@ -49,9 +49,14 @@ describe('run annotations API hooks', () => {
     );
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
-    const annotations = await getRunAnnotationsDtos({workflowRunId: RUN_ID, runAttempt: 2});
+    const annotations = await getRunAnnotations({workflowRunId: RUN_ID, runAttempt: 2});
 
-    expect(annotations).toEqual([first, second]);
+    expect(annotations.map((annotation) => annotation.id)).toEqual([first.id, second.id]);
+    expect(annotations[0]).toMatchObject({
+      jobId: first.job_id,
+      jobExecutionId: first.job_execution_id,
+      originStepId: first.origin_step_id,
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     const firstUrl = requestUrl(fetchImpl.mock.calls[0]?.[0]);
     const secondUrl = requestUrl(fetchImpl.mock.calls[1]?.[0]);
@@ -73,13 +78,13 @@ describe('run annotations API hooks', () => {
     );
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
-    await expect(getRunAnnotationsDtos({workflowRunId: RUN_ID, runAttempt: 1})).rejects.toThrow(
+    await expect(getRunAnnotations({workflowRunId: RUN_ID, runAttempt: 1})).rejects.toThrow(
       'Annotation pagination exceeded the maximum page budget.',
     );
     expect(fetchImpl).toHaveBeenCalledTimes(100);
   });
 
-  it('maps annotation DTOs to run annotation models while keeping the cache DTO-shaped', async () => {
+  it('maps annotation DTOs at the adapter boundary and caches domain models', async () => {
     const dto = runAnnotationDto({
       id: '11111111-1111-4111-8111-000000000003',
       job_id: '22222222-2222-4222-8222-000000000003',
@@ -98,7 +103,21 @@ describe('run annotations API hooks', () => {
       jobId: dto.job_id,
       body: 'Mapped body',
     });
-    expect(queryClient.getQueryData(runAnnotationsQueryKeys.detail(RUN_ID, 1))).toEqual([dto]);
+    expect(queryClient.getQueryData(runAnnotationsQueryKeys.detail(RUN_ID, 1))).toEqual(
+      result.current.data,
+    );
+  });
+
+  it('rejects invalid annotation response payloads at the adapter boundary', async () => {
+    const dto = runAnnotationDto();
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(readAnnotationsResponseDto([{...dto, sequence: 'not-a-number'} as never])),
+    );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    await expect(
+      getRunAnnotations({workflowRunId: RUN_ID, runAttempt: 1}).catch(isInvalidApiResponseError),
+    ).resolves.toBe(true);
   });
 
   it('polls while the run is running', async () => {

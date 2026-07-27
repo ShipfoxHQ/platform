@@ -38,23 +38,25 @@ describe('RunAnnotationsPanel', () => {
 
     const region = screen.getByRole('region', {name: 'Run annotations'});
     expect(within(region).getByRole('heading', {name: 'Run annotations'})).toBeInTheDocument();
-    expect(within(region).getByText('2')).toBeInTheDocument();
+    expect(within(region).getByText('3')).toBeInTheDocument();
     expect(within(region).getByText('build #1')).toBeInTheDocument();
     expect(within(region).getByText('build #2')).toBeInTheDocument();
     expect(within(region).getByText('First note')).toBeInTheDocument();
     expect(within(region).getByText('Second note')).toBeInTheDocument();
-    expect(within(region).queryByText('Unknown note')).not.toBeInTheDocument();
+    expect(within(region).getByText('Execution details pending')).toBeInTheDocument();
+    expect(within(region).getByText('Unknown note')).toBeInTheDocument();
   });
 
-  it('renders nothing when there are no grouped annotations', () => {
-    const {container} = render(
+  it('renders annotations while job execution data is unavailable', () => {
+    render(
       <RunAnnotationsPanel
         jobs={[workflowJob({id: 'job-1', job_executions: []})]}
         annotations={[runAnnotation({jobExecutionId: 'unknown-execution'})]}
       />,
     );
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByText('Execution details pending')).toBeInTheDocument();
+    expect(screen.getByText('Annotation body')).toBeInTheDocument();
   });
 });
 

@@ -46,7 +46,10 @@ export function RunAnnotationsPanel({
         <ScrollArea className="max-h-320">
           <div className="flex min-w-0 flex-col gap-16 px-16 py-12">
             {groups.map((group) => (
-              <RunAnnotationGroup key={group.jobExecution.id} group={group} />
+              <RunAnnotationGroup
+                key={group.kind === 'matched' ? group.jobExecution.id : group.jobExecutionId}
+                group={group}
+              />
             ))}
           </div>
         </ScrollArea>
@@ -63,9 +66,11 @@ function RunAnnotationGroup({group}: {group: RunAnnotationExecutionGroup}) {
   return (
     <div className="flex min-w-0 flex-col gap-8">
       <div className="flex min-w-0 items-center gap-6">
-        <WorkflowStatusIcon status={group.jobExecution.status} size={14} tooltip={false} />
+        {group.kind === 'matched' ? (
+          <WorkflowStatusIcon status={group.jobExecution.status} size={14} tooltip={false} />
+        ) : null}
         <Text as="span" size="sm" className="min-w-0 truncate text-foreground-neutral-muted">
-          {jobExecutionLabel(group)}
+          {group.kind === 'matched' ? jobExecutionLabel(group) : 'Execution details pending'}
         </Text>
       </div>
       <div className="flex min-w-0 flex-col gap-8">
@@ -77,7 +82,10 @@ function RunAnnotationGroup({group}: {group: RunAnnotationExecutionGroup}) {
   );
 }
 
-function jobExecutionLabel({job, jobExecution}: RunAnnotationExecutionGroup): string {
+function jobExecutionLabel({
+  job,
+  jobExecution,
+}: Extract<RunAnnotationExecutionGroup, {kind: 'matched'}>): string {
   if (job.jobExecutions.length <= 1) return job.displayName;
   return `${job.displayName} #${jobExecution.sequence}`;
 }

@@ -43,7 +43,6 @@ export interface CommandShellMetadata {
 interface RunStepOptions {
   signal?: AbortSignal;
   cwd?: string;
-  systemEnv?: Readonly<Record<string, string>>;
   secretEnv?: Readonly<Record<string, string>>;
   secretValues?: readonly string[];
   onOutput?: OutputSink;
@@ -68,11 +67,7 @@ export function executeRunStep(step: StepDto, options: RunStepOptions = {}): Pro
     });
   }
 
-  return runShellCommand(
-    {...readStepEnv(step), ...options.secretEnv, ...options.systemEnv},
-    command,
-    options,
-  );
+  return runShellCommand({...readStepEnv(step), ...options.secretEnv}, command, options);
 }
 
 async function runShellCommand(

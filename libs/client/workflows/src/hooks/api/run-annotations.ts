@@ -1,18 +1,14 @@
-import {
-  type AnnotationDto,
-  READ_ANNOTATIONS_MAX_LIMIT,
-  type ReadAnnotationsResponseDto,
-} from '@shipfox/annotations-dto';
-import {apiRequest} from '@shipfox/client-api';
-import {useQuery} from '@tanstack/react-query';
+import {READ_ANNOTATIONS_MAX_LIMIT, readAnnotationsResponseSchema} from '@shipfox/annotations-dto';
+import {checkedApiRequest} from '@shipfox/client-api';
+import {queryOptions, type UseQueryOptions, useQuery} from '@tanstack/react-query';
 import {useRef} from 'react';
 import {
   RUN_ANNOTATIONS_TERMINAL_GRACE_POLLS,
   type RunAnnotation,
   runAnnotationsRefetchInterval,
-  toRunAnnotation,
 } from '#core/run-annotation.js';
 import {isWorkflowRunTerminal, type WorkflowRunStatus} from '#core/workflow-run.js';
+import {toRunAnnotation} from './run-annotation-mapper.js';
 
 const MAX_ANNOTATION_PAGE_REQUESTS = 100;
 
@@ -22,7 +18,21 @@ export const runAnnotationsQueryKeys = {
     [...runAnnotationsQueryKeys.all, 'detail', workflowRunId, runAttempt ?? null] as const,
 };
 
-export async function getRunAnnotationsDtos({
+type RunAnnotationsQueryKey =
+  | ReturnType<typeof runAnnotationsQueryKeys.detail>
+  | readonly ['run-annotations', 'detail'];
+type RunAnnotationsQueryOptions = UseQueryOptions<
+  RunAnnotation[],
+  Error,
+  RunAnnotation[],
+  RunAnnotationsQueryKey
+>;
+
+export interface RunAnnotationsPollingState {
+  terminalGracePollsLeft: number;
+}
+
+export async function getRunAnnotations({
   workflowRunId,
   runAttempt,
   signal,
@@ -30,8 +40,8 @@ export async function getRunAnnotationsDtos({
   workflowRunId: string;
   runAttempt: number;
   signal?: AbortSignal;
-}): Promise<AnnotationDto[]> {
-  const annotations: AnnotationDto[] = [];
+}): Promise<RunAnnotation[]> {
+  const annotations: RunAnnotation[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | null = null;
 
@@ -43,11 +53,12 @@ export async function getRunAnnotationsDtos({
     });
     if (cursor) params.set('cursor', cursor);
 
-    const response = await apiRequest<ReadAnnotationsResponseDto>(
+    const response = await checkedApiRequest(
+      readAnnotationsResponseSchema,
       `/annotations?${params.toString()}`,
       {signal},
     );
-    annotations.push(...response.annotations);
+    annotations.push(...response.annotations.map(toRunAnnotation));
 
     const nextCursor = response.next_cursor;
     if (!response.has_more || !nextCursor || seenCursors.has(nextCursor)) break;
@@ -61,6 +72,52 @@ export async function getRunAnnotationsDtos({
   return annotations;
 }
 
+export function runAnnotationsQueryOptions({
+  workflowRunId,
+  runAttempt,
+  runStatus,
+  pollingState,
+}: {
+  workflowRunId: string | undefined;
+  runAttempt: number | undefined;
+  runStatus: WorkflowRunStatus | undefined;
+  pollingState: RunAnnotationsPollingState;
+}): RunAnnotationsQueryOptions {
+  const enabled = Boolean(workflowRunId && runAttempt);
+
+  return queryOptions({
+    queryKey:
+      enabled && workflowRunId
+        ? runAnnotationsQueryKeys.detail(workflowRunId, runAttempt)
+        : ([...runAnnotationsQueryKeys.all, 'detail'] as const),
+    enabled,
+    queryFn: async ({signal}) => {
+      const isTerminalFetch = Boolean(runStatus && isWorkflowRunTerminal(runStatus));
+      try {
+        return await getRunAnnotations({
+          workflowRunId: workflowRunId ?? '',
+          runAttempt: runAttempt ?? 0,
+          signal,
+        });
+      } finally {
+        if (isTerminalFetch) {
+          pollingState.terminalGracePollsLeft = Math.max(
+            0,
+            pollingState.terminalGracePollsLeft - 1,
+          );
+        }
+      }
+    },
+    staleTime: 2_000,
+    refetchInterval: () =>
+      runAnnotationsRefetchInterval({
+        runStatus,
+        graceLeft: pollingState.terminalGracePollsLeft,
+      }),
+    refetchIntervalInBackground: false,
+  });
+}
+
 export function useRunAnnotationsQuery({
   workflowRunId,
   runAttempt,
@@ -71,46 +128,27 @@ export function useRunAnnotationsQuery({
   runStatus: WorkflowRunStatus | undefined;
 }) {
   const enabled = Boolean(workflowRunId && runAttempt);
-  const graceLeftRef = useRef(RUN_ANNOTATIONS_TERMINAL_GRACE_POLLS);
+  const pollingStateRef = useRef<RunAnnotationsPollingState>({
+    terminalGracePollsLeft: RUN_ANNOTATIONS_TERMINAL_GRACE_POLLS,
+  });
   const scopeRef = useRef<string | null>(null);
   const scope = enabled && workflowRunId && runAttempt ? `${workflowRunId}:${runAttempt}` : null;
 
   if (scopeRef.current !== scope) {
     scopeRef.current = scope;
-    graceLeftRef.current = RUN_ANNOTATIONS_TERMINAL_GRACE_POLLS;
+    pollingStateRef.current.terminalGracePollsLeft = RUN_ANNOTATIONS_TERMINAL_GRACE_POLLS;
   }
 
   if (!runStatus || !isWorkflowRunTerminal(runStatus)) {
-    graceLeftRef.current = RUN_ANNOTATIONS_TERMINAL_GRACE_POLLS;
+    pollingStateRef.current.terminalGracePollsLeft = RUN_ANNOTATIONS_TERMINAL_GRACE_POLLS;
   }
 
-  return useQuery({
-    queryKey:
-      enabled && workflowRunId
-        ? runAnnotationsQueryKeys.detail(workflowRunId, runAttempt)
-        : [...runAnnotationsQueryKeys.all, 'detail'],
-    enabled,
-    queryFn: async ({signal}) => {
-      const isTerminalFetch = Boolean(runStatus && isWorkflowRunTerminal(runStatus));
-      try {
-        return await getRunAnnotationsDtos({
-          workflowRunId: workflowRunId ?? '',
-          runAttempt: runAttempt ?? 0,
-          signal,
-        });
-      } finally {
-        if (isTerminalFetch) {
-          graceLeftRef.current = Math.max(0, graceLeftRef.current - 1);
-        }
-      }
-    },
-    select: (annotations): RunAnnotation[] => annotations.map(toRunAnnotation),
-    staleTime: 2_000,
-    refetchInterval: () =>
-      runAnnotationsRefetchInterval({
-        runStatus,
-        graceLeft: graceLeftRef.current,
-      }),
-    refetchIntervalInBackground: false,
-  });
+  return useQuery(
+    runAnnotationsQueryOptions({
+      workflowRunId,
+      runAttempt,
+      runStatus,
+      pollingState: pollingStateRef.current,
+    }),
+  );
 }

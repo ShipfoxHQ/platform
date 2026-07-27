@@ -1,6 +1,7 @@
-import type {AnnotationDto, AnnotationStyleDto} from '@shipfox/annotations-dto';
 import type {Job, JobExecution, WorkflowRunStatus} from './workflow-run.js';
 import {isWorkflowRunTerminal} from './workflow-run.js';
+
+export type RunAnnotationStyle = 'default' | 'info' | 'success' | 'warning' | 'error';
 
 export interface RunAnnotation {
   id: string;
@@ -9,33 +10,26 @@ export interface RunAnnotation {
   originStepId: string;
   originStepAttempt: number;
   context: string;
-  style: AnnotationStyleDto;
+  style: RunAnnotationStyle;
   sequence: number;
   body: string;
 }
 
-export interface RunAnnotationExecutionGroup {
-  job: Job;
-  jobExecution: JobExecution;
-  annotations: RunAnnotation[];
-}
+export type RunAnnotationExecutionGroup =
+  | {
+      kind: 'matched';
+      job: Job;
+      jobExecution: JobExecution;
+      annotations: RunAnnotation[];
+    }
+  | {
+      kind: 'unmatched';
+      jobExecutionId: string;
+      annotations: RunAnnotation[];
+    };
 
 export const RUN_ANNOTATIONS_POLL_MS = 4_000;
 export const RUN_ANNOTATIONS_TERMINAL_GRACE_POLLS = 3;
-
-export function toRunAnnotation(dto: AnnotationDto): RunAnnotation {
-  return {
-    id: dto.id,
-    jobId: dto.job_id,
-    jobExecutionId: dto.job_execution_id,
-    originStepId: dto.origin_step_id,
-    originStepAttempt: dto.origin_step_attempt,
-    context: dto.context,
-    style: dto.style,
-    sequence: dto.sequence,
-    body: dto.body,
-  };
-}
 
 export function selectStepAnnotations(
   annotations: readonly RunAnnotation[],
@@ -72,7 +66,7 @@ export function groupRunAnnotationsByExecution(
   annotations: readonly RunAnnotation[],
   jobs: readonly Job[],
 ): RunAnnotationExecutionGroup[] {
-  if (annotations.length === 0 || jobs.length === 0) return [];
+  if (annotations.length === 0) return [];
 
   const annotationsByExecutionId = new Map<string, RunAnnotation[]>();
   for (const annotation of annotations) {
@@ -88,11 +82,21 @@ export function groupRunAnnotationsByExecution(
       if (!executionAnnotations || executionAnnotations.length === 0) continue;
 
       groups.push({
+        kind: 'matched',
         job,
         jobExecution,
         annotations: sortAnnotations(executionAnnotations),
       });
+      annotationsByExecutionId.delete(jobExecution.id);
     }
+  }
+
+  for (const [jobExecutionId, unmatchedAnnotations] of annotationsByExecutionId) {
+    groups.push({
+      kind: 'unmatched',
+      jobExecutionId,
+      annotations: sortAnnotations(unmatchedAnnotations),
+    });
   }
 
   return groups;

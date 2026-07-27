@@ -262,12 +262,7 @@ describe('runJobSteps', () => {
     expect(executeRunStepMock).toHaveBeenCalledWith(run, {
       signal: ac.signal,
       cwd: '/work',
-      systemEnv: {
-        SHIPFOX_STEP_ID: run.id,
-        SHIPFOX_STEP_ATTEMPT: '1',
-        SHIPFOX_JOB_LEASE_TOKEN: `lease-${run.id}-1`,
-      },
-      secretValues: [`lease-${run.id}-1`],
+      secretValues: [],
       onCommandStart: expect.any(Function),
       onOutput: expect.any(Function),
     });
@@ -462,12 +457,7 @@ describe('runJobSteps', () => {
     expect(executeRunStepMock).toHaveBeenCalledWith(
       run,
       expect.objectContaining({
-        systemEnv: {
-          SHIPFOX_STEP_ID: run.id,
-          SHIPFOX_STEP_ATTEMPT: '1',
-          SHIPFOX_JOB_LEASE_TOKEN: `lease-${run.id}-1`,
-        },
-        secretValues: [`lease-${run.id}-1`],
+        secretValues: [],
       }),
     );
     expect(executeRunStepMock).toHaveBeenCalledWith(
@@ -527,13 +517,8 @@ describe('runJobSteps', () => {
     expect(executeRunStepMock).toHaveBeenCalledWith(
       run,
       expect.objectContaining({
-        systemEnv: {
-          SHIPFOX_STEP_ID: run.id,
-          SHIPFOX_STEP_ATTEMPT: '2',
-          SHIPFOX_JOB_LEASE_TOKEN: `lease-${run.id}-2`,
-        },
         secretEnv: {TOKEN: 'prefix-runtime-secret', REUSED: 'runtime-secret'},
-        secretValues: ['runtime-secret', `lease-${run.id}-2`],
+        secretValues: ['runtime-secret'],
       }),
     );
   });
@@ -1514,7 +1499,6 @@ describe('runJobSteps', () => {
     const execution = await executeStep({
       step: agent,
       attempt: 1,
-      leaseToken: 'lease-agent-failure',
       cwd: '/work',
       logsDir: LOGS_DIR,
       jobContext: JOB_CONTEXT,
@@ -1553,7 +1537,6 @@ describe('runJobSteps', () => {
     const execution = await executeStep({
       step: agent,
       attempt: 1,
-      leaseToken: 'lease-agent-success',
       cwd: '/work',
       logsDir: LOGS_DIR,
       jobContext: JOB_CONTEXT,
