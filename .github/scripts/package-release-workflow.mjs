@@ -30,7 +30,7 @@ function run(command, args) {
       stderr += chunk;
     });
     child.once('error', reject);
-    child.once('exit', (code) => resolveCommand({code, stderr, stdout}));
+    child.once('close', (code) => resolveCommand({code, stderr, stdout}));
   });
 }
 
