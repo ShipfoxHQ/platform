@@ -6,7 +6,11 @@ import {
   createGracefulShutdownController,
   interruptibleSleep,
 } from '@shipfox/node-resilient-loop';
-import {runnerToolCapabilities} from '@shipfox/runner-agent';
+import {
+  isPiExtensionAvailable,
+  PI_HARNESS_EXTENSION_PACKAGE_NAMES,
+  runnerToolCapabilities,
+} from '@shipfox/runner-agent';
 import {
   consumeManagedRunnerBootstrapToken,
   createLeaseClient,
@@ -37,6 +41,7 @@ import {startHeartbeatLoop} from '#core/heartbeat-loop.js';
 import {runJobSteps} from '#core/step-loop.js';
 
 let running = true;
+let warnedAboutUnavailablePiExtensions = false;
 // Module-level so the long-lived SIGINT handler can reach the in-flight job's
 // controller; locally-scoped capture isn't possible from a process-global handler.
 let currentJobAbortController: AbortController | undefined;
@@ -62,6 +67,7 @@ export async function startRunner(): Promise<void> {
   // not silently fail every job.
   const workspaceRoot = resolveWorkspaceRootFromEnv();
   requireRunnerLabels();
+  warnAboutUnavailablePiExtensions();
   const startupMode = runnerStartupMode();
 
   logger().info(
@@ -146,6 +152,21 @@ export async function startRunner(): Promise<void> {
   }
 
   logger().info('Runner stopped');
+}
+
+function warnAboutUnavailablePiExtensions(): void {
+  if (warnedAboutUnavailablePiExtensions) return;
+
+  const unavailablePackages = PI_HARNESS_EXTENSION_PACKAGE_NAMES.filter(
+    (packageName) => !isPiExtensionAvailable({packageName}),
+  );
+  if (unavailablePackages.length === 0) return;
+
+  warnedAboutUnavailablePiExtensions = true;
+  logger().warn(
+    {packageNames: unavailablePackages},
+    'Required Pi extensions are unavailable; corresponding Pi tools will not be advertised',
+  );
 }
 
 export function nextBackoffInterval(ms: number): number {

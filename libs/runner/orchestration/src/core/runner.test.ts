@@ -29,12 +29,18 @@ vi.mock('#core/step-loop.js', () => ({
   runJobSteps: vi.fn(),
 }));
 
+const {isPiExtensionAvailableMock} = vi.hoisted(() => ({
+  isPiExtensionAvailableMock: vi.fn((_params: {packageName: string}) => true),
+}));
+
 vi.mock('@shipfox/runner-agent', () => ({
   runnerToolCapabilities: vi.fn(() => ({
     harnesses: {
       pi: {tools: ['read']},
     },
   })),
+  isPiExtensionAvailable: isPiExtensionAvailableMock,
+  PI_HARNESS_EXTENSION_PACKAGE_NAMES: ['pi-web-access', 'pi-mcp-adapter'],
 }));
 
 vi.mock('@shipfox/runner-protocol', () => ({
@@ -62,6 +68,7 @@ vi.mock('@shipfox/runner-protocol', () => ({
   },
 }));
 
+import {logger} from '@shipfox/node-opentelemetry';
 import {runnerToolCapabilities} from '@shipfox/runner-agent';
 import {
   consumeManagedRunnerBootstrapToken,
@@ -136,6 +143,7 @@ beforeEach(() => {
   vi.spyOn(Math, 'random').mockReturnValue(0);
   setPollConfig({interval: 1, maxInterval: 5, maxDuration: 1});
   mockResolveWorkspaceRoot.mockReturnValue(WORKSPACE_ROOT);
+  isPiExtensionAvailableMock.mockReturnValue(true);
   mockRequireRunnerLabels.mockReturnValue(['local']);
   mockRunnerStartupMode.mockReturnValue('direct');
   mockConsumeManagedRunnerBootstrapToken.mockReturnValue('sf_rbt_bootstrap-token');
@@ -294,6 +302,23 @@ describe('runJob', () => {
 });
 
 describe('startRunner', () => {
+  it('warns once when required Pi extensions are unavailable', async () => {
+    const warn = vi.spyOn(logger(), 'warn').mockImplementation(() => undefined);
+    isPiExtensionAvailableMock.mockImplementation(
+      ({packageName}: {packageName: string}) => packageName === 'pi-web-access',
+    );
+    mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
+
+    await startRunner();
+    await startRunner();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      {packageNames: ['pi-mcp-adapter']},
+      'Required Pi extensions are unavailable; corresponding Pi tools will not be advertised',
+    );
+  });
+
   it('exits before polling when the workspace root is unsafe', async () => {
     mockResolveWorkspaceRoot.mockImplementation(() => {
       throw new UnsafeWorkspaceRootError('/');

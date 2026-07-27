@@ -3,9 +3,10 @@ import {createRequire} from 'node:module';
 import {dirname, sep} from 'node:path';
 import type {ResourceLoader} from '@earendil-works/pi-coding-agent';
 
-const PI_HARNESS_EXTENSION_PACKAGE_NAMES = ['pi-web-access', 'pi-mcp-adapter'] as const;
+export const PI_HARNESS_EXTENSION_PACKAGE_NAMES = ['pi-web-access', 'pi-mcp-adapter'] as const;
 const require = createRequire(import.meta.url);
 const resolvedDirectories = new Map<string, string>();
+const availabilityByPackageName = new Map<string, boolean>();
 
 type PackageResolver = (specifier: string) => string;
 
@@ -35,14 +36,24 @@ export function piExtensionDirectories(params: {
   });
 }
 
-/** Returns whether a Pi extension package can be resolved from the runner installation. */
+/**
+ * Returns whether a Pi extension package can be resolved from the runner installation. Callers
+ * like the heartbeat loop invoke this on every tick, so both outcomes are cached: package
+ * resolvability is fixed for the process lifetime (a package install doesn't change at runtime).
+ */
 export function isPiExtensionAvailable(params: {packageName: string}): boolean {
+  const cached = availabilityByPackageName.get(params.packageName);
+  if (cached !== undefined) return cached;
+
+  let available: boolean;
   try {
     piExtensionDirectories({packageNames: [params.packageName]});
-    return true;
+    available = true;
   } catch {
-    return false;
+    available = false;
   }
+  availabilityByPackageName.set(params.packageName, available);
+  return available;
 }
 
 /** Resolves every Pi extension required by the runner image or throws with the package cause. */
