@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {parse} from 'yaml';
 
 const packageDirectory = dirname(fileURLToPath(import.meta.url));
 const workflowPath = resolve(packageDirectory, '../../../.github/workflows/ci.yml');
+const mainRefConditionPattern = /github\.ref == 'refs\/heads\/main'/;
 
 function readWorkflow() {
   return readFile(workflowPath, 'utf8');
@@ -38,12 +40,25 @@ describe('generated release CI path', () => {
 
   test('classifies version-only main commits and reuses immutable image digests', async () => {
     const workflow = await readWorkflow();
+    const parsedWorkflow = parse(workflow);
+    const releaseClassification = parsedWorkflow.jobs['release-classification'];
+    const imageClassification = parsedWorkflow.jobs['release-image-classification'];
 
     assert.ok(workflow.includes('classify-main'));
     assert.ok(workflow.includes('package-release-workflow.mjs classify-main'));
     assert.ok(workflow.includes('release-mode:'));
+    assert.equal(releaseClassification.permissions, undefined);
+    assert.equal(imageClassification.permissions.packages, 'read');
+    assert.match(imageClassification.if, mainRefConditionPattern);
     assert.ok(workflow.includes('mode=version-only-main'));
     assert.ok(workflow.includes('version_only_previous_revision'));
+    assert.ok(workflow.includes('steps.classify-images.outputs.version_only_main'));
+    assert.ok(workflow.includes('verify-image-reuse'));
+    assert.ok(workflow.includes('--image-repository ghcr.io/shipfoxhq/api'));
+    assert.ok(workflow.includes('--image-repository ghcr.io/shipfoxhq/client'));
+    assert.ok(workflow.includes('--image-repository ghcr.io/shipfoxhq/provisioner-docker'));
+    assert.ok(workflow.includes('--image-repository ghcr.io/shipfoxhq/provisioner-ec2'));
+    assert.ok(workflow.includes('--image-repository ghcr.io/shipfoxhq/runner'));
     assert.ok(workflow.includes('Reuse previous application image digest'));
     assert.ok(workflow.includes("needs.release-mode.outputs.mode == 'version-only-main'"));
     assert.ok(

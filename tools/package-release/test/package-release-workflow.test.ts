@@ -16,10 +16,14 @@ const authorizedPattern = /authorized=true/;
 const createdPattern = /"result":"created"/;
 const releasePattern = /revision=release/;
 const releasePrPattern = /Release PR: #42/;
+const reusableImagesSummaryPattern = /image bytes can be reused/;
+const unavailableImagesPattern = /version_only_main=false/;
+const unavailableImagesReasonPattern = /reason=prior-application-images-unavailable/;
 const versionOnlyMainPattern = /version_only_main=true/;
 const versionOnlyReleasePrPattern =
   /version_only_release_pr=https:\/\/github\.com\/ShipfoxHQ\/shipfox\/pull\/999/;
 const versionOnlySummaryPattern = /version-only/;
+const imageDigest = `sha256:${'a'.repeat(64)}`;
 
 describe('package release workflow tool', () => {
   test('authorizes only merged release-App pull requests from the release branch', async () => {
@@ -146,6 +150,171 @@ describe('package release workflow tool', () => {
       assert.match(output, new RegExp(`version_only_previous_revision=${previousRevision}`));
       assert.match(output, versionOnlyReleasePrPattern);
       assert.match(await readFile(summaryPath, 'utf8'), versionOnlySummaryPattern);
+    } finally {
+      await rm(temporaryRoot, {force: true, recursive: true});
+    }
+  });
+
+  test('keeps version-only CI when every prior application image is available', async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), 'shipfox-image-reuse-test-'));
+    const binDirectory = join(temporaryRoot, 'bin');
+    const outputPath = join(temporaryRoot, 'output');
+    const summaryPath = join(temporaryRoot, 'summary');
+    const revision = 'fedcba9876543210fedcba9876543210fedcba98';
+
+    try {
+      await mkdir(binDirectory);
+      await writeExecutable(
+        join(binDirectory, 'oras'),
+        `#!/bin/sh\nprintf '%s\\n' '${imageDigest}'\n`,
+      );
+
+      await execFileAsync(
+        'node',
+        [
+          workflowTool,
+          'verify-image-reuse',
+          '--revision',
+          revision,
+          '--image-repository',
+          'ghcr.io/shipfoxhq/api',
+          '--image-repository',
+          'ghcr.io/shipfoxhq/client',
+          '--github-output',
+          outputPath,
+          '--github-summary',
+          summaryPath,
+        ],
+        {env: {...process.env, PATH: `${binDirectory}:${process.env.PATH}`}},
+      );
+
+      assert.match(await readFile(outputPath, 'utf8'), versionOnlyMainPattern);
+      assert.match(await readFile(summaryPath, 'utf8'), reusableImagesSummaryPattern);
+    } finally {
+      await rm(temporaryRoot, {force: true, recursive: true});
+    }
+  });
+
+  test('falls back to normal CI when a prior application image is unavailable', async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), 'shipfox-image-reuse-test-'));
+    const binDirectory = join(temporaryRoot, 'bin');
+    const outputPath = join(temporaryRoot, 'output');
+    const summaryPath = join(temporaryRoot, 'summary');
+    const revision = 'fedcba9876543210fedcba9876543210fedcba98';
+    const unavailableReference = `ghcr.io/shipfoxhq/client:revision-${revision}`;
+
+    try {
+      await mkdir(binDirectory);
+      await writeExecutable(
+        join(binDirectory, 'oras'),
+        `#!/bin/sh
+if [ "$2" = "${unavailableReference}" ]; then
+  exit 1
+fi
+printf '%s\\n' '${imageDigest}'
+`,
+      );
+
+      await execFileAsync(
+        'node',
+        [
+          workflowTool,
+          'verify-image-reuse',
+          '--revision',
+          revision,
+          '--image-repository',
+          'ghcr.io/shipfoxhq/api',
+          '--image-repository',
+          'ghcr.io/shipfoxhq/client',
+          '--github-output',
+          outputPath,
+          '--github-summary',
+          summaryPath,
+        ],
+        {env: {...process.env, PATH: `${binDirectory}:${process.env.PATH}`}},
+      );
+
+      const output = await readFile(outputPath, 'utf8');
+      assert.match(output, unavailableImagesPattern);
+      assert.match(output, unavailableImagesReasonPattern);
+      assert.match(await readFile(summaryPath, 'utf8'), new RegExp(unavailableReference));
+    } finally {
+      await rm(temporaryRoot, {force: true, recursive: true});
+    }
+  });
+
+  test('falls back to normal CI when a resolved image digest is malformed', async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), 'shipfox-image-reuse-test-'));
+    const binDirectory = join(temporaryRoot, 'bin');
+    const outputPath = join(temporaryRoot, 'output');
+    const summaryPath = join(temporaryRoot, 'summary');
+    const revision = 'fedcba9876543210fedcba9876543210fedcba98';
+    const imageReference = `ghcr.io/shipfoxhq/api:revision-${revision}`;
+
+    try {
+      await mkdir(binDirectory);
+      await writeExecutable(
+        join(binDirectory, 'oras'),
+        "#!/bin/sh\nprintf '%s\\n' 'sha256:not-an-immutable-digest'\n",
+      );
+
+      await execFileAsync(
+        'node',
+        [
+          workflowTool,
+          'verify-image-reuse',
+          '--revision',
+          revision,
+          '--image-repository',
+          'ghcr.io/shipfoxhq/api',
+          '--github-output',
+          outputPath,
+          '--github-summary',
+          summaryPath,
+        ],
+        {env: {...process.env, PATH: `${binDirectory}:${process.env.PATH}`}},
+      );
+
+      const output = await readFile(outputPath, 'utf8');
+      assert.match(output, unavailableImagesPattern);
+      assert.match(output, unavailableImagesReasonPattern);
+      assert.match(await readFile(summaryPath, 'utf8'), new RegExp(imageReference));
+    } finally {
+      await rm(temporaryRoot, {force: true, recursive: true});
+    }
+  });
+
+  test.each([
+    {
+      arguments: ['--revision', 'invalid-revision', '--image-repository', 'ghcr.io/shipfoxhq/api'],
+      reason: 'prior-image-revision-invalid',
+      scenario: 'the prior revision is invalid',
+    },
+    {
+      arguments: ['--revision', 'fedcba9876543210fedcba9876543210fedcba98'],
+      reason: 'application-image-repositories-missing',
+      scenario: 'no image repositories are provided',
+    },
+  ])('falls back to normal CI when $scenario', async ({arguments: commandArguments, reason}) => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), 'shipfox-image-reuse-test-'));
+    const outputPath = join(temporaryRoot, 'output');
+    const summaryPath = join(temporaryRoot, 'summary');
+
+    try {
+      await execFileAsync('node', [
+        workflowTool,
+        'verify-image-reuse',
+        ...commandArguments,
+        '--github-output',
+        outputPath,
+        '--github-summary',
+        summaryPath,
+      ]);
+
+      const output = await readFile(outputPath, 'utf8');
+      assert.match(output, unavailableImagesPattern);
+      assert.ok(output.includes(`reason=${reason}`));
+      assert.ok(!(await readFile(summaryPath, 'utf8')).includes('Unavailable image references:'));
     } finally {
       await rm(temporaryRoot, {force: true, recursive: true});
     }
