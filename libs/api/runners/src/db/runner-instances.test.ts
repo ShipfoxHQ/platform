@@ -413,6 +413,38 @@ describe('reportRunnerInstances', () => {
     expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
+  it('releases an intended reservation for a runner that dies before enrollment', async () => {
+    const reservationId = await createReservation(2);
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        provisionerId,
+        intendedReservationId: reservationId,
+        providerRunnerId: 'pre-enrollment-runner',
+        state: 'starting',
+        reportedAt: new Date(),
+      })
+      .returning();
+    if (!runner) throw new Error('Runner instance insert returned no row');
+    if (!runner.providerRunnerId) throw new Error('Runner instance provider id missing');
+
+    const result = await reportRunnerInstances({
+      workspaceId,
+      provisionerId,
+      events: [event({providerRunnerId: runner.providerRunnerId, state: 'failed'})],
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(reservationRows[0]?.count).toBe(1);
+    expect(storedRunner?.intendedReservationId).toBeNull();
+    expect(storedRunner?.reservationReleasedAt).toBeInstanceOf(Date);
+  });
+
   it('does not release a reservation owned by another workspace or provisioner', async () => {
     const otherWorkspaceReservationId = await createReservation(1, {
       workspaceId: crypto.randomUUID(),

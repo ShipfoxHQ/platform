@@ -63,6 +63,7 @@ export interface DockerEngine {
     labels: Readonly<Record<string, string>>;
     nanoCpus: number;
     memoryBytes: number;
+    beforeStart?: () => Promise<void>;
   }): Promise<void>;
   listManaged(provisionerId: string): Promise<DockerContainerView[]>;
   remove(name: string): Promise<void>;
@@ -174,6 +175,13 @@ export function createDockerEngine(options: CreateDockerEngineOptions = {}): Doc
           ),
           selectedDriver,
         );
+      }
+
+      try {
+        await args.beforeStart?.();
+      } catch (error) {
+        await removeContainer(container).catch(() => undefined);
+        throw error;
       }
 
       try {

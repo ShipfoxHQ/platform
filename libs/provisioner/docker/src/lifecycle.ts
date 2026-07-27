@@ -168,7 +168,6 @@ async function launch(
   runner: ProviderRunnerLaunch<DockerTemplateSpec>,
 ): Promise<LaunchOutcome> {
   const labels = buildContainerLabels({launch: runner, identity: context.identity});
-
   try {
     await context.engine.createAndStart({
       name: runner.providerRunnerId,
@@ -180,40 +179,26 @@ async function launch(
       labels,
       nanoCpus: Math.round(runner.template.spec.cpu * 1_000_000_000),
       memoryBytes: parseMemoryToBytes(runner.template.spec.memory),
+      beforeStart: async () => {
+        const attachRunnerInstanceProviderId = context.client.attachRunnerInstanceProviderId;
+        if (!attachRunnerInstanceProviderId)
+          throw new Error(
+            'Provisioner client does not support runner-instance provider identity attachment',
+          );
+        const result = await attachRunnerInstanceProviderId(
+          runner.runnerInstanceId,
+          runner.providerRunnerId,
+        );
+        if (!result.attached) {
+          throw new Error(
+            `Provider identity was not attached for runner instance ${runner.runnerInstanceId}`,
+          );
+        }
+      },
     });
   } catch (error) {
     await reportContainerCreationFailure(context, runner, error);
     throw error;
-  }
-
-  try {
-    const attachRunnerInstanceProviderId = context.client.attachRunnerInstanceProviderId;
-    if (!attachRunnerInstanceProviderId)
-      throw new Error(
-        'Provisioner client does not support runner-instance provider identity attachment',
-      );
-    const result = await attachRunnerInstanceProviderId(
-      runner.runnerInstanceId,
-      runner.providerRunnerId,
-    );
-    if (!result.attached) {
-      throw new Error(
-        `Provider identity was not attached for runner instance ${runner.runnerInstanceId}`,
-      );
-    }
-  } catch (error) {
-    logger().debug?.(
-      {
-        event: 'runner.container_identity_attachment_failed',
-        operation: 'attach_runner_instance_provider_id',
-        providerRunnerId: runner.providerRunnerId,
-        runnerInstanceId: runner.runnerInstanceId,
-        reason: truncateReason(errorReason(error)),
-      },
-      'Failed to attach provider identity after runner container started',
-    );
-    if (error instanceof ProvisionerAuthenticationError) throw error;
-    return {containerStarted: true, identityAttached: false, reported: false};
   }
 
   const reported = await reportEvents(context, [

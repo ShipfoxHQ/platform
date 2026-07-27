@@ -103,15 +103,16 @@ describe('api-client auth contexts', () => {
   });
 
   it('enrolls, heartbeats, and polls only with the control-session token', async () => {
-    stubFetch(() => new Response(null, {status: 204}));
+    stubFetch(() => jsonResponse({activation_token: null}));
 
-    await enrollRunnerControlSession({
+    const enrollmentActivationToken = await enrollRunnerControlSession({
       controlSessionToken: 'control-token',
       capabilities: TOOL_CAPABILITIES,
       providerKind: 'ec2',
       protocolVersion: '1',
     });
 
+    expect(enrollmentActivationToken).toBeNull();
     expect(calls[0]?.url).toContain('runner-control/enrollment');
     expect(calls[0]?.authorization).toBe('Bearer control-token');
     expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({

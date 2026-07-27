@@ -23,6 +23,7 @@ export const providerRunners = pgTable(
     workspaceId: uuid('workspace_id'),
     provisionerId: uuid('provisioner_id').notNull(),
     providerRunnerId: text('provider_runner_id'),
+    intendedReservationId: uuid('intended_reservation_id'),
     reservationId: uuid('reservation_id'),
     assignedAt: timestamp('assigned_at', {withTimezone: true}),
     templateKey: text('template_key'),
@@ -53,6 +54,14 @@ export const providerRunners = pgTable(
       table.updatedAt,
       table.reportedAt,
     ),
+    index('runners_runner_instances_provisioner_intended_reservation_idx')
+      .on(table.provisionerId, table.intendedReservationId)
+      .where(
+        sql`${table.intendedReservationId} is not null and ${table.reservationReleasedAt} is null`,
+      ),
+    index('runners_runner_instances_provisioner_reservation_idx')
+      .on(table.provisionerId, table.reservationId)
+      .where(sql`${table.reservationId} is not null`),
     index('runners_runner_instances_active_template_counts_idx')
       .on(table.provisionerId, table.state, table.templateKey)
       .where(sql`"state" in ('starting', 'running') and "template_key" is not null`),

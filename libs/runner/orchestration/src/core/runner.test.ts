@@ -399,7 +399,7 @@ describe('startRunner', () => {
       expect(mockInterruptibleSleep).not.toHaveBeenCalled();
       return Promise.resolve({controlSessionToken: 'control-token'});
     });
-    mockEnrollRunnerControlSession.mockResolvedValue();
+    mockEnrollRunnerControlSession.mockResolvedValue(null);
     mockHeartbeatRunnerControlSession.mockResolvedValue();
     mockPollRunnerAssignment.mockResolvedValue('activation-token');
     mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
@@ -473,6 +473,31 @@ describe('startRunner', () => {
     }
   });
 
+  it('uses an activation token returned by enrollment without polling for assignment', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(0);
+    vi.stubEnv('SHIPFOX_RUNNER_BOOTSTRAP_TOKEN', 'sf_rbt_bootstrap-token');
+    vi.stubEnv('SHIPFOX_RUNNER_PROVIDER_KIND', 'ec2');
+    vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
+    mockRunnerStartupMode.mockReturnValue('managed');
+    mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
+    mockEnrollRunnerControlSession.mockResolvedValue('enrollment-activation-token');
+    mockRegisterRunnerSession.mockResolvedValue({
+      session_id: '00000000-0000-0000-0000-000000000003',
+      session_token: 'session-token',
+      mode: 'activation',
+      max_claims: 1,
+    });
+    mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
+
+    await startRunner();
+
+    expect(mockPollRunnerAssignment).not.toHaveBeenCalled();
+    expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
+      capabilities: {harnesses: {pi: {tools: ['read']}}},
+      registrationToken: 'enrollment-activation-token',
+    });
+  });
+
   it('retries a failed first direct registration', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(0);
     mockRegisterRunnerSession
@@ -495,7 +520,7 @@ describe('startRunner', () => {
     vi.spyOn(Date, 'now').mockReturnValue(0);
     mockRunnerStartupMode.mockReturnValue('managed');
     mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
-    mockEnrollRunnerControlSession.mockResolvedValue();
+    mockEnrollRunnerControlSession.mockResolvedValue(null);
     mockHeartbeatRunnerControlSession.mockResolvedValue();
     mockPollRunnerAssignment.mockImplementation(async (_controlSessionToken, signal) => {
       process.emit('SIGTERM');

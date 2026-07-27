@@ -28,6 +28,7 @@ import {
 import {releaseReservationUnits} from './reservations.js';
 import {ephemeralRegistrationTokens} from './schema/ephemeral-registration-tokens.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
+import {reservations} from './schema/reservations.js';
 import {providerRunners, toRunnerInstance} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
@@ -587,27 +588,54 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
     .select({
       id: providerRunners.id,
       reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
     })
     .from(providerRunners)
     .where(
       and(
-        eq(providerRunners.workspaceId, params.workspaceId),
         eq(providerRunners.provisionerId, params.provisionerId),
         inArray(providerRunners.providerRunnerId, params.providerRunnerIds),
         inArray(providerRunners.state, terminalStates),
-        isNotNull(providerRunners.reservationId),
+        or(
+          isNotNull(providerRunners.reservationId),
+          isNotNull(providerRunners.intendedReservationId),
+        ),
+        or(
+          eq(providerRunners.workspaceId, params.workspaceId),
+          and(
+            isNull(providerRunners.workspaceId),
+            isNotNull(providerRunners.intendedReservationId),
+            exists(
+              tx
+                .select({id: reservations.id})
+                .from(reservations)
+                .where(
+                  and(
+                    eq(reservations.workspaceId, params.workspaceId),
+                    eq(reservations.provisionerId, params.provisionerId),
+                    eq(reservations.id, providerRunners.intendedReservationId),
+                  ),
+                ),
+            ),
+          ),
+        ),
         params.requireUnlinkedSession === false
           ? undefined
           : isNull(providerRunners.runnerSessionId),
         isNull(providerRunners.reservationReleasedAt),
       ),
-    );
+    )
+    .for('update');
 
   if (rows.length === 0) return 0;
 
   const updated = await tx
     .update(providerRunners)
-    .set({reservationReleasedAt: sql`now()`, updatedAt: sql`now()`})
+    .set({
+      intendedReservationId: null,
+      reservationReleasedAt: sql`now()`,
+      updatedAt: sql`now()`,
+    })
     .where(
       and(
         inArray(
@@ -620,14 +648,17 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
         isNull(providerRunners.reservationReleasedAt),
       ),
     )
-    .returning({reservationId: providerRunners.reservationId});
+    .returning({id: providerRunners.id});
 
   const releasesByReservationId = new Map<string, number>();
-  for (const row of updated) {
-    if (!row.reservationId) continue;
+  const updatedIds = new Set(updated.map((row) => row.id));
+  for (const row of rows) {
+    if (!updatedIds.has(row.id)) continue;
+    const reservationId = row.reservationId ?? row.intendedReservationId;
+    if (!reservationId) continue;
     releasesByReservationId.set(
-      row.reservationId,
-      (releasesByReservationId.get(row.reservationId) ?? 0) + 1,
+      reservationId,
+      (releasesByReservationId.get(reservationId) ?? 0) + 1,
     );
   }
 

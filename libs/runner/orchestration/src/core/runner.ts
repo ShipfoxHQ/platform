@@ -288,13 +288,14 @@ async function initializeManagedRunnerSession(): Promise<RunnerSession | undefin
   const exchanged = await exchangeRunnerBootstrapToken(bootstrapToken);
   const controlSessionToken = exchanged.controlSessionToken;
   const enrollmentConfig = managedRunnerEnrollmentConfig();
-  await enrollRunnerControlSession({
+  const enrollmentActivationToken = await enrollRunnerControlSession({
     controlSessionToken,
     capabilities: runnerToolCapabilities(),
     providerKind: enrollmentConfig.providerKind,
     protocolVersion: enrollmentConfig.protocolVersion,
   });
-  const activationToken = await waitForRunnerActivation(controlSessionToken);
+  const activationToken =
+    enrollmentActivationToken ?? (await waitForRunnerActivation(controlSessionToken));
   if (!activationToken) return undefined;
 
   const runnerSession = await registerRunnerSession({
