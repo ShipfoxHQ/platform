@@ -1,7 +1,3 @@
-const piExtensionTestState = vi.hoisted(() => ({
-  resolver: undefined as ((specifier: string) => string) | undefined,
-}));
-
 const {
   createAgentSessionMock,
   createAgentSessionServicesMock,
@@ -17,6 +13,8 @@ const {
   getLastAssistantTextMock,
   disposeMock,
   extensionShutdownMock,
+  piExtensionDirectoriesMock,
+  isPiExtensionAvailableMock,
 } = vi.hoisted(() => ({
   createAgentSessionMock: vi.fn(),
   createAgentSessionServicesMock: vi.fn(),
@@ -32,6 +30,10 @@ const {
   disposeMock: vi.fn(),
   extensionShutdownMock: vi.fn(),
   modelRuntimeCreateMock: vi.fn(),
+  piExtensionDirectoriesMock: vi.fn(({packageNames}: {packageNames: readonly string[]}) =>
+    packageNames.map((packageName) => `/runner/node_modules/${packageName}`),
+  ),
+  isPiExtensionAvailableMock: vi.fn(),
 }));
 const {assertEgressAllowedMock, EgressDeniedErrorMock} = vi.hoisted(() => {
   class EgressDeniedError extends Error {
@@ -46,10 +48,6 @@ const {assertEgressAllowedMock, EgressDeniedErrorMock} = vi.hoisted(() => {
 
   return {assertEgressAllowedMock: vi.fn(), EgressDeniedErrorMock: EgressDeniedError};
 });
-
-const {isPiExtensionAvailableMock} = vi.hoisted(() => ({
-  isPiExtensionAvailableMock: vi.fn(),
-}));
 
 vi.mock('@earendil-works/pi-coding-agent', () => ({
   createAgentSessionFromServices: createAgentSessionMock,
@@ -71,29 +69,15 @@ vi.mock('@shipfox/node-egress-guard', () => ({
       .filter(Boolean),
 }));
 
-vi.mock('#core/pi-extensions.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#core/pi-extensions.js')>();
-  return {
-    ...actual,
-    isPiExtensionAvailable: isPiExtensionAvailableMock,
-    piExtensionDirectories: (params: Parameters<typeof actual.piExtensionDirectories>[0]) =>
-      piExtensionTestState.resolver === undefined
-        ? actual.piExtensionDirectories(params)
-        : actual.piExtensionDirectories({...params, resolve: piExtensionTestState.resolver}),
-  };
-});
+vi.mock('#core/pi-extensions.js', async () => ({
+  ...(await vi.importActual<typeof import('#core/pi-extensions.js')>('#core/pi-extensions.js')),
+  piExtensionDirectories: piExtensionDirectoriesMock,
+  isPiExtensionAvailable: isPiExtensionAvailableMock,
+}));
 
-import {
-  appendFileSync,
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from 'node:fs';
+import {appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {basename, isAbsolute, join} from 'node:path';
+import {join} from 'node:path';
 import {
   type CustomModelProviderRuntimeConfigDto,
   DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW,
@@ -101,53 +85,31 @@ import {
   DEFAULT_CUSTOM_MODEL_MAX_OUTPUT_TOKENS,
   DEFAULT_CUSTOM_MODEL_REASONING,
 } from '@shipfox/api-agent-dto';
+import {STEP_ERROR_MESSAGE_MAX_LENGTH} from '@shipfox/api-workflows-dto';
 import {AgentConfigError, AgentHarnessUnavailableError} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
 import {piExtensionDirectories} from '#core/pi-extensions.js';
 
-function extensionDirectory(packageName: string): string {
-  const [directory] = piExtensionDirectories({packageNames: [packageName]});
-  if (directory === undefined) throw new Error(`Missing resolved directory for ${packageName}`);
-  return directory;
-}
+const piWebAccessDirectory = piExtensionDirectories({packageNames: ['pi-web-access']})[0];
+const piMcpAdapterDirectory = piExtensionDirectories({packageNames: ['pi-mcp-adapter']})[0];
+const TRUNCATED_ATTEMPT_PATTERN = /attempt-\d{3}…$/;
+const LONE_HIGH_SURROGATE_PATTERN = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/;
 
-const piWebAccessDirectory = extensionDirectory('pi-web-access');
-const piMcpAdapterDirectory = extensionDirectory('pi-mcp-adapter');
-
-function piServices(
-  cwd = '/work',
-  diagnostics: Array<{type: string; message: string}> = [],
-  loadedDirectories: readonly string[] = [piWebAccessDirectory, piMcpAdapterDirectory],
-  extensionErrors: Array<{path: string; error: string}> = [],
-) {
+function piServices(cwd = '/work', diagnostics: Array<{type: string; message: string}> = []) {
   return {
     cwd,
     diagnostics,
     resourceLoader: {
       getExtensions: () => ({
-        extensions: loadedDirectories.map((directory) => ({resolvedPath: `${directory}/index.ts`})),
-        errors: extensionErrors,
+        extensions: [piWebAccessDirectory, piMcpAdapterDirectory].map((directory) => ({
+          resolvedPath: `${directory}/index.ts`,
+        })),
+        errors: [],
       }),
     },
   };
-}
-
-function expectResolvedExtensionPaths(
-  paths: readonly string[] | undefined,
-  expectedNames: readonly string[],
-  workspace: string,
-): void {
-  expect(paths).toBeDefined();
-  if (paths === undefined) return;
-
-  expect(paths.map((path) => basename(path))).toEqual(expectedNames);
-  for (const path of paths) {
-    expect(isAbsolute(path)).toBe(true);
-    expect(statSync(path).isDirectory()).toBe(true);
-    expect(path.startsWith(workspace)).toBe(false);
-  }
 }
 
 function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocation {
@@ -215,11 +177,15 @@ describe('piHarnessAdapter', () => {
     getLastAssistantTextMock.mockReset();
     disposeMock.mockReset();
     extensionShutdownMock.mockReset();
+    piExtensionDirectoriesMock.mockReset();
+    piExtensionDirectoriesMock.mockImplementation(
+      ({packageNames}: {packageNames: readonly string[]}) =>
+        packageNames.map((packageName) => `/runner/node_modules/${packageName}`),
+    );
+    isPiExtensionAvailableMock.mockReturnValue(true);
     modelRuntimeCreateMock.mockReset();
-    piExtensionTestState.resolver = undefined;
     assertEgressAllowedMock.mockReset();
     assertEgressAllowedMock.mockResolvedValue(undefined);
-    isPiExtensionAvailableMock.mockReturnValue(true);
     findMock.mockReturnValue({provider: 'anthropic', id: 'claude-opus-4-8'});
     getAllMock.mockReturnValue([{provider: 'anthropic', id: 'claude-opus-4-8'}]);
     hasConfiguredAuthMock.mockReturnValue(true);
@@ -259,11 +225,11 @@ describe('piHarnessAdapter', () => {
     const result = await piHarnessAdapter.run(invocation({provider: 'openai', model: 'gpt-5.1'}));
 
     expect(findMock).toHaveBeenCalledWith('openai', 'gpt-5.1');
-    expectResolvedExtensionPaths(
-      createAgentSessionServicesMock.mock.calls[0]?.[0].resourceLoaderOptions
-        .additionalExtensionPaths,
-      ['pi-web-access'],
-      '/work',
+    expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/work',
+        resourceLoaderOptions: {additionalExtensionPaths: [piWebAccessDirectory]},
+      }),
     );
     expect(createAgentSessionMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -279,19 +245,16 @@ describe('piHarnessAdapter', () => {
   it('loads pi-web-access through the Pi resource loader without output tools by default', async () => {
     await piHarnessAdapter.run(invocation());
 
-    expectResolvedExtensionPaths(
-      createAgentSessionServicesMock.mock.calls[0]?.[0].resourceLoaderOptions
-        .additionalExtensionPaths,
-      ['pi-web-access'],
-      '/work',
+    expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceLoaderOptions: {additionalExtensionPaths: [piWebAccessDirectory]},
+      }),
     );
     expect(createAgentSessionMock.mock.calls[0]?.[0]).not.toHaveProperty('customTools');
   });
 
   it('keeps Pi built-ins available when pi-web-access is unavailable', async () => {
-    isPiExtensionAvailableMock.mockImplementation(
-      ({packageName}: {packageName: string}) => packageName !== 'pi-web-access',
-    );
+    isPiExtensionAvailableMock.mockReturnValue(false);
 
     await piHarnessAdapter.run(invocation());
 
@@ -328,11 +291,12 @@ describe('piHarnessAdapter', () => {
         },
       },
     });
-    expectResolvedExtensionPaths(
-      createAgentSessionServicesMock.mock.calls[0]?.[0].resourceLoaderOptions
-        .additionalExtensionPaths,
-      ['pi-web-access', 'pi-mcp-adapter'],
-      sessionDir,
+    expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceLoaderOptions: {
+          additionalExtensionPaths: [piWebAccessDirectory, piMcpAdapterDirectory],
+        },
+      }),
     );
     expect(extensionShutdownMock).toHaveBeenCalledWith({type: 'session_shutdown', reason: 'quit'});
     expect(disposeMock).toHaveBeenCalledAfter(extensionShutdownMock);
@@ -369,12 +333,6 @@ describe('piHarnessAdapter', () => {
   it('fails before creating a Pi session when extension setup reports an error', async () => {
     createAgentSessionServicesMock.mockResolvedValue({
       ...piServices('/work', [{type: 'error', message: 'Unknown option: --mcp-config'}]),
-      resourceLoader: {
-        getExtensions: () => ({
-          extensions: [{resolvedPath: `${piWebAccessDirectory}/index.ts`}],
-          errors: [],
-        }),
-      },
     });
 
     const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
@@ -388,10 +346,132 @@ describe('piHarnessAdapter', () => {
         model: 'claude-opus-4-8',
         thinking: 'high',
         extensionPaths: ['pi-web-access'],
-        resolvedExtensionPaths: [`${piWebAccessDirectory}/index.ts`],
       },
     });
     expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes diagnostic paths while preserving raw diagnostics', async () => {
+    const diagnostic = {
+      type: 'error' as const,
+      message:
+        'Extension setup failed at file:///private/runner/workspaces/job-123/pi-mcp-adapter/dist/index.js; ' +
+        'while loading `/private/runner/workspaces/job-123/pi-mcp-adapter`; ' +
+        'paths: /a/b/c,/d/e/f; ' +
+        'specifiers: pi-mcp-adapter/dist/index.js ./lib/helper.js node_modules/pi-web-access/dist/index.ts; ' +
+        'delimiters: </private/runner/a.ts> -/private/runner/b.ts >' +
+        '/private/runner/c.ts |/private/runner/d.ts )/private/runner/e.ts ' +
+        ']/private/runner/f.ts }/private/runner/g.ts; ' +
+        'Expected /^v\\d+$/ ...',
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [diagnostic]),
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error).toMatchObject({
+      message:
+        'Pi extension setup failed: Extension setup failed at file://index.js; while loading `pi-mcp-adapter`; ' +
+        'paths: c,f; specifiers: pi-mcp-adapter/dist/index.js ./lib/helper.js ' +
+        'node_modules/pi-web-access/dist/index.ts; delimiters: <a.ts> -b.ts >c.ts |d.ts ' +
+        ')e.ts ]f.ts }g.ts; Expected /^v\\d+$/ ...',
+      diagnostics: [diagnostic],
+    });
+  });
+
+  it('uses a generic message when all harness diagnostics are empty', async () => {
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [
+        {type: 'error', message: ''},
+        {type: 'error', message: ''},
+      ]),
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(AgentHarnessUnavailableError);
+    expect(error.message).toBe('Pi extension setup failed: The runner harness could not start.');
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('truncates harness diagnostics at a token boundary with an explicit marker', async () => {
+    const diagnostic = {
+      type: 'error' as const,
+      message: Array.from(
+        {length: 240},
+        (_, index) => `attempt-${String(index).padStart(3, '0')}`,
+      ).join(' '),
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [diagnostic]),
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+    const detail = error.message.replace('Pi extension setup failed: ', '');
+
+    expect(error.message.length).toBeLessThanOrEqual(STEP_ERROR_MESSAGE_MAX_LENGTH);
+    expect(detail).toMatch(TRUNCATED_ATTEMPT_PATTERN);
+  });
+
+  it('keeps a large final token and avoids lone surrogates when truncating', async () => {
+    const longDiagnostic = {
+      type: 'error' as const,
+      message: `prefix ${'x'.repeat(2500)}`,
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [longDiagnostic]),
+    });
+
+    const longError = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+    const longDetail = longError.message.replace('Pi extension setup failed: ', '');
+
+    expect(longDetail.length).toBeGreaterThan(2000);
+    expect(longError.message.length).toBeLessThanOrEqual(STEP_ERROR_MESSAGE_MAX_LENGTH);
+
+    const surrogateDiagnostic = {
+      type: 'error' as const,
+      message: `prefix ${'A'.repeat(2012)}😀x`,
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [surrogateDiagnostic]),
+    });
+
+    const surrogateError = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(surrogateError.message).toContain('…');
+    expect(surrogateError.message).not.toMatch(LONE_HIGH_SURROGATE_PATTERN);
+  });
+
+  it('classifies Pi extension package-resolution failures as harness unavailable', async () => {
+    piExtensionDirectoriesMock.mockImplementationOnce(() => {
+      throw new Error(
+        'Unable to resolve Pi extension package "pi-web-access": Cannot find module ' +
+          '/runner/node_modules/pi-web-access/package.json',
+      );
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(AgentHarnessUnavailableError);
+    expect(error.message).toBe(
+      'Pi extension setup failed: Unable to resolve Pi extension package "pi-web-access": ' +
+        'Cannot find module package.json',
+    );
+    expect(createAgentSessionServicesMock).not.toHaveBeenCalled();
+  });
+
+  it('cleans the MCP temp directory when extension resolution fails', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
+    piExtensionDirectoriesMock.mockImplementationOnce(() => {
+      throw new Error('Cannot find package entry');
+    });
+
+    await expect(
+      piHarnessAdapter.run(invocation({cwd: sessionDir, mcpServers: [mcpBridge()]})),
+    ).rejects.toBeInstanceOf(AgentHarnessUnavailableError);
+
+    expect(readdirSync(join(sessionDir, 'logs'))).toEqual([]);
   });
 
   it('reports the Pi extension path error before the diagnostic symptom', async () => {
@@ -407,65 +487,166 @@ describe('piHarnessAdapter', () => {
     });
 
     const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
     expect(error).toBeInstanceOf(AgentHarnessUnavailableError);
     expect(error).toMatchObject({
-      message: `Pi extension setup failed: Unknown option: --mcp-config; ${piPathError.error}`,
-      resourceLoaderErrors: [piPathError],
+      diagnostics: [{type: 'error', message: 'Unknown option: --mcp-config'}],
+      missingExtensionDirectories: [piWebAccessDirectory],
+      resourceLoaderErrors: [{error: piPathError, directory: piWebAccessDirectory}],
     });
-    expect(createAgentSessionMock).not.toHaveBeenCalled();
-  });
-
-  it('fails when Pi silently loads no requested extension', async () => {
-    createAgentSessionServicesMock.mockResolvedValue(piServices('/work', [], []));
-
-    await expect(piHarnessAdapter.run(invocation())).rejects.toThrow(piWebAccessDirectory);
-    expect(createAgentSessionMock).not.toHaveBeenCalled();
-  });
-
-  it('includes Pi extension errors in the setup failure', async () => {
-    const piPathError = {
-      path: piWebAccessDirectory,
-      error: `Extension path does not exist: ${piWebAccessDirectory}`,
-    };
-    createAgentSessionServicesMock.mockResolvedValue(piServices('/work', [], [], [piPathError]));
-
-    await expect(piHarnessAdapter.run(invocation())).rejects.toThrow(piPathError.error);
-    expect(createAgentSessionMock).not.toHaveBeenCalled();
-  });
-
-  it('names only the Pi extension directory that was not loaded', async () => {
-    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
-    createAgentSessionServicesMock.mockResolvedValue(
-      piServices('/work', [], [piWebAccessDirectory]),
+    expect(error.message).toBe(
+      'Pi extension setup failed: Extension path does not exist: pi-web-access; ' +
+        'Unknown option: --mcp-config',
     );
-
-    const error = await piHarnessAdapter
-      .run(invocation({cwd: sessionDir, mcpServers: [mcpBridge()]}))
-      .catch((caught) => caught);
-
-    expect(error.message).toContain(piMcpAdapterDirectory);
+    expect(error.message).not.toContain('pi-web-access: Extension path');
     expect(error.message).not.toContain(piWebAccessDirectory);
     expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
 
-  it('wraps resolver failures as harness-unavailable and cleans the MCP temp directory', async () => {
-    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
-    const resolverError = new Error('Cannot find package entry');
-    piExtensionTestState.resolver = () => {
-      throw resolverError;
+  it('reports missing runner extension directories when Pi has no loader error', async () => {
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices(),
+      resourceLoader: {
+        getExtensions: () => ({
+          extensions: [{resolvedPath: `${piMcpAdapterDirectory}/index.ts`}],
+          errors: [],
+        }),
+      },
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error.message).toBe(
+      'Pi extension setup failed: Pi extensions failed to load from: pi-web-access',
+    );
+  });
+
+  it('keeps missing directories alongside load errors for another runner extension', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mixed-'));
+    const piMcpLoadError = {
+      path: `${piMcpAdapterDirectory}/index.ts`,
+      error: "Unexpected token '}'",
     };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices(),
+      resourceLoader: {
+        getExtensions: () => ({
+          extensions: [{resolvedPath: `${piMcpAdapterDirectory}/index.ts`}],
+          errors: [piMcpLoadError],
+        }),
+      },
+    });
 
     const error = await piHarnessAdapter
       .run(invocation({cwd: sessionDir, mcpServers: [mcpBridge()]}))
       .catch((caught) => caught);
 
-    expect(error).toBeInstanceOf(AgentHarnessUnavailableError);
-    expect(error).toMatchObject({
-      message: expect.stringContaining('pi-web-access'),
-      environment: {extensionPaths: ['pi-web-access', 'pi-mcp-adapter']},
+    expect(error.message).toBe(
+      'Pi extension setup failed: Pi extensions failed to load from: pi-web-access; ' +
+        "pi-mcp-adapter: Unexpected token '}'",
+    );
+  });
+
+  it('deduplicates loader messages after sanitizing their paths', async () => {
+    const errorMessage = 'Extension does not export a valid factory function';
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices(),
+      resourceLoader: {
+        getExtensions: () => ({
+          extensions: [],
+          errors: [
+            {
+              path: `${piWebAccessDirectory}/index.ts`,
+              error: `${errorMessage}: /runner/one/pi-web-access`,
+            },
+            {
+              path: `${piWebAccessDirectory}/index.ts`,
+              error: `${errorMessage}: /runner/two/pi-web-access`,
+            },
+          ],
+        }),
+      },
     });
-    expect(createAgentSessionServicesMock).not.toHaveBeenCalled();
-    expect(readdirSync(join(sessionDir, 'logs'))).toEqual([]);
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error.message).toBe(`Pi extension setup failed: ${errorMessage}: pi-web-access`);
+  });
+
+  it('sanitizes loader file URLs exactly once', async () => {
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices(),
+      resourceLoader: {
+        getExtensions: () => ({
+          extensions: [],
+          errors: [
+            {
+              path: `${piWebAccessDirectory}/index.ts`,
+              error:
+                'Cannot find package imported from file:///runner/node_modules/pi-web-access/dist/index.js',
+            },
+          ],
+        }),
+      },
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error.message).toBe(
+      'Pi extension setup failed: pi-web-access: ' +
+        'Cannot find package imported from file://index.js',
+    );
+  });
+
+  it('bounds direct Pi extension package-resolution errors before they reach the step layer', async () => {
+    const {piExtensionDirectories: resolveDirectories} =
+      await vi.importActual<typeof import('#core/pi-extensions.js')>('#core/pi-extensions.js');
+
+    expect(() =>
+      resolveDirectories({
+        packageNames: ['missing-runner-extension'],
+        resolve: () => {
+          throw new Error(
+            'Cannot find module /runner/node_modules/missing-runner-extension/package.json\n' +
+              '    at resolve (internal/modules/cjs/loader.js:1:1)',
+          );
+        },
+      }),
+    ).toThrow(
+      'Unable to resolve Pi extension package "missing-runner-extension": Cannot find module /runner/node_modules/missing-runner-extension/package.json',
+    );
+  });
+
+  it('ignores extension load errors outside the runner harness directories', async () => {
+    const workspaceExtensionError = {
+      path: '/work/.pi/extensions/repo-extension.ts',
+      error: 'Failed to load workspace extension',
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices(),
+      resourceLoader: {
+        getExtensions: () => ({
+          extensions: [{resolvedPath: `${piWebAccessDirectory}/index.ts`}],
+          errors: [workspaceExtensionError],
+        }),
+      },
+    });
+
+    await expect(piHarnessAdapter.run(invocation())).resolves.toEqual({response: ''});
+    expect(createAgentSessionMock).toHaveBeenCalled();
+  });
+
+  it('ignores diagnostics from extensions outside the runner harness directories', async () => {
+    const workspaceDiagnostic = {
+      type: 'error' as const,
+      message: 'Extension "/work/.pi/extensions/repo-extension.ts" error: provider is invalid',
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [workspaceDiagnostic]),
+    });
+
+    await expect(piHarnessAdapter.run(invocation())).resolves.toEqual({response: ''});
+    expect(createAgentSessionMock).toHaveBeenCalled();
   });
 
   it('registers the output tool for steps with declared outputs', async () => {

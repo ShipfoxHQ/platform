@@ -25,6 +25,7 @@ import {
 } from '#core/workflow-run.js';
 import {type StepExpandedContext, StepList, type StepListEmptyState} from '../step-list/index.js';
 import {AgentConfigFailureCallout} from './agent-config-failure-callout.js';
+import {AgentHarnessUnavailableCallout} from './agent-harness-unavailable-callout.js';
 import {JobExecutionSwitcher} from './job-execution-switcher.js';
 import {formatJobExecutionTime, JobExecutionTimeText} from './job-execution-time-text.js';
 import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
@@ -393,6 +394,8 @@ function StepAttemptDetailPanel({
           config={step.agentConfig}
           error={selectedAttemptError}
         />
+      ) : isAgentHarnessFailure(step, selectedAttemptError) ? (
+        <AgentHarnessUnavailableCallout error={selectedAttemptError} />
       ) : null}
       <StepAttemptLogPanel stepId={stepId} attempt={attempt} attemptStatus={attemptStatus} />
     </div>
@@ -438,6 +441,10 @@ function toSelectedAttemptError(
 
 function isAgentConfigFailure(step: Step, error: StepError | null): boolean {
   return step.type === 'agent' && error?.reason === 'agent_config_invalid';
+}
+
+function isAgentHarnessFailure(step: Step, error: StepError | null): error is StepError {
+  return step.type === 'agent' && error?.reason === 'agent_harness_unavailable';
 }
 
 function emptyStateForJob(job: Job, jobExecution: JobExecution): StepListEmptyState | undefined {

@@ -24,6 +24,10 @@ const {
     runClaudeMock: vi.fn(),
   };
 });
+const {loggerErrorMock, loggerWarnMock} = vi.hoisted(() => ({
+  loggerErrorMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
+}));
 
 vi.mock('#core/pi-adapter.js', () => ({piHarnessAdapter: {run: runAgentMock}}));
 vi.mock('#core/claude-adapter.js', () => ({claudeHarnessAdapter: {run: runClaudeMock}}));
@@ -32,6 +36,9 @@ vi.mock('#core/integration-tools-bridge.js', () => ({
 }));
 vi.mock('@shipfox/runner-protocol', () => ({
   createIntegrationToolsGatewayFetch: createIntegrationToolsGatewayFetchMock,
+}));
+vi.mock('@shipfox/node-opentelemetry', () => ({
+  logger: () => ({error: loggerErrorMock, warn: loggerWarnMock}),
 }));
 
 import {
@@ -88,6 +95,8 @@ describe('executeAgentStep', () => {
     gatewayFetch.mockReset();
     runAgentMock.mockReset();
     runClaudeMock.mockReset();
+    loggerErrorMock.mockReset();
+    loggerWarnMock.mockReset();
   });
 
   afterEach(() => {
@@ -413,27 +422,46 @@ describe('executeAgentStep', () => {
   });
 
   it('fails with agent_harness_unavailable without an agent config issue', async () => {
-    runAgentMock.mockRejectedValue(
-      new AgentHarnessUnavailableError({
-        diagnostics: [{type: 'error', message: 'Unknown option: --mcp-config'}],
-        environment: {
-          cwd: '/work',
-          provider: 'anthropic',
-          model: 'claude-opus-4-8',
-          thinking: 'high',
-          extensionPaths: ['pi-web-access', 'pi-mcp-adapter'],
+    const harnessError = new AgentHarnessUnavailableError({
+      diagnostics: [{type: 'error', message: 'Unknown option: --mcp-config'}],
+      environment: {
+        cwd: '/work',
+        provider: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'high',
+        extensionPaths: ['pi-web-access', 'pi-mcp-adapter'],
+      },
+      missingExtensionDirectories: ['/runner/node_modules/pi-web-access'],
+      resourceLoaderErrors: [
+        {
+          error: {
+            path: '/runner/node_modules/pi-web-access',
+            error: 'Extension path does not exist: /runner/node_modules/pi-web-access',
+          },
+          directory: '/runner/node_modules/pi-web-access',
         },
-      }),
-    );
+      ],
+    });
+    runAgentMock.mockRejectedValue(harnessError);
     const result = await executeAgentStep(buildAgentStep(), {runtime: RUNTIME});
     expect(result).toEqual({
       success: false,
       error: {
-        message: 'Pi extension setup failed: Unknown option: --mcp-config',
+        message:
+          'Pi extension setup failed: Extension path does not exist: pi-web-access; ' +
+          'Unknown option: --mcp-config',
         reason: 'agent_harness_unavailable',
       },
       exit_code: null,
     });
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_harness_unavailable',
+        harness: 'pi',
+        requestedExtensionPaths: ['pi-web-access', 'pi-mcp-adapter'],
+      }),
+      'Agent harness unavailable',
+    );
   });
 
   it('logs bounded harness diagnostics with step and build identity', async () => {
@@ -457,7 +485,13 @@ describe('executeAgentStep', () => {
           resolvedExtensionPaths: ['/app/node_modules/pi-web-access/index.js'],
         },
         resourceLoaderErrors: [
-          {path: '/app/node_modules/pi-web-access', error: 'Extension path does not exist'},
+          {
+            error: {
+              path: '/app/node_modules/pi-web-access',
+              error: 'Extension path does not exist',
+            },
+            directory: '/app/node_modules/pi-web-access',
+          },
         ],
       }),
     );

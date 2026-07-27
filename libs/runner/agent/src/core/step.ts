@@ -257,7 +257,7 @@ function logHarnessUnavailable(params: {
       })),
       resourceLoaderErrors: error.resourceLoaderErrors
         .slice(0, MAX_HARNESS_DIAGNOSTICS)
-        .map((resourceError) => ({
+        .map(({error: resourceError}) => ({
           path: resourceError.path,
           error: resourceError.error.slice(0, MAX_HARNESS_DIAGNOSTIC_MESSAGE_LENGTH),
         })),
