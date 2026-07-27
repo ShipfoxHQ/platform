@@ -139,7 +139,6 @@ jobs:
             --plan-file "$RUNNER_TEMP/preview-plan.json" \
             --artifact-directory "$RUNNER_TEMP/cloudflare-pages-artifact" \
             --output "$RUNNER_TEMP/cloudflare-pages-artifact/.shipfox-pages-plan.json"
-          cp "$PAGES_CONFIG" "$RUNNER_TEMP/cloudflare-pages-artifact/.shipfox-pages-config.json"
           archive_finished="$(date +%s)"
           echo "archive_seconds=$((archive_finished - archive_started))" >> "$GITHUB_OUTPUT"
 

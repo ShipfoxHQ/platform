@@ -616,6 +616,15 @@ function markdownCell(value: unknown): string {
   return String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
 }
 
+function artifactStatus(): string {
+  const archiveResult = process.env.ARTIFACT_RESULT;
+  const uploadResult = process.env.ARTIFACT_UPLOAD_RESULT;
+  if (archiveResult === 'success' && uploadResult === 'success') {
+    return '✅ verified artifact ready';
+  }
+  return `❌ artifact unavailable (archive: ${getMetric(archiveResult)}, upload: ${getMetric(uploadResult)})`;
+}
+
 function appStatus({
   plan,
   deployment,
@@ -637,7 +646,7 @@ function appStatus({
     return '❌ superseded during upload';
   }
   if (process.env.ARTIFACT_ONLY === 'true') {
-    return '✅ verified artifact ready';
+    return artifactStatus();
   }
 
   if (deployment === undefined || !deployment.ok) {
@@ -709,6 +718,8 @@ async function runSummary(options: CliOptions): Promise<void> {
   const sourceCommit = process.env.CLOUDFLARE_PAGES_COMMIT_SHA ?? verificationReport?.commitSha;
   const deployments = deploymentManifest.apps;
   const artifactOnly = process.env.ARTIFACT_ONLY === 'true';
+  const artifactReady =
+    process.env.ARTIFACT_RESULT === 'success' && process.env.ARTIFACT_UPLOAD_RESULT === 'success';
   const supersededBeforeUpload = process.env.PRE_DEPLOY_HEAD_RESULT === 'failure';
   const supersededDuringUpload = process.env.POST_DEPLOY_HEAD_RESULT === 'failure';
   const syncMessage =
@@ -719,7 +730,9 @@ async function runSummary(options: CliOptions): Promise<void> {
         : supersededDuringUpload
           ? 'A newer commit superseded this run during upload; the stale run did not register a GitHub deployment status.'
           : artifactOnly
-            ? 'A verified artifact was archived and uploaded; Pages publication is handled by the separate deployment job.'
+            ? artifactReady
+              ? 'A verified artifact was archived and uploaded; Pages publication is handled by the separate deployment job.'
+              : `The verified artifact was not produced for this commit (archive: ${getMetric(process.env.ARTIFACT_RESULT)}, upload: ${getMetric(process.env.ARTIFACT_UPLOAD_RESULT)}).`
             : verificationReport?.ok === true
               ? 'Every selected app was checked and matched the exact source commit above.'
               : verificationReport !== null
