@@ -11,8 +11,10 @@ import {
   type AuthStateValue,
   mergeConfigShapes,
   type RouterContext,
+  useAuthState,
 } from '@shipfox/client-shell/runtime';
 import {ShellProviders} from '@shipfox/client-shell/testing';
+import {DropdownMenuItem} from '@shipfox/react-ui/dropdown-menu';
 import {QueryClient} from '@tanstack/react-query';
 import {Outlet, RouterProvider} from '@tanstack/react-router';
 import {createStore} from 'jotai';
@@ -46,6 +48,16 @@ function FixtureProjectLayoutGuard() {
   return <Outlet />;
 }
 
+function FixtureAccountMenuEntry() {
+  const {isAuthenticated} = useAuthState();
+  if (!isAuthenticated) return null;
+  return (
+    <DropdownMenuItem data-testid="external-account-menu-entry">
+      External account action
+    </DropdownMenuItem>
+  );
+}
+
 export function ClientApp() {
   const [queryClient] = useState(
     () => new QueryClient({defaultOptions: {queries: {retry: false}}}),
@@ -68,6 +80,7 @@ export function ClientApp() {
       chrome={{
         ProjectBreadcrumb: FixtureProjectBreadcrumb,
         ProjectLayoutGuard: FixtureProjectLayoutGuard,
+        AccountMenuEntry: FixtureAccountMenuEntry,
       }}
     >
       <ShellProviders

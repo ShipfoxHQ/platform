@@ -14,10 +14,12 @@ export async function renderComposedShell({
   features,
   initialPath,
   resolveImpl,
+  chrome: chromeOverrides,
 }: {
   features: readonly ClientFeature[];
   initialPath: string;
   resolveImpl: ResolveRouteImpl;
+  chrome?: Partial<ChromeSlots>;
 }): Promise<{
   router: unknown;
   queryClient: QueryClient;
@@ -40,6 +42,7 @@ export async function renderComposedShell({
   const chrome: ChromeSlots = {
     ProjectBreadcrumb: () => null,
     ProjectLayoutGuard: Outlet,
+    ...chromeOverrides,
   };
   store.set(authStateAtom, auth);
   const router = createRouter({

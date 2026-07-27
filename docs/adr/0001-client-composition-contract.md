@@ -218,9 +218,12 @@ The gate remains outside the shell because it queries project, integration, and 
 features. A composition that contains workspace routes but omits the gate fails loudly.
 
 The shell receives browser-only `ChromeSlots` through `composeClientApp()`. They provide the
-project breadcrumb and project/workspace consistency guard. They are not feature providers or
-manifest data, so Node-safe manifest evaluation never imports browser chrome or creates a
-shell-to-feature dependency.
+project breadcrumb and project/workspace consistency guard. An application may also provide one
+`AccountMenuEntry` component. The shell renders that optional component inside `UserMenu` before
+the shell-owned logout action; the component may return nothing based on the current session. The
+slot cannot replace the user identity, theme controls, logout action, or authentication runtime.
+These slots are not feature providers or manifest data, so Node-safe manifest evaluation never
+imports browser chrome or creates a shell-to-feature dependency.
 
 ## Composition rules
 
