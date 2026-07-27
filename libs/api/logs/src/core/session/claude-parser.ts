@@ -1,6 +1,12 @@
 import type {SessionViewRow} from '@shipfox/api-logs-dto';
 import {z} from 'zod';
-import {assistantRows, resultRow, systemRow, userRows} from './claude/rows.js';
+import {
+  assistantRows,
+  PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES,
+  resultRow,
+  systemRow,
+  userRows,
+} from './claude/rows.js';
 import {rawRecordRow} from './rows.js';
 import type {AgentSessionRecord} from './session-record.js';
 
@@ -22,6 +28,14 @@ export function parseClaudeSessionRecord(record: AgentSessionRecord): readonly S
   if (!parsed.success) return [rawRecordRow(record, 'Unsupported Claude message')];
 
   const message = parsed.data;
+  if (
+    message.type === 'system' &&
+    typeof message.subtype === 'string' &&
+    PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES.has(message.subtype)
+  ) {
+    return [];
+  }
+
   switch (message.type) {
     case 'system':
     case 'init':

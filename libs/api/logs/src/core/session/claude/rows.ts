@@ -18,6 +18,20 @@ import {
 } from '../object.js';
 import {lifecycleRow, messageRow, thinkingRow} from '../rows.js';
 
+export const PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES = new Set<string>([
+  'thinking_tokens',
+  'status',
+  'session_state_changed',
+  'task_progress',
+  'hook_progress',
+  'hook_started',
+  'commands_changed',
+  'files_persisted',
+  'memory_recall',
+  'local_command_output',
+  'plugin_install',
+]);
+
 export function systemRow(
   timestamp: number,
   message: Record<string, unknown>,
