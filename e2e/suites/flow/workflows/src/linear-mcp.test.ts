@@ -1,5 +1,6 @@
 import {once} from 'node:events';
 import {createServer} from 'node:http';
+import {setTimeout as delay} from 'node:timers/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -52,20 +53,35 @@ describe('Linear MCP mock', () => {
     }
   });
 
-  it('fails clearly when its endpoint port is occupied', async () => {
+  it('waits for an occupied endpoint port to become available', async () => {
     const occupied = createServer();
     occupied.listen({host: '127.0.0.1', port: 0});
     await once(occupied, 'listening');
     const address = occupied.address();
     if (!address || typeof address === 'string') throw new Error('Expected TCP server address.');
+    const endpoint = new URL(`http://127.0.0.1:${address.port}/mcp`);
+    let mock: Awaited<ReturnType<typeof startLinearMcpMock>> | undefined;
+    let occupiedClosed = false;
+    const startingMock = startLinearMcpMock(endpoint);
 
     try {
       await expect(
-        startLinearMcpMock(new URL(`http://127.0.0.1:${address.port}/mcp`)),
-      ).rejects.toThrow('Linear MCP mock failed to start');
-    } finally {
+        Promise.race([startingMock.then(() => 'started'), delay(250, 'waiting')]),
+      ).resolves.toBe('waiting');
+
       occupied.close();
       await once(occupied, 'close');
+      occupiedClosed = true;
+      mock = await startingMock;
+
+      expect(mock.endpoint).toEqual(endpoint);
+    } finally {
+      if (!occupiedClosed) {
+        occupied.close();
+        await once(occupied, 'close');
+      }
+      mock ??= await startingMock.catch(() => undefined);
+      await mock?.stop();
     }
   });
 });
