@@ -10,6 +10,10 @@ type StorybookIndex = {
   entries: Record<string, StorybookIndexEntry>;
 };
 
+type PreviewMetadata = {
+  commitSha: string;
+};
+
 const compositionStoryUrlPattern = /\/\?path=\/story\/react-ui_/;
 
 async function getRepresentativeStoryId(request: APIRequestContext, path: string): Promise<string> {
@@ -57,6 +61,17 @@ test.describe('assembled Storybook preview', () => {
     await page.getByText('Accordion', {exact: true}).click();
     await expect(page).toHaveURL(compositionStoryUrlPattern);
     expect(errors).toEqual([]);
+  });
+
+  test('displays the exact deployed commit identity', async ({page, request}) => {
+    const metadataResponse = await request.get('/preview-metadata.json');
+    expect(metadataResponse.ok()).toBe(true);
+    const metadata = (await metadataResponse.json()) as PreviewMetadata;
+
+    await page.goto('/iframe.html?id=introduction--docs');
+
+    await expect(page.getByText('Preview identity', {exact: true})).toBeVisible();
+    await expect(page.getByText(metadata.commitSha, {exact: true})).toBeVisible();
   });
 
   test('renders one representative story from every child without browser errors', async ({

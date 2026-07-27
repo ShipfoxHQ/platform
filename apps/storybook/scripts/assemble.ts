@@ -85,7 +85,7 @@ function getPullRequestNumber(event: Record<string, unknown> | null): number | n
     'number' in eventPullRequest
       ? (eventPullRequest as {number?: unknown}).number
       : undefined;
-  const configuredNumber = process.env.GITHUB_PR_NUMBER;
+  const configuredNumber = process.env.CLOUDFLARE_PAGES_PR_NUMBER ?? process.env.GITHUB_PR_NUMBER;
   const number =
     eventNumber ?? (configuredNumber === undefined ? undefined : Number(configuredNumber));
 
@@ -114,11 +114,26 @@ async function getPullRequestMetadata(): Promise<PreviewMetadata['pullRequest']>
 
   return {
     number,
-    title: typeof pullRequest?.title === 'string' ? pullRequest.title : null,
-    url: typeof pullRequest?.html_url === 'string' ? pullRequest.html_url : null,
-    headSha: typeof head?.sha === 'string' ? head.sha : null,
-    headRef: typeof head?.ref === 'string' ? head.ref : (process.env.GITHUB_HEAD_REF ?? null),
-    baseRef: typeof base?.ref === 'string' ? base.ref : (process.env.GITHUB_BASE_REF ?? null),
+    title:
+      typeof pullRequest?.title === 'string'
+        ? pullRequest.title
+        : (process.env.CLOUDFLARE_PAGES_PR_TITLE ?? null),
+    url:
+      typeof pullRequest?.html_url === 'string'
+        ? pullRequest.html_url
+        : (process.env.CLOUDFLARE_PAGES_PR_URL ?? null),
+    headSha:
+      typeof head?.sha === 'string'
+        ? head.sha
+        : (process.env.CLOUDFLARE_PAGES_PR_HEAD_SHA ?? getCommitShaFromEnv() ?? null),
+    headRef:
+      typeof head?.ref === 'string'
+        ? head.ref
+        : (process.env.CLOUDFLARE_PAGES_PR_HEAD_REF ?? process.env.GITHUB_HEAD_REF ?? null),
+    baseRef:
+      typeof base?.ref === 'string'
+        ? base.ref
+        : (process.env.CLOUDFLARE_PAGES_PR_BASE_REF ?? process.env.GITHUB_BASE_REF ?? null),
   };
 }
 

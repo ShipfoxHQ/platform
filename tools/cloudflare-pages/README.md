@@ -9,6 +9,10 @@ through Wrangler Direct Upload.
   changed paths.
 - `shipfox-cloudflare-pages build-all` builds the selected applications with
   their configured environment inputs.
+- `shipfox-cloudflare-pages validate` runs the optional configured local
+  artifact check.
+- `shipfox-cloudflare-pages archive-all` stages selected outputs for CI
+  artifacts.
 - `shipfox-cloudflare-pages deploy` uploads one static directory to a
   configured Cloudflare Pages project.
 - `shipfox-cloudflare-pages deploy-all` uploads selected applications to their
@@ -21,9 +25,8 @@ through Wrangler Direct Upload.
   queue timing.
 - `shipfox-cloudflare-pages summary` writes a GitHub Actions job summary.
 
-The tool is intentionally Cloudflare Pages-specific. It supports multiple
-applications and deployment environments without hiding Pages concepts such as
-projects, preview branches, and production deployments.
+The tool works only with Cloudflare Pages. One config can list several apps and
+environments. The CLI keeps Pages terms such as projects and branches visible.
 
 ## Installation / Setup
 
@@ -31,9 +34,9 @@ projects, preview branches, and production deployments.
 pnpm add -D @shipfox/cloudflare-pages
 ```
 
-The tool expects `wrangler` on `PATH`, `CLOUDFLARE_API_TOKEN`, and
-`CLOUDFLARE_ACCOUNT_ID`. Project names are application configuration, not
-secrets.
+The tool expects `wrangler` on `PATH`. Upload commands also need
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Project names belong in the
+config because they are not secrets.
 
 The published package contains compiled output. In this workspace, CI builds it
 on demand with:
@@ -44,7 +47,8 @@ pnpm --filter=@shipfox/cloudflare-pages... build
 
 ## Configuration
 
-Directories are resolved from the working directory where the CLI runs:
+Application directories and artifact paths stay relative to the working
+directory where the CLI runs:
 
 ```json
 {
@@ -52,6 +56,17 @@ Directories are resolved from the working directory where the CLI runs:
     "preview": { "branch": "pr-{pullRequest}" },
     "staging": { "branch": "staging" },
     "production": { "branch": "main" }
+  },
+  "artifact": {
+    "metadataPath": "dist/example/preview-metadata.json"
+  },
+  "validation": {
+    "setup": {
+      "command": "pnpm",
+      "args": ["--filter=@shipfox/playwright", "exec", "playwright", "install", "--with-deps", "chromium"]
+    },
+    "command": "pnpm",
+    "args": ["--filter=@shipfox/example", "test:e2e"]
   },
   "apps": [
     {
@@ -88,25 +103,29 @@ Directories are resolved from the working directory where the CLI runs:
 }
 ```
 
-`project` is the default Pages project. `projects` can override it for a
-specific environment. Production deployments should name the Pages production
-branch explicitly; a branch value deploys to that Pages branch.
+Key config rules:
 
-`build.env` contains checked-in, non-secret build inputs by environment. The
-`{pullRequest}`, `{branch}`, and `{commit}` placeholders are resolved by the
-build command. `build.fromEnv` maps build variable names to CI environment
-variables without storing their values in the repository. Missing references
-fail before Turbo starts. The build command passes the resolved values to a
-Turbo task for the app target; each app is built separately so apps may use
-different values.
+- `project` is the default Pages project. `projects` sets an override for one
+  environment.
+- Production should name its Pages branch. The CLI passes that branch to
+  Wrangler.
+- `build.env` stores non-secret build values by environment. The build command
+  fills the `{pullRequest}`, `{branch}`, and `{commit}` placeholders.
+- `build.fromEnv` reads a value from a CI environment variable. A missing value
+  stops the build before Turbo starts.
+- Each build variable must also appear in the Turbo task's `env` array. Turbo
+  can then include the value in its task hash.
+- `apps` lists sites, not every package shown by a site. Use `affectedTargets`
+  when another package should rebuild the site.
+- `validation` is optional. Its `setup` command runs before the main check.
 
-The application must also list every build-time variable in its Turbo task's
-`env` array. This makes the value part of the task hash, so changing an API
-URL cannot reuse an artifact built for another environment.
+`archive-all` replaces its target directory. It rejects roots, parents of the
+working directory, output overlaps, and unsafe app IDs. The result contains a
+deployment plan.
 
-`apps` describes deployable sites, not necessarily every package rendered by a
-site. A composed site can use `affectedTargets` to list packages whose changes
-require rebuilding that one deployment.
+`deploy-all --artifact-directory` publishes that archive without a rebuild. It
+rejects links and `_worker.js` files. An approved static preview therefore
+cannot add Pages worker code.
 
 ## Usage
 
@@ -122,10 +141,19 @@ shipfox-cloudflare-pages build-all \
   --plan-file "$RUNNER_TEMP/pages-plan.json" \
   --output "$RUNNER_TEMP/pages-build.json"
 
+shipfox-cloudflare-pages validate \
+  --config cloudflare-pages.config.json
+
+shipfox-cloudflare-pages archive-all \
+  --config cloudflare-pages.config.json \
+  --artifact-directory "$RUNNER_TEMP/pages-artifact" \
+  --output "$RUNNER_TEMP/pages-artifact/.shipfox-pages-plan.json"
+
 shipfox-cloudflare-pages deploy-all \
   --environment preview \
   --config cloudflare-pages.config.json \
-  --plan-file "$RUNNER_TEMP/pages-plan.json" \
+  --plan-file "$RUNNER_TEMP/pages-artifact/.shipfox-pages-plan.json" \
+  --artifact-directory "$RUNNER_TEMP/pages-artifact" \
   --commit "$CLOUDFLARE_PAGES_COMMIT_SHA" \
   --output "$RUNNER_TEMP/pages-deployments.json" \
   --github-output "$GITHUB_OUTPUT"

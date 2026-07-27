@@ -380,6 +380,23 @@ export function assertPreviewMetadata(
   if (typeof candidate.buildTime !== 'string' || Number.isNaN(Date.parse(candidate.buildTime))) {
     throw new Error('preview-metadata.json has an invalid buildTime');
   }
+  if (candidate.pullRequest !== null && candidate.pullRequest !== undefined) {
+    if (typeof candidate.pullRequest !== 'object' || candidate.pullRequest === null) {
+      throw new Error('preview-metadata.json has an invalid pullRequest');
+    }
+
+    const pullRequest = candidate.pullRequest as Partial<
+      Exclude<PreviewMetadata['pullRequest'], null>
+    >;
+    if (!Number.isInteger(pullRequest.number) || (pullRequest.number ?? 0) <= 0) {
+      throw new Error('preview-metadata.json has an invalid pull request number');
+    }
+    if (pullRequest.headSha !== null && pullRequest.headSha !== candidate.commitSha) {
+      throw new Error(
+        `preview-metadata.json pull request headSha ${pullRequest.headSha} does not match commitSha ${candidate.commitSha}`,
+      );
+    }
+  }
   if (expectedCommitSha !== undefined && candidate.commitSha !== expectedCommitSha) {
     throw new Error(
       `preview-metadata.json commitSha ${candidate.commitSha} does not match expected ${expectedCommitSha}`,

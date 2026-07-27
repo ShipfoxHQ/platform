@@ -9,6 +9,7 @@
     "playwright.config.ts",
     "preview-manifest.ts",
     "scripts",
+    "src/introduction.tsx",
     "vitest.config.ts",
     "node_modules/@shipfox/vitest/globals.d.ts"
   ],
