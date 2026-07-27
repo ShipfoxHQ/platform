@@ -37,6 +37,7 @@ export const TestRunnerGuidance: Story = {
     expect(
       canvas.getByText('Runner reported: Pi extension setup failed: Unknown option: --mcp-config'),
     ).toBeInTheDocument();
+    expect(canvas.queryByRole('link', {name: 'Configure Agents'})).not.toBeInTheDocument();
   },
 };
 

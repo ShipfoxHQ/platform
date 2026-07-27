@@ -3,15 +3,18 @@ import type {
   AgentSessionRuntimeDiagnostic,
   LoadExtensionsResult,
 } from '@earendil-works/pi-coding-agent';
-import {type AgentConfigIssueDto, STEP_ERROR_MESSAGE_MAX_LENGTH} from '@shipfox/api-workflows-dto';
+import type {AgentConfigIssueDto} from '@shipfox/api-workflows-dto';
 
 const HARNESS_ERROR_PREFIX = 'Pi extension setup failed: ';
-const HARNESS_DIAGNOSTIC_MAX_LENGTH = STEP_ERROR_MESSAGE_MAX_LENGTH - HARNESS_ERROR_PREFIX.length;
-const PATH_PATTERN =
-  /(?<![A-Za-z0-9._~+@%])((?:file:\/\/)?\/(?:[A-Za-z0-9._~+@%=-]+\/)*[A-Za-z0-9._~+@%=-]+)/g;
-const URL_PATTERN = /(?:https?|ssh):\/\//;
+const HARNESS_DIAGNOSTIC_MAX_LENGTH = 200;
+const PATH_PATTERN = /(?:file:\/\/)?\//g;
+const PATH_PREFIX_CHARACTER_PATTERN = /[A-Za-z0-9._~+@%]/;
+const NETWORK_URL_PATTERN = /(?:https?|ssh):\/{0,2}$/;
+const ABSOLUTE_PATH_FIRST_CHARACTER_PATTERN = /[\\/^*?()[\]{}]/;
+const WHITESPACE_PATTERN = /\s/;
+const PATH_EXTENSION_PATTERN = /\.[A-Za-z0-9]+$/;
+const TRAILING_PATH_PUNCTUATION_PATTERN = /[.,;:]+$/;
 const TRUNCATION_TOKEN_PATTERN = /\s[^\s]*$/;
-const WHITESPACE_PATTERN = /(\s+)/;
 
 /**
  * A user-fixable agent-step configuration failure: an unknown provider, a
@@ -71,24 +74,116 @@ function sanitizeHarnessDiagnosticMessage(messages: readonly string[]): string {
 }
 
 function sanitizeDiagnosticMessage(message: string): string {
-  return message
-    .split(WHITESPACE_PATTERN)
-    .map((token) => (URL_PATTERN.test(token) ? token : sanitizeDiagnosticToken(token)))
-    .join('');
+  let cursor = 0;
+  let sanitized = '';
+
+  for (const match of message.matchAll(PATH_PATTERN)) {
+    const matchStart = match.index;
+    if (matchStart < cursor) continue;
+
+    const prefix = match[0].startsWith('file://') ? 'file://' : '';
+    const pathStart = matchStart + prefix.length;
+    const previousCharacter = message[pathStart - 1];
+
+    if (
+      (previousCharacter !== undefined && PATH_PREFIX_CHARACTER_PATTERN.test(previousCharacter)) ||
+      isFileUrlSlash(message, pathStart) ||
+      isNetworkUrlSlash(message, pathStart) ||
+      !isLikelyAbsolutePath(message, pathStart)
+    ) {
+      continue;
+    }
+
+    const pathEnd = findAbsolutePathEnd(message, pathStart);
+    if (pathEnd <= pathStart + 1) continue;
+
+    const path = message.slice(pathStart, pathEnd);
+    sanitized += message.slice(cursor, matchStart);
+    sanitized += `${prefix}${path.slice(path.lastIndexOf('/') + 1)}`;
+    cursor = pathEnd;
+  }
+
+  return sanitized + message.slice(cursor);
+}
+
+function isFileUrlSlash(message: string, pathStart: number): boolean {
+  const precedingText = message.slice(Math.max(0, pathStart - 6), pathStart);
+  return precedingText.endsWith('file:') || precedingText.endsWith('file:/');
+}
+
+function isNetworkUrlSlash(message: string, pathStart: number): boolean {
+  const protocolPrefix = message.slice(Math.max(0, pathStart - 8), pathStart + 1);
+  return NETWORK_URL_PATTERN.test(protocolPrefix);
+}
+
+function isLikelyAbsolutePath(message: string, pathStart: number): boolean {
+  const firstPathCharacter = message[pathStart + 1];
+  return (
+    firstPathCharacter !== undefined &&
+    !ABSOLUTE_PATH_FIRST_CHARACTER_PATTERN.test(firstPathCharacter)
+  );
+}
+
+function findAbsolutePathEnd(message: string, pathStart: number): number {
+  for (let index = pathStart + 1; index < message.length; index += 1) {
+    const character = message[index];
+
+    if (isPathTerminator(character)) return index;
+
+    if ((character === ',' || character === ':') && message[index + 1] === '/') return index;
+
+    if (character !== undefined && WHITESPACE_PATTERN.test(character)) {
+      const nextCharacter = skipWhitespace(message, index);
+      const nextSegmentEnd = findNextPathTerminator(message, nextCharacter);
+      const nextSegment = message.slice(nextCharacter, nextSegmentEnd);
+      const continuesPath =
+        nextSegment.includes('/') ||
+        PATH_EXTENSION_PATTERN.test(nextSegment.replace(TRAILING_PATH_PUNCTUATION_PATTERN, ''));
+
+      if (!continuesPath) return index;
+    }
+  }
+
+  return message.length;
+}
+
+function skipWhitespace(message: string, start: number): number {
+  let index = start;
+  while (index < message.length && WHITESPACE_PATTERN.test(message[index] ?? '')) index += 1;
+  return index;
+}
+
+function findNextPathTerminator(message: string, start: number): number {
+  for (let index = start; index < message.length; index += 1) {
+    if (isPathTerminator(message[index])) return index;
+  }
+  return message.length;
+}
+
+function isPathTerminator(character: string | undefined): boolean {
+  return (
+    character === '\n' ||
+    character === '\r' ||
+    character === '`' ||
+    character === '"' ||
+    character === "'" ||
+    character === '<' ||
+    character === '>' ||
+    character === '|' ||
+    character === '(' ||
+    character === ')' ||
+    character === '[' ||
+    character === ']' ||
+    character === '{' ||
+    character === '}' ||
+    character === ';'
+  );
 }
 
 function sliceWithoutLoneSurrogate(value: string, length: number): string {
   const candidate = value.slice(0, length);
   const lastCodeUnit = candidate.charCodeAt(candidate.length - 1);
   return lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff ? candidate.slice(0, -1) : candidate;
-}
-
-function sanitizeDiagnosticToken(token: string): string {
-  return token.replace(PATH_PATTERN, (_match, path: string) =>
-    path.startsWith('file://')
-      ? `file://${path.slice(path.lastIndexOf('/') + 1)}`
-      : path.slice(path.lastIndexOf('/') + 1),
-  );
 }
 
 export class AgentHarnessUnavailableError extends Error {

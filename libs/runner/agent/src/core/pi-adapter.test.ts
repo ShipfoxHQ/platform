@@ -94,6 +94,7 @@ import {piExtensionDirectories} from '#core/pi-extensions.js';
 
 const piWebAccessDirectory = piExtensionDirectories({packageNames: ['pi-web-access']})[0];
 const piMcpAdapterDirectory = piExtensionDirectories({packageNames: ['pi-mcp-adapter']})[0];
+const HARNESS_DIAGNOSTIC_MAX_LENGTH = 200;
 const TRUNCATED_ATTEMPT_PATTERN = /attempt-\d{3}…$/;
 const LONE_HIGH_SURROGATE_PATTERN = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/;
 
@@ -351,6 +352,26 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
 
+  it('classifies Pi service creation failures as harness unavailable', async () => {
+    createAgentSessionServicesMock.mockRejectedValue(new Error('Unable to create Pi services'));
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(AgentHarnessUnavailableError);
+    expect(error).toMatchObject({
+      message: 'Pi extension setup failed: Unable to create Pi services',
+      diagnostics: [{type: 'error', message: 'Unable to create Pi services'}],
+      environment: {
+        cwd: '/work',
+        provider: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'high',
+        extensionPaths: ['pi-web-access'],
+      },
+    });
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
   it('sanitizes diagnostic paths while preserving raw diagnostics', async () => {
     const diagnostic = {
       type: 'error' as const,
@@ -374,10 +395,40 @@ describe('piHarnessAdapter', () => {
       message:
         'Pi extension setup failed: Extension setup failed at file://index.js; while loading `pi-mcp-adapter`; ' +
         'paths: c,f; specifiers: pi-mcp-adapter/dist/index.js ./lib/helper.js ' +
-        'node_modules/pi-web-access/dist/index.ts; delimiters: <a.ts> -b.ts >c.ts |d.ts ' +
-        ')e.ts ]f.ts }g.ts; Expected /^v\\d+$/ ...',
+        'node_modules/pi-web-access/dist/index.ts; delimiters:…',
       diagnostics: [diagnostic],
     });
+  });
+
+  it('sanitizes complete diagnostic paths with spaces and POSIX punctuation', async () => {
+    const diagnostic = {
+      type: 'error' as const,
+      message:
+        'paths: /runner/cache,dir/$package name/index file.js; ' +
+        'url: https://example.com/a/b; regex: /^v\\d+$/; adjacent: /a/b/c,/d/e/f',
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [diagnostic]),
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error.message).toBe(
+      'Pi extension setup failed: paths: index file.js; url: https://example.com/a/b; ' +
+        'regex: /^v\\d+$/; adjacent: c,f',
+    );
+
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [{type: 'error', message: 'already sanitized file://index.js'}]),
+    });
+
+    const alreadySanitizedError = await piHarnessAdapter
+      .run(invocation())
+      .catch((caught) => caught);
+
+    expect(alreadySanitizedError.message).toBe(
+      'Pi extension setup failed: already sanitized file://index.js',
+    );
   });
 
   it('uses a generic message when all harness diagnostics are empty', async () => {
@@ -410,6 +461,7 @@ describe('piHarnessAdapter', () => {
     const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
     const detail = error.message.replace('Pi extension setup failed: ', '');
 
+    expect(detail.length).toBeLessThanOrEqual(HARNESS_DIAGNOSTIC_MAX_LENGTH);
     expect(error.message.length).toBeLessThanOrEqual(STEP_ERROR_MESSAGE_MAX_LENGTH);
     expect(detail).toMatch(TRUNCATED_ATTEMPT_PATTERN);
   });
@@ -426,12 +478,13 @@ describe('piHarnessAdapter', () => {
     const longError = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
     const longDetail = longError.message.replace('Pi extension setup failed: ', '');
 
-    expect(longDetail.length).toBeGreaterThan(2000);
+    expect(longDetail.length).toBeGreaterThan(190);
+    expect(longDetail.length).toBeLessThanOrEqual(HARNESS_DIAGNOSTIC_MAX_LENGTH);
     expect(longError.message.length).toBeLessThanOrEqual(STEP_ERROR_MESSAGE_MAX_LENGTH);
 
     const surrogateDiagnostic = {
       type: 'error' as const,
-      message: `prefix ${'A'.repeat(2012)}😀x`,
+      message: `prefix ${'A'.repeat(191)}😀x`,
     };
     createAgentSessionServicesMock.mockResolvedValue({
       ...piServices('/work', [surrogateDiagnostic]),

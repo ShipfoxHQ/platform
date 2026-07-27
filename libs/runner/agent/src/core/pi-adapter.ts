@@ -133,16 +133,29 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
         environment: {cwd, provider, model: modelId, thinking, extensionPaths},
       });
     }
-    const services = await createAgentSessionServices({
-      cwd,
-      modelRuntime,
-      ...(mcpConfig === undefined
-        ? {}
-        : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
-      resourceLoaderOptions: {
-        additionalExtensionPaths: extensionDirectories,
-      },
-    });
+    let services: Awaited<ReturnType<typeof createAgentSessionServices>>;
+    try {
+      services = await createAgentSessionServices({
+        cwd,
+        modelRuntime,
+        ...(mcpConfig === undefined
+          ? {}
+          : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
+        resourceLoaderOptions: {
+          additionalExtensionPaths: extensionDirectories,
+        },
+      });
+    } catch (error) {
+      throw new AgentHarnessUnavailableError({
+        diagnostics: [
+          {
+            type: 'error',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        ],
+        environment: {cwd, provider, model: modelId, thinking, extensionPaths},
+      });
+    }
     const extensionResult = services.resourceLoader?.getExtensions?.();
     const extensionFailure = piExtensionFailure({
       resourceLoader: services.resourceLoader,
