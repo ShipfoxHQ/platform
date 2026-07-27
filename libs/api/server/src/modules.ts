@@ -24,7 +24,7 @@ import {secretsInterModuleContract} from '@shipfox/api-secrets-dto/inter-module'
 import {createTriggersModule} from '@shipfox/api-triggers';
 import {createWorkflowsModule} from '@shipfox/api-workflows';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
-import {workspacesModule} from '@shipfox/api-workspaces';
+import {createWorkspacesModule} from '@shipfox/api-workspaces';
 import {
   type WorkspacesInterModuleClient,
   workspacesInterModuleContract,
@@ -170,7 +170,7 @@ export async function defaultModules(
   const modules = [
     emailChallengesModule,
     (options.authModule ?? createAuthModule)({workspaces: workspacesClient}),
-    workspacesModule,
+    createWorkspacesModule({auth: authClient, projects: projectsClient, runners: runnersClient}),
     createSecretsModule(projectsClient),
     createAgentModule({secrets: secretsClient}),
     integrations.module,

@@ -22,6 +22,7 @@ export {
   claimPendingJobExecution,
   enqueueJobExecution,
   expireStuckJobExecutions,
+  getWorkspaceJobCounts,
   isJobLeaseActive,
   listActiveRunningJobExecutions,
   listRunningJobExecutionsByRunnerInstanceTx,

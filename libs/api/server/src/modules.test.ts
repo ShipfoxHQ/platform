@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   createSecretsModule: vi.fn(),
   createTriggersModule: vi.fn(),
   createWorkflowsModule: vi.fn(),
+  createWorkspacesModule: vi.fn(),
   createWorkspaceConnectionSnapshotLoader: vi.fn(),
   deleteSecrets: vi.fn(),
   getIntegrationConnectionById: vi.fn(),
@@ -86,22 +87,7 @@ vi.mock('@shipfox/api-workflows', () => ({
   createWorkflowsModule: mocks.createWorkflowsModule,
 }));
 vi.mock('@shipfox/api-workspaces', () => ({
-  workspacesModule: {
-    name: 'workspaces',
-    interModulePresentations: [
-      {
-        contract: workspacesInterModuleContract,
-        handlers: {
-          listMembershipsForTokenClaims: mocks.listMembershipsForTokenClaims,
-          getWorkspaceCreator: mocks.getWorkspaceCreator,
-          getWorkspaceOperatingState: mocks.getWorkspaceOperatingState,
-          preflightInvitationAcceptance: vi.fn(),
-          acceptInvitation: vi.fn(),
-          requireActiveMembership: vi.fn(),
-        },
-      },
-    ],
-  },
+  createWorkspacesModule: mocks.createWorkspacesModule,
 }));
 
 describe('defaultModules', () => {
@@ -118,6 +104,7 @@ describe('defaultModules', () => {
     mocks.createSecretsModule.mockReset();
     mocks.createTriggersModule.mockReset();
     mocks.createWorkflowsModule.mockReset();
+    mocks.createWorkspacesModule.mockReset();
     mocks.createWorkspaceConnectionSnapshotLoader.mockReset();
     mocks.deleteSecrets.mockReset();
     mocks.getIntegrationConnectionById.mockReset();
@@ -170,6 +157,7 @@ describe('defaultModules', () => {
       interModulePresentations: [
         defineInterModulePresentation(projectsInterModuleContract, {
           getProjectById: () => ({project: null}),
+          getWorkspaceProjectCounts: () => ({counts: []}),
           requireProjectForWorkspace: () => ({
             project: {
               id: crypto.randomUUID(),
@@ -216,6 +204,7 @@ describe('defaultModules', () => {
             cancelJobs: vi.fn(),
             enqueueJobExecution: vi.fn(),
             getEffectiveRunnerToolCapabilities: vi.fn(),
+            getWorkspaceJobCounts: vi.fn(),
             getLeaseState: vi.fn(),
             releaseJobExecution: vi.fn(),
           },
@@ -246,6 +235,22 @@ describe('defaultModules', () => {
       ],
     });
     mocks.createTriggersModule.mockReturnValue({name: 'triggers'});
+    mocks.createWorkspacesModule.mockReturnValue({
+      name: 'workspaces',
+      interModulePresentations: [
+        {
+          contract: workspacesInterModuleContract,
+          handlers: {
+            listMembershipsForTokenClaims: mocks.listMembershipsForTokenClaims,
+            getWorkspaceCreator: mocks.getWorkspaceCreator,
+            getWorkspaceOperatingState: mocks.getWorkspaceOperatingState,
+            preflightInvitationAcceptance: vi.fn(),
+            acceptInvitation: vi.fn(),
+            requireActiveMembership: vi.fn(),
+          },
+        },
+      ],
+    });
   });
 
   it('returns the API modules in lifecycle order', async () => {

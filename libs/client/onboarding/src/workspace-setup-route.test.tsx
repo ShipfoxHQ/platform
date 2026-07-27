@@ -28,6 +28,8 @@ import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library
 import {loadWorkspaceSetupRoute} from './workspace-setup-route.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
+const MEMBERSHIP_ID = '44444444-4444-4444-8444-444444444444';
+const USER_ID = '55555555-5555-4555-8555-555555555555';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -80,6 +82,7 @@ interface SetupFetchOptions {
   connectionsFail?: boolean;
   providerConfigsFail?: boolean;
   projectsPending?: boolean;
+  workspaceStatus?: 'active' | 'suspended' | 'deleted';
 }
 
 function setupFetch(options: SetupFetchOptions = {}) {
@@ -92,10 +95,28 @@ function setupFetch(options: SetupFetchOptions = {}) {
     connectionsFail = false,
     providerConfigsFail = false,
     projectsPending = false,
+    workspaceStatus = 'active',
   } = options;
 
   return vi.fn((input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
+    if (url.endsWith('/workspaces')) {
+      return Promise.resolve(
+        jsonResponse({
+          memberships: [
+            {
+              id: MEMBERSHIP_ID,
+              user_id: USER_ID,
+              workspace_id: WORKSPACE_ID,
+              workspace_name: 'Workspace',
+              workspace_status: workspaceStatus,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+        }),
+      );
+    }
     if (url.includes('/projects?')) {
       if (projectsPending) return new Promise<Response>(() => undefined);
       if (projectsFail) return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
@@ -179,7 +200,7 @@ function GuardedRoute({label}: {label: string}) {
       <div data-testid="project-navigation">
         {setupState.hideProjectNavigation ? 'hidden' : 'visible'}
       </div>
-      <main>{label}</main>
+      <main>{setupState.unavailable ? 'Workspace unavailable' : label}</main>
     </>
   );
 }
@@ -234,6 +255,19 @@ describe('workspace setup route hook', () => {
     expect(await screen.findByText('Could not load workspace setup')).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Retry'})).toBeInTheDocument();
     expect(screen.queryByText('Workspace home')).not.toBeInTheDocument();
+  });
+
+  test.each([
+    'suspended',
+    'deleted',
+  ] as const)('stops workspace setup for a %s workspace before loading workspace data', async (workspaceStatus) => {
+    const fetchImpl = setupFetch({workspaceStatus, projectsPending: true});
+
+    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl);
+
+    expect(await screen.findByText('Workspace unavailable')).toBeInTheDocument();
+    expect(screen.getByTestId('project-navigation')).toHaveTextContent('hidden');
+    expect(calledUrls(fetchImpl).some((url) => url.includes('/projects?'))).toBe(false);
   });
 
   test('allows normal workspace content and skips source connections when a project exists', async () => {
@@ -449,6 +483,23 @@ describe('workspace setup route hook', () => {
     let projectAttempts = 0;
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/workspaces')) {
+        return Promise.resolve(
+          jsonResponse({
+            memberships: [
+              {
+                id: MEMBERSHIP_ID,
+                user_id: USER_ID,
+                workspace_id: WORKSPACE_ID,
+                workspace_name: 'Workspace',
+                workspace_status: 'active',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            ],
+          }),
+        );
+      }
       if (url.includes('/projects?')) {
         projectAttempts += 1;
         if (projectAttempts === 1)
@@ -488,6 +539,23 @@ describe('workspace setup route hook', () => {
     const fetchImpl = setupFetch({connections: [sourceConnection()]});
     fetchImpl.mockImplementation((input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/workspaces')) {
+        return Promise.resolve(
+          jsonResponse({
+            memberships: [
+              {
+                id: MEMBERSHIP_ID,
+                user_id: USER_ID,
+                workspace_id: WORKSPACE_ID,
+                workspace_name: 'Workspace',
+                workspace_status: 'active',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            ],
+          }),
+        );
+      }
       if (url.includes('/projects?')) {
         return Promise.resolve(jsonResponse({projects, next_cursor: null}));
       }

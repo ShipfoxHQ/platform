@@ -1,3 +1,9 @@
+export {
+  type ListWorkspaceAdministratorSummariesParams,
+  type ListWorkspaceAdministratorSummariesResult,
+  listWorkspaceAdministratorSummaries,
+  type WorkspaceAdministratorSummary,
+} from './admin-workspaces.js';
 export type {Invitation} from './entities/invitation.js';
 export type {Membership} from './entities/membership.js';
 export type {Workspace, WorkspaceStatus} from './entities/workspace.js';

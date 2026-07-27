@@ -53,6 +53,9 @@
   "dependencies": {
     "@shipfox/api-common-dto": "workspace:*",
     "@shipfox/api-auth-context": "workspace:*",
+    "@shipfox/api-auth-dto": "workspace:*",
+    "@shipfox/api-projects-dto": "workspace:*",
+    "@shipfox/api-runners-dto": "workspace:*",
     "@shipfox/api-workspaces-dto": "workspace:*",
     "@shipfox/config": "workspace:*",
     "@shipfox/inter-module": "workspace:*",

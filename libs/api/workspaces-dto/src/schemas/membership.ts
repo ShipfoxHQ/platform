@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {workspaceStatusSchema} from './workspace.js';
 
 export const workspaceRoleSchema = z.enum(['admin']);
 
@@ -16,6 +17,7 @@ export type MembershipDto = z.infer<typeof membershipDtoSchema>;
 
 export const membershipWithWorkspaceSchema = membershipDtoSchema.extend({
   workspace_name: z.string(),
+  workspace_status: workspaceStatusSchema.default('active'),
 });
 
 export type MembershipWithWorkspaceDto = z.infer<typeof membershipWithWorkspaceSchema>;

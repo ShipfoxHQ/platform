@@ -1,4 +1,4 @@
-import {and, count, desc, eq, ilike, lt, or, type SQL} from 'drizzle-orm';
+import {and, count, desc, eq, ilike, inArray, lt, or, type SQL} from 'drizzle-orm';
 import type {Project} from '#core/entities/project.js';
 import {ProjectAlreadyExistsError, ProjectNotFoundError} from '#core/errors.js';
 import {recordProjectCreated} from '#metrics/instance.js';
@@ -155,4 +155,20 @@ export async function listProjects(params: ListProjectsParams): Promise<ListProj
 export async function getProjectCount(): Promise<number> {
   const [row] = await db().select({value: count()}).from(projects);
   return row?.value ?? 0;
+}
+
+export async function getWorkspaceProjectCounts(params: {
+  workspaceIds: string[];
+}): Promise<Array<{workspaceId: string; count: number}>> {
+  const rows = await db()
+    .select({workspaceId: projects.workspaceId, count: count()})
+    .from(projects)
+    .where(inArray(projects.workspaceId, params.workspaceIds))
+    .groupBy(projects.workspaceId);
+
+  const countsByWorkspace = new Map(rows.map((row) => [row.workspaceId, Number(row.count)]));
+  return params.workspaceIds.map((workspaceId) => ({
+    workspaceId,
+    count: countsByWorkspace.get(workspaceId) ?? 0,
+  }));
 }

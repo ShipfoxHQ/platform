@@ -5,12 +5,16 @@ import {MainLayout} from '#components/main-layout.js';
 import {NotFoundPage} from '#components/not-found-page.js';
 import {SettingsNav} from '#components/settings-nav.js';
 import type {NavTabEntry, SettingsSectionEntry} from '#contract.js';
-import {useActiveWorkspace} from './active-workspace.js';
+import {useActiveWorkspace, useMaybeActiveWorkspace} from './active-workspace.js';
 import {anchorPaths} from './anchor-paths.js';
 import {useChrome} from './chrome-context.js';
 import {rememberLastWorkspaceId} from './last-workspace.js';
 import type {RouterContext} from './router-context.js';
-import {WorkspaceLayoutErrorRoute, WorkspaceSetupPending} from './workspace-setup.js';
+import {
+  WorkspaceLayoutErrorRoute,
+  WorkspaceSetupPending,
+  WorkspaceUnavailablePage,
+} from './workspace-setup.js';
 
 export {routePathForAnchor} from './anchor-paths.js';
 
@@ -55,9 +59,15 @@ export function buildAnchorSkeleton({
     ),
     errorComponent: WorkspaceLayoutErrorRoute,
     component: () => {
-      const setupState = workspaceLayout.useRouteContext() as {hideProjectNavigation?: boolean};
+      const setupState = workspaceLayout.useRouteContext() as {
+        hideProjectNavigation?: boolean;
+        unavailable?: boolean;
+      };
+      const workspace = useMaybeActiveWorkspace();
       return setupState.hideProjectNavigation === undefined ? (
         <WorkspaceSetupPending />
+      ) : setupState.unavailable ? (
+        <WorkspaceUnavailablePage workspaceName={workspace?.name} />
       ) : (
         <MainLayout
           navigation={navigation}

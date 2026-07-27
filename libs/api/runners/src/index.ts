@@ -30,6 +30,7 @@ export {
   cancelRunnerJobs,
   type EnqueueJobExecutionParams,
   enqueueJobExecution,
+  getWorkspaceJobCounts,
   isJobLeaseActive,
   releaseJobExecution,
 } from '#db/index.js';

@@ -8,6 +8,7 @@ import {type ErrorComponentProps, useRouter} from '@tanstack/react-router';
 
 export interface WorkspaceSetupState {
   hideProjectNavigation: boolean;
+  unavailable?: boolean;
 }
 export interface WorkspaceSetupRouteOptions {
   queryClient: QueryClient;
@@ -26,6 +27,22 @@ export class WorkspaceSetupLoadError extends Error {
 }
 export function WorkspaceSetupPending() {
   return <FullPageLoader />;
+}
+
+export function WorkspaceUnavailablePage({workspaceName}: {workspaceName?: string | undefined}) {
+  return (
+    <main className="min-h-screen bg-background-subtle-base px-24 py-32 max-[520px]:px-16">
+      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-12">
+        <Header variant="h1">Workspace unavailable</Header>
+        <Text size="md" className="text-foreground-neutral-muted">
+          {workspaceName
+            ? `${workspaceName} is currently unavailable.`
+            : 'This workspace is currently unavailable.'}{' '}
+          Please contact your configured support contact if you need help.
+        </Text>
+      </div>
+    </main>
+  );
 }
 export function WorkspaceLayoutErrorRoute({error, reset}: ErrorComponentProps) {
   const router = useRouter();

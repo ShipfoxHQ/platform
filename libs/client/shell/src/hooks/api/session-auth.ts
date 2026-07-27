@@ -40,6 +40,7 @@ export async function listUserWorkspaces(
       id: membership.workspace_id,
       name: membership.workspace_name,
       membershipId: membership.id,
+      status: membership.workspace_status,
     })),
   };
 }

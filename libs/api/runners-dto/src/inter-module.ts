@@ -45,6 +45,18 @@ export const runnersInterModuleContract = defineInterModuleContract({
         reportFresh: z.boolean(),
       }),
     },
+    getWorkspaceJobCounts: {
+      input: z.object({workspaceIds: z.array(idSchema).min(1).max(100)}),
+      output: z.object({
+        counts: z.array(
+          z.object({
+            workspaceId: idSchema,
+            queued: z.number().int().nonnegative(),
+            running: z.number().int().nonnegative(),
+          }),
+        ),
+      }),
+    },
   },
 });
 

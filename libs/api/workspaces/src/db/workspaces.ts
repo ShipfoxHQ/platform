@@ -1,4 +1,5 @@
-import {and, count, eq, gt, isNull, sql} from 'drizzle-orm';
+import type {StringIdCursor} from '@shipfox/node-drizzle';
+import {and, asc, count, eq, gt, ilike, isNull, or, type SQL, sql} from 'drizzle-orm';
 import type {Workspace, WorkspaceStatus} from '#core/entities/workspace.js';
 import {recordWorkspaceCreated} from '#metrics/instance.js';
 import {db} from './db.js';
@@ -55,6 +56,69 @@ export async function getWorkspaceById(id: string): Promise<Workspace | undefine
   const row = rows[0];
   if (!row) return undefined;
   return toWorkspace(row);
+}
+
+export interface AdminWorkspaceRow extends Workspace {
+  memberCount: number;
+}
+
+export interface ListAdminWorkspaceParams {
+  workspaceId?: string | undefined;
+  search?: string | undefined;
+  status?: WorkspaceStatus | undefined;
+  limit: number;
+  cursor?: StringIdCursor | undefined;
+}
+
+export interface ListAdminWorkspaceResult {
+  workspaces: AdminWorkspaceRow[];
+  nextCursor: StringIdCursor | null;
+}
+
+function adminWorkspaceCursorWhere(cursor: StringIdCursor | undefined): SQL | undefined {
+  if (!cursor) return undefined;
+  return or(
+    gt(workspaces.name, cursor.value),
+    and(eq(workspaces.name, cursor.value), gt(workspaces.id, cursor.id)),
+  );
+}
+
+export async function listAdminWorkspaces(
+  params: ListAdminWorkspaceParams,
+): Promise<ListAdminWorkspaceResult> {
+  const conditions = [] as SQL[];
+  if (params.workspaceId) conditions.push(eq(workspaces.id, params.workspaceId));
+  if (params.search) {
+    conditions.push(ilike(workspaces.name, `%${escapeIlikePattern(params.search)}%`));
+  }
+  if (params.status) conditions.push(eq(workspaces.status, params.status));
+  const cursor = adminWorkspaceCursorWhere(params.cursor);
+  if (cursor) conditions.push(cursor);
+
+  const rows = await db()
+    .select({workspace: workspaces, memberCount: count(memberships.id)})
+    .from(workspaces)
+    .leftJoin(memberships, eq(memberships.workspaceId, workspaces.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .groupBy(workspaces.id)
+    .orderBy(asc(workspaces.name), asc(workspaces.id))
+    .limit(params.limit + 1);
+
+  const hasMore = rows.length > params.limit;
+  const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+  const last = pageRows.at(-1);
+
+  return {
+    workspaces: pageRows.map((row) => ({
+      ...toWorkspace(row.workspace),
+      memberCount: Number(row.memberCount),
+    })),
+    nextCursor: hasMore && last ? {value: last.workspace.name, id: last.workspace.id} : null,
+  };
+}
+
+function escapeIlikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 export interface WorkspaceServiceMetrics {

@@ -1,5 +1,6 @@
 import {and, eq, sql} from 'drizzle-orm';
 import type {Membership} from '#core/entities/membership.js';
+import type {Workspace} from '#core/entities/workspace.js';
 import {LastMemberError} from '#core/errors.js';
 import {recordWorkspaceMembershipChanged} from '#metrics/instance.js';
 import {db} from './db.js';
@@ -58,6 +59,7 @@ export async function ensureMembership(params: EnsureMembershipParams): Promise<
 
 export interface MembershipWithWorkspace extends Membership {
   workspaceName: string;
+  workspaceStatus: Workspace['status'];
 }
 
 export async function listMembershipsByUser(params: {
@@ -67,13 +69,18 @@ export async function listMembershipsByUser(params: {
     .select({
       membership: memberships,
       workspaceName: workspaces.name,
+      workspaceStatus: workspaces.status,
     })
     .from(memberships)
     .innerJoin(workspaces, eq(workspaces.id, memberships.workspaceId))
     .where(eq(memberships.userId, params.userId))
     .orderBy(workspaces.name);
 
-  return rows.map((row) => ({...toMembership(row.membership), workspaceName: row.workspaceName}));
+  return rows.map((row) => ({
+    ...toMembership(row.membership),
+    workspaceName: row.workspaceName,
+    workspaceStatus: row.workspaceStatus,
+  }));
 }
 
 export interface MembershipWithUser extends Membership {

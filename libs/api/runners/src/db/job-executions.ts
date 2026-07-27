@@ -47,6 +47,34 @@ export interface EnqueueJobExecutionParams {
   requiredLabels: string[];
 }
 
+export async function getWorkspaceJobCounts(params: {
+  workspaceIds: string[];
+}): Promise<Array<{workspaceId: string; queued: number; running: number}>> {
+  const [pendingRows, runningRows] = await Promise.all([
+    db()
+      .select({workspaceId: pendingJobExecutions.workspaceId, count: count()})
+      .from(pendingJobExecutions)
+      .where(inArray(pendingJobExecutions.workspaceId, params.workspaceIds))
+      .groupBy(pendingJobExecutions.workspaceId),
+    db()
+      .select({workspaceId: runningJobExecutions.workspaceId, count: count()})
+      .from(runningJobExecutions)
+      .where(inArray(runningJobExecutions.workspaceId, params.workspaceIds))
+      .groupBy(runningJobExecutions.workspaceId),
+  ]);
+
+  const queuedByWorkspace = new Map(pendingRows.map((row) => [row.workspaceId, Number(row.count)]));
+  const runningByWorkspace = new Map(
+    runningRows.map((row) => [row.workspaceId, Number(row.count)]),
+  );
+
+  return params.workspaceIds.map((workspaceId) => ({
+    workspaceId,
+    queued: queuedByWorkspace.get(workspaceId) ?? 0,
+    running: runningByWorkspace.get(workspaceId) ?? 0,
+  }));
+}
+
 // Idempotent while the job execution is still pending: a duplicate jobExecutionId already in
 // `runners_pending_jobs` is a no-op. Temporal retries the enqueue activity
 // at-least-once, so a unique-violation throw on a retry-after-lost-result

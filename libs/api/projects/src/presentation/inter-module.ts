@@ -4,7 +4,7 @@ import {
   defineInterModulePresentation,
   type InterModulePresentation,
 } from '@shipfox/inter-module';
-import {getProjectById} from '#db/projects.js';
+import {getProjectById, getWorkspaceProjectCounts} from '#db/projects.js';
 
 export function createProjectsInterModulePresentation(): InterModulePresentation<
   typeof projectsInterModuleContract
@@ -29,5 +29,8 @@ export function createProjectsInterModulePresentation(): InterModulePresentation
       }
       return {project};
     },
+    getWorkspaceProjectCounts: async ({workspaceIds}) => ({
+      counts: await getWorkspaceProjectCounts({workspaceIds}),
+    }),
   });
 }
