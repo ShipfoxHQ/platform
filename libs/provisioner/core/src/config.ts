@@ -1,4 +1,5 @@
 import {createConfig, num, str, url} from '@shipfox/config';
+import {DEFAULT_SHIPFOX_API_URL} from '#defaults.js';
 
 /** The API caps reservations per poll at 1000; configuration may not ask for more. */
 const MAX_RESERVATIONS_PER_POLL = 1000;
@@ -8,7 +9,7 @@ const MAX_RUNNER_INSTANCE_BATCH = 1000;
 export const config = createConfig({
   SHIPFOX_API_URL: url({
     desc: 'Base URL of the Shipfox API the provisioner connects to. Defaults to https://api.shipfox.io; set it when using a self-hosted Shipfox API.',
-    default: 'https://api.shipfox.io',
+    default: DEFAULT_SHIPFOX_API_URL,
   }),
   SHIPFOX_RUNNER_API_URL: url({
     desc: 'Base URL injected into runner containers as SHIPFOX_API_URL. Defaults to SHIPFOX_API_URL; set it when containers reach the API through a different address than the provisioner uses.',

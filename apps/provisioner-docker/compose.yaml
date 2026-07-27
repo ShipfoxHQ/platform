@@ -1,0 +1,20 @@
+name: shipfox-provisioner
+
+services:
+  provisioner:
+    image: ghcr.io/shipfoxhq/provisioner-docker:revision-c0046d30e158915f6375b319880abf7c4ddbb623
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SHIPFOX_PROVISIONER_TEMPLATES_FILE: /etc/shipfox/templates.yaml
+    extra_hosts:
+      - host.docker.internal=host-gateway
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: bind
+        source: ./templates.yaml
+        target: /etc/shipfox/templates.yaml
+        read_only: true

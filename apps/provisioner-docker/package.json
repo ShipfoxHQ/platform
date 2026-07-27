@@ -17,6 +17,7 @@
     "image": "shipfox-docker --setup-context --image provisioner-docker",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
+    "test": "tsx --conditions=workspace-source --test test/*.test.mjs",
     "type": "shipfox-tsc-check",
     "type:emit": "shipfox-tsc-emit"
   },
@@ -25,6 +26,7 @@
     "@shipfox/provisioner-docker-provider": "workspace:*"
   },
   "devDependencies": {
+    "@shipfox/application-release": "workspace:*",
     "@shipfox/biome": "workspace:*",
     "@shipfox/docker": "workspace:*",
     "@shipfox/swc": "workspace:*",

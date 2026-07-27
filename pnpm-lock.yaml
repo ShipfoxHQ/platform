@@ -765,6 +765,9 @@ importers:
         specifier: workspace:*
         version: link:../../libs/provisioner/docker
     devDependencies:
+      '@shipfox/application-release':
+        specifier: workspace:*
+        version: link:../../tools/application-release
       '@shipfox/biome':
         specifier: workspace:*
         version: link:../../tools/biome

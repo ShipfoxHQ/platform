@@ -1,101 +1,144 @@
 ---
 title: "Run a Docker Runner Provisioner"
 sidebarTitle: "Runner Provisioner"
-description: "Start the Shipfox Docker runner provisioner from a source checkout and verify its runner-instance lifecycle."
+description: "Start the Shipfox Docker runner provisioner with Docker Compose and verify an ephemeral runner job."
 ---
 
 A [runner provisioner](/operations/runner-provisioners) creates runner instances,
 starts ephemeral compute, and activates each runner for at most one job. You do not
-hand a workspace registration credential to the provider. This guide deploys the Docker
-provisioner.
+hand a workspace registration credential to the provider. This guide deploys the
+published Docker provisioner and runner images as one compatible application release.
 
 ## Before you begin
 
-- A Docker daemon the provisioner can control (local socket or a reachable Docker host).
-- A runner container image, such as `shipfox-runner:ubuntu22`.
+- Docker Engine with Docker Compose.
 - Access to your workspace settings in the Shipfox dashboard.
-- A Shipfox source checkout with `mise install` and `pnpm install` complete.
+- A Shipfox project backed by a repository where you can add a workflow.
 
-## Create a provisioner token
+## Copy the deployment bundle
 
-<Steps>
-  <Step>
-
-    **Open Settings → Runner Provisioners**
-
-    In the dashboard, go to **Settings → Runner Provisioners**.
-  </Step>
-  <Step>
-
-    **Create the token**
-
-    Click **Create token** and copy the value. It is shown only once. Treat it like a
-    secret. A workspace token can provision only its workspace. An installation token
-    can serve host-approved workspaces, but the runner still receives its workspace
-    only after immutable assignment. You can revoke either token on the same page.
-  </Step>
-</Steps>
-
-## Write a templates file
-
-A template maps a label set to the container that provides it. Start with one template:
-
-```yaml
-templates:
-  docker-ubuntu22-2vcpu:
-    labels: [ubuntu22, ubuntu22-2vcpu]
-    image: shipfox-runner:ubuntu22
-    cpu: 2
-    memory: 4GiB
-    max_concurrency: 100
-    target_concurrency: 0
-```
-
-The full field semantics and selection rule live in the [Runner Provisioner reference](/reference/runner-provisioner#template-file-schema).
-
-## Start the provisioner
-
-Start the provisioner from the Shipfox source checkout. Replace the API URL and
-token with values from your deployment:
+Create an empty directory and copy the three deployment files:
 
 ```bash
-SHIPFOX_API_URL='<YOUR_SHIPFOX_API_URL>' \
-SHIPFOX_PROVISIONER_TOKEN='<YOUR_PROVISIONER_TOKEN>' \
-SHIPFOX_PROVISIONER_TEMPLATES_FILE=./templates.yaml \
-mise exec -- pnpm --filter=@shipfox/provisioner-docker dev
+mkdir shipfox-provisioner
+cd shipfox-provisioner
+
+curl -fsSLO https://raw.githubusercontent.com/ShipfoxHQ/shipfox/main/apps/provisioner-docker/compose.yaml
+curl -fsSL https://raw.githubusercontent.com/ShipfoxHQ/shipfox/main/apps/provisioner-docker/.env.example -o .env
+curl -fsSLO https://raw.githubusercontent.com/ShipfoxHQ/shipfox/main/apps/provisioner-docker/templates.yaml
 ```
 
-It authenticates on startup, then enters its control loop. On a shutdown signal
-it stops claiming new work and exits cleanly. Use your process supervisor to
-keep it running. All tuning variables are listed in the [Runner Provisioner
-reference](/reference/runner-provisioner).
+The bundle pins both public images to the same immutable application release.
+Do not replace either image tag with `latest` in a production deployment.
 
-## Verify it works
+## Add the provisioner token
 
-Fire a workflow whose `runner:` label matches one of your templates (for example
-`runner: ubuntu22`). Within a few seconds the provisioner creates a runner instance
-and starts a container with a one-use bootstrap token. The container enrolls, receives
-an immutable assignment, activates, claims one job, runs it, and exits. The run detail
-page shows the job leaving `pending` and streaming logs.
+In the dashboard, open **Settings → Runner Provisioners**. Create a token and
+copy it when shown. This page creates a workspace-scoped token. It can provision
+only that workspace.
 
-## Breaking protocol migration
+Replace `replace-with-your-provisioner-token` in `.env` with the token. Keep
+`.env` out of source control.
 
-Provisioners built against the former capacity protocol must migrate as one release:
+Start the provisioner:
 
-1. Replace capacity creation, capacity assignment, and batch registration-token calls
-   with runner-instance creation and bootstrap tokens.
-2. Start compute with `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`, never a workspace registration
-   token.
-3. Attach the provider runner ID, let the runner enroll, then assign its runner instance
-   to the owned reservation.
-4. Treat an unassigned runner as workspace-neutral. Do not send workspace metadata,
-   credentials, or job data through the provider.
+```bash
+docker compose up -d
+```
 
-Use `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` in place of
-`SHIPFOX_PROVISIONER_REGISTRATION_TOKEN_BATCH_SIZE`. A template may set
-`target_concurrency` to maintain prewarmed, unassigned runners independently of demand.
+Compose mounts the Docker socket with read-write access because the provisioner
+must create and remove runner containers. It mounts `templates.yaml` read-only.
+The service restarts unless an operator stops it.
 
-## Related pages
+## Connect to a self-hosted API
+
+Skip this section for Shipfox Cloud. `SHIPFOX_API_URL` defaults to
+`https://api.shipfox.io`.
+
+For an API published on the Docker host, set these values in `.env`:
+
+```dotenv
+SHIPFOX_API_URL=http://host.docker.internal:3000
+SHIPFOX_RUNNER_API_URL=http://host.docker.internal:3000
+SHIPFOX_PROVISIONER_DOCKER_EXTRA_HOSTS=host.docker.internal:host-gateway
+```
+
+The Compose service adds the same host alias to the provisioner container. The
+extra-hosts variable adds it to each runner container. If the provisioner and
+runners must join an existing Docker network instead, set
+`SHIPFOX_PROVISIONER_DOCKER_NETWORK` to that network name. Attach the
+provisioner service to that network in `compose.yaml` too.
+
+Run `docker compose up -d` again after changing `.env`.
+
+## Verify the provisioner
+
+Check the rendered configuration and startup:
+
+```bash
+docker compose config --quiet
+docker compose ps
+docker compose logs provisioner
+```
+
+The config command exits with status `0`. The service is `Up`. Its logs contain
+`Provisioner authenticated` with a provisioner ID, workspace ID, `workspace`
+scope, and one template.
+
+Add this workflow to the project repository and sync it:
+
+```yaml
+# yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
+name: Docker provisioner check
+runner: [docker, ubuntu]
+
+triggers:
+  manual:
+    source: manual
+    event: fire
+
+jobs:
+  check:
+    steps:
+      - run: echo "Provisioned runner is streaming logs"
+```
+
+Run the workflow from the dashboard. Verify these signals:
+
+1. The job leaves `pending`.
+2. `docker ps --filter label=shipfox.template_key=docker-ubuntu` shows one
+   runner container while the job runs.
+3. The run detail page streams `Provisioned runner is streaming logs`.
+4. The job finishes.
+5. The runner container exits, then disappears after the provisioner reports
+   its terminal state.
+
+`docker compose logs provisioner` reports `Provisioner tick complete` with one
+or more launched runners when it handles the job.
+
+## Stop the provisioner
+
+```bash
+docker compose stop
+docker compose logs --tail 20 provisioner
+```
+
+The logs contain `Shutting down gracefully` and `Provisioner stopped`. The
+service exits after it flushes pending runner reports. `docker compose down`
+removes the stopped provisioner container and its Compose network. It does not
+remove active runner containers.
+
+## Recover from startup or job failures
+
+| Signal | Cause and recovery |
+| --- | --- |
+| `Fatal provisioner error` reports a rejected token, or the service restarts before `Provisioner authenticated`. | Replace `SHIPFOX_PROVISIONER_TOKEN` with a valid workspace-scoped token. Check that it was created in the target workspace and was not revoked. |
+| `Cannot list managed Docker containers` or `Provisioner startup reconciliation failed; advertising no free capacity until observe succeeds`. | Check that Docker is running and `/var/run/docker.sock` exists on the host. Keep the socket mount read-write. On a remote daemon, set `SHIPFOX_PROVISIONER_DOCKER_HOST` and remove the local socket mount. |
+| `Invalid Docker template config` or `Cannot parse Docker template config`. | Run `docker compose config --quiet`, then fix `templates.yaml`. Check its indentation and the [template schema](/reference/runner-provisioner#template-file-schema). Restart the service. |
+| `Cannot pull image` or `Failed to launch provisioned runner`. | Pull the runner image named in `templates.yaml`. Check registry access and keep the provisioner and runner on the same release tag. |
+| API requests fail or the service never logs `Provisioner authenticated`. | Check `SHIPFOX_API_URL` from the provisioner container. For a host API, use `host.docker.internal` as shown above. Set `SHIPFOX_RUNNER_API_URL` when runner containers need a different address. |
+| The job stays `pending` and no runner container appears. | Compare the workflow `runner` labels with `templates.yaml`. Every requested label must appear in one template. The checked bundle uses `[docker, ubuntu]`. |
+| The provisioner is authenticated but advertises zero free capacity. | Check for `advertising no free capacity` in the logs. Repair Docker access. If Docker is healthy, count managed containers and increase `max_concurrency` only when the host has enough CPU and memory. |
 
 <Cards>
   <Card title="Runner Provisioner reference" href="/reference/runner-provisioner">
