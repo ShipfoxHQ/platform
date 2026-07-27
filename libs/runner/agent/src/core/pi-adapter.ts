@@ -124,17 +124,29 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
         additionalExtensionPaths: extensionDirectories,
       },
     });
+    const extensionResult = services.resourceLoader?.getExtensions?.();
+    assertPiServiceDiagnostics(
+      services.diagnostics,
+      {
+        cwd,
+        provider,
+        model: modelId,
+        thinking,
+        extensionPaths:
+          mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
+        ...(extensionResult === undefined
+          ? {}
+          : {
+              resolvedExtensionPaths: extensionResult.extensions.map(
+                (extension) => extension.resolvedPath,
+              ),
+            }),
+      },
+      extensionResult?.errors,
+    );
     assertPiExtensionsLoaded({
       resourceLoader: services.resourceLoader,
       directories: extensionDirectories,
-    });
-    assertPiServiceDiagnostics(services.diagnostics, {
-      cwd,
-      provider,
-      model: modelId,
-      thinking,
-      extensionPaths:
-        mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
     });
 
     const createdSession = await createAgentSessionFromServices({
@@ -253,10 +265,11 @@ interface PiMcpConfig {
 function assertPiServiceDiagnostics(
   diagnostics: Awaited<ReturnType<typeof createAgentSessionServices>>['diagnostics'],
   environment: AgentHarnessUnavailableError['environment'],
+  resourceLoaderErrors: AgentHarnessUnavailableError['resourceLoaderErrors'] = [],
 ): void {
   const errors = diagnostics.filter((diagnostic) => diagnostic.type === 'error');
-  if (errors.length === 0) return;
-  throw new AgentHarnessUnavailableError({diagnostics, environment});
+  if (errors.length === 0 && resourceLoaderErrors.length === 0) return;
+  throw new AgentHarnessUnavailableError({diagnostics, environment, resourceLoaderErrors});
 }
 
 function createInMemoryCredentialStore(credentials: Record<string, Credential>): CredentialStore {

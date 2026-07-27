@@ -169,6 +169,13 @@ if (imageName) {
     args.push(`--build-arg=IMAGE_REVISION=${process.env.GITHUB_SHA}`);
   if (!hasBuildArg('IMAGE_CREATED'))
     args.push(`--build-arg=IMAGE_CREATED=${new Date().toISOString()}`);
+  if (imageName === 'runner') {
+    if (process.env.BUILD_NUMBER && !hasBuildArg('BUILD_NUMBER'))
+      args.push(`--build-arg=BUILD_NUMBER=${process.env.BUILD_NUMBER}`);
+    const runnerVersion = process.env.RUNNER_VERSION ?? process.env.BUILD_RUNNER_VERSION;
+    if (runnerVersion && !hasBuildArg('RUNNER_VERSION'))
+      args.push(`--build-arg=RUNNER_VERSION=${runnerVersion}`);
+  }
 }
 
 const command = buildShellCommand(['docker', 'buildx', 'build', ...args, ...passthrough, '.']);

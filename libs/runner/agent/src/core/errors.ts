@@ -1,4 +1,7 @@
-import type {AgentSessionRuntimeDiagnostic} from '@earendil-works/pi-coding-agent';
+import type {
+  AgentSessionRuntimeDiagnostic,
+  LoadExtensionsResult,
+} from '@earendil-works/pi-coding-agent';
 import type {AgentConfigIssueDto} from '@shipfox/api-workflows-dto';
 
 /**
@@ -24,26 +27,33 @@ export interface AgentHarnessEnvironment {
   readonly model: string;
   readonly thinking: string;
   readonly extensionPaths: readonly string[];
+  readonly resolvedExtensionPaths?: readonly string[];
 }
 
 export class AgentHarnessUnavailableError extends Error {
   public readonly diagnostics: readonly AgentSessionRuntimeDiagnostic[];
   public readonly environment: AgentHarnessEnvironment;
+  public readonly resourceLoaderErrors: readonly LoadExtensionsResult['errors'][number][];
 
   constructor({
     diagnostics,
     environment,
+    resourceLoaderErrors = [],
   }: {
     diagnostics: readonly AgentSessionRuntimeDiagnostic[];
     environment: AgentHarnessEnvironment;
+    resourceLoaderErrors?: readonly LoadExtensionsResult['errors'][number][];
   }) {
     const errors = diagnostics.filter((diagnostic) => diagnostic.type === 'error');
-    super(
-      `Pi extension setup failed: ${errors.map((diagnostic) => diagnostic.message).join('; ')}`,
-    );
+    const messages = [
+      ...errors.map((diagnostic) => diagnostic.message),
+      ...resourceLoaderErrors.map((resourceError) => resourceError.error),
+    ];
+    super(`Pi extension setup failed: ${messages.join('; ')}`);
     this.name = 'AgentHarnessUnavailableError';
     this.diagnostics = diagnostics;
     this.environment = environment;
+    this.resourceLoaderErrors = resourceLoaderErrors;
   }
 }
 

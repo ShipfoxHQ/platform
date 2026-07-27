@@ -699,6 +699,9 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
+          # apps/runner is private and has no package version; use the versioned
+          # orchestration package that composes the runner runtime as its image version.
+          export RUNNER_VERSION="$(node -p "require('./libs/runner/orchestration/package.json').version")"
           # CI supplies the ref through the environment: the registry base
           # (IMAGE_REGISTRIES) plus the commit identity (BUILD_NUMBER, GITHUB_SHA,
           # GITHUB_REF_NAME). shipfox-docker assembles each app's sha-/build-/latest

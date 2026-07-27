@@ -108,6 +108,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('executeSetupStep', () => {
@@ -286,6 +287,26 @@ describe('executeSetupStep', () => {
     expect(log.writeOutputLine).toHaveBeenCalledWith(
       'Setup completed successfully. The job is ready to run.',
     );
+  });
+
+  it('writes the image and runner build identity', async () => {
+    vi.stubEnv('RUNNER_VERSION', '0.1.13');
+    vi.stubEnv('IMAGE_REVISION', '0123456789abcdef');
+    vi.stubEnv('IMAGE_CREATED', '2026-07-27T10:00:00.000Z');
+    vi.stubEnv('BUILD_NUMBER', '42');
+    const log = fakeLog();
+
+    await run(log);
+
+    expect(log.writeGroup).toHaveBeenCalledWith({
+      name: 'Runner environment',
+      lines: expect.arrayContaining([
+        'Runner version: 0.1.13',
+        'Runner image revision: 0123456789abcdef',
+        'Runner image created: 2026-07-27T10:00:00.000Z',
+        'Runner build number: 42',
+      ]),
+    });
   });
 
   it('writes structured setup lifecycle logs', async () => {

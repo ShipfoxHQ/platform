@@ -139,6 +139,7 @@ export async function runJobSteps(params: {
         result: execution.result,
         logOutcome,
         jobId,
+        jobExecutionId: jobContext.jobExecutionId,
         stepLabel,
         signal,
       });
@@ -719,16 +720,32 @@ export async function reportStepResult(params: {
   result: StepResult;
   logOutcome: LogOutcomeDto;
   jobId: string;
+  jobExecutionId: string;
   stepLabel: string;
   signal: AbortSignal;
 }): Promise<{cancel: boolean}> {
-  const {leaseClient, step, attempt, result, logOutcome, jobId, stepLabel, signal} = params;
+  const {leaseClient, step, attempt, result, logOutcome, jobId, jobExecutionId, stepLabel, signal} =
+    params;
 
   if (result.success) {
-    logger().info({jobId, stepId: step.id, stepName: step.name}, `Step ${stepLabel} succeeded`);
+    logger().info(
+      {jobId, jobExecutionId, stepId: step.id, stepName: step.name, attempt},
+      `Step ${stepLabel} succeeded`,
+    );
   } else {
     logger().error(
-      {jobId, stepId: step.id, stepName: step.name, reason: result.error?.reason},
+      {
+        jobId,
+        jobExecutionId,
+        stepId: step.id,
+        stepName: step.name,
+        attempt,
+        reason: result.error?.reason,
+        ...(result.error?.agent_config_issue
+          ? {agentConfigIssue: result.error.agent_config_issue}
+          : {}),
+        ...(result.error?.message ? {message: result.error.message.slice(0, 200)} : {}),
+      },
       `Step ${stepLabel} failed`,
     );
   }

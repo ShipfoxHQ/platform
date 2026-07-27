@@ -41,6 +41,7 @@ import {
   AGENT_INTEGRATION_MCP_TRANSPORT,
 } from '@shipfox/api-agent-dto';
 import type {StepDto} from '@shipfox/api-workflows-dto';
+import {logger} from '@shipfox/node-opentelemetry';
 import {
   AgentConfigError,
   AgentHarnessUnavailableError,
@@ -86,6 +87,11 @@ describe('executeAgentStep', () => {
     gatewayFetch.mockReset();
     runAgentMock.mockReset();
     runClaudeMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('runs the agent and reports process-success with exit_code 0', async () => {
@@ -396,6 +402,61 @@ describe('executeAgentStep', () => {
       },
       exit_code: null,
     });
+  });
+
+  it('logs bounded harness diagnostics with step and build identity', async () => {
+    vi.stubEnv('RUNNER_VERSION', '0.1.13');
+    vi.stubEnv('IMAGE_REVISION', '0123456789abcdef');
+    vi.stubEnv('IMAGE_CREATED', '2026-07-27T10:00:00.000Z');
+    vi.stubEnv('BUILD_NUMBER', '42');
+    const errorLog = vi.spyOn(logger(), 'error').mockImplementation(() => undefined);
+    runAgentMock.mockRejectedValue(
+      new AgentHarnessUnavailableError({
+        diagnostics: Array.from({length: 6}, (_, index) => ({
+          type: 'error' as const,
+          message: `${index}:${'x'.repeat(600)}`,
+        })),
+        environment: {
+          cwd: '/work',
+          provider: 'anthropic',
+          model: 'claude-opus-4-8',
+          thinking: 'high',
+          extensionPaths: ['pi-web-access'],
+          resolvedExtensionPaths: ['/app/node_modules/pi-web-access/index.js'],
+        },
+        resourceLoaderErrors: [
+          {path: '/app/node_modules/pi-web-access', error: 'Extension path does not exist'},
+        ],
+      }),
+    );
+
+    await executeAgentStep(buildAgentStep({current_attempt: 3}), {cwd: '/work', runtime: RUNTIME});
+
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_harness_unavailable',
+        harness: 'pi',
+        jobExecutionId: '00000000-0000-0000-0000-000000000003',
+        stepId: '00000000-0000-0000-0000-000000000001',
+        attempt: 3,
+        requestedExtensionPaths: ['pi-web-access'],
+        resolvedExtensionPaths: ['/app/node_modules/pi-web-access/index.js'],
+        runnerVersion: '0.1.13',
+        imageRevision: '0123456789abcdef',
+        imageCreated: '2026-07-27T10:00:00.000Z',
+        buildNumber: '42',
+      }),
+      'Agent harness unavailable',
+    );
+    const fields = errorLog.mock.calls[0]?.[0] as {
+      diagnostics: Array<{message: string}>;
+      resourceLoaderErrors: Array<{error: string}>;
+    };
+    expect(fields.diagnostics).toHaveLength(5);
+    expect(fields.diagnostics[0]?.message).toHaveLength(500);
+    expect(fields.resourceLoaderErrors).toEqual([
+      {path: '/app/node_modules/pi-web-access', error: 'Extension path does not exist'},
+    ]);
   });
 
   it('preserves response from invocation failures that can report it', async () => {
