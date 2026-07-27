@@ -234,6 +234,8 @@ function buildStoredBody(
   const storedRecords: LogRecord[] = [];
   const parseContext: SessionParseContext | undefined =
     harness === 'claude' ? {claude: createClaudeParseContext(), isFinalResult: true} : undefined;
+  const latestClaudeInitIndicesBySessionId =
+    harness === 'claude' ? latestClaudeInitIndices(records) : undefined;
 
   for (const [index, record] of records.entries()) {
     if (record.type !== 'agent_session') {
@@ -241,9 +243,9 @@ function buildStoredBody(
       continue;
     }
 
-    if (parseContext?.claude !== undefined) {
+    if (parseContext?.claude !== undefined && latestClaudeInitIndicesBySessionId !== undefined) {
       parseContext.isFinalResult = !hasFutureClaudeInit(
-        records,
+        latestClaudeInitIndicesBySessionId,
         index,
         parseContext.claude.sessionId,
       );
@@ -263,17 +265,27 @@ function buildStoredBody(
   return {body, recordCounts};
 }
 
+function latestClaudeInitIndices(records: readonly RawLogRecord[]): Map<string, number> {
+  const latestIndices = new Map<string, number>();
+
+  for (const [index, record] of records.entries()) {
+    if (record.type !== 'agent_session') continue;
+
+    const sessionId = claudeInitSessionId(agentSessionRecord(record));
+    if (sessionId !== undefined) latestIndices.set(sessionId, index);
+  }
+
+  return latestIndices;
+}
+
 function hasFutureClaudeInit(
-  records: readonly RawLogRecord[],
+  latestClaudeInitIndicesBySessionId: ReadonlyMap<string, number>,
   currentIndex: number,
   sessionId: string | null,
 ): boolean {
   if (sessionId === null) return false;
 
-  return records.slice(currentIndex + 1).some((record) => {
-    if (record.type !== 'agent_session') return false;
-    return claudeInitSessionId(agentSessionRecord(record)) === sessionId;
-  });
+  return (latestClaudeInitIndicesBySessionId.get(sessionId) ?? -1) > currentIndex;
 }
 
 function agentSessionRecord(
