@@ -159,7 +159,7 @@ export async function defaultModules(
     agentTools: {workflows: workflowsClient},
     webhookDeliverySource: options.webhookDeliverySource,
   });
-  const projectsModule = createProjectsModule({integrations: integrationsClient});
+  const projectsModule = createProjectsModule({integrations: integrationsClient, auth: authClient});
   const definitionsModule = createDefinitionsModule({
     projects: projectsClient,
     agent: agentClient,

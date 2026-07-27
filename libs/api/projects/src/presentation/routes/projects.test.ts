@@ -5,6 +5,10 @@ import {
   type UserContextMembership,
 } from '@shipfox/api-auth-context';
 import {
+  type AuthInterModuleClient,
+  authInterModuleContract,
+} from '@shipfox/api-auth-dto/inter-module';
+import {
   type IntegrationsModuleClient,
   integrationsInterModuleContract,
 } from '@shipfox/api-integration-core-dto/inter-module';
@@ -12,6 +16,8 @@ import {createInterModuleKnownError} from '@shipfox/inter-module';
 import type {AuthMethod} from '@shipfox/node-fastify';
 import {closeApp, createApp} from '@shipfox/node-fastify';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
+import type {Project} from '#core/entities/project.js';
+import {createProject} from '#db/projects.js';
 import {createProjectRoutes} from './index.js';
 
 let authenticatedMemberships: UserContextMembership[] = [];
@@ -37,6 +43,7 @@ describe('project routes', () => {
   let workspaceId: string;
   let sourceConnectionId: string;
   let integrations: Pick<IntegrationsModuleClient, 'resolveSourceRepository'>;
+  let auth: Pick<AuthInterModuleClient, 'requireAdminRole'>;
 
   beforeEach(async () => {
     await closeApp();
@@ -65,9 +72,12 @@ describe('project routes', () => {
         };
       }),
     };
+    auth = {
+      requireAdminRole: vi.fn().mockResolvedValue({role: 'admin-observer'}),
+    };
     app = await createApp({
       auth: [fakeUserAuth],
-      routes: createProjectRoutes(integrations as IntegrationsModuleClient),
+      routes: createProjectRoutes(integrations as IntegrationsModuleClient, auth),
       swagger: false,
     });
     await app.ready();
@@ -251,5 +261,166 @@ describe('project routes', () => {
 
     expect(res.statusCode).toBe(404);
     expect(res.json().code).toBe('source-connection-not-found');
+  });
+
+  test('requires the administrator observer role for project lookup', async () => {
+    vi.mocked(auth.requireAdminRole).mockRejectedValueOnce(
+      createInterModuleKnownError(
+        authInterModuleContract.methods.requireAdminRole,
+        'admin-role-required',
+        {requiredRole: 'admin-observer'},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/projects',
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({
+      code: 'forbidden',
+      details: {required_role: 'admin-observer'},
+    });
+    expect(auth.requireAdminRole).toHaveBeenCalledWith({
+      userId: 'user-1',
+      minimumRole: 'admin-observer',
+    });
+  });
+
+  test('rejects unbounded lookup parameters and malformed cursors', async () => {
+    const oversizedLimit = await app.inject({
+      method: 'GET',
+      url: '/admin/projects?limit=101',
+      headers: {authorization: 'Bearer user'},
+    });
+    expect(oversizedLimit.statusCode).toBe(400);
+
+    const oversizedSearch = await app.inject({
+      method: 'GET',
+      url: `/admin/projects?search=${'x'.repeat(101)}`,
+      headers: {authorization: 'Bearer user'},
+    });
+    expect(oversizedSearch.statusCode).toBe(400);
+
+    const malformedCursor = await app.inject({
+      method: 'GET',
+      url: '/admin/projects?cursor=not-a-cursor',
+      headers: {authorization: 'Bearer user'},
+    });
+    expect(malformedCursor.statusCode).toBe(400);
+    expect(malformedCursor.json().code).toBe('invalid-cursor');
+  });
+
+  test('returns a bounded redacted summary with checked search and cursor pagination', async () => {
+    const projects: Project[] = [];
+    for (const name of ['Platform', 'Runner', 'Running', 'Notifier']) {
+      projects.push(
+        await createProject({
+          workspaceId,
+          name,
+          sourceConnectionId: crypto.randomUUID(),
+          sourceExternalRepositoryId: `gitea:${name.toLowerCase()}`,
+        }),
+      );
+    }
+    const running = projects.find((project) => project.name === 'Running');
+    if (!running) throw new Error('Running project fixture was not created');
+
+    const searchRes = await app.inject({
+      method: 'GET',
+      url: '/admin/projects?search=runn&limit=1',
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(searchRes.statusCode).toBe(200);
+    expect(searchRes.json()).toMatchObject({
+      projects: [
+        {
+          id: running.id,
+          name: 'Running',
+          status: 'active',
+          workspace_id: workspaceId,
+        },
+      ],
+      next_cursor: expect.any(String),
+    });
+    expect(searchRes.json().projects[0]).not.toHaveProperty('source');
+    expect(searchRes.json().projects[0]).not.toHaveProperty('source_connection_id');
+
+    const firstPage = await app.inject({
+      method: 'GET',
+      url: '/admin/projects?limit=1',
+      headers: {authorization: 'Bearer user'},
+    });
+    expect(firstPage.statusCode).toBe(200);
+    expect(firstPage.json().projects).toHaveLength(1);
+    expect(firstPage.json().next_cursor).toEqual(expect.any(String));
+
+    const secondPage = await app.inject({
+      method: 'GET',
+      url: `/admin/projects?limit=1&cursor=${encodeURIComponent(firstPage.json().next_cursor)}`,
+      headers: {authorization: 'Bearer user'},
+    });
+    expect(secondPage.statusCode).toBe(200);
+    expect(secondPage.json().projects).toHaveLength(1);
+    expect(secondPage.json().projects[0].id).not.toBe(firstPage.json().projects[0].id);
+  });
+
+  test('lists summaries across workspaces', async () => {
+    const firstWorkspaceId = crypto.randomUUID();
+    const secondWorkspaceId = crypto.randomUUID();
+    const firstProject = await createProject({
+      workspaceId: firstWorkspaceId,
+      name: 'GlobalAdminLookupAlpha',
+      sourceConnectionId: crypto.randomUUID(),
+      sourceExternalRepositoryId: 'gitea:global-admin-lookup-alpha',
+    });
+    const secondProject = await createProject({
+      workspaceId: secondWorkspaceId,
+      name: 'GlobalAdminLookupBeta',
+      sourceConnectionId: crypto.randomUUID(),
+      sourceExternalRepositoryId: 'gitea:global-admin-lookup-beta',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/projects?search=globaladminlookup&limit=100',
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().projects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({id: firstProject.id, workspace_id: firstWorkspaceId}),
+        expect.objectContaining({id: secondProject.id, workspace_id: secondWorkspaceId}),
+      ]),
+    );
+  });
+
+  test('supports exact project ID lookup without exposing provider references', async () => {
+    const project = await createProject({
+      workspaceId,
+      name: 'Platform',
+      sourceConnectionId: crypto.randomUUID(),
+      sourceExternalRepositoryId: 'gitea:platform',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/projects?project_id=${project.id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().projects).toHaveLength(1);
+    expect(res.json().projects[0]).toMatchObject({
+      id: project.id,
+      name: 'Platform',
+      status: 'active',
+      workspace_id: workspaceId,
+    });
+    expect(res.json().projects[0]).not.toHaveProperty('source');
   });
 });

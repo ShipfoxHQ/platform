@@ -1,5 +1,6 @@
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import {
   INTEGRATION_SOURCE_COMMIT_PUSHED,
   type IntegrationsEventMap,
@@ -44,13 +45,17 @@ export {createProjectRoutes, requireProjectAccess} from '#presentation/index.js'
 
 export interface CreateProjectsModuleOptions {
   integrations: IntegrationsModuleClient;
+  auth: AuthInterModuleClient;
 }
 
-export function createProjectsModule({integrations}: CreateProjectsModuleOptions): ShipfoxModule {
+export function createProjectsModule({
+  integrations,
+  auth,
+}: CreateProjectsModuleOptions): ShipfoxModule {
   return {
     name: 'projects',
     database: {db, migrationsPath, databaseNamespace: 'projects'},
-    routes: createProjectRoutes(integrations),
+    routes: createProjectRoutes(integrations, auth),
     e2eRoutes: [projectsE2eRoutes],
     metrics: registerProjectsServiceMetrics,
     publishers: [{name: 'projects', table: projectsOutbox, db, eventSchemas: projectsEventSchemas}],
