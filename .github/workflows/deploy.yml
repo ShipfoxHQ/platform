@@ -269,6 +269,8 @@ jobs:
             --name "${{ steps.source.outputs.artifact_name }}" \
             --dir "$artifact_directory"
           test -s "$artifact_directory/.shipfox-pages-plan.json"
+          test -s "$artifact_directory/.shipfox-pages-config.json"
+          cp "$artifact_directory/.shipfox-pages-config.json" "$PAGES_CONFIG"
 
       - name: Plan deployment
         id: plan
