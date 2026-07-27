@@ -127,7 +127,7 @@ describe('parseClaudeSessionRecord', () => {
 
   it('keeps non-init system messages as session events', () => {
     const rows = parseClaudeSessionRecord(
-      record({type: 'system', subtype: 'status', session_id: 'session-1'}),
+      record({type: 'system', subtype: 'custom_event', session_id: 'session-1'}),
     );
 
     expect(rows).toEqual([
