@@ -234,7 +234,7 @@ When password login is disabled, the password and email-verification rows in thi
 
 ### Administrator grants
 
-All routes are mounted under `/admin/v1/auth/admin-grants` and require an authenticated bearer token. Ownership is enforced in the core layer, not by route-level middleware.
+All routes are mounted under `/admin/auth/admin-grants` and require an authenticated bearer token. Ownership is enforced in the core layer, not by route-level middleware.
 
 | Method | Path | Required role | Result |
 | --- | --- | --- | --- |
@@ -254,7 +254,7 @@ The public auth endpoints include an application-layer abuse baseline for open s
 | `POST /auth/login` | 60 attempts per 5 minutes | 10 attempts per 15 minutes |
 | `POST /auth/password-reset` | 30 email-send attempts per hour | 3 email-send attempts per hour |
 | `POST /auth/verify-email/resend` | Shared with password reset | Shared with password reset |
-| `POST /admin/v1/auth/admin-grants/bootstrap` | 5 attempts per 15 minutes | n/a |
+| `POST /admin/auth/admin-grants/bootstrap` | 5 attempts per 15 minutes | n/a |
 
 Counters are stored in PostgreSQL as fixed windows in `auth_rate_limits`. IP addresses and email addresses are HMAC-SHA256 values before storage; raw identifiers are not persisted. The identifier key is derived from `AUTH_ROOT_KEY` separately from every token key.
 

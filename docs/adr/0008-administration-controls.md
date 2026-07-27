@@ -92,7 +92,7 @@ The token never enters browser storage, API responses, logs, or audit metadata.
 **Each domain module owns administration behavior for its resources.** The
 owner defines:
 
-- Its `/admin/v1/...` HTTP routes and each route's minimum role.
+- Its `/admin/...` HTTP routes and each route's minimum role.
 - Its use cases and call to the Auth role check.
 - Its database reads and mutations.
 - Its safe dashboard read model and client feature.
@@ -102,11 +102,11 @@ The initial path families are:
 
 | Owner | Path family | Minimum role and scope |
 | --- | --- | --- |
-| Auth | `/admin/v1/auth/users` | `admin-observer` for bounded lookup and safe account status; `admin-operator` for suspension, reactivation, and session revocation. |
-| Auth | `/admin/v1/auth/admin-grants` | `admin-owner` for local administrator role listing and changes. |
-| Workspaces | `/admin/v1/workspaces` | `admin-observer` for bounded lookup and safe status; `admin-operator` for suspension and reactivation. |
-| Projects | `/admin/v1/projects` | `admin-observer` for bounded lookup and safe status. |
-| Each configuration owner | `/admin/v1/<module>/configuration` | `admin-observer` for safe effective-configuration inspection. |
+| Auth | `/admin/auth/users` | `admin-observer` for bounded lookup and safe account status; `admin-operator` for suspension, reactivation, and session revocation. |
+| Auth | `/admin/auth/admin-grants` | `admin-owner` for local administrator role listing and changes. |
+| Workspaces | `/admin/workspaces` | `admin-observer` for bounded lookup and safe status; `admin-operator` for suspension and reactivation. |
+| Projects | `/admin/projects` | `admin-observer` for bounded lookup and safe status. |
+| Each configuration owner | `/admin/<module>/configuration` | `admin-observer` for safe effective-configuration inspection. |
 
 **Authorization and behavior stay at the owning route or use case.** A module
 obtains current facts from another module through the producer's declared
@@ -119,7 +119,7 @@ through a central Administration gateway.
 
 ### Keep the API dashboard-only
 
-**`/admin/v1` is an internal contract for the Shipfox administration
+**`/admin` is an internal contract for the Shipfox administration
 dashboard.** Requests use the ordinary authenticated browser session and the
 normal same-origin protections. Mutations use the same Cross-Site Request
 Forgery (CSRF), origin, secure-cookie, and session-rotation protections as

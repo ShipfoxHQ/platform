@@ -37,10 +37,21 @@ describe('Auth administration routes', () => {
     await app.close();
   });
 
-  test('requires an authenticated session for bootstrap', async () => {
+  test('does not register the removed versioned administration namespace', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/admin/v1/auth/admin-grants/bootstrap',
+      headers: {'idempotency-key': 'removed-versioned-bootstrap'},
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  test('requires an authenticated session for bootstrap', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
       headers: {'idempotency-key': 'anonymous-bootstrap'},
       payload: {bootstrap_token: BOOTSTRAP_TOKEN},
     });
@@ -53,7 +64,7 @@ describe('Auth administration routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants/bootstrap',
+      url: '/admin/auth/admin-grants/bootstrap',
       headers: authHeaders(account.token, 'invalid-bootstrap'),
       payload: {bootstrap_token: 'wrong-token'},
     });
@@ -69,7 +80,7 @@ describe('Auth administration routes', () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await app.inject({
         method: 'POST',
-        url: '/admin/v1/auth/admin-grants/bootstrap',
+        url: '/admin/auth/admin-grants/bootstrap',
         headers: authHeaders(account.token, `bootstrap-rate-limit-${attempt}`),
         payload: {bootstrap_token: 'wrong-token'},
       });
@@ -78,7 +89,7 @@ describe('Auth administration routes', () => {
 
     const blocked = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants/bootstrap',
+      url: '/admin/auth/admin-grants/bootstrap',
       headers: authHeaders(account.token, 'bootstrap-rate-limit-blocked'),
       payload: {bootstrap_token: 'wrong-token'},
     });
@@ -92,7 +103,7 @@ describe('Auth administration routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants/bootstrap',
+      url: '/admin/auth/admin-grants/bootstrap',
       headers: authHeaders(first.token, 'bootstrap-first'),
       payload: {bootstrap_token: BOOTSTRAP_TOKEN},
     });
@@ -102,7 +113,7 @@ describe('Auth administration routes', () => {
 
     const repeated = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants/bootstrap',
+      url: '/admin/auth/admin-grants/bootstrap',
       headers: authHeaders(first.token, 'bootstrap-first'),
       payload: {bootstrap_token: BOOTSTRAP_TOKEN},
     });
@@ -111,7 +122,7 @@ describe('Auth administration routes', () => {
 
     const secondAttempt = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants/bootstrap',
+      url: '/admin/auth/admin-grants/bootstrap',
       headers: authHeaders(second.token, 'bootstrap-second'),
       payload: {bootstrap_token: BOOTSTRAP_TOKEN},
     });
@@ -137,7 +148,7 @@ describe('Auth administration routes', () => {
 
     const bootstrap = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants/bootstrap',
+      url: '/admin/auth/admin-grants/bootstrap',
       headers: authHeaders(owner.token, 'grant-bootstrap'),
       payload: {bootstrap_token: BOOTSTRAP_TOKEN},
     });
@@ -145,7 +156,7 @@ describe('Auth administration routes', () => {
 
     const grant = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants',
+      url: '/admin/auth/admin-grants',
       headers: authHeaders(owner.token, 'grant-observer'),
       payload: {
         user_id: target.userId,
@@ -157,7 +168,7 @@ describe('Auth administration routes', () => {
 
     const repeatedGrant = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants',
+      url: '/admin/auth/admin-grants',
       headers: authHeaders(owner.token, 'grant-observer'),
       payload: {
         user_id: target.userId,
@@ -170,7 +181,7 @@ describe('Auth administration routes', () => {
 
     const grants = await app.inject({
       method: 'GET',
-      url: '/admin/v1/auth/admin-grants',
+      url: '/admin/auth/admin-grants',
       headers: {authorization: `Bearer ${owner.token}`},
     });
     expect(grants.statusCode).toBe(200);
@@ -180,7 +191,7 @@ describe('Auth administration routes', () => {
 
     const revoked = await app.inject({
       method: 'DELETE',
-      url: `/admin/v1/auth/admin-grants/${grant.json().id}`,
+      url: `/admin/auth/admin-grants/${grant.json().id}`,
       headers: authHeaders(owner.token, 'revoke-observer'),
       payload: {reason: 'Support investigation complete'},
     });
@@ -189,7 +200,7 @@ describe('Auth administration routes', () => {
 
     const repeatedRevoke = await app.inject({
       method: 'DELETE',
-      url: `/admin/v1/auth/admin-grants/${grant.json().id}`,
+      url: `/admin/auth/admin-grants/${grant.json().id}`,
       headers: authHeaders(owner.token, 'revoke-observer'),
       payload: {reason: 'Support investigation complete'},
     });
@@ -209,14 +220,14 @@ describe('Auth administration routes', () => {
 
     await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants/bootstrap',
+      url: '/admin/auth/admin-grants/bootstrap',
       headers: authHeaders(owner.token, 'final-bootstrap'),
       payload: {bootstrap_token: BOOTSTRAP_TOKEN},
     });
 
     const firstGrant = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants',
+      url: '/admin/auth/admin-grants',
       headers: authHeaders(owner.token, 'role-key'),
       payload: {user_id: target.userId, role: 'admin-observer', reason: 'Initial review'},
     });
@@ -224,7 +235,7 @@ describe('Auth administration routes', () => {
 
     const reusedKey = await app.inject({
       method: 'POST',
-      url: '/admin/v1/auth/admin-grants',
+      url: '/admin/auth/admin-grants',
       headers: authHeaders(owner.token, 'role-key'),
       payload: {user_id: target.userId, role: 'admin-operator', reason: 'Different command'},
     });
@@ -233,11 +244,11 @@ describe('Auth administration routes', () => {
 
     const finalOwnerRevoke = await app.inject({
       method: 'DELETE',
-      url: `/admin/v1/auth/admin-grants/${
+      url: `/admin/auth/admin-grants/${
         (
           await app.inject({
             method: 'GET',
-            url: '/admin/v1/auth/admin-grants',
+            url: '/admin/auth/admin-grants',
             headers: {authorization: `Bearer ${owner.token}`},
           })
         )

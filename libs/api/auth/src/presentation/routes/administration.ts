@@ -189,7 +189,7 @@ const revokeRoute = defineRoute({
 });
 
 export const administrationRoutes: RouteGroup = {
-  prefix: '/admin/v1/auth/admin-grants',
+  prefix: '/admin/auth/admin-grants',
   auth: AUTH_USER,
   routes: [bootstrapRoute, listRoute, grantRoute, revokeRoute],
 };
