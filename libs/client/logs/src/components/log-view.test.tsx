@@ -132,7 +132,7 @@ describe('LogView', () => {
             kind: 'tool-result',
             timestamp: ts + 1,
             toolCallId: 'call-1',
-            toolName: 'edit_file',
+            toolName: 'tool',
             output: 'patched',
             isError: false,
           }),
@@ -144,6 +144,25 @@ describe('LogView', () => {
     expect(screen.getByText('stdout between call and result')).toBeDefined();
     expect(screen.getByText('result edit_file')).toBeDefined();
     expect(screen.queryByText('awaiting result')).toBeNull();
+  });
+
+  test('marks a tool result without a matching tool call as unmatched', () => {
+    render(
+      <LogView
+        records={[
+          agentSession({
+            kind: 'tool-result',
+            timestamp: ts,
+            toolCallId: 'missing-call',
+            toolName: 'tool',
+            output: 'result arrived without its call',
+            isError: false,
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('result (unmatched)')).toBeDefined();
   });
 
   test('shows the awaiting-result state for a tool call with no matching result', () => {

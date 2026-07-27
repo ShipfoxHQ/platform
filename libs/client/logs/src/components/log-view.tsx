@@ -47,7 +47,7 @@ export function LogView({
 }: LogViewProps) {
   const rowsRef = useRef<HTMLDivElement>(null);
   const tree = useMemo(() => buildLogTree(records), [records]);
-  const resolvedToolCallIds = useMemo(() => collectResolvedToolCallIds(tree.nodes), [tree.nodes]);
+  const resolvedToolCalls = useMemo(() => collectResolvedToolCalls(tree.nodes), [tree.nodes]);
   const noOutputState = getNoOutputState(tree, emptyState);
   const anchorRecordCount = records.length;
 
@@ -82,7 +82,7 @@ export function LogView({
       {...(tree.originTs != null ? {timestampOrigin: new Date(tree.originTs)} : {})}
     >
       {noOutputState ? <NoOutputRow state={noOutputState} /> : null}
-      {renderNodes(tree.nodes, 0, tree, defaultGroupsOpen, resolvedToolCallIds)}
+      {renderNodes(tree.nodes, 0, tree, defaultGroupsOpen, resolvedToolCalls)}
     </LogRows>
   );
 }
@@ -173,7 +173,7 @@ function renderNodes(
   depth: number,
   tree: LogTree,
   defaultGroupsOpen: boolean,
-  resolvedToolCallIds: ReadonlySet<string>,
+  resolvedToolCalls: ResolvedToolCalls,
 ): ReactNode[] {
   // `node.seq` is the stable, unique render key (see `LogNodeBase`): a concatenated
   // multi-step/retry stream can repeat a `group_id` or a marker's `(type, ts)` at one
@@ -198,7 +198,7 @@ function renderNodes(
             terminated={tree.terminated}
             defaultOpen={defaultGroupsOpen}
           >
-            {renderNodes(node.children, depth + 1, tree, defaultGroupsOpen, resolvedToolCallIds)}
+            {renderNodes(node.children, depth + 1, tree, defaultGroupsOpen, resolvedToolCalls)}
           </LogGroup>
         );
       case 'marker':
@@ -208,7 +208,8 @@ function renderNodes(
           <AgentSessionRows
             key={node.seq}
             rows={[node.record.row]}
-            resolvedToolCallIds={resolvedToolCallIds}
+            resolvedToolCallIds={resolvedToolCalls.ids}
+            toolCallNames={resolvedToolCalls.names}
             indent={depth}
           />
         );
@@ -218,22 +219,34 @@ function renderNodes(
   });
 }
 
-function collectResolvedToolCallIds(nodes: readonly LogNode[]): ReadonlySet<string> {
-  const ids = new Set<string>();
-  collectResolvedToolCallIdsInto(nodes, ids);
-  return ids;
+interface ResolvedToolCalls {
+  ids: ReadonlySet<string>;
+  names: ReadonlyMap<string, string>;
 }
 
-function collectResolvedToolCallIdsInto(nodes: readonly LogNode[], ids: Set<string>): void {
+function collectResolvedToolCalls(nodes: readonly LogNode[]): ResolvedToolCalls {
+  const ids = new Set<string>();
+  const names = new Map<string, string>();
+  collectResolvedToolCallsInto(nodes, ids, names);
+  return {ids, names};
+}
+
+function collectResolvedToolCallsInto(
+  nodes: readonly LogNode[],
+  ids: Set<string>,
+  names: Map<string, string>,
+): void {
   for (const node of nodes) {
     switch (node.kind) {
       case 'session':
-        if (node.record.row.kind === 'tool-result' && node.record.row.toolCallId != null) {
+        if (node.record.row.kind === 'tool-call' && node.record.row.id != null) {
+          names.set(node.record.row.id, node.record.row.name);
+        } else if (node.record.row.kind === 'tool-result' && node.record.row.toolCallId != null) {
           ids.add(node.record.row.toolCallId);
         }
         break;
       case 'group':
-        collectResolvedToolCallIdsInto(node.children, ids);
+        collectResolvedToolCallsInto(node.children, ids, names);
         break;
       case 'output':
       case 'marker':
