@@ -122,6 +122,50 @@ export const Surfaces: Story = {
   ),
 };
 
+export const MultipleAtEachLevel: Story = {
+  render: () => {
+    const repeatedAnnotations = [
+      runAnnotation({
+        id: 'annotation-multiple-1',
+        context: 'tests',
+        style: 'success',
+        sequence: 1,
+        body: 'All 128 tests passed.',
+      }),
+      runAnnotation({
+        id: 'annotation-multiple-2',
+        context: 'coverage',
+        style: 'info',
+        sequence: 2,
+        body: 'Coverage increased to **94.2%**.',
+      }),
+      runAnnotation({
+        id: 'annotation-multiple-3',
+        context: 'flaky-tests',
+        style: 'warning',
+        sequence: 3,
+        body: 'Two tests passed after one retry.',
+      }),
+    ];
+
+    return (
+      <div className="flex flex-col gap-16">
+        <StorySection label="run level — three annotations">
+          <RunAnnotationsPanel annotations={repeatedAnnotations} jobs={jobs} />
+        </StorySection>
+        <StorySection label="job level — three annotations">
+          <div className="rounded-8 border border-border-neutral-base bg-background-components-base">
+            <JobAnnotations annotations={repeatedAnnotations} jobExecutionId={BUILD_EXECUTION_ID} />
+          </div>
+        </StorySection>
+        <StorySection label="step level — three annotations">
+          <StepAnnotations annotations={repeatedAnnotations} stepId={TEST_STEP_ID} attempt={1} />
+        </StorySection>
+      </div>
+    );
+  },
+};
+
 export const Content: Story = {
   render: () => (
     <div className="flex flex-col gap-16">
