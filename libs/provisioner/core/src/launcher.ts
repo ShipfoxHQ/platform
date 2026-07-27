@@ -8,6 +8,7 @@ import type {LaunchRunner} from '#types.js';
 export const loggingLaunch: LaunchRunner = (launch) => {
   logger().info(
     {
+      event: 'runner.launch_planned',
       providerRunnerId: launch.providerRunnerId,
       reservationId: launch.reservationId,
       templateKey: launch.template.key,
@@ -15,5 +16,5 @@ export const loggingLaunch: LaunchRunner = (launch) => {
     },
     'Planned provisioned runner (logging launcher)',
   );
-  return Promise.resolve();
+  return Promise.resolve({containerStarted: true, identityAttached: true, reported: true});
 };

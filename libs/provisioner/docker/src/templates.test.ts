@@ -4,14 +4,14 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DEFAULT_RUNNER_IMAGE, DockerTemplateConfigError, loadDockerTemplates} from '#templates.js';
 
-const mocks = vi.hoisted(() => ({warn: vi.fn()}));
+const mocks = vi.hoisted(() => ({debug: vi.fn()}));
 vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => mocks}));
 
 let dir: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'provisioner-docker-'));
-  mocks.warn.mockReset();
+  mocks.debug.mockReset();
 });
 
 afterEach(() => {
@@ -80,9 +80,14 @@ templates:
     const [template] = loadDockerTemplates(path);
 
     expect(template?.spec.image).toBe(DEFAULT_RUNNER_IMAGE);
-    expect(mocks.warn).toHaveBeenCalledWith(
-      {filePath: path, templateKey: 'docker-ubuntu22', image: DEFAULT_RUNNER_IMAGE},
-      'Docker template image omitted; using default runner image',
+    expect(mocks.debug).toHaveBeenCalledWith(
+      {
+        event: 'runner.default_image_selected',
+        filePath: path,
+        templateKey: 'docker-ubuntu22',
+        image: DEFAULT_RUNNER_IMAGE,
+      },
+      'Docker template omitted image; selected ghcr.io/shipfoxhq/runner:latest as the default runner image',
     );
   });
 

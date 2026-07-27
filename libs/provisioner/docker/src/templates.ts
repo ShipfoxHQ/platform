@@ -66,9 +66,14 @@ export function loadDockerTemplates(filePath: string): ProvisionerTemplate<Docke
 
   return entries.map(([key, spec]) => {
     if (!hasImageField(raw, key)) {
-      logger().warn(
-        {filePath, templateKey: key, image: spec.image},
-        'Docker template image omitted; using default runner image',
+      logger().debug?.(
+        {
+          event: 'runner.default_image_selected',
+          filePath,
+          templateKey: key,
+          image: spec.image,
+        },
+        'Docker template omitted image; selected ghcr.io/shipfoxhq/runner:latest as the default runner image',
       );
     }
     return toTemplate(filePath, key, spec);

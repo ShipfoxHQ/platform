@@ -427,6 +427,10 @@ jobs:
           ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}
         run: turbo test $SHIPFOX_TURBO_AFFECTED --concurrency="$SHIPFOX_TURBO_CONCURRENCY"
 
+      - name: Run Docker logging-driver integration test
+        timeout-minutes: 2
+        run: pnpm exec turbo test:integration --filter=@shipfox/provisioner-docker-provider
+
   e2e:
     name: E2E tests
     needs: [release-mode]

@@ -83,6 +83,20 @@
       ],
       "dependsOn": ["^build", "build"]
     },
+    "test:integration": {
+      "cache": false,
+      "passThroughEnv": [
+        "CLIENT_BASE_URL",
+        "GITEA_BASE_URL",
+        "LOG_STORAGE_S3_ENDPOINT",
+        "OTEL_*",
+        "POSTGRES_*",
+        "SHIPFOX_*",
+        "TEMPORAL_*",
+        "VITE_API_URL"
+      ],
+      "dependsOn": ["^build", "build"]
+    },
     "test:external": {
       "cache": false,
       "dependsOn": ["^build", "build", "^type:emit", "type:emit"]

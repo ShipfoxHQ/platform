@@ -23,13 +23,73 @@ This page is the canonical reference for configuring the Docker runner provision
 | `SHIPFOX_PROVISIONER_DOCKER_HOST` | local socket | Docker daemon host. Set a Docker host URL when the daemon is remote. |
 | `SHIPFOX_PROVISIONER_DOCKER_NETWORK` | unset | Docker network attached to runner containers, for reaching the API through a Compose or bridge network. |
 | `SHIPFOX_PROVISIONER_DOCKER_EXTRA_HOSTS` | unset | Comma-separated host mappings added to runner containers, such as `host.docker.internal:host-gateway`. |
+| `SHIPFOX_PROVISIONER_DOCKER_LOG_DRIVER` | Docker daemon default | Logging driver for runner containers. Set this to override the daemon default for this provisioner. |
+| `SHIPFOX_PROVISIONER_DOCKER_LOG_OPTIONS` | unset | JSON object of string-valued logging-driver options. Requires `SHIPFOX_PROVISIONER_DOCKER_LOG_DRIVER`; option values are never written to provisioner logs. |
 | `SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS` | `30` | How long each demand poll waits for work before returning. `0` makes the poll non-blocking. |
 | `SHIPFOX_PROVISIONER_POLL_INTERVAL_MS` | `1000` | Wait between demand polls. Backs off toward the max after errors. |
 | `SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS` | `5000` | Largest poll backoff interval after repeated errors. |
 | `SHIPFOX_PROVISIONER_MAX_RESERVATIONS` | `250` | Most reservations requested in one poll. Also bounded by free template capacity and the API's cap of 1000. |
 | `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | `250` | Runner instances created per request (1–1000). Must not exceed the API's own batch limit. |
 | `SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS` | `120000` | How long a created container may stay unstarted before the provisioner reaps it as stale. |
+| `SHIPFOX_PROVISIONER_DOCKER_FAILED_CONTAINER_RETENTION_MS` | `3600000` | How long failed runner containers remain stopped for forensic inspection. Set to `0` to disable retention. |
+| `SHIPFOX_PROVISIONER_DOCKER_MAX_RETAINED_FAILED_CONTAINERS` | `20` | Maximum number of failed runner containers retained per provisioner. Set to `0` to disable retention. |
 | `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` | `3600` | Hard maximum lifetime injected into each runner. Set it above the longest permitted job so a runner terminates if its provisioner is unavailable. |
+
+## Docker logging and failed-container forensics
+
+Provisioner logs and runner-container output are separate streams. The
+provisioner never copies runner stdout or stderr into its own logs. Use
+`LOG_LEVEL`, `LOG_PRETTY`, `LOG_STDOUT`, `LOG_STDOUT_LEVEL`, `LOG_FILE`, and
+`LOG_FILE_LEVEL` for provisioner-process logs. `LOG_FILE` writes a plain file
+without built-in rotation, so configure external rotation such as `logrotate`.
+The logger keeps the file open: use `copytruncate` in the rotation rule or
+restart the provisioner after rename/create rotation, otherwise it continues
+writing to the old inode. For production, prefer stdout with journald or
+runtime-managed rotation.
+
+Runner containers inherit the Docker daemon logging driver unless
+`SHIPFOX_PROVISIONER_DOCKER_LOG_DRIVER` is set. A local driver with on-host
+rotation can be configured as follows:
+
+```sh
+export SHIPFOX_PROVISIONER_DOCKER_LOG_DRIVER=local
+export SHIPFOX_PROVISIONER_DOCKER_LOG_OPTIONS='{"max-size":"10m","max-file":"5"}'
+```
+
+For journald, configure the driver and a tag, then retrieve output with
+`journalctl`:
+
+```sh
+export SHIPFOX_PROVISIONER_DOCKER_LOG_DRIVER=journald
+export SHIPFOX_PROVISIONER_DOCKER_LOG_OPTIONS='{"tag":"shipfox-runner/{{.Name}}"}'
+journalctl CONTAINER_NAME=<runner-name> --since today
+```
+
+Enable persistent journald storage (`Storage=persistent` in
+`/etc/systemd/journald.conf`) and configure its disk and rotation limits.
+Remote drivers use the retention and access policy of their durable backend.
+For `local` and `json-file`, `docker logs --timestamps --tail 200
+<runner-name>` works only until cleanup removes the container. Use journald or
+the remote backend after cleanup.
+
+Failed containers remain for forensic inspection only when both retention
+settings are greater than zero. The default TTL is one hour and the default
+count bound is 20. Docker `FinishedAt` drives TTL cleanup. Missing `FinishedAt`
+uses the first observed failure time instead of creation time, so a long-running
+container is not removed immediately. Terminal inspection failures defer TTL
+cleanup but remain subject to the count bound, and unknown failure times rank as
+newly observed for count eviction. Successful exits, dead containers,
+stale-created containers, and backend termination keep their immediate cleanup
+behavior.
+
+Forensic output is driver-specific: use `docker inspect <runner-name>` and
+`docker logs --timestamps --tail 200 <runner-name>` for `local` or `json-file`,
+`journalctl CONTAINER_NAME=<runner-name>` for `journald`, and the configured
+durable backend for remote drivers. For a remote Docker daemon, set
+`DOCKER_HOST` to the configured `SHIPFOX_PROVISIONER_DOCKER_HOST` value before
+running Docker commands; omit it for the local default. Run `journalctl` on the
+Docker daemon host, not on the operator workstation. The `none` driver has no
+container output.
 
 ## Template file schema
 

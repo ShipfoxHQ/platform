@@ -25,10 +25,11 @@ never reserves more than it can start.
 
 Containers are named by `provisioned_runner_id` and labeled with `shipfox.*` metadata
 so a restarted provisioner can rebuild local capacity from Docker state. Running
-containers are re-reported every tick to keep the backend active-runner view fresh.
-Exited containers are reported as `stopped` or `failed`, then removed after the report
-is accepted. Containers stuck in Docker's `created` state past the registration deadline
-are reaped as stale pre-run resources; running containers are never locally killed.
+containers are re-reported every observation cycle to keep the backend active-runner view fresh.
+Exited containers are reported as `stopped` or `failed`. Successful exits are removed
+immediately; failed exits are retained for the configured forensic TTL/count bound and
+then cleaned up. Containers stuck in Docker's `created` state past the registration
+deadline are reaped as stale pre-run resources; running containers are never locally killed.
 
 If Docker cannot be observed, the provisioner advertises no free capacity and backs off
 until observation succeeds.
@@ -44,6 +45,10 @@ until observation succeeds.
 | `SHIPFOX_PROVISIONER_DOCKER_HOST` | no | local Docker socket | Docker daemon host used by dockerode. |
 | `SHIPFOX_PROVISIONER_DOCKER_NETWORK` | no | — | Docker network attached to runner containers, for example a Compose network that can reach the API. |
 | `SHIPFOX_PROVISIONER_DOCKER_EXTRA_HOSTS` | no | — | Comma-separated host mappings added to runner containers, such as `host.docker.internal:host-gateway`. |
+| `SHIPFOX_PROVISIONER_DOCKER_LOG_DRIVER` | no | Docker daemon default | Logging driver for runner containers. |
+| `SHIPFOX_PROVISIONER_DOCKER_LOG_OPTIONS` | no | — | JSON object of string-valued driver options; requires the driver setting. |
+| `SHIPFOX_PROVISIONER_DOCKER_FAILED_CONTAINER_RETENTION_MS` | no | `3600000` | Failed-container retention TTL in milliseconds; `0` disables retention. |
+| `SHIPFOX_PROVISIONER_DOCKER_MAX_RETAINED_FAILED_CONTAINERS` | no | `20` | Maximum retained failed containers; `0` disables retention. |
 | `SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS` | no | `120000` | How long a `created` runner container may linger before being reaped as stale. |
 | `SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS` | no | `30` | Long-poll wait per demand request. |
 | `SHIPFOX_PROVISIONER_POLL_INTERVAL_MS` | no | `1000` | Base delay between polls; backs off on error. |

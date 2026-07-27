@@ -46,10 +46,19 @@ export interface ProviderRunnerLaunch<Spec = unknown> {
   readonly runnerEnv: Readonly<Record<string, string>>;
 }
 
-/** Starts one provisioned runner. The provider implementation owns the side effect. */
-export type LaunchRunner<Spec = unknown> = (launch: ProviderRunnerLaunch<Spec>) => Promise<void>;
+/** Facts about the provider launch lifecycle after the provider attempted the side effect. */
+export interface LaunchOutcome {
+  readonly containerStarted: boolean;
+  readonly identityAttached: boolean;
+  readonly reported: boolean;
+}
+/** Starts one provisioned runner. Legacy adapters may still resolve without an outcome. */
+export type LaunchRunner<Spec = unknown> = (
+  launch: ProviderRunnerLaunch<Spec>,
+  // biome-ignore lint/suspicious/noConfusingVoidType: preserve compatibility with existing adapters that only signal completion
+) => Promise<LaunchOutcome | void>;
 
-/** Tears down provider resources by provisioned runner id when the backend requests it. */
+/** Applies the current provider-termination snapshot; an empty list withdraws the intent. */
 export type TerminateRunners = (providerRunnerIds: readonly string[]) => Promise<void>;
 
 export interface ProvisionerIdentity {
@@ -71,6 +80,10 @@ export interface ProvisionerRuntime {
  */
 export interface ProvisionerAdapter<Spec = unknown> {
   loadTemplates(): Promise<readonly ProvisionerTemplate<Spec>[]>;
+  /** Optional provider details added to the startup configuration record. */
+  onConfigure?(args: {
+    templates: readonly ProvisionerTemplate<Spec>[];
+  }): Promise<Readonly<Record<string, unknown>>>;
   readonly launch: LaunchRunner<Spec>;
   readonly terminate?: TerminateRunners;
   onStart?(runtime: ProvisionerRuntime): Promise<void>;
