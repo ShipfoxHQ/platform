@@ -46,6 +46,7 @@ import {
   AgentConfigError,
   AgentHarnessUnavailableError,
   AgentInvocationError,
+  AgentPermissionModeError,
 } from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import {executeAgentStep} from '#core/step.js';
@@ -363,6 +364,37 @@ describe('executeAgentStep', () => {
       reason: 'agent_invocation_failed',
     });
     expect(result.exit_code).toBeNull();
+  });
+
+  it('fails and logs when Claude permission mode is downgraded', async () => {
+    const errorLog = vi.spyOn(logger(), 'error').mockImplementation(() => undefined);
+    runClaudeMock.mockRejectedValue(new AgentPermissionModeError('bypassPermissions', 'default'));
+
+    const result = await executeAgentStep(buildAgentStep(), {
+      runtime: {...RUNTIME, harness: 'claude'},
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: {
+        message:
+          'Claude agent permission mode was downgraded: requested "bypassPermissions", observed "default".',
+        reason: 'agent_invocation_failed',
+      },
+      exit_code: null,
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_permission_mode_downgraded',
+        harness: 'claude',
+        jobExecutionId: '00000000-0000-0000-0000-000000000003',
+        stepId: '00000000-0000-0000-0000-000000000001',
+        attempt: 1,
+        requestedPermissionMode: 'bypassPermissions',
+        observedPermissionMode: 'default',
+      }),
+      'Agent permission mode downgraded',
+    );
   });
 
   it('fails with agent_config_invalid when the agent run throws an AgentConfigError', async () => {

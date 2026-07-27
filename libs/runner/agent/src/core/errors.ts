@@ -66,3 +66,15 @@ export class AgentInvocationError extends Error {
     this.name = 'AgentInvocationError';
   }
 }
+
+export class AgentPermissionModeError extends Error {
+  constructor(
+    public readonly requested: string,
+    public readonly observed: string,
+  ) {
+    super(
+      `Claude agent permission mode was downgraded: requested "${requested}", observed "${observed}".`,
+    );
+    this.name = 'AgentPermissionModeError';
+  }
+}

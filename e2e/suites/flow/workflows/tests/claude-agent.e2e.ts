@@ -115,6 +115,7 @@ test('runs Claude set_output through downstream interpolation', async ({suite}, 
       assertions: [
         {kind: 'model', equals: CLAUDE_AGENT_MODEL},
         {kind: 'tool_present', name: 'mcp__shipfox_outputs__set_output'},
+        {kind: 'message_content_includes', value: 'repository-instruction-marker'},
       ],
       setAsDefault: true,
     });
@@ -126,6 +127,13 @@ test('runs Claude set_output through downstream interpolation', async ({suite}, 
       scenario: 'claude-agent-output-tool',
       workflowYaml: OUTPUT_WORKFLOW_YAML,
       runnerEnv: fakeAnthropic.runnerEnv,
+      extraFiles: [
+        {
+          path: '.claude/settings.json',
+          content: JSON.stringify({permissions: {disableBypassPermissionsMode: 'disable'}}),
+        },
+        {path: 'CLAUDE.md', content: 'repository-instruction-marker'},
+      ],
     });
     const fixJob = terminal.jobs.find((job) => job.key === 'fix');
     const steps = fixJob?.job_executions.flatMap((execution) => execution.steps) ?? [];
@@ -175,6 +183,7 @@ async function runClaudeWorkflow(params: {
   scenario: string;
   workflowYaml: string;
   runnerEnv: Record<string, string>;
+  extraFiles?: Array<{path: string; content: string}>;
 }) {
   const token = params.suite.sessionToken;
   const client = createApiClient({token});
@@ -200,6 +209,7 @@ async function runClaudeWorkflow(params: {
       runnerLabel,
       workflowYaml: params.workflowYaml,
       configPath: `.shipfox/workflows/${params.scenario}.yml`,
+      extraFiles: params.extraFiles,
     });
 
     const runId = await fireManualAndAwaitRun({
