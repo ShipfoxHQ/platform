@@ -27,24 +27,6 @@ export function createClaudeParseContext(): ClaudeParseContext {
   return {hasInit: false, sessionId: null, turn: 0};
 }
 
-export function isClaudeInit(record: AgentSessionRecord): boolean {
-  let json: unknown;
-  try {
-    json = JSON.parse(record.data);
-  } catch {
-    return false;
-  }
-
-  const parsed = claudeMessageSchema.safeParse(json);
-  if (!parsed.success) return false;
-
-  const message = parsed.data;
-  return (
-    message.type === 'init' ||
-    (message.type === 'system' && stringField(message, 'subtype') === 'init')
-  );
-}
-
 export function claudeInitSessionId(record: AgentSessionRecord): string | undefined {
   let json: unknown;
   try {

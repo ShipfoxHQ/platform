@@ -184,16 +184,23 @@ export async function setClaudeParseContext(
 }
 
 /**
- * Guarded close: flips `open → closed` and stamps `closed_at` iff the stream is
- * still open, returning the closed row (or null when another path already closed
- * it). The `WHERE state='open'` predicate is both the row lock and the
- * exactly-once gate. `committed_length` is left untouched; it stays equal to the
- * runner spool bytes. `truncated` is set only on the timeout path.
+ * Guarded close: locks the open row, flips `open → closed`, clears any pending Claude result,
+ * and stamps `closed_at`. The pending result is returned separately so the caller can
+ * materialize it before publishing the close event. Returns null when another path already
+ * closed the stream. `committed_length` is left untouched; it stays equal to the runner spool
+ * bytes. `truncated` is set only on the timeout path.
  */
 export async function markStreamClosed(
   tx: Transaction,
   params: {streamId: string; reason: StreamCloseReason; markTruncated: boolean},
-): Promise<AttemptStream | null> {
+): Promise<{stream: AttemptStream; pendingClaudeResult: SessionViewLifecycleRow | null} | null> {
+  const [open] = await tx
+    .select()
+    .from(attemptStreams)
+    .where(and(eq(attemptStreams.id, params.streamId), eq(attemptStreams.state, 'open')))
+    .for('update');
+  if (!open) return null;
+
   const [row] = await tx
     .update(attemptStreams)
     .set({
@@ -201,12 +208,18 @@ export async function markStreamClosed(
       closeReason: params.reason,
       closedAt: sql`now()`,
       updatedAt: sql`now()`,
+      claudePendingResult: null,
       ...(params.markTruncated ? {truncated: true} : {}),
     })
     .where(and(eq(attemptStreams.id, params.streamId), eq(attemptStreams.state, 'open')))
     .returning();
 
-  return row ? toAttemptStream(row) : null;
+  return row
+    ? {
+        stream: toAttemptStream(row),
+        pendingClaudeResult: open.claudePendingResult ?? null,
+      }
+    : null;
 }
 
 /** Open streams of a job, for the timeout sweep to force-close after the grace period. */

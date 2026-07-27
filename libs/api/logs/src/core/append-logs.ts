@@ -34,7 +34,6 @@ import {
   type ClaudeParseContext,
   claudeInitSessionId,
   createClaudeParseContext,
-  isClaudeInit,
 } from './session/claude-parser.js';
 import type {SessionParseContext} from './session/parse-session.js';
 import {parseSessionRecord} from './session/parse-session.js';
@@ -347,9 +346,8 @@ function firstClaudeInit(records: readonly RawLogRecord[]): {
   for (const record of records) {
     if (record.type !== 'agent_session') continue;
     const sessionRecord = agentSessionRecord(record);
-    if (isClaudeInit(sessionRecord)) {
-      return {hasInit: true, sessionId: claudeInitSessionId(sessionRecord)};
-    }
+    const sessionId = claudeInitSessionId(sessionRecord);
+    if (sessionId !== undefined) return {hasInit: true, sessionId};
   }
 
   return {hasInit: false, sessionId: undefined};
