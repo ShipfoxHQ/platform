@@ -24,18 +24,23 @@ export class DockerTemplateConfigError extends Error {
 
 const MAX_TEMPLATE_CONCURRENCY = 100_000;
 
-const dockerTemplateSchema = z.object({
-  labels: z.array(z.string()).min(1),
-  image: z.string().trim().min(1).default(DEFAULT_RUNNER_IMAGE),
-  cpu: z.number().positive(),
-  memory: z.string().regex(MEMORY_PATTERN, 'must be a size like "4GiB", "512m", "2g", or "512"'),
-  max_concurrency: z.number().int().positive().max(MAX_TEMPLATE_CONCURRENCY),
-  target_concurrency: z.number().int().min(0).max(MAX_TEMPLATE_CONCURRENCY).default(0),
-});
+const dockerTemplateSchema = z
+  .object({
+    labels: z.array(z.string()).min(1),
+    image: z.string().trim().min(1).default(DEFAULT_RUNNER_IMAGE),
+    cpu: z.number().positive(),
+    memory: z.string().regex(MEMORY_PATTERN, 'must be a size like "4GiB", "512m", "2g", or "512"'),
+    max_concurrency: z.number().int().positive().max(MAX_TEMPLATE_CONCURRENCY),
+    target_concurrency: z.number().int().min(0).max(MAX_TEMPLATE_CONCURRENCY).default(0),
+    cost: z.number().positive().optional(),
+  })
+  .strict();
 
-const dockerTemplatesFileSchema = z.object({
-  templates: z.record(z.string().min(1), dockerTemplateSchema),
-});
+const dockerTemplatesFileSchema = z
+  .object({
+    templates: z.record(z.string().min(1), dockerTemplateSchema),
+  })
+  .strict();
 
 /**
  * Read, parse, and validate the local Docker template config, returning the
@@ -108,8 +113,8 @@ function toTemplate(
     labels,
     maxConcurrency: spec.max_concurrency,
     targetConcurrency: spec.target_concurrency,
-    // Cheaper (fewer vCPU) templates win when several satisfy the same generic label.
-    cost: spec.cpu,
+    // Explicit costs control selection; omitted costs fall back to the vCPU count.
+    cost: spec.cost ?? spec.cpu,
     spec: {image: spec.image, cpu: spec.cpu, memory: spec.memory},
   };
 }

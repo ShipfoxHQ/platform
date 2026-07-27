@@ -1,7 +1,7 @@
 ---
 title: "Runner Provisioner Configuration Reference"
 sidebarTitle: "Runner Provisioner"
-description: "Every Shipfox runner provisioner environment variable with its default, plus the runner template file schema: labels, image, cpu, memory, and max_concurrency."
+description: "Every Shipfox runner provisioner environment variable with its default, plus the runner template file schema: labels, image, cpu, memory, cost, and max_concurrency."
 ---
 
 This page is the canonical reference for configuring the Docker runner provisioner (`@shipfox/provisioner-docker`). For how a provisioner works, see [Runner Provisioners](/operations/runner-provisioners); for starting one, see [Run a provisioner](/installation/runner-provisioner).
@@ -49,12 +49,13 @@ templates:
 | --- | --- | --- |
 | `labels` | `string[]` | Labels the started runner registers with. A template can serve any job whose required labels are all in this list. |
 | `image` | `string` | Container image to start. |
-| `cpu` | `number` | vCPUs allocated to the container. Also the template's selection cost. |
+| `cpu` | `number` | vCPUs allocated to the container. The default selection cost when `cost` is omitted. |
 | `memory` | `string` | Memory allocation, such as `4GiB`. |
 | `max_concurrency` | `number` | Cap on live containers started from this template. |
 | `target_concurrency` | `number` | Enrolled, unassigned runners to keep ready without demand. Defaults to `0`. Keep it at or below `max_concurrency`: the provisioner does not currently reject a template where it is higher. |
+| `cost` | `number` | Optional positive selection cost. Lower costs are preferred when several templates satisfy the same labels. Defaults to `cpu`. |
 
-**Template selection:** when several templates satisfy a job's labels, the provisioner picks the cheapest (fewest vCPUs), then the most specific.
+**Template selection:** when several templates satisfy a job's labels, the provisioner picks the lowest `cost` (or `cpu` when `cost` is omitted), then the most specific. The file and each template use strict schemas, so unknown keys fail with a file-scoped validation error.
 
 ## Related pages
 

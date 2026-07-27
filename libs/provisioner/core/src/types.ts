@@ -19,7 +19,7 @@ export interface ProvisionerTemplate<Spec = unknown> {
   /**
    * Selection cost; lower is preferred when several templates satisfy the same
    * reservation. Providers map this to whatever they optimize for (Docker uses
-   * vCPU count, so generic demand lands on the cheapest box that can run it).
+   * an explicit cost when set and falls back to vCPU count when it is omitted).
    */
   readonly cost: number;
   /** Provider-specific launch details, opaque to the control loop. */

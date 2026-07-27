@@ -83,8 +83,9 @@ templates:
 ```
 
 When several templates satisfy a job's labels, the provisioner chooses the one
-with the fewest virtual CPUs. A specificity rule breaks a tie. The full template
-schema and every environment variable are in the
+with the lowest `cost`. If `cost` is omitted, the template's CPU count is used.
+A specificity rule breaks a tie. The full template schema and every environment
+variable are in the
 [Runner Provisioner reference](/reference/runner-provisioner).
 
 ## Related pages

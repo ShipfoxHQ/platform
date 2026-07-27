@@ -38,6 +38,7 @@ templates:
     cpu: 4
     memory: 8GiB
     max_concurrency: 50
+    cost: 6
 `;
 
 describe('loadDockerTemplates', () => {
@@ -60,7 +61,7 @@ describe('loadDockerTemplates', () => {
         labels: ['ubuntu22', 'ubuntu22-4vcpu'],
         maxConcurrency: 50,
         targetConcurrency: 0,
-        cost: 4,
+        cost: 6,
         spec: {image: 'shipfox-runner:ubuntu22', cpu: 4, memory: '8GiB'},
       },
     ]);
@@ -129,6 +130,29 @@ templates:
 `);
 
     expect(() => loadDockerTemplates(path)).toThrow('cpu');
+  });
+
+  it('throws on an unknown template key with the file and template in the error', () => {
+    const path = writeTemplates(`
+templates:
+  t:
+    labels: [ubuntu22]
+    image: img
+    cpu: 1
+    memory: 2g
+    max_concurrency: 1
+    unknown_field: true
+`);
+
+    expect(() => loadDockerTemplates(path)).toThrow(
+      new RegExp(`Invalid Docker template config at ${path}: .*templates\\.t.*unknown_field`),
+    );
+  });
+
+  it('throws on an unknown file key', () => {
+    const path = writeTemplates(`${VALID}\nunknown: true`);
+
+    expect(() => loadDockerTemplates(path)).toThrow('unknown');
   });
 
   it('throws on a memory value that is not a size', () => {
