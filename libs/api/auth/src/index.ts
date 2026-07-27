@@ -17,7 +17,10 @@ import {createLeaseTokenAuthMethod} from '#presentation/auth/lease-token-auth.js
 import {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
 import {createAuthE2eRoutes} from '#presentation/e2eRoutes/index.js';
 import {createAuthInterModulePresentation} from '#presentation/inter-module.js';
-import {administrationRoutes} from '#presentation/routes/administration.js';
+import {
+  administrationRoutes,
+  administrationUserRoutes,
+} from '#presentation/routes/administration.js';
 import {buildAuthRoutes} from '#presentation/routes/index.js';
 import {onPasswordResetSendRequested} from '#presentation/subscribers/index.js';
 import {passwordLoginMethods} from './login-methods.js';
@@ -36,7 +39,6 @@ export {
 export {
   bootstrapFirstAdminOwner,
   grantAdministratorRole,
-  listAdministratorGrants,
   revokeAdministratorGrant,
 } from '#core/administration.js';
 export type {
@@ -113,6 +115,7 @@ export function createAuthModule({
     routes: [
       buildAuthRoutes(config.AUTH_PASSWORD_ENABLED, workspaces, signupPolicy),
       administrationRoutes,
+      administrationUserRoutes,
     ],
     e2eRoutes: [createAuthE2eRoutes(workspaces)],
     publishers: [{name: 'auth', table: authOutbox, db, eventSchemas: authPublisherEventSchemas}],

@@ -1,23 +1,33 @@
 import {AUTH_USER} from '@shipfox/api-auth-context';
 import {
+  administratorUserLookupQuerySchema,
+  administratorUserSummarySchema,
   bootstrapAdminOwnerBodySchema,
   bootstrapAdminOwnerResponseSchema,
   grantAdminRoleBodySchema,
   grantAdminRoleResponseSchema,
+  listAdminGrantsQuerySchema,
   listAdminGrantsResponseSchema,
   revokeAdminGrantBodySchema,
   revokeAdminGrantResponseSchema,
 } from '@shipfox/api-auth-dto';
+import {decodeTimestampIdCursor, encodeTimestampIdCursor} from '@shipfox/node-drizzle';
 import {ClientError, defineRoute, type RouteGroup} from '@shipfox/node-fastify';
 import type {FastifyRequest} from 'fastify';
 import {z} from 'zod';
+import {requireAdminRole} from '#core/admin-role.js';
 import {
   bootstrapFirstAdminOwner,
+  findAdministratorUserSummary,
   grantAdministratorRole,
-  listAdministratorGrants,
+  listAdministratorGrantSummaries,
   revokeAdministratorGrant,
 } from '#core/administration.js';
 import type {AdminGrant} from '#core/entities/admin-grant.js';
+import type {
+  AdministratorGrantSummary,
+  AdministratorUserSummary,
+} from '#core/entities/administrator-read-model.js';
 import {
   AdminBootstrapClosedError,
   AdminGrantAlreadyExistsError,
@@ -52,6 +62,10 @@ function requireIdempotencyKey(request: FastifyRequest): string {
   return key;
 }
 
+async function requireAdministratorObserver(request: FastifyRequest): Promise<void> {
+  await requireAdminRole({userId: requireActorId(request), minimumRole: 'admin-observer'});
+}
+
 function toAdminGrantDto(grant: AdminGrant) {
   return {
     id: grant.id,
@@ -63,9 +77,31 @@ function toAdminGrantDto(grant: AdminGrant) {
   };
 }
 
+function toAdministratorUserSummaryDto(user: AdministratorUserSummary) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    status: user.status,
+    email_verified_at: user.emailVerifiedAt?.toISOString() ?? null,
+    created_at: user.createdAt.toISOString(),
+    admin_role: user.adminRole,
+  };
+}
+
+function toAdministratorGrantSummaryDto(grant: AdministratorGrantSummary) {
+  return {
+    grant_id: grant.grantId,
+    role: grant.role,
+    created_at: grant.createdAt.toISOString(),
+    revoked_at: grant.revokedAt?.toISOString() ?? null,
+    user: grant.user,
+  };
+}
+
 function translateAdministrationError(error: unknown): never {
   if (error instanceof AdminRoleRequiredError) {
-    throw new ClientError('Administrator owner role required', 'forbidden', {
+    throw new ClientError('Administrator role required', 'forbidden', {
       status: 403,
       details: {required_role: error.minimumRole},
     });
@@ -132,14 +168,53 @@ const bootstrapRoute = defineRoute({
 const listRoute = defineRoute({
   method: 'GET',
   path: '/',
-  description: 'List local administrator grants.',
-  schema: {response: {200: listAdminGrantsResponseSchema}},
+  description: 'List bounded local administrator grant summaries.',
+  schema: {
+    querystring: listAdminGrantsQuerySchema,
+    response: {200: listAdminGrantsResponseSchema},
+  },
   errorHandler: translateAdministrationError,
-  handler: async (request) => ({
-    grants: (await listAdministratorGrants({actorId: requireActorId(request)})).map(
-      toAdminGrantDto,
-    ),
-  }),
+  handler: async (request) => {
+    const {limit, cursor} = request.query;
+    const decodedCursor = decodeTimestampIdCursor(cursor);
+    if (cursor && !decodedCursor) {
+      throw new ClientError('Invalid cursor', 'invalid-cursor', {status: 400});
+    }
+
+    const result = await listAdministratorGrantSummaries({
+      actorId: requireActorId(request),
+      limit,
+      ...(decodedCursor ? {cursor: decodedCursor} : {}),
+    });
+    return {
+      grants: result.grants.map(toAdministratorGrantSummaryDto),
+      next_cursor: result.nextCursor ? encodeTimestampIdCursor(result.nextCursor) : null,
+    };
+  },
+});
+
+const userLookupRoute = defineRoute({
+  method: 'GET',
+  path: '/',
+  description: 'Find one administrator-safe user summary by exact ID or email.',
+  schema: {
+    querystring: administratorUserLookupQuerySchema,
+    response: {200: administratorUserSummarySchema},
+  },
+  preHandler: [requireAdministratorObserver, createAuthIpRateLimitPreHandler('lookup')],
+  errorHandler: translateAdministrationError,
+  handler: async (request) => {
+    const {id, user_id: userId, email} = request.query;
+    const lookupId = id ?? userId;
+    const actorId = requireActorId(request);
+    const user = lookupId
+      ? await findAdministratorUserSummary({actorId, id: lookupId})
+      : email
+        ? await findAdministratorUserSummary({actorId, email})
+        : undefined;
+    if (!user) throw new UserNotFoundError(lookupId ?? email ?? 'unknown');
+    return toAdministratorUserSummaryDto(user);
+  },
 });
 
 const grantRoute = defineRoute({
@@ -192,4 +267,10 @@ export const administrationRoutes: RouteGroup = {
   prefix: '/admin/auth/admin-grants',
   auth: AUTH_USER,
   routes: [bootstrapRoute, listRoute, grantRoute, revokeRoute],
+};
+
+export const administrationUserRoutes: RouteGroup = {
+  prefix: '/admin/auth/users',
+  auth: AUTH_USER,
+  routes: [userLookupRoute],
 };

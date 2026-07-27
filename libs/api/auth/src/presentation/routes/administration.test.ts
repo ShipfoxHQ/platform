@@ -37,17 +37,6 @@ describe('Auth administration routes', () => {
     await app.close();
   });
 
-  test('does not register the removed versioned administration namespace', async () => {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/admin/v1/auth/admin-grants/bootstrap',
-      headers: {'idempotency-key': 'removed-versioned-bootstrap'},
-      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
-    });
-
-    expect(response.statusCode).toBe(404);
-  });
-
   test('requires an authenticated session for bootstrap', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -57,6 +46,15 @@ describe('Auth administration routes', () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  test('does not register the removed versioned administration namespace', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/admin/v1/auth/users?user_id=00000000-0000-4000-8000-000000000000',
+    });
+
+    expect(response.statusCode).toBe(404);
   });
 
   test('rejects an invalid bootstrap token without writing a grant or event', async () => {
@@ -186,7 +184,9 @@ describe('Auth administration routes', () => {
     });
     expect(grants.statusCode).toBe(200);
     expect(grants.json().grants).toEqual(
-      expect.arrayContaining([expect.objectContaining({user_id: target.userId})]),
+      expect.arrayContaining([
+        expect.objectContaining({user: expect.objectContaining({id: target.userId})}),
+      ]),
     );
 
     const revoked = await app.inject({
@@ -212,6 +212,279 @@ describe('Auth administration routes', () => {
     expect(events.map((event) => event.eventType)).toEqual(
       Array(3).fill(ADMINISTRATION_ACTION_PERFORMED),
     );
+  });
+
+  test('lets an observer find exact IDs and normalized emails without exposing user secrets', async () => {
+    const owner = await createVerifiedSession('admin-user-lookup-owner');
+    const observer = await createVerifiedSession('admin-user-lookup-observer');
+
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'user-lookup-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'user-lookup-grant'),
+      payload: {
+        user_id: observer.userId,
+        role: 'admin-observer',
+        reason: 'Support lookup access',
+      },
+    });
+
+    const byId = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users?user_id=${observer.userId}`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+
+    expect(byId.statusCode).toBe(200);
+    expect(byId.json()).toEqual({
+      id: observer.userId,
+      email: observer.email,
+      name: 'admin-user-lookup-observer',
+      status: 'active',
+      email_verified_at: expect.any(String),
+      created_at: expect.any(String),
+      admin_role: 'admin-observer',
+    });
+    expect(byId.json()).not.toHaveProperty('hashed_password');
+    expect(byId.json()).not.toHaveProperty('sessions');
+    expect(byId.json()).not.toHaveProperty('provider_payload');
+
+    const byEmail = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users?email=${encodeURIComponent(` ${observer.email.toUpperCase()} `)}`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+
+    expect(byEmail.statusCode).toBe(200);
+    expect(byEmail.json().id).toBe(observer.userId);
+    expect(byEmail.json().email).toBe(observer.email);
+  });
+
+  test('bounds and deterministically paginates administrator grant summaries for observers', async () => {
+    const owner = await createVerifiedSession('admin-summary-owner');
+    const observer = await createVerifiedSession('admin-summary-observer');
+
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'summary-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    const grant = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'summary-grant'),
+      payload: {
+        user_id: observer.userId,
+        role: 'admin-observer',
+        reason: 'Read-only support access',
+      },
+    });
+
+    const firstPage = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/admin-grants?limit=1',
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+
+    expect(firstPage.statusCode).toBe(200);
+    expect(firstPage.json().grants).toHaveLength(1);
+    expect(firstPage.json().grants[0]).toEqual({
+      grant_id: grant.json().id,
+      role: 'admin-observer',
+      created_at: expect.any(String),
+      revoked_at: null,
+      user: {
+        id: observer.userId,
+        email: observer.email,
+        name: 'admin-summary-observer',
+        status: 'active',
+      },
+    });
+    expect(firstPage.json().next_cursor).toEqual(expect.any(String));
+
+    const secondPage = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/admin-grants?limit=1&cursor=${firstPage.json().next_cursor}`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+
+    expect(secondPage.statusCode).toBe(200);
+    expect(secondPage.json().grants).toHaveLength(1);
+    expect(secondPage.json().grants[0].user.id).toBe(owner.userId);
+    expect(secondPage.json().next_cursor).toBeNull();
+  });
+
+  test('rejects ordinary users and unchecked user lookup filters', async () => {
+    const ordinary = await createVerifiedSession('admin-lookup-ordinary');
+
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users?id=${ordinary.userId}`,
+      headers: {authorization: `Bearer ${ordinary.token}`},
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const missingFilter = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users',
+      headers: {authorization: `Bearer ${ordinary.token}`},
+    });
+    expect(missingFilter.statusCode).toBe(400);
+
+    const multipleFilters = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users?id=${ordinary.userId}&email=${encodeURIComponent(ordinary.email)}`,
+      headers: {authorization: `Bearer ${ordinary.token}`},
+    });
+    expect(multipleFilters.statusCode).toBe(400);
+  });
+
+  test('returns 404 for a well-formed but unknown user lookup', async () => {
+    const owner = await createVerifiedSession('admin-lookup-unknown-owner');
+    const observer = await createVerifiedSession('admin-lookup-unknown-observer');
+
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'unknown-lookup-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'unknown-lookup-grant'),
+      payload: {
+        user_id: observer.userId,
+        role: 'admin-observer',
+        reason: 'Support lookup access',
+      },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users?user_id=00000000-0000-4000-8000-000000000000',
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().code).toBe('not-found');
+  });
+
+  test('rejects a malformed pagination cursor', async () => {
+    const owner = await createVerifiedSession('admin-grants-bad-cursor-owner');
+    const observer = await createVerifiedSession('admin-grants-bad-cursor-observer');
+
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'bad-cursor-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'bad-cursor-grant'),
+      payload: {
+        user_id: observer.userId,
+        role: 'admin-observer',
+        reason: 'Support lookup access',
+      },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/admin-grants?cursor=not-a-real-cursor',
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('invalid-cursor');
+  });
+
+  test('rate-limits repeated user lookups by source IP', async () => {
+    const owner = await createVerifiedSession('admin-lookup-rate-limit-owner');
+    const observer = await createVerifiedSession('admin-lookup-rate-limit-observer');
+
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'lookup-rate-limit-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'lookup-rate-limit-grant'),
+      payload: {
+        user_id: observer.userId,
+        role: 'admin-observer',
+        reason: 'Support lookup access',
+      },
+    });
+
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/admin/auth/users?user_id=${observer.userId}`,
+        headers: {authorization: `Bearer ${observer.token}`},
+      });
+      expect(response.statusCode).toBe(200);
+    }
+
+    const blocked = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users?user_id=${observer.userId}`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.json().code).toBe('rate-limited');
+  });
+
+  test('checks the administrator role before consuming the lookup IP bucket', async () => {
+    const owner = await createVerifiedSession('admin-lookup-authz-order-owner');
+    const observer = await createVerifiedSession('admin-lookup-authz-order-observer');
+    const ordinary = await createVerifiedSession('admin-lookup-authz-order-ordinary');
+
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'authz-order-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'authz-order-grant'),
+      payload: {
+        user_id: observer.userId,
+        role: 'admin-observer',
+        reason: 'Support lookup access',
+      },
+    });
+
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/admin/auth/users?user_id=${ordinary.userId}`,
+        headers: {authorization: `Bearer ${ordinary.token}`},
+      });
+      expect(response.statusCode).toBe(403);
+    }
+
+    const observerResponse = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users?user_id=${observer.userId}`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(observerResponse.statusCode).toBe(200);
   });
 
   test('protects the final active owner and rejects idempotency-key reuse', async () => {
@@ -253,7 +526,7 @@ describe('Auth administration routes', () => {
           })
         )
           .json()
-          .grants.find((grant: {user_id: string}) => grant.user_id === owner.userId).id
+          .grants.find((grant: {user: {id: string}}) => grant.user.id === owner.userId).grant_id
       }`,
       headers: authHeaders(owner.token, 'revoke-final-owner'),
       payload: {reason: 'Attempt to remove final owner'},

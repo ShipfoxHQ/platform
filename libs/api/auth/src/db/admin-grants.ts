@@ -3,10 +3,16 @@ import type {
   AdministrationActionEvent,
   AdministrationActionEventMap,
 } from '@shipfox/api-common-dto';
+import {
+  paginateTimestampIdRows,
+  type TimestampIdCursor,
+  timestampIdCursorWhere,
+} from '@shipfox/node-drizzle';
 import {writeOutboxEvent} from '@shipfox/node-outbox';
-import {and, asc, eq, isNull, sql} from 'drizzle-orm';
+import {and, desc, eq, isNull, sql} from 'drizzle-orm';
 import {highestAdminRole} from '#core/admin-role-model.js';
 import type {AdminGrant} from '#core/entities/admin-grant.js';
+import type {AdministratorGrantSummary} from '#core/entities/administrator-read-model.js';
 import {
   AdminBootstrapClosedError,
   AdminGrantAlreadyExistsError,
@@ -42,9 +48,51 @@ export async function createAdminGrant(params: CreateAdminGrantParams): Promise<
   return toAdminGrant(row);
 }
 
-export async function listAdminGrants(): Promise<AdminGrant[]> {
-  const rows = await db().select().from(adminGrants).orderBy(asc(adminGrants.createdAt));
-  return rows.map(toAdminGrant);
+export interface AdministratorGrantSummaryRecord {
+  id: string;
+  role: AdminRole;
+  createdAt: Date;
+  revokedAt: Date | null;
+  user: AdministratorGrantSummary['user'];
+}
+
+export async function listAdminGrantSummaries(params: {
+  limit: number;
+  cursor?: TimestampIdCursor;
+}): Promise<{
+  rows: AdministratorGrantSummaryRecord[];
+  nextCursor: TimestampIdCursor | null;
+}> {
+  const cursorCondition = timestampIdCursorWhere({
+    timestampColumn: adminGrants.createdAt,
+    idColumn: adminGrants.id,
+    cursor: params.cursor,
+  });
+  const conditions = cursorCondition ? [cursorCondition] : [];
+  const rows = await db()
+    .select({
+      id: adminGrants.id,
+      role: adminGrants.role,
+      createdAt: adminGrants.createdAt,
+      revokedAt: adminGrants.revokedAt,
+      user: {
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        status: users.status,
+      },
+    })
+    .from(adminGrants)
+    .innerJoin(users, eq(adminGrants.userId, users.id))
+    .where(and(...conditions))
+    .orderBy(desc(adminGrants.createdAt), desc(adminGrants.id))
+    .limit(params.limit + 1);
+
+  const page = paginateTimestampIdRows({rows, limit: params.limit, timestampKey: 'createdAt'});
+  return {
+    rows: page.pageRows,
+    nextCursor: page.nextCursor,
+  };
 }
 
 export async function findCurrentAdminRole(params: {userId: string}): Promise<AdminRole | null> {
