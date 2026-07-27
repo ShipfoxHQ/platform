@@ -293,10 +293,10 @@ describe('WorkflowRunView', () => {
     expect(screen.queryByText('anthropic')).not.toBeInTheDocument();
     expect(screen.queryByText('claude-opus-4-8')).not.toBeInTheDocument();
     expect(screen.queryByText('high')).not.toBeInTheDocument();
-    expect(screen.getByText('Configure credentials for the selected provider')).toBeInTheDocument();
+    expect(screen.getByText('Configure credentials for anthropic')).toBeInTheDocument();
     expect(
       screen.getByText(
-        'This step uses the selected provider, but no workspace credentials are configured for that model provider. Configure the selected provider in Agents, then re-run the workflow.',
+        'This step uses anthropic, but no workspace credentials are configured for that model provider. Configure anthropic in Agents, then re-run the workflow.',
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Configure Agents'})).toHaveAttribute(
@@ -375,7 +375,7 @@ describe('WorkflowRunView', () => {
     expect(screen.queryByText('anthropic')).not.toBeInTheDocument();
     expect(screen.queryByText('claude-opus-4-8')).not.toBeInTheDocument();
     expect(screen.queryByText('high')).not.toBeInTheDocument();
-    expect(screen.getByText('Configure credentials for the selected provider')).toBeInTheDocument();
+    expect(screen.getByText('Configure credentials for anthropic')).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Configure Agents'})).toHaveAttribute(
       'href',
       `/workspaces/${PROJECT_TEST_WID}/settings/agents`,
