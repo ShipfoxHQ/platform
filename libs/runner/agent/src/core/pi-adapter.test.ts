@@ -85,6 +85,25 @@ import {AgentConfigError, AgentHarnessUnavailableError} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
+import {piExtensionDirectories} from '#core/pi-extensions.js';
+
+const piWebAccessDirectory = piExtensionDirectories({packageNames: ['pi-web-access']})[0];
+const piMcpAdapterDirectory = piExtensionDirectories({packageNames: ['pi-mcp-adapter']})[0];
+
+function piServices(cwd = '/work', diagnostics: Array<{type: string; message: string}> = []) {
+  return {
+    cwd,
+    diagnostics,
+    resourceLoader: {
+      getExtensions: () => ({
+        extensions: [piWebAccessDirectory, piMcpAdapterDirectory].map((directory) => ({
+          resolvedPath: `${directory}/index.ts`,
+        })),
+        errors: [],
+      }),
+    },
+  };
+}
 
 function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocation {
   return {
@@ -157,7 +176,7 @@ describe('piHarnessAdapter', () => {
     hasConfiguredAuthMock.mockReturnValue(true);
     promptMock.mockResolvedValue(undefined);
     getLastAssistantTextMock.mockReturnValue(undefined);
-    createAgentSessionServicesMock.mockResolvedValue({cwd: '/work', diagnostics: []});
+    createAgentSessionServicesMock.mockResolvedValue(piServices());
     createAgentSessionMock.mockResolvedValue({
       session: {
         prompt: promptMock,
@@ -189,7 +208,7 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd: '/work',
-        resourceLoaderOptions: {additionalExtensionPaths: ['pi-web-access']},
+        resourceLoaderOptions: {additionalExtensionPaths: [piWebAccessDirectory]},
       }),
     );
     expect(createAgentSessionMock).toHaveBeenCalledWith(
@@ -208,7 +227,7 @@ describe('piHarnessAdapter', () => {
 
     expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        resourceLoaderOptions: {additionalExtensionPaths: ['pi-web-access']},
+        resourceLoaderOptions: {additionalExtensionPaths: [piWebAccessDirectory]},
       }),
     );
     expect(createAgentSessionMock.mock.calls[0]?.[0]).not.toHaveProperty('customTools');
@@ -222,7 +241,7 @@ describe('piHarnessAdapter', () => {
     createAgentSessionServicesMock.mockImplementation((options) => {
       configPath = options.extensionFlagValues.get('mcp-config');
       config = JSON.parse(readFileSync(configPath, 'utf8'));
-      return {cwd: sessionDir, diagnostics: []};
+      return piServices(sessionDir);
     });
 
     await piHarnessAdapter.run(invocation({cwd: sessionDir, mcpServers: [bridge]}));
@@ -244,7 +263,7 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceLoaderOptions: {
-          additionalExtensionPaths: ['pi-web-access', 'pi-mcp-adapter'],
+          additionalExtensionPaths: [piWebAccessDirectory, piMcpAdapterDirectory],
         },
       }),
     );
@@ -282,8 +301,7 @@ describe('piHarnessAdapter', () => {
 
   it('fails before creating a Pi session when extension setup reports an error', async () => {
     createAgentSessionServicesMock.mockResolvedValue({
-      cwd: '/work',
-      diagnostics: [{type: 'error', message: 'Unknown option: --mcp-config'}],
+      ...piServices('/work', [{type: 'error', message: 'Unknown option: --mcp-config'}]),
     });
 
     const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
@@ -299,6 +317,22 @@ describe('piHarnessAdapter', () => {
         extensionPaths: ['pi-web-access'],
       },
     });
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('reports the Pi extension path error before the diagnostic symptom', async () => {
+    const piPathError = {
+      path: piWebAccessDirectory,
+      error: `Extension path does not exist: ${piWebAccessDirectory}`,
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [{type: 'error', message: 'Unknown option: --mcp-config'}]),
+      resourceLoader: {
+        getExtensions: () => ({extensions: [], errors: [piPathError]}),
+      },
+    });
+
+    await expect(piHarnessAdapter.run(invocation())).rejects.toThrow(piPathError.error);
     expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
 

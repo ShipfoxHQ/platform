@@ -33,6 +33,7 @@ import {
   runOutputTurnLoop,
   withOutputGuidance,
 } from '#core/output-collector.js';
+import {assertPiExtensionsLoaded, piExtensionDirectories} from '#core/pi-extensions.js';
 import {type SessionForwarder, startSessionForwarder} from '#core/session-forwarder.js';
 
 const KEYLESS_CUSTOM_PROVIDER_API_KEY = 'shipfox-keyless-custom-provider-placeholder';
@@ -105,6 +106,10 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
 
   try {
     mcpConfig = await createPiMcpConfig(cwd, mcpServers);
+    const extensionDirectories = piExtensionDirectories({
+      packageNames:
+        mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
+    });
     const services = await createAgentSessionServices({
       cwd,
       authStorage,
@@ -113,9 +118,12 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
         ? {}
         : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
       resourceLoaderOptions: {
-        additionalExtensionPaths:
-          mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
+        additionalExtensionPaths: extensionDirectories,
       },
+    });
+    assertPiExtensionsLoaded({
+      resourceLoader: services.resourceLoader,
+      directories: extensionDirectories,
     });
     assertPiServiceDiagnostics(services.diagnostics, {
       cwd,
