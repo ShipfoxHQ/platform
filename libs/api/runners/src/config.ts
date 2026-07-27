@@ -24,7 +24,7 @@ export const config = createConfig({
   }),
   RUNNER_ASSIGNMENT_POLL_INTERVAL_MS: num({
     desc: 'Delay between durable assignment reads while a runner-control session waits for an assignment, in milliseconds.',
-    default: 1000,
+    default: 250,
   }),
   EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS: num({
     desc: `Lifetime of a provisioner-minted runner registration token, in seconds. The token can be exchanged once by a runner before this time passes. Set this between 1 and ${EPHEMERAL_REGISTRATION_TOKEN_TTL_HARD_MAX_SECONDS}.`,

@@ -166,6 +166,27 @@ export const runnerControlHeartbeatRoute = defineRoute({
   },
 });
 
+type RunnerAssignmentPollParams = {
+  deadline: number;
+  intervalMs: number;
+  signal: AbortSignal;
+  getAssignment: () => Promise<unknown | null>;
+  issueActivationToken: () => Promise<string | null>;
+};
+export async function pollForRunnerActivationToken(
+  params: RunnerAssignmentPollParams,
+): Promise<string | null> {
+  while (Date.now() <= params.deadline) {
+    if (params.signal.aborted) return null;
+    const assignment = await params.getAssignment();
+    if (assignment) {
+      const activationToken = await params.issueActivationToken();
+      if (activationToken) return activationToken;
+    }
+    await new Promise((resolve) => setTimeout(resolve, params.intervalMs));
+  }
+  return null;
+}
 export const runnerAssignmentPollRoute = defineRoute({
   method: 'GET',
   path: '/assignment',
@@ -177,20 +198,17 @@ export const runnerAssignmentPollRoute = defineRoute({
     const deadline = Date.now() + config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS * 1000;
     const abortController = new AbortController();
     reply.raw.on('close', () => abortController.abort());
-    while (Date.now() <= deadline) {
-      if (abortController.signal.aborted) return {activation_token: null};
-      const assignment = await getRunnerAssignment(session);
-      if (assignment) {
-        const activationToken = await issueRunnerActivationToken({
+    const activationToken = await pollForRunnerActivationToken({
+      deadline,
+      intervalMs: config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS,
+      signal: abortController.signal,
+      getAssignment: () => getRunnerAssignment(session),
+      issueActivationToken: () =>
+        issueRunnerActivationToken({
           ...session,
           ttlSeconds: config.RUNNER_ACTIVATION_TOKEN_TTL_SECONDS,
-        });
-        return {activation_token: activationToken};
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS),
-      );
-    }
-    return {activation_token: null};
+        }),
+    });
+    return {activation_token: activationToken};
   },
 });

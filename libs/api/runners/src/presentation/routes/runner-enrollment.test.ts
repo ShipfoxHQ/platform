@@ -23,6 +23,7 @@ import {
   runnersTestAuthClient,
 } from '#test/index.js';
 import {createRunnerRoutes} from './index.js';
+import {pollForRunnerActivationToken} from './runner-enrollment.js';
 
 const token = 'provisioner-test-token';
 const fakeUserAuth: AuthMethod = {name: AUTH_USER, authenticate: () => Promise.resolve()};
@@ -276,6 +277,31 @@ describe('runner enrollment control plane', () => {
     expect(closed.statusCode).toBe(401);
   });
 
+  it('keeps polling when an assignment cannot yet mint an activation token', async () => {
+    vi.useFakeTimers();
+    const abortController = new AbortController();
+    const getAssignment = vi.fn().mockResolvedValue({workspaceId: 'workspace-id'});
+    const issueActivationToken = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('activation-token');
+    try {
+      const activationToken = pollForRunnerActivationToken({
+        deadline: Date.now() + 1_000,
+        intervalMs: 5,
+        signal: abortController.signal,
+        getAssignment,
+        issueActivationToken,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(issueActivationToken).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(activationToken).resolves.toBe('activation-token');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('rejects registration with an expired activation token', async () => {
     const created = await app.inject({
       method: 'POST',
