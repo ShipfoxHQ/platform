@@ -21,8 +21,11 @@ const LONG_POLL_TIMEOUT_BUFFER_MS = 15_000;
 
 /** Raised when the provisioner token is missing, revoked, expired, or rejected. */
 export class ProvisionerAuthenticationError extends Error {
-  constructor(public readonly status: number) {
-    super(`Provisioner token was rejected by the API (status ${status}).`);
+  constructor(
+    public readonly status: number,
+    public readonly action = 'API request',
+  ) {
+    super(`Provisioner token was rejected during ${action} (status ${status}).`);
     this.name = 'ProvisionerAuthenticationError';
   }
 }
@@ -69,14 +72,14 @@ export function createProvisionerClient(params: {
 
   return {
     getIdentity() {
-      return withAuthMapping(async () => {
+      return withAuthMapping('get provisioner identity', async () => {
         const response = await api.get('provisioners/me');
         return provisionerIdentityResponseSchema.parse(await response.json());
       });
     },
 
     pollDemand(body, options = {}) {
-      return withAuthMapping(async () => {
+      return withAuthMapping('poll runner demand', async () => {
         const response = await api.post('provisioners/demand/poll', {
           json: body,
           timeout: (body.wait_seconds ?? 0) * 1000 + LONG_POLL_TIMEOUT_BUFFER_MS,
@@ -87,7 +90,7 @@ export function createProvisionerClient(params: {
     },
 
     createRunnerInstances(body, options = {}) {
-      return withAuthMapping(async () => {
+      return withAuthMapping('create runner instances', async () => {
         const response = await api.post('provisioners/runner-instances/batch', {
           json: body,
           ...(options.signal ? {signal: options.signal} : {}),
@@ -97,7 +100,7 @@ export function createProvisionerClient(params: {
     },
 
     attachRunnerInstanceProviderId(runnerInstanceId, providerRunnerId, options = {}) {
-      return withAuthMapping(async () => {
+      return withAuthMapping('attach runner instance provider identity', async () => {
         const response = await api.post(
           `provisioners/runner-instances/${runnerInstanceId}/provider-runner`,
           {
@@ -110,7 +113,7 @@ export function createProvisionerClient(params: {
     },
 
     assignRunnerInstances(reservationId, runnerInstanceIds, options = {}) {
-      return withAuthMapping(async () => {
+      return withAuthMapping('assign runner instances', async () => {
         const response = await api.post('provisioners/runner-instances/assignments', {
           json: {reservation_id: reservationId, runner_instance_ids: runnerInstanceIds},
           ...(options.signal ? {signal: options.signal} : {}),
@@ -120,7 +123,7 @@ export function createProvisionerClient(params: {
     },
 
     reportRunnerInstances(body, options = {}) {
-      return withAuthMapping(async () => {
+      return withAuthMapping('report runner instances', async () => {
         const response = await api.post('provisioners/runner-instances/report', {
           json: body,
           ...(options.signal ? {signal: options.signal} : {}),
@@ -130,7 +133,7 @@ export function createProvisionerClient(params: {
     },
 
     reconcileRunnerInstances(body, options = {}) {
-      return withAuthMapping(async () => {
+      return withAuthMapping('reconcile runner instances', async () => {
         const response = await api.post('provisioners/runner-instances/reconcile', {
           json: body,
           ...(options.signal ? {signal: options.signal} : {}),
@@ -144,12 +147,12 @@ export function createProvisionerClient(params: {
 // A rejected provisioner token surfaces the same way on every call (poll, mint, or the
 // startup identity check), so the loop can recognize "token revoked" rather than treat
 // it as a generic transient error.
-async function withAuthMapping<T>(call: () => Promise<T>): Promise<T> {
+async function withAuthMapping<T>(action: string, call: () => Promise<T>): Promise<T> {
   try {
     return await call();
   } catch (error) {
     if (error instanceof HTTPError && isAuthStatus(error.response.status)) {
-      throw new ProvisionerAuthenticationError(error.response.status);
+      throw new ProvisionerAuthenticationError(error.response.status, action);
     }
     throw error;
   }

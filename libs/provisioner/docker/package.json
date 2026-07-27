@@ -31,7 +31,8 @@
     "build": "shipfox-swc",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
-    "test": "shipfox-vitest-run",
+    "test": "shipfox-vitest-run --exclude src/docker-engine.integration.test.ts",
+    "test:integration": "shipfox-vitest-run src/docker-engine.integration.test.ts",
     "test:watch": "shipfox-vitest-watch",
     "type": "shipfox-tsc-check",
     "type:emit": "shipfox-tsc-emit"

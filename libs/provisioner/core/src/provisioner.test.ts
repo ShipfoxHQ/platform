@@ -4,9 +4,15 @@ import type {
   PollDemandResponseDto,
 } from '@shipfox/api-runners-dto';
 import type {ProvisionerClient} from '#api-client.js';
+import {createHealthState} from '#health.js';
 import {runProvisionerIteration, startProvisioner} from '#provisioner.js';
 import {createInMemoryTracker} from '#tracker.js';
 import type {ProvisionerAdapter, ProvisionerTemplate} from '#types.js';
+
+const observability = vi.hoisted(() => ({
+  logger: {debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn()},
+}));
+vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logger}));
 
 const EXPIRES_AT = '2026-01-01T00:00:00.000Z';
 
@@ -19,6 +25,10 @@ const template: ProvisionerTemplate<null> = {
 };
 
 describe('runProvisionerIteration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('runs onTick before polling demand', async () => {
     const events: string[] = [];
     const {client} = harness({
@@ -40,13 +50,35 @@ describe('runProvisionerIteration', () => {
       templates: [template],
       tracker: createInMemoryTracker(),
       currentInterval: 1000,
-      degraded: false,
     });
 
     expect(events).toEqual(['observe', 'poll']);
   });
 
-  it('advertises no free capacity and backs off when onTick fails', async () => {
+  it('includes the incomplete lifecycle stage in the launch batch log', async () => {
+    const {client} = harness({response: {stats: [], reservations: [reservation(1)]}});
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () =>
+        Promise.resolve({containerStarted: true, identityAttached: false, reported: false}),
+      onTick: () => Promise.resolve(),
+    };
+    await runProvisionerIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+    });
+    const launchBatchLog = observability.logger.info.mock.calls.find(
+      ([fields]) => fields?.event === 'runner.launch_batch_completed',
+    );
+    expect(launchBatchLog?.[0]).toMatchObject({
+      lifecycleIncomplete: 1,
+      launchLifecycleIncompleteReason: 'Runner launch lifecycle incomplete: identity, report.',
+    });
+  });
+  it('keeps reservations closed and backs off when provider observation fails', async () => {
     const {client, pollBodies} = harness({response: {stats: [], reservations: []}});
     const adapter: ProvisionerAdapter<null> = {
       loadTemplates: () => Promise.resolve([template]),
@@ -60,14 +92,13 @@ describe('runProvisionerIteration', () => {
       templates: [template],
       tracker: createInMemoryTracker(),
       currentInterval: 1000,
-      degraded: false,
     });
 
     expect(pollBodies[0]?.max_reservations).toBe(0);
     expect(result).toEqual({nextInterval: 1500, degraded: true});
   });
 
-  it('keeps advertising no capacity while startup is degraded and observe still fails', async () => {
+  it('keeps reservations closed while a provider observation still fails', async () => {
     const {client, pollBodies} = harness({response: {stats: [], reservations: []}});
     const adapter: ProvisionerAdapter<null> = {
       loadTemplates: () => Promise.resolve([template]),
@@ -81,7 +112,6 @@ describe('runProvisionerIteration', () => {
       templates: [template],
       tracker: createInMemoryTracker(),
       currentInterval: 1000,
-      degraded: true,
     });
 
     expect(pollBodies[0]?.max_reservations).toBe(0);
@@ -94,6 +124,10 @@ describe('runProvisionerIteration', () => {
       loadTemplates: () => Promise.resolve([template]),
       launch: () => Promise.resolve(),
     };
+    const health = createHealthState();
+    health.active = new Map([
+      ['provider_observation', {cause: 'startup reconciliation failed', impact: 'capacity'}],
+    ]);
 
     const result = await runProvisionerIteration({
       adapter,
@@ -101,7 +135,7 @@ describe('runProvisionerIteration', () => {
       templates: [template],
       tracker: createInMemoryTracker(),
       currentInterval: 1000,
-      degraded: true,
+      health,
     });
 
     expect(pollBodies[0]?.max_reservations).toBe(0);
@@ -122,12 +156,42 @@ describe('runProvisionerIteration', () => {
       templates: [template],
       tracker: createInMemoryTracker(),
       currentInterval: 1000,
-      degraded: false,
     });
 
-    expect(result).toEqual({nextInterval: 1500, degraded: false});
+    expect(result).toEqual({nextInterval: 1500, degraded: true});
   });
 
+  it('uses the next degraded poll as a launch probe and recovers after it succeeds', async () => {
+    const {client, pollBodies} = harness({response: {stats: [], reservations: [reservation(1)]}});
+    const health = createHealthState();
+    let launchAttempts = 0;
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => {
+        launchAttempts += 1;
+        return launchAttempts === 1 ? Promise.reject(new Error('start failed')) : Promise.resolve();
+      },
+      onTick: () => Promise.resolve(),
+    };
+    const first = await runProvisionerIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      health,
+    });
+    const second = await runProvisionerIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: first.nextInterval,
+      health,
+    });
+    expect(pollBodies.map((body) => body.max_reservations)).toEqual([5, 1]);
+    expect(second.degraded).toBe(false);
+  });
   it('resets to the base interval after a healthy observe and successful launch', async () => {
     const {client} = harness({response: {stats: [], reservations: [reservation(1)]}});
     const adapter: ProvisionerAdapter<null> = {
@@ -142,7 +206,6 @@ describe('runProvisionerIteration', () => {
       templates: [template],
       tracker: createInMemoryTracker(),
       currentInterval: 3000,
-      degraded: true,
     });
 
     expect(result).toEqual({nextInterval: 1000, degraded: false});

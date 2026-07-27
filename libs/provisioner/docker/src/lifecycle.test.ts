@@ -16,7 +16,7 @@ import {createDockerLifecycle} from '#lifecycle.js';
 import type {DockerTemplateSpec} from '#templates.js';
 
 const observability = vi.hoisted(() => ({
-  logger: {error: vi.fn(), info: vi.fn(), warn: vi.fn()},
+  logger: {debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn()},
 }));
 
 vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logger}));
@@ -77,6 +77,54 @@ describe('createDockerLifecycle', () => {
     expect(client.reportBodies[0]?.events[0]?.reason).toBe('start-failed');
   });
 
+  it('does not report a started container as failed when starting-report delivery fails', async () => {
+    const error = new ProvisionerAuthenticationError(401, 'report runner instances');
+    const engine = fakeEngine();
+    const client = fakeClient({reportErrors: [error]});
+    const lifecycle = makeLifecycle({engine, client});
+
+    await expect(lifecycle.launch(launch())).rejects.toThrow(error);
+
+    expect(engine.created).toHaveLength(1);
+    expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual([
+      'starting',
+    ]);
+    expect(observability.logger.error).not.toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.container_launch_failed'}),
+      expect.any(String),
+    );
+  });
+
+  it('marks a buffered starting report as incomplete', async () => {
+    const engine = fakeEngine();
+    const client = fakeClient({reportErrors: [new Error('api unavailable')]});
+    const lifecycle = makeLifecycle({engine, client});
+    const outcome = await lifecycle.launch(launch());
+    expect(outcome).toEqual({containerStarted: true, identityAttached: true, reported: false});
+    expect(engine.created).toHaveLength(1);
+    expect(client.reportBodies[0]?.events[0]).toMatchObject({state: 'starting'});
+  });
+  it('does not report a started container as failed when identity attachment fails', async () => {
+    const error = new Error('identity API unavailable');
+    const engine = fakeEngine();
+    const client = fakeClient({attachErrors: [error]});
+    const lifecycle = makeLifecycle({engine, client});
+
+    const outcome = await lifecycle.launch(launch());
+
+    expect(engine.created).toHaveLength(1);
+    expect(client.reportBodies).toEqual([]);
+    expect(outcome).toEqual({containerStarted: true, identityAttached: false, reported: false});
+    expect(observability.logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.container_identity_attachment_failed'}),
+      'Failed to attach provider identity after runner container started',
+    );
+    expect(observability.logger.error).not.toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.container_launch_failed'}),
+      expect.any(String),
+    );
+  });
+
   it('assigns an enrolled observed runner through its container identity', async () => {
     const engine = fakeEngine({
       containers: [
@@ -119,6 +167,54 @@ describe('createDockerLifecycle', () => {
     ]);
   });
 
+  it('reports a failure again after the retained container disappears and is recreated', async () => {
+    const containers = [container({state: 'exited', exitCode: 1})];
+    const engine = fakeEngine({containers});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({
+      engine,
+      client,
+      failedContainerRetentionMs: 3_600_000,
+      maxRetainedFailedContainers: 20,
+    });
+
+    await lifecycle.observe();
+    containers.splice(0, 1);
+    await lifecycle.observe();
+    containers.push(container({state: 'exited', exitCode: 1}));
+    await lifecycle.observe();
+
+    expect(
+      observability.logger.error.mock.calls.filter(
+        ([fields]) => fields?.event === 'runner.container_failed',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('resets retained failure state when a container becomes live again', async () => {
+    const containers = [container({state: 'exited', exitCode: 1})];
+    const engine = fakeEngine({containers});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({
+      engine,
+      client,
+      failedContainerRetentionMs: 3_600_000,
+      maxRetainedFailedContainers: 20,
+    });
+
+    await lifecycle.observe();
+    containers[0] = container({state: 'running'});
+    await lifecycle.observe();
+    containers[0] = container({state: 'exited', exitCode: 1});
+    await lifecycle.observe();
+
+    expect(
+      observability.logger.error.mock.calls.filter(
+        ([fields]) => fields?.event === 'runner.container_failed',
+      ),
+    ).toHaveLength(2);
+  });
+
   it('reports terminal exited containers and removes them only after report succeeds', async () => {
     const engine = fakeEngine({
       containers: [container({state: 'exited', exitCode: 0})],
@@ -143,6 +239,7 @@ describe('createDockerLifecycle', () => {
 
     expect(observability.logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
+        event: 'runner.container_failed',
         providerRunnerId: 'runner-1',
         containerId: 'runner-1',
         containerName: 'runner-1',
@@ -150,9 +247,30 @@ describe('createDockerLifecycle', () => {
         oomKilled: false,
         reason: 'exit-code-1',
       }),
-      'Provisioned runner container exited unsuccessfully',
+      'Runner container failed',
     );
     expect(engine.removed).toEqual(['runner-1']);
+  });
+
+  it('uses first-observed time instead of creation time for unknown runtime', async () => {
+    const engine = fakeEngine({
+      containers: [
+        container({
+          state: 'exited',
+          exitCode: 1,
+          createdAt: new Date('2025-01-01T00:00:00.000Z'),
+          startedAt: new Date('2026-01-01T00:09:00.000Z'),
+        }),
+      ],
+    });
+    const lifecycle = makeLifecycle({engine});
+
+    await lifecycle.observe();
+
+    expect(observability.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.container_failed', runtimeMs: 60_000}),
+      'Runner container failed',
+    );
   });
 
   it('buffers terminal reports and still removes containers when reporting transiently fails', async () => {
@@ -225,6 +343,45 @@ describe('createDockerLifecycle', () => {
     expect(engine.killedAndRemoved).toEqual(['runner-1']);
   });
 
+  it('logs stale cleanup as requested when kill-and-remove fails', async () => {
+    const error = new DockerEngineError('unknown', 'daemon unavailable');
+    const containers = [
+      container({
+        state: 'created',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+    ];
+    const engine = fakeEngine({
+      containers,
+      killAndRemoveError: error,
+    });
+    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000});
+
+    await expect(lifecycle.observe()).rejects.toThrow(error);
+    await expect(lifecycle.observe()).rejects.toThrow(error);
+    containers[0] = container({state: 'running'});
+    await lifecycle.observe();
+    containers[0] = container({
+      state: 'created',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    await expect(lifecycle.observe()).rejects.toThrow(error);
+
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.container_stale_reap_requested'}),
+      'Stale runner container reap requested before registration',
+    );
+    expect(
+      observability.logger.info.mock.calls.filter(
+        ([fields]) => fields?.event === 'runner.container_stale_reap_requested',
+      ),
+    ).toHaveLength(2);
+    expect(observability.logger.info).not.toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.container_stale_reaped'}),
+      expect.any(String),
+    );
+  });
+
   it('marks OOM exits as failed with an oom reason', async () => {
     const engine = fakeEngine({
       containers: [container({state: 'exited', exitCode: 137, oomKilled: true})],
@@ -235,6 +392,343 @@ describe('createDockerLifecycle', () => {
     await lifecycle.observe();
 
     expect(client.reportBodies[0]?.events[0]).toMatchObject({state: 'failed', reason: 'oom'});
+  });
+
+  it('retains failed containers, releases capacity, and suppresses duplicate failure reports', async () => {
+    const engine = fakeEngine({containers: [container({state: 'exited', exitCode: 1})]});
+    const tracker = testTracker();
+    tracker.recordStarting({providerRunnerId: 'runner-1', templateKey: 'small'});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({
+      engine,
+      client,
+      tracker,
+      failedContainerRetentionMs: 3_600_000,
+      maxRetainedFailedContainers: 20,
+    });
+
+    await lifecycle.observe();
+    await lifecycle.observe();
+
+    expect(engine.removed).toEqual([]);
+    expect(tracker.countsByTemplate()).toEqual(new Map());
+    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(1);
+    expect(observability.logger.error).toHaveBeenCalledTimes(1);
+    expect(observability.logger.info).not.toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.cleanup_pass_completed'}),
+      expect.any(String),
+    );
+  });
+
+  it('removes expired retained failures using FinishedAt', async () => {
+    const engine = fakeEngine({
+      containers: [
+        container({
+          state: 'exited',
+          exitCode: 1,
+          finishedAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      failedContainerRetentionMs: 60_000,
+      maxRetainedFailedContainers: 20,
+    });
+
+    await lifecycle.observe();
+
+    expect(engine.removed).toEqual(['runner-1']);
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.cleanup_pass_completed',
+        expired: 1,
+      }),
+      'Failed runner container cleanup pass completed',
+    );
+  });
+
+  it('reports an expired failure before removing its container', async () => {
+    const operations: string[] = [];
+    const engine = fakeEngine({
+      containers: [
+        container({
+          state: 'exited',
+          exitCode: 1,
+          finishedAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+      onRemove: () => operations.push('remove'),
+    });
+    const client = fakeClient({onReport: () => operations.push('report')});
+    const lifecycle = makeLifecycle({
+      engine,
+      client,
+      failedContainerRetentionMs: 60_000,
+      maxRetainedFailedContainers: 20,
+    });
+    await lifecycle.observe();
+    expect(operations).toEqual(['report', 'remove']);
+  });
+  it('evicts the oldest retained failures when the count limit is exceeded', async () => {
+    const engine = fakeEngine({
+      containers: [
+        container({
+          name: 'oldest',
+          state: 'exited',
+          exitCode: 1,
+          finishedAt: new Date('2026-01-01T00:00:01.000Z'),
+        }),
+        container({
+          name: 'newer',
+          state: 'exited',
+          exitCode: 1,
+          finishedAt: new Date('2026-01-01T00:00:02.000Z'),
+        }),
+      ],
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      failedContainerRetentionMs: 3_600_000,
+      maxRetainedFailedContainers: 1,
+    });
+
+    await lifecycle.observe();
+
+    expect(engine.removed).toEqual(['oldest']);
+  });
+
+  it('uses first-observed failure time when FinishedAt is missing', async () => {
+    const engine = fakeEngine({
+      containers: [
+        container({
+          state: 'exited',
+          exitCode: 1,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      failedContainerRetentionMs: 60_000,
+      maxRetainedFailedContainers: 20,
+    });
+
+    await lifecycle.observe();
+
+    expect(engine.removed).toEqual([]);
+  });
+  it('defers retention cleanup when terminal inspection is unavailable', async () => {
+    const engine = fakeEngine({
+      containers: [
+        container({
+          state: 'exited',
+          exitCode: 1,
+          createdAt: new Date('2025-01-01T00:00:00.000Z'),
+          terminalInspectFailed: true,
+        }),
+      ],
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      failedContainerRetentionMs: 60_000,
+      maxRetainedFailedContainers: 20,
+    });
+    await lifecycle.observe();
+    expect(engine.removed).toEqual([]);
+    expect(observability.logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.container_failure_timestamp_fallback',
+        fallback: 'firstObservedAt',
+      }),
+      'Failure timestamp unavailable; TTL cleanup is deferred but count-bounded cleanup still applies',
+    );
+  });
+
+  it('uses a driver-aware forensic log hint', async () => {
+    for (const driver of ['local', 'journald', 'none']) {
+      vi.clearAllMocks();
+      const lifecycle = makeLifecycle({
+        engine: fakeEngine({
+          containers: [container({state: 'exited', exitCode: 1, loggingDriver: driver})],
+        }),
+      });
+
+      await lifecycle.observe();
+
+      const failureLog = observability.logger.error.mock.calls.find(
+        ([fields]) => fields?.event === 'runner.container_failed',
+      )?.[0];
+      expect(failureLog).toBeDefined();
+      if (driver === 'local') {
+        expect(failureLog).toEqual(
+          expect.objectContaining({
+            dockerLogsCommand:
+              'docker --host "$SHIPFOX_PROVISIONER_DOCKER_HOST" logs --timestamps --tail 200 runner-1',
+            dockerLogsHostHint:
+              'Target the daemon configured by SHIPFOX_PROVISIONER_DOCKER_HOST; omit --host when using the local default',
+          }),
+        );
+      } else if (driver === 'journald') {
+        expect(failureLog).toEqual(
+          expect.objectContaining({
+            journaldCommand: 'journalctl CONTAINER_NAME=runner-1',
+            journaldHostHint:
+              'Run journalctl on the Docker daemon host configured by SHIPFOX_PROVISIONER_DOCKER_HOST',
+          }),
+        );
+        expect(failureLog).not.toHaveProperty('dockerLogsCommand');
+      } else {
+        expect(failureLog).toEqual(
+          expect.objectContaining({
+            loggingBackendHint: 'Container logging is disabled for this driver',
+          }),
+        );
+        expect(failureLog).not.toHaveProperty('dockerLogsCommand');
+      }
+    }
+  });
+
+  it('enforces the retained-failure count bound for inspect failures', async () => {
+    const engine = fakeEngine({
+      containers: [
+        container({
+          name: 'inspect-failed',
+          state: 'exited',
+          exitCode: 1,
+          createdAt: new Date('2025-01-01T00:00:00.000Z'),
+          terminalInspectFailed: true,
+        }),
+        container({
+          name: 'recent-failure',
+          state: 'exited',
+          exitCode: 1,
+          finishedAt: new Date('2026-01-01T00:09:00.000Z'),
+        }),
+      ],
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      failedContainerRetentionMs: 3_600_000,
+      maxRetainedFailedContainers: 1,
+    });
+    await lifecycle.observe();
+    expect(engine.removed).toEqual(['recent-failure']);
+  });
+
+  it('ranks failures without FinishedAt as newly observed for count eviction', async () => {
+    const engine = fakeEngine({
+      containers: [
+        container({
+          name: 'unknown-failure-time',
+          state: 'exited',
+          exitCode: 1,
+        }),
+        container({
+          name: 'known-failure-time',
+          state: 'exited',
+          exitCode: 1,
+          finishedAt: new Date('2026-01-01T00:09:00.000Z'),
+        }),
+      ],
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      failedContainerRetentionMs: 3_600_000,
+      maxRetainedFailedContainers: 1,
+    });
+
+    await lifecycle.observe();
+
+    expect(engine.removed).toEqual(['known-failure-time']);
+  });
+
+  it('emits one aggregate cleanup error for multiple failures in one pass', async () => {
+    const cleanupError = new DockerEngineError('unknown', 'cleanup failed');
+    const engine = fakeEngine({
+      containers: [
+        container({
+          name: 'first',
+          state: 'exited',
+          exitCode: 1,
+          finishedAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+        container({
+          name: 'second',
+          state: 'exited',
+          exitCode: 1,
+          finishedAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+        container({
+          name: 'third',
+          state: 'exited',
+          exitCode: 1,
+          finishedAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+      removeErrors: [cleanupError, undefined, cleanupError],
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      failedContainerRetentionMs: 60_000,
+      maxRetainedFailedContainers: 20,
+    });
+
+    await lifecycle.observe();
+
+    const cleanupErrors = observability.logger.error.mock.calls.filter(
+      ([fields]) => fields?.event === 'runner.failed_container_cleanup_failed',
+    );
+    expect(cleanupErrors).toHaveLength(1);
+    expect(cleanupErrors[0]?.[0]).toMatchObject({failedRemoval: 2, attempts: 1});
+  });
+  it('keeps a failed container when cleanup fails so the next observation can retry', async () => {
+    const engine = fakeEngine({
+      containers: [
+        container({state: 'exited', exitCode: 1, finishedAt: new Date('2026-01-01T00:00:00.000Z')}),
+      ],
+      removeError: new DockerEngineError('unknown', 'cleanup failed'),
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      failedContainerRetentionMs: 60_000,
+      maxRetainedFailedContainers: 20,
+    });
+
+    await lifecycle.observe();
+    await lifecycle.observe();
+
+    expect(engine.removed).toEqual(['runner-1', 'runner-1']);
+    expect(observability.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.failed_container_cleanup_failed'}),
+      'Failed to remove retained failed runner container; will retry',
+    );
+    expect(observability.logger.info).not.toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.cleanup_pass_completed'}),
+      expect.any(String),
+    );
+  });
+  it('resets cleanup-failure suppression after a successful cleanup', async () => {
+    const cleanupError = new DockerEngineError('unknown', 'cleanup failed');
+    const engine = fakeEngine({
+      containers: [
+        container({state: 'exited', exitCode: 1, finishedAt: new Date('2026-01-01T00:00:00.000Z')}),
+      ],
+      removeErrors: [cleanupError, undefined, cleanupError],
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      failedContainerRetentionMs: 60_000,
+      maxRetainedFailedContainers: 20,
+    });
+    await lifecycle.observe();
+    await lifecycle.observe();
+    await lifecycle.observe();
+    expect(
+      observability.logger.error.mock.calls.filter(
+        ([fields]) => fields?.event === 'runner.failed_container_cleanup_failed',
+      ),
+    ).toHaveLength(2);
   });
 
   it('reaps only created containers past the registration deadline', async () => {
@@ -337,6 +831,37 @@ describe('createDockerLifecycle', () => {
       reason: 'backend-terminate',
     });
     expect(engine.killedAndRemoved).toEqual(['runner-1']);
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.container_termination_requested', count: 1}),
+      'Runner container termination batch requested',
+    );
+  });
+
+  it('does not retry cleanup for a container terminated during reconcile', async () => {
+    const engine = fakeEngine({
+      containers: [container({state: 'exited', exitCode: 1})],
+    });
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({
+      engine,
+      client,
+      failedContainerRetentionMs: 3_600_000,
+      maxRetainedFailedContainers: 20,
+    });
+
+    await lifecycle.reconcile();
+
+    expect(engine.killedAndRemoved).toEqual(['runner-1']);
+    expect(engine.removed).toEqual([]);
+    expect(observability.logger.info).not.toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.cleanup_pass_completed'}),
+      expect.any(String),
+    );
   });
 
   it('does not report backend terminate state when Docker kill fails', async () => {
@@ -354,9 +879,112 @@ describe('createDockerLifecycle', () => {
     const lifecycle = makeLifecycle({engine, client});
 
     await expect(lifecycle.reconcile()).rejects.toThrow(error);
+    await expect(lifecycle.reconcile()).rejects.toThrow(error);
 
-    expect(engine.killedAndRemoved).toEqual(['runner-1']);
-    expect(client.reportBodies).toEqual([]);
+    client.reconcileRunnerInstances = (body) => {
+      client.reconcileBodies.push(body);
+      return Promise.resolve({
+        runners: [reconciledRunner('runner-1', 'keep')],
+        terminated_absent_provider_runner_ids: [],
+      });
+    };
+    await lifecycle.reconcile();
+    client.reconcileRunnerInstances = (body) => {
+      client.reconcileBodies.push(body);
+      return Promise.resolve({
+        runners: [reconciledRunner('runner-1', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      });
+    };
+    await expect(lifecycle.reconcile()).rejects.toThrow(error);
+
+    expect(engine.killedAndRemoved).toEqual(['runner-1', 'runner-1', 'runner-1']);
+    expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual([
+      'running',
+    ]);
+    expect(
+      observability.logger.info.mock.calls.filter(
+        ([fields]) => fields?.event === 'runner.container_termination_requested',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('flushes the initial missing-label diagnostic before terminal side effects', async () => {
+    const error = new DockerEngineError('unknown', 'kill failed');
+    const engine = fakeEngine({
+      containers: [
+        container({state: 'running', labels: {'shipfox.provider_runner_id': 'runner-1'}}),
+      ],
+      killAndRemoveError: error,
+    });
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client});
+    await expect(lifecycle.reconcile()).rejects.toThrow(error);
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.report_skipped', count: 1}),
+      'Skipping provisioned runner reports because labels are unavailable',
+    );
+  });
+  it('deduplicates poll-driven termination requests across observations', async () => {
+    const error = new DockerEngineError('unknown', 'kill failed');
+    const engine = fakeEngine({
+      containers: [container({state: 'running'})],
+      killAndRemoveError: error,
+    });
+    const lifecycle = makeLifecycle({engine});
+
+    await lifecycle.observe();
+    await expect(lifecycle.terminate(['runner-1'])).rejects.toThrow(error);
+    await lifecycle.observe();
+    await expect(lifecycle.terminate(['runner-1'])).rejects.toThrow(error);
+    await lifecycle.terminate([]);
+    await expect(lifecycle.terminate(['runner-1'])).rejects.toThrow(error);
+
+    expect(
+      observability.logger.info.mock.calls.filter(
+        ([fields]) => fields?.event === 'runner.container_termination_requested',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('deduplicates the same termination episode across reconcile and poll sources', async () => {
+    const error = new DockerEngineError('unknown', 'kill failed');
+    const engine = fakeEngine({
+      containers: [container({state: 'running'})],
+      killAndRemoveError: error,
+    });
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client});
+
+    await expect(lifecycle.reconcile()).rejects.toThrow(error);
+    await expect(lifecycle.terminate(['runner-1'])).rejects.toThrow(error);
+
+    client.reconcileRunnerInstances = (body) => {
+      client.reconcileBodies.push(body);
+      return Promise.resolve({
+        runners: [reconciledRunner('runner-1', 'keep')],
+        terminated_absent_provider_runner_ids: [],
+      });
+    };
+    await lifecycle.reconcile();
+    await lifecycle.terminate([]);
+    await expect(lifecycle.terminate(['runner-1'])).rejects.toThrow(error);
+
+    expect(
+      observability.logger.info.mock.calls.filter(
+        ([fields]) => fields?.event === 'runner.container_termination_requested',
+      ),
+    ).toHaveLength(2);
   });
 
   it('reconcile adopts backend keep-intent live containers', async () => {
@@ -399,7 +1027,7 @@ describe('createDockerLifecycle', () => {
     expect(engine.removed).toEqual(['runner-1']);
   });
 
-  it('reconcile falls back to local observe when the observed id count exceeds the API limit', async () => {
+  it('reports oversized reconciliation as an incomplete provider operation', async () => {
     const engine = fakeEngine({
       containers: Array.from({length: 5001}, (_, index) =>
         container({name: `runner-${index}`, state: 'running'}),
@@ -408,7 +1036,7 @@ describe('createDockerLifecycle', () => {
     const client = fakeClient();
     const lifecycle = makeLifecycle({engine, client});
 
-    await lifecycle.reconcile();
+    await expect(lifecycle.reconcile()).rejects.toThrow('exceeding the API limit of 5000');
 
     expect(client.reconcileBodies).toEqual([]);
     expect(client.reportBodies.map((body) => body.events.length)).toEqual([
@@ -429,7 +1057,7 @@ describe('createDockerLifecycle', () => {
     });
     const lifecycle = makeLifecycle({engine, client});
 
-    await lifecycle.tick();
+    await expect(lifecycle.tick()).rejects.toThrow('exceeding the API limit of 5000');
     containers.splice(1);
     await lifecycle.tick();
     await lifecycle.tick();
@@ -481,6 +1109,22 @@ describe('createDockerLifecycle', () => {
     expect(engine.killedAndRemoved).toEqual(['runner-1']);
   });
 
+  it('reports a missing-label episode when labels return', async () => {
+    const labels: Record<string, string> = {
+      'shipfox.provider_runner_id': 'runner-1',
+    };
+    const containers = [container({state: 'running', labels})];
+    const engine = fakeEngine({containers});
+    const lifecycle = makeLifecycle({engine});
+    await lifecycle.observe();
+    labels['shipfox.template_key'] = 'small';
+    labels['shipfox.labels'] = 'ubuntu22';
+    await lifecycle.observe();
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.report_resumed', providerRunnerId: 'runner-1'}),
+      'Runner report resumed after labels became available',
+    );
+  });
   it('terminate does not list Docker for an empty id set', async () => {
     const engine = fakeEngine();
     const lifecycle = makeLifecycle({engine});
@@ -542,15 +1186,18 @@ describe('createDockerLifecycle', () => {
   it('preserves terminal reports over live reports when the retry queue overflows', async () => {
     const engine = fakeEngine({
       containers: [
-        ...Array.from({length: 5001}, (_, index) =>
+        ...Array.from({length: 10001}, (_, index) =>
           container({name: `runner-${index}`, state: 'running'}),
         ),
         container({name: 'terminal-runner', state: 'exited', exitCode: 0}),
       ],
     });
-    const client = fakeClient({reportErrors: [new Error('api down'), new Error('api down')]});
+    const client = fakeClient({
+      reportErrors: [new Error('api down'), new Error('api down'), new Error('api down')],
+    });
     const lifecycle = makeLifecycle({engine, client});
 
+    await lifecycle.observe();
     await lifecycle.observe();
     await lifecycle.flush();
 
@@ -562,6 +1209,17 @@ describe('createDockerLifecycle', () => {
           (event) => event.provider_runner_id === 'terminal-runner' && event.state === 'stopped',
         ),
     ).toBe(true);
+    expect(observability.logger.warn).not.toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner_report.queue_overflow'}),
+      expect.any(String),
+    );
+    expect(observability.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner_report.delivery_degraded',
+        queueDropped: expect.any(Number),
+      }),
+      'Runner report delivery degraded',
+    );
   });
 
   it('flush drains buffered reports', async () => {
@@ -580,6 +1238,19 @@ describe('createDockerLifecycle', () => {
     });
   });
 
+  it('counts only outage reports in delivery recovery', async () => {
+    const engine = fakeEngine({containers: [container({state: 'running'})]});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+    await lifecycle.observe();
+    client.reportErrors.push(new Error('api down'));
+    await lifecycle.observe();
+    await lifecycle.flush();
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner_report.delivery_recovered', delivered: 1}),
+      'Runner report delivery recovered',
+    );
+  });
   it('does not block container creation when the launch starting report is buffered', async () => {
     const engine = fakeEngine();
     const client = fakeClient({reportErrors: [new Error('api down')]});
@@ -621,6 +1292,8 @@ function makeLifecycle(
     client?: ReturnType<typeof fakeClient>;
     tracker?: ProviderRunnerTracker;
     registrationDeadlineMs?: number;
+    failedContainerRetentionMs?: number;
+    maxRetainedFailedContainers?: number;
   } = {},
 ) {
   return createDockerLifecycle({
@@ -635,6 +1308,13 @@ function makeLifecycle(
     now: () => NOW,
     registrationDeadlineMs: args.registrationDeadlineMs ?? 120_000,
     providerKind: 'docker',
+    ...(args.failedContainerRetentionMs !== undefined
+      ? {failedContainerRetentionMs: args.failedContainerRetentionMs}
+      : {}),
+    ...(args.maxRetainedFailedContainers !== undefined
+      ? {maxRetainedFailedContainers: args.maxRetainedFailedContainers}
+      : {}),
+    loggingDriverSource: 'daemon',
   });
 }
 
@@ -652,11 +1332,14 @@ function launch(): ProviderRunnerLaunch<DockerTemplateSpec> {
 function fakeClient(
   options: {
     reportErrors?: Error[];
+    attachErrors?: Error[];
     reconcileErrors?: Error[];
     reconcileResponse?: ReconcileRunnerInstancesResponseDto;
+    onReport?: () => void;
   } = {},
 ): ProvisionerClient & {
   reportBodies: ReportRunnerInstancesBodyDto[];
+  reportErrors: Error[];
   reconcileBodies: ReconcileRunnerInstancesBodyDto[];
   assignmentBodies: Array<{reservationId: string; runnerInstanceIds: string[]}>;
 } {
@@ -664,9 +1347,11 @@ function fakeClient(
   const reconcileBodies: ReconcileRunnerInstancesBodyDto[] = [];
   const assignmentBodies: Array<{reservationId: string; runnerInstanceIds: string[]}> = [];
   const reportErrors = [...(options.reportErrors ?? [])];
+  const attachErrors = [...(options.attachErrors ?? [])];
   const reconcileErrors = [...(options.reconcileErrors ?? [])];
   return {
     reportBodies,
+    reportErrors,
     reconcileBodies,
     assignmentBodies,
     getIdentity: () =>
@@ -678,13 +1363,18 @@ function fakeClient(
     pollDemand: () =>
       Promise.resolve({stats: [], reservations: [], terminate_provider_runner_ids: []}),
     createRunnerInstances: () => Promise.resolve({runner_instances: []}),
-    attachRunnerInstanceProviderId: () => Promise.resolve({attached: true}),
+    attachRunnerInstanceProviderId: () => {
+      const error = attachErrors.shift();
+      if (error) return Promise.reject(error);
+      return Promise.resolve({attached: true});
+    },
     assignRunnerInstances: (reservationId, runnerInstanceIds) => {
       assignmentBodies.push({reservationId, runnerInstanceIds});
       return Promise.resolve({runner_instance_ids: runnerInstanceIds});
     },
     reportRunnerInstances: (body): Promise<ReportRunnerInstancesResponseDto> => {
       reportBodies.push(body);
+      options.onReport?.();
       const error = reportErrors.shift();
       if (error) return Promise.reject(error);
       return Promise.resolve({accepted: body.events.length, reservations_released: 0});
@@ -709,7 +1399,9 @@ function fakeEngine(
     createError?: Error;
     listError?: Error;
     removeError?: Error;
+    removeErrors?: Array<Error | undefined>;
     killAndRemoveError?: Error;
+    onRemove?: () => void;
   } = {},
 ): DockerEngine & {
   created: Parameters<DockerEngine['createAndStart']>[0][];
@@ -720,6 +1412,7 @@ function fakeEngine(
   const created: Parameters<DockerEngine['createAndStart']>[0][] = [];
   const removed: string[] = [];
   const killedAndRemoved: string[] = [];
+  const removeErrors = [...(options.removeErrors ?? [])];
   let listManagedCalls = 0;
 
   return {
@@ -730,6 +1423,7 @@ function fakeEngine(
       return listManagedCalls;
     },
     ensureImage: () => Promise.resolve(),
+    getInfo: () => Promise.resolve({loggingDriver: 'json-file'}),
     createAndStart: (args) => {
       if (options.createError) return Promise.reject(options.createError);
       created.push(args);
@@ -741,8 +1435,10 @@ function fakeEngine(
       return Promise.resolve(options.containers ?? []);
     },
     remove: (name) => {
+      options.onRemove?.();
       removed.push(name);
-      if (options.removeError) return Promise.reject(options.removeError);
+      const error = removeErrors.shift() ?? options.removeError;
+      if (error) return Promise.reject(error);
       return Promise.resolve();
     },
     killAndRemove: (name) => {
@@ -793,6 +1489,11 @@ function container(args: {
   exitCode?: number;
   oomKilled?: boolean;
   createdAt?: Date;
+  startedAt?: Date;
+  finishedAt?: Date;
+  terminalInspectFailed?: boolean;
+  image?: string;
+  loggingDriver?: string;
   labels?: Readonly<Record<string, string>>;
 }): DockerContainerView {
   const name = args.name ?? 'runner-1';
@@ -810,7 +1511,12 @@ function container(args: {
     state: args.state,
     ...(args.exitCode !== undefined ? {exitCode: args.exitCode} : {}),
     ...(args.oomKilled !== undefined ? {oomKilled: args.oomKilled} : {}),
+    ...(args.image !== undefined ? {image: args.image} : {}),
+    ...(args.loggingDriver !== undefined ? {loggingDriver: args.loggingDriver} : {}),
     createdAt: args.createdAt ?? NOW,
+    ...(args.startedAt !== undefined ? {startedAt: args.startedAt} : {}),
+    ...(args.finishedAt !== undefined ? {finishedAt: args.finishedAt} : {}),
+    ...(args.terminalInspectFailed ? {terminalInspectFailed: true} : {}),
   };
 }
 

@@ -2,6 +2,7 @@ import Docker from 'dockerode';
 import {SHIPFOX_LABELS} from '#container-identity.js';
 
 const LEADING_SLASH = /^\//;
+const DOCKER_EXIT_STATUS = /^Exited \((-?\d+)\)/;
 
 export type DockerEngineErrorReason =
   | 'daemon-unreachable'
@@ -40,10 +41,20 @@ export interface DockerContainerView {
   readonly state: DockerContainerState;
   readonly exitCode?: number;
   readonly oomKilled?: boolean;
+  readonly image?: string;
+  readonly loggingDriver?: string;
   readonly createdAt: Date;
+  readonly startedAt?: Date;
+  readonly finishedAt?: Date;
+  readonly terminalInspectFailed?: boolean;
+}
+
+export interface DockerEngineInfo {
+  readonly loggingDriver: string;
 }
 
 export interface DockerEngine {
+  getInfo(): Promise<DockerEngineInfo>;
   ensureImage(image: string): Promise<void>;
   createAndStart(args: {
     name: string;
@@ -62,13 +73,33 @@ export interface CreateDockerEngineOptions {
   readonly host?: string;
   readonly network?: string;
   readonly extraHosts?: readonly string[];
+  readonly loggingDriver?: string;
+  readonly loggingOptions?: Readonly<Record<string, string>>;
   readonly docker?: Docker;
 }
 
 export function createDockerEngine(options: CreateDockerEngineOptions = {}): DockerEngine {
   const docker = options.docker ?? new Docker(dockerOptionsForHost(options.host));
+  let effectiveLoggingDriver: string | undefined;
 
   return {
+    async getInfo() {
+      try {
+        const info = await docker.info();
+        const loggingDriver =
+          typeof info?.LoggingDriver === 'string' && info.LoggingDriver.length > 0
+            ? info.LoggingDriver
+            : undefined;
+        if (!loggingDriver) {
+          throw new Error('Docker system information did not include LoggingDriver.');
+        }
+        effectiveLoggingDriver = loggingDriver;
+        return {loggingDriver};
+      } catch (error) {
+        throw mapError(error, 'unknown', 'Cannot inspect Docker system information.');
+      }
+    },
+
     async ensureImage(image) {
       try {
         await docker.getImage(image).inspect();
@@ -102,7 +133,11 @@ export function createDockerEngine(options: CreateDockerEngineOptions = {}): Doc
     },
 
     async createAndStart(args) {
-      await this.ensureImage(args.image);
+      try {
+        await this.ensureImage(args.image);
+      } catch (error) {
+        throw addLoggingDriverContext(error, selectedLoggingDriver());
+      }
       let container: Docker.Container | undefined;
 
       try {
@@ -117,13 +152,27 @@ export function createDockerEngine(options: CreateDockerEngineOptions = {}): Doc
             RestartPolicy: {Name: 'no'},
             ...(options.network ? {NetworkMode: options.network} : {}),
             ...(options.extraHosts ? {ExtraHosts: [...options.extraHosts]} : {}),
+            ...(options.loggingDriver
+              ? {
+                  LogConfig: {
+                    Type: options.loggingDriver,
+                    Config: {...(options.loggingOptions ?? {})},
+                  },
+                }
+              : {}),
           },
         });
       } catch (error) {
-        throw mapError(
-          error,
-          isConflict(error) ? 'name-conflict' : 'create-failed',
-          'Cannot create runner container.',
+        const selectedDriver = options.loggingDriver ?? effectiveLoggingDriver;
+        throw addLoggingDriverContext(
+          mapError(
+            error,
+            isConflict(error) ? 'name-conflict' : 'create-failed',
+            selectedDriver
+              ? `Cannot create runner container with logging driver ${selectedDriver}.`
+              : 'Cannot create runner container with the Docker daemon logging driver.',
+          ),
+          selectedDriver,
         );
       }
 
@@ -131,7 +180,17 @@ export function createDockerEngine(options: CreateDockerEngineOptions = {}): Doc
         await container.start();
       } catch (error) {
         await removeContainer(container).catch(() => undefined);
-        throw mapError(error, 'start-failed', 'Cannot start runner container.');
+        const selectedDriver = selectedLoggingDriver();
+        throw addLoggingDriverContext(
+          mapError(
+            error,
+            'start-failed',
+            selectedDriver
+              ? `Cannot start runner container with logging driver ${selectedDriver}.`
+              : 'Cannot start runner container with the Docker daemon logging driver.',
+          ),
+          selectedDriver,
+        );
       }
     },
 
@@ -145,19 +204,46 @@ export function createDockerEngine(options: CreateDockerEngineOptions = {}): Doc
         return Promise.all(
           containers.map(async (container) => {
             const state = normalizeState(container.State);
-            const inspected = state === 'exited' ? await inspectContainer(container.Id) : undefined;
+            const inspectTerminalState = state === 'exited' || state === 'dead';
+            let inspected: Docker.ContainerInspectInfo | undefined;
+            let terminalInspectFailed = false;
+            if (inspectTerminalState) {
+              try {
+                inspected = await inspectContainer(container.Id);
+                terminalInspectFailed = !inspected;
+              } catch {
+                // Keep one transient or racing inspect from failing the entire observation pass.
+                inspected = undefined;
+                terminalInspectFailed = true;
+              }
+            }
+            const startedAt = parseDockerDate(inspected?.State?.StartedAt);
+            const finishedAt = parseDockerDate(inspected?.State?.FinishedAt);
+            const loggingDriver =
+              inspected?.HostConfig?.LogConfig?.Type ??
+              options.loggingDriver ??
+              effectiveLoggingDriver;
+            const createdAt = new Date(container.Created * 1000);
+            const exitCode =
+              inspected?.State?.ExitCode ??
+              parseDockerExitCode((container as {Status?: string}).Status);
             return {
               id: container.Id,
               name: container.Names?.[0]?.replace(LEADING_SLASH, '') ?? container.Id,
               labels: container.Labels ?? {},
               state,
-              ...(inspected?.State?.ExitCode !== undefined
-                ? {exitCode: inspected.State.ExitCode}
-                : {}),
+              ...(exitCode !== undefined ? {exitCode} : {}),
               ...(inspected?.State?.OOMKilled !== undefined
                 ? {oomKilled: inspected.State.OOMKilled}
                 : {}),
-              createdAt: new Date(container.Created * 1000),
+              ...(container.Image || inspected?.Config?.Image
+                ? {image: inspected?.Config?.Image ?? container.Image}
+                : {}),
+              ...(loggingDriver ? {loggingDriver} : {}),
+              createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+              ...(startedAt ? {startedAt} : {}),
+              ...(finishedAt ? {finishedAt} : {}),
+              ...(terminalInspectFailed ? {terminalInspectFailed: true} : {}),
             };
           }),
         );
@@ -193,6 +279,10 @@ export function createDockerEngine(options: CreateDockerEngineOptions = {}): Doc
       }
     },
   };
+
+  function selectedLoggingDriver(): string | undefined {
+    return options.loggingDriver ?? effectiveLoggingDriver;
+  }
 
   async function inspectContainer(id: string): Promise<Docker.ContainerInspectInfo | undefined> {
     try {
@@ -232,6 +322,18 @@ function normalizeState(state: string | undefined): DockerContainerState {
   }
 }
 
+function parseDockerExitCode(status: string | undefined): number | undefined {
+  const match = status?.match(DOCKER_EXIT_STATUS);
+  if (!match) return undefined;
+  const exitCode = Number(match[1]);
+  return Number.isInteger(exitCode) ? exitCode : undefined;
+}
+function parseDockerDate(value: string | undefined): Date | undefined {
+  if (!value || value.startsWith('0001-01-01T00:00:00Z')) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
 function mapError(
   error: unknown,
   fallback: DockerEngineErrorReason,
@@ -246,6 +348,22 @@ function mapError(
     });
   if (isConflict(error)) return new DockerEngineError('name-conflict', message, {cause: error});
   return new DockerEngineError(fallback, message, {cause: error});
+}
+
+function addLoggingDriverContext(error: unknown, driver: string | undefined): DockerEngineError {
+  if (!driver) {
+    if (error instanceof DockerEngineError) return error;
+    return mapError(error, 'unknown', 'Docker runner launch failed.');
+  }
+  if (error instanceof DockerEngineError) {
+    if (error.message.includes('logging driver')) return error;
+    return new DockerEngineError(
+      error.reason,
+      `${error.message} Logging driver selected: ${driver}.`,
+      {cause: error},
+    );
+  }
+  return mapError(error, 'unknown', `Docker runner launch failed with logging driver ${driver}.`);
 }
 
 export function dockerOptionsForHost(host: string | undefined): Docker.DockerOptions {

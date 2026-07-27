@@ -44,6 +44,55 @@ describe('createDockerEngine', () => {
     expect(docker.started).toEqual(['runner-1']);
   });
 
+  it('omits LogConfig when the provisioner inherits the daemon driver', async () => {
+    const docker = fakeDocker();
+    const engine = createDockerEngine({docker: docker as never});
+
+    await engine.createAndStart({
+      name: 'runner-1',
+      image: 'runner:latest',
+      env: {},
+      labels: {'shipfox.provisioner_id': 'p1'},
+      nanoCpus: 1,
+      memoryBytes: 1,
+    });
+
+    expect(
+      (docker.created[0] as {HostConfig: {LogConfig?: unknown}}).HostConfig.LogConfig,
+    ).toBeUndefined();
+  });
+
+  it('passes a configured logging driver and options exactly to Docker', async () => {
+    const docker = fakeDocker();
+    const engine = createDockerEngine({
+      docker: docker as never,
+      loggingDriver: 'local',
+      loggingOptions: {'max-size': '10m', 'max-file': '5'},
+    });
+
+    await engine.createAndStart({
+      name: 'runner-1',
+      image: 'runner:latest',
+      env: {},
+      labels: {'shipfox.provisioner_id': 'p1'},
+      nanoCpus: 1,
+      memoryBytes: 1,
+    });
+
+    expect(docker.created[0]).toMatchObject({
+      HostConfig: {
+        LogConfig: {Type: 'local', Config: {'max-size': '10m', 'max-file': '5'}},
+      },
+    });
+  });
+
+  it('exposes the effective daemon logging driver', async () => {
+    const docker = fakeDocker({loggingDriver: 'journald'});
+    const engine = createDockerEngine({docker: docker as never});
+
+    await expect(engine.getInfo()).resolves.toEqual({loggingDriver: 'journald'});
+  });
+
   it('removes a created container when start fails', async () => {
     const docker = fakeDocker({startError: new Error('start failed')});
     const engine = createDockerEngine({docker: docker as never});
@@ -107,7 +156,21 @@ describe('createDockerEngine', () => {
           Created: 1,
         },
       ],
-      inspectById: new Map([['id1', {State: {ExitCode: 137, OOMKilled: true}}]]),
+      inspectById: new Map([
+        [
+          'id1',
+          {
+            Config: {Image: 'runner:latest'},
+            HostConfig: {LogConfig: {Type: 'local'}},
+            State: {
+              ExitCode: 137,
+              OOMKilled: true,
+              StartedAt: '2026-01-01T00:00:01.000Z',
+              FinishedAt: '2026-01-01T00:00:03.000Z',
+            },
+          },
+        ],
+      ]),
     });
     const engine = createDockerEngine({docker: docker as never});
 
@@ -119,9 +182,49 @@ describe('createDockerEngine', () => {
       state: 'exited',
       exitCode: 137,
       oomKilled: true,
+      image: 'runner:latest',
+      loggingDriver: 'local',
+      startedAt: new Date('2026-01-01T00:00:01.000Z'),
+      finishedAt: new Date('2026-01-01T00:00:03.000Z'),
     });
   });
 
+  it('does not inspect running containers during observation', async () => {
+    const docker = fakeDocker({
+      containers: [
+        {
+          Id: 'id1',
+          Names: ['/runner-1'],
+          Labels: {'shipfox.provisioner_id': 'p1'},
+          State: 'running',
+          Created: 1,
+        },
+      ],
+    });
+    const engine = createDockerEngine({docker: docker as never, loggingDriver: 'local'});
+    const result = await engine.listManaged('p1');
+    expect(docker.inspected).toEqual([]);
+    expect(result[0]?.loggingDriver).toBe('local');
+  });
+  it('keeps the observation pass alive when a terminal inspect fails', async () => {
+    const docker = fakeDocker({
+      containers: [
+        {
+          Id: 'id1',
+          Names: ['/runner-1'],
+          Labels: {'shipfox.provisioner_id': 'p1'},
+          State: 'exited',
+          Status: 'Exited (1) 2 seconds ago',
+          Created: 1,
+        },
+      ],
+      inspectErrorById: new Map([['id1', new Error('temporary inspect failure')]]),
+    });
+    const engine = createDockerEngine({docker: docker as never});
+    await expect(engine.listManaged('p1')).resolves.toMatchObject([
+      {id: 'id1', state: 'exited', exitCode: 1},
+    ]);
+  });
   it('keeps listed exited containers when inspect races with removal', async () => {
     const docker = fakeDocker({
       containers: [
@@ -146,6 +249,7 @@ describe('createDockerEngine', () => {
         labels: {'shipfox.provisioner_id': 'p1'},
         state: 'exited',
         createdAt: new Date(1000),
+        terminalInspectFailed: true,
       },
     ]);
   });
@@ -186,12 +290,14 @@ function fakeDocker(
     inspectById?: Map<string, unknown>;
     inspectErrorById?: Map<string, Error>;
     killErrorById?: Map<string, Error>;
+    loggingDriver?: string;
   } = {},
 ) {
   const pulled: string[] = [];
   const created: unknown[] = [];
   const started: string[] = [];
   const removed: string[] = [];
+  const inspected: string[] = [];
   const missingImages = options.missingImages ?? new Set<string>();
 
   return {
@@ -199,10 +305,12 @@ function fakeDocker(
     created,
     started,
     removed,
+    inspected,
     modem: {
       followProgress: (_stream: NodeJS.ReadableStream, callback: (error: Error | null) => void) =>
         callback(null),
     },
+    info: () => Promise.resolve({LoggingDriver: options.loggingDriver ?? 'json-file'}),
     getImage: (image: string) => ({
       inspect: () => {
         if (missingImages.has(image)) {
@@ -239,6 +347,7 @@ function fakeDocker(
     },
     getContainer: (id: string) => ({
       inspect: () => {
+        inspected.push(id);
         const inspectError = options.inspectErrorById?.get(id);
         if (inspectError) return Promise.reject(inspectError);
         return Promise.resolve(options.inspectById?.get(id) ?? {});

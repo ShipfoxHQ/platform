@@ -2,4 +2,4 @@
 
 import {runVitest} from './run-vitest.js';
 
-runVitest(['run']);
+runVitest(['run', ...process.argv.slice(2)]);

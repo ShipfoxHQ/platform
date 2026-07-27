@@ -11,28 +11,38 @@ import {
   type ProvisionerClient,
 } from '#api-client.js';
 import {config} from '#config.js';
+import {
+  createHealthState,
+  deriveHealth,
+  type HealthEvent,
+  type HealthFacet,
+  type HealthLog,
+  type HealthState,
+  reduceHealth,
+} from '#health.js';
 import {type RunnerEnvFactory, runProvisionerTick} from '#tick.js';
 import {createInMemoryTracker, type ProviderRunnerTracker} from '#tracker.js';
 import type {ProvisionerAdapter, ProvisionerTemplate} from '#types.js';
 
 /** The demand poll accepts at most 1000 advertised templates per request. */
 const MAX_TEMPLATES_PER_POLL = 1000;
+const CONFIG_SAMPLE_LIMIT = 20;
 
 let running = true;
-// Module-level so the long-lived signal handler can cancel the in-flight long-poll;
-// a locally-scoped capture isn't reachable from a process-global handler.
 let pollAbortController: AbortController | undefined;
 const shutdownController = createGracefulShutdownController({
   onFirstSignal: (signal) => {
     running = false;
-    logger().info({signal}, 'Shutting down gracefully');
+    logger().info({event: 'provisioner.stopping', signal}, 'Provisioner shutting down gracefully');
     pollAbortController?.abort('shutdown');
   },
   onSecondSignal: (signal) => {
-    logger().info({signal}, 'Second signal received, exiting now');
+    logger().info({event: 'provisioner.stopping', signal, forced: true}, 'Provisioner exiting now');
     process.exit(1);
   },
 });
+
+export type ProvisionerHealthState = HealthState;
 
 export interface StartProvisionerOptions<Spec> {
   readonly adapter: ProvisionerAdapter<Spec>;
@@ -44,7 +54,7 @@ export interface RunProvisionerIterationDeps<Spec> {
   readonly templates: readonly ProvisionerTemplate<Spec>[];
   readonly tracker: ProviderRunnerTracker;
   readonly currentInterval: number;
-  readonly degraded: boolean;
+  readonly health?: ProvisionerHealthState;
   readonly signal?: AbortSignal;
 }
 
@@ -54,10 +64,8 @@ export interface RunProvisionerIterationResult {
 }
 
 /**
- * Run the provisioner control loop until a shutdown signal: authenticate, load the
- * provider's templates once, then repeatedly poll demand, plan launches, bootstrap instances,
- * and start runners through the provider's launcher. Backs off on error and aborts the
- * in-flight long-poll on SIGINT/SIGTERM so shutdown is prompt.
+ * Run the provisioner control loop until shutdown. Health transitions are reduced from
+ * typed operation outcomes; adapters do not own readiness, backoff, or suppression state.
  */
 export async function startProvisioner<Spec>(
   options: StartProvisionerOptions<Spec>,
@@ -71,23 +79,47 @@ export async function startProvisioner<Spec>(
     throw new Error('Provisioner started with no templates; configure at least one template.');
   }
   if (templates.length > MAX_TEMPLATES_PER_POLL) {
-    // The demand poll advertises every template at once and the API caps that list, so a
-    // larger set would fail schema validation on every poll. Fail fast instead.
     throw new Error(
       `Provisioner has ${templates.length} templates; the demand poll accepts at most ${MAX_TEMPLATES_PER_POLL}. Reduce the configured templates.`,
     );
   }
+
+  const providerConfiguration = (await options.adapter.onConfigure?.({templates})) ?? {};
+  logger().info(
+    {
+      ...providerConfiguration,
+      event: 'provisioner.configured',
+      templateCount: templates.length,
+      templateKeySample: templates.slice(0, CONFIG_SAMPLE_LIMIT).map((template) => template.key),
+    },
+    'Provisioner configured',
+  );
 
   const client = createProvisionerClient({
     baseUrl: config.SHIPFOX_API_URL,
     token: config.SHIPFOX_PROVISIONER_TOKEN,
   });
 
-  // Fail fast at startup if the token is rejected, rather than discovering it on the
-  // first poll.
-  const identity = await client.getIdentity();
+  let identity: Awaited<ReturnType<ProvisionerClient['getIdentity']>>;
+  try {
+    identity = await client.getIdentity();
+  } catch (error) {
+    if (error instanceof ProvisionerAuthenticationError) {
+      logger().error(
+        {
+          event: 'provisioner.authentication_failed',
+          operation: error.action,
+          status: error.status,
+          reason: 'token_rejected',
+        },
+        `Provisioner token rejected during ${error.action}`,
+      );
+    }
+    throw error;
+  }
   logger().info(
     {
+      event: 'provisioner.authenticated',
       provisionerId: identity.id,
       workspaceId: identity.scope === 'workspace' ? identity.workspace_id : undefined,
       scope: identity.scope,
@@ -97,7 +129,7 @@ export async function startProvisioner<Spec>(
   );
 
   const tracker = createInMemoryTracker();
-  let degraded = false;
+  const health = createHealthState();
   try {
     await options.adapter.onStart?.({
       client,
@@ -108,114 +140,175 @@ export async function startProvisioner<Spec>(
       },
       tracker,
     });
+    applyHealthEvent(health, {type: 'ready_confirmed', at: new Date()});
   } catch (error) {
-    degraded = true;
-    logger().error(
-      {err: error},
-      'Provisioner startup reconciliation failed; advertising no free capacity until observe succeeds',
-    );
+    applyHealthEvent(health, {
+      type: 'facet_failed',
+      facet: 'provider_observation',
+      cause: errorReason(error),
+      impact: 'capacity',
+      at: new Date(),
+    });
   }
 
   let currentInterval = config.SHIPFOX_PROVISIONER_POLL_INTERVAL_MS;
-
   while (running) {
     pollAbortController = new AbortController();
     try {
-      const iteration: RunProvisionerIterationResult = await runProvisionerIteration({
+      const iteration = await runProvisionerIteration({
         adapter: options.adapter,
         client,
         templates,
         tracker,
         currentInterval,
-        degraded,
+        health,
         signal: pollAbortController.signal,
       });
       currentInterval = iteration.nextInterval;
-      degraded = iteration.degraded;
       await interruptableSleep(withJitter(currentInterval));
-    } catch (error) {
+    } catch {
       if (!running) break;
-      if (error instanceof ProvisionerAuthenticationError) {
-        // Distinct from a transient blip: the token was rejected. Keep retrying (it may be
-        // rotated back) but make the cause obvious to an operator reading the logs.
-        logger().error(
-          {err: error},
-          'Provisioner token rejected; retrying after backoff (verify the token is valid and not revoked)',
-        );
-      } else {
-        logger().error({err: error}, 'Provisioner tick failed');
-      }
       currentInterval = nextBackoffInterval(currentInterval);
       await interruptableSleep(withJitter(currentInterval));
     }
   }
 
   await options.adapter.onStop?.();
-  logger().info('Provisioner stopped');
+  logger().info({event: 'provisioner.stopped'}, 'Provisioner stopped');
 }
 
 export async function runProvisionerIteration<Spec>(
   deps: RunProvisionerIterationDeps<Spec>,
 ): Promise<RunProvisionerIterationResult> {
-  let degraded = deps.degraded;
-  let maxReservations = config.SHIPFOX_PROVISIONER_MAX_RESERVATIONS;
-
-  try {
-    if (deps.adapter.onTick) {
+  const health = deps.health ?? createHealthState();
+  let derived = healthDerived(health);
+  let observed = false;
+  if (deps.adapter.onTick) {
+    try {
       await deps.adapter.onTick();
-      degraded = false;
+      applyHealthEvent(health, {
+        type: 'facet_recovered',
+        facet: 'provider_observation',
+        at: new Date(),
+      });
+      observed = true;
+      derived = healthDerived(health);
+    } catch (error) {
+      if (deps.signal?.aborted) throw error;
+      applyHealthEvent(health, {
+        type: 'facet_failed',
+        facet: 'provider_observation',
+        cause: errorReason(error),
+        impact: 'capacity',
+        at: new Date(),
+      });
+      derived = healthDerived(health);
     }
+  }
+  const reservationLimit = config.SHIPFOX_PROVISIONER_MAX_RESERVATIONS;
+  const launchBudget = deriveLaunchBudget(health);
+
+  let result: Awaited<ReturnType<typeof runProvisionerTick>>;
+  try {
+    result = await runProvisionerTick({
+      client: deps.client,
+      templates: deps.templates,
+      tracker: deps.tracker,
+      launch: deps.adapter.launch,
+      ...(deps.adapter.terminate ? {terminate: deps.adapter.terminate} : {}),
+      buildRunnerEnv,
+      reservationLimit,
+      launchBudget,
+      waitSeconds: config.SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS,
+      runnerInstanceBatchSize: config.SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE,
+      retryIntervalMs: deps.currentInterval,
+      ...(deps.signal ? {signal: deps.signal} : {}),
+    });
+    applyHealthEvent(health, {type: 'facet_recovered', facet: 'poll_demand', at: new Date()});
+    applyHealthEvent(health, {type: 'facet_recovered', facet: 'authentication', at: new Date()});
   } catch (error) {
-    degraded = true;
-    maxReservations = 0;
-    logger().error(
-      {err: error},
-      'Provisioner observe failed; advertising no free capacity until observe succeeds',
-    );
+    if (deps.signal?.aborted) throw error;
+    const facet: HealthFacet =
+      error instanceof ProvisionerAuthenticationError ? 'authentication' : 'poll_demand';
+    applyHealthEvent(health, {
+      type: 'facet_failed',
+      facet,
+      cause: errorReason(error),
+      impact: 'control_plane',
+      at: new Date(),
+    });
+    throw error;
   }
 
-  if (degraded) maxReservations = 0;
+  if (result.providerTermination.status === 'failed') {
+    applyHealthEvent(health, {
+      type: 'facet_failed',
+      facet: 'provider_termination',
+      cause: result.providerTermination.cause,
+      impact: 'cleanup',
+      at: new Date(),
+    });
+  } else if (
+    result.providerTermination.status === 'succeeded' ||
+    result.providerTermination.status === 'not_needed'
+  ) {
+    applyHealthEvent(health, {
+      type: 'facet_recovered',
+      facet: 'provider_termination',
+      at: new Date(),
+    });
+  }
 
-  const result = await runProvisionerTick({
-    client: deps.client,
-    templates: deps.templates,
-    tracker: deps.tracker,
-    launch: deps.adapter.launch,
-    ...(deps.adapter.terminate ? {terminate: deps.adapter.terminate} : {}),
-    buildRunnerEnv,
-    maxReservations,
-    waitSeconds: config.SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS,
-    runnerInstanceBatchSize: config.SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE,
-    ...(deps.signal ? {signal: deps.signal} : {}),
-  });
+  const hasCapacityFailure =
+    result.runnerInstanceCreationFailureCount > 0 ||
+    result.providerLaunchFailureCount > 0 ||
+    (result.launchAttemptedCount > 0 && result.launchedCount === 0);
+  if (hasCapacityFailure) {
+    applyHealthEvent(health, {
+      type: 'facet_failed',
+      facet: 'runner_capacity',
+      cause:
+        result.runnerInstanceCreationFailureReason ??
+        result.providerLaunchFailureReason ??
+        'All attempted runner launches failed.',
+      impact: 'capacity',
+      failureCount: result.runnerInstanceCreationFailureCount + result.providerLaunchFailureCount,
+      at: new Date(),
+    });
+  } else if (result.launchedCount > 0) {
+    applyHealthEvent(health, {type: 'facet_recovered', facet: 'runner_capacity', at: new Date()});
+  }
 
-  if (result.reservationCount > 0 || result.launchedCount > 0) {
+  derived = healthDerived(health);
+  if (observed || result.launchedCount > 0) {
+    applyHealthEvent(health, {type: 'ready_confirmed', at: new Date()});
+    derived = healthDerived(health);
+  }
+
+  if (result.reservationCount > 0 || result.launchedCount > 0 || result.launchAttemptedCount > 0) {
     logger().info(
       {
-        reservations: result.reservationCount,
+        event: 'runner.launch_batch_completed',
+        reserved: result.reservedRunnerCount,
         planned: result.plannedCount,
-        launchAttempts: result.launchAttemptedCount,
-        launched: result.launchedCount,
+        attempted: result.launchAttemptedCount,
+        started: result.launchedCount,
+        failed: result.launchAttemptedCount - result.launchedCount,
+        lifecycleIncomplete: result.launchLifecycleIncompleteCount,
+        ...(result.launchLifecycleIncompleteReason
+          ? {launchLifecycleIncompleteReason: result.launchLifecycleIncompleteReason}
+          : {}),
+        reservations: result.reservationCount,
       },
-      'Provisioner tick complete',
-    );
-  }
-
-  const allAttemptedLaunchesFailed = result.launchAttemptedCount > 0 && result.launchedCount === 0;
-  const shouldBackOff = degraded || allAttemptedLaunchesFailed;
-
-  if (allAttemptedLaunchesFailed) {
-    logger().warn(
-      {attempted: result.launchAttemptedCount},
-      'All attempted provisioned runner launches failed; backing off',
+      'Runner launch batch completed',
     );
   }
 
   return {
-    nextInterval: shouldBackOff
+    nextInterval: derived.shouldBackOff
       ? nextBackoffInterval(deps.currentInterval)
       : config.SHIPFOX_PROVISIONER_POLL_INTERVAL_MS,
-    degraded,
+    degraded: derived.capacityDegraded,
   };
 }
 
@@ -234,12 +327,82 @@ export function nextBackoffInterval(ms: number): number {
 }
 
 export function withJitter(ms: number): number {
-  // Floor the jitter at half the interval so a fast-returning poll (for example with
-  // wait_seconds=0) cannot collapse the delay toward zero and busy-loop the API.
   return applyJitter(ms, {minFactor: 0.5});
 }
 
 async function interruptableSleep(ms: number): Promise<void> {
   if (!running) return;
   await interruptibleSleep(ms, shutdownController.signal);
+}
+
+function applyHealthEvent(state: HealthState, event: HealthEvent): void {
+  const reduction = reduceHealth(state, event);
+  state.active = reduction.state.active;
+  state.incident = reduction.state.incident;
+  state.hasEverBeenReady = reduction.state.hasEverBeenReady;
+  for (const log of reduction.logs) emitHealthLog(log);
+}
+
+function healthDerived(state: HealthState) {
+  return deriveHealth(state);
+}
+
+function deriveLaunchBudget(state: HealthState): number {
+  if (state.active.has('provider_observation')) return 0;
+  if (state.active.has('runner_capacity')) return 1;
+  return Number.POSITIVE_INFINITY;
+}
+function emitHealthLog(log: HealthLog): void {
+  const fields = {
+    event: log.event,
+    ...(log.facet ? {operation: log.facet} : {}),
+    ...(log.cause ? {cause: log.cause} : {}),
+    ...(log.changed ? {changed: true} : {}),
+    ...(log.recoveredFacet ? {recoveredFacet: log.recoveredFacet} : {}),
+    ...(log.remainingFacetCount !== undefined
+      ? {remainingFacetCount: log.remainingFacetCount}
+      : {}),
+    ...(log.impact ? {impact: log.impact} : {}),
+    ...(log.attempts !== undefined ? {attempts: log.attempts} : {}),
+    ...(log.suppressed !== undefined ? {suppressed: log.suppressed} : {}),
+    ...(log.outageDurationMs !== undefined ? {outageDurationMs: log.outageDurationMs} : {}),
+    ...(isApiFacet(log.facet) ? {endpoint: safeEndpoint(config.SHIPFOX_API_URL)} : {}),
+  };
+  if (log.level === 'error') {
+    logger().error(fields, healthMessage(log));
+  } else if (log.level === 'warn') {
+    logger().warn(fields, healthMessage(log));
+  } else {
+    logger().info(fields, healthMessage(log));
+  }
+}
+
+function healthMessage(log: HealthLog): string {
+  if (log.event === 'provisioner.recovered') return 'Provisioner recovered';
+  if (log.event === 'provisioner.partially_recovered') {
+    return `Provisioner partially recovered; ${log.remainingFacetCount ?? 0} failure facet(s) remain active`;
+  }
+  if (log.event === 'provisioner.ready') return 'Provisioner ready';
+  if (log.impact === 'cleanup') return 'Provisioner degraded; cleanup is temporarily unavailable';
+  if (log.impact === 'control_plane') {
+    return 'Provisioner degraded; control-plane operations are temporarily unavailable';
+  }
+  return 'Provisioner degraded; capacity is temporarily unavailable';
+}
+
+function isApiFacet(facet: HealthFacet | undefined): boolean {
+  return facet === 'poll_demand' || facet === 'authentication';
+}
+
+function errorReason(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
+}
+
+function safeEndpoint(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return '<invalid-endpoint>';
+  }
 }
