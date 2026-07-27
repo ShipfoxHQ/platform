@@ -48,6 +48,7 @@
     "fastify": "catalog:",
     "fastify-plugin": "^6.0.0",
     "fastify-type-provider-zod": "catalog:",
+    "tldts": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
