@@ -1,3 +1,4 @@
+import type {SessionViewLifecycleRow} from '@shipfox/api-logs-dto';
 import {and, asc, eq, getTableColumns, isNull, lt, notInArray, sql} from 'drizzle-orm';
 import type {AttemptStream, StreamCloseReason} from '#core/entities/attempt-stream.js';
 import {LeaseStreamMismatchError} from '#core/errors.js';
@@ -167,6 +168,7 @@ export async function setClaudeParseContext(
     hasInit: boolean;
     sessionId: string | null;
     turn: number;
+    pendingResult: SessionViewLifecycleRow | null;
   },
 ): Promise<void> {
   await tx
@@ -175,6 +177,7 @@ export async function setClaudeParseContext(
       claudeHasInit: params.hasInit,
       claudeSessionId: params.sessionId,
       claudeTurn: params.turn,
+      claudePendingResult: params.pendingResult,
       updatedAt: sql`now()`,
     })
     .where(eq(attemptStreams.id, params.streamId));

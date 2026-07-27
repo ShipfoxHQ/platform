@@ -213,10 +213,9 @@ describe('appendLogs', () => {
       await appendLogs({...ctx, attempt: 1, offset: 0, body}, workflows);
 
       const stream = await findStream({...ctx, attempt: 1});
-      const rows = recordsFromChunks(await listChunks(stream?.id as string)).map((record) => {
-        expect(record.type).toBe('agent_session');
-        return record.type === 'agent_session' ? record.row : null;
-      });
+      const rows = recordsFromChunks(await listChunks(stream?.id as string)).flatMap((record) =>
+        record.type === 'agent_session' ? [record.row] : [],
+      );
       expect(rows).toEqual([
         {
           kind: 'tool-call',
@@ -268,15 +267,15 @@ describe('appendLogs', () => {
         reprompt,
         init,
         result('final response'),
+        endLine(0),
       );
 
       await appendLogs({...ctx, attempt: 1, offset: 0, body}, workflows);
 
       const stream = await findStream({...ctx, attempt: 1});
-      const rows = recordsFromChunks(await listChunks(stream?.id as string)).map((record) => {
-        expect(record.type).toBe('agent_session');
-        return record.type === 'agent_session' ? record.row : null;
-      });
+      const rows = recordsFromChunks(await listChunks(stream?.id as string)).flatMap((record) =>
+        record.type === 'agent_session' ? [record.row] : [],
+      );
       const lifecycleRows = rows.filter(
         (row): row is Extract<NonNullable<(typeof rows)[number]>, {kind: 'lifecycle'}> =>
           row?.kind === 'lifecycle',
@@ -341,16 +340,15 @@ describe('appendLogs', () => {
         }),
       );
       const first = ndjsonBody(init, result);
-      const second = ndjsonBody(reprompt, init, result);
+      const second = ndjsonBody(reprompt, init, result, endLine(0));
 
       await appendLogs({...ctx, attempt: 1, offset: 0, body: first}, workflows);
       await appendLogs({...ctx, attempt: 1, offset: first.length, body: second}, workflows);
 
       const stream = await findStream({...ctx, attempt: 1});
-      const rows = recordsFromChunks(await listChunks(stream?.id as string)).map((record) => {
-        expect(record.type).toBe('agent_session');
-        return record.type === 'agent_session' ? record.row : null;
-      });
+      const rows = recordsFromChunks(await listChunks(stream?.id as string)).flatMap((record) =>
+        record.type === 'agent_session' ? [record.row] : [],
+      );
       const lifecycleRows = rows.filter(
         (row): row is Extract<NonNullable<(typeof rows)[number]>, {kind: 'lifecycle'}> =>
           row?.kind === 'lifecycle',
@@ -358,7 +356,7 @@ describe('appendLogs', () => {
 
       expect(lifecycleRows.map((row) => row.label)).toEqual([
         'Session started',
-        'Session completed',
+        'Turn 1 completed',
         'Turn 2 started',
         'Session completed',
       ]);
@@ -366,6 +364,7 @@ describe('appendLogs', () => {
         claudeHasInit: true,
         claudeSessionId: 'session-1',
         claudeTurn: 2,
+        claudePendingResult: null,
       });
     });
 

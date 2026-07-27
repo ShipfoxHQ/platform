@@ -97,6 +97,12 @@
           "notNull": true,
           "default": 0
         },
+        "claude_pending_result": {
+          "name": "claude_pending_result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "truncated": {
           "name": "truncated",
           "type": "boolean",

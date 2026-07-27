@@ -4,6 +4,8 @@ import {
   parseLogRecordLine,
   parseRawLogRecordLine,
   type RawLogRecord,
+  type SessionViewLifecycleRow,
+  type SessionViewRow,
 } from '@shipfox/api-logs-dto';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {logger} from '@shipfox/node-opentelemetry';
@@ -32,6 +34,7 @@ import {
   type ClaudeParseContext,
   claudeInitSessionId,
   createClaudeParseContext,
+  isClaudeInit,
 } from './session/claude-parser.js';
 import type {SessionParseContext} from './session/parse-session.js';
 import {parseSessionRecord} from './session/parse-session.js';
@@ -177,6 +180,7 @@ interface StoredBody {
   body: Buffer;
   recordCounts: Partial<Record<LogRecord['type'], number>>;
   claudeParseContext: ClaudeParseContext | undefined;
+  claudePendingResult: SessionViewLifecycleRow | null | undefined;
 }
 
 /**
@@ -242,6 +246,8 @@ function buildStoredBody(
   records: readonly RawLogRecord[],
   harness: Harness,
   initialClaudeParseContext?: ClaudeParseContext,
+  initialClaudePendingResult?: SessionViewLifecycleRow | null,
+  isStreamFinal = false,
 ): StoredBody {
   const storedRecords: LogRecord[] = [];
   const parseContext: SessionParseContext | undefined =
@@ -253,6 +259,24 @@ function buildStoredBody(
       : undefined;
   const latestClaudeInitIndicesBySessionId =
     harness === 'claude' ? latestClaudeInitIndices(records) : undefined;
+  let pendingResult = initialClaudePendingResult ?? null;
+
+  if (parseContext?.claude !== undefined && pendingResult !== null) {
+    const firstInit = firstClaudeInit(records);
+    if (isStreamFinal || firstInit.hasInit) {
+      storedRecords.push(
+        storedAgentSessionRow(
+          finalizePendingResult(
+            pendingResult,
+            firstInit.sessionId !== undefined &&
+              firstInit.sessionId === parseContext.claude.sessionId,
+            parseContext.claude.turn,
+          ),
+        ),
+      );
+      pendingResult = null;
+    }
+  }
 
   for (const [index, record] of records.entries()) {
     if (record.type !== 'agent_session') {
@@ -269,7 +293,14 @@ function buildStoredBody(
     }
 
     for (const row of parseSessionRecord(agentSessionRecord(record), harness, parseContext)) {
-      storedRecords.push({v: 1, ts: row.timestamp, type: 'agent_session', row});
+      if (parseContext?.claude !== undefined && !isStreamFinal && isClaudeFinalResultRow(row)) {
+        if (pendingResult !== null) {
+          storedRecords.push(storedAgentSessionRow(pendingResult));
+        }
+        pendingResult = row;
+        continue;
+      }
+      storedRecords.push(storedAgentSessionRow(row));
     }
   }
 
@@ -279,7 +310,49 @@ function buildStoredBody(
     recordCounts[record.type] = (recordCounts[record.type] ?? 0) + 1;
   }
 
-  return {body, recordCounts, claudeParseContext: parseContext?.claude};
+  return {
+    body,
+    recordCounts,
+    claudeParseContext: parseContext?.claude,
+    claudePendingResult: parseContext?.claude === undefined ? undefined : pendingResult,
+  };
+}
+
+function storedAgentSessionRow(row: SessionViewRow): LogRecord {
+  return {v: 1, ts: row.timestamp, type: 'agent_session', row};
+}
+
+function isClaudeFinalResultRow(row: SessionViewRow): row is SessionViewLifecycleRow {
+  return row.kind === 'lifecycle' && row.label === 'Session completed';
+}
+
+function finalizePendingResult(
+  row: SessionViewLifecycleRow,
+  sameSession: boolean,
+  turn: number,
+): SessionViewLifecycleRow {
+  if (!sameSession) return row;
+
+  return {
+    ...row,
+    label: `Turn ${turn} completed`,
+    meta: [{label: 'turn', value: String(turn)}, ...row.meta],
+  };
+}
+
+function firstClaudeInit(records: readonly RawLogRecord[]): {
+  hasInit: boolean;
+  sessionId: string | undefined;
+} {
+  for (const record of records) {
+    if (record.type !== 'agent_session') continue;
+    const sessionRecord = agentSessionRecord(record);
+    if (isClaudeInit(sessionRecord)) {
+      return {hasInit: true, sessionId: claudeInitSessionId(sessionRecord)};
+    }
+  }
+
+  return {hasInit: false, sessionId: undefined};
 }
 
 function latestClaudeInitIndices(records: readonly RawLogRecord[]): Map<string, number> {
@@ -379,16 +452,22 @@ export async function appendLogs(
       return {committedLength: cas.committedLength, capped: await isJobCapped(tx, params.jobId)};
     }
 
+    const parseHarness =
+      sessionHarness === 'claude' || stream.claudePendingResult !== null
+        ? 'claude'
+        : sessionHarness;
     const stored = buildStoredBody(
       parsed.records,
-      sessionHarness,
-      sessionHarness === 'claude'
+      parseHarness,
+      parseHarness === 'claude'
         ? {
             hasInit: stream.claudeHasInit,
             sessionId: stream.claudeSessionId,
             turn: stream.claudeTurn,
           }
         : undefined,
+      parseHarness === 'claude' ? stream.claudePendingResult : undefined,
+      declaredTotalBytes !== undefined,
     );
 
     const {
@@ -410,6 +489,7 @@ export async function appendLogs(
           hasInit: stored.claudeParseContext.hasInit,
           sessionId: stored.claudeParseContext.sessionId,
           turn: stored.claudeParseContext.turn,
+          pendingResult: stored.claudePendingResult ?? null,
         });
       }
     }
