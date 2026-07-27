@@ -27,6 +27,17 @@ describe('EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS validation', () => {
     expect(config.EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS).toBe(3600);
   });
 });
+describe('runner assignment polling defaults', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+  it('uses a 250 millisecond interval between assignment reads', async () => {
+    vi.resetModules();
+    const {config} = await import('#config.js');
+    expect(config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS).toBe(250);
+  });
+});
 describe('REGISTRATION_TOKEN_BATCH_MAX validation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

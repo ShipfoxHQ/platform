@@ -328,6 +328,8 @@ async function waitForRunnerActivation(controlSessionToken: string): Promise<str
       try {
         const activationToken = await pollRunnerAssignment(controlSessionToken, controller.signal);
         if (activationToken) return activationToken;
+        await interruptibleSleep(config.SHIPFOX_POLL_INTERVAL_MS, controller.signal);
+        if (heartbeatError) return handleControlSessionError(heartbeatError);
       } catch (error) {
         if (!running) return undefined;
         if (controller.signal.aborted && heartbeatError)

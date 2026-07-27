@@ -10,9 +10,12 @@ vi.mock('#config.js', () => ({
   },
 }));
 
+const {interruptibleSleepMock} = vi.hoisted(() => ({
+  interruptibleSleepMock: vi.fn(async (_ms: number, _signal: AbortSignal) => undefined),
+}));
 vi.mock('@shipfox/node-resilient-loop', async (importActual) => ({
   ...(await importActual<typeof import('@shipfox/node-resilient-loop')>()),
-  interruptibleSleep: vi.fn(async () => undefined),
+  interruptibleSleep: interruptibleSleepMock,
 }));
 
 vi.mock('#core/heartbeat-loop.js', () => ({
@@ -422,6 +425,52 @@ describe('startRunner', () => {
     });
     expect(mockRequestJob).toHaveBeenCalledWith('session-token');
     expect(mockInterruptibleSleep).toHaveBeenCalledTimes(1);
+  });
+
+  it('backs off before retrying a managed assignment poll that returns no token', async () => {
+    vi.stubEnv('SHIPFOX_RUNNER_BOOTSTRAP_TOKEN', 'sf_rbt_bootstrap-token');
+    vi.stubEnv('SHIPFOX_RUNNER_PROVIDER_KIND', 'ec2');
+    vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
+    mockRunnerStartupMode.mockReturnValue('managed');
+    mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
+    mockEnrollRunnerControlSession.mockResolvedValue();
+    mockHeartbeatRunnerControlSession.mockResolvedValue();
+    mockPollRunnerAssignment.mockResolvedValueOnce(null).mockResolvedValueOnce('activation-token');
+    mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
+
+    await startRunner();
+
+    expect(mockPollRunnerAssignment).toHaveBeenCalledTimes(2);
+    expect(mockInterruptibleSleep.mock.calls.map(([ms]) => ms)).toEqual([1, 0]);
+  });
+
+  it('surfaces heartbeat failures during a managed assignment retry backoff', async () => {
+    vi.useFakeTimers();
+    const heartbeatError = new Error('heartbeat failed');
+    vi.stubEnv('SHIPFOX_RUNNER_BOOTSTRAP_TOKEN', 'sf_rbt_bootstrap-token');
+    vi.stubEnv('SHIPFOX_RUNNER_PROVIDER_KIND', 'ec2');
+    vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
+    mockRunnerStartupMode.mockReturnValue('managed');
+    mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
+    mockEnrollRunnerControlSession.mockResolvedValue();
+    mockHeartbeatRunnerControlSession.mockResolvedValueOnce().mockRejectedValueOnce(heartbeatError);
+    mockPollRunnerAssignment.mockResolvedValue(null);
+    mockInterruptibleSleep.mockImplementationOnce(
+      async (_ms, signal) =>
+        await new Promise<void>((resolve) =>
+          signal.addEventListener('abort', () => resolve(), {once: true}),
+        ),
+    );
+
+    try {
+      const runner = startRunner();
+      const expectation = expect(runner).rejects.toBe(heartbeatError);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      await expectation;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('retries a failed first direct registration', async () => {
