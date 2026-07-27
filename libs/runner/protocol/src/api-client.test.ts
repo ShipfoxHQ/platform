@@ -565,6 +565,45 @@ describe('api-client auth contexts', () => {
     const body = JSON.parse(calls[0]?.body ?? '{}');
     expect(body.error.message).toHaveLength(STEP_ERROR_MESSAGE_MAX_LENGTH);
   });
+
+  it('retries a 400 report without error classification fields', async () => {
+    const responses = [
+      jsonResponse({code: 'invalid-step-error'}, 400),
+      jsonResponse({ok: true, cancel: false}),
+    ];
+    stubFetch(() => responses.shift() ?? new Response(null, {status: 500}));
+    const leaseClient = createLeaseClient('lease-error');
+
+    await reportStep(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 1,
+      status: 'failed',
+      error: {
+        message: 'The runner could not start the agent',
+        exit_code: null,
+        signal: 'SIGTERM',
+        reason: 'agent_config_invalid',
+        agent_config_issue: 'provider_not_configured',
+        field: 'agent_config',
+        source: 'runner',
+      },
+      exitCode: 1,
+      logOutcome: 'drained',
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(calls[1]?.body ?? '{}')).toEqual({
+      status: 'failed',
+      attempt: 1,
+      exit_code: 1,
+      error: {
+        message: 'The runner could not start the agent',
+        exit_code: null,
+        signal: 'SIGTERM',
+      },
+      log_outcome: 'drained',
+    });
+  });
 });
 
 describe('appendStepLogs', () => {
