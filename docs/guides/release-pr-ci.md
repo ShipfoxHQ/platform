@@ -24,8 +24,11 @@ When the tree matches the generated Changesets output:
 - the application-release manifest records the prior image revision in
   `artifactReuse`.
 
-If GitHub metadata, the parent revision, generated tree, or any prior image
-digest cannot be resolved, the workflow uses normal validation or fails before
-publishing an incomplete application release. Ordinary source, configuration,
-dependency, Dockerfile, Packer, workflow, or application metadata changes keep
-the full `main` pipeline.
+If GitHub metadata, the parent revision, or generated tree cannot be resolved,
+the workflow uses normal validation. The version-only path also verifies every
+parent application-image revision tag before selecting reuse. If any tag is
+missing or does not resolve to an immutable digest, the current release commit
+runs the full `main` pipeline and builds its images once. It never substitutes
+an older image revision. Ordinary source, configuration, dependency,
+Dockerfile, Packer, workflow, or application metadata changes also keep the
+full `main` pipeline.

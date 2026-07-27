@@ -3,9 +3,19 @@ import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
+const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const REVISION_PATTERN = /^[a-f0-9]{40}$/;
+
 function argument(name) {
   const index = process.argv.indexOf(`--${name}`);
   return index === -1 ? undefined : process.argv[index + 1];
+}
+
+function argumentValues(name) {
+  const option = `--${name}`;
+  return process.argv.flatMap((value, index) =>
+    value === option && process.argv[index + 1] ? [process.argv[index + 1]] : [],
+  );
 }
 
 function run(command, args) {
@@ -20,7 +30,7 @@ function run(command, args) {
       stderr += chunk;
     });
     child.once('error', reject);
-    child.once('exit', (code) => resolveCommand({code, stderr, stdout}));
+    child.once('close', (code) => resolveCommand({code, stderr, stdout}));
   });
 }
 
@@ -157,10 +167,10 @@ async function writeMainClassification(result) {
       `- Reason: \`${result.reason}\``,
       ...(result.releasePrUrl ? [`- Generated release PR: ${result.releasePrUrl}`] : []),
       ...(result.previousRevision
-        ? [`- Prior validated revision: \`${result.previousRevision}\``]
+        ? [`- Prior candidate revision: \`${result.previousRevision}\``]
         : []),
       result.versionOnlyMain
-        ? '- Application validation and image bytes can be reused from the prior revision.'
+        ? '- Application validation can use the fast path if prior image bytes are available.'
         : '- The workflow keeps the full main validation and build path.',
     ].join('\n'),
   );
@@ -196,7 +206,7 @@ async function classifyMain() {
     return;
   }
   const previousRevision = parentResult.stdout.trim();
-  if (!/^[a-f0-9]{40}$/.test(previousRevision)) {
+  if (!REVISION_PATTERN.test(previousRevision)) {
     await writeMainClassification(
       classificationResult(
         {},
@@ -331,6 +341,64 @@ async function classifyMain() {
   );
 }
 
+async function verifyImageReuse() {
+  const revision = argument('revision');
+  const imageRepositories = [...new Set(argumentValues('image-repository'))];
+  const references = imageRepositories.map(
+    (repository) => `${repository}:revision-${revision ?? ''}`,
+  );
+  let unavailableReferences = [];
+  let reason;
+
+  if (!REVISION_PATTERN.test(revision ?? '')) {
+    reason = 'prior-image-revision-invalid';
+  } else if (imageRepositories.length === 0) {
+    reason = 'application-image-repositories-missing';
+  } else {
+    const resolutions = await Promise.all(
+      references.map(async (reference) => {
+        const result = await run('oras', ['resolve', reference]);
+        return {
+          available: result.code === 0 && DIGEST_PATTERN.test(result.stdout.trim()),
+          reference,
+        };
+      }),
+    );
+    unavailableReferences = resolutions
+      .filter(({available}) => !available)
+      .map(({reference}) => reference);
+    reason =
+      unavailableReferences.length === 0
+        ? 'prior-application-images-available'
+        : 'prior-application-images-unavailable';
+  }
+
+  const versionOnlyMain = reason === 'prior-application-images-available';
+  await writeOutput({
+    version_only_main: String(versionOnlyMain),
+    reason,
+  });
+  await writeSummary(
+    [
+      '## Application image reuse classification',
+      '',
+      `- Result: **${versionOnlyMain ? 'version-only' : 'normal CI'}**`,
+      `- Reason: \`${reason}\``,
+      ...(revision ? [`- Prior revision: \`${revision}\``] : []),
+      ...(unavailableReferences.length > 0
+        ? [
+            '- Unavailable image references:',
+            ...unavailableReferences.map((reference) => `  - \`${reference}\``),
+          ]
+        : []),
+      versionOnlyMain
+        ? '- All prior image digests are available; image bytes can be reused.'
+        : '- The current release commit will run full validation and build its images once.',
+    ].join('\n'),
+  );
+  process.stdout.write(`${JSON.stringify({reason, unavailableReferences, versionOnlyMain})}\n`);
+}
+
 async function summarizeUpdate() {
   const before = JSON.parse(await readFile(argument('before'), 'utf8'));
   const after = JSON.parse(await readFile(argument('after'), 'utf8'));
@@ -371,6 +439,7 @@ const command = process.argv[2];
 if (command === 'plan') await plan();
 else if (command === 'authorize') await authorize();
 else if (command === 'classify-main') await classifyMain();
+else if (command === 'verify-image-reuse') await verifyImageReuse();
 else if (command === 'summarize-update') await summarizeUpdate();
 else if (command === 'summarize-publication') await summarizePublication();
 else throw new Error(`Unknown package release workflow command: ${command ?? '(missing)'}`);

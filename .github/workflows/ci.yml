@@ -133,9 +133,60 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
+  release-image-classification:
+    name: Verify reusable application image revision
+    needs: [release-classification]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      needs.release-classification.result == 'success' &&
+      needs.release-classification.outputs.version_only_main == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      version_only_main: ${{ steps.classify-images.outputs.version_only_main || 'false' }}
+      reason: ${{ steps.classify-images.outputs.reason || 'prior-application-images-unavailable' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Set up mise
+        uses: ./.github/actions/setup-mise
+        with:
+          tools: node
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+        with:
+          version: 1.3.3
+
+      - name: Log in to GHCR for image reuse classification
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" \
+            | oras login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Classify reusable image revision
+        id: classify-images
+        env:
+          PREVIOUS_REVISION: ${{ needs.release-classification.outputs.version_only_previous_revision }}
+        run: |
+          node .github/scripts/package-release-workflow.mjs verify-image-reuse \
+            --revision "$PREVIOUS_REVISION" \
+            --image-repository ghcr.io/shipfoxhq/api \
+            --image-repository ghcr.io/shipfoxhq/client \
+            --image-repository ghcr.io/shipfoxhq/provisioner-docker \
+            --image-repository ghcr.io/shipfoxhq/provisioner-ec2 \
+            --image-repository ghcr.io/shipfoxhq/runner \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
   release-mode:
     name: Select CI execution mode
-    needs: [release-classification]
+    needs: [release-classification, release-image-classification]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -150,11 +201,15 @@ jobs:
         env:
           CLASSIFICATION_RESULT: ${{ needs.release-classification.result }}
           GENERATED_RELEASE: ${{ needs.release-classification.outputs.generated_release }}
-          VERSION_ONLY_MAIN: ${{ needs.release-classification.outputs.version_only_main }}
+          IMAGE_CLASSIFICATION_RESULT: ${{ needs.release-image-classification.result }}
+          REUSABLE_IMAGES: ${{ needs.release-image-classification.outputs.version_only_main }}
+          VERSION_ONLY_MAIN_CANDIDATE: ${{ needs.release-classification.outputs.version_only_main }}
         run: |
           mode=normal
           if [[ "$CLASSIFICATION_RESULT" == success ]]; then
-            if [[ "$VERSION_ONLY_MAIN" == true ]]; then
+            if [[ "$VERSION_ONLY_MAIN_CANDIDATE" == true &&
+                  "$IMAGE_CLASSIFICATION_RESULT" == success &&
+                  "$REUSABLE_IMAGES" == true ]]; then
               mode=version-only-main
             elif [[ "$GENERATED_RELEASE" == true ]]; then
               mode=generated-release
