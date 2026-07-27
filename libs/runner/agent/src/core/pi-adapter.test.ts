@@ -301,6 +301,12 @@ describe('piHarnessAdapter', () => {
   it('fails before creating a Pi session when extension setup reports an error', async () => {
     createAgentSessionServicesMock.mockResolvedValue({
       ...piServices('/work', [{type: 'error', message: 'Unknown option: --mcp-config'}]),
+      resourceLoader: {
+        getExtensions: () => ({
+          extensions: [{resolvedPath: `${piWebAccessDirectory}/index.ts`}],
+          errors: [],
+        }),
+      },
     });
 
     const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
@@ -314,6 +320,7 @@ describe('piHarnessAdapter', () => {
         model: 'claude-opus-4-8',
         thinking: 'high',
         extensionPaths: ['pi-web-access'],
+        resolvedExtensionPaths: [`${piWebAccessDirectory}/index.ts`],
       },
     });
     expect(createAgentSessionMock).not.toHaveBeenCalled();
@@ -331,7 +338,12 @@ describe('piHarnessAdapter', () => {
       },
     });
 
-    await expect(piHarnessAdapter.run(invocation())).rejects.toThrow(piPathError.error);
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+    expect(error).toBeInstanceOf(AgentHarnessUnavailableError);
+    expect(error).toMatchObject({
+      message: `Pi extension setup failed: Unknown option: --mcp-config; ${piPathError.error}`,
+      resourceLoaderErrors: [piPathError],
+    });
     expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
 

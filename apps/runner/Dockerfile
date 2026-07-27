@@ -118,12 +118,18 @@ USER shipfox
 ARG IMAGE_SOURCE="https://github.com/ShipfoxHQ/shipfox"
 ARG IMAGE_REVISION
 ARG IMAGE_CREATED
+ARG BUILD_NUMBER
+ARG RUNNER_VERSION
 LABEL org.opencontainers.image.title="@shipfox/runner" \
       org.opencontainers.image.description="Shipfox runner" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source=$IMAGE_SOURCE \
       org.opencontainers.image.revision=$IMAGE_REVISION \
       org.opencontainers.image.created=$IMAGE_CREATED
+ENV IMAGE_REVISION=$IMAGE_REVISION \
+    IMAGE_CREATED=$IMAGE_CREATED \
+    BUILD_NUMBER=$BUILD_NUMBER \
+    RUNNER_VERSION=$RUNNER_VERSION
 
 # tini as PID 1; --enable-source-maps maps stack traces back to TypeScript.
 # OpenTelemetry is started in-process by startRunner(), so it needs no preload

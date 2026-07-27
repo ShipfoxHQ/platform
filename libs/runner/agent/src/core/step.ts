@@ -25,7 +25,11 @@ import {
   createIntegrationToolsBridge,
   type IntegrationToolsBridge,
 } from '#core/integration-tools-bridge.js';
+import {piPackageVersions} from '#core/package-versions.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
+
+const MAX_HARNESS_DIAGNOSTICS = 5;
+const MAX_HARNESS_DIAGNOSTIC_MESSAGE_LENGTH = 500;
 
 export async function executeAgentStep(
   step: StepDto,
@@ -89,6 +93,8 @@ export async function executeAgentStep(
 
   try {
     return await runSelectedHarness({
+      jobExecutionId: step.job_execution_id,
+      stepId: step.id,
       cwd: options.cwd ?? process.cwd(),
       harness: options.runtime.harness,
       model: options.runtime.model,
@@ -110,6 +116,8 @@ export async function executeAgentStep(
 }
 
 async function runSelectedHarness(params: {
+  jobExecutionId: string;
+  stepId: string;
   cwd: string;
   harness: Harness;
   model: string;
@@ -126,6 +134,8 @@ async function runSelectedHarness(params: {
   onSessionEntry: ((line: string) => void) | undefined;
 }): Promise<StepResult> {
   const {
+    jobExecutionId,
+    stepId,
     cwd,
     harness,
     model,
@@ -170,6 +180,9 @@ async function runSelectedHarness(params: {
       exit_code: 0,
     };
   } catch (error) {
+    if (error instanceof AgentHarnessUnavailableError) {
+      logHarnessUnavailable({error, harness, jobExecutionId, stepId});
+    }
     const reason: StepErrorReasonDto =
       error instanceof AgentHarnessUnavailableError
         ? 'agent_harness_unavailable'
@@ -183,6 +196,48 @@ async function runSelectedHarness(params: {
       error instanceof AgentInvocationError ? error.response : undefined,
     );
   }
+}
+
+function logHarnessUnavailable(params: {
+  error: AgentHarnessUnavailableError;
+  harness: Harness;
+  jobExecutionId: string;
+  stepId: string;
+}): void {
+  const {error, harness, jobExecutionId, stepId} = params;
+  const {environment} = error;
+  logger().error(
+    {
+      event: 'runner.agent_harness_unavailable',
+      harness,
+      jobExecutionId,
+      stepId,
+      cwd: environment.cwd,
+      provider: environment.provider,
+      model: environment.model,
+      thinking: environment.thinking,
+      requestedExtensionPaths: environment.extensionPaths,
+      ...(environment.resolvedExtensionPaths === undefined
+        ? {}
+        : {resolvedExtensionPaths: environment.resolvedExtensionPaths}),
+      diagnostics: error.diagnostics.slice(0, MAX_HARNESS_DIAGNOSTICS).map((diagnostic) => ({
+        type: diagnostic.type,
+        message: diagnostic.message.slice(0, MAX_HARNESS_DIAGNOSTIC_MESSAGE_LENGTH),
+      })),
+      resourceLoaderErrors: error.resourceLoaderErrors
+        .slice(0, MAX_HARNESS_DIAGNOSTICS)
+        .map((resourceError) => ({
+          path: resourceError.path,
+          error: resourceError.error.slice(0, MAX_HARNESS_DIAGNOSTIC_MESSAGE_LENGTH),
+        })),
+      packageVersions: piPackageVersions(),
+      ...(process.env.RUNNER_VERSION ? {runnerVersion: process.env.RUNNER_VERSION} : {}),
+      ...(process.env.IMAGE_REVISION ? {imageRevision: process.env.IMAGE_REVISION} : {}),
+      ...(process.env.IMAGE_CREATED ? {imageCreated: process.env.IMAGE_CREATED} : {}),
+      ...(process.env.BUILD_NUMBER ? {buildNumber: process.env.BUILD_NUMBER} : {}),
+    },
+    'Agent harness unavailable',
+  );
 }
 
 async function selectHarnessAdapter(harness: Harness): Promise<HarnessAdapter> {

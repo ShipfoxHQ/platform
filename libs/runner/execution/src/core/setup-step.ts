@@ -360,10 +360,10 @@ function writeRunnerEnvironment(log: SetupLogSink | undefined, gitVersion: strin
 
 function buildMetadataLines(): string[] {
   const lines: string[] = [];
-  if (process.env.npm_package_version)
-    lines.push(`Runner package version: ${process.env.npm_package_version}`);
+  if (process.env.RUNNER_VERSION) lines.push(`Runner version: ${process.env.RUNNER_VERSION}`);
   if (process.env.IMAGE_REVISION)
     lines.push(`Runner image revision: ${process.env.IMAGE_REVISION}`);
+  if (process.env.IMAGE_CREATED) lines.push(`Runner image created: ${process.env.IMAGE_CREATED}`);
   if (process.env.BUILD_NUMBER) lines.push(`Runner build number: ${process.env.BUILD_NUMBER}`);
   return lines;
 }

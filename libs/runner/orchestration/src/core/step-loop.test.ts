@@ -317,6 +317,7 @@ describe('runJobSteps', () => {
       result: {success: true, response: '', error: null, exit_code: 0},
       logOutcome: 'drained',
       jobId: JOB_ID,
+      jobExecutionId: JOB_CONTEXT.jobExecutionId,
       stepLabel: 'build',
       signal: ac.signal,
     });
@@ -331,6 +332,46 @@ describe('runJobSteps', () => {
       logOutcome: 'drained',
       signal: ac.signal,
     });
+  });
+
+  it('logs failed step identity and bounded error context', async () => {
+    const error = vi.spyOn(logger(), 'error').mockImplementation(() => undefined);
+    const run = buildRunStep();
+    const ac = new AbortController();
+
+    await reportStepResult({
+      leaseClient,
+      step: run,
+      attempt: 3,
+      result: {
+        success: false,
+        error: {
+          reason: 'agent_config_invalid',
+          agent_config_issue: 'provider_not_configured',
+          message: 'x'.repeat(250),
+        },
+        exit_code: null,
+      },
+      logOutcome: 'drained',
+      jobId: JOB_ID,
+      jobExecutionId: JOB_CONTEXT.jobExecutionId,
+      stepLabel: 'build',
+      signal: ac.signal,
+    });
+
+    expect(error).toHaveBeenCalledWith(
+      {
+        jobId: JOB_ID,
+        jobExecutionId: JOB_CONTEXT.jobExecutionId,
+        stepId: run.id,
+        stepName: run.name,
+        attempt: 3,
+        reason: 'agent_config_invalid',
+        agentConfigIssue: 'provider_not_configured',
+        message: 'x'.repeat(200),
+      },
+      'Step build failed',
+    );
   });
 
   it('pullNextStep returns the step-scoped lease token', async () => {
