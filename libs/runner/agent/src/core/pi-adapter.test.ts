@@ -81,7 +81,7 @@ import {
   DEFAULT_CUSTOM_MODEL_MAX_OUTPUT_TOKENS,
   DEFAULT_CUSTOM_MODEL_REASONING,
 } from '@shipfox/api-agent-dto';
-import {AgentConfigError} from '#core/errors.js';
+import {AgentConfigError, AgentHarnessUnavailableError} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
@@ -286,9 +286,19 @@ describe('piHarnessAdapter', () => {
       diagnostics: [{type: 'error', message: 'Unknown option: --mcp-config'}],
     });
 
-    await expect(piHarnessAdapter.run(invocation())).rejects.toThrow(
-      'Pi extension setup failed: Unknown option: --mcp-config',
-    );
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+    expect(error).toBeInstanceOf(AgentHarnessUnavailableError);
+    expect(error).toMatchObject({
+      message: 'Pi extension setup failed: Unknown option: --mcp-config',
+      diagnostics: [{type: 'error', message: 'Unknown option: --mcp-config'}],
+      environment: {
+        cwd: '/work',
+        provider: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'high',
+        extensionPaths: ['pi-web-access'],
+      },
+    });
     expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
 
@@ -773,6 +783,7 @@ describe('piHarnessAdapter', () => {
     ).rejects.toThrow(
       new AgentConfigError(
         'Custom model provider endpoint blocked by egress policy: private-network (10.0.0.12).',
+        'step_config_invalid',
       ),
     );
     expect(registerProviderMock).not.toHaveBeenCalled();
@@ -795,6 +806,7 @@ describe('piHarnessAdapter', () => {
     ).rejects.toThrow(
       new AgentConfigError(
         'Custom model provider "custom" is invalid: "apiKey" or "oauth" is required when defining models',
+        'step_config_invalid',
       ),
     );
     expect(createAgentSessionMock).not.toHaveBeenCalled();

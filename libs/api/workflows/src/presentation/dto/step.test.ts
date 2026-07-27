@@ -49,6 +49,26 @@ describe('fromStepErrorDto', () => {
     });
   });
 
+  it('round-trips an agent harness availability failure without inventing an issue code', () => {
+    const persisted = fromStepErrorDto({
+      message: 'Pi extension setup failed: Unknown option: --mcp-config',
+      reason: 'agent_harness_unavailable',
+    });
+
+    expect(persisted).toEqual({
+      message: 'Pi extension setup failed: Unknown option: --mcp-config',
+      reason: 'agent_harness_unavailable',
+    });
+
+    const dto = toStepDto(step({type: 'agent', error: persisted}));
+
+    expect(dto.error).toEqual({
+      message: 'Pi extension setup failed: Unknown option: --mcp-config',
+      reason: 'agent_harness_unavailable',
+      category: 'user',
+    });
+  });
+
   it('persists config error field and source diagnostics', () => {
     const persisted = fromStepErrorDto({
       message: 'Could not resolve env.VERSION',

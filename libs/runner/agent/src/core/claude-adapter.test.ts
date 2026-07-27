@@ -270,6 +270,7 @@ describe('claudeHarnessAdapter', () => {
     await expect(result).rejects.toThrow(
       new AgentConfigError(
         'Claude Anthropic API endpoint blocked by egress policy: host-denied (api.anthropic.com).',
+        'step_config_invalid',
       ),
     );
     expect(queryMock).not.toHaveBeenCalled();
@@ -365,6 +366,7 @@ describe('claudeHarnessAdapter', () => {
     await expect(result).rejects.toThrow(
       new AgentConfigError(
         'Claude Anthropic base URL override blocked by egress policy: host-denied (blocked.example.test).',
+        'step_config_invalid',
       ),
     );
     expect(queryMock).not.toHaveBeenCalled();

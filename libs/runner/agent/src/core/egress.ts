@@ -12,6 +12,7 @@ export async function assertRunnerEgressAllowed(
     if (error instanceof EgressDeniedError) {
       throw new AgentConfigError(
         `${blockedTargetLabel} blocked by egress policy: ${error.reason} (${error.target}).`,
+        'step_config_invalid',
       );
     }
     throw error;

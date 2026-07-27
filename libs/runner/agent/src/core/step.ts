@@ -15,7 +15,11 @@ import {logger} from '@shipfox/node-opentelemetry';
 import type {StepResult} from '@shipfox/runner-execution';
 import {createIntegrationToolsGatewayFetch, type LeaseTokenSource} from '@shipfox/runner-protocol';
 import {z} from 'zod';
-import {AgentConfigError, AgentInvocationError} from '#core/errors.js';
+import {
+  AgentConfigError,
+  AgentHarnessUnavailableError,
+  AgentInvocationError,
+} from '#core/errors.js';
 import type {HarnessAdapter} from '#core/harness.js';
 import {
   createIntegrationToolsBridge,
@@ -167,7 +171,11 @@ async function runSelectedHarness(params: {
     };
   } catch (error) {
     const reason: StepErrorReasonDto =
-      error instanceof AgentConfigError ? 'agent_config_invalid' : 'agent_invocation_failed';
+      error instanceof AgentHarnessUnavailableError
+        ? 'agent_harness_unavailable'
+        : error instanceof AgentConfigError
+          ? 'agent_config_invalid'
+          : 'agent_invocation_failed';
     return agentFailure(
       error instanceof Error ? error.message : String(error),
       reason,
