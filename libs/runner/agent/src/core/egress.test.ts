@@ -50,6 +50,7 @@ describe('assertRunnerEgressAllowed', () => {
     await expect(result).rejects.toThrow(
       new AgentConfigError(
         'Claude endpoint blocked by egress policy: host-denied (api.anthropic.com).',
+        'step_config_invalid',
       ),
     );
   });

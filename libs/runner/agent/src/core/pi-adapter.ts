@@ -21,7 +21,11 @@ import {
 import {logger} from '@shipfox/node-opentelemetry';
 import {Type} from 'typebox';
 import {assertRunnerEgressAllowed} from '#core/egress.js';
-import {AgentConfigError, AgentInvocationError} from '#core/errors.js';
+import {
+  AgentConfigError,
+  AgentHarnessUnavailableError,
+  AgentInvocationError,
+} from '#core/errors.js';
 import type {HarnessAdapter, HarnessInvocation, HarnessResult} from '#core/harness.js';
 import {
   OutputCollector,
@@ -113,7 +117,14 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
           mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
       },
     });
-    assertPiServiceDiagnostics(services.diagnostics);
+    assertPiServiceDiagnostics(services.diagnostics, {
+      cwd,
+      provider,
+      model: modelId,
+      thinking,
+      extensionPaths:
+        mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
+    });
 
     const createdSession = await createAgentSessionFromServices({
       services,
@@ -230,12 +241,11 @@ interface PiMcpConfig {
 
 function assertPiServiceDiagnostics(
   diagnostics: Awaited<ReturnType<typeof createAgentSessionServices>>['diagnostics'],
+  environment: AgentHarnessUnavailableError['environment'],
 ): void {
   const errors = diagnostics.filter((diagnostic) => diagnostic.type === 'error');
   if (errors.length === 0) return;
-  throw new AgentConfigError(
-    `Pi extension setup failed: ${errors.map((diagnostic) => diagnostic.message).join('; ')}`,
-  );
+  throw new AgentHarnessUnavailableError({diagnostics, environment});
 }
 
 async function createPiMcpConfig(
@@ -379,6 +389,7 @@ async function registerCustomProvider(
       error instanceof Error && error.message.length > 0
         ? `Custom model provider "${provider}" is invalid: ${error.message}`
         : `Custom model provider "${provider}" is invalid.`,
+      'step_config_invalid',
     );
   }
 }

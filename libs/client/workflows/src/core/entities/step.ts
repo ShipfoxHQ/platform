@@ -10,7 +10,8 @@ export type StepErrorReason =
   | 'config_unresolvable'
   | 'output_invalid'
   | 'agent_config_invalid'
-  | 'agent_invocation_failed';
+  | 'agent_invocation_failed'
+  | 'agent_harness_unavailable';
 export type AgentConfigIssue =
   | 'step_config_invalid'
   | 'provider_not_configured'
@@ -29,6 +30,7 @@ export const STEP_ERROR_REASONS = new Set<StepErrorReason>([
   'output_invalid',
   'agent_config_invalid',
   'agent_invocation_failed',
+  'agent_harness_unavailable',
 ]);
 export const AGENT_CONFIG_ISSUES = new Set<AgentConfigIssue>([
   'step_config_invalid',

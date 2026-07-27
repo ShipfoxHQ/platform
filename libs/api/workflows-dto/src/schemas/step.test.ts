@@ -75,6 +75,7 @@ describe('stepErrorDtoSchema', () => {
     undefined,
     'workspace_prep_failed',
     'agent_invocation_failed',
+    'agent_harness_unavailable',
   ] as const)('rejects an agent config issue when reason is %s', (reason) => {
     const result = stepErrorDtoSchema.safeParse({
       message: 'Model provider credentials are not configured',
@@ -83,6 +84,18 @@ describe('stepErrorDtoSchema', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it('accepts an agent harness availability failure without an agent config issue', () => {
+    const result = stepErrorDtoSchema.parse({
+      message: 'Pi extension setup failed: Unknown option: --mcp-config',
+      reason: 'agent_harness_unavailable',
+    });
+
+    expect(result).toEqual({
+      message: 'Pi extension setup failed: Unknown option: --mcp-config',
+      reason: 'agent_harness_unavailable',
+    });
   });
 });
 

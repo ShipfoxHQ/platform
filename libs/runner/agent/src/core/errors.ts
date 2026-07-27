@@ -1,3 +1,4 @@
+import type {AgentSessionRuntimeDiagnostic} from '@earendil-works/pi-coding-agent';
 import type {AgentConfigIssueDto} from '@shipfox/api-workflows-dto';
 
 /**
@@ -10,10 +11,39 @@ import type {AgentConfigIssueDto} from '@shipfox/api-workflows-dto';
 export class AgentConfigError extends Error {
   constructor(
     message: string,
-    public readonly agentConfigIssue: AgentConfigIssueDto = 'step_config_invalid',
+    public readonly agentConfigIssue: AgentConfigIssueDto,
   ) {
     super(message);
     this.name = 'AgentConfigError';
+  }
+}
+
+export interface AgentHarnessEnvironment {
+  readonly cwd: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly thinking: string;
+  readonly extensionPaths: readonly string[];
+}
+
+export class AgentHarnessUnavailableError extends Error {
+  public readonly diagnostics: readonly AgentSessionRuntimeDiagnostic[];
+  public readonly environment: AgentHarnessEnvironment;
+
+  constructor({
+    diagnostics,
+    environment,
+  }: {
+    diagnostics: readonly AgentSessionRuntimeDiagnostic[];
+    environment: AgentHarnessEnvironment;
+  }) {
+    const errors = diagnostics.filter((diagnostic) => diagnostic.type === 'error');
+    super(
+      `Pi extension setup failed: ${errors.map((diagnostic) => diagnostic.message).join('; ')}`,
+    );
+    this.name = 'AgentHarnessUnavailableError';
+    this.diagnostics = diagnostics;
+    this.environment = environment;
   }
 }
 

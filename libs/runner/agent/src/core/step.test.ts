@@ -41,7 +41,11 @@ import {
   AGENT_INTEGRATION_MCP_TRANSPORT,
 } from '@shipfox/api-agent-dto';
 import type {StepDto} from '@shipfox/api-workflows-dto';
-import {AgentConfigError, AgentInvocationError} from '#core/errors.js';
+import {
+  AgentConfigError,
+  AgentHarnessUnavailableError,
+  AgentInvocationError,
+} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import {executeAgentStep} from '#core/step.js';
 
@@ -367,6 +371,30 @@ describe('executeAgentStep', () => {
       message: 'Unknown provider "foo" for agent step.',
       reason: 'agent_config_invalid',
       agent_config_issue: 'provider_unsupported',
+    });
+  });
+
+  it('fails with agent_harness_unavailable without an agent config issue', async () => {
+    runAgentMock.mockRejectedValue(
+      new AgentHarnessUnavailableError({
+        diagnostics: [{type: 'error', message: 'Unknown option: --mcp-config'}],
+        environment: {
+          cwd: '/work',
+          provider: 'anthropic',
+          model: 'claude-opus-4-8',
+          thinking: 'high',
+          extensionPaths: ['pi-web-access', 'pi-mcp-adapter'],
+        },
+      }),
+    );
+    const result = await executeAgentStep(buildAgentStep(), {runtime: RUNTIME});
+    expect(result).toEqual({
+      success: false,
+      error: {
+        message: 'Pi extension setup failed: Unknown option: --mcp-config',
+        reason: 'agent_harness_unavailable',
+      },
+      exit_code: null,
     });
   });
 
