@@ -9,6 +9,14 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
 - **`WorkflowExpression`**: Stores the CEL tag, source, and check level.
 - **`ExpressionTypeEnvironment`**: Lists names and field types for typed checks.
 - **`evaluateWorkflowExpression`**: Runs a checked value against caller data.
+- **`evaluateWorkflowExpressionWithEnvironment`**: Runs a checked value against
+  a caller-owned CEL environment for explicitly scoped custom functions.
+- **`WorkflowExpressionEnvironment`**: The evaluate-only environment shape
+  accepted by the scoped evaluator.
+- **`createRangeEnvironment`**: Creates an opt-in evaluator with the bounded,
+  inclusive `range(start, stop, step)` config-templating function.
+- **`MAX_RANGE_ELEMENTS`**: The per-evaluation range materialization limit,
+  currently 1,000 values.
 - **`evaluateWorkflowPredicate`**: Returns `true` only for the boolean `true`.
 - **`parseWorkflowTemplate`**: Splits strings with `${{ ... }}` spans into
   ordered literal and expression segments.
@@ -69,6 +77,18 @@ const passed = evaluateWorkflowPredicate(expression, {
 - Treat the `event`, `inputs`, and open `jobs` contexts as untrusted.
   Interpolation field policies decide what untrusted data may reach each field.
 - Evaluation is deterministic and has no side effects.
+- Workflow evaluation does not include config-templating functions. Use a
+  caller-owned environment when a custom function is intentionally needed.
+- The config-templating range evaluator accepts CEL integers and safe integer
+  values from JavaScript contexts. It creates a fresh CEL environment and one
+  materialization budget for each evaluation, shared by nested range calls;
+  each evaluation can materialize at most 1,000 values.
+- Field resolution remains string-based by default. Callers rendering config
+  objects may opt into raw values for an exact single expression with
+  `preserveSingleExpressionType: true`; mixed literal and expression fields
+  remain strings. Under the `fail` policy, missing exact typed fields fail
+  rather than silently becoming an empty string; `runner-fill` segments remain
+  deferred for the runner instead of being hard-failed server-side.
 - The caller must pass values that match the checked data shape.
 - The evaluator does not read secrets, database rows, events, files, or external
   services.
