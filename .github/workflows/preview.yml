@@ -133,13 +133,17 @@ jobs:
         if: steps.plan.outputs.should_deploy == 'true'
         run: |
           set -euo pipefail
+          archive_started="$(date +%s)"
           node tools/cloudflare-pages/bin/cloudflare-pages.js archive-all \
             --config "$PAGES_CONFIG" \
             --plan-file "$RUNNER_TEMP/preview-plan.json" \
             --artifact-directory "$RUNNER_TEMP/cloudflare-pages-artifact" \
             --output "$RUNNER_TEMP/cloudflare-pages-artifact/.shipfox-pages-plan.json"
+          archive_finished="$(date +%s)"
+          echo "archive_seconds=$((archive_finished - archive_started))" >> "$GITHUB_OUTPUT"
 
       - name: Upload verified preview artifact
+        id: upload-artifact
         if: steps.plan.outputs.should_deploy == 'true' && success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -155,12 +159,16 @@ jobs:
           BUILD_SECONDS: ${{ steps.build.outputs.build_seconds || 'unavailable' }}
           VALIDATION_RESULT: ${{ steps.validation.outcome }}
           VALIDATION_SECONDS: ${{ steps.validation.outputs.validation_seconds || 'unavailable' }}
+          ARTIFACT_ONLY: true
+          ARTIFACT_RESULT: ${{ steps.archive.outcome || 'skipped' }}
+          ARTIFACT_SECONDS: ${{ steps.archive.outputs.archive_seconds || 'unavailable' }}
+          ARTIFACT_UPLOAD_RESULT: ${{ steps.upload-artifact.outcome || 'skipped' }}
           PLAN_RESULT: ${{ steps.plan.outputs.should_deploy || 'unavailable' }}
           PLAN_REASON: ${{ steps.plan.outputs.reason || 'unavailable' }}
           QUEUE_SECONDS: ${{ steps.queue.outputs.queue_seconds || 'unavailable' }}
-          DEPLOYMENT_RESULT: archived
+          DEPLOYMENT_RESULT: not-run
           DEPLOYMENT_SECONDS: unavailable
-          DEPLOYMENT_VERIFICATION_RESULT: pending
+          DEPLOYMENT_VERIFICATION_RESULT: not-run
           DEPLOYMENT_VERIFICATION_SECONDS: unavailable
         run: >-
           node tools/cloudflare-pages/bin/cloudflare-pages.js summary

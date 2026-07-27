@@ -119,10 +119,24 @@ export async function assertCurrentCommit({
 
   const result = await runner(
     command,
-    ['api', `repos/${resolvedRepository}/pulls/${resolvedPullRequest}`, '--jq', '.head.sha'],
+    [
+      'api',
+      `repos/${resolvedRepository}/pulls/${resolvedPullRequest}`,
+      '--jq',
+      '{headSha: .head.sha, state: .state, baseRef: .base.ref}',
+    ],
     {cwd, stream: false, timeoutMs},
   );
-  const currentCommit = result.output.trim();
+  const pullRequestState = parseJsonOutput(result.output, 'GitHub pull request');
+  const currentCommit =
+    typeof pullRequestState.headSha === 'string' ? pullRequestState.headSha : '';
+  const state = typeof pullRequestState.state === 'string' ? pullRequestState.state : '';
+  const baseRef = typeof pullRequestState.baseRef === 'string' ? pullRequestState.baseRef : '';
+  if (state !== 'open' || baseRef !== 'main') {
+    throw new Error(
+      `Pull request ${resolvedPullRequest} is not an open pull request targeting main (state: ${state || 'unknown'}, base: ${baseRef || 'unknown'})`,
+    );
+  }
   if (currentCommit !== resolvedCommit) {
     throw new Error(
       `Deployment commit ${resolvedCommit} is no longer current; pull request ${resolvedPullRequest} now points to ${currentCommit || 'an unknown commit'}`,

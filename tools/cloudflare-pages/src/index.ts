@@ -19,10 +19,13 @@ export {
 } from './github.js';
 export type {
   CloudflarePagesApp,
+  CloudflarePagesArtifactConfig,
   CloudflarePagesBuildConfig,
+  CloudflarePagesCommandConfig,
   CloudflarePagesConfig,
   CloudflarePagesEndpoint,
   CloudflarePagesEnvironment,
+  CloudflarePagesValidationConfig,
 } from './plan.js';
 export {
   createCloudflarePagesPlan,

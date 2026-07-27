@@ -37,6 +37,7 @@ const workingDirectoryArchivePattern = /cannot contain the working directory/;
 const emptyArchiveSelectionPattern = /No applications were selected/;
 const partialDeploymentPattern = /other: Cloudflare Pages Direct Upload failed/;
 const archivedWorkerPattern = /contains executable Pages worker code/;
+const invalidPullRequestLifecyclePattern = /not an open pull request targeting main/;
 const cliPath = fileURLToPath(new URL('../bin/cloudflare-pages.js', import.meta.url));
 const execFileAsync = promisify(execFile);
 const exampleApps = [
@@ -1094,10 +1095,29 @@ test('rejects a deployment when the pull request head has moved', async () => {
       pullRequest: '42',
       commit: 'abc123',
       runner: (_command, args) => {
-        assert.deepEqual(args, ['api', 'repos/ShipfoxHQ/example/pulls/42', '--jq', '.head.sha']);
-        return {output: 'def456\n'};
+        assert.deepEqual(args, [
+          'api',
+          'repos/ShipfoxHQ/example/pulls/42',
+          '--jq',
+          '{headSha: .head.sha, state: .state, baseRef: .base.ref}',
+        ]);
+        return {output: '{"headSha":"def456","state":"open","baseRef":"main"}\n'};
       },
     }),
     headMovedPattern,
+  );
+});
+
+test('rejects a closed or retargeted pull request before deployment', async () => {
+  await assert.rejects(
+    assertCurrentCommit({
+      repository: 'ShipfoxHQ/example',
+      pullRequest: '42',
+      commit: 'abc123',
+      runner: () => ({
+        output: '{"headSha":"abc123","state":"closed","baseRef":"main"}\n',
+      }),
+    }),
+    invalidPullRequestLifecyclePattern,
   );
 });

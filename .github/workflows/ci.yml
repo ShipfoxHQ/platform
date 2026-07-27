@@ -943,12 +943,14 @@ jobs:
     name: Deploy production
     needs: [release-mode, static-verification, external-package-contracts, tests, e2e]
     if: >-
+      always() &&
       github.ref == 'refs/heads/main' &&
       needs.release-mode.result == 'success' &&
       needs.static-verification.result == 'success' &&
-      needs.external-package-contracts.result == 'success' &&
+      (needs.release-mode.outputs.mode != 'normal' ||
+      (needs.external-package-contracts.result == 'success' &&
       needs.tests.result == 'success' &&
-      needs.e2e.result == 'success'
+      needs.e2e.result == 'success'))
     permissions:
       actions: read
       contents: read

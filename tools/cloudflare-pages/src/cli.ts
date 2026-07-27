@@ -636,6 +636,9 @@ function appStatus({
   if (process.env.POST_DEPLOY_HEAD_RESULT === 'failure') {
     return '❌ superseded during upload';
   }
+  if (process.env.ARTIFACT_ONLY === 'true') {
+    return '✅ verified artifact ready';
+  }
 
   if (deployment === undefined || !deployment.ok) {
     return `❌ ${deployment?.error ?? 'application was not published'}`;
@@ -650,6 +653,20 @@ function appStatus({
     return `❌ ${reason}`;
   }
   return '⚠️ uploaded, not verified';
+}
+
+function archivedArtifactMetadataPath(
+  config: CloudflarePagesConfig,
+  artifactDirectory: string | undefined,
+): string | undefined {
+  const metadataPath = config.artifact?.metadataPath;
+  if (metadataPath === undefined || artifactDirectory === undefined) {
+    return metadataPath;
+  }
+
+  const app = config.apps.find((candidate) => isPathWithin(candidate.directory, metadataPath));
+  if (app === undefined) return metadataPath;
+  return resolve(artifactDirectory, app.id, relative(app.directory, metadataPath));
 }
 
 async function runSummary(options: CliOptions): Promise<void> {
@@ -677,7 +694,9 @@ async function runSummary(options: CliOptions): Promise<void> {
     option(options, 'verificationReport'),
     null,
   );
-  const metadataPath = option(options, 'artifactMetadata') ?? config.artifact?.metadataPath;
+  const metadataPath =
+    option(options, 'artifactMetadata') ??
+    archivedArtifactMetadataPath(config, option(options, 'artifactDirectory'));
   const metadata = await readJsonIfPresent<Record<string, unknown> | null>(metadataPath, null);
   const buildLogPath = option(options, 'buildLog');
   const buildLog = await readFileIfPresent(buildLogPath);
@@ -689,6 +708,7 @@ async function runSummary(options: CliOptions): Promise<void> {
   const title = option(options, 'title', 'Deployment');
   const sourceCommit = process.env.CLOUDFLARE_PAGES_COMMIT_SHA ?? verificationReport?.commitSha;
   const deployments = deploymentManifest.apps;
+  const artifactOnly = process.env.ARTIFACT_ONLY === 'true';
   const supersededBeforeUpload = process.env.PRE_DEPLOY_HEAD_RESULT === 'failure';
   const supersededDuringUpload = process.env.POST_DEPLOY_HEAD_RESULT === 'failure';
   const syncMessage =
@@ -698,13 +718,15 @@ async function runSummary(options: CliOptions): Promise<void> {
         ? 'A newer commit superseded this run before upload; no Pages deployment was published for this source commit.'
         : supersededDuringUpload
           ? 'A newer commit superseded this run during upload; the stale run did not register a GitHub deployment status.'
-          : verificationReport?.ok === true
-            ? 'Every selected app was checked and matched the exact source commit above.'
-            : verificationReport !== null
-              ? 'The deployment was attempted, but one or more Pages applications could not be verified against the exact source commit above.'
-              : process.env.DEPLOYMENT_RESULT === 'success'
-                ? 'The artifact was uploaded, but Pages applications were not verified for this source commit.'
-                : 'The deployment did not complete, so Pages applications are not available for this commit.';
+          : artifactOnly
+            ? 'A verified artifact was archived and uploaded; Pages publication is handled by the separate deployment job.'
+            : verificationReport?.ok === true
+              ? 'Every selected app was checked and matched the exact source commit above.'
+              : verificationReport !== null
+                ? 'The deployment was attempted, but one or more Pages applications could not be verified against the exact source commit above.'
+                : process.env.DEPLOYMENT_RESULT === 'success'
+                  ? 'The artifact was uploaded, but Pages applications were not verified for this source commit.'
+                  : 'The deployment did not complete, so Pages applications are not available for this commit.';
   const lines = [
     `## ${title} metrics`,
     '',
@@ -714,6 +736,12 @@ async function runSummary(options: CliOptions): Promise<void> {
     `| Queue | ${getMetric(process.env.QUEUE_SECONDS)} seconds |`,
     `| Build and assembly | ${getMetric(process.env.BUILD_SECONDS)} seconds (${getMetric(process.env.BUILD_RESULT)}) |`,
     `| Configured validation | ${getMetric(process.env.VALIDATION_SECONDS)} seconds (${getMetric(process.env.VALIDATION_RESULT)}) |`,
+    ...(artifactOnly
+      ? [
+          `| Verified artifact archive | ${getMetric(process.env.ARTIFACT_SECONDS)} seconds (${getMetric(process.env.ARTIFACT_RESULT)}) |`,
+          `| Artifact upload | ${getMetric(process.env.ARTIFACT_UPLOAD_RESULT)} |`,
+        ]
+      : []),
     `| ${platform} upload | ${getMetric(process.env.DEPLOYMENT_SECONDS)} seconds (${getMetric(process.env.DEPLOYMENT_RESULT)}) |`,
     `| Deployment verification | ${getMetric(process.env.DEPLOYMENT_VERIFICATION_SECONDS)} seconds (${getMetric(process.env.DEPLOYMENT_VERIFICATION_RESULT)}) |`,
     '| Remote cache | Workflow-configured read and write policy |',

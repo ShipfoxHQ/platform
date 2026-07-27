@@ -125,7 +125,7 @@ async function getPullRequestMetadata(): Promise<PreviewMetadata['pullRequest']>
     headSha:
       typeof head?.sha === 'string'
         ? head.sha
-        : (process.env.CLOUDFLARE_PAGES_PR_HEAD_SHA ?? getCommitShaFromEnv() ?? null),
+        : process.env.CLOUDFLARE_PAGES_PR_HEAD_SHA || getCommitShaFromEnv() || null,
     headRef:
       typeof head?.ref === 'string'
         ? head.ref
