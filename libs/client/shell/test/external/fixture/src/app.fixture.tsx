@@ -94,10 +94,10 @@ test('renders the external route, provider order, navigation, settings, and conf
   if (!(userMenu instanceof HTMLButtonElement)) throw new Error('Expected the user menu button.');
   userMenu.dispatchEvent(new MouseEvent('pointerdown', {bubbles: true, button: 0}));
   await vi.waitFor(() =>
-    expect(container.querySelector('[data-testid="external-account-menu-entry"]')).toBeTruthy(),
+    expect(document.body.querySelector('[data-testid="external-account-menu-entry"]')).toBeTruthy(),
   );
-  expect(container.textContent).toContain('Theme');
-  expect(container.textContent).toContain('Logout');
+  expect(document.body.textContent).toContain('Theme');
+  expect(document.body.textContent).toContain('Logout');
   await vi.waitFor(() => expect(readProviderEvidence().map(({id}) => id)).toEqual(['outer', 'inner']));
   const providers = readProviderEvidence();
   expect(providers[1]?.queryClient).toBe(providers[0]?.queryClient);
