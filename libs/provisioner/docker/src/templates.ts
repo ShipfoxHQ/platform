@@ -113,7 +113,7 @@ function toTemplate(
     labels,
     maxConcurrency: spec.max_concurrency,
     targetConcurrency: spec.target_concurrency,
-    // Cheaper (fewer vCPU) templates win when several satisfy the same generic label.
+    // Explicit costs control selection; omitted costs fall back to the vCPU count.
     cost: spec.cost ?? spec.cpu,
     spec: {image: spec.image, cpu: spec.cpu, memory: spec.memory},
   };

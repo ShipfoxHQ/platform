@@ -28,9 +28,10 @@ templates:
 ```
 
 Loading fails fast with a clear, file-scoped error on a missing file, malformed YAML,
-an invalid field, an unusable label, or an empty template set. Labels are canonicalized
-(trim, lowercase, dedupe, sort) with the shared runner-label rules. The vCPU count
-becomes the template's selection cost, so generic demand lands on the cheapest box.
+an invalid or unknown field, an unusable label, or an empty template set. Labels are
+canonicalized (trim, lowercase, dedupe, sort) with the shared runner-label rules.
+The optional `cost` field controls template selection; when it is omitted, the vCPU
+count is used. Lower costs win when several templates satisfy the same generic label.
 
 ## Current behavior
 
