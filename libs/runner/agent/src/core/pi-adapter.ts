@@ -110,10 +110,18 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
 
   try {
     mcpConfig = await createPiMcpConfig(cwd, mcpServers);
-    const extensionDirectories = piExtensionDirectories({
-      packageNames:
-        mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
-    });
+    const extensionPaths =
+      mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'];
+    let extensionDirectories: string[];
+    try {
+      extensionDirectories = piExtensionDirectories({packageNames: extensionPaths});
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new AgentHarnessUnavailableError({
+        diagnostics: [{type: 'error', message}],
+        environment: {cwd, provider, model: modelId, thinking, extensionPaths},
+      });
+    }
     const services = await createAgentSessionServices({
       cwd,
       modelRuntime,

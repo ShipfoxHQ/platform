@@ -1,3 +1,7 @@
+const piExtensionTestState = vi.hoisted(() => ({
+  resolver: undefined as ((specifier: string) => string) | undefined,
+}));
+
 const {
   createAgentSessionMock,
   createAgentSessionServicesMock,
@@ -63,9 +67,28 @@ vi.mock('@shipfox/node-egress-guard', () => ({
       .filter(Boolean),
 }));
 
-import {appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync} from 'node:fs';
+vi.mock('#core/pi-extensions.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#core/pi-extensions.js')>();
+  return {
+    ...actual,
+    piExtensionDirectories: (params: Parameters<typeof actual.piExtensionDirectories>[0]) =>
+      piExtensionTestState.resolver === undefined
+        ? actual.piExtensionDirectories(params)
+        : actual.piExtensionDirectories({...params, resolve: piExtensionTestState.resolver}),
+  };
+});
+
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {basename, isAbsolute, join} from 'node:path';
 import {
   type CustomModelProviderRuntimeConfigDto,
   DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW,
@@ -79,22 +102,47 @@ import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
 import {piExtensionDirectories} from '#core/pi-extensions.js';
 
-const piWebAccessDirectory = piExtensionDirectories({packageNames: ['pi-web-access']})[0];
-const piMcpAdapterDirectory = piExtensionDirectories({packageNames: ['pi-mcp-adapter']})[0];
+function extensionDirectory(packageName: string): string {
+  const [directory] = piExtensionDirectories({packageNames: [packageName]});
+  if (directory === undefined) throw new Error(`Missing resolved directory for ${packageName}`);
+  return directory;
+}
 
-function piServices(cwd = '/work', diagnostics: Array<{type: string; message: string}> = []) {
+const piWebAccessDirectory = extensionDirectory('pi-web-access');
+const piMcpAdapterDirectory = extensionDirectory('pi-mcp-adapter');
+
+function piServices(
+  cwd = '/work',
+  diagnostics: Array<{type: string; message: string}> = [],
+  loadedDirectories: readonly string[] = [piWebAccessDirectory, piMcpAdapterDirectory],
+  extensionErrors: Array<{path: string; error: string}> = [],
+) {
   return {
     cwd,
     diagnostics,
     resourceLoader: {
       getExtensions: () => ({
-        extensions: [piWebAccessDirectory, piMcpAdapterDirectory].map((directory) => ({
-          resolvedPath: `${directory}/index.ts`,
-        })),
-        errors: [],
+        extensions: loadedDirectories.map((directory) => ({resolvedPath: `${directory}/index.ts`})),
+        errors: extensionErrors,
       }),
     },
   };
+}
+
+function expectResolvedExtensionPaths(
+  paths: readonly string[] | undefined,
+  expectedNames: readonly string[],
+  workspace: string,
+): void {
+  expect(paths).toBeDefined();
+  if (paths === undefined) return;
+
+  expect(paths.map((path) => basename(path))).toEqual(expectedNames);
+  for (const path of paths) {
+    expect(isAbsolute(path)).toBe(true);
+    expect(statSync(path).isDirectory()).toBe(true);
+    expect(path.startsWith(workspace)).toBe(false);
+  }
 }
 
 function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocation {
@@ -163,6 +211,7 @@ describe('piHarnessAdapter', () => {
     disposeMock.mockReset();
     extensionShutdownMock.mockReset();
     modelRuntimeCreateMock.mockReset();
+    piExtensionTestState.resolver = undefined;
     assertEgressAllowedMock.mockReset();
     assertEgressAllowedMock.mockResolvedValue(undefined);
     findMock.mockReturnValue({provider: 'anthropic', id: 'claude-opus-4-8'});
@@ -204,11 +253,11 @@ describe('piHarnessAdapter', () => {
     const result = await piHarnessAdapter.run(invocation({provider: 'openai', model: 'gpt-5.1'}));
 
     expect(findMock).toHaveBeenCalledWith('openai', 'gpt-5.1');
-    expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        cwd: '/work',
-        resourceLoaderOptions: {additionalExtensionPaths: [piWebAccessDirectory]},
-      }),
+    expectResolvedExtensionPaths(
+      createAgentSessionServicesMock.mock.calls[0]?.[0].resourceLoaderOptions
+        .additionalExtensionPaths,
+      ['pi-web-access'],
+      '/work',
     );
     expect(createAgentSessionMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -224,10 +273,11 @@ describe('piHarnessAdapter', () => {
   it('loads pi-web-access through the Pi resource loader without output tools by default', async () => {
     await piHarnessAdapter.run(invocation());
 
-    expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resourceLoaderOptions: {additionalExtensionPaths: [piWebAccessDirectory]},
-      }),
+    expectResolvedExtensionPaths(
+      createAgentSessionServicesMock.mock.calls[0]?.[0].resourceLoaderOptions
+        .additionalExtensionPaths,
+      ['pi-web-access'],
+      '/work',
     );
     expect(createAgentSessionMock.mock.calls[0]?.[0]).not.toHaveProperty('customTools');
   });
@@ -259,12 +309,11 @@ describe('piHarnessAdapter', () => {
         },
       },
     });
-    expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resourceLoaderOptions: {
-          additionalExtensionPaths: [piWebAccessDirectory, piMcpAdapterDirectory],
-        },
-      }),
+    expectResolvedExtensionPaths(
+      createAgentSessionServicesMock.mock.calls[0]?.[0].resourceLoaderOptions
+        .additionalExtensionPaths,
+      ['pi-web-access', 'pi-mcp-adapter'],
+      sessionDir,
     );
     expect(extensionShutdownMock).toHaveBeenCalledWith({type: 'session_shutdown', reason: 'quit'});
     expect(disposeMock).toHaveBeenCalledAfter(extensionShutdownMock);
@@ -345,6 +394,59 @@ describe('piHarnessAdapter', () => {
       resourceLoaderErrors: [piPathError],
     });
     expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('fails when Pi silently loads no requested extension', async () => {
+    createAgentSessionServicesMock.mockResolvedValue(piServices('/work', [], []));
+
+    await expect(piHarnessAdapter.run(invocation())).rejects.toThrow(piWebAccessDirectory);
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('includes Pi extension errors in the setup failure', async () => {
+    const piPathError = {
+      path: piWebAccessDirectory,
+      error: `Extension path does not exist: ${piWebAccessDirectory}`,
+    };
+    createAgentSessionServicesMock.mockResolvedValue(piServices('/work', [], [], [piPathError]));
+
+    await expect(piHarnessAdapter.run(invocation())).rejects.toThrow(piPathError.error);
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('names only the Pi extension directory that was not loaded', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
+    createAgentSessionServicesMock.mockResolvedValue(
+      piServices('/work', [], [piWebAccessDirectory]),
+    );
+
+    const error = await piHarnessAdapter
+      .run(invocation({cwd: sessionDir, mcpServers: [mcpBridge()]}))
+      .catch((caught) => caught);
+
+    expect(error.message).toContain(piMcpAdapterDirectory);
+    expect(error.message).not.toContain(piWebAccessDirectory);
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('wraps resolver failures as harness-unavailable and cleans the MCP temp directory', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
+    const resolverError = new Error('Cannot find package entry');
+    piExtensionTestState.resolver = () => {
+      throw resolverError;
+    };
+
+    const error = await piHarnessAdapter
+      .run(invocation({cwd: sessionDir, mcpServers: [mcpBridge()]}))
+      .catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(AgentHarnessUnavailableError);
+    expect(error).toMatchObject({
+      message: expect.stringContaining('pi-web-access'),
+      environment: {extensionPaths: ['pi-web-access', 'pi-mcp-adapter']},
+    });
+    expect(createAgentSessionServicesMock).not.toHaveBeenCalled();
+    expect(readdirSync(join(sessionDir, 'logs'))).toEqual([]);
   });
 
   it('registers the output tool for steps with declared outputs', async () => {
