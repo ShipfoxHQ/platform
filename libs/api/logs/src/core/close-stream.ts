@@ -26,12 +26,13 @@ export interface CloseStreamParams {
 }
 
 /**
- * The guarded UPDATE (`WHERE state='open'`) in `markStreamClosed` is the lock and
- * the idempotency gate: a stream already closed by the other path (append-time
+ * The row lock plus guarded UPDATE (`WHERE state='open'`) in `markStreamClosed` provide
+ * the lock and idempotency gate: a stream already closed by the other path (append-time
  * declared close vs the job-terminated timeout sweep) returns null, so no duplicate
- * `LOG_STREAM_CLOSED` is written and no second tombstone lands. A timeout close sets
- * `truncated` and injects a `runner_lost` tombstone in-band (a `capped` tombstone,
- * if any, was injected earlier at the append that tripped the cap).
+ * `LOG_STREAM_CLOSED` is written and no second tombstone lands. A pending Claude result
+ * is materialized before the close event, then a timeout close sets `truncated` and injects
+ * a `runner_lost` tombstone in-band (a `capped` tombstone, if any, was injected earlier at
+ * the append that tripped the cap).
  *
  * The event drives compaction; it is written in the same transaction as the flip.
  */
@@ -39,12 +40,30 @@ export async function closeStream(
   tx: Transaction,
   params: CloseStreamParams,
 ): Promise<AttemptStream | null> {
-  const closed = await markStreamClosed(tx, {
+  const closedResult = await markStreamClosed(tx, {
     streamId: params.streamId,
     reason: params.reason,
     markTruncated: params.reason === 'timeout',
   });
-  if (!closed) return null;
+  if (!closedResult) return null;
+
+  const {stream: closed, pendingClaudeResult} = closedResult;
+  if (pendingClaudeResult !== null) {
+    const record: LogRecord = {
+      v: 1,
+      ts: pendingClaudeResult.timestamp,
+      type: 'agent_session',
+      row: pendingClaudeResult,
+    };
+    const data = Buffer.from(`${JSON.stringify(record)}\n`, 'utf8');
+    await insertChunk(tx, {
+      streamId: closed.id,
+      streamOffset: closed.committedLength,
+      byteLen: data.length,
+      data,
+      origin: 'control',
+    });
+  }
 
   if (params.reason === 'timeout') {
     const tombstone = controlTombstone('runner_lost');

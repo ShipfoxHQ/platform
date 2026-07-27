@@ -5,6 +5,7 @@ import type {
   SessionViewToolCallRow,
   SessionViewToolResultRow,
 } from '@shipfox/api-logs-dto';
+import type {ClaudeParseContext} from '../claude-parser.js';
 import {asLooseObject} from '../entry-schema.js';
 import {
   booleanField,
@@ -31,15 +32,17 @@ export const PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES = new Set<string>([
   'local_command_output',
   'plugin_install',
 ]);
+const OUTPUT_REPROMPT_PREFIX = 'The previous turn ended without setting required workflow outputs:';
 
 export function systemRow(
   timestamp: number,
   message: Record<string, unknown>,
+  context: ClaudeParseContext,
 ): SessionViewLifecycleRow {
   const subtype = stringField(message, 'subtype');
-  const label = subtype === 'init' || message.type === 'init' ? 'Session started' : 'Session event';
-  const detail = stringField(message, 'session_id') ?? stringField(message, 'sessionId') ?? null;
-  const meta = [
+  const sessionId = stringField(message, 'session_id') ?? stringField(message, 'sessionId');
+  const isInit = subtype === 'init' || message.type === 'init';
+  const baseMeta = [
     metaItem('cwd', stringField(message, 'cwd'), false),
     metaItem('model', stringField(message, 'model')),
     metaItem(
@@ -48,7 +51,21 @@ export function systemRow(
     ),
   ].filter(isMeta);
 
-  return lifecycleRow(timestamp, label, detail, 'default', false, meta);
+  if (!isInit)
+    return lifecycleRow(timestamp, 'Session event', sessionId ?? null, 'default', false, baseMeta);
+
+  const isNewSession =
+    !context.hasInit || sessionId === undefined || sessionId !== context.sessionId;
+  context.hasInit = true;
+  context.sessionId = sessionId ?? null;
+  context.turn = isNewSession ? 1 : context.turn + 1;
+
+  const label = isNewSession ? 'Session started' : `Turn ${context.turn} started`;
+  const meta = [metaItem('turn', isNewSession ? null : String(context.turn)), ...baseMeta].filter(
+    isMeta,
+  );
+
+  return lifecycleRow(timestamp, label, sessionId ?? null, 'default', false, meta);
 }
 
 export function assistantRows(
@@ -106,11 +123,12 @@ export function userRows(
   message: Record<string, unknown>,
 ): readonly SessionViewRow[] {
   const sdkMessage = asLooseObject(message.message) ?? message;
+  const role = isPlatformMessage(sdkMessage) ? 'platform' : 'user';
   const rows: SessionViewRow[] = [];
   const textParts: string[] = [];
   const pushText = () => {
     if (textParts.length === 0) return;
-    rows.push(messageRow(timestamp, 'user', 'user', textParts.join('\n\n'), false));
+    rows.push(messageRow(timestamp, role, role, textParts.join('\n\n'), false));
     textParts.length = 0;
   };
 
@@ -131,12 +149,14 @@ export function userRows(
   if (rows.length > 0) return rows;
 
   const content = stringField(sdkMessage, 'content');
-  return [messageRow(timestamp, 'user', 'user', content ?? toJson(message), false)];
+  return [messageRow(timestamp, role, role, content ?? toJson(message), false)];
 }
 
 export function resultRow(
   timestamp: number,
   message: Record<string, unknown>,
+  turn: number,
+  isFinalResult: boolean,
 ): SessionViewLifecycleRow {
   const isError = booleanField(message, 'is_error') || booleanField(message, 'isError');
   const subtype = stringField(message, 'subtype');
@@ -147,6 +167,7 @@ export function resultRow(
     stringField(message, 'message') ??
     null;
   const meta = [
+    metaItem('turn', !terminalFailure && !isFinalResult && turn > 0 ? String(turn) : null),
     numberMeta(message, 'duration_ms', 'duration', 'ms'),
     numberMeta(message, 'duration_api_ms', 'api duration', 'ms'),
     numberMeta(message, 'num_turns', 'turns'),
@@ -155,12 +176,27 @@ export function resultRow(
 
   return lifecycleRow(
     timestamp,
-    terminalFailure ? 'Session failed' : 'Session completed',
+    terminalFailure
+      ? 'Session failed'
+      : isFinalResult || turn === 0
+        ? 'Session completed'
+        : `Turn ${turn} completed`,
     detail,
     terminalFailure ? 'error' : 'default',
     terminalFailure,
     meta,
   );
+}
+
+function isPlatformMessage(message: Record<string, unknown>): boolean {
+  const content = field(message, 'content');
+  if (typeof content === 'string') return content.startsWith(OUTPUT_REPROMPT_PREFIX);
+  if (!Array.isArray(content)) return false;
+
+  return content.some((block) => {
+    const object = asLooseObject(block);
+    return stringField(object, 'text')?.startsWith(OUTPUT_REPROMPT_PREFIX) === true;
+  });
 }
 
 function contentBlocks(message: Record<string, unknown>): Record<string, unknown>[] {
