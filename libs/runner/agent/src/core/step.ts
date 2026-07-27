@@ -95,6 +95,7 @@ export async function executeAgentStep(
     return await runSelectedHarness({
       jobExecutionId: step.job_execution_id,
       stepId: step.id,
+      attempt: step.current_attempt,
       cwd: options.cwd ?? process.cwd(),
       harness: options.runtime.harness,
       model: options.runtime.model,
@@ -118,6 +119,7 @@ export async function executeAgentStep(
 async function runSelectedHarness(params: {
   jobExecutionId: string;
   stepId: string;
+  attempt: number;
   cwd: string;
   harness: Harness;
   model: string;
@@ -136,6 +138,7 @@ async function runSelectedHarness(params: {
   const {
     jobExecutionId,
     stepId,
+    attempt,
     cwd,
     harness,
     model,
@@ -181,7 +184,7 @@ async function runSelectedHarness(params: {
     };
   } catch (error) {
     if (error instanceof AgentHarnessUnavailableError) {
-      logHarnessUnavailable({error, harness, jobExecutionId, stepId});
+      logHarnessUnavailable({error, harness, jobExecutionId, stepId, attempt});
     }
     const reason: StepErrorReasonDto =
       error instanceof AgentHarnessUnavailableError
@@ -203,8 +206,9 @@ function logHarnessUnavailable(params: {
   harness: Harness;
   jobExecutionId: string;
   stepId: string;
+  attempt: number;
 }): void {
-  const {error, harness, jobExecutionId, stepId} = params;
+  const {error, harness, jobExecutionId, stepId, attempt} = params;
   const {environment} = error;
   logger().error(
     {
@@ -212,6 +216,7 @@ function logHarnessUnavailable(params: {
       harness,
       jobExecutionId,
       stepId,
+      attempt,
       cwd: environment.cwd,
       provider: environment.provider,
       model: environment.model,

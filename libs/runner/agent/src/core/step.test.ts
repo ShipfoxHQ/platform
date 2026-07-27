@@ -430,7 +430,7 @@ describe('executeAgentStep', () => {
       }),
     );
 
-    await executeAgentStep(buildAgentStep(), {cwd: '/work', runtime: RUNTIME});
+    await executeAgentStep(buildAgentStep({current_attempt: 3}), {cwd: '/work', runtime: RUNTIME});
 
     expect(errorLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -438,6 +438,7 @@ describe('executeAgentStep', () => {
         harness: 'pi',
         jobExecutionId: '00000000-0000-0000-0000-000000000003',
         stepId: '00000000-0000-0000-0000-000000000001',
+        attempt: 3,
         requestedExtensionPaths: ['pi-web-access'],
         resolvedExtensionPaths: ['/app/node_modules/pi-web-access/index.js'],
         runnerVersion: '0.1.13',
