@@ -21,21 +21,6 @@ export async function assignRunnerInstances(params: {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${params.provisionerId}:${params.reservationId}`}))`,
     );
-    const [reservation] = await tx
-      .select()
-      .from(reservations)
-      .where(
-        and(
-          eq(reservations.id, params.reservationId),
-          eq(reservations.provisionerId, params.provisionerId),
-        ),
-      )
-      .limit(1)
-      .for('update');
-    if (!reservation) throw new ReservationNotFoundError(params.reservationId);
-    if (reservation.expiresAt <= new Date())
-      throw new ReservationExpiredError(params.reservationId);
-
     const runnerRows = await tx
       .select({
         id: providerRunners.id,
@@ -53,6 +38,33 @@ export async function assignRunnerInstances(params: {
         ),
       )
       .for('update');
+
+    // The assignment outlives its short reservation row. A retry after maintenance
+    // cleanup is complete when every owned runner already carries the requested assignment.
+    if (
+      runnerInstanceIds.length > 0 &&
+      runnerRows.length === runnerInstanceIds.length &&
+      runnerRows.every((runner) => runner.reservationId === params.reservationId)
+    )
+      return params.runnerInstanceIds;
+
+    const [reservation] = await tx
+      .select()
+      .from(reservations)
+      .where(
+        and(
+          eq(reservations.id, params.reservationId),
+          eq(reservations.provisionerId, params.provisionerId),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    if (!reservation) throw new ReservationNotFoundError(params.reservationId);
+    if (reservation.expiresAt <= new Date())
+      throw new ReservationExpiredError(params.reservationId);
+    if (runnerRows.length !== runnerInstanceIds.length)
+      throw new RunnerInstanceNotAssignableError(runnerInstanceIds[0] ?? '');
+
     const activeControlSessions = await tx
       .select({runnerInstanceId: runnerControlSessions.runnerInstanceId})
       .from(runnerControlSessions)
@@ -72,8 +84,6 @@ export async function assignRunnerInstances(params: {
       ...runner,
       controlSessionId: runnerInstanceIdsWithControlSession.has(runner.id) ? runner.id : null,
     }));
-    if (runners.length !== runnerInstanceIds.length)
-      throw new RunnerInstanceNotAssignableError(runnerInstanceIds[0] ?? '');
 
     const alreadyAssigned = runners.filter((runner) => runner.reservationId !== null);
     if (alreadyAssigned.some((runner) => runner.reservationId !== reservation.id))
