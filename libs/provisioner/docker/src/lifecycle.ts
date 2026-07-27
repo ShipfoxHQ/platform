@@ -216,7 +216,7 @@ async function launch(
     return {containerStarted: true, identityAttached: false, reported: false};
   }
 
-  await reportEvents(context, [
+  const reported = await reportEvents(context, [
     {
       provider_runner_id: runner.providerRunnerId,
       template_key: runner.template.key,
@@ -228,7 +228,7 @@ async function launch(
   ]);
   context.knownLiveIds.add(runner.providerRunnerId);
   context.knownTemplateKeys.set(runner.providerRunnerId, runner.template.key);
-  return {containerStarted: true, identityAttached: true, reported: true};
+  return {containerStarted: true, identityAttached: true, reported};
 }
 
 async function reportContainerCreationFailure(
@@ -785,17 +785,26 @@ async function applyTerminalActions(
 async function reportEvents(
   context: DockerLifecycleContext,
   events: readonly RunnerInstanceReportEventDto[],
-): Promise<void> {
+): Promise<boolean> {
   const queued = context.pendingReports.splice(0);
   const reports = [...queued, ...events];
-  if (reports.length === 0) return;
+  if (reports.length === 0) return true;
 
+  const eventStart = queued.length;
+  const eventEnd = eventStart + events.length;
+  let deliveredEvents = 0;
+  let batchStart = 0;
   const batches = chunk(reports, MAX_REPORT_BATCH);
   for (let index = 0; index < batches.length; index += 1) {
     const batch = batches[index] ?? [];
+    const batchEnd = batchStart + batch.length;
+    const batchEventStart = Math.max(batchStart, eventStart);
+    const batchEventEnd = Math.min(batchEnd, eventEnd);
+    const batchEventCount = Math.max(0, batchEventEnd - batchEventStart);
     try {
       await context.client.reportRunnerInstances({events: batch});
       context.reportDeliveryDelivered += batch.length;
+      deliveredEvents += batchEventCount;
     } catch (error) {
       if (error instanceof ProvisionerAuthenticationError) {
         bufferReports(context, [...batch, ...batches.slice(index + 1).flat()]);
@@ -811,15 +820,18 @@ async function reportEvents(
           },
           'Dropped invalid runner report batch',
         );
+        batchStart = batchEnd;
         continue;
       }
       const unsent = [...batch, ...batches.slice(index + 1).flat()];
       bufferReports(context, unsent);
       recordReportDeliveryFailure(context, error);
-      return;
+      return deliveredEvents === events.length;
     }
+    batchStart = batchEnd;
   }
   recordReportDeliveryRecovery(context);
+  return deliveredEvents === events.length;
 }
 
 async function flush(context: DockerLifecycleContext): Promise<void> {

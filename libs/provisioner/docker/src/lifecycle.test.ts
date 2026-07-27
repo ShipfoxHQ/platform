@@ -95,6 +95,15 @@ describe('createDockerLifecycle', () => {
     );
   });
 
+  it('marks a buffered starting report as incomplete', async () => {
+    const engine = fakeEngine();
+    const client = fakeClient({reportErrors: [new Error('api unavailable')]});
+    const lifecycle = makeLifecycle({engine, client});
+    const outcome = await lifecycle.launch(launch());
+    expect(outcome).toEqual({containerStarted: true, identityAttached: true, reported: false});
+    expect(engine.created).toHaveLength(1);
+    expect(client.reportBodies[0]?.events[0]).toMatchObject({state: 'starting'});
+  });
   it('does not report a started container as failed when identity attachment fails', async () => {
     const error = new Error('identity API unavailable');
     const engine = fakeEngine();

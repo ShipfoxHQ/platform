@@ -87,10 +87,10 @@ export async function startProvisioner<Spec>(
   const providerConfiguration = (await options.adapter.onConfigure?.({templates})) ?? {};
   logger().info(
     {
+      ...providerConfiguration,
       event: 'provisioner.configured',
       templateCount: templates.length,
       templateKeySample: templates.slice(0, CONFIG_SAMPLE_LIMIT).map((template) => template.key),
-      ...providerConfiguration,
     },
     'Provisioner configured',
   );

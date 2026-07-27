@@ -3,8 +3,6 @@ import {closeEpisode, type EpisodeState, recordEpisode} from '#episodes.js';
 describe('keyed diagnostic episodes', () => {
   it.each([
     ['opens once and suppresses repeats', 'target-a', 'failure-a'],
-    ['reopens after close', 'target-a', 'failure-a'],
-    ['changes when the fingerprint changes', 'target-a', 'failure-a'],
   ])('%s', (_name, target, fingerprint) => {
     const episodes = new Map<string, EpisodeState>();
     const first = recordEpisode(episodes, target, fingerprint, new Date(1));
@@ -13,6 +11,13 @@ describe('keyed diagnostic episodes', () => {
     expect(first.transition).toBe('opened');
     expect(repeat.transition).toBe('suppressed');
     expect(repeat.state).toMatchObject({attempts: 2, suppressed: 1});
+  });
+  it('opens a changed fingerprint as a new transition', () => {
+    const episodes = new Map<string, EpisodeState>();
+    recordEpisode(episodes, 'target-a', 'failure-a', new Date(1));
+    const changed = recordEpisode(episodes, 'target-a', 'failure-b', new Date(2));
+    expect(changed.transition).toBe('changed');
+    expect(changed.state).toMatchObject({fingerprint: 'failure-b', attempts: 2});
   });
 
   it('closes and reopens the same target as a new episode', () => {

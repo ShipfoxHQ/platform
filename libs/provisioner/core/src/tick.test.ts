@@ -227,7 +227,7 @@ describe('runProvisionerTick', () => {
     const result = await runProvisionerTick({...tickOptions, launchBudget: 1});
     expect(closed).toMatchObject({plannedCount: 2, launchAttemptedCount: 0, launchedCount: 0});
 
-    expect(result).toMatchObject({plannedCount: 3, launchAttemptedCount: 1, launchedCount: 1});
+    expect(result).toMatchObject({plannedCount: 2, launchAttemptedCount: 1, launchedCount: 1});
   });
   it('keeps the reservation poll limit independent from warm-pool admission', async () => {
     let requestedReservations = -1;

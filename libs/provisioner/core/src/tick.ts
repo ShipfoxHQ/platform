@@ -163,9 +163,22 @@ export async function runProvisionerTick<Spec>(
   let providerLaunchFailureReason: string | undefined;
   let launchLifecycleIncompleteCount = 0;
   let launchLifecycleIncompleteReason: string | undefined;
+  const plannedByTemplate = new Map<string, number>();
+  for (const group of planned) {
+    plannedByTemplate.set(
+      group.template.key,
+      (plannedByTemplate.get(group.template.key) ?? 0) + group.count,
+    );
+  }
   const hotGroups = deps.templates.flatMap((template) => {
     const counts = deps.tracker.countsByTemplate().get(template.key) ?? {starting: 0, running: 0};
-    const count = Math.max(0, (template.targetConcurrency ?? 0) - counts.starting - counts.running);
+    const count = Math.max(
+      0,
+      (template.targetConcurrency ?? 0) -
+        counts.starting -
+        counts.running -
+        (plannedByTemplate.get(template.key) ?? 0),
+    );
     return count > 0 ? [{reservationId: undefined, template, count}] : [];
   });
   const allGroups: LaunchGroup<Spec>[] = [...planned, ...hotGroups];
