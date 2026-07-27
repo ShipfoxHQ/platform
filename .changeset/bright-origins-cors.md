@@ -1,5 +1,5 @@
 ---
-"@shipfox/node-fastify": patch
+"@shipfox/node-fastify": minor
 ---
 
 Support validated wildcard subdomain origins in the shared Fastify CORS boundary.

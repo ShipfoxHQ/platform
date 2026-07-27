@@ -33,7 +33,11 @@ function parseAllowedOrigin(origin: string): AllowedOrigin {
     return {kind: 'exact', origin: normalized};
   }
 
-  if (!parsed.hostname.includes('*')) return {kind: 'exact', origin: normalized};
+  if (!origin.includes('*')) return {kind: 'exact', origin: normalized};
+
+  if (!parsed.hostname.includes('*')) {
+    throw new Error(`BROWSER_ALLOWED_ORIGIN wildcard '${origin}' must appear in the hostname.`);
+  }
 
   const hostname = parsed.hostname.toLowerCase();
   if (!hostname.startsWith('*.') || hostname.slice(2).includes('*')) {
