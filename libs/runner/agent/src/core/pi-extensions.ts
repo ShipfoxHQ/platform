@@ -1,6 +1,6 @@
-import {realpathSync} from 'node:fs';
+import {readFileSync, realpathSync, statSync} from 'node:fs';
 import {createRequire} from 'node:module';
-import {dirname, sep} from 'node:path';
+import {dirname, resolve as resolvePath, sep} from 'node:path';
 import type {ResourceLoader} from '@earendil-works/pi-coding-agent';
 
 export const PI_HARNESS_EXTENSION_PACKAGE_NAMES = ['pi-web-access', 'pi-mcp-adapter'] as const;
@@ -58,7 +58,15 @@ export function isPiExtensionAvailable(params: {packageName: string}): boolean {
 
 /** Resolves every Pi extension required by the runner image or throws with the package cause. */
 export function assertPiHarnessExtensionsAvailable(): void {
-  piExtensionDirectories({packageNames: PI_HARNESS_EXTENSION_PACKAGE_NAMES});
+  const directories = piExtensionDirectories({packageNames: PI_HARNESS_EXTENSION_PACKAGE_NAMES});
+
+  for (const [index, directory] of directories.entries()) {
+    const packageName = PI_HARNESS_EXTENSION_PACKAGE_NAMES[index];
+    if (packageName === undefined)
+      throw new Error(`Missing Pi extension package at index ${index}`);
+
+    assertPiExtensionEntriesAvailable(packageName, directory);
+  }
 }
 
 /**
@@ -91,6 +99,36 @@ function resolvePiExtensionDirectory(packageName: string, resolve: PackageResolv
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`Unable to resolve Pi extension package "${packageName}": ${reason}`);
+  }
+}
+
+function assertPiExtensionEntriesAvailable(packageName: string, directory: string): void {
+  const packageJsonPath = resolvePath(directory, 'package.json');
+  let packageJson: {pi?: {extensions?: string[]}};
+
+  try {
+    packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+      pi?: {extensions?: string[]};
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to inspect Pi extension package "${packageName}": ${reason}`);
+  }
+
+  const entries = packageJson.pi?.extensions;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new Error(`Pi extension package "${packageName}" has no pi.extensions entries.`);
+  }
+
+  for (const entry of entries) {
+    try {
+      statSync(resolvePath(directory, entry));
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Pi extension package "${packageName}" is missing entry "${entry}": ${reason}`,
+      );
+    }
   }
 }
 

@@ -3,7 +3,11 @@ import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {basename, dirname, isAbsolute, join} from 'node:path';
 import type {ResourceLoader} from '@earendil-works/pi-coding-agent';
-import {assertPiExtensionsLoaded, piExtensionDirectories} from '#core/pi-extensions.js';
+import {
+  assertPiExtensionsLoaded,
+  assertPiHarnessExtensionsAvailable,
+  piExtensionDirectories,
+} from '#core/pi-extensions.js';
 
 const extensionPackageNames = ['pi-web-access', 'pi-mcp-adapter'] as const;
 const require = createRequire(import.meta.url);
@@ -132,5 +136,11 @@ describe('assertPiExtensionsLoaded', () => {
         directories: [resolvedDirectory],
       }),
     ).toThrow(basename(resolvedDirectory));
+  });
+});
+
+describe('assertPiHarnessExtensionsAvailable', () => {
+  it('verifies every declared Pi extension entry exists', () => {
+    expect(() => assertPiHarnessExtensionsAvailable()).not.toThrow();
   });
 });
