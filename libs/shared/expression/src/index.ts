@@ -5,12 +5,15 @@ export {
 } from './evaluator/errors.js';
 export {
   evaluateWorkflowExpression,
+  evaluateWorkflowExpressionWithEnvironment,
   evaluateWorkflowPredicate,
   evaluateWorkflowPredicateFailClosed,
   type FailClosedPredicateOutcome,
+  type WorkflowExpressionEnvironment,
   type WorkflowExpressionEvaluationContext,
   type WorkflowExpressionEvaluationValue,
 } from './evaluator/evaluate-workflow-expression.js';
+export {createRangeEnvironment, MAX_RANGE_ELEMENTS} from './evaluator/range.js';
 export {
   createWorkflowExpression,
   unsafeWorkflowExpressionFromSource,

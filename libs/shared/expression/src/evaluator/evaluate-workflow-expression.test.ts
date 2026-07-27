@@ -2,9 +2,11 @@ import {createWorkflowExpression} from '../expression/create-workflow-expression
 import {WorkflowExpressionEvaluationError} from './errors.js';
 import {
   evaluateWorkflowExpression,
+  evaluateWorkflowExpressionWithEnvironment,
   evaluateWorkflowPredicate,
   evaluateWorkflowPredicateFailClosed,
 } from './evaluate-workflow-expression.js';
+import {createRangeEnvironment} from './range.js';
 
 describe('evaluateWorkflowExpression', () => {
   it('evaluates a validated CEL expression against caller-provided values', () => {
@@ -23,6 +25,48 @@ describe('evaluateWorkflowExpression', () => {
     });
 
     expect(result).toBe(true);
+  });
+
+  it('does not add caller-supplied functions to the global evaluator', () => {
+    const expression = createWorkflowExpression({
+      source: 'range(2, 32, 2)',
+      check: {mode: 'syntax'},
+    });
+    // Creating the opt-in evaluator must not register range in the global evaluator.
+    createRangeEnvironment();
+
+    const evaluateGlobally = () => evaluateWorkflowExpression(expression, {});
+
+    expect(evaluateGlobally).toThrow(WorkflowExpressionEvaluationError);
+  });
+
+  it('evaluates against a caller-supplied environment', () => {
+    const expression = createWorkflowExpression({
+      source: 'range(2, 32, 2)',
+      check: {mode: 'syntax'},
+    });
+    const environment = createRangeEnvironment();
+
+    const result = evaluateWorkflowExpressionWithEnvironment(expression, {}, environment);
+
+    expect(result).toEqual([
+      2n,
+      4n,
+      6n,
+      8n,
+      10n,
+      12n,
+      14n,
+      16n,
+      18n,
+      20n,
+      22n,
+      24n,
+      26n,
+      28n,
+      30n,
+      32n,
+    ]);
   });
 
   it('treats only the boolean true value as a passing predicate', () => {
