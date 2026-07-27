@@ -18,7 +18,7 @@ Fastify setup for Shipfox Node services. It adds Zod validation, CORS, Swagger, 
 
 Environment variables (via `@shipfox/config`):
 
-- `BROWSER_ALLOWED_ORIGIN` (default: `undefined`; comma-separated CORS origins)
+- `BROWSER_ALLOWED_ORIGIN` (default: `undefined`; comma-separated CORS origins, including wildcard subdomain origins such as `https://*.preview.example.com`; wildcards must be in the leftmost hostname label and must name a specific parent host; bare public-suffix wildcards are rejected at startup)
 - `CLIENT_BASE_URL` (default: `http://localhost:3000`; CORS fallback when `BROWSER_ALLOWED_ORIGIN` is not set)
 - `HOST` (default: `0.0.0.0`)
 - `PORT` (default: `3000`)
