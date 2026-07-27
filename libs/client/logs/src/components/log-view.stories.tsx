@@ -39,6 +39,41 @@ const groupEnd = (groupId: string, offset: number): LogRecord => ({
   groupId,
 });
 
+const toolResultResolutionRecords: LogRecord[] = [
+  session(
+    {
+      kind: 'tool-call',
+      timestamp: 0,
+      id: 'claude-tool-1',
+      name: 'mcp__shipfox_integration_tools__linear_shipfox__list_teams',
+      input: '{"workspace":"shipfox"}',
+    },
+    0,
+  ),
+  session(
+    {
+      kind: 'tool-result',
+      timestamp: 0,
+      toolCallId: 'claude-tool-1',
+      toolName: 'tool',
+      output: '[{"name":"Engineering"}]',
+      isError: false,
+    },
+    1,
+  ),
+  session(
+    {
+      kind: 'tool-result',
+      timestamp: 0,
+      toolCallId: 'missing-tool',
+      toolName: 'tool',
+      output: 'The matching call was not included in this stream.',
+      isError: true,
+    },
+    2,
+  ),
+];
+
 const showcaseRecords: LogRecord[] = [
   out('$ pnpm build && pnpm test\n', 0),
   groupStart('g1', 'Install dependencies', 1),
@@ -511,6 +546,15 @@ export const RunningAgentToolCall: Story = {
   render: (args) => (
     <div className="max-w-3xl">
       <LogView {...args} records={awaitingAgentRecords} />
+    </div>
+  ),
+};
+
+export const ClaudeToolResultResolution: Story = {
+  args: {showLineNumbers: true},
+  render: (args) => (
+    <div className="max-w-3xl">
+      <LogView {...args} records={toolResultResolutionRecords} />
     </div>
   ),
 };

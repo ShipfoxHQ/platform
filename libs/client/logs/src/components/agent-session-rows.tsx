@@ -21,16 +21,23 @@ const WORD_SEPARATOR = /\s+/;
 export interface AgentSessionRowsProps {
   rows: readonly SessionViewRow[];
   resolvedToolCallIds: ReadonlySet<string>;
+  toolCallNames: ReadonlyMap<string, string>;
   indent: number;
 }
 
-export function AgentSessionRows({rows, resolvedToolCallIds, indent}: AgentSessionRowsProps) {
+export function AgentSessionRows({
+  rows,
+  resolvedToolCallIds,
+  toolCallNames,
+  indent,
+}: AgentSessionRowsProps) {
   return rows.map((row, index) => (
     <AgentSessionRowView
       // biome-ignore lint/suspicious/noArrayIndexKey: session rows are immutable and never reordered, so the index is stable; content keys would balloon to megabyte strings and collide on repeated id-less tool calls.
       key={`${row.kind}-${index}`}
       row={row}
       resolvedToolCallIds={resolvedToolCallIds}
+      toolCallNames={toolCallNames}
       indent={indent}
     />
   ));
@@ -39,10 +46,12 @@ export function AgentSessionRows({rows, resolvedToolCallIds, indent}: AgentSessi
 function AgentSessionRowView({
   row,
   resolvedToolCallIds,
+  toolCallNames,
   indent,
 }: {
   row: SessionViewRow;
   resolvedToolCallIds: ReadonlySet<string>;
+  toolCallNames: ReadonlyMap<string, string>;
   indent: number;
 }) {
   switch (row.kind) {
@@ -121,7 +130,12 @@ function AgentSessionRowView({
         </LogDisclosure>
       );
     }
-    case 'tool-result':
+    case 'tool-result': {
+      const toolName =
+        row.toolName === 'tool'
+          ? ((row.toolCallId != null ? toolCallNames.get(row.toolCallId) : undefined) ??
+            '(unmatched)')
+          : row.toolName;
       return (
         <LogDisclosure indent={indent}>
           <LogDisclosureTrigger
@@ -145,7 +159,7 @@ function AgentSessionRowView({
           >
             <span className="inline-flex min-w-0 items-center gap-6">
               <Icon name="terminalWindowLine" className="size-14 flex-none" aria-hidden="true" />
-              <span className="truncate">result {row.toolName}</span>
+              <span className="truncate">result {toolName}</span>
             </span>
           </LogDisclosureTrigger>
           <LogDisclosureContent>
@@ -158,6 +172,7 @@ function AgentSessionRowView({
           </LogDisclosureContent>
         </LogDisclosure>
       );
+    }
     case 'lifecycle':
       return (
         <LogRow
