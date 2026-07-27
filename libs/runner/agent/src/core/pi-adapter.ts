@@ -37,7 +37,11 @@ import {
   runOutputTurnLoop,
   withOutputGuidance,
 } from '#core/output-collector.js';
-import {assertPiExtensionsLoaded, piExtensionDirectories} from '#core/pi-extensions.js';
+import {
+  assertPiExtensionsLoaded,
+  isPiExtensionAvailable,
+  piExtensionDirectories,
+} from '#core/pi-extensions.js';
 import {type SessionForwarder, startSessionForwarder} from '#core/session-forwarder.js';
 
 const KEYLESS_CUSTOM_PROVIDER_API_KEY = 'shipfox-keyless-custom-provider-placeholder';
@@ -110,16 +114,24 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
 
   try {
     mcpConfig = await createPiMcpConfig(cwd, mcpServers);
-    const extensionPaths =
-      mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'];
+    const extensionPackageNames = [
+      ...(isPiExtensionAvailable({packageName: 'pi-web-access'}) ? ['pi-web-access'] : []),
+      ...(mcpConfig === undefined ? [] : ['pi-mcp-adapter']),
+    ];
     let extensionDirectories: string[];
     try {
-      extensionDirectories = piExtensionDirectories({packageNames: extensionPaths});
+      extensionDirectories = piExtensionDirectories({packageNames: extensionPackageNames});
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new AgentHarnessUnavailableError({
         diagnostics: [{type: 'error', message}],
-        environment: {cwd, provider, model: modelId, thinking, extensionPaths},
+        environment: {
+          cwd,
+          provider,
+          model: modelId,
+          thinking,
+          extensionPaths: extensionPackageNames,
+        },
       });
     }
     const services = await createAgentSessionServices({
@@ -140,8 +152,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
         provider,
         model: modelId,
         thinking,
-        extensionPaths:
-          mcpConfig === undefined ? ['pi-web-access'] : ['pi-web-access', 'pi-mcp-adapter'],
+        extensionPaths: extensionPackageNames,
         ...(extensionResult === undefined
           ? {}
           : {

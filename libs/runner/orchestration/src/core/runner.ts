@@ -165,7 +165,7 @@ function warnAboutUnavailablePiExtensions(): void {
   warnedAboutUnavailablePiExtensions = true;
   logger().warn(
     {packageNames: unavailablePackages},
-    'Required Pi extensions are unavailable; corresponding Pi tools will not be advertised',
+    'Required Pi extensions are unavailable; functionality may be degraded',
   );
 }
 

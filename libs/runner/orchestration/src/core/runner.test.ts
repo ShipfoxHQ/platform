@@ -315,7 +315,7 @@ describe('startRunner', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(
       {packageNames: ['pi-mcp-adapter']},
-      'Required Pi extensions are unavailable; corresponding Pi tools will not be advertised',
+      'Required Pi extensions are unavailable; functionality may be degraded',
     );
   });
 
