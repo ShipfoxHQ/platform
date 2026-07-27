@@ -390,7 +390,7 @@ function StepAttemptDetailPanel({
       {isAgentConfigFailure(step, selectedAttemptError) ? (
         <AgentConfigFailureCallout
           workspaceId={workspaceId}
-          config={null}
+          config={step.agentConfig}
           error={selectedAttemptError}
         />
       ) : null}
