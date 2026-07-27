@@ -1,5 +1,5 @@
 ---
-"@shipfox/api-runners": patch
+"@shipfox/api-runners": minor
 "@shipfox/api-runners-dto": minor
 ---
 

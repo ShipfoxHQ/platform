@@ -564,7 +564,7 @@ async function releaseTerminalRunnerInstanceReservations(
   events: RunnerInstanceReportEvent[],
 ): Promise<number> {
   const terminalEvents = events.filter((event) => isTerminalState(event.state));
-  if (terminalEvents.length === 0 || !params.workspaceId) return 0;
+  if (terminalEvents.length === 0) return 0;
 
   return await releaseTerminalRunnerInstanceReservationsByIds(tx, {
     workspaceId: params.workspaceId,
@@ -576,7 +576,7 @@ async function releaseTerminalRunnerInstanceReservations(
 async function releaseTerminalRunnerInstanceReservationsByIds(
   tx: Tx,
   params: {
-    workspaceId: string;
+    workspaceId: string | null;
     provisionerId: string;
     providerRunnerIds: string[];
     requireUnlinkedSession?: boolean;
@@ -589,6 +589,16 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
       id: providerRunners.id,
       reservationId: providerRunners.reservationId,
       intendedReservationId: providerRunners.intendedReservationId,
+      reservationWorkspaceId: sql<string | null>`coalesce(
+        (select ${reservations.workspaceId}
+         from ${reservations}
+         where ${reservations.id} = ${providerRunners.reservationId}
+           and ${reservations.provisionerId} = ${params.provisionerId}),
+        (select ${reservations.workspaceId}
+         from ${reservations}
+         where ${reservations.id} = ${providerRunners.intendedReservationId}
+           and ${reservations.provisionerId} = ${params.provisionerId})
+      )`,
     })
     .from(providerRunners)
     .where(
@@ -600,25 +610,55 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
           isNotNull(providerRunners.reservationId),
           isNotNull(providerRunners.intendedReservationId),
         ),
-        or(
-          eq(providerRunners.workspaceId, params.workspaceId),
-          and(
-            isNull(providerRunners.workspaceId),
-            isNotNull(providerRunners.intendedReservationId),
-            exists(
-              tx
-                .select({id: reservations.id})
-                .from(reservations)
-                .where(
-                  and(
-                    eq(reservations.workspaceId, params.workspaceId),
-                    eq(reservations.provisionerId, params.provisionerId),
-                    eq(reservations.id, providerRunners.intendedReservationId),
+        params.workspaceId === null
+          ? undefined
+          : or(
+              and(
+                eq(providerRunners.workspaceId, params.workspaceId),
+                or(
+                  exists(
+                    tx
+                      .select({id: reservations.id})
+                      .from(reservations)
+                      .where(
+                        and(
+                          eq(reservations.workspaceId, params.workspaceId),
+                          eq(reservations.provisionerId, params.provisionerId),
+                          eq(reservations.id, providerRunners.reservationId),
+                        ),
+                      ),
+                  ),
+                  exists(
+                    tx
+                      .select({id: reservations.id})
+                      .from(reservations)
+                      .where(
+                        and(
+                          eq(reservations.workspaceId, params.workspaceId),
+                          eq(reservations.provisionerId, params.provisionerId),
+                          eq(reservations.id, providerRunners.intendedReservationId),
+                        ),
+                      ),
                   ),
                 ),
+              ),
+              and(
+                isNull(providerRunners.workspaceId),
+                isNotNull(providerRunners.intendedReservationId),
+                exists(
+                  tx
+                    .select({id: reservations.id})
+                    .from(reservations)
+                    .where(
+                      and(
+                        eq(reservations.workspaceId, params.workspaceId),
+                        eq(reservations.provisionerId, params.provisionerId),
+                        eq(reservations.id, providerRunners.intendedReservationId),
+                      ),
+                    ),
+                ),
+              ),
             ),
-          ),
-        ),
         params.requireUnlinkedSession === false
           ? undefined
           : isNull(providerRunners.runnerSessionId),
@@ -650,28 +690,36 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
     )
     .returning({id: providerRunners.id});
 
-  const releasesByReservationId = new Map<string, number>();
+  const releasesByReservationId = new Map<
+    string,
+    {workspaceId: string; reservationId: string; count: number}
+  >();
   const updatedIds = new Set(updated.map((row) => row.id));
   for (const row of rows) {
     if (!updatedIds.has(row.id)) continue;
     const reservationId = row.reservationId ?? row.intendedReservationId;
-    if (!reservationId) continue;
-    releasesByReservationId.set(
+    if (!reservationId || !row.reservationWorkspaceId) continue;
+    const key = `${row.reservationWorkspaceId}:${reservationId}`;
+    const release = releasesByReservationId.get(key) ?? {
+      workspaceId: row.reservationWorkspaceId,
       reservationId,
-      (releasesByReservationId.get(reservationId) ?? 0) + 1,
-    );
+      count: 0,
+    };
+    release.count += 1;
+    releasesByReservationId.set(key, release);
   }
 
   if (releasesByReservationId.size === 0) return 0;
 
-  return await releaseReservationUnits(tx, {
-    workspaceId: params.workspaceId,
-    provisionerId: params.provisionerId,
-    releases: [...releasesByReservationId].map(([reservationId, count]) => ({
-      reservationId,
-      count,
-    })),
-  });
+  let released = 0;
+  for (const release of releasesByReservationId.values()) {
+    released += await releaseReservationUnits(tx, {
+      workspaceId: release.workspaceId,
+      provisionerId: params.provisionerId,
+      releases: [{reservationId: release.reservationId, count: release.count}],
+    });
+  }
+  return released;
 }
 
 function staleRunnerInstanceCutoff(thresholdSeconds: number): SQL {
@@ -728,14 +776,14 @@ function groupRunnerInstanceIds(
     provisionerId: string;
     providerRunnerId: string | null;
   }>,
-): Array<{workspaceId: string; provisionerId: string; providerRunnerIds: string[]}> {
+): Array<{workspaceId: string | null; provisionerId: string; providerRunnerIds: string[]}> {
   const groups = new Map<
     string,
-    {workspaceId: string; provisionerId: string; providerRunnerIds: string[]}
+    {workspaceId: string | null; provisionerId: string; providerRunnerIds: string[]}
   >();
   for (const row of rows) {
-    if (!row.workspaceId || !row.providerRunnerId) continue;
-    const key = `${row.workspaceId}:${row.provisionerId}`;
+    if (!row.providerRunnerId) continue;
+    const key = `${row.workspaceId ?? ''}:${row.provisionerId}`;
     const group = groups.get(key) ?? {
       workspaceId: row.workspaceId,
       provisionerId: row.provisionerId,

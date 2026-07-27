@@ -433,7 +433,7 @@ describe('startRunner', () => {
     vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
     mockRunnerStartupMode.mockReturnValue('managed');
     mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
-    mockEnrollRunnerControlSession.mockResolvedValue();
+    mockEnrollRunnerControlSession.mockResolvedValue(null);
     mockHeartbeatRunnerControlSession.mockResolvedValue();
     mockPollRunnerAssignment.mockResolvedValueOnce(null).mockResolvedValueOnce('activation-token');
     mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
@@ -452,7 +452,7 @@ describe('startRunner', () => {
     vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
     mockRunnerStartupMode.mockReturnValue('managed');
     mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
-    mockEnrollRunnerControlSession.mockResolvedValue();
+    mockEnrollRunnerControlSession.mockResolvedValue(null);
     mockHeartbeatRunnerControlSession.mockResolvedValueOnce().mockRejectedValueOnce(heartbeatError);
     mockPollRunnerAssignment.mockResolvedValue(null);
     mockInterruptibleSleep.mockImplementationOnce(

@@ -118,7 +118,10 @@ export async function assignRunnerInstancesTx(
       and(
         eq(providerRunners.provisionerId, params.provisionerId),
         or(
-          eq(providerRunners.reservationId, reservation.id),
+          and(
+            eq(providerRunners.reservationId, reservation.id),
+            isNull(providerRunners.reservationReleasedAt),
+          ),
           and(
             eq(providerRunners.intendedReservationId, reservation.id),
             notInArray(providerRunners.id, runnerInstanceIds),
