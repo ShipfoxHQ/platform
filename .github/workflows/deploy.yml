@@ -83,10 +83,10 @@ jobs:
     environment: ${{ inputs.environment }}
     timeout-minutes: 60
     steps:
-      - name: Check out trusted deployment tooling
+      - name: Check out authorized deployment tooling
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          ref: ${{ inputs.artifact_name && 'main' || inputs.source_sha || 'main' }}
+          ref: ${{ inputs.artifact_name && github.event.pull_request.head.repo.full_name == github.repository && inputs.source_sha || inputs.source_sha || 'main' }}
           fetch-depth: 0
           persist-credentials: false
 
