@@ -340,11 +340,39 @@ export async function reportStep(
     log_outcome: params.logOutcome,
   });
 
-  const response = await leaseClient.post(`runs/jobs/current/steps/${params.stepId}/report`, {
+  const endpoint = `runs/jobs/current/steps/${params.stepId}/report`;
+  const requestOptions = {
     json: body,
     ...(params.signal ? {signal: params.signal} : {}),
-  });
+  };
+
+  let response: Response;
+  try {
+    response = await leaseClient.post(endpoint, requestOptions);
+  } catch (error) {
+    if (!(error instanceof HTTPError) || error.response.status !== 400) throw error;
+
+    logger().warn(
+      {stepId: params.stepId},
+      'Step report rejected with status 400; retrying without error classification fields',
+    );
+    response = await leaseClient.post(endpoint, {
+      ...requestOptions,
+      json: {
+        ...body,
+        ...(body.error == null ? {} : {error: stripStepErrorClassification(body.error)}),
+      },
+    });
+  }
+
   return reportStepResponseSchema.parse(await response.json());
+}
+
+function stripStepErrorClassification(
+  error: Exclude<StepErrorDto, null>,
+): Pick<Exclude<StepErrorDto, null>, 'message' | 'exit_code' | 'signal'> {
+  const {message, exit_code, signal} = error;
+  return {message, exit_code, signal};
 }
 
 // Exchanges the job lease for short-lived, read-only checkout credentials. The job is
