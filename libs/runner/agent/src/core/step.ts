@@ -19,6 +19,7 @@ import {
   AgentConfigError,
   AgentHarnessUnavailableError,
   AgentInvocationError,
+  AgentPermissionModeError,
 } from '#core/errors.js';
 import type {HarnessAdapter} from '#core/harness.js';
 import {
@@ -186,6 +187,9 @@ async function runSelectedHarness(params: {
     if (error instanceof AgentHarnessUnavailableError) {
       logHarnessUnavailable({error, harness, jobExecutionId, stepId, attempt});
     }
+    if (error instanceof AgentPermissionModeError) {
+      logPermissionModeDowngraded({error, harness, jobExecutionId, stepId, attempt});
+    }
     const reason: StepErrorReasonDto =
       error instanceof AgentHarnessUnavailableError
         ? 'agent_harness_unavailable'
@@ -199,6 +203,28 @@ async function runSelectedHarness(params: {
       error instanceof AgentInvocationError ? error.response : undefined,
     );
   }
+}
+
+function logPermissionModeDowngraded(params: {
+  error: AgentPermissionModeError;
+  harness: Harness;
+  jobExecutionId: string;
+  stepId: string;
+  attempt: number;
+}): void {
+  const {error, harness, jobExecutionId, stepId, attempt} = params;
+  logger().error(
+    {
+      event: 'runner.agent_permission_mode_downgraded',
+      harness,
+      jobExecutionId,
+      stepId,
+      attempt,
+      requestedPermissionMode: error.requested,
+      observedPermissionMode: error.observed,
+    },
+    'Agent permission mode downgraded',
+  );
 }
 
 function logHarnessUnavailable(params: {
