@@ -198,10 +198,21 @@ jobs:
               exit 1
             fi
             run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run_id")"
-            if [[ "$(jq -r '.conclusion' <<< "$run_json")" != "success" ||
-              "$(jq -r '.event' <<< "$run_json")" != "pull_request" ||
+            if [[ "$(jq -r '.event' <<< "$run_json")" != "pull_request" ||
               "$(jq -r '.path' <<< "$run_json")" != ".github/workflows/preview.yml" ||
               "$(jq -r '.head_sha' <<< "$run_json")" != "$source_sha" ]]; then
+              echo "Artifact promotion requires a preview workflow run for the requested source SHA." >&2
+              exit 1
+            fi
+            if [[ "$artifact_run_id" == "$GITHUB_RUN_ID" ]]; then
+              run_jobs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run_id/jobs?per_page=100")"
+              if ! jq -e \
+                'any(.jobs[]; .name == "Build verified preview artifact" and .status == "completed" and .conclusion == "success")' \
+                <<< "$run_jobs_json" >/dev/null; then
+                echo "The current preview workflow did not successfully produce the verified artifact." >&2
+                exit 1
+              fi
+            elif [[ "$(jq -r '.conclusion' <<< "$run_json")" != "success" ]]; then
               echo "Artifact promotion requires a successful preview workflow run for the requested source SHA." >&2
               exit 1
             fi
