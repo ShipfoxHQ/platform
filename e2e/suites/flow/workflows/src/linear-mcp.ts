@@ -5,6 +5,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from 'node:http';
+import {setTimeout as delay} from 'node:timers/promises';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -12,6 +13,9 @@ import {z} from 'zod';
 
 export const LINEAR_READ_RESULT_MARKER = 'linear-read-result-marker';
 export const LINEAR_WRITE_RESULT_MARKER = 'linear-write-result-marker';
+
+const LINEAR_MCP_PORT_WAIT_TIMEOUT_MS = 120_000;
+const LINEAR_MCP_PORT_RETRY_INTERVAL_MS = 100;
 
 export interface LinearMcpCall {
   authorization: string | undefined;
@@ -122,13 +126,29 @@ function requiredLinearMcpEndpoint(): string {
 }
 
 async function listen(server: HttpServer, endpoint: URL): Promise<URL> {
-  server.listen({host: endpoint.hostname, port: Number(endpoint.port)});
-  await once(server, 'listening');
+  const port = Number(endpoint.port);
+  const deadline = Date.now() + LINEAR_MCP_PORT_WAIT_TIMEOUT_MS;
+
+  while (true) {
+    server.listen({host: endpoint.hostname, port});
+    try {
+      await once(server, 'listening');
+      break;
+    } catch (error) {
+      if (!isAddressInUseError(error) || port === 0 || Date.now() >= deadline) throw error;
+      await delay(LINEAR_MCP_PORT_RETRY_INTERVAL_MS);
+    }
+  }
+
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP server address.');
   const boundEndpoint = new URL(endpoint);
   boundEndpoint.port = String(address.port);
   return boundEndpoint;
+}
+
+function isAddressInUseError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === 'EADDRINUSE';
 }
 
 async function close(server: HttpServer): Promise<void> {
