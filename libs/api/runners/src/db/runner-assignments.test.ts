@@ -61,6 +61,25 @@ describe('assignRunnerInstances', () => {
     expect(results).toEqual([[runner.id], [runner.id]]);
   });
 
+  it('is idempotent after an assigned reservation is deleted', async () => {
+    const reservation = await createReservation();
+    const runner = await createEnrolledRunner();
+    await assignRunnerInstances({
+      provisionerId,
+      reservationId: reservation.id,
+      runnerInstanceIds: [runner.id],
+    });
+    await db().delete(reservations).where(eq(reservations.id, reservation.id));
+
+    const assigned = await assignRunnerInstances({
+      provisionerId,
+      reservationId: reservation.id,
+      runnerInstanceIds: [runner.id],
+    });
+
+    expect(assigned).toEqual([runner.id]);
+  });
+
   it('rejects expired reservations', async () => {
     const reservation = await createReservation({expiresAt: new Date(Date.now() - 1_000)});
     const runner = await createEnrolledRunner();
