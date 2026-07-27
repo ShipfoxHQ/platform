@@ -1,3 +1,4 @@
+import {PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES} from './claude/rows.js';
 import {parseClaudeSessionRecord} from './claude-parser.js';
 
 const record = (data: unknown, ts = 1) => ({
@@ -52,6 +53,14 @@ describe('parseClaudeSessionRecord', () => {
         terminalFailure: false,
       },
     ]);
+  });
+
+  it.each([
+    ...PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES,
+  ])('drops pure-progress system subtype %s', (subtype) => {
+    const rows = parseClaudeSessionRecord(record({type: 'system', subtype}));
+
+    expect(rows).toEqual([]);
   });
 
   it('expands assistant text, thinking, and tool-use blocks in order', () => {
