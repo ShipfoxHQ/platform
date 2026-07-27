@@ -4,7 +4,7 @@ import type {
   PollDemandResponseDto,
 } from '@shipfox/api-runners-dto';
 import type {ProvisionerClient} from '#api-client.js';
-import {runProvisionerIteration} from '#provisioner.js';
+import {runProvisionerIteration, startProvisioner} from '#provisioner.js';
 import {createInMemoryTracker} from '#tracker.js';
 import type {ProvisionerAdapter, ProvisionerTemplate} from '#types.js';
 
@@ -146,6 +146,24 @@ describe('runProvisionerIteration', () => {
     });
 
     expect(result).toEqual({nextInterval: 1000, degraded: false});
+  });
+});
+
+describe('startProvisioner', () => {
+  it('rejects more than 1000 templates with a clear error', async () => {
+    const templates = Array.from({length: 1001}, (_, index) => ({
+      ...template,
+      key: `template-${index}`,
+    }));
+
+    await expect(
+      startProvisioner({
+        adapter: {
+          loadTemplates: () => Promise.resolve(templates),
+          launch: () => Promise.resolve(),
+        },
+      }),
+    ).rejects.toThrow('accepts at most 1000');
   });
 });
 

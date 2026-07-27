@@ -290,8 +290,8 @@ describe('POST /provisioners/demand/poll', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('returns 400 for too many templates', async () => {
-    const templates = Array.from({length: 101}, (_, index) => ({
+  it('returns 400 for more than 1000 templates', async () => {
+    const templates = Array.from({length: 1001}, (_, index) => ({
       template_key: `linux-${index}`,
       labels: ['linux'],
       available_slots: 1,

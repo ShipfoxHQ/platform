@@ -15,8 +15,8 @@ import {type RunnerEnvFactory, runProvisionerTick} from '#tick.js';
 import {createInMemoryTracker, type ProviderRunnerTracker} from '#tracker.js';
 import type {ProvisionerAdapter, ProvisionerTemplate} from '#types.js';
 
-/** The demand poll accepts at most 100 advertised templates per request. */
-const MAX_TEMPLATES_PER_POLL = 100;
+/** The demand poll accepts at most 1000 advertised templates per request. */
+const MAX_TEMPLATES_PER_POLL = 1000;
 
 let running = true;
 // Module-level so the long-lived signal handler can cancel the in-flight long-poll;
