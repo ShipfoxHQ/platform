@@ -19,6 +19,20 @@ export class ProvisionerTokenNotFoundError extends Error {
   }
 }
 
+export class ProvisionerAdminIdempotencyKeyReuseError extends Error {
+  constructor() {
+    super('Idempotency-Key was already used for a different provisioner token command');
+    this.name = 'ProvisionerAdminIdempotencyKeyReuseError';
+  }
+}
+
+export class ProvisionerAdminIdempotencyReplayUnavailableError extends Error {
+  constructor() {
+    super('Idempotency-Key replay cannot reproduce the original provisioner token');
+    this.name = 'ProvisionerAdminIdempotencyReplayUnavailableError';
+  }
+}
+
 export class EmptyRunnerLabelsError extends Error {
   constructor() {
     super('Runner labels cannot be empty');

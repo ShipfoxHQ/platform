@@ -51,10 +51,13 @@ export {
 } from './provisioner-capability-snapshots.js';
 export type {CreateProvisionerTokenParams} from './provisioner-tokens.js';
 export {
+  createInstallationProvisionerTokenWithAudit,
   createProvisionerToken,
   listActiveProvisionerTokens,
+  listInstallationProvisionerTokens,
   listUsableProvisionerTokensByWorkspaceId,
   resolveProvisionerTokenByHash,
+  revokeInstallationProvisionerTokenWithAudit,
   revokeProvisionerToken,
   touchProvisionerLastSeen,
 } from './provisioner-tokens.js';

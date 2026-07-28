@@ -8,6 +8,7 @@ import {
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import type {RouteGroup} from '@shipfox/node-fastify';
 import type {CreateRunnersModuleOptions} from '#installation-provisioning.js';
+import {createAdminProvisionerTokenRoutes} from './admin-provisioner-tokens.js';
 import {createAdminRunnerInstancesRoute} from './admin-runner-instances.js';
 import {assignRunnerInstancesRoute} from './assign-runner-instances.js';
 import {createManualRegistrationTokenRoute} from './create-manual-registration-token.js';
@@ -83,6 +84,7 @@ function createRunnerOnlyRoutes(auth: AuthInterModuleClient): RouteGroup[] {
       auth: AUTH_USER,
       routes: [createAdminRunnerInstancesRoute(auth)],
     },
+    createAdminProvisionerTokenRoutes(auth),
   ];
 }
 
