@@ -444,6 +444,30 @@ describe('startRunner', () => {
     expect(mockInterruptibleSleep.mock.calls.map(([ms]) => ms)).toEqual([1, 0]);
   });
 
+  it('retries a timed-out managed assignment poll and activates after a later assignment', async () => {
+    vi.stubEnv('SHIPFOX_RUNNER_BOOTSTRAP_TOKEN', 'sf_rbt_bootstrap-token');
+    vi.stubEnv('SHIPFOX_RUNNER_PROVIDER_KIND', 'ec2');
+    vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
+    mockRunnerStartupMode.mockReturnValue('managed');
+    mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
+    mockEnrollRunnerControlSession.mockResolvedValue(null);
+    mockHeartbeatRunnerControlSession.mockResolvedValue();
+    mockPollRunnerAssignment
+      .mockRejectedValueOnce(
+        Object.assign(new Error('assignment poll timed out'), {name: 'TimeoutError'}),
+      )
+      .mockResolvedValueOnce('activation-token');
+    mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
+
+    await startRunner();
+
+    expect(mockPollRunnerAssignment).toHaveBeenCalledTimes(2);
+    expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
+      capabilities: {harnesses: {pi: {tools: ['read']}}},
+      registrationToken: 'activation-token',
+    });
+  });
+
   it('surfaces heartbeat failures during a managed assignment retry backoff', async () => {
     vi.useFakeTimers();
     const heartbeatError = new Error('heartbeat failed');

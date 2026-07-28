@@ -23,7 +23,10 @@ import {
   runnersTestAuthClient,
 } from '#test/index.js';
 import {createRunnerRoutes} from './index.js';
-import {pollForRunnerActivationToken} from './runner-enrollment.js';
+import {
+  pollForRunnerActivationToken,
+  resolveRunnerAssignmentPollWaitSeconds,
+} from './runner-enrollment.js';
 
 const token = 'provisioner-test-token';
 const fakeUserAuth: AuthMethod = {name: AUTH_USER, authenticate: () => Promise.resolve()};
@@ -63,6 +66,13 @@ describe('runner enrollment control plane', () => {
 
   beforeEach(() => {
     provisionerId = crypto.randomUUID();
+  });
+
+  it('uses the requested assignment wait below the server cap and caps larger requests', () => {
+    expect(resolveRunnerAssignmentPollWaitSeconds(5)).toBe(5);
+    expect(resolveRunnerAssignmentPollWaitSeconds(30)).toBe(30);
+    expect(resolveRunnerAssignmentPollWaitSeconds(31)).toBe(30);
+    expect(resolveRunnerAssignmentPollWaitSeconds(undefined)).toBe(30);
   });
 
   it('creates a hashed one-use bootstrap token and restricts its control session to its instance', async () => {
@@ -370,7 +380,7 @@ describe('runner enrollment control plane', () => {
 
     const assignment = await app.inject({
       method: 'GET',
-      url: '/runner-control/assignment',
+      url: '/runner-control/assignment?wait_seconds=5',
       headers: {authorization: `Bearer ${controlToken}`},
     });
     expect(assignment.statusCode).toBe(200);
@@ -392,6 +402,29 @@ describe('runner enrollment control plane', () => {
       headers: {authorization: `Bearer ${controlToken}`},
     });
     expect(closed.statusCode).toBe(401);
+  });
+
+  it('rejects a negative assignment wait before entering the control-plane poll', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {runner_instances: [{}]},
+    });
+    const runner = created.json().runner_instances[0];
+    const exchanged = await app.inject({
+      method: 'POST',
+      url: '/runner-enrollment/exchange',
+      payload: {bootstrap_token: runner.bootstrap_token},
+    });
+
+    const assignment = await app.inject({
+      method: 'GET',
+      url: '/runner-control/assignment?wait_seconds=-1',
+      headers: {authorization: `Bearer ${exchanged.json().control_session_token}`},
+    });
+
+    expect(assignment.statusCode).toBe(400);
   });
 
   it('keeps polling when an assignment cannot yet mint an activation token', async () => {

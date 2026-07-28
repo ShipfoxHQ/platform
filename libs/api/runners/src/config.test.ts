@@ -1,3 +1,4 @@
+import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
 import {vi} from '@shipfox/vitest/vi';
 
 describe('EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS validation', () => {
@@ -36,6 +37,9 @@ describe('runner assignment polling defaults', () => {
     vi.resetModules();
     const {config} = await import('#config.js');
     expect(config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS).toBe(250);
+    expect(config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS).toBe(
+      RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
+    );
   });
 });
 describe('REGISTRATION_TOKEN_BATCH_MAX validation', () => {

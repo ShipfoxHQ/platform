@@ -36,6 +36,7 @@ import {
   jobWorkspacePath,
   resolveWorkspaceRootFromEnv,
 } from '@shipfox/runner-workspace';
+import {isTimeoutError} from 'ky';
 import {config} from '#config.js';
 import {startHeartbeatLoop} from '#core/heartbeat-loop.js';
 import {runJobSteps} from '#core/step-loop.js';
@@ -336,6 +337,10 @@ async function waitForRunnerActivation(controlSessionToken: string): Promise<str
         if (controller.signal.aborted && heartbeatError)
           return handleControlSessionError(heartbeatError);
         if (isTerminalControlSessionError(error)) return handleControlSessionError(error);
+        if (isTimeoutError(error)) {
+          logger().debug('Managed runner assignment poll timed out; retrying');
+          continue;
+        }
         throw error;
       }
     }

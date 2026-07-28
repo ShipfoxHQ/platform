@@ -6,6 +6,7 @@ import {
   attachRunnerControlProviderIdBodySchema,
   createRunnerInstancesBodySchema,
   createRunnerInstancesResponseSchema,
+  runnerAssignmentPollQuerySchema,
   runnerAssignmentPollResponseSchema,
   runnerBootstrapExchangeBodySchema,
   runnerBootstrapExchangeResponseSchema,
@@ -175,6 +176,16 @@ type RunnerAssignmentPollParams = {
   getAssignment: () => Promise<unknown | null>;
   issueActivationToken: () => Promise<string | null>;
 };
+
+export function resolveRunnerAssignmentPollWaitSeconds(
+  requestedWaitSeconds: number | undefined,
+): number {
+  return Math.min(
+    requestedWaitSeconds ?? config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS,
+    config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS,
+  );
+}
+
 export async function pollForRunnerActivationToken(
   params: RunnerAssignmentPollParams,
 ): Promise<string | null> {
@@ -193,11 +204,15 @@ export const runnerAssignmentPollRoute = defineRoute({
   method: 'GET',
   path: '/assignment',
   description: 'Wait for only the authenticated runner instance assignment',
-  schema: {response: {200: runnerAssignmentPollResponseSchema}},
+  schema: {
+    querystring: runnerAssignmentPollQuerySchema,
+    response: {200: runnerAssignmentPollResponseSchema},
+  },
   preHandler: authenticateRunnerControlSession,
   handler: async (request, reply) => {
     const session = requireRunnerControlSessionContext(request);
-    const deadline = Date.now() + config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS * 1000;
+    const waitSeconds = resolveRunnerAssignmentPollWaitSeconds(request.query.wait_seconds);
+    const deadline = Date.now() + waitSeconds * 1000;
     const abortController = new AbortController();
     reply.raw.on('close', () => abortController.abort());
     const activationToken = await pollForRunnerActivationToken({

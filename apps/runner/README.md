@@ -36,6 +36,11 @@ control credentials are discarded before job polling. Job polling uses the
 resulting session token. Heartbeat, step, checkout, and log calls use the
 per-job lease token returned by the claim response.
 
+Managed runners request a 30-second assignment wait on each control-plane poll. The API may cap
+that request with `RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS`; the runner derives its transport
+timeout from the requested wait plus a 15-second network buffer and retries a transport timeout
+while the control-session heartbeat remains healthy.
+
 The runner refuses to start when `SHIPFOX_RUNNER_LABELS` is empty after trimming.
 When no job is claimed before `SHIPFOX_POLL_MAX_DURATION_MS`, it exits cleanly so
 short-lived provisioned runners can be reclaimed. A session-exhausted response

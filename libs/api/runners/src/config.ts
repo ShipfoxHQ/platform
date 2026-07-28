@@ -1,3 +1,4 @@
+import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
 import {bool, createConfig, num} from '@shipfox/config';
 import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
 
@@ -19,8 +20,8 @@ export const config = createConfig({
     default: 300,
   }),
   RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS: num({
-    desc: 'Maximum time the runner assignment poll waits before returning no assignment, in seconds.',
-    default: 30,
+    desc: 'Maximum server-side cap for the per-request runner assignment wait, in seconds. Managed runners request their own bounded wait with wait_seconds.',
+    default: RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
   }),
   RUNNER_ASSIGNMENT_POLL_INTERVAL_MS: num({
     desc: 'Delay between durable assignment reads while a runner-control session waits for an assignment, in milliseconds.',

@@ -46,6 +46,10 @@ export const attachRunnerControlProviderIdBodySchema = z
   .object({provider_runner_id: z.string().min(1).max(255)})
   .strict();
 export const runnerControlHeartbeatResponseSchema = z.object({ok: z.literal(true)});
+export const RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS = 30;
+export const runnerAssignmentPollQuerySchema = z
+  .object({wait_seconds: z.coerce.number().int().min(1).optional()})
+  .strict();
 export const runnerAssignmentPollResponseSchema = z.object({
   activation_token: z.string().min(1).nullable(),
 });
@@ -58,3 +62,4 @@ export type RunnerBootstrapExchangeResponseDto = z.infer<
 >;
 export type RunnerEnrollmentBodyDto = z.infer<typeof runnerEnrollmentBodySchema>;
 export type RunnerEnrollmentResponseDto = z.infer<typeof runnerEnrollmentResponseSchema>;
+export type RunnerAssignmentPollQueryDto = z.infer<typeof runnerAssignmentPollQuerySchema>;

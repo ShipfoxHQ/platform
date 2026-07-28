@@ -15,6 +15,7 @@ import {
   heartbeatBodySchema,
   heartbeatResponseSchema,
   type RegisterRunnerResponseDto,
+  RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
   RUNNER_SESSION_EXHAUSTED_CODE,
   type RunnerToolCapabilitiesDto,
   registerRunnerBodySchema,
@@ -50,8 +51,8 @@ import {config} from '#config.js';
 /** Media type the append endpoint expects for the raw NDJSON request body. */
 const LOG_NDJSON_CONTENT_TYPE = 'application/x-ndjson';
 export const ANNOTATION_POST_TIMEOUT_MS = 2_500;
-/** Allows the API's 30-second assignment long-poll plus transport overhead. */
-const RUNNER_ASSIGNMENT_POLL_TIMEOUT_MS = 45_000;
+/** Gives assignment responses time to cross the network after the server wait ends. */
+const RUNNER_ASSIGNMENT_POLL_TIMEOUT_BUFFER_MS = 15_000;
 
 const ANNOTATION_CAPPED_CODES = new Set([
   'annotation-body-too-large',
@@ -221,11 +222,14 @@ export async function heartbeatRunnerControlSession(
 export async function pollRunnerAssignment(
   controlSessionToken: string,
   signal?: AbortSignal,
+  options: {waitSeconds?: number} = {},
 ): Promise<string | null> {
+  const waitSeconds = options.waitSeconds ?? RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS;
   const response = await createRunnerControlClient(controlSessionToken).get(
     'runner-control/assignment',
     {
-      timeout: RUNNER_ASSIGNMENT_POLL_TIMEOUT_MS,
+      searchParams: {wait_seconds: String(waitSeconds)},
+      timeout: waitSeconds * 1000 + RUNNER_ASSIGNMENT_POLL_TIMEOUT_BUFFER_MS,
       ...(signal ? {signal} : {}),
     },
   );

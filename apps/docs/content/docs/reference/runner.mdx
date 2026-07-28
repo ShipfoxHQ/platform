@@ -18,6 +18,14 @@ environments](/understand/runners-and-execution-environments). To start one, see
 | `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN` | One-use provisioner-managed bootstrap token (`sf_rbt_…`); see [Token types](#token-types). The runner exchanges it for a workspace-neutral control session before waiting for an assignment. Set this or `SHIPFOX_RUNNER_REGISTRATION_TOKEN`, but not both. |
 | `SHIPFOX_RUNNER_LABELS` | Comma-separated labels this runner registers with, such as `linux,x64,self-hosted`. |
 
+## Managed assignment polling
+
+Managed runners request a 30-second bounded wait for each assignment poll. The API owns the
+server-side cap through `RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS`; there is no separate runner
+environment variable to keep in sync. The runner derives its HTTP timeout from the requested wait
+plus a 15-second transport buffer and retries a transport timeout while its control-session
+heartbeat remains healthy.
+
 ## Label matching
 
 A job is dispatched to a runner only when the runner's labels include **all** labels the job's `runner:` field requires. A runner may carry several labels; one machine may run several runner processes with different label sets.
