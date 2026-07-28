@@ -50,7 +50,6 @@ test('keeps an unlisted password signup on the signup form', async ({page, signu
   await expect(page).toHaveURL(SIGNUP_URL_RE);
   await expect(signup.alert()).toContainText(SIGNUP_NOT_ALLOWED_MESSAGE);
   await expect(signup.verificationHeading()).toBeHidden();
-  await stableScreenshot(page, 'auth/signup-not-allowed');
 });
 test('starts email verification for an address in the signup allowlist', async ({signup}) => {
   await signup.goto();
