@@ -7,6 +7,8 @@ import {
   readMiseNodeVersion,
 } from './runner-image.js';
 
+export const AWS_ACCOUNT_ID_PATTERN = /^\d{12}$/u;
+
 export function parseBuildRunnerImageArgs(args: string[], env = process.env, nodeVersion?: string) {
   const [os, platform, ...extraPackerArgs] = args;
   if (!os || !platform)
@@ -33,8 +35,22 @@ export function parseBuildRunnerImageArgs(args: string[], env = process.env, nod
     extraPackerArgs,
   };
   if (lifecycle === 'candidate') {
+    const candidateMetadata =
+      platform === 'aws'
+        ? {
+            candidateKmsKeyId: required(
+              env.BUILD_CANDIDATE_KMS_KEY_ID ?? env.AWS_RUNNER_IMAGE_CANDIDATE_KMS_KEY_ID,
+              'BUILD_CANDIDATE_KMS_KEY_ID',
+            ),
+            candidateConsumerAccountIds: parseCandidateConsumerAccountIds(
+              env.BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS ??
+                env.AWS_RUNNER_IMAGE_CANDIDATE_CONSUMER_ACCOUNT_IDS,
+            ),
+          }
+        : {};
     return {
       ...sharedBuild,
+      ...candidateMetadata,
       candidateExpiresAt: required(env.BUILD_CANDIDATE_EXPIRES_AT, 'BUILD_CANDIDATE_EXPIRES_AT'),
       candidateId: required(env.BUILD_CANDIDATE_ID, 'BUILD_CANDIDATE_ID'),
     };
@@ -49,6 +65,28 @@ export function parseBuildRunnerImageArgs(args: string[], env = process.env, nod
 function required(value: string | undefined, name: string): string {
   if (!value) throw new Error(`${name} is not set.`);
   return value;
+}
+
+function parseCandidateConsumerAccountIds(value: string | undefined): string[] {
+  const rawValues = required(value, 'BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS');
+  let accountIds: unknown;
+  try {
+    accountIds = rawValues.trimStart().startsWith('[')
+      ? JSON.parse(rawValues)
+      : rawValues.split(',').map((accountId) => accountId.trim());
+  } catch {
+    throw new Error('BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS must be a CSV or JSON array.');
+  }
+  if (
+    !Array.isArray(accountIds) ||
+    accountIds.length === 0 ||
+    accountIds.some(
+      (accountId) => typeof accountId !== 'string' || !AWS_ACCOUNT_ID_PATTERN.test(accountId),
+    )
+  ) {
+    throw new Error('BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS must contain 12-digit AWS account IDs.');
+  }
+  return [...new Set(accountIds)];
 }
 
 export function runBuildRunnerImageCli(args = process.argv.slice(2)): void {

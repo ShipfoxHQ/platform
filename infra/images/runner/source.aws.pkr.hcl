@@ -3,6 +3,8 @@ source "amazon-ebs" "build_image" {
   ami_virtualization_type     = "hvm"
   associate_public_ip_address = true
   encrypt_boot                = true
+  kms_key_id                  = var.image_lifecycle == "candidate" ? var.candidate_kms_key_id : ""
+  ami_users                   = var.image_lifecycle == "candidate" ? var.candidate_ami_users : []
   imds_support                = "v2.0"
   instance_type               = var.architecture == "amd64" ? "t3.large" : "t4g.large"
   region                      = "eu-central-1"

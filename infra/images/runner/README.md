@@ -7,7 +7,7 @@
 Builds run the production deploy inside the target VM. This is required because the runner contains architecture-specific native payloads. The wrapper obtains the Node version from `mise`, prunes `@shipfox/runner`, and then invokes Packer.
 
 ```sh
-BUILD_ARCH=amd64 BUILD_ATTEMPT=1 BUILD_NUMBER=42 BUILD_REVISION=0123456789abcdef0123456789abcdef01234567 pnpm --filter=@shipfox/runner-image exec node ./bin/build-runner-image-candidate.js --output /tmp/runner-image-candidate.json
+BUILD_ARCH=amd64 BUILD_ATTEMPT=1 BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS=123456789012,210987654321 BUILD_CANDIDATE_KMS_KEY_ID=alias/shipfox-runner-image-candidate BUILD_NUMBER=42 BUILD_REVISION=0123456789abcdef0123456789abcdef01234567 pnpm --filter=@shipfox/runner-image exec node ./bin/build-runner-image-candidate.js --output /tmp/runner-image-candidate.json
 BUILD_ARCH=amd64 BUILD_ATTEMPT=1 BUILD_NUMBER=42 BUILD_RUNNER_VERSION=0.1.0 pnpm --filter=@shipfox/runner-image exec node ./bin/build-runner-image.js ubuntu24 qemu
 ```
 
@@ -42,11 +42,11 @@ On EC2, launch a runner with a short max lifetime, stop the provisioner, and ver
 
 ## Candidate builds
 
-After every successful merge to `main`, CI builds one candidate AMI per architecture in the candidate AWS account. Candidates are not releases: CI does not publish a catalog, set a latest pointer, or record a release version.
+After every successful merge to `main`, CI builds one candidate AMI per architecture in the candidate AWS account. Candidates are not releases: CI shares them only with the configured worker-plane accounts and publishes one immutable OCI manifest at the full source revision. There is no moving `latest` or `main` pointer.
 
-The candidate command writes its AMI ID, architecture, region, source SHA, and whether it built or reused the image to its required `--output` JSON file. The AMI tags are the discovery contract. Internal users resolve an available image by its exact source SHA and architecture with `shipfox.managed=true`, `shipfox.lifecycle=candidate`, `shipfox.revision`, and `shipfox.architecture`. Candidates also record their GitHub build metadata and an expiry timestamp for account-level cleanup.
+The candidate command writes its AMI ID, architecture, region, owner, creation time, expiration time, source SHA, and whether it built or reused the image to its required `--output` JSON file. The AMI tags are the discovery contract. Internal users resolve an available image by its exact source SHA and architecture with `shipfox.managed=true`, `shipfox.lifecycle=candidate`, `shipfox.candidate_id`, `shipfox.revision`, and `shipfox.architecture`. Candidates are encrypted with `BUILD_CANDIDATE_KMS_KEY_ID`, shared with the comma-separated or JSON-array account IDs in `BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS`, and retain the 14-day expiry.
 
-CI assumes `AWS_RUNNER_IMAGE_ROLE_ARN` through GitHub OIDC. The role must belong to the candidate account and trust only `ShipfoxHQ/shipfox` builds from `main`. Candidate AMIs must not be used by production provisioning.
+CI assumes `AWS_RUNNER_IMAGE_ROLE_ARN` through GitHub OIDC. Repository variables `AWS_RUNNER_IMAGE_CANDIDATE_KMS_KEY_ID` and `AWS_RUNNER_IMAGE_CANDIDATE_CONSUMER_ACCOUNT_IDS` supply the candidate distribution inputs; account IDs are intentionally not Packer source defaults. The role must belong to the candidate account and trust only `ShipfoxHQ/shipfox` builds from `main`. Candidate AMIs must not be used by production provisioning.
 
 QEMU output is test-only and is not published as a distributed artifact. The supported consumer path is a local or CI build followed by a boot test:
 

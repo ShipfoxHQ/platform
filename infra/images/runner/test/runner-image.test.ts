@@ -97,6 +97,8 @@ describe('packerBuildArgs', () => {
         buildNumber: '42',
         candidateExpiresAt: '2026-08-03T10:00:00Z',
         candidateId: 'main-0123456789abcdef0123456789abcdef01234567',
+        candidateConsumerAccountIds: ['123456789012', '210987654321'],
+        candidateKmsKeyId: 'alias/shipfox-runner-image-candidate',
         lifecycle: 'candidate',
         nodeVersion: '24.17.0',
         revision: '0123456789abcdef0123456789abcdef01234567',
@@ -108,7 +110,53 @@ describe('packerBuildArgs', () => {
     expect(args).toContain('image_lifecycle=candidate');
     expect(args).toContain('candidate_id=main-0123456789abcdef0123456789abcdef01234567');
     expect(args).toContain('candidate_expires_at=2026-08-03T10:00:00Z');
+    expect(args).toContain('candidate_kms_key_id=alias/shipfox-runner-image-candidate');
+    expect(args).toContain('candidate_ami_users=["123456789012","210987654321"]');
     expect(args.some((arg) => arg.startsWith('runner_version='))).toBe(false);
+  });
+
+  it('requires a KMS key for candidate AWS builds', () => {
+    expect(() =>
+      packerBuildArgs(
+        {
+          os: 'ubuntu24',
+          platform: 'aws',
+          architecture: 'amd64',
+          buildAttempt: '1',
+          buildNumber: '42',
+          candidateExpiresAt: '2026-08-03T10:00:00Z',
+          candidateId: 'main-0123456789abcdef0123456789abcdef01234567',
+          candidateConsumerAccountIds: ['123456789012'],
+          lifecycle: 'candidate',
+          nodeVersion: '24.17.0',
+          revision: '0123456789abcdef0123456789abcdef01234567',
+          extraPackerArgs: [],
+        },
+        '/tmp/workspace',
+      ),
+    ).toThrow('Candidate AWS builds require candidateKmsKeyId.');
+  });
+
+  it('requires consumer accounts for candidate AWS builds', () => {
+    expect(() =>
+      packerBuildArgs(
+        {
+          os: 'ubuntu24',
+          platform: 'aws',
+          architecture: 'amd64',
+          buildAttempt: '1',
+          buildNumber: '42',
+          candidateExpiresAt: '2026-08-03T10:00:00Z',
+          candidateId: 'main-0123456789abcdef0123456789abcdef01234567',
+          candidateKmsKeyId: 'alias/shipfox-runner-image-candidate',
+          lifecycle: 'candidate',
+          nodeVersion: '24.17.0',
+          revision: '0123456789abcdef0123456789abcdef01234567',
+          extraPackerArgs: [],
+        },
+        '/tmp/workspace',
+      ),
+    ).toThrow('Candidate AWS builds require candidate consumer accounts.');
   });
 
   it('rejects an unchecked custom QEMU source', () => {
@@ -242,6 +290,8 @@ describe('parseBuildRunnerImageArgs', () => {
         BUILD_ATTEMPT: '1',
         BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
         BUILD_CANDIDATE_ID: 'main-0123456789abcdef0123456789abcdef01234567',
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
         BUILD_IMAGE_LIFECYCLE: 'candidate',
         BUILD_NUMBER: '42',
         BUILD_REVISION: '0123456789abcdef0123456789abcdef01234567',
@@ -256,10 +306,124 @@ describe('parseBuildRunnerImageArgs', () => {
     });
     expect(build).not.toHaveProperty('runnerVersion');
   });
+
+  it('accepts a JSON array of consumer account ids', () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'amd64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: 'main-0123456789abcdef0123456789abcdef01234567',
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '["123456789012","123456789012","210987654321"]',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: '0123456789abcdef0123456789abcdef01234567',
+      },
+      '24.17.0',
+    );
+
+    expect(build).toMatchObject({
+      candidateConsumerAccountIds: ['123456789012', '210987654321'],
+    });
+  });
+
+  it('rejects malformed JSON consumer account ids', () => {
+    expect(() =>
+      parseBuildRunnerImageArgs(
+        ['ubuntu24', 'aws'],
+        {
+          BUILD_ARCH: 'amd64',
+          BUILD_ATTEMPT: '1',
+          BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+          BUILD_CANDIDATE_ID: 'main-0123456789abcdef0123456789abcdef01234567',
+          BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '[123456789012',
+          BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+          BUILD_IMAGE_LIFECYCLE: 'candidate',
+          BUILD_NUMBER: '42',
+          BUILD_REVISION: '0123456789abcdef0123456789abcdef01234567',
+        },
+        '24.17.0',
+      ),
+    ).toThrow('BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS must be a CSV or JSON array.');
+  });
+
+  it('rejects a non-array JSON value for consumer account ids', () => {
+    expect(() =>
+      parseBuildRunnerImageArgs(
+        ['ubuntu24', 'aws'],
+        {
+          BUILD_ARCH: 'amd64',
+          BUILD_ATTEMPT: '1',
+          BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+          BUILD_CANDIDATE_ID: 'main-0123456789abcdef0123456789abcdef01234567',
+          BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '{"account":"123456789012"}',
+          BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+          BUILD_IMAGE_LIFECYCLE: 'candidate',
+          BUILD_NUMBER: '42',
+          BUILD_REVISION: '0123456789abcdef0123456789abcdef01234567',
+        },
+        '24.17.0',
+      ),
+    ).toThrow('BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS must contain 12-digit AWS account IDs.');
+  });
+
+  it('rejects an empty consumer account id list', () => {
+    expect(() =>
+      parseBuildRunnerImageArgs(
+        ['ubuntu24', 'aws'],
+        {
+          BUILD_ARCH: 'amd64',
+          BUILD_ATTEMPT: '1',
+          BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+          BUILD_CANDIDATE_ID: 'main-0123456789abcdef0123456789abcdef01234567',
+          BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '[]',
+          BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+          BUILD_IMAGE_LIFECYCLE: 'candidate',
+          BUILD_NUMBER: '42',
+          BUILD_REVISION: '0123456789abcdef0123456789abcdef01234567',
+        },
+        '24.17.0',
+      ),
+    ).toThrow('BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS must contain 12-digit AWS account IDs.');
+  });
+
+  it('rejects a consumer account id that is not 12 digits', () => {
+    expect(() =>
+      parseBuildRunnerImageArgs(
+        ['ubuntu24', 'aws'],
+        {
+          BUILD_ARCH: 'amd64',
+          BUILD_ATTEMPT: '1',
+          BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+          BUILD_CANDIDATE_ID: 'main-0123456789abcdef0123456789abcdef01234567',
+          BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,not-an-account-id',
+          BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+          BUILD_IMAGE_LIFECYCLE: 'candidate',
+          BUILD_NUMBER: '42',
+          BUILD_REVISION: '0123456789abcdef0123456789abcdef01234567',
+        },
+        '24.17.0',
+      ),
+    ).toThrow('BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS must contain 12-digit AWS account IDs.');
+  });
 });
 
 describe('runner image candidates', () => {
   const revision = '0123456789abcdef0123456789abcdef01234567';
+  const availableImage = (amiId: string, architecture: 'amd64' | 'arm64') => ({
+    ImageId: amiId,
+    State: 'available' as const,
+    OwnerId: '123456789012',
+    CreationDate: '2026-07-19T10:15:00Z',
+    Tags: [
+      {Key: 'shipfox.candidate_id', Value: `main-${revision}`},
+      {Key: 'shipfox.revision', Value: revision},
+      {Key: 'shipfox.architecture', Value: architecture},
+      {Key: 'shipfox.expires_at', Value: '2026-08-03T10:00:00Z'},
+    ],
+  });
 
   it('builds a candidate when no matching AMI exists', async () => {
     const build = parseBuildRunnerImageArgs(
@@ -269,13 +433,20 @@ describe('runner image candidates', () => {
         BUILD_ATTEMPT: '1',
         BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
         BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
         BUILD_IMAGE_LIFECYCLE: 'candidate',
         BUILD_NUMBER: '42',
         BUILD_REVISION: revision,
       },
       '24.17.0',
     );
-    const send = vi.fn().mockResolvedValue({Images: []});
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({Images: []})
+      .mockResolvedValueOnce({
+        Images: [availableImage('ami-0123abc456def7890', 'amd64')],
+      });
     const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
 
     const candidate = await buildRunnerImageCandidate(build, {
@@ -288,6 +459,10 @@ describe('runner image candidates', () => {
       amiId: 'ami-0123abc456def7890',
       architecture: 'amd64',
       candidateId: `main-${revision}`,
+      createdAt: '2026-07-19T10:15:00.000Z',
+      expiresAt: '2026-08-03T10:00:00.000Z',
+      imageOs: 'ubuntu24',
+      owner: '123456789012',
       region: 'eu-central-1',
       revision,
       status: 'built',
@@ -302,6 +477,8 @@ describe('runner image candidates', () => {
         BUILD_ATTEMPT: '1',
         BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
         BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
         BUILD_IMAGE_LIFECYCLE: 'candidate',
         BUILD_NUMBER: '42',
         BUILD_REVISION: revision,
@@ -309,7 +486,7 @@ describe('runner image candidates', () => {
       '24.17.0',
     );
     const send = vi.fn().mockResolvedValue({
-      Images: [{ImageId: 'ami-0fedcba9876543210', State: 'available'}],
+      Images: [availableImage('ami-0fedcba9876543210', 'arm64')],
     });
     const buildImage = vi.fn();
 
@@ -321,6 +498,19 @@ describe('runner image candidates', () => {
     expect(buildImage).not.toHaveBeenCalled();
     expect(candidate.status).toBe('reused');
     expect(candidate.amiId).toBe('ami-0fedcba9876543210');
+    expect(candidate.createdAt).toBe('2026-07-19T10:15:00.000Z');
+    expect(candidate.expiresAt).toBe('2026-08-03T10:00:00.000Z');
+    expect(candidate.owner).toBe('123456789012');
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: {
+          ImageId: 'ami-0fedcba9876543210',
+          LaunchPermission: {
+            Add: [{UserId: '123456789012'}, {UserId: '210987654321'}],
+          },
+        },
+      }),
+    );
   });
 
   it('rejects duplicate available candidate AMIs', async () => {
@@ -331,6 +521,8 @@ describe('runner image candidates', () => {
         BUILD_ATTEMPT: '1',
         BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
         BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
         BUILD_IMAGE_LIFECYCLE: 'candidate',
         BUILD_NUMBER: '42',
         BUILD_REVISION: revision,
@@ -349,10 +541,163 @@ describe('runner image candidates', () => {
     await expect(candidate).rejects.toThrow('Expected at most one amd64 candidate AMI');
   });
 
+  it('rejects a built AMI that is not available yet', async () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'amd64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      },
+      '24.17.0',
+    );
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({Images: []})
+      .mockResolvedValueOnce({
+        Images: [{...availableImage('ami-0123abc456def7890', 'amd64'), State: 'pending'}],
+      });
+    const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
+
+    const candidate = buildRunnerImageCandidate(build, {
+      build: buildImage,
+      client: {send},
+      describeAvailabilityRetries: 0,
+    });
+
+    await expect(candidate).rejects.toThrow('is not available after the Packer build');
+  });
+
+  it('retries the availability check until the built AMI becomes available', async () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'amd64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      },
+      '24.17.0',
+    );
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({Images: []})
+      .mockResolvedValueOnce({
+        Images: [{...availableImage('ami-0123abc456def7890', 'amd64'), State: 'pending'}],
+      })
+      .mockResolvedValueOnce({
+        Images: [availableImage('ami-0123abc456def7890', 'amd64')],
+      });
+    const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
+
+    const candidate = await buildRunnerImageCandidate(build, {
+      build: buildImage,
+      client: {send},
+      describeAvailabilityRetries: 1,
+      describeAvailabilityDelayMs: 1,
+    });
+
+    expect(candidate.status).toBe('built');
+    expect(candidate.amiId).toBe('ami-0123abc456def7890');
+  });
+
+  it('rejects a built AMI whose tags do not match the requested build', async () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'amd64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      },
+      '24.17.0',
+    );
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({Images: []})
+      .mockResolvedValueOnce({
+        Images: [availableImage('ami-0123abc456def7890', 'arm64')],
+      });
+    const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
+
+    const candidate = buildRunnerImageCandidate(build, {build: buildImage, client: {send}});
+
+    await expect(candidate).rejects.toThrow('does not carry the expected build identity tags');
+  });
+
+  it('rejects a candidate AMI with no valid owner account', async () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'arm64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      },
+      '24.17.0',
+    );
+    const send = vi.fn().mockResolvedValue({
+      Images: [{...availableImage('ami-0fedcba9876543210', 'arm64'), OwnerId: undefined}],
+    });
+
+    const candidate = buildRunnerImageCandidate(build, {client: {send}});
+
+    await expect(candidate).rejects.toThrow('has no valid owner account');
+  });
+
+  it('rejects a candidate AMI missing its expiry tag', async () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'arm64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      },
+      '24.17.0',
+    );
+    const image = availableImage('ami-0fedcba9876543210', 'arm64');
+    const send = vi.fn().mockResolvedValue({
+      Images: [{...image, Tags: image.Tags.filter((tag) => tag.Key !== 'shipfox.expires_at')}],
+    });
+
+    const candidate = buildRunnerImageCandidate(build, {client: {send}});
+
+    await expect(candidate).rejects.toThrow('expiration time is missing');
+  });
+
   it('derives candidate metadata from the source revision and requires a result path', () => {
     const result = parseRunnerImageCandidateArgs(['--output', '/tmp/candidate.json'], {
       BUILD_ARCH: 'amd64',
       BUILD_ATTEMPT: '1',
+      BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+      BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
       BUILD_NUMBER: '42',
       BUILD_REVISION: revision,
     });
@@ -363,6 +708,21 @@ describe('runner image candidates', () => {
       revision,
     });
     expect(result.outputPath).toBe('/tmp/candidate.json');
+  });
+
+  it('rejects candidate builds from non-main GitHub refs', () => {
+    expect(() =>
+      parseRunnerImageCandidateArgs(['--output', '/tmp/candidate.json'], {
+        BUILD_ARCH: 'amd64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REF: 'refs/pull/1378/merge',
+      }),
+    ).toThrow('only be built and shared from main');
   });
 });
 
