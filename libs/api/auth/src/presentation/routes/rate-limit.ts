@@ -23,6 +23,9 @@ const policies: Record<
   bootstrap: {
     ip: {limit: 5, windowSeconds: 15 * 60},
   },
+  'bootstrap-state': {
+    ip: {limit: 60, windowSeconds: 5 * 60},
+  },
   lookup: {
     ip: {limit: 60, windowSeconds: 5 * 60},
   },

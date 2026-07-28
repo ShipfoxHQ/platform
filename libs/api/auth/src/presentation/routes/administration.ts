@@ -172,7 +172,7 @@ const bootstrapStateRoute = defineRoute({
   path: '/bootstrap-state',
   description: 'Read whether first administrator owner bootstrap is available.',
   schema: {response: {200: adminBootstrapStateSchema}},
-  preHandler: createAuthIpRateLimitPreHandler('bootstrap'),
+  preHandler: createAuthIpRateLimitPreHandler('bootstrap-state'),
   errorHandler: translateAdministrationError,
   handler: async () => ({state: await getAdminBootstrapState()}),
 });
