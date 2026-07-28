@@ -231,6 +231,7 @@ jobs:
     timeout-minutes: 40
     env:
       SHIPFOX_TURBO_CONCURRENCY: "4"
+      CLOUDFLARE_PAGES_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: Check out repository
