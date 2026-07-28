@@ -33,6 +33,9 @@ export {
   ProvisionerTemplateFileError,
   parseProvisionerTemplateFile,
   parseTemplateFile,
+  type RenderedTemplateMap,
+  renderTemplateVariants,
+  renderVariants,
   type Variant,
   type VariantBindings,
 } from '#template-file.js';
