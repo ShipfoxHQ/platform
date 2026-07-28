@@ -29,6 +29,10 @@ export const config = createConfig({
     desc: 'Largest interval the poll backoff can reach after repeated errors, in milliseconds.',
     default: 5000,
   }),
+  SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS: num({
+    desc: 'How often the provisioner observes and reconciles provider state, in milliseconds.',
+    default: 1000,
+  }),
   SHIPFOX_PROVISIONER_MAX_RESERVATIONS: num({
     desc: 'Most reservations the provisioner requests in one poll. The provisioner also never asks for more than its templates have free capacity, and the API caps a single poll at 1000.',
     default: 250,
@@ -68,6 +72,12 @@ if (config.SHIPFOX_PROVISIONER_POLL_INTERVAL_MS <= 0) {
 if (config.SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS < config.SHIPFOX_PROVISIONER_POLL_INTERVAL_MS) {
   throw new Error(
     `SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS must be greater than or equal to SHIPFOX_PROVISIONER_POLL_INTERVAL_MS; got ${config.SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS} and ${config.SHIPFOX_PROVISIONER_POLL_INTERVAL_MS}.`,
+  );
+}
+
+if (config.SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS <= 0) {
+  throw new Error(
+    `SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS must be greater than 0; got ${config.SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS}.`,
   );
 }
 

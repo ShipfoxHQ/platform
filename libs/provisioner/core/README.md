@@ -6,15 +6,19 @@ plug in a provider adapter; everything else here is shared.
 
 ## What a provisioner does
 
-A provisioner authenticates with a long-lived provisioner token, then repeatedly:
+A provisioner authenticates with a long-lived provisioner token, then runs two
+independent loops:
 
-1. Advertises its current per-template capacity.
-2. Long-polls the API for demand and receives count-based reservations.
-3. Picks a local template for each reservation's labels.
-4. Batch-mints one single-use registration token per planned runner.
-5. Hands each planned runner to the provider's launcher.
+- The convergence loop observes provider state, reports lifecycle, and handles
+  termination intents.
+- The demand loop builds capacity advertisements from the tracker, long-polls the
+  API for count-based reservations, picks a local template for each reservation's
+  labels, mints one single-use registration token per planned runner, and hands each
+  planned runner to the provider's launcher.
 
-It never reserves more than its templates have free capacity.
+It never reserves more than its templates have free capacity. Demand polling and
+provider convergence run independently: a blocking demand poll does not delay
+observation, reporting, assignment, or termination handling.
 
 ## Public API
 

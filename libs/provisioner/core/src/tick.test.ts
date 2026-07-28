@@ -290,4 +290,154 @@ describe('runProvisionerTick', () => {
     expect(requestedReservations).toBe(0);
     expect(result).toMatchObject({plannedCount: 2, launchAttemptedCount: 2, launchedCount: 2});
   });
+
+  it('plans from tracker capacity observed after the demand poll', async () => {
+    const tracker = createInMemoryTracker();
+    let requestedReservations = -1;
+    const client = createTestClient({
+      pollDemand: (body) => {
+        requestedReservations = body.max_reservations;
+        tracker.recordStarting({providerRunnerId: 'existing', templateKey: 'linux'});
+        return Promise.resolve(demandResponse());
+      },
+    });
+
+    const result = await runProvisionerTick({
+      client,
+      templates: [{key: 'linux', labels: ['linux'], maxConcurrency: 1, cost: 1, spec: null}],
+      tracker,
+      launch: () => Promise.resolve(),
+      buildRunnerEnv: ({bootstrapToken}) => ({SHIPFOX_RUNNER_BOOTSTRAP_TOKEN: bootstrapToken}),
+      reservationLimit: 1,
+      launchBudget: 1,
+      waitSeconds: 0,
+      runnerInstanceBatchSize: 1,
+    });
+
+    expect(requestedReservations).toBe(1);
+    expect(result).toMatchObject({reservationCount: 1, plannedCount: 0, launchAttemptedCount: 0});
+  });
+
+  it('re-evaluates a lazy launch budget after polling demand', async () => {
+    let requestedReservations = -1;
+    const budgets = [1, 0];
+    const client = createTestClient({
+      pollDemand: (body) => {
+        requestedReservations = body.max_reservations;
+        return Promise.resolve(demandResponse());
+      },
+      createRunnerInstances: async () => ({
+        runner_instances: [{runner_instance_id: 'runner-instance', bootstrap_token: 'sf_rbt_test'}],
+      }),
+    });
+
+    const result = await runProvisionerTick({
+      client,
+      templates: [{key: 'linux', labels: ['linux'], maxConcurrency: 1, cost: 1, spec: null}],
+      tracker: createInMemoryTracker(),
+      launch: () => Promise.resolve(),
+      buildRunnerEnv: ({bootstrapToken}) => ({SHIPFOX_RUNNER_BOOTSTRAP_TOKEN: bootstrapToken}),
+      reservationLimit: 1,
+      launchBudget: () => budgets.shift() ?? 0,
+      waitSeconds: 0,
+      runnerInstanceBatchSize: 1,
+    });
+
+    expect(requestedReservations).toBe(1);
+    expect(result).toMatchObject({plannedCount: 1, launchAttemptedCount: 0, launchedCount: 0});
+  });
+
+  it('holds completion mutations behind the provider lock', async () => {
+    let signalPollStarted!: () => void;
+    const pollStarted = new Promise<void>((resolve) => {
+      signalPollStarted = resolve;
+    });
+    let releasePoll!: (response: ReturnType<typeof demandResponse>) => void;
+    const pollResponse = new Promise<ReturnType<typeof demandResponse>>((resolve) => {
+      releasePoll = resolve;
+    });
+    const client = createTestClient({
+      pollDemand: () => {
+        signalPollStarted();
+        return pollResponse;
+      },
+      createRunnerInstances: async () => ({
+        runner_instances: [{runner_instance_id: 'runner-instance', bootstrap_token: 'sf_rbt_test'}],
+      }),
+    });
+    const launches: string[] = [];
+    let releaseLock!: () => void;
+    const lock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    let signalLockEntered!: () => void;
+    const lockEntered = new Promise<void>((resolve) => {
+      signalLockEntered = resolve;
+    });
+    const withProviderLock = async <Result>(operation: () => Promise<Result>) => {
+      signalLockEntered();
+      await lock;
+      return operation();
+    };
+
+    const tick = runProvisionerTick({
+      client,
+      templates: [{key: 'linux', labels: ['linux'], maxConcurrency: 1, cost: 1, spec: null}],
+      tracker: createInMemoryTracker(),
+      launch: () => {
+        launches.push('launch');
+        return Promise.resolve();
+      },
+      buildRunnerEnv: ({bootstrapToken}) => ({SHIPFOX_RUNNER_BOOTSTRAP_TOKEN: bootstrapToken}),
+      reservationLimit: 1,
+      launchBudget: 1,
+      waitSeconds: 0,
+      runnerInstanceBatchSize: 1,
+      withProviderLock,
+    });
+
+    await pollStarted;
+    releasePoll(demandResponse());
+    await lockEntered;
+    expect(launches).toEqual([]);
+
+    releaseLock();
+    await tick;
+    expect(launches).toEqual(['launch']);
+  });
 });
+
+function createTestClient(options: {
+  readonly pollDemand: ProvisionerClient['pollDemand'];
+  readonly createRunnerInstances?: ProvisionerClient['createRunnerInstances'];
+}): ProvisionerClient {
+  return {
+    getIdentity: async () => ({id: 'provisioner', scope: 'workspace', workspace_id: 'workspace'}),
+    pollDemand: options.pollDemand,
+    createRunnerInstances: options.createRunnerInstances ?? (async () => ({runner_instances: []})),
+    attachRunnerInstanceProviderId: async () => ({attached: true}),
+    assignRunnerInstances: async (_reservationId, runnerInstanceIds) => ({
+      runner_instance_ids: runnerInstanceIds,
+    }),
+    reportRunnerInstances: async () => ({accepted: 0, reservations_released: 0}),
+    reconcileRunnerInstances: async () => ({
+      runners: [],
+      terminated_absent_provider_runner_ids: [],
+    }),
+  };
+}
+
+function demandResponse() {
+  return {
+    stats: [],
+    reservations: [
+      {
+        reservation_id: '018f0d4c-5f42-7b7e-9d9b-4a7d8e6f0001',
+        labels: ['linux'],
+        count: 1,
+        expires_at: '2026-07-21T12:00:00.000Z',
+      },
+    ],
+    terminate_provider_runner_ids: [],
+  };
+}

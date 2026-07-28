@@ -20,13 +20,15 @@ import {
   type HealthState,
   reduceHealth,
 } from '#health.js';
-import {type RunnerEnvFactory, runProvisionerTick} from '#tick.js';
+import {type ProviderPass, type RunnerEnvFactory, runProvisionerTick} from '#tick.js';
 import {createInMemoryTracker, type ProviderRunnerTracker} from '#tracker.js';
-import type {ProvisionerAdapter, ProvisionerTemplate} from '#types.js';
+import type {ProvisionerAdapter, ProvisionerTemplate, TerminateRunners} from '#types.js';
 
 /** The demand poll accepts at most 1000 advertised templates per request. */
 const MAX_TEMPLATES_PER_POLL = 1000;
 const CONFIG_SAMPLE_LIMIT = 20;
+const CONVERGE_BACKOFF_FLOOR_MS = 5000;
+const TERMINATION_DRAIN_TIMEOUT_MS = 1000;
 
 let running = true;
 let pollAbortController: AbortController | undefined;
@@ -56,9 +58,27 @@ export interface RunProvisionerIterationDeps<Spec> {
   readonly currentInterval: number;
   readonly health?: ProvisionerHealthState;
   readonly signal?: AbortSignal;
+  readonly withProviderLock?: ProviderPass;
+  readonly deferTermination?: TerminateRunners;
 }
 
 export interface RunProvisionerIterationResult {
+  readonly nextInterval: number;
+  readonly degraded: boolean;
+}
+
+export interface RunConvergeIterationDeps<Spec> {
+  readonly adapter: ProvisionerAdapter<Spec>;
+  readonly currentInterval: number;
+  readonly baseInterval: number;
+  readonly health?: ProvisionerHealthState;
+  readonly signal?: AbortSignal;
+  readonly withProviderLock?: ProviderPass;
+  readonly takeTerminationIntents?: () => readonly string[];
+  readonly requeueTerminationIntents?: (providerRunnerIds: readonly string[]) => void;
+}
+
+export interface RunConvergeIterationResult {
   readonly nextInterval: number;
   readonly degraded: boolean;
 }
@@ -151,29 +171,47 @@ export async function startProvisioner<Spec>(
     });
   }
 
-  let currentInterval = config.SHIPFOX_PROVISIONER_POLL_INTERVAL_MS;
-  while (running) {
-    pollAbortController = new AbortController();
+  const withProviderLock = createProviderMutex();
+  const terminationQueue = createTerminationQueue();
+  const deferTermination = options.adapter.terminate
+    ? (providerRunnerIds: readonly string[]) => {
+        terminationQueue.enqueue(providerRunnerIds);
+        return Promise.resolve();
+      }
+    : undefined;
+  const loops = [
+    runDemandLoop({
+      adapter: options.adapter,
+      client,
+      templates,
+      tracker,
+      health,
+      withProviderLock,
+      ...(deferTermination ? {deferTermination} : {}),
+    }),
+    runConvergeLoop({
+      adapter: options.adapter,
+      health,
+      baseInterval: config.SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS,
+      withProviderLock,
+      takeTerminationIntents: () => terminationQueue.take(),
+      requeueTerminationIntents: (providerRunnerIds) => terminationQueue.enqueue(providerRunnerIds),
+    }),
+  ];
+
+  try {
+    await Promise.all(loops);
+  } finally {
+    running = false;
+    pollAbortController?.abort('shutdown');
+    await Promise.allSettled(loops);
     try {
-      const iteration = await runProvisionerIteration({
-        adapter: options.adapter,
-        client,
-        templates,
-        tracker,
-        currentInterval,
-        health,
-        signal: pollAbortController.signal,
-      });
-      currentInterval = iteration.nextInterval;
-      await interruptableSleep(withJitter(currentInterval));
-    } catch {
-      if (!running) break;
-      currentInterval = nextBackoffInterval(currentInterval);
-      await interruptableSleep(withJitter(currentInterval));
+      await drainTerminationQueue(options.adapter, () => terminationQueue.take());
+      await options.adapter.onStop?.();
+    } finally {
+      shutdownController.stop();
     }
   }
-
-  await options.adapter.onStop?.();
   logger().info({event: 'provisioner.stopped'}, 'Provisioner stopped');
 }
 
@@ -181,32 +219,92 @@ export async function runProvisionerIteration<Spec>(
   deps: RunProvisionerIterationDeps<Spec>,
 ): Promise<RunProvisionerIterationResult> {
   const health = deps.health ?? createHealthState();
-  let derived = healthDerived(health);
-  let observed = false;
-  if (deps.adapter.onTick) {
+  const withProviderLock = deps.withProviderLock ?? createProviderMutex();
+  await runConvergeIteration({
+    adapter: deps.adapter,
+    currentInterval: config.SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS,
+    baseInterval: config.SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS,
+    health,
+    ...(deps.signal ? {signal: deps.signal} : {}),
+    withProviderLock,
+  });
+  return runDemandIteration({...deps, health, withProviderLock});
+}
+
+export async function runConvergeIteration<Spec>(
+  deps: RunConvergeIterationDeps<Spec>,
+): Promise<RunConvergeIterationResult> {
+  const health = deps.health ?? createHealthState();
+
+  let failed = false;
+  const withProviderLock = deps.withProviderLock ?? inlineProviderPass;
+  await withProviderLock(async () => {
+    if (deps.adapter.onTick) {
+      try {
+        await deps.adapter.onTick();
+        applyHealthEvent(health, {
+          type: 'facet_recovered',
+          facet: 'provider_observation',
+          at: new Date(),
+        });
+        applyHealthEvent(health, {type: 'ready_confirmed', at: new Date()});
+      } catch (error) {
+        if (deps.signal?.aborted) throw error;
+        failed = true;
+        applyHealthEvent(health, {
+          type: 'facet_failed',
+          facet: 'provider_observation',
+          cause: errorReason(error),
+          impact: 'capacity',
+          at: new Date(),
+        });
+      }
+    }
+
+    // Only take intents a pass can actually act on; taking them without a terminate
+    // port would drop them, since take() clears the queue.
+    if (!deps.adapter.terminate) return;
+    const terminationIntents = [...(deps.takeTerminationIntents?.() ?? [])];
+    if (terminationIntents.length === 0) return;
     try {
-      await deps.adapter.onTick();
+      await deps.adapter.terminate(terminationIntents);
       applyHealthEvent(health, {
         type: 'facet_recovered',
-        facet: 'provider_observation',
+        facet: 'provider_termination',
         at: new Date(),
       });
-      observed = true;
-      derived = healthDerived(health);
     } catch (error) {
+      // Requeue before the abort rethrow: a terminate that fails during shutdown is
+      // exactly the case where the intents must survive into the next pass.
+      deps.requeueTerminationIntents?.(terminationIntents);
       if (deps.signal?.aborted) throw error;
+      failed = true;
       applyHealthEvent(health, {
         type: 'facet_failed',
-        facet: 'provider_observation',
+        facet: 'provider_termination',
         cause: errorReason(error),
-        impact: 'capacity',
+        impact: 'cleanup',
         at: new Date(),
       });
-      derived = healthDerived(health);
     }
-  }
+  });
+
+  const derived = healthDerived(health);
+  return {
+    nextInterval: failed
+      ? nextConvergeInterval(deps.currentInterval, deps.baseInterval)
+      : deps.baseInterval,
+    degraded: derived.capacityDegraded,
+  };
+}
+
+export async function runDemandIteration<Spec>(
+  deps: RunProvisionerIterationDeps<Spec>,
+): Promise<RunProvisionerIterationResult> {
+  const health = deps.health ?? createHealthState();
+  const launchBudget = () => deriveLaunchBudget(health);
+
   const reservationLimit = config.SHIPFOX_PROVISIONER_MAX_RESERVATIONS;
-  const launchBudget = deriveLaunchBudget(health);
 
   let result: Awaited<ReturnType<typeof runProvisionerTick>>;
   try {
@@ -215,7 +313,11 @@ export async function runProvisionerIteration<Spec>(
       templates: deps.templates,
       tracker: deps.tracker,
       launch: deps.adapter.launch,
-      ...(deps.adapter.terminate ? {terminate: deps.adapter.terminate} : {}),
+      ...(deps.deferTermination
+        ? {terminate: deps.deferTermination}
+        : deps.adapter.terminate
+          ? {terminate: deps.adapter.terminate}
+          : {}),
       buildRunnerEnv,
       reservationLimit,
       launchBudget,
@@ -223,6 +325,7 @@ export async function runProvisionerIteration<Spec>(
       runnerInstanceBatchSize: config.SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE,
       retryIntervalMs: deps.currentInterval,
       ...(deps.signal ? {signal: deps.signal} : {}),
+      ...(deps.withProviderLock ? {withProviderLock: deps.withProviderLock} : {}),
     });
     applyHealthEvent(health, {type: 'facet_recovered', facet: 'poll_demand', at: new Date()});
     applyHealthEvent(health, {type: 'facet_recovered', facet: 'authentication', at: new Date()});
@@ -240,23 +343,25 @@ export async function runProvisionerIteration<Spec>(
     throw error;
   }
 
-  if (result.providerTermination.status === 'failed') {
-    applyHealthEvent(health, {
-      type: 'facet_failed',
-      facet: 'provider_termination',
-      cause: result.providerTermination.cause,
-      impact: 'cleanup',
-      at: new Date(),
-    });
-  } else if (
-    result.providerTermination.status === 'succeeded' ||
-    result.providerTermination.status === 'not_needed'
-  ) {
-    applyHealthEvent(health, {
-      type: 'facet_recovered',
-      facet: 'provider_termination',
-      at: new Date(),
-    });
+  if (!deps.deferTermination) {
+    if (result.providerTermination.status === 'failed') {
+      applyHealthEvent(health, {
+        type: 'facet_failed',
+        facet: 'provider_termination',
+        cause: result.providerTermination.cause,
+        impact: 'cleanup',
+        at: new Date(),
+      });
+    } else if (
+      result.providerTermination.status === 'succeeded' ||
+      result.providerTermination.status === 'not_needed'
+    ) {
+      applyHealthEvent(health, {
+        type: 'facet_recovered',
+        facet: 'provider_termination',
+        at: new Date(),
+      });
+    }
   }
 
   const hasCapacityFailure =
@@ -279,11 +384,11 @@ export async function runProvisionerIteration<Spec>(
     applyHealthEvent(health, {type: 'facet_recovered', facet: 'runner_capacity', at: new Date()});
   }
 
-  derived = healthDerived(health);
-  if (observed || result.launchedCount > 0) {
+  if (result.launchedCount > 0) {
     applyHealthEvent(health, {type: 'ready_confirmed', at: new Date()});
-    derived = healthDerived(health);
   }
+
+  const derived = healthDerived(health);
 
   if (result.reservationCount > 0 || result.launchedCount > 0 || result.launchAttemptedCount > 0) {
     logger().info(
@@ -312,6 +417,49 @@ export async function runProvisionerIteration<Spec>(
   };
 }
 
+/** Best-effort delivery for deferred terminations before the provider stops. */
+export async function drainTerminationQueue<Spec>(
+  adapter: ProvisionerAdapter<Spec>,
+  takeTerminationIntents: () => readonly string[],
+): Promise<void> {
+  if (!adapter.terminate) return;
+  const providerRunnerIds = [...takeTerminationIntents()];
+  if (providerRunnerIds.length === 0) return;
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const outcome = await Promise.race([
+    adapter.terminate(providerRunnerIds).then(
+      () => 'completed' as const,
+      (error: unknown) => {
+        logger().warn(
+          {
+            event: 'provisioner.termination_drain_failed',
+            providerRunnerCount: providerRunnerIds.length,
+            reason: errorReason(error),
+          },
+          'Deferred provider terminations failed during shutdown',
+        );
+        return 'failed' as const;
+      },
+    ),
+    new Promise<'timed_out'>((resolve) => {
+      timeout = setTimeout(() => resolve('timed_out'), TERMINATION_DRAIN_TIMEOUT_MS);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
+
+  if (outcome === 'timed_out') {
+    logger().warn(
+      {
+        event: 'provisioner.termination_drain_timed_out',
+        providerRunnerCount: providerRunnerIds.length,
+        timeoutMs: TERMINATION_DRAIN_TIMEOUT_MS,
+      },
+      'Deferred provider terminations did not complete before shutdown',
+    );
+  }
+}
+
 export const buildRunnerEnv: RunnerEnvFactory<unknown> = ({template, bootstrapToken}) => ({
   SHIPFOX_API_URL: config.SHIPFOX_RUNNER_API_URL ?? config.SHIPFOX_API_URL,
   SHIPFOX_RUNNER_BOOTSTRAP_TOKEN: bootstrapToken,
@@ -333,6 +481,115 @@ export function withJitter(ms: number): number {
 async function interruptableSleep(ms: number): Promise<void> {
   if (!running) return;
   await interruptibleSleep(ms, shutdownController.signal);
+}
+
+async function runDemandLoop<Spec>(deps: {
+  readonly adapter: ProvisionerAdapter<Spec>;
+  readonly client: ProvisionerClient;
+  readonly templates: readonly ProvisionerTemplate<Spec>[];
+  readonly tracker: ProviderRunnerTracker;
+  readonly health: ProvisionerHealthState;
+  readonly withProviderLock: ProviderPass;
+  readonly deferTermination?: TerminateRunners;
+}): Promise<void> {
+  let currentInterval = config.SHIPFOX_PROVISIONER_POLL_INTERVAL_MS;
+  while (running) {
+    const abortController = new AbortController();
+    pollAbortController = abortController;
+    try {
+      const iteration = await runDemandIteration({
+        adapter: deps.adapter,
+        client: deps.client,
+        templates: deps.templates,
+        tracker: deps.tracker,
+        currentInterval,
+        health: deps.health,
+        signal: abortController.signal,
+        withProviderLock: deps.withProviderLock,
+        ...(deps.deferTermination ? {deferTermination: deps.deferTermination} : {}),
+      });
+      currentInterval = iteration.nextInterval;
+    } catch {
+      if (!running) break;
+      currentInterval = nextBackoffInterval(currentInterval);
+    } finally {
+      pollAbortController = undefined;
+    }
+    await interruptableSleep(withJitter(currentInterval));
+  }
+}
+
+async function runConvergeLoop<Spec>(deps: {
+  readonly adapter: ProvisionerAdapter<Spec>;
+  readonly health: ProvisionerHealthState;
+  readonly baseInterval: number;
+  readonly withProviderLock: ProviderPass;
+  readonly takeTerminationIntents: () => readonly string[];
+  readonly requeueTerminationIntents: (providerRunnerIds: readonly string[]) => void;
+}): Promise<void> {
+  let currentInterval = deps.baseInterval;
+  while (running) {
+    try {
+      const iteration = await runConvergeIteration({
+        adapter: deps.adapter,
+        currentInterval,
+        baseInterval: deps.baseInterval,
+        health: deps.health,
+        signal: shutdownController.signal,
+        withProviderLock: deps.withProviderLock,
+        takeTerminationIntents: deps.takeTerminationIntents,
+        requeueTerminationIntents: deps.requeueTerminationIntents,
+      });
+      currentInterval = iteration.nextInterval;
+    } catch {
+      if (!running) break;
+      currentInterval = nextConvergeInterval(currentInterval, deps.baseInterval);
+    }
+    await interruptableSleep(withJitter(currentInterval));
+  }
+}
+
+function nextConvergeInterval(currentInterval: number, baseInterval: number): number {
+  return calculateNextBackoffInterval(currentInterval, {
+    maxMs: Math.max(baseInterval, CONVERGE_BACKOFF_FLOOR_MS),
+  });
+}
+
+function createProviderMutex(): ProviderPass {
+  let previous = Promise.resolve();
+  return async <Result>(operation: () => Promise<Result>): Promise<Result> => {
+    const predecessor = previous;
+    let release!: () => void;
+    previous = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await predecessor;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  };
+}
+
+const inlineProviderPass: ProviderPass = <Result>(operation: () => Promise<Result>) => operation();
+
+function createTerminationQueue(): {
+  enqueue: TerminateRunners;
+  take: () => readonly string[];
+} {
+  const pending = new Set<string>();
+  return {
+    enqueue(providerRunnerIds) {
+      for (const providerRunnerId of providerRunnerIds) pending.add(providerRunnerId);
+      return Promise.resolve();
+    },
+    take() {
+      const providerRunnerIds = [...pending];
+      pending.clear();
+      return providerRunnerIds;
+    },
+  };
 }
 
 function applyHealthEvent(state: HealthState, event: HealthEvent): void {

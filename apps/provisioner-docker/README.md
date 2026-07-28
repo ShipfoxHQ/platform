@@ -10,22 +10,24 @@ configuration and launcher live in
 
 ## What it does
 
-On each cycle the provisioner:
+The provisioner runs two independent loops:
 
-1. Observes local Docker containers owned by this provisioner and reports lifecycle.
-2. Advertises its current per-template capacity (free slots, starting, running).
-3. Long-polls the API for demand and receives count-based reservations.
-4. Chooses a local template for each reservation's label set, deterministically,
-   filling the cheapest matching template first.
-5. Batch-mints one single-use registration token per planned runner.
-6. Creates and starts one Docker container per runner.
+- The convergence loop observes local Docker containers and reports lifecycle.
+- The demand loop:
+
+  1. Builds current per-template capacity advertisements, long-polls the API for
+     demand, and receives count-based reservations.
+  2. Chooses a local template for each reservation's label set, deterministically,
+     filling the cheapest matching template first.
+  3. Batch-mints one single-use registration token per planned runner.
+  4. Creates and starts one Docker container per runner.
 
 It respects each template's `max_concurrency` before requesting reservations, so it
 never reserves more than it can start.
 
 Containers are named by `provisioned_runner_id` and labeled with `shipfox.*` metadata
 so a restarted provisioner can rebuild local capacity from Docker state. Running
-containers are re-reported every observation cycle to keep the backend active-runner view fresh.
+containers are re-reported every convergence cycle to keep the backend active-runner view fresh.
 Exited containers are reported as `stopped` or `failed`. Successful exits are removed
 immediately; failed exits are retained for the configured forensic TTL/count bound and
 then cleaned up. Containers stuck in Docker's `created` state past the registration
@@ -53,6 +55,7 @@ until observation succeeds.
 | `SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS` | no | `30` | Long-poll wait per demand request. |
 | `SHIPFOX_PROVISIONER_POLL_INTERVAL_MS` | no | `1000` | Base delay between polls; backs off on error. |
 | `SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS` | no | `5000` | Backoff ceiling. |
+| `SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS` | no | `1000` | Provider observation and reconciliation cadence; backs off on errors up to the larger of 5000ms and this cadence. |
 | `SHIPFOX_PROVISIONER_MAX_RESERVATIONS` | no | `250` | Most reservations requested per poll (also capped by free capacity and the API's limit of 1000). |
 | `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | no | `250` | Runner instances created per request (1–1000). |
 | `SHIPFOX_RUNNER_POLL_MAX_DURATION_MS` | no | `300000` | Injected into each runner as `SHIPFOX_POLL_MAX_DURATION_MS`. |

@@ -5,7 +5,13 @@ import type {
 } from '@shipfox/api-runners-dto';
 import type {ProvisionerClient} from '#api-client.js';
 import {createHealthState} from '#health.js';
-import {runProvisionerIteration, startProvisioner} from '#provisioner.js';
+import {
+  drainTerminationQueue,
+  runConvergeIteration,
+  runDemandIteration,
+  runProvisionerIteration,
+  startProvisioner,
+} from '#provisioner.js';
 import {createInMemoryTracker} from '#tracker.js';
 import type {ProvisionerAdapter, ProvisionerTemplate} from '#types.js';
 
@@ -212,6 +218,238 @@ describe('runProvisionerIteration', () => {
   });
 });
 
+describe('split demand and converge loops', () => {
+  it('runs convergence while demand polling is blocked', async () => {
+    const {client} = harness({response: {stats: [], reservations: []}});
+    let signalPollStarted!: () => void;
+    const pollStarted = new Promise<void>((resolve) => {
+      signalPollStarted = resolve;
+    });
+    let releasePoll!: (response: PollDemandResponseDto) => void;
+    const blockedPoll = new Promise<PollDemandResponseDto>((resolve) => {
+      releasePoll = resolve;
+    });
+    client.pollDemand = () => {
+      signalPollStarted();
+      return blockedPoll;
+    };
+    let observed = false;
+    const health = createHealthState();
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      onTick: () => {
+        observed = true;
+        return Promise.resolve();
+      },
+    };
+
+    const demand = runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      health,
+    });
+    await pollStarted;
+
+    await runConvergeIteration({
+      adapter,
+      currentInterval: 1000,
+      baseInterval: 1000,
+      health,
+    });
+    expect(observed).toBe(true);
+
+    releasePoll({stats: [], reservations: [], terminate_provider_runner_ids: []});
+    await demand;
+  });
+
+  it('does not run observation concurrently with launch', async () => {
+    const {client} = harness({response: {stats: [], reservations: [reservation(1)]}});
+    let signalLaunchStarted!: () => void;
+    const launchStarted = new Promise<void>((resolve) => {
+      signalLaunchStarted = resolve;
+    });
+    let releaseLaunch!: () => void;
+    const blockedLaunch = new Promise<void>((resolve) => {
+      releaseLaunch = resolve;
+    });
+    const events: string[] = [];
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: async () => {
+        events.push('launch-start');
+        signalLaunchStarted();
+        await blockedLaunch;
+        events.push('launch-end');
+      },
+      onTick: () => {
+        events.push('observe');
+        return Promise.resolve();
+      },
+    };
+    const health = createHealthState();
+    const withProviderLock = createTestMutex();
+
+    const demand = runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      health,
+      withProviderLock,
+    });
+    await launchStarted;
+
+    const converge = runConvergeIteration({
+      adapter,
+      currentInterval: 1000,
+      baseInterval: 1000,
+      health,
+      withProviderLock,
+    });
+    await Promise.resolve();
+    expect(events).toEqual(['launch-start']);
+
+    releaseLaunch();
+    await Promise.all([demand, converge]);
+    expect(events).toEqual(['launch-start', 'launch-end', 'observe']);
+  });
+
+  it('keeps advertised capacity at zero after a failed convergence pass', async () => {
+    const {client, pollBodies} = harness({response: {stats: [], reservations: []}});
+    const health = createHealthState();
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      onTick: () => Promise.reject(new Error('provider unavailable')),
+    };
+
+    await runConvergeIteration({
+      adapter,
+      currentInterval: 1000,
+      baseInterval: 1000,
+      health,
+    });
+    await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      health,
+    });
+
+    expect(pollBodies[0]?.max_reservations).toBe(0);
+  });
+
+  it('handles queued termination intents during convergence', async () => {
+    const {client} = harness({
+      response: {stats: [], reservations: [], terminate_provider_runner_ids: ['runner-1']},
+    });
+    const pending = new Set<string>();
+    const terminated: string[][] = [];
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      terminate: (providerRunnerIds) => {
+        terminated.push([...providerRunnerIds]);
+        return Promise.resolve();
+      },
+    };
+
+    await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      deferTermination: (providerRunnerIds) => {
+        for (const providerRunnerId of providerRunnerIds) pending.add(providerRunnerId);
+        return Promise.resolve();
+      },
+    });
+    await runConvergeIteration({
+      adapter,
+      currentInterval: 1000,
+      baseInterval: 1000,
+      takeTerminationIntents: () => {
+        const providerRunnerIds = [...pending];
+        pending.clear();
+        return providerRunnerIds;
+      },
+    });
+
+    expect(terminated).toEqual([['runner-1']]);
+    expect(pending).toEqual(new Set());
+  });
+
+  it('requeues termination intents when convergence termination fails', async () => {
+    const health = createHealthState();
+    const requeued: string[][] = [];
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      terminate: () => Promise.reject(new Error('provider unavailable')),
+    };
+
+    await runConvergeIteration({
+      adapter,
+      currentInterval: 1000,
+      baseInterval: 1000,
+      health,
+      takeTerminationIntents: () => ['runner-1'],
+      requeueTerminationIntents: (providerRunnerIds) => requeued.push([...providerRunnerIds]),
+    });
+
+    expect(requeued).toEqual([['runner-1']]);
+  });
+
+  it('best-effort drains deferred terminations before shutdown', async () => {
+    const terminated: string[][] = [];
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      terminate: (providerRunnerIds) => {
+        terminated.push([...providerRunnerIds]);
+        return Promise.resolve();
+      },
+    };
+
+    await drainTerminationQueue(adapter, () => ['runner-1', 'runner-2']);
+
+    expect(terminated).toEqual([['runner-1', 'runner-2']]);
+  });
+
+  it('logs and returns when deferred termination draining times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const adapter: ProvisionerAdapter<null> = {
+        loadTemplates: () => Promise.resolve([template]),
+        launch: () => Promise.resolve(),
+        terminate: () =>
+          new Promise<void>(() => {
+            // Intentionally unresolved to exercise the shutdown deadline.
+          }),
+      };
+
+      const drain = drainTerminationQueue(adapter, () => ['runner-1']);
+      await vi.advanceTimersByTimeAsync(1000);
+      await drain;
+
+      expect(observability.logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({event: 'provisioner.termination_drain_timed_out'}),
+        expect.any(String),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('startProvisioner', () => {
   it('rejects more than 1000 templates with a clear error', async () => {
     const templates = Array.from({length: 1001}, (_, index) => ({
@@ -280,5 +518,22 @@ function reservation(count: number) {
     labels: ['ubuntu22'],
     count,
     expires_at: EXPIRES_AT,
+  };
+}
+
+function createTestMutex() {
+  let previous = Promise.resolve();
+  return async <Result>(operation: () => Promise<Result>): Promise<Result> => {
+    const predecessor = previous;
+    let release!: () => void;
+    previous = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await predecessor;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   };
 }
