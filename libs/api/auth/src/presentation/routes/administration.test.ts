@@ -1,11 +1,20 @@
 import {ADMINISTRATION_ACTION_PERFORMED} from '@shipfox/api-common-dto';
-import {sql} from 'drizzle-orm';
+import {eq, sql} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import {type AuthRateLimitAction, hashAuthRateLimitIdentifier} from '#core/rate-limit.js';
 import {db} from '#db/db.js';
 import {authOutbox} from '#db/schema/outbox.js';
 import {authRateLimits} from '#db/schema/rate-limits.js';
-import {createAuthTestApp, createVerifiedSession, resetCapturedMail} from '#test/routes.js';
+import {refreshTokens} from '#db/schema/refresh-tokens.js';
+import {users} from '#db/schema/users.js';
+import {
+  cookieHeader,
+  createAuthTestApp,
+  createVerifiedSession,
+  getSetCookie,
+  login,
+  resetCapturedMail,
+} from '#test/routes.js';
 
 const BOOTSTRAP_TOKEN = 'test-bootstrap-token';
 
@@ -661,5 +670,239 @@ describe('Auth administration routes', () => {
     });
     expect(finalOwnerRevoke.statusCode).toBe(409);
     expect(finalOwnerRevoke.json().code).toBe('last-owner');
+  });
+
+  test('suspends users, invalidates sessions, and reactivates without restoring them', async () => {
+    const owner = await createVerifiedSession('admin-user-moderation-owner');
+    const target = await createVerifiedSession('admin-user-moderation-target');
+
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'moderation-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'moderation-grant'),
+      payload: {
+        user_id: owner.userId,
+        role: 'admin-operator',
+        reason: 'User moderation access',
+      },
+    });
+
+    const rotatedBeforeSuspension = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: target.refreshCookie},
+      payload: {},
+    });
+    expect(rotatedBeforeSuspension.statusCode).toBe(200);
+    const rotatedRefreshCookie = cookieHeader(getSetCookie(rotatedBeforeSuspension));
+
+    const suspended = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${target.userId}/suspend`,
+      headers: authHeaders(owner.token, 'suspend-user'),
+      payload: {reason: 'Account security review'},
+    });
+
+    expect(suspended.statusCode).toBe(200);
+    expect(suspended.json()).toMatchObject({
+      id: target.userId,
+      status: 'suspended',
+      admin_role: null,
+      correlation_id: expect.any(String),
+    });
+
+    const suspendedMe = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: {authorization: `Bearer ${target.token}`},
+    });
+    const suspendedLogin = await login(app, {email: target.email, password: target.password});
+    expect(suspendedMe.statusCode).toBe(401);
+    expect(suspendedLogin.statusCode).toBe(401);
+
+    const suspendedDbUser = (
+      await db().select({status: users.status}).from(users).where(eq(users.id, target.userId))
+    )[0];
+    const targetSessions = await db()
+      .select({sessionId: refreshTokens.sessionId, revokedAt: refreshTokens.revokedAt})
+      .from(refreshTokens)
+      .where(eq(refreshTokens.userId, target.userId));
+    expect(suspendedDbUser?.status).toBe('suspended');
+    expect(targetSessions).toHaveLength(2);
+    expect(targetSessions.every(({revokedAt}) => revokedAt instanceof Date)).toBe(true);
+
+    const suspendedRefresh = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: rotatedRefreshCookie},
+      payload: {},
+    });
+    expect(suspendedRefresh.statusCode).toBe(401);
+
+    const suspensionEvent = (await db().select().from(authOutbox)).find(
+      (event) =>
+        event.eventType === ADMINISTRATION_ACTION_PERFORMED &&
+        (event.payload as {command?: string}).command === 'auth.user.suspend',
+    );
+    expect(suspensionEvent?.payload).toMatchObject({
+      actorId: owner.userId,
+      actorRole: 'admin-owner',
+      requiredRole: 'admin-operator',
+      targetId: target.userId,
+      reason: 'Account security review',
+      result: 'succeeded',
+    });
+    expect(JSON.stringify(suspensionEvent?.payload)).not.toContain('suspend-user');
+    expect(JSON.stringify(suspensionEvent?.payload)).not.toContain(target.password);
+
+    const repeatedSuspension = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${target.userId}/suspend`,
+      headers: authHeaders(owner.token, 'suspend-user'),
+      payload: {reason: 'Account security review'},
+    });
+    expect(repeatedSuspension.statusCode).toBe(200);
+    expect(repeatedSuspension.json().correlation_id).toBe(suspended.json().correlation_id);
+
+    const reusedSuspensionKey = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${target.userId}/suspend`,
+      headers: authHeaders(owner.token, 'suspend-user'),
+      payload: {reason: 'A different reason'},
+    });
+    expect(reusedSuspensionKey.statusCode).toBe(409);
+    expect(reusedSuspensionKey.json().code).toBe('idempotency-key-reused');
+
+    const reactivated = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${target.userId}/reactivate`,
+      headers: authHeaders(owner.token, 'reactivate-user'),
+      payload: {},
+    });
+    expect(reactivated.statusCode).toBe(200);
+    expect(reactivated.json()).toMatchObject({
+      id: target.userId,
+      status: 'active',
+      correlation_id: expect.any(String),
+    });
+
+    const oldRefreshAfterReactivation = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: target.refreshCookie},
+      payload: {},
+    });
+    expect(oldRefreshAfterReactivation.statusCode).toBe(401);
+    const rotatedRefreshAfterReactivation = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: rotatedRefreshCookie},
+      payload: {},
+    });
+    expect(rotatedRefreshAfterReactivation.statusCode).toBe(401);
+
+    const newLogin = await login(app, {email: target.email, password: target.password});
+    expect(newLogin.statusCode).toBe(200);
+    const secondLogin = await login(app, {email: target.email, password: target.password});
+    expect(secondLogin.statusCode).toBe(200);
+
+    const revoked = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${target.userId}/revoke-sessions`,
+      headers: authHeaders(owner.token, 'revoke-user-sessions'),
+      payload: {reason: 'End all active sessions'},
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(revoked.json()).toMatchObject({
+      id: target.userId,
+      status: 'active',
+      sessions_revoked: 2,
+      correlation_id: expect.any(String),
+    });
+
+    const newRefresh = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: cookieHeader(getSetCookie(newLogin))},
+      payload: {},
+    });
+    expect(newRefresh.statusCode).toBe(401);
+    const secondRefresh = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: cookieHeader(getSetCookie(secondLogin))},
+      payload: {},
+    });
+    expect(secondRefresh.statusCode).toBe(401);
+
+    const repeatedRevoke = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${target.userId}/revoke-sessions`,
+      headers: authHeaders(owner.token, 'revoke-user-sessions'),
+      payload: {reason: 'End all active sessions'},
+    });
+    expect(repeatedRevoke.statusCode).toBe(200);
+    expect(repeatedRevoke.json().sessions_revoked).toBe(2);
+    expect(repeatedRevoke.json().correlation_id).toBe(revoked.json().correlation_id);
+  });
+
+  test('protects the final active owner from suspension', async () => {
+    const owner = await createVerifiedSession('admin-suspend-final-owner');
+
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'suspend-final-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+
+    const suspended = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${owner.userId}/suspend`,
+      headers: authHeaders(owner.token, 'suspend-final-owner'),
+      payload: {reason: 'Attempt to suspend final owner'},
+    });
+
+    expect(suspended.statusCode).toBe(409);
+    expect(suspended.json().code).toBe('last-owner');
+  });
+
+  test('rejects user moderation by an observer', async () => {
+    const owner = await createVerifiedSession('admin-moderation-role-owner');
+    const observer = await createVerifiedSession('admin-moderation-role-observer');
+    const target = await createVerifiedSession('admin-moderation-role-target');
+
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'moderation-role-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'moderation-role-grant'),
+      payload: {
+        user_id: observer.userId,
+        role: 'admin-observer',
+        reason: 'Read-only administration access',
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${target.userId}/suspend`,
+      headers: authHeaders(observer.token, 'moderation-role-suspend'),
+      payload: {reason: 'Observer should not mutate users'},
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().code).toBe('forbidden');
   });
 });

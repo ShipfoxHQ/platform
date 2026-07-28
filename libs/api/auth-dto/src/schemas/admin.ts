@@ -83,6 +83,51 @@ export const administratorUserSummarySchema = administratorUserIdentitySchema.ex
 
 export type AdministratorUserSummaryDto = z.infer<typeof administratorUserSummarySchema>;
 
+const correlationIdSchema = z.string().min(1).max(255);
+
+export const suspendAdministratorUserBodySchema = z.object({
+  reason: reasonSchema,
+});
+
+export type SuspendAdministratorUserBodyDto = z.infer<typeof suspendAdministratorUserBodySchema>;
+
+export const reactivateAdministratorUserBodySchema = z
+  .object({
+    reason: reasonSchema.optional(),
+  })
+  .default({});
+
+export type ReactivateAdministratorUserBodyDto = z.infer<
+  typeof reactivateAdministratorUserBodySchema
+>;
+
+export const revokeAdministratorUserSessionsBodySchema = z
+  .object({
+    reason: reasonSchema.optional(),
+  })
+  .default({});
+
+export type RevokeAdministratorUserSessionsBodyDto = z.infer<
+  typeof revokeAdministratorUserSessionsBodySchema
+>;
+
+export const administratorUserMutationResponseSchema = administratorUserSummarySchema.extend({
+  correlation_id: correlationIdSchema,
+});
+
+export type AdministratorUserMutationResponseDto = z.infer<
+  typeof administratorUserMutationResponseSchema
+>;
+
+export const revokeAdministratorUserSessionsResponseSchema =
+  administratorUserMutationResponseSchema.extend({
+    sessions_revoked: z.number().int().nonnegative(),
+  });
+
+export type RevokeAdministratorUserSessionsResponseDto = z.infer<
+  typeof revokeAdministratorUserSessionsResponseSchema
+>;
+
 export const administratorUserLookupQuerySchema = z
   .object({
     id: z.string().uuid().optional(),

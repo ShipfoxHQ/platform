@@ -11,6 +11,12 @@ import {
   listAdminGrantSummaries,
   revokeAdminGrantWithAudit,
 } from '#db/admin-grants.js';
+import {
+  reactivateUserWithAudit,
+  revokeUserSessionsWithAudit,
+  suspendUserWithAudit,
+  type UserModerationResult,
+} from '#db/admin-user-moderation.js';
 import {findAdministratorUser as findAdministratorUserInDb} from '#db/admin-users.js';
 import {requireAdminRole} from './admin-role.js';
 import type {AdminGrant} from './entities/admin-grant.js';
@@ -30,9 +36,13 @@ import {
 
 const ADMIN_OWNER_ROLE: AdminRole = 'admin-owner';
 const ADMIN_OBSERVER_ROLE: AdminRole = 'admin-observer';
+const ADMIN_OPERATOR_ROLE: AdminRole = 'admin-operator';
 const BOOTSTRAP_COMMAND = 'auth.admin_grant.bootstrap';
 const GRANT_COMMAND = 'auth.admin_grant.grant';
 const REVOKE_COMMAND = 'auth.admin_grant.revoke';
+const SUSPEND_USER_COMMAND = 'auth.user.suspend';
+const REACTIVATE_USER_COMMAND = 'auth.user.reactivate';
+const REVOKE_USER_SESSIONS_COMMAND = 'auth.user.revoke-sessions';
 
 export function administrationCommandFingerprint(command: string, input: unknown): string {
   return hashOpaqueToken(`${command}:${JSON.stringify(input)}`);
@@ -52,13 +62,14 @@ function administrationEvent(params: {
   targetType: string;
   targetId: string;
   reason: string;
+  requiredRole?: AdminRole;
   correlationId: string;
   idempotencyKeyFingerprint: string;
 }) {
   return createAdministrationActionEvent({
     actorId: params.actorId,
     actorRole: params.actorRole,
-    requiredRole: ADMIN_OWNER_ROLE,
+    requiredRole: params.requiredRole ?? ADMIN_OWNER_ROLE,
     command: params.command,
     targetType: params.targetType,
     targetId: params.targetId,
@@ -74,6 +85,22 @@ export interface AdministrationMutationContext {
   actorId: string;
   idempotencyKey: string;
   correlationId: string;
+}
+
+export interface AdministratorUserMutationResult {
+  user: AdministratorUserSummary;
+  correlationId: string;
+  sessionsRevoked: number;
+}
+
+function toAdministratorUserMutationResult(
+  result: UserModerationResult,
+): AdministratorUserMutationResult {
+  return {
+    user: result.user,
+    correlationId: result.correlationId,
+    sessionsRevoked: result.sessionsRevoked,
+  };
 }
 
 export async function bootstrapFirstAdminOwner(
@@ -202,6 +229,104 @@ export async function revokeAdministratorGrant(
       idempotencyKeyFingerprint: hashOpaqueToken(params.idempotencyKey),
     }),
   });
+}
+
+export async function suspendAdministratorUser(
+  params: AdministrationMutationContext & {userId: string; reason: string},
+): Promise<AdministratorUserMutationResult> {
+  const actorRole = await requireAdminRole({
+    userId: params.actorId,
+    minimumRole: ADMIN_OPERATOR_ROLE,
+  });
+  const idempotencyKeyFingerprint = hashOpaqueToken(params.idempotencyKey);
+  return toAdministratorUserMutationResult(
+    await suspendUserWithAudit({
+      actorId: params.actorId,
+      userId: params.userId,
+      idempotencyKeyFingerprint,
+      requestFingerprint: administrationCommandFingerprint(SUSPEND_USER_COMMAND, {
+        userId: params.userId,
+        reason: params.reason,
+      }),
+      event: administrationEvent({
+        actorId: params.actorId,
+        actorRole,
+        requiredRole: ADMIN_OPERATOR_ROLE,
+        command: SUSPEND_USER_COMMAND,
+        targetType: 'user',
+        targetId: params.userId,
+        reason: params.reason,
+        correlationId: params.correlationId,
+        idempotencyKeyFingerprint,
+      }),
+    }),
+  );
+}
+
+export async function reactivateAdministratorUser(
+  params: AdministrationMutationContext & {userId: string; reason?: string},
+): Promise<AdministratorUserMutationResult> {
+  const actorRole = await requireAdminRole({
+    userId: params.actorId,
+    minimumRole: ADMIN_OPERATOR_ROLE,
+  });
+  const reason = params.reason ?? 'User reactivation requested by an administrator';
+  const idempotencyKeyFingerprint = hashOpaqueToken(params.idempotencyKey);
+  return toAdministratorUserMutationResult(
+    await reactivateUserWithAudit({
+      actorId: params.actorId,
+      userId: params.userId,
+      idempotencyKeyFingerprint,
+      requestFingerprint: administrationCommandFingerprint(REACTIVATE_USER_COMMAND, {
+        userId: params.userId,
+        reason,
+      }),
+      event: administrationEvent({
+        actorId: params.actorId,
+        actorRole,
+        requiredRole: ADMIN_OPERATOR_ROLE,
+        command: REACTIVATE_USER_COMMAND,
+        targetType: 'user',
+        targetId: params.userId,
+        reason,
+        correlationId: params.correlationId,
+        idempotencyKeyFingerprint,
+      }),
+    }),
+  );
+}
+
+export async function revokeAdministratorUserSessions(
+  params: AdministrationMutationContext & {userId: string; reason?: string},
+): Promise<AdministratorUserMutationResult> {
+  const actorRole = await requireAdminRole({
+    userId: params.actorId,
+    minimumRole: ADMIN_OPERATOR_ROLE,
+  });
+  const reason = params.reason ?? 'All active user sessions revoked by an administrator';
+  const idempotencyKeyFingerprint = hashOpaqueToken(params.idempotencyKey);
+  return toAdministratorUserMutationResult(
+    await revokeUserSessionsWithAudit({
+      actorId: params.actorId,
+      userId: params.userId,
+      idempotencyKeyFingerprint,
+      requestFingerprint: administrationCommandFingerprint(REVOKE_USER_SESSIONS_COMMAND, {
+        userId: params.userId,
+        reason,
+      }),
+      event: administrationEvent({
+        actorId: params.actorId,
+        actorRole,
+        requiredRole: ADMIN_OPERATOR_ROLE,
+        command: REVOKE_USER_SESSIONS_COMMAND,
+        targetType: 'user',
+        targetId: params.userId,
+        reason,
+        correlationId: params.correlationId,
+        idempotencyKeyFingerprint,
+      }),
+    }),
+  );
 }
 
 export {

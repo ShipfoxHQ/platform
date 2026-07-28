@@ -1,15 +1,11 @@
 import type {AdminRole} from '@shipfox/api-auth-dto';
-import type {
-  AdministrationActionEvent,
-  AdministrationActionEventMap,
-} from '@shipfox/api-common-dto';
+import type {AdministrationActionEvent} from '@shipfox/api-common-dto';
 import {
   paginateTimestampIdRows,
   type TimestampIdCursor,
   timestampIdCursorWhere,
 } from '@shipfox/node-drizzle';
-import {writeOutboxEvent} from '@shipfox/node-outbox';
-import {and, desc, eq, isNull, sql} from 'drizzle-orm';
+import {and, desc, eq, isNull} from 'drizzle-orm';
 import {highestAdminRole} from '#core/admin-role-model.js';
 import type {AdminGrant} from '#core/entities/admin-grant.js';
 import type {AdministratorGrantSummary} from '#core/entities/administrator-read-model.js';
@@ -17,21 +13,22 @@ import {
   AdminBootstrapClosedError,
   AdminGrantAlreadyExistsError,
   AdminGrantNotFoundError,
-  AdminIdempotencyKeyReuseError,
   LastAdminOwnerError,
   UserNotFoundError,
 } from '#core/errors.js';
-import {db} from './db.js';
 import {
-  type AdminCommandResultDb,
-  adminCommandResults,
-  type StoredAdminGrant,
-} from './schema/admin-command-results.js';
+  findAdminCommandResult,
+  lockAdminCommand,
+  lockAdminOwnerGrants,
+  storeAdminCommandResult,
+  type Tx,
+  writeAdminAction,
+} from './admin-command.js';
+import {db} from './db.js';
+import type {StoredAdminGrant} from './schema/admin-command-results.js';
 import {adminGrants, toAdminGrant} from './schema/admin-grants.js';
-import {authOutbox} from './schema/outbox.js';
 import {users} from './schema/users.js';
 
-type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 type AdminOwnerQueryExecutor = ReturnType<typeof db> | Tx;
 
 function activeAdminOwnerWhere() {
@@ -145,7 +142,7 @@ export async function revokeAdminGrant(params: {grantId: string}): Promise<Admin
   return await db().transaction(async (tx) => {
     // All owner grant changes share one lock so concurrent revocations cannot
     // both observe the same final owner and leave the instance ownerless.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('auth_admin_owner_grants'))`);
+    await lockAdminOwnerGrants(tx);
 
     const rows = await tx
       .select()
@@ -208,23 +205,10 @@ async function findCommandResult(
     command: string;
   },
 ): Promise<AdminGrant | undefined> {
-  const rows = await tx
-    .select()
-    .from(adminCommandResults)
-    .where(
-      and(
-        eq(adminCommandResults.actorId, params.actorId),
-        eq(adminCommandResults.idempotencyKeyFingerprint, params.idempotencyKeyFingerprint),
-      ),
-    )
-    .limit(1);
-  const result: AdminCommandResultDb | undefined = rows[0];
+  const result = await findAdminCommandResult(tx, params);
   if (!result) return undefined;
-  if (
-    result.command !== params.command ||
-    result.requestFingerprint !== params.requestFingerprint
-  ) {
-    throw new AdminIdempotencyKeyReuseError();
+  if (!('grant' in result.result)) {
+    throw new Error('Administrator command result has an unexpected shape');
   }
   return fromStoredAdminGrant(result.result.grant);
 }
@@ -234,29 +218,7 @@ async function storeCommandResult(
   params: AuditedAdminCommandParams,
   grant: AdminGrant,
 ): Promise<void> {
-  await tx.insert(adminCommandResults).values({
-    actorId: params.actorId,
-    idempotencyKeyFingerprint: params.idempotencyKeyFingerprint,
-    command: params.event.command,
-    requestFingerprint: params.requestFingerprint,
-    result: {grant: toStoredAdminGrant(grant)},
-  });
-}
-
-async function writeAdminAction(tx: Tx, event: AdministrationActionEvent): Promise<void> {
-  await writeOutboxEvent<AdministrationActionEventMap>(tx, authOutbox, {
-    type: 'administration.action.performed',
-    payload: event,
-  });
-}
-
-async function lockAdminCommand(
-  tx: Tx,
-  params: {actorId: string; idempotencyKeyFingerprint: string},
-) {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${`auth_admin_command:${params.actorId}:${params.idempotencyKeyFingerprint}`}))`,
-  );
+  await storeAdminCommandResult(tx, params, {grant: toStoredAdminGrant(grant)});
 }
 
 export async function bootstrapFirstAdminOwner(
@@ -264,7 +226,7 @@ export async function bootstrapFirstAdminOwner(
 ): Promise<AdminGrant> {
   return await db().transaction(async (tx) => {
     await lockAdminCommand(tx, params);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('auth_admin_owner_grants'))`);
+    await lockAdminOwnerGrants(tx);
 
     const existing = await findCommandResult(tx, {
       ...params,
@@ -301,7 +263,7 @@ export async function grantAdminRoleWithAudit(
 ): Promise<AdminGrant> {
   return await db().transaction(async (tx) => {
     await lockAdminCommand(tx, params);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('auth_admin_owner_grants'))`);
+    await lockAdminOwnerGrants(tx);
 
     const existing = await findCommandResult(tx, {
       ...params,
@@ -349,7 +311,7 @@ export async function revokeAdminGrantWithAudit(
 ): Promise<AdminGrant> {
   return await db().transaction(async (tx) => {
     await lockAdminCommand(tx, params);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('auth_admin_owner_grants'))`);
+    await lockAdminOwnerGrants(tx);
 
     const existing = await findCommandResult(tx, {
       ...params,

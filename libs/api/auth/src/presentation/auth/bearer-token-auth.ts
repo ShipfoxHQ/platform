@@ -9,6 +9,7 @@ interface UnauthorizedErrorParams {
 interface BearerTokenAuthMethodOptions<TClaims> {
   name: string;
   verifyToken: (token: string) => Promise<TClaims | null>;
+  isInvalidTokenError?: (error: unknown) => boolean;
   invalidTokenError: UnauthorizedErrorParams;
   setContext: (request: FastifyRequest, claims: TClaims) => void;
 }
@@ -27,7 +28,11 @@ export function createBearerTokenAuthMethod<TClaims>(
       const token = extractBearerToken(request.headers.authorization);
       if (!token) throwUnauthorized(missingBearerError);
 
-      const claims = await verifyBearerToken(token, options.verifyToken);
+      const claims = await verifyBearerToken(
+        token,
+        options.verifyToken,
+        options.isInvalidTokenError,
+      );
       if (!claims) throwUnauthorized(options.invalidTokenError);
 
       options.setContext(request, claims);
@@ -38,10 +43,12 @@ export function createBearerTokenAuthMethod<TClaims>(
 async function verifyBearerToken<TClaims>(
   token: string,
   verifyToken: (token: string) => Promise<TClaims | null>,
+  isInvalidTokenError: ((error: unknown) => boolean) | undefined,
 ): Promise<TClaims | null> {
   try {
     return await verifyToken(token);
-  } catch {
+  } catch (error) {
+    if (isInvalidTokenError && !isInvalidTokenError(error)) throw error;
     return null;
   }
 }

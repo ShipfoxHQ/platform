@@ -40,7 +40,10 @@ export {
 export {
   bootstrapFirstAdminOwner,
   grantAdministratorRole,
+  reactivateAdministratorUser,
   revokeAdministratorGrant,
+  revokeAdministratorUserSessions,
+  suspendAdministratorUser,
 } from '#core/administration.js';
 export type {
   CreateSessionForUserError,

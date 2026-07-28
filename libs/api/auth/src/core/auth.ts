@@ -15,7 +15,7 @@ import {generateOpaqueToken, hashOpaqueToken} from '@shipfox/node-tokens';
 import {config} from '#config.js';
 import {consumePasswordReset, createPasswordReset} from '#db/password-resets.js';
 import {
-  createRefreshToken,
+  createRefreshTokenForActiveUser,
   findActiveRefreshTokenByHash,
   findRefreshTokenByHash,
   revokeRefreshSession,
@@ -127,12 +127,13 @@ async function createRefreshSession(
   refreshSessionId: string,
 ): Promise<{refreshToken: string; refreshSessionId: string}> {
   const refreshToken = generateOpaqueToken('refreshToken');
-  const session = await createRefreshToken({
+  const session = await createRefreshTokenForActiveUser({
     sessionId: refreshSessionId,
     userId: user.id,
     hashedToken: hashOpaqueToken(refreshToken),
     expiresAt: daysFromNow(config.AUTH_REFRESH_TOKEN_EXPIRES_IN_DAYS),
   });
+  if (!session) throw new InvalidCredentialsError();
   return {refreshToken, refreshSessionId: session.sessionId};
 }
 
@@ -491,12 +492,18 @@ export async function refreshAccessToken(params: {
   // revoked, or expired the token before this refresh could claim it.
   const nextRefreshToken = generateOpaqueToken('refreshToken');
   const rotated = await rotateRefreshToken({
+    userId: current.userId,
     id: current.id,
     currentHashedToken,
     nextHashedToken: hashOpaqueToken(nextRefreshToken),
     expiresAt: daysFromNow(config.AUTH_REFRESH_TOKEN_EXPIRES_IN_DAYS),
   });
   if (!rotated) {
+    const latestUser = await findUserById({id: current.userId});
+    if (latestUser?.status !== 'active') {
+      recordRefreshOutcome('rejected');
+      throw new TokenInvalidError('Refresh token is invalid or expired');
+    }
     const latest = await findRefreshTokenByHash({hashedToken: currentHashedToken});
     if (!latest || !isWithinRotationGrace(latest)) {
       recordRefreshOutcome('rejected');

@@ -13,9 +13,11 @@ interface TestClaims {
 describe('bearer-token-auth', () => {
   let app: FastifyInstance;
   let verifyToken: ReturnType<typeof vi.fn<(token: string) => Promise<TestClaims | null>>>;
+  let verifierErrorIsInvalid = true;
 
   beforeEach(async () => {
     verifyToken = vi.fn<(token: string) => Promise<TestClaims | null>>();
+    verifierErrorIsInvalid = true;
     app = Fastify();
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
@@ -24,6 +26,7 @@ describe('bearer-token-auth', () => {
     const authMethod = createBearerTokenAuthMethod({
       name: 'test-bearer',
       verifyToken,
+      isInvalidTokenError: () => verifierErrorIsInvalid,
       invalidTokenError: {message: 'Invalid test bearer token', code: 'invalid-test-token'},
       setContext: (request, claims) => {
         (request as FastifyRequest & Record<typeof CONTEXT_KEY, typeof claims>)[CONTEXT_KEY] =
@@ -95,5 +98,19 @@ describe('bearer-token-auth', () => {
     expect(res.statusCode).toBe(401);
     expect(res.json()).toEqual({code: 'invalid-test-token'});
     expect(verifyToken).toHaveBeenCalledWith('invalid-token');
+  });
+
+  test('propagates verifier errors classified as service failures', async () => {
+    verifierErrorIsInvalid = false;
+    verifyToken.mockRejectedValue(new Error('database unavailable'));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      headers: {authorization: 'Bearer valid-token'},
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json().code).not.toBe('invalid-test-token');
   });
 });
