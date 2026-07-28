@@ -27,8 +27,9 @@ export function shipfoxClientComposition({
   async function assertRoutesResolve(
     resolveRoute: RouteResolver,
     routes: ReturnType<typeof composeClientFeatures>['routes'],
+    layouts: ReturnType<typeof composeClientFeatures>['layouts'],
   ): Promise<void> {
-    for (const route of routes) {
+    for (const route of [...layouts, ...routes]) {
       const resolvedRoute = await resolveRoute(route.impl, outputPath());
       if (!resolvedRoute) {
         throw new Error(
@@ -47,12 +48,13 @@ export function shipfoxClientComposition({
   }): Promise<void> {
     const evaluated = await evaluateFeatures(featuresPath());
     const composition = composeClientFeatures(evaluated.features);
-    await assertRoutesResolve(resolveRoute, composition.routes);
+    await assertRoutesResolve(resolveRoute, composition.routes, composition.layouts);
 
     watchedFiles = new Set(evaluated.loadedFiles);
     for (const file of watchedFiles) addWatchFile(file);
 
     const output = generateAppModule({
+      layouts: composition.layouts,
       routes: composition.routes,
       navigation: composition.navigation,
       settingsSections: composition.settingsSections,

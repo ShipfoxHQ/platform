@@ -2,7 +2,7 @@ import {QueryClient} from '@tanstack/react-query';
 import {createMemoryHistory, createRouter, Outlet, RouterProvider} from '@tanstack/react-router';
 import {render} from '@testing-library/react';
 import {createStore} from 'jotai';
-import {composeRoutes} from '#compose/compose-routes.js';
+import {composeClientFeatures} from '#compose/compose-client-features.js';
 import type {ClientFeature} from '#contract.js';
 import {assembleRouteTree, type ResolveRouteImpl} from '#runtime/assemble-route-tree.js';
 import {type AuthStateValue, authStateAtom} from '#runtime/auth.js';
@@ -25,7 +25,9 @@ export async function renderComposedShell({
   queryClient: QueryClient;
   store: ReturnType<typeof createStore>;
 }> {
-  const routeTree = await assembleRouteTree(composeRoutes(features), {
+  const composition = composeClientFeatures(features);
+  const routeTree = await assembleRouteTree(composition.routes, {
+    layouts: composition.layouts,
     resolveImpl,
     navigation: navigationEntries(features),
     settingsSections: settingsEntries(features),

@@ -110,3 +110,21 @@ test('renders the external route, provider order, navigation, settings, and conf
     'Hello from the external fixture',
   );
 });
+
+test('renders layout-local navigation from a separate child feature', async () => {
+  window.__SHIPFOX_CONFIG__ = {EXTERNAL_GREETING: 'Hello from the external fixture'};
+  router.update({
+    history: createMemoryHistory({initialEntries: ['/external-admin/users']}),
+    context: {auth, queryClient: new QueryClient(), workspaceSetup},
+  });
+  await router.load();
+
+  mountClient();
+
+  await vi.waitFor(() => expect(heading('External administration users')).toBeDefined());
+  expect(
+    [...container.querySelectorAll('[aria-label="External administration sections"] a')].map(
+      (link) => link.textContent?.trim(),
+    ),
+  ).toEqual(['Overview', 'Users']);
+});

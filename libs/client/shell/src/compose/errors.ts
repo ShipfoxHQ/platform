@@ -17,6 +17,15 @@ export class RouteCompositionError extends CompositionError {
   }
 }
 
+export class LayoutCompositionError extends CompositionError {
+  public readonly id: string;
+
+  constructor(id: string, message: string, featureIds: readonly string[]) {
+    super('LayoutCompositionError', message, featureIds);
+    this.id = id;
+  }
+}
+
 export class ProviderCompositionError extends CompositionError {
   public readonly id: string;
 

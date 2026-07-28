@@ -4,10 +4,20 @@ import type {z} from 'zod';
 
 export type AnchorId = 'root' | 'workspaceLayout' | 'projectLayout' | 'workspaceSettings';
 
+/** A fixed shell anchor or the stable id of a feature-owned layout. */
+export type RouteParentId = AnchorId | (string & {});
+
 export interface RouteContribution {
   path: string;
-  parent: AnchorId;
+  parent: RouteParentId;
   override?: boolean;
+  impl: string;
+}
+
+export interface LayoutContribution {
+  id: string;
+  path: string;
+  parent: RouteParentId;
   impl: string;
 }
 
@@ -16,14 +26,19 @@ export interface FeatureProvider {
   Component: ComponentType<PropsWithChildren>;
 }
 
-export interface NavTabEntry {
+interface NavTabEntryBase {
   id: string;
-  scope: 'workspace' | 'project';
   label: string;
   to: string;
   exact?: boolean;
   order?: number;
 }
+
+export type NavTabEntry =
+  | (NavTabEntryBase & {scope: 'workspace' | 'project'; layout?: never})
+  | (NavTabEntryBase & {scope: 'layout'; layout: string; minimumRole?: string});
+
+export type LayoutNavigationEntry = Extract<NavTabEntry, {scope: 'layout'}>;
 
 export interface SettingsSectionEntry {
   id: string;
@@ -41,6 +56,7 @@ export interface ClientFeature<S extends z.ZodRawShape = z.ZodRawShape> {
    * feature.
    */
   coordinator?: string;
+  layouts?: readonly LayoutContribution[];
   routes?: readonly RouteContribution[];
   providers?: readonly FeatureProvider[];
   navigation?: readonly NavTabEntry[];

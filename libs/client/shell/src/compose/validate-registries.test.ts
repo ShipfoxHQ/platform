@@ -1,4 +1,5 @@
-import {composeRoutes} from './compose-routes.js';
+import type {ClientFeature} from '#contract.js';
+import {composeLayouts, composeRoutes} from './compose-routes.js';
 import {validateNavigation, validateSettingsSections} from './validate-registries.js';
 
 const duplicateNavigationMessage = /projects.*shipfox\.one.*acme\.two/u;
@@ -7,6 +8,130 @@ const duplicateSettingsMessage = /members.*shipfox\.one.*acme\.two/u;
 const missingSettingsMessage = /sso.*acme\.two.*\/workspaces\/\$wid\/settings\/sso/u;
 
 describe('registry validation', () => {
+  test('accepts child navigation scoped to a feature-owned layout', () => {
+    const features = [
+      {
+        id: 'acme.admin',
+        layouts: [
+          {id: 'acme.admin.layout', path: '/admin', parent: 'root' as const, impl: 'admin'},
+          {
+            id: 'acme.admin.settings',
+            path: '/admin/settings',
+            parent: 'acme.admin.layout',
+            impl: 'settings',
+          },
+        ],
+      },
+      {
+        id: 'acme.users',
+        routes: [{path: '/admin/settings/users', parent: 'acme.admin.settings', impl: 'users'}],
+        navigation: [
+          {
+            id: 'admin.users',
+            scope: 'layout' as const,
+            layout: 'acme.admin.layout',
+            label: 'Users',
+            to: '/admin/settings/users',
+            minimumRole: 'observer',
+          },
+        ],
+      },
+    ];
+    const layouts = composeLayouts(features);
+    const routes = composeRoutes(features, layouts);
+
+    expect(() => validateNavigation(features, routes, layouts)).not.toThrow();
+  });
+
+  test('names missing layout and invalid role metadata', () => {
+    const missingLayout = [
+      {
+        id: 'acme.users',
+        navigation: [
+          {
+            id: 'admin.users',
+            scope: 'layout' as const,
+            layout: 'acme.missing',
+            label: 'Users',
+            to: '/admin/users',
+          },
+        ],
+      },
+    ];
+    expect(() => validateNavigation(missingLayout, ['/admin/users'])).toThrow(
+      'Navigation entry "admin.users" in feature "acme.users" targets missing layout "acme.missing".',
+    );
+
+    const invalidRole = [
+      {
+        id: 'acme.users',
+        layouts: [{id: 'acme.admin.layout', path: '/admin', parent: 'root', impl: 'admin'}],
+        navigation: [
+          {
+            id: 'admin.users',
+            scope: 'layout' as const,
+            layout: 'acme.admin.layout',
+            label: 'Users',
+            to: '/admin',
+            minimumRole: '   ',
+          },
+        ],
+      },
+    ];
+    expect(() => validateNavigation(invalidRole, ['/admin'])).toThrow(
+      'Navigation entry "admin.users" in feature "acme.users" has invalid minimum role metadata.',
+    );
+  });
+
+  test('rejects role metadata on untyped non-layout navigation', () => {
+    const feature = {
+      id: 'acme.users',
+      navigation: [
+        {
+          id: 'users',
+          scope: 'workspace',
+          label: 'Users',
+          to: '/users',
+          minimumRole: 'observer',
+        },
+      ],
+    } as unknown as ClientFeature;
+
+    expect(() => validateNavigation([feature], ['/users'])).toThrow(
+      'Navigation entry "users" in feature "acme.users" has minimum role metadata but is not layout-scoped.',
+    );
+  });
+
+  test('rejects layout navigation outside the declared layout subtree', () => {
+    const features = [
+      {
+        id: 'acme.admin',
+        layouts: [
+          {id: 'acme.admin.layout', path: '/admin', parent: 'root' as const, impl: 'admin'},
+        ],
+      },
+      {
+        id: 'acme.users',
+        routes: [{path: '/users', parent: 'root' as const, impl: 'users'}],
+        navigation: [
+          {
+            id: 'admin.users',
+            scope: 'layout' as const,
+            layout: 'acme.admin.layout',
+            label: 'Users',
+            to: '/users',
+          },
+        ],
+      },
+    ];
+
+    expect(() =>
+      validateNavigation(features, composeRoutes(features), composeLayouts(features)),
+    ).toThrow(
+      'Navigation entry "admin.users" in feature "acme.users" targets route "/users" outside layout "acme.admin.layout".',
+    );
+  });
+
   test('names the id and both features for a duplicate navigation entry', () => {
     expect(() =>
       validateNavigation(

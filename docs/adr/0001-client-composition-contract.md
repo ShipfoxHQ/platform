@@ -76,9 +76,18 @@ export type AnchorId =
   | 'projectLayout'
   | 'workspaceSettings';
 
+export type RouteParentId = AnchorId | (string & {});
+
+export interface LayoutContribution {
+  id: string;
+  path: string;
+  parent: RouteParentId;
+  impl: string;
+}
+
 export interface RouteContribution {
   path: string;
-  parent: AnchorId;
+  parent: RouteParentId;
   override?: boolean;
   impl: string;
 }
@@ -88,14 +97,21 @@ export interface FeatureProvider {
   Component: ComponentType<PropsWithChildren>;
 }
 
-export interface NavTabEntry {
+interface NavTabEntryBase {
   id: string;
-  scope: 'workspace' | 'project';
   label: string;
   to: string;
   exact?: boolean;
   order?: number;
 }
+
+export type NavTabEntry =
+  | (NavTabEntryBase & {scope: 'workspace' | 'project'; layout?: never})
+  | (NavTabEntryBase & {
+      scope: 'layout';
+      layout: string;
+      minimumRole?: string;
+    });
 
 export interface SettingsSectionEntry {
   id: string;
@@ -107,6 +123,7 @@ export interface SettingsSectionEntry {
 
 export interface ClientFeature<S extends z.ZodRawShape = z.ZodRawShape> {
   id: string;
+  layouts?: readonly LayoutContribution[];
   routes?: readonly RouteContribution[];
   providers?: readonly FeatureProvider[];
   navigation?: readonly NavTabEntry[];
@@ -162,12 +179,17 @@ The shell owns four anchors:
 | `projectLayout` | Routes scoped to a project |
 | `workspaceSettings` | Routes rendered inside workspace settings |
 
-The generator injects the matching parent route. A route must be below the path represented by its
-anchor. An override must keep the base route's normalized path and anchor.
+Features may also declare layout contributions. A layout has a stable id, a full path, a parent, and
+a public route implementation. A route from any composed feature can name that layout id as its
+parent. Layout ids are unique across the composition and cannot replace shell anchors.
 
-A route may also own the exact anchor path. The generator represents that contribution as an index
-route below the anchor. This keeps workspace home and settings-index redirects with their feature
-owners while allowing them to remain navigation targets.
+The generator injects the matching parent route. A route must be below the path represented by its
+anchor or feature-owned layout. An override must keep the base route's normalized path and parent.
+
+A route may also own the exact anchor path when it names that anchor directly. Root-parented routes
+and layouts cannot use a path equal to or below a protected shell anchor; this prevents a sibling
+route from bypassing the anchor's guards. The generator represents an exact-anchor contribution as
+an index route below the anchor.
 
 An accepted override replaces the whole route options object. It replaces the component, loader,
 `beforeLoad`, search check, static data, pending component, and error component together. Children
@@ -179,6 +201,12 @@ An overriding search check must also accept all upstream-reachable navigation. N
 be optional or have defaults.
 
 Navigation targets remain full paths after an override. They never point to implementation ids.
+
+Feature-owned layouts may expose local navigation. A layout-scoped entry sets `scope: 'layout'`,
+names its layout with `layout`, and may carry opaque `minimumRole` metadata. `minimumRole` is not
+part of workspace- or project-scoped entries. The shell keeps these entries as data and exposes them through `useLayoutNavigation(layoutId)` from
+`@shipfox/client-shell/runtime`. The layout owns rendering and role policy. Child features can add
+entries without importing the layout feature or its route implementation.
 
 ## Generated route tree
 
@@ -269,8 +297,14 @@ second copy of a shell-owned context. Documentation and review remain part of re
 Navigation and settings entries are data. They do not carry JSX. The default `order` is 500. Entries
 sort by numeric order, feature-array position, then declaration position.
 
-Navigation ids must be unique. Each normalized `to` target must exist in the route tree. `to` stays a
-string because a feature package cannot see the consumer's generated route union.
+Navigation ids must be unique. Each normalized `to` target must exist in the route tree. A
+layout-scoped target must be the layout root or a descendant of that layout, including routes below
+nested feature-owned layouts. `to` stays a string because a feature package cannot see the
+consumer's generated route union.
+
+`minimumRole` is available only on layout-scoped entries. It is data for the owning layout. The
+composition check accepts non-empty strings and rejects malformed role metadata. It does not import
+or define a role policy.
 
 A settings section adds navigation data only. The feature contributes its page as a normal route. A
 section with `pathSegment: 'sso'` requires `/workspaces/$wid/settings/sso`. Section ids must be
@@ -293,6 +327,13 @@ id, key, or feature id.
 | Failure | Exact message template |
 | --- | --- |
 | Route collision | `Route "<path>" is contributed by both features "<first>" and "<second>". Set override: true to replace it explicitly.` |
+| Duplicate layout id | `Layout id "<id>" is contributed by both features "<first>" and "<second>".` |
+| Reserved layout id | `Layout id "<id>" in feature "<feature>" is reserved by the shell.` |
+| Reserved layout path | `Layout "<id>" in feature "<feature>" targets path "<path>" which is reserved by a shell anchor.` |
+| Missing layout parent | `Layout "<id>" in feature "<feature>" targets missing layout parent "<parent>".` |
+| Cyclic layout parent | `Layout "<id>" in feature "<feature>" has a cyclic parent reference.` |
+| Missing route parent | `Route "<path>" in feature "<feature>" targets missing layout parent "<parent>".` |
+| Layout replaces route | `Route override for "<path>" from feature "<feature>" cannot replace layout "<id>" contributed by feature "<layout-feature>".` |
 | Missing override base | `Route override for "<path>" from feature "<feature>" has no route to replace.` |
 | Competing overrides | `Route "<path>" has competing overrides from features "<first>" and "<second>".` |
 | Override changes anchor | `Route override for "<path>" from feature "<override>" cannot change anchor from "<base-anchor>" in feature "<base>" to "<override-anchor>".` |
@@ -300,10 +341,17 @@ id, key, or feature id.
 | Duplicate provider | `Provider id "<id>" is contributed by both features "<first>" and "<second>".` |
 | Duplicate navigation | `Navigation entry "<id>" is contributed by both features "<first>" and "<second>".` |
 | Missing navigation target | `Navigation entry "<id>" in feature "<feature>" targets missing route "<path>".` |
+| Invalid navigation layout | `Navigation entry "<id>" in feature "<feature>" has invalid layout metadata. Expected a non-empty layout id.` |
+| Missing navigation layout | `Navigation entry "<id>" in feature "<feature>" targets missing layout "<layout>".` |
+| Navigation outside layout | `Navigation entry "<id>" in feature "<feature>" targets route "<path>" outside layout "<layout>".` |
+| Invalid role metadata | `Navigation entry "<id>" in feature "<feature>" has invalid minimum role metadata. Expected a non-empty string.` |
+| Role metadata outside layout | `Navigation entry "<id>" in feature "<feature>" has minimum role metadata but is not layout-scoped.` |
 | Duplicate settings section | `Settings section "<id>" is contributed by both features "<first>" and "<second>".` |
 | Missing settings route | `Settings section "<id>" in feature "<feature>" requires route "<path>".` |
 | Duplicate config key | `Config key "<key>" is contributed by both features "<first>" and "<second>". Reuse the same schema instance to intentionally share it.` |
 | Invalid anchor nesting | `Route "<path>" must be nested under anchor "<anchor>" (<anchor-path>).` |
+| Invalid layout nesting | `Route "<path>" must be nested under layout "<layout>" (<layout-path>).` |
+| Root parent inside protected anchor | `Route "<path>" in feature "<feature>" cannot use root parent inside reserved anchor "<anchor>" (<anchor-path>). Use parent "<anchor>".` |
 | Route module not found | `Could not resolve route implementation "<specifier>" for "<path>".` |
 | Invalid route export | `Route implementation "<specifier>" for "<path>" must export default defineRoute(...).` |
 | Feature evaluation | `Failed to evaluate features module "<file>". Features modules must be Node-safe: <cause>` |
@@ -322,7 +370,8 @@ Route "/auth/login" is contributed by both features "shipfox.auth" and "fixture.
 The package uses explicit exports:
 
 - `@shipfox/client-shell`: Node-safe authoring types and `defineClientFeature()`;
-- `@shipfox/client-shell/runtime`: browser composition, route helpers, anchors, and checks;
+- `@shipfox/client-shell/runtime`: browser composition, route helpers, anchors, layout navigation,
+  and checks;
 - `@shipfox/client-shell/vite`: the codegen Vite plugin; and
 - `@shipfox/client-shell/testing`: test and Storybook construction helpers.
 
@@ -472,6 +521,46 @@ export const ssoFeature = defineClientFeature({
 ```
 
 This feature uses the settings registry. It does not replace authentication.
+
+### Feature-owned layout
+
+The layout feature declares the parent. Child features contribute routes and local navigation by
+using the stable layout id.
+
+```ts
+export const adminLayoutFeature = defineClientFeature({
+  id: 'acme.admin-layout',
+  layouts: [
+    {
+      id: 'acme.admin-layout',
+      path: '/admin',
+      parent: 'root',
+      impl: '@acme/admin/routes/layout',
+    },
+  ],
+});
+
+export const adminUsersFeature = defineClientFeature({
+  id: 'acme.admin-users',
+  routes: [
+    {
+      path: '/admin/users',
+      parent: 'acme.admin-layout',
+      impl: '@acme/admin-users/routes/users',
+    },
+  ],
+  navigation: [
+    {
+      id: 'admin.users',
+      scope: 'layout',
+      layout: 'acme.admin-layout',
+      label: 'Users',
+      to: '/admin/users',
+      minimumRole: 'observer',
+    },
+  ],
+});
+```
 
 ## Tests and Storybook
 

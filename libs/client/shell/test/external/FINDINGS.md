@@ -14,6 +14,7 @@ The fixture proves that:
 - two application-local providers receive the shell query client and Jotai store, then nest in
   declaration order;
 - application navigation and settings data render through the shell-owned registries;
+- a feature-owned layout receives deterministic navigation from child feature contributions;
 - the external config fragment is required, merged, and readable by both providers and the route;
 - the generated router types an application-local `Link` and `useParams` call; and
 - the unapproved login collision fails with the exact normative diagnostic.
