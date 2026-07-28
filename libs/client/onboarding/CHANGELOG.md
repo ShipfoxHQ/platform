@@ -1,5 +1,14 @@
 # @shipfox/client-onboarding
 
+## 12.0.2
+
+### Patch Changes
+
+- @shipfox/client-shell@12.0.2
+- @shipfox/client-projects@12.0.2
+- @shipfox/client-integrations@12.0.2
+- @shipfox/client-agent@12.0.2
+
 ## 12.0.1
 
 ### Patch Changes

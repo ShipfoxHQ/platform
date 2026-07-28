@@ -1,5 +1,14 @@
 # @shipfox/client-workspace-settings
 
+## 12.0.2
+
+### Patch Changes
+
+- Updated dependencies [25158c8]
+  - @shipfox/api-workspaces-dto@11.0.0
+  - @shipfox/client-auth@12.0.2
+  - @shipfox/client-shell@12.0.2
+
 ## 12.0.1
 
 ### Patch Changes

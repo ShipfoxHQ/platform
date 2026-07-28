@@ -1,5 +1,11 @@
 # @shipfox/expression
 
+## 1.2.1
+
+### Patch Changes
+
+- 71d9ba4: Accepts integer literals in CEL equality checks against numeric workflow values.
+
 ## 1.2.0
 
 ### Minor Changes

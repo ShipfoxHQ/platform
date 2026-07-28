@@ -1,5 +1,14 @@
 # @shipfox/client-workflows
 
+## 12.0.2
+
+### Patch Changes
+
+- @shipfox/api-definitions-dto@11.0.0
+- @shipfox/client-shell@12.0.2
+- @shipfox/client-projects@12.0.2
+- @shipfox/client-triggers@12.0.2
+
 ## 12.0.1
 
 ### Patch Changes
