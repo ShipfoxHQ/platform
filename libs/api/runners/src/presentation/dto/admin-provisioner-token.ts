@@ -1,5 +1,5 @@
 import type {ProvisionerToken} from '#core/entities/provisioner-token.js';
-import {installationProvisionerTokenStatus} from '#core/index.js';
+import {installationProvisionerTokenStatus} from '#core/provisioner-tokens.js';
 
 export function toAdministratorProvisionerTokenDto(token: ProvisionerToken) {
   if (token.scope !== 'installation') {

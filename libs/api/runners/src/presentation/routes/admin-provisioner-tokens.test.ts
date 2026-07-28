@@ -117,7 +117,10 @@ describe('administrator installation provisioner tokens', () => {
     expect(JSON.stringify(rows[0]?.result)).not.toContain(createdBody.raw_token);
     expect(JSON.stringify(rows[0]?.result)).not.toContain(hashOpaqueToken(createdBody.raw_token));
 
-    const workspaceToken = await provisionerTokenFactory.create({workspaceId: crypto.randomUUID()});
+    const workspaceToken = await provisionerTokenFactory.create({
+      workspaceId: crypto.randomUUID(),
+      createdByUserId: USER_ID,
+    });
     const list = await app.inject({
       method: 'GET',
       url: '/admin/runners/provisioner-tokens?status=active',

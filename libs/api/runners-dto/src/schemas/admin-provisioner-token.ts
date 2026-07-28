@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {MAX_PROVISIONER_TOKEN_TTL_SECONDS} from './provisioner-token.js';
 
 const timestampSchema = z.string().datetime();
 const CONTROL_OR_FORMAT_CHARACTER_RE = /[\p{Cc}\p{Cf}]/u;
@@ -38,7 +39,7 @@ export type AdministratorProvisionerTokenDto = z.infer<typeof administratorProvi
 
 export const createAdministratorProvisionerTokenBodySchema = z.object({
   name: z.string().min(1).max(256).optional(),
-  ttl_seconds: z.number().int().positive().max(31_536_000).optional(),
+  ttl_seconds: z.number().int().positive().max(MAX_PROVISIONER_TOKEN_TTL_SECONDS).optional(),
   reason: reasonSchema,
 });
 
