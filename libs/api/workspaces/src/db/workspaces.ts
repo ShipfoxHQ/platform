@@ -1,5 +1,5 @@
 import type {StringIdCursor} from '@shipfox/node-drizzle';
-import {and, asc, count, eq, gt, ilike, isNull, or, type SQL, sql} from 'drizzle-orm';
+import {and, asc, count, eq, gt, ilike, inArray, isNull, or, type SQL, sql} from 'drizzle-orm';
 import type {Workspace, WorkspaceStatus} from '#core/entities/workspace.js';
 import {recordWorkspaceCreated} from '#metrics/instance.js';
 import {db} from './db.js';
@@ -96,22 +96,32 @@ export async function listAdminWorkspaces(
   if (cursor) conditions.push(cursor);
 
   const rows = await db()
-    .select({workspace: workspaces, memberCount: count(memberships.id)})
+    .select({workspace: workspaces})
     .from(workspaces)
-    .leftJoin(memberships, eq(memberships.workspaceId, workspaces.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .groupBy(workspaces.id)
     .orderBy(asc(workspaces.name), asc(workspaces.id))
     .limit(params.limit + 1);
 
   const hasMore = rows.length > params.limit;
   const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
   const last = pageRows.at(-1);
+  const workspaceIds = pageRows.map((row) => row.workspace.id);
+  const memberCountRows =
+    workspaceIds.length > 0
+      ? await db()
+          .select({workspaceId: memberships.workspaceId, memberCount: count(memberships.id)})
+          .from(memberships)
+          .where(inArray(memberships.workspaceId, workspaceIds))
+          .groupBy(memberships.workspaceId)
+      : [];
+  const memberCounts = new Map(
+    memberCountRows.map((row) => [row.workspaceId, Number(row.memberCount)]),
+  );
 
   return {
     workspaces: pageRows.map((row) => ({
       ...toWorkspace(row.workspace),
-      memberCount: Number(row.memberCount),
+      memberCount: memberCounts.get(row.workspace.id) ?? 0,
     })),
     nextCursor: hasMore && last ? {value: last.workspace.name, id: last.workspace.id} : null,
   };

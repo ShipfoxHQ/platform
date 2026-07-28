@@ -1,0 +1,1 @@
+CREATE INDEX "workspaces_name_id_idx" ON "workspaces_workspaces" USING btree ("name","id");
