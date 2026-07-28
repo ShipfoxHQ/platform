@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@shipfox/node-opentelemetry": "workspace:*",
+    "@shipfox/runner-agent": "workspace:*",
     "@shipfox/runner-orchestration": "workspace:*"
   },
   "devDependencies": {

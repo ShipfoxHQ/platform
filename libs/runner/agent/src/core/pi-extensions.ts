@@ -11,29 +11,33 @@ const availabilityByPackageName = new Map<string, boolean>();
 type PackageResolver = (specifier: string) => string;
 
 /**
- * Resolves Pi extension package directories without asking Pi to resolve package names from a
+ * Resolves a Pi extension package directory without asking Pi to resolve package names from a
  * job workspace. The resolver override is intentionally uncached so tests cannot affect the
  * process-wide package resolution cache.
  */
+export function piExtensionDirectory(params: {
+  packageName: string;
+  resolve?: PackageResolver | undefined;
+}): string {
+  const {packageName, resolve} = params;
+  if (resolve !== undefined) return resolvePiExtensionDirectory({packageName, resolve});
+
+  const cached = resolvedDirectories.get(packageName);
+  if (cached !== undefined) return cached;
+
+  const directory = resolvePiExtensionDirectory({packageName, resolve: require.resolve});
+  resolvedDirectories.set(packageName, directory);
+  return directory;
+}
+
+/** Resolves each requested Pi extension package directory, preserving the requested order. */
 export function piExtensionDirectories(params: {
   packageNames: readonly string[];
   resolve?: PackageResolver;
 }): string[] {
-  const injectedResolver = params.resolve;
-  if (injectedResolver !== undefined) {
-    return params.packageNames.map((packageName) =>
-      resolvePiExtensionDirectory(packageName, injectedResolver),
-    );
-  }
-
-  return params.packageNames.map((packageName) => {
-    const cached = resolvedDirectories.get(packageName);
-    if (cached !== undefined) return cached;
-
-    const directory = resolvePiExtensionDirectory(packageName, require.resolve);
-    resolvedDirectories.set(packageName, directory);
-    return directory;
-  });
+  return params.packageNames.map((packageName) =>
+    piExtensionDirectory({packageName, resolve: params.resolve}),
+  );
 }
 
 /**
@@ -47,7 +51,7 @@ export function isPiExtensionAvailable(params: {packageName: string}): boolean {
 
   let available: boolean;
   try {
-    piExtensionDirectories({packageNames: [params.packageName]});
+    piExtensionDirectory({packageName: params.packageName});
     available = true;
   } catch {
     available = false;
@@ -56,16 +60,16 @@ export function isPiExtensionAvailable(params: {packageName: string}): boolean {
   return available;
 }
 
-/** Resolves every Pi extension required by the runner image or throws with the package cause. */
-export function assertPiHarnessExtensionsAvailable(): void {
-  const directories = piExtensionDirectories({packageNames: PI_HARNESS_EXTENSION_PACKAGE_NAMES});
+/**
+ * Resolves every Pi extension required by the runner image and verifies each declared entry file
+ * exists, or throws with the package cause. The runner image build runs this against the deployed
+ * production closure, where a packaging regression is observable and the development tree is not.
+ */
+export function assertPiHarnessExtensionsAvailable(params: {resolve?: PackageResolver} = {}): void {
+  for (const packageName of PI_HARNESS_EXTENSION_PACKAGE_NAMES) {
+    const directory = piExtensionDirectory({packageName, resolve: params.resolve});
 
-  for (const [index, directory] of directories.entries()) {
-    const packageName = PI_HARNESS_EXTENSION_PACKAGE_NAMES[index];
-    if (packageName === undefined)
-      throw new Error(`Missing Pi extension package at index ${index}`);
-
-    assertPiExtensionEntriesAvailable(packageName, directory);
+    assertPiExtensionEntriesAvailable({packageName, directory});
   }
 }
 
@@ -93,7 +97,11 @@ export function assertPiExtensionsLoaded(params: {
   );
 }
 
-function resolvePiExtensionDirectory(packageName: string, resolve: PackageResolver): string {
+function resolvePiExtensionDirectory(params: {
+  packageName: string;
+  resolve: PackageResolver;
+}): string {
+  const {packageName, resolve} = params;
   try {
     return dirname(resolve(`${packageName}/package.json`));
   } catch (error) {
@@ -102,7 +110,8 @@ function resolvePiExtensionDirectory(packageName: string, resolve: PackageResolv
   }
 }
 
-function assertPiExtensionEntriesAvailable(packageName: string, directory: string): void {
+function assertPiExtensionEntriesAvailable(params: {packageName: string; directory: string}): void {
+  const {packageName, directory} = params;
   const packageJsonPath = resolvePath(directory, 'package.json');
   let packageJson: {pi?: {extensions?: string[]}};
 

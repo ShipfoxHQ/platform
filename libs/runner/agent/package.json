@@ -25,6 +25,16 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
+    },
+    "./pi-extensions": {
+      "workspace-source": {
+        "types": "./src/core/pi-extensions.ts",
+        "default": "./src/core/pi-extensions.ts"
+      },
+      "default": {
+        "types": "./dist/core/pi-extensions.d.ts",
+        "default": "./dist/core/pi-extensions.js"
+      }
     }
   },
   "scripts": {

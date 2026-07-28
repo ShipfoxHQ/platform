@@ -114,7 +114,7 @@ COPY --from=build /prod ./
 
 # Verify the production dependency closure contains every Pi extension entry before the image
 # can be published. This runs against the deployed flat layout, not the pnpm development tree.
-RUN node --input-type=module -e "const {createRequire} = await import('node:module'); const {realpathSync} = await import('node:fs'); const {pathToFileURL} = await import('node:url'); const require = createRequire(realpathSync('/app/node_modules/@shipfox/runner-orchestration/dist/index.js')); const {assertPiHarnessExtensionsAvailable} = await import(new URL('./core/pi-extensions.js', pathToFileURL(require.resolve('@shipfox/runner-agent')))); assertPiHarnessExtensionsAvailable();"
+RUN node ./dist/verify-installation.js
 
 USER shipfox
 
