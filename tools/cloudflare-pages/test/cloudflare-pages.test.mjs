@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
+import {fileURLToPath} from 'node:url';
+import {promisify} from 'node:util';
 
 import {runCommand} from '../dist/deploy.js';
 import {
@@ -28,6 +31,15 @@ const missingCiEnvironmentPattern = /missing CI environment variable PREVIEW_SEN
 const missingPullRequestPattern = /pull request number is required/;
 const productionBranchPattern = /production branch is production, expected main/;
 const invalidEndpointConfigurationPattern = /endpoints must define paths/;
+const validationOkPattern = /validation_ok=true/;
+const unsafeAppIdPattern = /not safe/;
+const workingDirectoryArchivePattern = /cannot contain the working directory/;
+const emptyArchiveSelectionPattern = /No applications were selected/;
+const partialDeploymentPattern = /other: Cloudflare Pages Direct Upload failed/;
+const archivedWorkerPattern = /contains executable Pages worker code/;
+const invalidPullRequestLifecyclePattern = /not an open pull request targeting main/;
+const cliPath = fileURLToPath(new URL('../bin/cloudflare-pages.js', import.meta.url));
+const execFileAsync = promisify(execFile);
 const exampleApps = [
   {
     id: 'example',
@@ -44,6 +56,13 @@ const exampleApps = [
     verify: {metadataPath: '/preview-metadata.json', endpoints: ['/index.json']},
   },
 ];
+
+function runCli(args, cwd) {
+  return execFileAsync(process.execPath, [cliPath, ...args], {
+    cwd,
+    env: {...process.env},
+  });
+}
 
 test('plans a Pages deployment from affected targets and forced paths', () => {
   const plan = createCloudflarePagesPlan({
@@ -87,6 +106,20 @@ test('selects every configured app for a main push', () => {
   assert.deepEqual(plan.selectedApps, ['example', 'other']);
 });
 
+test('selects every configured app for an explicit deployment', () => {
+  const plan = createCloudflarePagesPlan({
+    apps: exampleApps,
+    forcePaths: [],
+    eventName: 'deployment',
+    affectedPackages: [],
+    changedFiles: [],
+  });
+
+  assert.equal(plan.shouldDeploy, true);
+  assert.equal(plan.reason, 'explicit deployment');
+  assert.deepEqual(plan.selectedApps, ['example', 'other']);
+});
+
 test('selects a composed app when one of its affected targets changes', () => {
   const plan = createCloudflarePagesPlan({
     apps: [{...exampleApps[0], affectedTargets: ['@shipfox/example-child']}],
@@ -126,6 +159,321 @@ test('rejects invalid endpoint verification configuration', async () => {
         invalidEndpointConfigurationPattern,
       );
     }
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('rejects invalid artifact and validation configuration', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shipfox-cloudflare-pages-config-'));
+  try {
+    for (const invalidConfig of [
+      {artifact: []},
+      {artifact: {metadataPath: ''}},
+      {validation: []},
+      {validation: {command: ''}},
+      {validation: {command: 'pnpm', args: ['test', 42]}},
+      {validation: {command: 'pnpm', setup: {command: ''}}},
+    ]) {
+      await writeFile(
+        join(directory, 'config.json'),
+        JSON.stringify({
+          ...invalidConfig,
+          apps: [
+            {
+              id: 'example',
+              target: '@shipfox/example',
+              directory: 'dist/example',
+              project: 'example',
+            },
+          ],
+        }),
+      );
+      await assert.rejects(readCloudflarePagesConfig('config.json', directory));
+    }
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('keeps application outputs relative to the caller working directory', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shipfox-cloudflare-pages-config-'));
+  try {
+    await mkdir(join(directory, 'config'));
+    await writeFile(
+      join(directory, 'config/config.json'),
+      JSON.stringify({
+        artifact: {metadataPath: 'dist/example/metadata.json'},
+        validation: {
+          setup: {command: 'pnpm', args: ['prepare']},
+          command: 'pnpm',
+          args: ['test'],
+        },
+        apps: [
+          {
+            id: 'example',
+            target: '@shipfox/example',
+            directory: 'dist/example',
+            project: 'example',
+          },
+        ],
+      }),
+    );
+
+    const config = await readCloudflarePagesConfig('config/config.json', directory);
+    assert.equal(config.apps[0].directory, 'dist/example');
+    assert.deepEqual(config.artifact, {
+      metadataPath: 'dist/example/metadata.json',
+    });
+    assert.deepEqual(config.validation, {
+      setup: {command: 'pnpm', args: ['prepare']},
+      command: 'pnpm',
+      args: ['test'],
+    });
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('runs configured validation commands and records failures', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shipfox-cloudflare-pages-cli-'));
+  try {
+    const marker = join(directory, 'setup-complete');
+    const output = join(directory, 'validation.json');
+    const githubOutput = join(directory, 'github-output');
+    await writeFile(
+      join(directory, 'config.json'),
+      JSON.stringify({
+        validation: {
+          setup: {
+            command: process.execPath,
+            args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ready')`],
+          },
+          command: process.execPath,
+          args: [
+            '-e',
+            `if (require('node:fs').readFileSync(${JSON.stringify(marker)}, 'utf8') !== 'ready') process.exit(2)`,
+          ],
+        },
+        apps: [
+          {
+            id: 'example',
+            target: '@shipfox/example',
+            directory: 'dist/example',
+            project: 'example',
+          },
+        ],
+      }),
+    );
+
+    await runCli(
+      ['validate', '--config', 'config.json', '--output', output, '--github-output', githubOutput],
+      directory,
+    );
+    assert.equal(JSON.parse(await readFile(output, 'utf8')).ok, true);
+    assert.match(await readFile(githubOutput, 'utf8'), validationOkPattern);
+
+    await writeFile(
+      join(directory, 'config.json'),
+      JSON.stringify({
+        validation: {command: process.execPath, args: ['-e', 'process.exit(3)']},
+        apps: [
+          {
+            id: 'example',
+            target: '@shipfox/example',
+            directory: 'dist/example',
+            project: 'example',
+          },
+        ],
+      }),
+    );
+    await assert.rejects(
+      runCli(['validate', '--config', 'config.json', '--output', output], directory),
+    );
+    assert.equal(JSON.parse(await readFile(output, 'utf8')).ok, false);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('skips validation when no command is configured', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shipfox-cloudflare-pages-cli-'));
+  try {
+    const output = join(directory, 'validation.json');
+    await writeFile(
+      join(directory, 'config.json'),
+      JSON.stringify({
+        apps: [
+          {
+            id: 'example',
+            target: '@shipfox/example',
+            directory: 'dist/example',
+            project: 'example',
+          },
+        ],
+      }),
+    );
+
+    await runCli(['validate', '--config', 'config.json', '--output', output], directory);
+
+    assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), {
+      ok: true,
+      skipped: true,
+      reason: 'no validation command configured',
+    });
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('archives selected outputs while replacing stale artifact contents', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shipfox-cloudflare-pages-cli-'));
+  try {
+    await mkdir(join(directory, 'dist/example'), {recursive: true});
+    await writeFile(join(directory, 'dist/example/index.html'), 'current');
+    await mkdir(join(directory, 'artifact'), {recursive: true});
+    await writeFile(join(directory, 'artifact/stale.txt'), 'stale');
+    await writeFile(
+      join(directory, 'config.json'),
+      JSON.stringify({
+        apps: [
+          {
+            id: 'example',
+            target: '@shipfox/example',
+            directory: 'dist/example',
+            project: 'example',
+          },
+        ],
+      }),
+    );
+
+    await runCli(
+      [
+        'archive-all',
+        '--config',
+        'config.json',
+        '--artifact-directory',
+        'artifact',
+        '--output',
+        'artifact/.shipfox-pages-plan.json',
+      ],
+      directory,
+    );
+
+    assert.equal(await readFile(join(directory, 'artifact/example/index.html'), 'utf8'), 'current');
+    await assert.rejects(readFile(join(directory, 'artifact/stale.txt'), 'utf8'));
+    const manifest = JSON.parse(
+      await readFile(join(directory, 'artifact/.shipfox-pages-plan.json'), 'utf8'),
+    );
+    assert.equal(manifest.shouldDeploy, true);
+    assert.equal(manifest.reason, 'verified artifact');
+    assert.deepEqual(manifest.selectedApps, ['example']);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('rejects unsafe archive roots, application ids, and empty selections', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shipfox-cloudflare-pages-cli-'));
+  try {
+    await mkdir(join(directory, 'dist/example'), {recursive: true});
+    await writeFile(join(directory, 'dist/example/index.html'), 'current');
+    await writeFile(
+      join(directory, 'config.json'),
+      JSON.stringify({
+        apps: [
+          {
+            id: '../escape',
+            target: '@shipfox/example',
+            directory: 'dist/example',
+            project: 'example',
+          },
+        ],
+      }),
+    );
+    await assert.rejects(
+      runCli(
+        ['archive-all', '--config', 'config.json', '--artifact-directory', 'artifact'],
+        directory,
+      ),
+      unsafeAppIdPattern,
+    );
+
+    await writeFile(
+      join(directory, 'config.json'),
+      JSON.stringify({
+        apps: [
+          {
+            id: 'example',
+            target: '@shipfox/example',
+            directory: 'dist/example',
+            project: 'example',
+          },
+        ],
+      }),
+    );
+    await assert.rejects(
+      runCli(['archive-all', '--config', 'config.json', '--artifact-directory', '.'], directory),
+      workingDirectoryArchivePattern,
+    );
+    await writeFile(join(directory, 'plan.json'), JSON.stringify({selectedApps: ['missing']}));
+    await assert.rejects(
+      runCli(
+        [
+          'archive-all',
+          '--config',
+          'config.json',
+          '--plan-file',
+          'plan.json',
+          '--artifact-directory',
+          'artifact',
+        ],
+        directory,
+      ),
+      emptyArchiveSelectionPattern,
+    );
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('rejects executable worker code in a promoted preview artifact', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shipfox-cloudflare-pages-cli-'));
+  try {
+    await mkdir(join(directory, 'artifact/example'), {recursive: true});
+    await writeFile(join(directory, 'artifact/example/_worker.js'), 'export default {};');
+    await writeFile(
+      join(directory, 'config.json'),
+      JSON.stringify({
+        apps: [
+          {
+            id: 'example',
+            target: '@shipfox/example',
+            directory: 'dist/example',
+            project: 'example',
+          },
+        ],
+      }),
+    );
+    await writeFile(join(directory, 'plan.json'), JSON.stringify({selectedApps: ['example']}));
+
+    await assert.rejects(
+      runCli(
+        [
+          'deploy-all',
+          '--config',
+          'config.json',
+          '--plan-file',
+          'plan.json',
+          '--artifact-directory',
+          'artifact',
+          '--commit',
+          'abc123',
+        ],
+        directory,
+      ),
+      archivedWorkerPattern,
+    );
   } finally {
     await rm(directory, {recursive: true, force: true});
   }
@@ -230,6 +578,26 @@ test('uploads selected apps to their configured projects', async () => {
     '--branch=pr-42',
     '--commit-hash=abc123',
   ]);
+});
+
+test('reports successful uploads when another selected app fails', async () => {
+  const result = await deployCloudflarePagesApps({
+    apps: exampleApps,
+    branch: 'pr-42',
+    commitSha: 'abc123',
+    attempts: 1,
+    retryDelayMs: 0,
+    runner: (_command, args) => {
+      if (args.includes('--project-name=other')) throw new Error('provider rejected other');
+      return {output: 'https://example.example.pages.dev'};
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.apps[0].ok, true);
+  assert.equal(result.apps[0].url, 'https://example.example.pages.dev');
+  assert.equal(result.apps[1].ok, false);
+  assert.match(result.errors[0], partialDeploymentPattern);
 });
 
 test('rejects deployments when no configured app matches the plan', async () => {
@@ -595,6 +963,27 @@ test('names app GitHub deployments with a readable preview label', async () => {
   assert.equal(requests[0].payload.environment, 'Preview – storybook – PR 42');
 });
 
+test('registers successful applications from a partial deployment manifest', async () => {
+  const requests = [];
+  const result = await createGitHubDeployments({
+    deployments: [
+      {appId: 'storybook', ok: true, url: 'https://storybook.pages.dev'},
+      {appId: 'docs', ok: false},
+    ],
+    repository: 'ShipfoxHQ/example',
+    ref: 'abc123',
+    runner: (_command, args, options) => {
+      requests.push({args, payload: JSON.parse(options.input)});
+      return {output: JSON.stringify({id: 123})};
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.apps.length, 1);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].payload.environment, 'Preview – storybook');
+});
+
 test('uses the GitHub repository from the CI environment for deployment registration', async () => {
   const previousRepository = process.env.GITHUB_REPOSITORY;
   process.env.GITHUB_REPOSITORY = 'ShipfoxHQ/example';
@@ -706,10 +1095,29 @@ test('rejects a deployment when the pull request head has moved', async () => {
       pullRequest: '42',
       commit: 'abc123',
       runner: (_command, args) => {
-        assert.deepEqual(args, ['api', 'repos/ShipfoxHQ/example/pulls/42', '--jq', '.head.sha']);
-        return {output: 'def456\n'};
+        assert.deepEqual(args, [
+          'api',
+          'repos/ShipfoxHQ/example/pulls/42',
+          '--jq',
+          '{headSha: .head.sha, state: .state, baseRef: .base.ref}',
+        ]);
+        return {output: '{"headSha":"def456","state":"open","baseRef":"main"}\n'};
       },
     }),
     headMovedPattern,
+  );
+});
+
+test('rejects a closed or retargeted pull request before deployment', async () => {
+  await assert.rejects(
+    assertCurrentCommit({
+      repository: 'ShipfoxHQ/example',
+      pullRequest: '42',
+      commit: 'abc123',
+      runner: () => ({
+        output: '{"headSha":"abc123","state":"closed","baseRef":"main"}\n',
+      }),
+    }),
+    invalidPullRequestLifecyclePattern,
   );
 });

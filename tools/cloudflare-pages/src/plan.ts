@@ -34,11 +34,55 @@ export type CloudflarePagesEnvironment = {
   branch?: string | null;
 };
 
+export type CloudflarePagesCommandConfig = {
+  command: string;
+  args?: string[];
+};
+
+export type CloudflarePagesValidationConfig = CloudflarePagesCommandConfig & {
+  setup?: CloudflarePagesCommandConfig;
+};
+
+export type CloudflarePagesArtifactConfig = {
+  metadataPath?: string;
+};
+
 export type CloudflarePagesConfig = {
   apps: CloudflarePagesApp[];
   environments: Record<string, CloudflarePagesEnvironment>;
   forcePaths: string[];
+  artifact?: CloudflarePagesArtifactConfig;
+  validation?: CloudflarePagesValidationConfig;
 };
+
+function isCommandConfig(value: unknown): value is CloudflarePagesCommandConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+
+  const command = value as Record<string, unknown>;
+  return (
+    typeof command.command === 'string' &&
+    command.command.length > 0 &&
+    (command.args === undefined ||
+      (Array.isArray(command.args) &&
+        command.args.every((argument: unknown) => typeof argument === 'string')))
+  );
+}
+
+function isValidationConfig(value: unknown): value is CloudflarePagesValidationConfig {
+  if (!isCommandConfig(value)) return false;
+
+  const validation = value as CloudflarePagesCommandConfig & {setup?: unknown};
+  return validation.setup === undefined || isCommandConfig(validation.setup);
+}
+
+function isArtifactConfig(value: unknown): value is CloudflarePagesArtifactConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+
+  const metadataPath = (value as Record<string, unknown>).metadataPath;
+  return (
+    metadataPath === undefined || (typeof metadataPath === 'string' && metadataPath.length > 0)
+  );
+}
 
 export const defaultCloudflarePagesEnvironments = {
   preview: {branch: 'pr-{pullRequest}'},
@@ -279,7 +323,28 @@ export async function readCloudflarePagesConfig(
     throw new Error(`${configPath} must contain a string forcePaths array`);
   }
 
-  return {apps: config.apps, environments, forcePaths} as CloudflarePagesConfig;
+  const artifact = config.artifact;
+  if (artifact !== undefined && !isArtifactConfig(artifact)) {
+    throw new Error(`${configPath} artifact must define a valid metadataPath`);
+  }
+
+  const validation = config.validation;
+  if (validation !== undefined && !isValidationConfig(validation)) {
+    throw new Error(`${configPath} validation must define commands and string args`);
+  }
+
+  return {
+    apps: config.apps as CloudflarePagesApp[],
+    environments: environments as Record<string, CloudflarePagesEnvironment>,
+    forcePaths: forcePaths as string[],
+    ...(artifact === undefined
+      ? {}
+      : {
+          artifact:
+            artifact.metadataPath === undefined ? {} : {metadataPath: artifact.metadataPath},
+        }),
+    ...(validation === undefined ? {} : {validation}),
+  };
 }
 
 /**
@@ -322,18 +387,26 @@ export function createCloudflarePagesPlan({
   );
   const forcedByFile = hasForcedChange(changedFiles, forcePaths);
   const isMainPush = eventName === 'push';
-  const shouldDeploy = isMainPush || forcedByFile || affectedTargets.length > 0;
-  const selectedApps = shouldDeploy ? (isMainPush || forcedByFile ? apps : affectedApps) : [];
+  const isExplicitDeployment = eventName === 'deployment';
+  const shouldDeploy =
+    isMainPush || isExplicitDeployment || forcedByFile || affectedTargets.length > 0;
+  const selectedApps = shouldDeploy
+    ? isMainPush || isExplicitDeployment || forcedByFile
+      ? apps
+      : affectedApps
+    : [];
 
   return {
     shouldDeploy,
     reason: isMainPush
       ? 'main push'
-      : forcedByFile
-        ? 'Pages workflow or application configuration changed'
-        : affectedTargets.length > 0
-          ? 'Turbo affected Pages target detected'
-          : 'no Pages target is affected',
+      : isExplicitDeployment
+        ? 'explicit deployment'
+        : forcedByFile
+          ? 'Pages workflow or application configuration changed'
+          : affectedTargets.length > 0
+            ? 'Turbo affected Pages target detected'
+            : 'no Pages target is affected',
     affectedPackages,
     affectedTargets,
     affectedApps: affectedApps.map((app) => app.id),

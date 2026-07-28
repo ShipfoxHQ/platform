@@ -8,12 +8,15 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "imports": {
+    "#*": "./src/*"
+  },
   "scripts": {
     "build": "pnpm run build:children && pnpm run storybook:build && pnpm run artifact:assemble",
     "artifact:assemble": "tsx scripts/assemble.ts",
     "artifact:verify": "tsx scripts/verify.ts",
     "build:children": "tsx scripts/build-children.ts",
-    "pages:plan": "shipfox-cloudflare-pages plan --config cloudflare-pages.config.json",
+    "pages:plan": "shipfox-cloudflare-pages plan --config ../../cloudflare-pages.config.json",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
     "storybook": "pnpm run build:children && storybook dev -p 6015",

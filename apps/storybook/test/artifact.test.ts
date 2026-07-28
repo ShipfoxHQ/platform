@@ -2,9 +2,14 @@ import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, describe, expect, it} from '@shipfox/vitest/vitest';
-import {defaultMaxFileBytes, validateStorybookDirectory} from '../scripts/artifact.js';
+import {
+  assertPreviewMetadata,
+  defaultMaxFileBytes,
+  validateStorybookDirectory,
+} from '../scripts/artifact.js';
 
 const temporaryDirectories: string[] = [];
+const invalidPullRequestPattern = /invalid pullRequest|invalid pull request number/;
 
 async function createFixture(
   index: Record<string, unknown> = {story: {type: 'story'}},
@@ -67,5 +72,52 @@ describe('Storybook artifact validation', () => {
         maxFileBytes: defaultMaxFileBytes,
       }),
     ).rejects.toThrow('missing local asset');
+  });
+});
+
+describe('Storybook preview metadata', () => {
+  it.each([
+    '42',
+    {number: 0, headSha: 'current-commit'},
+    {number: 1.5, headSha: 'current-commit'},
+  ])('rejects malformed pull request metadata %#', (pullRequest) => {
+    expect(() =>
+      assertPreviewMetadata({
+        version: 1,
+        commitSha: 'current-commit',
+        buildTime: '2026-07-27T00:00:00.000Z',
+        manifestVersion: 1,
+        pullRequest,
+        metrics: {
+          shell: {fileCount: 0, bytes: 0, oversizedFiles: []},
+          children: [],
+          total: {fileCount: 0, bytes: 0, oversizedFiles: []},
+        },
+      }),
+    ).toThrow(invalidPullRequestPattern);
+  });
+
+  it('rejects pull request metadata that points at another commit', () => {
+    expect(() =>
+      assertPreviewMetadata({
+        version: 1,
+        commitSha: 'current-commit',
+        buildTime: '2026-07-27T00:00:00.000Z',
+        manifestVersion: 1,
+        pullRequest: {
+          number: 42,
+          title: null,
+          url: null,
+          headSha: 'older-commit',
+          headRef: 'feature/preview',
+          baseRef: 'main',
+        },
+        metrics: {
+          shell: {fileCount: 0, bytes: 0, oversizedFiles: []},
+          children: [],
+          total: {fileCount: 0, bytes: 0, oversizedFiles: []},
+        },
+      }),
+    ).toThrow('headSha older-commit does not match commitSha current-commit');
   });
 });

@@ -10,12 +10,16 @@ permissions:
   contents: read
   pull-requests: read
 
-# Cancel superseded PR/branch runs before they finish, so rapid pushes stop paying
-# for CI work they already invalidated. main is never cancelled: every merged commit
-# must run to completion to publish or reuse its per-commit release artifacts.
+# Give every main push one FIFO slot before checks start. Pull requests use
+# independent groups, while the preview workflow owns its own stale-run
+# cancellation.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: >-
+    ${{ github.ref == 'refs/heads/main' &&
+    format('{0}-main', github.workflow) ||
+    format('{0}-pr-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: false
+  queue: max
 
 env:
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -938,3 +942,25 @@ jobs:
           test -n "$published_reference"
           test "$published_reference" != "null"
           echo "Published $published_reference" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-cloudflare-pages-production:
+    name: Deploy production
+    needs: [release-mode, static-verification, external-package-contracts, tests, e2e]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      needs.release-mode.result == 'success' &&
+      needs.static-verification.result == 'success' &&
+      (needs.release-mode.outputs.mode != 'normal' ||
+      (needs.external-package-contracts.result == 'success' &&
+      needs.tests.result == 'success' &&
+      needs.e2e.result == 'success'))
+    permissions:
+      actions: read
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+      source_sha: ${{ github.sha }}
+    secrets: inherit

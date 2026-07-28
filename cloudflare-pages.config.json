@@ -4,6 +4,13 @@
     "staging": { "branch": "staging" },
     "production": { "branch": "main" }
   },
+  "artifact": {
+    "metadataPath": "apps/storybook/storybook-output/preview-metadata.json"
+  },
+  "validation": {
+    "command": "pnpm",
+    "args": ["--filter=@shipfox/storybook", "test:e2e"]
+  },
   "apps": [
     {
       "id": "storybook",
@@ -20,7 +27,7 @@
         "@shipfox/client-triggers",
         "@shipfox/client-workflows"
       ],
-      "directory": "storybook-output",
+      "directory": "apps/storybook/storybook-output",
       "project": "storybook",
       "verify": {
         "metadataPath": "/preview-metadata.json",
@@ -65,6 +72,9 @@
   ],
   "forcePaths": [
     ".github/workflows/preview.yml",
+    ".github/workflows/deploy.yml",
+    ".github/workflows/ci.yml",
+    "cloudflare-pages.config.json",
     "apps/storybook",
     "mise.toml",
     "pnpm-lock.yaml",

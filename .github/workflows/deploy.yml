@@ -1,0 +1,451 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Pages environment to publish
+        required: true
+        type: string
+      source_sha:
+        description: Exact trusted revision to build or identify
+        required: true
+        type: string
+      pull_request:
+        description: Pull request number for a preview deployment
+        required: false
+        default: ""
+        type: string
+      artifact_name:
+        description: Previously verified preview artifact
+        required: false
+        default: ""
+        type: string
+      artifact_run_id:
+        description: Workflow run that owns the preview artifact
+        required: false
+        default: ""
+        type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      TURBO_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Pages environment to publish
+        required: true
+        default: staging
+        type: choice
+        options:
+          - preview
+          - staging
+      pull_request:
+        description: Open pull request number required for a preview
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  deployments: write
+  pull-requests: read
+
+concurrency:
+  group: >-
+    cloudflare-pages-deploy-${{
+      inputs.environment == 'preview' &&
+      format('preview-{0}', inputs.pull_request || github.run_id) ||
+      inputs.environment
+    }}
+  cancel-in-progress: false
+  queue: max
+
+env:
+  TURBO_TEAM: shipfox
+  TURBO_CACHE: local:rw,remote:rw
+  CLOUDFLARE_PAGES_ENVIRONMENT: ${{ inputs.environment }}
+  PAGES_CONFIG: cloudflare-pages.config.json
+
+jobs:
+  deploy-cloudflare-pages:
+    name: Cloudflare Pages ${{ inputs.environment }}
+    if: >-
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') &&
+      (inputs.environment == 'preview' ||
+      inputs.environment == 'staging' ||
+      inputs.environment == 'production') &&
+      (github.event_name != 'workflow_dispatch' ||
+      inputs.environment != 'production') &&
+      (inputs.environment != 'preview' || inputs.pull_request != '')
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 60
+    steps:
+      - name: Check out authorized deployment tooling
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.artifact_name && github.event.pull_request.head.repo.full_name == github.repository && inputs.source_sha || inputs.source_sha || 'main' }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve authorized deployment source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          INPUT_ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          INPUT_PULL_REQUEST: ${{ inputs.pull_request }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          source_sha="$INPUT_SOURCE_SHA"
+          pull_request="$INPUT_PULL_REQUEST"
+          artifact_name="$INPUT_ARTIFACT_NAME"
+          artifact_run_id="$INPUT_ARTIFACT_RUN_ID"
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$CLOUDFLARE_PAGES_ENVIRONMENT" == "preview" ]]; then
+              pull_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pull_request")"
+              state="$(jq -r '.state' <<< "$pull_json")"
+              base_ref="$(jq -r '.base.ref' <<< "$pull_json")"
+              source_sha="$(jq -r '.head.sha' <<< "$pull_json")"
+              if [[ "$state" != "open" || "$base_ref" != "main" || -z "$source_sha" ]]; then
+                echo "Preview promotion requires an open pull request targeting main." >&2
+                exit 1
+              fi
+
+              artifact_name="pages-preview-$pull_request-$source_sha"
+              artifacts_json="$(
+                gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts" \
+                  -f name="$artifact_name" \
+                  -f per_page=100
+              )"
+              artifact_run_id=""
+              while read -r candidate_run_id; do
+                run_json="$(
+                  gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run_id"
+                )"
+                if [[ "$(jq -r '.conclusion' <<< "$run_json")" == "success" &&
+                  "$(jq -r '.event' <<< "$run_json")" == "pull_request" &&
+                  "$(jq -r '.path' <<< "$run_json")" == ".github/workflows/preview.yml" &&
+                  "$(jq -r '.head_sha' <<< "$run_json")" == "$source_sha" ]]; then
+                  artifact_run_id="$candidate_run_id"
+                  break
+                fi
+              done < <(
+                jq -r \
+                  '.artifacts[] | select(.expired == false) | .workflow_run.id' \
+                  <<< "$artifacts_json"
+              )
+              if [[ -z "$artifact_run_id" ]]; then
+                echo "No unexpired successful artifact named $artifact_name was found." >&2
+                exit 1
+              fi
+            else
+              git fetch --no-tags origin main
+              source_sha="$(git rev-parse origin/main)"
+              if [[ "$(git rev-parse HEAD)" != "$source_sha" ]]; then
+                echo "Manual stable deployments must execute the current main revision." >&2
+                exit 1
+              fi
+            fi
+          else
+            if [[ "$CLOUDFLARE_PAGES_ENVIRONMENT" == "preview" &&
+              -z "$artifact_name" && -z "$artifact_run_id" ]]; then
+              echo "Reusable preview deployments require a verified preview artifact." >&2
+              exit 1
+            fi
+            if [[ -n "$artifact_name" || -n "$artifact_run_id" ]]; then
+              if [[ -z "$source_sha" || -z "$pull_request" ]]; then
+                echo "Artifact promotion requires a source SHA and pull request number." >&2
+                exit 1
+              fi
+            elif [[ -z "$source_sha" || "$(git rev-parse HEAD)" != "$source_sha" ]]; then
+              echo "Reusable deployments must check out their exact source SHA." >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "$CLOUDFLARE_PAGES_ENVIRONMENT" != "preview" ]]; then
+            git fetch --no-tags origin main
+            if ! git merge-base --is-ancestor "$source_sha" origin/main; then
+              echo "Stable deployments must use a revision merged into main." >&2
+              exit 1
+            fi
+          fi
+
+          if [[ -n "$artifact_name" || -n "$artifact_run_id" ]]; then
+            if [[ "$CLOUDFLARE_PAGES_ENVIRONMENT" != "preview" || -z "$pull_request" ]]; then
+              echo "Verified artifact promotion is only supported for preview pull requests." >&2
+              exit 1
+            fi
+            if [[ -z "$artifact_name" || -z "$artifact_run_id" ]]; then
+              echo "Artifact name and workflow run ID must be supplied together." >&2
+              exit 1
+            fi
+            expected_artifact_name="pages-preview-$pull_request-$source_sha"
+            if [[ "$artifact_name" != "$expected_artifact_name" ]]; then
+              echo "Artifact name does not match the requested pull request and source SHA." >&2
+              exit 1
+            fi
+            pull_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pull_request")"
+            if [[ "$(jq -r '.state' <<< "$pull_json")" != "open" ||
+              "$(jq -r '.base.ref' <<< "$pull_json")" != "main" ||
+              "$(jq -r '.head.sha' <<< "$pull_json")" != "$source_sha" ]]; then
+              echo "Artifact promotion requires an open pull request targeting main at the requested source SHA." >&2
+              exit 1
+            fi
+            run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run_id")"
+            if [[ "$(jq -r '.event' <<< "$run_json")" != "pull_request" ||
+              "$(jq -r '.path' <<< "$run_json")" != ".github/workflows/preview.yml" ||
+              "$(jq -r '.head_sha' <<< "$run_json")" != "$source_sha" ]]; then
+              echo "Artifact promotion requires a preview workflow run for the requested source SHA." >&2
+              exit 1
+            fi
+            if [[ "$artifact_run_id" == "$GITHUB_RUN_ID" ]]; then
+              run_jobs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run_id/jobs?per_page=100")"
+              if ! jq -e \
+                'any(.jobs[]; .name == "Build verified preview artifact" and .status == "completed" and .conclusion == "success")' \
+                <<< "$run_jobs_json" >/dev/null; then
+                echo "The current preview workflow did not successfully produce the verified artifact." >&2
+                exit 1
+              fi
+            elif [[ "$(jq -r '.conclusion' <<< "$run_json")" != "success" ]]; then
+              echo "Artifact promotion requires a successful preview workflow run for the requested source SHA." >&2
+              exit 1
+            fi
+            artifacts_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run_id/artifacts?per_page=100")"
+            if ! jq -e --arg artifact_name "$artifact_name" \
+              'any(.artifacts[]; .name == $artifact_name and .expired == false)' \
+              <<< "$artifacts_json" >/dev/null; then
+              echo "The requested verified preview artifact is missing or expired." >&2
+              exit 1
+            fi
+            echo "build_from_source=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_from_source=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "pull_request=$pull_request" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "artifact_run_id=$artifact_run_id" >> "$GITHUB_OUTPUT"
+          echo "CLOUDFLARE_PAGES_COMMIT_SHA=$source_sha" >> "$GITHUB_ENV"
+          echo "CLOUDFLARE_PAGES_PR_NUMBER=$pull_request" >> "$GITHUB_ENV"
+
+      - name: Set up mise
+        id: setup-mise
+        uses: ./.github/actions/setup-mise
+        with:
+          tools: gh node npm:pnpm npm:turbo npm:wrangler
+
+      - name: Set up pnpm
+        id: setup-pnpm
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Build deployment tooling
+        id: build-tooling
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN || '' }}
+        run: pnpm --filter=@shipfox/cloudflare-pages... build
+
+      - name: Record workflow queue time
+        id: queue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/cloudflare-pages/bin/cloudflare-pages.js github queue --github-output "$GITHUB_OUTPUT"
+
+      - name: Download verified preview artifact
+        if: steps.source.outputs.build_from_source == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_directory="$RUNNER_TEMP/cloudflare-pages-artifact"
+          gh run download "${{ steps.source.outputs.artifact_run_id }}" \
+            --name "${{ steps.source.outputs.artifact_name }}" \
+            --dir "$artifact_directory"
+          test -s "$artifact_directory/.shipfox-pages-plan.json"
+
+      - name: Plan deployment
+        id: plan
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN || '' }}
+        run: |
+          set -euo pipefail
+          plan_file="$RUNNER_TEMP/deploy-plan.json"
+          if [[ "${{ steps.source.outputs.build_from_source }}" == "false" ]]; then
+            cp "$RUNNER_TEMP/cloudflare-pages-artifact/.shipfox-pages-plan.json" "$plan_file"
+          else
+            node tools/cloudflare-pages/bin/cloudflare-pages.js plan \
+              --config "$PAGES_CONFIG" \
+              --event deployment \
+              --output "$plan_file" \
+              --github-output "$GITHUB_OUTPUT"
+          fi
+          echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build selected applications
+        id: build
+        if: steps.source.outputs.build_from_source == 'true'
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN || '' }}
+        run: |
+          set -euo pipefail
+          build_started="$(date +%s)"
+          echo "build_started=$build_started" >> "$GITHUB_OUTPUT"
+          node tools/cloudflare-pages/bin/cloudflare-pages.js build-all \
+            --config "$PAGES_CONFIG" \
+            --plan-file "$RUNNER_TEMP/deploy-plan.json" \
+            --environment "$CLOUDFLARE_PAGES_ENVIRONMENT" \
+            --commit "$CLOUDFLARE_PAGES_COMMIT_SHA" \
+            --output "$RUNNER_TEMP/deploy-build.json" \
+            --github-output "$GITHUB_OUTPUT" 2>&1 | tee "$RUNNER_TEMP/deploy-build.log"
+          build_finished="$(date +%s)"
+          echo "build_seconds=$((build_finished - build_started))" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Playwright
+        if: steps.source.outputs.build_from_source == 'true'
+        uses: ./.github/actions/setup-playwright
+
+      - name: Run configured application validation
+        id: validation
+        if: steps.source.outputs.build_from_source == 'true'
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN || '' }}
+        run: |
+          set -euo pipefail
+          node tools/cloudflare-pages/bin/cloudflare-pages.js validate \
+            --config "$PAGES_CONFIG" \
+            --output "$RUNNER_TEMP/deploy-validation.json" \
+            --github-output "$GITHUB_OUTPUT" 2>&1 | tee "$RUNNER_TEMP/deploy-validation.log"
+
+      - name: Confirm preview commit is still current
+        id: confirm-current
+        if: inputs.environment == 'preview'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node tools/cloudflare-pages/bin/cloudflare-pages.js github assert-current
+          --pull-request "$CLOUDFLARE_PAGES_PR_NUMBER"
+          --commit "$CLOUDFLARE_PAGES_COMMIT_SHA"
+
+      - name: Deploy verified applications
+        id: deploy
+        if: inputs.environment != 'preview' || steps.confirm-current.outcome == 'success'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          artifact_args=()
+          if [[ "${{ steps.source.outputs.build_from_source }}" == "false" ]]; then
+            artifact_args=(
+              --artifact-directory
+              "$RUNNER_TEMP/cloudflare-pages-artifact"
+            )
+          fi
+          node tools/cloudflare-pages/bin/cloudflare-pages.js deploy-all \
+            --config "$PAGES_CONFIG" \
+            --plan-file "$RUNNER_TEMP/deploy-plan.json" \
+            --environment "$CLOUDFLARE_PAGES_ENVIRONMENT" \
+            --commit "$CLOUDFLARE_PAGES_COMMIT_SHA" \
+            --output "$RUNNER_TEMP/deploy-deployments.json" \
+            --github-output "$GITHUB_OUTPUT" \
+            "${artifact_args[@]}"
+
+      - name: Confirm uploaded preview commit is still current
+        id: confirm-upload-current
+        if: >-
+          always() &&
+          inputs.environment == 'preview' &&
+          (steps.deploy.outcome == 'success' || steps.deploy.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node tools/cloudflare-pages/bin/cloudflare-pages.js github assert-current
+          --pull-request "$CLOUDFLARE_PAGES_PR_NUMBER"
+          --commit "$CLOUDFLARE_PAGES_COMMIT_SHA"
+
+      - name: Register successful deployments
+        id: register-deployment
+        if: >-
+          always() &&
+          (steps.deploy.outcome == 'success' || steps.deploy.outcome == 'failure') &&
+          (inputs.environment != 'preview' ||
+          steps.confirm-upload-current.outcome == 'success')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node tools/cloudflare-pages/bin/cloudflare-pages.js github create-all
+          --deployments-file "$RUNNER_TEMP/deploy-deployments.json"
+          --ref "$CLOUDFLARE_PAGES_COMMIT_SHA"
+          --environment "$CLOUDFLARE_PAGES_ENVIRONMENT"
+          --pull-request "$CLOUDFLARE_PAGES_PR_NUMBER"
+          --output "$RUNNER_TEMP/deploy-github-deployments.json"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify successful uploads
+        id: verify-deployment
+        if: >-
+          always() &&
+          (steps.deploy.outcome == 'success' || steps.deploy.outcome == 'failure') &&
+          (inputs.environment != 'preview' ||
+          steps.confirm-upload-current.outcome == 'success')
+        run: >-
+          node tools/cloudflare-pages/bin/cloudflare-pages.js verify-all
+          --config "$PAGES_CONFIG"
+          --plan-file "$RUNNER_TEMP/deploy-plan.json"
+          --deployments-file "$RUNNER_TEMP/deploy-deployments.json"
+          --commit "$CLOUDFLARE_PAGES_COMMIT_SHA"
+          --pull-request "$CLOUDFLARE_PAGES_PR_NUMBER"
+          --output "$RUNNER_TEMP/deploy-verification.json"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Finalize registered deployments
+        if: >-
+          always() &&
+          steps.setup-pnpm.outcome == 'success' &&
+          steps.build-tooling.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node tools/cloudflare-pages/bin/cloudflare-pages.js github status-all
+          --deployments-file "$RUNNER_TEMP/deploy-github-deployments.json"
+          --verification-report "$RUNNER_TEMP/deploy-verification.json"
+
+      - name: Report deployment metrics
+        if: always()
+        env:
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          BUILD_SECONDS: ${{ steps.build.outputs.build_seconds || 'unavailable' }}
+          VALIDATION_RESULT: ${{ steps.validation.outcome }}
+          VALIDATION_SECONDS: ${{ steps.validation.outputs.validation_seconds || 'unavailable' }}
+          PLAN_RESULT: ${{ steps.plan.outputs.should_deploy || 'unavailable' }}
+          PLAN_REASON: ${{ steps.plan.outputs.reason || 'verified artifact' }}
+          QUEUE_SECONDS: ${{ steps.queue.outputs.queue_seconds || 'unavailable' }}
+          DEPLOYMENT_RESULT: ${{ steps.deploy.outcome || 'skipped' }}
+          DEPLOYMENT_SECONDS: ${{ steps.deploy.outputs.deployment_seconds || 'unavailable' }}
+          DEPLOYMENT_VERIFICATION_RESULT: ${{ steps.verify-deployment.outcome || 'skipped' }}
+          DEPLOYMENT_VERIFICATION_SECONDS: ${{ steps.verify-deployment.outputs.verification_seconds || 'unavailable' }}
+          PRE_DEPLOY_HEAD_RESULT: ${{ steps.confirm-current.outcome || 'skipped' }}
+          POST_DEPLOY_HEAD_RESULT: ${{ steps.confirm-upload-current.outcome || 'skipped' }}
+        run: |
+          set -euo pipefail
+          artifact_summary_args=()
+          if [[ "${{ steps.source.outputs.build_from_source }}" == "false" ]]; then
+            artifact_summary_args=(--artifact-directory "$RUNNER_TEMP/cloudflare-pages-artifact")
+          fi
+          node tools/cloudflare-pages/bin/cloudflare-pages.js summary \
+            --plan-file "$RUNNER_TEMP/deploy-plan.json" \
+            --build-log "$RUNNER_TEMP/deploy-build.log" \
+            --config "$PAGES_CONFIG" \
+            --deployment-file "$RUNNER_TEMP/deploy-deployments.json" \
+            --verification-report "$RUNNER_TEMP/deploy-verification.json" \
+            --platform "Cloudflare Pages" \
+            --title "Cloudflare Pages $CLOUDFLARE_PAGES_ENVIRONMENT" \
+            "${artifact_summary_args[@]}" \
+            --output "$GITHUB_STEP_SUMMARY"

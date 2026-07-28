@@ -1,55 +1,49 @@
-name: Preview
+name: Cloudflare Pages Preview
 
 on:
   pull_request:
     branches:
       - main
     types: [opened, reopened, synchronize]
-  push:
-    branches:
-      - main
 
 permissions:
   actions: read
   contents: read
-  deployments: write
   pull-requests: read
 
 concurrency:
-  group: preview-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: cloudflare-pages-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 env:
   TURBO_TEAM: shipfox
-  # Same-repository pull requests and main may read the trusted remote cache.
-  # Forks receive no repository secret and therefore run without a cache token.
-  TURBO_TOKEN: ${{ (github.ref == 'refs/heads/main' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.TURBO_TOKEN || '' }}
-  TURBO_CACHE: ${{ github.ref == 'refs/heads/main' && 'local:rw,remote:rw' || 'local:rw,remote:r' }}
-  TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
-  TURBO_SCM_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-  CLOUDFLARE_PAGES_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  CLOUDFLARE_PAGES_PR_NUMBER: ${{ github.event.pull_request.number || '' }}
-  CLOUDFLARE_PAGES_ENVIRONMENT: ${{ github.event_name == 'push' && 'production' || 'preview' }}
+  # Pull requests may restore trusted cache entries, but only main may write them.
+  TURBO_CACHE: local:rw,remote:r
+  TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
+  TURBO_SCM_HEAD: ${{ github.event.pull_request.head.sha }}
+  CLOUDFLARE_PAGES_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+  CLOUDFLARE_PAGES_PR_NUMBER: ${{ github.event.pull_request.number }}
+  CLOUDFLARE_PAGES_ENVIRONMENT: preview
+  PAGES_CONFIG: cloudflare-pages.config.json
+  PREVIEW_CAN_DEPLOY: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
 
 jobs:
   build:
-    name: Preview
-    if: github.event_name == 'push' || github.event.pull_request.head.ref != 'changeset-release/main'
+    name: Build verified preview artifact
+    if: github.event.pull_request.head.ref != 'changeset-release/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Check out exact preview commit
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Fetch pull request base for affected planning
-        if: >-
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name != github.repository
+        if: github.event.pull_request.head.repo.full_name != github.repository
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,7 +62,7 @@ jobs:
         id: setup-mise
         uses: ./.github/actions/setup-mise
         with:
-          tools: gh node npm:pnpm npm:turbo npm:wrangler
+          tools: gh node npm:pnpm npm:turbo
 
       - name: Set up pnpm
         id: setup-pnpm
@@ -76,6 +70,8 @@ jobs:
 
       - name: Build preview tooling
         id: build-tooling
+        env:
+          TURBO_TOKEN: ${{ env.PREVIEW_CAN_DEPLOY == 'true' && secrets.TURBO_TOKEN || '' }}
         run: pnpm --filter=@shipfox/cloudflare-pages... build
 
       - name: Record workflow queue time
@@ -83,170 +79,122 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: pnpm --filter=@shipfox/storybook exec shipfox-cloudflare-pages github queue --github-output "$GITHUB_OUTPUT"
+        run: node tools/cloudflare-pages/bin/cloudflare-pages.js github queue --github-output "$GITHUB_OUTPUT"
 
       - name: Plan affected preview
         id: plan
+        env:
+          TURBO_TOKEN: ${{ env.PREVIEW_CAN_DEPLOY == 'true' && secrets.TURBO_TOKEN || '' }}
         run: |
           set -euo pipefail
-          plan_file="$RUNNER_TEMP/preview-plan.json"
-          pnpm --silent --filter=@shipfox/storybook pages:plan -- \
-            --output "$plan_file" \
+          node tools/cloudflare-pages/bin/cloudflare-pages.js plan \
+            --config "$PAGES_CONFIG" \
+            --output "$RUNNER_TEMP/preview-plan.json" \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Build and assemble selected preview apps
+        id: build
+        if: steps.plan.outputs.should_deploy == 'true'
+        env:
+          TURBO_TOKEN: ${{ env.PREVIEW_CAN_DEPLOY == 'true' && secrets.TURBO_TOKEN || '' }}
+        run: |
+          set -euo pipefail
+          build_started="$(date +%s)"
+          echo "build_started=$build_started" >> "$GITHUB_OUTPUT"
+          node tools/cloudflare-pages/bin/cloudflare-pages.js build-all \
+            --config "$PAGES_CONFIG" \
+            --plan-file "$RUNNER_TEMP/preview-plan.json" \
+            --environment "$CLOUDFLARE_PAGES_ENVIRONMENT" \
+            --pull-request "$CLOUDFLARE_PAGES_PR_NUMBER" \
+            --commit "$CLOUDFLARE_PAGES_COMMIT_SHA" \
+            --output "$RUNNER_TEMP/preview-build.json" \
+            --github-output "$GITHUB_OUTPUT" 2>&1 | tee "$RUNNER_TEMP/preview-build.log"
+          build_finished="$(date +%s)"
+          echo "build_seconds=$((build_finished - build_started))" >> "$GITHUB_OUTPUT"
 
       - name: Set up Playwright
         if: steps.plan.outputs.should_deploy == 'true'
         uses: ./.github/actions/setup-playwright
 
-      - name: Build and assemble selected preview apps
-        id: build
-        if: steps.plan.outputs.should_deploy == 'true'
-        run: |
-          set -euo pipefail
-          build_started="$(date +%s)"
-          echo "build_started=$build_started" >> "$GITHUB_OUTPUT"
-          pnpm --filter=@shipfox/storybook exec shipfox-cloudflare-pages build-all \
-          --config cloudflare-pages.config.json \
-          --plan-file "$RUNNER_TEMP/preview-plan.json" \
-          --environment "$CLOUDFLARE_PAGES_ENVIRONMENT" \
-          --commit "$CLOUDFLARE_PAGES_COMMIT_SHA" \
-          --output "$RUNNER_TEMP/preview-build.json" \
-          --github-output "$GITHUB_OUTPUT" 2>&1 | tee "$RUNNER_TEMP/preview-build.log"
-          build_finished="$(date +%s)"
-          echo "build_seconds=$((build_finished - build_started))" >> "$GITHUB_OUTPUT"
-
-      - name: Verify artifact and run browser smoke tests
+      - name: Run configured application validation
         id: validation
         if: steps.plan.outputs.should_deploy == 'true'
+        env:
+          TURBO_TOKEN: ${{ env.PREVIEW_CAN_DEPLOY == 'true' && secrets.TURBO_TOKEN || '' }}
         run: |
           set -euo pipefail
-          validation_started="$(date +%s)"
-          echo "validation_started=$validation_started" >> "$GITHUB_OUTPUT"
-          pnpm --filter=@shipfox/storybook test:e2e 2>&1 | tee "$RUNNER_TEMP/preview-validation.log"
-          validation_finished="$(date +%s)"
-          echo "validation_seconds=$((validation_finished - validation_started))" >> "$GITHUB_OUTPUT"
+          node tools/cloudflare-pages/bin/cloudflare-pages.js validate \
+            --config "$PAGES_CONFIG" \
+            --output "$RUNNER_TEMP/preview-validation.json" \
+            --github-output "$GITHUB_OUTPUT" 2>&1 | tee "$RUNNER_TEMP/preview-validation.log"
+
+      - name: Archive verified preview outputs
+        id: archive
+        if: steps.plan.outputs.should_deploy == 'true'
+        run: |
+          set -euo pipefail
+          archive_started="$(date +%s)"
+          node tools/cloudflare-pages/bin/cloudflare-pages.js archive-all \
+            --config "$PAGES_CONFIG" \
+            --plan-file "$RUNNER_TEMP/preview-plan.json" \
+            --artifact-directory "$RUNNER_TEMP/cloudflare-pages-artifact" \
+            --output "$RUNNER_TEMP/cloudflare-pages-artifact/.shipfox-pages-plan.json"
+          archive_finished="$(date +%s)"
+          echo "archive_seconds=$((archive_finished - archive_started))" >> "$GITHUB_OUTPUT"
 
       - name: Upload verified preview artifact
+        id: upload-artifact
         if: steps.plan.outputs.should_deploy == 'true' && success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: preview-${{ github.event.pull_request.number || 'main' }}-${{ github.event.pull_request.head.sha || github.sha }}
-          path: apps/storybook/storybook-output
+          name: pages-preview-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/cloudflare-pages-artifact
+          include-hidden-files: true
           if-no-files-found: error
 
-      - name: Confirm preview commit is still current before upload
-        id: confirm-current
-        if: >-
-          steps.plan.outputs.should_deploy == 'true' &&
-          success() &&
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-cloudflare-pages github assert-current
-          --pull-request "$CLOUDFLARE_PAGES_PR_NUMBER"
-          --commit "$CLOUDFLARE_PAGES_COMMIT_SHA"
-
-      - name: Deploy verified preview to Cloudflare Pages
-        id: deploy
-        if: >-
-          steps.plan.outputs.should_deploy == 'true' &&
-          success() &&
-          (github.event_name == 'push' ||
-          steps.confirm-current.outcome == 'success') &&
-          (github.event_name == 'push' ||
-          github.event.pull_request.head.repo.full_name == github.repository)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-        run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-cloudflare-pages deploy-all
-          --config cloudflare-pages.config.json
-          --plan-file "$RUNNER_TEMP/preview-plan.json"
-          --environment "$CLOUDFLARE_PAGES_ENVIRONMENT"
-          --commit "$CLOUDFLARE_PAGES_COMMIT_SHA"
-          --output "$RUNNER_TEMP/preview-deployments.json"
-          --github-output "$GITHUB_OUTPUT"
-
-      - name: Confirm uploaded preview commit is still current
-        id: confirm-upload-current
-        if: >-
-          steps.deploy.outcome == 'success' &&
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-cloudflare-pages github assert-current
-          --pull-request "$CLOUDFLARE_PAGES_PR_NUMBER"
-          --commit "$CLOUDFLARE_PAGES_COMMIT_SHA"
-
-      - name: Register preview deployment
-        id: register-deployment
-        if: >-
-          steps.deploy.outcome == 'success' &&
-          (github.event_name == 'push' || steps.confirm-upload-current.outcome == 'success')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-cloudflare-pages github create-all
-          --deployments-file "$RUNNER_TEMP/preview-deployments.json"
-          --ref "$CLOUDFLARE_PAGES_COMMIT_SHA"
-          --environment "$CLOUDFLARE_PAGES_ENVIRONMENT"
-          --output "$RUNNER_TEMP/preview-github-deployments.json"
-          --github-output "$GITHUB_OUTPUT"
-
-      - name: Verify deployed preview
-        id: verify-deployment
-        if: >-
-          always() &&
-          steps.deploy.outcome == 'success' &&
-          (github.event_name == 'push' || steps.confirm-upload-current.outcome == 'success')
-        run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-cloudflare-pages verify-all
-          --config cloudflare-pages.config.json
-          --plan-file "$RUNNER_TEMP/preview-plan.json"
-          --deployments-file "$RUNNER_TEMP/preview-deployments.json"
-          --output "$RUNNER_TEMP/preview-verification.json"
-          --github-output "$GITHUB_OUTPUT"
-
-      - name: Finalize preview deployment
-        if: >-
-          always() &&
-          steps.setup-pnpm.outcome == 'success' &&
-          steps.build-tooling.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-cloudflare-pages github status-all
-          --deployments-file "$RUNNER_TEMP/preview-github-deployments.json"
-          --verification-report "$RUNNER_TEMP/preview-verification.json"
-
-      - name: Report preview metrics
+      - name: Report preview build metrics
         if: always()
         env:
           BUILD_RESULT: ${{ steps.build.outcome }}
           BUILD_SECONDS: ${{ steps.build.outputs.build_seconds || 'unavailable' }}
           VALIDATION_RESULT: ${{ steps.validation.outcome }}
           VALIDATION_SECONDS: ${{ steps.validation.outputs.validation_seconds || 'unavailable' }}
+          ARTIFACT_ONLY: true
+          ARTIFACT_RESULT: ${{ steps.archive.outcome || 'skipped' }}
+          ARTIFACT_SECONDS: ${{ steps.archive.outputs.archive_seconds || 'unavailable' }}
+          ARTIFACT_UPLOAD_RESULT: ${{ steps.upload-artifact.outcome || 'skipped' }}
           PLAN_RESULT: ${{ steps.plan.outputs.should_deploy || 'unavailable' }}
           PLAN_REASON: ${{ steps.plan.outputs.reason || 'unavailable' }}
           QUEUE_SECONDS: ${{ steps.queue.outputs.queue_seconds || 'unavailable' }}
-          DEPLOYMENT_RESULT: ${{ steps.deploy.outcome || 'skipped' }}
-          DEPLOYMENT_SECONDS: ${{ steps.deploy.outputs.deployment_seconds || 'unavailable' }}
-          DEPLOYMENT_VERIFICATION_RESULT: ${{ steps.verify-deployment.outcome || 'skipped' }}
-          DEPLOYMENT_VERIFICATION_SECONDS: ${{ steps.verify-deployment.outputs.verification_seconds || 'unavailable' }}
-          PRE_DEPLOY_HEAD_RESULT: ${{ steps.confirm-current.outcome || 'skipped' }}
-          POST_DEPLOY_HEAD_RESULT: ${{ steps.confirm-upload-current.outcome || 'skipped' }}
+          DEPLOYMENT_RESULT: not-run
+          DEPLOYMENT_SECONDS: unavailable
+          DEPLOYMENT_VERIFICATION_RESULT: not-run
+          DEPLOYMENT_VERIFICATION_SECONDS: unavailable
         run: >-
-          pnpm --filter=@shipfox/storybook exec shipfox-cloudflare-pages summary
+          node tools/cloudflare-pages/bin/cloudflare-pages.js summary
           --plan-file "$RUNNER_TEMP/preview-plan.json"
           --build-log "$RUNNER_TEMP/preview-build.log"
-          --artifact-metadata storybook-output/preview-metadata.json
-          --config cloudflare-pages.config.json
-          --deployment-file "$RUNNER_TEMP/preview-deployments.json"
-          --verification-report "$RUNNER_TEMP/preview-verification.json"
+          --config "$PAGES_CONFIG"
           --platform "Cloudflare Pages"
-          --title "Preview"
+          --title "Cloudflare Pages Preview Build"
           --output "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Publish trusted preview artifact
+    needs: build
+    if: >-
+      needs.build.result == 'success' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      actions: read
+      contents: read
+      deployments: write
+      pull-requests: read
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: preview
+      source_sha: ${{ github.event.pull_request.head.sha }}
+      pull_request: ${{ github.event.pull_request.number }}
+      artifact_name: pages-preview-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+      artifact_run_id: ${{ github.run_id }}
+    secrets: inherit
