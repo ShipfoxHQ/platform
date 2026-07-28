@@ -68,6 +68,12 @@ describe('e2eEnv', () => {
     assert.equal(env.INTEGRATIONS_ENABLE_GITHUB_PROVIDER, 'true');
     assert.equal(env.INTEGRATIONS_ENABLE_SLACK_PROVIDER, 'true');
     assert.equal(env.AUTH_ROOT_KEY, 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=');
+    assert.equal(env.AUTH_SIGNUP_GATE_ENABLED, 'true');
+    assert.equal(env.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS, 'allowed.example.test');
+    assert.equal(
+      env.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE,
+      'This E2E deployment does not accept new accounts.',
+    );
     assert.equal(env.GITHUB_API_BASE_URL, 'http://127.0.0.1:55361/');
     assert.equal(env.SLACK_API_BASE_URL, 'http://127.0.0.1:55362/');
     assert.match(env.GITHUB_APP_PRIVATE_KEY, /BEGIN PRIVATE KEY/u);
@@ -90,6 +96,9 @@ describe('e2eEnv', () => {
       SHIPFOX_API_URL: 'http://localhost:55351',
       GITEA_BASE_URL: 'http://localhost:55356',
       WEBHOOK_PUBLIC_URL: 'https://webhooks.example.test',
+      AUTH_SIGNUP_GATE_ENABLED: 'false',
+      AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS: 'override.example.test',
+      AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: 'Signups are temporarily closed.',
     });
 
     assert.equal(env.API_URL, 'http://localhost:16101');
@@ -100,6 +109,9 @@ describe('e2eEnv', () => {
     assert.equal(env.GITHUB_API_BASE_URL, 'http://127.0.0.1:16121');
     assert.equal(env.SLACK_API_BASE_URL, 'http://127.0.0.1:16122');
     assert.equal(env.WEBHOOK_PUBLIC_URL, 'https://webhooks.example.test');
+    assert.equal(env.AUTH_SIGNUP_GATE_ENABLED, 'false');
+    assert.equal(env.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS, 'override.example.test');
+    assert.equal(env.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE, 'Signups are temporarily closed.');
   });
 
   test('keeps explicit turbo concurrency', () => {

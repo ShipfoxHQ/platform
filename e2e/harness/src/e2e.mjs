@@ -9,6 +9,9 @@ import {fileURLToPath} from 'node:url';
 const defaultE2eAdminApiKey = 'e2e-admin-api-key';
 const defaultApiUrl = 'http://localhost:16101';
 const defaultClientUrl = 'http://localhost:5173';
+const defaultAuthSignupGateEnabled = 'true';
+const defaultAuthSignupAllowedEmailDomains = 'allowed.example.test';
+const defaultAuthSignupNotAllowedMessage = 'This E2E deployment does not accept new accounts.';
 const defaultReadinessTimeoutMs = 60_000;
 const defaultShutdownTimeoutMs = 15_000;
 const defaultTurboTask = 'test:e2e';
@@ -183,6 +186,12 @@ export function e2eEnv(sourceEnv) {
     E2E_ENABLED: sourceEnv.E2E_ENABLED ?? 'true',
     AUTH_ROOT_KEY:
       sourceEnv.AUTH_ROOT_KEY ?? 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    AUTH_SIGNUP_GATE_ENABLED:
+      sourceEnv.AUTH_SIGNUP_GATE_ENABLED ?? defaultAuthSignupGateEnabled,
+    AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS:
+      sourceEnv.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS ?? defaultAuthSignupAllowedEmailDomains,
+    AUTH_SIGNUP_NOT_ALLOWED_MESSAGE:
+      sourceEnv.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE ?? defaultAuthSignupNotAllowedMessage,
     E2E_GITEA_URL: giteaUrl,
     GITEA_CLONE_BASE_URL: sourceEnv.GITEA_CLONE_BASE_URL ?? giteaUrl,
     HOST: sourceEnv.HOST ?? '0.0.0.0',

@@ -26,6 +26,16 @@ describe('authErrorMessage', () => {
     expect(result).toBe('Try later');
   });
 
+  test('renders the configured signup denial message from safe error details', () => {
+    const error = new ApiError({
+      code: 'signup-not-allowed',
+      message: 'Forbidden',
+      status: 403,
+      details: {code: 'signup-not-allowed', details: {message: 'Ask your administrator to join.'}},
+    });
+    const result = authErrorMessage(error);
+    expect(result).toBe('Ask your administrator to join.');
+  });
   test('uses generic copy for unknown errors', () => {
     const result = authErrorMessage(new Error('boom'));
 

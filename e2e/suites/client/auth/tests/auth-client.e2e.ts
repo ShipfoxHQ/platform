@@ -4,8 +4,14 @@ import {expect, test} from './test.js';
 
 const LOGIN_URL_RE = /\/auth\/login$/u;
 const LOGIN_WITH_REDIRECT_URL_RE = /\/auth\/login\?redirect=/u;
+const SIGNUP_URL_RE = /\/auth\/signup$/u;
 const ONBOARDING_URL_RE = /\/setup\/workspaces\/new\/?$/u;
 const ANY_WORKSPACE_URL_RE = /\/workspaces\//u;
+const SIGNUP_NOT_ALLOWED_MESSAGE =
+  process.env.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE ??
+  'This E2E deployment does not accept new accounts.';
+const ALLOWED_SIGNUP_EMAIL_DOMAIN =
+  process.env.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS?.split(',')[0]?.trim() ?? 'allowed.example.test';
 
 function workspaceUrlRe(wid: string): RegExp {
   return new RegExp(`/workspaces/${wid}(/|$)`, 'u');
@@ -25,7 +31,7 @@ test('logs in through the UI with an E2E-created verified user', async ({
   guestRedirects,
   login,
 }) => {
-  const user = await auth.createUser();
+  const user = await auth.createUser({email: `existing-${randomUUID()}@example.test`});
 
   await login.goto();
   await login.submit(user.email, user.password);
@@ -34,6 +40,27 @@ test('logs in through the UI with an E2E-created verified user', async ({
   await stableScreenshot(page, 'auth/post-login-workspace');
 });
 
+test('keeps an unlisted password signup on the signup form', async ({page, signup}) => {
+  await signup.goto();
+  await signup.submit({
+    email: `blocked-${randomUUID()}@example.test`,
+    name: 'Blocked Signup',
+    password: 'correct horse battery staple',
+  });
+  await expect(page).toHaveURL(SIGNUP_URL_RE);
+  await expect(signup.alert()).toContainText(SIGNUP_NOT_ALLOWED_MESSAGE);
+  await expect(signup.verificationHeading()).toBeHidden();
+  await stableScreenshot(page, 'auth/signup-not-allowed');
+});
+test('starts email verification for an address in the signup allowlist', async ({signup}) => {
+  await signup.goto();
+  await signup.submit({
+    email: `allowed-${randomUUID()}@${ALLOWED_SIGNUP_EMAIL_DOMAIN}`,
+    name: 'Allowed Signup',
+    password: 'correct horse battery staple',
+  });
+  await expect(signup.verificationHeading()).toBeVisible();
+});
 test('form login routes a user with workspaces straight to /workspaces/$wid', async ({
   page,
   auth,

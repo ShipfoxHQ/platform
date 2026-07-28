@@ -1,5 +1,17 @@
 import {ApiError} from '@shipfox/client-api';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function signupNotAllowedMessage(error: ApiError): string | undefined {
+  if (error.code !== 'signup-not-allowed') return undefined;
+  if (!isRecord(error.details)) return undefined;
+  const details = error.details.details;
+  if (!isRecord(details)) return undefined;
+  return typeof details.message === 'string' ? details.message : undefined;
+}
+
 export function authErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Something went wrong. Try again.';
 
@@ -25,5 +37,7 @@ export function authErrorMessage(error: unknown): string {
     return 'We could not reach the API. Check your connection and try again.';
   }
 
+  const signupMessage = signupNotAllowedMessage(error);
+  if (signupMessage) return signupMessage;
   return error.message || 'Something went wrong. Try again.';
 }
