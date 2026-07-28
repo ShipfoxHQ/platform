@@ -959,6 +959,7 @@ jobs:
       actions: read
       contents: read
       deployments: write
+      pull-requests: read
     uses: ./.github/workflows/deploy.yml
     with:
       environment: production
