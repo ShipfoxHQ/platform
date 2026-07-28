@@ -33,6 +33,11 @@ type LocallyLaunchedRunner = {
   launchedAt: Date;
 };
 
+type AssignmentCandidate = {
+  reservationId: string;
+  runnerInstanceId: string;
+};
+
 export interface Ec2Lifecycle {
   launch(launch: ProviderRunnerLaunch<Ec2TemplateSpec>): Promise<void>;
   observe(): Promise<void>;
@@ -225,6 +230,7 @@ async function applyObservedInstances(
 ): Promise<void> {
   const trackerRunners: TrackerSeed[] = [];
   const events: RunnerInstanceReportEventDto[] = [];
+  const assignmentCandidates: AssignmentCandidate[] = [];
   const observedIds = new Set<string>();
   const reapInstances: Ec2InstanceView[] = [];
   const terminateIntentInstances: Ec2InstanceView[] = [];
@@ -251,6 +257,16 @@ async function applyObservedInstances(
     if (labels.length === 0) continue;
 
     const mapped = mapInstanceState(instance);
+    if (
+      (mapped.state === 'starting' || mapped.state === 'running') &&
+      identity.runnerInstanceId &&
+      identity.reservationId
+    ) {
+      assignmentCandidates.push({
+        runnerInstanceId: identity.runnerInstanceId,
+        reservationId: identity.reservationId,
+      });
+    }
     if (mapped.state === 'failed' || mapped.state === 'terminated') {
       const terminationReason =
         mapped.reason === 'spot-interruption' ? 'spot-interruption' : 'observed-terminated';
@@ -277,9 +293,32 @@ async function applyObservedInstances(
 
   synthesizeAbsentLaunchedRunners(context, observedIds, trackerRunners, events);
   context.tracker.replaceAll(trackerRunners);
+  await assignEnrolledReservations(context, assignmentCandidates);
   if (events.length > 0) await reportEvents(context, events);
   await terminateInstances(context, terminateIntentInstances, 'backend-terminate');
   await terminateInstances(context, reapInstances, 'registration-deadline');
+}
+
+async function assignEnrolledReservations(
+  context: Ec2LifecycleContext,
+  candidates: readonly AssignmentCandidate[],
+): Promise<void> {
+  const assignments = new Map<string, string[]>();
+  for (const {reservationId, runnerInstanceId} of candidates) {
+    const runnerInstanceIds = assignments.get(reservationId) ?? [];
+    runnerInstanceIds.push(runnerInstanceId);
+    assignments.set(reservationId, runnerInstanceIds);
+  }
+  for (const [reservationId, runnerInstanceIds] of assignments) {
+    try {
+      await context.client.assignRunnerInstances(reservationId, runnerInstanceIds);
+    } catch (error) {
+      logger().warn(
+        {reservationId, runnerInstanceIds, err: error},
+        'Reservation assignment rejected',
+      );
+    }
+  }
 }
 
 function synthesizeAbsentLaunchedRunners(

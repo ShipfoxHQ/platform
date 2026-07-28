@@ -11,7 +11,7 @@ import {createEc2Lifecycle} from '#lifecycle.js';
 import type {Ec2TemplateSpec} from '#templates.js';
 
 const observability = vi.hoisted(() => ({
-  logger: {error: vi.fn(), info: vi.fn()},
+  logger: {error: vi.fn(), info: vi.fn(), warn: vi.fn()},
   recordEc2Launch: vi.fn(),
   recordEc2Termination: vi.fn(),
 }));
@@ -150,6 +150,62 @@ describe('createEc2Lifecycle', () => {
       new Map([['spot-small', {starting: 0, running: 1}]]),
     );
     expect(client.reportBodies[0]?.events[0]).toMatchObject({state: 'running'});
+  });
+
+  it('assigns an enrolled observed runner through its EC2 identity', async () => {
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.observe();
+
+    expect(client.assignmentBodies).toEqual([
+      {
+        reservationId: '00000000-0000-4000-8000-000000000003',
+        runnerInstanceIds: [RUNNER_INSTANCE_ID],
+      },
+    ]);
+  });
+
+  it('continues reporting and terminating runners when assignment is rejected', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({state: 'running'}),
+        instance({
+          state: 'running',
+          instanceId: 'i-terminate',
+          providerRunnerId: 'runner-terminate',
+        }),
+      ],
+    });
+    const client = fakeClient({
+      assignmentErrors: [httpError(404)],
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-terminate', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({provider_runner_id: 'runner-1', state: 'running'}),
+        expect.objectContaining({
+          provider_runner_id: 'runner-terminate',
+          state: 'terminated',
+          reason: 'backend-terminate',
+        }),
+      ]),
+    );
+    expect(engine.terminated).toEqual(['i-terminate']);
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({reservationId: '00000000-0000-4000-8000-000000000003'}),
+      'Reservation assignment rejected',
+    );
   });
 
   it('reports a Spot-reclaimed terminated instance as failed', async () => {
@@ -550,21 +606,26 @@ function fakeEngine(
 function fakeClient(
   options: {
     reportErrors?: Error[];
+    assignmentErrors?: Error[];
     attachResult?: {attached: boolean};
     reconcileResponse?: Awaited<ReturnType<ProvisionerClient['reconcileRunnerInstances']>>;
   } = {},
 ): ProvisionerClient & {
   reportBodies: ReportRunnerInstancesBodyDto[];
   reconcileBodies: Array<{observed_provider_runner_ids: string[]}>;
+  assignmentBodies: Array<{reservationId: string; runnerInstanceIds: string[]}>;
   attachments: Array<{runnerInstanceId: string; providerRunnerId: string}>;
 } {
   const reportBodies: ReportRunnerInstancesBodyDto[] = [];
   const reconcileBodies: Array<{observed_provider_runner_ids: string[]}> = [];
+  const assignmentBodies: Array<{reservationId: string; runnerInstanceIds: string[]}> = [];
   const attachments: Array<{runnerInstanceId: string; providerRunnerId: string}> = [];
   const reportErrors = [...(options.reportErrors ?? [])];
+  const assignmentErrors = [...(options.assignmentErrors ?? [])];
   return {
     reportBodies,
     reconcileBodies,
+    assignmentBodies,
     attachments,
     getIdentity: () =>
       Promise.resolve({id: 'provisioner', scope: 'installation', workspace_id: null}),
@@ -584,8 +645,12 @@ function fakeClient(
       attachments.push({runnerInstanceId, providerRunnerId});
       return Promise.resolve(options.attachResult ?? {attached: true});
     },
-    assignRunnerInstances: (_reservationId, runnerInstanceIds) =>
-      Promise.resolve({runner_instance_ids: runnerInstanceIds}),
+    assignRunnerInstances: (reservationId, runnerInstanceIds) => {
+      assignmentBodies.push({reservationId, runnerInstanceIds});
+      const error = assignmentErrors.shift();
+      if (error) return Promise.reject(error);
+      return Promise.resolve({runner_instance_ids: runnerInstanceIds});
+    },
     reportRunnerInstances: (body) => {
       reportBodies.push(body);
       const error = reportErrors.shift();
