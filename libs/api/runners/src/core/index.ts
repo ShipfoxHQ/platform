@@ -20,6 +20,8 @@ export type {RunnerSession} from './entities/runner-session.js';
 export {
   EmptyRunnerLabelsError,
   ManualRegistrationTokenNotFoundError,
+  ProvisionerAdminIdempotencyKeyReuseError,
+  ProvisionerAdminIdempotencyReplayUnavailableError,
   ProvisionerTokenNotFoundError,
   RegistrationTokenConsumedError,
   RegistrationTokenExpiredError,
@@ -34,10 +36,14 @@ export {
 } from './manual-registration-tokens.js';
 export {hasActiveWorkspaceProvisionerCapability} from './provisioner-capability-snapshots.js';
 export {
+  createAdministratorInstallationProvisionerToken,
   createInstallationProvisionerToken,
   createWorkspaceProvisionerToken,
+  installationProvisionerTokenStatus,
   listActiveProvisioners,
+  listAdministratorInstallationProvisionerTokens,
   listUsableProvisionerTokens,
+  revokeAdministratorInstallationProvisionerToken,
   revokeInstallationProvisionerToken,
   revokeWorkspaceProvisionerToken,
 } from './provisioner-tokens.js';

@@ -20,6 +20,7 @@ export async function setup() {
   await db().execute(sql`TRUNCATE runners_pending_jobs CASCADE`);
   await db().execute(sql`TRUNCATE runners_running_jobs CASCADE`);
   await db().execute(sql`TRUNCATE runners_outbox CASCADE`);
+  await db().execute(sql`TRUNCATE runners_admin_command_results CASCADE`);
 
   closeDb();
   await closePostgresClient();

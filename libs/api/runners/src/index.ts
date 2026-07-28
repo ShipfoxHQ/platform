@@ -1,6 +1,7 @@
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
+import {administrationActionEventSchemas} from '@shipfox/api-common-dto';
 import {runnersEventSchemas} from '@shipfox/api-runners-dto';
 import {
   WORKFLOWS_JOB_EXECUTION_TIMED_OUT,
@@ -20,6 +21,8 @@ import {
 import {createRunnersInterModulePresentation} from '#presentation/inter-module.js';
 import {createRunnersMaintenanceActivities} from '#temporal/activities/index.js';
 import {RUNNERS_MAINTENANCE_TASK_QUEUE} from '#temporal/constants.js';
+
+const runnersPublisherEventSchemas = {...runnersEventSchemas, ...administrationActionEventSchemas};
 
 export {
   type EffectiveRunnerToolCapabilitiesResult,
@@ -58,7 +61,9 @@ export function createRunnersModule({
     ],
     routes: createRunnerRoutes(auth, options),
     metrics: registerRunnersServiceMetrics,
-    publishers: [{name: 'runners', table: runnersOutbox, db, eventSchemas: runnersEventSchemas}],
+    publishers: [
+      {name: 'runners', table: runnersOutbox, db, eventSchemas: runnersPublisherEventSchemas},
+    ],
     subscribers: [subscriber(WORKFLOWS_JOB_EXECUTION_TIMED_OUT, onWorkflowsJobExecutionTimedOut)],
     workers: [
       {

@@ -9,7 +9,7 @@ describe('createRunnersModule', () => {
 
     expect(module.name).toBe('runners');
     expect(module.auth).toHaveLength(3);
-    expect(module.routes).toHaveLength(12);
+    expect(module.routes).toHaveLength(13);
     expect(module.workers).toHaveLength(1);
   });
 
