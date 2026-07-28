@@ -247,6 +247,8 @@ Bootstrap and grant-management routes are mounted under `/admin/auth/admin-grant
 
 `POST` and `DELETE` routes require an `Idempotency-Key` header; a repeated key replays the same result, and reusing a key with a different command returns `409 idempotency-key-reused`. Every mutation writes a redacted `administration.action.performed` outbox event.
 
+Bootstrap remains closed only while an active `admin-owner` exists. An owner is active when its grant is not revoked and its user account has `active` status. A suspended owner does not count as active, so suspending the sole owner intentionally reopens deployment-token bootstrap for recovery. The suspended grant remains stored; reactivating that user closes bootstrap again.
+
 ### Rate limiting
 
 The public auth endpoints include an application-layer abuse baseline for open source installs:
