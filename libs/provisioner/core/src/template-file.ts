@@ -13,6 +13,10 @@ import {logger} from '@shipfox/node-opentelemetry';
 /** The maximum number of hand-written and expanded templates in one file. */
 export const MAX_TEMPLATES = 1_000;
 
+// Provider data can have the same shape as parsed expression segments, so the
+// parser marks its arrays.
+const WORKFLOW_TEMPLATE_SEGMENTS = Symbol('workflowTemplateSegments');
+
 export type VariantBindings = Readonly<Record<string, unknown>>;
 
 export interface ParsedTemplateList extends ReadonlyArray<ParsedTemplateValue> {}
@@ -21,6 +25,10 @@ export interface ParsedTemplateObject {
   readonly [key: string]: ParsedTemplateValue;
 }
 
+type ParsedWorkflowTemplateSegments = readonly WorkflowTemplateSegment[] & {
+  readonly [WORKFLOW_TEMPLATE_SEGMENTS]: true;
+};
+
 export type ParsedTemplateValue =
   | string
   | number
@@ -28,6 +36,7 @@ export type ParsedTemplateValue =
   | null
   | undefined
   | readonly WorkflowTemplateSegment[]
+  | ParsedWorkflowTemplateSegments
   | ParsedTemplateList
   | ParsedTemplateObject;
 
@@ -515,13 +524,17 @@ function deriveTemplateKey(
       parts.push(coerceKeyPart(value));
     }
   }
-  return parts.join('-');
+  return parts.map(encodeTemplateKeyPart).join('-');
 }
 
 function coerceKeyPart(value: unknown): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
   return coerceTemplateValue(value);
+}
+
+function encodeTemplateKeyPart(value: string): string {
+  return value.replaceAll('%', '%25').replaceAll('-', '%2D');
 }
 
 function mergeTemplateObjects(
@@ -566,18 +579,11 @@ function createEvaluationContext(
 
 function isWorkflowTemplateSegments(
   value: ParsedTemplateValue,
-): value is readonly WorkflowTemplateSegment[] {
+): value is ParsedWorkflowTemplateSegments {
   return (
     Array.isArray(value) &&
-    value.length > 0 &&
-    value.every(
-      (segment) =>
-        isRecord(segment) &&
-        (segment.kind === 'literal' || segment.kind === 'expr') &&
-        (segment.kind === 'literal'
-          ? typeof segment.text === 'string'
-          : isRecord(segment.expression)),
-    )
+    Object.hasOwn(value, WORKFLOW_TEMPLATE_SEGMENTS) &&
+    (value as unknown as ParsedWorkflowTemplateSegments)[WORKFLOW_TEMPLATE_SEGMENTS]
   );
 }
 
@@ -911,7 +917,7 @@ function parseTemplateObject(
 function parseTemplateValue(value: unknown, path: string, errors: string[]): ParsedTemplateValue {
   if (typeof value === 'string' && value.includes('${{')) {
     try {
-      return parseWorkflowTemplate(value);
+      return markWorkflowTemplateSegments(parseWorkflowTemplate(value));
     } catch (error) {
       errors.push(`${path} is invalid: ${expressionErrorMessage(error)}`);
       return value;
@@ -924,6 +930,14 @@ function parseTemplateValue(value: unknown, path: string, errors: string[]): Par
     return parseTemplateObject(value, path, errors);
   }
   return value as ParsedTemplateValue;
+}
+
+function markWorkflowTemplateSegments(
+  segments: readonly WorkflowTemplateSegment[],
+): ParsedWorkflowTemplateSegments {
+  const marked = [...segments] as unknown as ParsedWorkflowTemplateSegments;
+  Object.defineProperty(marked, WORKFLOW_TEMPLATE_SEGMENTS, {value: true});
+  return marked;
 }
 
 function matchesPartial(bindings: VariantBindings, partial: VariantBindings): boolean {

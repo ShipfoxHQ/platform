@@ -292,6 +292,25 @@ describe('renderTemplateVariants', () => {
     expect(Object.keys(renderTemplateVariants(withOs))).toEqual(['standard-x64-4-ubuntu2404']);
   });
 
+  it('keeps default keys distinct when axis values contain the separator', () => {
+    const file = parseTemplateFile({
+      templates: {},
+      matrix: {
+        standard: {
+          axes: {left: ['a-b', 'a'], right: ['c', 'b-c']},
+          template: {},
+        },
+      },
+    });
+
+    expect(Object.keys(renderTemplateVariants(file))).toEqual([
+      'standard-a%2Db-c',
+      'standard-a%2Db-b%2Dc',
+      'standard-a-c',
+      'standard-a-b%2Dc',
+    ]);
+  });
+
   it('rejects collisions from an explicit key override and names differing axes', () => {
     const file = parseTemplateFile({
       templates: {},
@@ -326,6 +345,26 @@ describe('renderTemplateVariants', () => {
     });
     expect(renderTemplateVariants(explicitKey)).toEqual({
       'custom-machine': {machine: 'a'},
+    });
+  });
+
+  it('preserves opaque arrays that resemble workflow template segments', () => {
+    const opaqueSegments = [
+      {kind: 'literal', text: 'keep me'},
+      {kind: 'expr', expression: {source: 'cpu'}},
+    ];
+    const file = parseTemplateFile({
+      templates: {},
+      matrix: {
+        standard: {
+          axes: {cpu: [4]},
+          template: {provider_spec: opaqueSegments},
+        },
+      },
+    });
+
+    expect(renderTemplateVariants(file)).toEqual({
+      'standard-4': {provider_spec: opaqueSegments},
     });
   });
 
