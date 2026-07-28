@@ -238,7 +238,7 @@ export async function suspendAdministratorUser(
     userId: params.actorId,
     minimumRole: ADMIN_OPERATOR_ROLE,
   });
-  const idempotencyKeyFingerprint = hashAdministrationValue(params.idempotencyKey);
+  const idempotencyKeyFingerprint = hashOpaqueToken(params.idempotencyKey);
   return toAdministratorUserMutationResult(
     await suspendUserWithAudit({
       actorId: params.actorId,
@@ -271,7 +271,7 @@ export async function reactivateAdministratorUser(
     minimumRole: ADMIN_OPERATOR_ROLE,
   });
   const reason = params.reason ?? 'User reactivation requested by an administrator';
-  const idempotencyKeyFingerprint = hashAdministrationValue(params.idempotencyKey);
+  const idempotencyKeyFingerprint = hashOpaqueToken(params.idempotencyKey);
   return toAdministratorUserMutationResult(
     await reactivateUserWithAudit({
       actorId: params.actorId,
@@ -304,7 +304,7 @@ export async function revokeAdministratorUserSessions(
     minimumRole: ADMIN_OPERATOR_ROLE,
   });
   const reason = params.reason ?? 'All active user sessions revoked by an administrator';
-  const idempotencyKeyFingerprint = hashAdministrationValue(params.idempotencyKey);
+  const idempotencyKeyFingerprint = hashOpaqueToken(params.idempotencyKey);
   return toAdministratorUserMutationResult(
     await revokeUserSessionsWithAudit({
       actorId: params.actorId,
