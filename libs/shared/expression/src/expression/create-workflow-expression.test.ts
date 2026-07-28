@@ -168,6 +168,53 @@ describe('createWorkflowExpression', () => {
     });
   });
 
+  it.each([
+    ['event.value == 1', 'double'],
+    ['1 == event.value', 'double'],
+    ['event.value != 1', 'double'],
+    ['event.value == 1.0', 'int'],
+  ] satisfies readonly [
+    string,
+    ExpressionScalarType,
+  ][])('type-checks cross-type numeric equality in %s', (source, scalarType) => {
+    const expression = createWorkflowExpression({
+      source,
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'object', fields: {value: scalarType}},
+        },
+        expectedResultType: 'bool',
+      },
+    });
+
+    expect(expression).toEqual({
+      language: 'cel',
+      source,
+      check: 'typed',
+      resultType: 'bool',
+    });
+  });
+
+  it.each([
+    'event.value == "1"',
+    'event.value + 1 == 2',
+  ])('keeps non-numeric and arithmetic double operations strict in %s', (source) => {
+    const act = () =>
+      createWorkflowExpression({
+        source,
+        check: {
+          mode: 'typed',
+          typeEnvironment: {
+            event: {kind: 'object', fields: {value: 'double'}},
+          },
+          expectedResultType: 'bool',
+        },
+      });
+
+    expect(act).toThrow(InvalidWorkflowExpressionError);
+  });
+
   it('rejects timestamp fields compared with non-timestamp values', () => {
     const act = () =>
       createWorkflowExpression({

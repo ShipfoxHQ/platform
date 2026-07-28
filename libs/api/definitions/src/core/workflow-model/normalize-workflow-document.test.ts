@@ -1954,6 +1954,33 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
+  it('allows integer equality literals for number step outputs in gate success expressions', () => {
+    const document: WorkflowDocument = {
+      name: 'number output equality',
+      jobs: {
+        build: {
+          steps: [
+            {
+              key: 'collect',
+              run: 'npm run collect',
+              outputs: {issue_number: {type: 'number'}},
+              gate: {success: 'step.outputs.issue_number == 1'},
+            },
+          ],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+
+    expect(model.jobs[0]?.steps[0]?.gate?.success).toEqual({
+      language: 'cel',
+      source: 'step.outputs.issue_number == 1',
+      check: 'typed',
+      resultType: 'bool',
+    });
+  });
+
   it('rejects untrusted step outputs in trusted-only run fields', () => {
     const document: WorkflowDocument = {
       name: 'untrusted step output',
