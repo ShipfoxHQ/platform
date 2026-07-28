@@ -1,6 +1,7 @@
 import {and, eq, inArray, or, sql, sum} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {
+  deleteExpiredReservations,
   deleteReservationsByIds,
   pollDemandAndReserve,
   pollInstallationDemandAndReserve,
@@ -452,6 +453,54 @@ describe('pollDemandAndReserve', () => {
       .from(runnerActivationTokens)
       .where(eq(runnerActivationTokens.id, activationToken.id));
     expect(deleted).toBe(1);
+    expect(storedRunner).toMatchObject({
+      workspaceId: null,
+      reservationId: null,
+      assignedAt: null,
+    });
+    expect(storedToken?.revokedAt).toBeInstanceOf(Date);
+  });
+
+  it('unbinds prewarmed runners and revokes activation tokens when deleting expired reservations', async () => {
+    const runner = await createIdleRunner({labels: ['linux']});
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+    const reservationId = result.reservations[0]?.reservationId;
+    if (!reservationId) throw new Error('Expected reservation');
+
+    await db()
+      .update(reservations)
+      .set({expiresAt: new Date(Date.now() - 60_000)})
+      .where(eq(reservations.id, reservationId));
+    const [activationToken] = await db()
+      .insert(runnerActivationTokens)
+      .values({
+        runnerInstanceId: runner.id,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!activationToken) throw new Error('Expected activation token');
+
+    const deleted = await deleteExpiredReservations();
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    const [storedToken] = await db()
+      .select()
+      .from(runnerActivationTokens)
+      .where(eq(runnerActivationTokens.id, activationToken.id));
+    expect(deleted).toBeGreaterThanOrEqual(1);
     expect(storedRunner).toMatchObject({
       workspaceId: null,
       reservationId: null,

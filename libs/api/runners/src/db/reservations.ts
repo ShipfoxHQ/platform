@@ -402,83 +402,98 @@ async function listActiveWorkspaceCapabilityLabelsTx(
 }
 
 export async function deleteExpiredReservations(params?: {limit?: number}): Promise<number> {
-  const expiredIds = db()
-    .select({id: reservations.id})
-    .from(reservations)
-    .where(lt(reservations.expiresAt, sql`now()`))
-    .orderBy(asc(reservations.expiresAt))
-    .limit(params?.limit ?? 1000);
-
-  const deleted = await db()
-    .delete(reservations)
-    .where(inArray(reservations.id, expiredIds))
-    .returning({id: reservations.id});
-
-  return deleted.length;
+  return await db().transaction(async (tx) => {
+    const expiredRows = await tx
+      .select({id: reservations.id})
+      .from(reservations)
+      .where(lt(reservations.expiresAt, sql`now()`))
+      .orderBy(asc(reservations.expiresAt))
+      .limit(params?.limit ?? 1000);
+    return await deleteReservationsWithCleanupTx(
+      tx,
+      expiredRows.map((reservation) => reservation.id),
+      {expiredOnly: true},
+    );
+  });
 }
 
 export async function deleteReservationsByIds(ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
 
   return await db().transaction(async (tx) => {
-    const assignedRunners = await tx
-      .select({id: providerRunners.id, reservationId: providerRunners.reservationId})
-      .from(providerRunners)
+    return await deleteReservationsWithCleanupTx(tx, ids);
+  });
+}
+
+async function deleteReservationsWithCleanupTx(
+  tx: Tx,
+  ids: string[],
+  params: {expiredOnly?: boolean} = {},
+): Promise<number> {
+  if (ids.length === 0) return 0;
+
+  const assignedRunners = await tx
+    .select({id: providerRunners.id, reservationId: providerRunners.reservationId})
+    .from(providerRunners)
+    .where(
+      and(
+        inArray(providerRunners.reservationId, ids),
+        isNull(providerRunners.runnerSessionId),
+        isNull(providerRunners.reservationReleasedAt),
+      ),
+    )
+    .for('update');
+  const reservationRows = await tx
+    .select({id: reservations.id})
+    .from(reservations)
+    .where(
+      and(
+        inArray(reservations.id, ids),
+        params.expiredOnly ? lt(reservations.expiresAt, sql`now()`) : undefined,
+      ),
+    )
+    .for('update');
+  const reservationIds = reservationRows.map((reservation) => reservation.id);
+
+  if (reservationIds.length === 0) return 0;
+
+  const assignedRunnerIds = assignedRunners
+    .filter((runner) => runner.reservationId && reservationIds.includes(runner.reservationId))
+    .map((runner) => runner.id);
+  if (assignedRunnerIds.length > 0) {
+    await tx
+      .update(runnerActivationTokens)
+      .set({revokedAt: sql`now()`})
       .where(
         and(
-          inArray(providerRunners.reservationId, ids),
+          inArray(runnerActivationTokens.runnerInstanceId, assignedRunnerIds),
+          isNull(runnerActivationTokens.consumedAt),
+          isNull(runnerActivationTokens.revokedAt),
+        ),
+      );
+    await tx
+      .update(providerRunners)
+      .set({
+        workspaceId: null,
+        reservationId: null,
+        assignedAt: null,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          inArray(providerRunners.id, assignedRunnerIds),
           isNull(providerRunners.runnerSessionId),
           isNull(providerRunners.reservationReleasedAt),
         ),
-      )
-      .for('update');
-    const reservationRows = await tx
-      .select({id: reservations.id})
-      .from(reservations)
-      .where(inArray(reservations.id, ids))
-      .for('update');
-    const reservationIds = reservationRows.map((reservation) => reservation.id);
+      );
+  }
 
-    if (reservationIds.length === 0) return 0;
+  const deleted = await tx
+    .delete(reservations)
+    .where(inArray(reservations.id, reservationIds))
+    .returning({id: reservations.id});
 
-    const assignedRunnerIds = assignedRunners
-      .filter((runner) => runner.reservationId && reservationIds.includes(runner.reservationId))
-      .map((runner) => runner.id);
-    if (assignedRunnerIds.length > 0) {
-      await tx
-        .update(runnerActivationTokens)
-        .set({revokedAt: sql`now()`})
-        .where(
-          and(
-            inArray(runnerActivationTokens.runnerInstanceId, assignedRunnerIds),
-            isNull(runnerActivationTokens.consumedAt),
-            isNull(runnerActivationTokens.revokedAt),
-          ),
-        );
-      await tx
-        .update(providerRunners)
-        .set({
-          workspaceId: null,
-          reservationId: null,
-          assignedAt: null,
-          updatedAt: sql`now()`,
-        })
-        .where(
-          and(
-            inArray(providerRunners.id, assignedRunnerIds),
-            isNull(providerRunners.runnerSessionId),
-            isNull(providerRunners.reservationReleasedAt),
-          ),
-        );
-    }
-
-    const deleted = await tx
-      .delete(reservations)
-      .where(inArray(reservations.id, reservationIds))
-      .returning({id: reservations.id});
-
-    return deleted.length;
-  });
+  return deleted.length;
 }
 
 export async function releaseReservationUnits(
