@@ -33,6 +33,7 @@ export {
   type GrantAdminRoleResponseDto,
   grantAdminRoleBodySchema,
   grantAdminRoleResponseSchema,
+  isAdminRole,
   type ListAdminGrantsQueryDto,
   type ListAdminGrantsResponseDto,
   listAdminGrantsQuerySchema,
