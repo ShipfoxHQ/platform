@@ -348,6 +348,7 @@ describe('project routes', () => {
     });
     expect(searchRes.json().projects[0]).not.toHaveProperty('source');
     expect(searchRes.json().projects[0]).not.toHaveProperty('source_connection_id');
+    expect(searchRes.json().projects[0]).not.toHaveProperty('source_external_repository_id');
 
     const firstPage = await app.inject({
       method: 'GET',
