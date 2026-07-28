@@ -10,9 +10,11 @@ const HARNESS_DIAGNOSTIC_MAX_LENGTH = 200;
 const PATH_PATTERN = /(?:file:\/\/)?\//g;
 const PATH_PREFIX_CHARACTER_PATTERN = /[A-Za-z0-9._~+@%]/;
 const NETWORK_URL_PATTERN = /(?:https?|ssh):\/{0,2}$/;
-const ABSOLUTE_PATH_FIRST_CHARACTER_PATTERN = /[\\/^*?()[\]{}]/;
+const REGEX_DIAGNOSTIC_PATTERN = /[\\^$*+?]/;
+const ENVIRONMENT_PATH_PREFIX_PATTERN = /(?:^|\s)[A-Za-z_][A-Za-z0-9_]*=$/;
 const WHITESPACE_PATTERN = /\s/;
 const PATH_EXTENSION_PATTERN = /\.[A-Za-z0-9]+$/;
+const PATH_BOUNDARY_PREFIX_PATTERN = /^[)\]}]/;
 const TRAILING_PATH_PUNCTUATION_PATTERN = /[.,;:]+$/;
 const TRUNCATION_TOKEN_PATTERN = /\s[^\s]*$/;
 
@@ -75,11 +77,12 @@ function sanitizeHarnessDiagnosticMessage(messages: readonly string[]): string {
 
 function sanitizeDiagnosticMessage(message: string): string {
   let cursor = 0;
+  let skippedUntil = 0;
   let sanitized = '';
 
   for (const match of message.matchAll(PATH_PATTERN)) {
     const matchStart = match.index;
-    if (matchStart < cursor) continue;
+    if (matchStart < cursor || matchStart < skippedUntil) continue;
 
     const prefix = match[0].startsWith('file://') ? 'file://' : '';
     const pathStart = matchStart + prefix.length;
@@ -88,8 +91,7 @@ function sanitizeDiagnosticMessage(message: string): string {
     if (
       (previousCharacter !== undefined && PATH_PREFIX_CHARACTER_PATTERN.test(previousCharacter)) ||
       isFileUrlSlash(message, pathStart) ||
-      isNetworkUrlSlash(message, pathStart) ||
-      !isLikelyAbsolutePath(message, pathStart)
+      isNetworkUrlSlash(message, pathStart)
     ) {
       continue;
     }
@@ -98,8 +100,13 @@ function sanitizeDiagnosticMessage(message: string): string {
     if (pathEnd <= pathStart + 1) continue;
 
     const path = message.slice(pathStart, pathEnd);
+    if (isSlashDelimitedDiagnostic(path)) {
+      skippedUntil = pathEnd;
+      continue;
+    }
+
     sanitized += message.slice(cursor, matchStart);
-    sanitized += `${prefix}${path.slice(path.lastIndexOf('/') + 1)}`;
+    sanitized += `${prefix}${basename(path)}`;
     cursor = pathEnd;
   }
 
@@ -116,12 +123,9 @@ function isNetworkUrlSlash(message: string, pathStart: number): boolean {
   return NETWORK_URL_PATTERN.test(protocolPrefix);
 }
 
-function isLikelyAbsolutePath(message: string, pathStart: number): boolean {
-  const firstPathCharacter = message[pathStart + 1];
-  return (
-    firstPathCharacter !== undefined &&
-    !ABSOLUTE_PATH_FIRST_CHARACTER_PATTERN.test(firstPathCharacter)
-  );
+function isSlashDelimitedDiagnostic(path: string): boolean {
+  if (!path.endsWith('/')) return false;
+  return path.includes('\\/') || REGEX_DIAGNOSTIC_PATTERN.test(path.slice(1, -1));
 }
 
 function findAbsolutePathEnd(message: string, pathStart: number): number {
@@ -130,21 +134,39 @@ function findAbsolutePathEnd(message: string, pathStart: number): number {
 
     if (isPathTerminator(character)) return index;
 
-    if ((character === ',' || character === ':') && message[index + 1] === '/') return index;
+    if (
+      (character === ',' || (character === ':' && isEnvironmentPath(message, pathStart))) &&
+      message[index + 1] === '/' &&
+      isAdjacentPathStart(message, index + 1)
+    ) {
+      return index;
+    }
 
     if (character !== undefined && WHITESPACE_PATTERN.test(character)) {
       const nextCharacter = skipWhitespace(message, index);
       const nextSegmentEnd = findNextPathTerminator(message, nextCharacter);
       const nextSegment = message.slice(nextCharacter, nextSegmentEnd);
       const continuesPath =
-        nextSegment.includes('/') ||
-        PATH_EXTENSION_PATTERN.test(nextSegment.replace(TRAILING_PATH_PUNCTUATION_PATTERN, ''));
+        !PATH_BOUNDARY_PREFIX_PATTERN.test(nextSegment) &&
+        (nextSegment.includes('/') ||
+          PATH_EXTENSION_PATTERN.test(nextSegment.replace(TRAILING_PATH_PUNCTUATION_PATTERN, '')));
 
       if (!continuesPath) return index;
     }
   }
 
   return message.length;
+}
+
+function isEnvironmentPath(message: string, pathStart: number): boolean {
+  return ENVIRONMENT_PATH_PREFIX_PATTERN.test(message.slice(0, pathStart));
+}
+
+function isAdjacentPathStart(message: string, pathStart: number): boolean {
+  const pathEnd = findAbsolutePathEnd(message, pathStart);
+  const path = message.slice(pathStart, pathEnd);
+  const lastComponent = basename(path).replace(TRAILING_PATH_PUNCTUATION_PATTERN, '');
+  return path.slice(1).includes('/') || PATH_EXTENSION_PATTERN.test(lastComponent);
 }
 
 function skipWhitespace(message: string, start: number): number {
@@ -170,12 +192,6 @@ function isPathTerminator(character: string | undefined): boolean {
     character === '<' ||
     character === '>' ||
     character === '|' ||
-    character === '(' ||
-    character === ')' ||
-    character === '[' ||
-    character === ']' ||
-    character === '{' ||
-    character === '}' ||
     character === ';'
   );
 }

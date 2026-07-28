@@ -431,6 +431,25 @@ describe('piHarnessAdapter', () => {
     );
   });
 
+  it('preserves slash syntax and sanitizes unusual absolute path shapes', async () => {
+    const diagnostic = {
+      type: 'error' as const,
+      message:
+        'Pattern /foo\\/bar/; directory /runner/extensions/; ' +
+        'path /runner/a:/secret; bracketed /[tenant]/secret',
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [diagnostic]),
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error.message).toBe(
+      'Pi extension setup failed: Pattern /foo\\/bar/; directory extensions; ' +
+        'path secret; bracketed secret',
+    );
+  });
+
   it('uses a generic message when all harness diagnostics are empty', async () => {
     createAgentSessionServicesMock.mockResolvedValue({
       ...piServices('/work', [
