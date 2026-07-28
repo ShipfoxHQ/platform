@@ -1,3 +1,9 @@
+export {
+  type ListRunnerAdministratorInstancesParams,
+  type ListRunnerAdministratorInstancesResult,
+  listRunnerAdministratorInstances,
+  type RunnerAdministratorInstance,
+} from './admin-runner-instances.js';
 export type {EphemeralRegistrationToken} from './entities/ephemeral-registration-token.js';
 export type {ManualRegistrationToken} from './entities/manual-registration-token.js';
 export type {ProvisionerCapabilitySnapshot} from './entities/provisioner-capability-snapshot.js';

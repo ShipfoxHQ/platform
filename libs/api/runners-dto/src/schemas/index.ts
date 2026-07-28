@@ -1,4 +1,16 @@
 export {
+  type ListRunnerAdministratorInstancesQueryDto,
+  type ListRunnerAdministratorInstancesResponseDto,
+  listRunnerAdministratorInstancesQuerySchema,
+  listRunnerAdministratorInstancesResponseSchema,
+  type RunnerAdministratorInstanceDto,
+  runnerAdministratorAssignmentPresenceSchema,
+  runnerAdministratorEnrollmentStateSchema,
+  runnerAdministratorInstanceSchema,
+  runnerAdministratorLifecycleStateSchema,
+  runnerAdministratorReconciliationStatusSchema,
+} from './admin-runner-instances.js';
+export {
   type AssignRunnerInstancesBodyDto,
   type AssignRunnerInstancesResponseDto,
   assignRunnerInstancesBodySchema,
