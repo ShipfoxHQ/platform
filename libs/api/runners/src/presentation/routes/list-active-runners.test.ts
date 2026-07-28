@@ -50,7 +50,7 @@ describe('GET /workspaces/:workspaceId/runners/active', () => {
   beforeEach(async () => {
     await closeApp();
     workspaceId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
     app = await createApp({
       auth: [
         fakeUserAuth,
@@ -353,7 +353,13 @@ describe('GET /workspaces/:workspaceId/runners/active', () => {
   });
 
   it('returns 403 when the user is not a workspace member', async () => {
-    authenticatedMemberships = [{workspaceId: crypto.randomUUID(), role: 'admin'}];
+    authenticatedMemberships = [
+      {
+        workspaceId: crypto.randomUUID(),
+        role: 'admin',
+        workspaceStatus: 'active',
+      },
+    ];
 
     const res = await app.inject({
       method: 'GET',

@@ -1,4 +1,4 @@
-import {AUTH_USER, getUserContext} from '@shipfox/api-auth-context';
+import {AUTH_USER, getUserContext, requireWorkspaceAccess} from '@shipfox/api-auth-context';
 import {createInvitationBodySchema, invitationDtoSchema} from '@shipfox/api-workspaces-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
@@ -45,6 +45,7 @@ export const createInvitationRoute = defineRoute({
     }
 
     const {workspaceId} = request.params;
+    requireWorkspaceAccess({request, workspaceId});
     const {email} = request.body;
     const invitation = await createWorkspaceInvitation({
       workspaceId,

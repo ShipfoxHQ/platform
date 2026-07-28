@@ -66,6 +66,21 @@ describe('POST /workspaces/:workspaceId/invitations', () => {
     expect(await invitationOutboxEventsTo(inviteeEmail)).toHaveLength(1);
   });
 
+  test('returns workspace-suspended for a suspended membership claim', async () => {
+    const workspaceId = crypto.randomUUID();
+    const token = `claim:${crypto.randomUUID()}:suspended-invite-create@example.com:${workspaceId}:suspended`;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/workspaces/${workspaceId}/invitations`,
+      headers: {authorization: `Bearer ${token}`},
+      payload: {email: uniqueEmail('suspended-invite')},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('workspace-suspended');
+  });
+
   test('transforms a whitespace/case-equivalent duplicate open invitation into 409', async () => {
     const owner = await signupVerifyLogin(app, 'invite-create-duplicate-equivalent');
     const workspaceId = await createWorkspace(app, owner.token);

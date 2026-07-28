@@ -70,6 +70,17 @@ Required environment:
 | `CLIENT_BASE_URL` | `http://localhost:5173` | Base URL used in email verification and password reset links. |
 | `ADMIN_BOOTSTRAP_TOKEN` | none | Deployment secret accepted once to create the first administrator owner. Set it before bootstrap and remove or rotate it after successful bootstrap. |
 
+The recommended access-token lifetime is 15 minutes. Because user JWTs are
+verified from their claims, a token issued before logout, password changes,
+session revocation, or workspace suspension remains usable until its configured
+`exp` time. Logout and session revocation block refresh-session renewal, while
+password changes revoke other refresh sessions and retain the current session
+when its refresh cookie is valid. Workspace suspension is carried into the next
+status-aware snapshot, where the stateless workspace gate rejects member access;
+none of these actions retroactively invalidate an issued access token. Newly
+issued and refreshed tokens carry workspace lifecycle status so the gate can
+return the stable suspended or inactive access result.
+
 Email delivery uses the shared `@shipfox/node-mailer` configuration.
 
 The signup gate is off by default. When it is on, provide at least one non-empty
@@ -99,8 +110,9 @@ itself.
 ### User session token
 
 - **Design:** a stateless session token. It carries the user's identity and
-  current membership list in its claims so protected routes can authorize without
-  a per-request user or membership lookup.
+  workspace membership list, including each workspace's lifecycle status, in
+  its claims so protected routes can authorize without a per-request user or
+  membership lookup.
 - **Audience:** signed-in users on first-party clients (web app, CLI).
 - **Grants:** the user's own account routes and, downstream, any route that
   authorizes against the membership claims. Its scope is "this user, with these
@@ -111,12 +123,12 @@ itself.
     fresh token when it expires.
   - *Store* — held in client memory only, never persisted to disk or local
     storage. Refresh sessions are stored server-side as hashes, never in raw form.
-  - *Discard* — expires on its own (minutes, not hours); the refresh session is
-    revoked on logout and on password change.
+  - *Discard* — expires at the configured `exp` time. Revoking the refresh
+    session blocks renewal but does not invalidate the issued access token.
 - **Tradeoff — stale memberships:** because memberships ride in the claims, a
-  membership change only takes effect on the next refresh. Accepted because the
-  token is short-lived, so the staleness window is bounded and a per-request
-  membership read is avoided.
+  membership or workspace-status change only takes effect on the next token
+  issuance or refresh. Accepted because the recommended lifetime is 15 minutes,
+  so the staleness window is bounded and a per-request membership read is avoided.
 
 ### Runner session token
 
@@ -279,9 +291,9 @@ All routes are mounted under `/admin/auth/users` and require an authenticated be
 
 | Method | Path | Required role | Result |
 | --- | --- | --- | --- |
-| `POST` | `/:userId/suspend` | `admin-operator` | Suspends the user, revokes all active sessions, and returns the final safe user summary with a correlation ID. |
+| `POST` | `/:userId/suspend` | `admin-operator` | Suspends the user, revokes all refresh sessions, and returns the final safe user summary with a correlation ID. Issued access tokens remain valid until `exp`. |
 | `POST` | `/:userId/reactivate` | `admin-operator` | Restores sign-in eligibility without restoring revoked sessions. |
-| `POST` | `/:userId/revoke-sessions` | `admin-operator` | Revokes all active sessions without changing account status and returns the number of affected sessions. |
+| `POST` | `/:userId/revoke-sessions` | `admin-operator` | Revokes all refresh sessions without changing account status and returns the number of affected sessions. Issued access tokens remain valid until `exp`. |
 
 Each command requires an `Idempotency-Key`. Suspension requires a bounded reason; reactivation and session revocation accept an optional bounded reason. Repeating a successful command returns its committed result. Reusing a key for a different command or request returns `409 idempotency-key-reused`.
 
@@ -311,7 +323,7 @@ It also exports lower-level pieces for tests and advanced integration:
 - `issueJobLeaseToken(claims)` / `verifyJobLeaseToken(token)`: mint and verify job lease tokens.
 - `createEnvironmentSignupPolicy()`: creates the environment-backed signup policy used by default. Pass `signupPolicy` to `createAuthModule` to replace it.
 - `getClientContext(request)`: reads the authenticated user context from a Fastify request.
-- `getAuthenticatedSessionContext(request)`: resolves an authenticated request to its user ID and active refresh-session ID.
+- `getAuthenticatedSessionContext(request)`: reads the user ID and required refresh-session ID from verified access-token claims. It does not check whether the refresh session is still active.
 - `findUserByEmail({email})`: read-only lookup of the current owner of a normalized email; see below.
 - Entity types: `User`, `UserStatus`, `RefreshToken`, `PasswordReset`, and `EmailOwner`.
 
@@ -416,9 +428,9 @@ const session = await getAuthenticatedSessionContext(request);
 ```
 
 The refresh-session ID remains the same when its refresh token rotates. The
-helper verifies that the session is active and belongs to the authenticated user,
-and returns the standard `401 unauthorized` error for a missing, malformed,
-expired, or revoked session. It exposes neither refresh-token material nor
+helper does not query the refresh-session table. It returns the standard `401
+unauthorized` error when the verified request context is missing, inconsistent,
+or has no refresh-session ID. It exposes neither refresh-token material nor
 storage details.
 
 ## Data Model
@@ -441,7 +453,11 @@ Passwords use Argon2id. Password reset tokens and refresh tokens are opaque toke
 - A denied password signup returns `403` with error code `signup-not-allowed`. The policy message is capped at 500 characters.
 - Invitation signup validates the invitation and bypasses the signup policy. Invitations remain a separate authorization path.
 - Login only succeeds for active users with verified email addresses and a password hash.
-- Authenticated requests reject suspended or deleted users. Session-bound access tokens also reject a revoked refresh session.
+- Login and refresh reject suspended or deleted users. Current-state reads such
+  as `/auth/me` still return the persisted suspended-user status. Ordinary JWT
+  verification does not query user or refresh-session rows.
+- Revoking a refresh session blocks renewal. An already-issued access token
+  remains valid until its configured `exp` time.
 - Refresh tokens rotate on each refresh.
 - Password reset tokens and email challenge proofs are consumed once.
 - Password change revokes other refresh sessions. It keeps the current session when the current refresh cookie is valid.

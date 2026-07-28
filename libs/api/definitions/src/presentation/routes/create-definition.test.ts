@@ -27,7 +27,7 @@ describe('POST /api/definitions', () => {
         buildUserContext({
           userId: crypto.randomUUID(),
           email: 'user@example.com',
-          memberships: [{workspaceId, role: 'admin'}],
+          memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
         }),
       );
       done();
@@ -92,7 +92,7 @@ jobs:
         buildUserContext({
           userId: crypto.randomUUID(),
           email: 'user@example.com',
-          memberships: [{workspaceId, role: 'admin'}],
+          memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
         }),
       );
       done();
@@ -165,7 +165,7 @@ jobs:
         buildUserContext({
           userId: crypto.randomUUID(),
           email: 'user@example.com',
-          memberships: [{workspaceId, role: 'admin'}],
+          memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
         }),
       );
       done();

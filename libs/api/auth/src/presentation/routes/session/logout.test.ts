@@ -36,10 +36,16 @@ describe('POST /auth/logout', () => {
       headers: {cookie: cookieHeader(account.refreshCookie)},
       payload: {},
     });
+    const access = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: {authorization: `Bearer ${account.token}`},
+    });
 
     expect(res.statusCode).toBe(204);
     expect(res.headers['set-cookie']).toContain('shipfox_refresh_token=;');
     expect(refresh.statusCode).toBe(401);
+    expect(access.statusCode).toBe(200);
   });
 
   test('returns 204 when the refresh cookie is missing', async () => {

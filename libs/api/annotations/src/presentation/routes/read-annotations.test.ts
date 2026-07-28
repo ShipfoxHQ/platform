@@ -16,7 +16,13 @@ const fakeUserAuth: AuthMethod = {
     const memberships = rawWorkspaceIds
       .split(',')
       .filter((workspaceId) => workspaceId.length > 0)
-      .map((workspaceId) => ({workspaceId, role: 'admin' as const}));
+      .map((value) => {
+        const [workspaceId, status] = value.split('|');
+        if (!workspaceId) throw new Error('missing test workspace id');
+        const workspaceStatus: 'active' | 'suspended' | 'deleted' =
+          status === 'suspended' ? 'suspended' : status === 'deleted' ? 'deleted' : 'active';
+        return {workspaceId, role: 'admin' as const, workspaceStatus};
+      });
 
     setUserContext(
       request,
@@ -138,6 +144,24 @@ describe('GET /annotations', () => {
       method: 'GET',
       url: readUrl({workflowRunId, attempt: 1}),
       headers: {authorization: 'Bearer user', 'x-test-workspaces': crypto.randomUUID()},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({annotations: [], has_more: false, next_cursor: null});
+  });
+
+  it('does not return annotations for suspended membership claims', async () => {
+    const workspaceId = crypto.randomUUID();
+    const workflowRunId = crypto.randomUUID();
+    await annotationFactory.create({workspaceId, workflowRunId});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: readUrl({workflowRunId, attempt: 1}),
+      headers: {
+        authorization: 'Bearer user',
+        'x-test-workspaces': `${workspaceId}|suspended`,
+      },
     });
 
     expect(res.statusCode).toBe(200);

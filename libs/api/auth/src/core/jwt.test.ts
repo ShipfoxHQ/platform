@@ -12,8 +12,8 @@ describe('jwt', () => {
     const userId = crypto.randomUUID();
     const email = `jwt-${crypto.randomUUID()}@example.com`;
     const memberships: TokenMembership[] = [
-      {workspaceId: crypto.randomUUID(), role: 'admin'},
-      {workspaceId: crypto.randomUUID(), role: 'admin'},
+      {workspaceId: crypto.randomUUID(), role: 'admin', workspaceStatus: 'active'},
+      {workspaceId: crypto.randomUUID(), role: 'admin', workspaceStatus: 'suspended'},
     ];
 
     const token = await signUserToken({
@@ -140,7 +140,7 @@ describe('jwt', () => {
   test('rejects a token with non-UUID workspaceId in memberships', async () => {
     const token = await new SignJWT({
       email: `jwt-${crypto.randomUUID()}@example.com`,
-      memberships: [{workspaceId: 'not-a-uuid', role: 'admin'}],
+      memberships: [{workspaceId: 'not-a-uuid', role: 'admin', workspaceStatus: 'active'}],
     })
       .setProtectedHeader({alg: 'HS256'})
       .setSubject(crypto.randomUUID())
@@ -151,10 +151,26 @@ describe('jwt', () => {
     await expect(verifyUserToken({token, secret: SECRET})).rejects.toThrow();
   });
 
+  test('accepts legacy tokens with missing workspace status as active', async () => {
+    const token = await new SignJWT({
+      email: `jwt-${crypto.randomUUID()}@example.com`,
+      memberships: [{workspaceId: crypto.randomUUID(), role: 'admin'}],
+    })
+      .setProtectedHeader({alg: 'HS256'})
+      .setSubject(crypto.randomUUID())
+      .setIssuedAt()
+      .setExpirationTime('7d')
+      .sign(encodeSecret(SECRET));
+
+    await expect(verifyUserToken({token, secret: SECRET})).resolves.toMatchObject({
+      memberships: [{workspaceId: expect.any(String), role: 'admin', workspaceStatus: 'active'}],
+    });
+  });
+
   test('rejects a token with unknown role value', async () => {
     const token = await new SignJWT({
       email: `jwt-${crypto.randomUUID()}@example.com`,
-      memberships: [{workspaceId: crypto.randomUUID(), role: 'owner'}],
+      memberships: [{workspaceId: crypto.randomUUID(), role: 'owner', workspaceStatus: 'active'}],
     })
       .setProtectedHeader({alg: 'HS256'})
       .setSubject(crypto.randomUUID())

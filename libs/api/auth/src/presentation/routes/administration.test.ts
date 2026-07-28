@@ -723,7 +723,8 @@ describe('Auth administration routes', () => {
       headers: {authorization: `Bearer ${target.token}`},
     });
     const suspendedLogin = await login(app, {email: target.email, password: target.password});
-    expect(suspendedMe.statusCode).toBe(401);
+    expect(suspendedMe.statusCode).toBe(200);
+    expect(suspendedMe.json().user).toMatchObject({id: target.userId, status: 'suspended'});
     expect(suspendedLogin.statusCode).toBe(401);
 
     const suspendedDbUser = (
@@ -840,6 +841,13 @@ describe('Auth administration routes', () => {
       payload: {},
     });
     expect(secondRefresh.statusCode).toBe(401);
+
+    const revokedAccess = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: {authorization: `Bearer ${newLogin.json().token}`},
+    });
+    expect(revokedAccess.statusCode).toBe(200);
 
     const repeatedRevoke = await app.inject({
       method: 'POST',

@@ -188,10 +188,12 @@ tokens, bootstrap values, or database errors.
 
 ### Define suspension semantics
 
-**User suspension blocks authentication and revokes active sessions.** New
-sign-ins become ineligible. Authenticated requests check the current user
-suspension state as well as the session. Reactivation restores eligibility to
-sign in but does not restore revoked sessions or modify the user's data.
+**User suspension blocks new authentication and revokes refresh sessions.**
+New sign-ins become ineligible. Current-state reads such as `/auth/me` expose
+the persisted suspended status, while ordinary JWT verification remains
+claim-only. An access token already issued remains usable until its configured
+`exp` time. Reactivation restores eligibility to sign in but does not restore
+revoked refresh sessions or modify the user's data.
 
 **Workspace suspension blocks every new-job admission path.** The workspace
 and its data remain in place. Member actions, triggers, schedules, and
@@ -199,10 +201,30 @@ webhook-driven admission reject new work with the stable
 `workspace-suspended` result. The result is not transient and must not create
 a retry loop.
 
+Newly issued or refreshed user JWTs carry the lifecycle status of each workspace
+membership. The stateless member-access gate maps a `suspended` claim to the
+stable `workspace-suspended` result (409) and a deleted claim to
+`workspace-inactive` (403); an absent membership remains an ordinary forbidden
+result. Workspace-scoped member, invitation, trigger, log, and workflow routes
+use that gate. Resource routes retain a non-leaking 404 for missing resources or
+memberships, while annotation reads filter to active claimed workspaces and
+return no rows for suspended or deleted claims. Existing access tokens remain
+usable until their configured `exp` time because workspace authorization is
+claim-based. Refresh-session state is the renewal boundary; it does not
+retroactively invalidate an issued access token. The recommended access-token
+lifetime is 15 minutes.
+
+The refresh membership snapshot is read before refresh-token rotation and
+access-token signing. If workspace suspension races with that read, the
+in-flight refresh may still issue a token containing the pre-suspension status;
+the next refresh observes the new workspace state. This bounded snapshot race
+is accepted alongside the claim-based access-token lifetime.
+
 Jobs queued or running before suspension continue to their normal terminal
 state. Suspension does not cancel jobs, revoke runner leases, or stop active
-workflow execution. Reactivation restores normal access and admission rules.
-It does not replay work rejected during suspension.
+workflow execution. Reactivation makes newly issued or refreshed claims active;
+existing access tokens retain their claim snapshot until expiration. It does not
+replay work rejected during suspension.
 
 Member-facing routes expose only a safe suspension state. The client replaces
 ordinary workspace content with a neutral suspension page. It does not show

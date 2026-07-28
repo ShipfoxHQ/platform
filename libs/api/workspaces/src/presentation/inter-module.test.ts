@@ -1,3 +1,4 @@
+import {buildUserContext, requireWorkspaceAccess, setUserContext} from '@shipfox/api-auth-context';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {createInMemoryInterModuleTransport} from '@shipfox/node-module/inter-module';
@@ -52,6 +53,56 @@ describe('Workspaces inter-module presentation', () => {
     const result = await client.getWorkspaceCreator({workspaceId: workspace.id});
 
     expect(result).toEqual({creatorUserId: null});
+  });
+
+  test('carries workspace status into token claims', async () => {
+    const client = createClient();
+    const userId = crypto.randomUUID();
+    const active = await createWorkspaceForUser({name: 'Active Workspace', userId});
+    const suspended = await createWorkspaceForUser({name: 'Suspended Workspace', userId});
+    const deleted = await createWorkspaceForUser({name: 'Deleted Workspace', userId});
+    await updateWorkspace({id: suspended.id, status: 'suspended'});
+    await updateWorkspace({id: deleted.id, status: 'deleted'});
+
+    expect(await client.listMembershipsForTokenClaims({userId})).toEqual({
+      memberships: [
+        {workspaceId: active.id, role: 'admin', workspaceStatus: 'active'},
+        {workspaceId: deleted.id, role: 'admin', workspaceStatus: 'deleted'},
+        {workspaceId: suspended.id, role: 'admin', workspaceStatus: 'suspended'},
+      ],
+    });
+
+    await updateWorkspace({id: suspended.id, status: 'active'});
+
+    expect(await client.listMembershipsForTokenClaims({userId})).toEqual({
+      memberships: [
+        {workspaceId: active.id, role: 'admin', workspaceStatus: 'active'},
+        {workspaceId: deleted.id, role: 'admin', workspaceStatus: 'deleted'},
+        {workspaceId: suspended.id, role: 'admin', workspaceStatus: 'active'},
+      ],
+    });
+  });
+
+  test('preserves suspended-workspace access errors through the claim boundary', async () => {
+    const client = createClient();
+    const userId = crypto.randomUUID();
+    const workspace = await createWorkspaceForUser({name: 'Suspended Access Workspace', userId});
+    await updateWorkspace({id: workspace.id, status: 'suspended'});
+
+    const claims = await client.listMembershipsForTokenClaims({userId});
+    const request = {};
+    setUserContext(
+      request,
+      buildUserContext({
+        userId,
+        email: `user-${userId}@example.com`,
+        memberships: claims.memberships,
+      }),
+    );
+
+    expect(() => requireWorkspaceAccess({request, workspaceId: workspace.id})).toThrow(
+      expect.objectContaining({code: 'workspace-suspended', status: 409}),
+    );
   });
 
   test('returns only the current workspace operating state', async () => {

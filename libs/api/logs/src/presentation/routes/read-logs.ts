@@ -1,4 +1,4 @@
-import {requireUserContext} from '@shipfox/api-auth-context';
+import {requireWorkspaceResourceAccess} from '@shipfox/api-auth-context';
 import {readLogsQuerySchema, readLogsResponseSchema} from '@shipfox/api-logs-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
@@ -22,16 +22,20 @@ export const readLogsRoute = defineRoute({
     },
   },
   handler: async (request) => {
-    const user = requireUserContext(request);
     const {stepId, attempt} = request.params;
     const {cursor} = request.query;
 
     const stream = await getStreamByStepAttempt({stepId, attempt});
-    // 404 covers both "no such stream" and "not your workspace" so the endpoint never
-    // leaks the existence of another workspace's step.
-    if (!stream || !user.canAccess(stream.workspaceId)) {
+    // Missing streams and memberships remain 404 so the endpoint never leaks another
+    // workspace's step; lifecycle claims propagate their stable access errors.
+    if (!stream) {
       throw new ClientError('Logs not found', 'not-found', {status: 404});
     }
+    requireWorkspaceResourceAccess({
+      request,
+      workspaceId: stream.workspaceId,
+      notFoundError: new ClientError('Logs not found', 'not-found', {status: 404}),
+    });
 
     return toReadLogsDto(await buildLogReadResult(stream, cursor));
   },

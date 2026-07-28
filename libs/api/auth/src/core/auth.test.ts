@@ -73,7 +73,13 @@ vi.mock('#config.js', () => ({
 vi.mock('@shipfox/node-mailer', () => ({mailer: testConfig.mailer}));
 
 const listMembershipsByUserMock = vi.fn(() =>
-  Promise.resolve({memberships: [] as Array<{workspaceId: string; role: 'admin'}>}),
+  Promise.resolve({
+    memberships: [] as Array<{
+      workspaceId: string;
+      role: 'admin';
+      workspaceStatus: 'active' | 'suspended' | 'deleted';
+    }>,
+  }),
 );
 const workspaces = {
   listMembershipsForTokenClaims: listMembershipsByUserMock,
@@ -492,7 +498,6 @@ describe('auth core', () => {
   test('refreshAccessToken rejects a lost rotation claim when the token was revoked', async () => {
     const user = await userFactory.create({emailVerifiedAt: new Date()});
     const loginResult = await login({email: user.email, password: user.plainPassword});
-    listMembershipsByUserMock.mockClear();
     vi.spyOn(refreshTokenDb, 'rotateRefreshToken').mockImplementationOnce(async () => {
       await logout({refreshToken: loginResult.refreshToken});
       return undefined;
@@ -501,7 +506,9 @@ describe('auth core', () => {
     const raced = refreshAccessToken({refreshToken: loginResult.refreshToken});
 
     await expect(raced).rejects.toBeInstanceOf(TokenInvalidError);
-    expect(listMembershipsByUserMock).not.toHaveBeenCalled();
+    await expect(
+      verifyUserToken({token: loginResult.token, secret: userAccessTokenKey()}),
+    ).resolves.toMatchObject({sub: user.id});
   });
 
   test('refreshAccessToken rejects reuse past the grace window and revokes the session', async () => {
@@ -524,6 +531,9 @@ describe('auth core', () => {
         })
       : undefined;
     expect(successor).toBeUndefined();
+    await expect(
+      verifyUserToken({token: refreshed.token, secret: userAccessTokenKey()}),
+    ).resolves.toMatchObject({sub: user.id});
   });
 
   test('refreshAccessToken rejects refresh tokens for inactive users', async () => {
@@ -597,6 +607,9 @@ describe('auth core', () => {
 
     expect(currentRefresh.user.id).toBe(user.id);
     await expect(otherRefresh).rejects.toBeInstanceOf(TokenInvalidError);
+    await expect(
+      verifyUserToken({token: loginResult.token, secret: userAccessTokenKey()}),
+    ).resolves.toMatchObject({sub: user.id});
   });
 
   test('changePassword rejects unknown users and invalid current passwords', async () => {
@@ -696,8 +709,8 @@ describe('auth core', () => {
     const workspaceB = crypto.randomUUID();
     listMembershipsByUserMock.mockResolvedValueOnce({
       memberships: [
-        {workspaceId: workspaceA, role: 'admin'},
-        {workspaceId: workspaceB, role: 'admin'},
+        {workspaceId: workspaceA, role: 'admin', workspaceStatus: 'active'},
+        {workspaceId: workspaceB, role: 'admin', workspaceStatus: 'suspended'},
       ],
     });
 
@@ -706,8 +719,8 @@ describe('auth core', () => {
     const claims = await verifyUserToken({token: result.token, secret: userAccessTokenKey()});
     expect(claims.name).toBe(user.name);
     expect(claims.memberships).toEqual([
-      {workspaceId: workspaceA, role: 'admin'},
-      {workspaceId: workspaceB, role: 'admin'},
+      {workspaceId: workspaceA, role: 'admin', workspaceStatus: 'active'},
+      {workspaceId: workspaceB, role: 'admin', workspaceStatus: 'suspended'},
     ]);
   });
 
@@ -718,7 +731,7 @@ describe('auth core', () => {
 
     const newWorkspaceId = crypto.randomUUID();
     listMembershipsByUserMock.mockResolvedValueOnce({
-      memberships: [{workspaceId: newWorkspaceId, role: 'admin'}],
+      memberships: [{workspaceId: newWorkspaceId, role: 'admin', workspaceStatus: 'active'}],
     });
     const refreshed = await refreshAccessToken({refreshToken: loginResult.refreshToken});
 
@@ -726,7 +739,9 @@ describe('auth core', () => {
       token: refreshed.token,
       secret: userAccessTokenKey(),
     });
-    expect(refreshedClaims.memberships).toEqual([{workspaceId: newWorkspaceId, role: 'admin'}]);
+    expect(refreshedClaims.memberships).toEqual([
+      {workspaceId: newWorkspaceId, role: 'admin', workspaceStatus: 'active'},
+    ]);
   });
 
   test('login fails closed when listMembershipsByUser throws', async () => {
@@ -738,7 +753,7 @@ describe('auth core', () => {
     await expect(promise).rejects.toBeInstanceOf(AuthDependencyUnavailableError);
   });
 
-  test('refresh fails closed when listMembershipsByUser throws', async () => {
+  test('does not rotate a refresh token when listMembershipsByUser throws', async () => {
     const user = await userFactory.create({emailVerifiedAt: new Date()});
     listMembershipsByUserMock.mockResolvedValueOnce({memberships: []});
     const loginResult = await login({email: user.email, password: user.plainPassword});
@@ -747,5 +762,9 @@ describe('auth core', () => {
     const promise = refreshAccessToken({refreshToken: loginResult.refreshToken});
 
     await expect(promise).rejects.toBeInstanceOf(AuthDependencyUnavailableError);
+
+    const retry = await refreshAccessToken({refreshToken: loginResult.refreshToken});
+    expect(retry.token).toEqual(expect.any(String));
+    expect(retry.refreshToken).toEqual(expect.any(String));
   });
 });

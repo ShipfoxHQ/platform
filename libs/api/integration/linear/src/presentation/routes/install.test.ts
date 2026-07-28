@@ -141,7 +141,7 @@ describe('Linear integration routes', () => {
   it('returns an actor=app OAuth URL with signed workspace state', async () => {
     const app = await createTestApp();
     const workspaceId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
 
     const res = await app.inject({
       method: 'POST',
@@ -216,7 +216,7 @@ describe('Linear integration routes', () => {
     expect(requireWorkspaceMembershipMock).toHaveBeenCalledWith({
       workspaceId,
       userId: 'user-1',
-      memberships: [{workspaceId, role: 'admin'}],
+      memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
     });
   });
 
@@ -272,7 +272,7 @@ describe('Linear integration routes', () => {
     expect(requireWorkspaceMembershipMock).toHaveBeenCalledWith({
       workspaceId,
       userId: 'user-1',
-      memberships: [{workspaceId, role: 'admin'}],
+      memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
     });
   });
 
@@ -442,7 +442,7 @@ describe('Linear integration routes', () => {
 });
 
 async function createInstallState(app: FastifyInstance, workspaceId: string): Promise<string> {
-  authenticatedMemberships = [{workspaceId, role: 'admin'}];
+  authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
   const res = await app.inject({
     method: 'POST',
     url: '/integrations/linear/install',

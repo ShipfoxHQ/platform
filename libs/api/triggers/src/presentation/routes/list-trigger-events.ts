@@ -1,4 +1,4 @@
-import {requireUserContext} from '@shipfox/api-auth-context';
+import {requireWorkspaceAccess} from '@shipfox/api-auth-context';
 import {
   triggerEventListQuerySchema,
   triggerEventListResponseSchema,
@@ -30,10 +30,7 @@ export const listTriggerEventsRoute = defineRoute({
       cursor,
     } = request.query;
 
-    const userContext = requireUserContext(request);
-    if (!userContext.canAccess(workspaceId)) {
-      throw new ClientError('Not a member of this workspace', 'forbidden', {status: 403});
-    }
+    requireWorkspaceAccess({request, workspaceId});
 
     const decodedCursor = decodeTimestampIdCursor(cursor);
     if (cursor && !decodedCursor) {

@@ -1,4 +1,5 @@
 import type {FastifyInstance} from 'fastify';
+import {updateWorkspace} from '#db/workspaces.js';
 import {
   createExpiredInvite,
   createInvite,
@@ -46,6 +47,21 @@ describe('GET /workspaces/:workspaceId/invitations', () => {
     ]);
   });
 
+  test('keeps an active claim usable when the workspace row is suspended', async () => {
+    const owner = await signupVerifyLogin(app, 'invite-list-snapshot');
+    const workspaceId = await createWorkspace(app, owner.token);
+    await updateWorkspace({id: workspaceId, status: 'suspended'});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/workspaces/${workspaceId}/invitations`,
+      headers: {authorization: `Bearer ${owner.token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().invitations).toEqual([]);
+  });
+
   test('excludes expired unaccepted invitations', async () => {
     const owner = await signupVerifyLogin(app, 'invite-list-expired-owner');
     const workspaceId = await createWorkspace(app, owner.token);
@@ -63,6 +79,20 @@ describe('GET /workspaces/:workspaceId/invitations', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().invitations).toEqual([]);
+  });
+
+  test('returns workspace-suspended for a suspended membership claim', async () => {
+    const workspaceId = crypto.randomUUID();
+    const token = `claim:${crypto.randomUUID()}:suspended-invite-list@example.com:${workspaceId}:suspended`;
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/workspaces/${workspaceId}/invitations`,
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('workspace-suspended');
   });
 
   test('transforms missing membership into 403', async () => {

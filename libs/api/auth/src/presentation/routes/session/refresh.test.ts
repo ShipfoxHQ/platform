@@ -85,5 +85,16 @@ describe('POST /auth/refresh', () => {
 
     expect(res.statusCode).toBe(503);
     expect(res.json().code).toBe('auth-dependency-unavailable');
+    expect(res.headers['set-cookie']).toBeUndefined();
+
+    const retry = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: cookieHeader(account.refreshCookie)},
+    });
+
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json().token).toBeDefined();
+    expect(retry.headers['set-cookie']).toContain('shipfox_refresh_token=');
   });
 });

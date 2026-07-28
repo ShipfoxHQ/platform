@@ -1,4 +1,4 @@
-import {workspaceRoleSchema} from '@shipfox/api-workspaces-dto';
+import {workspaceRoleSchema, workspaceStatusSchema} from '@shipfox/api-workspaces-dto';
 import {signHs256, verifyHs256} from '@shipfox/node-jwt';
 import {z} from 'zod';
 import {recordTokenIssued, recordTokenVerified} from '#metrics/index.js';
@@ -6,6 +6,7 @@ import {recordTokenIssued, recordTokenVerified} from '#metrics/index.js';
 export const tokenMembershipSchema = z.object({
   workspaceId: z.string().uuid(),
   role: workspaceRoleSchema,
+  workspaceStatus: workspaceStatusSchema.default('active'),
 });
 
 export type TokenMembership = z.infer<typeof tokenMembershipSchema>;

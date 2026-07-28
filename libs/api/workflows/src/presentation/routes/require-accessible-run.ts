@@ -20,7 +20,10 @@ export async function requireAccessibleRun({
   }
 
   await requireProjectAccess(request, run.projectId, projects).catch((err: unknown) => {
-    if (err instanceof ClientError && (err.status === 403 || err.status === 404)) {
+    if (
+      err instanceof ClientError &&
+      (err.status === 404 || (err.status === 403 && err.code === 'forbidden'))
+    ) {
       throw new ClientError('Run not found', 'not-found', {status: 404});
     }
     throw err;

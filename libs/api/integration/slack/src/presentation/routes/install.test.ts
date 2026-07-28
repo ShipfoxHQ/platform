@@ -123,7 +123,7 @@ describe('Slack integration routes', () => {
   it('returns Slack’s bot-only OAuth URL with signed workspace state', async () => {
     const app = await createTestApp();
     const workspaceId = '00000000-0000-4000-8000-000000000002';
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
 
     const res = await app.inject({
       method: 'POST',
@@ -172,7 +172,7 @@ describe('Slack integration routes', () => {
     const tokenStore = {storeTokens: vi.fn(() => Promise.resolve())};
     const app = await createTestApp({tokenStore, agentTools});
     const workspaceId = '00000000-0000-4000-8000-000000000002';
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
     const install = await app.inject({
       method: 'POST',
       url: '/integrations/slack/install',
@@ -205,7 +205,7 @@ describe('Slack integration routes', () => {
     });
     const app = await createTestApp({slack, tokenStore});
     const workspaceId = '00000000-0000-4000-8000-000000000002';
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
     const install = await app.inject({
       method: 'POST',
       url: '/integrations/slack/install',

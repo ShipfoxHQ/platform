@@ -116,7 +116,7 @@ describe('Gitea connection routes', () => {
   it('connects an org and returns the connection DTO', async () => {
     const app = await createTestApp();
     const workspaceId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
 
     const res = await app.inject({
       method: 'POST',
@@ -137,7 +137,7 @@ describe('Gitea connection routes', () => {
       gitea: giteaClient({organizationExists: vi.fn(() => Promise.resolve(false))}),
     });
     const workspaceId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
 
     const res = await app.inject({
       method: 'POST',
@@ -152,7 +152,7 @@ describe('Gitea connection routes', () => {
 
   it('returns 409 when the org is already linked to another workspace', async () => {
     const workspaceId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
     const app = await createTestApp({
       existingConnection: {
         id: crypto.randomUUID(),
@@ -180,7 +180,7 @@ describe('Gitea connection routes', () => {
 
   it('returns 409 when connection slug allocation conflicts repeatedly', async () => {
     const workspaceId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
     const app = await createTestApp({
       connectGiteaConnection: vi.fn(() =>
         Promise.reject(new ConnectionSlugConflictError(new Error('duplicate slug'))),

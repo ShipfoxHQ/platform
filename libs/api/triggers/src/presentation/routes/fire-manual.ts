@@ -1,4 +1,4 @@
-import {requireUserContext} from '@shipfox/api-auth-context';
+import {requireUserContext, requireWorkspaceResourceAccess} from '@shipfox/api-auth-context';
 import {
   fireManualTriggerBodySchema,
   fireManualTriggerResponseSchema,
@@ -81,10 +81,18 @@ export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
       const userContext = requireUserContext(request);
 
       const subscription = await getManualSubscriptionByDefinitionId(definitionId);
-      // 404 covers both "no such manual trigger" and "not your workspace" to avoid leaking existence.
-      if (!subscription || !userContext.canAccess(subscription.workspaceId)) {
+      // Missing triggers and memberships remain 404 to avoid leaking existence; lifecycle claims
+      // propagate their stable access errors.
+      if (!subscription) {
         throw new ManualTriggerNotFoundError(definitionId);
       }
+      requireWorkspaceResourceAccess({
+        request,
+        workspaceId: subscription.workspaceId,
+        notFoundError: new ClientError('Manual trigger not found', 'manual-trigger-not-found', {
+          status: 404,
+        }),
+      });
 
       const run = await fireManualSubscription({
         workflows,

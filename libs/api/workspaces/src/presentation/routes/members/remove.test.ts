@@ -79,6 +79,20 @@ describe('DELETE /workspaces/:workspaceId/members/:userId', () => {
     expect(res.json().code).toBe('self-removal-not-allowed');
   });
 
+  test('returns workspace-suspended for a suspended membership claim', async () => {
+    const workspaceId = crypto.randomUUID();
+    const token = `claim:${crypto.randomUUID()}:suspended-member-remove@example.com:${workspaceId}:suspended`;
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/workspaces/${workspaceId}/members/${crypto.randomUUID()}`,
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('workspace-suspended');
+  });
+
   test('transforms missing membership into 403', async () => {
     const outsider = await signupVerifyLogin(app, 'members-remove-outsider');
     const workspaceId = crypto.randomUUID();

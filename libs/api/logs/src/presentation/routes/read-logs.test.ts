@@ -50,13 +50,15 @@ const fakeUserAuth: AuthMethod = {
       throw new ClientError('Invalid user token', 'unauthorized', {status: 401});
     }
     const header = request.headers['x-test-workspace'];
-    const workspaceId = Array.isArray(header) ? header[0] : header;
+    const value = Array.isArray(header) ? header[0] : header;
+    const [workspaceId, status] = value?.split('|') ?? [];
+    const workspaceStatus = status === 'suspended' || status === 'deleted' ? status : 'active';
     setUserContext(
       request,
       buildUserContext({
         userId: 'user-1',
         email: 'user@example.com',
-        memberships: workspaceId ? [{workspaceId, role: 'admin'}] : [],
+        memberships: workspaceId ? [{workspaceId, role: 'admin', workspaceStatus}] : [],
       }),
     );
     return Promise.resolve();
@@ -174,11 +176,11 @@ describe('GET /steps/:stepId/attempts/:attempt/logs', () => {
     return `/steps/${stepId}/attempts/${attempt}/logs?cursor=${cursor}`;
   }
 
-  function authedGet(stream: AttemptStream, cursor: number, workspaceId = stream.workspaceId) {
+  function authedGet(stream: AttemptStream, cursor: number, workspaceClaim = stream.workspaceId) {
     return app.inject({
       method: 'GET',
       url: readUrl(stream.stepId, stream.attempt, cursor),
-      headers: {authorization: 'Bearer user', 'x-test-workspace': workspaceId},
+      headers: {authorization: 'Bearer user', 'x-test-workspace': workspaceClaim},
     });
   }
 
@@ -286,6 +288,18 @@ describe('GET /steps/:stepId/attempts/:attempt/logs', () => {
 
     expect(res.statusCode).toBe(404);
     expect(res.json().code).toBe('not-found');
+  });
+
+  it('returns workspace-suspended for a suspended membership claim', async () => {
+    const stream = await arrangeStream({
+      workspaceId: crypto.randomUUID(),
+      chunks: [ndjsonBody(outputLine('secret\n'))],
+    });
+
+    const res = await authedGet(stream, 0, `${stream.workspaceId}|suspended`);
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('workspace-suspended');
   });
 
   it('serves an open stream inline with the next cursor and stream state', async () => {

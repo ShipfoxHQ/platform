@@ -62,7 +62,11 @@ function callbackParams(
     }),
     sessionUserId: 'user-1',
     sessionMemberships: [
-      {workspaceId: '00000000-0000-4000-8000-000000000002', role: 'admin'},
+      {
+        workspaceId: '00000000-0000-4000-8000-000000000002',
+        role: 'admin',
+        workspaceStatus: 'active',
+      },
     ] satisfies UserContextMembership[],
     requireWorkspaceMembership: vi.fn(() => Promise.resolve()),
     getExistingSlackConnection: vi.fn(() => Promise.resolve(undefined)),

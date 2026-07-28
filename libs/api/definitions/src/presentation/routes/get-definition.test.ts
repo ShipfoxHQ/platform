@@ -37,7 +37,7 @@ describe('GET /api/definitions/:id', () => {
         buildUserContext({
           userId: crypto.randomUUID(),
           email: 'user@example.com',
-          memberships: [{workspaceId, role: 'admin'}],
+          memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
         }),
       );
       done();

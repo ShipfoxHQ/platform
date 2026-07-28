@@ -105,7 +105,7 @@ describe('invitations core', () => {
       workspaceId: workspace.id,
       email,
       invitedByUserId: inviter.userId,
-      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin'}],
+      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
     });
 
     expect(invitation.email).toBe(email);
@@ -129,7 +129,7 @@ describe('invitations core', () => {
       email,
       invitedByUserId: inviter.userId,
       invitedByDisplay: 'Dana Scully',
-      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin'}],
+      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
     });
 
     const payload = await latestInvitationPayload(email);
@@ -157,7 +157,7 @@ describe('invitations core', () => {
       workspaceId: workspace.id,
       email,
       invitedByUserId: inviter.userId,
-      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin'}],
+      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
     });
 
     const payload = await latestInvitationPayload(email);
@@ -181,7 +181,7 @@ describe('invitations core', () => {
       email,
       invitedByUserId: inviter.userId,
       invitedByDisplay: '   ',
-      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin'}],
+      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
     });
 
     const payload = await latestInvitationPayload(email);
@@ -204,14 +204,14 @@ describe('invitations core', () => {
       workspaceId: workspace.id,
       email,
       invitedByUserId: inviter.userId,
-      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin'}],
+      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
     });
 
     const promise = createWorkspaceInvitation({
       workspaceId: workspace.id,
       email,
       invitedByUserId: inviter.userId,
-      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin'}],
+      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
     });
 
     await expect(promise).rejects.toBeInstanceOf(OpenInvitationExistsError);
@@ -233,7 +233,7 @@ describe('invitations core', () => {
       workspaceId: workspace.id,
       email: invitee.email,
       invitedByUserId: inviter.userId,
-      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin'}],
+      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
     });
     const token = extractToken((await latestInvitationPayload(invitee.email)).inviteLink);
 
@@ -269,7 +269,7 @@ describe('invitations core', () => {
       workspaceId: workspace.id,
       email,
       invitedByUserId: inviter.userId,
-      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin'}],
+      invitedByMemberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
     });
     const payload = await latestInvitationPayload(email);
     const token = extractToken(payload.inviteLink);

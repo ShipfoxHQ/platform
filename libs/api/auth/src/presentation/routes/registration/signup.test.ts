@@ -165,7 +165,7 @@ describe('POST /auth/signup', () => {
       alreadyMember: false,
     }));
     listMembershipsByUserMock.mockResolvedValueOnce({
-      memberships: [{workspaceId, role: 'admin' as const}],
+      memberships: [{workspaceId, role: 'admin' as const, workspaceStatus: 'active'}],
     });
     const res = await app.inject({
       method: 'POST',
@@ -190,7 +190,7 @@ describe('POST /auth/signup', () => {
       workspace_id: workspaceId,
     });
     expect(body.accept_error).toBeUndefined();
-    expect(claims.memberships).toEqual([{workspaceId, role: 'admin'}]);
+    expect(claims.memberships).toEqual([{workspaceId, role: 'admin', workspaceStatus: 'active'}]);
     expect(capturedMail()).toHaveLength(0);
   });
 

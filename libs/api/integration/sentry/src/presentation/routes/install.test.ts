@@ -109,7 +109,7 @@ async function createTestApp(options: CreateTestAppOptions = {}): Promise<Fastif
 function connectPayload(options: {authorize?: boolean} = {}) {
   const workspaceId = crypto.randomUUID();
   if (options.authorize !== false) {
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
   }
   return {
     workspace_id: workspaceId,
@@ -143,7 +143,7 @@ describe('Sentry integration routes', () => {
   it('returns the external-install URL for a member', async () => {
     const app = await createTestApp();
     const workspaceId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
 
     const res = await app.inject({
       method: 'POST',

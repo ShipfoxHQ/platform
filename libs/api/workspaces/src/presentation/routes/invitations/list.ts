@@ -1,4 +1,4 @@
-import {AUTH_USER, getUserContext} from '@shipfox/api-auth-context';
+import {AUTH_USER, getUserContext, requireWorkspaceAccess} from '@shipfox/api-auth-context';
 import {listInvitationsResponseSchema} from '@shipfox/api-workspaces-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
@@ -40,6 +40,7 @@ export const listInvitationsRoute = defineRoute({
     }
 
     const {workspaceId} = request.params;
+    requireWorkspaceAccess({request, workspaceId});
     const invitations = await listWorkspaceInvitations({
       workspaceId,
       requesterUserId: client.userId,
