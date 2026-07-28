@@ -103,7 +103,7 @@ function AgentSessionRowView({
         <LogDisclosure indent={indent}>
           <LogDisclosureTrigger
             timestamp={new Date(row.timestamp)}
-            summary={compactPreview(row.input)}
+            summary={compactPreview(row.summary ?? row.input)}
             trailing={
               awaitingResult ? (
                 <span className="inline-flex items-center gap-4">
@@ -123,9 +123,20 @@ function AgentSessionRowView({
             </span>
           </LogDisclosureTrigger>
           <LogDisclosureContent>
-            <LogContent variant="code">
-              <PreviewText text={row.input} />
-            </LogContent>
+            {row.summary != null ? (
+              <>
+                <LogContent>
+                  <PreviewText text={row.summary} />
+                </LogContent>
+                <LogContent variant="code">
+                  <PreviewText text={row.input} />
+                </LogContent>
+              </>
+            ) : (
+              <LogContent variant="code">
+                <PreviewText text={row.input} />
+              </LogContent>
+            )}
           </LogDisclosureContent>
         </LogDisclosure>
       );

@@ -223,6 +223,72 @@ describe('parseClaudeSessionRecord', () => {
     expect(rows).toEqual([]);
   });
 
+  it('folds a tool-use summary into the last matching tool-call row', () => {
+    const context = createClaudeParseContext();
+    const rows = parseClaudeSessionRecord(
+      record({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            {type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}},
+            {type: 'tool_use', id: 'tool-2', name: 'Read', input: {file_path: 'src/b.ts'}},
+          ],
+        },
+      }),
+      context,
+    );
+
+    expect(
+      parseClaudeSessionRecord(
+        record({
+          type: 'tool_use_summary',
+          summary: 'Read both source files.',
+          preceding_tool_use_ids: ['tool-1', 'tool-2'],
+        }),
+        context,
+      ),
+    ).toEqual([]);
+    expect(rows).toEqual([
+      {
+        kind: 'tool-call',
+        timestamp: 1,
+        id: 'tool-1',
+        name: 'Read',
+        input: '{\n  "file_path": "src/a.ts"\n}',
+      },
+      {
+        kind: 'tool-call',
+        timestamp: 1,
+        id: 'tool-2',
+        name: 'Read',
+        input: '{\n  "file_path": "src/b.ts"\n}',
+        summary: 'Read both source files.',
+      },
+    ]);
+  });
+
+  it('supports the legacy single tool-use id summary shape', () => {
+    const context = createClaudeParseContext();
+    const rows = parseClaudeSessionRecord(
+      record({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}}],
+        },
+      }),
+      context,
+    );
+
+    parseClaudeSessionRecord(
+      record({type: 'tool_use_summary', tool_use_id: 'tool-1', summary: 'Read the source file.'}),
+      context,
+    );
+
+    expect(rows[0]).toMatchObject({summary: 'Read the source file.'});
+  });
+
   it.each([
     [
       'signed in',

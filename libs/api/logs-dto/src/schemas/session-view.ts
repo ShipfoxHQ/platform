@@ -36,6 +36,7 @@ export const sessionViewToolCallRowSchema = z.object({
   id: z.string().nullable(),
   name: z.string().min(1),
   input: z.string(),
+  summary: z.string().optional(),
 });
 
 export const sessionViewToolResultRowSchema = z.object({

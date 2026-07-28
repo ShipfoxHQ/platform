@@ -169,6 +169,7 @@ export function systemRow(
 
   const isNewSession =
     !context.hasInit || sessionId === undefined || sessionId !== context.sessionId;
+  if (isNewSession) context.toolCallRows.clear();
   context.hasInit = true;
   context.sessionId = sessionId ?? null;
   context.turn = isNewSession ? 1 : context.turn + 1;
@@ -237,6 +238,31 @@ export function rateLimitRow(
   );
 }
 
+export function toolUseSummary(
+  message: Record<string, unknown>,
+  context: ClaudeParseContext,
+): void {
+  const summary = stringField(message, 'summary');
+  if (summary === undefined) return;
+
+  const precedingToolUseIds = stringList(field(message, 'preceding_tool_use_ids'));
+  const toolUseId = stringField(message, 'tool_use_id');
+  const candidateIds =
+    precedingToolUseIds.length > 0
+      ? precedingToolUseIds
+      : toolUseId === undefined
+        ? []
+        : [toolUseId];
+
+  for (const id of [...candidateIds].reverse()) {
+    const row = context.toolCallRows.get(id);
+    if (row === undefined) continue;
+
+    row.summary = row.summary === undefined ? summary : `${row.summary}\n\n${summary}`;
+    return;
+  }
+}
+
 function titleCase(value: string): string {
   return value.length === 0 ? value : `${value[0]?.toUpperCase()}${value.slice(1)}`;
 }
@@ -254,6 +280,7 @@ function stringList(value: unknown): string[] {
 export function assistantRows(
   timestamp: number,
   message: Record<string, unknown>,
+  context: ClaudeParseContext,
 ): readonly SessionViewRow[] {
   const sdkMessage = asLooseObject(message.message) ?? message;
   const rows: SessionViewRow[] = [];
@@ -276,7 +303,9 @@ export function assistantRows(
     if (type === 'tool_use' || type === 'tool-use' || type === 'toolCall') {
       pushText();
       pushThinking();
-      rows.push(toolCallRow(timestamp, block));
+      const row = toolCallRow(timestamp, block);
+      rows.push(row);
+      if (row.id !== null) context.toolCallRows.set(row.id, row);
       continue;
     }
 

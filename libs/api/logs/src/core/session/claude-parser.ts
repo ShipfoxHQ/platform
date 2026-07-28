@@ -1,4 +1,4 @@
-import type {SessionViewRow} from '@shipfox/api-logs-dto';
+import type {SessionViewRow, SessionViewToolCallRow} from '@shipfox/api-logs-dto';
 import {z} from 'zod';
 import {
   assistantRows,
@@ -7,6 +7,7 @@ import {
   rateLimitRow,
   resultRow,
   systemRow,
+  toolUseSummary,
   userRows,
 } from './claude/rows.js';
 import {stringField} from './object.js';
@@ -23,10 +24,11 @@ export interface ClaudeParseContext {
   hasInit: boolean;
   sessionId: string | null;
   turn: number;
+  toolCallRows: Map<string, SessionViewToolCallRow>;
 }
 
 export function createClaudeParseContext(): ClaudeParseContext {
-  return {hasInit: false, sessionId: null, turn: 0};
+  return {hasInit: false, sessionId: null, turn: 0, toolCallRows: new Map()};
 }
 
 export function claudeInitSessionId(record: AgentSessionRecord): string | undefined {
@@ -81,16 +83,18 @@ export function parseClaudeSessionRecord(
       return [systemRow(record.ts, message, context)];
     case 'tool_progress':
     case 'prompt_suggestion':
-    case 'tool_use_summary':
       // These messages describe an already-emitted tool call or an interactive client state.
       // They have no standalone row representation and must not look like parser failures.
+      return [];
+    case 'tool_use_summary':
+      toolUseSummary(message, context);
       return [];
     case 'auth_status':
       return [authStatusRow(record.ts, message)];
     case 'rate_limit_event':
       return [rateLimitRow(record.ts, message)];
     case 'assistant':
-      return assistantRows(record.ts, message);
+      return assistantRows(record.ts, message, context);
     case 'user':
       return userRows(record.ts, message);
     case 'result':

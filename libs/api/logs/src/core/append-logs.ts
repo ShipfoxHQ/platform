@@ -462,6 +462,7 @@ export async function appendLogs(
             hasInit: stream.claudeHasInit,
             sessionId: stream.claudeSessionId,
             turn: stream.claudeTurn,
+            toolCallRows: new Map(),
           }
         : undefined,
       parseHarness === 'claude' ? stream.claudePendingResult : undefined,

@@ -15,7 +15,14 @@ export type SessionViewRow =
       terminalFailure: boolean;
     }
   | {kind: 'thinking'; timestamp: number; text: string}
-  | {kind: 'tool-call'; timestamp: number; id: string | null; name: string; input: string}
+  | {
+      kind: 'tool-call';
+      timestamp: number;
+      id: string | null;
+      name: string;
+      input: string;
+      summary?: string | undefined;
+    }
   | {
       kind: 'tool-result';
       timestamp: number;
