@@ -27,6 +27,8 @@ export type RunnerEnvFactory<Spec> = (args: {
   bootstrapToken: string;
 }) => Record<string, string>;
 
+export type ProviderPass = <Result>(operation: () => Promise<Result>) => Promise<Result>;
+
 export interface ProvisionerTickDeps<Spec> {
   readonly client: ProvisionerClient;
   readonly templates: readonly ProvisionerTemplate<Spec>[];
@@ -35,11 +37,12 @@ export interface ProvisionerTickDeps<Spec> {
   readonly terminate?: TerminateRunners;
   readonly buildRunnerEnv: RunnerEnvFactory<Spec>;
   readonly reservationLimit: number;
-  readonly launchBudget: number;
+  readonly launchBudget: number | (() => number);
   readonly waitSeconds: number;
   readonly runnerInstanceBatchSize: number;
   readonly retryIntervalMs?: number;
   readonly signal?: AbortSignal;
+  readonly withProviderLock?: ProviderPass;
 }
 
 export type ProvisionerTerminationOutcome =
@@ -86,21 +89,16 @@ export async function runProvisionerTick<Spec>(
     };
   });
 
-  const availableByKey = new Map(
-    advertisements.map((advertisement) => [
-      advertisement.template_key,
-      advertisement.available_slots,
-    ]),
-  );
   const totalAvailable = advertisements.reduce(
     (sum, advertisement) => sum + advertisement.available_slots,
     0,
   );
+  const launchBudget = resolveLaunchBudget(deps.launchBudget);
   // Respect local max concurrency before asking: never reserve more than there are
   // free slots to fill (and never more than the API will grant in one poll).
   const pollReservationLimit = Math.min(
     deps.reservationLimit,
-    deps.launchBudget,
+    launchBudget,
     totalAvailable,
     MAX_RESERVATIONS_PER_POLL,
   );
@@ -114,6 +112,14 @@ export async function runProvisionerTick<Spec>(
     deps.signal ? {signal: deps.signal} : {},
   );
 
+  const complete = () => completeProvisionerTick(deps, response);
+  return deps.withProviderLock ? deps.withProviderLock(complete) : complete();
+}
+
+async function completeProvisionerTick<Spec>(
+  deps: ProvisionerTickDeps<Spec>,
+  response: Awaited<ReturnType<ProvisionerClient['pollDemand']>>,
+): Promise<ProvisionerTickResult> {
   let providerTermination: ProvisionerTerminationOutcome;
   if (deps.signal?.aborted) {
     providerTermination = {status: 'cancelled'};
@@ -139,6 +145,15 @@ export async function runProvisionerTick<Spec>(
     providerTermination = {status: 'not_needed'};
   }
 
+  const availableByKey = new Map(
+    deps.templates.map((template) => {
+      const counts = deps.tracker.countsByTemplate().get(template.key) ?? {
+        starting: 0,
+        running: 0,
+      };
+      return [template.key, templateAvailableSlots(template, counts)];
+    }),
+  );
   const planned = planLaunches({
     reservations: response.reservations.map((reservation) => ({
       reservationId: reservation.reservation_id,
@@ -183,7 +198,7 @@ export async function runProvisionerTick<Spec>(
   });
   const allGroups: LaunchGroup<Spec>[] = [...planned, ...hotGroups];
   plannedCount = allGroups.reduce((sum, group) => sum + group.count, 0);
-  const budgetedGroups = limitLaunchGroups(allGroups, deps.launchBudget);
+  const budgetedGroups = limitLaunchGroups(allGroups, resolveLaunchBudget(deps.launchBudget));
   const reservationGroups = budgetedGroups.filter(
     (group): group is PlannedLaunchGroup<Spec> => group.reservationId !== undefined,
   );
@@ -362,6 +377,10 @@ async function launchReservation<Spec>(
 
 function instanceCreationFailureReason(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
+}
+
+function resolveLaunchBudget(budget: number | (() => number)): number {
+  return typeof budget === 'function' ? budget() : budget;
 }
 
 function launchFailureReason(error: unknown): string {

@@ -33,6 +33,7 @@ maximum lifetime. The AMI reads that file and shuts down when its watchdog exits
 | `SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS` | no | `30` | Demand long-poll duration. |
 | `SHIPFOX_PROVISIONER_POLL_INTERVAL_MS` | no | `1000` | Delay between healthy demand polls. |
 | `SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS` | no | `5000` | Maximum error-backoff interval. |
+| `SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS` | no | `1000` | Shared provider observation cadence. EC2 keeps full backend reconciliation on its separate EC2 interval. |
 | `SHIPFOX_PROVISIONER_MAX_RESERVATIONS` | no | `250` | Largest demand reservation request. |
 | `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | no | `250` | Runner instances created per control-plane request. |
 | `SHIPFOX_RUNNER_POLL_MAX_DURATION_MS` | no | `300000` | Idle polling lifetime injected into each runner. |

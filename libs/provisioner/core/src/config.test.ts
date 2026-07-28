@@ -35,6 +35,13 @@ describe('provisioner core config validation', () => {
     await expect(import('#config.js')).rejects.toThrow('SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS');
   });
 
+  it('rejects a zero converge interval', async () => {
+    vi.stubEnv('SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS', '0');
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS');
+  });
+
   it('rejects max reservations above the API cap', async () => {
     vi.stubEnv('SHIPFOX_PROVISIONER_MAX_RESERVATIONS', '1001');
     vi.resetModules();
@@ -89,6 +96,7 @@ describe('provisioner core config validation', () => {
 
     expect(config.SHIPFOX_API_URL).toBe('https://api.shipfox.io');
     expect(config.SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS).toBe(30);
+    expect(config.SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS).toBe(1000);
     expect(config.SHIPFOX_PROVISIONER_MAX_RESERVATIONS).toBe(250);
     expect(config.SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE).toBe(250);
     expect(config.SHIPFOX_RUNNER_POLL_MAX_DURATION_MS).toBe(300_000);
