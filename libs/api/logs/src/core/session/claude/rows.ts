@@ -44,7 +44,7 @@ type SystemEventMapping = {
   meta?: (message: Record<string, unknown>) => readonly SessionViewRowMeta[];
 };
 
-const SYSTEM_EVENT_MAPPINGS: Record<string, SystemEventMapping> = {
+export const SYSTEM_EVENT_MAPPINGS: Record<string, SystemEventMapping> = {
   permission_denied: {
     label: 'Permission denied',
     tone: 'error',
@@ -90,6 +90,32 @@ const SYSTEM_EVENT_MAPPINGS: Record<string, SystemEventMapping> = {
         numberMeta(compactMetadata, 'duration_ms', 'duration', 'ms'),
       ].filter(isMeta);
     },
+  },
+  hook_response: {
+    label: (message) => {
+      const outcome = stringField(message, 'outcome');
+      return outcome === 'error'
+        ? 'Hook failed'
+        : outcome === 'cancelled'
+          ? 'Hook cancelled'
+          : outcome === 'success'
+            ? 'Hook completed'
+            : 'Hook response';
+    },
+    tone: (message) => {
+      const outcome = stringField(message, 'outcome');
+      return outcome === 'error' ? 'error' : outcome === 'cancelled' ? 'warning' : 'default';
+    },
+    detail: (message) =>
+      stringField(message, 'output') ??
+      stringField(message, 'stderr') ??
+      stringField(message, 'stdout') ??
+      null,
+    meta: (message) =>
+      [
+        metaItem('hook', stringField(message, 'hook_name')),
+        numberMeta(message, 'exit_code', 'exit code'),
+      ].filter(isMeta),
   },
   model_refusal_fallback: {
     label: 'Model refused, fell back',

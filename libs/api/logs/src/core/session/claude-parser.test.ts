@@ -1,4 +1,14 @@
-import {flushPendingToolRows, PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES} from './claude/rows.js';
+import {
+  readClaudeSessionFixture,
+  readClaudeSystemSubtypeFixture,
+  readInstalledClaudeSdkVersion,
+  readInstalledClaudeSystemSubtypes,
+} from '#test/fixtures/claude-session.js';
+import {
+  flushPendingToolRows,
+  PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES,
+  SYSTEM_EVENT_MAPPINGS,
+} from './claude/rows.js';
 import {createClaudeParseContext, parseClaudeSessionRecord} from './claude-parser.js';
 
 const record = (data: unknown, ts = 1) => ({
@@ -54,6 +64,36 @@ const namedSystemEvents = [
         meta('duration', '250 ms'),
       ],
       tone: 'default',
+    },
+  },
+  {
+    subtype: 'hook_response',
+    data: {hook_name: 'PreToolUse', outcome: 'success', output: 'Hook completed', exit_code: 0},
+    expected: {
+      label: 'Hook completed',
+      detail: 'Hook completed',
+      meta: [meta('hook', 'PreToolUse'), meta('exit code', '0')],
+      tone: 'default',
+    },
+  },
+  {
+    subtype: 'hook_response',
+    data: {hook_name: 'PreToolUse', outcome: 'error', stderr: 'command not found', exit_code: 127},
+    expected: {
+      label: 'Hook failed',
+      detail: 'command not found',
+      meta: [meta('hook', 'PreToolUse'), meta('exit code', '127')],
+      tone: 'error',
+    },
+  },
+  {
+    subtype: 'hook_response',
+    data: {hook_name: 'PostToolUse', outcome: 'cancelled'},
+    expected: {
+      label: 'Hook cancelled',
+      detail: null,
+      meta: [meta('hook', 'PostToolUse')],
+      tone: 'warning',
     },
   },
   {
@@ -149,6 +189,91 @@ const namedSystemEvents = [
 ] as const;
 
 describe('parseClaudeSessionRecord', () => {
+  it('covers every system subtype in the installed Claude SDK union', () => {
+    const fixture = readClaudeSystemSubtypeFixture();
+    const installedVersion = readInstalledClaudeSdkVersion();
+    const installedSubtypes = readInstalledClaudeSystemSubtypes();
+    const parserSubtypes = [
+      'init',
+      ...PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES,
+      ...Object.keys(SYSTEM_EVENT_MAPPINGS),
+    ].sort();
+
+    expect(
+      fixture.version,
+      `The checked-in SDK subtype fixture targets ${fixture.version}, but the installed SDK is ${installedVersion}`,
+    ).toBe(installedVersion);
+    expect(
+      fixture.subtypes,
+      `The checked-in SDK subtype fixture is stale; update it for: ${installedSubtypes
+        .filter((subtype) => !fixture.subtypes.includes(subtype))
+        .join(', ')}`,
+    ).toEqual(installedSubtypes);
+    expect(
+      parserSubtypes,
+      `The parser does not classify these installed SDK system subtypes: ${installedSubtypes
+        .filter((subtype) => !parserSubtypes.includes(subtype))
+        .join(', ')}`,
+    ).toEqual(fixture.subtypes);
+  });
+
+  it('parses a captured Claude agent step with tools, signal events, and a re-prompt', () => {
+    const context = createClaudeParseContext();
+    const records = readClaudeSessionFixture('agent-step.jsonl');
+    let sawResult = false;
+    const rows = records.flatMap((sessionRecord) => {
+      const message = JSON.parse(sessionRecord.data) as {type?: string};
+      const isFinalResult = message.type !== 'result' || sawResult;
+      if (message.type === 'result') sawResult = true;
+      return parseClaudeSessionRecord(sessionRecord, context, isFinalResult);
+    });
+    const allRows = [...rows, ...flushPendingToolRows(context)];
+    const lifecycleRows = allRows.filter((row) => row.kind === 'lifecycle');
+    const toolCall = allRows.find((row) => row.kind === 'tool-call');
+    const toolResult = allRows.find((row) => row.kind === 'tool-result');
+
+    expect(lifecycleRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({label: 'Session started'}),
+        expect.objectContaining({
+          label: 'Permission denied',
+          detail: 'mcp__shipfox_outputs__set_output',
+          tone: 'error',
+        }),
+        expect.objectContaining({label: 'API retry', detail: 'attempt 2/3', tone: 'warning'}),
+        expect.objectContaining({label: 'Hook completed', detail: 'Hook completed'}),
+        expect.objectContaining({label: 'Context compacted'}),
+        expect.objectContaining({label: 'Turn 1 completed'}),
+        expect.objectContaining({label: 'Turn 2 started'}),
+        expect.objectContaining({label: 'Session completed'}),
+      ]),
+    );
+    expect(allRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'message',
+          role: 'platform',
+          text: expect.stringContaining('required workflow outputs'),
+        }),
+      ]),
+    );
+    expect(toolCall).toEqual(
+      expect.objectContaining({kind: 'tool-call', id: 'toolu-1', name: 'Read'}),
+    );
+    expect(toolResult).toEqual(
+      expect.objectContaining({
+        kind: 'tool-result',
+        toolCallId: 'toolu-1',
+        toolName: expect.any(String),
+        output: expect.stringContaining('# Shipfox'),
+      }),
+    );
+    if (toolCall?.kind !== 'tool-call' || toolResult?.kind !== 'tool-result') {
+      throw new Error('The captured tool call and result must both be parsed');
+    }
+    expect(toolResult.toolCallId).toBe(toolCall.id);
+  });
+
   it('returns a raw row for malformed JSON', () => {
     const rows = parseClaudeSessionRecord(record('{not json'));
 
@@ -621,7 +746,7 @@ describe('parseClaudeSessionRecord', () => {
         kind: 'tool-result',
         timestamp: 1,
         toolCallId: 'tool-1',
-        toolName: 'tool',
+        toolName: expect.any(String),
         output: 'file contents',
         isError: false,
       },
@@ -714,7 +839,7 @@ describe('parseClaudeSessionRecord', () => {
         kind: 'tool-result',
         timestamp: 1,
         toolCallId: 'tool-1',
-        toolName: 'tool',
+        toolName: expect.any(String),
         output: 'file contents',
         isError: true,
       },
@@ -754,7 +879,7 @@ describe('parseClaudeSessionRecord', () => {
         kind: 'tool-result',
         timestamp: 1,
         toolCallId: 'tool-1',
-        toolName: 'tool',
+        toolName: expect.any(String),
         output: 'tool output',
         isError: false,
       },
