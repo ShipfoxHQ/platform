@@ -238,22 +238,15 @@ async function reshareRunnerImageCandidate(
   const permissions = await client.send(
     new DescribeImageAttributeCommand({ImageId: amiId, Attribute: 'launchPermission'}),
   );
-  const existingAccountIds = new Set(
-    (permissions.LaunchPermissions ?? [])
-      .map((permission) => permission.UserId)
-      .filter((accountId): accountId is string => Boolean(accountId)),
-  );
-  const staleAccountIds = [...existingAccountIds].filter(
-    (accountId) => !consumerAccountIds.includes(accountId),
+  const stalePermissions = (permissions.LaunchPermissions ?? []).filter(
+    (permission) => !permission.UserId || !consumerAccountIds.includes(permission.UserId),
   );
   await client.send(
     new ModifyImageAttributeCommand({
       ImageId: amiId,
       LaunchPermission: {
         Add: consumerAccountIds.map((accountId) => ({UserId: accountId})),
-        ...(staleAccountIds.length
-          ? {Remove: staleAccountIds.map((accountId) => ({UserId: accountId}))}
-          : {}),
+        ...(stalePermissions.length ? {Remove: stalePermissions} : {}),
       },
     }),
   );

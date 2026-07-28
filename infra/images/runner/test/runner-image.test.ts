@@ -489,7 +489,13 @@ describe('runner image candidates', () => {
       .fn()
       .mockResolvedValueOnce({Images: [availableImage('ami-0fedcba9876543210', 'arm64')]})
       .mockResolvedValueOnce({
-        LaunchPermissions: [{UserId: '123456789012'}, {UserId: '999999999999'}],
+        LaunchPermissions: [
+          {UserId: '123456789012'},
+          {UserId: '999999999999'},
+          {Group: 'all'},
+          {OrganizationArn: 'arn:aws:organizations::123456789012:organization/o-example'},
+          {OrganizationalUnitArn: 'arn:aws:organizations::123456789012:ou/o-example/ou-example'},
+        ],
       });
     const buildImage = vi.fn();
 
@@ -518,7 +524,15 @@ describe('runner image candidates', () => {
           ImageId: 'ami-0fedcba9876543210',
           LaunchPermission: {
             Add: [{UserId: '123456789012'}, {UserId: '210987654321'}],
-            Remove: [{UserId: '999999999999'}],
+            Remove: [
+              {UserId: '999999999999'},
+              {Group: 'all'},
+              {OrganizationArn: 'arn:aws:organizations::123456789012:organization/o-example'},
+              {
+                OrganizationalUnitArn:
+                  'arn:aws:organizations::123456789012:ou/o-example/ou-example',
+              },
+            ],
           },
         },
       }),
