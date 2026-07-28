@@ -19,6 +19,8 @@ export interface RunnerImageBuild {
   buildNumber: string;
   candidateExpiresAt?: string;
   candidateId?: string;
+  candidateKmsKeyId?: string;
+  candidateConsumerAccountIds?: string[];
   lifecycle: RunnerImageLifecycle;
   nodeVersion: string;
   revision: string;
@@ -67,6 +69,16 @@ export function packerBuildArgs(
   }
   if (build.candidateExpiresAt) {
     args.push('-var', `candidate_expires_at=${build.candidateExpiresAt}`);
+  }
+  if (build.lifecycle === 'candidate' && build.platform === 'aws') {
+    if (!build.candidateKmsKeyId) {
+      throw new Error('Candidate AWS builds require candidateKmsKeyId.');
+    }
+    if (!build.candidateConsumerAccountIds?.length) {
+      throw new Error('Candidate AWS builds require candidate consumer accounts.');
+    }
+    args.push('-var', `candidate_kms_key_id=${build.candidateKmsKeyId}`);
+    args.push('-var', `candidate_ami_users=${JSON.stringify(build.candidateConsumerAccountIds)}`);
   }
   if (build.runnerVersion) args.push('-var', `runner_version=${build.runnerVersion}`);
   if (build.platform === 'qemu') args.push(...qemuSourceImageArgs(rootDir));

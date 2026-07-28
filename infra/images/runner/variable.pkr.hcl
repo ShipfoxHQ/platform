@@ -17,6 +17,16 @@ variable "candidate_id" {
   default = ""
 }
 
+variable "candidate_kms_key_id" {
+  type    = string
+  default = ""
+}
+
+variable "candidate_ami_users" {
+  type    = list(string)
+  default = []
+}
+
 variable "architecture" {
   type    = string
   default = "amd64"

@@ -793,6 +793,8 @@ jobs:
         env:
           BUILD_ARCH: ${{ matrix.architecture }}
           BUILD_ATTEMPT: ${{ github.run_attempt }}
+          BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: ${{ vars.AWS_RUNNER_IMAGE_CANDIDATE_CONSUMER_ACCOUNT_IDS }}
+          BUILD_CANDIDATE_KMS_KEY_ID: ${{ vars.AWS_RUNNER_IMAGE_CANDIDATE_KMS_KEY_ID }}
           BUILD_NUMBER: ${{ github.run_number }}
           BUILD_REVISION: ${{ github.sha }}
           PACKER_LOG: "1"
@@ -805,7 +807,14 @@ jobs:
           RUNNER_IMAGE_CANDIDATE_RESULT_PATH: ${{ runner.temp }}/runner-image-candidate-${{ matrix.architecture }}.json
         run: |
           set -euo pipefail
-          jq -r '"- Candidate \(.architecture): \(.region):\(.amiId) for \(.revision) (\(.status))"' "$RUNNER_IMAGE_CANDIDATE_RESULT_PATH" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '"- Candidate \(.architecture): \(.region):\(.amiId) owner \(.owner), expires \(.expiresAt) for \(.revision) (\(.status))"' "$RUNNER_IMAGE_CANDIDATE_RESULT_PATH" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload runner image candidate result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: runner-image-candidate-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/runner-image-candidate-${{ matrix.architecture }}.json
+          if-no-files-found: error
 
       - name: Upload Packer diagnostics
         if: failure()
@@ -816,6 +825,169 @@ jobs:
             ${{ runner.temp }}/packer-${{ matrix.architecture }}.log
             infra/images/runner/packer-manifest.json
           if-no-files-found: warn
+
+  publish-runner-image-candidate-manifest:
+    name: Publish runner image candidate manifest
+    needs: [publish-runner-image-candidate]
+    if: github.ref == 'refs/heads/main' && needs.publish-runner-image-candidate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Set up mise
+        uses: ./.github/actions/setup-mise
+        with:
+          tools: gh node npm:pnpm npm:turbo
+
+      - name: Set up pnpm
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+        with:
+          version: 1.3.3
+
+      - name: Log in to GHCR
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" \
+            | oras login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Resolve existing runner image candidate
+        id: runner-image-candidate
+        env:
+          RUNNER_IMAGE_CANDIDATE_REPOSITORY: ghcr.io/shipfoxhq/runner-image-candidates
+        run: |
+          set -euo pipefail
+          resolve_error="$(mktemp)"
+          trap 'rm -f "$resolve_error"' EXIT
+
+          set +e
+          existing_digest="$(oras resolve "$RUNNER_IMAGE_CANDIDATE_REPOSITORY:$GITHUB_SHA" 2>"$resolve_error")"
+          resolve_status=$?
+          set -e
+
+          if (( resolve_status == 0 )); then
+            if [[ ! "$existing_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo "Existing runner image candidate returned an invalid digest: $existing_digest" >&2
+              exit 1
+            fi
+            echo "digest=$existing_digest" >> "$GITHUB_OUTPUT"
+          # GHCR returns this same "not found" shape both when the tag truly
+          # doesn't exist yet and when the caller lacks read access to a
+          # private package, to avoid leaking private-package existence. A
+          # transient permission gap can therefore read as "not published
+          # yet" here; the publish step re-resolves immediately before
+          # pushing as a safety net against moving the immutable tag.
+          elif grep -Eiq 'failed to resolve digest:.*not found' "$resolve_error"; then
+            echo 'digest=' >> "$GITHUB_OUTPUT"
+          else
+            cat "$resolve_error" >&2
+            exit "$resolve_status"
+          fi
+
+      - name: Download runner image candidate results
+        if: steps.runner-image-candidate.outputs.digest == ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: runner-image-candidate-*
+          path: runner-image-candidate-results
+          merge-multiple: true
+
+      - name: Build runner image catalog tooling
+        if: steps.runner-image-candidate.outputs.digest == ''
+        run: mise exec -- turbo build --filter=@shipfox/runner-image
+
+      - name: Create immutable runner image candidate manifest
+        if: steps.runner-image-candidate.outputs.digest == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          build_created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.run_started_at')"
+          candidate_args=()
+          while IFS= read -r candidate_path; do
+            candidate_args+=(--candidate "$candidate_path")
+          done < <(find runner-image-candidate-results -type f -name '*.json' -print | sort)
+          node infra/images/runner/bin/runner-image-catalog.js merge-candidates \
+            "${candidate_args[@]}" \
+            --source-repository "https://github.com/$GITHUB_REPOSITORY" \
+            --revision "$GITHUB_SHA" \
+            --build-system github-actions \
+            --build-id "$GITHUB_RUN_ID" \
+            --build-number "$GITHUB_RUN_NUMBER" \
+            --build-attempt "$GITHUB_RUN_ATTEMPT" \
+            --build-created-at "$build_created_at" \
+            --build-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --output runner-image-candidate.json
+
+      # The first successful main build owns the full-revision tag. Reruns
+      # reuse its digest and never move the revision-addressed reference.
+      - name: Publish immutable runner image candidate manifest
+        env:
+          RUNNER_IMAGE_CANDIDATE_EXISTING_DIGEST: ${{ steps.runner-image-candidate.outputs.digest }}
+          RUNNER_IMAGE_CANDIDATE_REPOSITORY: ghcr.io/shipfoxhq/runner-image-candidates
+        run: |
+          set -euo pipefail
+          if [[ -n "$RUNNER_IMAGE_CANDIDATE_EXISTING_DIGEST" ]]; then
+            echo "Reused $RUNNER_IMAGE_CANDIDATE_REPOSITORY@$RUNNER_IMAGE_CANDIDATE_EXISTING_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Re-resolve immediately before pushing. The earlier resolve step
+          # cannot always tell "no candidate published yet" apart from a
+          # transient read-access gap (see its comment); re-checking here
+          # catches a false negative that has since cleared, so a rerun
+          # reuses the real digest instead of moving the immutable tag.
+          recheck_error="$(mktemp)"
+          trap 'rm -f "$recheck_error"' EXIT
+          set +e
+          recheck_digest="$(oras resolve "$RUNNER_IMAGE_CANDIDATE_REPOSITORY:$GITHUB_SHA" 2>"$recheck_error")"
+          recheck_status=$?
+          set -e
+          if (( recheck_status == 0 )); then
+            if [[ ! "$recheck_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo "Existing runner image candidate returned an invalid digest: $recheck_digest" >&2
+              exit 1
+            fi
+            echo "Reused $RUNNER_IMAGE_CANDIDATE_REPOSITORY@$recheck_digest (found on re-check)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          elif ! grep -Eiq 'failed to resolve digest:.*not found' "$recheck_error"; then
+            cat "$recheck_error" >&2
+            exit "$recheck_status"
+          fi
+
+          created_at="$(jq -r '.build.createdAt' runner-image-candidate.json)"
+          oras push \
+            --artifact-type application/vnd.shipfox.runner-image-candidate.v1+json \
+            --annotation "org.opencontainers.image.created=$created_at" \
+            --annotation "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --format json \
+            "$RUNNER_IMAGE_CANDIDATE_REPOSITORY:$GITHUB_SHA" \
+            runner-image-candidate.json:application/vnd.shipfox.runner-image-candidate.v1+json \
+            | tee runner-image-candidate-publication.json
+
+          published_digest="$(jq -r '.digest // (.reference | split("@")[1])' runner-image-candidate-publication.json)"
+          if [[ ! "$published_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "Published runner image candidate returned an invalid digest: $published_digest" >&2
+            exit 1
+          fi
+          echo "Published $RUNNER_IMAGE_CANDIDATE_REPOSITORY@$published_digest" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report runner image candidate manifest
+        if: steps.runner-image-candidate.outputs.digest == ''
+        run: |
+          set -euo pipefail
+          echo '## Runner image candidate' >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.images[] | "- `\(.architecture)`: `\(.region):\(.amiId)` owner `\(.owner)`, expires `\(.expiresAt)`"' runner-image-candidate.json >> "$GITHUB_STEP_SUMMARY"
 
   publish-application-release:
     name: Publish application release

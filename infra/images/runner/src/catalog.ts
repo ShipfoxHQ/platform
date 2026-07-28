@@ -3,9 +3,12 @@ import {parseArgs} from 'node:util';
 import {Ajv2020, type ValidateFunction} from 'ajv/dist/2020.js';
 import * as addFormatsModule from 'ajv-formats';
 import {readPackerAmiArtifact} from './aws.js';
+import type {RunnerImageCandidate} from './candidate.js';
 
 export const RUNNER_IMAGE_RELEASE_KIND = 'shipfox.runner-image-release';
 export const RUNNER_IMAGE_RELEASE_API_VERSION = 'v1';
+export const RUNNER_IMAGE_CANDIDATE_KIND = 'shipfox.runner-image-candidate';
+export const RUNNER_IMAGE_CANDIDATE_API_VERSION = 'v1';
 const UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{3})?Z$/;
 const POSITIVE_INTEGER_PATTERN = /^[1-9]\d*$/u;
 const addFormats = addFormatsModule.default as unknown as (validator: Ajv2020) => void;
@@ -47,7 +50,36 @@ export interface RunnerImageReleaseManifest {
   images: RunnerImageReleaseImage[];
 }
 
+export interface RunnerImageCandidateManifestInput {
+  sourceRepository: string;
+  revision: string;
+  build: RunnerImageReleaseInput['build'];
+  images: RunnerImageCandidate[];
+}
+
+export interface RunnerImageCandidateManifest {
+  kind: typeof RUNNER_IMAGE_CANDIDATE_KIND;
+  apiVersion: typeof RUNNER_IMAGE_CANDIDATE_API_VERSION;
+  source: {
+    repository: string;
+    revision: string;
+  };
+  build: RunnerImageCandidateManifestInput['build'];
+  images: Array<{
+    amiId: string;
+    architecture: 'amd64' | 'arm64';
+    candidateId: string;
+    createdAt: string;
+    encrypted: true;
+    expiresAt: string;
+    imageOs: string;
+    owner: string;
+    region: string;
+  }>;
+}
+
 const validateManifest = createManifestValidator();
+const validateCandidateManifest = createCandidateManifestValidator();
 
 export function createRunnerImageReleaseManifest(
   input: RunnerImageReleaseInput,
@@ -106,6 +138,63 @@ export function mergeRunnerImageReleaseManifests(
   });
 }
 
+export function createRunnerImageCandidateManifest(
+  input: RunnerImageCandidateManifestInput,
+): RunnerImageCandidateManifest {
+  if (
+    input.images.some(
+      (image) =>
+        image.revision !== input.revision || image.candidateId !== `main-${input.revision}`,
+    )
+  ) {
+    throw new Error('Runner image candidates must describe the same source revision.');
+  }
+  const manifest: RunnerImageCandidateManifest = {
+    kind: RUNNER_IMAGE_CANDIDATE_KIND,
+    apiVersion: RUNNER_IMAGE_CANDIDATE_API_VERSION,
+    source: {
+      repository: input.sourceRepository,
+      revision: input.revision,
+    },
+    build: {
+      ...input.build,
+      createdAt: timestamp(input.build.createdAt, 'Build creation time'),
+    },
+    images: input.images
+      .map((image) => ({
+        amiId: image.amiId,
+        architecture: image.architecture,
+        candidateId: image.candidateId,
+        createdAt: timestamp(image.createdAt, `Image ${image.amiId} creation time`),
+        encrypted: true as const,
+        expiresAt: timestamp(image.expiresAt, `Image ${image.amiId} expiration time`),
+        imageOs: image.imageOs,
+        owner: image.owner,
+        region: image.region,
+      }))
+      .sort((left, right) => left.architecture.localeCompare(right.architecture)),
+  };
+
+  if (!validateCandidateManifest(manifest)) {
+    throw new Error(
+      `Invalid runner image candidate manifest: ${formatErrors(validateCandidateManifest)}`,
+    );
+  }
+  assertUniqueArchitectures(manifest.images);
+  return manifest;
+}
+
+export function mergeRunnerImageCandidateManifests(
+  candidates: readonly RunnerImageCandidate[],
+  input: Omit<RunnerImageCandidateManifestInput, 'images'>,
+): RunnerImageCandidateManifest {
+  if (!candidates.length) throw new Error('At least one runner image candidate is required.');
+  if (candidates.some((candidate) => candidate.revision !== input.revision)) {
+    throw new Error('Runner image candidates must describe the same source revision.');
+  }
+  return createRunnerImageCandidateManifest({...input, images: [...candidates]});
+}
+
 export function runRunnerImageCatalogCli(args = process.argv.slice(2)): void {
   const [command] = args;
   if (command === 'create') {
@@ -116,7 +205,11 @@ export function runRunnerImageCatalogCli(args = process.argv.slice(2)): void {
     mergeRunnerImageCatalog(args.slice(1));
     return;
   }
-  throw new Error('Usage: runner-image-catalog <create|merge> [options]');
+  if (command === 'merge-candidates') {
+    mergeRunnerImageCandidateCatalog(args.slice(1));
+    return;
+  }
+  throw new Error('Usage: runner-image-catalog <create|merge|merge-candidates> [options]');
 }
 
 function createRunnerImageCatalog(args: string[]): void {
@@ -204,6 +297,48 @@ function mergeRunnerImageCatalog(args: string[]): void {
   writeManifest(required(values.output, '--output'), mergeRunnerImageReleaseManifests(manifests));
 }
 
+function mergeRunnerImageCandidateCatalog(args: string[]): void {
+  const {values, positionals} = parseArgs({
+    args,
+    strict: true,
+    allowPositionals: true,
+    options: {
+      candidate: {type: 'string', multiple: true},
+      'build-attempt': {type: 'string'},
+      'build-created-at': {type: 'string'},
+      'build-id': {type: 'string'},
+      'build-number': {type: 'string'},
+      'build-system': {type: 'string'},
+      'build-url': {type: 'string'},
+      output: {type: 'string'},
+      revision: {type: 'string'},
+      'source-repository': {type: 'string'},
+    },
+  });
+  if (positionals.length)
+    throw new Error('runner-image-catalog merge-candidates does not accept positional arguments.');
+  const candidatePaths = stringValues(values.candidate, '--candidate');
+  if (candidatePaths.length < 2) {
+    throw new Error('runner-image-catalog merge-candidates requires both architecture results.');
+  }
+  const candidates = candidatePaths.map(readRunnerImageCandidate);
+  const buildNumber = required(values['build-number'], '--build-number');
+  const buildAttempt = required(values['build-attempt'], '--build-attempt');
+  const manifest = mergeRunnerImageCandidateManifests(candidates, {
+    sourceRepository: required(values['source-repository'], '--source-repository'),
+    revision: required(values.revision, '--revision'),
+    build: {
+      system: required(values['build-system'], '--build-system'),
+      id: required(values['build-id'], '--build-id'),
+      number: positiveInteger(buildNumber),
+      attempt: positiveInteger(buildAttempt),
+      url: required(values['build-url'], '--build-url'),
+      createdAt: required(values['build-created-at'], '--build-created-at'),
+    },
+  });
+  writeManifest(required(values.output, '--output'), manifest);
+}
+
 function readRunnerImageReleaseManifest(path: string): RunnerImageReleaseManifest {
   const value = JSON.parse(readFileSync(path, 'utf8'));
   if (!validateManifest(value)) {
@@ -212,7 +347,33 @@ function readRunnerImageReleaseManifest(path: string): RunnerImageReleaseManifes
   return value as RunnerImageReleaseManifest;
 }
 
-function writeManifest(path: string, manifest: RunnerImageReleaseManifest): void {
+function readRunnerImageCandidate(path: string): RunnerImageCandidate {
+  const value: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Runner image candidate ${path} must be an object.`);
+  }
+  const candidate = value as Partial<RunnerImageCandidate>;
+  if (
+    typeof candidate.amiId !== 'string' ||
+    (candidate.architecture !== 'amd64' && candidate.architecture !== 'arm64') ||
+    typeof candidate.candidateId !== 'string' ||
+    typeof candidate.createdAt !== 'string' ||
+    typeof candidate.expiresAt !== 'string' ||
+    typeof candidate.imageOs !== 'string' ||
+    typeof candidate.owner !== 'string' ||
+    typeof candidate.region !== 'string' ||
+    typeof candidate.revision !== 'string' ||
+    (candidate.status !== 'built' && candidate.status !== 'reused')
+  ) {
+    throw new Error(`Runner image candidate ${path} is missing required metadata.`);
+  }
+  return candidate as RunnerImageCandidate;
+}
+
+function writeManifest(
+  path: string,
+  manifest: RunnerImageReleaseManifest | RunnerImageCandidateManifest,
+): void {
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
@@ -222,6 +383,14 @@ function createManifestValidator(): ValidateFunction<RunnerImageReleaseManifest>
   const validator = new Ajv2020({allErrors: true, strict: true});
   addFormats(validator);
   return validator.compile<RunnerImageReleaseManifest>(schema);
+}
+
+function createCandidateManifestValidator(): ValidateFunction<RunnerImageCandidateManifest> {
+  const schemaPath = new URL('../schema/runner-image-candidate.v1.schema.json', import.meta.url);
+  const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
+  const validator = new Ajv2020({allErrors: true, strict: true});
+  addFormats(validator);
+  return validator.compile<RunnerImageCandidateManifest>(schema);
 }
 
 function architecture(value: string | undefined): 'amd64' | 'arm64' {
@@ -244,7 +413,7 @@ function positiveInteger(value: string): number {
   return parsed;
 }
 
-function assertUniqueArchitectures(images: readonly RunnerImageReleaseImage[]): void {
+function assertUniqueArchitectures(images: ReadonlyArray<{architecture: 'amd64' | 'arm64'}>): void {
   const architectures = new Set<string>();
   for (const image of images) {
     if (architectures.has(image.architecture)) {
@@ -252,6 +421,13 @@ function assertUniqueArchitectures(images: readonly RunnerImageReleaseImage[]): 
     }
     architectures.add(image.architecture);
   }
+}
+
+function stringValues(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new Error(`${label} must be provided at least twice.`);
+  }
+  return value as string[];
 }
 
 function timestamp(value: string, label: string): string {
