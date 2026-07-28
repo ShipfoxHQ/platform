@@ -3,6 +3,7 @@ import {z} from 'zod';
 import {
   assistantRows,
   authStatusRow,
+  flushPendingToolRows,
   PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES,
   rateLimitRow,
   resultRow,
@@ -24,11 +25,25 @@ export interface ClaudeParseContext {
   hasInit: boolean;
   sessionId: string | null;
   turn: number;
+  pendingToolRows: SessionViewRow[];
   toolCallRows: Map<string, SessionViewToolCallRow>;
 }
 
-export function createClaudeParseContext(): ClaudeParseContext {
-  return {hasInit: false, sessionId: null, turn: 0, toolCallRows: new Map()};
+export function createClaudeParseContext(
+  pendingToolRows: readonly SessionViewRow[] = [],
+  state: Pick<ClaudeParseContext, 'hasInit' | 'sessionId' | 'turn'> = {
+    hasInit: false,
+    sessionId: null,
+    turn: 0,
+  },
+): ClaudeParseContext {
+  const rows = [...pendingToolRows];
+  const toolCallRows = new Map<string, SessionViewToolCallRow>();
+  for (const row of rows) {
+    if (row.kind === 'tool-call' && row.id !== null) toolCallRows.set(row.id, row);
+  }
+
+  return {...state, pendingToolRows: rows, toolCallRows};
 }
 
 export function claudeInitSessionId(record: AgentSessionRecord): string | undefined {
@@ -62,11 +77,13 @@ export function parseClaudeSessionRecord(
   try {
     json = JSON.parse(record.data);
   } catch {
-    return [rawRecordRow(record, 'Malformed session entry')];
+    return [...flushPendingToolRows(context), rawRecordRow(record, 'Malformed session entry')];
   }
 
   const parsed = claudeMessageSchema.safeParse(json);
-  if (!parsed.success) return [rawRecordRow(record, 'Unsupported Claude message')];
+  if (!parsed.success) {
+    return [...flushPendingToolRows(context), rawRecordRow(record, 'Unsupported Claude message')];
+  }
 
   const message = parsed.data;
   if (
@@ -79,27 +96,35 @@ export function parseClaudeSessionRecord(
 
   switch (message.type) {
     case 'system':
+      return stringField(message, 'subtype') === 'init'
+        ? [...flushPendingToolRows(context), systemRow(record.ts, message, context)]
+        : [systemRow(record.ts, message, context)];
     case 'init':
-      return [systemRow(record.ts, message, context)];
+      return [...flushPendingToolRows(context), systemRow(record.ts, message, context)];
     case 'tool_progress':
     case 'prompt_suggestion':
       // These messages describe an already-emitted tool call or an interactive client state.
       // They have no standalone row representation and must not look like parser failures.
       return [];
     case 'tool_use_summary':
-      toolUseSummary(message, context);
-      return [];
+      return toolUseSummary(message, context) ? flushPendingToolRows(context) : [];
     case 'auth_status':
       return [authStatusRow(record.ts, message)];
     case 'rate_limit_event':
       return [rateLimitRow(record.ts, message)];
     case 'assistant':
-      return assistantRows(record.ts, message, context);
+      return [...flushPendingToolRows(context), ...assistantRows(record.ts, message, context)];
     case 'user':
-      return userRows(record.ts, message);
+      return userRows(record.ts, message, context);
     case 'result':
-      return [resultRow(record.ts, message, context.turn, isFinalResult)];
+      return [
+        ...flushPendingToolRows(context),
+        resultRow(record.ts, message, context.turn, isFinalResult),
+      ];
     default:
-      return [rawRecordRow(record, `Unknown Claude message: ${message.type}`)];
+      return [
+        ...flushPendingToolRows(context),
+        rawRecordRow(record, `Unknown Claude message: ${message.type}`),
+      ];
   }
 }

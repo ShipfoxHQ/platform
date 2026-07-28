@@ -169,7 +169,10 @@ export function systemRow(
 
   const isNewSession =
     !context.hasInit || sessionId === undefined || sessionId !== context.sessionId;
-  if (isNewSession) context.toolCallRows.clear();
+  if (isNewSession) {
+    context.pendingToolRows.length = 0;
+    context.toolCallRows.clear();
+  }
   context.hasInit = true;
   context.sessionId = sessionId ?? null;
   context.turn = isNewSession ? 1 : context.turn + 1;
@@ -241,9 +244,9 @@ export function rateLimitRow(
 export function toolUseSummary(
   message: Record<string, unknown>,
   context: ClaudeParseContext,
-): void {
+): boolean {
   const summary = stringField(message, 'summary');
-  if (summary === undefined) return;
+  if (summary === undefined) return false;
 
   const precedingToolUseIds = stringList(field(message, 'preceding_tool_use_ids'));
   const toolUseId = stringField(message, 'tool_use_id');
@@ -259,8 +262,19 @@ export function toolUseSummary(
     if (row === undefined) continue;
 
     row.summary = row.summary === undefined ? summary : `${row.summary}\n\n${summary}`;
-    return;
+    return true;
   }
+
+  return false;
+}
+
+export function flushPendingToolRows(context: ClaudeParseContext): readonly SessionViewRow[] {
+  if (context.pendingToolRows.length === 0) return [];
+
+  const rows = context.pendingToolRows;
+  context.pendingToolRows = [];
+  context.toolCallRows.clear();
+  return rows;
 }
 
 function titleCase(value: string): string {
@@ -286,6 +300,7 @@ export function assistantRows(
   const rows: SessionViewRow[] = [];
   const textParts: string[] = [];
   const thinkingParts: string[] = [];
+  let queuedToolCall = false;
 
   const pushText = () => {
     if (textParts.length === 0) return;
@@ -304,8 +319,13 @@ export function assistantRows(
       pushText();
       pushThinking();
       const row = toolCallRow(timestamp, block);
-      rows.push(row);
-      if (row.id !== null) context.toolCallRows.set(row.id, row);
+      if (row.id === null) {
+        rows.push(row);
+      } else {
+        queuedToolCall = true;
+        context.pendingToolRows.push(row);
+        context.toolCallRows.set(row.id, row);
+      }
       continue;
     }
 
@@ -324,7 +344,7 @@ export function assistantRows(
   pushText();
   pushThinking();
 
-  if (rows.length > 0) return rows;
+  if (rows.length > 0 || queuedToolCall) return rows;
 
   const text = stringField(sdkMessage, 'content') ?? stringField(message, 'result');
   return [messageRow(timestamp, 'assistant', 'assistant', text ?? toJson(message), false)];
@@ -333,11 +353,13 @@ export function assistantRows(
 export function userRows(
   timestamp: number,
   message: Record<string, unknown>,
+  context: ClaudeParseContext,
 ): readonly SessionViewRow[] {
   const sdkMessage = asLooseObject(message.message) ?? message;
   const role = isPlatformMessage(sdkMessage) ? 'platform' : 'user';
   const rows: SessionViewRow[] = [];
   const textParts: string[] = [];
+  let queuedToolResult = false;
   const pushText = () => {
     if (textParts.length === 0) return;
     rows.push(messageRow(timestamp, role, role, textParts.join('\n\n'), false));
@@ -348,7 +370,13 @@ export function userRows(
     const type = stringField(block, 'type');
     if (type === 'tool_result' || type === 'tool-result') {
       pushText();
-      rows.push(toolResultRow(timestamp, block));
+      const row = toolResultRow(timestamp, block);
+      if (row.toolCallId !== null && context.toolCallRows.has(row.toolCallId)) {
+        context.pendingToolRows.push(row);
+        queuedToolResult = true;
+      } else {
+        rows.push(row);
+      }
       continue;
     }
 
@@ -358,10 +386,14 @@ export function userRows(
 
   pushText();
 
-  if (rows.length > 0) return rows;
+  if (queuedToolResult) return rows;
+  if (rows.length > 0) return [...flushPendingToolRows(context), ...rows];
 
   const content = stringField(sdkMessage, 'content');
-  return [messageRow(timestamp, role, role, content ?? toJson(message), false)];
+  return [
+    ...flushPendingToolRows(context),
+    messageRow(timestamp, role, role, content ?? toJson(message), false),
+  ];
 }
 
 export function resultRow(

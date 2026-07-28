@@ -47,7 +47,23 @@ export async function closeStream(
   });
   if (!closedResult) return null;
 
-  const {stream: closed, pendingClaudeResult} = closedResult;
+  const {stream: closed, pendingClaudeResult, pendingClaudeToolRows} = closedResult;
+  if (pendingClaudeToolRows.length > 0) {
+    const data = Buffer.from(
+      `${pendingClaudeToolRows
+        .map((row) =>
+          JSON.stringify({v: 1, ts: row.timestamp, type: 'agent_session', row} satisfies LogRecord),
+        )
+        .join('\n')}\n`,
+    );
+    await insertChunk(tx, {
+      streamId: closed.id,
+      streamOffset: closed.committedLength,
+      byteLen: data.length,
+      data,
+      origin: 'control',
+    });
+  }
   if (pendingClaudeResult !== null) {
     const record: LogRecord = {
       v: 1,

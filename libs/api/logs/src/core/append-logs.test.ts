@@ -208,6 +208,7 @@ describe('appendLogs', () => {
             },
           }),
         ),
+        endLine(0),
       );
 
       await appendLogs({...ctx, attempt: 1, offset: 0, body}, workflows);
@@ -366,6 +367,62 @@ describe('appendLogs', () => {
         claudeTurn: 2,
         claudePendingResult: null,
       });
+    });
+
+    it('folds a tool-use summary across append requests before storing the row', async () => {
+      const ctx = newCtx();
+      await allowLargeLogBudget(ctx);
+      const workflows = createFakeInterModuleClients({
+        workflows: defineInterModulePresentation(workflowsInterModuleContract, {
+          startRunFromTrigger: vi.fn(),
+          deliverEventToJobListener: vi.fn(),
+          getStepLogContext: () => ({harness: 'claude' as const}),
+          getLeasedAgentToolContext: vi.fn(),
+        }),
+      }).workflows;
+      const first = ndjsonBody(
+        sessionLine(
+          JSON.stringify({
+            type: 'assistant',
+            message: {
+              role: 'assistant',
+              content: [
+                {type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}},
+              ],
+            },
+          }),
+        ),
+      );
+      const second = ndjsonBody(
+        sessionLine(
+          JSON.stringify({
+            type: 'tool_use_summary',
+            summary: 'Read the source file.',
+            preceding_tool_use_ids: ['tool-1'],
+          }),
+        ),
+        endLine(0),
+      );
+
+      await appendLogs({...ctx, attempt: 1, offset: 0, body: first}, workflows);
+      await appendLogs({...ctx, attempt: 1, offset: first.length, body: second}, workflows);
+
+      const stream = await findStream({...ctx, attempt: 1});
+      const rows = recordsFromChunks(await listChunks(stream?.id as string)).flatMap((record) =>
+        record.type === 'agent_session' ? [record.row] : [],
+      );
+
+      expect(rows).toEqual([
+        {
+          kind: 'tool-call',
+          timestamp: expect.any(Number),
+          id: 'tool-1',
+          name: 'Read',
+          input: '{\n  "file_path": "src/a.ts"\n}',
+          summary: 'Read the source file.',
+        },
+      ]);
+      expect(stream?.claudePendingToolRows).toEqual([]);
     });
 
     it('does not duplicate parsed rows on a retried append', async () => {

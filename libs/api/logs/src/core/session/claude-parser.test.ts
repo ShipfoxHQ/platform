@@ -1,4 +1,4 @@
-import {PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES} from './claude/rows.js';
+import {flushPendingToolRows, PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES} from './claude/rows.js';
 import {createClaudeParseContext, parseClaudeSessionRecord} from './claude-parser.js';
 
 const record = (data: unknown, ts = 1) => ({
@@ -225,19 +225,21 @@ describe('parseClaudeSessionRecord', () => {
 
   it('folds a tool-use summary into the last matching tool-call row', () => {
     const context = createClaudeParseContext();
-    const rows = parseClaudeSessionRecord(
-      record({
-        type: 'assistant',
-        message: {
-          role: 'assistant',
-          content: [
-            {type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}},
-            {type: 'tool_use', id: 'tool-2', name: 'Read', input: {file_path: 'src/b.ts'}},
-          ],
-        },
-      }),
-      context,
-    );
+    expect(
+      parseClaudeSessionRecord(
+        record({
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              {type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}},
+              {type: 'tool_use', id: 'tool-2', name: 'Read', input: {file_path: 'src/b.ts'}},
+            ],
+          },
+        }),
+        context,
+      ),
+    ).toEqual([]);
 
     expect(
       parseClaudeSessionRecord(
@@ -248,8 +250,7 @@ describe('parseClaudeSessionRecord', () => {
         }),
         context,
       ),
-    ).toEqual([]);
-    expect(rows).toEqual([
+    ).toEqual([
       {
         kind: 'tool-call',
         timestamp: 1,
@@ -270,23 +271,31 @@ describe('parseClaudeSessionRecord', () => {
 
   it('supports the legacy single tool-use id summary shape', () => {
     const context = createClaudeParseContext();
-    const rows = parseClaudeSessionRecord(
-      record({
-        type: 'assistant',
-        message: {
-          role: 'assistant',
-          content: [{type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}}],
-        },
-      }),
-      context,
-    );
+    expect(
+      parseClaudeSessionRecord(
+        record({
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              {type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}},
+            ],
+          },
+        }),
+        context,
+      ),
+    ).toEqual([]);
 
-    parseClaudeSessionRecord(
-      record({type: 'tool_use_summary', tool_use_id: 'tool-1', summary: 'Read the source file.'}),
-      context,
-    );
-
-    expect(rows[0]).toMatchObject({summary: 'Read the source file.'});
+    expect(
+      parseClaudeSessionRecord(
+        record({
+          type: 'tool_use_summary',
+          tool_use_id: 'tool-1',
+          summary: 'Read the source file.',
+        }),
+        context,
+      ),
+    ).toEqual([expect.objectContaining({summary: 'Read the source file.'})]);
   });
 
   it.each([
@@ -483,6 +492,7 @@ describe('parseClaudeSessionRecord', () => {
   });
 
   it('expands assistant text, thinking, and tool-use blocks in order', () => {
+    const context = createClaudeParseContext();
     const rows = parseClaudeSessionRecord(
       record({
         type: 'assistant',
@@ -495,9 +505,10 @@ describe('parseClaudeSessionRecord', () => {
           ],
         },
       }),
+      context,
     );
 
-    expect(rows).toEqual([
+    expect([...rows, ...flushPendingToolRows(context)]).toEqual([
       {
         kind: 'message',
         timestamp: 1,

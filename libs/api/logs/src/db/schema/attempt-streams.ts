@@ -1,4 +1,4 @@
-import type {SessionViewLifecycleRow} from '@shipfox/api-logs-dto';
+import type {SessionViewLifecycleRow, SessionViewRow} from '@shipfox/api-logs-dto';
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {sql} from 'drizzle-orm';
 import {
@@ -55,6 +55,7 @@ export const attemptStreams = pgTable(
     claudeSessionId: text('claude_session_id'),
     claudeTurn: integer('claude_turn').notNull().default(0),
     claudePendingResult: jsonb('claude_pending_result').$type<SessionViewLifecycleRow>(),
+    claudePendingToolRows: jsonb('claude_pending_tool_rows').$type<SessionViewRow[]>(),
     truncated: boolean('truncated').notNull().default(false),
     objectKey: text('object_key'),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
@@ -107,6 +108,7 @@ export function toAttemptStream(row: AttemptStreamDb): AttemptStream {
     claudeSessionId: row.claudeSessionId,
     claudeTurn: row.claudeTurn,
     claudePendingResult: row.claudePendingResult ?? null,
+    claudePendingToolRows: row.claudePendingToolRows ?? [],
     truncated: row.truncated,
     objectKey: row.objectKey,
     createdAt: row.createdAt,

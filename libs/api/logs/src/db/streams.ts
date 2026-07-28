@@ -1,4 +1,4 @@
-import type {SessionViewLifecycleRow} from '@shipfox/api-logs-dto';
+import type {SessionViewLifecycleRow, SessionViewRow} from '@shipfox/api-logs-dto';
 import {and, asc, eq, getTableColumns, isNull, lt, notInArray, sql} from 'drizzle-orm';
 import type {AttemptStream, StreamCloseReason} from '#core/entities/attempt-stream.js';
 import {LeaseStreamMismatchError} from '#core/errors.js';
@@ -169,6 +169,7 @@ export async function setClaudeParseContext(
     sessionId: string | null;
     turn: number;
     pendingResult: SessionViewLifecycleRow | null;
+    pendingToolRows: readonly SessionViewRow[];
   },
 ): Promise<void> {
   await tx
@@ -178,6 +179,7 @@ export async function setClaudeParseContext(
       claudeSessionId: params.sessionId,
       claudeTurn: params.turn,
       claudePendingResult: params.pendingResult,
+      claudePendingToolRows: [...params.pendingToolRows],
       updatedAt: sql`now()`,
     })
     .where(eq(attemptStreams.id, params.streamId));
@@ -193,7 +195,11 @@ export async function setClaudeParseContext(
 export async function markStreamClosed(
   tx: Transaction,
   params: {streamId: string; reason: StreamCloseReason; markTruncated: boolean},
-): Promise<{stream: AttemptStream; pendingClaudeResult: SessionViewLifecycleRow | null} | null> {
+): Promise<{
+  stream: AttemptStream;
+  pendingClaudeResult: SessionViewLifecycleRow | null;
+  pendingClaudeToolRows: SessionViewRow[];
+} | null> {
   const [open] = await tx
     .select()
     .from(attemptStreams)
@@ -209,6 +215,7 @@ export async function markStreamClosed(
       closedAt: sql`now()`,
       updatedAt: sql`now()`,
       claudePendingResult: null,
+      claudePendingToolRows: null,
       ...(params.markTruncated ? {truncated: true} : {}),
     })
     .where(and(eq(attemptStreams.id, params.streamId), eq(attemptStreams.state, 'open')))
@@ -218,6 +225,7 @@ export async function markStreamClosed(
     ? {
         stream: toAttemptStream(row),
         pendingClaudeResult: open.claudePendingResult ?? null,
+        pendingClaudeToolRows: open.claudePendingToolRows ?? [],
       }
     : null;
 }
