@@ -43,7 +43,7 @@ export function createWorkflowExpression(
   }
 
   if (params.check.mode === 'typed') {
-    const environment = new Environment({unlistedVariablesAreDyn: false});
+    const environment = createTypeCheckingEnvironment();
     for (const [name, type] of Object.entries(params.check.typeEnvironment ?? {})) {
       const celType = toCelType(type, environment, name);
       if (typeof celType === 'string') {
@@ -78,6 +78,18 @@ export function createWorkflowExpression(
     check: params.check.mode,
     ...(resultType === undefined ? {} : {resultType}),
   };
+}
+
+function createTypeCheckingEnvironment(): Environment {
+  const environment = new Environment({unlistedVariablesAreDyn: false});
+
+  // CEL evaluates numeric equality across types, but its static checker normally
+  // rejects the same expression. Match validation to the runtime contract.
+  environment.registerOperator('double == int', (left: number, right: bigint) => {
+    return Number.isInteger(left) && BigInt(left) === right;
+  });
+
+  return environment;
 }
 
 export function unsafeWorkflowExpressionFromSource(params: {

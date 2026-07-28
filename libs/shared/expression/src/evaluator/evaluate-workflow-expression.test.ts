@@ -27,6 +27,28 @@ describe('evaluateWorkflowExpression', () => {
     expect(result).toBe(true);
   });
 
+  it.each([
+    [1, true],
+    [1.5, false],
+  ])('evaluates number equality with an integer literal for %s', (value, expected) => {
+    const expression = createWorkflowExpression({
+      source: 'event.value == 1',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'object', fields: {value: 'double'}},
+        },
+        expectedResultType: 'bool',
+      },
+    });
+
+    const result = evaluateWorkflowPredicate(expression, {
+      event: {value},
+    });
+
+    expect(result).toBe(expected);
+  });
+
   it('does not add caller-supplied functions to the global evaluator', () => {
     const expression = createWorkflowExpression({
       source: 'range(2, 32, 2)',
