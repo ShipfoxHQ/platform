@@ -8,6 +8,7 @@ import {
   type WorkflowExpression,
   type WorkflowTemplateSegment,
 } from '@shipfox/expression';
+import {logger} from '@shipfox/node-opentelemetry';
 
 /** The maximum number of hand-written and expanded templates in one file. */
 export const MAX_TEMPLATES = 1_000;
@@ -146,6 +147,466 @@ export function enumerateVariants(file: ProvisionerTemplateFile): Variant[] {
 
 export const parseProvisionerTemplateFile = parseTemplateFile;
 export const enumerateTemplateVariants = enumerateVariants;
+
+export type RenderedTemplateMap = Readonly<Record<string, unknown>>;
+
+/**
+ * Render all matrix variants and hand-written templates into one provider-neutral map.
+ *
+ * Defaults are merged before any expression is evaluated. Exact single-expression
+ * leaves retain their CEL value type; mixed leaves are rendered as strings.
+ */
+export function renderTemplateVariants(file: ProvisionerTemplateFile): RenderedTemplateMap {
+  const variants = enumerateVariants(file);
+  const failures = new RenderFailureCollector();
+  const renderedHandWritten = renderHandWrittenTemplates(file, failures);
+  const renderedGenerated: RenderedVariant[] = [];
+
+  for (const variant of variants) {
+    const block = file.matrix?.[variant.block];
+    if (block === undefined) {
+      failures.record(variant.block, variant.bindings, 'block', 'Matrix block is missing.');
+      continue;
+    }
+
+    const evaluation = evaluateVariant(variant, block, file.vars ?? {}, failures);
+    if (evaluation === undefined) continue;
+
+    const mergedTemplate = mergeTemplateObjects(file.defaults, block.template);
+    const rendered = renderTemplateObject(
+      mergedTemplate,
+      evaluation.context,
+      evaluation.environment,
+      variant.block,
+      evaluation.displayBindings,
+      failures,
+    );
+    if (rendered.failed) continue;
+
+    renderedGenerated.push({
+      block: variant.block,
+      bindings: variant.bindings,
+      displayBindings: evaluation.displayBindings,
+      key: evaluation.key,
+      template: rendered.value,
+    });
+  }
+
+  if (failures.hasFailures()) throw failures.toError();
+
+  const generatedByKey = new Map<string, RenderedVariant>();
+  const collisions: string[] = [];
+  for (const generated of renderedGenerated) {
+    const previous = generatedByKey.get(generated.key);
+    if (previous !== undefined) {
+      collisions.push(formatCollision(generated.key, previous, generated));
+      continue;
+    }
+    generatedByKey.set(generated.key, generated);
+  }
+
+  if (collisions.length > 0) {
+    throw new ProvisionerTemplateFileError(`Template key collisions: ${collisions.join('; ')}`);
+  }
+
+  const templates: Record<string, unknown> = Object.fromEntries(renderedHandWritten.templates);
+  for (const generated of renderedGenerated) {
+    if (Object.hasOwn(file.templates, generated.key)) {
+      logger().warn(
+        {
+          event: 'provisioner.template_generated_shadowed',
+          templateKey: generated.key,
+          block: generated.block,
+          bindings: generated.displayBindings,
+        },
+        `Generated template "${generated.key}" from matrix "${generated.block}" is shadowed by a hand-written template`,
+      );
+      continue;
+    }
+    Object.defineProperty(templates, generated.key, {
+      configurable: true,
+      enumerable: true,
+      value: generated.template,
+      writable: true,
+    });
+  }
+
+  return templates;
+}
+
+export const renderVariants = renderTemplateVariants;
+
+interface RenderedVariant {
+  readonly block: string;
+  readonly bindings: VariantBindings;
+  readonly displayBindings: VariantBindings;
+  readonly key: string;
+  readonly template: unknown;
+}
+
+interface VariantEvaluation {
+  readonly context: Readonly<Record<string, unknown>>;
+  readonly displayBindings: VariantBindings;
+  readonly environment: ReturnType<typeof createRangeEnvironment>;
+  readonly key: string;
+}
+
+interface RenderedHandWrittenTemplates {
+  readonly templates: readonly (readonly [string, unknown])[];
+}
+
+interface RenderedValue {
+  readonly failed: boolean;
+  readonly value: unknown;
+}
+
+interface RenderFailure {
+  readonly bindings: VariantBindings;
+  readonly message: string;
+  readonly path: string;
+}
+
+const MAX_FAILURE_SAMPLES = 5;
+
+class RenderFailureCollector {
+  private readonly failures = new Map<
+    string,
+    {count: number; samples: RenderFailure[]; variantKeys: Set<string>}
+  >();
+
+  record(block: string, bindings: VariantBindings, path: string, message: string): void {
+    const entry = this.failures.get(block) ?? {count: 0, samples: [], variantKeys: new Set()};
+    const variantKey = formatBindings(bindings);
+    if (!entry.variantKeys.has(variantKey)) {
+      entry.variantKeys.add(variantKey);
+      entry.count += 1;
+    }
+    if (entry.samples.length < MAX_FAILURE_SAMPLES) {
+      entry.samples.push({bindings, path, message});
+    }
+    this.failures.set(block, entry);
+  }
+
+  hasFailures(): boolean {
+    return this.failures.size > 0;
+  }
+
+  toError(): ProvisionerTemplateFileError {
+    const messages = [...this.failures.entries()].map(([block, entry]) => {
+      const samples = entry.samples
+        .map(
+          (failure) =>
+            `${failure.path} for bindings ${formatBindings(failure.bindings)}: ${failure.message}`,
+        )
+        .join('; ');
+      const omitted =
+        entry.count > entry.samples.length ? `; ${entry.count - entry.samples.length} more` : '';
+      return `${entry.count} variants failed in matrix \`${block}\`: ${samples}${omitted}`;
+    });
+    return new ProvisionerTemplateFileError(`Template rendering failed: ${messages.join('; ')}`);
+  }
+}
+
+function renderHandWrittenTemplates(
+  file: ProvisionerTemplateFile,
+  failures: RenderFailureCollector,
+): RenderedHandWrittenTemplates {
+  const templates: (readonly [string, unknown])[] = [];
+  for (const [key, rawTemplate] of Object.entries(file.templates)) {
+    const parseErrors: string[] = [];
+    const parsedTemplate = parseTemplateValue(rawTemplate, `templates.${key}`, parseErrors);
+    if (parseErrors.length > 0) {
+      failures.record('templates', {template: key}, `templates.${key}`, parseErrors.join('; '));
+      continue;
+    }
+
+    const mergedTemplate = mergeTemplateObjects(file.defaults, parsedTemplate);
+    const environment = createRangeEnvironment();
+    const context = createEvaluationContext(file.vars ?? {}, {}, {});
+    const rendered = renderTemplateObject(
+      mergedTemplate,
+      context,
+      environment,
+      'templates',
+      {template: key},
+      failures,
+    );
+    if (!rendered.failed) templates.push([key, rendered.value]);
+  }
+  return {templates};
+}
+
+function evaluateVariant(
+  variant: Variant,
+  block: MatrixBlock,
+  vars: Readonly<Record<string, unknown>>,
+  failures: RenderFailureCollector,
+): VariantEvaluation | undefined {
+  const environment = createRangeEnvironment();
+  const letBindings = createMap<unknown>();
+  let hasFailure = false;
+
+  for (const [name, expression] of Object.entries(block.let)) {
+    const context = createEvaluationContext(vars, variant.bindings, letBindings);
+    try {
+      letBindings[name] = evaluateWorkflowExpressionWithEnvironment(
+        expression,
+        context,
+        environment,
+      );
+    } catch (error) {
+      hasFailure = true;
+      failures.record(
+        variant.block,
+        {...variant.bindings, ...letBindings},
+        `let.${name}`,
+        errorMessage(error),
+      );
+    }
+  }
+
+  const displayBindings = {...variant.bindings, ...letBindings};
+  const context = createEvaluationContext(vars, variant.bindings, letBindings);
+  let key: string;
+  if (block.key !== undefined) {
+    try {
+      key = coerceTemplateValue(
+        evaluateWorkflowExpressionWithEnvironment(block.key, context, environment),
+      );
+    } catch (error) {
+      hasFailure = true;
+      failures.record(variant.block, displayBindings, 'key', errorMessage(error));
+      key = '';
+    }
+  } else {
+    try {
+      key = deriveTemplateKey(variant.block, block.axes, variant.bindings);
+    } catch (error) {
+      hasFailure = true;
+      failures.record(variant.block, displayBindings, 'key', errorMessage(error));
+      key = '';
+    }
+  }
+
+  return hasFailure ? undefined : {context, displayBindings, environment, key};
+}
+
+function renderTemplateObject(
+  template: ParsedTemplateValue,
+  context: Readonly<Record<string, unknown>>,
+  environment: ReturnType<typeof createRangeEnvironment>,
+  block: string,
+  bindings: VariantBindings,
+  failures: RenderFailureCollector,
+): RenderedValue {
+  return renderTemplateValue(template, context, environment, 'template', block, bindings, failures);
+}
+
+function renderTemplateValue(
+  value: ParsedTemplateValue,
+  context: Readonly<Record<string, unknown>>,
+  environment: ReturnType<typeof createRangeEnvironment>,
+  path: string,
+  block: string,
+  bindings: VariantBindings,
+  failures: RenderFailureCollector,
+): RenderedValue {
+  if (isWorkflowTemplateSegments(value)) {
+    return renderTemplateSegments(value, context, environment, path, block, bindings, failures);
+  }
+  if (Array.isArray(value)) {
+    let failed = false;
+    const rendered = value.map((child, index) => {
+      const result = renderTemplateValue(
+        child,
+        context,
+        environment,
+        `${path}.${index}`,
+        block,
+        bindings,
+        failures,
+      );
+      failed ||= result.failed;
+      return result.value;
+    });
+    return {failed, value: rendered};
+  }
+  if (isRecord(value)) {
+    let failed = false;
+    const rendered = Object.fromEntries(
+      Object.entries(value).map(([key, child]) => {
+        const result = renderTemplateValue(
+          child as ParsedTemplateValue,
+          context,
+          environment,
+          `${path}.${key}`,
+          block,
+          bindings,
+          failures,
+        );
+        failed ||= result.failed;
+        return [key, result.value];
+      }),
+    );
+    return {failed, value: rendered};
+  }
+  return {failed: false, value};
+}
+
+function renderTemplateSegments(
+  segments: readonly WorkflowTemplateSegment[],
+  context: Readonly<Record<string, unknown>>,
+  environment: ReturnType<typeof createRangeEnvironment>,
+  path: string,
+  block: string,
+  bindings: VariantBindings,
+  failures: RenderFailureCollector,
+): RenderedValue {
+  const exactExpression = segments.length === 1 && segments[0]?.kind === 'expr';
+  if (exactExpression) {
+    const segment = segments[0];
+    if (segment?.kind !== 'expr') return {failed: false, value: ''};
+    try {
+      return {
+        failed: false,
+        value: evaluateWorkflowExpressionWithEnvironment(segment.expression, context, environment),
+      };
+    } catch (error) {
+      failures.record(block, bindings, path, errorMessage(error));
+      return {failed: true, value: undefined};
+    }
+  }
+
+  let failed = false;
+  let rendered = '';
+  for (const segment of segments) {
+    if (segment.kind === 'literal') {
+      rendered += segment.text;
+      continue;
+    }
+    try {
+      rendered += coerceTemplateValue(
+        evaluateWorkflowExpressionWithEnvironment(segment.expression, context, environment),
+      );
+    } catch (error) {
+      failed = true;
+      failures.record(block, bindings, path, errorMessage(error));
+    }
+  }
+  return {failed, value: rendered};
+}
+
+function deriveTemplateKey(
+  blockName: string,
+  axes: Readonly<Record<string, MatrixAxis>>,
+  bindings: VariantBindings,
+): string {
+  const parts = [blockName];
+  for (const axisName of Object.keys(axes)) {
+    const value = bindings[axisName];
+    if (isRecord(value) || Array.isArray(value)) {
+      if (!isRecord(value) || !Object.hasOwn(value, 'name')) {
+        throw new Error(
+          `axis "${axisName}" object must have a name field for default key derivation`,
+        );
+      }
+      parts.push(coerceKeyPart(value.name));
+    } else {
+      parts.push(coerceKeyPart(value));
+    }
+  }
+  return parts.join('-');
+}
+
+function coerceKeyPart(value: unknown): string {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  return coerceTemplateValue(value);
+}
+
+function mergeTemplateObjects(
+  defaults: Readonly<Record<string, ParsedTemplateValue>> | undefined,
+  template: ParsedTemplateValue,
+): ParsedTemplateValue {
+  if (defaults === undefined) return template;
+  return deepMergeTemplateValues(defaults as ParsedTemplateValue, template);
+}
+
+function deepMergeTemplateValues(
+  left: ParsedTemplateValue,
+  right: ParsedTemplateValue,
+): ParsedTemplateValue {
+  if (!isRecord(left) || !isRecord(right)) return right;
+  return Object.fromEntries(
+    [...new Set([...Object.keys(left), ...Object.keys(right)])].map((key) => {
+      if (!Object.hasOwn(right, key)) return [key, left[key]];
+      if (!Object.hasOwn(left, key)) return [key, right[key]];
+      return [
+        key,
+        deepMergeTemplateValues(
+          left[key] as ParsedTemplateValue,
+          right[key] as ParsedTemplateValue,
+        ),
+      ];
+    }),
+  );
+}
+
+function createEvaluationContext(
+  vars: Readonly<Record<string, unknown>>,
+  bindings: VariantBindings,
+  letBindings: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const context = createMap<unknown>();
+  context.vars = vars;
+  for (const [name, value] of Object.entries(bindings)) context[name] = value;
+  for (const [name, value] of Object.entries(letBindings)) context[name] = value;
+  return context;
+}
+
+function isWorkflowTemplateSegments(
+  value: ParsedTemplateValue,
+): value is readonly WorkflowTemplateSegment[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (segment) =>
+        isRecord(segment) &&
+        (segment.kind === 'literal' || segment.kind === 'expr') &&
+        (segment.kind === 'literal'
+          ? typeof segment.text === 'string'
+          : isRecord(segment.expression)),
+    )
+  );
+}
+
+function coerceTemplateValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (value instanceof Date) return value.toISOString();
+  const serialized = JSON.stringify(value, (_key, nestedValue) => {
+    if (typeof nestedValue !== 'bigint') return nestedValue;
+    const numberValue = Number(nestedValue);
+    return Number.isSafeInteger(numberValue) ? numberValue : nestedValue.toString();
+  });
+  return serialized ?? '';
+}
+
+function formatCollision(key: string, previous: RenderedVariant, current: RenderedVariant): string {
+  const axisNames = new Set([...Object.keys(previous.bindings), ...Object.keys(current.bindings)]);
+  const differingAxes = [...axisNames].filter(
+    (axisName) => !valuesEqual(previous.bindings[axisName], current.bindings[axisName]),
+  );
+  return `key "${key}" is used by matrix "${previous.block}" with bindings ${formatBindings(previous.displayBindings)} and matrix "${current.block}" with bindings ${formatBindings(current.displayBindings)}; differing axes: ${differingAxes.join(', ') || 'none'}`;
+}
+
+function formatBindings(bindings: VariantBindings): string {
+  return coerceTemplateValue(bindings);
+}
 
 interface PreparedBlock {
   readonly name: string;

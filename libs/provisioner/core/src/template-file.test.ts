@@ -1,10 +1,29 @@
-import {enumerateVariants, MAX_TEMPLATES, parseTemplateFile} from '#template-file.js';
+import {
+  enumerateVariants,
+  MAX_TEMPLATES,
+  parseTemplateFile,
+  renderTemplateVariants,
+} from '#template-file.js';
+
+const observability = vi.hoisted(() => {
+  const warningCalls: unknown[][] = [];
+  return {
+    logger: {warn: (...args: unknown[]) => warningCalls.push(args)},
+    warningCalls,
+  };
+});
+
+vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logger}));
 
 const expression = (source: string) => `\${{ ${source} }}`;
 const MULTI_BLOCK_ERROR_PATTERN =
   /matrix\.standard\.axes\.cpu.*matrix\.standard\.include\.0.*matrix\.gpu\.include\.0/s;
 const INCOMPLETE_INCLUDE_PATTERN =
   /must bind every declared axis.*missing arch.*unknown axes: extra/s;
+const KEY_COLLISION_PATTERN = /key "4".*x64.*arm64.*differing axes: arch/s;
+const OBJECT_AXIS_NAME_PATTERN = /machine.*name field/;
+const RENDER_FAILURE_PATTERN =
+  /2 variants failed in matrix `standard`.*template\.ami.*ubuntu2404.*ubuntu2604/s;
 
 describe('parseTemplateFile', () => {
   it('preserves the existing hand-written file shape when matrix is absent', () => {
@@ -196,5 +215,151 @@ describe('enumerateVariants', () => {
     expect(() => enumerateVariants(file)).toThrow(
       `matrix expands to ${MAX_TEMPLATES + 1} templates (standard: ${MAX_TEMPLATES}, gpu: 1) plus 1 hand-written; the maximum is ${MAX_TEMPLATES}`,
     );
+  });
+});
+
+describe('renderTemplateVariants', () => {
+  beforeEach(() => {
+    observability.warningCalls.length = 0;
+  });
+
+  it('renders independent families with defaults, overrides, and declaration-order lets', () => {
+    const file = parseTemplateFile({
+      vars: {image: 'runner:latest'},
+      defaults: {
+        image: expression('vars.image'),
+        labels: ['default'],
+        nested: {from_defaults: true, shared: 'default'},
+      },
+      templates: {
+        one_off: {labels: ['one-off'], nested: {from_defaults: false}},
+      },
+      matrix: {
+        standard: {
+          axes: {arch: ['arm64'], cpu: [6], os: ['ubuntu2404']},
+          let: {memory: expression('cpu * 4.0')},
+          template: {
+            cpu: expression('cpu'),
+            memory: expression('memory'),
+            labels: ['standard'],
+            nested: {shared: 'standard'},
+          },
+        },
+        gpu: {
+          axes: {model: [{name: 'a10'}], size: ['small']},
+          template: {model: expression('model.name')},
+        },
+      },
+    });
+
+    const templates = renderTemplateVariants(file);
+
+    expect(templates).toEqual({
+      one_off: {
+        image: 'runner:latest',
+        labels: ['one-off'],
+        nested: {from_defaults: false, shared: 'default'},
+      },
+      'standard-arm64-6-ubuntu2404': {
+        image: 'runner:latest',
+        labels: ['standard'],
+        nested: {from_defaults: true, shared: 'standard'},
+        cpu: 6,
+        memory: 24,
+      },
+      'gpu-a10-small': {
+        image: 'runner:latest',
+        labels: ['default'],
+        nested: {from_defaults: true, shared: 'default'},
+        model: 'a10',
+      },
+    });
+  });
+
+  it('widens generated keys when an axis is added', () => {
+    const withoutOs = parseTemplateFile({
+      templates: {},
+      matrix: {standard: {axes: {arch: ['x64'], cpu: [4]}, template: {}}},
+    });
+    const withOs = parseTemplateFile({
+      templates: {},
+      matrix: {
+        standard: {axes: {arch: ['x64'], cpu: [4], os: ['ubuntu2404']}, template: {}},
+      },
+    });
+
+    expect(Object.keys(renderTemplateVariants(withoutOs))).toEqual(['standard-x64-4']);
+    expect(Object.keys(renderTemplateVariants(withOs))).toEqual(['standard-x64-4-ubuntu2404']);
+  });
+
+  it('rejects collisions from an explicit key override and names differing axes', () => {
+    const file = parseTemplateFile({
+      templates: {},
+      matrix: {
+        standard: {
+          axes: {arch: ['x64', 'arm64'], cpu: [4]},
+          key: expression('string(cpu)'),
+          template: {},
+        },
+      },
+    });
+
+    expect(() => renderTemplateVariants(file)).toThrow(KEY_COLLISION_PATTERN);
+  });
+
+  it('requires names for object-valued axes only when deriving the default key', () => {
+    const withoutName = parseTemplateFile({
+      templates: {},
+      matrix: {standard: {axes: {machine: [{id: 'a'}]}, template: {}}},
+    });
+    expect(() => renderTemplateVariants(withoutName)).toThrow(OBJECT_AXIS_NAME_PATTERN);
+
+    const explicitKey = parseTemplateFile({
+      templates: {},
+      matrix: {
+        standard: {
+          axes: {machine: [{id: 'a'}]},
+          key: expression("'custom-machine'"),
+          template: {machine: expression('machine.id')},
+        },
+      },
+    });
+    expect(renderTemplateVariants(explicitKey)).toEqual({
+      'custom-machine': {machine: 'a'},
+    });
+  });
+
+  it('lets hand-written templates shadow generated twins and warns', () => {
+    const file = parseTemplateFile({
+      templates: {'standard-x64-4': {cpu: 99}},
+      matrix: {
+        standard: {axes: {arch: ['x64'], cpu: [4]}, template: {cpu: expression('cpu')}},
+      },
+    });
+
+    expect(renderTemplateVariants(file)).toEqual({'standard-x64-4': {cpu: 99}});
+    expect(observability.warningCalls).toHaveLength(1);
+    expect(observability.warningCalls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        event: 'provisioner.template_generated_shadowed',
+        templateKey: 'standard-x64-4',
+      }),
+    );
+    expect(observability.warningCalls[0]?.[1]).toEqual(expect.stringContaining('shadowed'));
+  });
+
+  it('aggregates rendering failures across variants in one block', () => {
+    const file = parseTemplateFile({
+      vars: {ami_by_os: {ubuntu2204: 'ami-2204'}},
+      templates: {},
+      matrix: {
+        standard: {
+          axes: {os: ['ubuntu2204', 'ubuntu2404', 'ubuntu2604']},
+          template: {ami: expression('vars.ami_by_os[os]')},
+        },
+      },
+    });
+
+    expect(() => renderTemplateVariants(file)).toThrow(RENDER_FAILURE_PATTERN);
   });
 });
