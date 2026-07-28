@@ -69,7 +69,12 @@ export function JobNode({
   ref?: Ref<HTMLButtonElement>;
 }) {
   useTimeTick();
-  const visual = getWorkflowStatusVisual(node.status);
+  const status =
+    node.status === 'pending' &&
+    node.jobExecutions.some((jobExecution) => jobExecution.status === 'running')
+      ? 'running'
+      : node.status;
+  const visual = getWorkflowStatusVisual(status);
   const accessibleLabel = [
     node.displayName,
     visual.label,
@@ -106,7 +111,7 @@ export function JobNode({
         />
       ) : null}
       <div className="flex min-w-0 flex-1 items-center gap-8">
-        <WorkflowStatusIcon status={node.status} jobMode={node.mode} size={14} />
+        <WorkflowStatusIcon status={status} jobMode={node.mode} size={14} />
         <JobLabel label={node.displayName} />
       </div>
       <JobDurationLabel duration={node.displayDuration} />
