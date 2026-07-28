@@ -367,6 +367,20 @@ templates:
     );
   });
 
+  it('throws on an empty template key', () => {
+    const path = writeTemplates(`
+templates:
+  '':
+    labels: [ubuntu22]
+    image: img
+    cpu: 1
+    memory: 2g
+    max_concurrency: 1
+`);
+
+    expect(() => loadDockerTemplates(path)).toThrow('Invalid key in record');
+  });
+
   it('throws on an unknown file key', () => {
     const path = writeTemplates(`${VALID}\nunknown: true`);
 

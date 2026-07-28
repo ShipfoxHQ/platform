@@ -128,6 +128,11 @@ function validateRenderedTemplates(
 ): Readonly<Record<string, z.infer<typeof dockerTemplateSchema>>> {
   const validated = Object.create(null) as Record<string, z.infer<typeof dockerTemplateSchema>>;
   for (const [key, template] of Object.entries(renderedTemplates)) {
+    if (key.length === 0) {
+      throw new DockerTemplateConfigError(
+        `Invalid Docker template config at ${filePath}: templates.: Invalid key in record`,
+      );
+    }
     const parsed = dockerTemplateSchema.safeParse(template);
     if (!parsed.success) {
       const issues = parsed.error.issues
