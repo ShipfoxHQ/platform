@@ -183,8 +183,72 @@ export function systemRow(
   return lifecycleRow(timestamp, label, null, 'default', false, meta);
 }
 
+export function authStatusRow(
+  timestamp: number,
+  message: Record<string, unknown>,
+): SessionViewLifecycleRow {
+  const error = stringField(message, 'error');
+  const output = stringList(field(message, 'output')).join('\n');
+  const isAuthenticating = booleanField(message, 'isAuthenticating');
+
+  return lifecycleRow(
+    timestamp,
+    error
+      ? 'Authentication failed'
+      : isAuthenticating
+        ? 'Authenticating'
+        : 'Authentication complete',
+    (error ?? output) || null,
+    error ? 'error' : 'default',
+    false,
+  );
+}
+
+const RATE_LIMIT_STATUS_MAPPINGS: Record<
+  string,
+  {label: string; tone: SessionViewLifecycleRow['tone']}
+> = {
+  rejected: {label: 'Rate limit exceeded', tone: 'error'},
+  allowed_warning: {label: 'Rate limit warning', tone: 'warning'},
+  allowed: {label: 'Rate limit available', tone: 'default'},
+};
+
+export function rateLimitRow(
+  timestamp: number,
+  message: Record<string, unknown>,
+): SessionViewLifecycleRow {
+  const rateLimitInfo = asLooseObject(field(message, 'rate_limit_info')) ?? {};
+  const status = stringField(rateLimitInfo, 'status');
+  const rateLimitType = stringField(rateLimitInfo, 'rateLimitType');
+  const utilization = numberField(rateLimitInfo, 'utilization');
+  const mapping = status === undefined ? undefined : RATE_LIMIT_STATUS_MAPPINGS[status];
+  const meta = [
+    metaItem('utilization', utilization == null ? null : `${formatNumber(utilization * 100)}%`),
+    mapping === undefined ? metaItem('status', status ?? null) : null,
+  ].filter(isMeta);
+
+  return lifecycleRow(
+    timestamp,
+    mapping?.label ?? 'Rate limit updated',
+    rateLimitType == null ? null : humanizeEnumValue(rateLimitType),
+    mapping?.tone ?? 'warning',
+    false,
+    meta,
+  );
+}
+
 function titleCase(value: string): string {
   return value.length === 0 ? value : `${value[0]?.toUpperCase()}${value.slice(1)}`;
+}
+
+function humanizeEnumValue(value: string): string {
+  return titleCase(value.replaceAll('_', ' '));
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
 
 export function assistantRows(

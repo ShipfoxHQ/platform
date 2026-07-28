@@ -2,7 +2,9 @@ import type {SessionViewRow} from '@shipfox/api-logs-dto';
 import {z} from 'zod';
 import {
   assistantRows,
+  authStatusRow,
   PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES,
+  rateLimitRow,
   resultRow,
   systemRow,
   userRows,
@@ -77,6 +79,16 @@ export function parseClaudeSessionRecord(
     case 'system':
     case 'init':
       return [systemRow(record.ts, message, context)];
+    case 'tool_progress':
+    case 'prompt_suggestion':
+    case 'tool_use_summary':
+      // These messages describe an already-emitted tool call or an interactive client state.
+      // They have no standalone row representation and must not look like parser failures.
+      return [];
+    case 'auth_status':
+      return [authStatusRow(record.ts, message)];
+    case 'rate_limit_event':
+      return [rateLimitRow(record.ts, message)];
     case 'assistant':
       return assistantRows(record.ts, message);
     case 'user':

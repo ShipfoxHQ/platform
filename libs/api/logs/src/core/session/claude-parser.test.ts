@@ -206,6 +206,91 @@ describe('parseClaudeSessionRecord', () => {
     expect(rows).toEqual([]);
   });
 
+  it.each([
+    ['tool_progress', {type: 'tool_progress'}],
+    ['prompt_suggestion', {type: 'prompt_suggestion'}],
+    [
+      'tool_use_summary',
+      {
+        type: 'tool_use_summary',
+        tool_use_id: 'tool-1',
+        summary: 'The tool completed successfully.',
+      },
+    ],
+  ] as const)('does not store companion message type %s as a row', (_type, message) => {
+    const rows = parseClaudeSessionRecord(record(message));
+
+    expect(rows).toEqual([]);
+  });
+
+  it.each([
+    [
+      'signed in',
+      {type: 'auth_status', isAuthenticating: false, output: ['Signed in']},
+      {label: 'Authentication complete', detail: 'Signed in', tone: 'default'},
+    ],
+    [
+      'authenticating',
+      {type: 'auth_status', isAuthenticating: true, output: []},
+      {label: 'Authenticating', detail: null, tone: 'default'},
+    ],
+    [
+      'failed',
+      {type: 'auth_status', isAuthenticating: false, output: [], error: 'Invalid credentials'},
+      {label: 'Authentication failed', detail: 'Invalid credentials', tone: 'error'},
+    ],
+  ] as const)('maps auth status messages to lifecycle rows (%s)', (_name, message, expected) => {
+    const rows = parseClaudeSessionRecord(record(message));
+
+    expect(rows).toEqual([
+      {kind: 'lifecycle', timestamp: 1, meta: [], terminalFailure: false, ...expected},
+    ]);
+  });
+
+  it.each([
+    [
+      'warning',
+      {status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 0.42},
+      {
+        label: 'Rate limit warning',
+        detail: 'Five hour',
+        meta: [{label: 'utilization', value: '42%'}],
+        tone: 'warning',
+      },
+    ],
+    [
+      'rejected',
+      {status: 'rejected', rateLimitType: 'five_hour', utilization: 1},
+      {
+        label: 'Rate limit exceeded',
+        detail: 'Five hour',
+        meta: [{label: 'utilization', value: '100%'}],
+        tone: 'error',
+      },
+    ],
+    [
+      'allowed',
+      {status: 'allowed'},
+      {label: 'Rate limit available', detail: null, meta: [], tone: 'default'},
+    ],
+    [
+      'unrecognized',
+      {status: 'some_future_status'},
+      {
+        label: 'Rate limit updated',
+        detail: null,
+        meta: [{label: 'status', value: 'some_future_status'}],
+        tone: 'warning',
+      },
+    ],
+  ] as const)('maps rate-limit events to lifecycle rows (%s)', (_name, rateLimitInfo, expected) => {
+    const rows = parseClaudeSessionRecord(
+      record({type: 'rate_limit_event', rate_limit_info: rateLimitInfo}),
+    );
+
+    expect(rows).toEqual([{kind: 'lifecycle', timestamp: 1, terminalFailure: false, ...expected}]);
+  });
+
   it.each(namedSystemEvents)('names and tones $subtype system events', ({
     subtype,
     data,
