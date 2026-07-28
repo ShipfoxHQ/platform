@@ -17,7 +17,7 @@ function textRe(text: string): RegExp {
   return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u');
 }
 
-test('accepts an invitation from the public landing page via login', async ({
+test('accepts an invitation for an existing user outside the signup allowlist via login', async ({
   page,
   auth,
   invitationAccept,
@@ -95,7 +95,7 @@ test('accepts an invitation from the public landing page via login', async ({
   });
 });
 
-test('creates an account from an invitation with the email locked', async ({
+test('creates an account from an invitation outside the signup allowlist with the email locked', async ({
   page,
   auth,
   invitationAccept,

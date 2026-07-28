@@ -38,6 +38,39 @@ export class LoginScreen {
   }
 }
 
+export class SignupScreen {
+  constructor(private readonly page: Page) {}
+  async goto(): Promise<void> {
+    await this.page.goto('/auth/signup');
+  }
+  heading(): Locator {
+    return this.page.getByRole('heading', {name: 'Create your Shipfox account'});
+  }
+  nameField(): Locator {
+    return this.page.getByLabel('Name');
+  }
+  emailField(): Locator {
+    return this.page.getByLabel('Email');
+  }
+  passwordField(): Locator {
+    return this.page.getByLabel('Password');
+  }
+  submitButton(): Locator {
+    return this.page.getByRole('button', {name: 'Create account'});
+  }
+  alert(): Locator {
+    return this.page.getByRole('alert');
+  }
+  verificationHeading(): Locator {
+    return this.page.getByRole('heading', {name: 'Check your email'});
+  }
+  async submit(params: {email: string; name: string; password: string}): Promise<void> {
+    await this.nameField().fill(params.name);
+    await this.emailField().fill(params.email);
+    await this.passwordField().fill(params.password);
+    await this.submitButton().click();
+  }
+}
 export class GuestRedirectScreen {
   constructor(private readonly page: Page) {}
 
@@ -57,6 +90,7 @@ export class GuestRedirectScreen {
 export interface AuthScreenFixtures {
   guestRedirects: GuestRedirectScreen;
   login: LoginScreen;
+  signup: SignupScreen;
 }
 
 export const authScreens = {
@@ -65,5 +99,8 @@ export const authScreens = {
   },
   login: async ({page}: {page: Page}, use: FixtureUse<LoginScreen>) => {
     await use(new LoginScreen(page));
+  },
+  signup: async ({page}: {page: Page}, use: FixtureUse<SignupScreen>) => {
+    await use(new SignupScreen(page));
   },
 };
