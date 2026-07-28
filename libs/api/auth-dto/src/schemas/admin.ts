@@ -6,6 +6,10 @@ export const adminRoleSchema = z.enum(['admin-observer', 'admin-operator', 'admi
 
 export type AdminRole = z.infer<typeof adminRoleSchema>;
 
+export function isAdminRole(value: unknown): value is AdminRole {
+  return adminRoleSchema.safeParse(value).success;
+}
+
 const timestampSchema = z.string().datetime();
 const identifierEmailSchema = z.string().email();
 const CONTROL_OR_FORMAT_CHARACTER_RE = /[\p{Cc}\p{Cf}]/u;
