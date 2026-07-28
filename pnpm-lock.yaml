@@ -820,6 +820,9 @@ importers:
       '@shipfox/node-opentelemetry':
         specifier: workspace:*
         version: link:../../libs/shared/node/opentelemetry
+      '@shipfox/runner-agent':
+        specifier: workspace:*
+        version: link:../../libs/runner/agent
       '@shipfox/runner-orchestration':
         specifier: workspace:*
         version: link:../../libs/runner/orchestration

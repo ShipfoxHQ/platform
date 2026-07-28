@@ -112,6 +112,10 @@ ENV HOME=/home/shipfox
 
 COPY --from=build /prod ./
 
+# Verify the production dependency closure contains every Pi extension entry before the image
+# can be published. This runs against the deployed flat layout, not the pnpm development tree.
+RUN node ./dist/verify-installation.js
+
 USER shipfox
 
 # The build/promotion workflows pass revision/created as build args.
