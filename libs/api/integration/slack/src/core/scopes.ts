@@ -11,6 +11,7 @@ export const SLACK_BOT_SCOPES = Object.freeze([
   'users:read',
   'reactions:read',
   'reactions:write',
+  'canvases:write',
   'commands',
 ]);
 

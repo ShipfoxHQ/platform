@@ -92,17 +92,17 @@ describe('SlackAgentToolsProvider', () => {
   it('dispatches a read method and returns the Slack response as structured content', async () => {
     const body = {ok: true, messages: [{text: 'Hello'}]};
     const options = providerOptions(async () => body);
-    const session = await openSession(options, ['conversations_history']);
+    const session = await openSession(options, ['read_channel']);
 
     const result = await session.call({
-      toolId: 'conversations_history',
-      arguments: {channel: 'C123', limit: 10},
+      toolId: 'read_channel',
+      arguments: {channel_id: 'C123', limit: 10},
     });
 
     expect(options.slack.callMethod).toHaveBeenCalledWith({
       method: 'conversations.history',
       token: 'xoxb-token',
-      arguments: {channel: 'C123', limit: 10},
+      arguments: expect.objectContaining({channel: 'C123', limit: 10}),
     });
     expect(result).toEqual({
       content: [{type: 'text', text: JSON.stringify(body)}],
@@ -110,58 +110,86 @@ describe('SlackAgentToolsProvider', () => {
     });
   });
 
-  it('passes a thread timestamp through to the message-posting method', async () => {
+  it('translates message parameters to their Slack Web API names', async () => {
     const options = providerOptions(async () => ({ok: true, ts: '456.000'}));
-    const session = await openSession(options, ['chat_postMessage']);
+    const session = await openSession(options, ['send_message']);
 
     await session.call({
-      toolId: 'chat_postMessage',
-      arguments: {channel: 'C123', text: 'Reply', thread_ts: '123.000'},
+      toolId: 'send_message',
+      arguments: {channel_id: 'C123', message: 'Reply', thread_ts: '123.000'},
     });
 
     expect(options.slack.callMethod).toHaveBeenCalledWith({
       method: 'chat.postMessage',
       token: 'xoxb-token',
-      arguments: {channel: 'C123', text: 'Reply', thread_ts: '123.000'},
+      arguments: {
+        channel: 'C123',
+        text: 'Reply',
+        blocks: [{type: 'markdown', text: 'Reply'}],
+        thread_ts: '123.000',
+        reply_broadcast: undefined,
+      },
     });
+  });
+
+  it('applies the tool result mapping before returning content to the agent', async () => {
+    const body = {
+      ok: true,
+      channels: [
+        {id: 'C1', name: 'deploy-prod'},
+        {id: 'C2', name: 'design'},
+      ],
+    };
+    const options = providerOptions(async () => body);
+    const session = await openSession(options, ['search_channels']);
+
+    const result = await session.call({
+      toolId: 'search_channels',
+      arguments: {query: 'deploy'},
+    });
+
+    expect(result.structuredContent).toEqual({...body, channels: [body.channels[0]]});
   });
 
   it('rejects a tool that was not selected for the session', async () => {
     const options = providerOptions(async () => ({ok: true}));
-    const session = await openSession(options, ['conversations_history']);
+    const session = await openSession(options, ['read_channel']);
 
-    const result = await session.call({toolId: 'users_info', arguments: {user: 'U123'}});
+    const result = await session.call({
+      toolId: 'read_user_profile',
+      arguments: {user_id: 'U123'},
+    });
 
     expect(result).toEqual({
       isError: true,
-      content: [{type: 'text', text: 'Unknown Slack tool: users_info'}],
+      content: [{type: 'text', text: 'Unknown Slack tool: read_user_profile'}],
     });
     expect(options.slack.callMethod).not.toHaveBeenCalled();
   });
 
   it('rejects a call missing a required parameter', async () => {
     const options = providerOptions(async () => ({ok: true}));
-    const session = await openSession(options, ['conversations_replies']);
+    const session = await openSession(options, ['read_thread']);
 
     const result = await session.call({
-      toolId: 'conversations_replies',
-      arguments: {channel: 'C123'},
+      toolId: 'read_thread',
+      arguments: {channel_id: 'C123'},
     });
 
     expect(result).toEqual({
       isError: true,
-      content: [{type: 'text', text: 'Missing required parameter: ts'}],
+      content: [{type: 'text', text: 'Missing required parameter: message_ts'}],
     });
     expect(options.slack.callMethod).not.toHaveBeenCalled();
   });
 
   it('returns a Slack application error to the agent', async () => {
     const options = providerOptions(async () => ({ok: false, error: 'channel_not_found'}));
-    const session = await openSession(options, ['conversations_history']);
+    const session = await openSession(options, ['read_channel']);
 
     const result = await session.call({
-      toolId: 'conversations_history',
-      arguments: {channel: 'C123'},
+      toolId: 'read_channel',
+      arguments: {channel_id: 'C123'},
     });
 
     expect(result).toEqual({
@@ -172,11 +200,11 @@ describe('SlackAgentToolsProvider', () => {
 
   it('returns auth failures with a stable access-denied code and logs only metadata', async () => {
     const options = providerOptions(async () => ({ok: false, error: 'invalid_auth'}));
-    const session = await openSession(options, ['conversations_history']);
+    const session = await openSession(options, ['read_channel']);
 
     const result = await session.call({
-      toolId: 'conversations_history',
-      arguments: {channel: 'C123'},
+      toolId: 'read_channel',
+      arguments: {channel_id: 'C123'},
     });
 
     expect(result).toMatchObject({
@@ -193,9 +221,9 @@ describe('SlackAgentToolsProvider', () => {
 
   it('returns an HTTP-200 rate-limit response with a stable code', async () => {
     const options = providerOptions(async () => ({ok: false, error: 'ratelimited'}));
-    const session = await openSession(options, ['conversations_list']);
+    const session = await openSession(options, ['search_channels']);
 
-    const result = await session.call({toolId: 'conversations_list', arguments: {}});
+    const result = await session.call({toolId: 'search_channels', arguments: {query: 'deploy'}});
 
     expect(result).toMatchObject({
       isError: true,
@@ -207,9 +235,9 @@ describe('SlackAgentToolsProvider', () => {
     const options = providerOptions(() =>
       Promise.reject(new SlackIntegrationProviderError('rate-limited', 'Try again later', 19)),
     );
-    const session = await openSession(options, ['conversations_list']);
+    const session = await openSession(options, ['search_channels']);
 
-    const result = await session.call({toolId: 'conversations_list', arguments: {}});
+    const result = await session.call({toolId: 'search_channels', arguments: {query: 'deploy'}});
 
     expect(result).toMatchObject({
       isError: true,
@@ -224,11 +252,11 @@ describe('SlackAgentToolsProvider', () => {
         new SlackIntegrationProviderError('content-too-large', 'Slack content was too large'),
       ),
     );
-    const session = await openSession(options, ['chat_postMessage']);
+    const session = await openSession(options, ['send_message']);
 
     const result = await session.call({
-      toolId: 'chat_postMessage',
-      arguments: {channel: 'C123', blocks: []},
+      toolId: 'send_message',
+      arguments: {channel_id: 'C123', message: 'Too large'},
     });
 
     expect(result).toMatchObject({
@@ -246,7 +274,7 @@ describe('SlackAgentToolsProvider', () => {
 
     const result = provider.openSession({
       connection: slackConnection(),
-      tools: [catalogTool('conversations_list')],
+      tools: [catalogTool('search_channels')],
       scope: {provider: 'slack'},
     });
 
