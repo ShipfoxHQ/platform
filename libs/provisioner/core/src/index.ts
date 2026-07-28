@@ -20,6 +20,22 @@ export {
   type StartProvisionerOptions,
   startProvisioner,
 } from '#provisioner.js';
+export {
+  enumerateTemplateVariants,
+  enumerateVariants,
+  MAX_TEMPLATES,
+  type MatrixAxis,
+  type MatrixBlock,
+  type ParsedTemplateList,
+  type ParsedTemplateObject,
+  type ParsedTemplateValue,
+  type ProvisionerTemplateFile,
+  ProvisionerTemplateFileError,
+  parseProvisionerTemplateFile,
+  parseTemplateFile,
+  type Variant,
+  type VariantBindings,
+} from '#template-file.js';
 export type {ProviderRunnerTracker} from '#tracker.js';
 export type {
   LaunchOutcome,

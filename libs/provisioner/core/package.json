@@ -39,6 +39,7 @@
   "dependencies": {
     "@shipfox/api-runners-dto": "workspace:*",
     "@shipfox/config": "workspace:*",
+    "@shipfox/expression": "workspace:*",
     "@shipfox/node-opentelemetry": "workspace:*",
     "@shipfox/node-resilient-loop": "workspace:*",
     "ky": "catalog:"

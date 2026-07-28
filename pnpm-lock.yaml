@@ -6259,6 +6259,9 @@ importers:
       '@shipfox/config':
         specifier: workspace:*
         version: link:../../shared/common/config
+      '@shipfox/expression':
+        specifier: workspace:*
+        version: link:../../shared/expression
       '@shipfox/node-opentelemetry':
         specifier: workspace:*
         version: link:../../shared/node/opentelemetry
