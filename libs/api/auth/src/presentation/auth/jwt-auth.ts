@@ -13,6 +13,7 @@ import type {User} from '#core/entities/user.js';
 import type {UserTokenClaims} from '#core/jwt.js';
 import {verifyUserToken} from '#core/jwt.js';
 import {findActiveRefreshSession} from '#db/refresh-tokens.js';
+import {findUserById} from '#db/users.js';
 import {createBearerTokenAuthMethod} from './bearer-token-auth.js';
 
 const AUTHENTICATED_SESSION_CONTEXT_KEY = Symbol.for('@shipfox/api-auth/session');
@@ -77,7 +78,22 @@ export async function getAuthenticatedSessionContext(
 export function createJwtAuthMethod(): AuthMethod {
   return createBearerTokenAuthMethod({
     name: AUTH_USER,
-    verifyToken: (token) => verifyUserToken({token, secret: userAccessTokenKey()}),
+    verifyToken: async (token) => {
+      const claims = await verifyUserToken({token, secret: userAccessTokenKey()});
+      const user = await findUserById({id: claims.sub});
+
+      // Legacy access tokens without a session claim remain verifiable for the
+      // migration window; known suspended or deleted users are still rejected.
+      if (user && user.status !== 'active') return null;
+      if (!claims.refreshSessionId) return claims;
+      if (!user) return null;
+
+      const session = await findActiveRefreshSession({
+        sessionId: claims.refreshSessionId,
+        userId: claims.sub,
+      });
+      return session ? claims : null;
+    },
     invalidTokenError: {message: 'Invalid or expired token', code: 'unauthorized'},
     setContext: (request, claims) => {
       const clientContext: ClientContext = buildUserContext({

@@ -1,6 +1,7 @@
 import type {AdminRole} from '@shipfox/api-auth-dto';
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {jsonb, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
+import type {UserStatus} from '#core/entities/user.js';
 import {pgTable} from './common.js';
 import {users} from './users.js';
 
@@ -13,9 +14,29 @@ export interface StoredAdminGrant {
   updatedAt: string;
 }
 
-export interface StoredAdminCommandResult {
-  grant: StoredAdminGrant;
+export interface StoredAdministratorUserSummary {
+  id: string;
+  email: string;
+  name: string | null;
+  emailVerifiedAt: string | null;
+  status: UserStatus;
+  createdAt: string;
+  adminRole: AdminRole | null;
 }
+
+export interface StoredAdminUserModerationResult {
+  user: StoredAdministratorUserSummary;
+  correlationId: string;
+  sessionsRevoked: number;
+}
+
+export type StoredAdminCommandResult =
+  | {
+      grant: StoredAdminGrant;
+    }
+  | {
+      userModeration: StoredAdminUserModerationResult;
+    };
 
 export const adminCommandResults = pgTable(
   'admin_command_results',

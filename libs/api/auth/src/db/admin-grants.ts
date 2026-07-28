@@ -226,6 +226,9 @@ async function findCommandResult(
   ) {
     throw new AdminIdempotencyKeyReuseError();
   }
+  if (!('grant' in result.result)) {
+    throw new Error('Administrator command result has an unexpected shape');
+  }
   return fromStoredAdminGrant(result.result.grant);
 }
 

@@ -116,7 +116,7 @@ describe('jwt-auth', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  test('does not read user state during JWT validation', async () => {
+  test('keeps a legacy token verifiable during the migration window', async () => {
     const userId = crypto.randomUUID();
     const email = emailFor('jwt-stateless');
     const token = await signUserToken({

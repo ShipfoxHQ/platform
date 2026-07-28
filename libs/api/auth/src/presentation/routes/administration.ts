@@ -2,6 +2,7 @@ import {AUTH_USER} from '@shipfox/api-auth-context';
 import {
   adminBootstrapStateSchema,
   administratorUserLookupQuerySchema,
+  administratorUserMutationResponseSchema,
   administratorUserSummarySchema,
   bootstrapAdminOwnerBodySchema,
   bootstrapAdminOwnerResponseSchema,
@@ -9,8 +10,12 @@ import {
   grantAdminRoleResponseSchema,
   listAdminGrantsQuerySchema,
   listAdminGrantsResponseSchema,
+  reactivateAdministratorUserBodySchema,
   revokeAdminGrantBodySchema,
   revokeAdminGrantResponseSchema,
+  revokeAdministratorUserSessionsBodySchema,
+  revokeAdministratorUserSessionsResponseSchema,
+  suspendAdministratorUserBodySchema,
 } from '@shipfox/api-auth-dto';
 import {decodeTimestampIdCursor, encodeTimestampIdCursor} from '@shipfox/node-drizzle';
 import {ClientError, defineRoute, type RouteGroup} from '@shipfox/node-fastify';
@@ -23,7 +28,10 @@ import {
   getAdminBootstrapState,
   grantAdministratorRole,
   listAdministratorGrantSummaries,
+  reactivateAdministratorUser,
   revokeAdministratorGrant,
+  revokeAdministratorUserSessions,
+  suspendAdministratorUser,
 } from '#core/administration.js';
 import type {AdminGrant} from '#core/entities/admin-grant.js';
 import type {
@@ -98,6 +106,16 @@ function toAdministratorGrantSummaryDto(grant: AdministratorGrantSummary) {
     created_at: grant.createdAt.toISOString(),
     revoked_at: grant.revokedAt?.toISOString() ?? null,
     user: grant.user,
+  };
+}
+
+function toAdministratorUserMutationDto(result: {
+  user: AdministratorUserSummary;
+  correlationId: string;
+}) {
+  return {
+    ...toAdministratorUserSummaryDto(result.user),
+    correlation_id: result.correlationId,
   };
 }
 
@@ -229,6 +247,75 @@ const userLookupRoute = defineRoute({
   },
 });
 
+const suspendUserRoute = defineRoute({
+  method: 'POST',
+  path: '/:userId/suspend',
+  description: 'Suspend a user and revoke all of its active sessions.',
+  schema: {
+    params: z.object({userId: z.string().uuid()}),
+    body: suspendAdministratorUserBodySchema,
+    response: {200: administratorUserMutationResponseSchema},
+  },
+  errorHandler: translateAdministrationError,
+  handler: async (request) => {
+    const result = await suspendAdministratorUser({
+      actorId: requireActorId(request),
+      userId: request.params.userId,
+      reason: request.body.reason,
+      idempotencyKey: requireIdempotencyKey(request),
+      correlationId: request.id,
+    });
+    return toAdministratorUserMutationDto(result);
+  },
+});
+
+const reactivateUserRoute = defineRoute({
+  method: 'POST',
+  path: '/:userId/reactivate',
+  description: 'Reactivate a suspended user without restoring revoked sessions.',
+  schema: {
+    params: z.object({userId: z.string().uuid()}),
+    body: reactivateAdministratorUserBodySchema,
+    response: {200: administratorUserMutationResponseSchema},
+  },
+  errorHandler: translateAdministrationError,
+  handler: async (request) => {
+    const result = await reactivateAdministratorUser({
+      actorId: requireActorId(request),
+      userId: request.params.userId,
+      ...(request.body.reason ? {reason: request.body.reason} : {}),
+      idempotencyKey: requireIdempotencyKey(request),
+      correlationId: request.id,
+    });
+    return toAdministratorUserMutationDto(result);
+  },
+});
+
+const revokeUserSessionsRoute = defineRoute({
+  method: 'POST',
+  path: '/:userId/revoke-sessions',
+  description: 'Revoke all active sessions for a user without changing account status.',
+  schema: {
+    params: z.object({userId: z.string().uuid()}),
+    body: revokeAdministratorUserSessionsBodySchema,
+    response: {200: revokeAdministratorUserSessionsResponseSchema},
+  },
+  errorHandler: translateAdministrationError,
+  handler: async (request) => {
+    const result = await revokeAdministratorUserSessions({
+      actorId: requireActorId(request),
+      userId: request.params.userId,
+      ...(request.body.reason ? {reason: request.body.reason} : {}),
+      idempotencyKey: requireIdempotencyKey(request),
+      correlationId: request.id,
+    });
+    return {
+      ...toAdministratorUserMutationDto(result),
+      sessions_revoked: result.sessionsRevoked,
+    };
+  },
+});
+
 const grantRoute = defineRoute({
   method: 'POST',
   path: '/',
@@ -290,5 +377,5 @@ export const administrationBootstrapRoutes: RouteGroup = {
 export const administrationUserRoutes: RouteGroup = {
   prefix: '/admin/auth/users',
   auth: AUTH_USER,
-  routes: [userLookupRoute],
+  routes: [userLookupRoute, suspendUserRoute, reactivateUserRoute, revokeUserSessionsRoute],
 };

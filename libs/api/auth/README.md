@@ -273,6 +273,20 @@ This app-layer limiter protects semantic auth work such as Argon2 verification a
 
 `GET /admin/auth/admin-grants` also requires `admin-observer`. It returns at most 100 newest-first `AdministratorGrantSummary` rows per page, with an opaque cursor and a safe embedded user identity. It does not return credentials, sessions, provider payloads, OAuth tokens, refresh tokens, or raw authentication metadata.
 
+### Administrator user moderation
+
+All routes are mounted under `/admin/auth/users` and require an authenticated bearer token.
+
+| Method | Path | Required role | Result |
+| --- | --- | --- | --- |
+| `POST` | `/:userId/suspend` | `admin-operator` | Suspends the user, revokes all active sessions, and returns the final safe user summary with a correlation ID. |
+| `POST` | `/:userId/reactivate` | `admin-operator` | Restores sign-in eligibility without restoring revoked sessions. |
+| `POST` | `/:userId/revoke-sessions` | `admin-operator` | Revokes all active sessions without changing account status and returns the number of affected sessions. |
+
+Each command requires an `Idempotency-Key`. Suspension requires a bounded reason; reactivation and session revocation accept an optional bounded reason. Repeating a successful command returns its committed result. Reusing a key for a different command or request returns `409 idempotency-key-reused`.
+
+Suspension preserves the user record and rejects the final active administrator owner. State, the command result, and one redacted `administration.action.performed` outbox event commit atomically. The event stores only the idempotency-key fingerprint, never the raw key or session material.
+
 ## API
 
 The package exports a module factory. Pass it the Workspaces inter-module client from the
@@ -427,6 +441,7 @@ Passwords use Argon2id. Password reset tokens and refresh tokens are opaque toke
 - A denied password signup returns `403` with error code `signup-not-allowed`. The policy message is capped at 500 characters.
 - Invitation signup validates the invitation and bypasses the signup policy. Invitations remain a separate authorization path.
 - Login only succeeds for active users with verified email addresses and a password hash.
+- Authenticated requests reject suspended or deleted users. Session-bound access tokens also reject a revoked refresh session.
 - Refresh tokens rotate on each refresh.
 - Password reset tokens and email challenge proofs are consumed once.
 - Password change revokes other refresh sessions. It keeps the current session when the current refresh cookie is valid.
