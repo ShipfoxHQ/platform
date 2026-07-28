@@ -13,6 +13,7 @@ import {
   formatNumber,
   isMeta,
   metaItem,
+  numberField,
   stringField,
   stringifyValue,
   toJson,
@@ -34,6 +35,101 @@ export const PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES = new Set<string>([
 ]);
 const OUTPUT_REPROMPT_PREFIX = 'The previous turn ended without setting required workflow outputs:';
 
+type SystemEventMapping = {
+  label: string | ((message: Record<string, unknown>) => string);
+  tone:
+    | SessionViewLifecycleRow['tone']
+    | ((message: Record<string, unknown>) => SessionViewLifecycleRow['tone']);
+  detail?: (message: Record<string, unknown>) => string | null;
+  meta?: (message: Record<string, unknown>) => readonly SessionViewRowMeta[];
+};
+
+const SYSTEM_EVENT_MAPPINGS: Record<string, SystemEventMapping> = {
+  permission_denied: {
+    label: 'Permission denied',
+    tone: 'error',
+    detail: (message) => stringField(message, 'tool_name') ?? null,
+    meta: (message) =>
+      [
+        metaItem(
+          'reason',
+          stringField(message, 'decision_reason') ?? stringField(message, 'message'),
+        ),
+      ].filter(isMeta),
+  },
+  api_retry: {
+    label: 'API retry',
+    tone: 'warning',
+    detail: (message) => {
+      const attempt = numberField(message, 'attempt');
+      const maxRetries = numberField(message, 'max_retries');
+      return attempt == null || maxRetries == null
+        ? null
+        : `attempt ${formatNumber(attempt)}/${formatNumber(maxRetries)}`;
+    },
+    meta: (message) =>
+      [
+        numberMeta(message, 'error_status', 'status'),
+        numberMeta(message, 'retry_delay_ms', 'retry delay', 'ms'),
+      ].filter(isMeta),
+  },
+  informational: {
+    label: (message) => titleCase(stringField(message, 'level') ?? 'informational'),
+    tone: (message) => (stringField(message, 'level') === 'warning' ? 'warning' : 'default'),
+    detail: (message) => stringField(message, 'content') ?? null,
+  },
+  compact_boundary: {
+    label: 'Context compacted',
+    tone: 'default',
+    meta: (message) => {
+      const compactMetadata = asLooseObject(field(message, 'compact_metadata')) ?? {};
+      return [
+        metaItem('trigger', stringField(compactMetadata, 'trigger')),
+        numberMeta(compactMetadata, 'pre_tokens', 'tokens before', 'tokens'),
+        numberMeta(compactMetadata, 'post_tokens', 'tokens after', 'tokens'),
+        numberMeta(compactMetadata, 'duration_ms', 'duration', 'ms'),
+      ].filter(isMeta);
+    },
+  },
+  model_refusal_fallback: {
+    label: 'Model refused, fell back',
+    tone: 'warning',
+  },
+  model_refusal_no_fallback: {
+    label: 'Model refused',
+    tone: 'error',
+  },
+  mirror_error: {
+    label: 'Session mirror failed',
+    tone: 'error',
+    detail: (message) => stringField(message, 'error') ?? null,
+  },
+  worker_shutting_down: {
+    label: 'Worker shutting down',
+    tone: 'warning',
+  },
+  elicitation_complete: {
+    label: 'Elicitation complete',
+    tone: 'default',
+  },
+  notification: {
+    label: 'Notification',
+    tone: 'default',
+  },
+  task_started: {
+    label: 'Task started',
+    tone: 'default',
+  },
+  task_updated: {
+    label: 'Task updated',
+    tone: 'default',
+  },
+  task_notification: {
+    label: 'Task notification',
+    tone: 'default',
+  },
+};
+
 export function systemRow(
   timestamp: number,
   message: Record<string, unknown>,
@@ -51,8 +147,25 @@ export function systemRow(
     ),
   ].filter(isMeta);
 
-  if (!isInit)
-    return lifecycleRow(timestamp, 'Session event', sessionId ?? null, 'default', false, baseMeta);
+  if (!isInit) {
+    const mapping = subtype === undefined ? undefined : SYSTEM_EVENT_MAPPINGS[subtype];
+    const label =
+      mapping === undefined
+        ? `Session event (${subtype ?? 'unknown'})`
+        : typeof mapping.label === 'function'
+          ? mapping.label(message)
+          : mapping.label;
+    const tone =
+      mapping === undefined
+        ? 'default'
+        : typeof mapping.tone === 'function'
+          ? mapping.tone(message)
+          : mapping.tone;
+    const detail = mapping?.detail?.(message) ?? null;
+    const meta = [...baseMeta, ...(mapping?.meta?.(message) ?? [])];
+
+    return lifecycleRow(timestamp, label, detail, tone, false, meta);
+  }
 
   const isNewSession =
     !context.hasInit || sessionId === undefined || sessionId !== context.sessionId;
@@ -61,11 +174,17 @@ export function systemRow(
   context.turn = isNewSession ? 1 : context.turn + 1;
 
   const label = isNewSession ? 'Session started' : `Turn ${context.turn} started`;
-  const meta = [metaItem('turn', isNewSession ? null : String(context.turn)), ...baseMeta].filter(
-    isMeta,
-  );
+  const meta = [
+    metaItem('session', isNewSession ? sessionId : null),
+    metaItem('turn', isNewSession ? null : String(context.turn)),
+    ...baseMeta,
+  ].filter(isMeta);
 
-  return lifecycleRow(timestamp, label, sessionId ?? null, 'default', false, meta);
+  return lifecycleRow(timestamp, label, null, 'default', false, meta);
+}
+
+function titleCase(value: string): string {
+  return value.length === 0 ? value : `${value[0]?.toUpperCase()}${value.slice(1)}`;
 }
 
 export function assistantRows(

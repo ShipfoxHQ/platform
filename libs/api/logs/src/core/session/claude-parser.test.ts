@@ -5,6 +5,148 @@ const record = (data: unknown, ts = 1) => ({
   ts,
   data: typeof data === 'string' ? data : JSON.stringify(data),
 });
+const meta = (label: string, value: string, inline?: boolean) =>
+  inline == null ? {label, value} : {label, value, inline};
+
+const namedSystemEvents = [
+  {
+    subtype: 'permission_denied',
+    data: {tool_name: 'mcp__shipfox_outputs__set_output', decision_reason: 'Permission mode'},
+    expected: {
+      label: 'Permission denied',
+      detail: 'mcp__shipfox_outputs__set_output',
+      meta: [meta('reason', 'Permission mode')],
+      tone: 'error',
+    },
+  },
+  {
+    subtype: 'api_retry',
+    data: {attempt: 2, max_retries: 3, error_status: 429, retry_delay_ms: 1_500},
+    expected: {
+      label: 'API retry',
+      detail: 'attempt 2/3',
+      meta: [meta('status', '429'), meta('retry delay', '1,500 ms')],
+      tone: 'warning',
+    },
+  },
+  {
+    subtype: 'informational',
+    data: {level: 'warning', content: 'The hook blocked continuation.'},
+    expected: {
+      label: 'Warning',
+      detail: 'The hook blocked continuation.',
+      meta: [],
+      tone: 'warning',
+    },
+  },
+  {
+    subtype: 'compact_boundary',
+    data: {
+      compact_metadata: {trigger: 'auto', pre_tokens: 12_000, post_tokens: 4_000, duration_ms: 250},
+    },
+    expected: {
+      label: 'Context compacted',
+      detail: null,
+      meta: [
+        meta('trigger', 'auto'),
+        meta('tokens before', '12K tokens'),
+        meta('tokens after', '4,000 tokens'),
+        meta('duration', '250 ms'),
+      ],
+      tone: 'default',
+    },
+  },
+  {
+    subtype: 'model_refusal_fallback',
+    data: {},
+    expected: {
+      label: 'Model refused, fell back',
+      detail: null,
+      meta: [],
+      tone: 'warning',
+    },
+  },
+  {
+    subtype: 'model_refusal_no_fallback',
+    data: {},
+    expected: {
+      label: 'Model refused',
+      detail: null,
+      meta: [],
+      tone: 'error',
+    },
+  },
+  {
+    subtype: 'mirror_error',
+    data: {error: 'Session store unavailable'},
+    expected: {
+      label: 'Session mirror failed',
+      detail: 'Session store unavailable',
+      meta: [],
+      tone: 'error',
+    },
+  },
+  {
+    subtype: 'worker_shutting_down',
+    data: {},
+    expected: {
+      label: 'Worker shutting down',
+      detail: null,
+      meta: [],
+      tone: 'warning',
+    },
+  },
+  {
+    subtype: 'elicitation_complete',
+    data: {},
+    expected: {
+      label: 'Elicitation complete',
+      detail: null,
+      meta: [],
+      tone: 'default',
+    },
+  },
+  {
+    subtype: 'notification',
+    data: {},
+    expected: {
+      label: 'Notification',
+      detail: null,
+      meta: [],
+      tone: 'default',
+    },
+  },
+  {
+    subtype: 'task_started',
+    data: {},
+    expected: {
+      label: 'Task started',
+      detail: null,
+      meta: [],
+      tone: 'default',
+    },
+  },
+  {
+    subtype: 'task_updated',
+    data: {},
+    expected: {
+      label: 'Task updated',
+      detail: null,
+      meta: [],
+      tone: 'default',
+    },
+  },
+  {
+    subtype: 'task_notification',
+    data: {},
+    expected: {
+      label: 'Task notification',
+      detail: null,
+      meta: [],
+      tone: 'default',
+    },
+  },
+] as const;
 
 describe('parseClaudeSessionRecord', () => {
   it('returns a raw row for malformed JSON', () => {
@@ -44,8 +186,9 @@ describe('parseClaudeSessionRecord', () => {
         kind: 'lifecycle',
         timestamp: 1,
         label: 'Session started',
-        detail: 'session-1',
+        detail: null,
         meta: [
+          {label: 'session', value: 'session-1'},
           {label: 'cwd', value: '/workspace', inline: false},
           {label: 'model', value: 'claude-opus-4-8'},
         ],
@@ -61,6 +204,23 @@ describe('parseClaudeSessionRecord', () => {
     const rows = parseClaudeSessionRecord(record({type: 'system', subtype}));
 
     expect(rows).toEqual([]);
+  });
+
+  it.each(namedSystemEvents)('names and tones $subtype system events', ({
+    subtype,
+    data,
+    expected,
+  }) => {
+    const rows = parseClaudeSessionRecord(record({type: 'system', subtype, ...data}));
+
+    expect(rows).toEqual([
+      {
+        kind: 'lifecycle',
+        timestamp: 1,
+        ...expected,
+        terminalFailure: false,
+      },
+    ]);
   });
 
   it('reports repeated init and result records as turns within one session', () => {
@@ -90,8 +250,8 @@ describe('parseClaudeSessionRecord', () => {
         kind: 'lifecycle',
         timestamp: 1,
         label: 'Session started',
-        detail: 'session-1',
-        meta: [],
+        detail: null,
+        meta: [meta('session', 'session-1')],
         tone: 'default',
         terminalFailure: false,
       },
@@ -108,7 +268,7 @@ describe('parseClaudeSessionRecord', () => {
         kind: 'lifecycle',
         timestamp: 1,
         label: 'Turn 2 started',
-        detail: 'session-1',
+        detail: null,
         meta: [{label: 'turn', value: '2'}],
         tone: 'default',
         terminalFailure: false,
@@ -125,7 +285,7 @@ describe('parseClaudeSessionRecord', () => {
     ]);
   });
 
-  it('keeps non-init system messages as session events', () => {
+  it('qualifies unmapped system events instead of using a bare generic label', () => {
     const rows = parseClaudeSessionRecord(
       record({type: 'system', subtype: 'custom_event', session_id: 'session-1'}),
     );
@@ -134,8 +294,8 @@ describe('parseClaudeSessionRecord', () => {
       {
         kind: 'lifecycle',
         timestamp: 1,
-        label: 'Session event',
-        detail: 'session-1',
+        label: 'Session event (custom_event)',
+        detail: null,
         meta: [],
         tone: 'default',
         terminalFailure: false,
