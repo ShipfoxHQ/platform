@@ -234,12 +234,12 @@ When password login is disabled, the password and email-verification rows in thi
 
 ### Administrator grants
 
-All routes are mounted under `/admin/auth/admin-grants` and require an authenticated bearer token. Ownership is enforced in the core layer, not by route-level middleware.
+All routes are mounted under `/admin/auth/admin-grants` and require an authenticated bearer token. Administrator role checks are enforced in the core layer, not by route-level middleware.
 
 | Method | Path | Required role | Result |
 | --- | --- | --- | --- |
 | `POST` | `/bootstrap` | none (deployment token) | Claims the `admin-owner` role for the calling user using `ADMIN_BOOTSTRAP_TOKEN`. Fails with `409 bootstrap-closed` once an active owner exists. |
-| `GET` | `/` | `admin-owner` | Lists local administrator grants. |
+| `GET` | `/` | `admin-observer` | Lists bounded local administrator grant summaries with embedded safe user identities. |
 | `POST` | `/` | `admin-owner` | Grants a role to an active user. |
 | `DELETE` | `/:grantId` | `admin-owner` | Revokes a grant. Fails with `409 last-owner` when it would remove the final active owner. |
 
@@ -255,12 +255,19 @@ The public auth endpoints include an application-layer abuse baseline for open s
 | `POST /auth/password-reset` | 30 email-send attempts per hour | 3 email-send attempts per hour |
 | `POST /auth/verify-email/resend` | Shared with password reset | Shared with password reset |
 | `POST /admin/auth/admin-grants/bootstrap` | 5 attempts per 15 minutes | n/a |
+| `GET /admin/auth/users` | 60 attempts per 5 minutes | n/a |
 
 Counters are stored in PostgreSQL as fixed windows in `auth_rate_limits`. IP addresses and email addresses are HMAC-SHA256 values before storage; raw identifiers are not persisted. The identifier key is derived from `AUTH_ROOT_KEY` separately from every token key.
 
 The limiter uses `request.ip`, so production deployments behind a reverse proxy must configure the API app's `API_TRUST_PROXY` setting. Keep the default `false` when clients connect directly. Use a positive hop count such as `1`, or a trusted proxy IP/CIDR such as `10.0.0.0/8`, when proxy headers are controlled by infrastructure you operate.
 
 This app-layer limiter protects semantic auth work such as Argon2 verification and email sending. It is not a volumetric DDoS control. Public production deployments should still use load balancer, CDN, WAF, or firewall rate limits at the network edge.
+
+### Administrator user reads
+
+`GET /admin/auth/users` requires `admin-observer` and accepts exactly one checked query filter: `id`, `user_id`, or normalized `email`. The response is a bounded `AdministratorUserSummary` containing only the stable user identity, verified-email timestamp, display name, account status, creation timestamp, and current administrator role.
+
+`GET /admin/auth/admin-grants` also requires `admin-observer`. It returns at most 100 newest-first `AdministratorGrantSummary` rows per page, with an opaque cursor and a safe embedded user identity. It does not return credentials, sessions, provider payloads, OAuth tokens, refresh tokens, or raw authentication metadata.
 
 ## API
 

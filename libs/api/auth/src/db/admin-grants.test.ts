@@ -1,12 +1,7 @@
 import {eq} from 'drizzle-orm';
 import {LastAdminOwnerError} from '#core/errors.js';
 import {userFactory} from '#test/index.js';
-import {
-  createAdminGrant,
-  findCurrentAdminRole,
-  listAdminGrants,
-  revokeAdminGrant,
-} from './admin-grants.js';
+import {createAdminGrant, findCurrentAdminRole, revokeAdminGrant} from './admin-grants.js';
 import {db} from './db.js';
 import {users} from './schema/users.js';
 
@@ -18,7 +13,6 @@ describe('admin grants db', () => {
 
     expect(observer.userId).toBe(user.id);
     expect(await findCurrentAdminRole({userId: user.id})).toBe('admin-operator');
-    expect((await listAdminGrants()).filter((grant) => grant.userId === user.id)).toHaveLength(2);
   });
 
   test('does not evaluate revoked grants or grants for suspended users', async () => {

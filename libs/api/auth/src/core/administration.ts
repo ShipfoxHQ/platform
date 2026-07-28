@@ -1,15 +1,21 @@
 import {createHash, timingSafeEqual} from 'node:crypto';
 import type {AdminRole} from '@shipfox/api-auth-dto';
 import {createAdministrationActionEvent} from '@shipfox/api-common-dto';
+import type {TimestampIdCursor} from '@shipfox/node-drizzle';
 import {config} from '#config.js';
 import {
   bootstrapFirstAdminOwner as bootstrapFirstAdminOwnerInDb,
   grantAdminRoleWithAudit,
-  listAdminGrants,
+  listAdminGrantSummaries,
   revokeAdminGrantWithAudit,
 } from '#db/admin-grants.js';
+import {findAdministratorUser as findAdministratorUserInDb} from '#db/admin-users.js';
 import {requireAdminRole} from './admin-role.js';
 import type {AdminGrant} from './entities/admin-grant.js';
+import type {
+  AdministratorGrantSummary,
+  AdministratorUserSummary,
+} from './entities/administrator-read-model.js';
 import {
   AdminBootstrapClosedError,
   AdminGrantAlreadyExistsError,
@@ -21,6 +27,7 @@ import {
 } from './errors.js';
 
 const ADMIN_OWNER_ROLE: AdminRole = 'admin-owner';
+const ADMIN_OBSERVER_ROLE: AdminRole = 'admin-observer';
 const BOOTSTRAP_COMMAND = 'auth.admin_grant.bootstrap';
 const GRANT_COMMAND = 'auth.admin_grant.grant';
 const REVOKE_COMMAND = 'auth.admin_grant.revoke';
@@ -98,9 +105,43 @@ export async function bootstrapFirstAdminOwner(
   });
 }
 
-export async function listAdministratorGrants(params: {actorId: string}): Promise<AdminGrant[]> {
-  await requireAdminRole({userId: params.actorId, minimumRole: ADMIN_OWNER_ROLE});
-  return await listAdminGrants();
+export async function findAdministratorUserSummary(
+  params: {actorId: string} & ({id: string; email?: never} | {email: string; id?: never}),
+): Promise<AdministratorUserSummary | undefined> {
+  await requireAdminRole({userId: params.actorId, minimumRole: ADMIN_OBSERVER_ROLE});
+
+  const user = await findAdministratorUserInDb(
+    'id' in params ? {id: params.id} : {email: params.email},
+  );
+  if (!user) return undefined;
+
+  return user;
+}
+
+export async function listAdministratorGrantSummaries(params: {
+  actorId: string;
+  limit: number;
+  cursor?: TimestampIdCursor;
+}): Promise<{
+  grants: AdministratorGrantSummary[];
+  nextCursor: TimestampIdCursor | null;
+}> {
+  await requireAdminRole({userId: params.actorId, minimumRole: ADMIN_OBSERVER_ROLE});
+
+  const result = await listAdminGrantSummaries({
+    limit: params.limit,
+    ...(params.cursor ? {cursor: params.cursor} : {}),
+  });
+  return {
+    grants: result.rows.map((row) => ({
+      grantId: row.id,
+      role: row.role,
+      createdAt: row.createdAt,
+      revokedAt: row.revokedAt,
+      user: row.user,
+    })),
+    nextCursor: result.nextCursor,
+  };
 }
 
 export async function grantAdministratorRole(

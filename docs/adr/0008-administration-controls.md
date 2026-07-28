@@ -103,7 +103,7 @@ The initial path families are:
 | Owner | Path family | Minimum role and scope |
 | --- | --- | --- |
 | Auth | `/admin/auth/users` | `admin-observer` for bounded lookup and safe account status; `admin-operator` for suspension, reactivation, and session revocation. |
-| Auth | `/admin/auth/admin-grants` | `admin-owner` for local administrator role listing and changes. |
+| Auth | `/admin/auth/admin-grants` | `admin-observer` for bounded grant listing; `admin-owner` for local administrator role changes. |
 | Workspaces | `/admin/workspaces` | `admin-observer` for bounded lookup and safe status; `admin-operator` for suspension and reactivation. |
 | Projects | `/admin/projects` | `admin-observer` for bounded lookup and safe status. |
 | Each configuration owner | `/admin/<module>/configuration` | `admin-observer` for safe effective-configuration inspection. |
