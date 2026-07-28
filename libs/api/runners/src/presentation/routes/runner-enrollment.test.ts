@@ -103,7 +103,8 @@ describe('runner enrollment control plane', () => {
       headers: {authorization: `Bearer ${controlToken}`},
       payload: {labels: ['Linux', 'linux'], provider_kind: 'docker', protocol_version: '1'},
     });
-    expect(enrolled.statusCode).toBe(204);
+    expect(enrolled.statusCode).toBe(200);
+    expect(enrolled.json()).toEqual({activation_token: null});
 
     const attached = await app.inject({
       method: 'POST',
@@ -136,6 +137,122 @@ describe('runner enrollment control plane', () => {
       headers: {authorization: `Bearer ${controlToken}`},
     });
     expect(jobs.statusCode).toBe(401);
+  });
+
+  it('promotes an intended reservation during enrollment and returns its activation token', async () => {
+    const workspaceId = crypto.randomUUID();
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Reservation insert returned no row');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {
+        runner_instances: [{template_key: 'linux', reservation_id: reservation.id}],
+      },
+    });
+    const runner = created.json().runner_instances[0];
+    const exchanged = await app.inject({
+      method: 'POST',
+      url: '/runner-enrollment/exchange',
+      payload: {bootstrap_token: runner.bootstrap_token},
+    });
+    const controlToken = exchanged.json().control_session_token;
+
+    const attached = await app.inject({
+      method: 'POST',
+      url: `/provisioners/runner-instances/${runner.runner_instance_id}/provider-runner`,
+      headers: {authorization: `Bearer ${token}`},
+      payload: {provider_runner_id: 'container-intended-assignment'},
+    });
+    expect(attached.json()).toEqual({attached: true});
+
+    const enrolled = await app.inject({
+      method: 'POST',
+      url: '/runner-control/enrollment',
+      headers: {authorization: `Bearer ${controlToken}`},
+      payload: {labels: ['linux'], provider_kind: 'docker', protocol_version: '1'},
+    });
+
+    expect(enrolled.statusCode).toBe(200);
+    expect(enrolled.json()).toEqual({activation_token: expect.any(String)});
+    const [instance] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.runner_instance_id));
+    expect(instance).toMatchObject({
+      workspaceId,
+      reservationId: reservation.id,
+      intendedReservationId: null,
+      state: 'running',
+      providerRunnerId: 'container-intended-assignment',
+      assignedAt: expect.any(Date),
+    });
+  });
+
+  it('keeps enrollment successful when an intended reservation cannot be promoted', async () => {
+    const workspaceId = crypto.randomUUID();
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['gpu'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Reservation insert returned no row');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {runner_instances: [{reservation_id: reservation.id}]},
+    });
+    const runner = created.json().runner_instances[0];
+    const exchanged = await app.inject({
+      method: 'POST',
+      url: '/runner-enrollment/exchange',
+      payload: {bootstrap_token: runner.bootstrap_token},
+    });
+    const controlToken = exchanged.json().control_session_token;
+    await app.inject({
+      method: 'POST',
+      url: `/provisioners/runner-instances/${runner.runner_instance_id}/provider-runner`,
+      headers: {authorization: `Bearer ${token}`},
+      payload: {provider_runner_id: 'container-intended-mismatch'},
+    });
+
+    const enrolled = await app.inject({
+      method: 'POST',
+      url: '/runner-control/enrollment',
+      headers: {authorization: `Bearer ${controlToken}`},
+      payload: {labels: ['linux'], provider_kind: 'docker', protocol_version: '1'},
+    });
+
+    expect(enrolled.statusCode).toBe(200);
+    expect(enrolled.json()).toEqual({activation_token: null});
+    const [instance] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.runner_instance_id));
+    expect(instance).toMatchObject({
+      workspaceId: null,
+      reservationId: null,
+      intendedReservationId: reservation.id,
+      state: 'running',
+    });
   });
 
   it('rejects enrollment when the authenticated runner instance is terminal', async () => {

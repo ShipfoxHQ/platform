@@ -1,3 +1,4 @@
+import type {CreateRunnerInstancesBodyDto} from '@shipfox/api-runners-dto';
 import type {ProvisionerClient} from './api-client.js';
 import {runProvisionerTick} from './tick.js';
 import {createInMemoryTracker} from './tracker.js';
@@ -5,6 +6,7 @@ import {createInMemoryTracker} from './tracker.js';
 describe('runProvisionerTick', () => {
   it('creates runner instances with bootstrap tokens before launching demand-driven runners', async () => {
     const calls: string[] = [];
+    const createBodies: CreateRunnerInstancesBodyDto[] = [];
     const client: ProvisionerClient = {
       getIdentity: async () => ({id: 'provisioner', scope: 'workspace', workspace_id: 'workspace'}),
       pollDemand: async () => ({
@@ -19,8 +21,9 @@ describe('runProvisionerTick', () => {
         ],
         terminate_provider_runner_ids: [],
       }),
-      createRunnerInstances: () => {
+      createRunnerInstances: (body) => {
         calls.push('create');
+        createBodies.push(body);
         return Promise.resolve({
           runner_instances: [
             {
@@ -64,6 +67,13 @@ describe('runProvisionerTick', () => {
     expect(launches).toEqual(['sf_rbt_test']);
     expect(result).toMatchObject({launchedCount: 1, providerLaunchFailureCount: 0});
     expect(result.launchLifecycleIncompleteCount).toBe(1);
+    expect(createBodies).toEqual([
+      {
+        runner_instances: [
+          {template_key: 'linux', reservation_id: '018f0d4c-5f42-7b7e-9d9b-4a7d8e6f0001'},
+        ],
+      },
+    ]);
   });
 
   it('counts partial runner-instance creation as failed capacity work', async () => {

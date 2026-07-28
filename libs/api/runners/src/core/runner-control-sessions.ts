@@ -1,12 +1,23 @@
 import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
+import type {NodePgDatabase} from '@shipfox/node-drizzle';
+import {logger} from '@shipfox/node-opentelemetry';
 import {extractDisplayPrefix, generateOpaqueToken, hashOpaqueToken} from '@shipfox/node-tokens';
 import {canonicalizeLabels} from '@shipfox/runner-labels';
 import {and, eq, gt, isNull, notInArray, or, sql} from 'drizzle-orm';
-import {db} from '#db/db.js';
+import {config} from '#config.js';
+import {
+  ReservationExpiredError,
+  ReservationNotFoundError,
+  RunnerInstanceAlreadyAssignedError,
+  RunnerInstanceNotAssignableError,
+} from '#core/errors.js';
+import {db, type schema, type Tx} from '#db/db.js';
+import {assignRunnerInstancesTx} from '#db/runner-assignments.js';
 import {terminalStates} from '#db/runner-instances.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
+import {issueRunnerActivationTokenTx} from './runner-activation.js';
 
 export class RunnerBootstrapTokenInvalidError extends Error {
   constructor() {
@@ -25,7 +36,10 @@ export class RunnerControlSessionInvalidError extends Error {
 export async function createRunnerInstancesWithBootstrapTokens(params: {
   provisionerId: string;
   providerKind?: string | null;
-  runnerInstances: Array<{templateKey?: string | null}>;
+  runnerInstances: Array<{
+    templateKey?: string | null;
+    reservationId?: string | null;
+  }>;
   ttlSeconds: number;
 }): Promise<Array<{runnerInstanceId: string; bootstrapToken: string}>> {
   const expiresAt = new Date(Date.now() + params.ttlSeconds * 1000);
@@ -37,6 +51,7 @@ export async function createRunnerInstancesWithBootstrapTokens(params: {
           provisionerId: params.provisionerId,
           providerKind: params.providerKind ?? null,
           templateKey: runner.templateKey ?? null,
+          intendedReservationId: runner.reservationId ?? null,
           state: 'starting' as const,
           labels: [],
           reportedAt: new Date(),
@@ -123,28 +138,87 @@ export async function enrollRunnerControlSession(params: {
   capabilities?: RunnerToolCapabilitiesDto | null;
   providerKind: string;
   protocolVersion: string;
-}): Promise<void> {
-  const updated = await db()
-    .update(providerRunners)
-    .set({
-      labels: [...canonicalizeLabels(params.labels)],
-      providerKind: params.providerKind,
-      protocolVersion: params.protocolVersion,
-      capabilities: params.capabilities ?? null,
-      state: 'running',
-      reportedAt: sql`now()`,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(
-        eq(providerRunners.id, params.runnerInstanceId),
-        eq(providerRunners.provisionerId, params.provisionerId),
-        notInArray(providerRunners.state, [...terminalStates]),
-      ),
-    )
-    .returning({id: providerRunners.id});
-  if (!updated[0]) throw new RunnerControlSessionInvalidError();
-  await touchRunnerControlSession(params.runnerInstanceId, params.provisionerId);
+}): Promise<string | null> {
+  return await db().transaction(async (tx) => {
+    const [current] = await tx
+      .select({intendedReservationId: providerRunners.intendedReservationId})
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.id, params.runnerInstanceId),
+          eq(providerRunners.provisionerId, params.provisionerId),
+        ),
+      );
+    if (!current) throw new RunnerControlSessionInvalidError();
+    if (current.intendedReservationId)
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${params.provisionerId}:${current.intendedReservationId}`}))`,
+      );
+
+    const [updated] = await tx
+      .update(providerRunners)
+      .set({
+        labels: [...canonicalizeLabels(params.labels)],
+        providerKind: params.providerKind,
+        protocolVersion: params.protocolVersion,
+        capabilities: params.capabilities ?? null,
+        state: 'running',
+        reportedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(providerRunners.id, params.runnerInstanceId),
+          eq(providerRunners.provisionerId, params.provisionerId),
+          notInArray(providerRunners.state, [...terminalStates]),
+        ),
+      )
+      .returning({
+        id: providerRunners.id,
+        intendedReservationId: providerRunners.intendedReservationId,
+      });
+    if (!updated) throw new RunnerControlSessionInvalidError();
+
+    await updateRunnerControlSessionLastSeen(tx, params.runnerInstanceId, params.provisionerId);
+
+    const intendedReservationId = updated.intendedReservationId;
+    if (!intendedReservationId) return null;
+
+    try {
+      return await tx.transaction(async (promotionTx) => {
+        await assignRunnerInstancesTx(promotionTx, {
+          provisionerId: params.provisionerId,
+          reservationId: intendedReservationId,
+          runnerInstanceIds: [params.runnerInstanceId],
+        });
+        return await issueRunnerActivationTokenTx(promotionTx, {
+          runnerInstanceId: params.runnerInstanceId,
+          provisionerId: params.provisionerId,
+          ttlSeconds: config.RUNNER_ACTIVATION_TOKEN_TTL_SECONDS,
+        });
+      });
+    } catch (error) {
+      const expectedFailure =
+        error instanceof ReservationExpiredError ||
+        error instanceof ReservationNotFoundError ||
+        error instanceof RunnerInstanceAlreadyAssignedError ||
+        error instanceof RunnerInstanceNotAssignableError;
+      const details = {
+        err: error,
+        runnerInstanceId: params.runnerInstanceId,
+        provisionerId: params.provisionerId,
+        reservationId: intendedReservationId,
+      };
+      if (expectedFailure)
+        logger().debug(details, 'Runner reservation could not be promoted during enrollment');
+      else
+        logger().error(
+          details,
+          'Unexpected failure promoting runner reservation during enrollment',
+        );
+      return null;
+    }
+  });
 }
 
 export async function attachRunnerControlProviderId(params: {
@@ -168,16 +242,7 @@ export async function attachRunnerControlProviderId(params: {
 }
 
 export async function touchRunnerControlSession(runnerInstanceId: string, provisionerId: string) {
-  await db()
-    .update(runnerControlSessions)
-    .set({lastSeenAt: sql`now()`})
-    .where(
-      and(
-        eq(runnerControlSessions.runnerInstanceId, runnerInstanceId),
-        eq(runnerControlSessions.provisionerId, provisionerId),
-        isNull(runnerControlSessions.closedAt),
-      ),
-    );
+  await updateRunnerControlSessionLastSeen(db(), runnerInstanceId, provisionerId);
   await db()
     .update(providerRunners)
     .set({reportedAt: sql`now()`, updatedAt: sql`now()`})
@@ -185,6 +250,23 @@ export async function touchRunnerControlSession(runnerInstanceId: string, provis
       and(
         eq(providerRunners.id, runnerInstanceId),
         eq(providerRunners.provisionerId, provisionerId),
+      ),
+    );
+}
+
+async function updateRunnerControlSessionLastSeen(
+  tx: Tx | NodePgDatabase<typeof schema>,
+  runnerInstanceId: string,
+  provisionerId: string,
+) {
+  await tx
+    .update(runnerControlSessions)
+    .set({lastSeenAt: sql`now()`})
+    .where(
+      and(
+        eq(runnerControlSessions.runnerInstanceId, runnerInstanceId),
+        eq(runnerControlSessions.provisionerId, provisionerId),
+        isNull(runnerControlSessions.closedAt),
       ),
     );
 }

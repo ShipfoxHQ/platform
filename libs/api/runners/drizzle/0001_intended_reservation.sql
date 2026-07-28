@@ -1,0 +1,3 @@
+ALTER TABLE "runners_runner_instances" ADD COLUMN "intended_reservation_id" uuid;--> statement-breakpoint
+CREATE INDEX "runners_runner_instances_provisioner_intended_reservation_idx" ON "runners_runner_instances" USING btree ("provisioner_id","intended_reservation_id") WHERE "runners_runner_instances"."intended_reservation_id" is not null and "runners_runner_instances"."reservation_released_at" is null;--> statement-breakpoint
+CREATE INDEX "runners_runner_instances_provisioner_reservation_idx" ON "runners_runner_instances" USING btree ("provisioner_id","reservation_id") WHERE "runners_runner_instances"."reservation_id" is not null;

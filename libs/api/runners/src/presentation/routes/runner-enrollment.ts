@@ -11,6 +11,7 @@ import {
   runnerBootstrapExchangeResponseSchema,
   runnerControlHeartbeatResponseSchema,
   runnerEnrollmentBodySchema,
+  runnerEnrollmentResponseSchema,
 } from '@shipfox/api-runners-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
@@ -43,9 +44,10 @@ export const createRunnerInstancesRoute = defineRoute({
     const results = await createRunnerInstancesWithBootstrapTokens({
       provisionerId: provisionerTokenId,
       ...(request.body.provider_kind ? {providerKind: request.body.provider_kind} : {}),
-      runnerInstances: request.body.runner_instances.map((runner) =>
-        runner.template_key ? {templateKey: runner.template_key} : {},
-      ),
+      runnerInstances: request.body.runner_instances.map((runner) => ({
+        ...(runner.template_key ? {templateKey: runner.template_key} : {}),
+        ...(runner.reservation_id ? {reservationId: runner.reservation_id} : {}),
+      })),
       ttlSeconds: config.RUNNER_BOOTSTRAP_TOKEN_TTL_SECONDS,
     });
     return {
@@ -111,16 +113,16 @@ export const enrollRunnerRoute = defineRoute({
   method: 'POST',
   path: '/enrollment',
   description: 'Declare the authenticated runner instance labels and protocol capabilities',
-  schema: {body: runnerEnrollmentBodySchema, response: {204: z.null()}},
+  schema: {body: runnerEnrollmentBodySchema, response: {200: runnerEnrollmentResponseSchema}},
   preHandler: authenticateRunnerControlSession,
   errorHandler: (error) => {
     if (error instanceof RunnerControlSessionInvalidError)
       throw new ClientError(error.message, 'runner-control-session-invalid', {status: 409});
     throw error;
   },
-  handler: async (request, reply) => {
+  handler: async (request) => {
     const session = requireRunnerControlSessionContext(request);
-    await enrollRunnerControlSession({
+    const activationToken = await enrollRunnerControlSession({
       runnerInstanceId: session.runnerInstanceId,
       provisionerId: session.provisionerId,
       labels: request.body.labels,
@@ -128,7 +130,7 @@ export const enrollRunnerRoute = defineRoute({
       providerKind: request.body.provider_kind,
       protocolVersion: request.body.protocol_version,
     });
-    return await reply.code(204).send();
+    return {activation_token: activationToken};
   },
 });
 

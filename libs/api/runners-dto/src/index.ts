@@ -76,6 +76,7 @@ export {
   type RunnerBootstrapExchangeBodyDto,
   type RunnerBootstrapExchangeResponseDto,
   type RunnerEnrollmentBodyDto,
+  type RunnerEnrollmentResponseDto,
   type RunnerHarnessToolCapabilitiesDto,
   type RunnerInstanceReportEventDto,
   type RunnerInstanceStateDto,
@@ -97,6 +98,7 @@ export {
   runnerBootstrapExchangeResponseSchema,
   runnerControlHeartbeatResponseSchema,
   runnerEnrollmentBodySchema,
+  runnerEnrollmentResponseSchema,
   runnerHarnessToolCapabilitiesSchema,
   runnerToolCapabilitiesSchema,
 } from '#schemas/index.js';

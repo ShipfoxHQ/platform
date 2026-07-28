@@ -24,6 +24,7 @@ import {
   runnerBootstrapExchangeResponseSchema,
   runnerControlHeartbeatResponseSchema,
   runnerEnrollmentBodySchema,
+  runnerEnrollmentResponseSchema,
 } from '@shipfox/api-runners-dto';
 import {type StepSecretsResponseDto, stepSecretsResponseSchema} from '@shipfox/api-secrets-dto';
 import {
@@ -192,16 +193,18 @@ export async function enrollRunnerControlSession(params: {
   capabilities: RunnerToolCapabilitiesDto;
   providerKind: string;
   protocolVersion: string;
-}): Promise<void> {
+}): Promise<string | null> {
   const body = runnerEnrollmentBodySchema.parse({
     labels: configuredRunnerLabels(),
     capabilities: params.capabilities,
     provider_kind: params.providerKind,
     protocol_version: params.protocolVersion,
   });
-  await createRunnerControlClient(params.controlSessionToken).post('runner-control/enrollment', {
-    json: body,
-  });
+  const response = await createRunnerControlClient(params.controlSessionToken).post(
+    'runner-control/enrollment',
+    {json: body},
+  );
+  return runnerEnrollmentResponseSchema.parse(await response.json()).activation_token;
 }
 
 export async function heartbeatRunnerControlSession(

@@ -139,6 +139,68 @@ describe('assignRunnerInstances', () => {
     await expect(assignment).rejects.toThrow(RunnerInstanceNotAssignableError);
   });
 
+  it('does not charge capacity for an already released reservation intent', async () => {
+    const reservation = await createReservation();
+    await db().insert(providerRunners).values({
+      provisionerId,
+      intendedReservationId: reservation.id,
+      reservationReleasedAt: new Date(),
+      providerRunnerId: crypto.randomUUID(),
+      state: 'failed',
+      reportedAt: new Date(),
+    });
+    const runner = await createEnrolledRunner();
+
+    await expect(
+      assignRunnerInstances({
+        provisionerId,
+        reservationId: reservation.id,
+        runnerInstanceIds: [runner.id],
+      }),
+    ).resolves.toEqual([runner.id]);
+  });
+
+  it('does not charge capacity for an already released reservation assignment', async () => {
+    const reservation = await createReservation();
+    await db().insert(providerRunners).values({
+      provisionerId,
+      reservationId: reservation.id,
+      reservationReleasedAt: new Date(),
+      providerRunnerId: crypto.randomUUID(),
+      state: 'failed',
+      reportedAt: new Date(),
+    });
+    const runner = await createEnrolledRunner();
+
+    await expect(
+      assignRunnerInstances({
+        provisionerId,
+        reservationId: reservation.id,
+        runnerInstanceIds: [runner.id],
+      }),
+    ).resolves.toEqual([runner.id]);
+  });
+
+  it('does not charge capacity for a terminal reservation intent before release bookkeeping', async () => {
+    const reservation = await createReservation();
+    await db().insert(providerRunners).values({
+      provisionerId,
+      intendedReservationId: reservation.id,
+      providerRunnerId: crypto.randomUUID(),
+      state: 'failed',
+      reportedAt: new Date(),
+    });
+    const runner = await createEnrolledRunner();
+
+    await expect(
+      assignRunnerInstances({
+        provisionerId,
+        reservationId: reservation.id,
+        runnerInstanceIds: [runner.id],
+      }),
+    ).resolves.toEqual([runner.id]);
+  });
+
   async function createReservation(
     overrides: Partial<{expiresAt: Date; requiredLabels: string[]}> = {},
   ) {

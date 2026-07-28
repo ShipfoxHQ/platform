@@ -413,6 +413,134 @@ describe('reportRunnerInstances', () => {
     expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
+  it('releases an intended reservation for a runner that dies before enrollment', async () => {
+    const reservationId = await createReservation(2);
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        provisionerId,
+        intendedReservationId: reservationId,
+        providerRunnerId: 'pre-enrollment-runner',
+        state: 'starting',
+        reportedAt: new Date(),
+      })
+      .returning();
+    if (!runner) throw new Error('Runner instance insert returned no row');
+    if (!runner.providerRunnerId) throw new Error('Runner instance provider id missing');
+
+    const result = await reportRunnerInstances({
+      workspaceId,
+      provisionerId,
+      events: [event({providerRunnerId: runner.providerRunnerId, state: 'failed'})],
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(reservationRows[0]?.count).toBe(1);
+    expect(storedRunner?.intendedReservationId).toBeNull();
+    expect(storedRunner?.reservationReleasedAt).toBeInstanceOf(Date);
+  });
+
+  it('releases an intended reservation from an installation-scoped terminal report', async () => {
+    const installationProvisioner = await provisionerTokenFactory.create({
+      scope: 'installation',
+      workspaceId: null,
+    });
+    const reservationWorkspaceId = crypto.randomUUID();
+    await reservationFactory.create({
+      workspaceId: reservationWorkspaceId,
+      provisionerId: installationProvisioner.id,
+      requiredLabels: ['linux'],
+      count: 2,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const [reservation] = await db()
+      .select()
+      .from(reservations)
+      .where(
+        and(
+          eq(reservations.workspaceId, reservationWorkspaceId),
+          eq(reservations.provisionerId, installationProvisioner.id),
+        ),
+      )
+      .orderBy(desc(reservations.id))
+      .limit(1);
+    if (!reservation) throw new Error('Expected reservation');
+    await db().insert(providerRunners).values({
+      provisionerId: installationProvisioner.id,
+      intendedReservationId: reservation.id,
+      providerRunnerId: 'installation-pre-enrollment-runner',
+      state: 'starting',
+      reportedAt: new Date(),
+    });
+
+    const result = await reportRunnerInstances({
+      workspaceId: null,
+      provisionerId: installationProvisioner.id,
+      events: [event({providerRunnerId: 'installation-pre-enrollment-runner', state: 'failed'})],
+    });
+
+    const [storedReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, reservation.id));
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, 'installation-pre-enrollment-runner'));
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(storedReservation?.count).toBe(1);
+    expect(storedRunner?.intendedReservationId).toBeNull();
+    expect(storedRunner?.reservationReleasedAt).toBeInstanceOf(Date);
+  });
+
+  it('prefers the validated intended reservation when both reservation ids are set', async () => {
+    const installationProvisioner = await provisionerTokenFactory.create({
+      scope: 'installation',
+      workspaceId: null,
+    });
+    const staleReservationId = await createReservation(1, {
+      workspaceId: crypto.randomUUID(),
+      provisionerId: installationProvisioner.id,
+    });
+    const intendedReservationId = await createReservation(1, {
+      workspaceId: crypto.randomUUID(),
+      provisionerId: installationProvisioner.id,
+    });
+    await db().insert(providerRunners).values({
+      provisionerId: installationProvisioner.id,
+      reservationId: staleReservationId,
+      intendedReservationId,
+      providerRunnerId: 'installation-runner-with-stale-reservation',
+      state: 'starting',
+      reportedAt: new Date(),
+    });
+
+    const result = await reportRunnerInstances({
+      workspaceId: null,
+      provisionerId: installationProvisioner.id,
+      events: [
+        event({providerRunnerId: 'installation-runner-with-stale-reservation', state: 'failed'}),
+      ],
+    });
+
+    const [staleReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, staleReservationId));
+    const [intendedReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, intendedReservationId));
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(staleReservation?.count).toBe(1);
+    expect(intendedReservation).toBeUndefined();
+  });
+
   it('does not release a reservation owned by another workspace or provisioner', async () => {
     const otherWorkspaceReservationId = await createReservation(1, {
       workspaceId: crypto.randomUUID(),
@@ -1043,6 +1171,60 @@ describe('reapStaleRunnerInstances', () => {
 
     expect(result.reaped).toBe(1);
     expect(row).toMatchObject({workspaceId: null, providerRunnerId: null, state: 'failed'});
+  });
+
+  it('releases an intended reservation while reaping a stale installation runner', async () => {
+    const installationProvisioner = await provisionerTokenFactory.create({
+      scope: 'installation',
+      workspaceId: null,
+    });
+    const reservationWorkspaceId = crypto.randomUUID();
+    await reservationFactory.create({
+      workspaceId: reservationWorkspaceId,
+      provisionerId: installationProvisioner.id,
+      requiredLabels: ['linux'],
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const [reservation] = await db()
+      .select()
+      .from(reservations)
+      .where(
+        and(
+          eq(reservations.workspaceId, reservationWorkspaceId),
+          eq(reservations.provisionerId, installationProvisioner.id),
+        ),
+      )
+      .orderBy(desc(reservations.id))
+      .limit(1);
+    if (!reservation) throw new Error('Expected reservation');
+    const [instance] = await db()
+      .insert(providerRunners)
+      .values({
+        provisionerId: installationProvisioner.id,
+        intendedReservationId: reservation.id,
+        providerRunnerId: 'stale-installation-runner-with-reservation',
+        state: 'starting',
+        reportedAt: staleAt(),
+        updatedAt: staleAt(),
+      })
+      .returning({id: providerRunners.id});
+    if (!instance) throw new Error('Runner instance insert returned no row');
+
+    const result = await reapStaleRunnerInstances({thresholdSeconds: 60, limit: 100});
+    const [row] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, instance.id));
+    const remainingReservations = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, reservation.id));
+
+    expect(result).toEqual({reaped: 1, reservationsReleased: 1});
+    expect(row?.intendedReservationId).toBeNull();
+    expect(row?.reservationReleasedAt).toBeInstanceOf(Date);
+    expect(remainingReservations).toHaveLength(0);
   });
 
   it('skips fresh rows, live provisioners, terminal rows, running jobs, and fresh sessions', async () => {

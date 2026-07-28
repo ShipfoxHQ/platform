@@ -104,25 +104,33 @@ describe('createDockerLifecycle', () => {
     expect(engine.created).toHaveLength(1);
     expect(client.reportBodies[0]?.events[0]).toMatchObject({state: 'starting'});
   });
-  it('does not report a started container as failed when identity attachment fails', async () => {
+  it('reports a failed launch when identity attachment fails before start', async () => {
     const error = new Error('identity API unavailable');
-    const engine = fakeEngine();
+    const events: string[] = [];
+    const engine = fakeEngine({events});
     const client = fakeClient({attachErrors: [error]});
     const lifecycle = makeLifecycle({engine, client});
 
-    const outcome = await lifecycle.launch(launch());
+    await expect(lifecycle.launch(launch())).rejects.toThrow(error);
 
     expect(engine.created).toHaveLength(1);
-    expect(client.reportBodies).toEqual([]);
-    expect(outcome).toEqual({containerStarted: true, identityAttached: false, reported: false});
-    expect(observability.logger.debug).toHaveBeenCalledWith(
-      expect.objectContaining({event: 'runner.container_identity_attachment_failed'}),
-      'Failed to attach provider identity after runner container started',
-    );
+    expect(events).not.toContain('start');
+    expect(client.reportBodies.map((body) => body.events[0]?.state)).toEqual(['failed']);
     expect(observability.logger.error).not.toHaveBeenCalledWith(
       expect.objectContaining({event: 'runner.container_launch_failed'}),
       expect.any(String),
     );
+  });
+
+  it('attaches the provider identity before starting the container', async () => {
+    const events: string[] = [];
+    const engine = fakeEngine({events});
+    const client = fakeClient({events});
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.launch(launch());
+
+    expect(events).toEqual(['create', 'attach', 'start']);
   });
 
   it('assigns an enrolled observed runner through its container identity', async () => {
@@ -1336,6 +1344,7 @@ function fakeClient(
     reconcileErrors?: Error[];
     reconcileResponse?: ReconcileRunnerInstancesResponseDto;
     onReport?: () => void;
+    events?: string[];
   } = {},
 ): ProvisionerClient & {
   reportBodies: ReportRunnerInstancesBodyDto[];
@@ -1366,6 +1375,7 @@ function fakeClient(
     attachRunnerInstanceProviderId: () => {
       const error = attachErrors.shift();
       if (error) return Promise.reject(error);
+      options.events?.push('attach');
       return Promise.resolve({attached: true});
     },
     assignRunnerInstances: (reservationId, runnerInstanceIds) => {
@@ -1402,6 +1412,7 @@ function fakeEngine(
     removeErrors?: Array<Error | undefined>;
     killAndRemoveError?: Error;
     onRemove?: () => void;
+    events?: string[];
   } = {},
 ): DockerEngine & {
   created: Parameters<DockerEngine['createAndStart']>[0][];
@@ -1427,7 +1438,11 @@ function fakeEngine(
     createAndStart: (args) => {
       if (options.createError) return Promise.reject(options.createError);
       created.push(args);
-      return Promise.resolve();
+      options.events?.push('create');
+      return (async () => {
+        await args.beforeStart?.();
+        options.events?.push('start');
+      })();
     },
     listManaged: () => {
       listManagedCalls += 1;

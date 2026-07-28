@@ -111,6 +111,48 @@ describe('createDockerEngine', () => {
     expect(docker.removed).toEqual(['runner-1']);
   });
 
+  it('runs the pre-start hook before starting the container', async () => {
+    const docker = fakeDocker();
+    const engine = createDockerEngine({docker: docker as never});
+
+    await engine.createAndStart({
+      name: 'runner-1',
+      image: 'runner:latest',
+      env: {},
+      labels: {'shipfox.provisioner_id': 'p1'},
+      nanoCpus: 1,
+      memoryBytes: 1,
+      beforeStart: () => {
+        docker.events.push('before-start');
+        return Promise.resolve();
+      },
+    });
+
+    expect(docker.events).toEqual(['create', 'before-start', 'start']);
+    expect(docker.started).toEqual(['runner-1']);
+  });
+
+  it('removes a created container when the pre-start hook fails', async () => {
+    const docker = fakeDocker();
+    const engine = createDockerEngine({docker: docker as never});
+    const error = new Error('attach failed');
+
+    await expect(
+      engine.createAndStart({
+        name: 'runner-1',
+        image: 'runner:latest',
+        env: {},
+        labels: {'shipfox.provisioner_id': 'p1'},
+        nanoCpus: 1,
+        memoryBytes: 1,
+        beforeStart: () => Promise.reject(error),
+      }),
+    ).rejects.toBe(error);
+
+    expect(docker.removed).toEqual(['runner-1']);
+    expect(docker.started).toEqual([]);
+  });
+
   it('maps create conflicts to name-conflict', async () => {
     const docker = fakeDocker({createError: statusError(409)});
     const engine = createDockerEngine({docker: docker as never});
@@ -296,6 +338,7 @@ function fakeDocker(
   const pulled: string[] = [];
   const created: unknown[] = [];
   const started: string[] = [];
+  const events: string[] = [];
   const removed: string[] = [];
   const inspected: string[] = [];
   const missingImages = options.missingImages ?? new Set<string>();
@@ -304,6 +347,7 @@ function fakeDocker(
     pulled,
     created,
     started,
+    events,
     removed,
     inspected,
     modem: {
@@ -328,10 +372,12 @@ function fakeDocker(
     createContainer: (params: unknown) => {
       if (options.createError) return Promise.reject(options.createError);
       created.push(params);
+      events.push('create');
       const name = (params as {name: string}).name;
       return Promise.resolve({
         start: () => {
           if (options.startError) return Promise.reject(options.startError);
+          events.push('start');
           started.push(name);
           return Promise.resolve();
         },

@@ -275,7 +275,12 @@ async function launchReservation<Spec>(
     let created: CreateRunnerInstancesResponseDto;
     try {
       created = await deps.client.createRunnerInstances(
-        {runner_instances: batch.map((runner) => ({template_key: runner.template.key}))},
+        {
+          runner_instances: batch.map((runner) => ({
+            template_key: runner.template.key,
+            ...(reservationId ? {reservation_id: reservationId} : {}),
+          })),
+        },
         deps.signal ? {signal: deps.signal} : {},
       );
     } catch (error) {

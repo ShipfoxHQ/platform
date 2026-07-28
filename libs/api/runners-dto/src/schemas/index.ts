@@ -111,11 +111,13 @@ export {
   type RunnerBootstrapExchangeBodyDto,
   type RunnerBootstrapExchangeResponseDto,
   type RunnerEnrollmentBodyDto,
+  type RunnerEnrollmentResponseDto,
   runnerAssignmentPollResponseSchema,
   runnerBootstrapExchangeBodySchema,
   runnerBootstrapExchangeResponseSchema,
   runnerControlHeartbeatResponseSchema,
   runnerEnrollmentBodySchema,
+  runnerEnrollmentResponseSchema,
 } from './runner-enrollment.js';
 export {
   type RunnerHarnessToolCapabilitiesDto,

@@ -9,7 +9,14 @@ export const createRunnerInstancesBodySchema = z
   .object({
     provider_kind: z.string().min(1).max(64).optional(),
     runner_instances: z
-      .array(z.object({template_key: z.string().min(1).max(255).optional()}).strict())
+      .array(
+        z
+          .object({
+            template_key: z.string().min(1).max(255).optional(),
+            reservation_id: z.string().uuid().optional(),
+          })
+          .strict(),
+      )
       .min(1)
       .max(500),
   })
@@ -32,6 +39,9 @@ export const runnerEnrollmentBodySchema = z
     protocol_version: z.string().min(1).max(64),
   })
   .strict();
+export const runnerEnrollmentResponseSchema = z.object({
+  activation_token: z.string().min(1).nullable(),
+});
 export const attachRunnerControlProviderIdBodySchema = z
   .object({provider_runner_id: z.string().min(1).max(255)})
   .strict();
@@ -47,3 +57,4 @@ export type RunnerBootstrapExchangeResponseDto = z.infer<
   typeof runnerBootstrapExchangeResponseSchema
 >;
 export type RunnerEnrollmentBodyDto = z.infer<typeof runnerEnrollmentBodySchema>;
+export type RunnerEnrollmentResponseDto = z.infer<typeof runnerEnrollmentResponseSchema>;
