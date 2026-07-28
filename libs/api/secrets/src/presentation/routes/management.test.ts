@@ -61,7 +61,7 @@ describe('secrets management routes', () => {
     await closeApp();
     workspaceId = crypto.randomUUID();
     projectId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
     requireProjectForWorkspace.mockResolvedValue({
       project: {
         id: projectId,
@@ -108,7 +108,13 @@ describe('secrets management routes', () => {
   });
 
   it('requires admin membership for writes', async () => {
-    authenticatedMemberships = [{workspaceId, role: 'viewer' as UserContextMembership['role']}];
+    authenticatedMemberships = [
+      {
+        workspaceId,
+        role: 'viewer' as UserContextMembership['role'],
+        workspaceStatus: 'active',
+      },
+    ];
 
     const res = await app.inject({
       method: 'PUT',

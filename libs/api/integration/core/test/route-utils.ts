@@ -89,7 +89,7 @@ export function useIntegrationRouteTest() {
   beforeEach(async () => {
     await closeApp();
     workspaceId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
   });
 
   afterEach(async () => {

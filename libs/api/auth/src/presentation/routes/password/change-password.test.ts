@@ -48,6 +48,11 @@ describe('POST /auth/change-password', () => {
       headers: {cookie: cookieHeader(account.refreshCookie)},
       payload: {},
     });
+    const access = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: {authorization: `Bearer ${account.token}`},
+    });
     const oldPasswordValid = await verifyPassword({
       password: account.password,
       hash: updatedUser?.hashedPassword ?? '',
@@ -62,6 +67,7 @@ describe('POST /auth/change-password', () => {
     expect(oldPasswordValid).toBe(false);
     expect(newPasswordValid).toBe(true);
     expect(refresh.statusCode).toBe(200);
+    expect(access.statusCode).toBe(200);
   });
 
   test('transforms invalid current password into 401', async () => {

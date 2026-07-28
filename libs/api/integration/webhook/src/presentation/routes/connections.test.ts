@@ -26,7 +26,7 @@ const INBOUND_URL_RE = /^https:\/\/api\.example\.com\/webhook\//;
 let authenticatedMemberships: UserContextMembership[] = [];
 
 function authorizeWorkspace(workspaceId: string): void {
-  authenticatedMemberships = [{workspaceId, role: 'admin'}];
+  authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
 }
 
 const fakeUserAuth: AuthMethod = {

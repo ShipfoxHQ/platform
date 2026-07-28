@@ -12,8 +12,6 @@ import type {RefreshToken} from '#core/entities/refresh-token.js';
 import type {User} from '#core/entities/user.js';
 import type {UserTokenClaims} from '#core/jwt.js';
 import {verifyUserToken} from '#core/jwt.js';
-import {findActiveRefreshSession} from '#db/refresh-tokens.js';
-import {findUserById} from '#db/users.js';
 import {createBearerTokenAuthMethod} from './bearer-token-auth.js';
 
 const AUTHENTICATED_SESSION_CONTEXT_KEY = Symbol.for('@shipfox/api-auth/session');
@@ -61,10 +59,7 @@ function getAuthenticatedSessionTokenContext(request: FastifyRequest): {
   );
 }
 
-/**
- * Resolves the active refresh session backing an authenticated user request.
- * The session check intentionally happens only for consumers that need browser-session binding.
- */
+/** Returns the refresh-session metadata carried by a verified access token. */
 export async function getAuthenticatedSessionContext(
   request: FastifyRequest,
 ): Promise<AuthenticatedSessionContext> {
@@ -73,13 +68,7 @@ export async function getAuthenticatedSessionContext(
   if (!client || !token || token.userId !== client.userId || !token.refreshSessionId)
     throw new ClientError('Invalid or expired token', 'unauthorized', {status: 401});
 
-  const session = await findActiveRefreshSession({
-    sessionId: token.refreshSessionId,
-    userId: client.userId,
-  });
-  if (!session) throw new ClientError('Invalid or expired token', 'unauthorized', {status: 401});
-
-  return {userId: client.userId, refreshSessionId: session.sessionId};
+  return await Promise.resolve({userId: client.userId, refreshSessionId: token.refreshSessionId});
 }
 
 export function createJwtAuthMethod(): AuthMethod {
@@ -92,19 +81,7 @@ export function createJwtAuthMethod(): AuthMethod {
       } catch {
         throw new InvalidJwtTokenError();
       }
-      const user = await findUserById({id: claims.sub});
-
-      // Legacy access tokens without a session claim remain verifiable for the
-      // migration window; known suspended or deleted users are still rejected.
-      if (user && user.status !== 'active') return null;
-      if (!claims.refreshSessionId) return claims;
-      if (!user) return null;
-
-      const session = await findActiveRefreshSession({
-        sessionId: claims.refreshSessionId,
-        userId: claims.sub,
-      });
-      return session ? claims : null;
+      return claims;
     },
     isInvalidTokenError: (error) => error instanceof InvalidJwtTokenError,
     invalidTokenError: {message: 'Invalid or expired token', code: 'unauthorized'},

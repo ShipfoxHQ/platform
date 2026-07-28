@@ -64,7 +64,7 @@ describe('workspaces core', () => {
     const result = await requireWorkspaceMembership({
       workspaceId: workspace.id,
       userId: user.userId,
-      memberships: [{workspaceId: workspace.id, role: 'admin'}],
+      memberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
     });
 
     expect(result.workspace.id).toBe(workspace.id);
@@ -110,7 +110,7 @@ describe('workspaces core', () => {
     const missingWorkspace = requireWorkspaceMembership({
       workspaceId: ghostId,
       userId: owner.userId,
-      memberships: [{workspaceId: ghostId, role: 'admin'}],
+      memberships: [{workspaceId: ghostId, role: 'admin', workspaceStatus: 'active'}],
     });
 
     await expect(missingWorkspace).rejects.toBeInstanceOf(WorkspaceNotFoundError);

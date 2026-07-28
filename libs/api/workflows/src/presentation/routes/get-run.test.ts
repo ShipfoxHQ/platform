@@ -49,6 +49,7 @@ const projects = {
 describe('GET /api/workflows/runs/:id', () => {
   let app: FastifyInstance;
   let workspaceId: string;
+  let workspaceStatus: 'active' | 'deleted';
 
   beforeAll(async () => {
     app = Fastify();
@@ -60,7 +61,7 @@ describe('GET /api/workflows/runs/:id', () => {
         buildUserContext({
           userId: crypto.randomUUID(),
           email: 'user@example.com',
-          memberships: [{workspaceId, role: 'admin'}],
+          memberships: [{workspaceId, role: 'admin', workspaceStatus}],
         }),
       );
       done();
@@ -71,6 +72,7 @@ describe('GET /api/workflows/runs/:id', () => {
 
   beforeEach(() => {
     workspaceId = crypto.randomUUID();
+    workspaceStatus = 'active';
     projectAccessState.workspaceId = workspaceId;
     getProjectById.mockImplementation(({projectId}) =>
       Promise.resolve({
@@ -366,6 +368,30 @@ jobs:
     expect(res.statusCode).toBe(404);
     expect(res.json().code).toBe('not-found');
     expect(detailSpy).not.toHaveBeenCalled();
+  });
+
+  test('preserves workspace-inactive for a deleted membership claim', async () => {
+    workspaceStatus = 'deleted';
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId: crypto.randomUUID(),
+      definitionId: crypto.randomUUID(),
+      model: workflowModel({name: 'Test'}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${run.id}`,
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('workspace-inactive');
   });
 
   test('propagates unexpected errors from project access check', async () => {

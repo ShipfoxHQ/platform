@@ -26,10 +26,13 @@ export function createWorkspacesInterModulePresentation(): InterModulePresentati
 > {
   return defineInterModulePresentation(workspacesInterModuleContract, {
     listMembershipsForTokenClaims: async ({userId}) => ({
-      memberships: (await listMembershipsByUser({userId})).map(({workspaceId}) => ({
-        workspaceId,
-        role: 'admin' as const,
-      })),
+      memberships: (await listMembershipsByUser({userId})).map(
+        ({workspaceId, workspaceStatus}) => ({
+          workspaceId,
+          role: 'admin' as const,
+          workspaceStatus,
+        }),
+      ),
     }),
     getWorkspaceCreator: async (input) => {
       try {

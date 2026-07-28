@@ -1,4 +1,4 @@
-import {AUTH_USER, getUserContext} from '@shipfox/api-auth-context';
+import {AUTH_USER, getUserContext, requireWorkspaceAccess} from '@shipfox/api-auth-context';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
 import {
@@ -53,6 +53,7 @@ export const removeMemberRoute = defineRoute({
     }
 
     const {workspaceId, userId} = request.params;
+    requireWorkspaceAccess({request, workspaceId});
 
     await removeWorkspaceMember({
       workspaceId,

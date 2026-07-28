@@ -11,7 +11,13 @@ export const workspacesInterModuleContract = defineInterModuleContract({
     listMembershipsForTokenClaims: {
       input: z.object({userId: idSchema}),
       output: z.object({
-        memberships: z.array(z.object({workspaceId: idSchema, role: workspaceRoleSchema})),
+        memberships: z.array(
+          z.object({
+            workspaceId: idSchema,
+            role: workspaceRoleSchema,
+            workspaceStatus: workspaceStatusSchema.default('active'),
+          }),
+        ),
       }),
     },
     /** Resolves the user id that created the workspace, or null when no creator was recorded. */
@@ -61,7 +67,13 @@ export const workspacesInterModuleContract = defineInterModuleContract({
       input: z.object({
         workspaceId: idSchema,
         userId: idSchema,
-        memberships: z.array(z.object({workspaceId: idSchema, role: workspaceRoleSchema})),
+        memberships: z.array(
+          z.object({
+            workspaceId: idSchema,
+            role: workspaceRoleSchema,
+            workspaceStatus: workspaceStatusSchema.default('active'),
+          }),
+        ),
       }),
       output: z.object({}),
       errors: {

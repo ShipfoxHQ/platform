@@ -12,7 +12,11 @@ const eventIds = (res: {json: () => {trigger_events: Array<{id: string}>}}) =>
 describe('GET /trigger-events', () => {
   let app: FastifyInstance;
   let workspaceId: string;
-  let memberships: Array<{workspaceId: string; role: 'admin'}>;
+  let memberships: Array<{
+    workspaceId: string;
+    role: 'admin';
+    workspaceStatus: 'active' | 'suspended' | 'deleted';
+  }>;
 
   beforeAll(async () => {
     app = Fastify();
@@ -31,7 +35,7 @@ describe('GET /trigger-events', () => {
 
   beforeEach(() => {
     workspaceId = crypto.randomUUID();
-    memberships = [{workspaceId, role: 'admin'}];
+    memberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
   });
 
   test('returns a workspace events newest first, isolated and payload-free', async () => {
@@ -316,6 +320,18 @@ describe('GET /trigger-events', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({trigger_events: [], next_cursor: null});
+  });
+
+  test('returns workspace-suspended for a suspended membership claim', async () => {
+    memberships = [{workspaceId, role: 'admin', workspaceStatus: 'suspended'}];
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/trigger-events?workspace_id=${workspaceId}`,
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('workspace-suspended');
   });
 
   test('denies a workspace the caller does not belong to', async () => {

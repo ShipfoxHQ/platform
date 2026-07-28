@@ -46,7 +46,7 @@ import {
   TokenInvalidError,
   UserNotFoundError,
 } from './errors.js';
-import {signUserToken} from './jwt.js';
+import {signUserToken, type TokenMembership} from './jwt.js';
 import {hashPassword, verifyPassword} from './password.js';
 import type {SignupPolicy} from './ports.js';
 import {createEnvironmentSignupPolicy} from './signup-policy.js';
@@ -95,21 +95,30 @@ function recordRefreshOutcome(outcome: AuthTokenRefreshOutcome): void {
   recordTokenRefreshed(outcome);
 }
 
-async function signAccessToken(
-  user: User,
+type TokenMemberships = TokenMembership[];
+
+async function loadTokenMemberships(
+  userId: string,
   workspaces: WorkspacesInterModuleClient,
-  refreshSessionId: string,
-): Promise<string> {
+): Promise<TokenMemberships> {
   const memberships = await workspaces
-    .listMembershipsForTokenClaims({userId: user.id})
+    .listMembershipsForTokenClaims({userId})
     .catch((error: unknown) => {
       throw new AuthDependencyUnavailableError('workspaces', error);
     });
+  return memberships.memberships;
+}
+
+async function signAccessToken(
+  user: User,
+  memberships: TokenMemberships,
+  refreshSessionId: string,
+): Promise<string> {
   return await signUserToken({
     userId: user.id,
     email: user.email,
     name: user.name,
-    memberships: memberships.memberships,
+    memberships,
     refreshSessionId,
     secret: userAccessTokenKey(),
     expiresIn: config.AUTH_JWT_EXPIRES_IN,
@@ -142,7 +151,8 @@ async function createSessionTokens(
   workspaces: WorkspacesInterModuleClient,
 ): Promise<{token: string; refreshToken: string; adminRole: AdminRole | null}> {
   const refreshSessionId = crypto.randomUUID();
-  const token = await signAccessToken(user, workspaces, refreshSessionId);
+  const memberships = await loadTokenMemberships(user.id, workspaces);
+  const token = await signAccessToken(user, memberships, refreshSessionId);
   const adminRole = await getCurrentAdminRole({userId: user.id});
   const {refreshToken} = await createRefreshSession(user, refreshSessionId);
   return {token, refreshToken, adminRole};
@@ -335,7 +345,7 @@ export async function signupWithInvitation(
     }
   }
 
-  // Step 4: Issue session. signAccessToken reads memberships through the
+  // Step 4: Issue session. createSessionTokens reads memberships through the
   // workspaces module API, so a successful accept is reflected in the JWT.
   const {token, refreshToken, adminRole} = await createSessionTokens(user, params.workspaces);
 
@@ -479,7 +489,8 @@ export async function refreshAccessToken(params: {
   // second tab); past it, reuse of a retired token means a compromised session.
   if (current.rotatedAt) {
     if (isWithinRotationGrace(current)) {
-      const token = await signAccessToken(user, params.workspaces, current.sessionId);
+      const memberships = await loadTokenMemberships(user.id, params.workspaces);
+      const token = await signAccessToken(user, memberships, current.sessionId);
       recordRefreshOutcome('grace');
       return {token, refreshToken: undefined, user, adminRole};
     }
@@ -487,6 +498,10 @@ export async function refreshAccessToken(params: {
     recordRefreshOutcome('rejected');
     throw new TokenInvalidError('Refresh token reused after rotation');
   }
+
+  // Keep the external membership snapshot ahead of rotation so an outage
+  // cannot retire a refresh token that the caller can still retry.
+  const memberships = await loadTokenMemberships(user.id, params.workspaces);
 
   // Losing the CAS requires a state check: another request may have rotated,
   // revoked, or expired the token before this refresh could claim it.
@@ -509,12 +524,12 @@ export async function refreshAccessToken(params: {
       recordRefreshOutcome('rejected');
       throw new TokenInvalidError('Refresh token is invalid or expired');
     }
-    const token = await signAccessToken(user, params.workspaces, latest.sessionId);
+    const token = await signAccessToken(user, memberships, latest.sessionId);
     recordRefreshOutcome('grace');
     return {token, refreshToken: undefined, user, adminRole};
   }
 
-  const token = await signAccessToken(user, params.workspaces, current.sessionId);
+  const token = await signAccessToken(user, memberships, current.sessionId);
   recordRefreshOutcome('rotated');
   return {token, refreshToken: nextRefreshToken, user, adminRole};
 }

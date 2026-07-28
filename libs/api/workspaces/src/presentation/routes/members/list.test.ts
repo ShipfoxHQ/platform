@@ -66,6 +66,20 @@ describe('GET /workspaces/:workspaceId/members', () => {
     expect(res.json().members).toEqual([]);
   });
 
+  test('returns workspace-suspended for a suspended membership claim', async () => {
+    const workspaceId = crypto.randomUUID();
+    const token = `claim:${crypto.randomUUID()}:suspended-list@example.com:${workspaceId}:suspended`;
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/workspaces/${workspaceId}/members`,
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('workspace-suspended');
+  });
+
   test('transforms missing membership into 403', async () => {
     const outsider = await signupVerifyLogin(app, 'members-list-outsider');
     const workspaceId = crypto.randomUUID();

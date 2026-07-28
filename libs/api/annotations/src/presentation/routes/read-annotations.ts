@@ -29,7 +29,9 @@ export const readAnnotationsRoute = defineRoute({
       throw new ClientError('Invalid cursor', 'invalid-cursor', {status: 400});
     }
 
-    const workspaceIds = user.memberships.map((membership) => membership.workspaceId);
+    const workspaceIds = user.memberships
+      .filter((membership) => membership.workspaceStatus === 'active')
+      .map((membership) => membership.workspaceId);
     const result = await listAnnotationsForRunAttempt({
       workflowRunId,
       workflowRunAttempt: attempt,

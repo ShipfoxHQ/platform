@@ -1,4 +1,4 @@
-import {requireUserContext} from '@shipfox/api-auth-context';
+import {requireWorkspaceResourceAccess} from '@shipfox/api-auth-context';
 import {triggerEventDetailResponseSchema} from '@shipfox/api-triggers-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
@@ -19,13 +19,18 @@ export const getTriggerEventRoute = defineRoute({
   },
   handler: async (request) => {
     const {id} = request.params;
-    const userContext = requireUserContext(request);
 
     const event = await getTriggerEventById(id);
-    // 404 covers both "no such event" and "not your workspace" to avoid leaking existence.
-    if (!event || !userContext.canAccess(event.workspaceId)) {
+    // Missing events and memberships remain 404 to avoid leaking existence; lifecycle claims
+    // propagate their stable access errors.
+    if (!event) {
       throw new ClientError('Trigger event not found', 'not-found', {status: 404});
     }
+    requireWorkspaceResourceAccess({
+      request,
+      workspaceId: event.workspaceId,
+      notFoundError: new ClientError('Trigger event not found', 'not-found', {status: 404}),
+    });
 
     const decisions = await listDecisionsByReceivedEventId(event.id);
 

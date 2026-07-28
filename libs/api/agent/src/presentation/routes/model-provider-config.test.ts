@@ -75,7 +75,7 @@ describe('model provider config routes', () => {
       stopReason: 'stop',
       timestamp: Date.now(),
     });
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
     app = await createApp({
       auth: [fakeUserAuth],
       routes: agentRoutes,

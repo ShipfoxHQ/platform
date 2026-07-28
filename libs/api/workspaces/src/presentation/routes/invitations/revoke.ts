@@ -1,4 +1,4 @@
-import {AUTH_USER, getUserContext} from '@shipfox/api-auth-context';
+import {AUTH_USER, getUserContext, requireWorkspaceAccess} from '@shipfox/api-auth-context';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
 import {
@@ -51,6 +51,7 @@ export const revokeInvitationRoute = defineRoute({
     }
 
     const {workspaceId, invitationId} = request.params;
+    requireWorkspaceAccess({request, workspaceId});
 
     await revokeWorkspaceInvitation({
       workspaceId,

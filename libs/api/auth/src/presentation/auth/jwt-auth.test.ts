@@ -9,7 +9,7 @@ import {
   revokeRefreshTokenByHash,
   rotateRefreshToken,
 } from '#db/refresh-tokens.js';
-import {createUser, findUserById} from '#db/users.js';
+import {createUser} from '#db/users.js';
 import {createJwtAuthMethod, getAuthenticatedSessionContext, getClientContext} from './jwt-auth.js';
 
 const SECRET = userAccessTokenKey();
@@ -138,7 +138,35 @@ describe('jwt-auth', () => {
     expect(res.json().client.email).toBe(email);
   });
 
-  test('resolves the active refresh-session identity from an authenticated request', async () => {
+  test('verifies a token from claims when its user and refresh session are missing', async () => {
+    const userId = crypto.randomUUID();
+    const refreshSessionId = crypto.randomUUID();
+    const token = await signUserToken({
+      userId,
+      email: emailFor('jwt-missing-user'),
+      memberships: [],
+      refreshSessionId,
+      secret: SECRET,
+      expiresIn: '7d',
+    });
+
+    const protectedResponse = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      headers: {authorization: `Bearer ${token}`},
+    });
+    const sessionResponse = await app.inject({
+      method: 'GET',
+      url: '/session',
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(protectedResponse.statusCode).toBe(200);
+    expect(sessionResponse.statusCode).toBe(200);
+    expect(sessionResponse.json()).toEqual({userId, refreshSessionId});
+  });
+
+  test('returns the refresh-session identity from an authenticated request', async () => {
     const user = await createUser({email: emailFor('jwt-session'), hashedPassword: 'h'});
     const rawRefreshToken = `refresh-${crypto.randomUUID()}`;
     const refreshToken = await createRefreshToken({
@@ -186,7 +214,7 @@ describe('jwt-auth', () => {
     expect(refreshed.json()).toEqual(initial.json());
   });
 
-  test('rejects an authenticated token after its refresh session is revoked', async () => {
+  test('keeps an authenticated token valid after its refresh session is revoked', async () => {
     const user = await createUser({email: emailFor('jwt-session-revoked'), hashedPassword: 'h'});
     const rawRefreshToken = `refresh-${crypto.randomUUID()}`;
     const refreshToken = await createRefreshToken({
@@ -210,7 +238,8 @@ describe('jwt-auth', () => {
       headers: {authorization: `Bearer ${token}`},
     });
 
-    expect(res.statusCode).toBe(401);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({userId: user.id, refreshSessionId: refreshToken.sessionId});
   });
 
   test('rejects an authenticated token without a refresh-session claim', async () => {
@@ -230,9 +259,5 @@ describe('jwt-auth', () => {
     });
 
     expect(res.statusCode).toBe(401);
-  });
-
-  test('helpers remain available', () => {
-    expect(typeof findUserById).toBe('function');
   });
 });

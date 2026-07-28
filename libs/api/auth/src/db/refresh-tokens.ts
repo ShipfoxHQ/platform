@@ -87,29 +87,6 @@ export async function findActiveRefreshTokenByHash(params: {
   return toRefreshToken(row);
 }
 
-export async function findActiveRefreshSession(params: {
-  sessionId: string;
-  userId: string;
-}): Promise<RefreshToken | undefined> {
-  const rows = await db()
-    .select()
-    .from(refreshTokens)
-    .where(
-      and(
-        eq(refreshTokens.sessionId, params.sessionId),
-        eq(refreshTokens.userId, params.userId),
-        isNull(refreshTokens.revokedAt),
-        isNull(refreshTokens.rotatedAt),
-        gt(refreshTokens.expiresAt, sql`now()`),
-      ),
-    )
-    .limit(1);
-
-  const row = rows[0];
-  if (!row) return undefined;
-  return toRefreshToken(row);
-}
-
 /**
  * Looks up a non-revoked, non-expired token by hash, including ones already
  * rotated. Rotation reads {@link RefreshToken.rotatedAt} to decide whether to

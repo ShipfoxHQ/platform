@@ -1,6 +1,7 @@
 import {AUTH_PASSWORD_RESET_SEND_REQUESTED} from '@shipfox/api-auth-dto';
 import type {FastifyInstance} from 'fastify';
 import {
+  cookieHeader,
   createAuthTestApp,
   extractToken,
   getSetCookie,
@@ -42,12 +43,25 @@ describe('POST /auth/password-reset/confirm', () => {
       payload: {token: resetToken, new_password: 'reset password is long'},
     });
     const loginRes = await login(app, {email: account.email, password: 'reset password is long'});
+    const oldRefresh = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: cookieHeader(account.refreshCookie)},
+      payload: {},
+    });
+    const oldAccess = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: {authorization: `Bearer ${account.token}`},
+    });
 
     expect(confirm.statusCode).toBe(200);
     expect(confirm.json().token).toBeDefined();
     expect(confirm.json().user.email).toBe(account.email);
     expect(getSetCookie(confirm)).toContain('shipfox_refresh_token=');
     expect(loginRes.statusCode).toBe(200);
+    expect(oldRefresh.statusCode).toBe(401);
+    expect(oldAccess.statusCode).toBe(200);
   });
 
   test('transforms invalid token into 410', async () => {

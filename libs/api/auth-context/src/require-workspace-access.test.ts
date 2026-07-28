@@ -26,7 +26,10 @@ describe('requireWorkspaceAccess', () => {
   test('returns workspaceId, userId, and role when the token grants access', () => {
     const userId = crypto.randomUUID();
     const workspaceId = crypto.randomUUID();
-    const request = requestWith({userId, memberships: [{workspaceId, role: 'admin'}]});
+    const request = requestWith({
+      userId,
+      memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
+    });
 
     const result = requireWorkspaceAccess({request, workspaceId});
 
@@ -38,7 +41,7 @@ describe('requireWorkspaceAccess', () => {
   test('throws 403 when the token does not include the workspace', () => {
     const request = requestWith({
       userId: crypto.randomUUID(),
-      memberships: [{workspaceId: crypto.randomUUID(), role: 'admin'}],
+      memberships: [{workspaceId: crypto.randomUUID(), role: 'admin', workspaceStatus: 'active'}],
     });
 
     const act = () => requireWorkspaceAccess({request, workspaceId: crypto.randomUUID()});
@@ -53,4 +56,35 @@ describe('requireWorkspaceAccess', () => {
     expect(act).toThrow(ClientError);
     expect(act).toThrow(expect.objectContaining({status: 401}));
   });
+
+  test.each([
+    ['suspended', 'workspace-suspended', 409],
+    ['deleted', 'workspace-inactive', 403],
+  ] as const)('maps a %s workspace claim to the stable access error', (workspaceStatus, code, status) => {
+    const workspaceId = crypto.randomUUID();
+    const request = requestWith({
+      userId: crypto.randomUUID(),
+      memberships: [{workspaceId, role: 'admin', workspaceStatus}],
+    });
+
+    const act = () => requireWorkspaceAccess({request, workspaceId});
+
+    expect(act).toThrow(ClientError);
+    expect(act).toThrow(expect.objectContaining({code, status}));
+  });
+});
+
+test('context access helpers only authorize active memberships', () => {
+  const workspaceId = crypto.randomUUID();
+  const context = buildUserContext({
+    userId: crypto.randomUUID(),
+    email: 'user@example.com',
+    memberships: [
+      {workspaceId, role: 'admin', workspaceStatus: 'suspended'},
+      {workspaceId: crypto.randomUUID(), role: 'admin', workspaceStatus: 'deleted'},
+    ],
+  });
+
+  expect(context.canAccess(workspaceId)).toBe(false);
+  expect(context.hasRole(workspaceId, 'admin')).toBe(false);
 });

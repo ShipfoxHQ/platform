@@ -52,14 +52,15 @@ const fakeUserAuth: AuthMethod = {
   authenticate: async (request) => {
     const raw = request.headers.authorization?.replace(BEARER_RE, '');
     if (raw?.startsWith('claim:')) {
-      const [, userId, email, workspaceId] = raw.split(':');
+      const [, userId, email, workspaceId, status] = raw.split(':');
       if (!userId || !email || !workspaceId) throw new Error('Invalid test user claim token');
+      const workspaceStatus = status === 'suspended' || status === 'deleted' ? status : 'active';
       setUserContext(
         request,
         buildUserContext({
           userId,
           email,
-          memberships: [{workspaceId, role: 'admin'}],
+          memberships: [{workspaceId, role: 'admin', workspaceStatus}],
         }),
       );
       return;
@@ -74,7 +75,11 @@ const fakeUserAuth: AuthMethod = {
         userId,
         email,
         name: encodedName ? decodeURIComponent(encodedName) : null,
-        memberships: memberships.map((m) => ({workspaceId: m.workspaceId, role: 'admin' as const})),
+        memberships: memberships.map((m) => ({
+          workspaceId: m.workspaceId,
+          role: 'admin' as const,
+          workspaceStatus: 'active' as const,
+        })),
       }),
     );
   },

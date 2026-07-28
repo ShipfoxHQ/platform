@@ -49,7 +49,7 @@ describe('project routes', () => {
     await closeApp();
     workspaceId = crypto.randomUUID();
     sourceConnectionId = crypto.randomUUID();
-    authenticatedMemberships = [{workspaceId, role: 'admin'}];
+    authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
     integrations = {
       resolveSourceRepository: vi.fn(async () => {
         await Promise.resolve();

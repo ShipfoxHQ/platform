@@ -14,6 +14,7 @@ export type WorkspaceStatus = 'active' | 'suspended' | 'deleted';
 export interface UserContextMembership {
   workspaceId: string;
   role: WorkspaceRole;
+  workspaceStatus: WorkspaceStatus;
 }
 
 export interface UserContext {
@@ -39,9 +40,12 @@ export function buildUserContext(params: BuildUserContextParams): UserContext {
     email: params.email,
     name: params.name ?? null,
     memberships,
-    canAccess: (workspaceId) => memberships.some((m) => m.workspaceId === workspaceId),
+    canAccess: (workspaceId) =>
+      memberships.some((m) => m.workspaceId === workspaceId && m.workspaceStatus === 'active'),
     hasRole: (workspaceId, role) =>
-      memberships.some((m) => m.workspaceId === workspaceId && m.role === role),
+      memberships.some(
+        (m) => m.workspaceId === workspaceId && m.workspaceStatus === 'active' && m.role === role,
+      ),
   };
 }
 
@@ -114,7 +118,34 @@ export function requireWorkspaceAccess(
     throw new ClientError('Not a member of this workspace', 'forbidden', {status: 403});
   }
 
+  if (membership.workspaceStatus === 'suspended') {
+    throw new ClientError('Workspace is suspended', 'workspace-suspended', {status: 409});
+  }
+  if (membership.workspaceStatus === 'deleted') {
+    throw new ClientError('Workspace is not active', 'workspace-inactive', {status: 403});
+  }
+
   return {workspaceId: params.workspaceId, userId: context.userId, role: membership.role};
+}
+
+/**
+ * Applies the workspace lifecycle gate to a resource that has already been loaded. Missing
+ * membership remains resource-shaped 404 to avoid leaking the resource's existence, while
+ * suspended and deleted claims retain their stable lifecycle errors.
+ */
+export function requireWorkspaceResourceAccess(params: {
+  request: RequestWithContext;
+  workspaceId: string;
+  notFoundError: ClientError;
+}): RequireWorkspaceAccessResult {
+  try {
+    return requireWorkspaceAccess(params);
+  } catch (error) {
+    if (error instanceof ClientError && error.code === 'forbidden') {
+      throw params.notFoundError;
+    }
+    throw error;
+  }
 }
 
 export function setProvisionerContext(

@@ -10,7 +10,11 @@ import {getTriggerEventRoute} from './get-trigger-event.js';
 describe('GET /trigger-events/:id', () => {
   let app: FastifyInstance;
   let workspaceId: string;
-  let memberships: Array<{workspaceId: string; role: 'admin'}>;
+  let memberships: Array<{
+    workspaceId: string;
+    role: 'admin';
+    workspaceStatus: 'active' | 'suspended' | 'deleted';
+  }>;
 
   beforeAll(async () => {
     app = Fastify();
@@ -29,7 +33,7 @@ describe('GET /trigger-events/:id', () => {
 
   beforeEach(() => {
     workspaceId = crypto.randomUUID();
-    memberships = [{workspaceId, role: 'admin'}];
+    memberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
   });
 
   test('returns the event with its decisions and full payload', async () => {
@@ -158,6 +162,16 @@ describe('GET /trigger-events/:id', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().decisions).toEqual([]);
+  });
+
+  test('returns workspace-suspended for a suspended membership claim', async () => {
+    const event = await receivedEventFactory.create({workspaceId});
+    memberships = [{workspaceId, role: 'admin', workspaceStatus: 'suspended'}];
+
+    const res = await app.inject({method: 'GET', url: `/trigger-events/${event.id}`});
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('workspace-suspended');
   });
 
   test('returns 404 for an unknown event id', async () => {

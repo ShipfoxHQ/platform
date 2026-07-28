@@ -22,7 +22,11 @@ const workflows = {} as WorkflowsModuleClient;
 describe('POST /:definitionId/fire-manual', () => {
   let app: FastifyInstance;
   let workspaceId: string;
-  let memberships: Array<{workspaceId: string; role: 'admin'}>;
+  let memberships: Array<{
+    workspaceId: string;
+    role: 'admin';
+    workspaceStatus: 'active' | 'suspended' | 'deleted';
+  }>;
 
   beforeAll(async () => {
     app = Fastify();
@@ -41,7 +45,7 @@ describe('POST /:definitionId/fire-manual', () => {
 
   beforeEach(() => {
     workspaceId = crypto.randomUUID();
-    memberships = [{workspaceId, role: 'admin'}];
+    memberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
     fireManualSubscriptionMock.mockReset();
   });
 
@@ -87,6 +91,22 @@ describe('POST /:definitionId/fire-manual', () => {
         env_key: 'REF',
       },
     });
+  });
+
+  test('returns workspace-suspended for a suspended membership claim', async () => {
+    const definitionId = crypto.randomUUID();
+    await triggerSubscriptionFactory.create({workspaceId, workflowDefinitionId: definitionId});
+    memberships = [{workspaceId, role: 'admin', workspaceStatus: 'suspended'}];
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/${definitionId}/fire-manual`,
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('workspace-suspended');
+    expect(fireManualSubscriptionMock).not.toHaveBeenCalled();
   });
 
   test('maps suspended workspace to 409', async () => {

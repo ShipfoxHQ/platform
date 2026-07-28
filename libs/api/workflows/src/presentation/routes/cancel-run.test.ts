@@ -34,7 +34,7 @@ describe('POST /api/workflows/runs/:id/cancel', () => {
         buildUserContext({
           userId: crypto.randomUUID(),
           email: 'user@example.com',
-          memberships: [{workspaceId, role: 'admin'}],
+          memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
         }),
       );
       done();
