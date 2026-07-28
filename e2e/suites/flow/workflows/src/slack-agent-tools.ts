@@ -106,7 +106,7 @@ jobs:
         prompt: Read the thread and reply.
         integrations:
           - connection: __SLACK_SOURCE__
-            include: [conversations_replies, chat_postMessage]
+            include: [read_thread, send_message]
             allow_write: true
 `;
 }

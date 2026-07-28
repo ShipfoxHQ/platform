@@ -32,11 +32,7 @@ export type {
   SlackAgentToolId,
   SlackAgentToolRequiredScope,
 } from '#core/agent-tools.js';
-export {
-  SLACK_TOOL_METHODS,
-  slackAgentToolCatalog,
-  slackAgentToolSelectionCatalog,
-} from '#core/agent-tools.js';
+export {slackAgentToolCatalog, slackAgentToolSelectionCatalog} from '#core/agent-tools.js';
 export type {
   SlackAgentToolsProviderOptions,
   SlackToolCallResult,

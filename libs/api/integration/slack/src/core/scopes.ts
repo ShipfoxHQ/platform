@@ -3,6 +3,9 @@ import {SlackAuthorizationScopeMismatchError} from './errors.js';
 export const SLACK_BOT_SCOPES = Object.freeze([
   'app_mentions:read',
   'im:history',
+  'im:read',
+  'mpim:history',
+  'mpim:read',
   'chat:write',
   'channels:history',
   'groups:history',
@@ -11,6 +14,7 @@ export const SLACK_BOT_SCOPES = Object.freeze([
   'users:read',
   'reactions:read',
   'reactions:write',
+  'canvases:write',
   'commands',
 ]);
 

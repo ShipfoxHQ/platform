@@ -33,16 +33,16 @@ test('starts a run from a signed Slack mention and calls Slack agent tools', asy
       botToken: SLACK_BOT_TOKEN,
       scopes: ['app_mentions:read', 'channels:history', 'chat:write'],
     });
-    const repliesTool = `mcp__shipfox_integration_tools__${connection.slug}__conversations_replies`;
-    const postMessageTool = `mcp__shipfox_integration_tools__${connection.slug}__chat_postMessage`;
+    const repliesTool = `mcp__shipfox_integration_tools__${connection.slug}__read_thread`;
+    const postMessageTool = `mcp__shipfox_integration_tools__${connection.slug}__send_message`;
     const fakeAnthropic = await createAnthropicFakeModelProviderConfig({
       workspaceId: suite.workspaceId,
       fakeModelProvider,
       scriptId,
       model: CLAUDE_AGENT_MODEL,
       responses: [
-        toolCall(repliesTool, {channel, ts: threadTs}),
-        toolCall(postMessageTool, {channel, thread_ts: threadTs, text: replyText}),
+        toolCall(repliesTool, {channel_id: channel, message_ts: threadTs}),
+        toolCall(postMessageTool, {channel_id: channel, thread_ts: threadTs, message: replyText}),
         message('done'),
       ],
       assertions: [

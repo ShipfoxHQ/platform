@@ -15,6 +15,9 @@ function authorization(overrides: Record<string, unknown> = {}) {
     scopes: [
       'app_mentions:read',
       'im:history',
+      'im:read',
+      'mpim:history',
+      'mpim:read',
       'chat:write',
       'channels:history',
       'groups:history',
@@ -23,6 +26,7 @@ function authorization(overrides: Record<string, unknown> = {}) {
       'users:read',
       'reactions:read',
       'reactions:write',
+      'canvases:write',
       'commands',
     ],
     ...overrides,

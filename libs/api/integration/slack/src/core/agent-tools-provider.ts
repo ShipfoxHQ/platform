@@ -7,10 +7,11 @@ import type {
 import {logger} from '@shipfox/node-opentelemetry';
 import type {SlackApiClient, SlackWebApiResponse} from '#api/client.js';
 import {
-  SLACK_TOOL_METHODS,
+  SLACK_TOOL_OPERATIONS,
   type SlackAgentToolCatalogEntry,
   type SlackAgentToolId,
   type SlackAgentToolRequiredScope,
+  type SlackToolOperation,
   slackAgentToolCatalog,
   slackAgentToolSelectionCatalog,
 } from '#core/agent-tools.js';
@@ -62,19 +63,23 @@ export class SlackAgentToolsProvider
       call: async (call) => {
         const tool = input.tools.find((candidate) => candidate.id === call.toolId);
         if (!tool) return slackToolError(`Unknown Slack tool: ${call.toolId}`);
-        const method = slackToolMethod(tool.id);
-        if (!method) return slackToolError(`Unknown Slack tool method: ${tool.id}`);
+        const operation = slackToolOperation(tool.id);
+        if (!operation) return slackToolError(`Unknown Slack tool method: ${tool.id}`);
         const missingParameter = missingRequiredParameter(tool, call.arguments);
         if (missingParameter) {
           return slackToolError(`Missing required parameter: ${missingParameter}`);
+        }
+        const validationError = operation.validate?.(call.arguments);
+        if (validationError) {
+          return slackToolError(validationError.message, {code: validationError.code});
         }
 
         let body: SlackWebApiResponse;
         try {
           body = await this.options.slack.callMethod({
-            method,
+            method: operation.method,
             token,
-            arguments: call.arguments,
+            arguments: operation.mapArguments(call.arguments),
           });
         } catch (error) {
           if (error instanceof SlackIntegrationProviderError) {
@@ -86,7 +91,9 @@ export class SlackAgentToolsProvider
           throw error;
         }
 
-        if (body.ok) return slackToolResult(body);
+        if (body.ok) {
+          return slackToolResult(operation.mapOutput?.(body, call.arguments) ?? body);
+        }
         const slackError = typeof body.error === 'string' ? body.error : 'Slack request failed';
         if (isSlackAccessError(slackError)) {
           logger().warn(
@@ -105,8 +112,8 @@ export class SlackAgentToolsProvider
   }
 }
 
-function slackToolMethod(toolId: string): string | undefined {
-  return SLACK_TOOL_METHODS[toolId as SlackAgentToolId];
+function slackToolOperation(toolId: string): SlackToolOperation | undefined {
+  return SLACK_TOOL_OPERATIONS[toolId as SlackAgentToolId];
 }
 
 function missingRequiredParameter(
