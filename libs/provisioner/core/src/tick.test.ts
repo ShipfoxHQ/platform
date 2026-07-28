@@ -241,20 +241,24 @@ describe('runProvisionerTick', () => {
   });
   it('keeps the reservation poll limit independent from warm-pool admission', async () => {
     let requestedReservations = -1;
+    const createBodies: CreateRunnerInstancesBodyDto[] = [];
     const client: ProvisionerClient = {
       getIdentity: async () => ({id: 'provisioner', scope: 'workspace', workspace_id: 'workspace'}),
       pollDemand: (body) => {
         requestedReservations = body.max_reservations;
         return Promise.resolve({stats: [], reservations: [], terminate_provider_runner_ids: []});
       },
-      createRunnerInstances: async () => ({
-        runner_instances: [
-          {
-            runner_instance_id: '018f0d4c-5f42-7b7e-9d9b-4a7d8e6f0002',
-            bootstrap_token: 'sf_rbt_test',
-          },
-        ],
-      }),
+      createRunnerInstances: (body) => {
+        createBodies.push(body);
+        return Promise.resolve({
+          runner_instances: [
+            {
+              runner_instance_id: '018f0d4c-5f42-7b7e-9d9b-4a7d8e6f0002',
+              bootstrap_token: 'sf_rbt_test',
+            },
+          ],
+        });
+      },
       attachRunnerInstanceProviderId: async () => ({attached: true}),
       assignRunnerInstances: async (_reservationId, runnerInstanceIds) => ({
         runner_instance_ids: runnerInstanceIds,
@@ -289,5 +293,9 @@ describe('runProvisionerTick', () => {
     });
     expect(requestedReservations).toBe(0);
     expect(result).toMatchObject({plannedCount: 2, launchAttemptedCount: 2, launchedCount: 2});
+    expect(createBodies).toEqual([
+      {runner_instances: [{template_key: 'linux'}]},
+      {runner_instances: [{template_key: 'linux'}]},
+    ]);
   });
 });
