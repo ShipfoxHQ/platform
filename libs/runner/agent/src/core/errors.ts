@@ -173,10 +173,7 @@ function isAdjacentPathStart(message: string, pathStart: number): boolean {
   let index = pathStart + 1;
   let slashCount = 0;
 
-  while (
-    index < message.length &&
-    index - pathStart <= ADJACENT_PATH_LOOKAHEAD_MAX_LENGTH
-  ) {
+  while (index < message.length && index - pathStart <= ADJACENT_PATH_LOOKAHEAD_MAX_LENGTH) {
     const character = message[index];
     if (
       isPathTerminator(character) ||
@@ -212,8 +209,7 @@ function findNextPathTerminator(message: string, start: number): number {
 function isPathClosingBoundary(message: string, index: number): boolean {
   const character = message[index];
   return (
-    (character === ')' || character === ']' || character === '}') &&
-    message[index + 1] !== '/'
+    (character === ')' || character === ']' || character === '}') && message[index + 1] !== '/'
   );
 }
 
