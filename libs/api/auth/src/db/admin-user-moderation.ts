@@ -1,8 +1,7 @@
-import type {AdminRole} from '@shipfox/api-auth-dto';
 import type {AdministrationActionEvent} from '@shipfox/api-common-dto';
 import {and, eq, gt, isNull, sql} from 'drizzle-orm';
 import {hasMinimumAdminRole, highestAdminRole} from '#core/admin-role-model.js';
-import type {UserStatus} from '#core/entities/user.js';
+import type {AdministratorUserSummary} from '#core/entities/administrator-read-model.js';
 import {AdminRoleRequiredError, LastAdminOwnerError, UserNotFoundError} from '#core/errors.js';
 import {
   findAdminCommandResult,
@@ -12,6 +11,7 @@ import {
   type Tx,
   writeAdminAction,
 } from './admin-command.js';
+import {findAdministratorUserSummary} from './admin-user-summary.js';
 import {db} from './db.js';
 import {lockUserSessionMutations} from './refresh-tokens.js';
 import type {
@@ -30,54 +30,22 @@ interface UserModerationCommandParams {
   event: AdministrationActionEvent;
 }
 
-function userSummaryFromRows(
-  rows: Array<{
-    id: string;
-    email: string;
-    name: string | null;
-    emailVerifiedAt: Date | null;
-    status: UserStatus;
-    createdAt: Date;
-    adminRole: AdminRole | null;
-  }>,
-): StoredAdministratorUserSummary {
-  const first = rows[0];
-  if (!first) throw new Error('User summary query returned no rows');
-
+function toStoredUserSummary(user: AdministratorUserSummary): StoredAdministratorUserSummary {
   return {
-    id: first.id,
-    email: first.email,
-    name: first.name,
-    emailVerifiedAt: first.emailVerifiedAt?.toISOString() ?? null,
-    status: first.status,
-    createdAt: first.createdAt.toISOString(),
-    adminRole: highestAdminRole(rows.flatMap(({adminRole}) => (adminRole ? [adminRole] : []))),
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
+    status: user.status,
+    createdAt: user.createdAt.toISOString(),
+    adminRole: user.adminRole,
   };
 }
 
 async function findUserSummary(tx: Tx, userId: string): Promise<StoredAdministratorUserSummary> {
-  const rows = await tx
-    .select({
-      id: users.id,
-      email: users.email,
-      name: users.name,
-      emailVerifiedAt: users.emailVerifiedAt,
-      status: users.status,
-      createdAt: users.createdAt,
-      adminRole: adminGrants.role,
-    })
-    .from(users)
-    .leftJoin(
-      adminGrants,
-      and(
-        eq(adminGrants.userId, users.id),
-        isNull(adminGrants.revokedAt),
-        eq(users.status, 'active'),
-      ),
-    )
-    .where(eq(users.id, userId));
-
-  return userSummaryFromRows(rows as typeof rows & Array<{status: UserStatus}>);
+  const user = await findAdministratorUserSummary(tx, {id: userId});
+  if (!user) throw new Error('User summary query returned no rows');
+  return toStoredUserSummary(user);
 }
 
 function fromStoredResult(result: StoredAdminUserModerationResult) {
@@ -197,7 +165,8 @@ async function executeUserModerationCommand(
               isNull(adminGrants.revokedAt),
               eq(users.status, 'active'),
             ),
-          );
+          )
+          .limit(2);
         const targetIsActiveOwner = await tx
           .select({id: adminGrants.id})
           .from(adminGrants)

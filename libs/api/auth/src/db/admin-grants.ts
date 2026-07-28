@@ -5,7 +5,7 @@ import {
   type TimestampIdCursor,
   timestampIdCursorWhere,
 } from '@shipfox/node-drizzle';
-import {and, desc, eq, isNull, sql} from 'drizzle-orm';
+import {and, desc, eq, isNull} from 'drizzle-orm';
 import {highestAdminRole} from '#core/admin-role-model.js';
 import type {AdminGrant} from '#core/entities/admin-grant.js';
 import type {AdministratorGrantSummary} from '#core/entities/administrator-read-model.js';
@@ -142,7 +142,7 @@ export async function revokeAdminGrant(params: {grantId: string}): Promise<Admin
   return await db().transaction(async (tx) => {
     // All owner grant changes share one lock so concurrent revocations cannot
     // both observe the same final owner and leave the instance ownerless.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('auth_admin_owner_grants'))`);
+    await lockAdminOwnerGrants(tx);
 
     const rows = await tx
       .select()
