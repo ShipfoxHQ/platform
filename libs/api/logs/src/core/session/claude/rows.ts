@@ -300,16 +300,24 @@ export function assistantRows(
   const rows: SessionViewRow[] = [];
   const textParts: string[] = [];
   const thinkingParts: string[] = [];
-  let queuedToolCall = false;
+  let queueRows = context.toolCallRows.size > 0;
+
+  const pushRow = (row: SessionViewRow) => {
+    if (queueRows) {
+      context.pendingToolRows.push(row);
+    } else {
+      rows.push(row);
+    }
+  };
 
   const pushText = () => {
     if (textParts.length === 0) return;
-    rows.push(messageRow(timestamp, 'assistant', 'assistant', textParts.join('\n\n'), false));
+    pushRow(messageRow(timestamp, 'assistant', 'assistant', textParts.join('\n\n'), false));
     textParts.length = 0;
   };
   const pushThinking = () => {
     if (thinkingParts.length === 0) return;
-    rows.push(thinkingRow(timestamp, thinkingParts.join('\n\n')));
+    pushRow(thinkingRow(timestamp, thinkingParts.join('\n\n')));
     thinkingParts.length = 0;
   };
 
@@ -320,9 +328,9 @@ export function assistantRows(
       pushThinking();
       const row = toolCallRow(timestamp, block);
       if (row.id === null) {
-        rows.push(row);
+        pushRow(row);
       } else {
-        queuedToolCall = true;
+        queueRows = true;
         context.pendingToolRows.push(row);
         context.toolCallRows.set(row.id, row);
       }
@@ -344,7 +352,7 @@ export function assistantRows(
   pushText();
   pushThinking();
 
-  if (rows.length > 0 || queuedToolCall) return rows;
+  if (rows.length > 0 || queueRows) return rows;
 
   const text = stringField(sdkMessage, 'content') ?? stringField(message, 'result');
   return [messageRow(timestamp, 'assistant', 'assistant', text ?? toJson(message), false)];
@@ -359,7 +367,8 @@ export function userRows(
   const role = isPlatformMessage(sdkMessage) ? 'platform' : 'user';
   const rows: SessionViewRow[] = [];
   const textParts: string[] = [];
-  let queuedToolResult = false;
+  const hadPendingToolCall = context.toolCallRows.size > 0;
+  let matchedToolResult = false;
   const pushText = () => {
     if (textParts.length === 0) return;
     rows.push(messageRow(timestamp, role, role, textParts.join('\n\n'), false));
@@ -372,11 +381,9 @@ export function userRows(
       pushText();
       const row = toolResultRow(timestamp, block);
       if (row.toolCallId !== null && context.toolCallRows.has(row.toolCallId)) {
-        context.pendingToolRows.push(row);
-        queuedToolResult = true;
-      } else {
-        rows.push(row);
+        matchedToolResult = true;
       }
+      rows.push(row);
       continue;
     }
 
@@ -386,14 +393,19 @@ export function userRows(
 
   pushText();
 
-  if (queuedToolResult) return rows;
-  if (rows.length > 0) return [...flushPendingToolRows(context), ...rows];
+  if (rows.length === 0) {
+    const content = stringField(sdkMessage, 'content');
+    rows.push(messageRow(timestamp, role, role, content ?? toJson(message), false));
+  }
 
-  const content = stringField(sdkMessage, 'content');
-  return [
-    ...flushPendingToolRows(context),
-    messageRow(timestamp, role, role, content ?? toJson(message), false),
-  ];
+  if (hadPendingToolCall) {
+    if (matchedToolResult) {
+      context.pendingToolRows.push(...rows);
+      return [];
+    }
+    return [...flushPendingToolRows(context), ...rows];
+  }
+  return rows;
 }
 
 export function resultRow(

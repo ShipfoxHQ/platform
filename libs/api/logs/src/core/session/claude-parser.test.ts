@@ -529,6 +529,168 @@ describe('parseClaudeSessionRecord', () => {
     ]);
   });
 
+  it('keeps assistant content after an identified tool call in order', () => {
+    const context = createClaudeParseContext();
+    const rows = parseClaudeSessionRecord(
+      record({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            {type: 'text', text: 'Before the tool.'},
+            {type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}},
+            {type: 'text', text: 'After the tool.'},
+          ],
+        },
+      }),
+      context,
+    );
+
+    expect(rows).toEqual([
+      {
+        kind: 'message',
+        timestamp: 1,
+        role: 'assistant',
+        label: 'assistant',
+        meta: [],
+        text: 'Before the tool.',
+        terminalFailure: false,
+      },
+    ]);
+    expect(flushPendingToolRows(context)).toEqual([
+      {
+        kind: 'tool-call',
+        timestamp: 1,
+        id: 'tool-1',
+        name: 'Read',
+        input: '{\n  "file_path": "src/a.ts"\n}',
+      },
+      {
+        kind: 'message',
+        timestamp: 1,
+        role: 'assistant',
+        label: 'assistant',
+        meta: [],
+        text: 'After the tool.',
+        terminalFailure: false,
+      },
+    ]);
+  });
+
+  it('keeps mixed user tool-result and text rows in order', () => {
+    const context = createClaudeParseContext();
+    expect(
+      parseClaudeSessionRecord(
+        record({
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              {type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}},
+            ],
+          },
+        }),
+        context,
+      ),
+    ).toEqual([]);
+
+    expect(
+      parseClaudeSessionRecord(
+        record({
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {type: 'tool_result', tool_use_id: 'tool-1', content: 'file contents'},
+              {type: 'text', text: 'The file was read.'},
+            ],
+          },
+        }),
+        context,
+      ),
+    ).toEqual([]);
+    expect(flushPendingToolRows(context)).toEqual([
+      {
+        kind: 'tool-call',
+        timestamp: 1,
+        id: 'tool-1',
+        name: 'Read',
+        input: '{\n  "file_path": "src/a.ts"\n}',
+      },
+      {
+        kind: 'tool-result',
+        timestamp: 1,
+        toolCallId: 'tool-1',
+        toolName: 'tool',
+        output: 'file contents',
+        isError: false,
+      },
+      {
+        kind: 'message',
+        timestamp: 1,
+        role: 'user',
+        label: 'user',
+        meta: [],
+        text: 'The file was read.',
+        terminalFailure: false,
+      },
+    ]);
+  });
+
+  it('keeps lifecycle rows behind a pending tool call until its summary arrives', () => {
+    const context = createClaudeParseContext();
+    expect(
+      parseClaudeSessionRecord(
+        record({
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              {type: 'tool_use', id: 'tool-1', name: 'Read', input: {file_path: 'src/a.ts'}},
+            ],
+          },
+        }),
+        context,
+      ),
+    ).toEqual([]);
+
+    expect(
+      parseClaudeSessionRecord(
+        record({type: 'auth_status', isAuthenticating: true, output: []}),
+        context,
+      ),
+    ).toEqual([]);
+
+    expect(
+      parseClaudeSessionRecord(
+        record({
+          type: 'tool_use_summary',
+          preceding_tool_use_ids: ['tool-1'],
+          summary: 'Read the source file.',
+        }),
+        context,
+      ),
+    ).toEqual([
+      {
+        kind: 'tool-call',
+        timestamp: 1,
+        id: 'tool-1',
+        name: 'Read',
+        input: '{\n  "file_path": "src/a.ts"\n}',
+        summary: 'Read the source file.',
+      },
+      {
+        kind: 'lifecycle',
+        timestamp: 1,
+        label: 'Authenticating',
+        detail: null,
+        meta: [],
+        tone: 'default',
+        terminalFailure: false,
+      },
+    ]);
+  });
+
   it('maps user tool results to tool-result rows', () => {
     const rows = parseClaudeSessionRecord(
       record({

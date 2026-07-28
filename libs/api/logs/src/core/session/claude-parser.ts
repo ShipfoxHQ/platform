@@ -96,9 +96,10 @@ export function parseClaudeSessionRecord(
 
   switch (message.type) {
     case 'system':
-      return stringField(message, 'subtype') === 'init'
-        ? [...flushPendingToolRows(context), systemRow(record.ts, message, context)]
-        : [systemRow(record.ts, message, context)];
+      if (stringField(message, 'subtype') === 'init') {
+        return [...flushPendingToolRows(context), systemRow(record.ts, message, context)];
+      }
+      return deferRow(context, systemRow(record.ts, message, context));
     case 'init':
       return [...flushPendingToolRows(context), systemRow(record.ts, message, context)];
     case 'tool_progress':
@@ -109,9 +110,9 @@ export function parseClaudeSessionRecord(
     case 'tool_use_summary':
       return toolUseSummary(message, context) ? flushPendingToolRows(context) : [];
     case 'auth_status':
-      return [authStatusRow(record.ts, message)];
+      return deferRow(context, authStatusRow(record.ts, message));
     case 'rate_limit_event':
-      return [rateLimitRow(record.ts, message)];
+      return deferRow(context, rateLimitRow(record.ts, message));
     case 'assistant':
       return [...flushPendingToolRows(context), ...assistantRows(record.ts, message, context)];
     case 'user':
@@ -127,4 +128,11 @@ export function parseClaudeSessionRecord(
         rawRecordRow(record, `Unknown Claude message: ${message.type}`),
       ];
   }
+}
+
+function deferRow(context: ClaudeParseContext, row: SessionViewRow): readonly SessionViewRow[] {
+  if (context.toolCallRows.size === 0) return [row];
+
+  context.pendingToolRows.push(row);
+  return [];
 }
