@@ -1,5 +1,18 @@
 # @shipfox/api-logs
 
+## 10.2.0
+
+### Minor Changes
+
+- 57e69d8: Stop treating benign Claude SDK message types as unknown session-parser failures.
+
+### Patch Changes
+
+- aaa0962: Cover Claude hook responses while adding drift detection against the installed SDK message union.
+- Updated dependencies [57e69d8]
+  - @shipfox/api-logs-dto@10.2.0
+  - @shipfox/api-auth-context@10.2.0
+
 ## 10.1.0
 
 ### Minor Changes

@@ -1,5 +1,20 @@
 # @shipfox/api-integration-core
 
+## 10.2.0
+
+### Patch Changes
+
+- Updated dependencies [07e7371]
+  - @shipfox/api-workspaces-dto@10.2.0
+  - @shipfox/api-auth-context@10.2.0
+  - @shipfox/api-integration-slack@10.2.0
+  - @shipfox/api-integration-gitea@10.2.0
+  - @shipfox/api-integration-github@10.2.0
+  - @shipfox/api-integration-jira@10.2.0
+  - @shipfox/api-integration-linear@10.2.0
+  - @shipfox/api-integration-sentry@10.2.0
+  - @shipfox/api-integration-webhook@10.2.0
+
 ## 10.1.0
 
 ### Patch Changes

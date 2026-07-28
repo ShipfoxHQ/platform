@@ -1,5 +1,21 @@
 # @shipfox/api-auth
 
+## 10.2.0
+
+### Minor Changes
+
+- 95d1456: Add administrator user suspension, reactivation, and all-session revocation commands.
+
+### Patch Changes
+
+- 07e7371: Add idempotent administrator workspace suspension and reactivation commands with atomic redacted administration events.
+- Updated dependencies [95d1456]
+- Updated dependencies [0773b85]
+- Updated dependencies [07e7371]
+  - @shipfox/api-auth-dto@10.2.0
+  - @shipfox/api-workspaces-dto@10.2.0
+  - @shipfox/api-auth-context@10.2.0
+
 ## 10.1.0
 
 ### Minor Changes

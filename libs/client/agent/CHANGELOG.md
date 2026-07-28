@@ -1,5 +1,11 @@
 # @shipfox/client-agent
 
+## 12.0.1
+
+### Patch Changes
+
+- @shipfox/client-shell@12.0.1
+
 ## 12.0.0
 
 ### Patch Changes

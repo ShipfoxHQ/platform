@@ -1,5 +1,15 @@
 # @shipfox/provisioner-core
 
+## 1.0.7
+
+### Patch Changes
+
+- 1300a54: Splits provisioner demand polling from provider convergence and makes shutdown cleanup resilient.
+- Updated dependencies [c9a188d]
+- Updated dependencies [8678943]
+- Updated dependencies [6be5a54]
+  - @shipfox/api-runners-dto@10.2.0
+
 ## 1.0.6
 
 ### Patch Changes

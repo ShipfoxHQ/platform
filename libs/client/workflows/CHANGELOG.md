@@ -1,5 +1,16 @@
 # @shipfox/client-workflows
 
+## 12.0.1
+
+### Patch Changes
+
+- 78a0033: Show running job executions as running in the workflow graph.
+- Updated dependencies [57e69d8]
+  - @shipfox/client-logs@12.0.1
+  - @shipfox/client-projects@12.0.1
+  - @shipfox/client-shell@12.0.1
+  - @shipfox/client-triggers@12.0.1
+
 ## 12.0.0
 
 ### Patch Changes

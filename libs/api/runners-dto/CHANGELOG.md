@@ -1,5 +1,13 @@
 # @shipfox/api-runners-dto
 
+## 10.2.0
+
+### Minor Changes
+
+- c9a188d: Add administrator creation, bounded inspection, and revocation for installation provisioner tokens.
+- 8678943: Add a bounded administrator inventory for installation-managed runner instances.
+- 6be5a54: Make managed runner assignment polling use an explicit bounded wait and retry transport timeouts while the control session remains healthy.
+
 ## 10.0.0
 
 ### Minor Changes

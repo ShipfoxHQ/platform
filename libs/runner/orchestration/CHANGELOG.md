@@ -1,5 +1,16 @@
 # @shipfox/runner-orchestration
 
+## 0.1.16
+
+### Patch Changes
+
+- 6be5a54: Make managed runner assignment polling use an explicit bounded wait and retry transport timeouts while the control session remains healthy.
+- Updated dependencies [6be5a54]
+  - @shipfox/runner-protocol@0.2.9
+  - @shipfox/runner-agent@0.2.1
+  - @shipfox/runner-logs@0.1.15
+  - @shipfox/runner-execution@0.1.15
+
 ## 0.1.15
 
 ### Patch Changes
