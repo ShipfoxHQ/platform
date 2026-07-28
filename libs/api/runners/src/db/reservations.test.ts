@@ -1,12 +1,16 @@
 import {and, eq, inArray, or, sql, sum} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {
+  deleteExpiredReservations,
   deleteReservationsByIds,
   pollDemandAndReserve,
   pollInstallationDemandAndReserve,
   releaseReservationUnits,
 } from '#db/reservations.js';
 import {reservations} from '#db/schema/reservations.js';
+import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
+import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
+import {providerRunners} from '#db/schema/runner-instances.js';
 import {pendingJobFactory, reservationFactory} from '#test/index.js';
 
 describe('pollDemandAndReserve', () => {
@@ -32,6 +36,131 @@ describe('pollDemandAndReserve', () => {
     expect(result.reservations).toHaveLength(1);
     expect(result.reservations[0]?.count).toBe(20);
     expect(result.stats[0]).toMatchObject({labels: ['linux'], queued: 50, reserved: 20});
+  });
+
+  it('binds the oldest matching enrolled runners to a new reservation', async () => {
+    const olderRunner = await createIdleRunner({
+      labels: ['linux'],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const newerRunner = await createIdleRunner({
+      labels: ['linux'],
+      createdAt: new Date('2026-01-02T00:00:00.000Z'),
+    });
+    const unmatchedRunner = await createIdleRunner({
+      labels: ['macos'],
+      createdAt: new Date('2026-01-03T00:00:00.000Z'),
+    });
+    await createPendingJobs(2, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 2,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 2)],
+    });
+
+    const rows = await db()
+      .select()
+      .from(providerRunners)
+      .where(inArray(providerRunners.id, [olderRunner.id, newerRunner.id, unmatchedRunner.id]));
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    const reservationId = result.reservations[0]?.reservationId;
+
+    expect(reservationId).toEqual(expect.any(String));
+    expect(rowsById.get(olderRunner.id)).toMatchObject({
+      workspaceId,
+      reservationId,
+      assignedAt: expect.any(Date),
+    });
+    expect(rowsById.get(newerRunner.id)).toMatchObject({
+      workspaceId,
+      reservationId,
+      assignedAt: expect.any(Date),
+    });
+    expect(rowsById.get(unmatchedRunner.id)).toMatchObject({
+      workspaceId: null,
+      reservationId: null,
+      assignedAt: null,
+    });
+  });
+
+  it('does not bind a running runner without an active control session', async () => {
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        provisionerId,
+        providerRunnerId: 'un-enrolled-runner',
+        labels: ['linux'],
+        state: 'running',
+        reportedAt: new Date(),
+      })
+      .returning();
+    if (!runner) throw new Error('Expected runner instance');
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations[0]?.count).toBe(1);
+    expect(storedRunner).toMatchObject({workspaceId: null, reservationId: null});
+  });
+
+  it('does not bind a runner with an expired control session', async () => {
+    const runner = await createIdleRunner({
+      labels: ['linux'],
+      controlSessionExpiresAt: new Date(Date.now() - 60_000),
+    });
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations[0]?.count).toBe(1);
+    expect(storedRunner).toMatchObject({workspaceId: null, reservationId: null});
+  });
+
+  it('does not grant another reservation after idle runners are covered', async () => {
+    await createIdleRunner({labels: ['linux']});
+    await createPendingJobs(1, ['linux']);
+
+    const firstResult = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+    const secondResult = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    expect(firstResult.reservations).toHaveLength(1);
+    expect(secondResult.reservations).toEqual([]);
+    expect(secondResult.stats[0]).toMatchObject({queued: 1, reserved: 1});
   });
 
   it('allocates overlapping label sets most-specific-first', async () => {
@@ -288,6 +417,98 @@ describe('pollDemandAndReserve', () => {
     expect(remaining[0]?.requiredLabels).toEqual(['macos']);
   });
 
+  it('unbinds prewarmed runners and revokes activation tokens when deleting a reservation', async () => {
+    const runner = await createIdleRunner({labels: ['linux']});
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+    const reservationId = result.reservations[0]?.reservationId;
+    if (!reservationId) throw new Error('Expected reservation');
+
+    const [activationToken] = await db()
+      .insert(runnerActivationTokens)
+      .values({
+        runnerInstanceId: runner.id,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!activationToken) throw new Error('Expected activation token');
+
+    const deleted = await deleteReservationsByIds([reservationId]);
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    const [storedToken] = await db()
+      .select()
+      .from(runnerActivationTokens)
+      .where(eq(runnerActivationTokens.id, activationToken.id));
+    expect(deleted).toBe(1);
+    expect(storedRunner).toMatchObject({
+      workspaceId: null,
+      reservationId: null,
+      assignedAt: null,
+    });
+    expect(storedToken?.revokedAt).toBeInstanceOf(Date);
+  });
+
+  it('unbinds prewarmed runners and revokes activation tokens when deleting expired reservations', async () => {
+    const runner = await createIdleRunner({labels: ['linux']});
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+    const reservationId = result.reservations[0]?.reservationId;
+    if (!reservationId) throw new Error('Expected reservation');
+
+    await db()
+      .update(reservations)
+      .set({expiresAt: new Date(Date.now() - 60_000)})
+      .where(eq(reservations.id, reservationId));
+    const [activationToken] = await db()
+      .insert(runnerActivationTokens)
+      .values({
+        runnerInstanceId: runner.id,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!activationToken) throw new Error('Expected activation token');
+
+    const deleted = await deleteExpiredReservations();
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    const [storedToken] = await db()
+      .select()
+      .from(runnerActivationTokens)
+      .where(eq(runnerActivationTokens.id, activationToken.id));
+    expect(deleted).toBeGreaterThanOrEqual(1);
+    expect(storedRunner).toMatchObject({
+      workspaceId: null,
+      reservationId: null,
+      assignedAt: null,
+    });
+    expect(storedToken?.revokedAt).toBeInstanceOf(Date);
+  });
+
   it('decrements reservation units inside a caller transaction', async () => {
     await reservationFactory.create({
       workspaceId,
@@ -418,6 +639,38 @@ describe('pollDemandAndReserve', () => {
     for (let index = 0; index < count; index++) {
       await pendingJobFactory.create({workspaceId, requiredLabels});
     }
+  }
+
+  async function createIdleRunner(params: {
+    labels: string[];
+    createdAt?: Date;
+    controlSessionExpiresAt?: Date;
+  }) {
+    const createdAt = params.createdAt ?? new Date();
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        provisionerId,
+        providerRunnerId: crypto.randomUUID(),
+        labels: params.labels,
+        state: 'running',
+        reportedAt: createdAt,
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .returning();
+    if (!runner) throw new Error('Expected runner instance');
+
+    await db()
+      .insert(runnerControlSessions)
+      .values({
+        runnerInstanceId: runner.id,
+        provisionerId,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: params.controlSessionExpiresAt ?? new Date(Date.now() + 60_000),
+      });
+    return runner;
   }
 
   async function activeReservedCount(): Promise<number> {
