@@ -1,8 +1,24 @@
+import {basename} from 'node:path';
 import type {
   AgentSessionRuntimeDiagnostic,
   LoadExtensionsResult,
 } from '@earendil-works/pi-coding-agent';
 import type {AgentConfigIssueDto} from '@shipfox/api-workflows-dto';
+
+const HARNESS_ERROR_PREFIX = 'Pi extension setup failed: ';
+const HARNESS_DIAGNOSTIC_MAX_LENGTH = 200;
+const PATH_PATTERN = /(?:file:\/\/)?\//g;
+const PATH_PREFIX_CHARACTER_PATTERN = /[A-Za-z0-9._~+@%]/;
+const NETWORK_URL_PATTERN = /(?:https?|ssh):\/{0,2}$/;
+const REGEX_DIAGNOSTIC_PATTERN = /[\\^*+?()[\]{}]|\$$/;
+const ENVIRONMENT_PATH_PREFIX_PATTERN = /(?:^|\s)[A-Za-z_][A-Za-z0-9_]*=$/;
+const RUNNER_PATH_PATTERN = /^(?:\/runner|\/private\/runner|.*\/node_modules)\//;
+const WHITESPACE_PATTERN = /\s/;
+const PATH_EXTENSION_PATTERN = /\.[A-Za-z0-9]+$/;
+const PATH_BOUNDARY_PREFIX_PATTERN = /^[()[\]{}]/;
+const TRAILING_PATH_PUNCTUATION_PATTERN = /[.,;:]+$/;
+const TRUNCATION_TOKEN_PATTERN = /\s[^\s]*$/;
+const ADJACENT_PATH_LOOKAHEAD_MAX_LENGTH = 1024;
 
 /**
  * A user-fixable agent-step configuration failure: an unknown provider, a
@@ -30,29 +46,236 @@ export interface AgentHarnessEnvironment {
   readonly resolvedExtensionPaths?: readonly string[];
 }
 
+export type AgentHarnessResourceLoaderError = LoadExtensionsResult['errors'][number];
+
+export interface AgentHarnessResourceLoaderFailure {
+  readonly error: AgentHarnessResourceLoaderError;
+  readonly directory: string;
+}
+
+/** Removes filesystem prefixes from user-visible harness diagnostics without rewriting syntax. */
+function sanitizeHarnessDiagnosticMessage(messages: readonly string[]): string {
+  const sanitizedMessages = messages
+    .filter((diagnostic) => diagnostic.trim().length > 0)
+    .map(sanitizeDiagnosticMessage)
+    .filter((message, index, allMessages) => allMessages.indexOf(message) === index);
+  const message = sanitizedMessages.join('; ');
+
+  if (message.length <= HARNESS_DIAGNOSTIC_MAX_LENGTH) return message;
+
+  const marker = '…';
+  const candidate = sliceWithoutLoneSurrogate(
+    message,
+    HARNESS_DIAGNOSTIC_MAX_LENGTH - marker.length,
+  );
+  const boundary = candidate.search(TRUNCATION_TOKEN_PATTERN);
+  const discardedTailLength = boundary > 0 ? candidate.length - boundary : 0;
+  const truncated =
+    boundary > 0 && discardedTailLength <= Math.floor(candidate.length / 2)
+      ? candidate.slice(0, boundary)
+      : candidate;
+  return `${truncated.trimEnd()}${marker}`;
+}
+
+function sanitizeDiagnosticMessage(message: string): string {
+  let cursor = 0;
+  let skippedUntil = 0;
+  let sanitized = '';
+
+  for (const match of message.matchAll(PATH_PATTERN)) {
+    const matchStart = match.index;
+    if (matchStart < cursor || matchStart < skippedUntil) continue;
+
+    const prefix = match[0].startsWith('file://') ? 'file://' : '';
+    const pathStart = matchStart + prefix.length;
+    const previousCharacter = message[pathStart - 1];
+
+    if (
+      (previousCharacter !== undefined && PATH_PREFIX_CHARACTER_PATTERN.test(previousCharacter)) ||
+      isFileUrlSlash(message, pathStart) ||
+      isNetworkUrlSlash(message, pathStart)
+    ) {
+      continue;
+    }
+
+    const pathEnd = findAbsolutePathEnd(message, pathStart);
+    if (pathEnd <= pathStart + 1) continue;
+
+    const path = message.slice(pathStart, pathEnd);
+    if (isSlashDelimitedDiagnostic(path)) {
+      skippedUntil = pathEnd;
+      continue;
+    }
+
+    sanitized += message.slice(cursor, matchStart);
+    sanitized += `${prefix}${basename(path)}`;
+    cursor = pathEnd;
+  }
+
+  return sanitized + message.slice(cursor);
+}
+
+function isFileUrlSlash(message: string, pathStart: number): boolean {
+  const precedingText = message.slice(Math.max(0, pathStart - 6), pathStart);
+  return precedingText.endsWith('file:') || precedingText.endsWith('file:/');
+}
+
+function isNetworkUrlSlash(message: string, pathStart: number): boolean {
+  const protocolPrefix = message.slice(Math.max(0, pathStart - 8), pathStart + 1);
+  return NETWORK_URL_PATTERN.test(protocolPrefix);
+}
+
+function isSlashDelimitedDiagnostic(path: string): boolean {
+  if (!path.endsWith('/') || RUNNER_PATH_PATTERN.test(path)) return false;
+  return path.includes('\\/') || REGEX_DIAGNOSTIC_PATTERN.test(path.slice(1, -1));
+}
+
+function findAbsolutePathEnd(message: string, pathStart: number): number {
+  for (let index = pathStart + 1; index < message.length; index += 1) {
+    const character = message[index];
+
+    if (isPathTerminator(character)) return index;
+    if (isPathClosingBoundary(message, index)) return index;
+
+    if (
+      (character === ',' || (character === ':' && isEnvironmentPath(message, pathStart))) &&
+      message[index + 1] === '/' &&
+      isAdjacentPathStart(message, index + 1)
+    ) {
+      return index;
+    }
+
+    if (character !== undefined && WHITESPACE_PATTERN.test(character)) {
+      if (isSlashDelimitedDiagnostic(message.slice(pathStart, index))) return index;
+
+      const nextCharacter = skipWhitespace(message, index);
+      const nextSegmentEnd = findNextPathTerminator(message, nextCharacter);
+      const nextSegment = message.slice(nextCharacter, nextSegmentEnd);
+      const nextSlash = nextSegment.indexOf('/');
+      const nextWhitespace = nextSegment.search(WHITESPACE_PATTERN);
+      const continuesPath =
+        !PATH_BOUNDARY_PREFIX_PATTERN.test(nextSegment) &&
+        ((nextSlash >= 0 && (nextWhitespace < 0 || nextSlash < nextWhitespace)) ||
+          PATH_EXTENSION_PATTERN.test(nextSegment.replace(TRAILING_PATH_PUNCTUATION_PATTERN, '')));
+
+      if (!continuesPath) return index;
+    }
+  }
+
+  return message.length;
+}
+
+function isEnvironmentPath(message: string, pathStart: number): boolean {
+  return ENVIRONMENT_PATH_PREFIX_PATTERN.test(message.slice(0, pathStart));
+}
+
+function isAdjacentPathStart(message: string, pathStart: number): boolean {
+  let index = pathStart + 1;
+  let slashCount = 0;
+
+  while (index < message.length && index - pathStart <= ADJACENT_PATH_LOOKAHEAD_MAX_LENGTH) {
+    const character = message[index];
+    if (
+      isPathTerminator(character) ||
+      isPathClosingBoundary(message, index) ||
+      WHITESPACE_PATTERN.test(character ?? '') ||
+      character === ',' ||
+      character === ':'
+    ) {
+      break;
+    }
+    if (character === '/') slashCount += 1;
+    index += 1;
+  }
+
+  const path = message.slice(pathStart, index);
+  const lastComponent = basename(path).replace(TRAILING_PATH_PUNCTUATION_PATTERN, '');
+  return slashCount > 0 || PATH_EXTENSION_PATTERN.test(lastComponent);
+}
+
+function skipWhitespace(message: string, start: number): number {
+  let index = start;
+  while (index < message.length && WHITESPACE_PATTERN.test(message[index] ?? '')) index += 1;
+  return index;
+}
+
+function findNextPathTerminator(message: string, start: number): number {
+  for (let index = start; index < message.length; index += 1) {
+    if (isPathTerminator(message[index]) || isPathClosingBoundary(message, index)) return index;
+  }
+  return message.length;
+}
+
+function isPathClosingBoundary(message: string, index: number): boolean {
+  const character = message[index];
+  return (
+    (character === ')' || character === ']' || character === '}') && message[index + 1] !== '/'
+  );
+}
+
+function isPathTerminator(character: string | undefined): boolean {
+  return (
+    character === '\n' ||
+    character === '\r' ||
+    character === '`' ||
+    character === '"' ||
+    character === "'" ||
+    character === '<' ||
+    character === '>' ||
+    character === '|' ||
+    character === ';'
+  );
+}
+
+function sliceWithoutLoneSurrogate(value: string, length: number): string {
+  const candidate = value.slice(0, length);
+  const lastCodeUnit = candidate.charCodeAt(candidate.length - 1);
+  return lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff ? candidate.slice(0, -1) : candidate;
+}
+
 export class AgentHarnessUnavailableError extends Error {
   public readonly diagnostics: readonly AgentSessionRuntimeDiagnostic[];
   public readonly environment: AgentHarnessEnvironment;
-  public readonly resourceLoaderErrors: readonly LoadExtensionsResult['errors'][number][];
+  public readonly missingExtensionDirectories: readonly string[];
+  public readonly resourceLoaderErrors: readonly AgentHarnessResourceLoaderFailure[];
 
   constructor({
     diagnostics,
     environment,
+    missingExtensionDirectories = [],
     resourceLoaderErrors = [],
   }: {
     diagnostics: readonly AgentSessionRuntimeDiagnostic[];
     environment: AgentHarnessEnvironment;
-    resourceLoaderErrors?: readonly LoadExtensionsResult['errors'][number][];
+    missingExtensionDirectories?: readonly string[];
+    resourceLoaderErrors?: readonly AgentHarnessResourceLoaderFailure[];
   }) {
-    const errors = diagnostics.filter((diagnostic) => diagnostic.type === 'error');
-    const messages = [
-      ...errors.map((diagnostic) => diagnostic.message),
-      ...resourceLoaderErrors.map((resourceError) => resourceError.error),
+    const missingDirectories = missingExtensionDirectories.filter(
+      (directory) => !resourceLoaderErrors.some((failure) => failure.directory === directory),
+    );
+    const loaderMessages = resourceLoaderErrors.map(({error, directory}) => {
+      const message = error.error;
+      const sanitizedMessage = sanitizeDiagnosticMessage(message);
+      const extensionName = basename(directory);
+      return extensionName !== '' && !sanitizedMessage.includes(extensionName)
+        ? `${extensionName}: ${message}`
+        : message;
+    });
+    const extensionMessages = [
+      ...(missingDirectories.length === 0
+        ? []
+        : [`Pi extensions failed to load from: ${missingDirectories.join(', ')}`]),
+      ...loaderMessages,
     ];
-    super(`Pi extension setup failed: ${messages.join('; ')}`);
+    const diagnosticMessages = diagnostics
+      .filter((diagnostic) => diagnostic.type === 'error')
+      .map((diagnostic) => diagnostic.message);
+    const detail = sanitizeHarnessDiagnosticMessage([...extensionMessages, ...diagnosticMessages]);
+    super(`${HARNESS_ERROR_PREFIX}${detail || 'The runner harness could not start.'}`);
     this.name = 'AgentHarnessUnavailableError';
     this.diagnostics = diagnostics;
     this.environment = environment;
+    this.missingExtensionDirectories = missingExtensionDirectories;
     this.resourceLoaderErrors = resourceLoaderErrors;
   }
 }

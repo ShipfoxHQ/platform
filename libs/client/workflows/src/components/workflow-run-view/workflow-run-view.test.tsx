@@ -305,6 +305,88 @@ describe('WorkflowRunView', () => {
     );
   });
 
+  test('shows runner guidance for agent harness failures without step settings or admin actions', async () => {
+    const user = userEvent.setup();
+    const stepId = '99999999-9999-4999-8999-000000000006';
+    const attemptId = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000006';
+    configureApiClient({
+      fetchImpl: vi.fn((input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+        if (url.pathname === `/steps/${stepId}/attempts/1/logs`) {
+          return Promise.resolve(jsonResponse(inlineLogBody(outputLine('runner failed\n'), 1)));
+        }
+        return Promise.resolve(
+          jsonResponse(
+            workflowRunViewDetailDto({
+              jobs: [
+                workflowJobDto({
+                  id: BUILD_JOB_ID,
+                  run_attempt_id: RUN_ID,
+                  name: 'build',
+                  status: 'failed',
+                  steps: [
+                    workflowStepDto({
+                      id: stepId,
+                      key: 'implement',
+                      name: 'Fix the failing tests.',
+                      type: 'agent',
+                      status: 'failed',
+                      config: {
+                        provider: 'anthropic',
+                        model: 'claude-opus-4-8',
+                        thinking: 'high',
+                        prompt: 'Fix the failing tests.',
+                      },
+                      error: {
+                        message: 'Pi extension setup failed: Unknown option: --mcp-config',
+                        reason: 'agent_harness_unavailable',
+                        category: 'user',
+                      },
+                      attempts: [
+                        workflowStepAttemptDto({
+                          id: attemptId,
+                          step_id: stepId,
+                          status: 'failed',
+                          exit_code: 1,
+                          error: {
+                            message: 'Pi extension setup failed: Unknown option: --mcp-config',
+                            reason: 'agent_harness_unavailable',
+                          },
+                          finished_at: '2026-05-07T01:01:20.000Z',
+                        }),
+                      ],
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ),
+        );
+      }),
+    });
+
+    renderView();
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Fix the failing tests., Failed, attempt 1, User',
+      }),
+    );
+
+    expect(
+      screen.getByText('The runner could not start the agent for this step'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This step's prompt, provider, model, and thinking settings are valid. The runner could not start its agent before the model was called, so nothing ran. Re-running will not help. Ask an administrator to update the runner, then re-run the workflow.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Runner reported: Pi extension setup failed: Unknown option: --mcp-config'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', {name: 'Configure Agents'})).not.toBeInTheDocument();
+    expect(screen.queryByText('claude-opus-4-8')).not.toBeInTheDocument();
+  });
+
   test('falls back to the step error when an agent attempt has no typed error', async () => {
     const user = userEvent.setup();
     const stepId = '99999999-9999-4999-8999-000000000005';

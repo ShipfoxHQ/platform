@@ -66,7 +66,7 @@ type AgentConfigIssueValue = NonNullable<StepError['agentConfigIssue']>;
 
 const errorCases: Array<{
   label: string;
-  error: WorkflowStepError;
+  error: StepError;
 }> = [
   {label: 'Provider not configured', error: makeError('provider_not_configured')},
   {label: 'Credentials invalid', error: makeError('credentials_invalid')},
