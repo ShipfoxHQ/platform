@@ -1,6 +1,7 @@
 import {readFileSync} from 'node:fs';
 import {logger} from '@shipfox/node-opentelemetry';
 import {
+  enumerateVariants,
   type ProvisionerTemplate,
   type ProvisionerTemplateFile,
   parseTemplateFile,
@@ -42,12 +43,6 @@ const dockerTemplateSchema = z
   })
   .strict();
 
-const dockerTemplatesFileSchema = z
-  .object({
-    templates: z.record(z.string().min(1), dockerTemplateSchema),
-  })
-  .strict();
-
 /**
  * Read, parse, and validate the local Docker template config, returning the
  * provider-agnostic templates the control loop drives. Fails fast with a clear,
@@ -61,6 +56,8 @@ export function loadDockerTemplates(filePath: string): ProvisionerTemplate<Docke
   let validatedTemplates: Readonly<Record<string, z.infer<typeof dockerTemplateSchema>>>;
   try {
     templateFile = parseTemplateFile(raw);
+    // Keep the core cap check over the complete file before either category is split.
+    enumerateVariants(templateFile);
     const generatedTemplates = renderTemplateVariants({...templateFile, templates: {}});
     const handWrittenTemplates = renderTemplateVariants({...templateFile, matrix: {}});
     const validatedGeneratedTemplates = validateRenderedTemplates(filePath, generatedTemplates);
@@ -129,13 +126,28 @@ function validateRenderedTemplates(
   filePath: string,
   renderedTemplates: RenderedTemplateMap,
 ): Readonly<Record<string, z.infer<typeof dockerTemplateSchema>>> {
-  const parsed = dockerTemplatesFileSchema.safeParse({templates: renderedTemplates});
-  if (!parsed.success) {
-    throw new DockerTemplateConfigError(
-      `Invalid Docker template config at ${filePath}: ${formatIssues(parsed.error)}`,
-    );
+  const validated = Object.create(null) as Record<string, z.infer<typeof dockerTemplateSchema>>;
+  for (const [key, template] of Object.entries(renderedTemplates)) {
+    const parsed = dockerTemplateSchema.safeParse(template);
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((issue) => {
+          const path = issue.path.join('.');
+          return `templates.${key}${path ? `.${path}` : ''}: ${issue.message}`;
+        })
+        .join('; ');
+      throw new DockerTemplateConfigError(
+        `Invalid Docker template config at ${filePath}: ${issues}`,
+      );
+    }
+    Object.defineProperty(validated, key, {
+      configurable: true,
+      enumerable: true,
+      value: parsed.data,
+      writable: true,
+    });
   }
-  return parsed.data.templates;
+  return validated;
 }
 
 function mergeTemplateMaps<T>(
@@ -144,7 +156,14 @@ function mergeTemplateMaps<T>(
 ): Record<string, T> {
   const merged = {...handWrittenTemplates};
   for (const [key, template] of Object.entries(generatedTemplates)) {
-    if (!Object.hasOwn(merged, key)) merged[key] = template;
+    if (!Object.hasOwn(merged, key)) {
+      Object.defineProperty(merged, key, {
+        configurable: true,
+        enumerable: true,
+        value: template,
+        writable: true,
+      });
+    }
   }
   return merged;
 }
@@ -209,15 +228,6 @@ function parseYamlFile(filePath: string): unknown {
       `Cannot parse Docker template config at ${filePath}: ${errorMessage(error)}`,
     );
   }
-}
-
-function formatIssues(error: z.ZodError): string {
-  return error.issues
-    .map((issue) => {
-      const path = issue.path.join('.');
-      return path ? `${path}: ${issue.message}` : issue.message;
-    })
-    .join('; ');
 }
 
 function errorMessage(error: unknown): string {

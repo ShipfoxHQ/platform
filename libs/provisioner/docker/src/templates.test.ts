@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({debug: vi.fn(), info: vi.fn(), warn: vi.fn()}))
 vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => mocks}));
 
 const SHADOWED_TEMPLATE_CPU_PATTERN = /templates\.docker-2-ubuntu22\.cpu/;
+const COMBINED_TEMPLATE_CAP_PATTERN =
+  /matrix expands to 1000 templates.*plus 1 hand-written; the maximum is 1000/;
 
 let dir: string;
 
@@ -207,6 +209,59 @@ matrix:
 
     expect(() => loadDockerTemplates(path)).toThrow(SHADOWED_TEMPLATE_CPU_PATTERN);
     expect(mocks.warn).not.toHaveBeenCalled();
+  });
+
+  it('enforces the combined template cap before splitting generated and hand-written entries', () => {
+    const cpuValues = Array.from({length: 1_000}, (_, index) => index + 1).join(', ');
+    const path = writeTemplates(`
+templates:
+  hand-written:
+    labels: [hand-written]
+    image: hand-written
+    cpu: 1
+    memory: 1g
+    max_concurrency: 1
+matrix:
+  generated:
+    axes:
+      cpu: [${cpuValues}]
+    template:
+      labels: [generated]
+      image: generated
+      cpu: "\${{ cpu }}"
+      memory: 1g
+      max_concurrency: 1
+`);
+
+    expect(() => loadDockerTemplates(path)).toThrow(COMBINED_TEMPLATE_CAP_PATTERN);
+  });
+
+  it('preserves a generated template with an explicit __proto__ key', () => {
+    const path = writeTemplates(`
+templates: {}
+matrix:
+  generated:
+    axes:
+      cpu: [1]
+    key: "'__proto__'"
+    template:
+      labels: [generated]
+      image: generated
+      cpu: 1
+      memory: 1g
+      max_concurrency: 1
+`);
+
+    expect(loadDockerTemplates(path)).toEqual([
+      {
+        key: '__proto__',
+        labels: ['generated'],
+        maxConcurrency: 1,
+        targetConcurrency: 0,
+        cost: 1,
+        spec: {image: 'generated', cpu: 1, memory: '1g'},
+      },
+    ]);
   });
 
   it('wraps core matrix errors in DockerTemplateConfigError', () => {
