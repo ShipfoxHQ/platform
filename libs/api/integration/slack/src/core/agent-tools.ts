@@ -20,8 +20,13 @@ interface SlackAgentToolCatalogInput {
 
 const whitespacePattern = /\s+/;
 
-const channelIdSchema = stringSchema(
-  'Channel, private group, or IM channel ID. Pass a user ID to target the direct message with that user',
+// Only the chat.* methods resolve a user ID into a direct message; conversations.* and reactions.*
+// need the conversation ID itself, so the two targets are described separately.
+const conversationIdSchema = stringSchema(
+  'Channel, private group, or direct message conversation ID, such as C0ABC12345 or D0ABC12345. A user ID is not accepted here',
+);
+const messageTargetSchema = stringSchema(
+  'Channel, private group, or direct message conversation ID. Pass a user ID to open a direct message with that user',
 );
 const cursorSchema = stringSchema('Pagination cursor from a previous request');
 const messageSchema = stringSchema('Message content, written as standard Markdown');
@@ -32,13 +37,13 @@ export const slackAgentToolCatalog = [
   tool({
     id: 'read_channel',
     description:
-      'Read messages from a Slack channel in reverse chronological order (newest first). To read direct message history, pass the user ID as the channel ID.',
+      'Read messages from a Slack channel in reverse chronological order (newest first). Reading direct message history needs the ID of that conversation, not the ID of the user on the other side.',
     sensitivity: 'read',
     sensitive: false,
     requiredScope: 'read',
     inputSchema: objectSchema(
       {
-        channel_id: channelIdSchema,
+        channel_id: conversationIdSchema,
         oldest: stringSchema('Start of the time range, as a Slack timestamp'),
         latest: stringSchema('End of the time range, as a Slack timestamp'),
         limit: integerSchema('Messages to return, 1 to 100 (default 100)'),
@@ -56,7 +61,7 @@ export const slackAgentToolCatalog = [
     requiredScope: 'read',
     inputSchema: objectSchema(
       {
-        channel_id: channelIdSchema,
+        channel_id: conversationIdSchema,
         message_ts: stringSchema('Timestamp of the parent message, such as 1234567890.123456'),
         oldest: stringSchema('Start of the time range, as a Slack timestamp'),
         latest: stringSchema('End of the time range, as a Slack timestamp'),
@@ -75,7 +80,7 @@ export const slackAgentToolCatalog = [
     requiredScope: 'read',
     inputSchema: objectSchema(
       {
-        channel_id: channelIdSchema,
+        channel_id: conversationIdSchema,
         include_num_members: booleanSchema('Include the channel member count (default false)'),
       },
       ['channel_id'],
@@ -90,7 +95,7 @@ export const slackAgentToolCatalog = [
     requiredScope: 'read',
     inputSchema: objectSchema(
       {
-        channel_id: channelIdSchema,
+        channel_id: conversationIdSchema,
         limit: integerSchema('Members to return per page (default 100)'),
         cursor: cursorSchema,
       },
@@ -141,7 +146,7 @@ export const slackAgentToolCatalog = [
     requiredScope: 'write',
     inputSchema: objectSchema(
       {
-        channel_id: channelIdSchema,
+        channel_id: messageTargetSchema,
         message: messageSchema,
         thread_ts: threadTsSchema,
         reply_broadcast: replyBroadcastSchema,
@@ -158,7 +163,7 @@ export const slackAgentToolCatalog = [
     requiredScope: 'write',
     inputSchema: objectSchema(
       {
-        channel_id: channelIdSchema,
+        channel_id: messageTargetSchema,
         message: messageSchema,
         post_at: integerSchema('Unix timestamp at which to send the message'),
         thread_ts: threadTsSchema,
@@ -176,7 +181,7 @@ export const slackAgentToolCatalog = [
     requiredScope: 'write',
     inputSchema: objectSchema(
       {
-        channel_id: channelIdSchema,
+        channel_id: conversationIdSchema,
         message_ts: stringSchema('Timestamp of the message to update'),
         message: messageSchema,
       },
@@ -191,7 +196,7 @@ export const slackAgentToolCatalog = [
     requiredScope: 'write',
     inputSchema: objectSchema(
       {
-        channel_id: channelIdSchema,
+        channel_id: conversationIdSchema,
         message_ts: stringSchema('Timestamp of the message to react to'),
         emoji: stringSchema('Emoji name without the surrounding colons, such as white_check_mark'),
       },

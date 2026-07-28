@@ -24,6 +24,11 @@ function operation(id: SlackAgentToolId): SlackToolOperation {
   return SLACK_TOOL_OPERATIONS[id];
 }
 
+function channelIdDescription(inputSchema: Record<string, unknown>): string | undefined {
+  const properties = inputSchema.properties as Record<string, {description?: string}> | undefined;
+  return properties?.channel_id?.description;
+}
+
 describe('slackAgentToolCatalog', () => {
   it('defines the Slack tools with their access requirements', () => {
     const tools = slackAgentToolCatalog.map(({id, sensitivity, requiredScope, sensitive}) => ({
@@ -60,6 +65,20 @@ describe('slackAgentToolCatalog', () => {
       required: ['channel_id', 'message_ts'],
       properties: {limit: {type: 'integer'}, cursor: {type: 'string'}},
     });
+  });
+
+  it('offers user-ID targeting only on the tools whose Slack method resolves one', () => {
+    const targetDescriptions = new Map(
+      slackAgentToolCatalog
+        .filter(({inputSchema}) => channelIdDescription(inputSchema) !== undefined)
+        .map(({id, inputSchema}) => [id, channelIdDescription(inputSchema) ?? '']),
+    );
+    const acceptsUserId = [...targetDescriptions]
+      .filter(([, description]) => description.includes('Pass a user ID'))
+      .map(([id]) => id);
+
+    expect(acceptsUserId).toEqual(['send_message', 'schedule_message']);
+    expect(targetDescriptions.get('read_channel')).toContain('not accepted');
   });
 
   it('maps every tool id to its dotted Slack Web API method', () => {
@@ -118,6 +137,25 @@ describe('slackAgentToolCatalog', () => {
     expect(
       operation('update_message').mapArguments({...args, message_ts: '123.000'}),
     ).toMatchObject({ts: '123.000', blocks: [{type: 'markdown', text: args.message}]});
+  });
+
+  it('schedules a message with its send time and thread target', () => {
+    expect(
+      operation('schedule_message').mapArguments({
+        channel_id: 'C123',
+        message: 'Standup in 5',
+        post_at: 1700000000,
+        thread_ts: '123.000',
+        reply_broadcast: true,
+      }),
+    ).toMatchObject({
+      channel: 'C123',
+      text: 'Standup in 5',
+      blocks: [{type: 'markdown', text: 'Standup in 5'}],
+      post_at: 1700000000,
+      thread_ts: '123.000',
+      reply_broadcast: true,
+    });
   });
 
   it('wraps canvas content as a Markdown document', () => {
