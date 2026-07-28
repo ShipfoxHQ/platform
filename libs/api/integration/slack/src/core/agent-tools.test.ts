@@ -148,6 +148,14 @@ describe('slackAgentToolCatalog', () => {
     expect(blocks).toEqual([{type: 'markdown', text: message}]);
   });
 
+  it('preserves Markdown-looking characters inside code spans in the fallback', () => {
+    const message = 'run `*args, **kwargs` then\n```py\n**not bold**\n```\ndone';
+
+    const {text} = operation('send_message').mapArguments({channel_id: 'C123', message});
+
+    expect(text).toBe('run *args, **kwargs then\n**not bold**\ndone');
+  });
+
   it('schedules a message with its send time and thread target', () => {
     expect(
       operation('schedule_message').mapArguments({
@@ -178,6 +186,16 @@ describe('slackAgentToolCatalog', () => {
     expect(operation('schedule_message').validate?.({message: oversized})).toBeDefined();
     expect(operation('update_message').validate?.({message: oversized})).toBeDefined();
     expect(operation('send_message').validate?.({message: fits})).toBeUndefined();
+  });
+
+  it('counts Unicode code points, not UTF-16 code units, against the length limit', () => {
+    const emoji = '\u{1F600}';
+    // Each 😀 is a surrogate pair (2 UTF-16 units) but 1 code point: 6,001 code points fits the
+    // 12,000-character schema limit even though .length would report 12,002.
+    const sixThousandOneEmoji = emoji.repeat(6001);
+
+    expect(operation('send_message').validate?.({message: sixThousandOneEmoji})).toBeUndefined();
+    expect(operation('send_message').validate?.({message: emoji.repeat(12_001)})).toBeDefined();
   });
 
   it('wraps canvas content as a Markdown document', () => {
