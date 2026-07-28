@@ -4,6 +4,12 @@ import {createContext, useContext} from 'react';
 export interface ChromeSlots {
   ProjectBreadcrumb: ComponentType;
   ProjectLayoutGuard: ComponentType;
+  /**
+   * Optional content rendered in the account menu before the shell-owned logout
+   * action. The composing component must render one DropdownMenuItem or return
+   * null, and owns whether this content renders from the current session.
+   */
+  AccountMenuEntry?: ComponentType;
 }
 
 const ChromeContext = createContext<ChromeSlots | undefined>(undefined);

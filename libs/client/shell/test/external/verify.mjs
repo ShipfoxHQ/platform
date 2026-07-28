@@ -43,7 +43,7 @@ const config = readPublicationClosureConfig(join(repositoryRoot, 'publication-cl
 const workspacePackages = readWorkspacePackages(repositoryRoot);
 validatePublicationState(workspacePackages, config, repositoryRoot);
 const clientRoots = config.roots.filter((root) => root.startsWith('@shipfox/client-'));
-const fixtureSupportPackages = ['@shipfox/client-config'];
+const fixtureSupportPackages = ['@shipfox/client-config', '@shipfox/react-ui'];
 const consumerPackages = [...clientRoots, ...fixtureSupportPackages];
 const closure = computePublicationClosure(workspacePackages, clientRoots);
 const entryPoints = closure.flatMap((name) =>
