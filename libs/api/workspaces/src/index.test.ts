@@ -1,3 +1,4 @@
+import {ADMINISTRATION_ACTION_PERFORMED} from '@shipfox/api-common-dto';
 import {
   WORKSPACES_INVITATION_SEND_REQUESTED,
   WORKSPACES_MEMBER_INVITED,
@@ -22,12 +23,13 @@ describe('workspacesModule', () => {
     const publisher = workspacesModule.publishers?.find((pub) => pub.name === 'workspaces');
     const events = workspacesModule.subscribers?.map((subscriber) => subscriber.event);
 
-    expect(publisher?.eventSchemas).toBe(workspacesEventSchemas);
+    expect(publisher?.eventSchemas).not.toBe(workspacesEventSchemas);
     expect(Object.keys(publisher?.eventSchemas ?? {})).toEqual([
       WORKSPACES_INVITATION_SEND_REQUESTED,
       WORKSPACES_WORKSPACE_CREATED,
       WORKSPACES_MEMBER_INVITED,
       WORKSPACES_MEMBER_JOINED,
+      ADMINISTRATION_ACTION_PERFORMED,
     ]);
     expect(events).toContain(WORKSPACES_INVITATION_SEND_REQUESTED);
   });
