@@ -22,6 +22,7 @@ export {
   listMembershipsByWorkspace,
   removeMembership,
 } from './memberships.js';
+export {workspacesAdminCommandResults} from './schema/admin-command-results.js';
 export {workspacesOutbox} from './schema/outbox.js';
 export type {
   AdminWorkspaceRow,

@@ -2,6 +2,10 @@ export {
   type ListWorkspaceAdministratorSummariesParams,
   type ListWorkspaceAdministratorSummariesResult,
   listWorkspaceAdministratorSummaries,
+  reactivateWorkspace,
+  suspendWorkspace,
+  type WorkspaceAdministrationMutationContext,
+  type WorkspaceAdministrationMutationResult,
   type WorkspaceAdministratorSummary,
 } from './admin-workspaces.js';
 export type {Invitation} from './entities/invitation.js';
@@ -18,7 +22,11 @@ export {
   SelfRemovalNotAllowedError,
   TokenAlreadyUsedError,
   TokenExpiredError,
+  WorkspaceAdminIdempotencyKeyReuseError,
+  WorkspaceAlreadySuspendedError,
+  WorkspaceDeletedError,
   WorkspaceNotFoundError,
+  WorkspaceNotSuspendedError,
 } from './errors.js';
 export {
   acceptWorkspaceInvitation,

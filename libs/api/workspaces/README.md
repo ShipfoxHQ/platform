@@ -47,7 +47,12 @@ Routes mount under `/workspaces`. They make and list workspaces, manage members,
 and make, list, view, accept, or revoke invites. The composed module also mounts
 `GET /admin/workspaces`, which requires the Auth `admin-observer` role and returns
 bounded workspace identity, lifecycle, member, project, and best-effort job-count
-summaries. Supporting count failures are represented as `unknown`.
+summaries. Supporting count failures are represented as `unknown`. `POST
+/admin/workspaces/:workspaceId/suspend` and `POST
+/admin/workspaces/:workspaceId/reactivate` require the `admin-operator` role, an
+`Idempotency-Key` header, and a `{reason}` body, and return `{workspace_id,
+status, correlation_id}`. Both write a redacted `administration.action.performed`
+outbox event and record their result for idempotent retries.
 
 The module creates these tables:
 
@@ -55,6 +60,7 @@ The module creates these tables:
 - `workspaces_memberships`
 - `workspaces_invitations`
 - `workspaces_outbox`
+- `workspaces_admin_command_results`
 
 ## Behavior Notes
 

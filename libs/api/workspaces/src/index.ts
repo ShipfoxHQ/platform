@@ -1,4 +1,5 @@
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
+import {administrationActionEventSchemas} from '@shipfox/api-common-dto';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import {
@@ -38,6 +39,10 @@ export {listMembershipsByUser} from '#db/memberships.js';
 export {createWorkspacesRoutes, workspacesRoutes as routes} from '#presentation/routes/index.js';
 
 const subscriber = subscriberFactory<WorkspacesEventMap>();
+const workspacesPublisherEventSchemas = {
+  ...workspacesEventSchemas,
+  ...administrationActionEventSchemas,
+};
 
 export interface WorkspacesModuleOptions {
   auth: AuthInterModuleClient;
@@ -52,7 +57,12 @@ export function createWorkspacesModule(options: WorkspacesModuleOptions): Shipfo
     routes: createWorkspacesRoutes(options),
     e2eRoutes: [workspacesE2eRoutes],
     publishers: [
-      {name: 'workspaces', table: workspacesOutbox, db, eventSchemas: workspacesEventSchemas},
+      {
+        name: 'workspaces',
+        table: workspacesOutbox,
+        db,
+        eventSchemas: workspacesPublisherEventSchemas,
+      },
     ],
     subscribers: [subscriber(WORKSPACES_INVITATION_SEND_REQUESTED, onInvitationSendRequested)],
     metrics: registerWorkspacesServiceMetrics,
@@ -67,7 +77,12 @@ export const workspacesModule: ShipfoxModule = {
   routes: workspacesRoutes,
   e2eRoutes: [workspacesE2eRoutes],
   publishers: [
-    {name: 'workspaces', table: workspacesOutbox, db, eventSchemas: workspacesEventSchemas},
+    {
+      name: 'workspaces',
+      table: workspacesOutbox,
+      db,
+      eventSchemas: workspacesPublisherEventSchemas,
+    },
   ],
   subscribers: [subscriber(WORKSPACES_INVITATION_SEND_REQUESTED, onInvitationSendRequested)],
   metrics: registerWorkspacesServiceMetrics,

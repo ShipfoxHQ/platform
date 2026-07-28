@@ -34,6 +34,33 @@ export const workspaceAdminLookupQuerySchema = z.object({
 
 export type WorkspaceAdminLookupQueryDto = z.infer<typeof workspaceAdminLookupQuerySchema>;
 
+const CONTROL_OR_FORMAT_CHARACTER_RE = /[\p{Cc}\p{Cf}]/u;
+const workspaceAdministrationReasonSchema = z
+  .string()
+  .min(1)
+  .max(512)
+  .refine((value) => !CONTROL_OR_FORMAT_CHARACTER_RE.test(value), {
+    message: 'must not contain control or format characters',
+  });
+
+export const workspaceAdministrationMutationBodySchema = z.object({
+  reason: workspaceAdministrationReasonSchema,
+});
+
+export type WorkspaceAdministrationMutationBodyDto = z.infer<
+  typeof workspaceAdministrationMutationBodySchema
+>;
+
+export const workspaceAdministrationMutationResponseSchema = z.object({
+  workspace_id: z.string().uuid(),
+  status: workspaceStatusSchema,
+  correlation_id: z.string().min(1),
+});
+
+export type WorkspaceAdministrationMutationResponseDto = z.infer<
+  typeof workspaceAdministrationMutationResponseSchema
+>;
+
 export const workspaceAdminMemberSummarySchema = z.object({
   count: z.number().int().nonnegative(),
 });

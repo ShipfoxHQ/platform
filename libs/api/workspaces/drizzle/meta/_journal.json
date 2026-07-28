@@ -15,6 +15,13 @@
       "when": 1785217735221,
       "tag": "0001_complex_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785225824871,
+      "tag": "0002_wide_enchantress",
+      "breakpoints": true
     }
   ]
 }

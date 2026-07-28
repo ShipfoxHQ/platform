@@ -12,6 +12,34 @@ export class WorkspaceInactiveError extends Error {
   }
 }
 
+export class WorkspaceAlreadySuspendedError extends Error {
+  constructor(workspaceId: string) {
+    super(`Workspace is already suspended: ${workspaceId}`);
+    this.name = 'WorkspaceAlreadySuspendedError';
+  }
+}
+
+export class WorkspaceNotSuspendedError extends Error {
+  constructor(workspaceId: string) {
+    super(`Workspace is not suspended: ${workspaceId}`);
+    this.name = 'WorkspaceNotSuspendedError';
+  }
+}
+
+export class WorkspaceDeletedError extends Error {
+  constructor(workspaceId: string) {
+    super(`Workspace is deleted: ${workspaceId}`);
+    this.name = 'WorkspaceDeletedError';
+  }
+}
+
+export class WorkspaceAdminIdempotencyKeyReuseError extends Error {
+  constructor() {
+    super('Idempotency key was already used for a different workspace command');
+    this.name = 'WorkspaceAdminIdempotencyKeyReuseError';
+  }
+}
+
 export class InvitationNotFoundError extends Error {
   constructor(id: string) {
     super(`Invitation not found: ${id}`);
