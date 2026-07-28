@@ -1,5 +1,6 @@
 import {AUTH_USER} from '@shipfox/api-auth-context';
 import {
+  adminBootstrapStateSchema,
   administratorUserLookupQuerySchema,
   administratorUserSummarySchema,
   bootstrapAdminOwnerBodySchema,
@@ -19,6 +20,7 @@ import {requireAdminRole} from '#core/admin-role.js';
 import {
   bootstrapFirstAdminOwner,
   findAdministratorUserSummary,
+  getAdminBootstrapState,
   grantAdministratorRole,
   listAdministratorGrantSummaries,
   revokeAdministratorGrant,
@@ -165,6 +167,16 @@ const bootstrapRoute = defineRoute({
   },
 });
 
+const bootstrapStateRoute = defineRoute({
+  method: 'GET',
+  path: '/bootstrap-state',
+  description: 'Read whether first administrator owner bootstrap is available.',
+  schema: {response: {200: adminBootstrapStateSchema}},
+  preHandler: createAuthIpRateLimitPreHandler('bootstrap'),
+  errorHandler: translateAdministrationError,
+  handler: async () => ({state: await getAdminBootstrapState()}),
+});
+
 const listRoute = defineRoute({
   method: 'GET',
   path: '/',
@@ -267,6 +279,12 @@ export const administrationRoutes: RouteGroup = {
   prefix: '/admin/auth/admin-grants',
   auth: AUTH_USER,
   routes: [bootstrapRoute, listRoute, grantRoute, revokeRoute],
+};
+
+export const administrationBootstrapRoutes: RouteGroup = {
+  prefix: '/admin/auth',
+  auth: AUTH_USER,
+  routes: [bootstrapStateRoute],
 };
 
 export const administrationUserRoutes: RouteGroup = {

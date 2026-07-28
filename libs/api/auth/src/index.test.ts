@@ -78,7 +78,10 @@ describe('authModule', () => {
         getWorkspaceOperatingState: vi.fn(),
       },
     });
-    expect(module.routes).toHaveLength(3);
+    expect(module.routes).toHaveLength(4);
+    expect(module.routes).toEqual(
+      expect.arrayContaining([expect.objectContaining({prefix: '/admin/auth'})]),
+    );
     const signupPolicy = buildAuthRoutes.mock.calls[0]?.[2];
 
     expect(signupPolicy).toEqual(expect.objectContaining({isSignupAllowed: expect.any(Function)}));

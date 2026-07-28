@@ -6,6 +6,7 @@ import {config} from '#config.js';
 import {
   bootstrapFirstAdminOwner as bootstrapFirstAdminOwnerInDb,
   grantAdminRoleWithAudit,
+  hasActiveAdminOwner,
   listAdminGrantSummaries,
   revokeAdminGrantWithAudit,
 } from '#db/admin-grants.js';
@@ -103,6 +104,10 @@ export async function bootstrapFirstAdminOwner(
       idempotencyKeyFingerprint: hashAdministrationValue(params.idempotencyKey),
     }),
   });
+}
+
+export async function getAdminBootstrapState(): Promise<'available' | 'closed'> {
+  return (await hasActiveAdminOwner()) ? 'closed' : 'available';
 }
 
 export async function findAdministratorUserSummary(

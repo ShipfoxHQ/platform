@@ -95,6 +95,23 @@ export async function listAdminGrantSummaries(params: {
   };
 }
 
+export async function hasActiveAdminOwner(): Promise<boolean> {
+  const rows = await db()
+    .select({id: adminGrants.id})
+    .from(adminGrants)
+    .innerJoin(users, eq(adminGrants.userId, users.id))
+    .where(
+      and(
+        eq(adminGrants.role, 'admin-owner'),
+        isNull(adminGrants.revokedAt),
+        eq(users.status, 'active'),
+      ),
+    )
+    .limit(1);
+
+  return rows.length > 0;
+}
+
 export async function findCurrentAdminRole(params: {userId: string}): Promise<AdminRole | null> {
   const rows = await db()
     .select({role: adminGrants.role})

@@ -9,6 +9,7 @@ import {db} from '#db/db.js';
 import {authOutbox} from '#db/schema/outbox.js';
 import {createJwtAuthMethod} from '#presentation/auth/jwt-auth.js';
 import {
+  administrationBootstrapRoutes,
   administrationRoutes,
   administrationUserRoutes,
 } from '#presentation/routes/administration.js';
@@ -156,7 +157,12 @@ export async function createAuthTestApp(params?: {
 }): Promise<FastifyInstance> {
   const appConfig: AppConfig = {
     auth: [createJwtAuthMethod()],
-    routes: [buildAuthRoutes(true, workspaces), administrationRoutes, administrationUserRoutes],
+    routes: [
+      buildAuthRoutes(true, workspaces),
+      administrationBootstrapRoutes,
+      administrationRoutes,
+      administrationUserRoutes,
+    ],
     swagger: false,
   };
   if (params?.fastifyOptions) appConfig.fastifyOptions = params.fastifyOptions;

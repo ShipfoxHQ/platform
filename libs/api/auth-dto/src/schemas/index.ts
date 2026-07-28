@@ -9,12 +9,14 @@ export {
   authUserSignedUpSchema,
 } from '../events.js';
 export {
+  type AdminBootstrapStateDto,
   type AdminGrantDto,
   type AdministratorGrantSummaryDto,
   type AdministratorUserIdentityDto,
   type AdministratorUserLookupQueryDto,
   type AdministratorUserSummaryDto,
   type AdminRole,
+  adminBootstrapStateSchema,
   adminGrantDtoSchema,
   administratorGrantSummarySchema,
   administratorUserIdentitySchema,

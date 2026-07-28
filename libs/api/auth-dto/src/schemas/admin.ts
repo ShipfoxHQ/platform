@@ -38,6 +38,12 @@ export const bootstrapAdminOwnerResponseSchema = adminGrantDtoSchema;
 
 export type BootstrapAdminOwnerResponseDto = z.infer<typeof bootstrapAdminOwnerResponseSchema>;
 
+export const adminBootstrapStateSchema = z.object({
+  state: z.enum(['available', 'closed']),
+});
+
+export type AdminBootstrapStateDto = z.infer<typeof adminBootstrapStateSchema>;
+
 export const grantAdminRoleBodySchema = z.object({
   user_id: z.string().uuid(),
   role: adminRoleSchema,
