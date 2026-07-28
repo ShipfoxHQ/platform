@@ -183,6 +183,25 @@ describe('SlackAgentToolsProvider', () => {
     expect(options.slack.callMethod).not.toHaveBeenCalled();
   });
 
+  it('rejects a message over the Slack Markdown block limit before calling Slack', async () => {
+    const options = providerOptions(async () => ({ok: true, ts: '456.000'}));
+    const session = await openSession(options, ['send_message']);
+
+    const result = await session.call({
+      toolId: 'send_message',
+      arguments: {channel_id: 'C123', message: 'a'.repeat(12_001)},
+    });
+
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {type: 'text', text: expect.stringContaining('12,000-character Markdown block limit')},
+      ],
+      structuredContent: {code: 'content-too-large'},
+    });
+    expect(options.slack.callMethod).not.toHaveBeenCalled();
+  });
+
   it('returns a Slack application error to the agent', async () => {
     const options = providerOptions(async () => ({ok: false, error: 'channel_not_found'}));
     const session = await openSession(options, ['read_channel']);

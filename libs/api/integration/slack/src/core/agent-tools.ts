@@ -20,6 +20,11 @@ interface SlackAgentToolCatalogInput {
 
 const whitespacePattern = /\s+/;
 
+// Slack caps the cumulative text across all Markdown blocks in one payload at 12,000 characters;
+// content over that limit is rejected with invalid_blocks rather than truncated. Each tool here
+// sends exactly one Markdown block, so the cap applies to that single block's text.
+const SLACK_MARKDOWN_BLOCK_MAX_LENGTH = 12_000;
+
 // Only the chat.* methods resolve a user ID into a direct message; conversations.* and reactions.*
 // need the conversation ID itself, so the two targets are described separately.
 const conversationIdSchema = stringSchema(
@@ -29,7 +34,10 @@ const messageTargetSchema = stringSchema(
   'Channel, private group, or direct message conversation ID. Pass a user ID to open a direct message with that user',
 );
 const cursorSchema = stringSchema('Pagination cursor from a previous request');
-const messageSchema = stringSchema('Message content, written as standard Markdown');
+const messageSchema = {
+  ...stringSchema('Message content, written as standard Markdown'),
+  maxLength: SLACK_MARKDOWN_BLOCK_MAX_LENGTH,
+};
 const threadTsSchema = stringSchema('Timestamp of the parent message to reply in its thread');
 const replyBroadcastSchema = booleanSchema('Also send the thread reply to the channel');
 
@@ -226,6 +234,12 @@ export interface SlackToolOperation {
   method: string;
   mapArguments: (args: Record<string, unknown>) => Record<string, unknown>;
   mapOutput?: (body: SlackWebApiResponse, args: Record<string, unknown>) => SlackWebApiResponse;
+  validate?: (args: Record<string, unknown>) => SlackToolValidationError | undefined;
+}
+
+export interface SlackToolValidationError {
+  message: string;
+  code?: string | undefined;
 }
 
 // Tool inputs follow the Slack MCP server's naming so agent prompts port across both, which means
@@ -285,6 +299,7 @@ export const SLACK_TOOL_OPERATIONS = {
       thread_ts,
       reply_broadcast,
     }),
+    validate: validateMessageLength,
   },
   schedule_message: {
     method: 'chat.scheduleMessage',
@@ -295,6 +310,7 @@ export const SLACK_TOOL_OPERATIONS = {
       thread_ts,
       reply_broadcast,
     }),
+    validate: validateMessageLength,
   },
   update_message: {
     method: 'chat.update',
@@ -303,6 +319,7 @@ export const SLACK_TOOL_OPERATIONS = {
       ts: message_ts,
       ...markdownMessage(message),
     }),
+    validate: validateMessageLength,
   },
   add_reaction: {
     method: 'reactions.add',
@@ -325,10 +342,51 @@ export const slackAgentToolSelectionCatalog =
   buildSlackAgentToolSelectionCatalog(slackAgentToolCatalog);
 
 // A Markdown block renders standard Markdown, which the plain text field does not; text is kept as
-// the notification fallback.
+// the notification fallback, so its Markdown syntax is stripped rather than shown literally.
 function markdownMessage(message: unknown): Record<string, unknown> {
   if (typeof message !== 'string') return {};
-  return {text: message, blocks: [{type: 'markdown', text: message}]};
+  return {text: stripMarkdownForFallback(message), blocks: [{type: 'markdown', text: message}]};
+}
+
+const codeBlockPattern = /```[^\n]*\n?([\s\S]*?)```/g;
+const inlineCodePattern = /`([^`]+)`/g;
+const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+const boldPattern = /\*\*([^*]+)\*\*|__([^_]+)__/g;
+const strikethroughPattern = /~~([^~]+)~~/g;
+const italicPattern = /\*([^*]+)\*|_([^_]+)_/g;
+const blockquotePattern = /^>\s?/gm;
+
+// Best-effort plain-text rendering of the Markdown syntax the tool description promises (bold,
+// italic, strikethrough, links, lists, blockquotes, inline code, code blocks); lists are left as-is
+// since "- item" and "1. item" already read fine as plain text.
+function stripMarkdownForFallback(message: string): string {
+  return message
+    .replace(codeBlockPattern, (_match, code: string) => code)
+    .replace(linkPattern, (_match, text: string, url: string) => `${text} (${url})`)
+    .replace(
+      boldPattern,
+      (_match, asterisk?: string, underscore?: string) => asterisk ?? underscore ?? '',
+    )
+    .replace(strikethroughPattern, (_match, text: string) => text)
+    .replace(
+      italicPattern,
+      (_match, asterisk?: string, underscore?: string) => asterisk ?? underscore ?? '',
+    )
+    .replace(inlineCodePattern, (_match, code: string) => code)
+    .replace(blockquotePattern, '');
+}
+
+function validateMessageLength(
+  args: Record<string, unknown>,
+): SlackToolValidationError | undefined {
+  const {message} = args;
+  if (typeof message === 'string' && message.length > SLACK_MARKDOWN_BLOCK_MAX_LENGTH) {
+    return {
+      message: `Message is ${message.length.toLocaleString('en-US')} characters, which exceeds Slack's ${SLACK_MARKDOWN_BLOCK_MAX_LENGTH.toLocaleString('en-US')}-character Markdown block limit. Shorten it or split it into multiple messages.`,
+      code: 'content-too-large',
+    };
+  }
+  return undefined;
 }
 
 // Slack has no channel search method for bot tokens, so the requested page is matched locally.

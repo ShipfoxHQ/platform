@@ -47,6 +47,9 @@ function slackClient(overrides: Partial<SlackApiClient> = {}): SlackApiClient {
         scopes: [
           'app_mentions:read',
           'im:history',
+          'im:read',
+          'mpim:history',
+          'mpim:read',
           'chat:write',
           'channels:history',
           'groups:history',

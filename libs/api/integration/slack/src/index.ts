@@ -31,13 +31,8 @@ export type {
   SlackAgentToolCatalogEntry,
   SlackAgentToolId,
   SlackAgentToolRequiredScope,
-  SlackToolOperation,
 } from '#core/agent-tools.js';
-export {
-  SLACK_TOOL_OPERATIONS,
-  slackAgentToolCatalog,
-  slackAgentToolSelectionCatalog,
-} from '#core/agent-tools.js';
+export {slackAgentToolCatalog, slackAgentToolSelectionCatalog} from '#core/agent-tools.js';
 export type {
   SlackAgentToolsProviderOptions,
   SlackToolCallResult,

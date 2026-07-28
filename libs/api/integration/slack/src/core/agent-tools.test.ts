@@ -59,7 +59,7 @@ describe('slackAgentToolCatalog', () => {
 
     expect(sendMessage?.inputSchema).toMatchObject({
       required: ['channel_id', 'message'],
-      properties: {message: {type: 'string'}, thread_ts: {type: 'string'}},
+      properties: {message: {type: 'string', maxLength: 12_000}, thread_ts: {type: 'string'}},
     });
     expect(readThread?.inputSchema).toMatchObject({
       required: ['channel_id', 'message_ts'],
@@ -126,17 +126,26 @@ describe('slackAgentToolCatalog', () => {
     ).toMatchObject({channel: 'C123', timestamp: '123.000', name: 'tada'});
   });
 
-  it('sends message content as a Markdown block with a plain text fallback', () => {
+  it('sends message content as a Markdown block with a stripped plain-text fallback', () => {
     const args = {channel_id: 'C123', message: '**Deployed** to production'};
 
     expect(operation('send_message').mapArguments(args)).toMatchObject({
       channel: 'C123',
-      text: '**Deployed** to production',
+      text: 'Deployed to production',
       blocks: [{type: 'markdown', text: '**Deployed** to production'}],
     });
     expect(
       operation('update_message').mapArguments({...args, message_ts: '123.000'}),
     ).toMatchObject({ts: '123.000', blocks: [{type: 'markdown', text: args.message}]});
+  });
+
+  it('strips Markdown syntax from the notification fallback but not the Markdown block', () => {
+    const message = '**bold** _italic_ ~~gone~~ `code` [docs](https://example.com/x)\n> a quote';
+
+    const {text, blocks} = operation('send_message').mapArguments({channel_id: 'C123', message});
+
+    expect(text).toBe('bold italic gone code docs (https://example.com/x)\na quote');
+    expect(blocks).toEqual([{type: 'markdown', text: message}]);
   });
 
   it('schedules a message with its send time and thread target', () => {
@@ -156,6 +165,19 @@ describe('slackAgentToolCatalog', () => {
       thread_ts: '123.000',
       reply_broadcast: true,
     });
+  });
+
+  it('rejects a message over the Slack Markdown block limit', () => {
+    const oversized = 'a'.repeat(12_001);
+    const fits = 'a'.repeat(12_000);
+
+    expect(operation('send_message').validate?.({message: oversized})).toMatchObject({
+      message: expect.stringContaining('12,000-character Markdown block limit'),
+      code: 'content-too-large',
+    });
+    expect(operation('schedule_message').validate?.({message: oversized})).toBeDefined();
+    expect(operation('update_message').validate?.({message: oversized})).toBeDefined();
+    expect(operation('send_message').validate?.({message: fits})).toBeUndefined();
   });
 
   it('wraps canvas content as a Markdown document', () => {

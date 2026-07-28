@@ -69,6 +69,10 @@ export class SlackAgentToolsProvider
         if (missingParameter) {
           return slackToolError(`Missing required parameter: ${missingParameter}`);
         }
+        const validationError = operation.validate?.(call.arguments);
+        if (validationError) {
+          return slackToolError(validationError.message, {code: validationError.code});
+        }
 
         let body: SlackWebApiResponse;
         try {
