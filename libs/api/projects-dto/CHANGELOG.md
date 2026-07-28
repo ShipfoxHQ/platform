@@ -1,5 +1,11 @@
 # @shipfox/api-projects-dto
 
+## 10.1.0
+
+### Minor Changes
+
+- 88ae689: Add a bounded, administrator-authorized project summary route with redacted fields and cursor pagination.
+
 ## 10.0.0
 
 ### Minor Changes

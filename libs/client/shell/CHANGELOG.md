@@ -1,5 +1,16 @@
 # Changelog
 
+## 12.0.0
+
+### Minor Changes
+
+- 96ae951: Adds feature-owned layout parents, layout-local navigation, and checked child-route composition to the public client shell contract.
+
+### Patch Changes
+
+- Updated dependencies [fb34b6a]
+  - @shipfox/api-auth-dto@10.1.0
+
 ## 11.0.0
 
 ### Minor Changes

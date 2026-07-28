@@ -1,5 +1,11 @@
 # @shipfox/api-agent
 
+## 10.1.0
+
+### Patch Changes
+
+- @shipfox/api-auth-context@10.1.0
+
 ## 10.0.0
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shipfox/api-auth-dto
 
+## 10.1.0
+
+### Minor Changes
+
+- fb34b6a: Expose authenticated administrator bootstrap availability through the Auth API.
+
 ## 10.0.0
 
 ### Minor Changes

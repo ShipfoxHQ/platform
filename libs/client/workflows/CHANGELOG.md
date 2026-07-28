@@ -1,5 +1,14 @@
 # @shipfox/client-workflows
 
+## 12.0.0
+
+### Patch Changes
+
+- Updated dependencies [96ae951]
+  - @shipfox/client-shell@12.0.0
+  - @shipfox/client-projects@12.0.0
+  - @shipfox/client-triggers@12.0.0
+
 ## 11.0.0
 
 ### Minor Changes
