@@ -7,6 +7,7 @@ import {
   releaseReservationUnits,
 } from '#db/reservations.js';
 import {reservations} from '#db/schema/reservations.js';
+import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
 import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {pendingJobFactory, reservationFactory} from '#test/index.js';
@@ -96,6 +97,29 @@ describe('pollDemandAndReserve', () => {
       })
       .returning();
     if (!runner) throw new Error('Expected runner instance');
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations[0]?.count).toBe(1);
+    expect(storedRunner).toMatchObject({workspaceId: null, reservationId: null});
+  });
+
+  it('does not bind a runner with an expired control session', async () => {
+    const runner = await createIdleRunner({
+      labels: ['linux'],
+      controlSessionExpiresAt: new Date(Date.now() - 60_000),
+    });
     await createPendingJobs(1, ['linux']);
 
     const result = await pollDemandAndReserve({
@@ -392,6 +416,50 @@ describe('pollDemandAndReserve', () => {
     expect(remaining[0]?.requiredLabels).toEqual(['macos']);
   });
 
+  it('unbinds prewarmed runners and revokes activation tokens when deleting a reservation', async () => {
+    const runner = await createIdleRunner({labels: ['linux']});
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+    const reservationId = result.reservations[0]?.reservationId;
+    if (!reservationId) throw new Error('Expected reservation');
+
+    const [activationToken] = await db()
+      .insert(runnerActivationTokens)
+      .values({
+        runnerInstanceId: runner.id,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!activationToken) throw new Error('Expected activation token');
+
+    const deleted = await deleteReservationsByIds([reservationId]);
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    const [storedToken] = await db()
+      .select()
+      .from(runnerActivationTokens)
+      .where(eq(runnerActivationTokens.id, activationToken.id));
+    expect(deleted).toBe(1);
+    expect(storedRunner).toMatchObject({
+      workspaceId: null,
+      reservationId: null,
+      assignedAt: null,
+    });
+    expect(storedToken?.revokedAt).toBeInstanceOf(Date);
+  });
+
   it('decrements reservation units inside a caller transaction', async () => {
     await reservationFactory.create({
       workspaceId,
@@ -524,7 +592,11 @@ describe('pollDemandAndReserve', () => {
     }
   }
 
-  async function createIdleRunner(params: {labels: string[]; createdAt?: Date}) {
+  async function createIdleRunner(params: {
+    labels: string[];
+    createdAt?: Date;
+    controlSessionExpiresAt?: Date;
+  }) {
     const createdAt = params.createdAt ?? new Date();
     const [runner] = await db()
       .insert(providerRunners)
@@ -547,7 +619,7 @@ describe('pollDemandAndReserve', () => {
         provisionerId,
         hashedToken: crypto.randomUUID(),
         prefix: 'test',
-        expiresAt: new Date(Date.now() + 60_000),
+        expiresAt: params.controlSessionExpiresAt ?? new Date(Date.now() + 60_000),
       });
     return runner;
   }
