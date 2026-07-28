@@ -6,6 +6,7 @@ import type {
 import type {ProvisionerClient} from '#api-client.js';
 import {createHealthState} from '#health.js';
 import {
+  createTerminationQueue,
   drainTerminationQueue,
   runConvergeIteration,
   runDemandIteration,
@@ -219,6 +220,16 @@ describe('runProvisionerIteration', () => {
 });
 
 describe('split demand and converge loops', () => {
+  it('replaces deferred termination snapshots when demand withdraws an intent', async () => {
+    const queue = createTerminationQueue();
+
+    await queue.replace(['runner-1']);
+    expect(queue.take()).toEqual(['runner-1']);
+
+    await queue.replace([]);
+    expect(queue.take()).toEqual([]);
+  });
+
   it('runs convergence while demand polling is blocked', async () => {
     const {client} = harness({response: {stats: [], reservations: []}});
     let signalPollStarted!: () => void;

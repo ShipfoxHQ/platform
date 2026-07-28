@@ -175,7 +175,7 @@ export async function startProvisioner<Spec>(
   const terminationQueue = createTerminationQueue();
   const deferTermination = options.adapter.terminate
     ? (providerRunnerIds: readonly string[]) => {
-        terminationQueue.enqueue(providerRunnerIds);
+        terminationQueue.replace(providerRunnerIds);
         return Promise.resolve();
       }
     : undefined;
@@ -195,7 +195,7 @@ export async function startProvisioner<Spec>(
       baseInterval: config.SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS,
       withProviderLock,
       takeTerminationIntents: () => terminationQueue.take(),
-      requeueTerminationIntents: (providerRunnerIds) => terminationQueue.enqueue(providerRunnerIds),
+      requeueTerminationIntents: (providerRunnerIds) => terminationQueue.requeue(providerRunnerIds),
     }),
   ];
 
@@ -574,15 +574,19 @@ function createProviderMutex(): ProviderPass {
 
 const inlineProviderPass: ProviderPass = <Result>(operation: () => Promise<Result>) => operation();
 
-function createTerminationQueue(): {
-  enqueue: TerminateRunners;
+export function createTerminationQueue(): {
+  replace: TerminateRunners;
+  requeue: (providerRunnerIds: readonly string[]) => void;
   take: () => readonly string[];
 } {
-  const pending = new Set<string>();
+  let pending = new Set<string>();
   return {
-    enqueue(providerRunnerIds) {
-      for (const providerRunnerId of providerRunnerIds) pending.add(providerRunnerId);
+    replace(providerRunnerIds) {
+      pending = new Set(providerRunnerIds);
       return Promise.resolve();
+    },
+    requeue(providerRunnerIds) {
+      for (const providerRunnerId of providerRunnerIds) pending.add(providerRunnerId);
     },
     take() {
       const providerRunnerIds = [...pending];
