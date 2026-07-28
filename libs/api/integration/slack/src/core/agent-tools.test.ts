@@ -156,6 +156,15 @@ describe('slackAgentToolCatalog', () => {
     expect(text).toBe('run *args, **kwargs then\n**not bold**\ndone');
   });
 
+  it('does not let a NUL-delimited numeric sequence in the message collide with the internal code-span placeholder', () => {
+    const nul = String.fromCharCode(0);
+    const message = `call me at ${nul}0${nul} please and \`use code\``;
+
+    const {text} = operation('send_message').mapArguments({channel_id: 'C123', message});
+
+    expect(text).toBe('call me at 0 please and use code');
+  });
+
   it('schedules a message with its send time and thread target', () => {
     expect(
       operation('schedule_message').mapArguments({

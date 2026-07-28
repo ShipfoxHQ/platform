@@ -356,8 +356,9 @@ const strikethroughPattern = /~~([^~]+)~~/g;
 const italicPattern = /\*([^*]+)\*|_([^_]+)_/g;
 const blockquotePattern = /^>\s?/gm;
 // Reserved code spans are wrapped in a delimiter built at runtime (String.fromCharCode) rather than
-// a literal escape in source, and one that can't occur in a real chat message, so it can't collide
-// with the message's own content the way a plain space or digit could.
+// a literal escape in source. A real chat message is vanishingly unlikely to contain a NUL byte, but
+// isn't guaranteed not to, so any that do appear are stripped from the input first — after that, the
+// only NUL bytes left are the ones this function inserts, so restoration can't misfire on user text.
 const codePlaceholderDelimiter = String.fromCharCode(0);
 const codePlaceholderPattern = new RegExp(
   `${codePlaceholderDelimiter}(\\d+)${codePlaceholderDelimiter}`,
@@ -374,6 +375,7 @@ function stripMarkdownForFallback(message: string): string {
     `${codePlaceholderDelimiter}${codeSpans.push(code) - 1}${codePlaceholderDelimiter}`;
 
   return message
+    .replaceAll(codePlaceholderDelimiter, '')
     .replace(codeBlockPattern, reserveCodeSpan)
     .replace(inlineCodePattern, reserveCodeSpan)
     .replace(linkPattern, (_match, text: string, url: string) => `${text} (${url})`)
