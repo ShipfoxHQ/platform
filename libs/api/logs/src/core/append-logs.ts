@@ -30,6 +30,7 @@ import {
 import {allowedBudget} from './budget.js';
 import {closeStream, controlTombstone} from './close-stream.js';
 import {MalformedLogChunkError, OffsetGapError} from './errors.js';
+import {flushPendingToolRows} from './session/claude/rows.js';
 import {
   type ClaudeParseContext,
   claudeInitSessionId,
@@ -180,6 +181,7 @@ interface StoredBody {
   recordCounts: Partial<Record<LogRecord['type'], number>>;
   claudeParseContext: ClaudeParseContext | undefined;
   claudePendingResult: SessionViewLifecycleRow | null | undefined;
+  claudePendingToolRows: readonly SessionViewRow[] | undefined;
 }
 
 /**
@@ -303,6 +305,12 @@ function buildStoredBody(
     }
   }
 
+  if (isStreamFinal && parseContext?.claude !== undefined) {
+    for (const row of flushPendingToolRows(parseContext.claude)) {
+      storedRecords.push(storedAgentSessionRow(row));
+    }
+  }
+
   const body = Buffer.from(storedRecords.map((record) => `${JSON.stringify(record)}\n`).join(''));
   const recordCounts: Partial<Record<LogRecord['type'], number>> = {};
   for (const record of storedRecords) {
@@ -314,6 +322,7 @@ function buildStoredBody(
     recordCounts,
     claudeParseContext: parseContext?.claude,
     claudePendingResult: parseContext?.claude === undefined ? undefined : pendingResult,
+    claudePendingToolRows: parseContext?.claude?.pendingToolRows,
   };
 }
 
@@ -451,18 +460,20 @@ export async function appendLogs(
     }
 
     const parseHarness =
-      sessionHarness === 'claude' || stream.claudePendingResult !== null
+      sessionHarness === 'claude' ||
+      stream.claudePendingResult !== null ||
+      stream.claudePendingToolRows.length > 0
         ? 'claude'
         : sessionHarness;
     const stored = buildStoredBody(
       parsed.records,
       parseHarness,
       parseHarness === 'claude'
-        ? {
+        ? createClaudeParseContext(stream.claudePendingToolRows, {
             hasInit: stream.claudeHasInit,
             sessionId: stream.claudeSessionId,
             turn: stream.claudeTurn,
-          }
+          })
         : undefined,
       parseHarness === 'claude' ? stream.claudePendingResult : undefined,
       declaredTotalBytes !== undefined,
@@ -488,6 +499,7 @@ export async function appendLogs(
           sessionId: stored.claudeParseContext.sessionId,
           turn: stored.claudeParseContext.turn,
           pendingResult: stored.claudePendingResult ?? null,
+          pendingToolRows: stored.claudePendingToolRows ?? [],
         });
       }
     }

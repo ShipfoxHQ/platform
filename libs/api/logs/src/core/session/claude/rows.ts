@@ -169,6 +169,10 @@ export function systemRow(
 
   const isNewSession =
     !context.hasInit || sessionId === undefined || sessionId !== context.sessionId;
+  if (isNewSession) {
+    context.pendingToolRows.length = 0;
+    context.toolCallRows.clear();
+  }
   context.hasInit = true;
   context.sessionId = sessionId ?? null;
   context.turn = isNewSession ? 1 : context.turn + 1;
@@ -183,27 +187,137 @@ export function systemRow(
   return lifecycleRow(timestamp, label, null, 'default', false, meta);
 }
 
+export function authStatusRow(
+  timestamp: number,
+  message: Record<string, unknown>,
+): SessionViewLifecycleRow {
+  const error = stringField(message, 'error');
+  const output = stringList(field(message, 'output')).join('\n');
+  const isAuthenticating = booleanField(message, 'isAuthenticating');
+
+  return lifecycleRow(
+    timestamp,
+    error
+      ? 'Authentication failed'
+      : isAuthenticating
+        ? 'Authenticating'
+        : 'Authentication complete',
+    (error ?? output) || null,
+    error ? 'error' : 'default',
+    false,
+  );
+}
+
+const RATE_LIMIT_STATUS_MAPPINGS: Record<
+  string,
+  {label: string; tone: SessionViewLifecycleRow['tone']}
+> = {
+  rejected: {label: 'Rate limit exceeded', tone: 'error'},
+  allowed_warning: {label: 'Rate limit warning', tone: 'warning'},
+  allowed: {label: 'Rate limit available', tone: 'default'},
+};
+
+export function rateLimitRow(
+  timestamp: number,
+  message: Record<string, unknown>,
+): SessionViewLifecycleRow {
+  const rateLimitInfo = asLooseObject(field(message, 'rate_limit_info')) ?? {};
+  const status = stringField(rateLimitInfo, 'status');
+  const rateLimitType = stringField(rateLimitInfo, 'rateLimitType');
+  const utilization = numberField(rateLimitInfo, 'utilization');
+  const mapping = status === undefined ? undefined : RATE_LIMIT_STATUS_MAPPINGS[status];
+  const meta = [
+    metaItem('utilization', utilization == null ? null : `${formatNumber(utilization * 100)}%`),
+    mapping === undefined ? metaItem('status', status ?? null) : null,
+  ].filter(isMeta);
+
+  return lifecycleRow(
+    timestamp,
+    mapping?.label ?? 'Rate limit updated',
+    rateLimitType == null ? null : humanizeEnumValue(rateLimitType),
+    mapping?.tone ?? 'warning',
+    false,
+    meta,
+  );
+}
+
+export function toolUseSummary(
+  message: Record<string, unknown>,
+  context: ClaudeParseContext,
+): boolean {
+  const summary = stringField(message, 'summary');
+  if (summary === undefined) return false;
+
+  const precedingToolUseIds = stringList(field(message, 'preceding_tool_use_ids'));
+  const toolUseId = stringField(message, 'tool_use_id');
+  const candidateIds =
+    precedingToolUseIds.length > 0
+      ? precedingToolUseIds
+      : toolUseId === undefined
+        ? []
+        : [toolUseId];
+
+  for (const id of [...candidateIds].reverse()) {
+    const row = context.toolCallRows.get(id);
+    if (row === undefined) continue;
+
+    row.summary = row.summary === undefined ? summary : `${row.summary}\n\n${summary}`;
+    return true;
+  }
+
+  return false;
+}
+
+export function flushPendingToolRows(context: ClaudeParseContext): readonly SessionViewRow[] {
+  if (context.pendingToolRows.length === 0) return [];
+
+  const rows = context.pendingToolRows;
+  context.pendingToolRows = [];
+  context.toolCallRows.clear();
+  return rows;
+}
+
 function titleCase(value: string): string {
   return value.length === 0 ? value : `${value[0]?.toUpperCase()}${value.slice(1)}`;
+}
+
+function humanizeEnumValue(value: string): string {
+  return titleCase(value.replaceAll('_', ' '));
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
 
 export function assistantRows(
   timestamp: number,
   message: Record<string, unknown>,
+  context: ClaudeParseContext,
 ): readonly SessionViewRow[] {
   const sdkMessage = asLooseObject(message.message) ?? message;
   const rows: SessionViewRow[] = [];
   const textParts: string[] = [];
   const thinkingParts: string[] = [];
+  let queueRows = context.toolCallRows.size > 0;
+
+  const pushRow = (row: SessionViewRow) => {
+    if (queueRows) {
+      context.pendingToolRows.push(row);
+    } else {
+      rows.push(row);
+    }
+  };
 
   const pushText = () => {
     if (textParts.length === 0) return;
-    rows.push(messageRow(timestamp, 'assistant', 'assistant', textParts.join('\n\n'), false));
+    pushRow(messageRow(timestamp, 'assistant', 'assistant', textParts.join('\n\n'), false));
     textParts.length = 0;
   };
   const pushThinking = () => {
     if (thinkingParts.length === 0) return;
-    rows.push(thinkingRow(timestamp, thinkingParts.join('\n\n')));
+    pushRow(thinkingRow(timestamp, thinkingParts.join('\n\n')));
     thinkingParts.length = 0;
   };
 
@@ -212,7 +326,14 @@ export function assistantRows(
     if (type === 'tool_use' || type === 'tool-use' || type === 'toolCall') {
       pushText();
       pushThinking();
-      rows.push(toolCallRow(timestamp, block));
+      const row = toolCallRow(timestamp, block);
+      if (row.id === null) {
+        pushRow(row);
+      } else {
+        queueRows = true;
+        context.pendingToolRows.push(row);
+        context.toolCallRows.set(row.id, row);
+      }
       continue;
     }
 
@@ -231,7 +352,7 @@ export function assistantRows(
   pushText();
   pushThinking();
 
-  if (rows.length > 0) return rows;
+  if (rows.length > 0 || queueRows) return rows;
 
   const text = stringField(sdkMessage, 'content') ?? stringField(message, 'result');
   return [messageRow(timestamp, 'assistant', 'assistant', text ?? toJson(message), false)];
@@ -240,11 +361,14 @@ export function assistantRows(
 export function userRows(
   timestamp: number,
   message: Record<string, unknown>,
+  context: ClaudeParseContext,
 ): readonly SessionViewRow[] {
   const sdkMessage = asLooseObject(message.message) ?? message;
   const role = isPlatformMessage(sdkMessage) ? 'platform' : 'user';
   const rows: SessionViewRow[] = [];
   const textParts: string[] = [];
+  const hadPendingToolCall = context.toolCallRows.size > 0;
+  let matchedToolResult = false;
   const pushText = () => {
     if (textParts.length === 0) return;
     rows.push(messageRow(timestamp, role, role, textParts.join('\n\n'), false));
@@ -255,7 +379,11 @@ export function userRows(
     const type = stringField(block, 'type');
     if (type === 'tool_result' || type === 'tool-result') {
       pushText();
-      rows.push(toolResultRow(timestamp, block));
+      const row = toolResultRow(timestamp, block);
+      if (row.toolCallId !== null && context.toolCallRows.has(row.toolCallId)) {
+        matchedToolResult = true;
+      }
+      rows.push(row);
       continue;
     }
 
@@ -265,10 +393,19 @@ export function userRows(
 
   pushText();
 
-  if (rows.length > 0) return rows;
+  if (rows.length === 0) {
+    const content = stringField(sdkMessage, 'content');
+    rows.push(messageRow(timestamp, role, role, content ?? toJson(message), false));
+  }
 
-  const content = stringField(sdkMessage, 'content');
-  return [messageRow(timestamp, role, role, content ?? toJson(message), false)];
+  if (hadPendingToolCall) {
+    if (matchedToolResult) {
+      context.pendingToolRows.push(...rows);
+      return [];
+    }
+    return [...flushPendingToolRows(context), ...rows];
+  }
+  return rows;
 }
 
 export function resultRow(

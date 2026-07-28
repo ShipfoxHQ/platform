@@ -1,0 +1,1 @@
+ALTER TABLE "logs_attempt_streams" ADD COLUMN "claude_pending_tool_rows" jsonb;

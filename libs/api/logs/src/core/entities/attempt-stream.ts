@@ -1,4 +1,4 @@
-import type {SessionViewLifecycleRow} from '@shipfox/api-logs-dto';
+import type {SessionViewLifecycleRow, SessionViewRow} from '@shipfox/api-logs-dto';
 
 /** Lifecycle state of an attempt's log stream. */
 export type StreamState = 'open' | 'closed';
@@ -35,6 +35,7 @@ export interface AttemptStream {
   claudeSessionId: string | null;
   claudeTurn: number;
   claudePendingResult: SessionViewLifecycleRow | null;
+  claudePendingToolRows: SessionViewRow[];
   truncated: boolean;
   objectKey: string | null;
   createdAt: Date;

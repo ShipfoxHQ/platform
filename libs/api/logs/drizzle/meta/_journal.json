@@ -15,6 +15,13 @@
       "when": 1785166831100,
       "tag": "0001_strong_major_mapleleaf",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785232769856,
+      "tag": "0002_wise_dorian_gray",
+      "breakpoints": true
     }
   ]
 }

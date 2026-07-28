@@ -25,6 +25,7 @@ const rowsByKind: SessionViewRow[] = [
     id: 'call-1',
     name: 'read_file',
     input: '{"path":"src/index.ts"}',
+    summary: 'Read the source file.',
   },
   {
     kind: 'tool-result',
