@@ -204,7 +204,7 @@ describe('GET /admin/workspaces', () => {
     ).resolves.toHaveLength(1);
   });
 
-  test('reactivates a suspended workspace without replaying rejected work', async () => {
+  test('reactivates a suspended workspace while preserving its membership', async () => {
     const workspace = await createWorkspace({name: `Reactivate ${crypto.randomUUID()}`});
     await createMembership({userId: crypto.randomUUID(), workspaceId: workspace.id});
 

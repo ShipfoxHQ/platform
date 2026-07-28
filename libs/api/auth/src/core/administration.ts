@@ -1,7 +1,8 @@
-import {createHash, timingSafeEqual} from 'node:crypto';
+import {timingSafeEqual} from 'node:crypto';
 import type {AdminRole} from '@shipfox/api-auth-dto';
 import {createAdministrationActionEvent} from '@shipfox/api-common-dto';
 import type {TimestampIdCursor} from '@shipfox/node-drizzle';
+import {hashOpaqueToken} from '@shipfox/node-tokens';
 import {config} from '#config.js';
 import {
   bootstrapFirstAdminOwner as bootstrapFirstAdminOwnerInDb,
@@ -32,18 +33,14 @@ const BOOTSTRAP_COMMAND = 'auth.admin_grant.bootstrap';
 const GRANT_COMMAND = 'auth.admin_grant.grant';
 const REVOKE_COMMAND = 'auth.admin_grant.revoke';
 
-export function hashAdministrationValue(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
 export function administrationCommandFingerprint(command: string, input: unknown): string {
-  return hashAdministrationValue(`${command}:${JSON.stringify(input)}`);
+  return hashOpaqueToken(`${command}:${JSON.stringify(input)}`);
 }
 
 function bootstrapTokenMatches(candidate: string, expected: string | undefined): boolean {
   if (!expected) return false;
-  const candidateHash = Buffer.from(hashAdministrationValue(candidate), 'hex');
-  const expectedHash = Buffer.from(hashAdministrationValue(expected), 'hex');
+  const candidateHash = Buffer.from(hashOpaqueToken(candidate), 'hex');
+  const expectedHash = Buffer.from(hashOpaqueToken(expected), 'hex');
   return timingSafeEqual(candidateHash, expectedHash);
 }
 
@@ -88,7 +85,7 @@ export async function bootstrapFirstAdminOwner(
   return await bootstrapFirstAdminOwnerInDb({
     userId: params.actorId,
     actorId: params.actorId,
-    idempotencyKeyFingerprint: hashAdministrationValue(params.idempotencyKey),
+    idempotencyKeyFingerprint: hashOpaqueToken(params.idempotencyKey),
     requestFingerprint: administrationCommandFingerprint(BOOTSTRAP_COMMAND, {
       actorId: params.actorId,
     }),
@@ -100,7 +97,7 @@ export async function bootstrapFirstAdminOwner(
       targetId: params.actorId,
       reason: 'Initial administrator owner bootstrap',
       correlationId: params.correlationId,
-      idempotencyKeyFingerprint: hashAdministrationValue(params.idempotencyKey),
+      idempotencyKeyFingerprint: hashOpaqueToken(params.idempotencyKey),
     }),
   });
 }
@@ -155,7 +152,7 @@ export async function grantAdministratorRole(
     userId: params.userId,
     role: params.role,
     actorId: params.actorId,
-    idempotencyKeyFingerprint: hashAdministrationValue(params.idempotencyKey),
+    idempotencyKeyFingerprint: hashOpaqueToken(params.idempotencyKey),
     requestFingerprint: administrationCommandFingerprint(GRANT_COMMAND, {
       userId: params.userId,
       role: params.role,
@@ -169,7 +166,7 @@ export async function grantAdministratorRole(
       targetId: params.userId,
       reason: params.reason,
       correlationId: params.correlationId,
-      idempotencyKeyFingerprint: hashAdministrationValue(params.idempotencyKey),
+      idempotencyKeyFingerprint: hashOpaqueToken(params.idempotencyKey),
     }),
   });
 }
@@ -184,7 +181,7 @@ export async function revokeAdministratorGrant(
   return await revokeAdminGrantWithAudit({
     grantId: params.grantId,
     actorId: params.actorId,
-    idempotencyKeyFingerprint: hashAdministrationValue(params.idempotencyKey),
+    idempotencyKeyFingerprint: hashOpaqueToken(params.idempotencyKey),
     requestFingerprint: administrationCommandFingerprint(REVOKE_COMMAND, {
       grantId: params.grantId,
       reason: params.reason,
@@ -197,7 +194,7 @@ export async function revokeAdministratorGrant(
       targetId: params.grantId,
       reason: params.reason,
       correlationId: params.correlationId,
-      idempotencyKeyFingerprint: hashAdministrationValue(params.idempotencyKey),
+      idempotencyKeyFingerprint: hashOpaqueToken(params.idempotencyKey),
     }),
   });
 }

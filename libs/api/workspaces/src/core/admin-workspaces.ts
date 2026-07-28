@@ -1,9 +1,9 @@
-import {createHash} from 'node:crypto';
 import {type AdministrationRole, createAdministrationActionEvent} from '@shipfox/api-common-dto';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import type {StringIdCursor} from '@shipfox/node-drizzle';
 import {logger} from '@shipfox/node-opentelemetry';
+import {hashOpaqueToken} from '@shipfox/node-tokens';
 import {
   reactivateWorkspaceWithAudit,
   suspendWorkspaceWithAudit,
@@ -29,15 +29,11 @@ export interface WorkspaceAdministrationMutationResult {
   correlationId: string;
 }
 
-function hashAdministrationValue(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
 function commandFingerprint(
   command: string,
   params: WorkspaceAdministrationMutationContext,
 ): string {
-  return hashAdministrationValue(
+  return hashOpaqueToken(
     `${command}:${JSON.stringify({workspaceId: params.workspaceId, reason: params.reason})}`,
   );
 }
@@ -71,7 +67,7 @@ async function runWorkspaceAdministrationMutation(
   command: string,
   update: typeof suspendWorkspaceWithAudit,
 ): Promise<WorkspaceAdministrationMutationResult> {
-  const idempotencyKeyFingerprint = hashAdministrationValue(params.idempotencyKey);
+  const idempotencyKeyFingerprint = hashOpaqueToken(params.idempotencyKey);
   const result = await update({
     actorId: params.actorId,
     workspaceId: params.workspaceId,
