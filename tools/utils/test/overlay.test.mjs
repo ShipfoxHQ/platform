@@ -3,14 +3,14 @@ import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
-import {overlayBuiltOutputs} from '../src/staging.js';
+import {overlayBuiltOutputs} from '../src/overlay.js';
 
 function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 test('overlays built output and productionizes the pruned package manifest', () => {
-  const root = mkdtempSync(join(tmpdir(), 'shipfox-staging-'));
+  const root = mkdtempSync(join(tmpdir(), 'shipfox-overlay-'));
   const workspaceRoot = join(root, 'workspace');
   const prunedRoot = join(root, 'pruned');
   const packagePath = 'libs/example';
@@ -46,7 +46,7 @@ test('overlays built output and productionizes the pruned package manifest', () 
 });
 
 test('fails when a pruned build package has no built output', () => {
-  const root = mkdtempSync(join(tmpdir(), 'shipfox-staging-'));
+  const root = mkdtempSync(join(tmpdir(), 'shipfox-overlay-'));
   const workspaceRoot = join(root, 'workspace');
   const prunedRoot = join(root, 'pruned');
   const packagePath = 'libs/example';

@@ -1,18 +1,11 @@
-import {
-  cpSync,
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import {cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {dirname, join, relative} from 'node:path';
 import {getWorkspaceRootPath} from './path.js';
 import {productionizeImports} from './productionize.js';
 
 /**
  * Copies built package output into a pruned workspace and removes source-only
- * package import conditions from the staged manifests.
+ * package import conditions from the pruned manifests.
  *
  * Turbo builds the workspace before either image path runs. The prune output
  * contains package sources and manifests, but not the cached dist/ directories
@@ -30,7 +23,7 @@ export function overlayBuiltOutputs({prunedRoot, workspaceRoot = getWorkspaceRoo
     if (!existsSync(source)) {
       if (buildsToDist(join(workspaceRoot, packagePath, 'package.json')))
         throw new Error(
-          `${packagePath} has no built dist/ at ${source}. Build the workspace before staging the pruned workspace.`,
+          `${packagePath} has no built dist/ at ${source}. Build the workspace before overlaying the pruned workspace.`,
         );
       continue;
     }
