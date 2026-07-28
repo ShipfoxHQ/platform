@@ -285,6 +285,18 @@ describe('JobNode status indicator', () => {
 
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Running');
   });
+
+  test('shows a running execution as running while the job is still pending', () => {
+    const node = makeNode({
+      name: 'deploy',
+      status: 'pending',
+      job_executions: [workflowJobExecutionDto({status: 'running'})],
+    });
+
+    renderNode(node);
+
+    expect(screen.getByRole('button', {name: 'deploy, Running'})).toBeInTheDocument();
+  });
 });
 
 describe('JobNode execution count indicator', () => {
