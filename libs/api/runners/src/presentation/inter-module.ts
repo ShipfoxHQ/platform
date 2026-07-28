@@ -9,6 +9,7 @@ import {getEffectiveRunnerToolCapabilities} from '#core/runner-tool-capabilities
 import {
   cancelRunnerJobs,
   enqueueJobExecution,
+  getWorkspaceJobCounts,
   isJobLeaseActive,
   releaseJobExecution,
 } from '#db/job-executions.js';
@@ -38,6 +39,9 @@ export function createRunnersInterModulePresentation(): InterModulePresentation<
       const result = await getEffectiveRunnerToolCapabilities(input);
       return {capabilities: result.capabilities, reportFresh: result.reportFresh};
     },
+    getWorkspaceJobCounts: async ({workspaceIds}) => ({
+      counts: await getWorkspaceJobCounts({workspaceIds}),
+    }),
   });
 }
 

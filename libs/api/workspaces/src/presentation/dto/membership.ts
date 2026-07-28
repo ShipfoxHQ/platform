@@ -9,6 +9,7 @@ export function toMembershipWithWorkspaceDto(
     user_id: membership.userId,
     workspace_id: membership.workspaceId,
     workspace_name: membership.workspaceName,
+    workspace_status: membership.workspaceStatus,
     created_at: membership.createdAt.toISOString(),
     updated_at: membership.updatedAt.toISOString(),
   };

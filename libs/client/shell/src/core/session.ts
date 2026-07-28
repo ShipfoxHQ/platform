@@ -22,4 +22,5 @@ export interface WorkspaceSummary {
   id: string;
   name: string;
   membershipId: string;
+  status?: 'active' | 'suspended' | 'deleted';
 }

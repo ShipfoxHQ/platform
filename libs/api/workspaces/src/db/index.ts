@@ -24,7 +24,10 @@ export {
 } from './memberships.js';
 export {workspacesOutbox} from './schema/outbox.js';
 export type {
+  AdminWorkspaceRow,
   CreateWorkspaceParams,
+  ListAdminWorkspaceParams,
+  ListAdminWorkspaceResult,
   UpdateWorkspaceParams,
   WorkspaceServiceMetrics,
 } from './workspaces.js';
@@ -32,6 +35,7 @@ export {
   createWorkspace,
   getWorkspaceById,
   getWorkspaceServiceMetrics,
+  listAdminWorkspaces,
   updateWorkspace,
 } from './workspaces.js';
 

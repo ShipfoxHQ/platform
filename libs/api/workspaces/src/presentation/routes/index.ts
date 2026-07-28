@@ -1,4 +1,8 @@
+import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import type {RouteGroup} from '@shipfox/node-fastify';
+import {createAdminWorkspacesRoutes} from './admin-workspaces.js';
 import {invitationsAcceptGroup, invitationsWorkspaceScopedRoutes} from './invitations/index.js';
 import {memberRoutes} from './members/index.js';
 import {createWorkspaceRoute, listUserWorkspacesRoute} from './workspaces/index.js';
@@ -21,3 +25,11 @@ export const workspacesRoutes: RouteGroup[] = [
     ],
   },
 ];
+
+export function createWorkspacesRoutes(params: {
+  auth: AuthInterModuleClient;
+  projects: ProjectsModuleClient;
+  runners: RunnersInterModuleClient;
+}): RouteGroup[] {
+  return [...workspacesRoutes, createAdminWorkspacesRoutes(params)];
+}

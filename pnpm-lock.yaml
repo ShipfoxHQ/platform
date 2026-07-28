@@ -4448,9 +4448,18 @@ importers:
       '@shipfox/api-auth-context':
         specifier: workspace:*
         version: link:../auth-context
+      '@shipfox/api-auth-dto':
+        specifier: workspace:*
+        version: link:../auth-dto
       '@shipfox/api-common-dto':
         specifier: workspace:*
         version: link:../common-dto
+      '@shipfox/api-projects-dto':
+        specifier: workspace:*
+        version: link:../projects-dto
+      '@shipfox/api-runners-dto':
+        specifier: workspace:*
+        version: link:../runners-dto
       '@shipfox/api-workspaces-dto':
         specifier: workspace:*
         version: link:../workspaces-dto

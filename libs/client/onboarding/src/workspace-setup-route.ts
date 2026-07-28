@@ -7,7 +7,11 @@ import {
   sourceConnectionsQueryOptions,
 } from '@shipfox/client-integrations';
 import {projectExistenceQueryOptions} from '@shipfox/client-projects';
-import {WorkspaceSetupLoadError, type WorkspaceSetupState} from '@shipfox/client-shell/runtime';
+import {
+  userWorkspacesQueryOptions,
+  WorkspaceSetupLoadError,
+  type WorkspaceSetupState,
+} from '@shipfox/client-shell/runtime';
 import type {QueryClient} from '@tanstack/react-query';
 import {redirect} from '@tanstack/react-router';
 
@@ -24,6 +28,19 @@ export async function loadWorkspaceSetupRoute({
   workspaceId,
   pathname,
 }: WorkspaceSetupRouteOptions): Promise<WorkspaceSetupState> {
+  const workspace = await fetchWorkspaceSummary(queryClient, workspaceId);
+  const workspaceStatus = workspace?.status;
+  switch (workspaceStatus) {
+    case undefined:
+    case 'active':
+      break;
+    case 'suspended':
+    case 'deleted':
+      return {hideProjectNavigation: true, unavailable: true};
+    default:
+      return assertNever(workspaceStatus);
+  }
+
   const projects = await fetchWorkspaceProjectExistence(queryClient, workspaceId);
   const normalizedPathname = normalizePath(pathname);
 
@@ -80,6 +97,19 @@ export async function loadWorkspaceSetupRoute({
     params: {wid: workspaceId},
     replace: true,
   });
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled workspace status: ${JSON.stringify(value)}`);
+}
+
+async function fetchWorkspaceSummary(queryClient: QueryClient, workspaceId: string) {
+  try {
+    const result = await queryClient.fetchQuery(userWorkspacesQueryOptions());
+    return result.memberships.find((workspace) => workspace.id === workspaceId);
+  } catch (error) {
+    throw new WorkspaceSetupLoadError(error);
+  }
 }
 
 async function fetchWorkspaceProjectExistence(queryClient: QueryClient, workspaceId: string) {

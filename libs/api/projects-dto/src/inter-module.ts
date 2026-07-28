@@ -9,6 +9,10 @@ const projectSchema = z.object({
   sourceExternalRepositoryId: z.string(),
   name: z.string(),
 });
+const workspaceProjectCountSchema = z.object({
+  workspaceId: idSchema,
+  count: z.number().int().nonnegative(),
+});
 
 /** Producer-owned project lookup and workspace ownership operations. */
 export const projectsInterModuleContract = defineInterModuleContract({
@@ -25,6 +29,10 @@ export const projectsInterModuleContract = defineInterModuleContract({
         'project-not-found': z.object({projectId: idSchema}),
         'project-workspace-mismatch': z.object({projectId: idSchema, workspaceId: idSchema}),
       },
+    },
+    getWorkspaceProjectCounts: {
+      input: z.object({workspaceIds: z.array(idSchema).min(1).max(100)}),
+      output: z.object({counts: z.array(workspaceProjectCountSchema)}),
     },
   },
 });

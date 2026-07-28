@@ -34,6 +34,7 @@ export {
   db,
   getProjectById,
   getProjectBySource,
+  getWorkspaceProjectCounts,
   listProjects,
   migrationsPath,
   projectsOutbox,

@@ -4,6 +4,7 @@ import {
   createWorkspace,
   getWorkspaceById,
   getWorkspaceServiceMetrics,
+  listAdminWorkspaces,
   updateWorkspace,
 } from './workspaces.js';
 
@@ -110,6 +111,30 @@ describe('workspace queries', () => {
       expect(metrics.activeWorkspaces).toBeGreaterThanOrEqual(1);
       expect(metrics.memberships).toBeGreaterThanOrEqual(2);
       expect(metrics.openInvitations).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('listAdminWorkspaces', () => {
+    test('returns bounded, name-ordered pages with member counts', async () => {
+      const prefix = `Admin page ${crypto.randomUUID()}`;
+      const alpha = await createWorkspace({name: `${prefix} Alpha`});
+      const bravo = await createWorkspace({name: `${prefix} Bravo`});
+      const charlie = await createWorkspace({name: `${prefix} Charlie`});
+      await createMembership({userId: crypto.randomUUID(), workspaceId: bravo.id});
+      await createMembership({userId: crypto.randomUUID(), workspaceId: bravo.id});
+
+      const firstPage = await listAdminWorkspaces({search: prefix, limit: 2});
+      const secondPage = await listAdminWorkspaces({
+        search: prefix,
+        limit: 2,
+        cursor: firstPage.nextCursor ?? undefined,
+      });
+
+      expect(firstPage.workspaces.map(({id}) => id)).toEqual([alpha.id, bravo.id]);
+      expect(firstPage.workspaces.map(({memberCount}) => memberCount)).toEqual([0, 2]);
+      expect(firstPage.nextCursor).toEqual({value: bravo.name, id: bravo.id});
+      expect(secondPage.workspaces.map(({id}) => id)).toEqual([charlie.id]);
+      expect(secondPage.nextCursor).toBeNull();
     });
   });
 });

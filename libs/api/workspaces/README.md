@@ -4,7 +4,7 @@ Shipfox API Workspaces manages who can use a workspace and send or accept invite
 
 ## What it does
 
-- **`workspacesModule`**: Adds table changes, API routes, outbox events, and metrics.
+- **`createWorkspacesModule`**: Adds table changes, API routes, outbox events, and metrics.
 - **`ensureMembership`**: Adds a user to a workspace or returns the row that is there.
 - **Invitation helpers**: Make, view, accept, list, and revoke invites.
 - **Workspace helpers**: Read workspaces and check a signed-in user's access.
@@ -44,7 +44,10 @@ Invitation email uses the shared `@shipfox/node-mailer` configuration.
 ## Routes / API / Data Model
 
 Routes mount under `/workspaces`. They make and list workspaces, manage members,
-and make, list, view, accept, or revoke invites.
+and make, list, view, accept, or revoke invites. The composed module also mounts
+`GET /admin/workspaces`, which requires the Auth `admin-observer` role and returns
+bounded workspace identity, lifecycle, member, project, and best-effort job-count
+summaries. Supporting count failures are represented as `unknown`.
 
 The module creates these tables:
 
