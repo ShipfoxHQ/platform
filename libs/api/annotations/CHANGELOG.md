@@ -1,5 +1,18 @@
 # @shipfox/annotations
 
+## 11.0.0
+
+### Major Changes
+
+- 25158c8: Carry workspace lifecycle status in JWT membership claims and enforce suspended or inactive access at the stateless workspace gate while keeping access-token verification stateless.
+
+  `getAuthenticatedSessionContext()` now reads refresh-session metadata from verified access-token claims without checking active refresh-session state; revoking a refresh session does not invalidate an already-issued access token.
+
+### Patch Changes
+
+- Updated dependencies [25158c8]
+  - @shipfox/api-auth-context@11.0.0
+
 ## 10.2.0
 
 ### Patch Changes

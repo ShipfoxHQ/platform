@@ -1,5 +1,12 @@
 # @shipfox/client-integrations
 
+## 12.0.2
+
+### Patch Changes
+
+- @shipfox/client-auth@12.0.2
+- @shipfox/client-shell@12.0.2
+
 ## 12.0.1
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @shipfox/api-definitions
 
+## 11.0.0
+
+### Patch Changes
+
+- Updated dependencies [71d9ba4]
+- Updated dependencies [25158c8]
+  - @shipfox/expression@1.2.1
+  - @shipfox/api-auth-context@11.0.0
+  - @shipfox/api-definitions-dto@11.0.0
+
 ## 10.2.0
 
 ### Patch Changes

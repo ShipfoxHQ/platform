@@ -1,5 +1,12 @@
 # @shipfox/api-integration-gitea
 
+## 11.0.0
+
+### Patch Changes
+
+- Updated dependencies [25158c8]
+  - @shipfox/api-auth-context@11.0.0
+
 ## 10.2.0
 
 ### Patch Changes

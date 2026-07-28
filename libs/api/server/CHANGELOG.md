@@ -1,5 +1,26 @@
 # @shipfox/api-server
 
+## 11.0.0
+
+### Patch Changes
+
+- Updated dependencies [25158c8]
+  - @shipfox/api-auth@11.0.0
+  - @shipfox/annotations@11.0.0
+  - @shipfox/api-logs@11.0.0
+  - @shipfox/api-triggers@11.0.0
+  - @shipfox/api-workspaces-dto@11.0.0
+  - @shipfox/api-workspaces@11.0.0
+  - @shipfox/api-workflows@11.0.0
+  - @shipfox/api-definitions@11.0.0
+  - @shipfox/api-definitions-dto@11.0.0
+  - @shipfox/api-integration-core@11.0.0
+  - @shipfox/api-agent@11.0.0
+  - @shipfox/api-projects@11.0.0
+  - @shipfox/api-runners@11.0.0
+  - @shipfox/api-secrets@11.0.0
+  - @shipfox/api-dispatcher@10.0.0
+
 ## 10.2.0
 
 ### Patch Changes

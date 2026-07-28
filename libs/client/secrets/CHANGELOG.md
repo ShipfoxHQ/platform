@@ -1,5 +1,11 @@
 # @shipfox/client-secrets
 
+## 12.0.2
+
+### Patch Changes
+
+- @shipfox/client-shell@12.0.2
+
 ## 12.0.1
 
 ### Patch Changes
