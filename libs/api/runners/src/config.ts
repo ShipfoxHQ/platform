@@ -1,3 +1,4 @@
+import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
 import {bool, createConfig, num} from '@shipfox/config';
 import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
 
@@ -19,8 +20,8 @@ export const config = createConfig({
     default: 300,
   }),
   RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS: num({
-    desc: 'Maximum time the runner assignment poll waits before returning no assignment, in seconds.',
-    default: 30,
+    desc: 'Maximum server-side cap for the per-request runner assignment wait, in seconds. Managed runners request their own bounded wait with wait_seconds.',
+    default: RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
   }),
   RUNNER_ASSIGNMENT_POLL_INTERVAL_MS: num({
     desc: 'Delay between durable assignment reads while a runner-control session waits for an assignment, in milliseconds.',
@@ -159,12 +160,22 @@ for (const [name, value] of [
   }
 }
 
-for (const [name, value] of [
-  ['RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS', config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS],
-  ['RUNNER_ASSIGNMENT_POLL_INTERVAL_MS', config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS],
-] as const) {
-  if (!Number.isInteger(value) || value < 0)
-    throw new Error(`${name} (${value}) must be a whole number >= 0.`);
+if (
+  !Number.isInteger(config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS) ||
+  config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS < 1
+) {
+  throw new Error(
+    `RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS (${config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS}) must be a whole number >= 1.`,
+  );
+}
+
+if (
+  !Number.isInteger(config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS) ||
+  config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS < 0
+) {
+  throw new Error(
+    `RUNNER_ASSIGNMENT_POLL_INTERVAL_MS (${config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS}) must be a whole number >= 0.`,
+  );
 }
 
 if (

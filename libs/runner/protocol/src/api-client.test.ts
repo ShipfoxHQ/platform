@@ -134,7 +134,7 @@ describe('api-client auth contexts', () => {
     expect(calls[2]?.authorization).toBe('Bearer control-token');
   });
 
-  it('allows the assignment long-poll to outlive the ky default timeout', async () => {
+  it('uses the requested assignment wait for the query and transport timeout', async () => {
     vi.useFakeTimers();
     try {
       stubFetch(
@@ -144,9 +144,30 @@ describe('api-client auth contexts', () => {
           ),
       );
 
-      const assignment = pollRunnerAssignment('control-token');
+      const assignment = pollRunnerAssignment('control-token', undefined, {waitSeconds: 1});
       const expectation = expect(assignment).resolves.toBeNull();
       await vi.advanceTimersByTimeAsync(10_001);
+
+      await expectation;
+      expect(new URL(calls[0]?.url ?? '').searchParams.get('wait_seconds')).toBe('1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('surfaces a transport timeout after the requested wait and buffer', async () => {
+    vi.useFakeTimers();
+    try {
+      stubFetch(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve(jsonResponse({activation_token: null})), 16_001),
+          ),
+      );
+
+      const assignment = pollRunnerAssignment('control-token', undefined, {waitSeconds: 1});
+      const expectation = expect(assignment).rejects.toMatchObject({name: 'TimeoutError'});
+      await vi.advanceTimersByTimeAsync(16_001);
 
       await expectation;
     } finally {
