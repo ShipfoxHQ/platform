@@ -27,6 +27,7 @@ import {
 } from './job-executions.js';
 import {runnersOutbox} from './schema/outbox.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
+import {providerRunners} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
 
@@ -408,10 +409,20 @@ describe('claimPendingJobExecution', () => {
   it('does not spend a claim when a capped session polls an empty queue', async () => {
     const provisionerId = crypto.randomUUID();
     const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
+    const runnerInstanceId = crypto.randomUUID();
     await db()
       .update(runnerSessions)
       .set({registrationTokenKind: 'ephemeral', maxClaims: 1, provisionerId, providerRunnerId})
       .where(eq(runnerSessions.id, runnerSessionId));
+    await db().insert(providerRunners).values({
+      id: runnerInstanceId,
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      labels: sessionLabels,
+      state: 'running',
+      reportedAt: new Date(),
+    });
 
     const empty = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
 
@@ -431,6 +442,12 @@ describe('claimPendingJobExecution', () => {
       .where(eq(runnerSessions.id, runnerSessionId));
     expect(claimed?.jobId).toBe(created.jobId);
     expect(afterClaim?.claimsUsed).toBe(1);
+
+    const [runner] = await db()
+      .select({firstClaimedAt: providerRunners.firstClaimedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runnerInstanceId));
+    expect(runner?.firstClaimedAt).toBeInstanceOf(Date);
   });
 
   it('allows a manual session to claim repeatedly', async () => {

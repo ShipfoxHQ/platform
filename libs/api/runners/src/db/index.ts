@@ -1,6 +1,13 @@
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
+export type {
+  AdministratorRunnerAssignmentFilter,
+  AdministratorRunnerInstanceRow,
+  ListAdministratorRunnerInstancesParams,
+  ListAdministratorRunnerInstancesResult,
+} from './admin-runner-instances.js';
+export {listAdministratorRunnerInstances} from './admin-runner-instances.js';
 export {closeDb, db, schema} from './db.js';
 export type {
   CreateEphemeralRegistrationTokenParams,

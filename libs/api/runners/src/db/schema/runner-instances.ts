@@ -31,6 +31,7 @@ export const providerRunners = pgTable(
     state: providerRunnerStateEnum('state').notNull(),
     reason: text('reason'),
     runnerSessionId: uuid('runner_session_id'),
+    firstClaimedAt: timestamp('first_claimed_at', {withTimezone: true}),
     providerKind: text('provider_kind'),
     protocolVersion: text('protocol_version'),
     capabilities: jsonb('capabilities').$type<RunnerToolCapabilitiesDto | null>(),
