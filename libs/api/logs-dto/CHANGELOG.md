@@ -1,5 +1,11 @@
 # @shipfox/api-logs-dto
 
+## 10.2.0
+
+### Minor Changes
+
+- 57e69d8: Preserve and display Claude tool-use summaries on their matching tool-call rows.
+
 ## 9.0.2
 
 ### Patch Changes

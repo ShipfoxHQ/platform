@@ -1,5 +1,20 @@
 # @shipfox/api-workflows
 
+## 10.2.0
+
+### Patch Changes
+
+- Updated dependencies [c9a188d]
+- Updated dependencies [8678943]
+- Updated dependencies [95d1456]
+- Updated dependencies [0773b85]
+- Updated dependencies [6be5a54]
+- Updated dependencies [07e7371]
+  - @shipfox/api-runners-dto@10.2.0
+  - @shipfox/api-auth-dto@10.2.0
+  - @shipfox/api-workspaces-dto@10.2.0
+  - @shipfox/api-auth-context@10.2.0
+
 ## 10.1.0
 
 ### Patch Changes

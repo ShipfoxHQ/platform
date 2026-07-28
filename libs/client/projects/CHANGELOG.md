@@ -1,5 +1,15 @@
 # @shipfox/client-projects
 
+## 12.0.1
+
+### Patch Changes
+
+- Updated dependencies [0087553]
+  - @shipfox/client-auth@12.0.1
+  - @shipfox/client-integrations@12.0.1
+  - @shipfox/client-shell@12.0.1
+  - @shipfox/client-agent@12.0.1
+
 ## 12.0.0
 
 ### Patch Changes

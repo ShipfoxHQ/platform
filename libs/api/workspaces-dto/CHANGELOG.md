@@ -1,5 +1,11 @@
 # @shipfox/api-workspaces-dto
 
+## 10.2.0
+
+### Minor Changes
+
+- 07e7371: Add idempotent administrator workspace suspension and reactivation commands with atomic redacted administration events.
+
 ## 10.0.0
 
 ### Minor Changes

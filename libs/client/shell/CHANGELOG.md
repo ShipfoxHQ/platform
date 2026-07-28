@@ -1,5 +1,15 @@
 # Changelog
 
+## 12.0.1
+
+### Patch Changes
+
+- Updated dependencies [95d1456]
+- Updated dependencies [0773b85]
+- Updated dependencies [07e7371]
+  - @shipfox/api-auth-dto@10.2.0
+  - @shipfox/api-workspaces-dto@10.2.0
+
 ## 12.0.0
 
 ### Minor Changes

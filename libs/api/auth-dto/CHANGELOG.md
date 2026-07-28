@@ -1,5 +1,12 @@
 # @shipfox/api-auth-dto
 
+## 10.2.0
+
+### Minor Changes
+
+- 95d1456: Add administrator user suspension, reactivation, and all-session revocation commands.
+- 0773b85: Expose the Auth-owned `isAdminRole` predicate for downstream consumers.
+
 ## 10.1.0
 
 ### Minor Changes

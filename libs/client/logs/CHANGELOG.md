@@ -1,5 +1,13 @@
 # @shipfox/client-logs
 
+## 12.0.1
+
+### Patch Changes
+
+- 57e69d8: Preserve and display Claude tool-use summaries on their matching tool-call rows.
+- Updated dependencies [57e69d8]
+  - @shipfox/api-logs-dto@10.2.0
+
 ## 11.0.0
 
 ### Patch Changes
