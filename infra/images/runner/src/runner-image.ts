@@ -2,7 +2,7 @@ import {execFileSync} from 'node:child_process';
 import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {getProjectRootPath} from '@shipfox/tool-utils';
+import {getProjectRootPath, overlayBuiltOutputs} from '@shipfox/tool-utils';
 import {findProducedAmiId, readPackerAmiArtifact} from './aws.js';
 import {qemuSourceImageArgs} from './qemu.js';
 
@@ -84,6 +84,7 @@ export async function buildRunnerImage(build: RunnerImageBuild): Promise<{amiId:
       cwd: rootDir,
       stdio: 'inherit',
     });
+    overlayBuiltOutputs({prunedRoot: workspacePath});
     execFileSync('packer', ['init', '.'], {cwd: rootDir, stdio: 'inherit'});
     await rm(manifestPath, {force: true});
     const output = runPackerBuild(build, workspacePath, rootDir);
