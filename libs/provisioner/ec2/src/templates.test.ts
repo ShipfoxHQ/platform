@@ -21,6 +21,8 @@ function writeTemplates(contents: string): string {
   return path;
 }
 
+const expression = (source: string) => `\${{ ${source} }}`;
+
 function template(overrides: Record<string, string> = {}, extra = ''): string {
   const defaults = `
 templates:
@@ -233,5 +235,107 @@ describe('loadEc2Templates', () => {
     const path = writeTemplates(`${VALID}\nunknown: true`);
 
     expect(() => loadEc2Templates(path)).toThrow('unknown');
+  });
+
+  it('expands a matrix and resolves EC2 fields through operator-supplied lookup maps', () => {
+    const path = writeTemplates(`
+vars:
+  ami_by_arch_os:
+    arm64:
+      ubuntu2204: ami-0aaa
+      ubuntu2404: ami-0aab
+    x64:
+      ubuntu2204: ami-0baa
+      ubuntu2404: ami-0bab
+  cpu_family_by:
+    arm64:
+      4: m7g
+    x64:
+      4: m7i
+  size_by_cpu:
+    4: xlarge
+templates: {}
+matrix:
+  standard:
+    axes:
+      arch: [arm64, x64]
+      cpu: [4]
+      ratio: [4]
+      os: [ubuntu2204, ubuntu2404]
+    template:
+      labels: ["ec2-${expression('arch')}-${expression('cpu')}-${expression('ratio')}-${expression('os')}"]
+      ami: "${expression('vars.ami_by_arch_os[arch][os]')}"
+      instance_type: "${expression('vars.cpu_family_by[arch][ratio]')}.${expression('vars.size_by_cpu[cpu]')}"
+      market: spot
+      spot_max_price: 0.05
+      subnets: [subnet-aaa]
+      security_groups: [sg-runner]
+      associate_public_ip: false
+      root_volume_gb: 100
+      max_concurrency: 100
+      cost: 5
+`);
+
+    const templates = loadEc2Templates(path);
+
+    expect(templates).toHaveLength(4);
+    expect(templates.map(({key}) => key)).toEqual([
+      'standard-arm64-4-4-ubuntu2204',
+      'standard-arm64-4-4-ubuntu2404',
+      'standard-x64-4-4-ubuntu2204',
+      'standard-x64-4-4-ubuntu2404',
+    ]);
+    expect(templates.map(({spec}) => ({ami: spec.ami, instanceType: spec.instanceType}))).toEqual([
+      {ami: 'ami-0aaa', instanceType: 'm7g.xlarge'},
+      {ami: 'ami-0aab', instanceType: 'm7g.xlarge'},
+      {ami: 'ami-0baa', instanceType: 'm7i.xlarge'},
+      {ami: 'ami-0bab', instanceType: 'm7i.xlarge'},
+    ]);
+  });
+
+  it('aggregates missing lookup keys with matrix bindings and field paths', () => {
+    const path = writeTemplates(`
+vars:
+  ami_by_arch_os:
+    arm64:
+      ubuntu2204: ami-0aaa
+    x64:
+      ubuntu2204: ami-0baa
+templates: {}
+matrix:
+  standard:
+    axes:
+      arch: [arm64, x64]
+      os: [ubuntu2204, ubuntu2404]
+    template:
+      labels: ["ec2-${expression('arch')}-${expression('os')}"]
+      ami: "${expression('vars.ami_by_arch_os[arch][os]')}"
+      instance_type: m7g.xlarge
+      market: spot
+      spot_max_price: 0.05
+      subnets: [subnet-aaa]
+      security_groups: [sg-runner]
+      associate_public_ip: false
+      root_volume_gb: 100
+      max_concurrency: 100
+      cost: 5
+`);
+
+    let error: unknown;
+    try {
+      loadEc2Templates(path);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Ec2TemplateConfigError);
+    expect(error).toHaveProperty(
+      'message',
+      expect.stringContaining('2 variants failed in matrix `standard`'),
+    );
+    expect(error).toHaveProperty('message', expect.stringContaining('template.ami'));
+    expect(error).toHaveProperty('message', expect.stringContaining('"arch":"arm64"'));
+    expect(error).toHaveProperty('message', expect.stringContaining('"arch":"x64"'));
+    expect(error).toHaveProperty('message', expect.stringContaining('"os":"ubuntu2404"'));
   });
 });

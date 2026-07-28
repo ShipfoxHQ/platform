@@ -1,5 +1,10 @@
 import {readFileSync} from 'node:fs';
-import type {ProvisionerTemplate} from '@shipfox/provisioner-core';
+import {
+  type ProvisionerTemplate,
+  ProvisionerTemplateFileError,
+  parseTemplateFile,
+  renderTemplateVariants,
+} from '@shipfox/provisioner-core';
 import {canonicalizeLabels, findInvalidLabels, MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import yaml from 'js-yaml';
 import {z} from 'zod';
@@ -61,11 +66,7 @@ const ec2TemplateSchema = z
     }
   });
 
-const ec2TemplatesFileSchema = z
-  .object({
-    templates: z.record(z.string().min(1), ec2TemplateSchema),
-  })
-  .strict();
+const ec2TemplatesSchema = z.record(z.string().min(1), ec2TemplateSchema);
 
 /**
  * Read, parse, and validate the local EC2 template config, returning the
@@ -74,14 +75,14 @@ const ec2TemplatesFileSchema = z
  * not validate, an invalid label, or an empty template set.
  */
 export function loadEc2Templates(filePath: string): ProvisionerTemplate<Ec2TemplateSpec>[] {
-  const parsed = ec2TemplatesFileSchema.safeParse(parseYamlFile(filePath));
+  const parsed = ec2TemplatesSchema.safeParse(renderTemplates(filePath, parseYamlFile(filePath)));
   if (!parsed.success) {
     throw new Ec2TemplateConfigError(
       `Invalid EC2 template config at ${filePath}: ${formatIssues(parsed.error)}`,
     );
   }
 
-  const entries = Object.entries(parsed.data.templates);
+  const entries = Object.entries(parsed.data);
   if (entries.length === 0) {
     throw new Ec2TemplateConfigError(
       `EC2 template config at ${filePath} declares no templates; add at least one.`,
@@ -89,6 +90,19 @@ export function loadEc2Templates(filePath: string): ProvisionerTemplate<Ec2Templ
   }
 
   return entries.map(([key, spec]) => toTemplate(filePath, key, spec));
+}
+
+function renderTemplates(filePath: string, raw: unknown): unknown {
+  try {
+    return renderTemplateVariants(parseTemplateFile(raw));
+  } catch (error) {
+    if (error instanceof ProvisionerTemplateFileError) {
+      throw new Ec2TemplateConfigError(
+        `Invalid EC2 template config at ${filePath}: ${error.message}`,
+      );
+    }
+    throw error;
+  }
 }
 
 function toTemplate(
