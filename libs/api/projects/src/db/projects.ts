@@ -33,11 +33,28 @@ export interface ListProjectsResult {
   nextCursor: ProjectCursor | null;
 }
 
-function cursorWhere(params: ListProjectsParams): SQL | undefined {
-  if (!params.cursor) return undefined;
+export type AdminProjectSummary = Pick<
+  Project,
+  'id' | 'workspaceId' | 'name' | 'createdAt' | 'updatedAt'
+>;
+
+export interface ListAdminProjectsParams {
+  limit: number;
+  cursor?: ProjectCursor | undefined;
+  projectId?: string | undefined;
+  search?: string | undefined;
+}
+
+export interface ListAdminProjectsResult {
+  projects: AdminProjectSummary[];
+  nextCursor: ProjectCursor | null;
+}
+
+function cursorWhere(cursor: ProjectCursor | undefined): SQL | undefined {
+  if (!cursor) return undefined;
   return or(
-    lt(projects.createdAt, params.cursor.createdAt),
-    and(eq(projects.createdAt, params.cursor.createdAt), lt(projects.id, params.cursor.id)),
+    lt(projects.createdAt, cursor.createdAt),
+    and(eq(projects.createdAt, cursor.createdAt), lt(projects.id, cursor.id)),
   );
 }
 
@@ -129,7 +146,7 @@ export async function requireProjectForWorkspace(params: {
 
 export async function listProjects(params: ListProjectsParams): Promise<ListProjectsResult> {
   const conditions = [eq(projects.workspaceId, params.workspaceId)];
-  const cursorCondition = cursorWhere(params);
+  const cursorCondition = cursorWhere(params.cursor);
   if (cursorCondition) conditions.push(cursorCondition);
   if (params.search) {
     conditions.push(ilike(projects.name, `%${escapeIlikePattern(params.search)}%`));
@@ -148,6 +165,40 @@ export async function listProjects(params: ListProjectsParams): Promise<ListProj
 
   return {
     projects: pageRows.map(toProject),
+    nextCursor: hasMore && last ? {createdAt: last.createdAt, id: last.id} : null,
+  };
+}
+
+export async function listAdminProjects(
+  params: ListAdminProjectsParams,
+): Promise<ListAdminProjectsResult> {
+  const conditions: SQL[] = [];
+  const cursorCondition = cursorWhere(params.cursor);
+  if (cursorCondition) conditions.push(cursorCondition);
+  if (params.projectId) conditions.push(eq(projects.id, params.projectId));
+  if (params.search) {
+    conditions.push(ilike(projects.name, `%${escapeIlikePattern(params.search)}%`));
+  }
+
+  const rows = await db()
+    .select({
+      id: projects.id,
+      workspaceId: projects.workspaceId,
+      name: projects.name,
+      createdAt: projects.createdAt,
+      updatedAt: projects.updatedAt,
+    })
+    .from(projects)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(projects.createdAt), desc(projects.id))
+    .limit(params.limit + 1);
+
+  const hasMore = rows.length > params.limit;
+  const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+  const last = pageRows.at(-1);
+
+  return {
+    projects: pageRows,
     nextCursor: hasMore && last ? {createdAt: last.createdAt, id: last.id} : null,
   };
 }

@@ -1,1 +1,1 @@
-export {toProjectDto} from './project.js';
+export {toAdminProjectSummaryDto, toProjectDto} from './project.js';

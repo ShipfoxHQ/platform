@@ -7,8 +7,11 @@ export {
   recordIntegrationEventForProject,
 } from './integration-event-dedup.js';
 export type {
+  AdminProjectSummary,
   CreateProjectParams,
   GetProjectBySourceParams,
+  ListAdminProjectsParams,
+  ListAdminProjectsResult,
   ListProjectsParams,
   ListProjectsResult,
 } from './projects.js';
@@ -18,6 +21,7 @@ export {
   getProjectBySource,
   getProjectCount,
   getWorkspaceProjectCounts,
+  listAdminProjects,
   listProjects,
   requireProjectForWorkspace,
 } from './projects.js';

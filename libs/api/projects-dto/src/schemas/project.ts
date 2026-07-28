@@ -48,3 +48,30 @@ export const listProjectsResponseSchema = z.object({
 });
 
 export type ListProjectsResponseDto = z.infer<typeof listProjectsResponseSchema>;
+
+export const adminProjectSummaryDtoSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  status: z.literal('active'),
+  workspace_id: z.string().uuid(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type AdminProjectSummaryDto = z.infer<typeof adminProjectSummaryDtoSchema>;
+
+export const listAdminProjectsQuerySchema = z.object({
+  project_id: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+  search: z.string().min(1).max(100).optional(),
+});
+
+export type ListAdminProjectsQueryDto = z.infer<typeof listAdminProjectsQuerySchema>;
+
+export const listAdminProjectsResponseSchema = z.object({
+  projects: z.array(adminProjectSummaryDtoSchema),
+  next_cursor: z.string().nullable(),
+});
+
+export type ListAdminProjectsResponseDto = z.infer<typeof listAdminProjectsResponseSchema>;
