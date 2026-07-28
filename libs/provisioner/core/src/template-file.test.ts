@@ -121,6 +121,27 @@ describe('enumerateVariants', () => {
     ]);
   });
 
+  it('preserves prototype-named matrix and axis keys', () => {
+    const matrix = Object.fromEntries([
+      [
+        '__proto__',
+        {
+          axes: Object.fromEntries([['__proto__', ['x64']]]),
+          template: {},
+        },
+      ],
+    ]);
+    const file = parseTemplateFile({templates: {}, matrix});
+
+    expect(Object.keys(file.matrix ?? {})).toEqual(['__proto__']);
+    expect(enumerateVariants(file)).toEqual([
+      {
+        block: '__proto__',
+        bindings: Object.fromEntries([['__proto__', 'x64']]),
+      },
+    ]);
+  });
+
   it('evaluates expression axes against file vars and requires a non-empty list', () => {
     const file = parseTemplateFile({
       vars: {cpus: [2, 4]},

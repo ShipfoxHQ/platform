@@ -163,7 +163,7 @@ function evaluateBlockAxes(
   errors: string[],
 ): PreparedBlock | undefined {
   const axisNames = Object.keys(block.axes);
-  const axisValues: Record<string, readonly unknown[]> = {};
+  const axisValues = createMap<readonly unknown[]>();
   let cartesianCount = 1n;
   let hasError = false;
   const environment = createRangeEnvironment();
@@ -240,7 +240,7 @@ function materializeCartesianProduct(
     delete bindings[axisName];
   }
 
-  visit(0, {});
+  visit(0, createMap());
   return variants;
 }
 
@@ -252,7 +252,7 @@ function parseMatrix(
   const blocks = parseRecord(value, 'matrix', errors);
   if (blocks === undefined) return undefined;
 
-  const parsed: Record<string, MatrixBlock> = {};
+  const parsed = createMap<MatrixBlock>();
   for (const [name, rawBlock] of Object.entries(blocks)) {
     const block = parseBlock(name, rawBlock, errors);
     if (block !== undefined) parsed[name] = block;
@@ -298,7 +298,7 @@ function parseAxes(
   const rawAxes = parseRecord(value, path, errors);
   if (rawAxes === undefined) return {};
 
-  const axes: Record<string, MatrixAxis> = {};
+  const axes = createMap<MatrixAxis>();
   for (const [name, axis] of Object.entries(rawAxes)) {
     if (name.length === 0) {
       errors.push(`${path} contains an empty axis name`);
@@ -367,7 +367,7 @@ function parseExpressionMap(
   const rawBindings = parseRecord(value, path, errors);
   if (rawBindings === undefined) return {};
 
-  const bindings: Record<string, WorkflowExpression> = {};
+  const bindings = createMap<WorkflowExpression>();
   for (const [name, expression] of Object.entries(rawBindings)) {
     const parsed = parseExpression(expression, `${path}.${name}`, errors);
     if (parsed !== undefined) bindings[name] = parsed;
@@ -493,6 +493,10 @@ function valuesEqual(left: unknown, right: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function createMap<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>;
 }
 
 function expressionErrorMessage(error: unknown): string {
