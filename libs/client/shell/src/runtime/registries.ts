@@ -1,5 +1,10 @@
 import {normalizeRoutePath} from '#compose/normalize-route-path.js';
-import type {ClientFeature, NavTabEntry, SettingsSectionEntry} from '#contract.js';
+import type {
+  ClientFeature,
+  LayoutNavigationEntry,
+  NavTabEntry,
+  SettingsSectionEntry,
+} from '#contract.js';
 
 interface Ordered<T> {
   entry: T;
@@ -26,6 +31,19 @@ export function navigationEntries(features: readonly ClientFeature[]): NavTabEnt
     )
     .sort(byOrder)
     .map(({entry}) => ({...entry, to: normalizeRoutePath(entry.to)}));
+}
+
+export function layoutNavigationRegistry(
+  features: readonly ClientFeature[],
+): ReadonlyMap<string, readonly LayoutNavigationEntry[]> {
+  const registry = new Map<string, LayoutNavigationEntry[]>();
+  for (const entry of navigationEntries(features)) {
+    if (entry.scope !== 'layout') continue;
+    const entries = registry.get(entry.layout) ?? [];
+    entries.push(entry);
+    registry.set(entry.layout, entries);
+  }
+  return registry;
 }
 
 export function settingsEntries(features: readonly ClientFeature[]): SettingsSectionEntry[] {

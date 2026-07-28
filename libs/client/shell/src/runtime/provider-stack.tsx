@@ -5,6 +5,7 @@ import {type createStore, Provider as JotaiProvider} from 'jotai';
 import type {PropsWithChildren, ReactNode} from 'react';
 import type {ClientFeature} from '#contract.js';
 import {AuthRuntime, type AuthRuntimeProps} from './auth.js';
+import {LayoutNavigationProvider} from './layout-navigation.js';
 
 type Store = ReturnType<typeof createStore>;
 
@@ -30,7 +31,9 @@ export function ShellProviderStack({
       <TooltipProvider>
         <QueryClientProvider client={queryClient}>
           <JotaiProvider store={store}>
-            <AuthRuntime {...auth}>{nestedProviders}</AuthRuntime>
+            <LayoutNavigationProvider features={features}>
+              <AuthRuntime {...auth}>{nestedProviders}</AuthRuntime>
+            </LayoutNavigationProvider>
           </JotaiProvider>
         </QueryClientProvider>
       </TooltipProvider>

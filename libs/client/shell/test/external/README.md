@@ -1,9 +1,9 @@
 # External client runtime fixture
 
 This fixture packs the published client runtime closure into a Vite application outside the pnpm
-workspace. The application starts from `defaultFeatures()` and adds one external feature that
-replaces the login route, adds a settings route, appends providers, contributes navigation and
-settings entries, and merges a config fragment.
+workspace. The application starts from `defaultFeatures()` and adds external features that replace
+the login route, add a settings route, append providers, contribute navigation and settings entries,
+merge a config fragment, and compose a layout with child routes from a separate feature.
 
 ## Run the required packed gate
 
@@ -21,6 +21,7 @@ that generated package imports are declared direct dependencies, checks default 
 condition resolution through `dist`, type-checks every packed declaration graph, generates the
 composed TanStack router, builds and type-checks the consumer, runs the behavioral fixture, and
 asserts the exact rejected-collision diagnostic. CI runs this command during static verification.
+The fixture also renders deterministic layout-local links from packed public runtime exports.
 
 ## Run the linked iteration mode
 

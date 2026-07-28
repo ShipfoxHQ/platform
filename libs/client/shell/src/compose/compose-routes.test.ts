@@ -1,5 +1,5 @@
 import type {ClientFeature} from '#contract.js';
-import {composeRoutes} from './compose-routes.js';
+import {composeLayouts, composeRoutes} from './compose-routes.js';
 
 const base: ClientFeature = {
   id: 'shipfox.base',
@@ -10,6 +10,141 @@ const danglingOverrideMessage = /\/missing.*acme\.insights/u;
 const competingOverridesMessage = /\/projects.*acme\.one.*acme\.two/u;
 
 describe('composeRoutes', () => {
+  test('declares a layout that another feature can use as a route parent', () => {
+    const features: ClientFeature[] = [
+      {
+        id: 'acme.shell',
+        layouts: [{id: 'acme.admin', path: '/admin', parent: 'root', impl: 'layout'}],
+      },
+      {
+        id: 'acme.users',
+        routes: [{path: '/admin/users', parent: 'acme.admin', impl: 'users'}],
+      },
+    ];
+
+    expect(composeLayouts(features)).toEqual([
+      {
+        id: 'acme.admin',
+        path: '/admin',
+        parent: 'root',
+        impl: 'layout',
+        featureId: 'acme.shell',
+      },
+    ]);
+    expect(composeRoutes(features)).toEqual([
+      {
+        path: '/admin/users',
+        parent: 'acme.admin',
+        impl: 'users',
+        featureId: 'acme.users',
+        ownerFeatureId: 'acme.users',
+      },
+    ]);
+  });
+
+  test('names duplicate layout ids and missing layout parents', () => {
+    expect(() =>
+      composeLayouts([
+        {id: 'acme.one', layouts: [{id: 'acme.admin', path: '/one', parent: 'root', impl: 'one'}]},
+        {id: 'acme.two', layouts: [{id: 'acme.admin', path: '/two', parent: 'root', impl: 'two'}]},
+      ]),
+    ).toThrow('Layout id "acme.admin" is contributed by both features "acme.one" and "acme.two".');
+    expect(() =>
+      composeLayouts([
+        {
+          id: 'acme.admin',
+          layouts: [{id: 'acme.admin', path: '/admin', parent: 'acme.missing', impl: 'admin'}],
+        },
+      ]),
+    ).toThrow(
+      'Layout "acme.admin" in feature "acme.admin" targets missing layout parent "acme.missing".',
+    );
+  });
+
+  test('rejects a layout path reserved by a shell anchor', () => {
+    expect(() =>
+      composeLayouts([
+        {
+          id: 'acme.shell',
+          layouts: [
+            {id: 'acme.fake-workspace', path: '/workspaces/$wid', parent: 'root', impl: 'fake'},
+          ],
+        },
+      ]),
+    ).toThrow(
+      'Layout "acme.fake-workspace" in feature "acme.shell" targets path "/workspaces/$wid" which is reserved by a shell anchor.',
+    );
+  });
+
+  test('rejects root-parented routes and layouts inside protected anchors', () => {
+    expect(() =>
+      composeRoutes([
+        {
+          id: 'acme.reports',
+          routes: [{path: '/workspaces/$wid/reports', parent: 'root', impl: 'reports'}],
+        },
+      ]),
+    ).toThrow(
+      'Route "/workspaces/$wid/reports" in feature "acme.reports" cannot use root parent inside reserved anchor "workspaceLayout" (/workspaces/$wid). Use parent "workspaceLayout".',
+    );
+    expect(() =>
+      composeLayouts([
+        {
+          id: 'acme.reports',
+          layouts: [
+            {
+              id: 'acme.reports.layout',
+              path: '/workspaces/$wid/reports',
+              parent: 'root',
+              impl: 'reports',
+            },
+          ],
+        },
+      ]),
+    ).toThrow(
+      'Route "/workspaces/$wid/reports" in feature "acme.reports" cannot use root parent inside reserved anchor "workspaceLayout" (/workspaces/$wid). Use parent "workspaceLayout".',
+    );
+  });
+
+  test('rejects a protected path smuggled through an intermediate root-parented layout', () => {
+    expect(() =>
+      composeLayouts([
+        {
+          id: 'acme.decoy',
+          layouts: [{id: 'acme.decoy-layout', path: '/workspaces', parent: 'root', impl: 'decoy'}],
+        },
+        {
+          id: 'acme.smuggled',
+          layouts: [
+            {
+              id: 'acme.smuggled-layout',
+              path: '/workspaces/$wid/reports',
+              parent: 'acme.decoy-layout',
+              impl: 'reports',
+            },
+          ],
+        },
+      ]),
+    ).toThrow(
+      'Route "/workspaces/$wid/reports" in feature "acme.smuggled" cannot use root parent inside reserved anchor "workspaceLayout" (/workspaces/$wid). Use parent "workspaceLayout".',
+    );
+  });
+
+  test('rejects a child route outside its declared layout path', () => {
+    expect(() =>
+      composeRoutes([
+        {
+          id: 'acme.admin',
+          layouts: [{id: 'acme.admin', path: '/admin', parent: 'root', impl: 'admin'}],
+        },
+        {
+          id: 'acme.users',
+          routes: [{path: '/users', parent: 'acme.admin', impl: 'users'}],
+        },
+      ]),
+    ).toThrow('Route "/users" must be nested under layout "acme.admin" (/admin).');
+  });
+
   test('appends a unique route and explicitly replaces an existing route', () => {
     const routes = composeRoutes([
       base,
