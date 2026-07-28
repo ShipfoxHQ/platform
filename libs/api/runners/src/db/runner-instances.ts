@@ -584,20 +584,37 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
 ): Promise<number> {
   if (params.providerRunnerIds.length === 0) return 0;
 
+  const reservationWorkspacePredicate =
+    params.workspaceId === null
+      ? sql``
+      : sql`and ${eq(reservations.workspaceId, params.workspaceId)}`;
+
   const rows = await tx
     .select({
       id: providerRunners.id,
-      reservationId: providerRunners.reservationId,
-      intendedReservationId: providerRunners.intendedReservationId,
-      reservationWorkspaceId: sql<string | null>`coalesce(
-        (select ${reservations.workspaceId}
+      releaseReservationId: sql<string | null>`coalesce(
+        (select ${reservations.id}
+         from ${reservations}
+         where ${reservations.id} = ${providerRunners.intendedReservationId}
+           and ${reservations.provisionerId} = ${params.provisionerId}
+           ${reservationWorkspacePredicate}),
+        (select ${reservations.id}
          from ${reservations}
          where ${reservations.id} = ${providerRunners.reservationId}
-           and ${reservations.provisionerId} = ${params.provisionerId}),
+           and ${reservations.provisionerId} = ${params.provisionerId}
+           ${reservationWorkspacePredicate})
+      )`,
+      releaseReservationWorkspaceId: sql<string | null>`coalesce(
         (select ${reservations.workspaceId}
          from ${reservations}
          where ${reservations.id} = ${providerRunners.intendedReservationId}
-           and ${reservations.provisionerId} = ${params.provisionerId})
+           and ${reservations.provisionerId} = ${params.provisionerId}
+           ${reservationWorkspacePredicate}),
+        (select ${reservations.workspaceId}
+         from ${reservations}
+         where ${reservations.id} = ${providerRunners.reservationId}
+           and ${reservations.provisionerId} = ${params.provisionerId}
+           ${reservationWorkspacePredicate})
       )`,
     })
     .from(providerRunners)
@@ -697,12 +714,11 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
   const updatedIds = new Set(updated.map((row) => row.id));
   for (const row of rows) {
     if (!updatedIds.has(row.id)) continue;
-    const reservationId = row.reservationId ?? row.intendedReservationId;
-    if (!reservationId || !row.reservationWorkspaceId) continue;
-    const key = `${row.reservationWorkspaceId}:${reservationId}`;
+    if (!row.releaseReservationId || !row.releaseReservationWorkspaceId) continue;
+    const key = `${row.releaseReservationWorkspaceId}:${row.releaseReservationId}`;
     const release = releasesByReservationId.get(key) ?? {
-      workspaceId: row.reservationWorkspaceId,
-      reservationId,
+      workspaceId: row.releaseReservationWorkspaceId,
+      reservationId: row.releaseReservationId,
       count: 0,
     };
     release.count += 1;

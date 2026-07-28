@@ -498,6 +498,49 @@ describe('reportRunnerInstances', () => {
     expect(storedRunner?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
+  it('prefers the validated intended reservation when both reservation ids are set', async () => {
+    const installationProvisioner = await provisionerTokenFactory.create({
+      scope: 'installation',
+      workspaceId: null,
+    });
+    const staleReservationId = await createReservation(1, {
+      workspaceId: crypto.randomUUID(),
+      provisionerId: installationProvisioner.id,
+    });
+    const intendedReservationId = await createReservation(1, {
+      workspaceId: crypto.randomUUID(),
+      provisionerId: installationProvisioner.id,
+    });
+    await db().insert(providerRunners).values({
+      provisionerId: installationProvisioner.id,
+      reservationId: staleReservationId,
+      intendedReservationId,
+      providerRunnerId: 'installation-runner-with-stale-reservation',
+      state: 'starting',
+      reportedAt: new Date(),
+    });
+
+    const result = await reportRunnerInstances({
+      workspaceId: null,
+      provisionerId: installationProvisioner.id,
+      events: [
+        event({providerRunnerId: 'installation-runner-with-stale-reservation', state: 'failed'}),
+      ],
+    });
+
+    const [staleReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, staleReservationId));
+    const [intendedReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, intendedReservationId));
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(staleReservation?.count).toBe(1);
+    expect(intendedReservation).toBeUndefined();
+  });
+
   it('does not release a reservation owned by another workspace or provisioner', async () => {
     const otherWorkspaceReservationId = await createReservation(1, {
       workspaceId: crypto.randomUUID(),
