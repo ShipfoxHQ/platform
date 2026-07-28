@@ -1,6 +1,13 @@
 import {readFileSync} from 'node:fs';
 import {logger} from '@shipfox/node-opentelemetry';
-import type {ProvisionerTemplate} from '@shipfox/provisioner-core';
+import {
+  enumerateVariants,
+  type ProvisionerTemplate,
+  type ProvisionerTemplateFile,
+  parseTemplateFile,
+  type RenderedTemplateMap,
+  renderTemplateVariants,
+} from '@shipfox/provisioner-core';
 import {canonicalizeLabels, findInvalidLabels, MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import yaml from 'js-yaml';
 import {z} from 'zod';
@@ -36,12 +43,6 @@ const dockerTemplateSchema = z
   })
   .strict();
 
-const dockerTemplatesFileSchema = z
-  .object({
-    templates: z.record(z.string().min(1), dockerTemplateSchema),
-  })
-  .strict();
-
 /**
  * Read, parse, and validate the local Docker template config, returning the
  * provider-agnostic templates the control loop drives. Fails fast with a clear,
@@ -50,22 +51,50 @@ const dockerTemplatesFileSchema = z
  */
 export function loadDockerTemplates(filePath: string): ProvisionerTemplate<DockerTemplateSpec>[] {
   const raw = parseYamlFile(filePath);
-  const parsed = dockerTemplatesFileSchema.safeParse(raw);
-  if (!parsed.success) {
+  let templateFile: ProvisionerTemplateFile;
+  let renderedTemplates: RenderedTemplateMap;
+  let validatedTemplates: Readonly<Record<string, z.infer<typeof dockerTemplateSchema>>>;
+  try {
+    templateFile = parseTemplateFile(raw);
+    // Keep the core cap check over the complete file before either category is split.
+    enumerateVariants(templateFile);
+    const generatedTemplates = renderTemplateVariants({...templateFile, templates: {}});
+    const handWrittenTemplates = renderTemplateVariants({...templateFile, matrix: {}});
+    const validatedGeneratedTemplates = validateRenderedTemplates(filePath, generatedTemplates);
+    const validatedHandWrittenTemplates = validateRenderedTemplates(filePath, handWrittenTemplates);
+
+    for (const key of Object.keys(generatedTemplates)) {
+      if (!Object.hasOwn(handWrittenTemplates, key)) continue;
+      logger().warn(
+        {
+          event: 'provisioner.template_generated_shadowed',
+          templateKey: key,
+        },
+        `Generated template "${key}" is shadowed by a hand-written template`,
+      );
+    }
+
+    renderedTemplates = mergeTemplateMaps(handWrittenTemplates, generatedTemplates);
+    validatedTemplates = mergeTemplateMaps(
+      validatedHandWrittenTemplates,
+      validatedGeneratedTemplates,
+    );
+  } catch (error) {
+    if (error instanceof DockerTemplateConfigError) throw error;
     throw new DockerTemplateConfigError(
-      `Invalid Docker template config at ${filePath}: ${formatIssues(parsed.error)}`,
+      `Invalid Docker template config at ${filePath}: ${errorMessage(error)}`,
     );
   }
 
-  const entries = Object.entries(parsed.data.templates);
+  const entries = Object.entries(validatedTemplates);
   if (entries.length === 0) {
     throw new DockerTemplateConfigError(
       `Docker template config at ${filePath} declares no templates; add at least one.`,
     );
   }
 
-  return entries.map(([key, spec]) => {
-    if (!hasImageField(raw, key)) {
+  const templates = entries.map(([key, spec]) => {
+    if (!hasImageField(renderedTemplates, key)) {
       logger().debug?.(
         {
           event: 'runner.default_image_selected',
@@ -78,11 +107,74 @@ export function loadDockerTemplates(filePath: string): ProvisionerTemplate<Docke
     }
     return toTemplate(filePath, key, spec);
   });
+
+  const familyCount = Object.keys(templateFile.matrix ?? {}).length;
+  logger().info(
+    {
+      event: 'provisioner.templates_loaded',
+      filePath,
+      templateCount: templates.length,
+      familyCount,
+    },
+    `Loaded ${templates.length} Docker templates from ${familyCount} matrix families`,
+  );
+
+  return templates;
 }
 
-function hasImageField(raw: unknown, key: string): boolean {
-  if (!isRecord(raw) || !isRecord(raw.templates)) return false;
-  const template = raw.templates[key];
+function validateRenderedTemplates(
+  filePath: string,
+  renderedTemplates: RenderedTemplateMap,
+): Readonly<Record<string, z.infer<typeof dockerTemplateSchema>>> {
+  const validated = Object.create(null) as Record<string, z.infer<typeof dockerTemplateSchema>>;
+  for (const [key, template] of Object.entries(renderedTemplates)) {
+    if (key.length === 0) {
+      throw new DockerTemplateConfigError(
+        `Invalid Docker template config at ${filePath}: templates.: Invalid key in record`,
+      );
+    }
+    const parsed = dockerTemplateSchema.safeParse(template);
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((issue) => {
+          const path = issue.path.join('.');
+          return `templates.${key}${path ? `.${path}` : ''}: ${issue.message}`;
+        })
+        .join('; ');
+      throw new DockerTemplateConfigError(
+        `Invalid Docker template config at ${filePath}: ${issues}`,
+      );
+    }
+    Object.defineProperty(validated, key, {
+      configurable: true,
+      enumerable: true,
+      value: parsed.data,
+      writable: true,
+    });
+  }
+  return validated;
+}
+
+function mergeTemplateMaps<T>(
+  handWrittenTemplates: Readonly<Record<string, T>>,
+  generatedTemplates: Readonly<Record<string, T>>,
+): Record<string, T> {
+  const merged = {...handWrittenTemplates};
+  for (const [key, template] of Object.entries(generatedTemplates)) {
+    if (!Object.hasOwn(merged, key)) {
+      Object.defineProperty(merged, key, {
+        configurable: true,
+        enumerable: true,
+        value: template,
+        writable: true,
+      });
+    }
+  }
+  return merged;
+}
+
+function hasImageField(templates: Readonly<Record<string, unknown>>, key: string): boolean {
+  const template = templates[key];
   return isRecord(template) && Object.hasOwn(template, 'image');
 }
 
@@ -141,15 +233,6 @@ function parseYamlFile(filePath: string): unknown {
       `Cannot parse Docker template config at ${filePath}: ${errorMessage(error)}`,
     );
   }
-}
-
-function formatIssues(error: z.ZodError): string {
-  return error.issues
-    .map((issue) => {
-      const path = issue.path.join('.');
-      return path ? `${path}: ${issue.message}` : issue.message;
-    })
-    .join('; ');
 }
 
 function errorMessage(error: unknown): string {
