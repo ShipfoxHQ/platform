@@ -7,6 +7,8 @@ import {
   releaseReservationUnits,
 } from '#db/reservations.js';
 import {reservations} from '#db/schema/reservations.js';
+import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
+import {providerRunners} from '#db/schema/runner-instances.js';
 import {pendingJobFactory, reservationFactory} from '#test/index.js';
 
 describe('pollDemandAndReserve', () => {
@@ -32,6 +34,108 @@ describe('pollDemandAndReserve', () => {
     expect(result.reservations).toHaveLength(1);
     expect(result.reservations[0]?.count).toBe(20);
     expect(result.stats[0]).toMatchObject({labels: ['linux'], queued: 50, reserved: 20});
+  });
+
+  it('binds the oldest matching enrolled runners to a new reservation', async () => {
+    const olderRunner = await createIdleRunner({
+      labels: ['linux'],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const newerRunner = await createIdleRunner({
+      labels: ['linux'],
+      createdAt: new Date('2026-01-02T00:00:00.000Z'),
+    });
+    const unmatchedRunner = await createIdleRunner({
+      labels: ['macos'],
+      createdAt: new Date('2026-01-03T00:00:00.000Z'),
+    });
+    await createPendingJobs(2, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 2,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 2)],
+    });
+
+    const rows = await db()
+      .select()
+      .from(providerRunners)
+      .where(inArray(providerRunners.id, [olderRunner.id, newerRunner.id, unmatchedRunner.id]));
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    const reservationId = result.reservations[0]?.reservationId;
+
+    expect(reservationId).toEqual(expect.any(String));
+    expect(rowsById.get(olderRunner.id)).toMatchObject({
+      workspaceId,
+      reservationId,
+      assignedAt: expect.any(Date),
+    });
+    expect(rowsById.get(newerRunner.id)).toMatchObject({
+      workspaceId,
+      reservationId,
+      assignedAt: expect.any(Date),
+    });
+    expect(rowsById.get(unmatchedRunner.id)).toMatchObject({
+      workspaceId: null,
+      reservationId: null,
+      assignedAt: null,
+    });
+  });
+
+  it('does not bind a running runner without an active control session', async () => {
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        provisionerId,
+        providerRunnerId: 'un-enrolled-runner',
+        labels: ['linux'],
+        state: 'running',
+        reportedAt: new Date(),
+      })
+      .returning();
+    if (!runner) throw new Error('Expected runner instance');
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations[0]?.count).toBe(1);
+    expect(storedRunner).toMatchObject({workspaceId: null, reservationId: null});
+  });
+
+  it('does not grant another reservation after idle runners are covered', async () => {
+    await createIdleRunner({labels: ['linux']});
+    await createPendingJobs(1, ['linux']);
+
+    const firstResult = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+    const secondResult = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    expect(firstResult.reservations).toHaveLength(1);
+    expect(secondResult.reservations).toEqual([]);
+    expect(secondResult.stats[0]).toMatchObject({queued: 1, reserved: 1});
   });
 
   it('allocates overlapping label sets most-specific-first', async () => {
@@ -418,6 +522,34 @@ describe('pollDemandAndReserve', () => {
     for (let index = 0; index < count; index++) {
       await pendingJobFactory.create({workspaceId, requiredLabels});
     }
+  }
+
+  async function createIdleRunner(params: {labels: string[]; createdAt?: Date}) {
+    const createdAt = params.createdAt ?? new Date();
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        provisionerId,
+        providerRunnerId: crypto.randomUUID(),
+        labels: params.labels,
+        state: 'running',
+        reportedAt: createdAt,
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .returning();
+    if (!runner) throw new Error('Expected runner instance');
+
+    await db()
+      .insert(runnerControlSessions)
+      .values({
+        runnerInstanceId: runner.id,
+        provisionerId,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+    return runner;
   }
 
   async function activeReservedCount(): Promise<number> {

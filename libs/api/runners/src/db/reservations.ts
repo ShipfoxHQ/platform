@@ -1,11 +1,25 @@
 import {canonicalizeLabels} from '@shipfox/runner-labels';
-import {and, asc, eq, gt, inArray, lt, sql} from 'drizzle-orm';
+import {
+  and,
+  arrayContains,
+  asc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  sql,
+} from 'drizzle-orm';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
 import {provisionerCapabilitySnapshots} from './schema/provisioner-capability-snapshots.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
+import {runnerControlSessions} from './schema/runner-control-sessions.js';
+import {providerRunners} from './schema/runner-instances.js';
 
 export interface ReservationTemplate {
   templateKey: string;
@@ -243,6 +257,13 @@ async function pollDemandAndReserveLockedTx(
 
       remainingMaxReservations -= grant;
       drawSlots(satisfyingTemplates, grant);
+      await bindIdleRunnerInstancesTx(tx, {
+        provisionerId: params.provisionerId,
+        reservationId: inserted.id,
+        requiredLabels: demand.requiredLabels,
+        count: grant,
+        workspaceId: params.workspaceId,
+      });
       reservedAfterGrant += grant;
       grants.push({
         reservationId: inserted.id,
@@ -263,6 +284,70 @@ async function pollDemandAndReserveLockedTx(
   }
 
   return {stats, reservations: grants};
+}
+
+async function bindIdleRunnerInstancesTx(
+  tx: Tx,
+  params: {
+    provisionerId: string;
+    reservationId: string;
+    workspaceId: string;
+    requiredLabels: string[];
+    count: number;
+  },
+): Promise<void> {
+  const idleRunners = await tx
+    .select({id: providerRunners.id})
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        isNull(providerRunners.workspaceId),
+        isNull(providerRunners.reservationId),
+        isNull(providerRunners.intendedReservationId),
+        isNull(providerRunners.runnerSessionId),
+        isNotNull(providerRunners.providerRunnerId),
+        eq(providerRunners.state, 'running'),
+        arrayContains(providerRunners.labels, params.requiredLabels),
+        exists(
+          tx
+            .select({id: runnerControlSessions.id})
+            .from(runnerControlSessions)
+            .where(
+              and(
+                eq(runnerControlSessions.runnerInstanceId, providerRunners.id),
+                eq(runnerControlSessions.provisionerId, params.provisionerId),
+                isNull(runnerControlSessions.closedAt),
+              ),
+            ),
+        ),
+      ),
+    )
+    .orderBy(asc(providerRunners.createdAt), asc(providerRunners.id))
+    .limit(params.count)
+    .for('update');
+
+  if (idleRunners.length === 0) return;
+
+  await tx
+    .update(providerRunners)
+    .set({
+      workspaceId: params.workspaceId,
+      reservationId: params.reservationId,
+      assignedAt: sql`now()`,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        inArray(
+          providerRunners.id,
+          idleRunners.map((runner) => runner.id),
+        ),
+        isNull(providerRunners.workspaceId),
+        isNull(providerRunners.reservationId),
+        isNull(providerRunners.runnerSessionId),
+      ),
+    );
 }
 
 async function listInstallationDemandWorkspaceIds(eligibleWorkspaceIds: ReadonlySet<string>) {
