@@ -10,13 +10,15 @@ const HARNESS_DIAGNOSTIC_MAX_LENGTH = 200;
 const PATH_PATTERN = /(?:file:\/\/)?\//g;
 const PATH_PREFIX_CHARACTER_PATTERN = /[A-Za-z0-9._~+@%]/;
 const NETWORK_URL_PATTERN = /(?:https?|ssh):\/{0,2}$/;
-const REGEX_DIAGNOSTIC_PATTERN = /[\\^$*+?]/;
+const REGEX_DIAGNOSTIC_PATTERN = /[\\^*+?()[\]{}]|\$$/;
 const ENVIRONMENT_PATH_PREFIX_PATTERN = /(?:^|\s)[A-Za-z_][A-Za-z0-9_]*=$/;
+const RUNNER_PATH_PATTERN = /^(?:\/runner|\/private\/runner|.*\/node_modules)\//;
 const WHITESPACE_PATTERN = /\s/;
 const PATH_EXTENSION_PATTERN = /\.[A-Za-z0-9]+$/;
-const PATH_BOUNDARY_PREFIX_PATTERN = /^[)\]}]/;
+const PATH_BOUNDARY_PREFIX_PATTERN = /^[()[\]{}]/;
 const TRAILING_PATH_PUNCTUATION_PATTERN = /[.,;:]+$/;
 const TRUNCATION_TOKEN_PATTERN = /\s[^\s]*$/;
+const ADJACENT_PATH_LOOKAHEAD_MAX_LENGTH = 1024;
 
 /**
  * A user-fixable agent-step configuration failure: an unknown provider, a
@@ -124,7 +126,7 @@ function isNetworkUrlSlash(message: string, pathStart: number): boolean {
 }
 
 function isSlashDelimitedDiagnostic(path: string): boolean {
-  if (!path.endsWith('/')) return false;
+  if (!path.endsWith('/') || RUNNER_PATH_PATTERN.test(path)) return false;
   return path.includes('\\/') || REGEX_DIAGNOSTIC_PATTERN.test(path.slice(1, -1));
 }
 
@@ -133,6 +135,7 @@ function findAbsolutePathEnd(message: string, pathStart: number): number {
     const character = message[index];
 
     if (isPathTerminator(character)) return index;
+    if (isPathClosingBoundary(message, index)) return index;
 
     if (
       (character === ',' || (character === ':' && isEnvironmentPath(message, pathStart))) &&
@@ -143,12 +146,16 @@ function findAbsolutePathEnd(message: string, pathStart: number): number {
     }
 
     if (character !== undefined && WHITESPACE_PATTERN.test(character)) {
+      if (isSlashDelimitedDiagnostic(message.slice(pathStart, index))) return index;
+
       const nextCharacter = skipWhitespace(message, index);
       const nextSegmentEnd = findNextPathTerminator(message, nextCharacter);
       const nextSegment = message.slice(nextCharacter, nextSegmentEnd);
+      const nextSlash = nextSegment.indexOf('/');
+      const nextWhitespace = nextSegment.search(WHITESPACE_PATTERN);
       const continuesPath =
         !PATH_BOUNDARY_PREFIX_PATTERN.test(nextSegment) &&
-        (nextSegment.includes('/') ||
+        ((nextSlash >= 0 && (nextWhitespace < 0 || nextSlash < nextWhitespace)) ||
           PATH_EXTENSION_PATTERN.test(nextSegment.replace(TRAILING_PATH_PUNCTUATION_PATTERN, '')));
 
       if (!continuesPath) return index;
@@ -163,10 +170,30 @@ function isEnvironmentPath(message: string, pathStart: number): boolean {
 }
 
 function isAdjacentPathStart(message: string, pathStart: number): boolean {
-  const pathEnd = findAbsolutePathEnd(message, pathStart);
-  const path = message.slice(pathStart, pathEnd);
+  let index = pathStart + 1;
+  let slashCount = 0;
+
+  while (
+    index < message.length &&
+    index - pathStart <= ADJACENT_PATH_LOOKAHEAD_MAX_LENGTH
+  ) {
+    const character = message[index];
+    if (
+      isPathTerminator(character) ||
+      isPathClosingBoundary(message, index) ||
+      WHITESPACE_PATTERN.test(character ?? '') ||
+      character === ',' ||
+      character === ':'
+    ) {
+      break;
+    }
+    if (character === '/') slashCount += 1;
+    index += 1;
+  }
+
+  const path = message.slice(pathStart, index);
   const lastComponent = basename(path).replace(TRAILING_PATH_PUNCTUATION_PATTERN, '');
-  return path.slice(1).includes('/') || PATH_EXTENSION_PATTERN.test(lastComponent);
+  return slashCount > 0 || PATH_EXTENSION_PATTERN.test(lastComponent);
 }
 
 function skipWhitespace(message: string, start: number): number {
@@ -177,9 +204,17 @@ function skipWhitespace(message: string, start: number): number {
 
 function findNextPathTerminator(message: string, start: number): number {
   for (let index = start; index < message.length; index += 1) {
-    if (isPathTerminator(message[index])) return index;
+    if (isPathTerminator(message[index]) || isPathClosingBoundary(message, index)) return index;
   }
   return message.length;
+}
+
+function isPathClosingBoundary(message: string, index: number): boolean {
+  const character = message[index];
+  return (
+    (character === ')' || character === ']' || character === '}') &&
+    message[index + 1] !== '/'
+  );
 }
 
 function isPathTerminator(character: string | undefined): boolean {

@@ -436,7 +436,7 @@ describe('piHarnessAdapter', () => {
       type: 'error' as const,
       message:
         'Pattern /foo\\/bar/; directory /runner/extensions/; ' +
-        'path /runner/a:/secret; bracketed /[tenant]/secret',
+        'cache /runner/$cache/; path /runner/a:/secret; bracketed /[tenant]/secret',
     };
     createAgentSessionServicesMock.mockResolvedValue({
       ...piServices('/work', [diagnostic]),
@@ -446,8 +446,44 @@ describe('piHarnessAdapter', () => {
 
     expect(error.message).toBe(
       'Pi extension setup failed: Pattern /foo\\/bar/; directory extensions; ' +
-        'path secret; bracketed secret',
+        'cache $cache; path secret; bracketed secret',
     );
+  });
+
+  it('preserves regex delimiters and diagnostic text between paths', async () => {
+    const diagnostic = {
+      type: 'error' as const,
+      message:
+        'Pattern /(foo)/ and path /private/work/secret.txt; ' +
+        'context /a (see /private/work/secret.txt)',
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [diagnostic]),
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error.message).toBe(
+      'Pi extension setup failed: Pattern /(foo)/ and path secret.txt; ' +
+        'context a (see secret.txt)',
+    );
+  });
+
+  it('handles a large comma-separated path diagnostic without recursion', async () => {
+    const diagnostic = {
+      type: 'error' as const,
+      message: Array.from(
+        {length: 2000},
+        (_, index) => `/runner/extensions/extension-${index}/index.ts`,
+      ).join(','),
+    };
+    createAgentSessionServicesMock.mockResolvedValue({
+      ...piServices('/work', [diagnostic]),
+    });
+
+    const error = await piHarnessAdapter.run(invocation()).catch((caught) => caught);
+
+    expect(error.message).toContain('…');
   });
 
   it('uses a generic message when all harness diagnostics are empty', async () => {
