@@ -7,6 +7,8 @@ import {DEFAULT_RUNNER_IMAGE, DockerTemplateConfigError, loadDockerTemplates} fr
 const mocks = vi.hoisted(() => ({debug: vi.fn(), info: vi.fn(), warn: vi.fn()}));
 vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => mocks}));
 
+const SHADOWED_TEMPLATE_CPU_PATTERN = /templates\.docker-2-ubuntu22\.cpu/;
+
 let dir: string;
 
 beforeEach(() => {
@@ -176,10 +178,35 @@ matrix:
       expect.objectContaining({
         event: 'provisioner.template_generated_shadowed',
         templateKey: 'docker-2-ubuntu22',
-        block: 'docker',
       }),
       expect.stringContaining('shadowed'),
     );
+  });
+
+  it('validates generated templates before a hand-written shadow can hide them', () => {
+    const path = writeTemplates(`
+templates:
+  docker-2-ubuntu22:
+    labels: [hand-written]
+    image: hand-written
+    cpu: 99
+    memory: 2g
+    max_concurrency: 1
+matrix:
+  docker:
+    axes:
+      cpu: [2]
+      os: [ubuntu22]
+    template:
+      labels: [generated]
+      image: generated
+      cpu: 0
+      memory: 4g
+      max_concurrency: 2
+`);
+
+    expect(() => loadDockerTemplates(path)).toThrow(SHADOWED_TEMPLATE_CPU_PATTERN);
+    expect(mocks.warn).not.toHaveBeenCalled();
   });
 
   it('wraps core matrix errors in DockerTemplateConfigError', () => {

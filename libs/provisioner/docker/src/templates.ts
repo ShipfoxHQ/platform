@@ -58,23 +58,38 @@ export function loadDockerTemplates(filePath: string): ProvisionerTemplate<Docke
   const raw = parseYamlFile(filePath);
   let templateFile: ProvisionerTemplateFile;
   let renderedTemplates: RenderedTemplateMap;
+  let validatedTemplates: Readonly<Record<string, z.infer<typeof dockerTemplateSchema>>>;
   try {
     templateFile = parseTemplateFile(raw);
-    renderedTemplates = renderTemplateVariants(templateFile);
+    const generatedTemplates = renderTemplateVariants({...templateFile, templates: {}});
+    const handWrittenTemplates = renderTemplateVariants({...templateFile, matrix: {}});
+    const validatedGeneratedTemplates = validateRenderedTemplates(filePath, generatedTemplates);
+    const validatedHandWrittenTemplates = validateRenderedTemplates(filePath, handWrittenTemplates);
+
+    for (const key of Object.keys(generatedTemplates)) {
+      if (!Object.hasOwn(handWrittenTemplates, key)) continue;
+      logger().warn(
+        {
+          event: 'provisioner.template_generated_shadowed',
+          templateKey: key,
+        },
+        `Generated template "${key}" is shadowed by a hand-written template`,
+      );
+    }
+
+    renderedTemplates = mergeTemplateMaps(handWrittenTemplates, generatedTemplates);
+    validatedTemplates = mergeTemplateMaps(
+      validatedHandWrittenTemplates,
+      validatedGeneratedTemplates,
+    );
   } catch (error) {
+    if (error instanceof DockerTemplateConfigError) throw error;
     throw new DockerTemplateConfigError(
       `Invalid Docker template config at ${filePath}: ${errorMessage(error)}`,
     );
   }
 
-  const parsed = dockerTemplatesFileSchema.safeParse({templates: renderedTemplates});
-  if (!parsed.success) {
-    throw new DockerTemplateConfigError(
-      `Invalid Docker template config at ${filePath}: ${formatIssues(parsed.error)}`,
-    );
-  }
-
-  const entries = Object.entries(parsed.data.templates);
+  const entries = Object.entries(validatedTemplates);
   if (entries.length === 0) {
     throw new DockerTemplateConfigError(
       `Docker template config at ${filePath} declares no templates; add at least one.`,
@@ -108,6 +123,30 @@ export function loadDockerTemplates(filePath: string): ProvisionerTemplate<Docke
   );
 
   return templates;
+}
+
+function validateRenderedTemplates(
+  filePath: string,
+  renderedTemplates: RenderedTemplateMap,
+): Readonly<Record<string, z.infer<typeof dockerTemplateSchema>>> {
+  const parsed = dockerTemplatesFileSchema.safeParse({templates: renderedTemplates});
+  if (!parsed.success) {
+    throw new DockerTemplateConfigError(
+      `Invalid Docker template config at ${filePath}: ${formatIssues(parsed.error)}`,
+    );
+  }
+  return parsed.data.templates;
+}
+
+function mergeTemplateMaps<T>(
+  handWrittenTemplates: Readonly<Record<string, T>>,
+  generatedTemplates: Readonly<Record<string, T>>,
+): Record<string, T> {
+  const merged = {...handWrittenTemplates};
+  for (const [key, template] of Object.entries(generatedTemplates)) {
+    if (!Object.hasOwn(merged, key)) merged[key] = template;
+  }
+  return merged;
 }
 
 function hasImageField(templates: Readonly<Record<string, unknown>>, key: string): boolean {
