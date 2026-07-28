@@ -1,5 +1,17 @@
 # @shipfox/api-workflows-dto
 
+## 10.0.0
+
+### Minor Changes
+
+- 22bf8a2: Classifies runner agent harness startup failures separately from user-fixable agent configuration errors.
+
+### Patch Changes
+
+- Updated dependencies [43ce975]
+  - @shipfox/api-agent-dto@10.0.0
+  - @shipfox/inter-module@0.2.2
+
 ## 9.3.0
 
 ### Minor Changes

@@ -1,5 +1,17 @@
 # @shipfox/provisioner-core
 
+## 1.0.6
+
+### Patch Changes
+
+- Updated dependencies [e9280fc]
+- Updated dependencies [837bf5d]
+- Updated dependencies [3f5610b]
+  - @shipfox/api-runners-dto@10.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/node-resilient-loop@0.0.1
+
 ## 1.0.5
 
 ### Patch Changes

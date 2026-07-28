@@ -1,5 +1,14 @@
 # @shipfox/docker
 
+## 0.1.4
+
+### Patch Changes
+
+- a7add42: Forwards runner build identity into runner image builds so runtime diagnostics can identify the build.
+- 59a552c: Shares built runner output staging and production import-map handling between Docker and Packer image builds.
+- Updated dependencies [59a552c]
+  - @shipfox/tool-utils@1.2.2
+
 ## 0.1.3
 
 ### Patch Changes

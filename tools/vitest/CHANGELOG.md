@@ -1,5 +1,14 @@
 # @shipfox/vitest
 
+## 1.2.5
+
+### Patch Changes
+
+- 6b0fb90: Forward command-line arguments through the Vitest runner wrapper.
+- Updated dependencies [59a552c]
+  - @shipfox/tool-utils@1.2.2
+  - @shipfox/vite@1.2.7
+
 ## 1.2.4
 
 ### Patch Changes

@@ -1,5 +1,27 @@
 # @shipfox/client-features
 
+## 11.0.0
+
+### Patch Changes
+
+- Updated dependencies [662516d]
+- Updated dependencies [22bf8a2]
+- Updated dependencies [43ce975]
+- Updated dependencies [86ad6a3]
+- Updated dependencies [e9280fc]
+  - @shipfox/client-shell@11.0.0
+  - @shipfox/client-workflows@11.0.0
+  - @shipfox/client-agent@11.0.0
+  - @shipfox/client-onboarding@11.0.0
+  - @shipfox/client-auth@11.0.0
+  - @shipfox/client-invitations@11.0.0
+  - @shipfox/client-integrations@11.0.0
+  - @shipfox/client-projects@11.0.0
+  - @shipfox/client-runners@11.0.0
+  - @shipfox/client-secrets@11.0.0
+  - @shipfox/client-triggers@11.0.0
+  - @shipfox/client-workspace-settings@11.0.0
+
 ## 10.0.1
 
 ### Patch Changes

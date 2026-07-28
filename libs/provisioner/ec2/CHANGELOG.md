@@ -1,5 +1,18 @@
 # @shipfox/provisioner-ec2-provider
 
+## 1.0.6
+
+### Patch Changes
+
+- Updated dependencies [e9280fc]
+- Updated dependencies [837bf5d]
+- Updated dependencies [3f5610b]
+  - @shipfox/api-runners-dto@10.0.0
+  - @shipfox/provisioner-core@1.0.6
+  - @shipfox/config@1.2.4
+  - @shipfox/runner-labels@0.1.3
+  - @shipfox/node-opentelemetry@0.6.3
+
 ## 1.0.5
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-integration-webhook",
   "license": "MIT",
-  "version": "9.3.0",
+  "version": "10.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

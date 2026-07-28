@@ -1,5 +1,17 @@
 # @shipfox/node-fastify
 
+## 0.4.0
+
+### Minor Changes
+
+- 74f9e31: Support validated wildcard subdomain origins in the shared Fastify CORS boundary.
+
+### Patch Changes
+
+- @shipfox/config@1.2.4
+- @shipfox/node-error-monitoring@0.3.0
+- @shipfox/node-opentelemetry@0.6.3
+
 ## 0.3.4
 
 ### Patch Changes

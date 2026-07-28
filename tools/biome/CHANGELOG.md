@@ -1,5 +1,12 @@
 # @shipfox/biome
 
+## 1.10.1
+
+### Patch Changes
+
+- Updated dependencies [59a552c]
+  - @shipfox/tool-utils@1.2.2
+
 ## 1.10.0
 
 ### Minor Changes

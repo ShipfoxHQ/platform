@@ -1,5 +1,23 @@
 # @shipfox/client-onboarding
 
+## 11.0.0
+
+### Minor Changes
+
+- e9280fc: Add an observer-authorized administrator workspace lookup with bounded safe summaries,
+  best-effort job counts, and a neutral unavailable-workspace member experience for
+  suspended or deleted workspaces.
+
+### Patch Changes
+
+- Updated dependencies [662516d]
+- Updated dependencies [43ce975]
+- Updated dependencies [e9280fc]
+  - @shipfox/client-shell@11.0.0
+  - @shipfox/client-agent@11.0.0
+  - @shipfox/client-integrations@11.0.0
+  - @shipfox/client-projects@11.0.0
+
 ## 10.0.1
 
 ### Patch Changes

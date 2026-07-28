@@ -1,5 +1,25 @@
 # Changelog
 
+## 11.0.0
+
+### Minor Changes
+
+- 662516d: Add an optional browser account-menu entry slot for composing applications.
+- e9280fc: Add an observer-authorized administrator workspace lookup with bounded safe summaries,
+  best-effort job counts, and a neutral unavailable-workspace member experience for
+  suspended or deleted workspaces.
+
+### Patch Changes
+
+- Updated dependencies [6054364]
+- Updated dependencies [e9280fc]
+  - @shipfox/api-auth-dto@10.0.0
+  - @shipfox/api-workspaces-dto@10.0.0
+  - @shipfox/client-api@6.0.1
+  - @shipfox/client-config@6.0.2
+  - @shipfox/client-ui@6.0.2
+  - @shipfox/react-ui@0.3.7
+
 ## 10.0.1
 
 ### Patch Changes

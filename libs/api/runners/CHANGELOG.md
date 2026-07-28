@@ -1,5 +1,43 @@
 # @shipfox/api-runners
 
+## 10.0.0
+
+### Minor Changes
+
+- e9280fc: Add an observer-authorized administrator workspace lookup with bounded safe summaries,
+  best-effort job counts, and a neutral unavailable-workspace member experience for
+  suspended or deleted workspaces.
+- 837bf5d: Stores runner reservation intent and promotes it during enrollment for lower activation latency.
+
+### Patch Changes
+
+- a48ad8c: Allows provisioner assignment retries after reservation cleanup.
+- 2402bdb: Keep runner assignment polls open through transient activation-token races.
+- Updated dependencies [6054364]
+- Updated dependencies [74f9e31]
+- Updated dependencies [22bf8a2]
+- Updated dependencies [e9280fc]
+- Updated dependencies [837bf5d]
+- Updated dependencies [3f5610b]
+  - @shipfox/api-auth-dto@10.0.0
+  - @shipfox/node-fastify@0.4.0
+  - @shipfox/api-workflows-dto@10.0.0
+  - @shipfox/api-runners-dto@10.0.0
+  - @shipfox/api-auth-context@10.0.0
+  - @shipfox/node-module@1.0.4
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.2
+  - @shipfox/runner-labels@0.1.3
+  - @shipfox/node-auth-root-key@0.2.3
+  - @shipfox/node-drizzle@0.3.4
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/node-outbox@0.2.6
+  - @shipfox/node-postgres@0.4.4
+  - @shipfox/node-rate-limit@0.3.2
+  - @shipfox/node-temporal@0.4.4
+  - @shipfox/node-tokens@0.3.2
+
 ## 9.3.0
 
 ### Patch Changes

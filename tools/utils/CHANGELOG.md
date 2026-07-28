@@ -1,5 +1,11 @@
 # @shipfox/tool-utils
 
+## 1.2.2
+
+### Patch Changes
+
+- 59a552c: Shares built runner output staging and production import-map handling between Docker and Packer image builds.
+
 ## 1.2.1
 
 ### Patch Changes

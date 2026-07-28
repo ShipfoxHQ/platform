@@ -1,5 +1,15 @@
 # @shipfox/expression
 
+## 1.2.0
+
+### Minor Changes
+
+- a713231: Add scoped CEL environments, a per-evaluation inclusive `range` primitive capped at 1,000 values, and typed exact-expression field resolution for config templating.
+
+### Patch Changes
+
+- @shipfox/workflow-document@2.1.3
+
 ## 1.1.5
 
 ### Patch Changes

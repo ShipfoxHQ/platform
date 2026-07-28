@@ -1,5 +1,18 @@
 # @shipfox/node-module
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies [74f9e31]
+  - @shipfox/node-fastify@0.4.0
+  - @shipfox/inter-module@0.2.2
+  - @shipfox/node-drizzle@0.3.4
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/node-outbox@0.2.6
+  - @shipfox/node-temporal@0.4.4
+
 ## 1.0.3
 
 ### Patch Changes

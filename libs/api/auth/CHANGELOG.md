@@ -1,5 +1,40 @@
 # @shipfox/api-auth
 
+## 10.0.0
+
+### Major Changes
+
+- 6054364: Add bounded administrator user lookup and safe administrator-grant summaries while removing the unbounded grant reader.
+
+### Minor Changes
+
+- dd43d63: Moves Auth administration routes to the unversioned `/admin/...` namespace.
+
+### Patch Changes
+
+- Updated dependencies [6054364]
+- Updated dependencies [74f9e31]
+- Updated dependencies [e9280fc]
+  - @shipfox/api-auth-dto@10.0.0
+  - @shipfox/node-fastify@0.4.0
+  - @shipfox/api-workspaces-dto@10.0.0
+  - @shipfox/api-auth-context@10.0.0
+  - @shipfox/node-module@1.0.4
+  - @shipfox/api-common-dto@9.2.0
+  - @shipfox/api-email-challenges@1.1.6
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.2
+  - @shipfox/node-auth-root-key@0.2.3
+  - @shipfox/node-drizzle@0.3.4
+  - @shipfox/node-email@0.3.4
+  - @shipfox/node-jwt@0.3.2
+  - @shipfox/node-mailer@0.2.4
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/node-outbox@0.2.6
+  - @shipfox/node-postgres@0.4.4
+  - @shipfox/node-rate-limit@0.3.2
+  - @shipfox/node-tokens@0.3.2
+
 ## 9.3.0
 
 ### Minor Changes
