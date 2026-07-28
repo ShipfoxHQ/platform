@@ -1,5 +1,11 @@
 # @shipfox/runner-agent
 
+## 0.2.0
+
+### Minor Changes
+
+- 35fb890: Adds a `pi-extensions` subpath export so image builds can verify the deployed Pi extension closure without loading the runtime environment.
+
 ## 0.1.14
 
 ### Patch Changes

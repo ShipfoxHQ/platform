@@ -1,5 +1,13 @@
 # @shipfox/api-runners
 
+## 10.1.0
+
+### Patch Changes
+
+- Updated dependencies [fb34b6a]
+  - @shipfox/api-auth-dto@10.1.0
+  - @shipfox/api-auth-context@10.1.0
+
 ## 10.0.0
 
 ### Minor Changes

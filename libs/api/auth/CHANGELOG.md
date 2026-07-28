@@ -1,5 +1,18 @@
 # @shipfox/api-auth
 
+## 10.1.0
+
+### Minor Changes
+
+- fb34b6a: Expose authenticated administrator bootstrap availability through the Auth API.
+
+### Patch Changes
+
+- 3db7189: Treats suspended users as inactive admin owners during bootstrap recovery.
+- Updated dependencies [fb34b6a]
+  - @shipfox/api-auth-dto@10.1.0
+  - @shipfox/api-auth-context@10.1.0
+
 ## 10.0.0
 
 ### Major Changes

@@ -1,5 +1,18 @@
 # @shipfox/api-integration-core
 
+## 10.1.0
+
+### Patch Changes
+
+- @shipfox/api-auth-context@10.1.0
+- @shipfox/api-integration-gitea@10.1.0
+- @shipfox/api-integration-github@10.1.0
+- @shipfox/api-integration-jira@10.1.0
+- @shipfox/api-integration-linear@10.1.0
+- @shipfox/api-integration-sentry@10.1.0
+- @shipfox/api-integration-slack@10.1.0
+- @shipfox/api-integration-webhook@10.1.0
+
 ## 10.0.0
 
 ### Patch Changes
