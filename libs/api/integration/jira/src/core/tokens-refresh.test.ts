@@ -30,6 +30,8 @@ function createStore() {
     refreshAccessToken: vi.fn(),
     getAccessibleResources: vi.fn(),
     getMyself: vi.fn(),
+    registerDynamicWebhook: vi.fn(),
+    deleteDynamicWebhook: vi.fn(),
   };
   const markConnectionError = vi.fn().mockResolvedValue(undefined);
   const connectionId = crypto.randomUUID();

@@ -15,7 +15,6 @@ process.env.GITHUB_INSTALL_STATE_SECRET = 'test-install-state-secret';
 process.env.JIRA_OAUTH_CLIENT_ID = 'test-client-id';
 process.env.JIRA_OAUTH_CLIENT_SECRET = 'test-client-secret';
 process.env.JIRA_OAUTH_REDIRECT_URL = 'https://shipfox.example.com/integrations/jira/callback';
-process.env.JIRA_WEBHOOK_SIGNING_SECRET = 'test-webhook-secret';
 process.env.JIRA_WEBHOOK_BASE_URL = 'https://shipfox.example.com';
 process.env.JIRA_API_BASE_URL = 'https://jira.example.com/api';
 process.env.JIRA_AUTH_BASE_URL = 'https://jira.example.com/auth';

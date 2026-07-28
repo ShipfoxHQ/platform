@@ -11,4 +11,12 @@ describe('createJiraIntegrationProvider', () => {
       routes: [],
     });
   });
+
+  it('rejects incomplete receiver wiring instead of mounting registration without a receiver', () => {
+    expect(() =>
+      createJiraIntegrationProvider({
+        routes: {tokenStore: {} as never} as never,
+      }),
+    ).toThrow('requires all webhook receiver dependencies');
+  });
 });

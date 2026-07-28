@@ -24,6 +24,25 @@ export function pgClient(): pg.Pool {
   return _pool;
 }
 
+export async function withPostgresSession<T>(fn: (client: pg.Client) => Promise<T>): Promise<T> {
+  const client = new pg.Client({
+    host: config.POSTGRES_HOST,
+    port: config.POSTGRES_PORT,
+    database: config.POSTGRES_DATABASE,
+    user: config.POSTGRES_USERNAME,
+    password: config.POSTGRES_PASSWORD,
+    keepAlive: true,
+    connectionTimeoutMillis: config.POSTGRES_CONNECTION_TIMEOUT_MS,
+    ssl: config.POSTGRES_TLS_MODE === 'verify-full' ? {rejectUnauthorized: true} : false,
+  });
+  await client.connect();
+  try {
+    return await fn(client);
+  } finally {
+    await client.end();
+  }
+}
+
 export async function closePostgresClient() {
   await _pool?.end();
   _pool = undefined;

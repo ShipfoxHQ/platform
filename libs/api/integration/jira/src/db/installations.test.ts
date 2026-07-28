@@ -9,7 +9,9 @@ import {
   getJiraInstallationByWebhookId,
   markJiraInstallationRevoked,
   updateJiraInstallationTokenExpiry,
+  updateJiraInstallationWebhook,
   upsertJiraInstallation,
+  withJiraWebhookRegistrationLock,
 } from './installations.js';
 
 function createInstallationInput(
@@ -60,6 +62,36 @@ describe('jira installations', () => {
       scopes: ['read:jira-work', 'write:jira-work'],
       webhookIds: [123],
     });
+  });
+
+  it('preserves webhook metadata when reconnect upsert omits it', async () => {
+    const webhookExpiresAt = new Date('2030-01-01T00:00:00.000Z');
+    const input = createInstallationInput({webhookIds: [321], webhookExpiresAt});
+    await upsertJiraInstallation(input);
+
+    const result = await upsertJiraInstallation({
+      ...input,
+      scopes: ['read:jira-work', 'write:jira-work'],
+      webhookIds: undefined,
+      webhookExpiresAt: undefined,
+    });
+
+    expect(result.webhookIds).toEqual([321]);
+    expect(result.webhookExpiresAt).toEqual(webhookExpiresAt);
+  });
+
+  it('replaces webhook ids and expiry together after registration', async () => {
+    const input = createInstallationInput({webhookIds: [321]});
+    await upsertJiraInstallation(input);
+    const webhookExpiresAt = new Date('2030-02-01T00:00:00.000Z');
+
+    const result = await updateJiraInstallationWebhook({
+      connectionId: input.connectionId,
+      webhookIds: [654],
+      webhookExpiresAt,
+    });
+
+    expect(result).toMatchObject({webhookIds: [654], webhookExpiresAt});
   });
 
   it('refuses to repoint a connection to a different Jira site', async () => {
@@ -125,5 +157,37 @@ describe('jira installations', () => {
 
     expect(revoked?.status).toBe('revoked');
     expect(missing).toBeUndefined();
+  });
+
+  it('serializes webhook registration lock contenders for one connection', async () => {
+    const connectionId = crypto.randomUUID();
+    let releaseFirst!: () => void;
+    let firstEntered!: () => void;
+    const firstReady = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const first = withJiraWebhookRegistrationLock(connectionId, async () => {
+      firstEntered();
+      await firstRelease;
+      return 'first';
+    });
+    await firstReady;
+
+    let secondFinished = false;
+    const second = withJiraWebhookRegistrationLock(connectionId, () => {
+      secondFinished = true;
+      return Promise.resolve('second');
+    });
+    await Promise.resolve();
+    expect(secondFinished).toBe(false);
+
+    releaseFirst();
+    await expect(first).resolves.toBe('first');
+    await expect(second).resolves.toBe('second');
+    expect(secondFinished).toBe(true);
   });
 });

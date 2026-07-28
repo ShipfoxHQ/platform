@@ -20,6 +20,8 @@ describe('jiraProviderModule', () => {
     const parts = await loadEnabledProviderModules();
     const jiraPart = parts.find((part) => part.provider.provider === 'jira');
     if (!jiraPart?.database) throw new Error('Jira provider database is not configured');
+    expect(jiraPart.provider.routes).toHaveLength(2);
+    expect(jiraPart.webhookProcessors).toEqual([expect.objectContaining({routeIds: ['jira']})]);
     const workspaceId = crypto.randomUUID();
     const cloudId = crypto.randomUUID();
 
