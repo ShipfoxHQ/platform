@@ -1,5 +1,20 @@
 # @shipfox/api-integration-github
 
+## 10.0.0
+
+### Patch Changes
+
+- Updated dependencies [74f9e31]
+  - @shipfox/node-fastify@0.4.0
+  - @shipfox/api-auth-context@10.0.0
+  - @shipfox/api-integration-github-dto@9.0.2
+  - @shipfox/api-integration-spi@0.2.2
+  - @shipfox/config@1.2.4
+  - @shipfox/node-drizzle@0.3.4
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/node-postgres@0.4.4
+
 ## 9.3.0
 
 ### Patch Changes

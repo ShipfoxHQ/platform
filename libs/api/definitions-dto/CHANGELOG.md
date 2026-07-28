@@ -1,5 +1,14 @@
 # @shipfox/api-definitions-dto
 
+## 10.0.0
+
+### Patch Changes
+
+- Updated dependencies [a713231]
+  - @shipfox/expression@1.2.0
+  - @shipfox/inter-module@0.2.2
+  - @shipfox/workflow-document@2.1.3
+
 ## 9.0.2
 
 ### Patch Changes

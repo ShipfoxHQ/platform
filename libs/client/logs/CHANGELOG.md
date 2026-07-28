@@ -1,5 +1,14 @@
 # @shipfox/client-logs
 
+## 11.0.0
+
+### Patch Changes
+
+- 38a4635: Names Claude tool-result rows from their matching tool calls and marks unmatched results explicitly.
+  - @shipfox/api-logs-dto@9.0.2
+  - @shipfox/client-api@6.0.1
+  - @shipfox/react-ui@0.3.7
+
 ## 6.0.2
 
 ### Patch Changes

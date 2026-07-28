@@ -1,5 +1,12 @@
 # @shipfox/depcruise
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies [59a552c]
+  - @shipfox/tool-utils@1.2.2
+
 ## 1.0.3
 
 ### Patch Changes

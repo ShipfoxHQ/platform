@@ -1,5 +1,16 @@
 # @shipfox/api-auth-dto
 
+## 10.0.0
+
+### Minor Changes
+
+- 6054364: Add bounded administrator user lookup and safe administrator-grant summaries while removing the unbounded grant reader.
+
+### Patch Changes
+
+- @shipfox/api-common-dto@9.2.0
+- @shipfox/inter-module@0.2.2
+
 ## 9.3.0
 
 ### Minor Changes

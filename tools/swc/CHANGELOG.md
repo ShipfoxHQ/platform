@@ -1,5 +1,12 @@
 # @shipfox/swc
 
+## 1.2.8
+
+### Patch Changes
+
+- Updated dependencies [59a552c]
+  - @shipfox/tool-utils@1.2.2
+
 ## 1.2.7
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shipfox/cloudflare-pages
 
+## 0.3.0
+
+### Minor Changes
+
+- d7b951f: Adds verified Pages artifact promotion and hardens config, validation, and archive handling.
+
 ## 0.2.0
 
 ### Minor Changes

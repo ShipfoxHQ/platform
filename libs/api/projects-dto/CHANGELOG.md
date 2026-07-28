@@ -1,5 +1,18 @@
 # @shipfox/api-projects-dto
 
+## 10.0.0
+
+### Minor Changes
+
+- e9280fc: Add an observer-authorized administrator workspace lookup with bounded safe summaries,
+  best-effort job counts, and a neutral unavailable-workspace member experience for
+  suspended or deleted workspaces.
+
+### Patch Changes
+
+- @shipfox/api-common-dto@9.2.0
+- @shipfox/inter-module@0.2.2
+
 ## 9.2.0
 
 ### Patch Changes

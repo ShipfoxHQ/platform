@@ -1,5 +1,15 @@
 # @shipfox/runner-workspace
 
+## 0.0.12
+
+### Patch Changes
+
+- Updated dependencies [22bf8a2]
+  - @shipfox/api-workflows-dto@10.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/regex@0.2.4
+  - @shipfox/node-opentelemetry@0.6.3
+
 ## 0.0.11
 
 ### Patch Changes

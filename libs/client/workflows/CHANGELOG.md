@@ -1,5 +1,28 @@
 # @shipfox/client-workflows
 
+## 11.0.0
+
+### Minor Changes
+
+- 22bf8a2: Classifies runner agent harness startup failures separately from user-fixable agent configuration errors.
+
+### Patch Changes
+
+- 86ad6a3: Uses the workflow step's agent configuration in failure guidance.
+- Updated dependencies [662516d]
+- Updated dependencies [22bf8a2]
+- Updated dependencies [38a4635]
+- Updated dependencies [e9280fc]
+  - @shipfox/client-shell@11.0.0
+  - @shipfox/api-workflows-dto@10.0.0
+  - @shipfox/client-logs@11.0.0
+  - @shipfox/client-projects@11.0.0
+  - @shipfox/client-triggers@11.0.0
+  - @shipfox/api-definitions-dto@10.0.0
+  - @shipfox/client-api@6.0.1
+  - @shipfox/client-ui@6.0.2
+  - @shipfox/react-ui@0.3.7
+
 ## 10.0.1
 
 ### Patch Changes

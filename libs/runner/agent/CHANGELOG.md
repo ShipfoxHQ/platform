@@ -1,5 +1,26 @@
 # @shipfox/runner-agent
 
+## 0.1.14
+
+### Patch Changes
+
+- e5f7cfe: Keep Claude agent steps isolated from repository-controlled policy and fail when the requested permission mode is downgraded. Repository settings, hooks, MCP discovery, and automatic memory are no longer loaded; `CLAUDE.md` and `AGENTS.md` are read only from the working directory, capped at 64 KiB, and appended as advisory prompt text without parent walking or `@path` expansion. This intentionally loosens behavior for repositories that used project settings to restrict CI agents.
+- Updated dependencies [22bf8a2]
+- Updated dependencies [a713231]
+- Updated dependencies [43ce975]
+- Updated dependencies [e9280fc]
+- Updated dependencies [837bf5d]
+- Updated dependencies [3f5610b]
+  - @shipfox/api-workflows-dto@10.0.0
+  - @shipfox/expression@1.2.0
+  - @shipfox/api-agent-dto@10.0.0
+  - @shipfox/api-runners-dto@10.0.0
+  - @shipfox/runner-execution@0.1.14
+  - @shipfox/runner-protocol@0.2.8
+  - @shipfox/config@1.2.4
+  - @shipfox/node-egress-guard@0.1.3
+  - @shipfox/node-opentelemetry@0.6.3
+
 ## 0.1.13
 
 ### Patch Changes

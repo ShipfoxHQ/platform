@@ -1,5 +1,20 @@
 # @shipfox/api-runners-dto
 
+## 10.0.0
+
+### Minor Changes
+
+- e9280fc: Add an observer-authorized administrator workspace lookup with bounded safe summaries,
+  best-effort job counts, and a neutral unavailable-workspace member experience for
+  suspended or deleted workspaces.
+- 837bf5d: Stores runner reservation intent and promotes it during enrollment for lower activation latency.
+
+### Patch Changes
+
+- 3f5610b: Allow provisioner demand polls to advertise up to 1000 templates.
+  - @shipfox/inter-module@0.2.2
+  - @shipfox/runner-labels@0.1.3
+
 ## 9.0.2
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @shipfox/api-agent-dto
 
+## 10.0.0
+
+### Patch Changes
+
+- 43ce975: Align Pi harness compatibility and provider catalog metadata with the current Pi SDK.
+  - @shipfox/inter-module@0.2.2
+  - @shipfox/workflow-document@2.1.3
+
 ## 9.0.2
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @shipfox/api-dispatcher
 
+## 10.0.0
+
+### Patch Changes
+
+- @shipfox/node-module@1.0.4
+- @shipfox/config@1.2.4
+- @shipfox/node-error-monitoring@0.3.0
+- @shipfox/node-opentelemetry@0.6.3
+- @shipfox/node-outbox@0.2.6
+- @shipfox/node-postgres@0.4.4
+- @shipfox/node-temporal@0.4.4
+
 ## 9.3.0
 
 ### Patch Changes

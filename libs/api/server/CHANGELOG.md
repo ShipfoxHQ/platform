@@ -1,5 +1,59 @@
 # @shipfox/api-server
 
+## 10.0.0
+
+### Minor Changes
+
+- e9280fc: Add an observer-authorized administrator workspace lookup with bounded safe summaries,
+  best-effort job counts, and a neutral unavailable-workspace member experience for
+  suspended or deleted workspaces.
+
+### Patch Changes
+
+- Updated dependencies [6054364]
+- Updated dependencies [74f9e31]
+- Updated dependencies [a48ad8c]
+- Updated dependencies [22bf8a2]
+- Updated dependencies [930e3e7]
+- Updated dependencies [43ce975]
+- Updated dependencies [dcce9cb]
+- Updated dependencies [e9280fc]
+- Updated dependencies [2402bdb]
+- Updated dependencies [837bf5d]
+- Updated dependencies [dd43d63]
+- Updated dependencies [3f5610b]
+  - @shipfox/api-auth@10.0.0
+  - @shipfox/api-auth-dto@10.0.0
+  - @shipfox/node-fastify@0.4.0
+  - @shipfox/api-runners@10.0.0
+  - @shipfox/api-workflows-dto@10.0.0
+  - @shipfox/api-logs@10.0.0
+  - @shipfox/api-agent@10.0.0
+  - @shipfox/api-agent-dto@10.0.0
+  - @shipfox/api-workspaces@10.0.0
+  - @shipfox/api-workspaces-dto@10.0.0
+  - @shipfox/api-projects@10.0.0
+  - @shipfox/api-projects-dto@10.0.0
+  - @shipfox/api-runners-dto@10.0.0
+  - @shipfox/annotations@10.0.0
+  - @shipfox/api-workflows@10.0.0
+  - @shipfox/api-definitions@10.0.0
+  - @shipfox/api-integration-core@10.0.0
+  - @shipfox/api-secrets@10.0.0
+  - @shipfox/api-triggers@10.0.0
+  - @shipfox/node-module@1.0.4
+  - @shipfox/api-definitions-dto@10.0.0
+  - @shipfox/annotations-dto@9.0.2
+  - @shipfox/api-dispatcher@10.0.0
+  - @shipfox/api-email-challenges@1.1.6
+  - @shipfox/api-integration-core-dto@9.0.2
+  - @shipfox/api-secrets-dto@9.0.2
+  - @shipfox/config@1.2.4
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-jwt@0.3.2
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/node-postgres@0.4.4
+
 ## 9.3.0
 
 ### Minor Changes
