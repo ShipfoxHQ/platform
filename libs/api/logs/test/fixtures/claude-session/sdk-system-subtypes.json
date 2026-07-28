@@ -1,0 +1,32 @@
+{
+  "package": "@anthropic-ai/claude-agent-sdk",
+  "version": "0.3.200",
+  "subtypes": [
+    "api_retry",
+    "commands_changed",
+    "compact_boundary",
+    "elicitation_complete",
+    "files_persisted",
+    "hook_progress",
+    "hook_response",
+    "hook_started",
+    "informational",
+    "init",
+    "local_command_output",
+    "memory_recall",
+    "mirror_error",
+    "model_refusal_fallback",
+    "model_refusal_no_fallback",
+    "notification",
+    "permission_denied",
+    "plugin_install",
+    "session_state_changed",
+    "status",
+    "task_notification",
+    "task_progress",
+    "task_started",
+    "task_updated",
+    "thinking_tokens",
+    "worker_shutting_down"
+  ]
+}

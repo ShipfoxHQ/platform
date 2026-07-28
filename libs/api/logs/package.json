@@ -63,6 +63,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "catalog:",
     "@shipfox/api-auth-dto": "workspace:*",
     "@shipfox/inter-module": "workspace:*",
     "@shipfox/biome": "workspace:*",
