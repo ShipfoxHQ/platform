@@ -31,7 +31,7 @@ describe('admin grants db', () => {
     expect(await findCurrentAdminRole({userId: user.id})).toBeNull();
   });
 
-  test('does not report a suspended owner as active', async () => {
+  test('reopens bootstrap when the sole owner user is suspended', async () => {
     const user = await userFactory.create({emailVerifiedAt: new Date()});
     await createAdminGrant({userId: user.id, role: 'admin-owner'});
 

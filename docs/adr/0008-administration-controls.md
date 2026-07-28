@@ -87,6 +87,12 @@ token safely, publishes its administration-action event in the same
 transaction, and rejects later bootstrap attempts while an active owner exists.
 The token never enters browser storage, API responses, logs, or audit metadata.
 
+**A suspended owner does not count as an active owner.** The grant remains
+stored, but a user account with `suspended` status is excluded from the active
+owner check. If that leaves no active owner, authenticated bootstrap recovery
+is intentionally available again with the deployment token. Reactivating the
+owner closes bootstrap while the grant remains valid.
+
 ### Domain modules own administration behavior
 
 **Each domain module owns administration behavior for its resources.** The

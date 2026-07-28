@@ -32,6 +32,24 @@ import {authOutbox} from './schema/outbox.js';
 import {users} from './schema/users.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
+type AdminOwnerQueryExecutor = ReturnType<typeof db> | Tx;
+
+function activeAdminOwnerWhere() {
+  return and(
+    eq(adminGrants.role, 'admin-owner'),
+    isNull(adminGrants.revokedAt),
+    eq(users.status, 'active'),
+  );
+}
+
+async function listActiveAdminOwners(executor: AdminOwnerQueryExecutor) {
+  return await executor
+    .select({id: adminGrants.id})
+    .from(adminGrants)
+    .innerJoin(users, eq(adminGrants.userId, users.id))
+    .where(activeAdminOwnerWhere())
+    .limit(2);
+}
 
 export interface CreateAdminGrantParams {
   userId: string;
@@ -95,23 +113,6 @@ export async function listAdminGrantSummaries(params: {
   };
 }
 
-export async function hasActiveAdminOwner(): Promise<boolean> {
-  const rows = await db()
-    .select({id: adminGrants.id})
-    .from(adminGrants)
-    .innerJoin(users, eq(adminGrants.userId, users.id))
-    .where(
-      and(
-        eq(adminGrants.role, 'admin-owner'),
-        isNull(adminGrants.revokedAt),
-        eq(users.status, 'active'),
-      ),
-    )
-    .limit(1);
-
-  return rows.length > 0;
-}
-
 export async function findCurrentAdminRole(params: {userId: string}): Promise<AdminRole | null> {
   const rows = await db()
     .select({role: adminGrants.role})
@@ -126,6 +127,18 @@ export async function findCurrentAdminRole(params: {userId: string}): Promise<Ad
     );
 
   return highestAdminRole(rows.map(({role}) => role));
+}
+
+/**
+ * An owner is active only while both the grant and its user account remain
+ * active. A suspended owner's grant is retained, but it intentionally does
+ * not prevent deployment-bound bootstrap recovery.
+ */
+export async function hasActiveAdminOwner(
+  executor: AdminOwnerQueryExecutor = db(),
+): Promise<boolean> {
+  const rows = await listActiveAdminOwners(executor);
+  return rows.length > 0;
 }
 
 export async function revokeAdminGrant(params: {grantId: string}): Promise<AdminGrant | undefined> {
@@ -143,17 +156,7 @@ export async function revokeAdminGrant(params: {grantId: string}): Promise<Admin
     if (!grant) return undefined;
 
     if (grant.role === 'admin-owner') {
-      const activeOwners = await tx
-        .select({id: adminGrants.id})
-        .from(adminGrants)
-        .innerJoin(users, eq(adminGrants.userId, users.id))
-        .where(
-          and(
-            eq(adminGrants.role, 'admin-owner'),
-            isNull(adminGrants.revokedAt),
-            eq(users.status, 'active'),
-          ),
-        );
+      const activeOwners = await listActiveAdminOwners(tx);
       if (activeOwners.length <= 1) throw new LastAdminOwnerError();
     }
 
@@ -269,19 +272,7 @@ export async function bootstrapFirstAdminOwner(
     });
     if (existing) return existing;
 
-    const activeOwners = await tx
-      .select({id: adminGrants.id})
-      .from(adminGrants)
-      .innerJoin(users, eq(adminGrants.userId, users.id))
-      .where(
-        and(
-          eq(adminGrants.role, 'admin-owner'),
-          isNull(adminGrants.revokedAt),
-          eq(users.status, 'active'),
-        ),
-      )
-      .limit(1);
-    if (activeOwners.length > 0) throw new AdminBootstrapClosedError();
+    if (await hasActiveAdminOwner(tx)) throw new AdminBootstrapClosedError();
 
     const userRows = await tx
       .select({id: users.id, status: users.status})
@@ -375,17 +366,7 @@ export async function revokeAdminGrantWithAudit(
     if (!grant) throw new AdminGrantNotFoundError();
 
     if (grant.role === 'admin-owner') {
-      const activeOwners = await tx
-        .select({id: adminGrants.id})
-        .from(adminGrants)
-        .innerJoin(users, eq(adminGrants.userId, users.id))
-        .where(
-          and(
-            eq(adminGrants.role, 'admin-owner'),
-            isNull(adminGrants.revokedAt),
-            eq(users.status, 'active'),
-          ),
-        );
+      const activeOwners = await listActiveAdminOwners(tx);
       if (activeOwners.length <= 1) throw new LastAdminOwnerError();
     }
 
