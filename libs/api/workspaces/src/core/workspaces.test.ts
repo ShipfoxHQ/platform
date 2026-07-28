@@ -5,7 +5,7 @@ import {findMembership} from '#db/memberships.js';
 import {workspacesOutbox} from '#db/schema/outbox.js';
 import {updateWorkspace} from '#db/workspaces.js';
 import {userFactory} from '#test/index.js';
-import {MembershipRequiredError, WorkspaceNotFoundError} from './errors.js';
+import {MembershipRequiredError, WorkspaceInactiveError, WorkspaceNotFoundError} from './errors.js';
 import {
   createWorkspaceForUser,
   getWorkspaceOperatingState,
@@ -83,6 +83,25 @@ describe('workspaces core', () => {
     await updateWorkspace({id: workspace.id, status: 'suspended'});
 
     expect(await getWorkspaceOperatingState({workspaceId: workspace.id})).toBe('suspended');
+  });
+
+  test('requireWorkspaceMembership rejects a suspended workspace', async () => {
+    const user = userFactory.build();
+    const workspace = await createWorkspaceForUser({
+      name: 'Suspended Workspace',
+      userId: user.userId,
+      userEmail: user.email,
+      userName: user.name,
+    });
+    await updateWorkspace({id: workspace.id, status: 'suspended'});
+
+    const membership = requireWorkspaceMembership({
+      workspaceId: workspace.id,
+      userId: user.userId,
+      memberships: [{workspaceId: workspace.id, role: 'admin', workspaceStatus: 'active'}],
+    });
+
+    await expect(membership).rejects.toBeInstanceOf(WorkspaceInactiveError);
   });
 
   test('requireWorkspaceMembership rejects when memberships do not include the workspace', async () => {
