@@ -3,7 +3,12 @@ import {instanceMetrics} from '@shipfox/node-opentelemetry';
 export type AuthTokenType = 'session' | 'job_lease' | 'runner_session';
 export type AuthTokenVerificationOutcome = 'ok' | 'rejected';
 export type AuthTokenRefreshOutcome = 'rotated' | 'grace' | 'rejected';
-export type AuthRateLimitAction = 'login' | 'email-send' | 'bootstrap' | 'lookup';
+export type AuthRateLimitAction =
+  | 'login'
+  | 'email-send'
+  | 'bootstrap'
+  | 'bootstrap-state'
+  | 'lookup';
 export type AuthRateLimitScope = 'ip' | 'email';
 export type AuthRateLimitOutcome = 'allowed' | 'blocked' | 'unavailable';
 

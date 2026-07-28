@@ -234,7 +234,9 @@ When password login is disabled, the password and email-verification rows in thi
 
 ### Administrator grants
 
-All routes are mounted under `/admin/auth/admin-grants` and require an authenticated bearer token. Administrator role checks are enforced in the core layer, not by route-level middleware.
+`GET /admin/auth/bootstrap-state` requires an authenticated bearer token and returns exactly `{state: 'available' | 'closed'}`. It reports `available` only while no active `admin-owner` exists and never reports deployment-token configuration.
+
+Bootstrap and grant-management routes are mounted under `/admin/auth/admin-grants` and require an authenticated bearer token. Administrator role checks are enforced in the core layer, not by route-level middleware.
 
 | Method | Path | Required role | Result |
 | --- | --- | --- | --- |

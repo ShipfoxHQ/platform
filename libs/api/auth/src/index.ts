@@ -18,6 +18,7 @@ import {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-a
 import {createAuthE2eRoutes} from '#presentation/e2eRoutes/index.js';
 import {createAuthInterModulePresentation} from '#presentation/inter-module.js';
 import {
+  administrationBootstrapRoutes,
   administrationRoutes,
   administrationUserRoutes,
 } from '#presentation/routes/administration.js';
@@ -114,6 +115,7 @@ export function createAuthModule({
     loginMethods: passwordLoginMethods(config.AUTH_PASSWORD_ENABLED),
     routes: [
       buildAuthRoutes(config.AUTH_PASSWORD_ENABLED, workspaces, signupPolicy),
+      administrationBootstrapRoutes,
       administrationRoutes,
       administrationUserRoutes,
     ],

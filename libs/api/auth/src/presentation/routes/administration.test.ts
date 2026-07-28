@@ -1,8 +1,10 @@
 import {ADMINISTRATION_ACTION_PERFORMED} from '@shipfox/api-common-dto';
 import {sql} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
+import {type AuthRateLimitAction, hashAuthRateLimitIdentifier} from '#core/rate-limit.js';
 import {db} from '#db/db.js';
 import {authOutbox} from '#db/schema/outbox.js';
+import {authRateLimits} from '#db/schema/rate-limits.js';
 import {createAuthTestApp, createVerifiedSession, resetCapturedMail} from '#test/routes.js';
 
 const BOOTSTRAP_TOKEN = 'test-bootstrap-token';
@@ -18,6 +20,30 @@ function authHeaders(token: string, idempotencyKey: string) {
     authorization: `Bearer ${token}`,
     'idempotency-key': idempotencyKey,
   };
+}
+
+async function seedExhaustedIpBucket(params: {
+  action: AuthRateLimitAction;
+  identifier: string;
+  limit: number;
+  windowSeconds: number;
+}): Promise<void> {
+  const windowMs = params.windowSeconds * 1000;
+  const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+  await db()
+    .insert(authRateLimits)
+    .values({
+      action: params.action,
+      scope: 'ip',
+      identifierHmac: hashAuthRateLimitIdentifier({
+        action: params.action,
+        scope: 'ip',
+        identifier: params.identifier,
+      }),
+      windowStart,
+      count: params.limit,
+      expiresAt: new Date(windowStart.getTime() + windowMs),
+    });
 }
 
 describe('Auth administration routes', () => {
@@ -46,6 +72,78 @@ describe('Auth administration routes', () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  test('requires an authenticated session for bootstrap state', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/bootstrap-state',
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  test('reports only available or closed bootstrap state', async () => {
+    const account = await createVerifiedSession('admin-bootstrap-state');
+
+    const available = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/bootstrap-state',
+      headers: {authorization: `Bearer ${account.token}`},
+    });
+
+    expect(available.statusCode).toBe(200);
+    expect(available.json()).toEqual({state: 'available'});
+
+    const bootstrap = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(account.token, 'bootstrap-state-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    expect(bootstrap.statusCode).toBe(201);
+
+    const closed = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/bootstrap-state',
+      headers: {authorization: `Bearer ${account.token}`},
+    });
+
+    expect(closed.statusCode).toBe(200);
+    expect(closed.json()).toEqual({state: 'closed'});
+    expect(JSON.stringify(closed.json())).not.toContain(BOOTSTRAP_TOKEN);
+  });
+
+  test('keeps bootstrap-state reads separate from the bootstrap write limit', async () => {
+    const account = await createVerifiedSession('admin-bootstrap-state-rate-limit');
+    const ip = '127.0.0.1';
+
+    await seedExhaustedIpBucket({
+      action: 'bootstrap',
+      identifier: ip,
+      limit: 5,
+      windowSeconds: 15 * 60,
+    });
+    const state = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/bootstrap-state',
+      headers: {authorization: `Bearer ${account.token}`},
+    });
+    expect(state.statusCode).toBe(200);
+
+    await resetAdministrationState();
+    await seedExhaustedIpBucket({
+      action: 'bootstrap-state',
+      identifier: ip,
+      limit: 60,
+      windowSeconds: 5 * 60,
+    });
+    const blocked = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/bootstrap-state',
+      headers: {authorization: `Bearer ${account.token}`},
+    });
+    expect(blocked.statusCode).toBe(429);
   });
 
   test('does not register the removed versioned administration namespace', async () => {
@@ -138,6 +236,36 @@ describe('Auth administration routes', () => {
       result: 'succeeded',
     });
     expect(JSON.stringify(events[0]?.payload)).not.toContain(BOOTSTRAP_TOKEN);
+  });
+
+  test('serializes concurrent bootstrap attempts to one active first owner', async () => {
+    const first = await createVerifiedSession('admin-bootstrap-race-first');
+    const second = await createVerifiedSession('admin-bootstrap-race-second');
+
+    const responses = await Promise.all(
+      [first, second].map((account, index) =>
+        app.inject({
+          method: 'POST',
+          url: '/admin/auth/admin-grants/bootstrap',
+          headers: authHeaders(account.token, `bootstrap-race-${index}`),
+          payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+        }),
+      ),
+    );
+
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 409]);
+    const activeOwnerRoles = await Promise.all(
+      [first, second].map(async (account) => {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/admin/auth/users?user_id=${account.userId}`,
+          headers: {authorization: `Bearer ${account.token}`},
+        });
+        return response.statusCode === 200 && response.json().admin_role === 'admin-owner';
+      }),
+    );
+
+    expect(activeOwnerRoles.filter(Boolean)).toHaveLength(1);
   });
 
   test('lets an owner list, grant, and revoke roles with idempotent audited mutations', async () => {

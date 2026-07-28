@@ -1,7 +1,12 @@
 import {eq} from 'drizzle-orm';
 import {LastAdminOwnerError} from '#core/errors.js';
 import {userFactory} from '#test/index.js';
-import {createAdminGrant, findCurrentAdminRole, revokeAdminGrant} from './admin-grants.js';
+import {
+  createAdminGrant,
+  findCurrentAdminRole,
+  hasActiveAdminOwner,
+  revokeAdminGrant,
+} from './admin-grants.js';
 import {db} from './db.js';
 import {users} from './schema/users.js';
 
@@ -24,6 +29,17 @@ describe('admin grants db', () => {
 
     await db().update(users).set({status: 'suspended'}).where(eq(users.id, user.id));
     expect(await findCurrentAdminRole({userId: user.id})).toBeNull();
+  });
+
+  test('does not report a suspended owner as active', async () => {
+    const user = await userFactory.create({emailVerifiedAt: new Date()});
+    await createAdminGrant({userId: user.id, role: 'admin-owner'});
+
+    await expect(hasActiveAdminOwner()).resolves.toBe(true);
+
+    await db().update(users).set({status: 'suspended'}).where(eq(users.id, user.id));
+
+    await expect(hasActiveAdminOwner()).resolves.toBe(false);
   });
 
   test('prevents revoking the final active owner but permits replacement first', async () => {
