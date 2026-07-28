@@ -345,6 +345,7 @@ id, key, or feature id.
 | Missing navigation layout | `Navigation entry "<id>" in feature "<feature>" targets missing layout "<layout>".` |
 | Navigation outside layout | `Navigation entry "<id>" in feature "<feature>" targets route "<path>" outside layout "<layout>".` |
 | Invalid role metadata | `Navigation entry "<id>" in feature "<feature>" has invalid minimum role metadata. Expected a non-empty string.` |
+| Role metadata outside layout | `Navigation entry "<id>" in feature "<feature>" has minimum role metadata but is not layout-scoped.` |
 | Duplicate settings section | `Settings section "<id>" is contributed by both features "<first>" and "<second>".` |
 | Missing settings route | `Settings section "<id>" in feature "<feature>" requires route "<path>".` |
 | Duplicate config key | `Config key "<key>" is contributed by both features "<first>" and "<second>". Reuse the same schema instance to intentionally share it.` |

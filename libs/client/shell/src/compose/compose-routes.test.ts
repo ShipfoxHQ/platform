@@ -145,6 +145,23 @@ describe('composeRoutes', () => {
     ).toThrow('Route "/users" must be nested under layout "acme.admin" (/admin).');
   });
 
+  test('reports a route and layout path conflict as non-overridable', () => {
+    expect(() =>
+      composeRoutes([
+        {
+          id: 'acme.admin',
+          layouts: [{id: 'acme.admin.layout', path: '/admin', parent: 'root', impl: 'admin'}],
+        },
+        {
+          id: 'acme.route',
+          routes: [{path: '/admin', parent: 'root', impl: 'route'}],
+        },
+      ]),
+    ).toThrow(
+      'Route "/admin" from feature "acme.route" conflicts with layout "acme.admin.layout" contributed by feature "acme.admin". Routes cannot replace layouts.',
+    );
+  });
+
   test('appends a unique route and explicitly replaces an existing route', () => {
     const routes = composeRoutes([
       base,

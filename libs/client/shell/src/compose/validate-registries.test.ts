@@ -1,3 +1,4 @@
+import type {ClientFeature} from '#contract.js';
 import {composeLayouts, composeRoutes} from './compose-routes.js';
 import {validateNavigation, validateSettingsSections} from './validate-registries.js';
 
@@ -79,6 +80,25 @@ describe('registry validation', () => {
     ];
     expect(() => validateNavigation(invalidRole, ['/admin'])).toThrow(
       'Navigation entry "admin.users" in feature "acme.users" has invalid minimum role metadata.',
+    );
+  });
+
+  test('rejects role metadata on untyped non-layout navigation', () => {
+    const feature = {
+      id: 'acme.users',
+      navigation: [
+        {
+          id: 'users',
+          scope: 'workspace',
+          label: 'Users',
+          to: '/users',
+          minimumRole: 'observer',
+        },
+      ],
+    } as unknown as ClientFeature;
+
+    expect(() => validateNavigation([feature], ['/users'])).toThrow(
+      'Navigation entry "users" in feature "acme.users" has minimum role metadata but is not layout-scoped.',
     );
   });
 

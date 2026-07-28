@@ -162,14 +162,9 @@ export function composeLayouts(features: readonly ClientFeature[]): ComposedLayo
       featureId: feature.id,
     })),
   );
-  validateLayoutParents(layouts);
+  const layoutById = validateLayoutParents(layouts);
   for (const layout of layouts) {
-    validateNestedRoute(
-      layout.path,
-      layout.parent,
-      new Map(layouts.map((item) => [item.id, item])),
-      layout.featureId,
-    );
+    validateNestedRoute(layout.path, layout.parent, layoutById, layout.featureId);
   }
   return layouts;
 }
@@ -204,7 +199,7 @@ export function composeRoutes(
       if (layoutAtPath) {
         const message = normalizedContribution.override
           ? `Route override for "${normalizedContribution.path}" from feature "${feature.id}" cannot replace layout "${layoutAtPath.id}" contributed by feature "${layoutAtPath.featureId}".`
-          : `Route "${normalizedContribution.path}" is contributed by both features "${layoutAtPath.featureId}" and "${feature.id}". Set override: true to replace it explicitly.`;
+          : `Route "${normalizedContribution.path}" from feature "${feature.id}" conflicts with layout "${layoutAtPath.id}" contributed by feature "${layoutAtPath.featureId}". Routes cannot replace layouts.`;
         throw new RouteCompositionError(normalizedContribution.path, message, [
           layoutAtPath.featureId,
           feature.id,

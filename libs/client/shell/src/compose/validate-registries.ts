@@ -35,9 +35,20 @@ function hasExplicitCoordinator(feature: ClientFeature): boolean {
 }
 
 function validateRoleMetadata(entry: NavTabEntry, feature: ClientFeature): void {
-  if (entry.scope !== 'layout') return;
-  if ('minimumRole' in entry && entry.minimumRole !== undefined) {
-    if (typeof entry.minimumRole !== 'string' || entry.minimumRole.trim() === '') {
+  const rawEntry = entry as NavTabEntry & {minimumRole?: unknown};
+  const hasMinimumRole = Object.hasOwn(rawEntry, 'minimumRole');
+  if (entry.scope !== 'layout') {
+    if (hasMinimumRole) {
+      throw new NavCompositionError(
+        entry.id,
+        `Navigation entry "${entry.id}" in feature "${feature.id}" has minimum role metadata but is not layout-scoped.`,
+        [feature.id],
+      );
+    }
+    return;
+  }
+  if (hasMinimumRole) {
+    if (typeof rawEntry.minimumRole !== 'string' || rawEntry.minimumRole.trim() === '') {
       throw new NavCompositionError(
         entry.id,
         `Navigation entry "${entry.id}" in feature "${feature.id}" has invalid minimum role metadata. Expected a non-empty string.`,
