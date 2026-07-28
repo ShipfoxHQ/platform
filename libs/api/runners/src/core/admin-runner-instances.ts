@@ -68,7 +68,7 @@ function toRunnerAdministratorInstance(
 ): RunnerAdministratorInstance {
   const isAssigned = row.workspaceId !== null;
   const isActivated = row.runnerSessionId !== null;
-  const hasClaim = (row.claimsUsed ?? 0) > 0;
+  const hasClaim = row.firstClaimedAt !== null;
   const isTerminal = isTerminalState(row.state);
 
   return {

@@ -20,8 +20,7 @@ import {db} from '#db/db.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
-import {runnerSessions} from '#db/schema/runner-sessions.js';
-import {provisionerTokenFactory, runnerSessionFactory, runnersTestAuthClient} from '#test/index.js';
+import {provisionerTokenFactory, runnersTestAuthClient} from '#test/index.js';
 import {createRunnerRoutes} from './index.js';
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
@@ -250,12 +249,6 @@ describe('GET /admin/runners/instances', () => {
     const label = `lifecycle-${crypto.randomUUID()}`;
     const provisioner = await provisionerTokenFactory.create({scope: 'installation'});
     const workspaceId = crypto.randomUUID();
-    const claimedSession = await runnerSessionFactory.create({workspaceId});
-    await db()
-      .update(runnerSessions)
-      .set({claimsUsed: 1})
-      .where(eq(runnerSessions.id, claimedSession.id));
-
     const activatedId = crypto.randomUUID();
     const claimedId = crypto.randomUUID();
     const now = new Date();
@@ -276,7 +269,8 @@ describe('GET /admin/runners/instances', () => {
           id: claimedId,
           provisionerId: provisioner.id,
           workspaceId,
-          runnerSessionId: claimedSession.id,
+          runnerSessionId: crypto.randomUUID(),
+          firstClaimedAt: now,
           providerRunnerId: 'claimed-provider',
           labels: [label],
           state: 'running',
@@ -445,9 +439,15 @@ describe('GET /admin/runners/instances', () => {
       url: '/admin/runners/instances?cursor=not-a-cursor',
       headers: {authorization: 'Bearer user'},
     });
+    const emptyCursor = await app.inject({
+      method: 'GET',
+      url: '/admin/runners/instances?cursor=',
+      headers: {authorization: 'Bearer user'},
+    });
 
     expect(oversizedLimit.statusCode).toBe(400);
     expect(malformedCursor.statusCode).toBe(400);
+    expect(emptyCursor.statusCode).toBe(400);
   });
 
   test('returns terminal closure and explicit unknown reconciliation state', async () => {

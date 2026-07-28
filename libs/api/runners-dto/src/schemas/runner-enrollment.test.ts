@@ -1,6 +1,7 @@
 import {
   RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
   runnerAssignmentPollQuerySchema,
+  runnerEnrollmentBodySchema,
 } from './runner-enrollment.js';
 
 describe('runnerAssignmentPollQuerySchema', () => {
@@ -23,4 +24,29 @@ describe('runnerAssignmentPollQuerySchema', () => {
 
 it('keeps the protocol default explicit', () => {
   expect(RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS).toBe(30);
+});
+
+const validEnrollment = {
+  capabilities: undefined,
+  labels: ['linux'],
+  provider_kind: 'docker',
+  protocol_version: '1',
+};
+
+test('accepts the shared maximum runner label count', () => {
+  const result = runnerEnrollmentBodySchema.safeParse({
+    ...validEnrollment,
+    labels: Array.from({length: 20}, (_, index) => `label-${index}`),
+  });
+
+  expect(result.success).toBe(true);
+});
+
+test('rejects runner enrollment above the shared maximum label count', () => {
+  const result = runnerEnrollmentBodySchema.safeParse({
+    ...validEnrollment,
+    labels: Array.from({length: 21}, (_, index) => `label-${index}`),
+  });
+
+  expect(result.success).toBe(false);
 });

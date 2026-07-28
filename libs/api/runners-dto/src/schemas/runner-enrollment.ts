@@ -1,3 +1,4 @@
+import {MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import {z} from 'zod';
 import {runnerLabelSchema} from './register.js';
 import {runnerToolCapabilitiesSchema} from './tool-capabilities.js';
@@ -33,7 +34,7 @@ export const runnerBootstrapExchangeResponseSchema = z.object({
 });
 export const runnerEnrollmentBodySchema = z
   .object({
-    labels: z.array(runnerLabelSchema).min(1).max(100),
+    labels: z.array(runnerLabelSchema).min(1).max(MAX_RUNNER_LABELS),
     capabilities: runnerToolCapabilitiesSchema.optional(),
     provider_kind: z.string().min(1).max(64),
     protocol_version: z.string().min(1).max(64),

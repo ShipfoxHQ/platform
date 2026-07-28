@@ -46,7 +46,7 @@ export function createAdminRunnerInstancesRoute(
 
       const {state, assignment, label, limit, cursor} = request.query;
       const decodedCursor = decodeTimestampIdCursor(cursor);
-      if (cursor && !decodedCursor) {
+      if (cursor !== undefined && !decodedCursor) {
         throw new ClientError('Invalid cursor', 'invalid-cursor', {status: 400});
       }
 

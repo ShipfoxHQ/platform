@@ -17,7 +17,6 @@ import {db} from './db.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
 import {providerRunners} from './schema/runner-instances.js';
-import {runnerSessions} from './schema/runner-sessions.js';
 
 export type AdministratorRunnerAssignmentFilter = 'assigned' | 'unassigned';
 
@@ -27,7 +26,7 @@ export interface AdministratorRunnerInstanceRow {
   state: RunnerInstanceState;
   labels: string[];
   runnerSessionId: string | null;
-  claimsUsed: number | null;
+  firstClaimedAt: Date | null;
   hasActiveControlSession: boolean;
   reason: string | null;
   reportedAt: Date;
@@ -79,7 +78,7 @@ export async function listAdministratorRunnerInstances(
       state: providerRunners.state,
       labels: providerRunners.labels,
       runnerSessionId: providerRunners.runnerSessionId,
-      claimsUsed: runnerSessions.claimsUsed,
+      firstClaimedAt: providerRunners.firstClaimedAt,
       hasActiveControlSession: exists(
         db()
           .select({id: runnerControlSessions.id})
@@ -104,7 +103,6 @@ export async function listAdministratorRunnerInstances(
     })
     .from(providerRunners)
     .innerJoin(provisionerTokens, eq(provisionerTokens.id, providerRunners.provisionerId))
-    .leftJoin(runnerSessions, eq(runnerSessions.id, providerRunners.runnerSessionId))
     .where(and(...conditions))
     .orderBy(desc(providerRunners.createdAt), desc(providerRunners.id))
     .limit(params.limit + 1);

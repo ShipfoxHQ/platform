@@ -34,6 +34,7 @@ import type {Tx} from './db.js';
 import {db} from './db.js';
 import {runnersOutbox} from './schema/outbox.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
+import {providerRunners} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
 
@@ -174,6 +175,7 @@ export async function claimPendingJobExecution(params: {
   return await db().transaction(async (tx) => {
     let provisionerId: string | null = null;
     let providerRunnerId: string | null = null;
+    let runnerInstanceId: string | null = null;
 
     if (params.maxClaims !== null) {
       const [session] = await tx
@@ -181,6 +183,7 @@ export async function claimPendingJobExecution(params: {
           maxClaims: runnerSessions.maxClaims,
           claimsUsed: runnerSessions.claimsUsed,
           revokedAt: runnerSessions.revokedAt,
+          runnerInstanceId: runnerSessions.runnerInstanceId,
           provisionerId: runnerSessions.provisionerId,
           providerRunnerId: runnerSessions.providerRunnerId,
         })
@@ -200,6 +203,7 @@ export async function claimPendingJobExecution(params: {
 
       // Ephemeral sessions are the only capped sessions, and the DB check keeps
       // their provisioned-runner link present as a pair.
+      runnerInstanceId = session.runnerInstanceId;
       provisionerId = session.provisionerId;
       providerRunnerId = session.providerRunnerId;
     }
@@ -249,6 +253,24 @@ export async function claimPendingJobExecution(params: {
 
     const claimed = inserted[0];
     if (!claimed) return null;
+
+    const runnerInstanceCondition = runnerInstanceId
+      ? eq(providerRunners.id, runnerInstanceId)
+      : provisionerId && providerRunnerId
+        ? and(
+            eq(providerRunners.provisionerId, provisionerId),
+            eq(providerRunners.providerRunnerId, providerRunnerId),
+          )
+        : null;
+    if (runnerInstanceCondition) {
+      await tx
+        .update(providerRunners)
+        .set({
+          firstClaimedAt: sql`coalesce(${providerRunners.firstClaimedAt}, ${claimed.claimedAt})`,
+          updatedAt: sql`now()`,
+        })
+        .where(runnerInstanceCondition);
+    }
 
     if (params.maxClaims !== null) {
       await tx
