@@ -2,8 +2,6 @@ source "amazon-ebs" "build_image" {
   ami_name                    = var.image_lifecycle == "candidate" ? "shipfox-runner-candidate-${var.candidate_id}-${var.architecture}" : "shipfox-runner-${var.image_os}-${var.architecture}-${var.build_number}-${var.build_attempt}"
   ami_virtualization_type     = "hvm"
   associate_public_ip_address = true
-  encrypt_boot                = true
-  kms_key_id                  = var.image_lifecycle == "candidate" ? var.candidate_kms_key_id : ""
   ami_users                   = var.image_lifecycle == "candidate" ? var.candidate_ami_users : []
   imds_support                = "v2.0"
   instance_type               = var.architecture == "amd64" ? "t3.large" : "t4g.large"
@@ -20,6 +18,15 @@ source "amazon-ebs" "build_image" {
     }
     most_recent = true
     owners      = ["099720109477"]
+  }
+
+  launch_block_device_mappings {
+    delete_on_termination = true
+    device_name           = "/dev/sda1"
+    encrypted             = true
+    kms_key_id            = var.image_lifecycle == "candidate" ? var.candidate_kms_key_id : ""
+    volume_size           = var.os_disk_size_gb
+    volume_type           = "gp3"
   }
 
   tags = merge({
