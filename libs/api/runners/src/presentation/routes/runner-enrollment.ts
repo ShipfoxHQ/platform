@@ -180,23 +180,28 @@ type RunnerAssignmentPollParams = {
 export function resolveRunnerAssignmentPollWaitSeconds(
   requestedWaitSeconds: number | undefined,
 ): number {
-  return Math.min(
-    requestedWaitSeconds ?? config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS,
-    config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS,
+  return Math.max(
+    1,
+    Math.min(
+      requestedWaitSeconds ?? config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS,
+      config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS,
+    ),
   );
 }
 
 export async function pollForRunnerActivationToken(
   params: RunnerAssignmentPollParams,
 ): Promise<string | null> {
-  while (Date.now() <= params.deadline) {
+  while (Date.now() < params.deadline) {
     if (params.signal.aborted) return null;
     const assignment = await params.getAssignment();
     if (assignment) {
       const activationToken = await params.issueActivationToken();
       if (activationToken) return activationToken;
     }
-    await new Promise((resolve) => setTimeout(resolve, params.intervalMs));
+    const remainingMs = params.deadline - Date.now();
+    if (remainingMs <= 0 || params.signal.aborted) return null;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(params.intervalMs, remainingMs)));
   }
   return null;
 }

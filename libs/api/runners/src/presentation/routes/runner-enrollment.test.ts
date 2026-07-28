@@ -70,6 +70,7 @@ describe('runner enrollment control plane', () => {
 
   it('uses the requested assignment wait below the server cap and caps larger requests', () => {
     expect(resolveRunnerAssignmentPollWaitSeconds(5)).toBe(5);
+    expect(resolveRunnerAssignmentPollWaitSeconds(0)).toBe(1);
     expect(resolveRunnerAssignmentPollWaitSeconds(30)).toBe(30);
     expect(resolveRunnerAssignmentPollWaitSeconds(31)).toBe(30);
     expect(resolveRunnerAssignmentPollWaitSeconds(undefined)).toBe(30);
@@ -448,6 +449,30 @@ describe('runner enrollment control plane', () => {
       expect(issueActivationToken).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(5);
       await expect(activationToken).resolves.toBe('activation-token');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not read or sleep past the assignment poll deadline', async () => {
+    vi.useFakeTimers();
+    const abortController = new AbortController();
+    const getAssignment = vi.fn().mockResolvedValue(null);
+    const issueActivationToken = vi.fn();
+    try {
+      const activationToken = pollForRunnerActivationToken({
+        deadline: Date.now() + 10,
+        intervalMs: 100,
+        signal: abortController.signal,
+        getAssignment,
+        issueActivationToken,
+      });
+
+      await vi.advanceTimersByTimeAsync(10);
+
+      await expect(activationToken).resolves.toBeNull();
+      expect(getAssignment).toHaveBeenCalledTimes(1);
+      expect(issueActivationToken).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

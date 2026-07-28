@@ -160,12 +160,22 @@ for (const [name, value] of [
   }
 }
 
-for (const [name, value] of [
-  ['RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS', config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS],
-  ['RUNNER_ASSIGNMENT_POLL_INTERVAL_MS', config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS],
-] as const) {
-  if (!Number.isInteger(value) || value < 0)
-    throw new Error(`${name} (${value}) must be a whole number >= 0.`);
+if (
+  !Number.isInteger(config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS) ||
+  config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS < 1
+) {
+  throw new Error(
+    `RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS (${config.RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS}) must be a whole number >= 1.`,
+  );
+}
+
+if (
+  !Number.isInteger(config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS) ||
+  config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS < 0
+) {
+  throw new Error(
+    `RUNNER_ASSIGNMENT_POLL_INTERVAL_MS (${config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS}) must be a whole number >= 0.`,
+  );
 }
 
 if (

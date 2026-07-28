@@ -41,6 +41,13 @@ describe('runner assignment polling defaults', () => {
       RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
     );
   });
+
+  it('rejects a zero-second server-side assignment wait cap', async () => {
+    vi.stubEnv('RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS', '0');
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS');
+  });
 });
 describe('REGISTRATION_TOKEN_BATCH_MAX validation', () => {
   afterEach(() => {

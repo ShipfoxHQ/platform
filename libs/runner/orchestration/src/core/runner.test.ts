@@ -105,6 +105,7 @@ import {
   resolveWorkspaceRootFromEnv,
   UnsafeWorkspaceRootError,
 } from '@shipfox/runner-workspace';
+import {TimeoutError} from 'ky';
 import {config as runnerConfig} from '#config.js';
 import {startHeartbeatLoop} from '#core/heartbeat-loop.js';
 import {nextPollDeadline, runJob, startRunner} from '#core/runner.js';
@@ -453,9 +454,7 @@ describe('startRunner', () => {
     mockEnrollRunnerControlSession.mockResolvedValue(null);
     mockHeartbeatRunnerControlSession.mockResolvedValue();
     mockPollRunnerAssignment
-      .mockRejectedValueOnce(
-        Object.assign(new Error('assignment poll timed out'), {name: 'TimeoutError'}),
-      )
+      .mockRejectedValueOnce(new TimeoutError(new Request('http://example.test')))
       .mockResolvedValueOnce('activation-token');
     mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
 
