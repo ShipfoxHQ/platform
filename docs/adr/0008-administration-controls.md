@@ -222,8 +222,9 @@ is accepted alongside the claim-based access-token lifetime.
 
 Jobs queued or running before suspension continue to their normal terminal
 state. Suspension does not cancel jobs, revoke runner leases, or stop active
-workflow execution. Reactivation restores normal access and admission rules.
-It does not replay work rejected during suspension.
+workflow execution. Reactivation makes newly issued or refreshed claims active;
+existing access tokens retain their claim snapshot until expiration. It does not
+replay work rejected during suspension.
 
 Member-facing routes expose only a safe suspension state. The client replaces
 ordinary workspace content with a neutral suspension page. It does not show

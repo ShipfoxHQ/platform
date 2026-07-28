@@ -1,5 +1,5 @@
 import type {FastifyInstance} from 'fastify';
-import {createWorkspace as createWorkspaceRow} from '#db/workspaces.js';
+import {createWorkspace as createWorkspaceRow, updateWorkspace} from '#db/workspaces.js';
 import {
   createInvite,
   createWorkspace,
@@ -48,6 +48,20 @@ describe('GET /workspaces/:workspaceId/members', () => {
         .members.map((member: {user_email: string}) => member.user_email)
         .sort(),
     ).toEqual([guest.email, owner.email].sort());
+  });
+
+  test('keeps an active claim usable when the workspace row is suspended', async () => {
+    const owner = await signupVerifyLogin(app, 'members-list-snapshot');
+    const workspaceId = await createWorkspace(app, owner.token);
+    await updateWorkspace({id: workspaceId, status: 'suspended'});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/workspaces/${workspaceId}/members`,
+      headers: {authorization: `Bearer ${owner.token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
   });
 
   test('authorizes from a static membership claim without a membership row', async () => {

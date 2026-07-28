@@ -1,4 +1,5 @@
 import type {FastifyInstance} from 'fastify';
+import {updateWorkspace} from '#db/workspaces.js';
 import {
   createExpiredInvite,
   createInvite,
@@ -44,6 +45,21 @@ describe('GET /workspaces/:workspaceId/invitations', () => {
         email: inviteeEmail,
       }),
     ]);
+  });
+
+  test('keeps an active claim usable when the workspace row is suspended', async () => {
+    const owner = await signupVerifyLogin(app, 'invite-list-snapshot');
+    const workspaceId = await createWorkspace(app, owner.token);
+    await updateWorkspace({id: workspaceId, status: 'suspended'});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/workspaces/${workspaceId}/invitations`,
+      headers: {authorization: `Bearer ${owner.token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().invitations).toEqual([]);
   });
 
   test('excludes expired unaccepted invitations', async () => {

@@ -46,6 +46,7 @@ export async function createWorkspaceInvitation(params: {
     workspaceId: params.workspaceId,
     userId: params.invitedByUserId,
     memberships: params.invitedByMemberships,
+    enforceWorkspaceStatus: false,
   });
 
   const rawToken = generateOpaqueToken('invitation');
@@ -216,6 +217,7 @@ export async function listWorkspaceInvitations(params: {
     workspaceId: params.workspaceId,
     userId: params.requesterUserId,
     memberships: params.requesterMemberships,
+    enforceWorkspaceStatus: false,
   });
 
   return listOpenInvitationsByWorkspace({workspaceId: params.workspaceId});
@@ -231,6 +233,7 @@ export async function revokeWorkspaceInvitation(params: {
     workspaceId: params.workspaceId,
     userId: params.requesterUserId,
     memberships: params.requesterMemberships,
+    enforceWorkspaceStatus: false,
   });
 
   const invitation = await findInvitationById({id: params.invitationId});

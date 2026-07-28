@@ -31,6 +31,7 @@ export interface RequireWorkspaceMembershipParams {
   workspaceId: string;
   userId: string;
   memberships: ReadonlyArray<UserContextMembership>;
+  enforceWorkspaceStatus?: boolean;
 }
 
 export interface RequireWorkspaceMembershipResult {
@@ -52,7 +53,7 @@ export async function requireWorkspaceMembership(
   if (!workspace) {
     throw new WorkspaceNotFoundError(params.workspaceId);
   }
-  if (workspace.status !== 'active') {
+  if (params.enforceWorkspaceStatus !== false && workspace.status !== 'active') {
     throw new WorkspaceInactiveError(params.workspaceId);
   }
 
@@ -128,6 +129,7 @@ export async function listWorkspaceMembers(params: {
     workspaceId: params.workspaceId,
     userId: params.requesterUserId,
     memberships: params.requesterMemberships,
+    enforceWorkspaceStatus: false,
   });
 
   return listMembershipsByWorkspace({workspaceId: params.workspaceId});
@@ -143,6 +145,7 @@ export async function removeWorkspaceMember(params: {
     workspaceId: params.workspaceId,
     userId: params.requesterUserId,
     memberships: params.requesterMemberships,
+    enforceWorkspaceStatus: false,
   });
 
   if (params.userId === params.requesterUserId) {

@@ -1,8 +1,12 @@
 ---
 "@shipfox/api-auth": major
 "@shipfox/api-auth-context": patch
+"@shipfox/annotations": patch
+"@shipfox/api-logs": patch
+"@shipfox/api-triggers": patch
 "@shipfox/api-workspaces-dto": patch
 "@shipfox/api-workspaces": patch
+"@shipfox/api-workflows": patch
 ---
 
 Carry workspace lifecycle status in JWT membership claims and enforce suspended or inactive access at the stateless workspace gate while keeping access-token verification stateless.
