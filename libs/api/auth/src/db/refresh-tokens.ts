@@ -2,6 +2,13 @@ import {and, eq, gt, isNull, ne, sql} from 'drizzle-orm';
 import type {RefreshToken} from '#core/entities/refresh-token.js';
 import {db} from './db.js';
 import {refreshTokens, toRefreshToken} from './schema/refresh-tokens.js';
+import {users} from './schema/users.js';
+
+type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
+
+export async function lockUserSessionMutations(tx: Tx, userId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`auth_user_sessions:${userId}`}))`);
+}
 
 export interface CreateRefreshTokenParams {
   sessionId?: string | undefined;
@@ -24,6 +31,33 @@ export async function createRefreshToken(params: CreateRefreshTokenParams): Prom
   const row = rows[0];
   if (!row) throw new Error('Insert returned no rows');
   return toRefreshToken(row);
+}
+
+export async function createRefreshTokenForActiveUser(
+  params: CreateRefreshTokenParams,
+): Promise<RefreshToken | undefined> {
+  return await db().transaction(async (tx) => {
+    await lockUserSessionMutations(tx, params.userId);
+    const userRows = await tx
+      .select({status: users.status})
+      .from(users)
+      .where(eq(users.id, params.userId))
+      .limit(1);
+    if (userRows[0]?.status !== 'active') return undefined;
+
+    const rows = await tx
+      .insert(refreshTokens)
+      .values({
+        sessionId: params.sessionId,
+        userId: params.userId,
+        hashedToken: params.hashedToken,
+        expiresAt: params.expiresAt,
+      })
+      .returning();
+    const row = rows[0];
+    if (!row) throw new Error('Insert returned no rows');
+    return toRefreshToken(row);
+  });
 }
 
 /**
@@ -108,12 +142,32 @@ export async function findRefreshTokenByHash(params: {
  * If the successor insert fails, the predecessor rotation rolls back.
  */
 export async function rotateRefreshToken(params: {
+  userId?: string | undefined;
   id: string;
   currentHashedToken: string;
   nextHashedToken: string;
   expiresAt: Date;
 }): Promise<RefreshToken | undefined> {
   return await db().transaction(async (tx) => {
+    const userId =
+      params.userId ??
+      (
+        await tx
+          .select({userId: refreshTokens.userId})
+          .from(refreshTokens)
+          .where(eq(refreshTokens.id, params.id))
+          .limit(1)
+      )[0]?.userId;
+    if (!userId) return undefined;
+
+    await lockUserSessionMutations(tx, userId);
+    const userRows = await tx
+      .select({status: users.status})
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (userRows[0]?.status !== 'active') return undefined;
+
     const rotatedRows = await tx
       .update(refreshTokens)
       .set({

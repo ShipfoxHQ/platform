@@ -1,31 +1,26 @@
 import type {AdminRole} from '@shipfox/api-auth-dto';
-import type {
-  AdministrationActionEvent,
-  AdministrationActionEventMap,
-} from '@shipfox/api-common-dto';
-import {writeOutboxEvent} from '@shipfox/node-outbox';
-import {and, eq, isNull, sql} from 'drizzle-orm';
+import type {AdministrationActionEvent} from '@shipfox/api-common-dto';
+import {and, eq, gt, isNull, sql} from 'drizzle-orm';
 import {hasMinimumAdminRole, highestAdminRole} from '#core/admin-role-model.js';
 import type {UserStatus} from '#core/entities/user.js';
+import {AdminRoleRequiredError, LastAdminOwnerError, UserNotFoundError} from '#core/errors.js';
 import {
-  AdminIdempotencyKeyReuseError,
-  AdminRoleRequiredError,
-  LastAdminOwnerError,
-  UserNotFoundError,
-} from '#core/errors.js';
+  findAdminCommandResult,
+  lockAdminCommand,
+  lockAdminOwnerGrants,
+  storeAdminCommandResult,
+  type Tx,
+  writeAdminAction,
+} from './admin-command.js';
 import {db} from './db.js';
-import {
-  type AdminCommandResultDb,
-  adminCommandResults,
-  type StoredAdministratorUserSummary,
-  type StoredAdminUserModerationResult,
+import {lockUserSessionMutations} from './refresh-tokens.js';
+import type {
+  StoredAdministratorUserSummary,
+  StoredAdminUserModerationResult,
 } from './schema/admin-command-results.js';
 import {adminGrants} from './schema/admin-grants.js';
-import {authOutbox} from './schema/outbox.js';
 import {refreshTokens} from './schema/refresh-tokens.js';
 import {users} from './schema/users.js';
-
-type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
 interface UserModerationCommandParams {
   actorId: string;
@@ -108,24 +103,8 @@ async function findCommandResult(
     'actorId' | 'idempotencyKeyFingerprint' | 'requestFingerprint'
   > & {command: string},
 ) {
-  const rows = await tx
-    .select()
-    .from(adminCommandResults)
-    .where(
-      and(
-        eq(adminCommandResults.actorId, params.actorId),
-        eq(adminCommandResults.idempotencyKeyFingerprint, params.idempotencyKeyFingerprint),
-      ),
-    )
-    .limit(1);
-  const result: AdminCommandResultDb | undefined = rows[0];
+  const result = await findAdminCommandResult(tx, params);
   if (!result) return undefined;
-  if (
-    result.command !== params.command ||
-    result.requestFingerprint !== params.requestFingerprint
-  ) {
-    throw new AdminIdempotencyKeyReuseError();
-  }
   if (!('userModeration' in result.result)) {
     throw new Error('Administrator command result has an unexpected shape');
   }
@@ -137,33 +116,7 @@ async function storeCommandResult(
   params: UserModerationCommandParams,
   result: StoredAdminUserModerationResult,
 ): Promise<void> {
-  await tx.insert(adminCommandResults).values({
-    actorId: params.actorId,
-    idempotencyKeyFingerprint: params.idempotencyKeyFingerprint,
-    command: params.event.command,
-    requestFingerprint: params.requestFingerprint,
-    result: {userModeration: result},
-  });
-}
-
-async function writeAdminAction(tx: Tx, event: AdministrationActionEvent): Promise<void> {
-  await writeOutboxEvent<AdministrationActionEventMap>(tx, authOutbox, {
-    type: 'administration.action.performed',
-    payload: event,
-  });
-}
-
-async function lockAdminCommand(
-  tx: Tx,
-  params: Pick<UserModerationCommandParams, 'actorId' | 'idempotencyKeyFingerprint'>,
-): Promise<void> {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${`auth_admin_command:${params.actorId}:${params.idempotencyKeyFingerprint}`}))`,
-  );
-}
-
-async function lockAdminOwnerGrants(tx: Tx): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('auth_admin_owner_grants'))`);
+  await storeAdminCommandResult(tx, params, {userModeration: result});
 }
 
 async function readTargetUserForUpdate(tx: Tx, userId: string) {
@@ -204,7 +157,7 @@ async function revokeActiveSessions(tx: Tx, userId: string): Promise<number> {
       and(
         eq(refreshTokens.userId, userId),
         isNull(refreshTokens.revokedAt),
-        isNull(refreshTokens.rotatedAt),
+        gt(refreshTokens.expiresAt, sql`now()`),
       ),
     )
     .returning({sessionId: refreshTokens.sessionId});
@@ -227,6 +180,7 @@ async function executeUserModerationCommand(
     });
     if (existing) return existing;
 
+    await lockUserSessionMutations(tx, params.userId);
     const user = await readTargetUserForUpdate(tx, params.userId);
     await requireActiveAdminOperator(tx, params.actorId);
     let sessionsRevoked = 0;

@@ -32,6 +32,13 @@ export interface CreateJwtAuthMethodOptions {
   secret: string;
 }
 
+class InvalidJwtTokenError extends Error {
+  constructor() {
+    super('Invalid JWT');
+    this.name = 'InvalidJwtTokenError';
+  }
+}
+
 export function getClientContext(request: FastifyRequest): ClientContext | null {
   return getUserContext(request);
 }
@@ -79,7 +86,12 @@ export function createJwtAuthMethod(): AuthMethod {
   return createBearerTokenAuthMethod({
     name: AUTH_USER,
     verifyToken: async (token) => {
-      const claims = await verifyUserToken({token, secret: userAccessTokenKey()});
+      let claims: UserTokenClaims;
+      try {
+        claims = await verifyUserToken({token, secret: userAccessTokenKey()});
+      } catch {
+        throw new InvalidJwtTokenError();
+      }
       const user = await findUserById({id: claims.sub});
 
       // Legacy access tokens without a session claim remain verifiable for the
@@ -94,6 +106,7 @@ export function createJwtAuthMethod(): AuthMethod {
       });
       return session ? claims : null;
     },
+    isInvalidTokenError: (error) => error instanceof InvalidJwtTokenError,
     invalidTokenError: {message: 'Invalid or expired token', code: 'unauthorized'},
     setContext: (request, claims) => {
       const clientContext: ClientContext = buildUserContext({

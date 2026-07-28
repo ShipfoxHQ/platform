@@ -693,6 +693,15 @@ describe('Auth administration routes', () => {
       },
     });
 
+    const rotatedBeforeSuspension = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: target.refreshCookie},
+      payload: {},
+    });
+    expect(rotatedBeforeSuspension.statusCode).toBe(200);
+    const rotatedRefreshCookie = cookieHeader(getSetCookie(rotatedBeforeSuspension));
+
     const suspended = await app.inject({
       method: 'POST',
       url: `/admin/auth/users/${target.userId}/suspend`,
@@ -713,15 +722,8 @@ describe('Auth administration routes', () => {
       url: '/auth/me',
       headers: {authorization: `Bearer ${target.token}`},
     });
-    const suspendedRefresh = await app.inject({
-      method: 'POST',
-      url: '/auth/refresh',
-      headers: {cookie: target.refreshCookie},
-      payload: {},
-    });
     const suspendedLogin = await login(app, {email: target.email, password: target.password});
     expect(suspendedMe.statusCode).toBe(401);
-    expect(suspendedRefresh.statusCode).toBe(401);
     expect(suspendedLogin.statusCode).toBe(401);
 
     const suspendedDbUser = (
@@ -732,8 +734,16 @@ describe('Auth administration routes', () => {
       .from(refreshTokens)
       .where(eq(refreshTokens.userId, target.userId));
     expect(suspendedDbUser?.status).toBe('suspended');
-    expect(targetSessions).toHaveLength(1);
-    expect(targetSessions[0]?.revokedAt).toBeInstanceOf(Date);
+    expect(targetSessions).toHaveLength(2);
+    expect(targetSessions.every(({revokedAt}) => revokedAt instanceof Date)).toBe(true);
+
+    const suspendedRefresh = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: rotatedRefreshCookie},
+      payload: {},
+    });
+    expect(suspendedRefresh.statusCode).toBe(401);
 
     const suspensionEvent = (await db().select().from(authOutbox)).find(
       (event) =>
@@ -789,6 +799,13 @@ describe('Auth administration routes', () => {
       payload: {},
     });
     expect(oldRefreshAfterReactivation.statusCode).toBe(401);
+    const rotatedRefreshAfterReactivation = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      headers: {cookie: rotatedRefreshCookie},
+      payload: {},
+    });
+    expect(rotatedRefreshAfterReactivation.statusCode).toBe(401);
 
     const newLogin = await login(app, {email: target.email, password: target.password});
     expect(newLogin.statusCode).toBe(200);
