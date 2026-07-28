@@ -1,6 +1,12 @@
 import {readFileSync} from 'node:fs';
 import {logger} from '@shipfox/node-opentelemetry';
-import type {ProvisionerTemplate} from '@shipfox/provisioner-core';
+import {
+  type ProvisionerTemplate,
+  type ProvisionerTemplateFile,
+  parseTemplateFile,
+  type RenderedTemplateMap,
+  renderTemplateVariants,
+} from '@shipfox/provisioner-core';
 import {canonicalizeLabels, findInvalidLabels, MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import yaml from 'js-yaml';
 import {z} from 'zod';
@@ -50,7 +56,18 @@ const dockerTemplatesFileSchema = z
  */
 export function loadDockerTemplates(filePath: string): ProvisionerTemplate<DockerTemplateSpec>[] {
   const raw = parseYamlFile(filePath);
-  const parsed = dockerTemplatesFileSchema.safeParse(raw);
+  let templateFile: ProvisionerTemplateFile;
+  let renderedTemplates: RenderedTemplateMap;
+  try {
+    templateFile = parseTemplateFile(raw);
+    renderedTemplates = renderTemplateVariants(templateFile);
+  } catch (error) {
+    throw new DockerTemplateConfigError(
+      `Invalid Docker template config at ${filePath}: ${errorMessage(error)}`,
+    );
+  }
+
+  const parsed = dockerTemplatesFileSchema.safeParse({templates: renderedTemplates});
   if (!parsed.success) {
     throw new DockerTemplateConfigError(
       `Invalid Docker template config at ${filePath}: ${formatIssues(parsed.error)}`,
@@ -64,8 +81,8 @@ export function loadDockerTemplates(filePath: string): ProvisionerTemplate<Docke
     );
   }
 
-  return entries.map(([key, spec]) => {
-    if (!hasImageField(raw, key)) {
+  const templates = entries.map(([key, spec]) => {
+    if (!hasImageField(renderedTemplates, key)) {
       logger().debug?.(
         {
           event: 'runner.default_image_selected',
@@ -78,11 +95,23 @@ export function loadDockerTemplates(filePath: string): ProvisionerTemplate<Docke
     }
     return toTemplate(filePath, key, spec);
   });
+
+  const familyCount = Object.keys(templateFile.matrix ?? {}).length;
+  logger().info(
+    {
+      event: 'provisioner.templates_loaded',
+      filePath,
+      templateCount: templates.length,
+      familyCount,
+    },
+    `Loaded ${templates.length} Docker templates from ${familyCount} matrix families`,
+  );
+
+  return templates;
 }
 
-function hasImageField(raw: unknown, key: string): boolean {
-  if (!isRecord(raw) || !isRecord(raw.templates)) return false;
-  const template = raw.templates[key];
+function hasImageField(templates: Readonly<Record<string, unknown>>, key: string): boolean {
+  const template = templates[key];
   return isRecord(template) && Object.hasOwn(template, 'image');
 }
 

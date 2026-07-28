@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DEFAULT_RUNNER_IMAGE, DockerTemplateConfigError, loadDockerTemplates} from '#templates.js';
 
-const mocks = vi.hoisted(() => ({debug: vi.fn()}));
+const mocks = vi.hoisted(() => ({debug: vi.fn(), info: vi.fn(), warn: vi.fn()}));
 vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => mocks}));
 
 let dir: string;
@@ -12,6 +12,8 @@ let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'provisioner-docker-'));
   mocks.debug.mockReset();
+  mocks.info.mockReset();
+  mocks.warn.mockReset();
 });
 
 afterEach(() => {
@@ -65,6 +67,135 @@ describe('loadDockerTemplates', () => {
         spec: {image: 'shipfox-runner:ubuntu22', cpu: 4, memory: '8GiB'},
       },
     ]);
+    expect(mocks.info).toHaveBeenCalledWith(
+      {
+        event: 'provisioner.templates_loaded',
+        filePath: path,
+        templateCount: 2,
+        familyCount: 0,
+      },
+      'Loaded 2 Docker templates from 0 matrix families',
+    );
+  });
+
+  it('expands matrix families before validating Docker templates', () => {
+    const path = writeTemplates(`
+templates: {}
+matrix:
+  docker:
+    axes:
+      cpu: [2, 4]
+      os: [ubuntu22, ubuntu24]
+    template:
+      labels: [docker, "\${{ os }}"]
+      image: "shipfox-runner:\${{ os }}"
+      cpu: "\${{ cpu }}"
+      memory: "\${{ cpu * 2.0 }}GiB"
+      max_concurrency: "\${{ cpu * 10.0 }}"
+      cost: "\${{ cpu }}"
+`);
+
+    expect(loadDockerTemplates(path)).toEqual([
+      {
+        key: 'docker-2-ubuntu22',
+        labels: ['docker', 'ubuntu22'],
+        maxConcurrency: 20,
+        targetConcurrency: 0,
+        cost: 2,
+        spec: {image: 'shipfox-runner:ubuntu22', cpu: 2, memory: '4GiB'},
+      },
+      {
+        key: 'docker-2-ubuntu24',
+        labels: ['docker', 'ubuntu24'],
+        maxConcurrency: 20,
+        targetConcurrency: 0,
+        cost: 2,
+        spec: {image: 'shipfox-runner:ubuntu24', cpu: 2, memory: '4GiB'},
+      },
+      {
+        key: 'docker-4-ubuntu22',
+        labels: ['docker', 'ubuntu22'],
+        maxConcurrency: 40,
+        targetConcurrency: 0,
+        cost: 4,
+        spec: {image: 'shipfox-runner:ubuntu22', cpu: 4, memory: '8GiB'},
+      },
+      {
+        key: 'docker-4-ubuntu24',
+        labels: ['docker', 'ubuntu24'],
+        maxConcurrency: 40,
+        targetConcurrency: 0,
+        cost: 4,
+        spec: {image: 'shipfox-runner:ubuntu24', cpu: 4, memory: '8GiB'},
+      },
+    ]);
+    expect(mocks.info).toHaveBeenCalledWith(
+      {
+        event: 'provisioner.templates_loaded',
+        filePath: path,
+        templateCount: 4,
+        familyCount: 1,
+      },
+      'Loaded 4 Docker templates from 1 matrix families',
+    );
+  });
+
+  it('keeps a hand-written template when it shadows a generated key', () => {
+    const path = writeTemplates(`
+templates:
+  docker-2-ubuntu22:
+    labels: [hand-written]
+    image: hand-written
+    cpu: 99
+    memory: 2g
+    max_concurrency: 1
+matrix:
+  docker:
+    axes:
+      cpu: [2]
+      os: [ubuntu22]
+    template:
+      labels: [generated]
+      image: generated
+      cpu: 2
+      memory: 4g
+      max_concurrency: 2
+`);
+
+    expect(loadDockerTemplates(path)).toEqual([
+      {
+        key: 'docker-2-ubuntu22',
+        labels: ['hand-written'],
+        maxConcurrency: 1,
+        targetConcurrency: 0,
+        cost: 99,
+        spec: {image: 'hand-written', cpu: 99, memory: '2g'},
+      },
+    ]);
+    expect(mocks.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.template_generated_shadowed',
+        templateKey: 'docker-2-ubuntu22',
+        block: 'docker',
+      }),
+      expect.stringContaining('shadowed'),
+    );
+  });
+
+  it('wraps core matrix errors in DockerTemplateConfigError', () => {
+    const path = writeTemplates(`
+templates: {}
+matrix:
+  docker:
+    axes:
+      cpu: []
+    template: {}
+`);
+
+    expect(() => loadDockerTemplates(path)).toThrow(DockerTemplateConfigError);
+    expect(() => loadDockerTemplates(path)).toThrow(
+      new RegExp(`Invalid Docker template config at ${path}: Invalid template file`),
+    );
   });
 
   it('defaults the image to the published Shipfox runner', () => {
