@@ -485,9 +485,12 @@ describe('runner image candidates', () => {
       },
       '24.17.0',
     );
-    const send = vi.fn().mockResolvedValue({
-      Images: [availableImage('ami-0fedcba9876543210', 'arm64')],
-    });
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({Images: [availableImage('ami-0fedcba9876543210', 'arm64')]})
+      .mockResolvedValueOnce({
+        LaunchPermissions: [{UserId: '123456789012'}, {UserId: '999999999999'}],
+      });
     const buildImage = vi.fn();
 
     const candidate = await buildRunnerImageCandidate(build, {
@@ -505,8 +508,17 @@ describe('runner image candidates', () => {
       expect.objectContaining({
         input: {
           ImageId: 'ami-0fedcba9876543210',
+          Attribute: 'launchPermission',
+        },
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: {
+          ImageId: 'ami-0fedcba9876543210',
           LaunchPermission: {
             Add: [{UserId: '123456789012'}, {UserId: '210987654321'}],
+            Remove: [{UserId: '999999999999'}],
           },
         },
       }),
@@ -610,6 +622,45 @@ describe('runner image candidates', () => {
 
     expect(candidate.status).toBe('built');
     expect(candidate.amiId).toBe('ami-0123abc456def7890');
+  });
+
+  it('retries a transient AMI-not-found response during availability checks', async () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'amd64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      },
+      '24.17.0',
+    );
+    const notFound = Object.assign(new Error('The image does not exist.'), {
+      name: 'InvalidAMIID.NotFound',
+    });
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({Images: []})
+      .mockRejectedValueOnce(notFound)
+      .mockResolvedValueOnce({
+        Images: [availableImage('ami-0123abc456def7890', 'amd64')],
+      });
+    const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
+
+    const candidate = await buildRunnerImageCandidate(build, {
+      build: buildImage,
+      client: {send},
+      describeAvailabilityRetries: 1,
+      describeAvailabilityDelayMs: 1,
+    });
+
+    expect(candidate.status).toBe('built');
+    expect(send).toHaveBeenCalledTimes(3);
   });
 
   it('rejects a built AMI whose tags do not match the requested build', async () => {
@@ -723,6 +774,20 @@ describe('runner image candidates', () => {
         GITHUB_REF: 'refs/pull/1378/merge',
       }),
     ).toThrow('only be built and shared from main');
+  });
+
+  it('rejects candidate builds for unsupported AWS regions', () => {
+    expect(() =>
+      parseRunnerImageCandidateArgs(['--output', '/tmp/candidate.json'], {
+        AWS_REGION: 'us-east-1',
+        BUILD_ARCH: 'amd64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      }),
+    ).toThrow('Runner image candidates must use eu-central-1.');
   });
 });
 

@@ -903,7 +903,7 @@ jobs:
 
       - name: Build runner image catalog tooling
         if: steps.runner-image-candidate.outputs.digest == ''
-        run: turbo build --filter=@shipfox/runner-image
+        run: mise exec -- turbo build --filter=@shipfox/runner-image
 
       - name: Create immutable runner image candidate manifest
         if: steps.runner-image-candidate.outputs.digest == ''
@@ -946,14 +946,22 @@ jobs:
           # transient read-access gap (see its comment); re-checking here
           # catches a false negative that has since cleared, so a rerun
           # reuses the real digest instead of moving the immutable tag.
-          recheck_digest="$(oras resolve "$RUNNER_IMAGE_CANDIDATE_REPOSITORY:$GITHUB_SHA" 2>/dev/null || true)"
-          if [[ -n "$recheck_digest" ]]; then
+          recheck_error="$(mktemp)"
+          trap 'rm -f "$recheck_error"' EXIT
+          set +e
+          recheck_digest="$(oras resolve "$RUNNER_IMAGE_CANDIDATE_REPOSITORY:$GITHUB_SHA" 2>"$recheck_error")"
+          recheck_status=$?
+          set -e
+          if (( recheck_status == 0 )); then
             if [[ ! "$recheck_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
               echo "Existing runner image candidate returned an invalid digest: $recheck_digest" >&2
               exit 1
             fi
             echo "Reused $RUNNER_IMAGE_CANDIDATE_REPOSITORY@$recheck_digest (found on re-check)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
+          elif ! grep -Eiq 'failed to resolve digest:.*not found' "$recheck_error"; then
+            cat "$recheck_error" >&2
+            exit "$recheck_status"
           fi
 
           created_at="$(jq -r '.build.createdAt' runner-image-candidate.json)"

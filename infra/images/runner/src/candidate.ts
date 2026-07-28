@@ -1,6 +1,8 @@
 import {writeFile} from 'node:fs/promises';
 import {parseArgs} from 'node:util';
 import {
+  DescribeImageAttributeCommand,
+  type DescribeImageAttributeCommandOutput,
   DescribeImagesCommand,
   EC2Client,
   type Image,
@@ -13,6 +15,8 @@ import {buildRunnerImage, type RunnerImageBuild} from './runner-image.js';
 const DEFAULT_CANDIDATE_TTL_DAYS = 14;
 const DEFAULT_DESCRIBE_AVAILABILITY_RETRIES = 5;
 const DEFAULT_DESCRIBE_AVAILABILITY_DELAY_MS = 2000;
+const CANDIDATE_REGION = 'eu-central-1';
+const INVALID_AMI_NOT_FOUND = 'InvalidAMIID.NotFound';
 const GIT_REVISION_PATTERN = /^[a-f0-9]{40}$/u;
 const POSITIVE_INTEGER_PATTERN = /^[1-9]\d*$/u;
 
@@ -38,6 +42,7 @@ interface CandidateImageMetadata {
 
 interface Ec2ClientLike {
   send(command: DescribeImagesCommand): Promise<{Images?: Image[]}>;
+  send(command: DescribeImageAttributeCommand): Promise<DescribeImageAttributeCommandOutput>;
   send(command: ModifyImageAttributeCommand): Promise<unknown>;
 }
 
@@ -57,7 +62,7 @@ export async function buildRunnerImageCandidate(
     throw new Error('Runner image candidate builds require candidate lifecycle metadata.');
   }
   const candidateId = build.candidateId;
-  const region = options.region ?? 'eu-central-1';
+  const region = candidateRegion(options.region);
   const client = options.client ?? new EC2Client({region});
   const existingImage = await findRunnerImageCandidate(
     client,
@@ -119,7 +124,7 @@ export function parseRunnerImageCandidateArgs(
   return {
     build,
     outputPath: required(values.output, '--output'),
-    region: env.AWS_REGION ?? 'eu-central-1',
+    region: candidateRegion(env.AWS_REGION),
   };
 }
 
@@ -206,9 +211,14 @@ async function describeAvailableImage(
   delayMs: number,
 ): Promise<Image> {
   for (let attempt = 0; ; attempt++) {
-    const output = await client.send(
-      new DescribeImagesCommand({Owners: ['self'], ImageIds: [amiId]}),
-    );
+    let output: {Images?: Image[]};
+    try {
+      output = await client.send(new DescribeImagesCommand({Owners: ['self'], ImageIds: [amiId]}));
+    } catch (error) {
+      if (!isImageNotFoundError(error) || attempt >= retries) throw error;
+      await sleep(delayMs);
+      continue;
+    }
     const image = output.Images?.find((candidate) => candidate.ImageId === amiId);
     if (image?.State === 'available') return image;
     if (attempt >= retries) {
@@ -223,15 +233,36 @@ async function reshareRunnerImageCandidate(
   amiId: string,
   build: RunnerImageBuild,
 ): Promise<void> {
-  if (!build.candidateConsumerAccountIds?.length) return;
+  const consumerAccountIds = build.candidateConsumerAccountIds;
+  if (!consumerAccountIds?.length) return;
+  const permissions = await client.send(
+    new DescribeImageAttributeCommand({ImageId: amiId, Attribute: 'launchPermission'}),
+  );
+  const existingAccountIds = new Set(
+    (permissions.LaunchPermissions ?? [])
+      .map((permission) => permission.UserId)
+      .filter((accountId): accountId is string => Boolean(accountId)),
+  );
+  const staleAccountIds = [...existingAccountIds].filter(
+    (accountId) => !consumerAccountIds.includes(accountId),
+  );
   await client.send(
     new ModifyImageAttributeCommand({
       ImageId: amiId,
       LaunchPermission: {
-        Add: build.candidateConsumerAccountIds.map((accountId) => ({UserId: accountId})),
+        Add: consumerAccountIds.map((accountId) => ({UserId: accountId})),
+        ...(staleAccountIds.length
+          ? {Remove: staleAccountIds.map((accountId) => ({UserId: accountId}))}
+          : {}),
       },
     }),
   );
+}
+
+function isImageNotFoundError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const awsError = error as {code?: unknown; name?: unknown};
+  return awsError.code === INVALID_AMI_NOT_FOUND || awsError.name === INVALID_AMI_NOT_FOUND;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -288,6 +319,14 @@ function candidateTtlDays(value: string | undefined): number {
 function required(value: string | undefined, name: string): string {
   if (!value) throw new Error(`${name} is required.`);
   return value;
+}
+
+function candidateRegion(value: string | undefined): string {
+  const region = value ?? CANDIDATE_REGION;
+  if (region !== CANDIDATE_REGION) {
+    throw new Error(`Runner image candidates must use ${CANDIDATE_REGION}.`);
+  }
+  return region;
 }
 
 function timestamp(value: string | undefined, label: string): string {
