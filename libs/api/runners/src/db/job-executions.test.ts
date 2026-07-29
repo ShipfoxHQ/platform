@@ -1153,8 +1153,9 @@ describe('reconcileTerminalJobExecution', () => {
 
       reconciliation = reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
       // Claim has already deleted the pending row and inserted the lease, but cannot commit its
-      // outbox event while the table lock is held. Reconciliation must wait on that same claim.
-      await waitForLockWait({queryLike: '%runners_pending_jobs%'});
+      // outbox event while the table lock is held. Reconciliation must wait on that same claim's
+      // execution advisory lock.
+      await waitForLockWait({queryLike: '%pg_advisory_xact_lock%'});
     } finally {
       releaseClaim.resolve();
       await Promise.allSettled([
@@ -1371,6 +1372,32 @@ describe('detectAndExpireStuckJobs', () => {
     // The lease-expired event carries only the assignment identifiers.
     expect(payload.status).toBeUndefined();
     expect(payload.steps).toBeUndefined();
+  });
+
+  it('does not requeue an execution after its lease has expired', async () => {
+    const stale = await makeStaleJob(600);
+
+    await expireStuckJobExecutions({
+      noFirstHeartbeatGraceSeconds: 60,
+      thresholdSeconds: 180,
+    });
+
+    await enqueueJobExecution({
+      workspaceId,
+      workflowRunId: stale.workflowRunId,
+      workflowRunAttemptId: stale.workflowRunAttemptId,
+      jobId: stale.jobId,
+      jobExecutionId: stale.jobExecutionId,
+      projectId: stale.projectId,
+      requiredLabels: ['linux'],
+    });
+
+    expect(
+      await db()
+        .select()
+        .from(pendingJobExecutions)
+        .where(eq(pendingJobExecutions.jobExecutionId, stale.jobExecutionId)),
+    ).toHaveLength(0);
   });
 
   it('expires a job that never sent a first heartbeat after the startup grace', async () => {
@@ -1598,6 +1625,42 @@ describe('detectAndExpireStuckJobs', () => {
 
     expect(await runningJobsForTest()).toHaveLength(0);
     expect(await outboxForJobs([stuck1.jobId, stuck2.jobId])).toHaveLength(2);
+  });
+
+  it('skips an execution whose advisory lock is held and reaps the next stale page', async () => {
+    const first = await makeStaleJob(600);
+    const second = await makeStaleJob(600);
+    const releaseLock = deferred<void>();
+    const lockReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`runners_job_execution:${first.jobExecutionId}`}))`,
+      );
+      lockReady.resolve();
+      await releaseLock.promise;
+    });
+
+    try {
+      await lockReady.promise;
+      const reaped = await expireStuckJobExecutions({
+        noFirstHeartbeatGraceSeconds: 60,
+        thresholdSeconds: 180,
+        limit: 1,
+      });
+
+      expect(reaped).toHaveLength(1);
+      expect(reaped[0]?.jobExecutionId).toBe(second.jobExecutionId);
+    } finally {
+      releaseLock.resolve();
+      await lockHolder;
+    }
+
+    const remaining = await expireStuckJobExecutions({
+      noFirstHeartbeatGraceSeconds: 60,
+      thresholdSeconds: 180,
+      limit: 1,
+    });
+    expect(remaining.map((row) => row.jobExecutionId)).toContain(first.jobExecutionId);
   });
 
   it('a reaper tick and a concurrent claim of the same orphan-pending job do not deadlock', async () => {

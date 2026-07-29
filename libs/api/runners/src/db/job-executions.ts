@@ -38,6 +38,14 @@ import {providerRunners} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
 
+const runnerJobExecutionLockPrefix = 'runners_job_execution:';
+
+async function lockJobExecution(tx: Tx, jobExecutionId: string): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`${runnerJobExecutionLockPrefix}${jobExecutionId}`}))`,
+  );
+}
+
 export interface EnqueueJobExecutionParams {
   workspaceId: string;
   workflowRunId: string;
@@ -77,17 +85,29 @@ export async function getWorkspaceJobCounts(params: {
 }
 
 // Idempotent while the job execution is still pending: a duplicate jobExecutionId already in
-// `runners_pending_jobs` is a no-op. Temporal retries the enqueue activity
-// at-least-once, so a unique-violation throw on a retry-after-lost-result
-// would permanently fail a healthy job execution's workflow. The guard does not extend
-// past the claim: once the job execution has moved to `runners_running_jobs`, a retry
-// can reinsert an orphan pending row, which a later `claimPendingJobExecution` drops
-// via the running-execution unique constraint (onConflictDoNothing) instead of failing.
+// `runners_pending_jobs` is a no-op. Temporal retries the enqueue activity at-least-once, so a
+// unique-violation throw on a retry-after-lost-result would permanently fail a healthy execution.
+// The per-execution advisory lock serializes retries with lease expiry/reconciliation, and the
+// durable lease-expired event prevents a retry from re-queueing an execution already reaped.
 export async function enqueueJobExecution(params: EnqueueJobExecutionParams): Promise<void> {
   const requiredLabels = [...canonicalizeLabels(params.requiredLabels)];
   if (requiredLabels.length === 0) throw new EmptyRequiredLabelsError();
 
   const enqueued = await db().transaction(async (tx) => {
+    await lockJobExecution(tx, params.jobExecutionId);
+
+    const [leaseExpired] = await tx
+      .select({id: runnersOutbox.id})
+      .from(runnersOutbox)
+      .where(
+        and(
+          eq(runnersOutbox.eventType, RUNNER_JOB_LEASE_EXPIRED),
+          sql`${runnersOutbox.payload}->>'jobExecutionId' = ${params.jobExecutionId}`,
+        ),
+      )
+      .limit(1);
+    if (leaseExpired) return false;
+
     const [inserted] = await tx
       .insert(pendingJobExecutions)
       .values({
@@ -210,6 +230,11 @@ export async function claimPendingJobExecution(params: {
 
     // `id` is a uuidv7 (time-ordered), so it is a deterministic FIFO tiebreaker
     // for rows sharing a created_at within a batch.
+    const jobExecutionLockAvailable = sql`
+      pg_try_advisory_xact_lock(
+        hashtext(${runnerJobExecutionLockPrefix} || ${pendingJobExecutions.jobExecutionId}::text)
+      )
+    `;
     const [row] = await tx
       .select()
       .from(pendingJobExecutions)
@@ -217,6 +242,7 @@ export async function claimPendingJobExecution(params: {
         and(
           eq(pendingJobExecutions.workspaceId, params.workspaceId),
           arrayContained(pendingJobExecutions.requiredLabels, params.sessionLabels),
+          jobExecutionLockAvailable,
         ),
       )
       .orderBy(asc(pendingJobExecutions.createdAt), asc(pendingJobExecutions.id))
@@ -330,6 +356,8 @@ async function touchRunnerSessionLiveness(params: {
  */
 export async function releaseJobExecution(params: {jobExecutionId: string}): Promise<void> {
   await db().transaction(async (tx) => {
+    await lockJobExecution(tx, params.jobExecutionId);
+
     // Delete pending before running to match `claimPendingJobExecution`'s lock-acquisition
     // order (it locks the pending row first, then the running row). A concurrent
     // claim picking up an orphan pending row for this same job execution would otherwise
@@ -392,7 +420,16 @@ export async function expireStuckJobExecutions(params: {
         jobExecutionId: runningJobExecutions.jobExecutionId,
       })
       .from(runningJobExecutions)
-      .where(stalePredicate)
+      .where(
+        and(
+          stalePredicate,
+          sql`
+            pg_try_advisory_xact_lock(
+              hashtext(${runnerJobExecutionLockPrefix} || ${runningJobExecutions.jobExecutionId}::text)
+            )
+          `,
+        ),
+      )
       .orderBy(
         asc(
           sql`CASE WHEN ${runningJobExecutions.firstHeartbeatAt} IS NULL AND ${runningJobExecutions.lastHeartbeatAt} <= ${runningJobExecutions.startedAt} THEN ${runningJobExecutions.startedAt} ELSE ${runningJobExecutions.lastHeartbeatAt} END`,
@@ -407,7 +444,9 @@ export async function expireStuckJobExecutions(params: {
     const staleJobExecutionIds = staleRows.map((row) => row.jobExecutionId);
 
     // Sweep pending rows first so this transaction cannot hold a running-row lock while waiting
-    // for a pending-row lock held by reconciliation or a claim of an orphan pending row.
+    // for a pending-row lock held by reconciliation or a claim of an orphan pending row. The
+    // advisory lock acquired in the candidate scan also makes enqueue retries wait until this
+    // transaction has either reaped the execution or released its lock without selecting it.
     await tx
       .delete(pendingJobExecutions)
       .where(inArray(pendingJobExecutions.jobExecutionId, staleJobExecutionIds));
@@ -693,6 +732,8 @@ export async function reconcileTerminalJobExecution(params: {
   jobExecutionId: string;
 }): Promise<void> {
   await db().transaction(async (tx) => {
+    await lockJobExecution(tx, params.jobExecutionId);
+
     // Delete pending before updating running to match claim/release lock order. Claim locks
     // pending rows with SKIP LOCKED before inserting the running lease, so this ordering makes
     // a concurrent terminal reconciliation either win before claim or cancel the new lease.
