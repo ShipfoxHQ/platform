@@ -677,15 +677,28 @@ export async function recordHeartbeat(params: {
   };
 }
 
-export async function requestJobExecutionCancellation(params: {
+/**
+ * Reconciles a terminal job execution with runner state in one transaction: removes its pending
+ * queue row and requests cancellation on its running lease, if either exists. The operation is
+ * idempotent and preserves the first cancellation-request timestamp.
+ */
+export async function reconcileTerminalJobExecution(params: {
   jobExecutionId: string;
 }): Promise<void> {
-  await db()
-    .update(runningJobExecutions)
-    .set({
-      cancellationRequestedAt: sql`COALESCE(${runningJobExecutions.cancellationRequestedAt}, now())`,
-    })
-    .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId));
+  await db().transaction(async (tx) => {
+    // Delete pending before updating running to match claim/release lock order. Claim locks
+    // pending rows with SKIP LOCKED before inserting the running lease, so this ordering makes
+    // a concurrent terminal reconciliation either win before claim or cancel the new lease.
+    await tx
+      .delete(pendingJobExecutions)
+      .where(eq(pendingJobExecutions.jobExecutionId, params.jobExecutionId));
+    await tx
+      .update(runningJobExecutions)
+      .set({
+        cancellationRequestedAt: sql`COALESCE(${runningJobExecutions.cancellationRequestedAt}, now())`,
+      })
+      .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId));
+  });
 }
 
 export async function cancelRunnerJobs(params: {jobIds: string[]}): Promise<void> {
