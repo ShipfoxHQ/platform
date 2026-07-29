@@ -62,6 +62,7 @@ build {
     only = ["amazon-ebs.build_image"]
   }
 
+  # Harden the build user only after every provisioner that needs Packer's SSH access has run.
   provisioner "shell" {
     inline = [
       "sudo passwd --lock ubuntu",
