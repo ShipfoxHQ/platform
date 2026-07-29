@@ -103,6 +103,9 @@ describe('storedWebhookRequestSchema', () => {
 
     expect(request.path_parameters.connection_id).toBe('c0a8012e-0b6d-4d8f-8d5c-6d74102602b0');
     expect(storedWebhookRequestSchema.parse(JSON.parse(JSON.stringify(request)))).toEqual(request);
+    expect(storedWebhookRequestSchema.safeParse({...request, path_parameters: {}}).success).toBe(
+      false,
+    );
   });
 
   it('keeps the maximum-size fixture below the SQS message limit', () => {

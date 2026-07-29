@@ -11,16 +11,35 @@ import {jiraInstallations, toJiraInstallation} from './schema/installations.js';
 
 export type JiraInstallationLock = <T>(lockKey: string, fn: () => Promise<T>) => Promise<T>;
 
-export const withJiraInstallationLock: JiraInstallationLock = (lockKey, fn) =>
-  withPostgresSession(async (client) => {
-    const advisoryKey = `jira-installation:${lockKey}`;
-    await client.query('SELECT pg_advisory_lock(hashtext($1))', [advisoryKey]);
-    try {
-      return await fn();
-    } finally {
-      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [advisoryKey]);
+const JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS = 100;
+const JIRA_INSTALLATION_LOCK_TIMEOUT_MS = 30_000;
+
+export async function withJiraInstallationLock<T>(lockKey: string, fn: () => Promise<T>) {
+  const advisoryKey = `jira-installation:${lockKey}`;
+  const deadline = Date.now() + JIRA_INSTALLATION_LOCK_TIMEOUT_MS;
+
+  while (true) {
+    const attempt = await withPostgresSession(async (client) => {
+      const lock = await client.query<{acquired: boolean}>(
+        'SELECT pg_try_advisory_lock(hashtext($1)) AS acquired',
+        [advisoryKey],
+      );
+      if (lock.rows[0]?.acquired !== true) return {acquired: false as const};
+
+      try {
+        return {acquired: true as const, value: await fn()};
+      } finally {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [advisoryKey]);
+      }
+    });
+
+    if (attempt.acquired) return attempt.value;
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for Jira installation lock: ${lockKey}`);
     }
-  });
+    await new Promise((resolve) => setTimeout(resolve, JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS));
+  }
+}
 
 export type JiraInstallationStatus = 'installed' | 'revoked';
 

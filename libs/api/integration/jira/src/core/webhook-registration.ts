@@ -128,9 +128,13 @@ async function finishSupersededWebhookCleanup(
   registeredWebhookId: number,
   webhookExpiresAt: Date,
 ): Promise<void> {
+  const supersededWebhookIds = (previous?.webhookIds ?? []).filter(
+    (webhookId) => webhookId !== registeredWebhookId,
+  );
+  if (supersededWebhookIds.length === 0) return;
+
   const failedCleanupIds: number[] = [];
-  for (const webhookId of previous?.webhookIds ?? []) {
-    if (webhookId === registeredWebhookId) continue;
+  for (const webhookId of supersededWebhookIds) {
     try {
       await params.jira.deleteDynamicWebhook({
         accessToken: params.accessToken,
@@ -145,8 +149,6 @@ async function finishSupersededWebhookCleanup(
       );
     }
   }
-
-  if (failedCleanupIds.length === 0) return;
 
   const retainedWebhookIds = [registeredWebhookId, ...failedCleanupIds];
   const updateInstallation = params.updateInstallation ?? updateJiraInstallationWebhook;

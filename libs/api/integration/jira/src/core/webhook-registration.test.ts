@@ -229,10 +229,14 @@ describe('registerJiraWebhook', () => {
     });
 
     expect(result.webhookId).toBe(456);
-    expect(calls).toEqual(['register', 'persist', 'delete:123', 'delete:234']);
+    expect(calls).toEqual(['register', 'persist', 'delete:123', 'delete:234', 'persist']);
     expect(updateInstallation).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({webhookIds: [456, 123, 234]}),
+    );
+    expect(updateInstallation).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({webhookIds: [456]}),
     );
     expect(deleteDynamicWebhook).toHaveBeenCalledTimes(2);
   });

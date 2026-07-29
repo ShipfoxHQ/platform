@@ -24,6 +24,7 @@ describe('loadPostgresConfig', () => {
 
     expect(config).toMatchObject({
       POSTGRES_HOST: 'localhost',
+      POSTGRES_DIRECT_HOST: undefined,
       POSTGRES_PORT: 5432,
       POSTGRES_USERNAME: 'shipfox',
       POSTGRES_PASSWORD: 'password',
@@ -33,6 +34,12 @@ describe('loadPostgresConfig', () => {
       POSTGRES_IDLE_TIMEOUT_MS: 10_000,
       POSTGRES_TLS_MODE: 'disable',
     });
+  });
+
+  it('loads a separate direct hostname for session-scoped operations', () => {
+    const config = loadPostgresConfig({POSTGRES_DIRECT_HOST: 'direct.example.com'});
+
+    expect(config.POSTGRES_DIRECT_HOST).toBe('direct.example.com');
   });
 
   it('rejects an unsupported TLS mode', () => {

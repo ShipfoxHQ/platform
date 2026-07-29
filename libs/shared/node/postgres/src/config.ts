@@ -5,6 +5,10 @@ export const postgresConfigSchema = {
     desc: 'Hostname of the PostgreSQL server. Use the pooled hostname for application traffic and the direct hostname for migrations.',
     default: 'localhost',
   }),
+  POSTGRES_DIRECT_HOST: host({
+    desc: 'Optional direct PostgreSQL hostname for session-scoped operations such as advisory locks. Set this when POSTGRES_HOST uses transaction pooling.',
+    default: undefined,
+  }),
   POSTGRES_PORT: num({
     desc: 'Port of the PostgreSQL server.',
     default: 5432,

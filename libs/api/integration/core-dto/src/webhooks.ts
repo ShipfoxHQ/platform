@@ -127,15 +127,26 @@ export const webhookProcessingResultSchema = z.discriminatedUnion('outcome', [
 ]);
 export type WebhookProcessingResult = z.infer<typeof webhookProcessingResultSchema>;
 
-export interface CreateStoredWebhookRequestInput {
+interface CreateStoredWebhookRequestInputBase {
   requestId: string;
   routeId: WebhookRouteId;
   receivedAt: string;
   rawQueryString: string;
   headers: Record<string, string>;
   body: Uint8Array;
-  connectionId?: string | undefined;
 }
+
+type ConnectionScopedWebhookRouteId = 'webhook.connection' | 'jira';
+
+export type CreateStoredWebhookRequestInput =
+  | (CreateStoredWebhookRequestInputBase & {
+      routeId: ConnectionScopedWebhookRouteId;
+      connectionId: string;
+    })
+  | (CreateStoredWebhookRequestInputBase & {
+      routeId: Exclude<WebhookRouteId, ConnectionScopedWebhookRouteId>;
+      connectionId?: never;
+    });
 
 export function encodeWebhookBody(body: Uint8Array): string {
   let encoded = '';

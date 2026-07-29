@@ -26,7 +26,7 @@ export function pgClient(): pg.Pool {
 
 export async function withPostgresSession<T>(fn: (client: pg.Client) => Promise<T>): Promise<T> {
   const client = new pg.Client({
-    host: config.POSTGRES_HOST,
+    host: config.POSTGRES_DIRECT_HOST ?? config.POSTGRES_HOST,
     port: config.POSTGRES_PORT,
     database: config.POSTGRES_DATABASE,
     user: config.POSTGRES_USERNAME,
