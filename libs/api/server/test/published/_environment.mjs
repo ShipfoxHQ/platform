@@ -27,7 +27,6 @@ export function publishedTestEnvironment() {
     JIRA_OAUTH_CLIENT_SECRET: 'external-consumer-client-secret',
     JIRA_OAUTH_REDIRECT_URL: 'https://shipfox.example.com/integrations/jira/callback',
     JIRA_WEBHOOK_BASE_URL: 'https://shipfox.example.com',
-    JIRA_WEBHOOK_SIGNING_SECRET: 'external-consumer-webhook-secret',
     LINEAR_MCP_ENDPOINT: 'https://mcp.linear.app/mcp',
     LINEAR_OAUTH_CLIENT_ID: 'external-consumer-client-id',
     LINEAR_OAUTH_CLIENT_SECRET: 'external-consumer-client-secret',

@@ -4,6 +4,7 @@ import {logger} from '@shipfox/node-opentelemetry';
 import type {JiraAccessibleResource, JiraApiClient, JiraAuthorization} from '#api/client.js';
 import type {JiraPendingSelectionStore} from '#core/pending.js';
 import type {JiraTokenStore} from '#core/tokens.js';
+import {type JiraInstallationLock, withJiraInstallationLock} from '#db/installations.js';
 import {
   JiraInstallationAlreadyLinkedError,
   JiraInstallStateActorMismatchError,
@@ -46,6 +47,17 @@ export interface HandleJiraCallbackParams {
   connectJiraInstallation(
     input: ConnectJiraInstallationInput,
   ): Promise<IntegrationConnection<'jira'>>;
+  registerJiraWebhook(input: {
+    connectionId: string;
+    cloudId: string;
+    accessToken: string;
+    withRegistrationLock?: JiraInstallationLock;
+    onRegistrationSuccess: (input: {tx?: unknown}) => Promise<void>;
+    onRegistrationFailure: (input: {tx?: unknown}) => Promise<void>;
+  }): Promise<void>;
+  withJiraInstallationLock?: JiraInstallationLock;
+  markConnectionActive(input: {connectionId: string; tx?: unknown}): Promise<void>;
+  markConnectionError(input: {connectionId: string; tx?: unknown}): Promise<void>;
   disconnectJiraInstallation(input: {connectionId: string}): Promise<void>;
 }
 
@@ -136,23 +148,23 @@ async function verifyClaims(
   return claims;
 }
 
-async function resolveJiraSite(
+function resolveJiraSite(
   params: Omit<HandleJiraCallbackParams, 'code'> & {
     authorization: JiraAuthorization;
     site: JiraAccessibleResource;
     claims: {workspaceId: string; userId: string};
   },
 ): Promise<IntegrationConnection<'jira'>> {
-  const existing = await params.getExistingJiraConnection({cloudId: params.site.cloudId});
-  if (existing && existing.workspaceId !== params.claims.workspaceId)
-    throw new JiraInstallationAlreadyLinkedError(params.site.cloudId);
-  let connectionId: string | undefined;
-  try {
+  const withInstallationLock = params.withJiraInstallationLock ?? withJiraInstallationLock;
+  return withInstallationLock(params.site.cloudId, async () => {
+    const existing = await params.getExistingJiraConnection({cloudId: params.site.cloudId});
+    if (existing && existing.workspaceId !== params.claims.workspaceId)
+      throw new JiraInstallationAlreadyLinkedError(params.site.cloudId);
     const identity = await params.jira.getMyself({
       accessToken: params.authorization.accessToken,
       cloudId: params.site.cloudId,
     });
-    const connection = await params.connectJiraInstallation({
+    const installationInput = {
       workspaceId: params.claims.workspaceId,
       cloudId: params.site.cloudId,
       siteUrl: params.site.url,
@@ -161,19 +173,52 @@ async function resolveJiraSite(
       scopes: params.site.scopes,
       tokenExpiresAt: params.authorization.expiresAt ?? null,
       displayName: `Jira ${params.site.name}`,
-    });
-    connectionId = connection.id;
-    await params.tokenStore.storeTokens({
-      connectionId: connection.id,
-      accessToken: params.authorization.accessToken,
-      refreshToken: params.authorization.refreshToken,
-      editedBy: params.claims.userId,
-    });
+    };
+    let connection = existing;
+    try {
+      if (!connection) connection = await params.connectJiraInstallation(installationInput);
+      await params.tokenStore.storeTokens({
+        connectionId: connection.id,
+        accessToken: params.authorization.accessToken,
+        refreshToken: params.authorization.refreshToken,
+        editedBy: params.claims.userId,
+      });
+      if (existing) connection = await params.connectJiraInstallation(installationInput);
+    } catch (error) {
+      if (existing) {
+        const markedError = await bestEffortMarkConnectionError(params, existing.id);
+        if (!markedError) await bestEffortMarkConnectionError(params, existing.id);
+      } else if (connection) {
+        await bestEffortDisconnect(params, connection.id);
+      }
+      throw error;
+    }
+
+    let registrationFailureHandled = false;
+    try {
+      await params.registerJiraWebhook({
+        connectionId: connection.id,
+        cloudId: params.site.cloudId,
+        accessToken: params.authorization.accessToken,
+        withRegistrationLock: async (_lockKey, fn) => fn(),
+        onRegistrationSuccess: async ({tx}) => {
+          await params.markConnectionActive(connectionLifecycleInput(connection.id, tx));
+        },
+        onRegistrationFailure: async ({tx}) => {
+          registrationFailureHandled = await bestEffortMarkConnectionError(
+            params,
+            connection.id,
+            tx,
+          );
+        },
+      });
+    } catch (error) {
+      if (!registrationFailureHandled) await bestEffortMarkConnectionError(params, connection.id);
+      throw error;
+    }
+
     return connection;
-  } catch (error) {
-    if (connectionId && !existing) await bestEffortDisconnect(params, connectionId);
-    throw error;
-  }
+  });
 }
 
 async function bestEffortDisconnect(
@@ -188,4 +233,25 @@ async function bestEffortDisconnect(
       'Jira connect compensation failed after token storage rejection',
     );
   }
+}
+
+async function bestEffortMarkConnectionError(
+  params: Pick<HandleJiraCallbackParams, 'markConnectionError'>,
+  connectionId: string,
+  tx?: unknown,
+): Promise<boolean> {
+  try {
+    await params.markConnectionError(connectionLifecycleInput(connectionId, tx));
+    return true;
+  } catch (error) {
+    logger().warn(
+      {err: error, connectionId},
+      'Jira connection error-state update failed after webhook registration rejection',
+    );
+    return false;
+  }
+}
+
+function connectionLifecycleInput(connectionId: string, tx?: unknown) {
+  return tx === undefined ? {connectionId} : {connectionId, tx};
 }

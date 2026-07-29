@@ -1,3 +1,4 @@
+import {jiraWebhookEventNames} from '@shipfox/api-integration-jira-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import ky, {HTTPError, TimeoutError} from 'ky';
 import {config} from '#config.js';
@@ -5,6 +6,8 @@ import {JiraIntegrationProviderError} from '#core/errors.js';
 
 const JIRA_API_TIMEOUT_MS = 10_000;
 const SCOPE_SEPARATOR_RE = /[,\s]+/;
+export const JIRA_DYNAMIC_WEBHOOK_EVENTS = jiraWebhookEventNames;
+export const JIRA_DYNAMIC_WEBHOOK_JQL = '';
 
 export interface JiraAuthorization {
   accessToken: string;
@@ -24,11 +27,25 @@ export interface JiraIdentity {
   accountId: string;
 }
 
+export interface JiraDynamicWebhookRegistration {
+  webhookId: number;
+}
+
 export interface JiraApiClient {
   exchangeAuthorizationCode(input: {code: string}): Promise<JiraAuthorization>;
   refreshAccessToken(input: {refreshToken: string}): Promise<JiraAuthorization>;
   getAccessibleResources(input: {accessToken: string}): Promise<JiraAccessibleResource[]>;
   getMyself(input: {accessToken: string; cloudId: string}): Promise<JiraIdentity>;
+  registerDynamicWebhook(input: {
+    accessToken: string;
+    cloudId: string;
+    url: string;
+  }): Promise<JiraDynamicWebhookRegistration>;
+  deleteDynamicWebhook(input: {
+    accessToken: string;
+    cloudId: string;
+    webhookId: number;
+  }): Promise<void>;
 }
 
 interface JiraTokenResponse {
@@ -47,6 +64,10 @@ interface JiraResourceResponse {
 
 interface JiraMyselfResponse {
   accountId?: unknown;
+}
+
+interface JiraDynamicWebhookRegistrationResponse {
+  webhookRegistrationResult?: unknown;
 }
 
 export function createJiraApiClient(): JiraApiClient {
@@ -115,7 +136,71 @@ export function createJiraApiClient(): JiraApiClient {
       }
       return {accountId: body.accountId};
     },
+
+    async registerDynamicWebhook(input) {
+      const body = await mapJiraError('register-dynamic-webhook', () =>
+        ky
+          .post(`${config.JIRA_API_BASE_URL}/ex/jira/${input.cloudId}/rest/api/3/webhook`, {
+            headers: {authorization: `Bearer ${input.accessToken}`},
+            json: {
+              url: input.url,
+              webhooks: [
+                {
+                  events: JIRA_DYNAMIC_WEBHOOK_EVENTS,
+                  jqlFilter: JIRA_DYNAMIC_WEBHOOK_JQL,
+                },
+              ],
+            },
+            timeout: JIRA_API_TIMEOUT_MS,
+          })
+          .json<JiraDynamicWebhookRegistrationResponse>(),
+      );
+      return parseDynamicWebhookRegistration(body);
+    },
+
+    async deleteDynamicWebhook(input) {
+      await mapJiraError('delete-dynamic-webhook', () =>
+        ky.delete(`${config.JIRA_API_BASE_URL}/ex/jira/${input.cloudId}/rest/api/3/webhook`, {
+          headers: {authorization: `Bearer ${input.accessToken}`},
+          json: {webhookIds: [input.webhookId]},
+          timeout: JIRA_API_TIMEOUT_MS,
+        }),
+      );
+    },
   };
+}
+
+function parseDynamicWebhookRegistration(
+  body: JiraDynamicWebhookRegistrationResponse,
+): JiraDynamicWebhookRegistration {
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    !Array.isArray(body.webhookRegistrationResult) ||
+    body.webhookRegistrationResult.length !== 1
+  ) {
+    throw malformed('Jira webhook registration response did not contain exactly one result');
+  }
+
+  const result = body.webhookRegistrationResult[0];
+  if (!result || typeof result !== 'object') {
+    throw malformed('Jira webhook registration result was malformed');
+  }
+  const {createdWebhookId, errors} = result as {
+    createdWebhookId?: unknown;
+    errors?: unknown;
+  };
+  if (errors !== undefined && (!Array.isArray(errors) || errors.length > 0)) {
+    throw malformed('Jira webhook registration returned errors');
+  }
+  if (
+    typeof createdWebhookId !== 'number' ||
+    !Number.isSafeInteger(createdWebhookId) ||
+    createdWebhookId <= 0
+  ) {
+    throw malformed('Jira webhook registration did not return a created webhook id');
+  }
+  return {webhookId: createdWebhookId};
 }
 
 function parseAuthorization(body: JiraTokenResponse): JiraAuthorization {

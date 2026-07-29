@@ -25,6 +25,7 @@ import type {JiraPendingSelectionStore} from '#core/pending.js';
 import {formatJiraOAuthScopes} from '#core/scopes.js';
 import {signJiraInstallState} from '#core/state.js';
 import type {JiraTokenStore} from '#core/tokens.js';
+import type {JiraInstallationLock} from '#db/installations.js';
 import {toIntegrationConnectionDto} from '#presentation/dto/integrations.js';
 import {jiraRouteErrorHandler} from './errors.js';
 
@@ -38,6 +39,17 @@ export interface CreateJiraIntegrationRoutesOptions {
   connectJiraInstallation(
     input: ConnectJiraInstallationInput,
   ): Promise<IntegrationConnection<'jira'>>;
+  registerJiraWebhook(input: {
+    connectionId: string;
+    cloudId: string;
+    accessToken: string;
+    withRegistrationLock?: JiraInstallationLock;
+    onRegistrationSuccess: (input: {tx?: unknown}) => Promise<void>;
+    onRegistrationFailure: (input: {tx?: unknown}) => Promise<void>;
+  }): Promise<void>;
+  withJiraInstallationLock?: JiraInstallationLock;
+  markConnectionActive(input: {connectionId: string; tx?: unknown}): Promise<void>;
+  markConnectionError(input: {connectionId: string; tx?: unknown}): Promise<void>;
   disconnectJiraInstallation(input: {connectionId: string}): Promise<void>;
   connectionCapabilities: IntegrationCapability[];
   requireActiveWorkspaceMembership?: (input: {

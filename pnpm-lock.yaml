@@ -3035,6 +3035,9 @@ importers:
       '@shipfox/node-fastify':
         specifier: workspace:*
         version: link:../../../shared/node/fastify
+      '@shipfox/node-jwt':
+        specifier: workspace:*
+        version: link:../../../shared/node/jwt
       '@shipfox/node-opentelemetry':
         specifier: workspace:*
         version: link:../../../shared/node/opentelemetry
@@ -3047,6 +3050,9 @@ importers:
       ky:
         specifier: 'catalog:'
         version: 2.0.2
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
     devDependencies:
       '@shipfox/biome':
         specifier: workspace:*

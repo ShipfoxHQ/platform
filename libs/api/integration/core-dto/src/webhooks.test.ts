@@ -90,6 +90,24 @@ describe('storedWebhookRequestSchema', () => {
     expect(storedWebhookRequestSchema.safeParse(withoutConnectionId).success).toBe(false);
   });
 
+  it('requires and round-trips a connection identifier for Jira requests', () => {
+    const request = createStoredWebhookRequest({
+      requestId,
+      routeId: 'jira',
+      receivedAt,
+      rawQueryString: '',
+      headers: {authorization: 'Bearer token'},
+      body: new Uint8Array([1, 2, 3]),
+      connectionId: 'c0a8012e-0b6d-4d8f-8d5c-6d74102602b0',
+    });
+
+    expect(request.path_parameters.connection_id).toBe('c0a8012e-0b6d-4d8f-8d5c-6d74102602b0');
+    expect(storedWebhookRequestSchema.parse(JSON.parse(JSON.stringify(request)))).toEqual(request);
+    expect(storedWebhookRequestSchema.safeParse({...request, path_parameters: {}}).success).toBe(
+      false,
+    );
+  });
+
   it('keeps the maximum-size fixture below the SQS message limit', () => {
     const fixture = createMaximumSizeStoredWebhookRequestFixture();
     const serializedSize = new TextEncoder().encode(JSON.stringify(fixture)).byteLength;

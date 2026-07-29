@@ -40,6 +40,7 @@ await closePostgresClient();
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `POSTGRES_HOST` | `localhost` | PostgreSQL hostname. |
+| `POSTGRES_DIRECT_HOST` | unset | Optional direct PostgreSQL hostname for session-scoped operations such as advisory locks. |
 | `POSTGRES_PORT` | `5432` | PostgreSQL port. |
 | `POSTGRES_USERNAME` | `shipfox` | PostgreSQL user. |
 | `POSTGRES_PASSWORD` | `password` | PostgreSQL password. Set a strong value in production. |
@@ -66,6 +67,8 @@ POSTGRES_CONNECTION_TIMEOUT_MS=5000
 POSTGRES_IDLE_TIMEOUT_MS=10000
 POSTGRES_TLS_MODE=verify-full
 ```
+
+When `POSTGRES_HOST` uses transaction pooling, set `POSTGRES_DIRECT_HOST` to the provider's direct hostname so session-scoped advisory locks remain held for the complete operation.
 
 ### Migrations
 

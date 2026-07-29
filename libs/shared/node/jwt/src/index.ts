@@ -83,12 +83,15 @@ export interface VerifyHs256Params<T> {
   schema: {parse(data: unknown): T};
   // When set, jose throws on an `aud` mismatch before the schema runs.
   audience?: string;
+  /** Evaluate temporal claims against this time instead of the current clock. */
+  verificationTime?: Date;
 }
 
 export async function verifyHs256<T>(params: VerifyHs256Params<T>): Promise<T> {
   const {payload} = await jwtVerify(params.token, keyMaterial(params.secret), {
     algorithms: ['HS256'],
     ...(params.audience !== undefined ? {audience: params.audience} : {}),
+    ...(params.verificationTime !== undefined ? {currentDate: params.verificationTime} : {}),
   });
 
   return params.schema.parse(payload);

@@ -1,3 +1,4 @@
+import {type JiraInstallationLock, withJiraInstallationLock} from '#db/installations.js';
 import {
   JiraOfflineAccessNotGrantedError,
   JiraPendingSelectionNotFoundError,
@@ -19,6 +20,8 @@ function createParams() {
     getAccessibleResources: vi.fn(),
     getMyself: vi.fn().mockResolvedValue({accountId: 'account-1'}),
     refreshAccessToken: vi.fn(),
+    registerDynamicWebhook: vi.fn(),
+    deleteDynamicWebhook: vi.fn(),
   };
   const tokenStore = {storeTokens: vi.fn().mockResolvedValue(undefined)};
   const pendingStore = {
@@ -29,6 +32,12 @@ function createParams() {
   const connectJiraInstallation = vi
     .fn()
     .mockResolvedValue({id: 'connection-1', workspaceId, provider: 'jira'});
+  const registerJiraWebhook = vi.fn().mockImplementation(async ({onRegistrationSuccess}) => {
+    await onRegistrationSuccess?.({});
+  });
+  const markConnectionActive = vi.fn().mockResolvedValue(undefined);
+  const markConnectionError = vi.fn().mockResolvedValue(undefined);
+  const withJiraInstallationLock: JiraInstallationLock = async (_key, fn) => fn();
   return {
     workspaceId,
     state,
@@ -36,6 +45,10 @@ function createParams() {
     tokenStore,
     pendingStore,
     connectJiraInstallation,
+    registerJiraWebhook,
+    markConnectionActive,
+    markConnectionError,
+    withJiraInstallationLock,
     code: 'code',
     sessionUserId: 'user-1',
     sessionMemberships: [],
@@ -66,6 +79,7 @@ describe('Jira OAuth installation', () => {
     expect(params.tokenStore.storeTokens).toHaveBeenCalledWith(
       expect.objectContaining({connectionId: 'connection-1', refreshToken: 'refresh'}),
     );
+    expect(params.markConnectionActive).toHaveBeenCalledWith({connectionId: 'connection-1'});
   });
 
   it('stores a multi-site grant until the selected site completes', async () => {
@@ -125,5 +139,170 @@ describe('Jira OAuth installation', () => {
     await expect(
       handleJiraSiteSelection({...mismatchedSite, cloudId: 'cloud-1'}),
     ).rejects.toBeInstanceOf(JiraSiteSelectionMismatchError);
+  });
+
+  it('marks the connection in error while retaining state when registration fails', async () => {
+    const params = createParams();
+    params.jira.getAccessibleResources.mockResolvedValue([
+      {
+        cloudId: 'cloud-1',
+        name: 'Acme',
+        url: 'https://acme.atlassian.net',
+        scopes: ['read:jira-work'],
+      },
+    ]);
+    const registrationError = new Error('Jira rejected the webhook');
+    params.registerJiraWebhook.mockRejectedValue(registrationError);
+    await expect(handleJiraCallback(params)).rejects.toBe(registrationError);
+    expect(params.tokenStore.storeTokens).toHaveBeenCalled();
+    expect(params.disconnectJiraInstallation).not.toHaveBeenCalled();
+    expect(params.markConnectionError).toHaveBeenCalledWith({connectionId: 'connection-1'});
+  });
+
+  it('does not overwrite an existing installation when token storage fails', async () => {
+    const params = createParams();
+    params.jira.getAccessibleResources.mockResolvedValue([
+      {
+        cloudId: 'cloud-1',
+        name: 'Acme',
+        url: 'https://acme.atlassian.net',
+        scopes: ['read:jira-work'],
+      },
+    ]);
+    const existing = {
+      id: 'connection-1',
+      workspaceId: params.workspaceId,
+      provider: 'jira',
+    } as const;
+    params.getExistingJiraConnection.mockResolvedValue(existing);
+    const storageError = new Error('secret storage unavailable');
+    params.tokenStore.storeTokens.mockRejectedValue(storageError);
+    params.markConnectionError
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(handleJiraCallback(params)).rejects.toBe(storageError);
+
+    expect(params.connectJiraInstallation).not.toHaveBeenCalled();
+    expect(params.markConnectionError).toHaveBeenCalledTimes(2);
+    expect(params.markConnectionError).toHaveBeenNthCalledWith(1, {connectionId: existing.id});
+    expect(params.markConnectionError).toHaveBeenNthCalledWith(2, {connectionId: existing.id});
+    expect(params.disconnectJiraInstallation).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a second error-state write when the registration callback cannot persist it', async () => {
+    const params = createParams();
+    params.jira.getAccessibleResources.mockResolvedValue([
+      {
+        cloudId: 'cloud-1',
+        name: 'Acme',
+        url: 'https://acme.atlassian.net',
+        scopes: ['read:jira-work'],
+      },
+    ]);
+    const registrationError = new Error('Jira rejected the webhook');
+    params.registerJiraWebhook.mockImplementation(async ({onRegistrationFailure}) => {
+      await onRegistrationFailure?.({});
+      throw registrationError;
+    });
+    params.markConnectionError
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(handleJiraCallback(params)).rejects.toBe(registrationError);
+
+    expect(params.markConnectionError).toHaveBeenCalledTimes(2);
+    expect(params.markConnectionError).toHaveBeenNthCalledWith(1, {connectionId: 'connection-1'});
+    expect(params.markConnectionError).toHaveBeenNthCalledWith(2, {connectionId: 'connection-1'});
+  });
+
+  it('serializes the complete same-site replacement before allowing another callback to proceed', async () => {
+    const first = createParams();
+    const second = createParams();
+    second.workspaceId = first.workspaceId;
+    second.state = signJiraInstallState({workspaceId: first.workspaceId, userId: 'user-1'});
+    const sites = [
+      {
+        cloudId: 'cloud-1',
+        name: 'Acme',
+        url: 'https://acme.atlassian.net',
+        scopes: ['read:jira-work'],
+      },
+    ];
+    const connection = {id: 'connection-1', workspaceId: first.workspaceId, provider: 'jira'};
+    const getExisting = vi.fn().mockResolvedValue(undefined);
+    const connect = vi.fn().mockResolvedValue(connection);
+    const storeTokens = vi.fn().mockResolvedValue(undefined);
+    const register = vi.fn();
+    const events: string[] = [];
+    let releaseFirstRegistration!: () => void;
+    const firstRegistrationReady = new Promise<void>((resolve) => {
+      releaseFirstRegistration = resolve;
+    });
+
+    first.jira.getAccessibleResources.mockResolvedValue(sites);
+    second.jira.getAccessibleResources.mockResolvedValue(sites);
+    first.jira.getMyself.mockResolvedValue({accountId: 'account-1'});
+    second.jira.getMyself.mockResolvedValue({accountId: 'account-2'});
+    first.jira.exchangeAuthorizationCode.mockResolvedValue({
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+      scopes: [],
+    });
+    second.jira.exchangeAuthorizationCode.mockResolvedValue({
+      accessToken: 'access-2',
+      refreshToken: 'refresh-2',
+      scopes: [],
+    });
+    getExisting.mockImplementation(() => {
+      events.push('get-existing');
+      return Promise.resolve(connect.mock.calls.length > 0 ? connection : undefined);
+    });
+    connect.mockImplementation((input) => {
+      events.push(`connect:${input.authorizingAccountId}`);
+      return Promise.resolve(connection);
+    });
+    storeTokens.mockImplementation(({accessToken}) => {
+      events.push(`store:${accessToken}`);
+      return Promise.resolve();
+    });
+    register.mockImplementation(async ({accessToken, onRegistrationSuccess}) => {
+      events.push(`register:${accessToken}`);
+      if (accessToken === 'access-1') await firstRegistrationReady;
+      await onRegistrationSuccess?.({});
+    });
+
+    for (const params of [first, second]) {
+      params.getExistingJiraConnection = getExisting;
+      params.connectJiraInstallation = connect;
+      params.tokenStore.storeTokens = storeTokens;
+      params.registerJiraWebhook = register;
+    }
+
+    first.withJiraInstallationLock = withJiraInstallationLock;
+    second.withJiraInstallationLock = withJiraInstallationLock;
+
+    const firstCallback = handleJiraCallback(first);
+    await vi.waitFor(() =>
+      expect(register).toHaveBeenCalledWith(expect.objectContaining({accessToken: 'access-1'})),
+    );
+    const secondCallback = handleJiraCallback(second);
+    await Promise.resolve();
+    expect(getExisting).toHaveBeenCalledTimes(1);
+
+    releaseFirstRegistration();
+    await expect(firstCallback).resolves.toMatchObject({id: 'connection-1'});
+    await expect(secondCallback).resolves.toMatchObject({id: 'connection-1'});
+
+    expect(events).toEqual([
+      'get-existing',
+      'connect:account-1',
+      'store:access-1',
+      'register:access-1',
+      'get-existing',
+      'store:access-2',
+      'connect:account-2',
+      'register:access-2',
+    ]);
   });
 });

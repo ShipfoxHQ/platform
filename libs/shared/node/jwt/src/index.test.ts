@@ -144,6 +144,32 @@ describe('signHs256 / verifyHs256', () => {
     ).rejects.toThrow();
   });
 
+  test('evaluates temporal claims against an explicit verification time', async () => {
+    const token = await new SignJWT({a: 1})
+      .setProtectedHeader({alg: 'HS256'})
+      .setIssuedAt(1_800_000_000)
+      .setExpirationTime(1_800_000_060)
+      .sign(encodeSecret(SECRET));
+
+    await expect(
+      verifyHs256({
+        token,
+        secret: SECRET,
+        schema: simpleClaimsSchema,
+        verificationTime: new Date(1_800_000_030_000),
+      }),
+    ).resolves.toMatchObject({a: 1});
+
+    await expect(
+      verifyHs256({
+        token,
+        secret: SECRET,
+        schema: simpleClaimsSchema,
+        verificationTime: new Date(1_800_000_061_000),
+      }),
+    ).rejects.toThrow();
+  });
+
   test('rejects a malformed token', async () => {
     await expect(
       verifyHs256({token: 'not.a.token', secret: SECRET, schema: simpleClaimsSchema}),

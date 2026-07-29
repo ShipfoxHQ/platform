@@ -13,6 +13,7 @@ import {
   upsertIntegrationConnection,
 } from '#db/connections.js';
 import {db} from '#db/db.js';
+import {publishIntegrationEventReceived, recordDeliveryOnly} from '#db/webhook-deliveries.js';
 import {retryConnectionSlugCollision, slugifyConnectionSlug} from '#providers/connection-slug.js';
 import type {IntegrationModuleParts, IntegrationProviderModule} from '#providers/types.js';
 
@@ -140,19 +141,44 @@ async function loadJiraModuleParts(
   });
   const pendingStore = createJiraPendingSelectionStore({secrets});
 
-  return {
-    provider: createJiraIntegrationProvider({
-      routes: {
-        tokenStore,
-        pendingStore,
-        getExistingJiraConnection,
-        connectJiraInstallation,
-        disconnectJiraInstallation,
-        ...(options.requireActiveWorkspaceMembership
-          ? {requireActiveWorkspaceMembership: options.requireActiveWorkspaceMembership}
-          : {}),
+  const integrationProvider = createJiraIntegrationProvider({
+    routes: {
+      tokenStore,
+      pendingStore,
+      getExistingJiraConnection,
+      connectJiraInstallation,
+      disconnectJiraInstallation,
+      coreDb: db,
+      publishIntegrationEventReceived,
+      recordDeliveryOnly,
+      getIntegrationConnectionById,
+      markConnectionActive: async ({connectionId, tx}) => {
+        await updateIntegrationConnectionLifecycleStatus(
+          {
+            id: connectionId,
+            lifecycleStatus: 'active',
+          },
+          tx === undefined ? {} : {tx: tx as IntegrationTx},
+        );
       },
-    }),
+      markConnectionError: async ({connectionId, tx}) => {
+        await updateIntegrationConnectionLifecycleStatus(
+          {
+            id: connectionId,
+            lifecycleStatus: 'error',
+          },
+          tx === undefined ? {} : {tx: tx as IntegrationTx},
+        );
+      },
+      ...(options.requireActiveWorkspaceMembership
+        ? {requireActiveWorkspaceMembership: options.requireActiveWorkspaceMembership}
+        : {}),
+    },
+  });
+
+  return {
+    provider: integrationProvider,
+    webhookProcessors: integrationProvider.webhookProcessors,
     database: {db: jiraDb, migrationsPath, databaseNamespace: 'integrations_jira'},
   };
 }

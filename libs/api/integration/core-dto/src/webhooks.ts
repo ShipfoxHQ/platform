@@ -15,7 +15,7 @@ const standardWebhookRouteIds = [
   'slack.command',
 ] as const;
 
-export const webhookRouteIds = [...standardWebhookRouteIds, 'webhook.connection'] as const;
+export const webhookRouteIds = [...standardWebhookRouteIds, 'webhook.connection', 'jira'] as const;
 
 export const webhookRouteIdSchema = z.enum(webhookRouteIds);
 export type WebhookRouteId = z.infer<typeof webhookRouteIdSchema>;
@@ -87,9 +87,17 @@ const genericWebhookRouteRequestSchema = storedWebhookRequestBaseSchema
   })
   .strict();
 
+const jiraWebhookRouteRequestSchema = storedWebhookRequestBaseSchema
+  .extend({
+    route_id: z.literal('jira'),
+    path_parameters: connectionPathParametersSchema,
+  })
+  .strict();
+
 export const storedWebhookRequestSchema = z.discriminatedUnion('route_id', [
   standardWebhookRouteRequestSchema,
   genericWebhookRouteRequestSchema,
+  jiraWebhookRouteRequestSchema,
 ]);
 export type StoredWebhookRequest = z.infer<typeof storedWebhookRequestSchema>;
 
@@ -119,15 +127,26 @@ export const webhookProcessingResultSchema = z.discriminatedUnion('outcome', [
 ]);
 export type WebhookProcessingResult = z.infer<typeof webhookProcessingResultSchema>;
 
-export interface CreateStoredWebhookRequestInput {
+interface CreateStoredWebhookRequestInputBase {
   requestId: string;
   routeId: WebhookRouteId;
   receivedAt: string;
   rawQueryString: string;
   headers: Record<string, string>;
   body: Uint8Array;
-  connectionId?: string | undefined;
 }
+
+type ConnectionScopedWebhookRouteId = 'webhook.connection' | 'jira';
+
+export type CreateStoredWebhookRequestInput =
+  | (CreateStoredWebhookRequestInputBase & {
+      routeId: ConnectionScopedWebhookRouteId;
+      connectionId: string;
+    })
+  | (CreateStoredWebhookRequestInputBase & {
+      routeId: Exclude<WebhookRouteId, ConnectionScopedWebhookRouteId>;
+      connectionId?: never;
+    });
 
 export function encodeWebhookBody(body: Uint8Array): string {
   let encoded = '';
@@ -188,7 +207,9 @@ export function createStoredWebhookRequest(
   input: CreateStoredWebhookRequestInput,
 ): StoredWebhookRequest {
   const pathParameters =
-    input.routeId === 'webhook.connection' ? {connection_id: input.connectionId} : {};
+    input.routeId === 'webhook.connection' || input.routeId === 'jira'
+      ? {connection_id: input.connectionId}
+      : {};
 
   return storedWebhookRequestSchema.parse({
     schema_version: WEBHOOK_REQUEST_SCHEMA_VERSION,

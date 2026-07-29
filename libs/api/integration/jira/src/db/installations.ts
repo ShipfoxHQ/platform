@@ -1,5 +1,5 @@
 import {isUniqueViolation} from '@shipfox/node-drizzle';
-import {pgClient} from '@shipfox/node-postgres';
+import {pgClient, withPostgresSession} from '@shipfox/node-postgres';
 import {eq, sql} from 'drizzle-orm';
 import {
   JiraConnectionAlreadyLinkedError,
@@ -8,6 +8,41 @@ import {
 } from '#core/errors.js';
 import {db} from './db.js';
 import {jiraInstallations, toJiraInstallation} from './schema/installations.js';
+
+export type JiraInstallationLock = <T>(lockKey: string, fn: () => Promise<T>) => Promise<T>;
+
+const JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS = 100;
+const JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS = 1_000;
+const JIRA_INSTALLATION_LOCK_TIMEOUT_MS = 30_000;
+
+export async function withJiraInstallationLock<T>(lockKey: string, fn: () => Promise<T>) {
+  const advisoryKey = `jira-installation:${lockKey}`;
+  const deadline = Date.now() + JIRA_INSTALLATION_LOCK_TIMEOUT_MS;
+  let retryDelayMs = JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS;
+
+  while (true) {
+    const attempt = await withPostgresSession(async (client) => {
+      const lock = await client.query<{acquired: boolean}>(
+        'SELECT pg_try_advisory_lock(hashtext($1)) AS acquired',
+        [advisoryKey],
+      );
+      if (lock.rows[0]?.acquired !== true) return {acquired: false as const};
+
+      try {
+        return {acquired: true as const, value: await fn()};
+      } finally {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [advisoryKey]);
+      }
+    });
+
+    if (attempt.acquired) return attempt.value;
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for Jira installation lock: ${lockKey}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    retryDelayMs = Math.min(retryDelayMs * 2, JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS);
+  }
+}
 
 export type JiraInstallationStatus = 'installed' | 'revoked';
 
@@ -46,6 +81,12 @@ export interface UpdateJiraInstallationTokenExpiryParams {
   scopes?: string[] | undefined;
 }
 
+export interface UpdateJiraInstallationWebhookParams {
+  connectionId: string;
+  webhookIds: number[];
+  webhookExpiresAt: Date | null;
+}
+
 type JiraDb = ReturnType<typeof db>;
 type JiraTx = Parameters<Parameters<JiraDb['transaction']>[0]>[0];
 
@@ -55,7 +96,6 @@ export async function upsertJiraInstallation(
 ): Promise<JiraInstallation> {
   const executor = (options.tx ?? db()) as JiraDb | JiraTx;
   const now = new Date();
-  const webhookIds = params.webhookIds ?? [];
   let row: typeof jiraInstallations.$inferSelect | undefined;
   try {
     [row] = await executor
@@ -67,7 +107,7 @@ export async function upsertJiraInstallation(
         siteName: params.siteName,
         authorizingAccountId: params.authorizingAccountId,
         scopes: params.scopes,
-        webhookIds,
+        webhookIds: params.webhookIds ?? [],
         webhookExpiresAt: params.webhookExpiresAt ?? null,
         status: params.status,
         tokenExpiresAt: params.tokenExpiresAt ?? null,
@@ -81,8 +121,10 @@ export async function upsertJiraInstallation(
           siteName: params.siteName,
           authorizingAccountId: params.authorizingAccountId,
           scopes: params.scopes,
-          webhookIds,
-          webhookExpiresAt: params.webhookExpiresAt ?? null,
+          ...(params.webhookIds === undefined ? {} : {webhookIds: params.webhookIds}),
+          ...(params.webhookExpiresAt === undefined
+            ? {}
+            : {webhookExpiresAt: params.webhookExpiresAt}),
           status: params.status,
           tokenExpiresAt: params.tokenExpiresAt ?? null,
           updatedAt: now,
@@ -134,6 +176,23 @@ export async function updateJiraInstallationTokenExpiry(
   return row ? toJiraInstallation(row) : undefined;
 }
 
+export async function updateJiraInstallationWebhook(
+  params: UpdateJiraInstallationWebhookParams,
+  options: {tx?: unknown} = {},
+): Promise<JiraInstallation | undefined> {
+  const executor = (options.tx ?? db()) as JiraDb | JiraTx;
+  const [row] = await executor
+    .update(jiraInstallations)
+    .set({
+      webhookIds: params.webhookIds,
+      webhookExpiresAt: params.webhookExpiresAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(jiraInstallations.connectionId, params.connectionId))
+    .returning();
+  return row ? toJiraInstallation(row) : undefined;
+}
+
 export async function deleteJiraInstallationByConnectionId(
   connectionId: string,
   options: {tx?: unknown} = {},
@@ -152,6 +211,13 @@ export function withJiraRefreshLock<T>(
   fn: () => Promise<T>,
 ): Promise<JiraRefreshLockResult<T>> {
   return withJiraRefreshLockClient(connectionId, fn);
+}
+
+export function withJiraWebhookRegistrationLock<T>(
+  lockKey: string,
+  fn: (tx?: unknown) => Promise<T>,
+): Promise<T> {
+  return withJiraInstallationLock(lockKey, () => fn());
 }
 
 async function withJiraRefreshLockClient<T>(
