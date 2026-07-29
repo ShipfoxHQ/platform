@@ -12,11 +12,13 @@ import {jiraInstallations, toJiraInstallation} from './schema/installations.js';
 export type JiraInstallationLock = <T>(lockKey: string, fn: () => Promise<T>) => Promise<T>;
 
 const JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS = 100;
+const JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS = 1_000;
 const JIRA_INSTALLATION_LOCK_TIMEOUT_MS = 30_000;
 
 export async function withJiraInstallationLock<T>(lockKey: string, fn: () => Promise<T>) {
   const advisoryKey = `jira-installation:${lockKey}`;
   const deadline = Date.now() + JIRA_INSTALLATION_LOCK_TIMEOUT_MS;
+  let retryDelayMs = JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS;
 
   while (true) {
     const attempt = await withPostgresSession(async (client) => {
@@ -37,7 +39,8 @@ export async function withJiraInstallationLock<T>(lockKey: string, fn: () => Pro
     if (Date.now() >= deadline) {
       throw new Error(`Timed out waiting for Jira installation lock: ${lockKey}`);
     }
-    await new Promise((resolve) => setTimeout(resolve, JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS));
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    retryDelayMs = Math.min(retryDelayMs * 2, JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS);
   }
 }
 
