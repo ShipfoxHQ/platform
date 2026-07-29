@@ -65,7 +65,7 @@ export function JobExecutionSwitcher({
         aria-label={`Switch job execution, currently execution ${selected.sequence}`}
       >
         {variant === 'title' ? (
-          <TitleExecutionSummary job={job} execution={selected} />
+          <TitleExecutionSummary execution={selected} />
         ) : (
           <ExecutionSummary execution={selected} />
         )}
@@ -119,14 +119,14 @@ export function JobExecutionSwitcher({
   );
 }
 
-function TitleExecutionSummary({job, execution}: {job: Job; execution: JobExecution}) {
+function TitleExecutionSummary({execution}: {execution: JobExecution}) {
   return (
     <span className="flex min-w-0 items-center gap-8">
       <Text as="span" size="sm" bold className="shrink-0 text-foreground-neutral-base">
         #{execution.sequence}
       </Text>
       <Text as="span" size="sm" bold className="min-w-0 truncate text-foreground-neutral-base">
-        {job.displayName}
+        {execution.name}
       </Text>
     </span>
   );
