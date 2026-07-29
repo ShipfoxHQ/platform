@@ -12,6 +12,7 @@ import {normalizeDependencies, validateCycles} from './normalize-dependencies.js
 import {normalizeEnv} from './normalize-env.js';
 import {normalizeJobs} from './normalize-jobs.js';
 import {normalizeTriggers} from './normalize-triggers.js';
+import {parseInterpolationField} from './parse-interpolation-field.js';
 
 export function normalizeWorkflowDocument(
   document: WorkflowDocument,
@@ -40,6 +41,16 @@ export function normalizeWorkflowDocument(
   );
   const dependencies = normalizeDependencies(document.jobs, jobIdBySourceName, issues);
   const workflowEnv = normalizeEnv({env: document.env, path: ['env'], issues});
+  const runName =
+    document.run_name === undefined
+      ? undefined
+      : (parseInterpolationField({
+          field: 'workflow.run_name',
+          source: document.run_name,
+          path: ['run_name'],
+          issues,
+          fillSite: 'run-creation',
+        }) ?? [{kind: 'literal' as const, value: document.run_name}]);
 
   validateCycles(document.jobs, jobIdBySourceName, issues);
 
@@ -50,6 +61,7 @@ export function normalizeWorkflowDocument(
   return {
     kind: 'workflow',
     name: document.name,
+    ...(runName === undefined ? {} : {runName}),
     ...workflowEnv,
     triggers,
     jobs,

@@ -42,6 +42,7 @@ const DEFAULT_RUNNER_LABELS = ['ubuntu-latest'] as const;
 interface TestWorkflowJob {
   readonly needs?: string | readonly string[] | undefined;
   readonly name?: string | undefined;
+  readonly executionName?: string | undefined;
   readonly runner?: string | readonly string[] | undefined;
   readonly runnerTemplates?: readonly string[] | undefined;
   readonly checkout?: WorkflowModel['jobs'][number]['checkout'] | undefined;
@@ -55,6 +56,7 @@ interface TestWorkflowJob {
 
 interface TestWorkflowModelInput {
   readonly name?: string | undefined;
+  readonly runName?: string | undefined;
   readonly runner?: string | readonly string[] | undefined;
   readonly env?: WorkflowModel['env'] | undefined;
   readonly jobs?: Readonly<Record<string, TestWorkflowJob>> | undefined;
@@ -91,6 +93,13 @@ export function workflowModel(input: TestWorkflowModelInput = {}): WorkflowModel
               {kind: 'literal' as const, value: job.name},
             ],
           }),
+      ...(job.executionName === undefined
+        ? {}
+        : {
+            executionName: fieldTemplate('job.execution_name', job.executionName) ?? [
+              {kind: 'literal' as const, value: job.executionName},
+            ],
+          }),
       ...(job.listening === undefined ? {} : {listening: job.listening}),
       ...optionalScopedEnv(job.env),
       dependencies: normalizeStringArray(job.needs).map(stableId),
@@ -101,6 +110,13 @@ export function workflowModel(input: TestWorkflowModelInput = {}): WorkflowModel
   return {
     kind: 'workflow',
     name: input.name ?? 'Test Workflow',
+    ...(input.runName === undefined
+      ? {}
+      : {
+          runName: fieldTemplate('workflow.run_name', input.runName) ?? [
+            {kind: 'literal' as const, value: input.runName},
+          ],
+        }),
     ...optionalScopedEnv(input.env),
     triggers: [],
     jobs: modelJobs,

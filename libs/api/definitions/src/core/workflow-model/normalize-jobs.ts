@@ -253,6 +253,18 @@ function normalizeJob(params: {
           allowedJobReferences,
           typeOverlay: upstreamJobsTypeOverlay,
         }) ?? [{kind: 'literal' as const, value: params.job.name}]);
+  const executionName =
+    params.job.execution_name === undefined
+      ? undefined
+      : (parseInterpolationField({
+          field: 'job.execution_name',
+          source: params.job.execution_name,
+          path: ['jobs', params.sourceName, 'execution_name'],
+          issues: params.issues,
+          fillSite: 'execution-creation',
+          allowedJobReferences,
+          typeOverlay: upstreamJobsTypeOverlay,
+        }) ?? [{kind: 'literal' as const, value: params.job.execution_name}]);
 
   return {
     id,
@@ -268,6 +280,7 @@ function normalizeJob(params: {
     ...(executionTimeoutMs === undefined ? {} : {executionTimeoutMs}),
     ...(listening === undefined ? {} : {listening}),
     ...(name === undefined ? {} : {name}),
+    ...(executionName === undefined ? {} : {executionName}),
     ...jobEnv,
     dependencies,
     steps,

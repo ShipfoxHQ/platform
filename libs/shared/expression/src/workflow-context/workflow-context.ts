@@ -106,6 +106,7 @@ const runTypeEnvironment = {
     fields: {
       id: 'string',
       name: 'string',
+      run_name: 'string',
       definition_id: 'string',
       project_id: 'string',
       workspace_id: 'string',
@@ -381,6 +382,8 @@ export type WorkflowInterpolationField =
   | 'job.runner'
   | 'job.outputs'
   | 'job.name'
+  | 'workflow.run_name'
+  | 'job.execution_name'
   | 'step.name'
   | 'step.feedback';
 
@@ -394,6 +397,10 @@ export interface WorkflowInterpolationFieldPolicy {
   readonly failurePolicy: WorkflowInterpolationFailurePolicy;
   readonly renderSanitize: boolean;
   readonly minimumFillTarget?: AvailabilitySite;
+  readonly selfReference?: {
+    readonly root: WorkflowContextName;
+    readonly key: string;
+  };
 }
 
 const trustedOnlyTrustTiers: readonly WorkflowContextTrustTier[] = ['trusted'];
@@ -401,7 +408,9 @@ const anyTrustTier: readonly WorkflowContextTrustTier[] = ['trusted', 'untrusted
 const serverOnlyHosts: readonly WorkflowContextHost[] = ['server'];
 const anyHost: readonly WorkflowContextHost[] = ['server', 'runner'];
 
-export const workflowInterpolationFieldPolicies = {
+export const workflowInterpolationFieldPolicies: Readonly<
+  Record<WorkflowInterpolationField, WorkflowInterpolationFieldPolicy>
+> = {
   run: {
     acceptedTrustTiers: trustedOnlyTrustTiers,
     acceptedHosts: anyHost,
@@ -457,6 +466,22 @@ export const workflowInterpolationFieldPolicies = {
     failurePolicy: 'degrade',
     renderSanitize: true,
   },
+  'workflow.run_name': {
+    acceptedTrustTiers: anyTrustTier,
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'degrade',
+    renderSanitize: true,
+    minimumFillTarget: 'run-creation',
+    selfReference: {root: 'run', key: 'run_name'},
+  },
+  'job.execution_name': {
+    acceptedTrustTiers: anyTrustTier,
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'degrade',
+    renderSanitize: true,
+    minimumFillTarget: 'execution-creation',
+    selfReference: {root: 'execution', key: 'name'},
+  },
   'step.name': {
     acceptedTrustTiers: anyTrustTier,
     acceptedHosts: serverOnlyHosts,
@@ -469,7 +494,7 @@ export const workflowInterpolationFieldPolicies = {
     failurePolicy: 'fail',
     renderSanitize: false,
   },
-} as const satisfies Record<WorkflowInterpolationField, WorkflowInterpolationFieldPolicy>;
+};
 
 export const workflowInterpolationFields = Object.keys(
   workflowInterpolationFieldPolicies,
@@ -604,6 +629,12 @@ export function getWorkflowInterpolationFieldFailurePolicy(
   field: WorkflowInterpolationField,
 ): WorkflowInterpolationFailurePolicy {
   return workflowInterpolationFieldPolicies[field].failurePolicy;
+}
+
+export function getWorkflowInterpolationFieldSelfReference(
+  field: WorkflowInterpolationField,
+): WorkflowInterpolationFieldPolicy['selfReference'] {
+  return workflowInterpolationFieldPolicies[field].selfReference;
 }
 
 export function getWorkflowInterpolationFieldMinimumFillTarget(

@@ -27,6 +27,8 @@ export interface ContextKeyAccessReference {
 
 export interface ContextKeyAccessViolation {
   readonly root: string;
+  /** First key when a computed access still uses a literal string key. */
+  readonly key?: string;
   readonly source: string;
 }
 
@@ -221,7 +223,7 @@ function recordContextRootKeyAccess(
 ): void {
   const [key] = chain.segments;
   if (chain.computed || key === undefined) {
-    violations.push({root: chain.root, source});
+    violations.push({root: chain.root, ...(key === undefined ? {} : {key}), source});
     return;
   }
 

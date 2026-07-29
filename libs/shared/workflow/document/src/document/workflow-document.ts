@@ -475,7 +475,10 @@ export const workflowDocumentJobSchema = z.strictObject({
     description:
       'Event-listening configuration for this job. See [listening jobs](/understand/listening-jobs).',
   }),
-  name: z.string().min(1).optional().meta({description: 'Human-readable job name.'}),
+  name: z.string().min(1).optional().meta({description: 'Static human-readable job name.'}),
+  execution_name: z.string().min(1).optional().meta({
+    description: 'Dynamic name for each job execution. Supports workflow expressions.',
+  }),
   env: workflowDocumentEnvSchema.optional().meta({
     description:
       'Environment variables for run steps in this job. They do not apply to agent steps. See [secrets and variables](/reference/secrets-variables).',
@@ -486,7 +489,10 @@ export const workflowDocumentJobSchema = z.strictObject({
 });
 
 export const workflowDocumentSchema = z.strictObject({
-  name: z.string().min(1).meta({description: 'Human-readable workflow name.'}),
+  name: z.string().min(1).meta({description: 'Static human-readable workflow name.'}),
+  run_name: z.string().min(1).optional().meta({
+    description: 'Dynamic name for each workflow run. Supports workflow expressions.',
+  }),
   runner: stringOrStringArraySchema.optional().meta({
     description:
       'Default runner label or ordered fallback labels for run jobs. See [runners and execution environments](/understand/runners-and-execution-environments).',

@@ -2,6 +2,7 @@ export const invalidWorkflowModelErrorCode = 'invalid-workflow-model';
 
 export type WorkflowModelValidationIssueCode =
   | 'context-unavailable-at-fill-site'
+  | 'dynamic-name-self-reference'
   | 'context-unavailable-at-predicate-site'
   | 'computed-context-key'
   | 'duplicate-job-id'

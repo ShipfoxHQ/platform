@@ -15,6 +15,22 @@ function interpolation(source: string): string {
 }
 
 describe('workflowDocumentSchema', () => {
+  it('accepts dynamic workflow and job execution names', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'Deploy application',
+      run_name: interpolation('inputs.environment'),
+      jobs: {
+        deploy: {
+          name: 'Deploy',
+          execution_name: interpolation('inputs.environment'),
+          steps: [{run: 'deploy'}],
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('accepts a valid minimal workflow document', () => {
     const workflowDocument = {
       name: 'simple build',
