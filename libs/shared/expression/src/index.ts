@@ -137,6 +137,7 @@ export {
   getWorkflowContextTypeEnvironment,
   getWorkflowContextUntrustedPaths,
   getWorkflowInterpolationFieldFailurePolicy,
+  getWorkflowInterpolationFieldSelfReference,
   getWorkflowPredicateFieldMinimumFillTarget,
   type OpenWorkflowContextDefinition,
   type ReservedRootDefinition,

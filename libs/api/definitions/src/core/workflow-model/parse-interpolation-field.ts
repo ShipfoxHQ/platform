@@ -2,6 +2,7 @@ import {secretKeySchema, secretStoreSchema} from '@shipfox/api-secrets-dto';
 import {
   type AvailabilitySite,
   analyzeContextKeyAccess,
+  analyzeContextRootKeyAccess,
   createWorkflowExpression,
   type ExpressionTypeEnvironment,
   extractCelUntrustedPathAccesses,
@@ -10,6 +11,7 @@ import {
   getWorkflowContextHost,
   getWorkflowContextTypeEnvironment,
   getWorkflowContextUntrustedPaths,
+  getWorkflowInterpolationFieldSelfReference,
   InvalidWorkflowExpressionError,
   InvalidWorkflowTemplateError,
   type PlanViolation,
@@ -41,6 +43,8 @@ export type StoredInterpolationField =
   | 'agent.provider'
   | 'job.outputs'
   | 'job.name'
+  | 'workflow.run_name'
+  | 'job.execution_name'
   | 'job.runner'
   | 'step.name'
   | 'step.feedback';
@@ -76,6 +80,38 @@ export function parseInterpolationField(params: {
   }
 
   return plan.plan.field.segments;
+}
+
+function dynamicNameSelfReference(params: {
+  field: StoredInterpolationField;
+  source: string;
+  path: readonly WorkflowModelValidationIssuePathSegment[];
+  segment: WorkflowTemplateExprSegment;
+}): WorkflowModelValidationIssue | undefined {
+  const target = getWorkflowInterpolationFieldSelfReference(params.field);
+  if (target === undefined) return undefined;
+
+  const access = analyzeContextRootKeyAccess(params.segment.expression, [target.root]);
+  const reference = access.references.find((entry) => entry.key === target.key);
+  const computedReference = access.violations.find(
+    (violation) =>
+      violation.root === target.root &&
+      (violation.key === undefined || violation.key === target.key),
+  );
+  if (reference === undefined && computedReference === undefined) return undefined;
+
+  return issue({
+    code: 'dynamic-name-self-reference',
+    message: `${fieldLabel(params.field)} interpolation cannot reference its own dynamic name.`,
+    path: params.path,
+    details: {
+      field: params.field,
+      source: params.source,
+      expression: params.segment.expression.source,
+      reference:
+        reference === undefined ? `${target.root}[computed]` : `${reference.root}.${reference.key}`,
+    },
+  });
 }
 
 function parseTemplate(params: {
@@ -148,6 +184,12 @@ function validateExpressionSegment(params: {
         }),
       ),
     );
+    return undefined;
+  }
+
+  const selfReference = dynamicNameSelfReference(params);
+  if (selfReference !== undefined) {
+    params.issues.push(selfReference);
     return undefined;
   }
 

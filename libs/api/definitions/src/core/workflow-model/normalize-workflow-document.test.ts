@@ -79,6 +79,137 @@ const integrationValidationContext = {
 } satisfies IntegrationValidationContext;
 
 describe('normalizeWorkflowDocument', () => {
+  it('normalizes workflow run and job execution name templates', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'Deploy application',
+      run_name: `Deploy ${interpolation('inputs.environment')}`,
+      jobs: {
+        deploy: {
+          name: 'Deploy',
+          execution_name: `Deploy ${interpolation('event.environment')}`,
+          steps: [{run: 'deploy'}],
+        },
+      },
+    });
+
+    expect(model.runName).toMatchObject([
+      {kind: 'literal', value: 'Deploy '},
+      {kind: 'deferred', roots: ['inputs'], fillTarget: 'run-creation'},
+    ]);
+    expect(model.jobs[0]?.executionName).toMatchObject([
+      {kind: 'literal', value: 'Deploy '},
+      {kind: 'deferred', roots: ['event'], fillTarget: 'execution-creation'},
+    ]);
+  });
+
+  it('preserves literal workflow run and job execution names', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'Workflow',
+      run_name: 'Static run name',
+      jobs: {
+        build: {
+          execution_name: 'Static execution name',
+          steps: [{run: 'build'}],
+        },
+      },
+    });
+
+    expect(model.runName).toEqual([{kind: 'literal', value: 'Static run name'}]);
+    expect(model.jobs[0]?.executionName).toEqual([
+      {kind: 'literal', value: 'Static execution name'},
+    ]);
+  });
+
+  it.each([
+    [
+      'run_name',
+      {
+        name: 'Workflow',
+        run_name: interpolation('steps.build.outputs.name'),
+        jobs: {build: {steps: [{run: 'build'}]}},
+      },
+    ],
+    [
+      'execution_name',
+      {
+        name: 'Workflow',
+        jobs: {
+          build: {
+            execution_name: interpolation('steps.build.outputs.name'),
+            steps: [{run: 'build'}],
+          },
+        },
+      },
+    ],
+  ] as const)('rejects unavailable context in %s', (_field, document) => {
+    const error = expectInvalid(document as unknown as WorkflowDocument);
+    expect(error.issues).toEqual([
+      expect.objectContaining({code: 'context-unavailable-at-fill-site'}),
+    ]);
+  });
+
+  it('allows computed access to unrelated dynamic-name context fields', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'Workflow',
+      run_name: interpolation('run["name"]'),
+      jobs: {
+        build: {
+          execution_name: interpolation('execution["status"]'),
+          steps: [{run: 'build'}],
+        },
+      },
+    });
+
+    expect(model.runName).toMatchObject([{kind: 'deferred', roots: ['run']}]);
+    expect(model.jobs[0]?.executionName).toMatchObject([{kind: 'deferred', roots: ['execution']}]);
+  });
+
+  it.each([
+    [
+      'run_name',
+      {
+        name: 'Workflow',
+        run_name: interpolation('run.run_name'),
+        jobs: {build: {steps: [{run: 'build'}]}},
+      },
+    ],
+    [
+      'run_name bracket access',
+      {
+        name: 'Workflow',
+        run_name: interpolation('run["run_name"]'),
+        jobs: {build: {steps: [{run: 'build'}]}},
+      },
+    ],
+    [
+      'execution_name',
+      {
+        name: 'Workflow',
+        jobs: {
+          build: {
+            execution_name: interpolation('execution.name'),
+            steps: [{run: 'build'}],
+          },
+        },
+      },
+    ],
+    [
+      'execution_name bracket access',
+      {
+        name: 'Workflow',
+        jobs: {
+          build: {
+            execution_name: interpolation('execution["name"]'),
+            steps: [{run: 'build'}],
+          },
+        },
+      },
+    ],
+  ] as const)('rejects dynamic-name self-reference in %s', (_field, document) => {
+    const error = expectInvalid(document as unknown as WorkflowDocument);
+    expect(error.issues).toEqual([expect.objectContaining({code: 'dynamic-name-self-reference'})]);
+  });
+
   it('normalizes a workflow document into a WorkflowModel', () => {
     const document: WorkflowDocument = {
       name: 'simple build',

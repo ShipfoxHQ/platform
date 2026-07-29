@@ -196,6 +196,7 @@ describe('workflow context registry', () => {
         fields: {
           id: 'string',
           name: 'string',
+          run_name: 'string',
           definition_id: 'string',
           project_id: 'string',
           workspace_id: 'string',
@@ -612,6 +613,8 @@ describe('workflow context registry', () => {
       expect(getWorkflowInterpolationFieldFailurePolicy('agent.thinking')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('job.runner')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('job.name')).toBe('degrade');
+      expect(getWorkflowInterpolationFieldFailurePolicy('workflow.run_name')).toBe('degrade');
+      expect(getWorkflowInterpolationFieldFailurePolicy('job.execution_name')).toBe('degrade');
       expect(getWorkflowInterpolationFieldFailurePolicy('step.name')).toBe('degrade');
       expect(getWorkflowInterpolationFieldFailurePolicy('step.feedback')).toBe('fail');
       expect(
@@ -749,6 +752,8 @@ describe('workflow interpolation field policies', () => {
       'job.runner',
       'job.outputs',
       'job.name',
+      'workflow.run_name',
+      'job.execution_name',
       'step.name',
       'step.feedback',
     ]);
@@ -765,6 +770,8 @@ describe('workflow interpolation field policies', () => {
     ['job.runner', ['trusted', 'untrusted']],
     ['job.outputs', ['trusted', 'untrusted']],
     ['job.name', ['trusted', 'untrusted']],
+    ['workflow.run_name', ['trusted', 'untrusted']],
+    ['job.execution_name', ['trusted', 'untrusted']],
     ['step.name', ['trusted', 'untrusted']],
     ['step.feedback', ['trusted', 'untrusted']],
   ] satisfies readonly [
@@ -772,6 +779,18 @@ describe('workflow interpolation field policies', () => {
     readonly WorkflowContextTrustTier[],
   ][])('allows %s interpolation from the expected trust tiers', (field, trustTiers) => {
     expect(workflowInterpolationFieldPolicies[field].acceptedTrustTiers).toEqual(trustTiers);
+  });
+
+  it('declares dynamic-name self-reference targets in field policies', () => {
+    expect(workflowInterpolationFieldPolicies['workflow.run_name'].selfReference).toEqual({
+      root: 'run',
+      key: 'run_name',
+    });
+    expect(workflowInterpolationFieldPolicies['job.execution_name'].selfReference).toEqual({
+      root: 'execution',
+      key: 'name',
+    });
+    expect(workflowInterpolationFieldPolicies['step.name'].selfReference).toBeUndefined();
   });
 
   it.each([
@@ -784,6 +803,8 @@ describe('workflow interpolation field policies', () => {
     ['job.runner', ['server']],
     ['job.outputs', ['server']],
     ['job.name', ['server']],
+    ['workflow.run_name', ['server']],
+    ['job.execution_name', ['server']],
     ['step.name', ['server']],
     ['step.feedback', ['server']],
   ] satisfies readonly [
@@ -836,10 +857,16 @@ describe('workflow interpolation field policies', () => {
 
   it('marks display names for render sanitization', () => {
     expect(workflowInterpolationFieldPolicies['job.name'].renderSanitize).toBe(true);
+    expect(workflowInterpolationFieldPolicies['workflow.run_name'].renderSanitize).toBe(true);
+    expect(workflowInterpolationFieldPolicies['job.execution_name'].renderSanitize).toBe(true);
     expect(workflowInterpolationFieldPolicies['step.name'].renderSanitize).toBe(true);
 
     const nonDisplayFields = workflowInterpolationFields.filter(
-      (field) => field !== 'job.name' && field !== 'step.name',
+      (field) =>
+        field !== 'job.name' &&
+        field !== 'workflow.run_name' &&
+        field !== 'job.execution_name' &&
+        field !== 'step.name',
     );
     for (const field of nonDisplayFields) {
       expect(workflowInterpolationFieldPolicies[field].renderSanitize).toBe(false);

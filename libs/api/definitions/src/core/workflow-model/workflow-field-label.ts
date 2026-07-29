@@ -22,6 +22,10 @@ export function workflowFieldLabel(
       return 'Job outputs mapping';
     case 'job.name':
       return 'Job name interpolation';
+    case 'workflow.run_name':
+      return 'Workflow run name interpolation';
+    case 'job.execution_name':
+      return 'Job execution name interpolation';
     case 'step.name':
       return 'Step name interpolation';
     case 'step.success':

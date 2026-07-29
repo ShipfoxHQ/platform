@@ -77,7 +77,9 @@ describe('analyzeContextRootKeyAccess', () => {
 
     expect(result).toEqual({
       references: [],
-      violations: [{root: 'jobs', source}],
+      violations: [
+        source === 'jobs["build"]' ? {root: 'jobs', key: 'build', source} : {root: 'jobs', source},
+      ],
     });
   });
 

@@ -27,6 +27,7 @@ export type WorkflowOutputTemplates = Readonly<Record<string, WorkflowFieldTempl
 export interface WorkflowModel {
   readonly kind: 'workflow';
   readonly name: string;
+  readonly runName?: WorkflowFieldTemplate;
   readonly env?: Readonly<Record<string, string>>;
   readonly templates?: {readonly env?: WorkflowEnvTemplates};
   readonly triggers: readonly WorkflowModelTrigger[];
@@ -58,6 +59,7 @@ export interface WorkflowModelJob {
   readonly executionTimeoutMs?: number;
   readonly listening?: WorkflowModelJobListening;
   readonly name?: WorkflowFieldTemplate;
+  readonly executionName?: WorkflowFieldTemplate;
   readonly env?: Readonly<Record<string, string>>;
   readonly templates?: {readonly env?: WorkflowEnvTemplates};
   readonly dependencies: readonly string[];
