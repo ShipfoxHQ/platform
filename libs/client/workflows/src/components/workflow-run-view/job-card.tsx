@@ -71,6 +71,7 @@ export function JobCard({
     jobExecutionId: undefined,
     attemptId: null,
   });
+  const title = selectedJobExecution?.name ?? job.displayName;
   const selectedExecutionStatus = selectedJobExecution?.status ?? job.status;
   const effectiveSelectedAttemptId =
     selectedAttemptId === undefined &&
@@ -125,7 +126,7 @@ export function JobCard({
           onSelectedJobExecutionChange ? (
             <>
               <Text as="h2" id={titleId} size="sm" bold className="sr-only">
-                {job.displayName}
+                {title}
               </Text>
               <div className="flex min-w-0 items-center gap-8">
                 <JobStatusBadge status={selectedExecutionStatus} />
@@ -147,7 +148,7 @@ export function JobCard({
                 bold
                 className="min-w-0 truncate text-foreground-neutral-base"
               >
-                {job.displayName}
+                {title}
               </Text>
             </div>
           )}

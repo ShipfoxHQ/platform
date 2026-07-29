@@ -29,6 +29,7 @@ const RERUN_BUTTON_NAME = /^Re-run/;
 const ATTEMPT_2_PATTERN = /Attempt 2/;
 const COPY_RUN_BUTTON_NAME = /Copy run/;
 const EXECUTION_ONE_MENU_ITEM_PATTERN = /#1/;
+const JOB_TEMPLATE_NAME = ['Implement $', '{{ event.issue.identifier }}'].join('');
 
 describe('WorkflowRunView', () => {
   test('renders the run summary, jobs graph, and selected job step attempts when a run loads', async () => {
@@ -53,6 +54,37 @@ describe('WorkflowRunView', () => {
     expect(
       screen.getByRole('button', {name: 'checkout, Succeeded, attempt 1'}),
     ).toBeInTheDocument();
+  });
+
+  test('uses the selected job execution name as the job card title', async () => {
+    configureApiClient({
+      fetchImpl: vi.fn(() =>
+        Promise.resolve(
+          jsonResponse(
+            workflowRunViewDetailDto({
+              jobs: [
+                workflowJobDto({
+                  id: BUILD_JOB_ID,
+                  run_attempt_id: RUN_ID,
+                  name: JOB_TEMPLATE_NAME,
+                  job_executions: [
+                    workflowJobExecutionDto({
+                      job_id: BUILD_JOB_ID,
+                      name: 'Implement ENG-123',
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ),
+        ),
+      ),
+    });
+
+    renderView();
+
+    expect(await screen.findByRole('region', {name: 'Implement ENG-123'})).toBeInTheDocument();
+    expect(screen.queryByRole('region', {name: JOB_TEMPLATE_NAME})).not.toBeInTheDocument();
   });
 
   test('renders active step attempt logs inline when the selected job is running', async () => {
@@ -125,6 +157,7 @@ describe('WorkflowRunView', () => {
                       id: '77777777-7777-4777-8777-000000000001',
                       job_id: BUILD_JOB_ID,
                       sequence: 1,
+                      name: 'Pull request event',
                       status: 'succeeded',
                       trigger_events: [
                         {
@@ -155,6 +188,7 @@ describe('WorkflowRunView', () => {
                       id: '77777777-7777-4777-8777-000000000002',
                       job_id: BUILD_JOB_ID,
                       sequence: 2,
+                      name: 'Deployment status event',
                       status: 'failed',
                       status_reason: 'step_failed',
                       trigger_events: [
@@ -200,6 +234,9 @@ describe('WorkflowRunView', () => {
     });
 
     renderView();
+    expect(
+      await screen.findByRole('region', {name: 'Deployment status event'}),
+    ).toBeInTheDocument();
     expect(await screen.findByText('second-event')).toBeInTheDocument();
     expect(
       await screen.findByRole('button', {name: 'github · deployment_status (2 events)'}),
@@ -212,6 +249,7 @@ describe('WorkflowRunView', () => {
     await user.click(screen.getByRole('menuitem', {name: EXECUTION_ONE_MENU_ITEM_PATTERN}));
 
     expect(await screen.findByText('first-event')).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Pull request event'})).toBeInTheDocument();
     expect(screen.queryByText('second-event')).not.toBeInTheDocument();
     expect(await screen.findByRole('button', {name: 'github · pull_request'})).toBeInTheDocument();
     expect(screen.getByText('pull_request')).toBeInTheDocument();
