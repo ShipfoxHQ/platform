@@ -1,4 +1,5 @@
 import {execFileSync} from 'node:child_process';
+import {readdir, readFile} from 'node:fs/promises';
 import {findProducedAmiId, parsePackerAmiArtifact} from '#aws.js';
 import {parseBuildRunnerImageArgs} from '#build-runner-image.js';
 import {buildRunnerImageCandidate, parseRunnerImageCandidateArgs} from '#candidate.js';
@@ -838,5 +839,19 @@ describe('spot watchdog runtime script', () => {
     );
 
     expect(result.trim()).toBe('reboot');
+  });
+});
+
+describe('systemd boot activation', () => {
+  it('activates every installable Shipfox service after cloud-init', async () => {
+    const assets = new URL('../assets/', import.meta.url);
+    const unitNames = (await readdir(assets)).filter((name) => name.endsWith('.service'));
+
+    for (const unitName of unitNames) {
+      const unit = await readFile(new URL(unitName, assets), 'utf8');
+      if (!unit.includes('[Install]')) continue;
+
+      expect(unit, unitName).toContain('WantedBy=cloud-init.target');
+    }
   });
 });
