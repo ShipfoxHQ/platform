@@ -40,10 +40,6 @@ build {
     ]
   }
 
-  provisioner "shell" {
-    inline = ["sudo passwd --lock ubuntu"]
-  }
-
   provisioner "file" {
     destination = "/tmp/shipfox-spot-watchdog.service"
     source      = abspath("${path.root}/assets/shipfox-spot-watchdog.service")
@@ -64,6 +60,15 @@ build {
       "sudo systemctl enable shipfox-spot-watchdog.service"
     ]
     only = ["amazon-ebs.build_image"]
+  }
+
+  # Harden the build user only after every provisioner that needs Packer's SSH access has run.
+  provisioner "shell" {
+    inline = [
+      "sudo passwd --lock ubuntu",
+      "sudo rm -f /home/ubuntu/.ssh/authorized_keys",
+      "sudo test ! -e /home/ubuntu/.ssh/authorized_keys"
+    ]
   }
 
   post-processor "manifest" {
