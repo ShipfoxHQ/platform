@@ -352,9 +352,9 @@ export async function releaseJobExecution(params: {jobExecutionId: string}): Pro
  * pending row: a failed best-effort `releaseJobExecution` would otherwise leave an orphan
  * that a later claim re-runs as an already-finished job execution.
  *
- * Locks running-then-pending, the inverse of `claimPendingJobExecution` / `releaseJobExecution`.
- * That pre-existing asymmetry opens a narrow deadlock window against a concurrent
- * claim of the same orphan-pending job execution; Postgres breaks it and the cron retries.
+ * Locks pending-then-running to match `claimPendingJobExecution`, `releaseJobExecution`, and
+ * `reconcileTerminalJobExecution`. The stale candidate scan intentionally does not lock running
+ * rows first; the running-row DELETE re-checks the stale predicate after the pending-row sweep.
  */
 export async function expireStuckJobExecutions(params: {
   thresholdSeconds: number;
@@ -386,17 +386,31 @@ export async function expireStuckJobExecutions(params: {
       ),
     );
 
-    const staleIds = tx
-      .select({id: runningJobExecutions.id})
+    const staleRows = await tx
+      .select({
+        id: runningJobExecutions.id,
+        jobExecutionId: runningJobExecutions.jobExecutionId,
+      })
       .from(runningJobExecutions)
       .where(stalePredicate)
       .orderBy(
         asc(
           sql`CASE WHEN ${runningJobExecutions.firstHeartbeatAt} IS NULL AND ${runningJobExecutions.lastHeartbeatAt} <= ${runningJobExecutions.startedAt} THEN ${runningJobExecutions.startedAt} ELSE ${runningJobExecutions.lastHeartbeatAt} END`,
         ),
+        asc(runningJobExecutions.id),
       )
-      .limit(params.limit ?? 100)
-      .for('update', {skipLocked: true});
+      .limit(params.limit ?? 100);
+
+    if (staleRows.length === 0) return [];
+
+    const staleIds = staleRows.map((row) => row.id);
+    const staleJobExecutionIds = staleRows.map((row) => row.jobExecutionId);
+
+    // Sweep pending rows first so this transaction cannot hold a running-row lock while waiting
+    // for a pending-row lock held by reconciliation or a claim of an orphan pending row.
+    await tx
+      .delete(pendingJobExecutions)
+      .where(inArray(pendingJobExecutions.jobExecutionId, staleJobExecutionIds));
 
     const deleted = await tx
       .delete(runningJobExecutions)
@@ -409,13 +423,6 @@ export async function expireStuckJobExecutions(params: {
       });
 
     if (deleted.length === 0) return [];
-
-    await tx.delete(pendingJobExecutions).where(
-      inArray(
-        pendingJobExecutions.jobExecutionId,
-        deleted.map((row) => row.jobExecutionId),
-      ),
-    );
 
     await writeOutboxEvents<RunnersEventMap>(
       tx,

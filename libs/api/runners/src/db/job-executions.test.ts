@@ -1600,7 +1600,7 @@ describe('detectAndExpireStuckJobs', () => {
     expect(await outboxForJobs([stuck1.jobId, stuck2.jobId])).toHaveLength(2);
   });
 
-  it('a reaper tick and a concurrent claim of the same orphan-pending job leave consistent state', async () => {
+  it('a reaper tick and a concurrent claim of the same orphan-pending job do not deadlock', async () => {
     const {jobId, jobExecutionId, workflowRunId, workflowRunAttemptId, projectId} =
       await makeStaleJob(600);
     // Orphan pending row from a post-claim enqueue retry for an already-running job.
@@ -1616,15 +1616,14 @@ describe('detectAndExpireStuckJobs', () => {
         requiredLabels: ['linux'],
       });
 
-    // The reaper locks running-then-pending while the claim locks pending-then-running;
-    // a deadlock loser rolls back, so either side may settle as rejected.
-    await Promise.allSettled([
+    // Both operations acquire the pending-row lock before the running-row lock.
+    const [reaped, claimed] = await Promise.all([
       detectAndExpireStuckJobs({thresholdSeconds: 180}),
       claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null}),
     ]);
 
-    // A follow-up tick finishes any reap that lost a deadlock race.
-    await detectAndExpireStuckJobs({thresholdSeconds: 180});
+    expect(reaped.expired).toBeGreaterThanOrEqual(1);
+    expect(claimed).toBeNull();
 
     // The expired job is gone and not re-claimable; its orphan pending row is swept.
     expect(await runningJobsForTest()).toHaveLength(0);
