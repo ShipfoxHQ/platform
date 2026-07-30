@@ -213,7 +213,11 @@ describe('runJobSteps', () => {
     createStepLogStreamMock.mockReset();
     createSessionLogStreamMock.mockReset();
     executeAgentStepMock.mockReset();
-    resolveWorkingDirectoryMock.mockClear();
+    resolveWorkingDirectoryMock.mockReset();
+    resolveWorkingDirectoryMock.mockImplementation(
+      async (cwd: string, workingDirectory: unknown) =>
+        workingDirectory === undefined ? cwd : `${cwd}/${String(workingDirectory)}`,
+    );
     requestAgentRuntimeConfigMock.mockResolvedValue({
       harness: 'pi',
       provider_id: 'anthropic',
