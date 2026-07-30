@@ -2,6 +2,7 @@ import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {readPersistedWorkflowModel} from '@shipfox/api-definitions-dto';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
 import {
   WORKFLOWS_JOB_ACTIVATED,
   type WorkflowsJobActivatedEventDto,
@@ -10,7 +11,12 @@ import {and, asc, count, eq, inArray, isNull, notInArray, sql} from 'drizzle-orm
 import {type AgentDefaultsResolver, createAgentDefaultsResolver} from '#core/agent-defaults.js';
 import {loadAgentToolMaterializationContext} from '#core/agent-tools.js';
 import {isJobTerminal, type JobStatus, type ResolutionReason} from '#core/entities/job.js';
-import type {JobExecutionStatus, WorkflowExecutionEvent} from '#core/entities/job-execution.js';
+import type {
+  JobExecution,
+  JobExecutionStatus,
+  WorkflowExecutionEvent,
+} from '#core/entities/job-execution.js';
+import {InterpolationUnresolvableError} from '#core/errors.js';
 import {type DeriveJobSuccessResult, deriveJobSuccess} from '#core/job-transition/index.js';
 import {
   type MaterializedListenerExecution,
@@ -38,6 +44,7 @@ import {toWorkflowRun, workflowRuns} from './schema/workflow-runs.js';
 import {
   bulkUpdateStepStatuses,
   getDirectDependencyJobContexts,
+  loadReferencedVariables,
   updateJobStatusAtVersion,
 } from './workflow-runs.js';
 
@@ -182,11 +189,61 @@ export interface DrainListenerEventsParams {
   projects?: ProjectsModuleClient | undefined;
   resolveAgentDefaults?: AgentDefaultsResolver | undefined;
   agent?: AgentInterModuleClient | undefined;
+  secrets?: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'> | undefined;
 }
 
 export async function drainListenerEventsIntoExecution(
   params: DrainListenerEventsParams,
 ): Promise<DrainListenerEventsResult> {
+  const probeResult = await db().transaction(async (tx) => {
+    const existing = await findExistingExecution(params, tx);
+    if (existing) return existing;
+
+    const resolveRequested = await hasPendingResolveEvent(params.jobId, tx);
+    if (resolveRequested) return {kind: 'resolve-requested' as const};
+
+    const hasBufferedFire = await hasBufferedFireEvent(params.jobId, tx);
+    return hasBufferedFire ? null : {kind: 'empty' as const};
+  });
+  if (probeResult !== null) return probeResult;
+
+  // Resolve external state before opening the persistence transaction. The
+  // secrets module uses the shared pool and cannot reuse this transaction's
+  // connection across the inter-module boundary.
+  const materializationTarget = await loadListenerMaterializationTarget(params.jobId);
+  const model =
+    materializationTarget.attempt.model === null
+      ? null
+      : readPersistedWorkflowModel(materializationTarget.attempt.model);
+  const modelJob = model?.jobs.find((job) => job.key === materializationTarget.job.key);
+  let vars: Record<string, string> | undefined;
+  let variableResolutionError: InterpolationUnresolvableError | undefined;
+  if (model !== null && modelJob !== undefined) {
+    try {
+      vars = await loadReferencedVariables({
+        model,
+        jobs: [modelJob],
+        workspaceId: materializationTarget.run.workspaceId,
+        projectId: materializationTarget.run.projectId,
+        definitionId: materializationTarget.run.definitionId,
+        secrets: params.secrets,
+      });
+    } catch (error) {
+      if (!(error instanceof InterpolationUnresolvableError)) throw error;
+      variableResolutionError = error;
+    }
+  }
+  const agentToolContext =
+    materializationTarget.attempt.agentToolMaterialization === null
+      ? await loadAgentToolMaterializationContext({
+          model,
+          workspaceId: materializationTarget.run.workspaceId,
+          projectId: materializationTarget.run.projectId,
+          integrations: params.integrations,
+          projects: params.projects,
+        })
+      : undefined;
+
   const drained = await db().transaction(async (tx) => {
     const existing = await findExistingExecution(params, tx);
     if (existing) return {result: existing};
@@ -198,25 +255,20 @@ export async function drainListenerEventsIntoExecution(
     if (bufferedEvents.length === 0) return {result: {kind: 'empty' as const}};
 
     const target = await loadListenerMaterializationTarget(params.jobId, tx);
-    const model =
-      target.attempt.model === null ? null : readPersistedWorkflowModel(target.attempt.model);
-    const agentToolContext =
-      target.attempt.agentToolMaterialization === null
-        ? await loadAgentToolMaterializationContext({
-            model,
-            workspaceId: target.run.workspaceId,
-            projectId: target.run.projectId,
-            integrations: params.integrations,
-            projects: params.projects,
-          })
-        : undefined;
+    const priorExecutions = await loadListenerPriorExecutions(
+      params.jobId,
+      target.job.name ?? target.job.key,
+      tx,
+    );
     const materialized = await materializeListenerExecution({
       model,
       run: toWorkflowRun(target.run),
       job: toJob(target.job),
+      vars,
+      variableResolutionError,
       sequence: params.expectedSequence,
       triggerEvents: listenerTriggerEvents(bufferedEvents),
-      priorExecutions: target.priorExecutions,
+      priorExecutions,
       resolveAgentDefaults:
         params.resolveAgentDefaults ??
         (params.agent
@@ -330,7 +382,9 @@ async function deriveJobListenerResolutionDecision(
     expectedVersion: jobRow.version,
     ...deriveJobSuccess({
       success: jobRow.success,
-      executions: executionRows.map(toJobExecution),
+      executions: executionRows.map((execution) =>
+        toJobExecution(execution, jobRow.name ?? jobRow.key),
+      ),
       jobs: dependencyJobs,
     }),
   };
@@ -462,6 +516,21 @@ async function hasPendingResolveEvent(jobId: string, tx: Tx): Promise<boolean> {
   return resolveEvent !== undefined;
 }
 
+async function hasBufferedFireEvent(jobId: string, tx: Tx): Promise<boolean> {
+  const [fireEvent] = await tx
+    .select({id: jobListenerEvents.id})
+    .from(jobListenerEvents)
+    .where(
+      and(
+        eq(jobListenerEvents.jobId, jobId),
+        eq(jobListenerEvents.disposition, 'fire'),
+        isNull(jobListenerEvents.consumedByExecutionId),
+      ),
+    )
+    .limit(1);
+  return fireEvent !== undefined;
+}
+
 async function lockBufferedFireEvents(
   params: DrainListenerEventsParams,
   tx: Tx,
@@ -509,7 +578,7 @@ async function persistMaterializedListenerExecution(
     .values({
       jobId: params.jobId,
       sequence: params.sequence,
-      name: params.materialized.name,
+      name: params.materialized.nameOverride,
       runner: params.materialized.runner.length === 0 ? null : [...params.materialized.runner],
       status: params.materialized.status,
       statusReason: params.materialized.statusReason,
@@ -559,21 +628,29 @@ function drainExecutionResult(
   };
 }
 
-async function loadListenerMaterializationTarget(jobId: string, tx: Tx) {
-  const [target] = await tx
+async function loadListenerMaterializationTarget(jobId: string, tx?: Tx) {
+  const query = (tx ?? db())
     .select({job: jobs, attempt: workflowRunAttempts, run: workflowRuns})
     .from(jobs)
     .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
     .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
     .where(eq(jobs.id, jobId))
-    .limit(1)
-    .for('update');
+    .limit(1);
+  const [target] = tx === undefined ? await query : await query.for('update');
   if (!target) throw new Error(`Job not found: ${jobId}`);
 
+  return target;
+}
+
+async function loadListenerPriorExecutions(
+  jobId: string,
+  fallbackName: string,
+  tx: Tx,
+): Promise<JobExecution[]> {
   const priorExecutions = await tx
     .select()
     .from(jobExecutions)
     .where(eq(jobExecutions.jobId, jobId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
-  return {...target, priorExecutions: priorExecutions.map(toJobExecution)};
+  return priorExecutions.map((execution) => toJobExecution(execution, fallbackName));
 }

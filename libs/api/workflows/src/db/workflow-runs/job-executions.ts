@@ -32,35 +32,48 @@ import {
 } from './shared.js';
 import {bulkUpdateStepStatuses, getStepsByJobExecutionIdForUpdate} from './steps.js';
 
+async function getJobExecutionFallbackName(tx: Tx, jobExecutionId: string): Promise<string> {
+  const [row] = await tx
+    .select({job: jobs})
+    .from(jobExecutions)
+    .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+    .where(eq(jobExecutions.id, jobExecutionId))
+    .limit(1);
+  if (!row) throw new JobNotFoundError(jobExecutionId);
+  return row.job.name ?? row.job.key;
+}
+
 export async function getJobExecutionById(id: string, tx?: Tx): Promise<JobExecution | undefined> {
   const rows = await (tx ?? db())
-    .select()
+    .select({jobExecution: jobExecutions, job: jobs})
     .from(jobExecutions)
+    .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .where(eq(jobExecutions.id, id))
     .limit(1);
   const row = rows[0];
-  return row ? toJobExecution(row) : undefined;
+  return row ? toJobExecution(row.jobExecution, row.job.name ?? row.job.key) : undefined;
 }
 
 export async function getJobExecutionsByWorkflowRunAttemptId(
   workflowRunAttemptId: string,
 ): Promise<JobExecution[]> {
   const rows = await db()
-    .select({jobExecution: jobExecutions})
+    .select({jobExecution: jobExecutions, job: jobs})
     .from(jobExecutions)
     .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .where(eq(jobs.workflowRunAttemptId, workflowRunAttemptId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
-  return rows.map((row) => toJobExecution(row.jobExecution));
+  return rows.map((row) => toJobExecution(row.jobExecution, row.job.name ?? row.job.key));
 }
 
 export async function getJobExecutionsByJobId(jobId: string): Promise<JobExecution[]> {
   const rows = await db()
-    .select()
+    .select({jobExecution: jobExecutions, job: jobs})
     .from(jobExecutions)
+    .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .where(eq(jobExecutions.jobId, jobId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
-  return rows.map(toJobExecution);
+  return rows.map((row) => toJobExecution(row.jobExecution, row.job.name ?? row.job.key));
 }
 
 export async function getFirstJobExecutionByJobId(
@@ -68,13 +81,14 @@ export async function getFirstJobExecutionByJobId(
   tx?: Tx,
 ): Promise<JobExecution | undefined> {
   const rows = await (tx ?? db())
-    .select()
+    .select({jobExecution: jobExecutions, job: jobs})
     .from(jobExecutions)
+    .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .where(eq(jobExecutions.jobId, jobId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id))
     .limit(1);
   const row = rows[0];
-  return row ? toJobExecution(row) : undefined;
+  return row ? toJobExecution(row.jobExecution, row.job.name ?? row.job.key) : undefined;
 }
 
 export async function getLatestJobExecutionByJobId(
@@ -82,13 +96,14 @@ export async function getLatestJobExecutionByJobId(
   tx?: Tx,
 ): Promise<JobExecution | undefined> {
   const rows = await (tx ?? db())
-    .select()
+    .select({jobExecution: jobExecutions, job: jobs})
     .from(jobExecutions)
+    .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .where(eq(jobExecutions.jobId, jobId))
     .orderBy(desc(jobExecutions.sequence), desc(jobExecutions.id))
     .limit(1);
   const row = rows[0];
-  return row ? toJobExecution(row) : undefined;
+  return row ? toJobExecution(row.jobExecution, row.job.name ?? row.job.key) : undefined;
 }
 
 export interface UpdateJobExecutionStatusAtVersionParams {
@@ -129,10 +144,14 @@ async function resolveJobExecutionOutputs(
     .from(jobExecutions)
     .where(eq(jobExecutions.jobId, target.job.id))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
+  const fallbackName = target.job.name ?? target.job.key;
   const executions = executionRows.map((row) =>
     row.id === target.execution.id
-      ? toJobExecution({...row, status: params.status, statusReason: params.statusReason})
-      : toJobExecution(row),
+      ? toJobExecution(
+          {...row, status: params.status, statusReason: params.statusReason},
+          fallbackName,
+        )
+      : toJobExecution(row, fallbackName),
   );
   const jobExecution = executions.find((execution) => execution.id === target.execution.id);
   if (!jobExecution) throw new JobNotFoundError(params.jobExecutionId);
@@ -217,7 +236,10 @@ async function updateJobExecutionStatusAtVersion(
 
   const row = rows[0];
   if (!row) return null;
-  return {execution: toJobExecution(row), changed: true};
+  return {
+    execution: toJobExecution(row, await getJobExecutionFallbackName(tx, row.id)),
+    changed: true,
+  };
 }
 
 export interface UpdateJobExecutionStatusParams {
@@ -250,7 +272,7 @@ export async function updateJobExecutionStatus(
             .where(eq(jobExecutions.id, params.jobExecutionId))
             .limit(1)
         )[0];
-        return row ? toJobExecution(row) : undefined;
+        return row ? toJobExecution(row, await getJobExecutionFallbackName(tx, row.id)) : undefined;
       },
       matchFn: (execution) =>
         (execution.status === params.status && execution.statusReason === statusReason) ||
@@ -317,7 +339,7 @@ export async function failJobExecutionAsTimedOut(params: {
             .where(eq(jobExecutions.id, params.jobExecutionId))
             .limit(1)
         )[0];
-        return row ? toJobExecution(row) : undefined;
+        return row ? toJobExecution(row, await getJobExecutionFallbackName(tx, row.id)) : undefined;
       },
       matchFn: (execution) => (execution.timedOutAt !== null ? {execution, changed: false} : null),
       failureMessage: `Optimistic lock failure: job execution ${params.jobExecutionId} version ${params.expectedVersion}`,

@@ -336,6 +336,7 @@ export async function getJobExecutionDetail(
 ): Promise<JobExecutionDetail | undefined> {
   const rows = await db()
     .select({
+      job: jobs,
       jobExecution: jobExecutions,
       step: steps,
       stepAttempt: stepAttempts,
@@ -357,7 +358,10 @@ export async function getJobExecutionDetail(
   const first = rows[0];
   if (!first) return undefined;
 
-  const detail: JobExecutionDetail = {...toJobExecution(first.jobExecution), steps: []};
+  const detail: JobExecutionDetail = {
+    ...toJobExecution(first.jobExecution, first.job.name ?? first.job.key),
+    steps: [],
+  };
   const stepById = new Map<string, StepDetail>();
   for (const row of rows) {
     if (row.step) {
@@ -407,7 +411,10 @@ function hydrateWorkflowRunDetail(
     if (!row.jobExecution) continue;
     let jobExecution = jobExecutionById.get(row.jobExecution.id);
     if (!jobExecution) {
-      jobExecution = {...toJobExecution(row.jobExecution), steps: []};
+      jobExecution = {
+        ...toJobExecution(row.jobExecution, row.job.name ?? row.job.key),
+        steps: [],
+      };
       jobExecutionById.set(row.jobExecution.id, jobExecution);
       job.jobExecutions.push(jobExecution);
     }

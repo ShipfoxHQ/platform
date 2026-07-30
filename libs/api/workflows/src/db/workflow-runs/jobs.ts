@@ -98,7 +98,8 @@ export async function getDirectDependencyJobContexts(
       context = {job: toJob(row.job), executions: []};
       contextsByJobId.set(row.job.id, context);
     }
-    if (row.execution) context.executions.push(toJobExecution(row.execution));
+    if (row.execution)
+      context.executions.push(toJobExecution(row.execution, row.job.name ?? row.job.key));
   }
 
   return [...contextsByJobId.values()];
@@ -249,7 +250,8 @@ async function directDependencyContextsByJobKey(
       context = {job: toJob(row.job), executions: []};
       contextsByJobKey.set(row.job.key, context);
     }
-    if (row.execution) context.executions.push(toJobExecution(row.execution));
+    if (row.execution)
+      context.executions.push(toJobExecution(row.execution, row.job.name ?? row.job.key));
   }
 
   return contextsByJobKey;
@@ -390,7 +392,9 @@ export async function resolveJobStatusFromJobExecutions(params: {
 
     const {status, statusReason, trace} = evaluateJobSuccess({
       success: jobRow.success,
-      executions: jobExecutionRows.map(toJobExecution),
+      executions: jobExecutionRows.map((execution) =>
+        toJobExecution(execution, jobRow.name ?? jobRow.key),
+      ),
       jobs: await getDirectDependencyJobContexts(params.jobId, tx),
     });
 

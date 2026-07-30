@@ -326,7 +326,7 @@ describe('activateJobListener', () => {
       run: expect.objectContaining({id: expect.any(String), name: 'Test Workflow'}),
       trigger: {source: 'github', event: 'pull_request'},
       inputs: {environment: 'prod'},
-      job: {key: 'await'},
+      job: {key: 'await', name: 'await'},
       jobs: {
         build: expect.objectContaining({
           status: 'succeeded',
@@ -491,6 +491,97 @@ describe('drainListenerEventsIntoExecution', () => {
     expect(result).toMatchObject({kind: 'execution', sequence: 1, status: 'pending'});
     expect(executions).toHaveLength(1);
     expect(events.every((event) => event.consumedByExecutionId === executions[0]?.id)).toBe(true);
+  });
+
+  it('persists a failed execution when listener variables are missing', async () => {
+    const job = await createListeningJobFromModel({
+      jobs: {
+        review: {
+          executionName: `Review ${template('vars.REGION')}`,
+          steps: [{run: `echo ${template('vars.MISSING')}`}],
+        },
+      },
+    });
+    await bufferEvent(job.id);
+
+    const result = await drainListenerEventsIntoExecution({
+      jobId: job.id,
+      expectedSequence: 1,
+      secrets: {
+        getVariablesByNamespace: async () => ({values: {}}),
+      },
+    });
+
+    const [execution] = await db()
+      .select()
+      .from(jobExecutions)
+      .where(eq(jobExecutions.jobId, job.id));
+    expect(result).toMatchObject({kind: 'execution', sequence: 1, status: 'failed'});
+    expect(execution).toMatchObject({
+      status: 'failed',
+      name: null,
+      evaluationTrace: [
+        expect.objectContaining({
+          expression: 'vars.MISSING',
+          roots: ['vars'],
+          fillTarget: 'execution-creation',
+          evaluatedAt: 'execution-creation',
+          field: 'run',
+          degraded: true,
+        }),
+      ],
+    });
+  });
+
+  it('resolves a distinct name for each listener firing with boundary variables', async () => {
+    const job = await createListeningJobFromModel({
+      jobs: {
+        review: {
+          name: 'Process review',
+          executionName: `Review ${template('vars.REGION')} ${template('execution.index')}`,
+          steps: [{run: 'echo review'}],
+        },
+      },
+    });
+    await db().update(jobs).set({name: 'Process review'}).where(eq(jobs.id, job.id));
+    const secrets = {
+      getVariablesByNamespace: async () => ({values: {REGION: 'eu-west'}}),
+    };
+    await bufferEvent(job.id);
+    await drainListenerEventsIntoExecution({
+      jobId: job.id,
+      expectedSequence: 1,
+      secrets,
+    });
+    await bufferEvent(job.id);
+    await drainListenerEventsIntoExecution({
+      jobId: job.id,
+      expectedSequence: 2,
+      secrets,
+    });
+
+    const executions = await db()
+      .select()
+      .from(jobExecutions)
+      .where(eq(jobExecutions.jobId, job.id))
+      .orderBy(asc(jobExecutions.sequence));
+    const stored = await readJob(job.id);
+
+    expect(stored?.name).toBe('Process review');
+    expect(executions.map((execution) => execution.name)).toEqual([
+      'Review eu-west 0',
+      'Review eu-west 1',
+    ]);
+    expect(executions.map((execution) => execution.evaluationTrace)).toEqual([
+      expect.arrayContaining([
+        expect.objectContaining({field: 'job.execution_name', expression: 'vars.REGION'}),
+        expect.objectContaining({field: 'job.execution_name', expression: 'execution.index'}),
+      ]),
+      expect.arrayContaining([
+        expect.objectContaining({field: 'job.execution_name', expression: 'vars.REGION'}),
+        expect.objectContaining({field: 'job.execution_name', expression: 'execution.index'}),
+      ]),
+    ]);
   });
 
   it('uses the frozen agent tool materialization snapshot for listener executions', async () => {
@@ -823,12 +914,30 @@ describe('drainListenerEventsIntoExecution', () => {
     expect(stored?.outputs).toEqual({message: 'hello'});
   });
 
-  it('reports empty when nothing is buffered', async () => {
-    const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
+  it('reports empty without loading external state when nothing is buffered', async () => {
+    const job = await createListeningJobFromModel({
+      jobs: {
+        review: {
+          executionName: template('vars.REGION'),
+          steps: [{run: 'echo review'}],
+        },
+      },
+    });
+    let variableLoads = 0;
 
-    const result = await drainListenerEventsIntoExecution({jobId: job.id, expectedSequence: 1});
+    const result = await drainListenerEventsIntoExecution({
+      jobId: job.id,
+      expectedSequence: 1,
+      secrets: {
+        getVariablesByNamespace: () => {
+          variableLoads += 1;
+          return Promise.resolve({values: {REGION: 'eu-west'}});
+        },
+      },
+    });
 
     expect(result).toEqual({kind: 'empty'});
+    expect(variableLoads).toBe(0);
   });
 
   it('returns the existing execution when the sequence was already materialized', async () => {

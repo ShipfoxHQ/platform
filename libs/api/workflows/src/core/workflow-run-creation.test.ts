@@ -19,7 +19,7 @@ describe('deriveInitialJobExecutionPlan', () => {
     const model = buildModel({
       jobs: {
         deploy: {
-          name: `Deploy ${template('inputs.environment')}`,
+          executionName: `Deploy ${template('inputs.environment')}`,
           runner: ['linux'],
           runnerTemplates: [template('inputs.runner')],
           steps: [{run: 'echo deploy'}],
@@ -47,10 +47,10 @@ describe('deriveInitialJobExecutionPlan', () => {
         {
           expression: 'inputs.environment',
           roots: ['inputs'],
-          fillTarget: 'run-creation',
+          fillTarget: 'execution-creation',
           evaluatedAt: 'execution-creation',
           value: 'prod',
-          field: 'job.name',
+          field: 'job.execution_name',
         },
       ],
     });
@@ -86,7 +86,7 @@ describe('deriveInitialJobExecutionPlan', () => {
     const model = buildModel({
       jobs: {
         deploy: {
-          name: `Current ${template('execution.name')}`,
+          executionName: `Current ${template('execution.name')}`,
           steps: [{run: 'echo deploy'}],
         },
       },

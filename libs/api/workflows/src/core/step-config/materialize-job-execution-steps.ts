@@ -7,6 +7,7 @@ import type {
 } from '#core/agent-tools.js';
 import type {StepConfigDispatchPlan} from '#core/entities/step.js';
 import {resolveStepConfig, type WorkflowStepTemplateDiagnostic} from './resolve-step-config.js';
+import {staticJobName} from './static-job-name.js';
 import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
 
 type WorkflowModelJob = WorkflowModel['jobs'][number];
@@ -71,8 +72,10 @@ export async function materializeJobExecutionSteps(
     SETUP_STEP,
     ...(await Promise.all(
       job.steps.map(async (step, stepPosition) => {
-        // The trusted context exposes the stable job key; the authored display field remains `job.name`.
-        const stepContext = {...context.values, job: {key: job.key}};
+        const stepContext = {
+          ...context.values,
+          job: {key: job.key, name: staticJobName(job) ?? job.key},
+        };
         const resolved = await resolveStepConfig({
           jobKey: job.key,
           step,

@@ -1,4 +1,5 @@
 import type {WorkflowModel} from '@shipfox/api-definitions-dto';
+import {evaluationTraceEntry} from '@shipfox/expression';
 import type {AgentDefaultsResolver} from './agent-defaults.js';
 import type {
   AgentToolMaterializationContext,
@@ -25,6 +26,7 @@ import {
   materializeJobRunner,
   resolveJobExecutionName,
 } from './step-config/index.js';
+import {staticJobName} from './step-config/static-job-name.js';
 
 export interface MaterializeListenerExecutionParams {
   readonly model: WorkflowModel | null;
@@ -39,7 +41,9 @@ export interface MaterializeListenerExecutionParams {
     | 'triggerPayload'
     | 'inputs'
   >;
-  readonly job: Pick<Job, 'id' | 'key'>;
+  readonly job: Pick<Job, 'id' | 'key'> & Partial<Pick<Job, 'name'>>;
+  readonly vars?: Record<string, string> | undefined;
+  readonly variableResolutionError?: InterpolationUnresolvableError | undefined;
   readonly sequence: number;
   readonly triggerEvents: readonly WorkflowExecutionEvent[];
   readonly priorExecutions: readonly JobExecution[];
@@ -49,7 +53,7 @@ export interface MaterializeListenerExecutionParams {
 }
 
 export interface MaterializedListenerExecution {
-  readonly name: string;
+  readonly nameOverride: string | null;
   readonly runner: readonly string[];
   readonly status: JobExecutionStatus;
   readonly statusReason: 'unknown' | null;
@@ -61,14 +65,18 @@ export interface MaterializedListenerExecution {
 export async function materializeListenerExecution(
   params: MaterializeListenerExecutionParams,
 ): Promise<MaterializedListenerExecution> {
-  const fallbackName = `${params.job.key} #${params.sequence}`;
-  let executionName = fallbackName;
+  let executionName = params.job.name ?? params.job.key;
+  let nameOverride: string | null = null;
   let evaluationTrace: readonly PersistedEvaluationTraceEntry[] = [];
   let runner: readonly string[] = [];
   let steps: readonly MaterializedWorkflowStep[] = [];
   let status: JobExecutionStatus = 'pending';
+  if (params.variableResolutionError) {
+    evaluationTrace = [variableResolutionTrace(params.variableResolutionError)];
+  }
 
   try {
+    if (params.variableResolutionError) throw params.variableResolutionError;
     if (!params.model) throw new PermanentListenerMaterializationError('Run attempt has no model');
     const modelJob = params.model.jobs.find((job) => job.key === params.job.key);
     if (!modelJob) {
@@ -77,16 +85,34 @@ export async function materializeListenerExecution(
       );
     }
 
+    const materializationJob = {
+      ...params.job,
+      name: params.job.name ?? staticJobName(modelJob) ?? null,
+    };
+    executionName = materializationJob.name ?? params.job.key;
+
     const resolvedName = resolveJobExecutionName({
       definitionId: params.run.definitionId,
       job: modelJob,
-      fallbackName,
-      context: listenerExecutionContext({...params, executionName, status}).values,
+      context: listenerExecutionContext({
+        ...params,
+        job: materializationJob,
+        nameOverride: null,
+        executionName,
+        status,
+      }).values,
     });
-    executionName = resolvedName.value;
+    nameOverride = resolvedName.nameOverride;
+    executionName = nameOverride ?? executionName;
     evaluationTrace = resolvedName.trace;
 
-    const context = listenerExecutionContext({...params, executionName, status});
+    const context = listenerExecutionContext({
+      ...params,
+      job: materializationJob,
+      nameOverride,
+      executionName,
+      status,
+    });
     runner = materializeJobRunner({
       job: modelJob,
       context,
@@ -109,7 +135,7 @@ export async function materializeListenerExecution(
   }
 
   return {
-    name: executionName,
+    nameOverride,
     runner,
     status,
     statusReason: status === 'failed' ? 'unknown' : null,
@@ -119,12 +145,29 @@ export async function materializeListenerExecution(
   };
 }
 
+function variableResolutionTrace(
+  error: InterpolationUnresolvableError,
+): PersistedEvaluationTraceEntry {
+  return {
+    ...evaluationTraceEntry({
+      expression: error.source,
+      roots: ['vars'],
+      fillTarget: 'execution-creation',
+      evaluatedAt: 'execution-creation',
+      degraded: true,
+    }),
+    field: error.field,
+    ...(error.envKey === undefined ? {} : {envKey: error.envKey}),
+  };
+}
+
 function listenerExecutionContext(
   params: Pick<
     MaterializeListenerExecutionParams,
-    'run' | 'job' | 'sequence' | 'triggerEvents' | 'priorExecutions'
+    'run' | 'job' | 'vars' | 'sequence' | 'triggerEvents' | 'priorExecutions'
   > & {
     readonly executionName: string;
+    readonly nameOverride: string | null;
     readonly status: JobExecutionStatus;
   },
 ) {
@@ -132,8 +175,10 @@ function listenerExecutionContext(
     run: params.run,
     triggerPayload: params.run.triggerPayload,
     inputs: params.run.inputs,
-    jobId: params.job.id,
+    vars: params.vars,
+    job: {...params.job, name: params.job.name ?? null},
     sequence: params.sequence,
+    nameOverride: params.nameOverride,
     executionName: params.executionName,
     status: params.status,
     triggerEvents: params.triggerEvents,

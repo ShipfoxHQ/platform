@@ -74,6 +74,7 @@ export {
   createRerunWorkflowRun,
   createWorkflowRun,
   failWorkflowRunAsTimedOut,
+  loadReferencedVariables,
   updateWorkflowRunStatus,
 } from './workflow-runs/runs.js';
 export type {

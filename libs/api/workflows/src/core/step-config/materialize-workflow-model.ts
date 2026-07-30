@@ -11,6 +11,7 @@ import {
   type MaterializedWorkflowStep,
   materializeJobExecutionSteps,
 } from './materialize-job-execution-steps.js';
+import {staticJobName} from './static-job-name.js';
 import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
 
 type WorkflowModelJob = WorkflowModel['jobs'][number];
@@ -21,7 +22,7 @@ export interface MaterializedWorkflowJob {
   readonly executionTimeoutMs?: number;
   readonly checkout: WorkflowModelJob['checkout'];
   readonly listening?: WorkflowModelJob['listening'];
-  readonly name?: WorkflowModelJob['name'];
+  readonly name?: string;
   readonly outputs?: WorkflowModelJob['outputs'];
   readonly dependencies: readonly string[];
   readonly runner: readonly string[];
@@ -52,31 +53,36 @@ export async function materializeWorkflowModel(
   const jobsById = new Map(model.jobs.map((job) => [job.id, job]));
 
   return await Promise.all(
-    model.jobs.map(async (job, position) => ({
-      key: job.key,
-      mode: job.mode,
-      ...(job.success === undefined ? {} : {success: job.success}),
-      ...(job.executionTimeoutMs === undefined ? {} : {executionTimeoutMs: job.executionTimeoutMs}),
-      checkout: job.checkout,
-      ...(job.listening === undefined ? {} : {listening: job.listening}),
-      ...(job.name === undefined ? {} : {name: job.name}),
-      ...(job.outputs === undefined ? {} : {outputs: job.outputs}),
-      dependencies: dependencySourceNames(job, jobsById),
-      runner: job.runner,
-      position,
-      steps:
-        job.mode === 'listening'
-          ? []
-          : await materializeJobExecutionSteps({
-              model,
-              job,
-              context,
-              resolveAgentDefaults,
-              definitionId,
-              agentToolContext,
-              agentToolSnapshot,
-            }),
-    })),
+    model.jobs.map(async (job, position) => {
+      const name = staticJobName(job);
+      return {
+        key: job.key,
+        mode: job.mode,
+        ...(job.success === undefined ? {} : {success: job.success}),
+        ...(job.executionTimeoutMs === undefined
+          ? {}
+          : {executionTimeoutMs: job.executionTimeoutMs}),
+        checkout: job.checkout,
+        ...(job.listening === undefined ? {} : {listening: job.listening}),
+        ...(name === undefined ? {} : {name}),
+        ...(job.outputs === undefined ? {} : {outputs: job.outputs}),
+        dependencies: dependencySourceNames(job, jobsById),
+        runner: job.runner,
+        position,
+        steps:
+          job.mode === 'listening'
+            ? []
+            : await materializeJobExecutionSteps({
+                model,
+                job,
+                context,
+                resolveAgentDefaults,
+                definitionId,
+                agentToolContext,
+                agentToolSnapshot,
+              }),
+      };
+    }),
   );
 }
 

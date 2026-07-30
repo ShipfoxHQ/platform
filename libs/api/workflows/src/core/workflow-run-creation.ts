@@ -55,6 +55,7 @@ export function deriveInitialJobExecutionPlan(params: {
   inputs?: Record<string, unknown> | null | undefined;
   vars?: Record<string, string> | undefined;
 }): {
+  nameOverride: string | null;
   name: string;
   runner: readonly string[];
   evaluationTrace: JobExecution['evaluationTrace'];
@@ -64,8 +65,9 @@ export function deriveInitialJobExecutionPlan(params: {
     triggerPayload: params.triggerPayload,
     inputs: params.inputs ?? null,
     vars: params.vars,
-    jobId: params.jobId,
+    job: {id: params.jobId, key: params.job.key, name: params.job.name ?? null},
     sequence: params.sequence,
+    nameOverride: null,
     executionName: params.fallbackName,
     status: 'pending',
     triggerEvents: [],
@@ -73,8 +75,7 @@ export function deriveInitialJobExecutionPlan(params: {
   });
   const resolvedName = resolveJobExecutionName({
     definitionId: params.run.definitionId,
-    job: params.job,
-    fallbackName: params.fallbackName,
+    job: params.modelJob,
     context: nameContext.values,
   });
   const runnerContext = assembleExecutionCreationContext({
@@ -82,15 +83,17 @@ export function deriveInitialJobExecutionPlan(params: {
     triggerPayload: params.triggerPayload,
     inputs: params.inputs ?? null,
     vars: params.vars,
-    jobId: params.jobId,
+    job: {id: params.jobId, key: params.job.key, name: params.job.name ?? null},
     sequence: params.sequence,
-    executionName: resolvedName.value,
+    nameOverride: resolvedName.nameOverride,
+    executionName: resolvedName.nameOverride ?? params.fallbackName,
     status: 'pending',
     triggerEvents: [],
     priorExecutions: [],
   });
   return {
-    name: resolvedName.value,
+    nameOverride: resolvedName.nameOverride,
+    name: resolvedName.nameOverride ?? params.fallbackName,
     runner: materializeJobRunner({
       job: params.modelJob,
       context: runnerContext,
@@ -105,7 +108,9 @@ export function deriveJobExecutionRunner(params: {
   modelJob: WorkflowModel['jobs'][number];
   jobId: string;
   sequence: number;
+  nameOverride: string | null;
   executionName: string;
+  jobName?: string | null | undefined;
   status: JobExecution['status'];
   triggerEvents?: readonly JobExecution['triggerEvents'][number][] | undefined;
   priorExecutions?: readonly JobExecution[] | undefined;
@@ -116,8 +121,9 @@ export function deriveJobExecutionRunner(params: {
       run: params.run,
       triggerPayload: params.run.triggerPayload,
       inputs: params.run.inputs,
-      jobId: params.jobId,
+      job: {id: params.jobId, key: params.modelJob.key, name: params.jobName ?? null},
       sequence: params.sequence,
+      nameOverride: params.nameOverride,
       executionName: params.executionName,
       status: params.status,
       triggerEvents: params.triggerEvents ?? [],

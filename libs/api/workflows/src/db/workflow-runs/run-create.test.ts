@@ -75,7 +75,8 @@ describe('workflow run queries', () => {
       expect(jobExecutions[0]).toMatchObject({
         jobId: runJobs[0]?.id,
         sequence: 1,
-        name: 'build #1',
+        nameOverride: null,
+        name: 'build',
         runner: ['ubuntu-latest'],
         evaluationTrace: null,
       });
@@ -219,7 +220,7 @@ describe('workflow run queries', () => {
         env: {RUN_ID: template('run.id')},
         jobs: {
           build: {
-            name: `Build ${template('event.ref')}`,
+            executionName: `Build ${template('event.ref')}`,
             steps: [
               {
                 run: 'npm test',
@@ -257,10 +258,10 @@ describe('workflow run queries', () => {
           {
             expression: 'event.ref',
             roots: ['event'],
-            fillTarget: 'ingest',
+            fillTarget: 'execution-creation',
             evaluatedAt: 'execution-creation',
             value: 'refs/heads/main',
-            field: 'job.name',
+            field: 'job.execution_name',
           },
         ],
       });
@@ -335,7 +336,8 @@ describe('workflow run queries', () => {
         runner: 'ubuntu-latest',
         jobs: {
           listen: {
-            name: displayNameSource,
+            name: 'Process review',
+            executionName: displayNameSource,
             listening: {
               on: [{source: 'github', event: 'pull_request_review'}],
               until: [{source: 'github', event: 'pull_request'}],
@@ -370,7 +372,7 @@ describe('workflow run queries', () => {
       const build = runJobs.find((job) => job.key === 'build');
       expect(listen).toMatchObject({
         mode: 'listening',
-        name: displayNameSource,
+        name: 'Process review',
         listeningTimeoutMs: 30 * 24 * 60 * 60 * 1000,
         maxExecutions: 3,
         onResolve: 'cancel',
@@ -405,7 +407,8 @@ describe('workflow run queries', () => {
         runner: 'ubuntu-latest',
         jobs: {
           listen: {
-            name: displayNameSource,
+            name: 'Process review',
+            executionName: displayNameSource,
             listening: {
               on: [{source: 'github', event: 'pull_request_review'}],
               until: [{source: 'github', event: 'pull_request'}],

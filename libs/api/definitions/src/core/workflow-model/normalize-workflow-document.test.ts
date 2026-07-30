@@ -1086,7 +1086,7 @@ describe('normalizeWorkflowDocument', () => {
       name: 'listen for reviews',
       jobs: {
         review: {
-          name: displayName,
+          execution_name: displayName,
           listening: {
             on: [
               {
@@ -1121,7 +1121,7 @@ describe('normalizeWorkflowDocument', () => {
         onResolve: 'cancel',
       },
     });
-    expect(model.jobs[0]?.name?.[1]).toMatchObject({
+    expect(model.jobs[0]?.executionName?.[1]).toMatchObject({
       kind: 'deferred',
       expression: {source: 'execution.index', check: 'typed'},
     });
@@ -4178,7 +4178,7 @@ describe('normalizeWorkflowDocument', () => {
       });
     });
 
-    it('does not apply availability checks to job names', () => {
+    it('rejects dynamic job names in favor of execution_name', () => {
       const document: WorkflowDocument = {
         name: 'job display context',
         jobs: {
@@ -4194,16 +4194,17 @@ describe('normalizeWorkflowDocument', () => {
         },
       };
 
-      const model = normalizeWorkflowDocument(document);
-
-      expect(model.jobs[0]?.name?.[0]).toMatchObject({
-        kind: 'deferred',
-        roots: ['execution'],
-      });
-      expect(model.jobs[1]?.name?.[0]).toMatchObject({
-        kind: 'deferred',
-        roots: ['execution'],
-      });
+      const error = expectInvalid(document);
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'invalid-interpolation-template',
+          path: ['jobs', 'build', 'name'],
+        }),
+        expect.objectContaining({
+          code: 'invalid-interpolation-template',
+          path: ['jobs', 'review', 'name'],
+        }),
+      ]);
     });
 
     it('does not apply availability checks to workflow-level or job-level env', () => {
@@ -4333,7 +4334,7 @@ describe('normalizeWorkflowDocument', () => {
       });
     });
 
-    it('allows execution events in untrusted-capable fields', () => {
+    it('rejects execution events in static job names', () => {
       const document: WorkflowDocument = {
         name: 'execution events allowed',
         jobs: {
@@ -4345,25 +4346,13 @@ describe('normalizeWorkflowDocument', () => {
         },
       };
 
-      const model = normalizeWorkflowDocument(document);
-
-      expect(model.jobs[0]?.name?.[1]).toMatchObject({
-        kind: 'deferred',
-        expression: {check: 'typed'},
-        roots: ['execution'],
-      });
-      expect(model.jobs[0]?.steps[0]).toMatchObject({
-        kind: 'agent',
-        templates: {
-          prompt: [
-            {
-              kind: 'deferred',
-              expression: {check: 'typed'},
-              roots: ['execution'],
-            },
-          ],
-        },
-      });
+      const error = expectInvalid(document);
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'invalid-interpolation-template',
+          path: ['jobs', 'build', 'name'],
+        }),
+      ]);
     });
 
     it('allows untrusted context in env, prompt, and step names', () => {

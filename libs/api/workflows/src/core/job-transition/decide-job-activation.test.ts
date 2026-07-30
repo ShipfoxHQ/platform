@@ -179,6 +179,7 @@ export function jobExecution(params: Partial<JobExecution> = {}): JobExecution {
     id: crypto.randomUUID(),
     jobId: params.jobId ?? crypto.randomUUID(),
     sequence: params.sequence ?? 1,
+    nameOverride: params.nameOverride ?? params.name ?? 'build',
     name: params.name ?? 'build',
     runner: null,
     status: params.status ?? 'succeeded',

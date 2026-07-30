@@ -287,6 +287,7 @@ export function createDrainListenerEventsActivity(clients: {
   agent: AgentInterModuleClient;
   integrations?: IntegrationsModuleClient | undefined;
   projects?: ProjectsModuleClient | undefined;
+  secrets: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'>;
 }) {
   return async function drainListenerEventsActivity(params: {
     jobId: string;

@@ -192,15 +192,22 @@ export async function loadReferencedVariables(params: {
   const keys = [...new Set(references.map((reference) => reference.key))].sort();
   if (keys.length === 0) return undefined;
 
-  if (!params.secrets) throw new Error('Secrets client is not configured.');
+  const requiredReferences = references.filter(
+    (reference) => reference.field !== 'job.execution_name',
+  );
+  const requiredKeys = new Set(requiredReferences.map((reference) => reference.key));
+  if (!params.secrets) {
+    if (requiredKeys.size === 0) return undefined;
+    throw new Error('Secrets client is not configured.');
+  }
   const {values: vars} = await params.secrets.getVariablesByNamespace({
     workspaceId: params.workspaceId,
     projectId: params.projectId,
     namespace: '',
   });
-  const missingKey = keys.find((key) => !(key in vars));
+  const missingKey = [...requiredKeys].find((key) => !(key in vars));
   if (missingKey !== undefined) {
-    const reference = references.find((candidate) => candidate.key === missingKey);
+    const reference = requiredReferences.find((candidate) => candidate.key === missingKey);
     throw new InterpolationUnresolvableError(params.definitionId, {
       field: reference?.field ?? 'env',
       source: reference?.source ?? `vars.${missingKey}`,
@@ -221,7 +228,7 @@ function materializeRunGraphJobs(params: {
     job: {
       key: job.key,
       mode: job.mode,
-      name: workflowTemplateSource(job.name),
+      name: job.name ?? null,
       status: 'pending' as const,
       checkoutPersistCredentials: job.checkout.persistCredentials,
       checkoutPermissionsContents: job.checkout.permissions.contents,
@@ -242,7 +249,7 @@ function materializeRunGraphJobs(params: {
     createExecution: (jobRow) => {
       if (jobRow.mode === 'listening') return undefined;
 
-      const fallbackName = `${jobRow.key} #1`;
+      const fallbackName = jobRow.name ?? jobRow.key;
       const modelJob = params.params.model.jobs[jobIndex];
       if (!modelJob) return undefined;
       const executionPlan = deriveInitialJobExecutionPlan({
@@ -259,7 +266,9 @@ function materializeRunGraphJobs(params: {
 
       return {
         sequence: 1,
-        name: executionPlan.name,
+        // Persist only the resolved override. The core entity supplies the
+        // static job name/key when this is null.
+        name: executionPlan.nameOverride,
         runner: [...executionPlan.runner],
         status: 'pending' as const,
         evaluationTrace:
@@ -293,7 +302,7 @@ function referencedVariables(
   }
 
   for (const job of jobs) {
-    collectFieldVariableReferences(job.name, references, {field: 'job.name'});
+    collectFieldVariableReferences(job.executionName, references, {field: 'job.execution_name'});
     for (const template of job.runnerTemplates ?? []) {
       collectFieldVariableReferences(template, references, {field: 'job.runner'});
     }
@@ -355,16 +364,6 @@ function collectFieldVariableReferences(
       });
     }
   }
-}
-
-function workflowTemplateSource(template: MaterializedWorkflowJob['name']): string | null {
-  if (template === undefined) return null;
-
-  return template
-    .map((segment) =>
-      segment.kind === 'literal' ? segment.value : `$${'{{'} ${segment.expression.source} ${'}}'}`,
-    )
-    .join('');
 }
 
 function logTemplateDiagnostics(params: {

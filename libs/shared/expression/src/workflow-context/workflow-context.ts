@@ -123,6 +123,7 @@ const jobTypeEnvironment = {
     kind: 'object',
     fields: {
       key: 'string',
+      name: 'string',
     },
   },
 } as const satisfies ExpressionTypeEnvironment;

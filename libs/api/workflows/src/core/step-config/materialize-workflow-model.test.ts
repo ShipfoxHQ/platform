@@ -58,6 +58,28 @@ function creationContext(
 }
 
 describe('materializeWorkflowModel', () => {
+  it('keeps literal job names while omitting dynamic name sources from runtime jobs', async () => {
+    const model = workflowModel({
+      jobs: {
+        deploy: {
+          name: 'Deploy',
+          steps: [{run: 'echo deploy'}],
+        },
+        review: {
+          name: `Review ${template('inputs.environment')}`,
+          steps: [{run: 'echo review'}],
+        },
+      },
+    });
+
+    const rows = await materializeWorkflowModel({model});
+    const deploy = rows.find((job) => job.key === 'deploy');
+    const review = rows.find((job) => job.key === 'review');
+
+    expect(deploy).toMatchObject({key: 'deploy', name: 'Deploy'});
+    expect(review).not.toHaveProperty('name');
+  });
+
   it('converts workflow model jobs and steps to runtime rows', async () => {
     const model = workflowModel({
       runner: 'ubuntu-latest',

@@ -411,7 +411,7 @@ describe('workflow run queries', () => {
         model: buildModel({
           jobs: {
             deploy: {
-              name: `Deploy ${template('inputs.environment')}`,
+              executionName: `Deploy ${template('inputs.environment')}`,
               steps: [{run: 'echo deploy'}],
             },
           },
@@ -449,6 +449,54 @@ describe('workflow run queries', () => {
       if (!rerunJob) throw new Error('Missing rerun deploy job');
       const [rerunExecution] = await getJobExecutionsByJobId(rerunJob.id);
       expect(rerunExecution?.name).toBe('Deploy prod (attempt 1)');
+    });
+
+    test('reruns preserve a null name override instead of copying the fallback', async () => {
+      const source = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {
+            deploy: {name: 'Deploy', steps: [{run: 'echo deploy'}]},
+          },
+        }),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [sourceJob] = await getJobsByWorkflowRunId(source.id);
+      if (!sourceJob) throw new Error('Missing deploy job');
+      await markJob([sourceJob], 'deploy', 'failed');
+      const [sourceExecution] = await getJobExecutionsByJobId(sourceJob.id);
+      if (!sourceExecution) throw new Error('Missing deploy execution');
+      expect(sourceExecution.nameOverride).toBeNull();
+      expect(sourceExecution.name).toBe('Deploy');
+      await updateWorkflowRunStatus({
+        workflowRunId: source.id,
+        status: 'failed',
+        expectedVersion: 1,
+      });
+
+      const rerun = await createRerunWorkflowRun({
+        workflowRunId: source.id,
+        mode: 'all',
+        actorUserId: crypto.randomUUID(),
+      });
+
+      const [rerunJob] = await getJobsByWorkflowRunId(rerun.id);
+      if (!rerunJob) throw new Error('Missing rerun deploy job');
+      const [rerunExecution] = await getJobExecutionsByJobId(rerunJob.id);
+      expect(rerunExecution?.nameOverride).toBeNull();
+      expect(rerunExecution?.name).toBe('Deploy');
+      const [storedRerunExecution] = await db()
+        .select({name: jobExecutions.name})
+        .from(jobExecutions)
+        .where(eq(jobExecutions.jobId, rerunJob.id));
+      expect(storedRerunExecution?.name).toBeNull();
     });
 
     test('writes one run-attempt-created outbox event for the rerun', async () => {
