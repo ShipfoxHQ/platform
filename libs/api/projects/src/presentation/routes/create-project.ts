@@ -6,7 +6,11 @@ import {
 import {createProjectBodySchema, projectResponseSchema} from '@shipfox/api-projects-dto';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
-import {createProjectFromSource, ProjectAlreadyExistsError} from '#core/index.js';
+import {
+  createProjectFromSource,
+  ProjectAlreadyExistsError,
+  ProjectSlugConflictError,
+} from '#core/index.js';
 import {toProjectDto} from '#presentation/dto/index.js';
 
 function providerStatus(reason: string): number {
@@ -73,6 +77,9 @@ export function createProjectRoute(integrations: IntegrationsModuleClient) {
           status: 409,
         });
       }
+      if (error instanceof ProjectSlugConflictError) {
+        throw new ClientError('Project slug already exists', 'slug-conflict', {status: 409});
+      }
       if (known?.code === 'provider-failure') {
         throw new ClientError('Integration provider request failed', known.details.reason, {
           details: {retry_after_seconds: known.details.retryAfterSeconds},
@@ -82,7 +89,7 @@ export function createProjectRoute(integrations: IntegrationsModuleClient) {
       throw error;
     },
     handler: async (request, reply) => {
-      const {workspace_id: workspaceId, name, source} = request.body;
+      const {workspace_id: workspaceId, name, slug, source} = request.body;
       const actor = requireUserContext(request);
 
       requireWorkspaceAccess({request, workspaceId});
@@ -90,6 +97,7 @@ export function createProjectRoute(integrations: IntegrationsModuleClient) {
         actorId: actor.userId,
         workspaceId,
         name,
+        slug,
         sourceConnectionId: source.connection_id,
         sourceExternalRepositoryId: source.external_repository_id,
         integrations,

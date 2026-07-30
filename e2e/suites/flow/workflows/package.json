@@ -39,6 +39,7 @@
     "type": "shipfox-tsc-check"
   },
   "devDependencies": {
+    "@shipfox/api-common-dto": "workspace:*",
     "@shipfox/api-definitions-dto": "workspace:*",
     "@shipfox/api-integration-webhook-dto": "workspace:*",
     "@shipfox/api-integration-github-dto": "workspace:*",

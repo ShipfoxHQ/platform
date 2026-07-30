@@ -1,15 +1,35 @@
+import {isUniqueViolation} from '@shipfox/node-drizzle';
 import {and, count, desc, eq, ilike, inArray, lt, or, type SQL, sql} from 'drizzle-orm';
 import type {Project} from '#core/entities/project.js';
-import {ProjectAlreadyExistsError, ProjectNotFoundError} from '#core/errors.js';
+import {
+  ProjectAlreadyExistsError,
+  ProjectNotFoundError,
+  ProjectSlugConflictError,
+} from '#core/errors.js';
 import {recordProjectCreated} from '#metrics/instance.js';
 import {db, type Executor} from './db.js';
 import {projects, toProject} from './schema/projects.js';
+
+type ProjectDatabase = ReturnType<typeof db>;
+type ProjectTransaction = Parameters<Parameters<ProjectDatabase['transaction']>[0]>[0];
 
 export interface CreateProjectParams {
   workspaceId: string;
   sourceConnectionId: string;
   sourceExternalRepositoryId: string;
   name: string;
+  slug: string;
+}
+
+export interface UpdateProjectParams {
+  projectId: string;
+  name?: string | undefined;
+  slug?: string | undefined;
+}
+
+export interface UpdateProjectResult {
+  project: Project;
+  changed: boolean;
 }
 
 export interface ProjectCursor {
@@ -50,6 +70,8 @@ export interface ListAdminProjectsResult {
   nextCursor: ProjectCursor | null;
 }
 
+const PROJECTS_WORKSPACE_SLUG_UNIQUE_CONSTRAINT = 'projects_workspace_slug_unique';
+
 function cursorWhere(cursor: ProjectCursor | undefined): SQL | undefined {
   if (!cursor) return undefined;
   return or(
@@ -60,37 +82,51 @@ function cursorWhere(cursor: ProjectCursor | undefined): SQL | undefined {
 
 export async function createProject(params: CreateProjectParams): Promise<Project> {
   const project = await db().transaction(async (tx) => {
-    const [projectRow] = await tx
-      .insert(projects)
-      .values({
-        workspaceId: params.workspaceId,
-        sourceConnectionId: params.sourceConnectionId,
-        sourceExternalRepositoryId: params.sourceExternalRepositoryId,
-        name: params.name,
-      })
-      .onConflictDoNothing({
-        target: [projects.sourceConnectionId, projects.sourceExternalRepositoryId],
-      })
-      .returning();
+    let projectRow: typeof projects.$inferSelect | undefined;
+    for (let attempt = 0; attempt < 2 && !projectRow; attempt += 1) {
+      try {
+        [projectRow] = await tx
+          .insert(projects)
+          .values({
+            workspaceId: params.workspaceId,
+            sourceConnectionId: params.sourceConnectionId,
+            sourceExternalRepositoryId: params.sourceExternalRepositoryId,
+            name: params.name,
+            slug: params.slug,
+          })
+          .onConflictDoNothing({
+            target: [projects.sourceConnectionId, projects.sourceExternalRepositoryId],
+          })
+          .returning();
+      } catch (error) {
+        if (isUniqueViolation(error, PROJECTS_WORKSPACE_SLUG_UNIQUE_CONSTRAINT)) {
+          throw new ProjectSlugConflictError(params.slug);
+        }
+        throw error;
+      }
+
+      if (!projectRow) {
+        const [conflict] = await tx
+          .select()
+          .from(projects)
+          .where(
+            and(
+              eq(projects.sourceConnectionId, params.sourceConnectionId),
+              eq(projects.sourceExternalRepositoryId, params.sourceExternalRepositoryId),
+            ),
+          )
+          .limit(1);
+        if (conflict) {
+          throw new ProjectAlreadyExistsError(
+            conflict.id,
+            params.sourceConnectionId,
+            params.sourceExternalRepositoryId,
+          );
+        }
+      }
+    }
 
     if (!projectRow) {
-      const [conflict] = await tx
-        .select()
-        .from(projects)
-        .where(
-          and(
-            eq(projects.sourceConnectionId, params.sourceConnectionId),
-            eq(projects.sourceExternalRepositoryId, params.sourceExternalRepositoryId),
-          ),
-        )
-        .limit(1);
-      if (conflict) {
-        throw new ProjectAlreadyExistsError(
-          conflict.id,
-          params.sourceConnectionId,
-          params.sourceExternalRepositoryId,
-        );
-      }
       throw new Error('Insert returned no rows');
     }
 
@@ -98,6 +134,45 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
   });
   recordProjectCreated();
   return project;
+}
+
+export async function updateProject(
+  params: UpdateProjectParams,
+  options: {tx?: ProjectDatabase | ProjectTransaction | undefined} = {},
+): Promise<UpdateProjectResult | undefined> {
+  const executor = options.tx ?? db();
+
+  const [existingRow] = await executor
+    .select()
+    .from(projects)
+    .where(eq(projects.id, params.projectId))
+    .limit(1);
+  if (!existingRow) return undefined;
+
+  const nextName = params.name ?? existingRow.name;
+  const nextSlug = params.slug ?? existingRow.slug;
+  if (nextName === existingRow.name && nextSlug === existingRow.slug) {
+    return {project: toProject(existingRow), changed: false};
+  }
+
+  try {
+    const [row] = await executor
+      .update(projects)
+      .set({
+        name: nextName,
+        slug: nextSlug,
+        updatedAt: new Date(),
+      })
+      .where(eq(projects.id, params.projectId))
+      .returning();
+
+    return row ? {project: toProject(row), changed: true} : undefined;
+  } catch (error) {
+    if (isUniqueViolation(error, PROJECTS_WORKSPACE_SLUG_UNIQUE_CONSTRAINT)) {
+      throw new ProjectSlugConflictError(nextSlug);
+    }
+    throw error;
+  }
 }
 
 export async function getProjectById(id: string): Promise<Project | undefined> {

@@ -7,6 +7,7 @@ export interface Project {
   sourceRepositoryName: string | null;
   sourceDefaultBranch: string | null;
   name: string;
+  slug: string;
   createdAt: Date;
   updatedAt: Date;
 }

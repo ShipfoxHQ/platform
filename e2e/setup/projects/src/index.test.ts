@@ -30,6 +30,7 @@ describe('createProject', () => {
       json: {
         workspace_id: workspaceId,
         name: 'E2E Project',
+        slug: 'e2e-project-2',
         source_connection_id: undefined,
         source_external_repository_id: undefined,
       },
@@ -53,6 +54,7 @@ describe('createProject', () => {
       json: {
         workspace_id: workspaceId,
         name: 'Platform',
+        slug: 'platform-2',
         source_connection_id: sourceConnectionId,
         source_external_repository_id: 'e2e:platform',
       },

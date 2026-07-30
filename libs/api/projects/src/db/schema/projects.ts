@@ -15,6 +15,7 @@ export const projects = pgTable(
     sourceRepositoryName: text('source_repository_name'),
     sourceDefaultBranch: text('source_default_branch'),
     name: text('name').notNull(),
+    slug: text('slug').notNull(),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
   },
@@ -23,6 +24,7 @@ export const projects = pgTable(
       table.sourceConnectionId,
       table.sourceExternalRepositoryId,
     ),
+    uniqueIndex('projects_workspace_slug_unique').on(table.workspaceId, table.slug),
     index('projects_workspace_created_id_idx').on(table.workspaceId, table.createdAt, table.id),
     index('projects_source_repository_lookup_idx').on(
       table.workspaceId,
@@ -46,6 +48,7 @@ export function toProject(row: ProjectDb): Project {
     sourceRepositoryName: row.sourceRepositoryName,
     sourceDefaultBranch: row.sourceDefaultBranch,
     name: row.name,
+    slug: row.slug,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

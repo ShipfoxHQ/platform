@@ -176,6 +176,7 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
           id: '99999999-9999-4999-8999-999999999999',
           workspace_id: WORKSPACE_ID,
           name: 'Platform',
+          slug: 'platform',
           source: {
             connection_id: GITHUB_CONNECTION_ID,
             external_repository_id: 'platform',

@@ -1,16 +1,19 @@
 import {randomUUID} from 'node:crypto';
+import {slugifyName, withSlugSuffix} from '@shipfox/api-common-dto';
 import {
   e2eCreateProjectBodySchema,
   e2eCreateProjectResponseSchema,
 } from '@shipfox/api-projects-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
-import {ProjectAlreadyExistsError} from '#core/index.js';
+import {ProjectAlreadyExistsError, ProjectSlugConflictError} from '#core/index.js';
 import {createProject} from '#db/index.js';
 import {toProjectDto} from '#presentation/dto/index.js';
 
 function syntheticExternalRepositoryId(): string {
   return `e2e:${randomUUID()}`;
 }
+
+let e2eProjectSequence = 1;
 
 export const createE2eProjectRoute = defineRoute({
   method: 'POST',
@@ -33,12 +36,18 @@ export const createE2eProjectRoute = defineRoute({
         status: 409,
       });
     }
+    if (error instanceof ProjectSlugConflictError) {
+      throw new ClientError('Project slug already exists', 'slug-conflict', {status: 409});
+    }
     throw error;
   },
   handler: async (request, reply) => {
     const project = await createProject({
       workspaceId: request.body.workspace_id,
       name: request.body.name,
+      slug:
+        request.body.slug ??
+        withSlugSuffix(slugifyName(request.body.name, {fallback: 'project'}), ++e2eProjectSequence),
       sourceConnectionId: request.body.source_connection_id ?? randomUUID(),
       sourceExternalRepositoryId:
         request.body.source_external_repository_id ?? syntheticExternalRepositoryId(),

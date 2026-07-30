@@ -45,6 +45,7 @@ describe('createProjectFromSource', () => {
       actorId,
       workspaceId,
       name: 'Platform',
+      slug: 'platform',
       sourceConnectionId,
       sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
       integrations: integrations as IntegrationsModuleClient,
@@ -52,6 +53,7 @@ describe('createProjectFromSource', () => {
 
     expect(project.workspaceId).toBe(workspaceId);
     expect(project.name).toBe('Platform');
+    expect(project.slug).toBe('platform');
     expect(project.sourceConnectionId).toBe(sourceConnectionId);
     expect(project.sourceExternalRepositoryId).toBe('gitea:gitea-owner/platform');
     expect(project.sourceRepositoryOwner).toBe('gitea-owner');
@@ -64,6 +66,7 @@ describe('createProjectFromSource', () => {
       actorId,
       workspaceId,
       name: 'Platform',
+      slug: 'platform',
       sourceConnectionId,
       sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
       integrations: integrations as IntegrationsModuleClient,
@@ -81,6 +84,7 @@ describe('createProjectFromSource', () => {
     expect(events.map((event) => event.payload)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          slug: 'platform',
           sourceConnectionId,
           sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
         }),
@@ -98,6 +102,7 @@ describe('createProjectFromSource', () => {
       actorId,
       workspaceId,
       name: 'Platform',
+      slug: 'platform',
       sourceConnectionId,
       sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
       integrations: integrations as IntegrationsModuleClient,
@@ -107,6 +112,7 @@ describe('createProjectFromSource', () => {
       actorId,
       workspaceId,
       name: 'Platform Again',
+      slug: 'platform-again',
       sourceConnectionId,
       sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
       integrations: integrations as IntegrationsModuleClient,
@@ -128,6 +134,7 @@ describe('createProjectFromSource', () => {
       actorId,
       workspaceId,
       name: 'Missing',
+      slug: 'missing',
       sourceConnectionId,
       sourceExternalRepositoryId: 'not-found',
       integrations: integrations as IntegrationsModuleClient,

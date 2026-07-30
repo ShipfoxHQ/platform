@@ -267,6 +267,7 @@ function projectDto({
     id,
     workspace_id: PROJECT_TEST_WID,
     name,
+    slug: name.toLowerCase(),
     source: {
       connection_id: connectionId,
       external_repository_id: externalRepositoryId,

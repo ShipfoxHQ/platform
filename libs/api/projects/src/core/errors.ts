@@ -24,3 +24,10 @@ export class ProjectAlreadyExistsError extends Error {
     this.name = 'ProjectAlreadyExistsError';
   }
 }
+
+export class ProjectSlugConflictError extends Error {
+  constructor(public readonly slug: string) {
+    super(`Project slug already exists: ${slug}`);
+    this.name = 'ProjectSlugConflictError';
+  }
+}

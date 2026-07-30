@@ -1,3 +1,4 @@
+import {slugifyName} from '@shipfox/api-common-dto';
 import type {CreateProjectBodyDto, ProjectResponseDto} from '@shipfox/api-projects-dto';
 import {createApiClient} from '@shipfox/e2e-core';
 
@@ -15,6 +16,7 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
   const body: CreateProjectBodyDto = {
     workspace_id: params.workspaceId,
     name: params.name,
+    slug: slugifyName(params.name, {fallback: 'project'}),
     source: {
       connection_id: params.connectionId,
       external_repository_id: params.externalRepositoryId,

@@ -37,6 +37,7 @@
     "type:emit": "shipfox-tsc-emit"
   },
   "dependencies": {
+    "@shipfox/api-common-dto": "workspace:*",
     "@shipfox/api-projects-dto": "workspace:*",
     "@shipfox/e2e-core": "workspace:*"
   },

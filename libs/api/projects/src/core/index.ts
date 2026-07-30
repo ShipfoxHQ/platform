@@ -3,6 +3,7 @@ export {
   ProjectAccessDeniedError,
   ProjectAlreadyExistsError,
   ProjectNotFoundError,
+  ProjectSlugConflictError,
 } from './errors.js';
-export type {CreateProjectFromSourceParams} from './projects.js';
-export {createProjectFromSource} from './projects.js';
+export type {CreateProjectFromSourceParams, UpdateProjectDetailsParams} from './projects.js';
+export {createProjectFromSource, updateProjectDetails} from './projects.js';

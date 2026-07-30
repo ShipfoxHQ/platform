@@ -80,6 +80,7 @@ export async function createProject(command: CreateProjectCommand): Promise<Proj
   const body = createProjectBodySchema.parse({
     workspace_id: command.workspaceId,
     name: command.name,
+    slug: command.slug,
     source: {
       connection_id: command.source.connectionId,
       external_repository_id: command.source.externalRepositoryId,

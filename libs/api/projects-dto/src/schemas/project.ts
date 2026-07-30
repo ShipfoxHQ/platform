@@ -1,4 +1,4 @@
-import {displayNameSchema} from '@shipfox/api-common-dto';
+import {displayNameSchema, slugSchema} from '@shipfox/api-common-dto';
 import {z} from 'zod';
 
 export const projectSourceDtoSchema = z.object({
@@ -10,6 +10,7 @@ export type ProjectSourceDto = z.infer<typeof projectSourceDtoSchema>;
 export const createProjectBodySchema = z.object({
   workspace_id: z.string().uuid(),
   name: displayNameSchema,
+  slug: slugSchema,
   source: z.object({
     connection_id: z.string().uuid(),
     external_repository_id: z.string().min(1).max(255),
@@ -18,10 +19,20 @@ export const createProjectBodySchema = z.object({
 
 export type CreateProjectBodyDto = z.infer<typeof createProjectBodySchema>;
 
+export const updateProjectBodySchema = z
+  .object({
+    name: displayNameSchema.optional(),
+    slug: slugSchema.optional(),
+  })
+  .partial();
+
+export type UpdateProjectBodyDto = z.infer<typeof updateProjectBodySchema>;
+
 export const projectDtoSchema = z.object({
   id: z.string().uuid(),
   workspace_id: z.string().uuid(),
   name: z.string(),
+  slug: slugSchema,
   source: projectSourceDtoSchema,
   created_at: z.string(),
   updated_at: z.string(),

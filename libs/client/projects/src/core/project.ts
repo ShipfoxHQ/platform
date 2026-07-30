@@ -7,6 +7,7 @@ export interface Project {
   id: string;
   workspaceId: string;
   name: string;
+  slug: string;
   source: ProjectSource;
   createdAt: string;
   updatedAt: string;
@@ -20,6 +21,7 @@ export interface ProjectList {
 export interface CreateProjectCommand {
   workspaceId: string;
   name: string;
+  slug: string;
   source: ProjectSource;
 }
 

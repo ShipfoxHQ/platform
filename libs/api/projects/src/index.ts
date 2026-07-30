@@ -29,6 +29,8 @@ export {
   ProjectAccessDeniedError,
   ProjectAlreadyExistsError,
   ProjectNotFoundError,
+  ProjectSlugConflictError,
+  updateProjectDetails,
 } from '#core/index.js';
 export type {GetProjectBySourceParams} from '#db/index.js';
 export {

@@ -19,6 +19,7 @@ describe('projectErrorCopy', () => {
     ['malformed-provider-response', 'Provider response changed'],
     ['source-connection-not-found', 'Source connection not found'],
     ['source-connection-inactive', 'Source connection inactive'],
+    ['slug-conflict', 'Project slug already exists'],
   ])('maps %s', (code, title) => {
     const result = projectErrorCopy(apiError(code));
 
