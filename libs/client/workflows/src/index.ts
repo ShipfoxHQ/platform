@@ -1,7 +1,9 @@
 export type {
   AgentConfigIssue,
   JobDisplayDuration,
+  JobDisplayStatus,
   JobExecutionDisplayDuration,
+  JobExecutionDisplayStatus,
   JobExecutionStatus,
   JobExecutionTime,
   JobStatus,
@@ -14,6 +16,7 @@ export type {
   StepErrorReason,
   StepGateResult,
   StepSourceLocation,
+  WorkflowDisplayStatus,
   WorkflowRun,
   WorkflowRunAttempt,
   WorkflowRunDetail,
@@ -23,6 +26,8 @@ export type {
   WorkflowStatus,
 } from '#core/workflow-run.js';
 export {
+  deriveJobDisplayStatus,
+  deriveJobExecutionDisplayStatus,
   isWorkflowRunTerminal,
   isWorkflowStatus,
   Job,

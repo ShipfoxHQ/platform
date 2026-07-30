@@ -2,6 +2,7 @@ import {type Duration, intervalToDuration} from 'date-fns';
 import type {Step} from './step.js';
 
 export type JobExecutionStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type JobExecutionDisplayStatus = JobExecutionStatus;
 export interface WorkflowExecutionEvent {
   source: string;
   event: string;
@@ -64,6 +65,19 @@ export class JobExecution {
   get displayDuration(): JobExecutionDisplayDuration | null {
     return jobExecutionDisplayDurationFromTimestamps(this);
   }
+}
+
+export function deriveJobExecutionDisplayStatus({
+  status,
+  steps,
+}: Pick<JobExecution, 'status' | 'steps'>): JobExecutionDisplayStatus {
+  if (isTerminalJobExecutionStatus(status)) return status;
+  if (steps.some((step) => step.status === 'running')) return 'running';
+  return 'pending';
+}
+
+export function isTerminalJobExecutionStatus(status: JobExecutionStatus): boolean {
+  return status === 'succeeded' || status === 'failed' || status === 'cancelled';
 }
 
 export function jobExecutionQueueTimeFromTimestamps({

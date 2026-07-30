@@ -451,7 +451,7 @@ describe('WorkflowRunView', () => {
     expect(screen.queryByText('No steps recorded')).not.toBeInTheDocument();
   });
 
-  test('uses the selected execution status for zero-step execution states', async () => {
+  test('keeps a terminal job status over inconsistent zero-step execution activity', async () => {
     configureApiClient({
       fetchImpl: vi.fn(() =>
         Promise.resolve(
@@ -483,11 +483,9 @@ describe('WorkflowRunView', () => {
 
     renderView();
 
-    expect(await screen.findByText('Waiting for the first step')).toBeInTheDocument();
-    expect(
-      screen.getByText('This job is running, but no steps have started yet.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByText('No steps recorded')).not.toBeInTheDocument();
+    expect(await screen.findByText('No steps recorded')).toBeInTheDocument();
+    expect(screen.getByText('Execution #2 finished without recorded steps.')).toBeInTheDocument();
+    expect(screen.queryByText('Waiting for the first step')).not.toBeInTheDocument();
   });
 
   test('renders pending zero-step jobs as waiting to start', async () => {
@@ -518,7 +516,7 @@ describe('WorkflowRunView', () => {
     expect(screen.queryByText('No steps recorded')).not.toBeInTheDocument();
   });
 
-  test('renders running zero-step jobs as waiting for the first step', async () => {
+  test('renders claimed idle jobs as runner preparation', async () => {
     configureApiClient({
       fetchImpl: vi.fn(() =>
         Promise.resolve(
@@ -547,10 +545,13 @@ describe('WorkflowRunView', () => {
 
     renderView();
 
-    expect(await screen.findByText('Waiting for the first step')).toBeInTheDocument();
+    expect(await screen.findByText('Runner preparing job')).toBeInTheDocument();
     expect(
-      screen.getByText('This job is running, but no steps have started yet.'),
+      screen.getByText('A runner is assigned. Steps will appear here when work begins.'),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText('This job is running, but no steps have started yet.'),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('No steps recorded')).not.toBeInTheDocument();
   });
 
@@ -1245,6 +1246,14 @@ function workflowRunViewDetailDto(
         status: 'running',
         position: 1,
         dependencies: ['build'],
+        job_executions: [
+          workflowJobExecutionDto({
+            job_id: DEPLOY_JOB_ID,
+            name: 'deploy',
+            status: 'running',
+            steps: [workflowStepDto({status: 'running'})],
+          }),
+        ],
       }),
     ],
     ...overrides,

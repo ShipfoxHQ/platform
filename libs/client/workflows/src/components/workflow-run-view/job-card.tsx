@@ -12,7 +12,11 @@ import {Fragment, useId, useRef, useState} from 'react';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {
   AGENT_CONFIG_ISSUES,
+  defaultJobExecution,
+  deriveJobDisplayStatus,
+  deriveJobExecutionDisplayStatus,
   type Job,
+  type JobDisplayStatus,
   type JobExecution,
   type JobExecutionTime,
   STEP_ERROR_REASONS,
@@ -30,7 +34,9 @@ import {formatJobExecutionTime, JobExecutionTimeText} from './job-execution-time
 import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
 
 const STATUS_BADGE_LABEL_WIDTH_CH = Math.max(
-  ...WORKFLOW_JOB_STATUSES.map((status) => getWorkflowStatusVisual(status).label.length),
+  ...[...WORKFLOW_JOB_STATUSES, 'listening' as const].map(
+    (status) => getWorkflowStatusVisual(status).label.length,
+  ),
 );
 
 interface LocalSelectedAttempt {
@@ -72,7 +78,11 @@ export function JobCard({
     attemptId: null,
   });
   const title = selectedJobExecution?.name ?? job.displayName;
-  const selectedExecutionStatus = selectedJobExecution?.status ?? job.status;
+  const isNonDefaultExecutionSelected =
+    selectedJobExecution !== undefined && selectedJobExecution.id !== defaultJobExecution(job)?.id;
+  const selectedExecutionStatus = isNonDefaultExecutionSelected
+    ? deriveJobExecutionDisplayStatus(selectedJobExecution)
+    : deriveJobDisplayStatus(job);
   const effectiveSelectedAttemptId =
     selectedAttemptId === undefined &&
     localSelectedAttempt.jobExecutionId === selectedJobExecution?.id
@@ -197,7 +207,7 @@ export function JobCard({
   );
 }
 
-function JobStatusBadge({status}: {status: Job['status'] | JobExecution['status']}) {
+function JobStatusBadge({status}: {status: JobDisplayStatus}) {
   const visual = getWorkflowStatusVisual(status);
 
   return (
@@ -253,7 +263,12 @@ function JobExecutionMetadata({execution}: {execution: JobExecution | undefined}
           ) : item.kind === 'trigger' ? (
             <JobExecutionTriggerMetadata execution={execution} />
           ) : (
-            <JobExecutionMetadataItem icon={item.icon} kind={item.kind} time={item.time} />
+            <JobExecutionMetadataItem
+              icon={item.icon}
+              kind={item.kind}
+              time={item.time}
+              displayStatus={deriveJobExecutionDisplayStatus(execution)}
+            />
           )}
         </Fragment>
       ))}
@@ -310,14 +325,16 @@ function JobExecutionMetadataItem({
   icon,
   kind,
   time,
+  displayStatus,
 }: {
   icon: 'hourglassLine' | 'timerLine';
   kind: 'queue' | 'run';
   time: JobExecutionTime;
+  displayStatus: JobExecution['status'];
 }) {
   useTimeTick();
 
-  const tooltip = `${jobExecutionTimeVerb(kind, time)} for ${formatJobExecutionTime(time)}`;
+  const tooltip = `${jobExecutionTimeVerb(kind, time, displayStatus)} for ${formatJobExecutionTime(time)}`;
 
   return (
     <Tooltip>
@@ -342,9 +359,15 @@ function JobExecutionMetadataItem({
   );
 }
 
-function jobExecutionTimeVerb(kind: 'queue' | 'run', time: JobExecutionTime): string {
-  if (kind === 'queue') return time.state === 'live' ? 'Queuing' : 'Queued';
-  return time.state === 'live' ? 'Running' : 'Ran';
+function jobExecutionTimeVerb(
+  kind: 'queue' | 'run',
+  time: JobExecutionTime,
+  displayStatus: JobExecution['status'],
+): string {
+  if (kind === 'queue') return time.state === 'live' ? 'Queueing' : 'Queued';
+  if (time.state !== 'live') return 'Ran';
+  if (displayStatus === 'running') return 'Running';
+  return displayStatus === 'pending' ? 'Runner assigned' : 'Execution elapsed';
 }
 
 function MetadataSeparator() {
@@ -450,35 +473,48 @@ function emptyStateForJob(job: Job, jobExecution: JobExecution): StepListEmptySt
     };
   }
 
-  if (jobExecution.status === 'pending') {
+  const displayStatus =
+    job.mode === 'listening'
+      ? deriveJobExecutionDisplayStatus(jobExecution)
+      : deriveJobDisplayStatus(job);
+
+  if (jobExecution.status === 'running' && displayStatus === 'pending') {
+    return {
+      title: 'Runner preparing job',
+      description: 'A runner is assigned. Steps will appear here when work begins.',
+      status: displayStatus,
+    };
+  }
+
+  if (displayStatus === 'pending') {
     return {
       title: 'Waiting for this job to start',
       description: 'Steps will appear here once the job starts.',
-      status: jobExecution.status,
+      status: displayStatus,
     };
   }
 
-  if (jobExecution.status === 'running') {
+  if (displayStatus === 'running') {
     return {
       title: 'Waiting for the first step',
-      description: 'This job is running, but no steps have started yet.',
-      status: jobExecution.status,
+      description: 'The first running step will appear here shortly.',
+      status: displayStatus,
     };
   }
 
-  if (jobExecution.status === 'cancelled') {
+  if (displayStatus === 'cancelled') {
     return {
       title: 'Cancelled before start',
       description: 'This job was cancelled before any step started.',
-      status: jobExecution.status,
+      status: displayStatus,
     };
   }
 
-  if (jobExecution.status === 'succeeded' || jobExecution.status === 'failed') {
+  if (displayStatus === 'succeeded' || displayStatus === 'failed') {
     return {
       title: 'No steps recorded',
       description: `Execution #${jobExecution.sequence} finished without recorded steps.`,
-      status: jobExecution.status,
+      status: displayStatus,
     };
   }
 
@@ -498,7 +534,7 @@ function emptyStateForMissingExecution(job: Job): StepListEmptyState {
     return {
       title: 'Waiting for trigger events',
       description: 'Matching trigger events will create job executions here.',
-      status: 'running',
+      status: deriveJobDisplayStatus(job),
     };
   }
 

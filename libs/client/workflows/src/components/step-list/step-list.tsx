@@ -18,6 +18,7 @@ import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-ic
 import {
   isWorkflowStatus,
   type Job,
+  type JobDisplayStatus,
   type JobExecution,
   type Step,
   type StepSourceLocation,
@@ -47,7 +48,7 @@ export interface StepExpandedContext {
 export interface StepListEmptyState {
   title: string;
   description: string;
-  status?: Job['status'] | undefined;
+  status?: JobDisplayStatus | undefined;
 }
 
 export interface StepListProps {
@@ -267,7 +268,7 @@ function StepListEmptyStateView({
   );
 }
 
-function StepListEmptyStateIcon({status}: {status: Job['status']}) {
+function StepListEmptyStateIcon({status}: {status: JobDisplayStatus}) {
   if (status !== 'running') {
     return (
       <div className="flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong bg-background-neutral-base p-8">

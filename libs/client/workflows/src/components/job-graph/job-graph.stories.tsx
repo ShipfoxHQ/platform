@@ -2,7 +2,7 @@ import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
 import type {Meta, StoryObj} from '@storybook/react';
 import {within} from 'storybook/test';
 import type {Job, WorkflowRunDetail} from '#core/workflow-run.js';
-import {workflowJob, workflowRunDetail} from '#test/fixtures/workflow-run.js';
+import {workflowJob, workflowRunDetail, workflowStepDto} from '#test/fixtures/workflow-run.js';
 import {JobGraph} from './job-graph.js';
 
 const meta = {
@@ -93,6 +93,23 @@ export const Empty: Story = {
   args: {run: makeRun({jobs: []})},
 };
 
+export const LargeWideAndTall: Story = {
+  args: {
+    run: makeRun({
+      jobs: [
+        ...linearJobs(10),
+        ...Array.from({length: 10}, (_, index) =>
+          makeJob({
+            name: `parallel-${String(index + 1).padStart(2, '0')}`,
+            position: 20 + index,
+            status: index < 2 ? 'running' : 'pending',
+          }),
+        ),
+      ],
+    }),
+  },
+};
+
 export const Selected: Story = {
   args: {
     run: makeRun({
@@ -108,23 +125,6 @@ export const Selected: Story = {
         name: 'deploy, Running',
       })
       .click();
-  },
-};
-
-export const LargeWideAndTall: Story = {
-  args: {
-    run: makeRun({
-      jobs: [
-        ...linearJobs(10),
-        ...Array.from({length: 10}, (_, index) =>
-          makeJob({
-            name: `parallel-${String(index + 1).padStart(2, '0')}`,
-            position: 20 + index,
-            status: index < 2 ? 'running' : 'pending',
-          }),
-        ),
-      ],
-    }),
   },
 };
 
@@ -178,5 +178,9 @@ function makeRun(overrides: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail 
 }
 
 function makeJob(overrides: Partial<WorkflowRunJobDetailDto> & {name: string}): Job {
-  return workflowJob(overrides);
+  const job = workflowJob(overrides);
+  if (overrides.status === 'running' && job.jobExecutions.length === 0) {
+    return workflowJob({...overrides, steps: [workflowStepDto({status: 'running'})]});
+  }
+  return job;
 }

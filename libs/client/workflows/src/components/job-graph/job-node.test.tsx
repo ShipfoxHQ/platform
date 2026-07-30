@@ -2,7 +2,11 @@ import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {act, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {workflowJob, workflowJobExecutionDto} from '#test/fixtures/workflow-run.js';
+import {
+  workflowJob,
+  workflowJobExecutionDto,
+  workflowStepDto,
+} from '#test/fixtures/workflow-run.js';
 import type {JobGraphNode} from './graph-model.js';
 import {JobNode} from './job-node.js';
 
@@ -32,6 +36,9 @@ function makeNode(overrides: NodeOverrides): JobGraphNode {
         queued_at: queued_at ?? null,
         started_at: started_at ?? null,
         finished_at: finished_at ?? null,
+        ...(jobOverrides.status === 'running'
+          ? {steps: [workflowStepDto({status: 'running'})]}
+          : {}),
       }),
     ];
   } else if (job_executions !== undefined) {
@@ -200,7 +207,7 @@ describe('JobNode duration', () => {
     renderNode(node);
 
     expect(screen.queryByText('2m 14s')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'deploy-window, Running'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'deploy-window, Listening'})).toBeInTheDocument();
   });
 });
 
@@ -227,12 +234,12 @@ describe('JobNode listening indicator', () => {
 
     renderNode(node);
 
-    expect(screen.getByRole('button', {name: 'deploy-window, Running'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'deploy-window, Listening'})).toBeInTheDocument();
     expect(screen.queryByLabelText('Waiting for events to start job')).not.toBeInTheDocument();
 
-    await user.hover(screen.getByRole('img', {name: 'Running'}));
+    await user.hover(screen.getByRole('img', {name: 'Listening'}));
 
-    expect(await screen.findByRole('tooltip')).toHaveTextContent('Running');
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Listening');
   });
 
   test('does not show the listener icon before the listener is armed or after it resolves', () => {
@@ -277,6 +284,12 @@ describe('JobNode status indicator', () => {
     const node = makeNode({
       name: 'deploy',
       status: 'running',
+      job_executions: [
+        workflowJobExecutionDto({
+          status: 'running',
+          steps: [workflowStepDto({status: 'running'})],
+        }),
+      ],
     });
 
     renderNode(node);
@@ -286,11 +299,28 @@ describe('JobNode status indicator', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Running');
   });
 
-  test('shows a running execution as running while the job is still pending', () => {
+  test('shows a running lifecycle without a running step as pending', () => {
     const node = makeNode({
       name: 'deploy',
       status: 'pending',
       job_executions: [workflowJobExecutionDto({status: 'running'})],
+    });
+
+    renderNode(node);
+
+    expect(screen.getByRole('button', {name: 'deploy, Pending'})).toBeInTheDocument();
+  });
+
+  test('shows a pending lifecycle as running while a step is active', () => {
+    const node = makeNode({
+      name: 'deploy',
+      status: 'pending',
+      job_executions: [
+        workflowJobExecutionDto({
+          status: 'pending',
+          steps: [workflowStepDto({status: 'running'})],
+        }),
+      ],
     });
 
     renderNode(node);
@@ -317,10 +347,17 @@ describe('JobNode execution count indicator', () => {
       name: 'release-gates',
       mode: 'listening',
       status: 'running',
+      listener_status: 'listening',
       job_executions: [
         workflowJobExecutionDto({status: 'pending'}),
-        workflowJobExecutionDto({status: 'running'}),
-        workflowJobExecutionDto({status: 'running'}),
+        workflowJobExecutionDto({
+          status: 'running',
+          steps: [workflowStepDto({status: 'running'})],
+        }),
+        workflowJobExecutionDto({
+          status: 'running',
+          steps: [workflowStepDto({status: 'running'})],
+        }),
         workflowJobExecutionDto({status: 'succeeded'}),
         workflowJobExecutionDto({status: 'succeeded'}),
         workflowJobExecutionDto({status: 'succeeded'}),
@@ -331,7 +368,7 @@ describe('JobNode execution count indicator', () => {
 
     renderNode(node);
 
-    const button = screen.getByRole('button', {name: 'release-gates, Running, 8 executions'});
+    const button = screen.getByRole('button', {name: 'release-gates, Listening, 8 executions'});
     expect(within(button).getByText('8')).toBeInTheDocument();
     expect(within(button).queryByText('8 exec')).not.toBeInTheDocument();
     expect(button.querySelector('[data-execution-status-segment]')).not.toBeInTheDocument();

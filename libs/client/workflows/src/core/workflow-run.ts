@@ -1,5 +1,6 @@
 export type {
   JobDisplayDuration,
+  JobDisplayStatus,
   JobListening,
   JobMode,
   JobStatus,
@@ -9,6 +10,7 @@ export type {
 } from './entities/job.js';
 export {
   defaultJobExecution,
+  deriveJobDisplayStatus,
   isTerminalJobStatus,
   Job,
   resolveJobExecution,
@@ -17,11 +19,16 @@ export {
 } from './entities/job.js';
 export type {
   JobExecutionDisplayDuration,
+  JobExecutionDisplayStatus,
   JobExecutionStatus,
   JobExecutionTime,
   WorkflowExecutionEvent,
 } from './entities/job-execution.js';
-export {JobExecution} from './entities/job-execution.js';
+export {
+  deriveJobExecutionDisplayStatus,
+  isTerminalJobExecutionStatus,
+  JobExecution,
+} from './entities/job-execution.js';
 export type {
   AgentConfigIssue,
   AgentStepConfig,
@@ -39,6 +46,7 @@ export type {
 export {StepAttempt} from './entities/step-attempt.js';
 export type {
   ManualWorkflowLaunch,
+  WorkflowDisplayStatus,
   WorkflowRun,
   WorkflowRunDetail,
   WorkflowRunListItem,

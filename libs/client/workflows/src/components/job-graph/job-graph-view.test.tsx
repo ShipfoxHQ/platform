@@ -6,6 +6,7 @@ import {
   workflowJob,
   workflowJobExecutionDto,
   workflowRunDetail,
+  workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
 import {JobGraph} from './job-graph.js';
 
@@ -46,10 +47,7 @@ describe('JobGraph', () => {
     render(
       <JobGraph
         run={makeRun({
-          jobs: [
-            makeJob({name: 'linux', status: 'running'}),
-            makeJob({name: 'macos', status: 'running', position: 1}),
-          ],
+          jobs: [makeRunningJob({name: 'linux'}), makeRunningJob({name: 'macos', position: 1})],
         })}
       />,
     );
@@ -99,7 +97,7 @@ describe('JobGraph', () => {
         run={makeRun({
           jobs: [
             makeJob({name: 'build'}),
-            makeJob({name: 'deploy', position: 1, dependencies: ['build'], status: 'running'}),
+            makeRunningJob({name: 'deploy', position: 1, dependencies: ['build']}),
           ],
         })}
       />,
@@ -161,7 +159,7 @@ describe('JobGraph', () => {
       />,
     );
 
-    const build = screen.getByRole('button', {name: 'build, Pending, 2 executions'});
+    const build = screen.getByRole('button', {name: 'build, Succeeded, 2 executions'});
     const deploy = screen.getByRole('button', {name: 'deploy, Pending'});
     expect(within(build).getByText('2')).toBeInTheDocument();
     expect(within(build).queryByText('2 exec')).not.toBeInTheDocument();
@@ -224,7 +222,7 @@ describe('JobGraph', () => {
       dependencies: ['build'],
       status: 'succeeded',
     });
-    const testJob = makeJob({
+    const testJob = makeRunningJob({
       name: 'test',
       position: 2,
       dependencies: ['build'],
@@ -257,7 +255,7 @@ describe('JobGraph', () => {
   test('routes skipped-column join edges away from intermediate nodes', () => {
     const packageJob = makeJob({name: 'package', position: 0, status: 'succeeded'});
     const securityScan = makeJob({name: 'security-scan', position: 1, status: 'succeeded'});
-    const smokeTests = makeJob({
+    const smokeTests = makeRunningJob({
       name: 'smoke-tests',
       position: 2,
       dependencies: ['package'],
@@ -295,4 +293,17 @@ function makeRun(overrides: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail 
 
 function makeJob(overrides: Partial<WorkflowRunJobDetailDto> & {name: string}): Job {
   return workflowJob(overrides);
+}
+
+function makeRunningJob(overrides: Partial<WorkflowRunJobDetailDto> & {name: string}): Job {
+  return makeJob({
+    ...overrides,
+    status: 'running',
+    job_executions: [
+      workflowJobExecutionDto({
+        status: 'running',
+        steps: [workflowStepDto({status: 'running'})],
+      }),
+    ],
+  });
 }
