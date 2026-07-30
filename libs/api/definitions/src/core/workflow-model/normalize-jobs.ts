@@ -1,4 +1,3 @@
-import {DEFAULT_HARNESS} from '@shipfox/api-agent-dto';
 import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
 import {
   type AvailabilitySite,
@@ -726,8 +725,10 @@ function normalizeAgentStep(params: {
     sourceName: params.sourceName,
     stepIndex: params.stepIndex,
     issues: params.issues,
-    validateLiteralModel: modelTemplate === undefined,
-    validateLiteralProvider: providerTemplate === undefined,
+    validateLiteralModel:
+      params.step.model !== undefined && !hasInterpolationSyntax(params.step.model),
+    validateLiteralProvider:
+      params.step.provider !== undefined && !hasInterpolationSyntax(params.step.provider),
     agentValidationCatalog: params.context.agentValidationCatalog,
   });
   const integrations = normalizeAgentIntegrations({
@@ -770,16 +771,15 @@ function validateAgentStep(params: {
   validateHarnessThinking(params);
   validateHarnessTools(params);
   const providerId = params.step.provider;
-  const harness = params.step.harness ?? DEFAULT_HARNESS;
+  const harness = params.step.harness;
   const provider =
     providerId === undefined
       ? undefined
       : params.agentValidationCatalog.providers.find((entry) => entry.id === providerId);
 
   if (params.validateLiteralProvider && providerId !== undefined) {
-    if (provider === undefined && harness === DEFAULT_HARNESS) return;
-
-    if (provider === undefined || provider.support_status !== 'supported') {
+    if (provider === undefined) {
+      if (harness === undefined || harness === 'pi') return;
       params.issues.push(
         issue({
           code: 'invalid-provider',
@@ -790,6 +790,20 @@ function validateAgentStep(params: {
       );
       return;
     }
+
+    if (provider.support_status !== 'supported') {
+      params.issues.push(
+        issue({
+          code: 'invalid-provider',
+          message: `Provider "${providerId}" is not supported.`,
+          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
+          details: {provider: providerId},
+        }),
+      );
+      return;
+    }
+
+    if (harness === undefined) return;
 
     const descriptor = params.agentValidationCatalog.harnesses.find(
       (entry) => entry.id === harness,
@@ -811,7 +825,7 @@ function validateAgentStep(params: {
     }
   }
 
-  if (!params.validateLiteralModel || providerId === undefined) return;
+  if (!params.validateLiteralModel || providerId === undefined || harness === undefined) return;
   if (provider === undefined || provider.support_status !== 'supported') return;
 
   const model = params.step.model;

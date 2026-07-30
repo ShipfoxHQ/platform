@@ -7,6 +7,21 @@ import {
 } from '@shipfox/api-agent-dto';
 import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
 
+const piModelIdsByProvider = Object.fromEntries(
+  MODEL_PROVIDER_CATALOG_SEED.filter((entry) => entry.support_status === 'supported').map(
+    (entry) => [
+      entry.id,
+      entry.id === 'anthropic'
+        ? ['claude-opus-4-8']
+        : entry.id === 'openai'
+          ? ['gpt-4.1', 'gpt-5.5-pro']
+          : entry.default_model === null
+            ? []
+            : [entry.default_model],
+    ],
+  ),
+);
+
 export const agentValidationCatalog: AgentValidationCatalog = {
   version: 1,
   providers: MODEL_PROVIDER_IDS.map((id) => ({
@@ -18,12 +33,7 @@ export const agentValidationCatalog: AgentValidationCatalog = {
     id: harness.id,
     supported_provider_ids: [...harness.supportedProviderIds],
     model_ids_by_provider:
-      harness.id === 'pi'
-        ? {
-            anthropic: ['claude-opus-4-8'],
-            openai: ['gpt-4.1', 'gpt-5.5-pro'],
-          }
-        : {anthropic: ['claude-opus-4-8']},
+      harness.id === 'pi' ? piModelIdsByProvider : {anthropic: ['claude-opus-4-8']},
     thinking_levels: [...harness.thinkingLevels],
     effective_tools: listEnabledHarnessTools(
       harness.id,

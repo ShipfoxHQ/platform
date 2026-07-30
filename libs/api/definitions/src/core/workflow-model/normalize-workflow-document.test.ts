@@ -692,7 +692,7 @@ describe('normalizeWorkflowDocument', () => {
       name: 'agent build',
       jobs: {
         fix: {
-          steps: [{provider: 'anthropic', model: 'not-a-model', prompt: 'Fix it.'}],
+          steps: [{harness: 'pi', provider: 'anthropic', model: 'not-a-model', prompt: 'Fix it.'}],
         },
       },
     };
@@ -732,6 +732,31 @@ describe('normalizeWorkflowDocument', () => {
       kind: 'agent',
       provider: 'workspace-openai-compatible',
       model: 'workspace-model',
+    });
+  });
+
+  it('defers harness-specific validation when harness is omitted', () => {
+    const document: WorkflowDocument = {
+      name: 'workspace-default harness',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-6',
+              prompt: 'Fix it.',
+            },
+          ],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
     });
   });
 
@@ -1300,7 +1325,7 @@ describe('normalizeWorkflowDocument', () => {
       name: 'agent build',
       jobs: {
         fix: {
-          steps: [{provider: 'openai', model: 'gpt-4.1', prompt: 'Fix it.'}],
+          steps: [{harness: 'pi', provider: 'openai', model: 'gpt-4.1', prompt: 'Fix it.'}],
         },
       },
     };
@@ -4479,6 +4504,26 @@ describe('normalizeWorkflowDocument', () => {
       });
     });
 
+    it('does not add provider catalog issues for invalid provider interpolation', () => {
+      const document: WorkflowDocument = {
+        name: 'invalid provider interpolation',
+        jobs: {
+          fix: {
+            steps: [{harness: 'claude', provider: interpolation('foo.bar'), prompt: 'Fix it.'}],
+          },
+        },
+      };
+
+      const error = expectInvalid(document);
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'unknown-interpolation-context',
+          path: ['jobs', 'fix', 'steps', 0, 'provider'],
+        }),
+      ]);
+    });
+
     it('skips static model catalog validation when model is interpolated', () => {
       const document: WorkflowDocument = {
         name: 'templated model',
@@ -4501,6 +4546,33 @@ describe('normalizeWorkflowDocument', () => {
         kind: 'agent',
         templates: {model: [{kind: 'deferred', roots: ['run']}]},
       });
+    });
+
+    it('does not add model catalog issues for invalid model interpolation', () => {
+      const document: WorkflowDocument = {
+        name: 'invalid model interpolation',
+        jobs: {
+          fix: {
+            steps: [
+              {
+                harness: 'pi',
+                provider: 'anthropic',
+                model: interpolation('foo.bar'),
+                prompt: 'Fix it.',
+              },
+            ],
+          },
+        },
+      };
+
+      const error = expectInvalid(document);
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'unknown-interpolation-context',
+          path: ['jobs', 'fix', 'steps', 0, 'model'],
+        }),
+      ]);
     });
 
     it('still validates literal providers through the catalog', () => {
