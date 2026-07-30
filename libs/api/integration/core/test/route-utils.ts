@@ -66,6 +66,7 @@ export function sourceProvider(overrides: Partial<IntegrationProvider> = {}): In
           await Promise.resolve();
           throw new Error('not used');
         },
+        resolveTriggerReference: () => null,
       },
     },
     ...overrides,

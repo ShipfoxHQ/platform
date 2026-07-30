@@ -109,6 +109,7 @@ function sourceProvider(provider: string) {
           await Promise.resolve();
           throw new Error('not used');
         },
+        resolveTriggerReference: () => null,
       },
     },
   };

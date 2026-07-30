@@ -1,5 +1,6 @@
 import {Buffer} from 'node:buffer';
 import {
+  asRecord,
   buildProviderRepositoryId,
   type CheckoutSpec,
   type CreateCheckoutSpecInput,
@@ -7,15 +8,21 @@ import {
   type FilePage,
   type FileSnapshot,
   type IntegrationConnection,
+  isRecord,
+  isValidGitObjectId,
+  isValidTriggerRef,
   type ListFilesInput,
   type ListRepositoriesInput,
   MAX_REPOSITORY_FILE_BYTES,
+  nonEmptyString,
   parseProviderRepositoryId,
+  positiveInteger,
   type RepositoryPage,
   type RepositorySnapshot,
   type RepositoryVisibility,
   type ResolveRepositoryInput,
   type SourceControlProvider,
+  type TriggerReference,
 } from '@shipfox/api-integration-spi';
 import type {GithubApiClient, GithubRepository} from '#api/client.js';
 import {config} from '#config.js';
@@ -143,6 +150,45 @@ export class GithubSourceControlProvider
     };
   }
 
+  resolveTriggerReference(payload: unknown): TriggerReference | null {
+    if (!isRecord(payload)) return null;
+
+    const pullRequest = asRecord(payload.pull_request);
+    if (pullRequest) {
+      const head = asRecord(pullRequest.head);
+      const repository = asRecord(head?.repo);
+      const base = asRecord(pullRequest.base);
+      const baseRepository = asRecord(base?.repo) ?? asRecord(payload.repository);
+      if (!repository || !baseRepository || !sameGithubRepository(repository, baseRepository)) {
+        return null;
+      }
+      const repositoryId = githubRepositoryId(repository);
+      const number = positiveInteger(pullRequest.number);
+      const commit = nonEmptyString(head?.sha);
+      const ref = number === null ? null : `refs/pull/${number}/head`;
+      if (!repositoryId || !ref || !commit) return null;
+      const hasValidReference = isValidGitObjectId(commit) && isValidTriggerRef(ref);
+      if (!hasValidReference) return null;
+      return {
+        externalRepositoryId: buildProviderRepositoryId(GITHUB_PROVIDER, repositoryId),
+        ref,
+        commit,
+      };
+    }
+
+    const repositoryId = githubRepositoryId(asRecord(payload.repository));
+    const ref = nonEmptyString(payload.ref);
+    const commit = nonEmptyString(payload.after);
+    if (!repositoryId || !ref || !commit) return null;
+    const hasValidReference = isValidGitObjectId(commit) && isValidTriggerRef(ref);
+    if (!hasValidReference) return null;
+    return {
+      externalRepositoryId: buildProviderRepositoryId(GITHUB_PROVIDER, repositoryId),
+      ref,
+      commit,
+    };
+  }
+
   async createCheckoutSpec(
     input: CreateCheckoutSpecInput<GithubIntegrationConnection>,
   ): Promise<CheckoutSpec> {
@@ -176,6 +222,23 @@ export class GithubSourceControlProvider
 
     return Number.parseInt(installation.installationId, 10);
   }
+}
+
+function githubRepositoryId(repository: Record<string, unknown> | null): string | null {
+  return positiveInteger(repository?.id) === null ? null : String(repository?.id);
+}
+
+function sameGithubRepository(
+  first: Record<string, unknown>,
+  second: Record<string, unknown>,
+): boolean {
+  const firstId = githubRepositoryId(first);
+  const secondId = githubRepositoryId(second);
+  if (firstId && secondId) return firstId === secondId;
+
+  const firstName = nonEmptyString(first.full_name);
+  const secondName = nonEmptyString(second.full_name);
+  return Boolean(firstName && secondName && firstName.toLowerCase() === secondName.toLowerCase());
 }
 
 function githubAppGitAuthor(): CheckoutSpec['gitAuthor'] {

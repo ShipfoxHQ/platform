@@ -114,6 +114,7 @@ export type {
   RepositoryVisibility,
   ResolveRepositoryInput,
   SourceControlProvider,
+  TriggerReference,
 } from '#core/providers/source-control.js';
 export type {IntegrationSourceControlService} from '#core/source-control-service.js';
 export {createSourceControlIntegrationService} from '#core/source-control-service.js';

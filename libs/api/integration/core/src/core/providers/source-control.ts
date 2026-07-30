@@ -14,4 +14,5 @@ export type {
   RepositoryVisibility,
   ResolveRepositoryInput,
   SourceControlProvider,
+  TriggerReference,
 } from '@shipfox/api-integration-spi';

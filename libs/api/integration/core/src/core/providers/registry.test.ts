@@ -22,6 +22,7 @@ function sourceControlAdapter() {
       await Promise.resolve();
       throw new Error('not used');
     },
+    resolveTriggerReference: () => null,
   };
 }
 

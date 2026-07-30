@@ -2,6 +2,9 @@ export type IntegrationProviderKind = string;
 export type IntegrationCapability = 'source_control' | 'agent_tools';
 export type IntegrationConnectionLifecycleStatus = 'active' | 'disabled' | 'error';
 
+const GIT_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+const ZERO_GIT_OBJECT_ID_PATTERN = /^0+$/;
+
 export interface IntegrationConnection<
   ProviderKind extends IntegrationProviderKind = IntegrationProviderKind,
 > {
@@ -110,6 +113,12 @@ export interface CreateCheckoutSpecInput<
   permissions?: CheckoutPermissions | undefined;
 }
 
+export interface TriggerReference {
+  externalRepositoryId: string;
+  ref: string;
+  commit: string;
+}
+
 export interface SourceControlProvider<
   Connection extends IntegrationConnection = IntegrationConnection,
 > {
@@ -117,6 +126,7 @@ export interface SourceControlProvider<
   resolveRepository(input: ResolveRepositoryInput<Connection>): Promise<RepositorySnapshot>;
   listFiles(input: ListFilesInput<Connection>): Promise<FilePage>;
   fetchFile(input: FetchFileInput<Connection>): Promise<FileSnapshot>;
+  resolveTriggerReference(payload: unknown): TriggerReference | null;
   createCheckoutSpec?(input: CreateCheckoutSpecInput<Connection>): Promise<CheckoutSpec>;
 }
 
@@ -292,4 +302,61 @@ export function parseProviderRepositoryId(
     );
   }
   return value;
+}
+
+/** Checks the constraints enforced by `git check-ref-format`. */
+export function isValidGitRefName(ref: string): boolean {
+  if (!ref || ref === '@' || ref.startsWith('-')) return false;
+  if (
+    ref.startsWith('/') ||
+    ref.endsWith('/') ||
+    ref.includes('//') ||
+    ref.includes('..') ||
+    ref.includes('@{') ||
+    ref.endsWith('.')
+  ) {
+    return false;
+  }
+  if (
+    [...ref].some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code <= 0x20 || code === 0x7f || '~^:?*[]\\'.includes(character);
+    })
+  ) {
+    return false;
+  }
+
+  const components = ref.split('/');
+  return components.every(
+    (component) =>
+      component.length > 0 &&
+      !component.startsWith('.') &&
+      !component.endsWith('.') &&
+      !component.endsWith('.lock'),
+  );
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+export function asRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+export function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+export function positiveInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+/** Validates a provider ref before it is passed to a git operation. */
+export function isValidTriggerRef(ref: string): boolean {
+  return isValidGitRefName(ref) && ref.split('/').every((component) => !component.startsWith('-'));
+}
+
+export function isValidGitObjectId(value: string): boolean {
+  return GIT_OBJECT_ID_PATTERN.test(value) && !ZERO_GIT_OBJECT_ID_PATTERN.test(value);
 }
