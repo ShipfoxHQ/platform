@@ -1,7 +1,7 @@
 ---
 title: "Pass a Computed Version to a Later Job"
 sidebarTitle: "Pass Outputs"
-description: "Publish a version from one job and bind it safely in a later release-preview job."
+description: "Publish a version from one job and use it in a later release-preview job."
 ---
 
 Use this guide when one job computes a small value that another isolated job
@@ -39,15 +39,13 @@ jobs:
   preview:
     needs: package
     steps:
-      - env:
-          VERSION: "${{ jobs.package.outputs.version }}"
-        run: |
-          printf 'Release version: %s\n' "$VERSION"
+      - run: |
+          printf 'Release version: %s\n' "${{ jobs.package.outputs.version }}"
 ```
 
 The `read_version` step declares and writes `version`. The `package` job
 publishes it. The `preview` job declares the dependency, reads the job output,
-and binds it through `env` before the shell uses it.
+and places it in the command.
 
 Commit and push the file to the project's default branch. Wait for **Preview a
 release version** to sync.

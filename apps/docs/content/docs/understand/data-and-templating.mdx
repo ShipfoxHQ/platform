@@ -76,27 +76,26 @@ jobs:
   publish:
     needs: package
     steps:
-      - env:
-          VERSION: "${{ jobs.package.outputs.version }}"
-        run: printf 'Publishing version %s\n' "$VERSION"
+      - run: printf 'Publishing version %s\n' "${{ jobs.package.outputs.version }}"
 ```
 
 The step creates `version`. The `package` job publishes it. The `publish`
-job declares the dependency, binds the value through `env`, and quotes the
-shell variable.
+job declares the dependency and places the value in its command.
 
 Outputs suit small facts. Files and build products belong in external artifact
 storage, with an output carrying their location. Exact output types and limits
 live in [Step outputs](/reference/workflow-schema#step-outputs).
 
-## Trust follows the data, not the template
+## Commands receive template values as data
 
-Events, manual inputs, listening events, and outputs may contain untrusted text.
-A template does not make that text safe.
+Shipfox does not splice template values into shell text. It binds each
+interpolated value to the command environment and replaces the template with a
+quoted shell reference. This happens automatically, including for events,
+inputs, listening events, and outputs.
 
-For a shell command, bind untrusted data through `env` and quote the shell
-variable. This keeps the shell from treating data as command syntax. Never
-place an untrusted template directly into a command.
+This binding keeps an interpolated value in a data position. A command that
+re-executes its arguments, such as `eval` or `sh -c`, can parse the value as
+shell code again. Keep workflow data out of those code positions.
 
 Prompts do not have shell injection, but they still have instruction injection.
 Tell the agent which fields are data. Limit the tools and write access on that
