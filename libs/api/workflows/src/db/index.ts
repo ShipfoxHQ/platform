@@ -23,6 +23,7 @@ export {
   settleListenerJobExecution,
 } from './job-listeners.js';
 export {workflowsOutbox} from './schema/outbox.js';
+export {workflowRunCounters} from './schema/workflow-run-counters.js';
 export type {
   BulkUpdateStepStatusesParams,
   CancelWorkflowRunParams,

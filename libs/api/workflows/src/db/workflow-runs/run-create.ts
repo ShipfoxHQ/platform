@@ -8,7 +8,7 @@ import {
   type WorkflowExpression,
 } from '@shipfox/expression';
 import {logger} from '@shipfox/node-opentelemetry';
-import {eq} from 'drizzle-orm';
+import {eq, sql} from 'drizzle-orm';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import {
   createAgentToolMaterializationSnapshot,
@@ -32,8 +32,9 @@ import {
   recordWorkflowDisplayNameResolutionDegraded,
   recordWorkflowRunCreated,
 } from '#metrics/instance.js';
-import {db} from '../db.js';
+import {db, type Tx} from '../db.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
+import {workflowRunCounters} from '../schema/workflow-run-counters.js';
 import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
 import {type MaterializedRunGraphJob, persistMaterializedRunGraph} from './run-graph.js';
 
@@ -79,12 +80,33 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
     context: agentToolContext,
   });
   const result = await db().transaction(async (tx) => {
+    // Serialize idempotent trigger resolution separately from per-definition number
+    // allocation so a replay never consumes a number, including when two deliveries
+    // race before either run is visible.
+    if (params.triggerIdempotencyKey) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${params.triggerIdempotencyKey}))`,
+      );
+      const existing = await tx
+        .select()
+        .from(workflowRuns)
+        .where(eq(workflowRuns.triggerIdempotencyKey, params.triggerIdempotencyKey))
+        .limit(1);
+      const existingRow = existing[0];
+      if (existingRow) return {run: toWorkflowRun(existingRow), created: false};
+    }
+
+    // Keep allocation on the existing transaction so a trigger burst cannot pin
+    // every pool connection and then wait for a second connection per run.
+    const number = await allocateWorkflowRunNumber(tx, params.definitionId);
+
     const insertResult = await tx
       .insert(workflowRuns)
       .values({
         workspaceId: params.workspaceId,
         projectId: params.projectId,
         definitionId: params.definitionId,
+        number,
         name: null,
         workflowName: staticName,
         status: 'pending',
@@ -230,6 +252,19 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
   }
 
   return result.run;
+}
+
+async function allocateWorkflowRunNumber(tx: Tx, definitionId: string): Promise<number> {
+  const [counterRow] = await tx
+    .insert(workflowRunCounters)
+    .values({definitionId, nextNumber: 2})
+    .onConflictDoUpdate({
+      target: workflowRunCounters.definitionId,
+      set: {nextNumber: sql`${workflowRunCounters.nextNumber} + 1`},
+    })
+    .returning({number: sql<number>`${workflowRunCounters.nextNumber} - 1`});
+  if (!counterRow) throw new Error('Run counter allocation returned no rows');
+  return counterRow.number;
 }
 
 export async function loadReferencedVariables(params: {

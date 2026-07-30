@@ -98,6 +98,7 @@ const runTypeEnvironment = {
     kind: 'object',
     fields: {
       id: 'string',
+      number: 'int',
       name: 'string',
       run_name: 'string',
       definition_id: 'string',

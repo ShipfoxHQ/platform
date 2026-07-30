@@ -113,6 +113,7 @@ describe('workflow run queries', () => {
 
       expect(rerun).toMatchObject({
         id: source.id,
+        number: source.number,
         name: 'Run staging',
         workflowName: 'Test Workflow',
         nameOverride: 'Run staging',

@@ -136,6 +136,7 @@ function workflowRun(params: {inputs?: Record<string, unknown> | null} = {}): Wo
   const now = new Date('2026-01-01T00:00:00.000Z');
   return {
     id: 'run-1',
+    number: 1,
     workspaceId: 'workspace-1',
     projectId: 'project-1',
     definitionId: 'definition-1',

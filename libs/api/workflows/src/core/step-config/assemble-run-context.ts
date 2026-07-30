@@ -17,7 +17,14 @@ export interface JobContextInput {
 export interface AssembleWorkflowRunContextParams {
   readonly run: Pick<
     WorkflowRun,
-    'id' | 'name' | 'workflowName' | 'definitionId' | 'projectId' | 'workspaceId' | 'createdAt'
+    | 'id'
+    | 'number'
+    | 'name'
+    | 'workflowName'
+    | 'definitionId'
+    | 'projectId'
+    | 'workspaceId'
+    | 'createdAt'
   >;
   readonly triggerPayload: TriggerPayload;
   readonly inputs?: Record<string, unknown> | null | undefined;
@@ -30,6 +37,7 @@ export function assembleWorkflowRunContext(
   return {
     run: {
       id: params.run.id,
+      number: params.run.number,
       name: params.run.name,
       workflow_name: params.run.workflowName,
       definition_id: params.run.definitionId,

@@ -37,6 +37,7 @@ export const workflowRuns = pgTable(
     workspaceId: uuid('workspace_id').notNull(),
     projectId: uuid('project_id').notNull(),
     definitionId: uuid('definition_id').notNull(),
+    number: integer('number').notNull(),
     name: text('name'),
     workflowName: text('workflow_name').notNull(),
     status: workflowRunStatusEnum('status').notNull().default('pending'),
@@ -57,6 +58,7 @@ export const workflowRuns = pgTable(
   },
   (table) => [
     uniqueIndex('workflows_wr_trigger_idempotency_key_unique').on(table.triggerIdempotencyKey),
+    uniqueIndex('workflows_wr_definition_number_unique').on(table.definitionId, table.number),
     index('workflows_wr_project_created_id_idx').on(table.projectId, table.createdAt, table.id),
     index('workflows_wr_project_status_created_id_idx').on(
       table.projectId,
@@ -93,6 +95,7 @@ export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
     workspaceId: row.workspaceId,
     projectId: row.projectId,
     definitionId: row.definitionId,
+    number: row.number,
     name: row.name ?? row.workflowName,
     workflowName: row.workflowName,
     nameOverride: row.name,

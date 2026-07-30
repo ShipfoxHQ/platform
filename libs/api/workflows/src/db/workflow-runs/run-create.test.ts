@@ -9,6 +9,7 @@ import {buildModel, expression, shellRef, template} from '#test/helpers/workflow
 import {workflowModel} from '#test/index.js';
 import {db} from '../db.js';
 import {workflowsOutbox} from '../schema/outbox.js';
+import {workflowRunCounters} from '../schema/workflow-run-counters.js';
 import {workflowRuns} from '../schema/workflow-runs.js';
 import {
   createWorkflowRun,
@@ -169,6 +170,7 @@ describe('workflow run queries', () => {
       expect(run.id).toBeDefined();
       expect(run.projectId).toBe(projectId);
       expect(run.definitionId).toBe(definitionId);
+      expect(run.number).toBe(1);
       expect(run.status).toBe('pending');
       expect(run.triggerProvider).toBeNull();
       expect(run.triggerPayload).toMatchObject({source: 'manual', event: 'fire'});
@@ -208,6 +210,137 @@ describe('workflow run queries', () => {
         config: {},
       });
       expect(jobSteps[1]).toMatchObject({position: 1, config: {run: 'echo hello'}});
+    });
+
+    test('allocates distinct consecutive numbers for concurrent creations of one definition', async () => {
+      const [first, second] = await Promise.all([
+        createWorkflowRun({
+          workspaceId,
+          projectId,
+          definitionId,
+          model: buildModel({name: 'First'}),
+          triggerPayload: {
+            source: 'manual',
+            event: 'fire',
+            subscriptionId: crypto.randomUUID(),
+            userId: crypto.randomUUID(),
+          },
+        }),
+        createWorkflowRun({
+          workspaceId,
+          projectId,
+          definitionId,
+          model: buildModel({name: 'Second'}),
+          triggerPayload: {
+            source: 'manual',
+            event: 'fire',
+            subscriptionId: crypto.randomUUID(),
+            userId: crypto.randomUUID(),
+          },
+        }),
+      ]);
+
+      expect([first.number, second.number].sort((a, b) => a - b)).toEqual([1, 2]);
+      const [counter] = await db()
+        .select()
+        .from(workflowRunCounters)
+        .where(eq(workflowRunCounters.definitionId, definitionId));
+      expect(counter?.nextNumber).toBe(3);
+    });
+
+    test('makes the allocated number available to run-creation expressions', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {
+            build: {
+              executionName: `Build #${template('run.number')}`,
+              steps: [{run: 'echo build'}],
+            },
+          },
+        }),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected workflow job');
+      const [execution] = await getJobExecutionsByJobId(job.id);
+
+      expect(execution?.name).toBe('Build #1');
+    });
+
+    test('rolls back number allocation when creation rolls back', async () => {
+      await expect(
+        createWorkflowRun({
+          workspaceId,
+          projectId,
+          definitionId,
+          model: buildModel({env: {TOKEN: template('vars.TOKEN')}}),
+          triggerPayload: {
+            source: 'manual',
+            event: 'fire',
+            subscriptionId: crypto.randomUUID(),
+            userId: crypto.randomUUID(),
+          },
+        }),
+      ).rejects.toThrow('Secrets client is not configured.');
+
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      expect(run.number).toBe(1);
+      const [counter] = await db()
+        .select()
+        .from(workflowRunCounters)
+        .where(eq(workflowRunCounters.definitionId, definitionId));
+      expect(counter?.nextNumber).toBe(2);
+    });
+
+    test('numbers definitions independently within one project', async () => {
+      const otherDefinitionId = crypto.randomUUID();
+      const first = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const second = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId: otherDefinitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      expect(first.number).toBe(1);
+      expect(second.number).toBe(1);
     });
 
     async function createJobOutputRun() {
@@ -1412,6 +1545,7 @@ describe('workflow run queries', () => {
       });
 
       expect(second.id).toBe(first.id);
+      expect(second.number).toBe(first.number);
       expect(second.triggerIdempotencyKey).toBe(idempotencyKey);
       expect(second.sourceSnapshot).toEqual({
         content: 'name: Original\njobs: {}\n',
@@ -1428,6 +1562,11 @@ describe('workflow run queries', () => {
         .from(workflowsOutbox)
         .where(sql`${workflowsOutbox.payload}->>'workflowRunId' = ${first.id}`);
       expect(outboxRows).toHaveLength(1);
+      const [counter] = await db()
+        .select()
+        .from(workflowRunCounters)
+        .where(eq(workflowRunCounters.definitionId, definitionId));
+      expect(counter?.nextNumber).toBe(2);
     });
 
     test('duplicate triggerIdempotencyKey returns the persisted run name without reevaluating it', async () => {

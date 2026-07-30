@@ -57,6 +57,7 @@ export interface WorkflowRun {
   workspaceId: string;
   projectId: string;
   definitionId: string;
+  number: number;
   /** Effective runtime name: the resolved override, or workflowName when absent. */
   name: string;
   /** Static workflow-name snapshot preserved from the definition at creation. */

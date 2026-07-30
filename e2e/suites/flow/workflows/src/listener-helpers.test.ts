@@ -88,6 +88,7 @@ function runDetail(
     id: '33333333-3333-4333-8333-333333333333',
     project_id: '11111111-1111-4111-8111-111111111111',
     definition_id: '22222222-2222-4222-8222-222222222222',
+    number: 1,
     name: 'Listener workflow',
     workflow_name: 'Listener workflow',
     status: 'succeeded',
