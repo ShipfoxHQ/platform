@@ -2,6 +2,7 @@ import type {WorkflowsJobExecutionTimedOutEventDto} from '@shipfox/api-workflows
 import {eq} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {claimPendingJobExecution} from '#db/job-executions.js';
+import {pendingJobExecutions} from '#db/schema/pending-job-executions.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
 import {pendingJobFactory, runnerSessionFactory} from '#test/index.js';
 import {onWorkflowsJobExecutionTimedOut} from './on-workflows-job-execution-timed-out.js';
@@ -22,6 +23,21 @@ describe('onWorkflowsJobExecutionTimedOut', () => {
     workspaceId = crypto.randomUUID();
     const runnerSession = await runnerSessionFactory.create({workspaceId});
     runnerSessionId = runnerSession.id;
+  });
+
+  it('deletes an unclaimed pending execution', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+
+    await onWorkflowsJobExecutionTimedOut(
+      buildPayload(pending.jobId, pending.jobExecutionId, pending.workflowRunAttemptId),
+    );
+
+    expect(
+      await db()
+        .select()
+        .from(pendingJobExecutions)
+        .where(eq(pendingJobExecutions.jobExecutionId, pending.jobExecutionId)),
+    ).toHaveLength(0);
   });
 
   it('sets cancellation_requested_at on the matching running_jobs row', async () => {

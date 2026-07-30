@@ -6,7 +6,7 @@ import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import {claimJobExecution} from '#core/job-executions.js';
 import {db} from '#db/db.js';
-import {requestJobExecutionCancellation} from '#db/job-executions.js';
+import {reconcileTerminalJobExecution} from '#db/job-executions.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
 import {createRunnerRegistrationTokenAuthMethod} from '#presentation/auth/index.js';
@@ -223,10 +223,10 @@ describe('POST /runners/jobs/:jobId/heartbeat', () => {
     expect(session?.toolCapabilitiesReportedAt).toEqual(new Date('2026-01-01T00:00:00.000Z'));
   });
 
-  it('returns 200 + cancel:true after requestJobExecutionCancellation', async () => {
+  it('returns 200 + cancel:true after reconcileTerminalJobExecution', async () => {
     const {jobId, jobExecutionId, workflowRunId, workflowRunAttemptId, leaseToken} =
       await claimAvailableJob();
-    await requestJobExecutionCancellation({jobExecutionId});
+    await reconcileTerminalJobExecution({jobExecutionId});
 
     const res = await app.inject({
       method: 'POST',

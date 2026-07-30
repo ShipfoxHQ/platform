@@ -1,6 +1,6 @@
 import type {WorkflowsJobExecutionTimedOutEventDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
-import {requestJobExecutionCancellation} from '#db/job-executions.js';
+import {reconcileTerminalJobExecution} from '#db/job-executions.js';
 
 export async function onWorkflowsJobExecutionTimedOut(
   payload: WorkflowsJobExecutionTimedOutEventDto,
@@ -11,7 +11,7 @@ export async function onWorkflowsJobExecutionTimedOut(
       jobExecutionId: payload.jobExecutionId,
       workflowRunAttemptId: payload.workflowRunAttemptId,
     },
-    'Requesting runner cancellation for timed-out job execution',
+    'Reconciling runner state for timed-out job execution',
   );
-  await requestJobExecutionCancellation({jobExecutionId: payload.jobExecutionId});
+  await reconcileTerminalJobExecution({jobExecutionId: payload.jobExecutionId});
 }

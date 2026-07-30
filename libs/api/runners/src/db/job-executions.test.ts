@@ -3,6 +3,7 @@ import {
   RUNNER_JOB_LEASE_EXPIRED,
   RUNNER_JOB_QUEUED,
 } from '@shipfox/api-runners-dto';
+import {pgClient} from '@shipfox/node-postgres';
 import {eq, sql} from 'drizzle-orm';
 import {EmptyRequiredLabelsError, RunnerSessionExhaustedError} from '#core/errors.js';
 import {claimJobExecution} from '#core/job-executions.js';
@@ -21,9 +22,9 @@ import {
   expireStuckJobExecutions,
   getJobExecutionQueueDepth,
   isJobLeaseActive,
+  reconcileTerminalJobExecution,
   recordHeartbeat,
   releaseJobExecution,
-  requestJobExecutionCancellation,
 } from './job-executions.js';
 import {runnersOutbox} from './schema/outbox.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
@@ -484,6 +485,40 @@ describe('claimPendingJobExecution', () => {
 
     const claimed = [claim1, claim2].filter(Boolean);
     expect(claimed).toHaveLength(1);
+  });
+
+  it('locks only the FIFO candidate before acquiring its execution advisory lock', async () => {
+    const first = await pendingJobFactory.create({workspaceId});
+    const second = await pendingJobFactory.create({workspaceId});
+    const releaseLock = deferred<void>();
+    const lockReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`runners_job_execution:${first.jobExecutionId}`}))`,
+      );
+      lockReady.resolve();
+      await releaseLock.promise;
+    });
+
+    try {
+      await lockReady.promise;
+      expect(
+        await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null}),
+      ).toBeNull();
+      expect(
+        await db()
+          .select()
+          .from(pendingJobExecutions)
+          .where(eq(pendingJobExecutions.workspaceId, workspaceId)),
+      ).toHaveLength(2);
+    } finally {
+      releaseLock.resolve();
+      await lockHolder;
+    }
+
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(first.jobExecutionId);
+    expect(second.jobExecutionId).not.toBe(claimed?.jobExecutionId);
   });
 
   it('claims the oldest job first', async () => {
@@ -975,11 +1010,11 @@ describe('recordHeartbeat', () => {
     );
   });
 
-  it('returns cancel:true after requestJobExecutionCancellation', async () => {
+  it('returns cancel:true after reconcileTerminalJobExecution', async () => {
     await pendingJobFactory.create({workspaceId});
     const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
 
-    await requestJobExecutionCancellation({jobExecutionId: claimed?.jobExecutionId as string});
+    await reconcileTerminalJobExecution({jobExecutionId: claimed?.jobExecutionId as string});
 
     const result = await recordHeartbeat({
       jobExecutionId: claimed?.jobExecutionId as string,
@@ -1016,7 +1051,7 @@ describe('recordHeartbeat', () => {
   });
 });
 
-describe('requestJobExecutionCancellation', () => {
+describe('reconcileTerminalJobExecution', () => {
   let workspaceId: string;
   let runnerSessionId: string;
 
@@ -1026,46 +1061,193 @@ describe('requestJobExecutionCancellation', () => {
     runnerSessionId = runnerSession.id;
   });
 
-  it('sets cancellation_requested_at on a fresh row', async () => {
-    await pendingJobFactory.create({workspaceId});
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+  it('deletes a pending execution', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
 
-    await requestJobExecutionCancellation({jobExecutionId: claimed?.jobExecutionId as string});
+    await reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
+
+    expect(
+      await db()
+        .select()
+        .from(pendingJobExecutions)
+        .where(eq(pendingJobExecutions.jobExecutionId, pending.jobExecutionId)),
+    ).toHaveLength(0);
+  });
+
+  it('sets cancellation_requested_at on a running execution', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+
+    await reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
 
     const rows = await db()
       .select()
       .from(runningJobExecutions)
-      .where(eq(runningJobExecutions.jobId, claimed?.jobId as string));
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
     expect(rows[0]?.cancellationRequestedAt).not.toBeNull();
   });
 
   it('is idempotent: second call preserves the first timestamp', async () => {
-    await pendingJobFactory.create({workspaceId});
+    const pending = await pendingJobFactory.create({workspaceId});
     const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
 
-    await requestJobExecutionCancellation({jobExecutionId: claimed?.jobExecutionId as string});
+    await reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
     const after1 = await db()
       .select()
       .from(runningJobExecutions)
-      .where(eq(runningJobExecutions.jobId, claimed?.jobId as string));
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
     const firstTs = after1[0]?.cancellationRequestedAt;
 
     await new Promise((r) => setTimeout(r, 10));
-    await requestJobExecutionCancellation({jobExecutionId: claimed?.jobExecutionId as string});
+    await reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
 
     const after2 = await db()
       .select()
       .from(runningJobExecutions)
-      .where(eq(runningJobExecutions.jobId, claimed?.jobId as string));
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
     expect(after2[0]?.cancellationRequestedAt?.getTime()).toBe(firstTs?.getTime());
   });
 
-  it('is a no-op when the job execution is missing (does not throw)', async () => {
+  it('is a no-op when the job execution is missing', async () => {
     await expect(
-      requestJobExecutionCancellation({jobExecutionId: crypto.randomUUID()}),
+      reconcileTerminalJobExecution({jobExecutionId: crypto.randomUUID()}),
     ).resolves.toBeUndefined();
   });
+
+  it('leaves a pending sibling for the same job untouched', async () => {
+    const target = await pendingJobFactory.create({workspaceId});
+    const sibling = await pendingJobFactory.create({workspaceId, jobId: target.jobId});
+
+    await reconcileTerminalJobExecution({jobExecutionId: target.jobExecutionId});
+
+    expect(
+      await db()
+        .select()
+        .from(pendingJobExecutions)
+        .where(eq(pendingJobExecutions.jobExecutionId, target.jobExecutionId)),
+    ).toHaveLength(0);
+    expect(
+      await db()
+        .select()
+        .from(pendingJobExecutions)
+        .where(eq(pendingJobExecutions.jobExecutionId, sibling.jobExecutionId)),
+    ).toHaveLength(1);
+  });
+
+  it('leaves a running sibling for the same job uncancelled', async () => {
+    const target = await pendingJobFactory.create({workspaceId});
+    const sibling = await pendingJobFactory.create({workspaceId, jobId: target.jobId});
+    const targetClaim = await claimPendingJobExecution({
+      workspaceId,
+      runnerSessionId,
+      maxClaims: null,
+    });
+    const siblingClaim = await claimPendingJobExecution({
+      workspaceId,
+      runnerSessionId,
+      maxClaims: null,
+    });
+    expect(targetClaim?.jobExecutionId).toBe(target.jobExecutionId);
+    expect(siblingClaim?.jobExecutionId).toBe(sibling.jobExecutionId);
+
+    await reconcileTerminalJobExecution({jobExecutionId: target.jobExecutionId});
+
+    const rows = await db()
+      .select({
+        jobExecutionId: runningJobExecutions.jobExecutionId,
+        cancellationRequestedAt: runningJobExecutions.cancellationRequestedAt,
+      })
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobId, target.jobId));
+    const byJobExecutionId = new Map(
+      rows.map((row) => [row.jobExecutionId, row.cancellationRequestedAt]),
+    );
+    expect(byJobExecutionId.get(target.jobExecutionId)).not.toBeNull();
+    expect(byJobExecutionId.get(sibling.jobExecutionId)).toBeNull();
+  });
+
+  it('cancels the lease when reconciliation races a claim that has already acquired the row', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+    const releaseClaim = deferred<void>();
+    const claimTransactionReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(sql`LOCK TABLE runners_outbox IN ACCESS EXCLUSIVE MODE`);
+      claimTransactionReady.resolve();
+      await releaseClaim.promise;
+    });
+
+    let claim: ReturnType<typeof claimPendingJobExecution> | undefined;
+    let reconciliation: Promise<void> | undefined;
+    try {
+      await claimTransactionReady.promise;
+      claim = claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+      await waitForLockWait({queryLike: '%runners_outbox%'});
+
+      reconciliation = reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
+      // Claim has already deleted the pending row and inserted the lease, but cannot commit its
+      // outbox event while the table lock is held. Reconciliation must wait on that same claim's
+      // execution advisory lock.
+      await waitForLockWait({queryLike: '%pg_advisory_xact_lock%'});
+    } finally {
+      releaseClaim.resolve();
+      await Promise.allSettled([
+        lockHolder,
+        claim ?? Promise.resolve(null),
+        reconciliation ?? Promise.resolve(),
+      ]);
+    }
+
+    if (!claim || !reconciliation) throw new Error('Claim and reconciliation must both start');
+    const [claimed] = await Promise.all([claim, reconciliation, lockHolder]);
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+
+    expect(
+      await db()
+        .select()
+        .from(pendingJobExecutions)
+        .where(eq(pendingJobExecutions.jobExecutionId, pending.jobExecutionId)),
+    ).toHaveLength(0);
+    const runningRows = await db()
+      .select({cancellationRequestedAt: runningJobExecutions.cancellationRequestedAt})
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+    expect(runningRows).toHaveLength(1);
+    expect(runningRows[0]?.cancellationRequestedAt).not.toBeNull();
+  });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return {promise, resolve, reject};
+}
+
+async function waitForLockWait(params: {queryLike: string}) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const result = await pgClient().query<{count: number}>(
+      `
+        SELECT count(*)::int AS count
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND state = 'active'
+          AND wait_event_type = 'Lock'
+          AND query ILIKE $1
+      `,
+      [params.queryLike],
+    );
+    if ((result.rows[0]?.count ?? 0) > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for lock waiter matching ${params.queryLike}`);
+}
 
 describe('cancelRunnerJobs', () => {
   let workspaceId: string;
@@ -1224,6 +1406,32 @@ describe('detectAndExpireStuckJobs', () => {
     // The lease-expired event carries only the assignment identifiers.
     expect(payload.status).toBeUndefined();
     expect(payload.steps).toBeUndefined();
+  });
+
+  it('does not requeue an execution after its lease has expired', async () => {
+    const stale = await makeStaleJob(600);
+
+    await expireStuckJobExecutions({
+      noFirstHeartbeatGraceSeconds: 60,
+      thresholdSeconds: 180,
+    });
+
+    await enqueueJobExecution({
+      workspaceId,
+      workflowRunId: stale.workflowRunId,
+      workflowRunAttemptId: stale.workflowRunAttemptId,
+      jobId: stale.jobId,
+      jobExecutionId: stale.jobExecutionId,
+      projectId: stale.projectId,
+      requiredLabels: ['linux'],
+    });
+
+    expect(
+      await db()
+        .select()
+        .from(pendingJobExecutions)
+        .where(eq(pendingJobExecutions.jobExecutionId, stale.jobExecutionId)),
+    ).toHaveLength(0);
   });
 
   it('expires a job that never sent a first heartbeat after the startup grace', async () => {
@@ -1453,7 +1661,43 @@ describe('detectAndExpireStuckJobs', () => {
     expect(await outboxForJobs([stuck1.jobId, stuck2.jobId])).toHaveLength(2);
   });
 
-  it('a reaper tick and a concurrent claim of the same orphan-pending job leave consistent state', async () => {
+  it('skips an execution whose advisory lock is held and reaps the next stale page', async () => {
+    const first = await makeStaleJob(600);
+    const second = await makeStaleJob(600);
+    const releaseLock = deferred<void>();
+    const lockReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`runners_job_execution:${first.jobExecutionId}`}))`,
+      );
+      lockReady.resolve();
+      await releaseLock.promise;
+    });
+
+    try {
+      await lockReady.promise;
+      const reaped = await expireStuckJobExecutions({
+        noFirstHeartbeatGraceSeconds: 60,
+        thresholdSeconds: 180,
+        limit: 1,
+      });
+
+      expect(reaped).toHaveLength(1);
+      expect(reaped[0]?.jobExecutionId).toBe(second.jobExecutionId);
+    } finally {
+      releaseLock.resolve();
+      await lockHolder;
+    }
+
+    const remaining = await expireStuckJobExecutions({
+      noFirstHeartbeatGraceSeconds: 60,
+      thresholdSeconds: 180,
+      limit: 1,
+    });
+    expect(remaining.map((row) => row.jobExecutionId)).toContain(first.jobExecutionId);
+  });
+
+  it('a reaper tick and a concurrent claim of the same orphan-pending job do not deadlock', async () => {
     const {jobId, jobExecutionId, workflowRunId, workflowRunAttemptId, projectId} =
       await makeStaleJob(600);
     // Orphan pending row from a post-claim enqueue retry for an already-running job.
@@ -1469,15 +1713,14 @@ describe('detectAndExpireStuckJobs', () => {
         requiredLabels: ['linux'],
       });
 
-    // The reaper locks running-then-pending while the claim locks pending-then-running;
-    // a deadlock loser rolls back, so either side may settle as rejected.
-    await Promise.allSettled([
+    // Both operations acquire the pending-row lock before the running-row lock.
+    const [reaped, claimed] = await Promise.all([
       detectAndExpireStuckJobs({thresholdSeconds: 180}),
       claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null}),
     ]);
 
-    // A follow-up tick finishes any reap that lost a deadlock race.
-    await detectAndExpireStuckJobs({thresholdSeconds: 180});
+    expect(reaped.expired).toBeGreaterThanOrEqual(1);
+    expect(claimed).toBeNull();
 
     // The expired job is gone and not re-claimable; its orphan pending row is swept.
     expect(await runningJobsForTest()).toHaveLength(0);
