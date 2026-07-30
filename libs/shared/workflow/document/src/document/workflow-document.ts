@@ -552,7 +552,7 @@ export const workflowDocumentJobSchema = z.strictObject({
     description:
       'Event-listening configuration for this job. See [listening jobs](/understand/listening-jobs).',
   }),
-  name: z.string().min(1).optional().meta({description: 'Static human-readable job name.'}),
+  name: z.string().min(1).optional().meta({description: 'Static literal human-readable job name.'}),
   execution_name: z.string().min(1).optional().meta({
     description: 'Dynamic name for each job execution. Supports workflow expressions.',
   }),
@@ -566,7 +566,7 @@ export const workflowDocumentJobSchema = z.strictObject({
 });
 
 export const workflowDocumentSchema = z.strictObject({
-  name: z.string().min(1).meta({description: 'Static human-readable workflow name.'}),
+  name: z.string().min(1).meta({description: 'Static literal human-readable workflow name.'}),
   run_name: z.string().min(1).optional().meta({
     description: 'Dynamic name for each workflow run. Supports workflow expressions.',
   }),

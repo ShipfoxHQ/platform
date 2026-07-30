@@ -34,6 +34,84 @@ workflow.
 
 <TopLevelFields />
 
+## Workflow and job names
+
+Workflow and job names use separate static and dynamic fields.
+
+| Field | Names | Expressions | Required |
+| --- | --- | --- | --- |
+| `name` | Workflow definition | Not allowed | Yes |
+| `run_name` | Workflow run | Allowed | No |
+| `jobs.<job_key>.name` | Job | Not allowed | No |
+| `jobs.<job_key>.execution_name` | Job execution | Allowed | No |
+
+### Static names
+
+Workflow `name` and job `name` values are literal labels. A job `name` is
+optional. Add one when the job key is not a useful label. The job key is the
+fallback when no job name is set.
+
+Interpolation in a static name is invalid. Use the matching dynamic field:
+
+```text
+Workflow name must be literal. Move runtime interpolation to run_name.
+Job name must be literal. Move runtime interpolation to execution_name.
+```
+
+### Dynamic run names
+
+`run_name` resolves when Shipfox creates a workflow run. It can use trigger
+metadata, trigger event data, workflow inputs, referenced workflow variables,
+and stable run facts that already exist at creation time.
+
+It cannot use job, execution, step, or job-output values that do not exist when
+the run is created. A rerun keeps the original resolved run name.
+
+### Dynamic execution names
+
+`execution_name` resolves when Shipfox creates a job execution. It can use run
+context, trigger data, inputs, referenced variables, stable job facts, the
+execution sequence, listener events, and prior executions.
+
+It cannot use the current execution name, future executions, step results, or
+job outputs that do not exist at execution creation.
+
+Listening jobs resolve `execution_name` separately for each execution. The
+template can therefore include the event batch or execution sequence.
+
+### Fallbacks and reruns
+
+Dynamic names are optional and affect display labels only. If a dynamic field
+is omitted or resolves to an empty value, Shipfox uses the matching static
+fallback. A runtime resolution failure also uses that fallback and records a
+diagnostic without changing execution status.
+
+| Dynamic field | Static fallback |
+| --- | --- |
+| `run_name` | Workflow `name` |
+| `execution_name` | Job `name`, or the job key |
+
+Dynamic-name expressions that use unavailable context or invalid syntax are
+definition validation errors. Rerunning a workflow keeps its resolved run
+name. Rerunning a job execution keeps its resolved execution name.
+
+```yaml
+# yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
+name: Pull request review
+run_name: 'Review PR #${{ event.pull_request.number }}'
+
+jobs:
+  reviews:
+    name: Process review
+    execution_name: Review batch ${{ execution.index }}
+    listening:
+      on:
+        - source: github
+          event: pull_request_review
+    steps:
+      - prompt: Summarize ${{ execution.events[0].data.body }}
+```
+
 ## Trigger fields
 
 <TriggerFields />

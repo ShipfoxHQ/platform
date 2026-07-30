@@ -65,7 +65,13 @@ describe('parseDefinition', () => {
         onResolve: 'cancel',
       },
     });
-    expect(definition.model.jobs[0]?.executionName).toBeDefined();
+    expect(definition.model.jobs[0]).toMatchObject({
+      name: [{kind: 'literal', value: 'Review batch'}],
+      executionName: [
+        {kind: 'literal', value: 'Review batch '},
+        {kind: 'deferred', roots: ['execution'], fillTarget: 'execution-creation'},
+      ],
+    });
   });
 
   test('attaches source line locations to workflow model steps', () => {
