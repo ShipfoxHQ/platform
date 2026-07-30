@@ -106,4 +106,10 @@ describe('sanitizeWorkflowDisplayText', () => {
   it('trims and bounds display text', () => {
     expect(sanitizeWorkflowDisplayText(`  ${'a'.repeat(300)}  `)).toBe('a'.repeat(255));
   });
+
+  it('bounds by Unicode code point without splitting an emoji', () => {
+    const value = `${'a'.repeat(254)}😀`;
+
+    expect(sanitizeWorkflowDisplayText(value)).toBe(value);
+  });
 });

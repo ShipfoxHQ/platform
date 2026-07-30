@@ -92,10 +92,8 @@ export function resolveWorkflowRunName(params: {
 }
 
 export function sanitizeWorkflowDisplayText(value: string): string {
-  return value
-    .replace(DISALLOWED_DISPLAY_CHARACTER_RE, ' ')
-    .trim()
-    .slice(0, MAX_WORKFLOW_RUN_NAME_LENGTH);
+  const sanitized = value.replace(DISALLOWED_DISPLAY_CHARACTER_RE, ' ').trim();
+  return Array.from(sanitized).slice(0, MAX_WORKFLOW_RUN_NAME_LENGTH).join('');
 }
 
 function degraded(
