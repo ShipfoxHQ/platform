@@ -284,12 +284,20 @@ describe('GitHub webhook route', () => {
   });
 
   it('records and drops a pull request opened from a fork', async () => {
-    const {app, publishIntegrationEventReceived, publishSourcePush, recordDeliveryOnly} =
-      await createTestApp();
+    const installationId = 7787;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const {
+      app,
+      publishIntegrationEventReceived,
+      publishSourcePush,
+      recordDeliveryOnly,
+      getIntegrationConnectionById,
+    } = await createTestApp({connection});
     const deliveryId = randomUUID();
     const rawPayload = {
       action: 'opened',
-      installation: {id: 7787},
+      installation: {id: installationId},
       repository: {id: 42, full_name: 'shipfox/platform'},
       pull_request: {
         head: {repo: {id: 84, full_name: 'contributor/platform'}},
@@ -310,6 +318,7 @@ describe('GitHub webhook route', () => {
     expect(publishSourcePush).not.toHaveBeenCalled();
     expect(recordDeliveryOnly).toHaveBeenCalledTimes(1);
     expect(recordDeliveryOnly.mock.calls[0]?.[0]).toMatchObject({provider: 'github', deliveryId});
+    expect(getIntegrationConnectionById).not.toHaveBeenCalled();
   });
 
   it('publishes a generic envelope for a non-push event without an action', async () => {
