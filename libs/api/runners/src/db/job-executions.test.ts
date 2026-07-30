@@ -487,6 +487,40 @@ describe('claimPendingJobExecution', () => {
     expect(claimed).toHaveLength(1);
   });
 
+  it('locks only the FIFO candidate before acquiring its execution advisory lock', async () => {
+    const first = await pendingJobFactory.create({workspaceId});
+    const second = await pendingJobFactory.create({workspaceId});
+    const releaseLock = deferred<void>();
+    const lockReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`runners_job_execution:${first.jobExecutionId}`}))`,
+      );
+      lockReady.resolve();
+      await releaseLock.promise;
+    });
+
+    try {
+      await lockReady.promise;
+      expect(
+        await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null}),
+      ).toBeNull();
+      expect(
+        await db()
+          .select()
+          .from(pendingJobExecutions)
+          .where(eq(pendingJobExecutions.workspaceId, workspaceId)),
+      ).toHaveLength(2);
+    } finally {
+      releaseLock.resolve();
+      await lockHolder;
+    }
+
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(first.jobExecutionId);
+    expect(second.jobExecutionId).not.toBe(claimed?.jobExecutionId);
+  });
+
   it('claims the oldest job first', async () => {
     const older = await pendingJobFactory.create({workspaceId});
     await pendingJobFactory.create({workspaceId});

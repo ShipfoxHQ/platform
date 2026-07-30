@@ -229,25 +229,33 @@ export async function claimPendingJobExecution(params: {
     }
 
     // `id` is a uuidv7 (time-ordered), so it is a deterministic FIFO tiebreaker
-    // for rows sharing a created_at within a batch.
-    const jobExecutionLockAvailable = sql`
-      pg_try_advisory_xact_lock(
-        hashtext(${runnerJobExecutionLockPrefix} || ${pendingJobExecutions.jobExecutionId}::text)
-      )
-    `;
-    const [row] = await tx
+    // for rows sharing a created_at within a batch. Lock only the FIFO candidate before
+    // attempting its execution advisory lock; putting pg_try_advisory_xact_lock in this
+    // predicate would evaluate it while scanning and temporarily lock many queue entries.
+    const candidate = tx
       .select()
       .from(pendingJobExecutions)
       .where(
         and(
           eq(pendingJobExecutions.workspaceId, params.workspaceId),
           arrayContained(pendingJobExecutions.requiredLabels, params.sessionLabels),
-          jobExecutionLockAvailable,
         ),
       )
       .orderBy(asc(pendingJobExecutions.createdAt), asc(pendingJobExecutions.id))
       .limit(1)
-      .for('update', {skipLocked: true});
+      .for('update', {skipLocked: true})
+      .as('pending_candidate');
+
+    const [row] = await tx
+      .select()
+      .from(candidate)
+      .where(
+        sql`
+          pg_try_advisory_xact_lock(
+            hashtext(${runnerJobExecutionLockPrefix} || ${candidate.jobExecutionId}::text)
+          )
+        `,
+      );
 
     if (!row) return null;
 
