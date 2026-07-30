@@ -19,6 +19,7 @@ const agentValidationCatalogSchema = z.object({
     z.object({
       id: harnessSchema,
       supported_provider_ids: z.array(z.string().min(1)),
+      model_ids_by_provider: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
       thinking_levels: z.array(agentThinkingSchema),
       effective_tools: z.array(z.string().min(1)),
     }),

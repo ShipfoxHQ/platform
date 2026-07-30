@@ -5,6 +5,7 @@ import {
 } from '@shipfox/api-agent-dto';
 import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
 import {harnessToolDeploymentConfig} from '#config.js';
+import {listHarnessProviderModels} from './harness/index.js';
 import {getModelProviderEntry} from './model-provider-policy.js';
 
 /** Produces the versioned, JSON-safe policy snapshot consumed by Definitions. */
@@ -18,6 +19,12 @@ export function getAgentValidationCatalog(): AgentValidationCatalog {
     harnesses: listHarnessDescriptors().map((harness) => ({
       id: harness.id,
       supported_provider_ids: [...harness.supportedProviderIds],
+      model_ids_by_provider: Object.fromEntries(
+        harness.supportedProviderIds.map((providerId) => [
+          providerId,
+          listHarnessProviderModels(harness.id, providerId).map((model) => model.id),
+        ]),
+      ),
       thinking_levels: [...harness.thinkingLevels],
       effective_tools: listEnabledHarnessTools(harness.id, harnessToolDeploymentConfig).map(
         (tool) => tool.name,
