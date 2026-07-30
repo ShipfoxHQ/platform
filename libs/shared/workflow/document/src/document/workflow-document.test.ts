@@ -46,6 +46,18 @@ describe('workflowDocumentSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts working_directory on run and agent steps', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'multi-directory build',
+      jobs: {
+        build: {steps: [{run: 'make test', working_directory: 'api'}]},
+        review: {steps: [{prompt: 'Review the API changes.', working_directory: 'api'}]},
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('accepts job and step if predicates as document fields', () => {
     const workflowDocument = {
       name: 'conditional build',
@@ -868,8 +880,28 @@ describe('workflowDocumentSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('rejects checkout as an unsupported step key', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'simple build',
+      jobs: {build: {steps: [{checkout: {path: 'api'}, working_directory: 'api'}]}},
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+
+    expect(result.error.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({code: 'unrecognized_keys', keys: ['checkout']}),
+      ]),
+    );
+  });
+
   it.each([
     ['prompt-only agent step', {prompt: 'Fix the failing tests.'}],
+    [
+      'agent step with working directory',
+      {prompt: 'Fix the failing tests.', working_directory: 'api'},
+    ],
     ['inline agent step', {model: 'claude-opus-4-8', prompt: 'Fix the failing tests.'}],
     ['agent step with harness', {harness: 'claude', model: 'claude-opus-4-8', prompt: 'Fix it.'}],
     ['agent step with thinking', {model: 'claude-opus-4-8', prompt: 'Fix it.', thinking: 'low'}],
