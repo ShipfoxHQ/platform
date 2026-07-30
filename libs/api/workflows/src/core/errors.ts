@@ -65,6 +65,7 @@ export type InterpolationUnresolvableField =
   | 'job.outputs'
   | 'job.name'
   | 'job.execution_name'
+  | 'workflow.run_name'
   | 'step.name'
   | 'step.feedback';
 

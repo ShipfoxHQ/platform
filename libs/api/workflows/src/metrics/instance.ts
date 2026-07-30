@@ -10,6 +10,13 @@ const runCreatedCount = meter.createCounter<{provider: string}>('workflows_run_c
   description: 'Workflow runs created by bounded trigger provider',
 });
 
+const displayNameResolutionDegradedCount = meter.createCounter<{
+  field: 'workflow.run_name' | 'job.execution_name';
+  cause: 'missing_value' | 'evaluation_error' | 'empty_value' | 'sanitization';
+}>('workflows_display_name_resolution_degraded', {
+  description: 'Display-name resolution degradations by field and bounded cause',
+});
+
 const runStatusChangedCount = meter.createCounter<{status: WorkflowRunStatus}>(
   'workflows_run_status_changed',
   {description: 'Workflow run status transitions by resulting status'},
@@ -95,6 +102,13 @@ const listenerEventsCoalesced = meter.createHistogram<Record<string, never>>(
 
 export function recordWorkflowRunCreated(provider: string): void {
   runCreatedCount.add(1, {provider});
+}
+
+export function recordWorkflowDisplayNameResolutionDegraded(
+  field: 'workflow.run_name' | 'job.execution_name',
+  cause: 'missing_value' | 'evaluation_error' | 'empty_value' | 'sanitization',
+): void {
+  displayNameResolutionDegradedCount.add(1, {field, cause});
 }
 
 export function recordWorkflowRunStatusChanged(status: WorkflowRunStatus): void {

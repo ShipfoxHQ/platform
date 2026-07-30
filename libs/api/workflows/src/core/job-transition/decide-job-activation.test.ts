@@ -117,6 +117,8 @@ function workflowRun(): WorkflowRun {
     projectId: crypto.randomUUID(),
     definitionId: crypto.randomUUID(),
     name: 'Run',
+    workflowName: 'Run',
+    nameOverride: null,
     status: 'pending',
     currentAttempt: 1,
     triggerProvider: null,
