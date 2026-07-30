@@ -21,6 +21,26 @@ describe('buildWorkflowJsonSchema', () => {
     );
   });
 
+  it('describes static and dynamic workflow and job name fields', () => {
+    const schema = buildWorkflowJsonSchema();
+    const rootProperties = object(schema.properties);
+    const jobs = object(rootProperties.jobs);
+    const jobProperties = object(object(jobs.additionalProperties).properties);
+
+    expect(rootProperties.name).toMatchObject({
+      description: 'Static literal human-readable workflow name.',
+    });
+    expect(rootProperties.run_name).toMatchObject({
+      description: 'Dynamic name for each workflow run. Supports workflow expressions.',
+    });
+    expect(jobProperties.name).toMatchObject({
+      description: 'Static literal human-readable job name.',
+    });
+    expect(jobProperties.execution_name).toMatchObject({
+      description: 'Dynamic name for each job execution. Supports workflow expressions.',
+    });
+  });
+
   it('restricts thinking values for each harness', () => {
     const schema = buildWorkflowJsonSchema();
     const conditionals = objects(stepSchemaFor(schema).allOf);
