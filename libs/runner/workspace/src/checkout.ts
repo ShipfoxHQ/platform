@@ -117,6 +117,9 @@ export async function checkoutRepository(params: {
     onSecrets,
   } = params;
 
+  if (!Number.isInteger(fetchDepth) || fetchDepth < 0) {
+    throw new RangeError('fetchDepth must be a non-negative integer');
+  }
   const secrets = secretsOf(auth);
   onSecrets?.(secrets);
 

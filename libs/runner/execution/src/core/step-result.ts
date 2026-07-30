@@ -1,12 +1,7 @@
 import type {LeasedWriteAnnotationOperationDto} from '@shipfox/annotations-dto';
-import type {StepErrorDto} from '@shipfox/api-workflows-dto';
+import type {CheckoutResultDto, StepErrorDto} from '@shipfox/api-workflows-dto';
 
-export interface CheckoutResult {
-  repository: string;
-  ref: string;
-  commit: string;
-  path: string;
-}
+export type CheckoutResult = CheckoutResultDto;
 
 export interface StepResult {
   success: boolean;

@@ -122,6 +122,12 @@ describe('checkoutRepository argv', () => {
     ]);
   });
 
+  it.each([-1, 1.5, Number.NaN])('rejects invalid fetch depth %s', async (fetchDepth) => {
+    await expect(checkoutRepository({...BASE, fetchDepth})).rejects.toThrow(
+      'fetchDepth must be a non-negative integer',
+    );
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
   it('injects a bearer credential only on fetch and excludes it from displayed commands', async () => {
     queueSuccessfulCheckout();
     const onCommandStart = vi.fn();
