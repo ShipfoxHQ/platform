@@ -39,6 +39,7 @@ export async function listUserWorkspaces(
     memberships: response.memberships.map((membership) => ({
       id: membership.workspace_id,
       name: membership.workspace_name,
+      slug: membership.workspace_slug,
       membershipId: membership.id,
       status: membership.workspace_status,
     })),

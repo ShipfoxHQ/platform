@@ -59,6 +59,7 @@ export async function ensureMembership(params: EnsureMembershipParams): Promise<
 
 export interface MembershipWithWorkspace extends Membership {
   workspaceName: string;
+  workspaceSlug: string;
   workspaceStatus: Workspace['status'];
 }
 
@@ -69,6 +70,7 @@ export async function listMembershipsByUser(params: {
     .select({
       membership: memberships,
       workspaceName: workspaces.name,
+      workspaceSlug: workspaces.slug,
       workspaceStatus: workspaces.status,
     })
     .from(memberships)
@@ -79,6 +81,7 @@ export async function listMembershipsByUser(params: {
   return rows.map((row) => ({
     ...toMembership(row.membership),
     workspaceName: row.workspaceName,
+    workspaceSlug: row.workspaceSlug,
     workspaceStatus: row.workspaceStatus,
   }));
 }

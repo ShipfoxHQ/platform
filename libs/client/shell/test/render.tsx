@@ -36,7 +36,9 @@ export async function renderComposedShell({
   const store = createStore();
   const auth: AuthStateValue = {
     status: 'authenticated',
-    workspaces: [{id: 'workspace', name: 'Workspace', membershipId: 'membership'}],
+    workspaces: [
+      {id: 'workspace', name: 'Workspace', slug: 'workspace', membershipId: 'membership'},
+    ],
     isLoading: false,
     isAuthenticated: true,
     hasWorkspace: true,

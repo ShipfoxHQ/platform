@@ -1,5 +1,5 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
-import {index, jsonb, pgEnum, text, timestamp, uuid} from 'drizzle-orm/pg-core';
+import {index, jsonb, pgEnum, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
 import type {Workspace, WorkspaceStatus} from '#core/entities/workspace.js';
 import {pgTable} from './common.js';
 
@@ -14,13 +14,17 @@ export const workspaces = pgTable(
   {
     id: uuidv7PrimaryKey(),
     name: text('name').notNull(),
+    slug: text('slug').notNull(),
     status: workspaceStatusEnum('status').notNull().default('active'),
     settings: jsonb('settings').notNull().default({}),
     createdBy: uuid('created_by'),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
   },
-  (table) => [index('workspaces_name_id_idx').on(table.name, table.id)],
+  (table) => [
+    index('workspaces_name_id_idx').on(table.name, table.id),
+    uniqueIndex('workspaces_slug_unique').on(table.slug),
+  ],
 );
 
 export type WorkspaceDb = typeof workspaces.$inferSelect;
@@ -30,6 +34,7 @@ export function toWorkspace(row: WorkspaceDb): Workspace {
   return {
     id: row.id,
     name: row.name,
+    slug: row.slug,
     status: row.status as WorkspaceStatus,
     settings: row.settings as Record<string, unknown>,
     createdBy: row.createdBy,

@@ -1,10 +1,13 @@
 import type {UserContextMembership} from '@shipfox/api-auth-context';
 import {
   WORKSPACES_WORKSPACE_CREATED,
+  WORKSPACES_WORKSPACE_UPDATED,
   type WorkspaceRole,
   type WorkspacesEventMap,
 } from '@shipfox/api-workspaces-dto';
+import {isUniqueViolation} from '@shipfox/node-drizzle';
 import {writeOutboxEvent} from '@shipfox/node-outbox';
+import {eq} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {
   findMembership,
@@ -17,7 +20,7 @@ import {
 import {memberships} from '#db/schema/memberships.js';
 import {workspacesOutbox} from '#db/schema/outbox.js';
 import {toWorkspace, workspaces} from '#db/schema/workspaces.js';
-import {getWorkspaceById} from '#db/workspaces.js';
+import {getWorkspaceById, updateWorkspace} from '#db/workspaces.js';
 import type {Workspace} from './entities/workspace.js';
 import {
   MembershipNotFoundError,
@@ -25,6 +28,7 @@ import {
   SelfRemovalNotAllowedError,
   WorkspaceInactiveError,
   WorkspaceNotFoundError,
+  WorkspaceSlugConflictError,
 } from './errors.js';
 
 export interface RequireWorkspaceMembershipParams {
@@ -62,6 +66,7 @@ export async function requireWorkspaceMembership(
 
 export async function createWorkspaceForUser(params: {
   name: string;
+  slug: string;
   userId: string;
   userEmail?: string | undefined;
   userName?: string | null | undefined;
@@ -69,9 +74,18 @@ export async function createWorkspaceForUser(params: {
   return await db().transaction(async (tx) => {
     const [workspaceRow] = await tx
       .insert(workspaces)
-      .values({name: params.name, createdBy: params.userId})
+      .values({name: params.name, slug: params.slug, createdBy: params.userId})
+      .onConflictDoNothing({target: workspaces.slug})
       .returning();
-    if (!workspaceRow) throw new Error('Insert returned no rows');
+    if (!workspaceRow) {
+      const [conflict] = await tx
+        .select({slug: workspaces.slug})
+        .from(workspaces)
+        .where(eq(workspaces.slug, params.slug))
+        .limit(1);
+      if (conflict) throw new WorkspaceSlugConflictError(params.slug);
+      throw new Error('Insert returned no rows');
+    }
     await tx.insert(memberships).values({
       userId: params.userId,
       userEmail: params.userEmail ?? `user-${params.userId}@example.local`,
@@ -85,12 +99,45 @@ export async function createWorkspaceForUser(params: {
       payload: {
         workspaceId: workspace.id,
         name: workspace.name,
+        slug: workspace.slug,
         creatorUserId: params.userId,
       },
     });
 
     return workspace;
   });
+}
+
+export async function updateWorkspaceDetails(params: {
+  workspaceId: string;
+  name?: string | undefined;
+  slug?: string | undefined;
+}): Promise<Workspace> {
+  try {
+    return await db().transaction(async (tx) => {
+      const workspace = await updateWorkspace(
+        {id: params.workspaceId, name: params.name, slug: params.slug},
+        {tx},
+      );
+      if (!workspace) throw new WorkspaceNotFoundError(params.workspaceId);
+
+      await writeOutboxEvent<WorkspacesEventMap>(tx, workspacesOutbox, {
+        type: WORKSPACES_WORKSPACE_UPDATED,
+        payload: {
+          workspaceId: workspace.id,
+          name: workspace.name,
+          slug: workspace.slug,
+        },
+      });
+
+      return workspace;
+    });
+  } catch (error) {
+    if (isUniqueViolation(error, 'workspaces_slug_unique') && params.slug) {
+      throw new WorkspaceSlugConflictError(params.slug);
+    }
+    throw error;
+  }
 }
 
 export async function getWorkspace(params: {workspaceId: string}): Promise<Workspace> {

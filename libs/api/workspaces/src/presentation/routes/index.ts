@@ -5,7 +5,11 @@ import type {RouteGroup} from '@shipfox/node-fastify';
 import {createAdminWorkspacesRoutes} from './admin-workspaces.js';
 import {invitationsAcceptGroup, invitationsWorkspaceScopedRoutes} from './invitations/index.js';
 import {memberRoutes} from './members/index.js';
-import {createWorkspaceRoute, listUserWorkspacesRoute} from './workspaces/index.js';
+import {
+  createWorkspaceRoute,
+  listUserWorkspacesRoute,
+  updateWorkspaceRoute,
+} from './workspaces/index.js';
 
 export const workspacesRoutes: RouteGroup[] = [
   invitationsAcceptGroup,
@@ -14,6 +18,7 @@ export const workspacesRoutes: RouteGroup[] = [
     routes: [
       listUserWorkspacesRoute,
       createWorkspaceRoute,
+      updateWorkspaceRoute,
       {
         prefix: '/:workspaceId/members',
         routes: memberRoutes,

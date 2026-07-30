@@ -41,7 +41,7 @@ const authState: AuthState = {
     name: 'Platform Engineer',
     emailVerifiedAt: '2026-01-01T00:00:00.000Z',
   },
-  workspaces: [{id: WORKSPACE_ID, name: 'Acme', membershipId: 'membership-1'}],
+  workspaces: [{id: WORKSPACE_ID, name: 'Acme', slug: 'acme', membershipId: 'membership-1'}],
 };
 
 function CreateProjectPageStory({scenario}: CreateProjectPageStoryProps) {

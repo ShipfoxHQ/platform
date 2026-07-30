@@ -4,6 +4,7 @@ import {
   WORKSPACES_MEMBER_INVITED,
   WORKSPACES_MEMBER_JOINED,
   WORKSPACES_WORKSPACE_CREATED,
+  WORKSPACES_WORKSPACE_UPDATED,
   workspacesEventSchemas,
 } from '@shipfox/api-workspaces-dto';
 import {workspacesModule} from './index.js';
@@ -27,6 +28,7 @@ describe('workspacesModule', () => {
     expect(Object.keys(publisher?.eventSchemas ?? {})).toEqual([
       WORKSPACES_INVITATION_SEND_REQUESTED,
       WORKSPACES_WORKSPACE_CREATED,
+      WORKSPACES_WORKSPACE_UPDATED,
       WORKSPACES_MEMBER_INVITED,
       WORKSPACES_MEMBER_JOINED,
       ADMINISTRATION_ACTION_PERFORMED,

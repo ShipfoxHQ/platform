@@ -30,11 +30,13 @@ export interface ResendEmailVerificationCommand {
 
 export interface WorkspaceCreateCommand {
   name: string;
+  slug: string;
 }
 
 export interface Workspace {
   id: string;
   name: string;
+  slug: string;
   status: 'active' | 'suspended' | 'deleted';
 }
 

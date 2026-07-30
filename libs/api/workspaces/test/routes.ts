@@ -1,5 +1,6 @@
 import type {OutgoingHttpHeaders} from 'node:http';
 import {AUTH_USER, buildUserContext, setUserContext} from '@shipfox/api-auth-context';
+import {withSlugSuffix} from '@shipfox/api-common-dto';
 import {WORKSPACES_INVITATION_SEND_REQUESTED} from '@shipfox/api-workspaces-dto';
 import type {AuthMethod} from '@shipfox/node-fastify';
 import {createApp, type FastifyInstance} from '@shipfox/node-fastify';
@@ -44,6 +45,7 @@ vi.mock('#config.js', () => ({
 
 const TOKEN_RE = /token=([\w\-_=]+)/;
 const BEARER_RE = /^Bearer /u;
+let workspaceSlugSequence = 1;
 
 export const ROUTE_TEST_SECRET = testConfig.secret;
 
@@ -217,7 +219,13 @@ export async function createWorkspace(
     method: 'POST',
     url: '/workspaces',
     headers: {authorization: `Bearer ${token}`},
-    payload: {name},
+    payload: {
+      name,
+      slug: withSlugSuffix(
+        `route-workspace-${crypto.randomUUID().slice(0, 8)}`,
+        workspaceSlugSequence++,
+      ),
+    },
   });
 
   expect(res.statusCode).toBe(201);

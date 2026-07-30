@@ -47,13 +47,14 @@ describe('POST /workspaces', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/workspaces',
-      payload: {name: '  Test Workspace  '},
+      payload: {name: '  Test Workspace  ', slug: 'test-workspace'},
     });
 
     expect(res.statusCode).toBe(201);
     const body = res.json();
     expect(body.id).toBeDefined();
     expect(body.name).toBe('Test Workspace');
+    expect(body.slug).toBe('test-workspace');
     expect(body.status).toBe('active');
 
     const membership = await findMembership({userId, workspaceId: body.id});
@@ -69,7 +70,7 @@ describe('POST /workspaces', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/workspaces',
-      payload: {name},
+      payload: {name, slug: 'test-workspace'},
     });
 
     expect(res.statusCode).toBe(400);
@@ -79,9 +80,38 @@ describe('POST /workspaces', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/workspaces',
-      payload: {},
+      payload: {slug: 'test-workspace'},
     });
 
     expect(res.statusCode).toBe(400);
+  });
+
+  test('accepts a workspace slugged settings', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/workspaces',
+      payload: {name: 'Settings Workspace', slug: 'settings'},
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().slug).toBe('settings');
+  });
+
+  test('returns slug-conflict for a duplicate slug', async () => {
+    const slug = `duplicate-${crypto.randomUUID().slice(0, 8)}`;
+    const first = await app.inject({
+      method: 'POST',
+      url: '/workspaces',
+      payload: {name: 'First Workspace', slug},
+    });
+    const second = await app.inject({
+      method: 'POST',
+      url: '/workspaces',
+      payload: {name: 'Second Workspace', slug},
+    });
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(409);
+    expect(second.json().code).toBe('slug-conflict');
   });
 });

@@ -13,7 +13,7 @@ import {toWorkspace} from './workspace-mapper.js';
 export async function createWorkspace(command: WorkspaceCreateCommand) {
   const response = await checkedApiRequest(workspaceResponseSchema, '/workspaces', {
     method: 'POST',
-    body: {name: command.name},
+    body: {name: command.name, slug: command.slug},
   });
   return toWorkspace(response);
 }

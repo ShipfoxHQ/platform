@@ -41,6 +41,7 @@ CREATE TABLE "workspaces_outbox" (
 CREATE TABLE "workspaces_workspaces" (
 	"id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
 	"name" text NOT NULL,
+	"slug" text NOT NULL,
 	"status" "workspaces_workspace_status" DEFAULT 'active' NOT NULL,
 	"settings" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_by" uuid,
@@ -54,5 +55,6 @@ CREATE UNIQUE INDEX "workspaces_invitations_hashed_token_unique" ON "workspaces_
 CREATE INDEX "workspaces_invitations_workspace_email_idx" ON "workspaces_invitations" USING btree ("workspace_id","email");--> statement-breakpoint
 CREATE UNIQUE INDEX "workspaces_memberships_user_workspace_unique" ON "workspaces_memberships" USING btree ("user_id","workspace_id");--> statement-breakpoint
 CREATE INDEX "workspaces_memberships_workspace_id_idx" ON "workspaces_memberships" USING btree ("workspace_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "workspaces_slug_unique" ON "workspaces_workspaces" USING btree ("slug");--> statement-breakpoint
 CREATE INDEX "workspaces_outbox_pending_idx" ON "workspaces_outbox" USING btree ("next_dispatch_at","created_at") WHERE "dispatched_at" IS NULL AND "dead_lettered_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "workspaces_outbox_dispatched_retention_idx" ON "workspaces_outbox" USING btree ("dispatched_at","id") WHERE "dispatched_at" IS NOT NULL;
