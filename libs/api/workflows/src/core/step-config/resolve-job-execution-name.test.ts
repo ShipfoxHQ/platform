@@ -6,11 +6,11 @@ function template(source: string): string {
 }
 
 describe('resolveJobExecutionName', () => {
-  it('resolves an interpolated job name at execution creation', () => {
+  it('resolves an interpolated execution name at execution creation', () => {
     const [job] = workflowModel({
       jobs: {
         deploy: {
-          name: `Deploy ${template('inputs.environment')}`,
+          executionName: `Deploy ${template('inputs.environment')}`,
           steps: [{run: 'echo deploy'}],
         },
       },
@@ -20,18 +20,17 @@ describe('resolveJobExecutionName', () => {
     const result = resolveJobExecutionName({
       definitionId: 'definition-1',
       job,
-      fallbackName: 'deploy #1',
       context: {inputs: {environment: 'prod'}},
     });
 
     expect(result).toMatchObject({
-      value: 'Deploy prod',
+      nameOverride: 'Deploy prod',
       trace: [
         {
-          field: 'job.name',
+          field: 'job.execution_name',
           expression: 'inputs.environment',
           roots: ['inputs'],
-          fillTarget: 'run-creation',
+          fillTarget: 'execution-creation',
           evaluatedAt: 'execution-creation',
           value: 'prod',
         },
@@ -43,7 +42,7 @@ describe('resolveJobExecutionName', () => {
     const [job] = workflowModel({
       jobs: {
         deploy: {
-          name: template('inputs.environment'),
+          executionName: template('inputs.environment'),
           steps: [{run: 'echo deploy'}],
         },
       },
@@ -53,18 +52,17 @@ describe('resolveJobExecutionName', () => {
     const result = resolveJobExecutionName({
       definitionId: 'definition-1',
       job,
-      fallbackName: 'deploy #1',
       context: {inputs: {environment: ''}},
     });
 
     expect(result).toMatchObject({
-      value: 'deploy #1',
+      nameOverride: null,
       trace: [
         {
-          field: 'job.name',
+          field: 'job.execution_name',
           expression: 'inputs.environment',
           roots: ['inputs'],
-          fillTarget: 'run-creation',
+          fillTarget: 'execution-creation',
           evaluatedAt: 'execution-creation',
           value: '',
         },
@@ -72,10 +70,26 @@ describe('resolveJobExecutionName', () => {
     });
   });
 
-  it('falls back when the job has no name template', () => {
+  it('falls back to the static job name when no execution name template exists', () => {
+    const [job] = workflowModel({
+      jobs: {deploy: {steps: [{run: 'echo deploy'}]}},
+    }).jobs;
+    if (!job) throw new Error('Missing deploy job');
+
+    const result = resolveJobExecutionName({
+      definitionId: 'definition-1',
+      job,
+      context: {},
+    });
+
+    expect(result).toEqual({nameOverride: null, trace: []});
+  });
+
+  it('falls back when execution-name evaluation fails', () => {
     const [job] = workflowModel({
       jobs: {
         deploy: {
+          executionName: template('inputs.environment.missing'),
           steps: [{run: 'echo deploy'}],
         },
       },
@@ -85,10 +99,18 @@ describe('resolveJobExecutionName', () => {
     const result = resolveJobExecutionName({
       definitionId: 'definition-1',
       job,
-      fallbackName: 'deploy #1',
-      context: {},
+      context: {inputs: null},
     });
 
-    expect(result).toEqual({value: 'deploy #1', trace: []});
+    expect(result).toMatchObject({
+      nameOverride: null,
+      trace: [
+        expect.objectContaining({
+          field: 'job.execution_name',
+          expression: 'inputs.environment.missing',
+          degraded: true,
+        }),
+      ],
+    });
   });
 });

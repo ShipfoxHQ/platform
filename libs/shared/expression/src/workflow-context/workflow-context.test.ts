@@ -218,6 +218,7 @@ describe('workflow context registry', () => {
         kind: 'object',
         fields: {
           key: 'string',
+          name: 'string',
         },
       },
     });

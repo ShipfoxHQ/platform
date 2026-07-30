@@ -51,6 +51,7 @@ export function createOrchestrationActivities(params: {
       agent: params.agent,
       integrations: params.integrations,
       projects: params.projects,
+      secrets: params.secrets,
     }),
     peekListenerBufferActivity,
     resolveJobListenerActivity,

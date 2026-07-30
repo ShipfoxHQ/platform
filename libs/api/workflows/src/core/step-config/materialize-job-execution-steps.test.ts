@@ -157,6 +157,26 @@ function githubAgentToolCatalog(): readonly AgentToolCatalogEntry[] {
 }
 
 describe('materializeJobExecutionSteps', () => {
+  it('resolves static job names through the job execution context', async () => {
+    const model = workflowModel({
+      jobs: {
+        review: {
+          name: 'Review',
+          steps: [{name: template('job.name'), run: 'echo review'}],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+
+    const steps = await materializeJobExecutionSteps({model, job, context: jobExecutionContext()});
+
+    expect(steps[1]).toMatchObject({
+      name: 'Review',
+      config: {run: 'echo review'},
+    });
+  });
+
   it('prepends setup and resolves job-execution context fields', async () => {
     const model = workflowModel({
       jobs: {

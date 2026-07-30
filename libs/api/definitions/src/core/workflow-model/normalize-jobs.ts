@@ -253,6 +253,21 @@ function normalizeJob(params: {
           allowedJobReferences,
           typeOverlay: upstreamJobsTypeOverlay,
         }) ?? [{kind: 'literal' as const, value: params.job.name}]);
+  if (name?.some((segment) => segment.kind !== 'literal')) {
+    params.issues.push(
+      issue({
+        code: 'invalid-interpolation-template',
+        message:
+          'Job name must be static text. Use execution_name for a per-execution dynamic name.',
+        path: ['jobs', params.sourceName, 'name'],
+        details: {
+          field: 'job.name',
+          source: params.job.name,
+          reason: 'Job names cannot contain interpolation expressions.',
+        },
+      }),
+    );
+  }
   const executionName =
     params.job.execution_name === undefined
       ? undefined

@@ -31,7 +31,7 @@
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "runner": {
           "name": "runner",

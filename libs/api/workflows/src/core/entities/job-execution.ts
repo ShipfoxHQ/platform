@@ -15,6 +15,8 @@ export interface JobExecution {
   id: string;
   jobId: string;
   sequence: number;
+  /** A dynamically resolved name; null means use the parent job's fallback. */
+  nameOverride: string | null;
   name: string;
   runner: string[] | null;
   status: JobExecutionStatus;

@@ -56,8 +56,9 @@ export function assembleCreationContext(
 }
 
 export interface AssembleExecutionCreationContextParams extends AssembleWorkflowRunContextParams {
-  readonly jobId: string;
+  readonly job: Pick<Job, 'id' | 'key' | 'name'>;
   readonly sequence: number;
+  readonly nameOverride: string | null;
   readonly executionName: string;
   readonly status: JobExecution['status'];
   readonly triggerEvents: readonly JobExecution['triggerEvents'][number][];
@@ -68,9 +69,10 @@ export function assembleExecutionCreationContext(
   params: AssembleExecutionCreationContextParams,
 ): WorkflowEvaluationContext {
   const execution: JobExecution = {
-    id: `${params.jobId}:${params.sequence}`,
-    jobId: params.jobId,
+    id: `${params.job.id}:${params.sequence}`,
+    jobId: params.job.id,
     sequence: params.sequence,
+    nameOverride: params.nameOverride,
     name: params.executionName,
     runner: null,
     status: params.status,
@@ -92,6 +94,7 @@ export function assembleExecutionCreationContext(
     values: {
       ...assembleWorkflowRunContext(params),
       ...executions,
+      job: {key: params.job.key, name: params.job.name ?? params.job.key},
       execution: executionValues.at(-1),
     },
   };
@@ -212,7 +215,7 @@ function isListenerSnapshotRoot(root: string): root is ListenerSnapshotRoot {
 }
 
 export function assembleListenerSnapshotContext(params: {
-  readonly job: Pick<Job, 'key'>;
+  readonly job: Pick<Job, 'key'> & Partial<Pick<Job, 'name'>>;
   readonly run: AssembleWorkflowRunContextParams['run'];
   readonly triggerPayload: TriggerPayload;
   readonly inputs?: Record<string, unknown> | null | undefined;
@@ -234,7 +237,10 @@ export function assembleListenerSnapshotContext(params: {
     context.inputs = params.inputs ?? null;
   }
   if (params.plan.roots.has('job')) {
-    context.job = {key: params.job.key};
+    context.job = {
+      key: params.job.key,
+      ...(params.job.name === undefined ? {} : {name: params.job.name ?? params.job.key}),
+    };
   }
   if (params.plan.roots.has('jobs')) {
     context.jobs = requestedJobsContext(params.dependencyJobs, params.plan.jobKeys);
@@ -506,7 +512,7 @@ export function assembleExecutionResolutionContext(params: {
   readonly triggerPayload: TriggerPayload;
   readonly inputs?: Record<string, unknown> | null | undefined;
   readonly vars?: Record<string, string> | undefined;
-  readonly job: Pick<Job, 'key'>;
+  readonly job: Pick<Job, 'key'> & Partial<Pick<Job, 'name'>>;
   readonly jobExecution: JobExecution;
   readonly executions: readonly JobExecution[];
   readonly steps: readonly Step[];
@@ -528,7 +534,10 @@ export function assembleExecutionResolutionContext(params: {
         params.jobExecution,
         executionIndex < 0 ? params.jobExecution.sequence - 1 : executionIndex,
       ),
-      job: {key: params.job.key},
+      job: {
+        key: params.job.key,
+        ...(params.job.name === undefined ? {} : {name: params.job.name ?? params.job.key}),
+      },
       steps: assembleStepsContext({steps: params.steps, attempts: params.attempts}),
     },
   };

@@ -225,7 +225,8 @@ function materializeRerunGraphJobs(params: {
 
         const sourceExecution = params.sourceJobExecutionByJobId.get(sourceJob.id);
         const modelJob = sourceModelJobByKey.get(job.key);
-        const executionName = sourceExecution?.name ?? `${job.key} #1`;
+        const nameOverride = sourceExecution?.name ?? null;
+        const executionName = nameOverride ?? job.name ?? job.key;
         const runner =
           carriedOver || modelJob === undefined
             ? (sourceExecution?.runner ?? job.runner ?? null)
@@ -234,13 +235,17 @@ function materializeRerunGraphJobs(params: {
                 modelJob,
                 jobId: job.id,
                 sequence: 1,
+                nameOverride,
                 executionName,
+                jobName: job.name,
                 status: 'pending',
               });
 
         return {
           sequence: 1,
-          name: executionName,
+          // Reruns preserve the authored/resolved override, never the
+          // effective fallback exposed by the core entity.
+          name: nameOverride,
           runner: runner ? [...runner] : null,
           status: carriedOver ? ('succeeded' as const) : ('pending' as const),
           statusReason: null,

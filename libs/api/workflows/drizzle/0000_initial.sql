@@ -15,7 +15,7 @@ CREATE TABLE "workflows_job_executions" (
 	"id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
 	"job_id" uuid NOT NULL,
 	"sequence" integer NOT NULL,
-	"name" text NOT NULL,
+	"name" text,
 	"runner" jsonb,
 	"status" "workflows_job_execution_status" DEFAULT 'pending' NOT NULL,
 	"status_reason" "workflows_job_status_reason",

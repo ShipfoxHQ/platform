@@ -2,7 +2,7 @@ name: Listening workflow
 runner: ubuntu-latest
 jobs:
   review:
-    name: Review batch ${{ execution.index }}
+    execution_name: Review batch ${{ execution.index }}
     listening:
       on:
         - source: github

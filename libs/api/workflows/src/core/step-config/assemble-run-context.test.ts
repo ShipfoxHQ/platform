@@ -140,8 +140,9 @@ describe('assembleExecutionCreationContext', () => {
         data: {ref: 'refs/heads/main'},
       },
       inputs: {deploy: true},
-      jobId: 'job-1',
+      job: {id: 'job-1', key: 'build', name: 'Build'},
       sequence: 2,
+      nameOverride: null,
       executionName: 'Build #2',
       status: 'pending',
       triggerEvents: [
@@ -197,6 +198,7 @@ describe('assembleExecutionCreationContext', () => {
             outputs: {},
           },
         ],
+        job: {key: 'build', name: 'Build'},
         execution: {
           index: 1,
           name: 'Build #2',
@@ -995,6 +997,7 @@ function jobExecution(overrides: Partial<JobExecution> = {}): JobExecution {
     id: 'exec-1',
     jobId: 'job-1',
     sequence: 2,
+    nameOverride: 'Deploy',
     name: 'Deploy',
     runner: null,
     status: 'running',

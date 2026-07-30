@@ -35,6 +35,7 @@ const interpolationFieldSchema = z.enum([
   'job.runner',
   'job.outputs',
   'job.name',
+  'job.execution_name',
   'step.name',
   'step.feedback',
 ]);

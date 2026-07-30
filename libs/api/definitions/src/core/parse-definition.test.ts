@@ -65,7 +65,7 @@ describe('parseDefinition', () => {
         onResolve: 'cancel',
       },
     });
-    expect(definition.model.jobs[0]?.name).toBeDefined();
+    expect(definition.model.jobs[0]?.executionName).toBeDefined();
   });
 
   test('attaches source line locations to workflow model steps', () => {

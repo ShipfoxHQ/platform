@@ -32,7 +32,9 @@ export const jobExecutions = pgTable(
       .notNull()
       .references(() => jobs.id, {onDelete: 'cascade'}),
     sequence: integer('sequence').notNull(),
-    name: text('name').notNull(),
+    // A null value means no dynamic override was resolved. The core entity
+    // exposes the parent job's static name/key as the effective name.
+    name: text('name'),
     runner: jsonb('runner').$type<string[]>(),
     status: jobExecutionStatusEnum('status').notNull().default('pending'),
     statusReason: jobStatusReasonEnum('status_reason'),
@@ -62,12 +64,13 @@ export const jobExecutions = pgTable(
 export type JobExecutionDb = typeof jobExecutions.$inferSelect;
 export type JobExecutionCreateDb = typeof jobExecutions.$inferInsert;
 
-export function toJobExecution(row: JobExecutionDb): JobExecution {
+export function toJobExecution(row: JobExecutionDb, fallbackName: string): JobExecution {
   return {
     id: row.id,
     jobId: row.jobId,
     sequence: row.sequence,
-    name: row.name,
+    nameOverride: row.name,
+    name: row.name ?? fallbackName,
     runner: row.runner as string[] | null,
     status: row.status,
     statusReason: toJobStatusReason(row.statusReason),
