@@ -60,7 +60,7 @@ export function createProjectsModule({
     e2eRoutes: [projectsE2eRoutes],
     metrics: registerProjectsServiceMetrics,
     publishers: [{name: 'projects', table: projectsOutbox, db, eventSchemas: projectsEventSchemas}],
-    interModulePresentations: [createProjectsInterModulePresentation()],
+    interModulePresentations: [createProjectsInterModulePresentation({integrations})],
     subscribers: [
       subscriber(INTEGRATION_SOURCE_COMMIT_PUSHED, onSourceCommitPushed),
       subscriber(INTEGRATION_SOURCE_REPOSITORY_UPDATED, onSourceRepositoryUpdated),

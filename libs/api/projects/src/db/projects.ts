@@ -192,6 +192,32 @@ export interface ResolvedCheckoutTarget {
   externalRepositoryId: string;
 }
 
+export interface UpdateProjectSourceMetadataParams {
+  workspaceId: string;
+  projectId: string;
+  sourceConnectionId: string;
+  sourceExternalRepositoryId: string;
+  sourceRepositoryOwner: string;
+  sourceRepositoryName: string;
+  sourceDefaultBranch: string;
+}
+
+export async function updateProjectSourceMetadata(
+  params: UpdateProjectSourceMetadataParams,
+): Promise<void> {
+  await db()
+    .update(projects)
+    .set({
+      sourceConnectionId: params.sourceConnectionId,
+      sourceExternalRepositoryId: params.sourceExternalRepositoryId,
+      sourceRepositoryOwner: params.sourceRepositoryOwner,
+      sourceRepositoryName: params.sourceRepositoryName,
+      sourceDefaultBranch: params.sourceDefaultBranch,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.projectId)));
+}
+
 export async function resolveCheckoutTarget(
   params: ResolveCheckoutTargetParams,
 ): Promise<ResolvedCheckoutTarget | undefined> {
