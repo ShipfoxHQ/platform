@@ -64,12 +64,6 @@ export function validatePredicateExpression(params: {
     return undefined;
   }
 
-  const varsRoots = knownRoots.filter((root) => root === 'vars');
-  if (varsRoots.length > 0) {
-    params.issues.push(varsContextInServerPredicateIssue({...params, contextRoots}));
-    return undefined;
-  }
-
   const unavailableRoots = knownRoots.filter((root) => !isRootAvailableAt(root, params.site));
   if (unavailableRoots.length > 0) {
     params.issues.push(
@@ -236,27 +230,6 @@ function runnerContextInServerPredicateIssue(params: {
       source: params.source,
       contextRoots: params.contextRoots,
       runnerRoots: params.runnerRoots,
-      site: params.site,
-    },
-  });
-}
-
-function varsContextInServerPredicateIssue(params: {
-  field: WorkflowPredicateField;
-  source: string;
-  site: AvailabilitySite;
-  path: readonly WorkflowModelValidationIssuePathSegment[];
-  contextRoots: readonly string[];
-}): WorkflowModelValidationIssue {
-  return issue({
-    code: 'vars-context-in-server-predicate',
-    message: `${fieldLabel(params.field)} cannot reference vars because predicate evaluation does not include workflow variables.`,
-    path: params.path,
-    details: {
-      field: params.field,
-      source: params.source,
-      contextRoots: params.contextRoots,
-      rejectedRoots: ['vars'],
       site: params.site,
     },
   });

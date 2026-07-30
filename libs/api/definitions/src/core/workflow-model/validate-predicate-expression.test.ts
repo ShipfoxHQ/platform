@@ -64,6 +64,7 @@ describe('validatePredicateExpression', () => {
     'run.id == "run-1"',
     'inputs.env == "prod"',
     'jobs.build.status == "succeeded"',
+    'vars.ENV == "prod"',
   ])('rejects trigger filter roots that are unavailable at ingest: %s', (source) => {
     const result = validate({field: 'trigger.filter', source, site: 'ingest'});
 
@@ -78,7 +79,6 @@ describe('validatePredicateExpression', () => {
 
   it.each([
     ['runner.os == "linux"', 'runner-context-in-server-predicate'],
-    ['vars.ENV == "prod"', 'vars-context-in-server-predicate'],
   ])('rejects forbidden server predicate roots: %s', (source, code) => {
     const result = validate({field: 'trigger.filter', source, site: 'ingest'});
 
@@ -89,6 +89,24 @@ describe('validatePredicateExpression', () => {
         details: expect.objectContaining({field: 'trigger.filter', source}),
       }),
     ]);
+  });
+
+  it.each([
+    ['job.if', 'job-activation'],
+    ['step.if', 'step-dispatch'],
+    ['step.success', 'step-report'],
+    ['job.success', 'job-resolution'],
+    ['listener.on', 'job-activation'],
+    ['listener.until', 'job-activation'],
+  ] as const)('accepts vars in %s at its evaluation site', (field, site) => {
+    const result = validate({
+      field,
+      source: 'vars.ENABLED == "true"',
+      site,
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.expression).toMatchObject({source: 'vars.ENABLED == "true"'});
   });
 
   it.each([

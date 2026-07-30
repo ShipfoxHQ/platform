@@ -1890,7 +1890,7 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
-  it('rejects vars in gate success with a server-predicate issue', () => {
+  it('accepts vars in gate success', () => {
     const document: WorkflowDocument = {
       name: 'vars-context gate',
       jobs: {
@@ -1900,21 +1900,12 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const model = normalizeWorkflowDocument(document);
 
-    expect(error.issues).toEqual([
-      expect.objectContaining({
-        code: 'vars-context-in-server-predicate',
-        message: expect.stringContaining('cannot reference vars'),
-        path: ['jobs', 'build', 'steps', 0, 'gate', 'success'],
-        details: expect.objectContaining({
-          field: 'step.success',
-          source: 'vars.REQUIRED == "true"',
-          rejectedRoots: ['vars'],
-          site: 'step-report',
-        }),
-      }),
-    ]);
+    expect(model.jobs[0]?.steps[0]?.gate?.success).toMatchObject({
+      source: 'vars.REQUIRED == "true"',
+      check: 'syntax',
+    });
   });
 
   it('accepts jobs root references at the gate predicate site', () => {
@@ -2563,29 +2554,29 @@ describe('normalizeWorkflowDocument', () => {
     );
   });
 
-  it('rejects vars roots in if predicates', () => {
+  it('accepts vars in job and step if predicates', () => {
     const document: WorkflowDocument = {
       name: 'vars condition',
       jobs: {
         build: {
           if: interpolation('vars.REQUIRED == "true"'),
-          steps: [{run: 'npm run build'}],
+          steps: [{if: interpolation('vars.REQUIRED == "true"'), run: 'npm run build'}],
         },
       },
     };
 
-    const error = expectInvalid(document);
+    const model = normalizeWorkflowDocument(document);
 
-    expect(error.issues).toEqual([
-      expect.objectContaining({
-        code: 'vars-context-in-server-predicate',
-        path: ['jobs', 'build', 'if'],
-        details: expect.objectContaining({
-          field: 'job.if',
-          rejectedRoots: ['vars'],
-        }),
-      }),
-    ]);
+    expect(model.jobs[0]?.if).toMatchObject({
+      source: 'vars.REQUIRED == "true"',
+      check: 'typed',
+      resultType: 'bool',
+    });
+    expect(model.jobs[0]?.steps[0]?.if).toMatchObject({
+      source: 'vars.REQUIRED == "true"',
+      check: 'typed',
+      resultType: 'bool',
+    });
   });
 
   it('rejects if job references without a direct needs edge', () => {
@@ -2818,7 +2809,7 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
-  it('rejects vars in job success with a server-predicate issue', () => {
+  it('accepts vars in job success', () => {
     const document: WorkflowDocument = {
       name: 'vars-context job success',
       jobs: {
@@ -2829,21 +2820,9 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const model = normalizeWorkflowDocument(document);
 
-    expect(error.issues).toEqual([
-      expect.objectContaining({
-        code: 'vars-context-in-server-predicate',
-        message: expect.stringContaining('cannot reference vars'),
-        path: ['jobs', 'build', 'success'],
-        details: expect.objectContaining({
-          field: 'job.success',
-          source: 'vars.ENVIRONMENT == "prod"',
-          rejectedRoots: ['vars'],
-          site: 'job-resolution',
-        }),
-      }),
-    ]);
+    expect(model.jobs[0]?.success).toBe('vars.ENVIRONMENT == "prod"');
   });
 
   it('reports malformed job execution timeouts', () => {
@@ -3356,12 +3335,12 @@ describe('normalizeWorkflowDocument', () => {
     [
       'vars root',
       'vars.environment == "prod"',
-      'vars-context-in-server-predicate',
+      'context-unavailable-at-predicate-site',
       {
         field: 'trigger.filter',
         source: 'vars.environment == "prod"',
         contextRoots: ['vars'],
-        rejectedRoots: ['vars'],
+        unavailableRoots: ['vars'],
         site: 'ingest',
       },
     ],

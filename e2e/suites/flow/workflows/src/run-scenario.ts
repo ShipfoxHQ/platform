@@ -3,7 +3,7 @@ import {createApiClient} from '@shipfox/e2e-core';
 import {readFakeOpenAiModelProviderState} from '@shipfox/e2e-driver-model-provider';
 import {type LocalRunnerHandle, stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
 import {fetchStepLogs} from '@shipfox/e2e-observe-logs';
-import {createSecret} from '@shipfox/e2e-setup-secrets';
+import {createSecret, createVariable} from '@shipfox/e2e-setup-secrets';
 import type {Attachment} from './attachments.js';
 import {
   attachLocalRunnerLog,
@@ -106,6 +106,16 @@ export async function runScenario(params: RunScenarioParams): Promise<Mismatch[]
         key: secret.key,
         value: secret.value,
         ...(secret.scope === 'project' ? {projectId: project.id} : {}),
+      });
+    }
+
+    for (const variable of scenario.seededVariables) {
+      await createVariable({
+        workspaceId: suite.workspaceId,
+        actorId: E2E_SECRET_ACTOR_ID,
+        key: variable.key,
+        value: variable.value,
+        ...(variable.scope === 'project' ? {projectId: project.id} : {}),
       });
     }
 

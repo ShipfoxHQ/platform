@@ -56,6 +56,28 @@ describe('discoverScenarios', () => {
     }
   });
 
+  test('loads optional scenario variables', () => {
+    const root = createTempScenariosRoot();
+    try {
+      writeScenarioFile(root, 'with-variables', 'expect.yaml', 'run:\n  status: succeeded\n');
+      writeScenarioFile(root, 'with-variables', 'workflow.yml', 'jobs:\n  build:\n    steps: []\n');
+      writeScenarioFile(
+        root,
+        'with-variables',
+        'variables.yaml',
+        'variables:\n  - key: PUBLISHING_ENABLED\n    value: "true"\n',
+      );
+
+      const scenarios = discoverScenarios(root);
+
+      expect(scenarios[0]).toMatchObject({
+        seededVariables: [{key: 'PUBLISHING_ENABLED', value: 'true', scope: 'project'}],
+      });
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
   test('loads optional fake model provider script metadata', () => {
     const root = createTempScenariosRoot();
     try {

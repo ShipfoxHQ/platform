@@ -1,0 +1,6 @@
+trigger: push
+run:
+  status: succeeded
+jobs:
+  publish:
+    status: skipped

@@ -6,7 +6,7 @@ import {z} from 'zod';
 import {type Expectation, parseExpectation} from './expect.js';
 import {parseRejection, type Rejection} from './reject.js';
 
-const seededSecretSchema = z
+const seededKeyValueSchema = z
   .object({
     key: z.string().min(1),
     value: z.string(),
@@ -16,7 +16,13 @@ const seededSecretSchema = z
 
 const seededSecretsSchema = z
   .object({
-    secrets: z.array(seededSecretSchema).default([]),
+    secrets: z.array(seededKeyValueSchema).default([]),
+  })
+  .strict();
+
+const seededVariablesSchema = z
+  .object({
+    variables: z.array(seededKeyValueSchema).default([]),
   })
   .strict();
 
@@ -26,7 +32,8 @@ const modelProviderSchema = z
   })
   .strict();
 
-export type SeededSecret = z.infer<typeof seededSecretSchema>;
+export type SeededSecret = z.infer<typeof seededKeyValueSchema>;
+export type SeededVariable = z.infer<typeof seededKeyValueSchema>;
 
 export interface ScenarioFile {
   path: string;
@@ -40,6 +47,7 @@ interface BaseScenario {
   workflowYaml: string;
   extraFiles: ScenarioFile[];
   seededSecrets: SeededSecret[];
+  seededVariables: SeededVariable[];
   fakeModelProviderScriptKey?: string | undefined;
 }
 
@@ -89,6 +97,12 @@ function loadSeededSecrets(dir: string): SeededSecret[] {
   return seededSecretsSchema.parse(yaml.load(readFileSync(path, 'utf8'))).secrets;
 }
 
+function loadSeededVariables(dir: string): SeededVariable[] {
+  const path = join(dir, 'variables.yaml');
+  if (!existsSync(path)) return [];
+  return seededVariablesSchema.parse(yaml.load(readFileSync(path, 'utf8'))).variables;
+}
+
 function loadModelProviderScriptKey(dir: string): string | undefined {
   const path = join(dir, 'model-provider.yaml');
   if (!existsSync(path)) return undefined;
@@ -114,6 +128,7 @@ function loadScenario(root: string, name: string): Scenario {
     workflowYaml: readFileSync(workflowPath, 'utf8'),
     extraFiles: readScenarioFiles(join(dir, 'files')),
     seededSecrets: loadSeededSecrets(dir),
+    seededVariables: loadSeededVariables(dir),
     fakeModelProviderScriptKey: loadModelProviderScriptKey(dir),
   };
 
