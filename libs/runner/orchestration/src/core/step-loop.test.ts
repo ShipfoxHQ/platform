@@ -48,6 +48,7 @@ const executeSetupStepMock = vi.fn();
 const createStepLogStreamMock = vi.fn();
 const createSessionLogStreamMock = vi.fn();
 const executeAgentStepMock = vi.fn();
+const createJobLogsDirMock = vi.fn();
 
 vi.mock('@shipfox/runner-protocol', () => ({
   requestNextStep: (...args: unknown[]) => requestNextStepMock(...args),
@@ -82,6 +83,7 @@ vi.mock('@shipfox/runner-agent', () => ({
 }));
 
 vi.mock('@shipfox/runner-workspace', () => ({
+  createJobLogsDir: (...args: unknown[]) => createJobLogsDirMock(...args),
   resolveWorkingDirectory: (cwd: string, workingDirectory: unknown) =>
     resolveWorkingDirectoryMock(cwd, workingDirectory),
 }));
@@ -218,6 +220,7 @@ describe('runJobSteps', () => {
       async (cwd: string, workingDirectory: unknown) =>
         workingDirectory === undefined ? cwd : `${cwd}/${String(workingDirectory)}`,
     );
+    createJobLogsDirMock.mockReset();
     requestAgentRuntimeConfigMock.mockResolvedValue({
       harness: 'pi',
       provider_id: 'anthropic',
@@ -239,6 +242,7 @@ describe('runJobSteps', () => {
     executeSetupStepMock.mockResolvedValue({
       result: {success: true, error: null, exit_code: 0},
     });
+    createJobLogsDirMock.mockResolvedValue(undefined);
     createStepLogStreamMock.mockImplementation((opts: {stepId: string}) => {
       events.push(`create:${opts.stepId}`);
       return makeFakeStream(opts.stepId);
@@ -1022,6 +1026,45 @@ describe('runJobSteps', () => {
     expect(events).toContain(`drain:${setup.id}`);
     expect(events).toContain(`dispose:${setup.id}`);
     expect(requestNextStepMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports log directory preparation failures through the setup step', async () => {
+    const setup = buildSetupStep();
+    const error = {message: 'disk full', reason: 'workspace_prep_failed' as const};
+    requestNextStepMock.mockResolvedValueOnce(stepResponse(setup, 1));
+    createJobLogsDirMock.mockRejectedValueOnce(new Error(error.message));
+    reportStepMock.mockResolvedValueOnce({ok: true, cancel: true});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(createJobLogsDirMock).toHaveBeenCalledWith(LOGS_DIR);
+    expect(createStepLogStreamMock).not.toHaveBeenCalled();
+    expect(reportStepMock).toHaveBeenCalledWith(leaseClient, {
+      stepId: setup.id,
+      attempt: 1,
+      status: 'failed',
+      error,
+      exitCode: null,
+      logOutcome: 'abandoned',
+      signal: ac.signal,
+    });
+    expect(executeSetupStepMock).not.toHaveBeenCalled();
+  });
+
+  it('prepares the log directory once across setup retries', async () => {
+    const setup = buildSetupStep();
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(setup, 2))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(createJobLogsDirMock).toHaveBeenCalledOnce();
+    expect(createJobLogsDirMock).toHaveBeenCalledWith(LOGS_DIR);
+    expect(executeSetupStepMock).toHaveBeenCalledTimes(2);
   });
 
   it('fails a run step dispatched before setup without spawning it', async () => {

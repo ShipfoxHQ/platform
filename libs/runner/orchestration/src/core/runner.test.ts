@@ -26,6 +26,7 @@ vi.mock('@shipfox/runner-workspace', async (importActual) => ({
   ...(await importActual<typeof import('@shipfox/runner-workspace')>()),
   cleanupJobCredentials: vi.fn(),
   cleanupJobLogs: vi.fn(),
+  cleanupOrphanedJobLogs: vi.fn(),
   jobCredentialsPath: vi.fn(),
   jobWorkspacePath: vi.fn(),
   jobLogsPath: vi.fn(),
@@ -97,6 +98,7 @@ import {
 import {
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobLogs,
   cleanupWorkspace,
   InvalidJobIdError,
   jobCredentialsPath,
@@ -116,6 +118,7 @@ const mockJobLogsPath = vi.mocked(jobLogsPath);
 const mockJobCredentialsPath = vi.mocked(jobCredentialsPath);
 const mockCleanupWorkspace = vi.mocked(cleanupWorkspace);
 const mockCleanupJobLogs = vi.mocked(cleanupJobLogs);
+const mockCleanupOrphanedJobLogs = vi.mocked(cleanupOrphanedJobLogs);
 const mockCleanupJobCredentials = vi.mocked(cleanupJobCredentials);
 const mockResolveWorkspaceRoot = vi.mocked(resolveWorkspaceRootFromEnv);
 const mockRunJobSteps = vi.mocked(runJobSteps);
@@ -313,6 +316,17 @@ describe('runJob', () => {
 });
 
 describe('startRunner', () => {
+  it('sweeps orphaned job logs before polling', async () => {
+    mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
+
+    await startRunner();
+
+    expect(mockCleanupOrphanedJobLogs).toHaveBeenCalledWith(WORKSPACE_ROOT);
+    expect(mockCleanupOrphanedJobLogs.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRegisterRunnerSession.mock.invocationCallOrder[0] ?? Infinity,
+    );
+  });
+
   it('warns once when required Pi extensions are unavailable', async () => {
     const warn = vi.spyOn(logger(), 'warn').mockImplementation(() => undefined);
     isPiExtensionAvailableMock.mockImplementation(
