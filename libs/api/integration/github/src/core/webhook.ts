@@ -39,6 +39,7 @@ export type HandleGithubEventOutcome =
   | 'duplicate-envelope'
   | 'published-push-envelope-only'
   | 'duplicate-push-envelope-only'
+  | 'fork-pull-request'
   | 'unknown-installation'
   | 'missing-connection'
   | 'inactive-connection'
@@ -53,11 +54,88 @@ function isBranchDeletion(after: string): boolean {
   return after === DELETED_BRANCH_SHA;
 }
 
+interface GithubRepositoryIdentity {
+  id?: string;
+  fullName?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function repositoryIdentity(value: unknown): GithubRepositoryIdentity | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const id =
+    (typeof value.id === 'number' && Number.isInteger(value.id) ? String(value.id) : undefined) ??
+    (typeof value.id === 'string' && value.id.trim() ? value.id.trim() : undefined);
+  const fullName =
+    typeof value.full_name === 'string' && value.full_name.trim()
+      ? value.full_name.trim().toLowerCase()
+      : undefined;
+  if (!id && !fullName) return undefined;
+
+  return {...(id ? {id} : {}), ...(fullName ? {fullName} : {})};
+}
+
+function areSameRepositories(
+  head: GithubRepositoryIdentity,
+  base: GithubRepositoryIdentity,
+): boolean {
+  if (head.id && base.id) return head.id === base.id;
+  if (head.fullName && base.fullName) return head.fullName === base.fullName;
+  return false;
+}
+
+function pullRequestRepositories(
+  payload: unknown,
+):
+  | {head: GithubRepositoryIdentity | undefined; base: GithubRepositoryIdentity | undefined}
+  | undefined {
+  if (!isRecord(payload) || !isRecord(payload.pull_request)) return undefined;
+
+  const pullRequest = payload.pull_request;
+  const head = isRecord(pullRequest.head) ? repositoryIdentity(pullRequest.head.repo) : undefined;
+  const base =
+    (isRecord(pullRequest.base) ? repositoryIdentity(pullRequest.base.repo) : undefined) ??
+    repositoryIdentity(payload.repository);
+  return {head, base};
+}
+
 export async function handleGithubEvent(
   params: HandleGithubEventParams,
 ): Promise<HandleGithubEventResult> {
   const actionEnvelope = githubWebhookActionSchema.safeParse(params.payload);
   const action = actionEnvelope.success ? actionEnvelope.data.action : undefined;
+
+  const pullRequestRepos = pullRequestRepositories(params.payload);
+  if (
+    pullRequestRepos &&
+    (!pullRequestRepos.head ||
+      !pullRequestRepos.base ||
+      !areSameRepositories(pullRequestRepos.head, pullRequestRepos.base))
+  ) {
+    logger().info(
+      {
+        deliveryId: params.deliveryId,
+        event: params.event,
+        reason:
+          !pullRequestRepos.head || !pullRequestRepos.base
+            ? 'repository_unresolved'
+            : 'repositories_differ',
+        headRepository: pullRequestRepos.head,
+        baseRepository: pullRequestRepos.base,
+      },
+      'github webhook: fork or indeterminate pull request, dropping',
+    );
+    await params.recordDeliveryOnly({
+      tx: params.tx,
+      provider: GITHUB_SOURCE,
+      deliveryId: params.deliveryId,
+    });
+    return {outcome: 'fork-pull-request'};
+  }
+
   const installationEnvelope = githubWebhookInstallationSchema.safeParse(params.payload);
   const installationId = installationEnvelope.success
     ? installationEnvelope.data.installation?.id

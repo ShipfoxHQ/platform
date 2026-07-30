@@ -250,7 +250,12 @@ describe('GitHub webhook route', () => {
     const rawPayload = {
       action: 'opened',
       installation: {id: installationId},
-      pull_request: {number: 17},
+      repository: {id: 42, full_name: 'shipfox/platform'},
+      pull_request: {
+        number: 17,
+        head: {repo: {id: 42, full_name: 'shipfox/platform'}},
+        base: {repo: {id: 42, full_name: 'shipfox/platform'}},
+      },
     };
     const body = JSON.stringify(rawPayload);
 
@@ -276,6 +281,44 @@ describe('GitHub webhook route', () => {
         payload: rawPayload,
       },
     });
+  });
+
+  it('records and drops a pull request opened from a fork', async () => {
+    const installationId = 7787;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const {
+      app,
+      publishIntegrationEventReceived,
+      publishSourcePush,
+      recordDeliveryOnly,
+      getIntegrationConnectionById,
+    } = await createTestApp({connection});
+    const deliveryId = randomUUID();
+    const rawPayload = {
+      action: 'opened',
+      installation: {id: installationId},
+      repository: {id: 42, full_name: 'shipfox/platform'},
+      pull_request: {
+        head: {repo: {id: 84, full_name: 'contributor/platform'}},
+        base: {repo: {id: 42, full_name: 'shipfox/platform'}},
+      },
+    };
+    const body = JSON.stringify(rawPayload);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/webhooks/integrations/github',
+      headers: signedHeaders(body, 'pull_request', deliveryId),
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(publishIntegrationEventReceived).not.toHaveBeenCalled();
+    expect(publishSourcePush).not.toHaveBeenCalled();
+    expect(recordDeliveryOnly).toHaveBeenCalledTimes(1);
+    expect(recordDeliveryOnly.mock.calls[0]?.[0]).toMatchObject({provider: 'github', deliveryId});
+    expect(getIntegrationConnectionById).not.toHaveBeenCalled();
   });
 
   it('publishes a generic envelope for a non-push event without an action', async () => {
