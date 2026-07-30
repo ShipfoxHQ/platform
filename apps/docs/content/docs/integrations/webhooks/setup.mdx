@@ -73,18 +73,15 @@ triggers:
 jobs:
   check:
     steps:
-      - env:
-          RELEASE_VERSION: "${{ event.body.version }}"
-        run: |
-          printf 'Staging release: %s\n' "$RELEASE_VERSION"
+      - run: |
+          printf 'Staging release: %s\n' "${{ event.body.version }}"
 ```
 
 Commit and push the workflow to the project's default branch. Wait for **Check
 the custom webhook** to sync. Send the same test request again.
 
 Open the new event and its linked run. Confirm that the log prints `Staging
-release: 1.4.2`. The workflow binds the request value through `env` before the
-shell reads it.
+release: 1.4.2`.
 
 The [custom webhook events reference](/integrations/webhooks/events) describes
 the request and event fields. Read [Events and triggers](/understand/events-and-triggers)
