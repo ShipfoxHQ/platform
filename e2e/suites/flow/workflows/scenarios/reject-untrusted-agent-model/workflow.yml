@@ -1,4 +1,4 @@
-name: Reject untrusted agent model
+name: Reject external agent model selection
 runner: __RUNNER_LABEL__
 triggers:
   on_push:

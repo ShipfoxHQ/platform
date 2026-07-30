@@ -25,7 +25,6 @@ import {
   workflowContextNames,
   workflowInterpolationFieldAcceptsContext,
   workflowInterpolationFieldAcceptsHost,
-  workflowInterpolationFieldAcceptsTrustTier,
 } from '@shipfox/expression';
 import type {WorkflowFieldTemplate} from '../entities/workflow-model.js';
 import type {
@@ -156,11 +155,26 @@ function validateExpressionSegment(params: {
   const knownRoots = contextRoots.filter(isWorkflowContextName);
   const unknownRoots = contextRoots.filter((root) => !isWorkflowContextName(root));
 
-  const rejectedRoots = knownRoots.filter(
-    (root) => !workflowInterpolationFieldAcceptsContext(params.field, root),
+  const rejectedAgentSelectionRoots = knownRoots.filter(
+    (root) =>
+      isAgentSelectionField(params.field) &&
+      !workflowInterpolationFieldAcceptsContext(params.field, root),
   );
-  if (rejectedRoots.length > 0) {
-    params.issues.push(untrustedContextIssue({...params, contextRoots, rejectedRoots}));
+  const rejectedAgentSelectionPathRoots = isAgentSelectionField(params.field)
+    ? findAgentSelectionPathRoots(params.segment, knownRoots)
+    : [];
+  const rejectedAgentSelectionContextRoots = uniqueStrings([
+    ...rejectedAgentSelectionRoots,
+    ...rejectedAgentSelectionPathRoots,
+  ]).filter(isWorkflowContextName);
+  if (rejectedAgentSelectionContextRoots.length > 0) {
+    params.issues.push(
+      agentSelectionContextIssue({
+        ...params,
+        contextRoots,
+        rejectedRoots: rejectedAgentSelectionContextRoots,
+      }),
+    );
     return undefined;
   }
 
@@ -215,14 +229,6 @@ function validateExpressionSegment(params: {
         });
   if (invalidJobReferenceIssue !== undefined) {
     params.issues.push(invalidJobReferenceIssue);
-    return undefined;
-  }
-
-  const rejectedPathRoots = findUntrustedPathRoots(params.segment, params.field, knownRoots);
-  if (rejectedPathRoots.length > 0) {
-    params.issues.push(
-      untrustedContextIssue({...params, contextRoots, rejectedRoots: rejectedPathRoots}),
-    );
     return undefined;
   }
 
@@ -300,13 +306,14 @@ function validateExpressionSegment(params: {
   }
 }
 
-function findUntrustedPathRoots(
+function isAgentSelectionField(field: StoredInterpolationField): boolean {
+  return field === 'agent.model' || field === 'agent.provider';
+}
+
+function findAgentSelectionPathRoots(
   segment: WorkflowTemplateExprSegment,
-  field: StoredInterpolationField,
   knownRoots: readonly WorkflowContextName[],
 ): readonly WorkflowContextName[] {
-  if (!isTrustedOnlyField(field)) return [];
-
   const untrustedPathsByRoot = new Map<string, readonly string[]>();
   for (const root of knownRoots) {
     const paths = getWorkflowContextUntrustedPaths(root);
@@ -326,11 +333,7 @@ function findUntrustedPathRoots(
   }).filter(isWorkflowContextName);
 }
 
-function isTrustedOnlyField(field: StoredInterpolationField): boolean {
-  return !workflowInterpolationFieldAcceptsTrustTier(field, 'untrusted');
-}
-
-function untrustedContextIssue(params: {
+function agentSelectionContextIssue(params: {
   field: WorkflowInterpolationField;
   source: string;
   path: readonly WorkflowModelValidationIssuePathSegment[];
@@ -338,15 +341,10 @@ function untrustedContextIssue(params: {
   rejectedRoots: readonly WorkflowContextName[];
 }): WorkflowModelValidationIssue {
   return issue({
-    code: 'untrusted-context-in-field',
-    message:
-      params.field === 'run'
-        ? `Run command interpolation cannot use untrusted context ${formatList(
-            params.rejectedRoots,
-          )}. Bind untrusted values to env and reference the shell variable from run instead.`
-        : `${fieldLabel(params.field)} interpolation cannot use untrusted context ${formatList(
-            params.rejectedRoots,
-          )}.`,
+    code: 'untrusted-agent-selection-context',
+    message: `${fieldLabel(params.field)} interpolation cannot use external context ${formatList(
+      params.rejectedRoots,
+    )}. Agent model and provider selections must come from workflow-authored context.`,
     path: params.path,
     details: {
       field: params.field,

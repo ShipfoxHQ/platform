@@ -1,4 +1,0 @@
-error_code: invalid-definition
-message_includes:
-  - Run command interpolation cannot use untrusted context
-  - '"execution"'

@@ -3,6 +3,7 @@ import {extractCelUntrustedPathAccesses} from './extract-cel-untrusted-path-acce
 const untrustedPathsByRoot = new Map<string, readonly string[]>([
   ['execution', ['events']],
   ['executions', ['events']],
+  ['steps', ['outputs']],
 ]);
 
 function extract(source: string): string[] {
@@ -18,6 +19,7 @@ describe('extractCelUntrustedPathAccesses', () => {
     ['execution.events.exists(e, e.data.ok)', ['execution']],
     ['executions.map(e, e.events[0].data.body)', ['executions']],
     ['executions.exists(e, e.events.size() > 0)', ['executions']],
+    ['steps.filter(s, true).map(s, s.outputs.value)[0]', ['steps']],
   ] as const)('finds untrusted path access in %s', (source, roots) => {
     const result = extract(source);
 
