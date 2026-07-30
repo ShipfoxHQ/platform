@@ -60,6 +60,7 @@ export interface ShellCodePositionAnalysis {
 
 interface ShellVariableReference {
   readonly kind: 'direct' | 'arithmetic';
+  readonly isSingleQuotedLiteral: boolean;
   readonly name: string;
 }
 
@@ -119,16 +120,26 @@ export function classifyShellCodePosition(params: {
     words: readonly ShellWord[],
     construct: ShellReevaluatingConstruct,
     kinds: readonly ShellVariableReference['kind'][] = ['direct'],
+    includeSingleQuotedLiterals = false,
   ) => {
     for (const word of words) {
       for (const reference of word.references) {
-        if (kinds.includes(reference.kind)) report(reference, construct);
+        if (
+          kinds.includes(reference.kind) &&
+          (includeSingleQuotedLiterals || !reference.isSingleQuotedLiteral)
+        ) {
+          report(reference, construct);
+        }
       }
     }
   };
 
   const analyzeCommand = (words: readonly ShellWord[]) => {
     const commandWords = words.filter((word) => !word.isRedirectionTarget);
+    const firstWord = commandWords[0];
+    if (firstWord !== undefined && shellWordIsStatic(firstWord) && firstWord.value === 'for') {
+      return;
+    }
     const headIndex = commandHeadIndex(commandWords);
     const head = commandWords[headIndex];
     if (head === undefined || !shellWordIsStatic(head)) return;
@@ -139,7 +150,7 @@ export function classifyShellCodePosition(params: {
     const argumentWords = commandWords.slice(headIndex + 1);
 
     if (commandName === 'eval') {
-      reportReferences(argumentWords, 'eval');
+      reportReferences(argumentWords, 'eval', ['direct'], true);
       return;
     }
 
@@ -248,9 +259,13 @@ function tokenizeShell(source: string): readonly ShellToken[] {
     ensureWord().dynamic = true;
   }
 
-  function addReference(name: string, kind: ShellVariableReference['kind']): void {
+  function addReference(
+    name: string,
+    kind: ShellVariableReference['kind'],
+    isSingleQuotedLiteral = false,
+  ): void {
     if (kind === 'arithmetic' && arithmeticShellSyntax) return;
-    ensureWord().references.push({kind, name});
+    ensureWord().references.push({kind, isSingleQuotedLiteral, name});
   }
 
   function markArithmeticShellSyntax(): void {
@@ -279,7 +294,10 @@ function tokenizeShell(source: string): readonly ShellToken[] {
     advance(source.slice(index, index + 2));
   }
 
-  function advanceExpansion(kind: ShellVariableReference['kind']): boolean {
+  function advanceExpansion(
+    kind: ShellVariableReference['kind'],
+    isSingleQuotedLiteral = false,
+  ): boolean {
     if (source[index] !== '$') return false;
 
     if (source.startsWith('$((', index)) {
@@ -305,7 +323,9 @@ function tokenizeShell(source: string): readonly ShellToken[] {
     if (source.startsWith('${', index)) {
       markDynamic();
       const firstName = readParameterName(source, index + 2);
-      if (firstName !== undefined) addReference(firstName.value, kind);
+      if (source[index + 2] !== '#' && firstName !== undefined) {
+        addReference(firstName.value, kind, isSingleQuotedLiteral);
+      }
       advance('${');
       return true;
     }
@@ -319,7 +339,7 @@ function tokenizeShell(source: string): readonly ShellToken[] {
     const name = readShellIdentifier(source, index + 1);
     if (name === undefined) return false;
 
-    addReference(name.value, kind);
+    addReference(name.value, kind, isSingleQuotedLiteral);
     advance(source.slice(index, name.index));
     return true;
   }
@@ -393,7 +413,7 @@ function tokenizeShell(source: string): readonly ShellToken[] {
       continue;
     }
 
-    if (character === '$' && advanceExpansion('direct')) continue;
+    if (character === '$' && advanceExpansion('direct', site.kind === 'single')) continue;
 
     if (character === '`') {
       markDynamic();
@@ -532,7 +552,7 @@ function reportBareArithmeticReferences(
 
     for (const identifier of arithmeticIdentifiers(expression)) {
       if (workflowDataNames.has(identifier)) {
-        report({kind: 'arithmetic', name: identifier}, construct);
+        report({kind: 'arithmetic', name: identifier, isSingleQuotedLiteral: false}, construct);
       }
     }
   }

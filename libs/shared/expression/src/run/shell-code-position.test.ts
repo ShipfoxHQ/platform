@@ -5,6 +5,7 @@ const workflowDataNames = ['MSG', '__sf_0'];
 describe('classifyShellCodePosition', () => {
   it.each([
     ['eval "$MSG"', 'eval'],
+    ["eval 'echo $MSG'", 'eval'],
     ['sh -c "$MSG"', 'sh-c'],
     ['bash -c "$MSG"', 'bash-c'],
     ['source "$MSG"', 'source'],
@@ -34,6 +35,10 @@ describe('classifyShellCodePosition', () => {
     'bash -c \'echo "$1"\' _ "$MSG"',
     'source ./scripts/setup.sh',
     'eval "$(cat script.sh)"',
+    `eval "\${#MSG}"`,
+    "sed 's/$MSG/x/'",
+    "sh -c '$MSG'",
+    'for eval in "$MSG"; do :; done',
     'xargs cmd "$MSG"',
     'xargs sh -c \'echo "$1"\' _ "$MSG"',
     'jq --arg v "$MSG" \'$v\'',
@@ -181,6 +186,7 @@ describe('classifyShellCodePosition', () => {
     ['(( echo "$MSG" ))', []],
     ["(( MSG + arr['k'] ))", [{name: 'MSG', construct: 'arithmetic'}]],
     ['if true; then eval "$MSG"; fi', [{name: 'MSG', construct: 'eval'}]],
+    ['for x in "$MSG"; do eval "$MSG"; done', [{name: 'MSG', construct: 'eval'}]],
     ['echo $((1 + (MSG)))', [{name: 'MSG', construct: 'arithmetic'}]],
     [
       String.raw`eval \

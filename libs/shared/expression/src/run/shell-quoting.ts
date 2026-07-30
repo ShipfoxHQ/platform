@@ -327,18 +327,7 @@ function scanShellPlainStart(
     return dollarDoubleStart;
   }
 
-  const frame = topFrame(frames);
   const arithStart = matchShellLogicalPrefix(text, index, '((');
-  if (isArithFrame(frame) && arithStart !== undefined) {
-    replaceTopArithFrame(frames, frame.parenthesisDepth + 2);
-    return arithStart;
-  }
-
-  if (isArithFrame(frame) && text[index] === '(') {
-    replaceTopArithFrame(frames, frame.parenthesisDepth + 1);
-    return index + 1;
-  }
-
   if (arithStart !== undefined) {
     frames.push({kind: 'arith', parenthesisDepth: 0});
     return arithStart;
