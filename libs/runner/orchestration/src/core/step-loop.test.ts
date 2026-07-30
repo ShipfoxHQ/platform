@@ -1239,6 +1239,7 @@ describe('runJobSteps', () => {
     expect(executeAgentStepMock).toHaveBeenCalledWith(agent, {
       signal: ac.signal,
       cwd: '/work',
+      logsDir: LOGS_DIR,
       runtime: {
         harness: 'pi',
         provider: 'anthropic',
@@ -1435,6 +1436,7 @@ describe('runJobSteps', () => {
     expect(executeAgentStepMock).toHaveBeenCalledWith(agent, {
       signal: ac.signal,
       cwd: '/work',
+      logsDir: LOGS_DIR,
       runtime: {
         harness: 'pi',
         provider: 'anthropic',

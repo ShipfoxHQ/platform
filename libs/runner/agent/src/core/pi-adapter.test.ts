@@ -5,6 +5,7 @@ const piExtensionTestState = vi.hoisted(() => ({
 const {
   createAgentSessionMock,
   createAgentSessionServicesMock,
+  sessionManagerCreateMock,
   findMock,
   getAllMock,
   hasConfiguredAuthMock,
@@ -20,6 +21,7 @@ const {
 } = vi.hoisted(() => ({
   createAgentSessionMock: vi.fn(),
   createAgentSessionServicesMock: vi.fn(),
+  sessionManagerCreateMock: vi.fn(() => ({})),
   findMock: vi.fn(),
   getAllMock: vi.fn(),
   hasConfiguredAuthMock: vi.fn(),
@@ -58,7 +60,7 @@ vi.mock('@earendil-works/pi-coding-agent', () => ({
   ModelRuntime: {
     create: modelRuntimeCreateMock,
   },
-  SessionManager: {create: () => ({})},
+  SessionManager: {create: sessionManagerCreateMock},
 }));
 
 vi.mock('@shipfox/node-egress-guard', () => ({
@@ -153,6 +155,7 @@ function expectResolvedExtensionPaths(
 function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocation {
   return {
     cwd: '/work',
+    logsDir: '/runner-logs/job-1',
     model: 'claude-opus-4-8',
     provider: 'anthropic',
     thinking: 'high',
@@ -204,6 +207,8 @@ describe('piHarnessAdapter', () => {
     delete process.env.GIT_CONFIG_GLOBAL;
     createAgentSessionMock.mockReset();
     createAgentSessionServicesMock.mockReset();
+    sessionManagerCreateMock.mockReset();
+    sessionManagerCreateMock.mockReturnValue({});
     findMock.mockReset();
     getAllMock.mockReset();
     hasConfiguredAuthMock.mockReset();
@@ -301,8 +306,9 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionMock).toHaveBeenCalled();
   });
 
-  it('configures eager loopback MCP proxy access in the job workspace', async () => {
+  it('configures eager loopback MCP proxy access in the runner job logs directory', async () => {
     sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
+    const logsDir = join(sessionDir, 'runner-logs');
     const bridge = mcpBridge();
     let configPath = '';
     let config: unknown;
@@ -312,11 +318,15 @@ describe('piHarnessAdapter', () => {
       return piServices(sessionDir);
     });
 
-    await piHarnessAdapter.run(invocation({cwd: sessionDir, mcpServers: [bridge]}));
+    await piHarnessAdapter.run(invocation({cwd: sessionDir, logsDir, mcpServers: [bridge]}));
 
     expect(bridge.activateHttp).toHaveBeenCalledTimes(1);
     expect(bindExtensionsMock).toHaveBeenCalledWith(expect.objectContaining({mode: 'print'}));
-    expect(configPath).toMatch(`${sessionDir}/logs/pi-mcp-`);
+    expect(configPath).toMatch(`${logsDir}/pi-mcp-`);
+    expect(sessionManagerCreateMock).toHaveBeenCalledWith(
+      sessionDir,
+      join(logsDir, 'agent-sessions'),
+    );
     expect(config).toEqual({
       settings: {toolPrefix: 'none'},
       mcpServers: {
@@ -353,6 +363,7 @@ describe('piHarnessAdapter', () => {
     const result = piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
+        logsDir: join(sessionDir, 'runner-logs'),
         signal: abortController.signal,
         mcpServers: [mcpBridge()],
       }),
@@ -440,7 +451,13 @@ describe('piHarnessAdapter', () => {
     );
 
     const error = await piHarnessAdapter
-      .run(invocation({cwd: sessionDir, mcpServers: [mcpBridge()]}))
+      .run(
+        invocation({
+          cwd: sessionDir,
+          logsDir: join(sessionDir, 'runner-logs'),
+          mcpServers: [mcpBridge()],
+        }),
+      )
       .catch((caught) => caught);
 
     expect(error.message).toContain(piMcpAdapterDirectory);
@@ -456,7 +473,13 @@ describe('piHarnessAdapter', () => {
     };
 
     const error = await piHarnessAdapter
-      .run(invocation({cwd: sessionDir, mcpServers: [mcpBridge()]}))
+      .run(
+        invocation({
+          cwd: sessionDir,
+          logsDir: join(sessionDir, 'runner-logs'),
+          mcpServers: [mcpBridge()],
+        }),
+      )
       .catch((caught) => caught);
 
     expect(error).toBeInstanceOf(AgentHarnessUnavailableError);
@@ -465,7 +488,7 @@ describe('piHarnessAdapter', () => {
       environment: {extensionPaths: ['pi-web-access', 'pi-mcp-adapter']},
     });
     expect(createAgentSessionServicesMock).not.toHaveBeenCalled();
-    expect(readdirSync(join(sessionDir, 'logs'))).toEqual([]);
+    expect(readdirSync(join(sessionDir, 'runner-logs'))).toEqual([]);
   });
 
   it('registers the output tool for steps with declared outputs', async () => {
@@ -493,6 +516,7 @@ describe('piHarnessAdapter', () => {
     await piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
+        logsDir: join(sessionDir, 'runner-logs'),
         mcpServers: [mcpBridge()],
         tools: ['read', 'mcp', 'web_search'],
       }),
@@ -508,6 +532,7 @@ describe('piHarnessAdapter', () => {
     await piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
+        logsDir: join(sessionDir, 'runner-logs'),
         mcpServers: [mcpBridge()],
         tools: ['read', 'web_search'],
       }),
@@ -550,6 +575,7 @@ describe('piHarnessAdapter', () => {
     await piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
+        logsDir: join(sessionDir, 'runner-logs'),
         provider: 'local-ollama',
         model: 'llama',
         mcpServers: [mcpBridge()],

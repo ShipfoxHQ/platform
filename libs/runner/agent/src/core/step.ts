@@ -37,6 +37,7 @@ export async function executeAgentStep(
   options: {
     signal?: AbortSignal;
     cwd?: string;
+    logsDir?: string | undefined;
     runtime: {
       harness: Harness;
       provider: string;
@@ -98,6 +99,7 @@ export async function executeAgentStep(
       stepId: step.id,
       attempt: step.current_attempt,
       cwd: options.cwd ?? process.cwd(),
+      logsDir: options.logsDir,
       harness: options.runtime.harness,
       model: options.runtime.model,
       outputs: outputDeclarationsFromConfig(step.config.outputs),
@@ -122,6 +124,7 @@ async function runSelectedHarness(params: {
   stepId: string;
   attempt: number;
   cwd: string;
+  logsDir: string | undefined;
   harness: Harness;
   model: string;
   outputs: OutputDeclarations | undefined;
@@ -141,6 +144,7 @@ async function runSelectedHarness(params: {
     stepId,
     attempt,
     cwd,
+    logsDir,
     harness,
     model,
     outputs,
@@ -161,6 +165,7 @@ async function runSelectedHarness(params: {
     const {response, outputs: collectedOutputs} = await raceAbort(
       adapter.run({
         cwd,
+        ...(logsDir === undefined ? {} : {logsDir}),
         model,
         provider,
         thinking,
