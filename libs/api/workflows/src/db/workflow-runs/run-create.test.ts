@@ -36,6 +36,121 @@ describe('workflow run queries', () => {
   });
 
   describe('createWorkflowRun', () => {
+    test('resolves and persists a dynamic run name while preserving the static snapshot', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          name: 'Deploy application',
+          runName: `Deploy ${template('event.environment')}`,
+        }),
+        triggerPayload: {
+          source: 'github',
+          event: 'deployment',
+          deliveryId: 'delivery-1',
+          data: {environment: 'production'},
+        },
+      });
+
+      expect(run).toMatchObject({
+        name: 'Deploy production',
+        workflowName: 'Deploy application',
+        nameOverride: 'Deploy production',
+      });
+      await expect(getWorkflowRunById(run.id)).resolves.toMatchObject({
+        name: 'Deploy production',
+        workflowName: 'Deploy application',
+        nameOverride: 'Deploy production',
+      });
+    });
+
+    test('loads referenced variables before resolving the run name', async () => {
+      const secrets = createTestSecretsClient();
+      await secrets.setSecrets({
+        workspaceId,
+        projectId,
+        namespace: '',
+        values: {ENVIRONMENT: 'staging'},
+      });
+
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({runName: `Deploy ${template('vars.ENVIRONMENT')}`}),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+        secrets,
+      });
+
+      expect(run).toMatchObject({
+        name: 'Deploy staging',
+        workflowName: 'Test Workflow',
+        nameOverride: 'Deploy staging',
+      });
+    });
+
+    test('creates the run when only the run name references variables without a secrets client', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          name: 'Deploy application',
+          runName: template('vars.ENVIRONMENT'),
+        }),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      expect(run).toMatchObject({
+        name: 'Deploy application',
+        workflowName: 'Deploy application',
+        nameOverride: null,
+      });
+      await expect(getJobsByWorkflowRunId(run.id)).resolves.toHaveLength(1);
+    });
+
+    test('falls back to the static name when run-name resolution cannot produce a value', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          name: 'Deploy application',
+          runName: template('event.environment'),
+        }),
+        triggerPayload: {
+          source: 'github',
+          event: 'deployment',
+          deliveryId: 'delivery-1',
+          data: {},
+        },
+      });
+
+      expect(run).toMatchObject({
+        name: 'Deploy application',
+        workflowName: 'Deploy application',
+        nameOverride: null,
+      });
+      await expect(
+        db()
+          .select({name: workflowRuns.name, workflowName: workflowRuns.workflowName})
+          .from(workflowRuns)
+          .where(eq(workflowRuns.id, run.id)),
+      ).resolves.toEqual([{name: null, workflowName: 'Deploy application'}]);
+      await expect(getJobsByWorkflowRunId(run.id)).resolves.toHaveLength(1);
+    });
+
     test('inserts run, jobs, and steps atomically', async () => {
       const run = await createWorkflowRun({
         workspaceId,
@@ -1313,6 +1428,49 @@ describe('workflow run queries', () => {
         .from(workflowsOutbox)
         .where(sql`${workflowsOutbox.payload}->>'workflowRunId' = ${first.id}`);
       expect(outboxRows).toHaveLength(1);
+    });
+
+    test('duplicate triggerIdempotencyKey returns the persisted run name without reevaluating it', async () => {
+      const idempotencyKey = crypto.randomUUID();
+      const first = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          name: 'Deploy application',
+          runName: `Deploy ${template('event.environment')}`,
+        }),
+        triggerPayload: {
+          source: 'github',
+          event: 'deployment',
+          deliveryId: 'delivery-1',
+          data: {environment: 'production'},
+        },
+        triggerIdempotencyKey: idempotencyKey,
+      });
+      const replay = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          name: 'Changed workflow',
+          runName: `Changed ${template('event.environment')}`,
+        }),
+        triggerPayload: {
+          source: 'github',
+          event: 'deployment',
+          deliveryId: 'delivery-2',
+          data: {environment: 'staging'},
+        },
+        triggerIdempotencyKey: idempotencyKey,
+      });
+
+      expect(replay).toMatchObject({
+        id: first.id,
+        name: 'Deploy production',
+        workflowName: 'Deploy application',
+        nameOverride: 'Deploy production',
+      });
     });
 
     test('duplicate triggerIdempotencyKey returns the existing run without re-materializing', async () => {

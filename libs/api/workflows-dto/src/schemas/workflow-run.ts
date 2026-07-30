@@ -80,6 +80,7 @@ export const workflowRunDtoSchema = z.object({
   project_id: z.string().uuid(),
   definition_id: z.string().uuid(),
   name: z.string(),
+  workflow_name: z.string(),
   status: workflowRunStatusSchema,
   current_attempt: z.number().int().positive(),
   latest_attempt: z.number().int().positive(),

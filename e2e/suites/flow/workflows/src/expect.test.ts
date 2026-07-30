@@ -108,6 +108,7 @@ function makeDetail(
     project_id: '11111111-1111-4111-8111-111111111111',
     definition_id: '22222222-2222-4222-8222-222222222222',
     name: 'Hello world',
+    workflow_name: 'Hello world',
     status: 'succeeded',
     current_attempt: 1,
     latest_attempt: 1,

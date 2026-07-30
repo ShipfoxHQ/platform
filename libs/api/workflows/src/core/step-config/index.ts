@@ -38,4 +38,11 @@ export {
   resolveJobExecutionName,
 } from './resolve-job-execution-name.js';
 export type {WorkflowStepTemplateDiagnostic} from './resolve-step-config.js';
+export {
+  type ResolveWorkflowRunNameResult,
+  resolveWorkflowRunName,
+  sanitizeWorkflowDisplayText,
+  type WorkflowRunNameDegradation,
+  type WorkflowRunNameResolutionCause,
+} from './resolve-workflow-run-name.js';
 export type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';

@@ -20,6 +20,7 @@ describe('assembleWorkflowRunContext', () => {
   const run = {
     id: 'run-1',
     name: 'Build',
+    workflowName: 'Build',
     definitionId: 'def-1',
     projectId: 'proj-1',
     workspaceId: 'workspace-1',
@@ -42,6 +43,7 @@ describe('assembleWorkflowRunContext', () => {
       run: {
         id: 'run-1',
         name: 'Build',
+        workflow_name: 'Build',
         definition_id: 'def-1',
         project_id: 'proj-1',
         workspace_id: 'workspace-1',
@@ -77,6 +79,7 @@ describe('assembleCreationContext', () => {
   const run = {
     id: 'run-1',
     name: 'Build',
+    workflowName: 'Build',
     definitionId: 'def-1',
     projectId: 'proj-1',
     workspaceId: 'workspace-1',
@@ -115,6 +118,7 @@ describe('assembleExecutionCreationContext', () => {
   const run = {
     id: 'run-1',
     name: 'Build',
+    workflowName: 'Build',
     definitionId: 'def-1',
     projectId: 'proj-1',
     workspaceId: 'workspace-1',
@@ -225,6 +229,7 @@ describe('assembleJobActivationContext', () => {
   const run = {
     id: 'run-1',
     name: 'Build',
+    workflowName: 'Build',
     definitionId: 'def-1',
     projectId: 'proj-1',
     workspaceId: 'workspace-1',
@@ -331,6 +336,7 @@ describe('listener filter snapshots', () => {
   const run = {
     id: 'run-1',
     name: 'Build',
+    workflowName: 'Build',
     definitionId: 'def-1',
     projectId: 'proj-1',
     workspaceId: 'workspace-1',
@@ -922,6 +928,7 @@ describe('assembleExecutionResolutionContext', () => {
   const run = {
     id: 'run-1',
     name: 'Build',
+    workflowName: 'Build',
     definitionId: 'def-1',
     projectId: 'proj-1',
     workspaceId: 'workspace-1',

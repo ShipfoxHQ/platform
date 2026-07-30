@@ -5,6 +5,7 @@ const baseRun = {
   project_id: '22222222-2222-4222-8222-222222222222',
   definition_id: '33333333-3333-4333-8333-333333333333',
   name: 'Build',
+  workflow_name: 'Build',
   status: 'pending',
   source_run_id: null,
   root_run_id: null,
@@ -46,6 +47,8 @@ describe('workflow source snapshot schemas', () => {
     const result = workflowRunDtoSchema.parse({...baseRun, source_snapshot: null});
 
     expect(result.source_snapshot).toBeNull();
+    expect(result.name).toBe('Build');
+    expect(result.workflow_name).toBe('Build');
   });
 
   test('accepts run DTOs with source snapshots', () => {

@@ -57,7 +57,12 @@ export interface WorkflowRun {
   workspaceId: string;
   projectId: string;
   definitionId: string;
+  /** Effective runtime name: the resolved override, or workflowName when absent. */
   name: string;
+  /** Static workflow-name snapshot preserved from the definition at creation. */
+  workflowName: string;
+  /** Nullable resolved override retained for rerun fidelity. */
+  nameOverride: string | null;
   status: WorkflowRunStatus;
   currentAttempt: number;
   triggerProvider: string | null;

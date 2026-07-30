@@ -20,13 +20,18 @@ import type {
   WorkflowSourceSnapshot,
 } from '#core/entities/workflow-run.js';
 import {InterpolationUnresolvableError} from '#core/errors.js';
+import {assembleCreationContext} from '#core/step-config/assemble-run-context.js';
 import type {MaterializedWorkflowJob} from '#core/step-config/materialize-workflow-model.js';
 import type {WorkflowStepTemplateDiagnostic} from '#core/step-config/resolve-step-config.js';
+import {resolveWorkflowRunName} from '#core/step-config/resolve-workflow-run-name.js';
 import {
   deriveInitialJobExecutionPlan,
   materializeWorkflowRunJobs,
 } from '#core/workflow-run-creation.js';
-import {recordWorkflowRunCreated} from '#metrics/instance.js';
+import {
+  recordWorkflowDisplayNameResolutionDegraded,
+  recordWorkflowRunCreated,
+} from '#metrics/instance.js';
 import {db} from '../db.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
@@ -58,6 +63,7 @@ export interface CreateWorkflowRunParams {
 }
 
 export async function createWorkflowRun(params: CreateWorkflowRunParams): Promise<WorkflowRun> {
+  const staticName = params.name ?? params.model.name;
   const agentToolContext =
     params.integrations === undefined
       ? undefined
@@ -79,7 +85,8 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
         workspaceId: params.workspaceId,
         projectId: params.projectId,
         definitionId: params.definitionId,
-        name: params.name ?? params.model.name,
+        name: null,
+        workflowName: staticName,
         status: 'pending',
         currentAttempt: 1,
         triggerProvider: params.triggerPayload.provider ?? null,
@@ -113,11 +120,12 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
       return {run: toWorkflowRun(existingRow), created: false};
     }
 
-    const run = toWorkflowRun(runRow);
     // Resolving run-creation templates and predicates here gives them a stable variable snapshot
-    // and interpolation access to the inserted run id.
-    // If resolution fails, the transaction rolls back the run, jobs, steps, and outbox event together.
-    // Listening steps are resolved later when a job execution is created.
+    // and interpolation access to the inserted run id. Run-name resolution is display-only and
+    // persists only a resolved override. If resolution fails, the transaction rolls back the run,
+    // jobs, steps, and outbox event together. Listening steps are resolved later when a job
+    // execution is created.
+    const provisionalRun = toWorkflowRun(runRow);
     const oneShotJobs = params.model.jobs.filter((job) => job.mode !== 'listening');
     const vars = await loadReferencedVariables({
       model: params.model,
@@ -127,6 +135,23 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
       definitionId: params.definitionId,
       secrets: params.secrets,
     });
+    const runNameResolution = resolveWorkflowRunName({
+      runName: params.model.runName,
+      context: assembleCreationContext({
+        run: provisionalRun,
+        triggerPayload: params.triggerPayload,
+        inputs: params.inputs ?? null,
+        vars,
+      }).values,
+    });
+    const [resolvedRunRow] = await tx
+      .update(workflowRuns)
+      .set({name: runNameResolution.value, updatedAt: new Date()})
+      .where(eq(workflowRuns.id, provisionalRun.id))
+      .returning();
+    if (!resolvedRunRow)
+      throw new Error(`Workflow run missing after name resolution: ${runRow.id}`);
+    const run = toWorkflowRun(resolvedRunRow);
     const [attemptRow] = await tx
       .insert(workflowRunAttempts)
       .values({
@@ -177,11 +202,32 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
       ),
     });
 
-    return {run, created: true};
+    return {
+      run,
+      created: true,
+      nameDegradation: runNameResolution.degradation,
+    };
   });
 
-  if (result.created)
+  if (result.created && result.nameDegradation !== undefined) {
+    recordWorkflowDisplayNameResolutionDegraded('workflow.run_name', result.nameDegradation.cause);
+    logger().warn(
+      {
+        workflowRunId: result.run.id,
+        definitionId: result.run.definitionId,
+        field: 'workflow.run_name',
+        cause: result.nameDegradation.cause,
+        ...(result.nameDegradation.expression === undefined
+          ? {}
+          : {expression: result.nameDegradation.expression.slice(0, 256)}),
+      },
+      'Workflow run name resolution degraded to the static workflow name',
+    );
+  }
+
+  if (result.created) {
     recordWorkflowRunCreated(result.run.triggerPayload.provider ?? result.run.triggerSource);
+  }
 
   return result.run;
 }
@@ -198,9 +244,9 @@ export async function loadReferencedVariables(params: {
   const keys = [...new Set(references.map((reference) => reference.key))].sort();
   if (keys.length === 0) return undefined;
 
-  const requiredReferences = references.filter(
-    (reference) => reference.field !== 'job.execution_name',
-  );
+  const requiresSecrets = (reference: ReferencedVariable) =>
+    reference.field !== 'job.execution_name' && reference.field !== 'workflow.run_name';
+  const requiredReferences = references.filter(requiresSecrets);
   const requiredKeys = new Set(requiredReferences.map((reference) => reference.key));
   if (!params.secrets) {
     if (requiredKeys.size === 0) return undefined;
@@ -321,6 +367,8 @@ function referencedVariables(
       collectPredicateVariableReferences(step.gate?.success, references);
     }
   }
+
+  collectFieldVariableReferences(model.runName, references, {field: 'workflow.run_name'});
 
   if (jobs.length > 0) {
     collectTemplateVariableReferences(model.templates?.env, references);

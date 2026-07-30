@@ -140,6 +140,8 @@ function workflowRun(params: {inputs?: Record<string, unknown> | null} = {}): Wo
     projectId: 'project-1',
     definitionId: 'definition-1',
     name: 'Test workflow',
+    workflowName: 'Test workflow',
+    nameOverride: null,
     status: 'pending',
     currentAttempt: 1,
     triggerProvider: null,

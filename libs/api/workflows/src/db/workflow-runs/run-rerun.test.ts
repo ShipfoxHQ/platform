@@ -42,6 +42,7 @@ describe('workflow run queries', () => {
   describe('createRerunWorkflowRun', () => {
     function rerunModel() {
       return buildModel({
+        runName: `Run ${template('inputs.env')}`,
         jobs: {
           build: {steps: [{run: 'echo build'}]},
           test: {needs: 'build', steps: [{run: 'echo test'}]},
@@ -112,6 +113,9 @@ describe('workflow run queries', () => {
 
       expect(rerun).toMatchObject({
         id: source.id,
+        name: 'Run staging',
+        workflowName: 'Test Workflow',
+        nameOverride: 'Run staging',
         inputs: {env: 'staging'},
         sourceSnapshot: {content: 'name: Original\njobs: {}\n', format: 'yaml'},
       });

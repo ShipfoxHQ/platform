@@ -57,6 +57,7 @@ export function workflowRunDto(
     project_id: PROJECT_ID,
     definition_id: DEFINITION_ID,
     name: 'deploy-web',
+    workflow_name: 'deploy-web',
     status: 'running',
     current_attempt: 1,
     latest_attempt: 1,

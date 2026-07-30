@@ -26,6 +26,7 @@ function run(params: Partial<WorkflowRunDto> = {}): WorkflowRunDto {
     project_id: params.project_id ?? projectId,
     definition_id: params.definition_id ?? definitionId,
     name: params.name ?? 'Build',
+    workflow_name: params.workflow_name ?? 'Build',
     status: params.status ?? 'pending',
     current_attempt: params.current_attempt ?? 1,
     latest_attempt: params.latest_attempt ?? 1,
