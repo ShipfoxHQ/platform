@@ -13,6 +13,18 @@ const workspaceProjectCountSchema = z.object({
   workspaceId: idSchema,
   count: z.number().int().nonnegative(),
 });
+const checkoutTargetSchema = z.union([
+  z.strictObject({project: idSchema}),
+  z.strictObject({
+    connection: idSchema.optional(),
+    repository: z.string().min(1),
+  }),
+]);
+const resolvedCheckoutTargetSchema = z.object({
+  projectId: idSchema,
+  connectionId: idSchema,
+  externalRepositoryId: z.string(),
+});
 
 /** Producer-owned project lookup and workspace ownership operations. */
 export const projectsInterModuleContract = defineInterModuleContract({
@@ -33,6 +45,17 @@ export const projectsInterModuleContract = defineInterModuleContract({
     getWorkspaceProjectCounts: {
       input: z.object({workspaceIds: z.array(idSchema).min(1).max(100)}),
       output: z.object({counts: z.array(workspaceProjectCountSchema)}),
+    },
+    resolveCheckoutTarget: {
+      input: z.object({
+        workspaceId: idSchema,
+        defaults: z.object({connectionId: idSchema, owner: z.string().min(1)}),
+        target: checkoutTargetSchema,
+      }),
+      output: resolvedCheckoutTargetSchema,
+      errors: {
+        'checkout-repository-not-authorized': z.object({}),
+      },
     },
   },
 });

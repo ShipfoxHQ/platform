@@ -167,6 +167,11 @@ describe('defaultModules', () => {
               name: 'Project',
             },
           }),
+          resolveCheckoutTarget: () => ({
+            projectId: crypto.randomUUID(),
+            connectionId: crypto.randomUUID(),
+            externalRepositoryId: 'repo',
+          }),
         }),
       ],
     });

@@ -1,4 +1,4 @@
-import {and, count, desc, eq, ilike, inArray, lt, or, type SQL} from 'drizzle-orm';
+import {and, count, desc, eq, ilike, inArray, lt, or, type SQL, sql} from 'drizzle-orm';
 import type {Project} from '#core/entities/project.js';
 import {ProjectAlreadyExistsError, ProjectNotFoundError} from '#core/errors.js';
 import {recordProjectCreated} from '#metrics/instance.js';
@@ -175,6 +175,104 @@ export async function requireProjectForWorkspace(params: {
   if (!project) throw new ProjectNotFoundError(params.projectId);
   if (project.workspaceId !== params.workspaceId) throw new ProjectNotFoundError(params.projectId);
   return project;
+}
+
+export interface ResolveCheckoutTargetParams {
+  workspaceId: string;
+  defaults: {
+    connectionId: string;
+    owner: string;
+  };
+  target: {project: string} | {connection?: string | undefined; repository: string};
+}
+
+export interface ResolvedCheckoutTarget {
+  projectId: string;
+  connectionId: string;
+  externalRepositoryId: string;
+}
+
+export interface UpdateProjectSourceMetadataParams {
+  workspaceId: string;
+  projectId: string;
+  sourceConnectionId: string;
+  sourceExternalRepositoryId: string;
+  sourceRepositoryOwner: string;
+  sourceRepositoryName: string;
+  sourceDefaultBranch: string;
+}
+
+export async function updateProjectSourceMetadata(
+  params: UpdateProjectSourceMetadataParams,
+): Promise<void> {
+  await db()
+    .update(projects)
+    .set({
+      sourceConnectionId: params.sourceConnectionId,
+      sourceExternalRepositoryId: params.sourceExternalRepositoryId,
+      sourceRepositoryOwner: params.sourceRepositoryOwner,
+      sourceRepositoryName: params.sourceRepositoryName,
+      sourceDefaultBranch: params.sourceDefaultBranch,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.projectId)));
+}
+
+export async function resolveCheckoutTarget(
+  params: ResolveCheckoutTargetParams,
+): Promise<ResolvedCheckoutTarget | undefined> {
+  const selection = {
+    projectId: projects.id,
+    connectionId: projects.sourceConnectionId,
+    externalRepositoryId: projects.sourceExternalRepositoryId,
+  };
+
+  if ('project' in params.target) {
+    const [project] = await db()
+      .select(selection)
+      .from(projects)
+      .where(
+        and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.target.project)),
+      )
+      .limit(1);
+    return project;
+  }
+
+  const separator = params.target.repository.indexOf('/');
+  if (separator === 0 || separator === params.target.repository.length - 1) return undefined;
+
+  const repository =
+    separator === -1
+      ? {
+          connectionId: params.target.connection ?? params.defaults.connectionId,
+          owner: params.defaults.owner,
+          name: params.target.repository,
+        }
+      : params.target.repository.indexOf('/', separator + 1) === -1
+        ? {
+            connectionId: params.target.connection ?? params.defaults.connectionId,
+            owner: params.target.repository.slice(0, separator),
+            name: params.target.repository.slice(separator + 1),
+          }
+        : undefined;
+  if (repository === undefined) return undefined;
+
+  const matches = await db()
+    .select(selection)
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, params.workspaceId),
+        eq(projects.sourceConnectionId, repository.connectionId),
+        sql`lower(${projects.sourceRepositoryOwner}) = lower(${repository.owner})`,
+        sql`lower(${projects.sourceRepositoryName}) = lower(${repository.name})`,
+      ),
+    )
+    .limit(2);
+
+  // Owner/name isn't a unique key: renamed or reconnected repositories can leave
+  // more than one project row matching. Fail closed instead of picking arbitrarily.
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export async function listProjects(params: ListProjectsParams): Promise<ListProjectsResult> {
