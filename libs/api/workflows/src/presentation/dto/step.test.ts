@@ -114,6 +114,18 @@ describe('toStepDto error category', () => {
     });
   });
 
+  it("derives category 'setup' for a checkout step error and surfaces the reason", () => {
+    const dto = toStepDto(
+      step({type: 'checkout', error: {message: 'Checkout failed', reason: 'checkout_failed'}}),
+    );
+
+    expect(dto.error).toEqual({
+      message: 'Checkout failed',
+      reason: 'checkout_failed',
+      category: 'setup',
+    });
+  });
+
   it("derives category 'user' for a run step error", () => {
     const dto = toStepDto(
       step({type: 'run', error: {message: 'Command exited with code 1', exitCode: 1}}),

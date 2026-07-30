@@ -10,6 +10,7 @@ import {
 type ModelStep = WorkflowModel['jobs'][number]['steps'][number];
 type AgentThinking = Extract<ModelStep, {kind: 'agent'}>['thinking'];
 type Harness = Extract<ModelStep, {kind: 'agent'}>['harness'];
+type Checkout = Extract<ModelStep, {kind: 'checkout'}>['checkout'];
 type WorkflowEnvTemplates = NonNullable<NonNullable<WorkflowModel['templates']>['env']>;
 
 interface TestWorkflowStepBase {
@@ -35,7 +36,11 @@ interface TestAgentStep extends TestWorkflowStepBase {
   readonly integrations?: Extract<ModelStep, {kind: 'agent'}>['integrations'] | undefined;
 }
 
-type TestWorkflowStep = TestRunStep | TestAgentStep;
+interface TestCheckoutStep extends TestWorkflowStepBase {
+  readonly checkout: Checkout;
+}
+
+type TestWorkflowStep = TestRunStep | TestAgentStep | TestCheckoutStep;
 
 const DEFAULT_RUNNER_LABELS = ['ubuntu-latest'] as const;
 
@@ -144,26 +149,36 @@ function outputTemplates(outputs: Readonly<Record<string, string>>) {
 
 function normalizeStep(step: TestWorkflowStep, jobId: string, stepIndex: number): ModelStep {
   const base = stepBase(step, jobId, stepIndex);
-  return 'run' in step
-    ? {
-        ...base,
-        kind: 'run',
-        command: {kind: 'shell', value: step.run},
-        ...optionalRunTemplates(step),
-        ...optionalStepEnv(step.env),
-      }
-    : {
-        ...base,
-        kind: 'agent',
-        ...(step.harness === undefined ? {} : {harness: step.harness}),
-        ...(step.model === undefined ? {} : {model: step.model}),
-        ...(step.provider === undefined ? {} : {provider: step.provider}),
-        ...(step.thinking === undefined ? {} : {thinking: step.thinking}),
-        ...(step.tools === undefined ? {} : {tools: step.tools}),
-        ...(step.integrations === undefined ? {} : {integrations: step.integrations}),
-        prompt: step.prompt,
-        ...optionalAgentTemplates(step),
-      };
+  if ('run' in step) {
+    return {
+      ...base,
+      kind: 'run',
+      command: {kind: 'shell', value: step.run},
+      ...optionalRunTemplates(step),
+      ...optionalStepEnv(step.env),
+    };
+  }
+
+  if ('prompt' in step) {
+    return {
+      ...base,
+      kind: 'agent',
+      ...(step.harness === undefined ? {} : {harness: step.harness}),
+      ...(step.model === undefined ? {} : {model: step.model}),
+      ...(step.provider === undefined ? {} : {provider: step.provider}),
+      ...(step.thinking === undefined ? {} : {thinking: step.thinking}),
+      ...(step.tools === undefined ? {} : {tools: step.tools}),
+      ...(step.integrations === undefined ? {} : {integrations: step.integrations}),
+      prompt: step.prompt,
+      ...optionalAgentTemplates(step),
+    };
+  }
+
+  return {
+    ...base,
+    kind: 'checkout',
+    checkout: step.checkout,
+  };
 }
 
 function stepBase(step: TestWorkflowStep, jobId: string, stepIndex: number) {

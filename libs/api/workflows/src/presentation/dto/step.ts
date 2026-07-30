@@ -107,7 +107,10 @@ export function toStepDto(step: Step): StepDto {
     status: step.status,
     type: step.type,
     config: step.config,
-    error: toStepErrorDto(step.error, step.type === 'setup' ? 'setup' : 'user'),
+    error: toStepErrorDto(
+      step.error,
+      step.type === 'setup' || step.type === 'checkout' ? 'setup' : 'user',
+    ),
     position: step.position,
     current_attempt: step.currentAttempt,
     created_at: step.createdAt.toISOString(),

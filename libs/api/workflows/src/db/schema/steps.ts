@@ -18,6 +18,7 @@ import {
   STEP_STATUS_REASONS,
   type Step,
   type StepConfigDispatchPlan,
+  type StepType,
   toStepStatusReason,
 } from '#core/entities/step.js';
 import {pgTable} from './common.js';
@@ -45,7 +46,7 @@ export const steps = pgTable(
     status: stepStatusEnum('status').notNull().default('pending'),
     statusReason: stepStatusReasonEnum('status_reason'),
     evaluationTrace: jsonb('evaluation_trace').$type<readonly PersistedEvaluationTraceEntry[]>(),
-    type: text('type').notNull(),
+    type: text('type').notNull().$type<StepType>(),
     config: jsonb('config').notNull().$type<Record<string, unknown>>(),
     condition: jsonb('condition').$type<WorkflowExpression>(),
     configPlan: jsonb('config_plan').$type<StepConfigDispatchPlan>(),

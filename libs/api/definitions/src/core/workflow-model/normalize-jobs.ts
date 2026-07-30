@@ -1,4 +1,5 @@
 import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import {DEFAULT_JOB_CHECKOUT} from '@shipfox/api-definitions-dto';
 import {
   type AvailabilitySite,
   buildTypedRootsEnvironment,
@@ -24,9 +25,11 @@ import type {
   WorkflowEnvTemplates,
   WorkflowFieldTemplate,
   WorkflowModelAgentStep,
+  WorkflowModelCheckoutStep,
   WorkflowModelJob,
   WorkflowModelRunStep,
   WorkflowModelStep,
+  WorkflowModelStepCheckout,
   WorkflowOutputTemplates,
   WorkflowStepSourceLocationMap,
 } from '../entities/workflow-model.js';
@@ -640,18 +643,43 @@ function normalizeStep(params: {
   }
 
   if (params.step.checkout !== undefined) {
-    params.issues.push(
-      issue({
-        code: 'unsupported-checkout',
-        message: 'Checkout steps are not supported by the workflow model yet.',
-        path: ['jobs', params.sourceName, 'steps', params.index, 'checkout'],
-      }),
-    );
-    return undefined;
+    return normalizeCheckoutStep({step: params.step, stepBase, name});
   }
 
   // Keep the model-step union honest if callers bypass the document parser.
-  throw new Error(`Workflow step "${stepId}" is neither a run nor an agent step`);
+  throw new Error(`Workflow step "${stepId}" is neither a run, agent, nor checkout step`);
+}
+
+function normalizeCheckoutStep(params: {
+  step: WorkflowDocumentStep;
+  stepBase: WorkflowModelStepBaseFields;
+  name: WorkflowFieldTemplate | undefined;
+}): WorkflowModelCheckoutStep {
+  const checkout = params.step.checkout;
+  if (checkout === undefined) {
+    throw new Error('Checkout step normalization requires checkout settings');
+  }
+
+  const normalizedCheckout: WorkflowModelStepCheckout = {
+    ...(checkout.project === undefined ? {} : {project: checkout.project}),
+    ...(checkout.connection === undefined ? {} : {connection: checkout.connection}),
+    ...(checkout.repository === undefined ? {} : {repository: checkout.repository}),
+    ...(checkout.ref === undefined ? {} : {ref: checkout.ref}),
+    fetchDepth: checkout['fetch-depth'] ?? 1,
+    ...(checkout.path === undefined ? {} : {path: checkout.path}),
+    permissions: {
+      contents: checkout.permissions?.contents ?? DEFAULT_JOB_CHECKOUT.permissions.contents,
+    },
+    persistCredentials: checkout['persist-credentials'] ?? DEFAULT_JOB_CHECKOUT.persistCredentials,
+    ...(checkout.force === undefined ? {} : {force: checkout.force}),
+  };
+
+  return {
+    ...params.stepBase,
+    kind: 'checkout',
+    checkout: normalizedCheckout,
+    ...(params.name === undefined ? {} : {templates: {name: params.name}}),
+  };
 }
 
 function normalizeRunStep(params: {

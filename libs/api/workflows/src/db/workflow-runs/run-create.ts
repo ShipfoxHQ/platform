@@ -339,7 +339,7 @@ function referencedVariables(
       if (step.kind === 'run') {
         collectFieldVariableReferences(step.templates?.command, references, {field: 'run'});
         collectTemplateVariableReferences(step.templates?.env, references);
-      } else {
+      } else if (step.kind === 'agent') {
         collectFieldVariableReferences(step.templates?.prompt, references, {field: 'agent.prompt'});
         collectFieldVariableReferences(step.templates?.model, references, {field: 'agent.model'});
         collectFieldVariableReferences(step.templates?.provider, references, {
