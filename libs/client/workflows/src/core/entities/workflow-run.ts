@@ -4,6 +4,7 @@ import type {WorkflowRunAttempt, WorkflowRunAttemptSummary} from './workflow-run
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type WorkflowRunRerunMode = 'all' | 'failed';
 export type WorkflowStatus = WorkflowRunStatus | (typeof WORKFLOW_JOB_STATUSES)[number];
+export type WorkflowDisplayStatus = WorkflowStatus | 'listening';
 
 export const WORKFLOW_RUN_STATUSES = [
   'pending',

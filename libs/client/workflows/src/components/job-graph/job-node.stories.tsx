@@ -2,7 +2,11 @@ import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
 import type {Meta, StoryObj} from '@storybook/react';
 import type {KeyboardEventHandler} from 'react';
 import type {JobExecutionStatus, JobStatus} from '#core/workflow-run.js';
-import {workflowJob, workflowJobExecutionDto} from '#test/fixtures/workflow-run.js';
+import {
+  workflowJob,
+  workflowJobExecutionDto,
+  workflowStepDto,
+} from '#test/fixtures/workflow-run.js';
 import type {JobGraphNode} from './graph-model.js';
 import {JobNode} from './job-node.js';
 
@@ -330,6 +334,7 @@ function makeNode({
             queued_at: queuedAt,
             started_at: startedAt,
             finished_at: finishedAt,
+            ...(status === 'running' ? {steps: [workflowStepDto({status: 'running'})]} : {}),
           }),
         ]
       : jobExecutions,
@@ -359,6 +364,6 @@ function makeExecutionsByStatus(
     timed_out_at: null,
     created_at: '2026-06-26T11:54:00.000Z',
     updated_at: '2026-06-26T12:00:00.000Z',
-    steps: [],
+    steps: status === 'running' ? [workflowStepDto({status: 'running'})] : [],
   }));
 }

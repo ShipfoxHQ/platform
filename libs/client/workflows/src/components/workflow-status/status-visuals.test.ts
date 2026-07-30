@@ -35,4 +35,13 @@ describe('getWorkflowStatusVisual', () => {
 
     expect(visual).toEqual({kind: 'running', label: 'Running', dot: 'info', badge: 'info'});
   });
+
+  test('returns the active listener visual', () => {
+    expect(getWorkflowStatusVisual('listening')).toEqual({
+      kind: 'listening',
+      label: 'Listening',
+      dot: 'info',
+      badge: 'info',
+    });
+  });
 });

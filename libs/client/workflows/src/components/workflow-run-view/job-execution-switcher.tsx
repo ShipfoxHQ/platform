@@ -10,7 +10,7 @@ import {Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {useMemo} from 'react';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
-import type {Job, JobExecution} from '#core/workflow-run.js';
+import {deriveJobExecutionDisplayStatus, type Job, type JobExecution} from '#core/workflow-run.js';
 import {JobExecutionTimeText} from './job-execution-time-text.js';
 
 export interface JobExecutionSwitcherProps {
@@ -89,7 +89,11 @@ export function JobExecutionSwitcher({
                 aria-current={isSelected ? 'true' : undefined}
                 className="w-full text-left"
               >
-                <WorkflowStatusIcon status={jobExecution.status} size={14} tooltip={false} />
+                <WorkflowStatusIcon
+                  status={deriveJobExecutionDisplayStatus(jobExecution)}
+                  size={14}
+                  tooltip={false}
+                />
                 <span className="font-code text-xs leading-20 text-foreground-neutral-base tabular-nums">
                   #{jobExecution.sequence}
                 </span>
@@ -133,9 +137,11 @@ function TitleExecutionSummary({execution}: {execution: JobExecution}) {
 }
 
 function ExecutionSummary({execution}: {execution: JobExecution}) {
+  const displayStatus = deriveJobExecutionDisplayStatus(execution);
+
   return (
     <span className="flex min-w-0 items-center gap-6">
-      <WorkflowStatusIcon status={execution.status} size={14} tooltip={false} />
+      <WorkflowStatusIcon status={displayStatus} size={14} tooltip={false} />
       <span className="shrink-0 font-code text-xs leading-20 text-foreground-neutral-base tabular-nums">
         Execution #{execution.sequence}
       </span>

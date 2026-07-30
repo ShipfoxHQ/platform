@@ -1,5 +1,9 @@
 import {humanDuration} from '@shipfox/react-ui/utils';
-import type {JobDisplayDuration, JobExecutionTime} from '#core/workflow-run.js';
+import type {
+  JobDisplayDuration,
+  JobExecutionDisplayStatus,
+  JobExecutionTime,
+} from '#core/workflow-run.js';
 
 export function formatJobExecutionTimeLabel(time: JobExecutionTime): string {
   switch (time.state) {
@@ -16,6 +20,7 @@ export function formatJobExecutionTimeLabel(time: JobExecutionTime): string {
 
 export function formatJobDurationAccessibleLabel(
   duration: JobDisplayDuration | null,
+  displayStatus?: JobExecutionDisplayStatus,
 ): string | undefined {
   if (duration === null) return undefined;
 
@@ -24,7 +29,11 @@ export function formatJobDurationAccessibleLabel(
     case 'queue':
       return duration.state === 'live' ? `queueing ${label}` : `queued ${label}`;
     case 'run':
-      return duration.state === 'live' ? `running ${label}` : `ran ${label}`;
+      if (duration.state !== 'live') return `ran ${label}`;
+      if (displayStatus === 'running') return `running ${label}`;
+      return displayStatus === 'pending'
+        ? `runner assigned ${label}`
+        : `execution elapsed ${label}`;
     default: {
       const exhaustive: never = duration;
       return exhaustive;

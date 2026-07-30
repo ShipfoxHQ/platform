@@ -2,7 +2,7 @@ import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
 import type {Meta, StoryObj} from '@storybook/react';
 import {within} from 'storybook/test';
 import type {Job, WorkflowRunDetail} from '#core/workflow-run.js';
-import {workflowJob, workflowRunDetail} from '#test/fixtures/workflow-run.js';
+import {workflowJob, workflowRunDetail, workflowStepDto} from '#test/fixtures/workflow-run.js';
 import {JobGraph} from './job-graph.js';
 
 const meta = {
@@ -178,5 +178,9 @@ function makeRun(overrides: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail 
 }
 
 function makeJob(overrides: Partial<WorkflowRunJobDetailDto> & {name: string}): Job {
-  return workflowJob(overrides);
+  const job = workflowJob(overrides);
+  if (overrides.status === 'running' && job.jobExecutions.length === 0) {
+    return workflowJob({...overrides, steps: [workflowStepDto({status: 'running'})]});
+  }
+  return job;
 }

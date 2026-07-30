@@ -1,6 +1,11 @@
-import type {JobExecution, JobExecutionDisplayDuration} from './job-execution.js';
+import {
+  deriveJobExecutionDisplayStatus,
+  type JobExecution,
+  type JobExecutionDisplayDuration,
+} from './job-execution.js';
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
+export type JobDisplayStatus = JobStatus | 'listening';
 export type JobMode = 'one_shot' | 'listening';
 export type ListenerStatus = 'inactive' | 'listening' | 'resolved';
 export type ResolutionReason = 'until' | 'timeout' | 'max_executions' | 'cancelled';
@@ -123,6 +128,16 @@ export function isTerminalJobStatus(status: JobStatus): boolean {
   return TERMINAL_JOB_STATUS_SET.has(status);
 }
 
+export function deriveJobDisplayStatus(
+  job: Pick<Job, 'mode' | 'status' | 'listenerStatus' | 'jobExecutions'>,
+): JobDisplayStatus {
+  if (isTerminalJobStatus(job.status)) return job.status;
+  if (job.mode === 'listening' && job.listenerStatus === 'listening') return 'listening';
+
+  const execution = defaultJobExecution(job);
+  return execution ? deriveJobExecutionDisplayStatus(execution) : 'pending';
+}
+
 export function resolveJobExecution(
   job: Job,
   jobExecutionId: string | undefined,
@@ -135,7 +150,7 @@ export function resolveJobExecution(
   return defaultJobExecution(job);
 }
 
-export function defaultJobExecution(job: Job): JobExecution | undefined {
+export function defaultJobExecution(job: Pick<Job, 'jobExecutions'>): JobExecution | undefined {
   const runningExecution = job.jobExecutions.find(
     (jobExecution) => jobExecution.status === 'running',
   );

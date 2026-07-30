@@ -9,7 +9,14 @@ import {cn} from '@shipfox/react-ui/utils';
 import type {KeyboardEventHandler, Ref} from 'react';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
-import type {JobExecution, JobExecutionStatus, WorkflowRunDetail} from '#core/workflow-run.js';
+import {
+  defaultJobExecution,
+  deriveJobDisplayStatus,
+  deriveJobExecutionDisplayStatus,
+  type JobExecution,
+  type JobExecutionStatus,
+  type WorkflowRunDetail,
+} from '#core/workflow-run.js';
 import type {JobGraphNode} from './graph-model.js';
 import {formatJobDurationAccessibleLabel} from './job-duration-format.js';
 import {JobDurationLabel} from './job-duration-label.js';
@@ -69,16 +76,16 @@ export function JobNode({
   ref?: Ref<HTMLButtonElement>;
 }) {
   useTimeTick();
-  const status =
-    node.status === 'pending' &&
-    node.jobExecutions.some((jobExecution) => jobExecution.status === 'running')
-      ? 'running'
-      : node.status;
+  const status = deriveJobDisplayStatus(node);
+  const execution = defaultJobExecution(node);
   const visual = getWorkflowStatusVisual(status);
   const accessibleLabel = [
     node.displayName,
     visual.label,
-    formatJobDurationAccessibleLabel(node.displayDuration),
+    formatJobDurationAccessibleLabel(
+      node.displayDuration,
+      execution ? deriveJobExecutionDisplayStatus(execution) : undefined,
+    ),
     node.executionCountVisible
       ? executionCountAccessibleLabel(node.jobExecutions.length)
       : undefined,
@@ -199,7 +206,7 @@ const EXECUTION_STATUSES = [
 function executionStatusCounts(executions: JobExecution[]) {
   return executions.reduce(
     (counts, execution) => {
-      counts[execution.status] += 1;
+      counts[deriveJobExecutionDisplayStatus(execution)] += 1;
       return counts;
     },
     {pending: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0},

@@ -3,7 +3,7 @@ import {Icon, type IconName} from '@shipfox/react-ui/icon';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {cn} from '@shipfox/react-ui/utils';
 import type {ReactNode} from 'react';
-import {getWorkflowStatusVisual, type WorkflowStatus} from './status-visuals.js';
+import {getWorkflowStatusVisual, type WorkflowDisplayStatus} from './status-visuals.js';
 
 // Status glyphs use the same saturated accent tokens as IconBadge/StatusBadge.
 const toneByVariant: Record<DotVariant, string> = {
@@ -17,7 +17,7 @@ const toneByVariant: Record<DotVariant, string> = {
 
 // Terminal states are self-contained solid discs; the shape names the state. Running and
 // pending render their own shapes (the live Dot and a bold ring), so they aren't here.
-const glyphByKind: Partial<Record<WorkflowStatus, IconName>> = {
+const glyphByKind: Partial<Record<WorkflowDisplayStatus, IconName>> = {
   succeeded: 'checkCircleSolid',
   failed: 'xCircleSolid',
   cancelled: 'forbid2Fill',
@@ -45,7 +45,7 @@ const dotSizeClass: Record<number, string> = {
 const PENDING_RING_MASK = 'radial-gradient(circle closest-side, transparent 0 52%, #000 56%)';
 
 export interface WorkflowStatusIconProps {
-  status: WorkflowStatus;
+  status: WorkflowDisplayStatus;
   jobMode?: 'one_shot' | 'listening';
   /** Optical diameter in px: 14 in the DAG node and run row. */
   size?: number;
@@ -76,25 +76,20 @@ export function WorkflowStatusIcon({
   const box = dotSizeClass[size] ?? 'size-14';
 
   let glyph: ReactNode;
-  if (visual.kind === 'running') {
-    glyph =
-      jobMode === 'listening' ? (
-        <span
-          className={cn(
-            'inline-flex shrink-0 items-center justify-center rounded-full bg-current',
-            box,
-            toneByVariant.info,
-          )}
-        >
-          <Icon
-            name="pulseLine"
-            size={Math.max(8, Math.round(size * 0.7))}
-            className="text-white"
-          />
-        </span>
-      ) : (
-        <Dot variant="info" ripple={ripple} className={box} />
-      );
+  if (visual.kind === 'listening' || (visual.kind === 'running' && jobMode === 'listening')) {
+    glyph = (
+      <span
+        className={cn(
+          'inline-flex shrink-0 items-center justify-center rounded-full bg-current',
+          box,
+          toneByVariant.info,
+        )}
+      >
+        <Icon name="pulseLine" size={Math.max(8, Math.round(size * 0.7))} className="text-white" />
+      </span>
+    );
+  } else if (visual.kind === 'running') {
+    glyph = <Dot variant="info" ripple={ripple} className={box} />;
   } else if (visual.kind === 'pending') {
     glyph = (
       <span
