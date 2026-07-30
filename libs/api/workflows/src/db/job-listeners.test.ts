@@ -929,7 +929,7 @@ describe('drainListenerEventsIntoExecution', () => {
       jobId: job.id,
       expectedSequence: 1,
       secrets: {
-        getVariablesByNamespace: () => {
+        getVariablesByNamespace: async () => {
           variableLoads += 1;
           return {values: {REGION: 'eu-west'}};
         },
