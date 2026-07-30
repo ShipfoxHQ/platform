@@ -272,7 +272,12 @@ describe('handleGithubEvent', () => {
     const payload = {
       action: 'opened',
       installation: {id: installationId},
-      pull_request: {number: 17},
+      repository: {id: 42, full_name: 'shipfox/platform'},
+      pull_request: {
+        number: 17,
+        head: {repo: {id: 42, full_name: 'shipfox/platform'}},
+        base: {repo: {id: 42, full_name: 'shipfox/platform'}},
+      },
     };
 
     const result = await handleGithubEvent({
@@ -297,6 +302,96 @@ describe('handleGithubEvent', () => {
         payload,
       },
     });
+  });
+
+  it('records and drops pull request deliveries whose head repository is a fork', async () => {
+    const handlers = deps();
+    const deliveryId = randomUUID();
+    const payload = {
+      action: 'opened',
+      installation: {id: 7787},
+      repository: {id: 42, full_name: 'shipfox/platform'},
+      pull_request: {
+        head: {repo: {id: 84, full_name: 'contributor/platform'}},
+        base: {repo: {id: 42, full_name: 'shipfox/platform'}},
+      },
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId,
+      event: 'pull_request',
+      payload,
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('fork-pull-request');
+    expect(handlers.publishSourcePush).not.toHaveBeenCalled();
+    expect(handlers.publishIntegrationEventReceived).not.toHaveBeenCalled();
+    expect(handlers.getIntegrationConnectionById).not.toHaveBeenCalled();
+    expect(firstRecordDeliveryOnlyCall(handlers.recordDeliveryOnly)).toMatchObject({
+      provider: 'github',
+      deliveryId,
+    });
+  });
+
+  it('records and drops pull request deliveries whose head repository is unresolved', async () => {
+    const handlers = deps();
+    const deliveryId = randomUUID();
+    const payload = {
+      action: 'synchronize',
+      installation: {id: 7789},
+      repository: {id: 42, full_name: 'shipfox/platform'},
+      pull_request: {
+        head: {repo: null},
+        base: {repo: {id: 42, full_name: 'shipfox/platform'}},
+      },
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId,
+      event: 'pull_request',
+      payload,
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('fork-pull-request');
+    expect(handlers.publishSourcePush).not.toHaveBeenCalled();
+    expect(handlers.publishIntegrationEventReceived).not.toHaveBeenCalled();
+    expect(handlers.getIntegrationConnectionById).not.toHaveBeenCalled();
+    expect(firstRecordDeliveryOnlyCall(handlers.recordDeliveryOnly)).toMatchObject({
+      provider: 'github',
+      deliveryId,
+    });
+  });
+
+  it('publishes pull request deliveries whose head and base repositories match', async () => {
+    const installationId = 7788;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+    const payload = {
+      action: 'opened',
+      installation: {id: installationId},
+      repository: {id: 42, full_name: 'shipfox/platform'},
+      pull_request: {
+        head: {repo: {id: 42, full_name: 'shipfox/platform'}},
+        base: {repo: {id: 42, full_name: 'shipfox/platform'}},
+      },
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId: randomUUID(),
+      event: 'pull_request',
+      payload,
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('published-envelope');
+    expect(handlers.recordDeliveryOnly).not.toHaveBeenCalled();
+    expect(handlers.publishIntegrationEventReceived).toHaveBeenCalledTimes(1);
   });
 
   it('returns the cached installation token cleanup handle when the installation is deleted', async () => {
@@ -374,7 +469,12 @@ describe('handleGithubEvent', () => {
     const payload = {
       action: null,
       installation: {id: installationId},
-      pull_request: {number: 17},
+      repository: {id: 42, full_name: 'shipfox/platform'},
+      pull_request: {
+        number: 17,
+        head: {repo: {id: 42, full_name: 'shipfox/platform'}},
+        base: {repo: {id: 42, full_name: 'shipfox/platform'}},
+      },
     };
 
     const result = await handleGithubEvent({
