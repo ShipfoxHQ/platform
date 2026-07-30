@@ -829,7 +829,10 @@ jobs:
   publish-runner-image-candidate-manifest:
     name: Publish runner image candidate manifest
     needs: [publish-runner-image-candidate]
-    if: github.ref == 'refs/heads/main' && needs.publish-runner-image-candidate.result == 'success'
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      needs['publish-runner-image-candidate'].result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
