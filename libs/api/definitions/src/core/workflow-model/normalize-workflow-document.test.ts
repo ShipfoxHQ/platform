@@ -3759,11 +3759,13 @@ describe('normalizeWorkflowDocument', () => {
             steps: [
               {
                 name: `deploy ${interpolation('event.action')}`,
+                working_directory: 'packages/api',
                 run: `deploy ${interpolation('run.id')}`,
                 env: {PR_TITLE: interpolation('event.pull_request.title'), DEBUG: false},
               },
               {
                 name: `review ${interpolation('inputs.topic')}`,
+                working_directory: `packages/${interpolation('inputs.topic')}`,
                 provider: 'openai',
                 prompt: `Review ${interpolation('event.pull_request.title')}`,
               },
@@ -3810,6 +3812,7 @@ describe('normalizeWorkflowDocument', () => {
       expect(model.jobs[0]?.steps[0]).toMatchObject({
         kind: 'run',
         command: {value: `deploy ${interpolation('run.id')}`},
+        workingDirectory: 'packages/api',
         templates: {
           command: [
             {kind: 'literal', value: 'deploy '},
@@ -3844,7 +3847,16 @@ describe('normalizeWorkflowDocument', () => {
       });
       expect(model.jobs[0]?.steps[1]).toMatchObject({
         kind: 'agent',
+        workingDirectory: `packages/${interpolation('inputs.topic')}`,
         templates: {
+          workingDirectory: [
+            {kind: 'literal', value: 'packages/'},
+            {
+              kind: 'deferred',
+              expression: {source: 'inputs.topic'},
+              roots: ['inputs'],
+            },
+          ],
           prompt: [
             {kind: 'literal', value: 'Review '},
             {

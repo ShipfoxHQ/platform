@@ -2,35 +2,39 @@ import type {AgentConfigIssueDto, NextStepResponseDto, StepDto} from '@shipfox/a
 import {logger} from '@shipfox/node-opentelemetry';
 import {HTTPError} from 'ky';
 
-const {AgentRuntimeConfigRequestError, StepSecretsRequestError} = vi.hoisted(() => ({
-  AgentRuntimeConfigRequestError: class AgentRuntimeConfigRequestError extends Error {
-    constructor(
-      public readonly status: number,
-      public readonly code: string | undefined,
-      public readonly agentConfigIssue: AgentConfigIssueDto | undefined = undefined,
-    ) {
-      super(
-        code === undefined
-          ? `Agent runtime config request failed with status ${status}.`
-          : `Agent runtime config request failed with status ${status}: ${code}.`,
-      );
-      this.name = 'AgentRuntimeConfigRequestError';
-    }
-  },
-  StepSecretsRequestError: class StepSecretsRequestError extends Error {
-    constructor(
-      public readonly status: number,
-      public readonly code: string | undefined,
-    ) {
-      super(
-        code === undefined
-          ? `Step secrets request failed with status ${status}.`
-          : `Step secrets request failed with status ${status}: ${code}.`,
-      );
-      this.name = 'StepSecretsRequestError';
-    }
-  },
-}));
+const {AgentRuntimeConfigRequestError, StepSecretsRequestError, resolveWorkingDirectoryMock} =
+  vi.hoisted(() => ({
+    AgentRuntimeConfigRequestError: class AgentRuntimeConfigRequestError extends Error {
+      constructor(
+        public readonly status: number,
+        public readonly code: string | undefined,
+        public readonly agentConfigIssue: AgentConfigIssueDto | undefined = undefined,
+      ) {
+        super(
+          code === undefined
+            ? `Agent runtime config request failed with status ${status}.`
+            : `Agent runtime config request failed with status ${status}: ${code}.`,
+        );
+        this.name = 'AgentRuntimeConfigRequestError';
+      }
+    },
+    StepSecretsRequestError: class StepSecretsRequestError extends Error {
+      constructor(
+        public readonly status: number,
+        public readonly code: string | undefined,
+      ) {
+        super(
+          code === undefined
+            ? `Step secrets request failed with status ${status}.`
+            : `Step secrets request failed with status ${status}: ${code}.`,
+        );
+        this.name = 'StepSecretsRequestError';
+      }
+    },
+    resolveWorkingDirectoryMock: vi.fn(async (cwd: string, workingDirectory: unknown) =>
+      workingDirectory === undefined ? cwd : `${cwd}/${String(workingDirectory)}`,
+    ),
+  }));
 
 const requestNextStepMock = vi.fn();
 const requestAgentRuntimeConfigMock = vi.fn();
@@ -75,6 +79,11 @@ vi.mock('@shipfox/runner-logs', async () => {
 
 vi.mock('@shipfox/runner-agent', () => ({
   executeAgentStep: (...args: unknown[]) => executeAgentStepMock(...args),
+}));
+
+vi.mock('@shipfox/runner-workspace', () => ({
+  resolveWorkingDirectory: (cwd: string, workingDirectory: unknown) =>
+    resolveWorkingDirectoryMock(cwd, workingDirectory),
 }));
 
 const {executeStep, pullNextStep, publishStepAnnotations, reportStepResult, runJobSteps} =
@@ -204,6 +213,7 @@ describe('runJobSteps', () => {
     createStepLogStreamMock.mockReset();
     createSessionLogStreamMock.mockReset();
     executeAgentStepMock.mockReset();
+    resolveWorkingDirectoryMock.mockClear();
     requestAgentRuntimeConfigMock.mockResolvedValue({
       harness: 'pi',
       provider_id: 'anthropic',
@@ -262,6 +272,7 @@ describe('runJobSteps', () => {
     expect(executeRunStepMock).toHaveBeenCalledWith(run, {
       signal: ac.signal,
       cwd: '/work',
+      workspace: '/work',
       onCommandStart: expect.any(Function),
       onOutput: expect.any(Function),
     });
@@ -304,6 +315,50 @@ describe('runJobSteps', () => {
       logOutcome: 'drained',
       signal: ac.signal,
     });
+  });
+
+  it('resolves a run step working directory relative to the job workspace', async () => {
+    const setup = buildSetupStep();
+    const run = buildRunStep({config: {run: 'echo test', working_directory: 'api'}});
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeRunStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(resolveWorkingDirectoryMock).toHaveBeenCalledWith('/work', 'api');
+    expect(executeRunStepMock).toHaveBeenCalledWith(
+      run,
+      expect.objectContaining({cwd: '/work/api', workspace: '/work'}),
+    );
+  });
+
+  it('reports a missing working directory without spawning the step', async () => {
+    const setup = buildSetupStep();
+    const run = buildRunStep({config: {run: 'echo test', working_directory: 'missing'}});
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'failed'});
+    resolveWorkingDirectoryMock.mockRejectedValueOnce(
+      new Error('Working directory does not exist: missing'),
+    );
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(executeRunStepMock).not.toHaveBeenCalled();
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: run.id,
+        status: 'failed',
+        error: {message: 'Working directory does not exist: missing'},
+      }),
+    );
   });
 
   it('reports empty response strings instead of omitting them', async () => {
@@ -1266,6 +1321,32 @@ describe('runJobSteps', () => {
       logOutcome: 'drained',
       signal: ac.signal,
     });
+  });
+
+  it('dispatches an agent step in its configured working directory', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      config: {
+        model: 'claude-opus-4-8',
+        thinking: 'high',
+        prompt: 'Fix it.',
+        working_directory: 'api',
+      },
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeAgentStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(resolveWorkingDirectoryMock).toHaveBeenCalledWith('/work', 'api');
+    expect(executeAgentStepMock).toHaveBeenCalledWith(
+      agent,
+      expect.objectContaining({cwd: '/work/api'}),
+    );
   });
 
   it('passes the setup ambient git config path to agent steps', async () => {

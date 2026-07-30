@@ -14,6 +14,7 @@ import type {StepConfigDispatchPlan} from '#core/entities/step.js';
 import {resolveAgentStepConfig} from './agent.js';
 import {
   freezeStepField,
+  resolveStepField,
   type StepConfigField,
   type WorkflowStepEvaluationTraceEntry,
   type WorkflowStepTemplateDiagnostic,
@@ -62,6 +63,14 @@ interface BuiltStepConfig {
   readonly hasTemplates: boolean;
 }
 
+interface WorkingDirectoryConfig {
+  readonly config: Record<string, unknown>;
+  readonly configPlan: Pick<StepConfigDispatchPlan, 'working_directory'> | undefined;
+  readonly diagnostics: readonly WorkflowStepTemplateDiagnostic[];
+  readonly trace: readonly WorkflowStepEvaluationTraceEntry[];
+  readonly hasTemplates: boolean;
+}
+
 export async function resolveStepConfig(
   params: ResolveStepConfigParams,
 ): Promise<ResolvedStepConfig> {
@@ -87,17 +96,18 @@ async function buildStepConfig(
 ): Promise<BuiltStepConfig> {
   const gate = gateConfigForStep(params.step);
   const outputs = outputsConfigForStep(params.step);
+  const workingDirectory = resolveWorkingDirectoryConfig(params);
   const runStep = runStepOrNull(params.step);
   const isRunStep = runStep !== null;
 
   if (isRunStep) {
     const run = resolveRunStepConfig({...params, step: runStep});
     return {
-      config: {...run.config, ...gate, ...outputs},
-      configPlan: run.configPlan,
-      diagnostics: run.diagnostics,
-      trace: run.trace,
-      hasTemplates: run.hasTemplates,
+      config: {...workingDirectory.config, ...run.config, ...gate, ...outputs},
+      configPlan: mergeConfigPlans(run.configPlan, workingDirectory.configPlan),
+      diagnostics: [...workingDirectory.diagnostics, ...run.diagnostics],
+      trace: [...workingDirectory.trace, ...run.trace],
+      hasTemplates: run.hasTemplates || workingDirectory.hasTemplates,
     };
   }
 
@@ -106,12 +116,79 @@ async function buildStepConfig(
 
   const agent = await resolveAgentStepConfig({...params, step: agentStep});
   return {
-    config: {...agent.config, ...gate, ...outputs},
-    configPlan: agent.configPlan,
-    diagnostics: agent.diagnostics,
-    trace: agent.trace,
-    hasTemplates: agent.hasTemplates,
+    config: {...workingDirectory.config, ...agent.config, ...gate, ...outputs},
+    configPlan: mergeConfigPlans(agent.configPlan, workingDirectory.configPlan),
+    diagnostics: [...workingDirectory.diagnostics, ...agent.diagnostics],
+    trace: [...workingDirectory.trace, ...agent.trace],
+    hasTemplates: agent.hasTemplates || workingDirectory.hasTemplates,
   };
+}
+
+function resolveWorkingDirectoryConfig(
+  params: Omit<BuildStepConfigParams, 'context'> & {readonly context: WorkflowEvaluationContext},
+): WorkingDirectoryConfig {
+  const value = params.step.workingDirectory;
+  const template = params.step.templates?.workingDirectory;
+  if (value === undefined) {
+    return {
+      config: {},
+      configPlan: undefined,
+      diagnostics: [],
+      trace: [],
+      hasTemplates: template !== undefined,
+    };
+  }
+
+  if (template === undefined || params.mode === 'authored') {
+    return {
+      config: {working_directory: value},
+      configPlan: undefined,
+      diagnostics: [],
+      trace: [],
+      hasTemplates: template !== undefined,
+    };
+  }
+
+  const resolved = resolveStepField({
+    field: 'step.working_directory',
+    template: {segments: template},
+    context: params.context,
+    definitionId: params.definitionId,
+    errorField: 'step.working_directory',
+  });
+  const trace = resolved.trace.map((entry) => ({
+    ...entry,
+    field: 'step.working_directory' as const,
+  }));
+  const diagnostics = resolved.diagnostics.map((diagnostic) => ({
+    ...diagnostic,
+    field: 'step.working_directory' as const,
+  }));
+  if (resolved.kind === 'residual') {
+    return {
+      config: {},
+      configPlan: {working_directory: resolved.field},
+      diagnostics,
+      trace,
+      hasTemplates: true,
+    };
+  }
+
+  return {
+    config: {working_directory: resolved.value},
+    configPlan: undefined,
+    diagnostics,
+    trace,
+    hasTemplates: true,
+  };
+}
+
+function mergeConfigPlans(
+  primary: StepConfigDispatchPlan | null,
+  secondary: Pick<StepConfigDispatchPlan, 'working_directory'> | undefined,
+): StepConfigDispatchPlan | null {
+  if (secondary === undefined) return primary;
+  return {...(primary ?? {}), ...secondary};
 }
 
 function evaluationContext(params: {

@@ -564,6 +564,20 @@ describe('workflow run queries', () => {
           }),
         expected: {field: 'step.name', source: 'vars.REQUIRED'},
       },
+      {
+        field: 'step.working_directory',
+        model: () =>
+          workflowModel({
+            name: 'Missing working directory var',
+            runner: 'ubuntu-latest',
+            jobs: {
+              build: {
+                steps: [{workingDirectory: template('vars.REQUIRED'), run: 'echo ok'}],
+              },
+            },
+          }),
+        expected: {field: 'step.working_directory', source: 'vars.REQUIRED'},
+      },
     ] as const)('reports missing variables against $field', async ({model, expected}) => {
       let error: unknown;
       try {
@@ -586,6 +600,42 @@ describe('workflow run queries', () => {
 
       expect(error).toBeInstanceOf(InterpolationUnresolvableError);
       expect(error).toMatchObject(expected);
+    });
+
+    test('resolves a working directory that references a workspace variable', async () => {
+      const secrets = createTestSecretsClient();
+      await secrets.setSecrets({
+        workspaceId,
+        namespace: '',
+        values: {BUILD_DIR: 'packages/api'},
+      });
+      const model = workflowModel({
+        name: 'Working directory from var',
+        runner: 'ubuntu-latest',
+        jobs: {
+          build: {
+            steps: [{workingDirectory: template('vars.BUILD_DIR'), run: 'echo ok'}],
+          },
+        },
+      });
+
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model,
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+        secrets,
+      });
+
+      const [build] = await getJobsByWorkflowRunId(run.id);
+      const [, step] = await getStepsByJobId(build?.id as string);
+      expect(step?.config).toMatchObject({run: 'echo ok', working_directory: 'packages/api'});
     });
 
     test('writes workflows.workflow_run_attempt.created outbox event in same transaction', async () => {

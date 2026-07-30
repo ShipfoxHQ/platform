@@ -38,6 +38,7 @@ import {
   StepSecretsRequestError,
   writeStepAnnotations,
 } from '@shipfox/runner-protocol';
+import {resolveWorkingDirectory} from '@shipfox/runner-workspace';
 import type {KyInstance} from 'ky';
 
 const WHITESPACE_REGEX = /\s+/;
@@ -325,6 +326,21 @@ export async function executeStep(params: {
       };
     }
 
+    let stepCwd: string;
+    try {
+      stepCwd = await resolveWorkingDirectory(cwd, step.config.working_directory);
+    } catch (error) {
+      return {
+        result: {
+          success: false,
+          error: {message: error instanceof Error ? error.message : String(error)},
+          exit_code: null,
+        },
+        logOutcome: 'abandoned',
+        preparedWorkspace: false,
+      };
+    }
+
     // Agent steps run the embedded pi harness and forward every session entry into the log
     // pipeline as opaque `agent_session` records. Capture is best-effort: if the spool cannot
     // be opened, run the agent without it rather than failing the step.
@@ -366,7 +382,7 @@ export async function executeStep(params: {
       registerStreamSecrets(sessionStream);
       const result = await executeAgentStep(step, {
         signal,
-        cwd,
+        cwd: stepCwd,
         logsDir,
         ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
         runtime: {
@@ -430,7 +446,8 @@ export async function executeStep(params: {
 
     let result = await executeRunStep(step, {
       signal,
-      cwd,
+      cwd: stepCwd,
+      workspace: cwd,
       ...(runSecretMaterial?.secretEnv ? {secretEnv: runSecretMaterial.secretEnv} : {}),
       ...(runSecretMaterial?.secretValues ? {secretValues: runSecretMaterial.secretValues} : {}),
       onCommandStart: (metadata) => writeCommandMetadata(stepStream, metadata),

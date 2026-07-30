@@ -363,6 +363,7 @@ export type WorkflowInterpolationField =
   | 'workflow.run_name'
   | 'job.execution_name'
   | 'step.name'
+  | 'step.working_directory'
   | 'step.feedback';
 
 export const workflowFieldFailurePolicies = ['fail', 'degrade', 'fail-closed'] as const;
@@ -437,6 +438,10 @@ export const workflowInterpolationFieldPolicies: Readonly<
   'step.name': {
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'degrade',
+  },
+  'step.working_directory': {
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'fail',
   },
   'step.feedback': {
     acceptedHosts: serverOnlyHosts,

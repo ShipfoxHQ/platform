@@ -11,6 +11,12 @@ export {
   writeAmbientGitCredential,
 } from '#checkout.js';
 export {
+  resolveWorkingDirectory,
+  WorkingDirectoryEscapeError,
+  WorkingDirectoryNotDirectoryError,
+  WorkingDirectoryNotFoundError,
+} from '#working-directory.js';
+export {
   cleanupJobCredentials,
   cleanupJobLogs,
   cleanupWorkspace,

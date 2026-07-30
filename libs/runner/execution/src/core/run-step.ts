@@ -43,6 +43,7 @@ export interface CommandShellMetadata {
 interface RunStepOptions {
   signal?: AbortSignal;
   cwd?: string;
+  workspace?: string;
   secretEnv?: Readonly<Record<string, string>>;
   secretValues?: readonly string[];
   onOutput?: OutputSink;
@@ -130,6 +131,9 @@ function spawnAndCapture(
       env: {
         ...process.env,
         ...stepEnv,
+        ...((options.workspace ?? options.cwd)
+          ? {SHIPFOX_WORKSPACE: options.workspace ?? options.cwd}
+          : {}),
         SHIPFOX_OUTPUT: outputPath,
         ...(annotationSpool?.env ?? {}),
       },

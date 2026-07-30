@@ -183,6 +183,25 @@ describe('executeRunStep', () => {
     expect(result.outputs?.path).not.toBe('/tmp/user-output');
   });
 
+  it('exposes SHIPFOX_WORKSPACE and overrides user env', async () => {
+    const step = buildStep({
+      config: {
+        run: nodeEnvDumpCommand(['SHIPFOX_WORKSPACE']),
+        env: {SHIPFOX_WORKSPACE: '/tmp/user-workspace'},
+      },
+    });
+
+    const output = collectOutput();
+    const result = await executeRunStep(step, {
+      cwd: tmpdir(),
+      workspace: '/runner/workspace',
+      onOutput: output.sink,
+    });
+
+    expect(result.success).toBe(true);
+    expect(JSON.parse(output.text())).toEqual({SHIPFOX_WORKSPACE: '/runner/workspace'});
+  });
+
   it('collects SHIPFOX_STEP_SUMMARY as a default annotation', async () => {
     const step = buildStep({
       config: {run: 'echo "### Summary" >> "$SHIPFOX_STEP_SUMMARY"'},

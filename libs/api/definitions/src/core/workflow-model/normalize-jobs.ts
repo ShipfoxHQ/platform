@@ -595,10 +595,25 @@ function normalizeStep(params: {
           allowedJobReferences: params.allowedJobReferences,
           typeOverlay,
         });
+  const workingDirectory =
+    params.step.working_directory === undefined
+      ? undefined
+      : parseInterpolationField({
+          field: 'step.working_directory',
+          source: params.step.working_directory,
+          path: ['jobs', params.sourceName, 'steps', params.index, 'working_directory'],
+          issues: params.issues,
+          fillSite: params.fillSite,
+          allowedJobReferences: params.allowedJobReferences,
+          typeOverlay,
+        });
   const stepBase = {
     id: stepId,
     ...(stepKey === undefined ? {} : {key: stepKey}),
     ...(params.step.name === undefined ? {} : {name: params.step.name}),
+    ...(params.step.working_directory === undefined
+      ? {}
+      : {workingDirectory: params.step.working_directory}),
     ...(outputs === undefined ? {} : {outputs}),
     ...(sourceLocation === undefined ? {} : {sourceLocation}),
     ...(condition === undefined ? {} : {if: condition}),
@@ -612,6 +627,7 @@ function normalizeStep(params: {
       sourceName: params.sourceName,
       stepIndex: params.index,
       name,
+      workingDirectory,
       issues: params.issues,
       fillSite: params.fillSite,
       allowedJobReferences: params.allowedJobReferences,
@@ -626,6 +642,7 @@ function normalizeStep(params: {
       sourceName: params.sourceName,
       stepIndex: params.index,
       name,
+      workingDirectory,
       issues: params.issues,
       fillSite: params.fillSite,
       allowedJobReferences: params.allowedJobReferences,
@@ -645,6 +662,7 @@ function normalizeRunStep(params: {
   sourceName: string;
   stepIndex: number;
   name: WorkflowFieldTemplate | undefined;
+  workingDirectory: WorkflowFieldTemplate | undefined;
   issues: WorkflowModelValidationIssue[];
   fillSite: AvailabilitySite;
   allowedJobReferences: ReadonlySet<string>;
@@ -674,6 +692,7 @@ function normalizeRunStep(params: {
   const templates = optionalRunStepTemplates({
     command: commandTemplate,
     name: params.name,
+    workingDirectory: params.workingDirectory,
     env: stepEnv.templates?.env,
   });
 
@@ -692,6 +711,7 @@ function normalizeAgentStep(params: {
   sourceName: string;
   stepIndex: number;
   name: WorkflowFieldTemplate | undefined;
+  workingDirectory: WorkflowFieldTemplate | undefined;
   issues: WorkflowModelValidationIssue[];
   fillSite: AvailabilitySite;
   allowedJobReferences: ReadonlySet<string>;
@@ -758,6 +778,7 @@ function normalizeAgentStep(params: {
     model: modelTemplate,
     provider: providerTemplate,
     name: params.name,
+    workingDirectory: params.workingDirectory,
   });
 
   return {
@@ -1020,27 +1041,35 @@ function validateRunnerLabels(params: {
 
 type WorkflowModelStepBaseFields = Pick<
   WorkflowModelStep,
-  'id' | 'key' | 'name' | 'outputs' | 'sourceLocation' | 'gate'
+  'id' | 'key' | 'name' | 'workingDirectory' | 'outputs' | 'sourceLocation' | 'gate'
 >;
 
 function optionalRunStepTemplates(params: {
   command: WorkflowFieldTemplate | undefined;
   name: WorkflowFieldTemplate | undefined;
+  workingDirectory: WorkflowFieldTemplate | undefined;
   env: WorkflowEnvTemplates | undefined;
 }):
   | {
       command?: WorkflowFieldTemplate;
       name?: WorkflowFieldTemplate;
+      workingDirectory?: WorkflowFieldTemplate;
       env?: WorkflowEnvTemplates;
     }
   | undefined {
-  if (params.command === undefined && params.name === undefined && params.env === undefined) {
+  if (
+    params.command === undefined &&
+    params.name === undefined &&
+    params.workingDirectory === undefined &&
+    params.env === undefined
+  ) {
     return undefined;
   }
 
   return {
     ...(params.command === undefined ? {} : {command: params.command}),
     ...(params.name === undefined ? {} : {name: params.name}),
+    ...(params.workingDirectory === undefined ? {} : {workingDirectory: params.workingDirectory}),
     ...(params.env === undefined ? {} : {env: params.env}),
   };
 }
@@ -1050,19 +1079,22 @@ function optionalAgentStepTemplates(params: {
   model: WorkflowFieldTemplate | undefined;
   provider: WorkflowFieldTemplate | undefined;
   name: WorkflowFieldTemplate | undefined;
+  workingDirectory: WorkflowFieldTemplate | undefined;
 }):
   | {
       prompt?: WorkflowFieldTemplate;
       model?: WorkflowFieldTemplate;
       provider?: WorkflowFieldTemplate;
       name?: WorkflowFieldTemplate;
+      workingDirectory?: WorkflowFieldTemplate;
     }
   | undefined {
   if (
     params.prompt === undefined &&
     params.model === undefined &&
     params.provider === undefined &&
-    params.name === undefined
+    params.name === undefined &&
+    params.workingDirectory === undefined
   ) {
     return undefined;
   }
@@ -1072,5 +1104,6 @@ function optionalAgentStepTemplates(params: {
     ...(params.model === undefined ? {} : {model: params.model}),
     ...(params.provider === undefined ? {} : {provider: params.provider}),
     ...(params.name === undefined ? {} : {name: params.name}),
+    ...(params.workingDirectory === undefined ? {} : {workingDirectory: params.workingDirectory}),
   };
 }

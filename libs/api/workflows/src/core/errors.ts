@@ -66,6 +66,7 @@ export type InterpolationUnresolvableField =
   | 'job.name'
   | 'job.execution_name'
   | 'step.name'
+  | 'step.working_directory'
   | 'step.feedback';
 
 export class InterpolationUnresolvableError extends Error {

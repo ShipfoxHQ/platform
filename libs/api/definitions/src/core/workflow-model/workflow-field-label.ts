@@ -28,6 +28,8 @@ export function workflowFieldLabel(
       return 'Job execution name interpolation';
     case 'step.name':
       return 'Step name interpolation';
+    case 'step.working_directory':
+      return 'Step working directory interpolation';
     case 'step.success':
       return 'Step gate success';
     case 'step.feedback':
