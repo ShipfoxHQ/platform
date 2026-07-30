@@ -214,6 +214,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "source_repository_owner": {
+          "name": "source_repository_owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_repository_name": {
+          "name": "source_repository_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_default_branch": {
+          "name": "source_default_branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "name": {
           "name": "name",
           "type": "text",
@@ -276,6 +294,39 @@
               "expression": "id",
               "isExpression": false,
               "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "projects_source_repository_lookup_idx": {
+          "name": "projects_source_repository_lookup_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"source_repository_owner\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"source_repository_name\")",
+              "asc": true,
+              "isExpression": true,
               "nulls": "last"
             }
           ],
