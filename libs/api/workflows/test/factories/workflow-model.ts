@@ -15,6 +15,7 @@ type WorkflowEnvTemplates = NonNullable<NonNullable<WorkflowModel['templates']>[
 interface TestWorkflowStepBase {
   readonly key?: string | undefined;
   readonly name?: string | undefined;
+  readonly workingDirectory?: string | undefined;
   readonly sourceLocation?: WorkflowModel['jobs'][number]['steps'][number]['sourceLocation'];
   readonly if?: ModelStep['if'] | undefined;
   readonly gate?: WorkflowModel['jobs'][number]['steps'][number]['gate'] | undefined;
@@ -172,6 +173,7 @@ function stepBase(step: TestWorkflowStep, jobId: string, stepIndex: number) {
       step.key === undefined ? `${jobId}-step-${stepIndex + 1}` : `${jobId}-${stableId(step.key)}`,
     ...(step.key === undefined ? {} : {key: step.key}),
     ...(step.name === undefined ? {} : {name: step.name}),
+    ...(step.workingDirectory === undefined ? {} : {workingDirectory: step.workingDirectory}),
     ...(step.sourceLocation === undefined ? {} : {sourceLocation: step.sourceLocation}),
     ...(step.if === undefined ? {} : {if: step.if}),
     ...(step.gate === undefined ? {} : {gate: step.gate}),
@@ -204,12 +206,24 @@ function optionalStepEnv(
 function optionalRunTemplates(step: TestRunStep) {
   const command = fieldTemplate('run', step.run);
   const name = step.name === undefined ? undefined : fieldTemplate('step.name', step.name);
+  const workingDirectory =
+    step.workingDirectory === undefined
+      ? undefined
+      : fieldTemplate('step.working_directory', step.workingDirectory);
   const env = envTemplates(step.env);
-  if (command === undefined && name === undefined && env === undefined) return {};
+  if (
+    command === undefined &&
+    name === undefined &&
+    workingDirectory === undefined &&
+    env === undefined
+  ) {
+    return {};
+  }
   return {
     templates: {
       ...(command === undefined ? {} : {command}),
       ...(name === undefined ? {} : {name}),
+      ...(workingDirectory === undefined ? {} : {workingDirectory}),
       ...(env === undefined ? {} : {env}),
     },
   };
@@ -221,7 +235,17 @@ function optionalAgentTemplates(step: TestAgentStep) {
   const provider =
     step.provider === undefined ? undefined : fieldTemplate('agent.provider', step.provider);
   const name = step.name === undefined ? undefined : fieldTemplate('step.name', step.name);
-  if (prompt === undefined && model === undefined && provider === undefined && name === undefined) {
+  const workingDirectory =
+    step.workingDirectory === undefined
+      ? undefined
+      : fieldTemplate('step.working_directory', step.workingDirectory);
+  if (
+    prompt === undefined &&
+    model === undefined &&
+    provider === undefined &&
+    name === undefined &&
+    workingDirectory === undefined
+  ) {
     return {};
   }
   return {
@@ -230,6 +254,7 @@ function optionalAgentTemplates(step: TestAgentStep) {
       ...(model === undefined ? {} : {model}),
       ...(provider === undefined ? {} : {provider}),
       ...(name === undefined ? {} : {name}),
+      ...(workingDirectory === undefined ? {} : {workingDirectory}),
     },
   };
 }

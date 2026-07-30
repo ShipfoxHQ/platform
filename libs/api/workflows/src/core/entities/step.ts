@@ -61,6 +61,7 @@ export interface StepConfigEvaluationTraceEntry extends EvaluationTraceEntry {
 }
 
 export interface StepConfigDispatchPlan {
+  working_directory?: ResolvedField;
   run?: ResolvedField;
   env?: Readonly<Record<string, ResolvedField>>;
   agent?: {

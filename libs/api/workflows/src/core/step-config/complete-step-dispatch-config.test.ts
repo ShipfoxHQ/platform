@@ -251,6 +251,62 @@ describe('completeStepDispatchConfig', () => {
     });
   });
 
+  it('resolves a deferred working directory at step dispatch', async () => {
+    const pending = step({
+      config: {},
+      configPlan: {
+        working_directory: plannedField(template('steps.build.outputs.path')),
+      },
+    });
+
+    const result = await completeStepDispatchConfig({
+      step: pending,
+      context: {
+        ...context,
+        values: {
+          ...context.values,
+          steps: {
+            build: {
+              outputs: {path: 'packages/api'},
+            },
+          },
+        },
+      },
+      resolveAgentDefaults,
+      definitionId: 'def-1',
+    });
+
+    expect(result).toEqual({
+      config: {working_directory: 'packages/api'},
+      trace: [
+        {
+          expression: 'steps.build.outputs.path',
+          roots: ['steps'],
+          fillTarget: 'step-dispatch',
+          evaluatedAt: 'step-dispatch',
+          value: 'packages/api',
+          field: 'step.working_directory',
+        },
+      ],
+    });
+  });
+
+  it('rejects invalid resolved working directories', async () => {
+    const pending = step({
+      config: {working_directory: '../outside'},
+      configPlan: null,
+    });
+
+    await expect(
+      completeStepDispatchConfig({
+        step: pending,
+        context,
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      }),
+    ).rejects.toThrow('Invalid working_directory');
+  });
+
   it('completes deferred agent config with the resolved harness', async () => {
     const integration = materializedIntegration();
     const mcpServers = integrationMcpServers([integration]);

@@ -384,6 +384,9 @@ function referencedVariables(
 
     for (const step of job.steps) {
       collectFieldVariableReferences(step.templates?.name, references, {field: 'step.name'});
+      collectFieldVariableReferences(step.templates?.workingDirectory, references, {
+        field: 'step.working_directory',
+      });
       if (step.kind === 'run') {
         collectFieldVariableReferences(step.templates?.command, references, {field: 'run'});
         collectTemplateVariableReferences(step.templates?.env, references);

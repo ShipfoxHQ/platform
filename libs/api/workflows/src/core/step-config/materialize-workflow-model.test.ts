@@ -595,6 +595,59 @@ describe('materializeWorkflowModel', () => {
     });
   });
 
+  it('resolves working directories for run and agent steps', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          steps: [
+            {run: 'npm test', workingDirectory: 'packages/api'},
+            {prompt: 'Review the changes', workingDirectory: template('run.id')},
+          ],
+        },
+      },
+    });
+
+    const rows = await materializeWorkflowModel({model, context: creationContext()});
+
+    expect(rows[0]?.steps[1]?.config).toEqual({
+      run: 'npm test',
+      working_directory: 'packages/api',
+    });
+    expect(rows[0]?.steps[2]?.config).toMatchObject({
+      harness: 'pi',
+      prompt: 'Review the changes',
+      working_directory: 'run-1',
+    });
+  });
+
+  it('defers unresolved working directory templates until step dispatch', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          steps: [{run: 'npm test', workingDirectory: template('steps.previous.outputs.path')}],
+        },
+      },
+    });
+
+    const rows = await materializeWorkflowModel({model, context: creationContext()});
+
+    expect(rows[0]?.steps[1]?.config).toEqual({run: 'npm test'});
+    expect(rows[0]?.steps[1]?.configPlan?.working_directory).toEqual({
+      segments: [
+        {
+          kind: 'deferred',
+          expression: {
+            language: 'cel',
+            source: 'steps.previous.outputs.path',
+            check: 'syntax',
+          },
+          fillTarget: 'step-dispatch',
+          roots: ['steps'],
+        },
+      ],
+    });
+  });
+
   it('merges env before resolving and only resolves the winning values', async () => {
     const model = workflowModel({
       env: {SHARED: template('event.missing'), WORKFLOW_ONLY: template('run.id')},

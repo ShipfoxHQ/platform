@@ -575,6 +575,7 @@ describe('workflow context registry', () => {
       expect(getWorkflowInterpolationFieldFailurePolicy('workflow.run_name')).toBe('degrade');
       expect(getWorkflowInterpolationFieldFailurePolicy('job.execution_name')).toBe('degrade');
       expect(getWorkflowInterpolationFieldFailurePolicy('step.name')).toBe('degrade');
+      expect(getWorkflowInterpolationFieldFailurePolicy('step.working_directory')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('step.feedback')).toBe('fail');
       expect(
         workflowInterpolationFields.map(
@@ -714,6 +715,7 @@ describe('workflow interpolation field policies', () => {
       'workflow.run_name',
       'job.execution_name',
       'step.name',
+      'step.working_directory',
       'step.feedback',
     ]);
     expect(Object.keys(workflowInterpolationFieldPolicies)).toEqual(workflowInterpolationFields);
@@ -744,6 +746,7 @@ describe('workflow interpolation field policies', () => {
     ['workflow.run_name', ['server']],
     ['job.execution_name', ['server']],
     ['step.name', ['server']],
+    ['step.working_directory', ['server']],
     ['step.feedback', ['server']],
   ] satisfies readonly [
     WorkflowInterpolationField,
@@ -763,6 +766,7 @@ describe('workflow interpolation field policies', () => {
     expect(workflowInterpolationFieldAcceptsHost('job.runner', 'runner')).toBe(false);
     expect(workflowInterpolationFieldAcceptsHost('job.name', 'runner')).toBe(false);
     expect(workflowInterpolationFieldAcceptsHost('step.name', 'runner')).toBe(false);
+    expect(workflowInterpolationFieldAcceptsHost('step.working_directory', 'runner')).toBe(false);
     expect(workflowInterpolationFieldAcceptsHost('step.feedback', 'runner')).toBe(false);
   });
 

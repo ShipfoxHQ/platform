@@ -91,6 +91,7 @@ interface WorkflowModelStepBase {
   readonly key?: string;
   readonly if?: WorkflowExpression;
   readonly name?: string;
+  readonly workingDirectory?: string;
   readonly outputs?: OutputDeclarations;
   readonly gate?: WorkflowModelStepGate;
   readonly sourceLocation?: WorkflowSourceLocation;
@@ -102,6 +103,7 @@ export interface WorkflowModelRunStep extends WorkflowModelStepBase {
   readonly templates?: {
     readonly command?: WorkflowFieldTemplate;
     readonly name?: WorkflowFieldTemplate;
+    readonly workingDirectory?: WorkflowFieldTemplate;
     readonly env?: WorkflowEnvTemplates;
   };
 }
@@ -118,6 +120,7 @@ export interface WorkflowModelAgentStep extends WorkflowModelStepBase {
     readonly prompt?: WorkflowFieldTemplate;
     readonly model?: WorkflowFieldTemplate;
     readonly provider?: WorkflowFieldTemplate;
+    readonly workingDirectory?: WorkflowFieldTemplate;
     readonly name?: WorkflowFieldTemplate;
   };
 }

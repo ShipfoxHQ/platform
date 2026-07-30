@@ -128,3 +128,4 @@ export {
   workflowsWorkflowRunCancelledSchema,
   workflowsWorkflowRunTerminatedSchema,
 } from './events.js';
+export {assertWorkingDirectory, InvalidWorkingDirectoryError} from './working-directory.js';
