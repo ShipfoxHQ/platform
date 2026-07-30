@@ -65,7 +65,7 @@ export async function definitionSyncWorkflow(
     const {paths} = await discoverDefinitionWorkflows(source);
     const applied = await fetchAndApplyDefinitionWorkflows({...source, paths});
 
-    await markDefinitionSyncSucceeded(source);
+    await markDefinitionSyncSucceeded({...source, warnings: applied.warnings});
 
     return {
       sourceRef,

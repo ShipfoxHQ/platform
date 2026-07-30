@@ -3,7 +3,7 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import {markErrorReported} from '@shipfox/node-error-monitoring';
 import {Context} from '@temporalio/activity';
 import {ApplicationFailure} from '@temporalio/common';
-import type {DefinitionSyncErrorCode} from '#core/entities/sync-state.js';
+import type {DefinitionSyncErrorCode, DefinitionSyncWarning} from '#core/entities/sync-state.js';
 import {
   classifySyncFailure,
   discoverWorkflowFiles,
@@ -50,6 +50,11 @@ export interface DiscoverWorkflowsActivityResult {
 export interface FetchAndApplyActivityResult {
   appliedCount: number;
   deletedCount: number;
+  warnings: DefinitionSyncWarning[];
+}
+
+export interface MarkSyncSucceededActivityInput extends SyncRefScopedInput {
+  warnings?: readonly DefinitionSyncWarning[] | undefined;
 }
 
 export interface DefinitionSyncActivityOptions {
@@ -93,6 +98,7 @@ function createPrepareDefinitionSyncActivity(sourceControl: DefinitionsSourceCon
         status: 'syncing',
         lastErrorCode: null,
         lastErrorMessage: null,
+        warnings: [],
         startedAt: new Date(),
         finishedAt: null,
       });
@@ -147,7 +153,7 @@ function createFetchAndApplyActivity(
               },
       });
 
-      return await applyVcsDefinitionsBatch({
+      const result = await applyVcsDefinitionsBatch({
         projectId: input.projectId,
         workspaceId: input.workspaceId,
         ref: input.sourceRef,
@@ -160,12 +166,19 @@ function createFetchAndApplyActivity(
           contentHash: entry.contentHash,
         })),
       });
+
+      return {
+        ...result,
+        warnings: definitions.flatMap((entry) => entry.warnings),
+      };
     });
   };
 }
 
 function createMarkSyncSucceededActivity() {
-  return async function markDefinitionSyncSucceeded(input: SyncRefScopedInput): Promise<void> {
+  return async function markDefinitionSyncSucceeded(
+    input: MarkSyncSucceededActivityInput,
+  ): Promise<void> {
     await markDefinitionSyncState({
       projectId: input.projectId,
       sourceConnectionId: input.sourceConnectionId,
@@ -174,6 +187,7 @@ function createMarkSyncSucceededActivity() {
       status: 'succeeded',
       lastErrorCode: null,
       lastErrorMessage: null,
+      warnings: input.warnings ?? [],
       finishedAt: new Date(),
     });
   };
@@ -191,6 +205,7 @@ function createMarkSyncFailedActivity() {
       status: 'failed',
       lastErrorCode: input.code,
       lastErrorMessage: input.message,
+      warnings: [],
       finishedAt: new Date(),
     });
   };

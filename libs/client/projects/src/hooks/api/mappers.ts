@@ -51,6 +51,11 @@ export function toDefinitionSyncSummary(dto: DefinitionSyncSummaryDto): Definiti
     finishedAt: dto.finished_at,
     lastErrorCode: dto.last_error_code,
     lastErrorMessage: dto.last_error_message,
+    warnings: dto.warnings.map((warning) => ({
+      code: warning.code,
+      message: warning.message,
+      ...(warning.path === undefined ? {} : {path: warning.path}),
+    })),
   };
 }
 

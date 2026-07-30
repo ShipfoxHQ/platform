@@ -1,6 +1,10 @@
 export {
   type CreateDefinitionBodyDto,
   createDefinitionBodySchema,
+  DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH,
+  DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
+  DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
+  DEFINITION_SYNC_WARNINGS_MAX_COUNT,
   type DefinitionDto,
   type DefinitionListQueryDto,
   type DefinitionListResponseDto,

@@ -224,6 +224,7 @@ describe('definition sync activities', () => {
 
       expect(result.appliedCount).toBe(1);
       expect(result.deletedCount).toBe(0);
+      expect(result.warnings).toEqual([]);
     });
 
     it('translates DefinitionSyncPermanentError into a non-retryable ApplicationFailure', async () => {
@@ -308,6 +309,7 @@ describe('definition sync activities', () => {
       expect(rows[0]?.status).toBe('failed');
       expect(rows[0]?.lastErrorCode).toBe('invalid-definition');
       expect(rows[0]?.lastErrorMessage).toBe('Invalid workflow at .shipfox/workflows/bad.yml');
+      expect(rows[0]?.warnings).toEqual([]);
       expect(rows[0]?.finishedAt).not.toBeNull();
     });
 
@@ -362,6 +364,13 @@ describe('definition sync activities', () => {
         sourceConnectionId,
         sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
         sourceRef: 'main',
+        warnings: [
+          {
+            code: 're-evaluating-command',
+            message: 'Workflow data is re-executed as shell code.',
+            path: 'jobs.build.steps.0.run',
+          },
+        ],
       });
       await result;
 
@@ -372,6 +381,13 @@ describe('definition sync activities', () => {
       expect(rows[0]?.status).toBe('succeeded');
       expect(rows[0]?.lastErrorCode).toBeNull();
       expect(rows[0]?.lastErrorMessage).toBeNull();
+      expect(rows[0]?.warnings).toEqual([
+        {
+          code: 're-evaluating-command',
+          message: 'Workflow data is re-executed as shell code.',
+          path: 'jobs.build.steps.0.run',
+        },
+      ]);
     });
   });
 });

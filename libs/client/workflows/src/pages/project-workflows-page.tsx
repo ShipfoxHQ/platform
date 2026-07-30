@@ -103,6 +103,7 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
           />
 
           <WorkflowSyncAlert sync={sync} />
+          <WorkflowSyncWarnings sync={sync} />
 
           <WorkflowDefinitionsList
             definitions={definitions}
@@ -369,6 +370,38 @@ function WorkflowSyncAlert({sync}: {sync: DefinitionSyncSummary | null | undefin
         <Text size="sm">
           {sync.lastErrorMessage ?? 'The latest workflow sync failed before definitions updated.'}
         </Text>
+      </div>
+    </Callout>
+  );
+}
+
+function WorkflowSyncWarnings({sync}: {sync: DefinitionSyncSummary | null | undefined}) {
+  if (sync?.status !== 'succeeded' || sync.warnings.length === 0) return null;
+
+  const seenKeys = new Map<string, number>();
+  const warningItems = sync.warnings.map((warning) => {
+    const baseKey = `${warning.code}-${warning.path ?? 'workflow'}-${warning.message}`;
+    const occurrence = seenKeys.get(baseKey) ?? 0;
+    seenKeys.set(baseKey, occurrence + 1);
+    return {key: `${baseKey}-${occurrence}`, warning};
+  });
+
+  return (
+    <Callout role="status" type="warning">
+      <div className="flex flex-col gap-6">
+        <Text size="sm" bold>
+          Workflow definition warnings
+        </Text>
+        <ul className="flex flex-col gap-4">
+          {warningItems.map(({key, warning}) => (
+            <li key={key}>
+              <Text size="sm">{warning.message}</Text>
+              {warning.path ? (
+                <Code className="text-foreground-neutral-muted">{warning.path}</Code>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       </div>
     </Callout>
   );

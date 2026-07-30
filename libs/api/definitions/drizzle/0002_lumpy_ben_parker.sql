@@ -1,0 +1,1 @@
+ALTER TABLE "definitions_sync_states" ADD COLUMN "warnings" jsonb DEFAULT '[]'::jsonb NOT NULL;

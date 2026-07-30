@@ -1,17 +1,18 @@
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
-import type {IntegrationValidationContext} from './entities/integration-context.js';
+import type {ValidationWarning} from './entities/validation-warning.js';
 import type {WorkflowDefinitionPayload} from './entities/workflow-definition.js';
 import {DefinitionParseError} from './errors.js';
-import {validateDefinition} from './validate-definition.js';
+import {type DefinitionValidationOptions, validateDefinition} from './validate-definition.js';
 
-export function parseDefinition(
+export interface ParsedDefinition extends WorkflowDefinitionPayload {
+  warnings: ValidationWarning[];
+}
+
+export type ParseDefinitionOptions = DefinitionValidationOptions;
+
+export function parseDefinitionWithWarnings(
   yamlString: string,
-  options: {
-    defaultRunnerLabels?: readonly string[];
-    agentValidationCatalog: AgentValidationCatalog;
-    integrationValidationContext?: IntegrationValidationContext;
-  },
-): WorkflowDefinitionPayload {
+  options: ParseDefinitionOptions,
+): ParsedDefinition {
   const result = validateDefinition(yamlString, options);
 
   if (!result.valid) {
@@ -24,5 +25,22 @@ export function parseDefinition(
   return {
     ...result.definition,
     sourceSnapshot: {content: yamlString, format: 'yaml'},
+    warnings: result.warnings,
+  };
+}
+
+export function parseDefinition(
+  yamlString: string,
+  options: ParseDefinitionOptions,
+): WorkflowDefinitionPayload {
+  const parsed = parseDefinitionWithWarnings(yamlString, options);
+  return stripDefinitionWarnings(parsed);
+}
+
+export function stripDefinitionWarnings(parsed: ParsedDefinition): WorkflowDefinitionPayload {
+  return {
+    document: parsed.document,
+    model: parsed.model,
+    sourceSnapshot: parsed.sourceSnapshot ?? null,
   };
 }
