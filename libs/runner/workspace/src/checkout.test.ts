@@ -92,7 +92,42 @@ describe('checkoutRepository argv', () => {
       ['rev-parse', 'HEAD'],
     ]);
   });
+  it('passes a positive fetch depth to git', async () => {
+    queueSuccessfulCheckout();
 
+    await checkoutRepository({...BASE, fetchDepth: 5});
+
+    expect(spawnMock.mock.calls[2]?.[1]).toEqual([
+      'fetch',
+      '--progress',
+      '--no-tags',
+      '--prune',
+      '--depth=5',
+      'origin',
+      'main',
+    ]);
+  });
+  it('omits the depth flag when fetching full history', async () => {
+    queueSuccessfulCheckout();
+
+    await checkoutRepository({...BASE, fetchDepth: 0});
+
+    expect(spawnMock.mock.calls[2]?.[1]).toEqual([
+      'fetch',
+      '--progress',
+      '--no-tags',
+      '--prune',
+      'origin',
+      'main',
+    ]);
+  });
+
+  it.each([-1, 1.5, Number.NaN])('rejects invalid fetch depth %s', async (fetchDepth) => {
+    await expect(checkoutRepository({...BASE, fetchDepth})).rejects.toThrow(
+      'fetchDepth must be a non-negative integer',
+    );
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
   it('injects a bearer credential only on fetch and excludes it from displayed commands', async () => {
     queueSuccessfulCheckout();
     const onCommandStart = vi.fn();

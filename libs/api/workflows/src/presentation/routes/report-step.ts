@@ -45,12 +45,20 @@ export function createReportStepRoute(runners: RunnersInterModuleClient) {
         throw new ClientError('Job lease is no longer active', 'lease-not-active', {status: 404});
       }
 
+      // Checkout is a reserved system field on the report wire contract. Keep
+      // it out of the runner's user output merge until this persistence
+      // boundary, where the system value has explicit precedence.
+      const output =
+        request.body.checkout === undefined
+          ? (request.body.output ?? null)
+          : {...(request.body.output ?? {}), checkout: request.body.checkout};
+
       const outcome = await recordStepResult({
         jobExecutionId: leasedJob.jobExecutionId,
         stepId,
         status: request.body.status,
         error: fromStepErrorDto(request.body.error),
-        output: request.body.output ?? null,
+        output,
         response: request.body.response ?? null,
         exitCode: request.body.exit_code ?? request.body.error?.exit_code ?? null,
         logOutcome: request.body.log_outcome,

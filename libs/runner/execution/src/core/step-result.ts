@@ -1,5 +1,7 @@
 import type {LeasedWriteAnnotationOperationDto} from '@shipfox/annotations-dto';
-import type {StepErrorDto} from '@shipfox/api-workflows-dto';
+import type {CheckoutResultDto, StepErrorDto} from '@shipfox/api-workflows-dto';
+
+export type CheckoutResult = CheckoutResultDto;
 
 export interface StepResult {
   success: boolean;
@@ -9,6 +11,8 @@ export interface StepResult {
   outputs?: Record<string, string>;
   // Run-step annotations posted before reporting the step result.
   annotations?: LeasedWriteAnnotationOperationDto[];
+  // Resolved checkout details reported by the setup step.
+  checkout?: CheckoutResult;
   // Populated when success is false. Null on success.
   error: StepErrorDto;
   // 0 on success, the exit code on failure, null when signal-killed or never spawned.

@@ -777,6 +777,7 @@ export async function reportStepResult(params: {
     exitCode: result.exit_code,
     ...(result.response === undefined ? {} : {response: result.response}),
     ...(result.outputs ? {outputs: result.outputs} : {}),
+    ...(result.checkout === undefined ? {} : {checkout: result.checkout}),
     logOutcome,
     signal,
   });

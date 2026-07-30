@@ -18,6 +18,8 @@ export {
   jobStatusSchema,
 } from './job.js';
 export {
+  type CheckoutResultDto,
+  checkoutResultSchema,
   type NextStepResponseDto,
   nextStepResponseSchema,
   type ReportStepBodyDto,

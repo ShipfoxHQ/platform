@@ -65,6 +65,22 @@ describe('checkoutRepository (real git)', () => {
     expect(readme).toBe('# hello\n');
     expect(commit).toMatch(COMMIT_SHA_RE);
   });
+  it('fetches the full history when fetch depth is zero', async () => {
+    await writeFile(join(sourceRepo, 'README.md'), '# hello\nsecond commit\n');
+    await git(['add', '.'], sourceRepo);
+    await git(['commit', '-m', 'second'], sourceRepo);
+
+    const fullHistoryCwd = join(workdir, 'job-full-history');
+    await mkdir(fullHistoryCwd, {recursive: true});
+    await checkoutRepository({
+      repositoryUrl: `file://${sourceRepo}`,
+      ref: 'main',
+      fetchDepth: 0,
+      cwd: fullHistoryCwd,
+    });
+
+    await expect(gitOutput(['rev-list', '--count', 'HEAD'], fullHistoryCwd)).resolves.toBe('2');
+  });
 
   it('never persists the credential to .git/config', async () => {
     await checkoutRepository({

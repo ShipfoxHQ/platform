@@ -36,6 +36,16 @@ export const nextStepResponseSchema = z.discriminatedUnion('kind', [
 
 export type NextStepResponseDto = z.infer<typeof nextStepResponseSchema>;
 
+export const checkoutResultSchema = z
+  .object({
+    repository: z.string().min(1),
+    ref: z.string().min(1),
+    commit: z.string().min(1),
+    path: z.string().min(1),
+  })
+  .describe('Resolved repository checkout details reported by the runner.');
+export type CheckoutResultDto = z.infer<typeof checkoutResultSchema>;
+
 export const reportStepBodySchema = z
   .object({
     status: z.enum(['succeeded', 'failed']).describe('Final status reported for the step attempt.'),
@@ -65,6 +75,9 @@ export const reportStepBodySchema = z
       .describe(
         'Structured output captured for attempt history. Large textual logs are stored separately.',
       ),
+    checkout: checkoutResultSchema
+      .optional()
+      .describe('Resolved repository checkout details captured for attempt history.'),
     response: z
       .string()
       .max(STEP_RESPONSE_MAX_LENGTH)

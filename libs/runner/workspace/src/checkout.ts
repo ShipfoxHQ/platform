@@ -96,6 +96,8 @@ const PROVIDER_UNAVAILABLE =
 export async function checkoutRepository(params: {
   repositoryUrl: string;
   ref: string;
+  /** Number of commits to fetch; zero requests the full repository history. */
+  fetchDepth?: number | undefined;
   auth?: CheckoutTokenAuthDto | undefined;
   cwd: string;
   signal?: AbortSignal | undefined;
@@ -103,8 +105,21 @@ export async function checkoutRepository(params: {
   onCommandStart?: ((metadata: CheckoutCommandStartMetadata) => void) | undefined;
   onSecrets?: ((secrets: string[]) => void) | undefined;
 }): Promise<string> {
-  const {repositoryUrl, ref, auth, cwd, signal, onCommandStart, onOutput, onSecrets} = params;
+  const {
+    repositoryUrl,
+    ref,
+    fetchDepth = 1,
+    auth,
+    cwd,
+    signal,
+    onCommandStart,
+    onOutput,
+    onSecrets,
+  } = params;
 
+  if (!Number.isInteger(fetchDepth) || fetchDepth < 0) {
+    throw new RangeError('fetchDepth must be a non-negative integer');
+  }
   const secrets = secretsOf(auth);
   onSecrets?.(secrets);
 
@@ -128,7 +143,15 @@ export async function checkoutRepository(params: {
       onOutput,
     });
 
-    const fetchArgs = ['fetch', '--progress', '--no-tags', '--prune', '--depth=1', 'origin', ref];
+    const fetchArgs = [
+      'fetch',
+      '--progress',
+      '--no-tags',
+      '--prune',
+      ...(fetchDepth === 0 ? [] : [`--depth=${fetchDepth}`]),
+      'origin',
+      ref,
+    ];
     await runGitCommand({
       phase: 'fetch',
       args: fetchArgs,
