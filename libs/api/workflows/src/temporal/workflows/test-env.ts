@@ -77,6 +77,14 @@ export interface ActivityCall {
 
 export let calls: ActivityCall[];
 let versionSeq: number;
+const pendingJobOutcomes = new Map<
+  string,
+  {
+    handle: ReturnType<typeof testEnv.client.workflow.getHandle>;
+    status: RuntimeCompletionStatus;
+    duplicateSignal: boolean;
+  }
+>();
 
 function nextVersion(): number {
   return ++versionSeq;
@@ -85,6 +93,7 @@ function nextVersion(): number {
 export function resetCalls(): void {
   calls = [];
   versionSeq = 0;
+  pendingJobOutcomes.clear();
 }
 
 export function callsNamed(name: string): ActivityCall[] {
@@ -110,16 +119,6 @@ export function setExecutionStatusCalls() {
     name: string;
     params: {jobExecutionId: string; status: string; version: number; statusReason?: string | null};
   }>;
-}
-
-async function waitForJobExecutionStatusWrite(jobExecutionId: string): Promise<void> {
-  while (
-    !setExecutionStatusCalls().some(
-      (call) => call.params.jobExecutionId === jobExecutionId && call.params.status === 'running',
-    )
-  ) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  }
 }
 
 export function listenerFiringOutcomeCalls() {
@@ -256,7 +255,7 @@ function createMockActivities() {
       });
     },
 
-    setJobExecutionStatus: (params: {
+    setJobExecutionStatus: async (params: {
       jobExecutionId: string;
       status: string;
       version: number;
@@ -265,6 +264,24 @@ function createMockActivities() {
       calls.push({name: 'setJobExecutionStatus', params});
       const status =
         params.status === 'running' && cfg.runningJobStatus ? cfg.runningJobStatus : params.status;
+
+      if (params.status === 'running') {
+        const outcome = pendingJobOutcomes.get(params.jobExecutionId);
+        pendingJobOutcomes.delete(params.jobExecutionId);
+        if (outcome && status === 'running') {
+          await outcome.handle.signal(JOB_FINISHED_SIGNAL, {
+            status: outcome.status,
+            jobExecutionId: params.jobExecutionId,
+          });
+          if (outcome.duplicateSignal) {
+            await outcome.handle.signal(JOB_FINISHED_SIGNAL, {
+              status: 'failed',
+              jobExecutionId: params.jobExecutionId,
+            });
+          }
+        }
+      }
+
       return {newVersion: nextVersion(), status};
     },
 
@@ -317,25 +334,14 @@ function createMockActivities() {
         return;
       }
 
-      // The runner's terminal outbox is independent from its claim. Wait for the mocked
-      // pending → running write so normal-completion tests exercise that ordering without
-      // relying on a wall-clock delay. The precedence tests above intentionally deliver all
-      // facts in one activation.
-      const duplicateSignal = cfg.duplicateSignal;
-      void waitForJobExecutionStatusWrite(params.jobExecutionId)
-        .then(async () => {
-          await handle.signal(JOB_FINISHED_SIGNAL, {status, jobExecutionId: params.jobExecutionId});
-          if (duplicateSignal) {
-            await handle.signal(JOB_FINISHED_SIGNAL, {
-              status: 'failed',
-              jobExecutionId: params.jobExecutionId,
-            });
-          }
-        })
-        .catch(() => {
-          // The claim can observe an already-terminal execution and close the workflow before
-          // this independently delivered outcome signal arrives.
-        });
+      // The terminal outbox is independent from the claim, but the mock delivers it from the
+      // pending → running activity. This gives the workflow a deterministic ordering boundary
+      // without leaving a polling promise alive after the test finishes.
+      pendingJobOutcomes.set(params.jobExecutionId, {
+        handle,
+        status,
+        duplicateSignal: cfg.duplicateSignal ?? false,
+      });
     },
 
     resolveLeaseExpiredJobExecutionActivity: (params: {
