@@ -40,6 +40,7 @@ function listResponse(params: Partial<DefinitionListResponseDto> = {}): Definiti
             finished_at: '2026-07-02T08:00:01.000Z',
             last_error_code: null,
             last_error_message: null,
+            warnings: [],
           }
         : params.sync,
     next_cursor: params.next_cursor ?? null,
@@ -105,6 +106,7 @@ describe('waitForDefinition', () => {
               finished_at: '2026-07-02T08:00:01.000Z',
               last_error_code: 'no-workflow-files',
               last_error_message: 'No workflow files found',
+              warnings: [],
             },
           }),
         ),
@@ -130,6 +132,7 @@ describe('waitForDefinition', () => {
               finished_at: '2026-07-02T08:00:01.000Z',
               last_error_code: 'no-workflow-files',
               last_error_message: 'No workflow files found',
+              warnings: [],
             },
           }),
         ),
