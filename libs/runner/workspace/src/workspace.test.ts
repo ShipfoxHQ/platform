@@ -4,8 +4,10 @@ import {join} from 'node:path';
 import {
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobLogs,
   cleanupWorkspace,
   createJobDir,
+  createJobLogsDir,
   InvalidJobIdError,
   jobCredentialsPath,
   jobLogsPath,
@@ -128,6 +130,74 @@ describe('createJobDir', () => {
 
     const readStale = () => stat(join(cwd, 'stale.txt'));
     await expect(readStale()).rejects.toThrow();
+  });
+});
+
+describe('createJobLogsDir', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'shipfox-job-logs-create-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, {recursive: true, force: true});
+  });
+
+  it('creates the per-job log directory', async () => {
+    const logsDir = join(root, 'job-11111111-1111-4111-8111-111111111111');
+
+    await createJobLogsDir(logsDir);
+
+    expect((await stat(logsDir)).isDirectory()).toBe(true);
+  });
+
+  it('pre-cleans a dirty directory left from a previous run', async () => {
+    const logsDir = join(root, 'job-22222222-2222-4222-8222-222222222222');
+    await createJobLogsDir(logsDir);
+    await writeFile(join(logsDir, 'stale.ndjson'), '{}\n');
+
+    await createJobLogsDir(logsDir);
+
+    const readStale = () => stat(join(logsDir, 'stale.ndjson'));
+    await expect(readStale()).rejects.toThrow();
+  });
+});
+
+describe('cleanupOrphanedJobLogs', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'shipfox-job-logs-sweep-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, {recursive: true, force: true});
+  });
+
+  it('removes UUID-named job directories and preserves unrelated entries', async () => {
+    const logsRoot = join(root, '.shipfox-runner-logs');
+    const orphan = join(logsRoot, 'job-33333333-3333-4333-8333-333333333333');
+    const otherJob = join(logsRoot, 'job-not-a-uuid');
+    const unrelatedUuidDir = join(logsRoot, 'other-33333333-3333-4333-8333-333333333333');
+    const file = join(logsRoot, 'README');
+    await mkdir(orphan, {recursive: true});
+    await writeFile(join(orphan, 'setup.ndjson'), '{}\n');
+    await mkdir(otherJob, {recursive: true});
+    await mkdir(unrelatedUuidDir, {recursive: true});
+    await writeFile(file, 'keep');
+
+    await cleanupOrphanedJobLogs(root);
+
+    await expect(stat(orphan)).rejects.toThrow();
+    expect((await stat(otherJob)).isDirectory()).toBe(true);
+    expect((await stat(unrelatedUuidDir)).isDirectory()).toBe(true);
+    expect((await stat(file)).isFile()).toBe(true);
+    expect((await stat(logsRoot)).isDirectory()).toBe(true);
+  });
+
+  it('does not throw when the runner log root is missing', async () => {
+    await expect(cleanupOrphanedJobLogs(root)).resolves.toBeUndefined();
   });
 });
 

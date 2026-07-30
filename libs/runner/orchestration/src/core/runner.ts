@@ -30,6 +30,7 @@ import {
 import {
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobLogs,
   cleanupWorkspace,
   jobCredentialsPath,
   jobLogsPath,
@@ -67,6 +68,7 @@ export async function startRunner(): Promise<void> {
   // Fail fast at startup: a dangerous root should crash the process at deploy,
   // not silently fail every job.
   const workspaceRoot = resolveWorkspaceRootFromEnv();
+  await cleanupOrphanedJobLogs(workspaceRoot);
   requireRunnerLabels();
   warnAboutUnavailablePiExtensions();
   const startupMode = runnerStartupMode();

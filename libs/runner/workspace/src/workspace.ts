@@ -1,4 +1,5 @@
-import {mkdir, rm} from 'node:fs/promises';
+import type {Dirent} from 'node:fs';
+import {mkdir, readdir, rm} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {join, parse, resolve} from 'node:path';
 import {logger} from '@shipfox/node-opentelemetry';
@@ -90,14 +91,54 @@ export function jobCredentialsPath(jobId: string, root: string): string {
 }
 
 /**
- * Pre-cleans the per-job directory before creating it, so a directory left by a
- * previous crash is never reused. Run inside the setup step so a prep failure is
- * reported through the step protocol rather than bailing the job.
+ * Pre-cleans a per-job directory before recreating it, so a directory left by a
+ * previous crash is never reused.
+ */
+async function resetDir(dir: string): Promise<void> {
+  await rm(dir, {recursive: true, force: true});
+  await mkdir(dir, {recursive: true});
+}
+
+/**
+ * Run inside the setup step so a prep failure is reported through the step
+ * protocol rather than bailing the job.
  */
 export async function createJobDir(cwd: string): Promise<void> {
-  // Pre-clean the per-job directory only — never the configured root.
-  await rm(cwd, {recursive: true, force: true});
-  await mkdir(cwd, {recursive: true});
+  await resetDir(cwd);
+}
+
+/**
+ * Resets the runner-owned log directory before a job can reuse it after a crash.
+ */
+export async function createJobLogsDir(logsDir: string): Promise<void> {
+  await resetDir(logsDir);
+}
+
+/**
+ * Removes only UUID-named per-job log directories left under the runner log root.
+ * The log root itself and unrelated entries are preserved.
+ */
+export async function cleanupOrphanedJobLogs(root: string): Promise<void> {
+  const logsRoot = join(root, RUNNER_LOGS_DIR);
+  let entries: Dirent[];
+  try {
+    entries = await readdir(logsRoot, {withFileTypes: true});
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    logger().warn({err, logsRoot}, 'Failed to sweep orphaned job logs');
+    return;
+  }
+
+  await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          entry.name.startsWith('job-') &&
+          isUuid(entry.name.slice('job-'.length)),
+      )
+      .map((entry) => cleanupJobLogs(join(logsRoot, entry.name))),
+  );
 }
 
 /**

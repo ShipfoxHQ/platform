@@ -19,8 +19,10 @@ export {
 export {
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobLogs,
   cleanupWorkspace,
   createJobDir,
+  createJobLogsDir,
   InvalidJobIdError,
   jobCredentialsPath,
   jobLogsPath,

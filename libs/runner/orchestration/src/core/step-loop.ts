@@ -38,7 +38,7 @@ import {
   StepSecretsRequestError,
   writeStepAnnotations,
 } from '@shipfox/runner-protocol';
-import {resolveWorkingDirectory} from '@shipfox/runner-workspace';
+import {createJobLogsDir, resolveWorkingDirectory} from '@shipfox/runner-workspace';
 import type {KyInstance} from 'ky';
 
 const WHITESPACE_REGEX = /\s+/;
@@ -71,6 +71,7 @@ export async function runJobSteps(params: {
   // step pulled before a successful setup is failed cleanly rather than spawned
   // against an unprepared cwd.
   let workspacePrepared = false;
+  let logsPrepared = false;
   let ambientGitConfigPath: string | undefined;
 
   // The most recent step's stream, kept until the next
@@ -97,6 +98,13 @@ export async function runJobSteps(params: {
         `Running ${stepLabel}`,
       );
 
+      const prepareLogs =
+        step.type === 'setup' && !logsPrepared
+          ? async () => {
+              await createJobLogsDir(logsDir);
+              logsPrepared = true;
+            }
+          : undefined;
       const execution = await executeStep({
         step,
         attempt,
@@ -113,6 +121,7 @@ export async function runJobSteps(params: {
         logsDir,
         jobContext,
         gitConfigPath,
+        ...(prepareLogs ? {prepareLogs} : {}),
       });
       activeStream = execution.stream;
       if (execution.preparedWorkspace) workspacePrepared = true;
@@ -223,6 +232,7 @@ export async function executeStep(params: {
   gitConfigPath: string;
   jobId: string;
   stepLabel: string;
+  prepareLogs?: (() => Promise<void>) | undefined;
 }): Promise<StepExecution> {
   const {
     step,
@@ -240,6 +250,7 @@ export async function executeStep(params: {
     gitConfigPath,
     jobId,
     stepLabel,
+    prepareLogs,
   } = params;
 
   let stream: LogStreamLifecycle | undefined;
@@ -276,6 +287,19 @@ export async function executeStep(params: {
       });
 
     if (step.type === 'setup') {
+      if (prepareLogs) {
+        try {
+          await prepareLogs();
+        } catch (error) {
+          const result = setupLogDirectoryFailure(error);
+          logger().warn(
+            {err: error, jobId, stepId: step.id, attempt, reason: result.error?.reason},
+            'Setup step failed',
+          );
+          return {result, logOutcome: 'abandoned', preparedWorkspace: false};
+        }
+      }
+
       let setupStream: StepLogStream | undefined;
       try {
         setupStream = createStepLogStream({
@@ -564,6 +588,17 @@ function stepSecretsFailure(error: unknown): StepResult {
     error: {
       message: error instanceof Error ? error.message : 'Run step secrets could not be resolved.',
       reason: 'config_unresolvable',
+    },
+    exit_code: null,
+  };
+}
+
+function setupLogDirectoryFailure(error: unknown): StepResult {
+  return {
+    success: false,
+    error: {
+      message: error instanceof Error ? error.message : String(error),
+      reason: 'workspace_prep_failed',
     },
     exit_code: null,
   };
