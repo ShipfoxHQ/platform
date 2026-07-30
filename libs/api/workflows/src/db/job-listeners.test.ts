@@ -929,9 +929,9 @@ describe('drainListenerEventsIntoExecution', () => {
       jobId: job.id,
       expectedSequence: 1,
       secrets: {
-        getVariablesByNamespace: async () => {
+        getVariablesByNamespace: () => {
           variableLoads += 1;
-          return {values: {REGION: 'eu-west'}};
+          return Promise.resolve({values: {REGION: 'eu-west'}});
         },
       },
     });
