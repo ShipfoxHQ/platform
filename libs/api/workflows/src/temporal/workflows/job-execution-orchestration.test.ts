@@ -92,7 +92,7 @@ async function expectEmptyRequiredLabelsFailure(input: typeof defaultJobInput): 
 }
 
 describe('jobExecutionOrchestration', () => {
-  test('finished signal (succeeded) flips status and releases the lease', async () => {
+  test('runner claim flips status to running, then finished releases the lease', async () => {
     setCfg({
       dag: makeDag([dagJob('job-1', 'build')]),
       jobResults: new Map([['job-1', 'succeeded']]),
@@ -105,6 +105,108 @@ describe('jobExecutionOrchestration', () => {
     expect(callsNamed('releaseLeaseActivity')).toHaveLength(1);
     expect(callsNamed('resolveLeaseExpiredJobExecutionActivity')).toHaveLength(0);
     expect(callsNamed('bulkSetStepStatuses')).toHaveLength(0);
+  });
+
+  test('keeps an execution pending until the current runner claim', async () => {
+    setCfg({dag: makeDag([]), jobResults: new Map(), skipSignal: true});
+
+    const handle = await testEnv.client.workflow.start('jobExecutionOrchestration', {
+      taskQueue: TASK_QUEUE,
+      workflowId: 'job:job-pending-before-claim',
+      args: [
+        {
+          ...defaultJobInput,
+          jobId: 'job-pending-before-claim',
+          jobExecutionId: 'job-pending-before-claim',
+        },
+      ],
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(setExecutionStatusCalls()).toHaveLength(0);
+
+    await handle.signal('job-claimed', {
+      jobExecutionId: 'job-pending-before-claim',
+      claimedAt: '2026-06-22T10:05:00.000Z',
+    });
+    await handle.signal('job-finished', {
+      jobExecutionId: 'job-pending-before-claim',
+      status: 'succeeded',
+    });
+
+    const result = await handle.result();
+    expect(result.status).toBe('succeeded');
+    expect(finalStatusesFor('job-pending-before-claim')).toEqual(['running', 'succeeded']);
+  });
+
+  test('ignores stale and duplicate claims and transitions exactly once', async () => {
+    setCfg({dag: makeDag([]), jobResults: new Map(), skipSignal: true});
+
+    const handle = await testEnv.client.workflow.start('jobExecutionOrchestration', {
+      taskQueue: TASK_QUEUE,
+      workflowId: 'job:job-claim-idempotent',
+      args: [
+        {
+          ...defaultJobInput,
+          jobId: 'job-claim-idempotent',
+          jobExecutionId: 'execution-current',
+        },
+      ],
+    });
+
+    await handle.signal('job-claimed', {
+      jobExecutionId: 'execution-stale',
+      claimedAt: '2026-06-22T10:04:00.000Z',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(setExecutionStatusCalls()).toHaveLength(0);
+
+    const claim = {
+      jobExecutionId: 'execution-current',
+      claimedAt: '2026-06-22T10:05:00.000Z',
+    };
+    await handle.signal('job-claimed', claim);
+    await handle.signal('job-claimed', {...claim, claimedAt: '2026-06-22T10:06:00.000Z'});
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await handle.signal('job-finished', {
+      jobExecutionId: 'execution-current',
+      status: 'succeeded',
+    });
+
+    const result = await handle.result();
+    expect(result.status).toBe('succeeded');
+    expect(finalStatusesFor('execution-current')).toEqual(['running', 'succeeded']);
+  });
+
+  test('a finish before a delayed claim remains terminal', async () => {
+    setCfg({dag: makeDag([]), jobResults: new Map(), skipSignal: true});
+
+    const handle = await testEnv.client.workflow.start('jobExecutionOrchestration', {
+      taskQueue: TASK_QUEUE,
+      workflowId: 'job:job-finish-before-claim',
+      args: [
+        {
+          ...defaultJobInput,
+          jobId: 'job-finish-before-claim',
+          jobExecutionId: 'job-finish-before-claim',
+        },
+      ],
+    });
+
+    await handle.signal('job-finished', {
+      jobExecutionId: 'job-finish-before-claim',
+      status: 'succeeded',
+    });
+    const result = await handle.result();
+
+    expect(result.status).toBe('succeeded');
+    expect(finalStatusesFor('job-finish-before-claim')).toEqual(['succeeded']);
+    await expect(
+      handle.signal('job-claimed', {
+        jobExecutionId: 'job-finish-before-claim',
+        claimedAt: '2026-06-22T10:05:00.000Z',
+      }),
+    ).rejects.toThrow();
   });
 
   test('empty required labels fail before the job is marked running', async () => {
@@ -272,7 +374,7 @@ describe('jobExecutionOrchestration', () => {
     ]);
   }, 15_000);
 
-  test('already-terminal job is not enqueued', async () => {
+  test('already-terminal job is not reopened after a claim', async () => {
     setCfg({
       dag: makeDag([]),
       jobResults: new Map(),
@@ -282,7 +384,7 @@ describe('jobExecutionOrchestration', () => {
     const result = await executeJob({...defaultJobInput, jobId: 'job-cancelled'});
 
     expect(result).toMatchObject({status: 'cancelled'});
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(0);
+    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(1);
     expect(callsNamed('releaseLeaseActivity')).toHaveLength(0);
   });
 
@@ -314,13 +416,31 @@ describe('jobExecutionOrchestration', () => {
 
     expect(result.status).toBe('failed');
     expect(callsNamed('failJobExecutionAsTimedOutActivity')).toHaveLength(1);
-    expect(finalStatusesFor('job-timeout')).toEqual(['running']);
+    expect(finalStatusesFor('job-timeout')).toEqual([]);
     expect(callsNamed('bulkSetStepStatuses')).toContainEqual({
       name: 'bulkSetStepStatuses',
       params: {jobExecutionId: 'job-timeout', status: 'failed'},
     });
     expect(callsNamed('releaseLeaseActivity')).toHaveLength(0);
     expect(callsNamed('resolveLeaseExpiredJobExecutionActivity')).toHaveLength(0);
+  });
+
+  test('does not reset the execution deadline after claim', async () => {
+    setCfg({
+      dag: makeDag([dagJob('job-claim-timeout', 'build')]),
+      jobResults: new Map(),
+      skipOutcomeSignal: true,
+    });
+
+    const result = await executeJob({
+      ...defaultJobInput,
+      jobId: 'job-claim-timeout',
+      executionTimeoutMs: 250,
+    });
+
+    expect(result.status).toBe('failed');
+    expect(finalStatusesFor('job-claim-timeout')).toEqual(['running']);
+    expect(callsNamed('failJobExecutionAsTimedOutActivity')).toHaveLength(1);
   });
 
   test('surfaces a timeout activity failure', async () => {
@@ -339,7 +459,7 @@ describe('jobExecutionOrchestration', () => {
       }),
     ).rejects.toThrow();
 
-    expect(finalStatusesFor('job-timeout-error')).toEqual(['running']);
+    expect(finalStatusesFor('job-timeout-error')).toEqual([]);
   });
 
   test('no signal — workflow stays blocked indefinitely', async () => {

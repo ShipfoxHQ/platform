@@ -9,7 +9,7 @@ import type {
   ListenerBufferPeek,
 } from '#db/job-listeners.js';
 import type {RunDag} from '../activities/orchestration-activities.js';
-import {JOB_FINISHED_SIGNAL, JOB_LEASE_EXPIRED_SIGNAL} from '../constants.js';
+import {JOB_CLAIMED_SIGNAL, JOB_FINISHED_SIGNAL, JOB_LEASE_EXPIRED_SIGNAL} from '../constants.js';
 
 const TASK_QUEUE = 'test-orchestration';
 const WORKFLOWS_PATH = resolve(import.meta.dirname, '../../../dist/temporal/workflows/index.js');
@@ -31,6 +31,10 @@ export interface TestConfig {
   duplicateSignal?: boolean;
   /** If true, enqueueJobExecutionForRunner does nothing (no signal — for timeout testing) */
   skipSignal?: boolean;
+  /** If true, emit the claim but hold back the terminal outcome (for deadline testing) */
+  skipOutcomeSignal?: boolean;
+  /** Runner-owned claim timestamp used by the mock claim event */
+  claimedAt?: string;
   /** If true, signal job-lease-expired instead of job-finished */
   signalLeaseExpired?: boolean;
   /** If true, signal BOTH job-finished and job-lease-expired (precedence testing) */
@@ -285,6 +289,12 @@ function createMockActivities() {
 
       const status = cfg.jobResults.get(params.jobId) ?? 'succeeded';
       const handle = testEnv.client.workflow.getHandle(`job:${params.jobId}`);
+      await handle.signal(JOB_CLAIMED_SIGNAL, {
+        jobExecutionId: params.jobExecutionId,
+        claimedAt: cfg.claimedAt ?? '2026-06-22T10:05:00.000Z',
+      });
+
+      if (cfg.skipOutcomeSignal) return;
 
       if (cfg.signalLeaseExpired) {
         await handle.signal(JOB_LEASE_EXPIRED_SIGNAL, {jobExecutionId: params.jobExecutionId});
@@ -297,14 +307,25 @@ function createMockActivities() {
         return;
       }
 
-      await handle.signal(JOB_FINISHED_SIGNAL, {status, jobExecutionId: params.jobExecutionId});
-
-      if (cfg.duplicateSignal) {
-        await handle.signal(JOB_FINISHED_SIGNAL, {
-          status: 'failed',
-          jobExecutionId: params.jobExecutionId,
-        });
-      }
+      // Let the workflow process the claim before the independent finished outbox arrives.
+      // The precedence tests above intentionally deliver all facts in one activation.
+      const duplicateSignal = cfg.duplicateSignal;
+      setTimeout(() => {
+        void handle
+          .signal(JOB_FINISHED_SIGNAL, {status, jobExecutionId: params.jobExecutionId})
+          .then(async () => {
+            if (duplicateSignal) {
+              await handle.signal(JOB_FINISHED_SIGNAL, {
+                status: 'failed',
+                jobExecutionId: params.jobExecutionId,
+              });
+            }
+          })
+          .catch(() => {
+            // The claim can observe an already-terminal execution and close the workflow before
+            // this independently delivered outcome signal arrives.
+          });
+      }, 100);
     },
 
     resolveLeaseExpiredJobExecutionActivity: (params: {
