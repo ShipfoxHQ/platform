@@ -1,6 +1,6 @@
 {
-  "id": "dbc5a771-2e1f-42a1-9bc6-6ece34272d88",
-  "prevId": "d499edbd-b3b6-4d33-9934-22471a9a2e6a",
+  "id": "23321d79-bb1f-47ef-98a3-dcd11436b3f2",
+  "prevId": "ebdc1ae8-8165-408d-9543-f137cce40c30",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -31,7 +31,7 @@
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "runner": {
           "name": "runner",
@@ -1117,6 +1117,12 @@
         },
         "model": {
           "name": "model",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vars": {
+          "name": "vars",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
