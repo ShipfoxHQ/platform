@@ -59,10 +59,50 @@ describe('buildWorkflowJsonSchema', () => {
     expect(triggers.minProperties).toBe(1);
     expect(jobOutputs.minProperties).toBe(1);
     expect(discriminator).toMatchObject({
-      oneOf: [{required: ['run']}, {required: ['prompt']}],
+      oneOf: [{required: ['run']}, {required: ['prompt']}, {required: ['checkout']}],
     });
     expect(requiredAlternatives(gate)).toEqual(['success', 'on_failure']);
     expect(requiredAlternatives(batch)).toEqual(['debounce', 'max_size', 'max_wait']);
+  });
+
+  it('publishes checkout fields for both job and checkout-step syntax', () => {
+    const schema = buildWorkflowJsonSchema();
+    const root = object(schema.properties);
+    const jobs = object(root.jobs);
+    const job = object(jobs.additionalProperties);
+    const jobCheckout = object(object(job.properties).checkout);
+    const step = stepSchemaFor(schema);
+    const stepCheckout = object(object(step.properties).checkout);
+
+    expect(jobCheckout.anyOf).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({type: 'object'}),
+        expect.objectContaining({const: false}),
+      ]),
+    );
+    expect(objectSchemaFor(jobCheckout).properties).toEqual(
+      expect.objectContaining({
+        project: expect.any(Object),
+        connection: expect.any(Object),
+        repository: expect.any(Object),
+        ref: expect.any(Object),
+        'fetch-depth': expect.any(Object),
+        path: expect.any(Object),
+        permissions: expect.any(Object),
+        'persist-credentials': expect.any(Object),
+        force: expect.any(Object),
+      }),
+    );
+    expect(stepCheckout).toEqual(
+      expect.objectContaining({
+        type: 'object',
+        properties: expect.objectContaining({
+          project: expect.any(Object),
+          'fetch-depth': expect.any(Object),
+          force: expect.any(Object),
+        }),
+      }),
+    );
   });
 
   it('describes every JSON Schema property', () => {
@@ -90,6 +130,13 @@ function jobOutputsSchemaFor(schema: JsonSchema): JsonSchema {
   const jobs = object(object(schema.properties).jobs);
   const job = object(jobs.additionalProperties);
   return object(object(job.properties).outputs);
+}
+
+function objectSchemaFor(schema: JsonSchema): JsonSchema {
+  if (schema.type === 'object' || schema.properties) return schema;
+  return (
+    objects(schema.anyOf).find((option) => option.type === 'object' || option.properties) ?? {}
+  );
 }
 
 function requiredAlternatives(schema: JsonSchema): unknown {

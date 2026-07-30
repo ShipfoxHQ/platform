@@ -231,6 +231,14 @@ function object(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
 }
 
+function objectSchemaFor(value) {
+  const schema = object(value);
+  if (schema.type === 'object' || schema.properties) return schema;
+  return (
+    objects(schema.anyOf).find((option) => option.type === 'object' || option.properties) ?? {}
+  );
+}
+
 function strings(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
 }
@@ -248,7 +256,7 @@ function renderWorkflowSchemaReference() {
   const integrations = object(steps.properties).integrations;
   const integration = object(integrations.items);
   const gate = object(steps.properties).gate;
-  const checkout = object(jobs.properties).checkout;
+  const checkout = objectSchemaFor(object(jobs.properties).checkout);
   const checkoutPermissions = object(checkout.properties).permissions;
   const gateFailure = object(gate.properties).on_failure;
   const triggers = object(root.triggers);
@@ -302,6 +310,20 @@ function renderWorkflowSchemaReference() {
       types: {
         gate: namedType('Gate'),
         env: namedType('Environment'),
+        outputs: recordType('Output'),
+      },
+    }),
+    component('CheckoutStepFields', object(steps.properties), {
+      fields: ['key', 'if', 'name', 'checkout', 'gate', 'outputs'],
+      required: ['checkout'],
+      nested: {
+        checkout: '#checkout-fields',
+        gate: '#gate-fields',
+        outputs: '#step-outputs',
+      },
+      types: {
+        checkout: namedType('Checkout'),
+        gate: namedType('Gate'),
         outputs: recordType('Output'),
       },
     }),

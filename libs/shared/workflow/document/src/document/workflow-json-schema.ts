@@ -65,17 +65,34 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
       oneOf: [
         {
           required: ['run'],
-          not: {anyOf: workflowDocumentAgentStepFields.map((field) => ({required: [field]}))},
+          not: {
+            anyOf: [
+              ...workflowDocumentAgentStepFields.map((field) => ({required: [field]})),
+              {required: ['checkout']},
+            ],
+          },
         },
         {
           required: ['prompt'],
-          not: {anyOf: [{required: ['run']}, {required: ['env']}]},
+          not: {anyOf: [{required: ['run']}, {required: ['checkout']}, {required: ['env']}]},
+        },
+        {
+          required: ['checkout'],
+          not: {
+            anyOf: [
+              {required: ['run']},
+              ...workflowDocumentAgentStepFields.map((field) => ({required: [field]})),
+              {required: ['env']},
+            ],
+          },
         },
       ],
     },
   ];
 
   const job = object(jobs.additionalProperties);
+  projectCheckoutTargetValidation(propertiesOf(job).checkout);
+  projectCheckoutTargetValidation(propertiesOf(stepSchema).checkout);
   const jobOutputs = object(propertiesOf(job).outputs);
   jobOutputs.minProperties = 1;
   const listening = object(propertiesOf(job).listening);
@@ -84,6 +101,23 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
 
   const gate = object(propertiesOf(stepSchema).gate);
   addAtLeastOneConstraint(gate, ['success', 'on_failure']);
+}
+
+function projectCheckoutTargetValidation(schema: JsonSchema | undefined) {
+  const checkout = objectSchemaFor(schema);
+  if (Object.keys(checkout).length === 0) return;
+
+  checkout.allOf = [
+    ...objects(checkout.allOf),
+    {
+      not: {
+        allOf: [
+          {required: ['project']},
+          {anyOf: [{required: ['connection']}, {required: ['repository']}]},
+        ],
+      },
+    },
+  ];
 }
 
 function addAtLeastOneConstraint(schema: JsonSchema, fields: string[]) {
@@ -107,6 +141,14 @@ function object(value: unknown): JsonSchema {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as JsonSchema)
     : {};
+}
+
+function objectSchemaFor(value: unknown): JsonSchema {
+  const schema = object(value);
+  if (schema.type === 'object' || schema.properties) return schema;
+  return (
+    objects(schema.anyOf).find((option) => option.type === 'object' || option.properties) ?? {}
+  );
 }
 
 function objects(value: unknown): JsonSchema[] {

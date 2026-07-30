@@ -283,21 +283,66 @@ const workflowDocumentStepGateSchema = z
     message: 'Expected success or on_failure',
   });
 
-export const workflowDocumentCheckoutSchema = z.strictObject({
-  permissions: z
-    .strictObject({
-      contents: z.enum(['read', 'write']).optional().meta({
-        description: 'Repository contents permission granted to checkout.',
-      }),
-    })
-    .optional()
-    .meta({
-      description: 'Repository permissions used during checkout.',
+export const workflowDocumentCheckoutSchema = z
+  .strictObject({
+    project: z.string().min(1).optional().meta({
+      description: 'Shipfox project id to check out. Exclusive with connection and repository.',
     }),
-  'persist-credentials': z.boolean().optional().meta({
-    description: 'Whether checkout credentials remain available to later run steps.',
-  }),
-});
+    connection: z.string().min(1).optional().meta({
+      description: 'Integration connection slug to use for checkout.',
+    }),
+    repository: z.string().min(1).optional().meta({
+      description: 'Repository to check out, as owner/name or a bare name.',
+    }),
+    ref: z.string().min(1).optional().meta({
+      description: 'Repository ref to check out.',
+    }),
+    'fetch-depth': z.number().int().min(0).optional().meta({
+      description: 'Number of commits to fetch. Use 0 for full history.',
+    }),
+    path: z.string().min(1).optional().meta({
+      description: 'Relative path under the job workspace where this repository is checked out.',
+    }),
+    permissions: z
+      .strictObject({
+        contents: z.enum(['read', 'write']).optional().meta({
+          description: 'Repository contents permission granted to checkout.',
+        }),
+      })
+      .optional()
+      .meta({
+        description: 'Repository permissions used during checkout.',
+      }),
+    'persist-credentials': z.boolean().optional().meta({
+      description: 'Whether checkout credentials remain available to later run steps.',
+    }),
+    force: z.boolean().optional().meta({
+      description: 'Whether checkout may replace an occupied destination.',
+    }),
+  })
+  .superRefine((checkout, ctx) => {
+    if (checkout.project !== undefined && checkout.connection !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['connection'],
+        message: '"connection" cannot be combined with "project".',
+      });
+    }
+    if (checkout.project !== undefined && checkout.repository !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['repository'],
+        message: '"repository" cannot be combined with "project".',
+      });
+    }
+  });
+
+const workflowDocumentJobCheckoutSchema = z
+  .union([workflowDocumentCheckoutSchema, z.literal(false)])
+  .meta({
+    description:
+      'Checkout settings for repository content and credentials, or false to skip checkout.',
+  });
 
 export const workflowDocumentStepIntegrationSelectionSchema = z.array(z.string().min(1)).min(1);
 
@@ -326,12 +371,13 @@ export const workflowDocumentAgentStepFields = [
   'integrations',
 ] as const;
 
-// A step is a run step (`run`) or an inline agent step (`prompt`), never
-// both. They share one strict object so an unknown key is still rejected; the
-// `superRefine` discriminates by which payload keys are present and emits one
-// targeted issue per failure mode (a plain union would surface every branch's
-// errors at once). The `agent` keyword is declared only so the reserved-keyword
-// case produces a clear message instead of a generic "unrecognized key".
+// A step is a run step (`run`), an inline agent step (`prompt`), or a checkout
+// step (`checkout`), never two kinds at once. They share one strict object so
+// an unknown key is still rejected; the `superRefine` discriminates by which
+// payload keys are present and emits one targeted issue per failure mode (a
+// plain union would surface every branch's errors at once). The `agent`
+// keyword is declared only so the reserved-keyword case produces a clear
+// message instead of a generic "unrecognized key".
 export const workflowDocumentStepSchema = z
   .strictObject({
     key: z
@@ -354,6 +400,9 @@ export const workflowDocumentStepSchema = z
     }),
     run: z.string().min(1).optional().meta({
       description: 'Shell command for a run step. Do not combine it with agent-only fields.',
+    }),
+    checkout: workflowDocumentCheckoutSchema.optional().meta({
+      description: 'Repository checkout settings for this step.',
     }),
     model: z.string().min(1).optional().meta({
       description:
@@ -405,6 +454,33 @@ export const workflowDocumentStepSchema = z
       return;
     }
 
+    if (step.checkout !== undefined) {
+      if (step.run !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['run'],
+          message: '"run" is not valid on a checkout step.',
+        });
+      }
+      for (const key of workflowDocumentAgentStepFields) {
+        if (step[key] !== undefined) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `"${key}" is not valid on a checkout step.`,
+          });
+        }
+      }
+      if (step.env !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['env'],
+          message: '"env" is not valid on a checkout step.',
+        });
+      }
+      return;
+    }
+
     if (step.run !== undefined) {
       for (const key of workflowDocumentAgentStepFields) {
         if (step[key] !== undefined) {
@@ -423,7 +499,7 @@ export const workflowDocumentStepSchema = z
     if (!isAgent) {
       ctx.addIssue({
         code: 'custom',
-        message: 'A step must define either "run" or an agent "prompt".',
+        message: 'A step must define either "run", an agent "prompt", or "checkout".',
       });
       return;
     }
@@ -471,9 +547,7 @@ export const workflowDocumentJobSchema = z.strictObject({
   execution_timeout: z.string().min(1).optional().meta({
     description: 'Maximum duration for one job execution.',
   }),
-  checkout: workflowDocumentCheckoutSchema.optional().meta({
-    description: 'Checkout settings for repository content and credentials.',
-  }),
+  checkout: workflowDocumentJobCheckoutSchema.optional(),
   listening: workflowDocumentListeningSchema.optional().meta({
     description:
       'Event-listening configuration for this job. See [listening jobs](/understand/listening-jobs).',
@@ -514,7 +588,7 @@ export const workflowDocumentSchema = z.strictObject({
 });
 
 export type WorkflowDocument = z.infer<typeof workflowDocumentSchema>;
-export type WorkflowDocumentJobCheckout = z.infer<typeof workflowDocumentCheckoutSchema>;
+export type WorkflowDocumentJobCheckout = z.infer<typeof workflowDocumentJobCheckoutSchema>;
 export type WorkflowDocumentEnv = z.infer<typeof workflowDocumentEnvSchema>;
 export type WorkflowDocumentJob = z.infer<typeof workflowDocumentJobSchema>;
 export type WorkflowDocumentJobListening = z.infer<typeof workflowDocumentListeningSchema>;

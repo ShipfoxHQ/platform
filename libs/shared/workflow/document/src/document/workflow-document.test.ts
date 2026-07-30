@@ -1,3 +1,4 @@
+import type {WorkflowDocumentJobCheckout} from './workflow-document.js';
 import {
   WORKFLOW_DOCUMENT_ENV_MAX_ENTRIES,
   WORKFLOW_DOCUMENT_ENV_MAX_SERIALIZED_BYTES,
@@ -44,6 +45,12 @@ describe('workflowDocumentSchema', () => {
     const result = workflowDocumentSchema.safeParse(workflowDocument);
 
     expect(result.success).toBe(true);
+  });
+
+  it('types job checkout opt-out', () => {
+    const checkout = false satisfies WorkflowDocumentJobCheckout;
+
+    expect(checkout).toBe(false);
   });
 
   it('accepts working_directory on run and agent steps', () => {
@@ -369,6 +376,21 @@ describe('workflowDocumentSchema', () => {
         },
       },
     ],
+    [
+      'checkout target fields',
+      {
+        checkout: {
+          project: '0192f3a1-0000-0000-0000-000000000000',
+          ref: 'refs/heads/main',
+          'fetch-depth': 0,
+          path: 'target',
+          force: true,
+          permissions: {contents: 'read'},
+          'persist-credentials': false,
+        },
+      },
+    ],
+    ['checkout disabled', {checkout: false}],
     ['checkout persist credentials false', {checkout: {'persist-credentials': false}}],
     ['empty checkout', {checkout: {}}],
     ['omitted checkout', {}],
@@ -384,6 +406,53 @@ describe('workflowDocumentSchema', () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it('accepts the shared checkout object on a checkout step', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'targeted checkout',
+      jobs: {
+        build: {
+          checkout: false,
+          steps: [
+            {
+              key: 'fetch-target',
+              checkout: {
+                connection: 'github',
+                repository: 'acme/api',
+                ref: 'refs/heads/main',
+                'fetch-depth': 0,
+                path: 'target',
+                permissions: {contents: 'write'},
+                'persist-credentials': true,
+                force: false,
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects project with connection or repository in a checkout object', () => {
+    for (const checkout of [
+      {project: 'project-id', connection: 'github'},
+      {project: 'project-id', repository: 'acme/api'},
+    ]) {
+      const result = workflowDocumentSchema.safeParse({
+        name: 'invalid checkout target',
+        jobs: {
+          build: {
+            checkout,
+            steps: [{run: 'npm test'}],
+          },
+        },
+      });
+
+      expect(result.success).toBe(false);
+    }
   });
 
   it('keeps trigger filters as strings', () => {
@@ -874,16 +943,58 @@ describe('workflowDocumentSchema', () => {
         },
       },
     ],
+    [
+      'checkout disabled with a non-boolean value',
+      {
+        name: 'simple build',
+        jobs: {build: {checkout: true, steps: [{run: 'npm test'}]}},
+      },
+    ],
+    [
+      'negative checkout fetch depth',
+      {
+        name: 'simple build',
+        jobs: {build: {checkout: {'fetch-depth': -1}, steps: [{run: 'npm test'}]}},
+      },
+    ],
+    [
+      'fractional checkout fetch depth',
+      {
+        name: 'simple build',
+        jobs: {build: {checkout: {'fetch-depth': 1.5}, steps: [{run: 'npm test'}]}},
+      },
+    ],
+    [
+      'checkout step with a run command',
+      {
+        name: 'simple build',
+        jobs: {build: {steps: [{checkout: {}, run: 'npm test'}]}},
+      },
+    ],
+    [
+      'checkout step with an agent prompt',
+      {
+        name: 'simple build',
+        jobs: {build: {steps: [{checkout: {}, prompt: 'Review the change.'}]}},
+      },
+    ],
+    [
+      'checkout step with environment variables',
+      {
+        name: 'simple build',
+        jobs: {build: {steps: [{checkout: {}, env: {CI: true}}]}},
+      },
+    ],
   ])('rejects %s', (_label, workflowDocument) => {
     const result = workflowDocumentSchema.safeParse(workflowDocument);
 
     expect(result.success).toBe(false);
   });
 
-  it('rejects checkout as an unsupported step key', () => {
+  it('rejects an unknown step key', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'simple build',
-      jobs: {build: {steps: [{checkout: {path: 'api'}, working_directory: 'api'}]}},
+      jobs: {build: {steps: [{checkout: {path: 'api'}, unknown_step_key: true}]}},
     });
 
     expect(result.success).toBe(false);
@@ -891,7 +1002,7 @@ describe('workflowDocumentSchema', () => {
 
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({code: 'unrecognized_keys', keys: ['checkout']}),
+        expect.objectContaining({code: 'unrecognized_keys', keys: ['unknown_step_key']}),
       ]),
     );
   });
@@ -1035,5 +1146,17 @@ describe('workflowDocumentSchema', () => {
       ? undefined
       : result.error.issues.find((issue) => issue.path.includes('integrations'));
     expect(integrationsIssue?.message).toBe('"integrations" is not valid on a run step.');
+  });
+
+  it('reports a checkout-step conflict on the conflicting field', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'checkout build',
+      jobs: {build: {steps: [{checkout: {}, run: 'npm test'}]}},
+    });
+
+    const runIssue = result.success
+      ? undefined
+      : result.error.issues.find((issue) => issue.path.includes('run'));
+    expect(runIssue?.message).toBe('"run" is not valid on a checkout step.');
   });
 });
