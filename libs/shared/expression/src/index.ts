@@ -118,7 +118,6 @@ export {
   invalidWorkflowTemplateErrorCode,
 } from './template/errors.js';
 export {extractCelContextRoots} from './template/extract-cel-context-roots.js';
-export {extractCelUntrustedPathAccesses} from './template/extract-cel-untrusted-path-accesses.js';
 export {parseWorkflowTemplate} from './template/parse-workflow-template.js';
 export type {
   WorkflowTemplateExprSegment,
@@ -135,7 +134,6 @@ export {
   getWorkflowContextHost,
   getWorkflowContextSensitivity,
   getWorkflowContextTypeEnvironment,
-  getWorkflowContextUntrustedPaths,
   getWorkflowInterpolationFieldFailurePolicy,
   getWorkflowInterpolationFieldSelfReference,
   getWorkflowPredicateFieldMinimumFillTarget,
@@ -155,7 +153,6 @@ export {
   type WorkflowContextReservedRoot,
   type WorkflowContextSensitivity,
   type WorkflowContextShape,
-  type WorkflowContextTrustTier,
   type WorkflowFieldFailurePolicy,
   type WorkflowInterpolationFailurePolicy,
   type WorkflowInterpolationField,
@@ -170,11 +167,8 @@ export {
   workflowContextReservedRoots,
   workflowContextRootRequiresLiteralKey,
   workflowContextSensitivities,
-  workflowContextTrustTiers,
   workflowFieldFailurePolicies,
-  workflowInterpolationFieldAcceptsContext,
   workflowInterpolationFieldAcceptsHost,
-  workflowInterpolationFieldAcceptsTrustTier,
   workflowInterpolationFieldPolicies,
   workflowInterpolationFields,
   workflowPredicateFieldFailurePolicy,

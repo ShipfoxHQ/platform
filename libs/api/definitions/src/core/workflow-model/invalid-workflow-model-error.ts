@@ -50,7 +50,6 @@ export type WorkflowModelValidationIssueCode =
   | 'unknown-integration-method'
   | 'unknown-integration-tool'
   | 'unknown-job-dependency'
-  | 'untrusted-agent-selection-context'
   | 'vars-context-in-server-predicate';
 
 export type WorkflowModelValidationIssuePathSegment = string | number;

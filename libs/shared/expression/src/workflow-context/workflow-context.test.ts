@@ -13,8 +13,6 @@ import {
   rootsAvailableAt,
   runnerFillTarget,
   unavailableRootsAt,
-  type WorkflowContextName,
-  type WorkflowContextTrustTier,
   type WorkflowInterpolationField,
   workflowContextAvailabilityReference,
   workflowContextDefinitions,
@@ -22,11 +20,8 @@ import {
   workflowContextNames,
   workflowContextReservedRoots,
   workflowContextSensitivities,
-  workflowContextTrustTiers,
   workflowFieldFailurePolicies,
-  workflowInterpolationFieldAcceptsContext,
   workflowInterpolationFieldAcceptsHost,
-  workflowInterpolationFieldAcceptsTrustTier,
   workflowInterpolationFieldPolicies,
   workflowInterpolationFields,
   workflowPredicateFieldFailurePolicy,
@@ -65,32 +60,6 @@ describe('workflow context registry', () => {
     expect(workflowContextNames).not.toContain('runner');
   });
 
-  it('classifies trusted and untrusted contexts', () => {
-    const contextsByTrust = workflowContextNames.reduce(
-      (acc, context) => {
-        acc[workflowContextDefinitions[context].trustTier].push(context);
-        return acc;
-      },
-      {
-        trusted: [] as WorkflowContextName[],
-        untrusted: [] as WorkflowContextName[],
-      },
-    );
-
-    expect(contextsByTrust.trusted).toEqual([
-      'run',
-      'trigger',
-      'job',
-      'executions',
-      'execution',
-      'steps',
-      'step',
-      'vars',
-      'secrets',
-    ]);
-    expect(contextsByTrust.untrusted).toEqual(['event', 'inputs', 'jobs', 'needs']);
-  });
-
   it('marks known-shape contexts as typed and open contexts as syntax-only', () => {
     expect(workflowContextDefinitions.run).toMatchObject({
       shape: 'known',
@@ -108,35 +77,28 @@ describe('workflow context registry', () => {
     expect(workflowContextDefinitions.executions).toMatchObject({
       shape: 'known',
       checkMode: 'typed',
-      untrustedPaths: ['events'],
     });
     expect(workflowContextDefinitions.execution).toMatchObject({
       shape: 'known',
       checkMode: 'typed',
-      untrustedPaths: ['events'],
     });
     expect(workflowContextDefinitions.jobs).toMatchObject({
       availability: 'job-activation',
-      trustTier: 'untrusted',
       shape: 'open',
       checkMode: 'syntax',
     });
     expect(workflowContextDefinitions.needs).toMatchObject({
       availability: 'job-activation',
-      trustTier: 'untrusted',
       shape: 'known',
       checkMode: 'typed',
     });
     expect(workflowContextDefinitions.step).toMatchObject({
       availability: 'step-dispatch',
-      trustTier: 'trusted',
       shape: 'known',
       checkMode: 'typed',
-      untrustedPaths: ['outputs'],
     });
     expect(workflowContextDefinitions.steps).toMatchObject({
       availability: 'step-dispatch',
-      trustTier: 'trusted',
       shape: 'open',
       checkMode: 'syntax',
     });
@@ -151,7 +113,6 @@ describe('workflow context registry', () => {
     });
     expect(workflowContextDefinitions.vars).toMatchObject({
       availability: 'run-creation',
-      trustTier: 'trusted',
       sensitivity: 'persistable',
       host: 'server',
       shape: 'open',
@@ -159,7 +120,6 @@ describe('workflow context registry', () => {
       literalKeyOnly: true,
     });
     expect(workflowContextDefinitions.secrets).toMatchObject({
-      trustTier: 'trusted',
       sensitivity: 'ephemeral',
       host: 'runner',
       shape: 'open',
@@ -171,7 +131,6 @@ describe('workflow context registry', () => {
   it('declares every implemented context with all registry dimensions', () => {
     for (const root of workflowContextNames) {
       expect(workflowContextDefinitions[root]).toMatchObject({
-        trustTier: expect.any(String),
         sensitivity: expect.any(String),
         host: expect.any(String),
         shape: expect.any(String),
@@ -183,7 +142,6 @@ describe('workflow context registry', () => {
       } else {
         expect(availability).toBeUndefined();
       }
-      expect(workflowContextTrustTiers).toContain(workflowContextDefinitions[root].trustTier);
       expect(workflowContextSensitivities).toContain(workflowContextDefinitions[root].sensitivity);
       expect(workflowContextHosts).toContain(workflowContextDefinitions[root].host);
     }
@@ -760,27 +718,6 @@ describe('workflow interpolation field policies', () => {
     expect(Object.keys(workflowInterpolationFieldPolicies)).toEqual(workflowInterpolationFields);
   });
 
-  it.each([
-    ['run', ['trusted']],
-    ['env.value', ['trusted', 'untrusted']],
-    ['agent.prompt', ['trusted', 'untrusted']],
-    ['agent.model', ['trusted']],
-    ['agent.provider', ['trusted']],
-    ['agent.thinking', ['trusted']],
-    ['job.runner', ['trusted', 'untrusted']],
-    ['job.outputs', ['trusted', 'untrusted']],
-    ['job.name', ['trusted', 'untrusted']],
-    ['workflow.run_name', ['trusted', 'untrusted']],
-    ['job.execution_name', ['trusted', 'untrusted']],
-    ['step.name', ['trusted', 'untrusted']],
-    ['step.feedback', ['trusted', 'untrusted']],
-  ] satisfies readonly [
-    WorkflowInterpolationField,
-    readonly WorkflowContextTrustTier[],
-  ][])('allows %s interpolation from the expected trust tiers', (field, trustTiers) => {
-    expect(workflowInterpolationFieldPolicies[field].acceptedTrustTiers).toEqual(trustTiers);
-  });
-
   it('declares dynamic-name self-reference targets in field policies', () => {
     expect(workflowInterpolationFieldPolicies['workflow.run_name'].selfReference).toEqual({
       root: 'run',
@@ -814,33 +751,6 @@ describe('workflow interpolation field policies', () => {
     expect(workflowInterpolationFieldPolicies[field].acceptedHosts).toEqual(hosts);
   });
 
-  it('rejects untrusted contexts from trusted-only fields', () => {
-    expect(workflowInterpolationFieldAcceptsTrustTier('run', 'untrusted')).toBe(false);
-    expect(workflowInterpolationFieldAcceptsContext('run', 'event')).toBe(false);
-    expect(workflowInterpolationFieldAcceptsContext('run', 'inputs')).toBe(false);
-    expect(workflowInterpolationFieldAcceptsContext('run', 'jobs')).toBe(false);
-    expect(workflowInterpolationFieldAcceptsContext('agent.model', 'event')).toBe(false);
-    expect(workflowInterpolationFieldAcceptsContext('agent.model', 'jobs')).toBe(false);
-    expect(workflowInterpolationFieldAcceptsContext('agent.provider', 'inputs')).toBe(false);
-    expect(workflowInterpolationFieldAcceptsContext('agent.thinking', 'event')).toBe(false);
-  });
-
-  it('accepts every context in any-trust fields', () => {
-    for (const field of [
-      'env.value',
-      'agent.prompt',
-      'job.runner',
-      'job.outputs',
-      'job.name',
-      'step.name',
-      'step.feedback',
-    ] as const) {
-      for (const context of workflowContextNames) {
-        expect(workflowInterpolationFieldAcceptsContext(field, context)).toBe(true);
-      }
-    }
-  });
-
   it('rejects runner-host contexts from server-only fields', () => {
     expect(workflowInterpolationFieldAcceptsHost('run', 'runner')).toBe(true);
     expect(workflowInterpolationFieldAcceptsHost('env.value', 'runner')).toBe(true);
@@ -855,30 +765,8 @@ describe('workflow interpolation field policies', () => {
     expect(workflowInterpolationFieldAcceptsHost('step.feedback', 'runner')).toBe(false);
   });
 
-  it('marks display names for render sanitization', () => {
-    expect(workflowInterpolationFieldPolicies['job.name'].renderSanitize).toBe(true);
-    expect(workflowInterpolationFieldPolicies['workflow.run_name'].renderSanitize).toBe(true);
-    expect(workflowInterpolationFieldPolicies['job.execution_name'].renderSanitize).toBe(true);
-    expect(workflowInterpolationFieldPolicies['step.name'].renderSanitize).toBe(true);
-
-    const nonDisplayFields = workflowInterpolationFields.filter(
-      (field) =>
-        field !== 'job.name' &&
-        field !== 'workflow.run_name' &&
-        field !== 'job.execution_name' &&
-        field !== 'step.name',
-    );
-    for (const field of nonDisplayFields) {
-      expect(workflowInterpolationFieldPolicies[field].renderSanitize).toBe(false);
-    }
-  });
-
-  it('uses only registered trust tiers in field policies', () => {
+  it('uses only registered hosts in field policies', () => {
     for (const policy of Object.values(workflowInterpolationFieldPolicies)) {
-      expect(policy.acceptedTrustTiers.length).toBeGreaterThan(0);
-      for (const trustTier of policy.acceptedTrustTiers) {
-        expect(workflowContextTrustTiers).toContain(trustTier);
-      }
       expect(policy.acceptedHosts.length).toBeGreaterThan(0);
       for (const host of policy.acceptedHosts) {
         expect(workflowContextHosts).toContain(host);
