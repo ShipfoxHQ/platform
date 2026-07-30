@@ -114,6 +114,12 @@ export {
   unsafeRunInterpolationErrorCode,
 } from './run/hoist-run-command.js';
 export {
+  classifyShellCodePosition,
+  type ShellCodePositionAnalysis,
+  type ShellCodePositionMatch,
+  type ShellReevaluatingConstruct,
+} from './run/shell-code-position.js';
+export {
   InvalidWorkflowTemplateError,
   invalidWorkflowTemplateErrorCode,
 } from './template/errors.js';

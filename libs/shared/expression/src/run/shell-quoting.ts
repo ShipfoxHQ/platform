@@ -15,7 +15,11 @@ interface ArithSquareFrame {
   readonly kind: 'arith-square';
   readonly bracketDepth: number;
 }
-type ShellScanFrame = ShellFrame | ArithSquareFrame;
+interface ArithFrame {
+  readonly kind: 'arith';
+  readonly parenthesisDepth: number;
+}
+type ShellScanFrame = Exclude<ShellFrame, 'arith'> | ArithFrame | ArithSquareFrame;
 
 export type ShellSiteContext =
   | {readonly kind: 'unquoted' | 'single' | 'double'}
@@ -163,11 +167,23 @@ export function scanShellLiteral(text: string, state: ShellScanState): ShellScan
       continue;
     }
 
-    if (frame === 'arith') {
+    if (isArithFrame(frame)) {
       const arithEnd = matchShellLogicalPrefix(text, index, '))');
-      if (arithEnd !== undefined) {
+      if (frame.parenthesisDepth === 0 && arithEnd !== undefined) {
         frames.pop();
         advance(arithEnd, false);
+        continue;
+      }
+
+      if (text[index] === ')') {
+        replaceTopArithFrame(frames, Math.max(0, frame.parenthesisDepth - 1));
+        advance(index + 1, false);
+        continue;
+      }
+
+      if (text[index] === '(') {
+        replaceTopArithFrame(frames, frame.parenthesisDepth + 1);
+        advance(index + 1, false);
         continue;
       }
 
@@ -277,7 +293,7 @@ function scanShellPlainStart(
 
   const dollarArithStart = matchShellLogicalPrefix(text, index, '$((');
   if (dollarArithStart !== undefined) {
-    frames.push('arith');
+    frames.push({kind: 'arith', parenthesisDepth: 0});
     return dollarArithStart;
   }
 
@@ -313,7 +329,7 @@ function scanShellPlainStart(
 
   const arithStart = matchShellLogicalPrefix(text, index, '((');
   if (arithStart !== undefined) {
-    frames.push('arith');
+    frames.push({kind: 'arith', parenthesisDepth: 0});
     return arithStart;
   }
 
@@ -338,7 +354,7 @@ function scanShellPlainStart(
 function scanShellControlStart(text: string, index: number, frames: ShellScanFrame[]): number {
   const dollarArithStart = matchShellLogicalPrefix(text, index, '$((');
   if (dollarArithStart !== undefined) {
-    frames.push('arith');
+    frames.push({kind: 'arith', parenthesisDepth: 0});
     return dollarArithStart;
   }
 
@@ -428,7 +444,7 @@ function topFrame(frames: readonly ShellScanFrame[]): ShellScanFrame | undefined
 }
 
 function cloneShellScanFrame(frame: ShellScanFrame): ShellScanFrame {
-  if (isArithSquareFrame(frame)) return {...frame};
+  if (isArithSquareFrame(frame) || isArithFrame(frame)) return {...frame};
   return frame;
 }
 
@@ -437,6 +453,7 @@ function findUnsafeRegion(frames: readonly ShellScanFrame[]): ShellFrame {
     const frame = frames[index];
     if (frame === undefined) continue;
     if (isArithSquareFrame(frame)) return 'arith';
+    if (isArithFrame(frame)) return 'arith';
     if (frame !== 'single' && frame !== 'double') return frame;
   }
 
@@ -445,6 +462,16 @@ function findUnsafeRegion(frames: readonly ShellScanFrame[]): ShellFrame {
 
 function isArithSquareFrame(frame: ShellScanFrame | undefined): frame is ArithSquareFrame {
   return typeof frame === 'object' && frame.kind === 'arith-square';
+}
+
+function isArithFrame(frame: ShellScanFrame | undefined): frame is ArithFrame {
+  return typeof frame === 'object' && frame.kind === 'arith';
+}
+
+function replaceTopArithFrame(frames: ShellScanFrame[], parenthesisDepth: number): void {
+  const topIndex = frames.length - 1;
+  const frame = frames[topIndex];
+  if (isArithFrame(frame)) frames[topIndex] = {...frame, parenthesisDepth};
 }
 
 function replaceTopArithSquareFrame(frames: ShellScanFrame[], bracketDepth: number): void {
