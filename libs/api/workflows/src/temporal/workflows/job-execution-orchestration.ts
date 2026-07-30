@@ -9,25 +9,25 @@ import {
 import type {RuntimeCompletionStatus} from '#core/workflow-scheduling/runtime-dag.js';
 
 import type {createOrchestrationActivities} from '../activities/index.js';
-import {JOB_FINISHED_SIGNAL, JOB_LEASE_EXPIRED_SIGNAL} from '../constants.js';
+import {JOB_CLAIMED_SIGNAL, JOB_FINISHED_SIGNAL, JOB_LEASE_EXPIRED_SIGNAL} from '../constants.js';
+import {remainingMs} from './deadline.js';
 
 /**
- * Two signals, one precedence ladder, then best-effort lease release:
+ * Enqueue, wait for the runner claim, then wait for one of the terminal facts:
  *
- *   job-finished (recordStepResult exhausted the steps) ─┐
- *   job-lease-expired (runner heartbeat went stale) ─────┤
- *                                                        ▼
- *   condition(finished ∥ leaseExpired, executionTimeout)
- *     ├─ finished      → setJobExecutionStatus(status) + resolve job status     ─┐
- *     ├─ leaseExpired  → resolveLeaseExpiredJobExecutionActivity                 ─┤→ releaseLease
- *     └─ neither (6h)  → failJobExecutionAsTimedOutActivity + sweep steps (NO release; the
- *                        TIMED_OUT event drives cooperative cancel, the detector reaps)
+ *   enqueue ──> PENDING ── job-claimed ──> RUNNING
+ *                 │                          │
+ *                 │ timeout                  ├─ job-finished
+ *                 │                          ├─ job-lease-expired
+ *                 ▼                          └─ timeout
+ *              TERMINAL
  *
- * Both signals can be delivered before condition() resumes (independent outboxes,
- * no ordering), so finished is evaluated FIRST: a genuinely-finished job is never
- * flipped to failed by a late lease-expiry. releaseLease is best-effort — a runners
- * DB outage must never block the child workflow from returning the job outcome to
- * run-orchestration; a leftover lease row is reaped by the stuck detector.
+ * The claim signal is the runner-owned lifecycle boundary. The workflow keeps the
+ * execution pending while it is queued, then performs the versioned pending → running
+ * transition after the current claim. One deadline spans both waits; claim never resets
+ * it. Signals can arrive in any order, so the precedence is finished > lease expired >
+ * claimed > timeout. Lease cleanup remains best-effort — a runners DB outage must never
+ * block the child workflow from returning the job outcome to run-orchestration.
  */
 
 const {
@@ -64,6 +64,11 @@ export const jobFinishedSignal =
   );
 export const jobLeaseExpiredSignal =
   defineSignal<[{jobExecutionId?: string | undefined}]>(JOB_LEASE_EXPIRED_SIGNAL);
+export interface JobClaimedSignalPayload {
+  jobExecutionId: string;
+  claimedAt: string;
+}
+export const jobClaimedSignal = defineSignal<[JobClaimedSignalPayload]>(JOB_CLAIMED_SIGNAL);
 
 export interface JobExecutionOrchestrationInput {
   workspaceId: string;
@@ -116,27 +121,13 @@ async function resolveJobStatusOrFailClosed(
   }
 }
 
-async function markJobExecutionRunningAndEnqueue(
-  input: JobExecutionOrchestrationInput,
-): Promise<
-  | {kind: 'running'; runningVersion: number}
-  | {kind: 'terminal'; result: JobExecutionOrchestrationResult}
-> {
+async function enqueueJobExecution(input: JobExecutionOrchestrationInput): Promise<void> {
   if (hasNoRequiredRunnerLabels(input.requiredLabels)) {
     throw ApplicationFailure.nonRetryable(
       `Job ${input.jobId} has no required runner labels`,
       'EmptyRequiredLabelsError',
     );
   }
-
-  const {newVersion: runningVersion, status} = await setJobExecutionStatus({
-    jobExecutionId: input.jobExecutionId,
-    status: 'running',
-    version: input.executionVersion,
-  });
-
-  const start = jobExecutionStartOutcome({newVersion: runningVersion, status});
-  if (start.kind === 'terminal') return start;
 
   await enqueueJobExecutionForRunner({
     workspaceId: input.workspaceId,
@@ -147,30 +138,59 @@ async function markJobExecutionRunningAndEnqueue(
     projectId: input.projectId,
     requiredLabels: input.requiredLabels,
   });
+}
 
+async function markJobExecutionRunning(
+  input: JobExecutionOrchestrationInput,
+): Promise<
+  | {kind: 'running'; runningVersion: number}
+  | {kind: 'terminal'; result: JobExecutionOrchestrationResult}
+> {
+  const {newVersion: runningVersion, status} = await setJobExecutionStatus({
+    jobExecutionId: input.jobExecutionId,
+    status: 'running',
+    version: input.executionVersion,
+  });
+
+  const start = jobExecutionStartOutcome({newVersion: runningVersion, status});
+  if (start.kind === 'terminal') return start;
   return {kind: 'running', runningVersion};
 }
 
-// Both signals can arrive before condition() resumes (independent outboxes, no
-// ordering), so callers must evaluate `finished` before `leaseExpired`.
-async function awaitJobOutcome(
+interface JobExecutionSignals extends JobExecutionOutcomeSignals {
+  claimed: JobClaimedSignalPayload | undefined;
+}
+
+function registerJobExecutionSignalHandlers(
   jobExecutionId: string,
-  timeoutMs: number,
-): Promise<JobExecutionOutcomeSignals> {
-  let finished: {status: RuntimeCompletionStatus; jobExecutionId?: string | undefined} | undefined;
-  let leaseExpired = false;
+  signals: JobExecutionSignals,
+): void {
   setHandler(jobFinishedSignal, (payload) => {
     if (payload.jobExecutionId !== undefined && payload.jobExecutionId !== jobExecutionId) return;
-    finished ??= payload;
+    signals.finished ??= payload;
   });
   setHandler(jobLeaseExpiredSignal, (payload = {}) => {
     if (payload.jobExecutionId !== undefined && payload.jobExecutionId !== jobExecutionId) return;
-    leaseExpired = true;
+    signals.leaseExpired = true;
   });
+  setHandler(jobClaimedSignal, (payload) => {
+    if (payload.jobExecutionId !== jobExecutionId) return;
+    signals.claimed ??= payload;
+  });
+}
 
-  await condition(() => finished !== undefined || leaseExpired, timeoutMs);
-
-  return {finished, leaseExpired};
+async function waitForJobExecutionSignal(
+  signals: JobExecutionSignals,
+  deadline: number,
+  includeClaim: boolean,
+): Promise<void> {
+  await condition(
+    () =>
+      signals.finished !== undefined ||
+      signals.leaseExpired ||
+      (includeClaim && signals.claimed !== undefined),
+    remainingMs(deadline) ?? 0,
+  );
 }
 
 interface JobExecutionResolution {
@@ -286,7 +306,41 @@ async function resolveTimedOutJobExecution({
 export async function jobExecutionOrchestration(
   input: JobExecutionOrchestrationInput,
 ): Promise<JobExecutionOrchestrationResult> {
-  const running = await markJobExecutionRunningAndEnqueue(input);
+  const signals: JobExecutionSignals = {
+    finished: undefined,
+    leaseExpired: false,
+    claimed: undefined,
+  };
+  // Register every signal before enqueue can block or publish a claim/outcome event. The
+  // handlers retain signals that arrive while the enqueue activity is in flight.
+  registerJobExecutionSignalHandlers(input.jobExecutionId, signals);
+  await enqueueJobExecution(input);
+
+  const timeoutMs = input.executionTimeoutMs ?? DEFAULT_EXECUTION_MAX_DURATION_MS;
+  const deadline = Date.now() + timeoutMs;
+  await waitForJobExecutionSignal(signals, deadline, true);
+
+  // A terminal fact wins over claim even when both signals arrive before the condition
+  // resumes. This prevents a late claim from reopening an execution that already finished.
+  let resolution = resolveJobExecutionOutcomeSignal(signals);
+  if (resolution === 'finished') {
+    const {finished} = signals;
+    if (finished === undefined) throw new Error('Missing finished signal for finished resolution');
+
+    return resolveFinishedJobExecution({
+      input,
+      runningVersion: input.executionVersion,
+      status: finished.status,
+    });
+  }
+  if (resolution === 'lease-expired') {
+    return resolveLeaseExpiredJobExecution({input, runningVersion: input.executionVersion});
+  }
+  if (!signals.claimed) {
+    return resolveTimedOutJobExecution({input, runningVersion: input.executionVersion});
+  }
+
+  const running = await markJobExecutionRunning(input);
   if (running.kind === 'terminal') {
     if (input.resolveJobStatus === false) {
       return {status: running.result.status, jobVersion: input.jobVersion};
@@ -295,16 +349,11 @@ export async function jobExecutionOrchestration(
   }
   const {runningVersion} = running;
 
-  const timeoutMs = input.executionTimeoutMs ?? DEFAULT_EXECUTION_MAX_DURATION_MS;
-  const signals = await awaitJobOutcome(input.jobExecutionId, timeoutMs);
-
-  // Precedence ladder: a genuinely-finished job is never flipped to failed by a
-  // late lease-expiry, so `finished` wins over `leaseExpired`.
-  const resolution = resolveJobExecutionOutcomeSignal(signals);
+  await waitForJobExecutionSignal(signals, deadline, false);
+  resolution = resolveJobExecutionOutcomeSignal(signals);
   if (resolution === 'finished') {
     const {finished} = signals;
     if (finished === undefined) throw new Error('Missing finished signal for finished resolution');
-
     return resolveFinishedJobExecution({input, runningVersion, status: finished.status});
   }
   if (resolution === 'lease-expired') {

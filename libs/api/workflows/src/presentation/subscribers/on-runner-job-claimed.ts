@@ -1,6 +1,9 @@
 import type {RunnerJobClaimedEvent} from '@shipfox/api-runners-dto';
 import {logger} from '@shipfox/node-opentelemetry';
+import {temporalClient} from '@shipfox/node-temporal';
 import {recordJobExecutionStartedAt} from '#db/index.js';
+import {JOB_CLAIMED_SIGNAL} from '#temporal/constants.js';
+import {isWorkflowNotFound} from '#temporal/workflow-not-found.js';
 
 // Anticorruption layer: the runner reports a `claimed` fact in its own lease-broker
 // language; the run lifecycle treats the claim as the job's start, so we project it onto
@@ -20,4 +23,23 @@ export async function onRunnerJobClaimed(payload: RunnerJobClaimedEvent): Promis
     jobExecutionId: payload.jobExecutionId,
     startedAt: new Date(payload.claimedAt),
   });
+
+  const handle = temporalClient().workflow.getHandle(`job:${payload.jobId}`);
+  try {
+    await handle.signal(JOB_CLAIMED_SIGNAL, {
+      jobExecutionId: payload.jobExecutionId,
+      claimedAt: payload.claimedAt,
+    });
+  } catch (err) {
+    // A terminal execution can race the claim outbox delivery. Its persisted status is
+    // authoritative, so discard the signal if Temporal has already closed the workflow.
+    if (isWorkflowNotFound(err)) {
+      logger().debug(
+        {jobId: payload.jobId, jobExecutionId: payload.jobExecutionId},
+        'Job workflow already terminated; claim event discarded',
+      );
+      return;
+    }
+    throw err;
+  }
 }

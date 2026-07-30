@@ -1,4 +1,5 @@
 export {
+  jobClaimedSignal,
   jobExecutionOrchestration,
   jobFinishedSignal,
   jobLeaseExpiredSignal,
