@@ -52,6 +52,17 @@ describe('deriveJobSuccess', () => {
     expect(result).toMatchObject({status: 'succeeded', statusReason: null});
   });
 
+  test('resolves vars from the run-creation snapshot', () => {
+    const result = deriveJobSuccess({
+      success: 'vars.RELEASE == "yes"',
+      executions: [jobExecution({status: 'succeeded'})],
+      jobs: [],
+      vars: {RELEASE: 'yes'},
+    });
+
+    expect(result).toMatchObject({status: 'succeeded', statusReason: null});
+  });
+
   test('fails closed when the success expression throws at runtime', () => {
     const result = deriveJobSuccess({
       success: 'executions.all(e, 1 / 0 == 0)',

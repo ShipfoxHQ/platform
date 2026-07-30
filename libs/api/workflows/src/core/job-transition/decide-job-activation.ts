@@ -34,6 +34,7 @@ export interface DecideJobActivationInput {
   job: Job;
   condition?: WorkflowExpression | undefined;
   dependencies: readonly JobContextInput[];
+  vars?: Record<string, string> | undefined;
 }
 
 export function decideJobActivation(input: DecideJobActivationInput): JobActivationDecision {
@@ -52,6 +53,7 @@ export function decideJobActivation(input: DecideJobActivationInput): JobActivat
     run: input.run,
     triggerPayload: input.run.triggerPayload,
     inputs: input.run.inputs,
+    vars: input.vars,
     jobs: input.dependencies,
   });
   const outcome = evaluatePlannedPredicateAtSite({

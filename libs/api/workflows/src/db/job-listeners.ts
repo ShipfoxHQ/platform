@@ -81,7 +81,7 @@ export async function activateJobListener(
 ): Promise<ActivateJobListenerResult> {
   return await db().transaction(async (tx) => {
     const [target] = await tx
-      .select({job: jobs, run: workflowRuns})
+      .select({job: jobs, attempt: workflowRunAttempts, run: workflowRuns})
       .from(jobs)
       .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
       .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
@@ -145,6 +145,7 @@ export async function activateJobListener(
         run: toWorkflowRun(target.run),
         triggerPayload: target.run.triggerPayload,
         inputs: target.run.inputs,
+        vars: target.attempt.vars ?? undefined,
         plan: snapshotPlan,
         dependencyJobs,
       });
@@ -367,7 +368,13 @@ type ApplyJobListenerResolutionResult =
 async function deriveJobListenerResolutionDecision(
   jobId: string,
 ): Promise<JobListenerResolutionDecision> {
-  const [jobRow] = await db().select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+  const [target] = await db()
+    .select({job: jobs, attempt: workflowRunAttempts})
+    .from(jobs)
+    .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+    .where(eq(jobs.id, jobId))
+    .limit(1);
+  const jobRow = target?.job;
   if (!jobRow) throw new Error(`Job not found: ${jobId}`);
 
   const [executionRows, dependencyJobs] = await Promise.all([
@@ -386,6 +393,7 @@ async function deriveJobListenerResolutionDecision(
         toJobExecution(execution, jobRow.name ?? jobRow.key),
       ),
       jobs: dependencyJobs,
+      vars: target.attempt.vars ?? undefined,
     }),
   };
 }

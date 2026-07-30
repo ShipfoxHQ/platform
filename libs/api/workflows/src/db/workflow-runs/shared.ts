@@ -64,6 +64,7 @@ export async function getWorkflowContextForJob(
   workflowRunAttemptId: string;
   workspaceId: string;
   projectId: string;
+  vars: Record<string, string> | null;
 }> {
   const rows = await tx
     .select({
@@ -72,6 +73,7 @@ export async function getWorkflowContextForJob(
       workflowRunAttemptId: workflowRunAttempts.id,
       workspaceId: workflowRuns.workspaceId,
       projectId: workflowRuns.projectId,
+      vars: workflowRunAttempts.vars,
     })
     .from(jobs)
     .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))

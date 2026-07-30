@@ -170,6 +170,7 @@ export async function evaluateJobActivations(
         run: toWorkflowRun(target.run),
         job,
         condition: modelJob?.if,
+        vars: target.attempt.vars ?? undefined,
         dependencies: job.dependencies.flatMap((key) => {
           const dependency = contextsByJobKey.get(key);
           return dependency === undefined ? [] : [dependency];
@@ -385,6 +386,7 @@ export async function resolveJobStatusFromJobExecutions(params: {
       .from(jobExecutions)
       .where(eq(jobExecutions.jobId, params.jobId))
       .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
+    const workflowContext = await getWorkflowContextForJob(params.jobId, tx);
 
     if (jobExecutionRows.length === 0) {
       throw new Error(`Cannot resolve job ${params.jobId}: no job executions found`);
@@ -396,6 +398,7 @@ export async function resolveJobStatusFromJobExecutions(params: {
         toJobExecution(execution, jobRow.name ?? jobRow.key),
       ),
       jobs: await getDirectDependencyJobContexts(params.jobId, tx),
+      vars: workflowContext.vars ?? undefined,
     });
 
     return optimisticLockRetry({

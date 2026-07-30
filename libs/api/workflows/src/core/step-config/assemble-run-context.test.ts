@@ -393,6 +393,31 @@ describe('listener filter snapshots', () => {
     expect(matcher?.filter_snapshot?.jobs).not.toHaveProperty('review');
   });
 
+  it('snapshots vars for listener filters', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter: 'vars.ENABLED == "true"',
+        },
+      ],
+      until: null,
+    });
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      vars: {ENABLED: 'true'},
+      plan,
+      dependencyJobs: [],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+
+    expect(matcher?.filter_snapshot).toEqual({vars: {ENABLED: 'true'}});
+  });
+
   it('omits snapshots for event-only filters and malformed filters', () => {
     const plan = planListenerFilterSnapshots({
       on: [

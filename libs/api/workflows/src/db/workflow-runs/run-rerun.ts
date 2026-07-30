@@ -77,6 +77,7 @@ export async function createRerunWorkflowRun(
         rerunMode: params.mode,
         rerunByUserId: params.actorUserId,
         model: sourceAttemptRow.model,
+        vars: sourceAttemptRow.vars,
         agentToolMaterialization: sourceAttemptRow.agentToolMaterialization,
       })
       .returning();
