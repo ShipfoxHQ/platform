@@ -6,6 +6,8 @@ import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 // Revisit this shared contract if a third harness needs materially different inputs.
 export interface HarnessInvocation {
   readonly cwd: string;
+  /** Runner-owned per-job directory for harness state, outside the checked-out workspace. */
+  readonly logsDir?: string | undefined;
   readonly model: string;
   readonly provider: string;
   readonly thinking: string;

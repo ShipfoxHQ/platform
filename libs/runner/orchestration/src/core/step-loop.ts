@@ -367,6 +367,7 @@ export async function executeStep(params: {
       const result = await executeAgentStep(step, {
         signal,
         cwd,
+        logsDir,
         ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
         runtime: {
           harness: runtimeConfig.harness,

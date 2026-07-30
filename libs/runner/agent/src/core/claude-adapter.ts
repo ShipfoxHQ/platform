@@ -47,6 +47,7 @@ interface ClaudeAuth {
 async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessResult> {
   const {
     cwd,
+    logsDir,
     model,
     provider,
     thinking,
@@ -61,6 +62,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   const collector = new OutputCollector(invocation.outputs);
 
   if (signal.aborted) throw new Error('Agent step aborted before the Claude session started');
+  if (logsDir === undefined) throw new Error('Agent logs directory is required');
   if (provider !== 'anthropic') {
     throw new AgentConfigError(
       `Harness "claude" only supports provider "anthropic"; received "${provider}".`,
@@ -96,7 +98,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   };
 
   try {
-    configDir = await createClaudeConfigDir(cwd);
+    configDir = await createClaudeConfigDir(logsDir);
     if (signal.aborted) throw new Error('Agent step aborted before the Claude session started');
 
     messages = new ClaudeInputStream();
@@ -385,8 +387,7 @@ function isFileNotFoundError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
 
-async function createClaudeConfigDir(cwd: string): Promise<string> {
-  const logsDir = join(cwd, 'logs');
+async function createClaudeConfigDir(logsDir: string): Promise<string> {
   await mkdir(logsDir, {recursive: true});
   return mkdtemp(join(logsDir, 'claude-config-'));
 }
