@@ -349,6 +349,9 @@ export const workflowDocumentStepSchema = z
           '{{ }} interpolation. See [conditionals](/reference/expressions#conditionals-if).',
       }),
     name: z.string().min(1).optional().meta({description: 'Human-readable step name.'}),
+    working_directory: z.string().min(1).optional().meta({
+      description: 'Working directory for the step, relative to the job workspace.',
+    }),
     run: z.string().min(1).optional().meta({
       description: 'Shell command for a run step. Do not combine it with agent-only fields.',
     }),
