@@ -1,8 +1,10 @@
 import {
   INTEGRATION_EVENT_RECEIVED,
   INTEGRATION_SOURCE_COMMIT_PUSHED,
+  INTEGRATION_SOURCE_REPOSITORY_UPDATED,
   integrationEventReceivedSchema,
   integrationSourceCommitPushedSchema,
+  integrationSourceRepositoryUpdatedSchema,
   integrationsEventSchemas,
 } from './events.js';
 
@@ -30,6 +32,20 @@ const validCommitPushed = {
     headCommitSha: 'abc123',
     defaultBranch: 'main',
     isDefaultBranch: true,
+  },
+};
+
+const validRepositoryUpdated = {
+  provider: 'github',
+  workspaceId: 'ws-1',
+  connectionId: 'conn-1',
+  deliveryId: 'delivery-1',
+  receivedAt: '2026-06-21T00:00:00.000Z',
+  repository: {
+    externalRepositoryId: 'github:42',
+    owner: 'acme',
+    name: 'platform-renamed',
+    defaultBranch: 'main',
   },
 };
 
@@ -98,12 +114,32 @@ describe('integrationEventReceivedSchema', () => {
   });
 });
 
+describe('integrationSourceRepositoryUpdatedSchema', () => {
+  it('parses a valid repository identity update unchanged', () => {
+    const result = integrationSourceRepositoryUpdatedSchema.parse(validRepositoryUpdated);
+
+    expect(result).toEqual(validRepositoryUpdated);
+  });
+
+  it('rejects a payload missing repository identity', () => {
+    const {repository: _repository, ...withoutRepository} = validRepositoryUpdated;
+
+    const parse = () => integrationSourceRepositoryUpdatedSchema.parse(withoutRepository);
+
+    expect(parse).toThrow();
+  });
+});
+
 describe('integrationsEventSchemas', () => {
   it('registers every integration publisher event type', () => {
     const registeredTypes = Object.keys(integrationsEventSchemas).sort();
 
     expect(registeredTypes).toEqual(
-      [INTEGRATION_EVENT_RECEIVED, INTEGRATION_SOURCE_COMMIT_PUSHED].sort(),
+      [
+        INTEGRATION_EVENT_RECEIVED,
+        INTEGRATION_SOURCE_COMMIT_PUSHED,
+        INTEGRATION_SOURCE_REPOSITORY_UPDATED,
+      ].sort(),
     );
   });
 });

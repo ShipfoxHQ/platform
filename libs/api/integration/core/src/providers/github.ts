@@ -10,6 +10,7 @@ import {db} from '#db/db.js';
 import {
   publishIntegrationEventReceived,
   publishSourcePush,
+  publishSourceRepositoryUpdated,
   recordDeliveryOnly,
 } from '#db/webhook-deliveries.js';
 import {retryConnectionSlugCollision, slugifyConnectionSlug} from '#providers/connection-slug.js';
@@ -111,6 +112,7 @@ async function loadGithubModuleParts(
     getExistingGithubConnection,
     connectGithubInstallation,
     publishIntegrationEventReceived,
+    publishSourceRepositoryUpdated,
     publishSourcePush,
     recordDeliveryOnly,
     getIntegrationConnectionById,

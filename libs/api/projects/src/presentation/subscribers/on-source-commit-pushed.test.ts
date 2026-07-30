@@ -1,6 +1,7 @@
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import {
   INTEGRATION_SOURCE_COMMIT_PUSHED,
+  INTEGRATION_SOURCE_REPOSITORY_UPDATED,
   type IntegrationSourceCommitPushedEvent,
   type SourcePushPayload,
 } from '@shipfox/api-integration-core-dto';
@@ -150,5 +151,6 @@ describe('onSourceCommitPushed', () => {
     const events = module.subscribers?.map((subscriber) => subscriber.event);
 
     expect(events).toContain(INTEGRATION_SOURCE_COMMIT_PUSHED);
+    expect(events).toContain(INTEGRATION_SOURCE_REPOSITORY_UPDATED);
   });
 });

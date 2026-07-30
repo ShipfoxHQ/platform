@@ -5,6 +5,7 @@ import {
   type GetIntegrationConnectionByIdFn,
   type PublishIntegrationEventReceivedFn,
   type PublishSourcePushFn,
+  type PublishSourceRepositoryUpdatedFn,
   type RecordDeliveryOnlyFn,
   type StoredWebhookRequest,
   type WebhookProcessingResult,
@@ -21,6 +22,7 @@ const SIGNATURE_HEADER = 'x-hub-signature-256';
 export interface CreateGithubWebhookProcessorOptions {
   coreDb: () => NodePgDatabase<Record<string, unknown>>;
   publishIntegrationEventReceived: PublishIntegrationEventReceivedFn;
+  publishSourceRepositoryUpdated: PublishSourceRepositoryUpdatedFn;
   publishSourcePush: PublishSourcePushFn;
   recordDeliveryOnly: RecordDeliveryOnlyFn;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
@@ -81,6 +83,7 @@ async function processGithubWebhookRequest(
       event,
       payload,
       publishIntegrationEventReceived: options.publishIntegrationEventReceived,
+      publishSourceRepositoryUpdated: options.publishSourceRepositoryUpdated,
       publishSourcePush: options.publishSourcePush,
       recordDeliveryOnly: options.recordDeliveryOnly,
       getIntegrationConnectionById: options.getIntegrationConnectionById,

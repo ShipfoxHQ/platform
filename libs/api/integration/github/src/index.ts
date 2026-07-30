@@ -2,6 +2,7 @@ import type {
   GetIntegrationConnectionByIdFn,
   PublishIntegrationEventReceivedFn,
   PublishSourcePushFn,
+  PublishSourceRepositoryUpdatedFn,
   RecordDeliveryOnlyFn,
 } from '@shipfox/api-integration-spi';
 import type {NodePgDatabase} from 'drizzle-orm/node-postgres';
@@ -69,6 +70,7 @@ export interface CreateGithubIntegrationProviderOptions
   github?: GithubApiClient | undefined;
   coreDb: () => NodePgDatabase<Record<string, unknown>>;
   publishIntegrationEventReceived: PublishIntegrationEventReceivedFn;
+  publishSourceRepositoryUpdated: PublishSourceRepositoryUpdatedFn;
   publishSourcePush: PublishSourcePushFn;
   recordDeliveryOnly: RecordDeliveryOnlyFn;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
@@ -129,6 +131,7 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
       createGithubWebhookRoutes({
         coreDb: options.coreDb,
         publishIntegrationEventReceived: options.publishIntegrationEventReceived,
+        publishSourceRepositoryUpdated: options.publishSourceRepositoryUpdated,
         publishSourcePush: options.publishSourcePush,
         recordDeliveryOnly: options.recordDeliveryOnly,
         getIntegrationConnectionById: options.getIntegrationConnectionById,

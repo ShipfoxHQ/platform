@@ -4,6 +4,7 @@ import type {
   IntegrationConnection,
   PublishIntegrationEventReceivedFn,
   PublishSourcePushFn,
+  PublishSourceRepositoryUpdatedFn,
   RecordDeliveryOnlyFn,
 } from '@shipfox/api-integration-spi';
 import {db} from '#db/db.js';
@@ -30,12 +31,16 @@ function deps(
   options: {
     connection?: IntegrationConnection | undefined;
     publishIntegrationEventReceivedResult?: {published: boolean};
+    publishSourceRepositoryUpdatedResult?: {published: boolean};
     publishSourcePushResult?: {published: boolean};
   } = {},
 ) {
   return {
     publishIntegrationEventReceived: vi.fn<PublishIntegrationEventReceivedFn>(() =>
       Promise.resolve(options.publishIntegrationEventReceivedResult ?? {published: true}),
+    ),
+    publishSourceRepositoryUpdated: vi.fn<PublishSourceRepositoryUpdatedFn>(() =>
+      Promise.resolve(options.publishSourceRepositoryUpdatedResult ?? {published: true}),
     ),
     publishSourcePush: vi.fn<PublishSourcePushFn>(() =>
       Promise.resolve(options.publishSourcePushResult ?? {published: true}),
@@ -392,6 +397,96 @@ describe('handleGithubEvent', () => {
     expect(result.outcome).toBe('published-envelope');
     expect(handlers.recordDeliveryOnly).not.toHaveBeenCalled();
     expect(handlers.publishIntegrationEventReceived).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes a typed repository update for a repository rename', async () => {
+    const installationId = 7784;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+    const deliveryId = randomUUID();
+    const payload = {
+      action: 'renamed',
+      installation: {id: installationId},
+      repository: {
+        id: 42,
+        name: 'platform-renamed',
+        owner: {login: 'acme'},
+        default_branch: 'trunk',
+      },
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId,
+      event: 'repository',
+      payload,
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('published');
+    expect(handlers.publishIntegrationEventReceived).not.toHaveBeenCalled();
+    expect(handlers.publishSourceRepositoryUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'repository.renamed',
+        rawPayload: payload,
+        repositories: [
+          {
+            externalRepositoryId: 'github:42',
+            owner: 'acme',
+            name: 'platform-renamed',
+            defaultBranch: 'trunk',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('publishes one typed repository update per installation repository', async () => {
+    const installationId = 7785;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+    const deliveryId = randomUUID();
+    const payload = {
+      action: 'added',
+      installation: {id: installationId},
+      repositories_added: [
+        {id: 42, name: 'platform', owner: {login: 'acme'}, default_branch: 'main'},
+      ],
+      repositories_removed: [
+        {id: 43, name: 'runner', owner: {login: 'acme'}, default_branch: 'trunk'},
+      ],
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId,
+      event: 'installation_repositories',
+      payload,
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('published');
+    expect(handlers.publishSourceRepositoryUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'installation_repositories.added',
+        repositories: [
+          {
+            externalRepositoryId: 'github:42',
+            owner: 'acme',
+            name: 'platform',
+            defaultBranch: 'main',
+          },
+          {
+            externalRepositoryId: 'github:43',
+            owner: 'acme',
+            name: 'runner',
+            defaultBranch: 'trunk',
+          },
+        ],
+      }),
+    );
   });
 
   it('returns the cached installation token cleanup handle when the installation is deleted', async () => {

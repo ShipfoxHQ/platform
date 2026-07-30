@@ -3,6 +3,7 @@ import type {
   GetIntegrationConnectionByIdFn,
   PublishIntegrationEventReceivedFn,
   PublishSourcePushFn,
+  PublishSourceRepositoryUpdatedFn,
   RecordDeliveryOnlyFn,
   StoredWebhookRequest,
   WebhookProcessingResult,
@@ -28,6 +29,7 @@ const DELIVERY_HEADER = 'x-github-delivery';
 export interface CreateGithubWebhookRoutesOptions {
   coreDb: () => NodePgDatabase<Record<string, unknown>>;
   publishIntegrationEventReceived: PublishIntegrationEventReceivedFn;
+  publishSourceRepositoryUpdated: PublishSourceRepositoryUpdatedFn;
   publishSourcePush: PublishSourcePushFn;
   recordDeliveryOnly: RecordDeliveryOnlyFn;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;

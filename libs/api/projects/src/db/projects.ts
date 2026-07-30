@@ -2,7 +2,7 @@ import {and, count, desc, eq, ilike, inArray, lt, or, type SQL} from 'drizzle-or
 import type {Project} from '#core/entities/project.js';
 import {ProjectAlreadyExistsError, ProjectNotFoundError} from '#core/errors.js';
 import {recordProjectCreated} from '#metrics/instance.js';
-import {db} from './db.js';
+import {db, type Executor} from './db.js';
 import {projects, toProject} from './schema/projects.js';
 
 export interface CreateProjectParams {
@@ -128,6 +128,39 @@ export async function getProjectBySource(
       ),
     )
     .limit(1);
+
+  const row = rows[0];
+  if (!row) return undefined;
+  return toProject(row);
+}
+
+export interface UpdateProjectSourceRepositoryParams extends GetProjectBySourceParams {
+  tx?: Executor;
+  sourceRepositoryOwner: string;
+  sourceRepositoryName: string;
+  sourceDefaultBranch: string;
+}
+
+export async function updateProjectSourceRepository(
+  params: UpdateProjectSourceRepositoryParams,
+): Promise<Project | undefined> {
+  const executor = params.tx ?? db();
+  const rows = await executor
+    .update(projects)
+    .set({
+      sourceRepositoryOwner: params.sourceRepositoryOwner,
+      sourceRepositoryName: params.sourceRepositoryName,
+      sourceDefaultBranch: params.sourceDefaultBranch,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(projects.workspaceId, params.workspaceId),
+        eq(projects.sourceConnectionId, params.sourceConnectionId),
+        eq(projects.sourceExternalRepositoryId, params.sourceExternalRepositoryId),
+      ),
+    )
+    .returning();
 
   const row = rows[0];
   if (!row) return undefined;

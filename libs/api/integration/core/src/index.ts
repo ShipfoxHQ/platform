@@ -126,10 +126,16 @@ export type {
   PublishIntegrationEventReceivedResult,
   PublishSourcePushFn,
   PublishSourcePushParams,
+  PublishSourceRepositoryUpdatedFn,
+  PublishSourceRepositoryUpdatedParams,
   RecordDeliveryOnlyFn,
   RecordDeliveryOnlyParams,
 } from '#db/webhook-deliveries.js';
-export {claimWebhookDelivery, pruneWebhookDeliveries} from '#db/webhook-deliveries.js';
+export {
+  claimWebhookDelivery,
+  pruneWebhookDeliveries,
+  publishSourceRepositoryUpdated,
+} from '#db/webhook-deliveries.js';
 export {integrationRouteErrorHandler} from '#presentation/routes/errors.js';
 
 export interface CreateIntegrationsModuleOptions {

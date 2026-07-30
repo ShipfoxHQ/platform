@@ -11,6 +11,7 @@ import {createGithubWebhookRoutes} from './webhooks.js';
 const WEBHOOK_SECRET = 'test-webhook-secret';
 
 // The route persists through injected core functions (publishSourcePush,
+// publishSourceRepositoryUpdated,
 // recordDeliveryOnly, getIntegrationConnectionById) that @shipfox/api-integration-core
 // owns and wires in production. github only orchestrates them, so here we fake that
 // interface with spies and assert the route's own behavior: signature/payload
@@ -34,6 +35,7 @@ function fakeConnection(overrides: Partial<IntegrationConnection> = {}): Integra
 interface TestApp {
   app: FastifyInstance;
   publishIntegrationEventReceived: ReturnType<typeof vi.fn>;
+  publishSourceRepositoryUpdated: ReturnType<typeof vi.fn>;
   publishSourcePush: ReturnType<typeof vi.fn>;
   recordDeliveryOnly: ReturnType<typeof vi.fn>;
   getIntegrationConnectionById: ReturnType<typeof vi.fn>;
@@ -41,6 +43,7 @@ interface TestApp {
 
 async function createTestApp(options: {connection?: IntegrationConnection} = {}): Promise<TestApp> {
   const publishIntegrationEventReceived = vi.fn(() => Promise.resolve({published: true}));
+  const publishSourceRepositoryUpdated = vi.fn(() => Promise.resolve({published: true}));
   const publishSourcePush = vi.fn(() => Promise.resolve({published: true}));
   const recordDeliveryOnly = vi.fn(() => Promise.resolve());
   const getIntegrationConnectionById = vi.fn(() =>
@@ -49,6 +52,7 @@ async function createTestApp(options: {connection?: IntegrationConnection} = {})
   const routes = createGithubWebhookRoutes({
     coreDb: db,
     publishIntegrationEventReceived,
+    publishSourceRepositoryUpdated,
     publishSourcePush,
     recordDeliveryOnly,
     getIntegrationConnectionById,
@@ -58,6 +62,7 @@ async function createTestApp(options: {connection?: IntegrationConnection} = {})
   return {
     app,
     publishIntegrationEventReceived,
+    publishSourceRepositoryUpdated,
     publishSourcePush,
     recordDeliveryOnly,
     getIntegrationConnectionById,

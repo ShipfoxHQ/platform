@@ -547,6 +547,7 @@ function createProvider() {
     connectGithubInstallation: vi.fn() as never,
     coreDb: vi.fn() as never,
     publishIntegrationEventReceived: vi.fn(() => Promise.resolve({published: false})),
+    publishSourceRepositoryUpdated: vi.fn(() => Promise.resolve({published: false})),
     publishSourcePush: vi.fn(() => Promise.resolve({published: false})),
     recordDeliveryOnly: vi.fn(() => Promise.resolve()),
     getIntegrationConnectionById: vi.fn(() => Promise.resolve(undefined)),
