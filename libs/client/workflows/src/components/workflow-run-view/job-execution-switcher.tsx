@@ -11,12 +11,7 @@ import {cn} from '@shipfox/react-ui/utils';
 import {useMemo} from 'react';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
-import {
-  deriveJobExecutionDisplayStatus,
-  type Job,
-  type JobExecution,
-  jobDisplayName,
-} from '#core/workflow-run.js';
+import {deriveJobExecutionDisplayStatus, type Job, type JobExecution} from '#core/workflow-run.js';
 import {formatJobExecutionTime, JobExecutionTimeText} from './job-execution-time-text.js';
 
 export interface JobExecutionSwitcherProps {
@@ -68,7 +63,7 @@ export function JobExecutionSwitcher({
             : 'min-h-28 gap-6 px-8 py-4 text-sm leading-20 text-foreground-neutral-subtle hover:bg-background-components-hover',
           className,
         )}
-        aria-label={`Switch job execution for ${jobDisplayName(job)}, currently execution ${selected.sequence}: ${selected.name}`}
+        aria-label={`Switch job execution, currently execution ${selected.sequence}: ${selected.name}`}
       >
         {variant === 'title' ? (
           <TitleExecutionSummary execution={selected} />

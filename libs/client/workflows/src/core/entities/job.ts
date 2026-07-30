@@ -128,14 +128,6 @@ export function jobDisplayName(job: Pick<Job, 'name' | 'key'>): string {
   return job.name ?? job.key;
 }
 
-export function jobExecutionDefinitionDisplayName(
-  job: Pick<Job, 'name' | 'key'>,
-  execution: Pick<JobExecution, 'name'>,
-): string | undefined {
-  const staticName = jobDisplayName(job);
-  return staticName === execution.name ? undefined : staticName;
-}
-
 export function isTerminalJobStatus(status: JobStatus): boolean {
   return TERMINAL_JOB_STATUS_SET.has(status);
 }

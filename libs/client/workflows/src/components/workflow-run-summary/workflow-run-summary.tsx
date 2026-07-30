@@ -20,7 +20,6 @@ import {
   WORKFLOW_RUN_STATUSES,
   type WorkflowRunDetail,
   type WorkflowRunRerunMode,
-  workflowRunDefinitionDisplayName,
 } from '#core/workflow-run.js';
 import {WorkflowRunDurationLabel} from '../workflow-run-duration-label.js';
 import {getWorkflowStatusVisual} from '../workflow-status/status-visuals.js';
@@ -71,7 +70,6 @@ export function WorkflowRunSummary({
       ? {workspaceId, projectId, latestAttempt}
       : null;
   const displayDuration = run.runAttempt.displayDuration;
-  const definitionDisplayName = workflowRunDefinitionDisplayName(run);
   const {ref: headingTextRef, isTruncated: isHeadingTruncated} =
     useIsTextTruncated<HTMLSpanElement>(run.name);
 
@@ -82,40 +80,33 @@ export function WorkflowRunSummary({
         className="border-b border-border-neutral-base bg-background-subtle-base px-16 py-8"
       >
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-12 gap-y-4 overflow-hidden">
-          <div className="col-start-1 row-start-1 flex min-w-0 items-start gap-8">
+          <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-8">
             <Badge variant={status.badge} size="xs">
               <span className="text-center" style={{width: `${STATUS_BADGE_LABEL_WIDTH_CH}ch`}}>
                 {status.label}
               </span>
             </Badge>
 
-            <div className="flex min-w-0 flex-col gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Header id={headingId} variant="h3" className="min-w-0 truncate">
-                    <span
-                      ref={headingTextRef}
-                      title={isHeadingTruncated ? run.name : undefined}
-                      className="block min-w-0 truncate"
-                    >
-                      {run.name}
-                    </span>
-                  </Header>
-                </TooltipTrigger>
-                {isHeadingTruncated ? (
-                  <TooltipContent>
-                    <Text as="span" size="xs" className="max-w-[360px] break-words">
-                      {run.name}
-                    </Text>
-                  </TooltipContent>
-                ) : null}
-              </Tooltip>
-              {definitionDisplayName ? (
-                <Text as="span" size="xs" className="truncate text-foreground-neutral-muted">
-                  {definitionDisplayName}
-                </Text>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Header id={headingId} variant="h3" className="min-w-0 truncate">
+                  <span
+                    ref={headingTextRef}
+                    title={isHeadingTruncated ? run.name : undefined}
+                    className="block min-w-0 truncate"
+                  >
+                    {run.name}
+                  </span>
+                </Header>
+              </TooltipTrigger>
+              {isHeadingTruncated ? (
+                <TooltipContent>
+                  <Text as="span" size="xs" className="max-w-[360px] break-words">
+                    {run.name}
+                  </Text>
+                </TooltipContent>
               ) : null}
-            </div>
+            </Tooltip>
           </div>
 
           <div className="col-start-2 row-start-1 flex min-w-max items-center gap-6 justify-self-end">

@@ -36,7 +36,6 @@ export interface WorkflowRun {
   projectId: string;
   definitionId: string;
   name: string;
-  workflowName: string;
   currentAttempt: number;
   triggerProvider: string | null;
   triggerSource: string;
@@ -72,12 +71,6 @@ export interface WorkflowRunListPage {
 
 export interface ManualWorkflowLaunch {
   workflowRunId: string;
-}
-
-export function workflowRunDefinitionDisplayName(
-  run: Pick<WorkflowRun, 'name' | 'workflowName'>,
-): string | undefined {
-  return run.workflowName === run.name ? undefined : run.workflowName;
 }
 
 export function workflowRunShortId(id: string): string {

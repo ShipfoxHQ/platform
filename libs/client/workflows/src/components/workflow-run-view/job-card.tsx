@@ -19,7 +19,6 @@ import {
   type JobDisplayStatus,
   type JobExecution,
   type JobExecutionTime,
-  jobExecutionDefinitionDisplayName,
   STEP_ERROR_REASONS,
   type Step,
   type StepError,
@@ -79,9 +78,6 @@ export function JobCard({
     attemptId: null,
   });
   const title = selectedJobExecution?.name ?? job.displayName;
-  const definitionDisplayName = selectedJobExecution
-    ? jobExecutionDefinitionDisplayName(job, selectedJobExecution)
-    : undefined;
   const isNonDefaultExecutionSelected =
     selectedJobExecution !== undefined && selectedJobExecution.id !== defaultJobExecution(job)?.id;
   const selectedExecutionStatus = isNonDefaultExecutionSelected
@@ -155,32 +151,25 @@ export function JobCard({
           ) : (
             <div className="flex min-w-0 items-center gap-8">
               <JobStatusBadge status={selectedExecutionStatus} />
-              <div className="flex min-w-0 flex-col gap-2">
-                <div className="flex min-w-0 items-center gap-8">
-                  {selectedJobExecution ? (
-                    <Text
-                      as="span"
-                      size="xs"
-                      className="shrink-0 text-foreground-neutral-muted tabular-nums"
-                    >
-                      Execution #{selectedJobExecution.sequence}
-                    </Text>
-                  ) : null}
+              <div className="flex min-w-0 items-center gap-8">
+                {selectedJobExecution ? (
                   <Text
-                    as="h2"
-                    id={titleId}
-                    size="sm"
-                    bold
-                    className="min-w-0 truncate text-foreground-neutral-base"
+                    as="span"
+                    size="xs"
+                    className="shrink-0 text-foreground-neutral-muted tabular-nums"
                   >
-                    {title}
-                  </Text>
-                </div>
-                {definitionDisplayName ? (
-                  <Text as="span" size="xs" className="truncate text-foreground-neutral-muted">
-                    {definitionDisplayName}
+                    Execution #{selectedJobExecution.sequence}
                   </Text>
                 ) : null}
+                <Text
+                  as="h2"
+                  id={titleId}
+                  size="sm"
+                  bold
+                  className="min-w-0 truncate text-foreground-neutral-base"
+                >
+                  {title}
+                </Text>
               </div>
             </div>
           )}

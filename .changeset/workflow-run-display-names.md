@@ -2,4 +2,4 @@
 "@shipfox/client-workflows": patch
 ---
 
-Present static workflow and resolved run and execution names across workflow run surfaces.
+Present resolved workflow run and job execution names across workflow run surfaces.

@@ -68,28 +68,6 @@ describe('WorkflowRunListView', () => {
     expect(screen.getByText('queued-build')).toBeInTheDocument();
   });
 
-  test('shows the resolved run name and differing static workflow context', async () => {
-    renderListView([
-      run('running', 'Deploy production', 'run-deploy-production', {
-        workflow_name: 'Deploy workflow',
-      }),
-    ]);
-
-    expect(
-      await screen.findByRole('link', {
-        name: (name) => name.includes('Deploy production') && name.includes('Deploy workflow'),
-      }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('Deploy workflow')).toBeInTheDocument();
-  });
-
-  test('omits repeated static workflow context when names are equal', async () => {
-    renderListView([run('running', 'Deploy workflow')]);
-
-    expect(await screen.findByText('Deploy workflow')).toBeInTheDocument();
-    expect(screen.getAllByText('Deploy workflow')).toHaveLength(1);
-  });
-
   test('shows a finished run duration in the row metadata', async () => {
     renderListView([
       run('succeeded', 'build-image', 'run-build-image', {

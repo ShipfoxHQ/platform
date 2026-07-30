@@ -10,7 +10,7 @@ const FIRST_EXECUTION_ACCESSIBLE_NAME =
 const SECOND_EXECUTION_MENU_ITEM = /Execution #2: Review PR #479/;
 
 describe('JobCard execution names', () => {
-  test('shows the resolved execution name, sequence, and differing static job context', () => {
+  test('shows the resolved execution name and sequence', () => {
     const job = workflowJob({
       key: 'deploy',
       name: 'Deploy application',
@@ -37,30 +37,7 @@ describe('JobCard execution names', () => {
 
     expect(screen.getByRole('heading', {name: 'Deploy production'})).toBeInTheDocument();
     expect(screen.getByText('Execution #1')).toBeInTheDocument();
-    expect(screen.getByText('Deploy application')).toBeInTheDocument();
-  });
-
-  test('does not duplicate static context when it matches the resolved execution name', () => {
-    const job = workflowJob({
-      key: 'deploy',
-      name: 'Deploy application',
-      job_executions: [workflowJobExecutionDto({name: 'Deploy application', sequence: 1})],
-    });
-    const execution = job.jobExecutions[0];
-    if (!execution) throw new Error('Expected a job execution');
-
-    render(
-      <JobCard
-        workspaceId={WORKSPACE_ID}
-        job={job}
-        selectedJobExecution={execution}
-        selectedAttemptId={null}
-        onSelectedJobExecutionChange={undefined}
-        onSelectedAttemptChange={undefined}
-      />,
-    );
-
-    expect(screen.getAllByText('Deploy application')).toHaveLength(1);
+    expect(screen.queryByText('Deploy application')).not.toBeInTheDocument();
   });
 });
 
@@ -103,7 +80,7 @@ describe('JobExecutionSwitcher execution names', () => {
     );
 
     const trigger = screen.getByRole('button', {
-      name: 'Switch job execution for Process review, currently execution 2: Review PR #479',
+      name: 'Switch job execution, currently execution 2: Review PR #479',
     });
     expect(trigger).toBeInTheDocument();
 

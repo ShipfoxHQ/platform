@@ -150,7 +150,7 @@ describe('WorkflowRunPage', () => {
 
     await user.click(
       await screen.findByRole('button', {
-        name: 'Switch job execution for deploy, currently execution 2: deploy review #2',
+        name: 'Switch job execution, currently execution 2: deploy review #2',
       }),
     );
     await user.click(

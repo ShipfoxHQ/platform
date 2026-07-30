@@ -10,7 +10,7 @@ import {
 } from '#components/workflow-run-duration-label.js';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
-import {type WorkflowRunListItem, workflowRunDefinitionDisplayName} from '#core/workflow-run.js';
+import type {WorkflowRunListItem} from '#core/workflow-run.js';
 import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
 
 export function WorkflowRunRowList({
@@ -55,7 +55,6 @@ export function WorkflowRunRow({
 }) {
   const durationLabel = useWorkflowRunDurationAccessibleLabel(run.runAttempt.displayDuration);
   const statusLabel = getWorkflowStatusVisual(run.status).label;
-  const definitionDisplayName = workflowRunDefinitionDisplayName(run);
   const body = (
     <>
       {selected ? (
@@ -65,18 +64,11 @@ export function WorkflowRunRow({
         />
       ) : null}
 
-      <div className="flex min-w-0 items-start gap-8">
-        <WorkflowStatusIcon status={run.status} size={14} className="mt-2" />
-        <div className="flex min-w-0 flex-col gap-2">
-          <Code variant="label" bold className="truncate text-foreground-neutral-base">
-            {run.name}
-          </Code>
-          {definitionDisplayName ? (
-            <Text as="span" size="xs" className="truncate text-foreground-neutral-muted">
-              {definitionDisplayName}
-            </Text>
-          ) : null}
-        </div>
+      <div className="flex min-w-0 items-center gap-8">
+        <WorkflowStatusIcon status={run.status} size={14} />
+        <Code variant="label" bold className="truncate text-foreground-neutral-base">
+          {run.name}
+        </Code>
       </div>
 
       <div className="flex min-w-0 items-center gap-8">
@@ -122,7 +114,7 @@ export function WorkflowRunRow({
           withoutWorkflowRunSelectionSearch(previous)) as never
       }
       aria-current={selected ? 'page' : undefined}
-      aria-label={[run.name, definitionDisplayName, statusLabel, durationLabel, run.triggerLabel]
+      aria-label={[run.name, statusLabel, durationLabel, run.triggerLabel]
         .filter((part): part is string => Boolean(part))
         .join(', ')}
       className={cn(

@@ -46,23 +46,6 @@ describe('WorkflowRunSummary', () => {
     ).not.toBeInTheDocument();
   });
 
-  test('shows the static workflow name as secondary context when it differs', async () => {
-    renderSummary({name: 'Deploy production', workflow_name: 'Deploy application'});
-
-    const summary = await screen.findByRole('region', {name: 'Deploy production'});
-
-    expect(within(summary).getByRole('heading', {name: 'Deploy production'})).toBeInTheDocument();
-    expect(within(summary).getByText('Deploy application')).toBeInTheDocument();
-  });
-
-  test('omits repeated static workflow context when names are equal', async () => {
-    renderSummary({name: 'Deploy application', workflow_name: 'Deploy application'});
-
-    const summary = await screen.findByRole('region', {name: 'Deploy application'});
-
-    expect(within(summary).getAllByText('Deploy application')).toHaveLength(1);
-  });
-
   test('uses the selected run attempt for summary status and trigger time', async () => {
     const rootCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const attemptCreatedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
