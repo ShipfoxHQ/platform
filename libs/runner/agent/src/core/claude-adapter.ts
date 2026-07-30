@@ -159,7 +159,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     messages?.close();
     signal.removeEventListener('abort', abortQuery);
     claudeQuery?.close();
-    if (configDir !== undefined) await rm(configDir, {recursive: true, force: true});
+    if (configDir !== undefined) await cleanupClaudeConfigDir(configDir);
   }
 }
 
@@ -390,6 +390,19 @@ function isFileNotFoundError(error: unknown): boolean {
 async function createClaudeConfigDir(logsDir: string): Promise<string> {
   await mkdir(logsDir, {recursive: true});
   return mkdtemp(join(logsDir, 'claude-config-'));
+}
+
+async function cleanupClaudeConfigDir(configDir: string): Promise<void> {
+  try {
+    await rm(configDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 100,
+    });
+  } catch (error) {
+    logger().warn({err: error, configDir}, 'Failed to remove Claude configuration');
+  }
 }
 
 function forwardSessionEntry(
