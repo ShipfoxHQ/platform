@@ -54,6 +54,9 @@ describe('createProjectFromSource', () => {
     expect(project.name).toBe('Platform');
     expect(project.sourceConnectionId).toBe(sourceConnectionId);
     expect(project.sourceExternalRepositoryId).toBe('gitea:gitea-owner/platform');
+    expect(project.sourceRepositoryOwner).toBe('gitea-owner');
+    expect(project.sourceRepositoryName).toBe('platform');
+    expect(project.sourceDefaultBranch).toBe('main');
   });
 
   test('emits project lifecycle events in the same transaction', async () => {

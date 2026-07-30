@@ -25,11 +25,7 @@ export interface CreateProjectFromSourceParams {
 export async function createProjectFromSource(
   params: CreateProjectFromSourceParams,
 ): Promise<Project> {
-  let source: {
-    connection: {id: string; provider: string};
-    repository: {externalRepositoryId: string};
-  };
-  source = await params.integrations.resolveSourceRepository({
+  const source = await params.integrations.resolveSourceRepository({
     workspaceId: params.workspaceId,
     connectionId: params.sourceConnectionId,
     externalRepositoryId: params.sourceExternalRepositoryId,
@@ -42,6 +38,9 @@ export async function createProjectFromSource(
         workspaceId: params.workspaceId,
         sourceConnectionId: source.connection.id,
         sourceExternalRepositoryId: source.repository.externalRepositoryId,
+        sourceRepositoryOwner: source.repository.owner,
+        sourceRepositoryName: source.repository.name,
+        sourceDefaultBranch: source.repository.defaultBranch,
         name: params.name,
       })
       .onConflictDoNothing({
