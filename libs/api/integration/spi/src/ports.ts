@@ -1,6 +1,7 @@
 import type {
   IntegrationEventReceivedEvent,
   SourcePushPayload,
+  SourceRepositoryIdentity,
 } from '@shipfox/api-integration-core-dto';
 import type {IntegrationConnection, IntegrationConnectionLifecycleStatus} from '#contracts.js';
 
@@ -35,6 +36,20 @@ export type PublishSourcePushFn = (params: {
   receivedAt: string;
   rawPayload: unknown;
   push: SourcePushPayload;
+}) => Promise<{published: boolean}>;
+
+export type PublishSourceRepositoryUpdatedFn = (params: {
+  tx: IntegrationTx;
+  provider: string;
+  source: string;
+  workspaceId: string;
+  connectionId: string;
+  connectionName: string;
+  deliveryId: string;
+  receivedAt: string;
+  rawPayload: unknown;
+  event: string;
+  repositories: SourceRepositoryIdentity[];
 }) => Promise<{published: boolean}>;
 
 export type RecordDeliveryOnlyFn = (params: {

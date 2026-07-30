@@ -1,9 +1,11 @@
 import {
   INTEGRATION_EVENT_RECEIVED,
   INTEGRATION_SOURCE_COMMIT_PUSHED,
+  INTEGRATION_SOURCE_REPOSITORY_UPDATED,
   type IntegrationEventReceivedEvent,
   type IntegrationsEventMap,
   type SourcePushPayload,
+  type SourceRepositoryIdentity,
 } from '@shipfox/api-integration-spi';
 import {writeOutboxEvent, writeOutboxEvents} from '@shipfox/node-outbox';
 import {lt} from 'drizzle-orm';
@@ -136,6 +138,83 @@ export async function publishSourcePush(
   return {published: true};
 }
 
+export interface PublishSourceRepositoryUpdatedParams {
+  tx: IntegrationTx;
+  provider: string;
+  source: string;
+  workspaceId: string;
+  connectionId: string;
+  connectionName: string;
+  deliveryId: string;
+  receivedAt: string;
+  rawPayload: unknown;
+  event: string;
+  repositories: SourceRepositoryIdentity[];
+}
+
+// Emits the generic provider envelope for triggers and one typed repository event per
+// normalized repository for domain modules. One delivery-dedup gates all rows, so a
+// redelivered webhook writes nothing. Requires a transaction: the dedup insert and all
+// outbox rows must commit or roll back together.
+export async function publishSourceRepositoryUpdated(
+  params: PublishSourceRepositoryUpdatedParams,
+): Promise<{published: boolean}> {
+  const inserted = await params.tx
+    .insert(integrationsWebhookDeliveries)
+    .values({
+      provider: params.provider,
+      dedupScope: providerDedupScope(params.provider),
+      deliveryId: params.deliveryId,
+    })
+    .onConflictDoNothing({
+      target: [
+        integrationsWebhookDeliveries.provider,
+        integrationsWebhookDeliveries.dedupScope,
+        integrationsWebhookDeliveries.deliveryId,
+      ],
+    })
+    .returning({deliveryId: integrationsWebhookDeliveries.deliveryId});
+
+  if (inserted.length === 0) return {published: false};
+
+  await writeOutboxEvents<IntegrationsEventMap>(params.tx, integrationsOutbox, [
+    {
+      type: INTEGRATION_EVENT_RECEIVED,
+      payload: {
+        provider: params.provider,
+        source: params.source,
+        event: params.event,
+        workspaceId: params.workspaceId,
+        connectionId: params.connectionId,
+        connectionName: params.connectionName,
+        deliveryId: params.deliveryId,
+        receivedAt: params.receivedAt,
+        payload: params.rawPayload,
+      },
+    },
+    ...params.repositories.map(
+      (
+        repository,
+      ): {
+        type: typeof INTEGRATION_SOURCE_REPOSITORY_UPDATED;
+        payload: IntegrationsEventMap[typeof INTEGRATION_SOURCE_REPOSITORY_UPDATED];
+      } => ({
+        type: INTEGRATION_SOURCE_REPOSITORY_UPDATED,
+        payload: {
+          provider: params.provider,
+          workspaceId: params.workspaceId,
+          connectionId: params.connectionId,
+          deliveryId: params.deliveryId,
+          receivedAt: params.receivedAt,
+          repository,
+        },
+      }),
+    ),
+  ]);
+
+  return {published: true};
+}
+
 export interface PublishSourceCommitPushedParams {
   provider: string;
   workspaceId: string;
@@ -211,6 +290,7 @@ export async function pruneWebhookDeliveries(
 
 export type PublishIntegrationEventReceivedFn = typeof publishIntegrationEventReceived;
 export type PublishSourcePushFn = typeof publishSourcePush;
+export type PublishSourceRepositoryUpdatedFn = typeof publishSourceRepositoryUpdated;
 export type PublishSourceCommitPushedFn = typeof publishSourceCommitPushed;
 export type ClaimWebhookDeliveryFn = typeof claimWebhookDelivery;
 export type RecordDeliveryOnlyFn = typeof recordDeliveryOnly;

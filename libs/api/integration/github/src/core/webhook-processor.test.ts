@@ -51,6 +51,7 @@ describe('GitHub webhook processor', () => {
     const processor = createGithubWebhookProcessor({
       coreDb,
       publishIntegrationEventReceived: vi.fn(),
+      publishSourceRepositoryUpdated: vi.fn(),
       publishSourcePush: vi.fn(),
       recordDeliveryOnly: vi.fn(),
       getIntegrationConnectionById: vi.fn(),
@@ -78,6 +79,7 @@ describe('GitHub webhook processor', () => {
     const processor = createGithubWebhookProcessor({
       coreDb: vi.fn(),
       publishIntegrationEventReceived: vi.fn(),
+      publishSourceRepositoryUpdated: vi.fn(),
       publishSourcePush: vi.fn(),
       recordDeliveryOnly: vi.fn(),
       getIntegrationConnectionById: vi.fn(),
@@ -114,6 +116,7 @@ describe('GitHub webhook processor', () => {
       coreDb: () =>
         ({transaction: (callback: (tx: unknown) => Promise<unknown>) => callback({})}) as never,
       publishIntegrationEventReceived: vi.fn(),
+      publishSourceRepositoryUpdated: vi.fn(),
       publishSourcePush: vi.fn(),
       recordDeliveryOnly: vi.fn(),
       getIntegrationConnectionById: vi.fn(),
@@ -145,6 +148,7 @@ describe('GitHub webhook processor', () => {
     const processor = createGithubWebhookProcessor({
       coreDb: db,
       publishIntegrationEventReceived,
+      publishSourceRepositoryUpdated: vi.fn(),
       publishSourcePush: vi.fn(),
       recordDeliveryOnly: vi.fn(),
       getIntegrationConnectionById: vi.fn(() => Promise.resolve(connection)),

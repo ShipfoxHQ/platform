@@ -1,6 +1,8 @@
 import {
   type GithubPushPayloadDto,
+  githubInstallationRepositoriesPayloadSchema,
   githubPushPayloadSchema,
+  githubRepositoryRenamedPayloadSchema,
   githubWebhookActionSchema,
   githubWebhookInstallationSchema,
 } from '@shipfox/api-integration-github-dto';
@@ -10,8 +12,10 @@ import {
   type IntegrationTx,
   type PublishIntegrationEventReceivedFn,
   type PublishSourcePushFn,
+  type PublishSourceRepositoryUpdatedFn,
   type RecordDeliveryOnlyFn,
   type SourcePushPayload,
+  type SourceRepositoryIdentity,
 } from '@shipfox/api-integration-spi';
 import {logger} from '@shipfox/node-opentelemetry';
 import {getGithubInstallationByInstallationId} from '#db/installations.js';
@@ -27,6 +31,7 @@ export interface HandleGithubEventParams {
   event: string;
   payload: unknown;
   publishIntegrationEventReceived: PublishIntegrationEventReceivedFn;
+  publishSourceRepositoryUpdated: PublishSourceRepositoryUpdatedFn;
   publishSourcePush: PublishSourcePushFn;
   recordDeliveryOnly: RecordDeliveryOnlyFn;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
@@ -235,6 +240,30 @@ export async function handleGithubEvent(
   }
 
   const eventName = action ? `${params.event}.${action}` : params.event;
+  const repositories = normalizeRepositoryUpdates(params.event, action, params.payload);
+  if (repositories) {
+    const result = await params.publishSourceRepositoryUpdated({
+      tx: params.tx,
+      provider: GITHUB_SOURCE,
+      source: connection.slug,
+      workspaceId: connection.workspaceId,
+      connectionId: connection.id,
+      connectionName: connection.displayName,
+      deliveryId: params.deliveryId,
+      receivedAt: new Date().toISOString(),
+      rawPayload: params.payload,
+      event: eventName,
+      repositories,
+    });
+    return withInstallationTokenCleanup(
+      {outcome: result.published ? 'published' : 'duplicate'},
+      params.event,
+      action,
+      connection.workspaceId,
+      installationId,
+    );
+  }
+
   const result = await publishGithubEnvelopeOnly({
     tx: params.tx,
     deliveryId: params.deliveryId,
@@ -250,6 +279,49 @@ export async function handleGithubEvent(
     connection.workspaceId,
     installationId,
   );
+}
+
+function normalizeRepositoryUpdates(
+  event: string,
+  action: string | undefined,
+  payload: unknown,
+): SourceRepositoryIdentity[] | undefined {
+  if (event === 'repository' && action === 'renamed') {
+    const parsed = githubRepositoryRenamedPayloadSchema.safeParse(payload);
+    if (!parsed.success) return undefined;
+    return [toSourceRepositoryIdentity(parsed.data.repository)];
+  }
+
+  if (event !== 'installation_repositories' || (action !== 'added' && action !== 'removed')) {
+    return undefined;
+  }
+
+  const parsed = githubInstallationRepositoriesPayloadSchema.safeParse(payload);
+  if (!parsed.success) return undefined;
+
+  const repositories = new Map<number, SourceRepositoryIdentity>();
+  for (const repository of [
+    ...parsed.data.repositories_added,
+    ...parsed.data.repositories_removed,
+  ]) {
+    const normalized = toSourceRepositoryIdentity(repository);
+    repositories.set(repository.id, normalized);
+  }
+  return repositories.size > 0 ? [...repositories.values()] : undefined;
+}
+
+function toSourceRepositoryIdentity(repository: {
+  id: number;
+  name: string;
+  owner: {login: string};
+  default_branch: string;
+}): SourceRepositoryIdentity {
+  return {
+    externalRepositoryId: buildProviderRepositoryId(GITHUB_SOURCE, String(repository.id)),
+    owner: repository.owner.login,
+    name: repository.name,
+    defaultBranch: repository.default_branch,
+  };
 }
 
 function shouldDeleteInstallationTokenSecret(event: string, action: string | undefined): boolean {

@@ -1,8 +1,10 @@
 import {
   INTEGRATION_EVENT_RECEIVED,
   INTEGRATION_SOURCE_COMMIT_PUSHED,
+  INTEGRATION_SOURCE_REPOSITORY_UPDATED,
   type IntegrationEventReceivedEvent,
   type SourcePushPayload,
+  type SourceRepositoryIdentity,
 } from '@shipfox/api-integration-spi';
 import {and, eq, sql} from 'drizzle-orm';
 import {db} from './db.js';
@@ -13,6 +15,7 @@ import {
   publishIntegrationEventReceived,
   publishSourceCommitPushed,
   publishSourcePush,
+  publishSourceRepositoryUpdated,
   recordDeliveryOnly,
 } from './webhook-deliveries.js';
 
@@ -274,5 +277,77 @@ describe('publishSourceCommitPushed', () => {
     await publishSourceCommitPushed(params);
 
     expect(await deliveriesFor(params.provider, params.deliveryId)).toHaveLength(0);
+  });
+});
+
+describe('publishSourceRepositoryUpdated', () => {
+  function buildParams() {
+    const deliveryId = crypto.randomUUID();
+    const repositories: SourceRepositoryIdentity[] = [
+      {
+        externalRepositoryId: 'github:42',
+        owner: 'acme',
+        name: 'platform-renamed',
+        defaultBranch: 'main',
+      },
+      {
+        externalRepositoryId: 'github:43',
+        owner: 'acme',
+        name: 'runner',
+        defaultBranch: 'trunk',
+      },
+    ];
+    return {
+      provider: 'github',
+      source: 'github_acme_production',
+      workspaceId: crypto.randomUUID(),
+      connectionId: crypto.randomUUID(),
+      connectionName: 'Acme Production',
+      deliveryId,
+      receivedAt: new Date().toISOString(),
+      rawPayload: {action: 'added', repositories_added: repositories},
+      event: 'installation_repositories.added',
+      repositories,
+    };
+  }
+
+  it('writes the generic envelope and one typed event per repository', async () => {
+    const params = buildParams();
+
+    const result = await db().transaction((tx) => publishSourceRepositoryUpdated({tx, ...params}));
+
+    expect(result.published).toBe(true);
+    const outbox = await outboxFor(params.deliveryId);
+    expect(outbox).toHaveLength(3);
+    expect(outbox.filter((row) => row.eventType === INTEGRATION_EVENT_RECEIVED)).toHaveLength(1);
+    expect(
+      outbox.filter((row) => row.eventType === INTEGRATION_SOURCE_REPOSITORY_UPDATED),
+    ).toHaveLength(2);
+    expect(outbox[0]?.payload).toMatchObject({
+      event: 'installation_repositories.added',
+      payload: params.rawPayload,
+    });
+    expect(
+      outbox
+        .filter((row) => row.eventType === INTEGRATION_SOURCE_REPOSITORY_UPDATED)
+        .map((row) => row.payload),
+    ).toEqual(
+      expect.arrayContaining(
+        params.repositories.map((repository) =>
+          expect.objectContaining({repository, deliveryId: params.deliveryId}),
+        ),
+      ),
+    );
+  });
+
+  it('does not publish a duplicate delivery twice', async () => {
+    const params = buildParams();
+
+    const first = await db().transaction((tx) => publishSourceRepositoryUpdated({tx, ...params}));
+    const second = await db().transaction((tx) => publishSourceRepositoryUpdated({tx, ...params}));
+
+    expect(first.published).toBe(true);
+    expect(second.published).toBe(false);
+    expect(await outboxFor(params.deliveryId)).toHaveLength(3);
   });
 });

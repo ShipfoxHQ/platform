@@ -51,6 +51,32 @@ export type IntegrationSourceCommitPushedEvent = z.infer<
   typeof integrationSourceCommitPushedSchema
 >;
 
+export const sourceRepositoryIdentitySchema = z.object({
+  externalRepositoryId: nonEmptyStringSchema,
+  owner: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  defaultBranch: nonEmptyStringSchema,
+});
+export type SourceRepositoryIdentity = z.infer<typeof sourceRepositoryIdentitySchema>;
+
+export const INTEGRATION_SOURCE_REPOSITORY_UPDATED =
+  'integrations.source_control.repository_updated' as const;
+
+// Typed, provider-agnostic source-control event. The producing provider owns the
+// translation from its raw webhook into this shape, so domain consumers never decode
+// provider payloads.
+export const integrationSourceRepositoryUpdatedSchema = z.object({
+  provider: nonEmptyStringSchema,
+  workspaceId: nonEmptyStringSchema,
+  connectionId: nonEmptyStringSchema,
+  deliveryId: nonEmptyStringSchema,
+  receivedAt: isoDateTimeSchema,
+  repository: sourceRepositoryIdentitySchema,
+});
+export type IntegrationSourceRepositoryUpdatedEvent = z.infer<
+  typeof integrationSourceRepositoryUpdatedSchema
+>;
+
 export interface SentryIssuePayload {
   action: SentryIssueAction;
   issueId: string;
@@ -83,9 +109,11 @@ export type SentryIssueAction = (typeof SENTRY_ISSUE_ACTIONS)[number];
 export interface IntegrationsEventMap {
   [INTEGRATION_EVENT_RECEIVED]: IntegrationEventReceivedEvent;
   [INTEGRATION_SOURCE_COMMIT_PUSHED]: IntegrationSourceCommitPushedEvent;
+  [INTEGRATION_SOURCE_REPOSITORY_UPDATED]: IntegrationSourceRepositoryUpdatedEvent;
 }
 
 export const integrationsEventSchemas = {
   [INTEGRATION_EVENT_RECEIVED]: integrationEventReceivedSchema,
   [INTEGRATION_SOURCE_COMMIT_PUSHED]: integrationSourceCommitPushedSchema,
+  [INTEGRATION_SOURCE_REPOSITORY_UPDATED]: integrationSourceRepositoryUpdatedSchema,
 } satisfies Record<keyof IntegrationsEventMap, z.ZodType>;

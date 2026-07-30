@@ -134,6 +134,37 @@ export async function getProjectBySource(
   return toProject(row);
 }
 
+export interface UpdateProjectSourceRepositoryParams extends GetProjectBySourceParams {
+  sourceRepositoryOwner: string;
+  sourceRepositoryName: string;
+  sourceDefaultBranch: string;
+}
+
+export async function updateProjectSourceRepository(
+  params: UpdateProjectSourceRepositoryParams,
+): Promise<Project | undefined> {
+  const rows = await db()
+    .update(projects)
+    .set({
+      sourceRepositoryOwner: params.sourceRepositoryOwner,
+      sourceRepositoryName: params.sourceRepositoryName,
+      sourceDefaultBranch: params.sourceDefaultBranch,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(projects.workspaceId, params.workspaceId),
+        eq(projects.sourceConnectionId, params.sourceConnectionId),
+        eq(projects.sourceExternalRepositoryId, params.sourceExternalRepositoryId),
+      ),
+    )
+    .returning();
+
+  const row = rows[0];
+  if (!row) return undefined;
+  return toProject(row);
+}
+
 export async function requireProjectForWorkspace(params: {
   projectId: string;
   workspaceId: string;
