@@ -1,3 +1,4 @@
+import {DEFAULT_HARNESS} from '@shipfox/api-agent-dto';
 import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
 import {
   type AvailabilitySite,
@@ -725,6 +726,7 @@ function normalizeAgentStep(params: {
     sourceName: params.sourceName,
     stepIndex: params.stepIndex,
     issues: params.issues,
+    validateLiteralModel: modelTemplate === undefined,
     validateLiteralProvider: providerTemplate === undefined,
     agentValidationCatalog: params.context.agentValidationCatalog,
   });
@@ -761,47 +763,70 @@ function validateAgentStep(params: {
   sourceName: string;
   stepIndex: number;
   issues: WorkflowModelValidationIssue[];
+  validateLiteralModel: boolean;
   validateLiteralProvider: boolean;
   agentValidationCatalog: AgentValidationCatalog;
 }): void {
   validateHarnessThinking(params);
   validateHarnessTools(params);
-  if (!params.validateLiteralProvider) return;
-
   const providerId = params.step.provider;
-  if (providerId === undefined) return;
+  const harness = params.step.harness ?? DEFAULT_HARNESS;
+  const provider =
+    providerId === undefined
+      ? undefined
+      : params.agentValidationCatalog.providers.find((entry) => entry.id === providerId);
 
-  const provider = params.agentValidationCatalog.providers.find((entry) => entry.id === providerId);
-  const harness = params.step.harness;
-  if (provider === undefined && harness === 'pi') return;
+  if (params.validateLiteralProvider && providerId !== undefined) {
+    if (provider === undefined && harness === DEFAULT_HARNESS) return;
 
-  if (provider === undefined || provider.support_status !== 'supported') {
-    params.issues.push(
-      issue({
-        code: 'invalid-provider',
-        message: `Provider "${providerId}" is not supported.`,
-        path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
-        details: {provider: providerId},
-      }),
+    if (provider === undefined || provider.support_status !== 'supported') {
+      params.issues.push(
+        issue({
+          code: 'invalid-provider',
+          message: `Provider "${providerId}" is not supported.`,
+          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
+          details: {provider: providerId},
+        }),
+      );
+      return;
+    }
+
+    const descriptor = params.agentValidationCatalog.harnesses.find(
+      (entry) => entry.id === harness,
     );
-    return;
+    if (!descriptor?.supported_provider_ids.includes(providerId)) {
+      params.issues.push(
+        issue({
+          code: 'harness-provider-incompatible',
+          message: `Harness "${harness}" does not support provider: ${providerId}. Supported providers: ${descriptor?.supported_provider_ids.join(', ') ?? ''}.`,
+          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
+          details: {
+            harness,
+            provider: providerId,
+            supportedProviders: descriptor?.supported_provider_ids ?? [],
+          },
+        }),
+      );
+      return;
+    }
   }
 
-  if (harness === undefined) return;
+  if (!params.validateLiteralModel || providerId === undefined) return;
+  if (provider === undefined || provider.support_status !== 'supported') return;
+
+  const model = params.step.model;
+  if (model === undefined) return;
 
   const descriptor = params.agentValidationCatalog.harnesses.find((entry) => entry.id === harness);
-  if (descriptor?.supported_provider_ids.includes(providerId)) return;
+  const modelIds = descriptor?.model_ids_by_provider?.[providerId];
+  if (modelIds === undefined || modelIds.includes(model)) return;
 
   params.issues.push(
     issue({
-      code: 'harness-provider-incompatible',
-      message: `Harness "${harness}" does not support provider: ${providerId}. Supported providers: ${descriptor?.supported_provider_ids.join(', ') ?? ''}.`,
-      path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
-      details: {
-        harness,
-        provider: providerId,
-        supportedProviders: descriptor?.supported_provider_ids ?? [],
-      },
+      code: 'invalid-model',
+      message: `Agent model "${model}" is not available for harness "${harness}" and provider "${providerId}".`,
+      path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'model'],
+      details: {harness, provider: providerId, model},
     }),
   );
 }

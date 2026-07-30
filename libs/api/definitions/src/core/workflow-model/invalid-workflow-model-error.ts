@@ -23,6 +23,7 @@ export type WorkflowModelValidationIssueCode =
   | 'invalid-interpolation-template'
   | 'invalid-duration'
   | 'invalid-listener-filter'
+  | 'invalid-model'
   | 'invalid-job-if'
   | 'invalid-job-output'
   | 'invalid-job-success'

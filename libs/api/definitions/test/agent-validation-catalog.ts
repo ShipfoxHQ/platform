@@ -17,6 +17,13 @@ export const agentValidationCatalog: AgentValidationCatalog = {
   harnesses: listHarnessDescriptors().map((harness) => ({
     id: harness.id,
     supported_provider_ids: [...harness.supportedProviderIds],
+    model_ids_by_provider:
+      harness.id === 'pi'
+        ? {
+            anthropic: ['claude-opus-4-8'],
+            openai: ['gpt-4.1', 'gpt-5.5-pro'],
+          }
+        : {anthropic: ['claude-opus-4-8']},
     thinking_levels: [...harness.thinkingLevels],
     effective_tools: listEnabledHarnessTools(
       harness.id,
