@@ -20,6 +20,7 @@ jobs:
 
     expect(result.valid).toBe(true);
     if (result.valid) {
+      expect(result.warnings).toEqual([]);
       expect(result.definition.document.name).toBe('Test');
       expect(result.definition.document.jobs.build?.steps).toHaveLength(1);
       expect(result.definition.model.jobs[0]?.id).toBe('build');
@@ -31,6 +32,7 @@ jobs:
 
     expect(result.valid).toBe(false);
     if (!result.valid) {
+      expect(result).not.toHaveProperty('warnings');
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]?.message).toContain('Invalid workflow YAML syntax');
     }

@@ -7,12 +7,14 @@ export {
   type DefinitionResponseDto,
   type DefinitionSyncSummaryDto,
   type DefinitionValidationErrorDto,
+  type DefinitionValidationWarningDto,
   definitionDtoSchema,
   definitionListQuerySchema,
   definitionListResponseSchema,
   definitionResponseSchema,
   definitionSyncSummarySchema,
   definitionValidationErrorSchema,
+  definitionValidationWarningSchema,
   type TriggerDto,
 } from '#schemas/index.js';
 export {

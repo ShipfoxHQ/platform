@@ -21,6 +21,8 @@ export function normalizeWorkflowDocument(
     agentValidationCatalog: AgentValidationCatalog;
     integrationValidationContext?: IntegrationValidationContext | undefined;
     stepSourceLocations?: WorkflowStepSourceLocationMap | undefined;
+    /** Provide a fresh array for each call to collect non-fatal validation issues. */
+    warnings?: WorkflowModelValidationIssue[] | undefined;
   },
 ): WorkflowModel {
   const issues: WorkflowModelValidationIssue[] = [];
@@ -54,9 +56,11 @@ export function normalizeWorkflowDocument(
 
   validateCycles(document.jobs, jobIdBySourceName, issues);
 
-  if (issues.length > 0) {
-    throw new InvalidWorkflowModelError(issues);
-  }
+  const warnings = issues.filter((issue) => issue.severity === 'warning');
+  options.warnings?.push(...warnings);
+
+  const errors = issues.filter((issue) => issue.severity !== 'warning');
+  if (errors.length > 0) throw new InvalidWorkflowModelError(errors);
 
   return {
     kind: 'workflow',
