@@ -15,6 +15,7 @@ import {
   getLatestJobExecutionByJobId,
   getStepAttemptsByJobExecutionId,
   getStepsByJobExecutionIdForUpdate,
+  getWorkflowContextForJob,
   insertRunningStepAttempt,
   markStepRunning,
   markStepSkipped,
@@ -91,6 +92,7 @@ interface ResolvePendingStepParams {
   readonly jobExecution: JobExecution;
   readonly attempts: Awaited<ReturnType<typeof getStepAttemptsByJobExecutionId>>;
   readonly jobs: Awaited<ReturnType<typeof getDirectDependencyJobContexts>>;
+  readonly vars: Record<string, string> | undefined;
   readonly tx: Tx;
   readonly agent?: AgentInterModuleClient | undefined;
 }
@@ -130,8 +132,18 @@ async function nextStepForJobExecutionInTransaction(
 
   const attempts = await getStepAttemptsByJobExecutionId(jobExecutionId, tx);
   const jobs = await getDirectDependencyJobContexts(jobExecution.jobId, tx);
+  const workflowContext = await getWorkflowContextForJob(jobExecution.jobId, tx);
 
-  return resolveNextPendingStep({jobExecutionId, steps, jobExecution, attempts, jobs, tx, agent});
+  return resolveNextPendingStep({
+    jobExecutionId,
+    steps,
+    jobExecution,
+    attempts,
+    jobs,
+    vars: workflowContext.vars ?? undefined,
+    tx,
+    agent,
+  });
 }
 
 async function resolveNextPendingStep({
@@ -140,6 +152,7 @@ async function resolveNextPendingStep({
   jobExecution,
   attempts,
   jobs,
+  vars,
   tx,
   agent,
 }: ResolvePendingStepParams): Promise<NextStep> {
@@ -167,6 +180,7 @@ async function resolveNextPendingStep({
       targetStepId: pending.id,
       jobExecution,
       jobs,
+      vars,
     });
     const condition = evaluateStepCondition({step: pending, context});
     if (condition.kind === 'run') {
@@ -458,7 +472,13 @@ async function recordStepResultInTransaction(
   // engine runs — and pass the precomputed outcome into the pure decision.
   const shouldEvaluateGate = outputCoercion.kind !== 'failed';
   const gate = shouldEvaluateGate ? readStepGate(target.config) : undefined;
-  const gateOutcome = shouldEvaluateGate ? evaluateGate(gate, result) : {kind: 'no-gate' as const};
+  const vars =
+    gate === undefined
+      ? undefined
+      : ((await getWorkflowContextForJob(jobExecution.jobId, tx)).vars ?? undefined);
+  const gateOutcome = shouldEvaluateGate
+    ? evaluateGate(gate, result, vars)
+    : {kind: 'no-gate' as const};
   const hasRestartPolicy = gate?.onFailure?.restartFrom !== undefined;
   // The restart cap is bounded on the gating step's OWN attempts, not its
   // current_attempt (which a rewind inflates for downstream steps).
@@ -479,6 +499,7 @@ async function recordStepResultInTransaction(
     gate,
     result,
     definitionId: jobExecution.jobId,
+    vars,
   });
 
   return applyStepTransition(
@@ -548,6 +569,7 @@ function resolveRestartFeedback(params: {
   gate: ReturnType<typeof readStepGate>;
   result: ReportedStepResult;
   definitionId: string;
+  vars?: Record<string, string> | undefined;
 }): StepTransitionDecision {
   if (params.decision.kind !== 'restart-job-from-step') return params.decision;
   if (params.gate === undefined) return params.decision;
@@ -559,6 +581,7 @@ function resolveRestartFeedback(params: {
         gate: params.gate,
         result: params.result,
         definitionId: params.definitionId,
+        vars: params.vars,
       }),
     };
   } catch (error) {

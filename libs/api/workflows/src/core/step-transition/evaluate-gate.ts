@@ -69,7 +69,11 @@ export function readStepGate(config: Record<string, unknown>): StepGate | undefi
  * unless evaluation gets a budget outside the lock. The materializer only
  * persists CEL expressions, and this evaluator only needs the validated source.
  */
-export function evaluateGate(gate: StepGate | undefined, result: StepReport): GateOutcome {
+export function evaluateGate(
+  gate: StepGate | undefined,
+  result: StepReport,
+  vars?: Record<string, string> | undefined,
+): GateOutcome {
   if (!gate?.success) return {kind: 'no-gate'};
   const source = gate.success.source;
 
@@ -81,6 +85,7 @@ export function evaluateGate(gate: StepGate | undefined, result: StepReport): Ga
     status: result.status,
     exitCode: result.exitCode,
     output: result.output,
+    vars,
   });
   const outcome = evaluatePlannedPredicateAtSite({
     expression: gate.success,
@@ -110,6 +115,7 @@ export function evaluateGateFeedback(params: {
   readonly gate: StepGate;
   readonly result: StepReport;
   readonly definitionId: string;
+  readonly vars?: Record<string, string> | undefined;
 }): string {
   const feedbackTemplate = params.gate.onFailure?.feedbackTemplate;
   if (feedbackTemplate === undefined) {
@@ -120,6 +126,7 @@ export function evaluateGateFeedback(params: {
     status: params.result.status,
     exitCode: params.result.exitCode ?? null,
     output: params.result.output,
+    vars: params.vars,
   });
   return completeStepField({
     field: 'step.feedback',

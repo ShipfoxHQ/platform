@@ -25,12 +25,14 @@ export function deriveJobSuccess(params: {
   success: string | null;
   executions: readonly JobExecution[];
   jobs: readonly JobContextInput[];
+  vars?: Record<string, string> | undefined;
 }): DeriveJobSuccessResult {
   const expression = createWorkflowExpression({
     source: params.success ?? DEFAULT_JOB_SUCCESS,
     check: {mode: 'syntax'},
   });
   const context = {
+    ...(params.vars === undefined ? {} : {vars: params.vars}),
     ...assembleExecutionsContext(params.executions),
     ...assembleJobsContext(params.jobs),
   };

@@ -77,6 +77,7 @@ export {
   loadReferencedVariables,
   updateWorkflowRunStatus,
 } from './workflow-runs/runs.js';
+export {getWorkflowContextForJob} from './workflow-runs/shared.js';
 export type {
   ApplyStepResultParams,
   BulkUpdateStepStatusesParams,

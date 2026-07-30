@@ -2,7 +2,11 @@ import {createWorkflowModelSnapshot, type WorkflowModel} from '@shipfox/api-defi
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
-import {analyzeContextKeyAccess, type ResolvedFieldSegment} from '@shipfox/expression';
+import {
+  analyzeContextKeyAccess,
+  type ResolvedFieldSegment,
+  type WorkflowExpression,
+} from '@shipfox/expression';
 import {logger} from '@shipfox/node-opentelemetry';
 import {eq} from 'drizzle-orm';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
@@ -110,19 +114,8 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
     }
 
     const run = toWorkflowRun(runRow);
-    const [attemptRow] = await tx
-      .insert(workflowRunAttempts)
-      .values({
-        workflowRunId: runRow.id,
-        attempt: 1,
-        status: 'pending',
-        model: createWorkflowModelSnapshot(params.model),
-        agentToolMaterialization,
-      })
-      .returning();
-    if (!attemptRow) throw new Error('Insert returned no rows');
-
-    // Resolving one-shot templates here gives interpolation access to the inserted run id.
+    // Resolving run-creation templates and predicates here gives them a stable variable snapshot
+    // and interpolation access to the inserted run id.
     // If resolution fails, the transaction rolls back the run, jobs, steps, and outbox event together.
     // Listening steps are resolved later when a job execution is created.
     const oneShotJobs = params.model.jobs.filter((job) => job.mode !== 'listening');
@@ -134,6 +127,19 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
       definitionId: params.definitionId,
       secrets: params.secrets,
     });
+    const [attemptRow] = await tx
+      .insert(workflowRunAttempts)
+      .values({
+        workflowRunId: runRow.id,
+        attempt: 1,
+        status: 'pending',
+        model: createWorkflowModelSnapshot(params.model),
+        vars,
+        agentToolMaterialization,
+      })
+      .returning();
+    if (!attemptRow) throw new Error('Insert returned no rows');
+
     const materializedJobs = await materializeWorkflowRunJobs({
       run,
       model: params.model,
@@ -215,7 +221,12 @@ export async function loadReferencedVariables(params: {
     });
   }
 
-  return vars;
+  const referencedVars: Record<string, string> = {};
+  for (const key of keys) {
+    const value = vars[key];
+    if (value !== undefined) referencedVars[key] = value;
+  }
+  return referencedVars;
 }
 
 function materializeRunGraphJobs(params: {
@@ -297,6 +308,20 @@ function referencedVariables(
 ): readonly ReferencedVariable[] {
   const references: ReferencedVariable[] = [];
 
+  for (const job of model.jobs) {
+    collectPredicateVariableReferences(job.if, references);
+    collectPredicateVariableReferences(job.success, references);
+
+    for (const trigger of [...(job.listening?.on ?? []), ...(job.listening?.until ?? [])]) {
+      collectPredicateVariableReferences(trigger.filter, references);
+    }
+
+    for (const step of job.steps) {
+      collectPredicateVariableReferences(step.if, references);
+      collectPredicateVariableReferences(step.gate?.success, references);
+    }
+  }
+
   if (jobs.length > 0) {
     collectTemplateVariableReferences(model.templates?.env, references);
   }
@@ -325,6 +350,23 @@ function referencedVariables(
   }
 
   return references;
+}
+
+function collectPredicateVariableReferences(
+  expression: WorkflowExpression | string | undefined,
+  references: ReferencedVariable[],
+): void {
+  if (expression === undefined) return;
+
+  const keyAccess = analyzeContextKeyAccess(expression);
+  for (const reference of keyAccess.references) {
+    if (reference.root !== 'vars') continue;
+    references.push({
+      key: reference.key,
+      field: 'env',
+      source: typeof expression === 'string' ? expression : expression.source,
+    });
+  }
 }
 
 function collectTemplateVariableReferences(

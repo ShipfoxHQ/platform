@@ -23,6 +23,7 @@ export const workflowRunAttempts = pgTable(
     rerunMode: workflowRunRerunModeEnum('rerun_mode'),
     rerunByUserId: uuid('rerun_by_user_id'),
     model: jsonb('model').$type<WorkflowModel | WorkflowModelSnapshot>(),
+    vars: jsonb('vars').$type<Record<string, string>>(),
     agentToolMaterialization: jsonb(
       'agent_tool_materialization',
     ).$type<AgentToolMaterializationSnapshot>(),
@@ -53,6 +54,7 @@ export function toWorkflowRunAttempt(row: WorkflowRunAttemptDb): WorkflowRunAtte
     rerunMode: row.rerunMode ?? null,
     rerunByUserId: row.rerunByUserId,
     model: row.model === null ? null : readPersistedWorkflowModel(row.model),
+    vars: row.vars ?? null,
     agentToolMaterialization: row.agentToolMaterialization ?? null,
     version: row.version,
     createdAt: row.createdAt,

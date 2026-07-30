@@ -12,6 +12,7 @@ export interface WorkflowRunAttempt {
   rerunMode: RerunMode | null;
   rerunByUserId: string | null;
   model: WorkflowModel | null;
+  vars: Record<string, string> | null;
   agentToolMaterialization: AgentToolMaterializationSnapshot | null;
   version: number;
   createdAt: Date;

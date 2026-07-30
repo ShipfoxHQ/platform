@@ -12,6 +12,7 @@ import {workflowsOutbox} from '../schema/outbox.js';
 import {workflowRuns} from '../schema/workflow-runs.js';
 import {
   createWorkflowRun,
+  evaluateJobActivations,
   getJobExecutionsByJobId,
   getJobsByWorkflowRunId,
   getStepsByJobId,
@@ -265,6 +266,113 @@ describe('workflow run queries', () => {
           },
         ],
       });
+    });
+
+    test('loads predicate vars once and persists the run-creation snapshot', async () => {
+      const secrets = createTestSecretsClient();
+      const values = {
+        JOB_IF: 'true',
+        JOB_SUCCESS: 'true',
+        STEP_IF: 'true',
+        GATE_SUCCESS: 'true',
+        LISTENER_ON: 'true',
+        LISTENER_UNTIL: 'true',
+      };
+      await secrets.setSecrets({workspaceId, projectId, values});
+
+      const model = workflowModel({
+        jobs: {
+          build: {
+            if: 'vars.JOB_IF == "true"',
+            success: 'vars.JOB_SUCCESS == "true"',
+            steps: [
+              {
+                if: expression('vars.STEP_IF == "true"'),
+                gate: {success: expression('vars.GATE_SUCCESS == "true"')},
+                run: 'echo build',
+              },
+            ],
+          },
+          listen: {
+            listening: {
+              on: [{source: 'github', event: 'push', filter: 'vars.LISTENER_ON == "true"'}],
+              until: [
+                {source: 'github', event: 'pull_request', filter: 'vars.LISTENER_UNTIL == "true"'},
+              ],
+              onResolve: 'finish',
+            },
+            steps: [{run: 'echo listen'}],
+          },
+        },
+      });
+
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model,
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+        secrets,
+      });
+
+      const [attempt] = await listRunAttempts({workflowRunId: run.id, projectId});
+
+      expect(attempt?.vars).toEqual(values);
+    });
+
+    test('evaluates job and step predicates from the persisted vars snapshot', async () => {
+      const secrets = createTestSecretsClient();
+      await secrets.setSecrets({workspaceId, projectId, values: {ENABLED: 'true'}});
+      const model = workflowModel({
+        jobs: {
+          build: {
+            if: 'vars.ENABLED == "true"',
+            steps: [{if: expression('vars.ENABLED == "true"'), run: 'echo build'}],
+          },
+        },
+      });
+
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model,
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+        secrets,
+      });
+      await secrets.setSecrets({workspaceId, projectId, values: {ENABLED: 'false'}});
+
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected workflow job');
+      const activation = await evaluateJobActivations({
+        runAttemptId: job.workflowRunAttemptId,
+        jobs: [{jobId: job.id, expectedVersion: job.version}],
+      });
+      expect(activation).toEqual([{kind: 'start-job', jobId: job.id}]);
+
+      const [execution] = await getJobExecutionsByJobId(job.id);
+      if (!execution) throw new Error('Expected job execution');
+      const setup = await nextStepForJob(job.id);
+      if (setup.kind !== 'step') throw new Error('Expected setup step');
+      expect(setup).toMatchObject({kind: 'step', step: {type: 'setup'}});
+      await recordStepResult({
+        jobExecutionId: execution.id,
+        stepId: setup.step.id,
+        status: 'succeeded',
+      });
+
+      const guarded = await nextStepForJob(job.id);
+      expect(guarded).toMatchObject({kind: 'step', step: {position: 1}, dispatched: true});
     });
 
     test('returns the persisted model in run detail', async () => {

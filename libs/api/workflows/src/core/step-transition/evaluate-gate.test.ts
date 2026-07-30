@@ -144,6 +144,14 @@ describe('evaluateGate', () => {
     expect(evaluateGate(gate, {status: 'failed', exitCode: 0})).toMatchObject({kind: 'failed'});
   });
 
+  test('resolves vars from the run-creation snapshot', () => {
+    const gate = readStepGate(gateConfig('vars.ENABLED == "true"'));
+
+    expect(evaluateGate(gate, {status: 'succeeded', exitCode: 0}, {ENABLED: 'true'})).toMatchObject(
+      {kind: 'passed'},
+    );
+  });
+
   test('step.outputs gates on reported output values', () => {
     const gate = readStepGate(gateConfig('step.outputs.pass == true'));
 

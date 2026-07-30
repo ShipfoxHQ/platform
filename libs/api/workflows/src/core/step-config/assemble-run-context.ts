@@ -149,7 +149,7 @@ export function assembleJobActivationContext(
   };
 }
 
-type ListenerSnapshotRoot = 'run' | 'trigger' | 'inputs' | 'job' | 'jobs';
+type ListenerSnapshotRoot = 'run' | 'trigger' | 'inputs' | 'vars' | 'job' | 'jobs';
 
 export interface MatcherSnapshotPlan {
   readonly matcher: JobListeningTrigger;
@@ -210,7 +210,12 @@ function planMatcherFilterSnapshot(
 
 function isListenerSnapshotRoot(root: string): root is ListenerSnapshotRoot {
   return (
-    root === 'run' || root === 'trigger' || root === 'inputs' || root === 'job' || root === 'jobs'
+    root === 'run' ||
+    root === 'trigger' ||
+    root === 'inputs' ||
+    root === 'vars' ||
+    root === 'job' ||
+    root === 'jobs'
   );
 }
 
@@ -219,6 +224,7 @@ export function assembleListenerSnapshotContext(params: {
   readonly run: AssembleWorkflowRunContextParams['run'];
   readonly triggerPayload: TriggerPayload;
   readonly inputs?: Record<string, unknown> | null | undefined;
+  readonly vars?: Record<string, string> | undefined;
   readonly plan: ListenerSnapshotPlan;
   readonly dependencyJobs: readonly JobContextInput[];
 }): WorkflowExpressionEvaluationContext {
@@ -228,6 +234,7 @@ export function assembleListenerSnapshotContext(params: {
       run: params.run,
       triggerPayload: params.triggerPayload,
       inputs: params.inputs,
+      vars: params.vars,
     });
     if (params.plan.roots.has('run')) context.run = runContext.run;
     if (params.plan.roots.has('trigger')) context.trigger = runContext.trigger;
@@ -235,6 +242,9 @@ export function assembleListenerSnapshotContext(params: {
 
   if (params.plan.roots.has('inputs')) {
     context.inputs = params.inputs ?? null;
+  }
+  if (params.plan.roots.has('vars')) {
+    context.vars = params.vars ?? {};
   }
   if (params.plan.roots.has('job')) {
     context.job = {
@@ -382,6 +392,7 @@ export function assembleStepDispatchContext(params: {
   readonly targetStepId: string;
   readonly jobExecution?: JobExecution;
   readonly jobs?: readonly JobContextInput[];
+  readonly vars?: Record<string, string> | undefined;
 }): WorkflowEvaluationContext {
   const targetStep = params.steps.find((step) => step.id === params.targetStepId);
   const stepAttemptContext = buildStepAttemptContext(params);
@@ -398,6 +409,7 @@ export function assembleStepDispatchContext(params: {
   return {
     site: 'step-dispatch',
     values: {
+      ...(params.vars === undefined ? {} : {vars: params.vars}),
       ...(params.jobs === undefined ? {} : assembleJobsContext(params.jobs)),
       ...(params.jobExecution === undefined
         ? {}
@@ -485,10 +497,12 @@ export function assembleGateContext(params: {
   readonly status: StepStatus;
   readonly exitCode: number | null;
   readonly output?: Record<string, unknown> | null | undefined;
+  readonly vars?: Record<string, string> | undefined;
 }): WorkflowEvaluationContext {
   return {
     site: 'step-report',
     values: {
+      ...(params.vars === undefined ? {} : {vars: params.vars}),
       step: {
         ...(params.exitCode === null ? {} : {exit_code: BigInt(params.exitCode)}),
         status: params.status,
