@@ -112,6 +112,16 @@ export function setExecutionStatusCalls() {
   }>;
 }
 
+async function waitForJobExecutionStatusWrite(jobExecutionId: string): Promise<void> {
+  while (
+    !setExecutionStatusCalls().some(
+      (call) => call.params.jobExecutionId === jobExecutionId && call.params.status === 'running',
+    )
+  ) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+}
+
 export function listenerFiringOutcomeCalls() {
   return callsNamed('recordListenerFiringOutcomeActivity') as Array<{
     name: string;
@@ -307,25 +317,25 @@ function createMockActivities() {
         return;
       }
 
-      // Let the workflow process the claim before the independent finished outbox arrives.
-      // The precedence tests above intentionally deliver all facts in one activation.
+      // The runner's terminal outbox is independent from its claim. Wait for the mocked
+      // pending → running write so normal-completion tests exercise that ordering without
+      // relying on a wall-clock delay. The precedence tests above intentionally deliver all
+      // facts in one activation.
       const duplicateSignal = cfg.duplicateSignal;
-      setTimeout(() => {
-        void handle
-          .signal(JOB_FINISHED_SIGNAL, {status, jobExecutionId: params.jobExecutionId})
-          .then(async () => {
-            if (duplicateSignal) {
-              await handle.signal(JOB_FINISHED_SIGNAL, {
-                status: 'failed',
-                jobExecutionId: params.jobExecutionId,
-              });
-            }
-          })
-          .catch(() => {
-            // The claim can observe an already-terminal execution and close the workflow before
-            // this independently delivered outcome signal arrives.
-          });
-      }, 100);
+      void waitForJobExecutionStatusWrite(params.jobExecutionId)
+        .then(async () => {
+          await handle.signal(JOB_FINISHED_SIGNAL, {status, jobExecutionId: params.jobExecutionId});
+          if (duplicateSignal) {
+            await handle.signal(JOB_FINISHED_SIGNAL, {
+              status: 'failed',
+              jobExecutionId: params.jobExecutionId,
+            });
+          }
+        })
+        .catch(() => {
+          // The claim can observe an already-terminal execution and close the workflow before
+          // this independently delivered outcome signal arrives.
+        });
     },
 
     resolveLeaseExpiredJobExecutionActivity: (params: {
