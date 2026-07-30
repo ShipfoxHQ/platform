@@ -1,4 +1,4 @@
-name: Reject untrusted run
+name: Interpolation hoist
 runner: __RUNNER_LABEL__
 triggers:
   on_push:
@@ -8,5 +8,6 @@ triggers:
 jobs:
   build:
     steps:
-      - key: unsafe
-        run: echo "${{ event.ref }}"
+      - key: echo-message
+        run: |
+          printf 'msg=%s\n' "${{ event.head_commit.message }}"

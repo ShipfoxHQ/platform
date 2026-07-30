@@ -2112,7 +2112,7 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
-  it('rejects untrusted step outputs in trusted-only run fields', () => {
+  it('allows step outputs in run fields', () => {
     const document: WorkflowDocument = {
       name: 'untrusted step output',
       jobs: {
@@ -2125,15 +2125,17 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const model = normalizeWorkflowDocument(document);
 
-    expect(error.issues).toEqual([
-      expect.objectContaining({
-        code: 'untrusted-context-in-field',
-        path: ['jobs', 'build', 'steps', 1, 'run'],
-        details: expect.objectContaining({field: 'run', rejectedRoots: ['steps']}),
-      }),
-    ]);
+    expect(model.jobs[0]?.steps[1]).toMatchObject({
+      kind: 'run',
+      templates: {
+        command: [
+          {kind: 'literal', value: 'echo '},
+          {kind: 'deferred', roots: ['steps']},
+        ],
+      },
+    });
   });
 
   it('infers typed job output scalars for downstream job overlays', () => {
@@ -3868,30 +3870,32 @@ describe('normalizeWorkflowDocument', () => {
 
     it.each([
       ['event payload', 'event.pull_request.title', ['event']],
-      ['job outputs', 'jobs.build.outputs.sha', ['jobs']],
-    ] as const)('rejects untrusted %s context in run commands with the env fix-it message', (_label, source, rejectedRoots) => {
+      ['job status', 'jobs.build.status', ['jobs']],
+    ] as const)('allows %s context in run commands', (_label, source, roots) => {
       const document: WorkflowDocument = {
         name: 'unsafe run',
         jobs: {
           build: {
+            steps: [{run: 'echo build'}],
+          },
+          deploy: {
+            needs: 'build',
             steps: [{run: `echo ${interpolation(source)}`}],
           },
         },
       };
 
-      const error = expectInvalid(document);
+      const model = normalizeWorkflowDocument(document);
 
-      expect(error.issues).toEqual([
-        expect.objectContaining({
-          code: 'untrusted-context-in-field',
-          path: ['jobs', 'build', 'steps', 0, 'run'],
-          message: expect.stringContaining('Bind untrusted values to env'),
-          details: expect.objectContaining({
-            field: 'run',
-            rejectedRoots,
-          }),
-        }),
-      ]);
+      expect(model.jobs[1]?.steps[0]).toMatchObject({
+        kind: 'run',
+        templates: {
+          command: [
+            {kind: 'literal', value: 'echo '},
+            {kind: 'deferred', roots},
+          ],
+        },
+      });
     });
 
     it('rejects secrets in agent fields', () => {
@@ -3963,8 +3967,7 @@ describe('normalizeWorkflowDocument', () => {
     it.each([
       'execution.events[0].data.body',
       'execution["events"][0].data.body',
-      'execution[x]',
-    ])('rejects untrusted execution sub-paths in run commands: %s', (source) => {
+    ])('allows execution event sub-paths in run commands: %s', (source) => {
       const document: WorkflowDocument = {
         name: 'unsafe execution run',
         jobs: {
@@ -3974,42 +3977,17 @@ describe('normalizeWorkflowDocument', () => {
         },
       };
 
-      const error = expectInvalid(document);
+      const model = normalizeWorkflowDocument(document);
 
-      expect(error.issues).toEqual([
-        expect.objectContaining({
-          code: 'untrusted-context-in-field',
-          path: ['jobs', 'build', 'steps', 0, 'run'],
-          details: expect.objectContaining({
-            field: 'run',
-            rejectedRoots: ['execution'],
-          }),
-        }),
-      ]);
-    });
-
-    it('rejects execution event access through CEL comprehension bindings in run commands', () => {
-      const document: WorkflowDocument = {
-        name: 'unsafe execution map run',
-        jobs: {
-          build: {
-            steps: [{run: `echo ${interpolation('executions.map(e, e.events[0].data.body)')}`}],
-          },
+      expect(model.jobs[0]?.steps[0]).toMatchObject({
+        kind: 'run',
+        templates: {
+          command: [
+            {kind: 'literal', value: 'echo '},
+            {kind: 'deferred', roots: ['execution']},
+          ],
         },
-      };
-
-      const error = expectInvalid(document);
-
-      expect(error.issues).toEqual([
-        expect.objectContaining({
-          code: 'untrusted-context-in-field',
-          path: ['jobs', 'build', 'steps', 0, 'run'],
-          details: expect.objectContaining({
-            field: 'run',
-            rejectedRoots: ['executions'],
-          }),
-        }),
-      ]);
+      });
     });
 
     it.each([
@@ -4347,7 +4325,7 @@ describe('normalizeWorkflowDocument', () => {
     it.each([
       ['model', {model: interpolation('event.model'), prompt: 'Fix it.'}, 'event'],
       ['provider', {provider: interpolation('inputs.provider'), prompt: 'Fix it.'}, 'inputs'],
-    ] as const)('rejects untrusted agent %s interpolation', (_field, step, root) => {
+    ] as const)('rejects external context in agent %s interpolation', (_field, step, root) => {
       const document: WorkflowDocument = {
         name: 'unsafe agent field',
         jobs: {
@@ -4361,8 +4339,97 @@ describe('normalizeWorkflowDocument', () => {
 
       expect(error.issues).toEqual([
         expect.objectContaining({
-          code: 'untrusted-context-in-field',
+          code: 'untrusted-agent-selection-context',
           details: expect.objectContaining({rejectedRoots: [root]}),
+        }),
+      ]);
+    });
+
+    it('rejects step outputs in agent model interpolation', () => {
+      const document: WorkflowDocument = {
+        name: 'step output agent model',
+        jobs: {
+          build: {
+            steps: [
+              {key: 'collect', run: 'npm run collect', outputs: {value: {type: 'string'}}},
+              {
+                model: interpolation('steps.collect.outputs.value'),
+                prompt: 'Fix it.',
+              },
+            ],
+          },
+        },
+      };
+
+      const error = expectInvalid(document);
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'untrusted-agent-selection-context',
+          path: ['jobs', 'build', 'steps', 1, 'model'],
+          details: expect.objectContaining({rejectedRoots: ['steps']}),
+        }),
+      ]);
+    });
+
+    it.each([
+      [
+        'model',
+        {
+          model: interpolation('steps.filter(s, true).map(s, s.outputs.value)[0]'),
+          prompt: 'Fix it.',
+        },
+        ['jobs', 'build', 'steps', 0, 'model'],
+      ],
+      [
+        'provider',
+        {
+          provider: interpolation('steps.filter(s, true).map(s, s.outputs.value)[0]'),
+          prompt: 'Fix it.',
+        },
+        ['jobs', 'build', 'steps', 0, 'provider'],
+      ],
+    ] as const)('rejects comprehension-wrapped step outputs in agent %s interpolation', (_field, step, path) => {
+      const document: WorkflowDocument = {
+        name: 'comprehension step output agent selection',
+        jobs: {
+          build: {
+            steps: [step],
+          },
+        },
+      };
+
+      const error = expectInvalid(document);
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'untrusted-agent-selection-context',
+          path,
+          details: expect.objectContaining({rejectedRoots: ['steps']}),
+        }),
+      ]);
+    });
+
+    it.each([
+      'execution.events[0].data.body',
+      'execution["events"][0].data.body',
+    ])('rejects execution event subpaths in agent model interpolation: %s', (source) => {
+      const document: WorkflowDocument = {
+        name: 'execution event agent model',
+        jobs: {
+          build: {
+            steps: [{model: interpolation(source), prompt: 'Fix it.'}],
+          },
+        },
+      };
+
+      const error = expectInvalid(document);
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'untrusted-agent-selection-context',
+          path: ['jobs', 'build', 'steps', 0, 'model'],
+          details: expect.objectContaining({rejectedRoots: ['execution']}),
         }),
       ]);
     });
@@ -4558,7 +4625,7 @@ describe('normalizeWorkflowDocument', () => {
       ]);
     });
 
-    it('uses syntax mode for mixed open contexts but still enforces minimum trust', () => {
+    it('uses syntax mode for mixed open contexts without a trust restriction', () => {
       const envDocument: WorkflowDocument = {
         name: 'mixed env',
         env: {MIXED: interpolation('run.nope + event.x')},
@@ -4578,22 +4645,25 @@ describe('normalizeWorkflowDocument', () => {
       };
 
       const model = normalizeWorkflowDocument(envDocument);
-      const error = expectInvalid(runDocument);
+      const runModel = normalizeWorkflowDocument(runDocument);
 
       expect(model.templates?.env?.MIXED?.[0]).toMatchObject({
         kind: 'deferred',
         expression: {check: 'syntax'},
         roots: expect.arrayContaining(['run', 'event']),
       });
-      expect(error.issues).toEqual([
-        expect.objectContaining({
-          code: 'untrusted-context-in-field',
-          path: ['jobs', 'build', 'steps', 0, 'run'],
-        }),
-      ]);
+      expect(runModel.jobs[0]?.steps[0]).toMatchObject({
+        kind: 'run',
+        templates: {
+          command: [
+            {kind: 'literal', value: 'echo '},
+            {kind: 'deferred', roots: expect.arrayContaining(['run', 'event'])},
+          ],
+        },
+      });
     });
 
-    it('reports one trust issue for a multi-segment run field with one untrusted segment', () => {
+    it('allows multi-segment run fields with external context', () => {
       const document: WorkflowDocument = {
         name: 'multi segment run',
         jobs: {
@@ -4603,14 +4673,18 @@ describe('normalizeWorkflowDocument', () => {
         },
       };
 
-      const error = expectInvalid(document);
+      const model = normalizeWorkflowDocument(document);
 
-      expect(error.issues).toEqual([
-        expect.objectContaining({
-          code: 'untrusted-context-in-field',
-          details: expect.objectContaining({rejectedRoots: ['event']}),
-        }),
-      ]);
+      expect(model.jobs[0]?.steps[0]).toMatchObject({
+        kind: 'run',
+        templates: {
+          command: [
+            {kind: 'deferred', roots: ['run']},
+            {kind: 'literal', value: '-'},
+            {kind: 'deferred', roots: ['event']},
+          ],
+        },
+      });
     });
 
     it('does not parse templates in non-string env values', () => {

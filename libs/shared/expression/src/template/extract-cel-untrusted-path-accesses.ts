@@ -82,7 +82,13 @@ function collectUntrustedPathAccesses(
     case 'rcall': {
       const [method, receiver, args] = node.args as [string, ASTNode, ASTNode[]];
       collectUntrustedPathAccesses(receiver, untrustedPathsByRoot, roots, aliases);
-      const nextAliases = comprehensionAliases(method, receiver, args, aliases);
+      const nextAliases = comprehensionAliases(
+        method,
+        receiver,
+        args,
+        aliases,
+        untrustedPathsByRoot,
+      );
       for (const argument of args) {
         collectUntrustedPathAccesses(argument, untrustedPathsByRoot, roots, nextAliases);
       }
@@ -133,6 +139,8 @@ function rootName(node: ASTNode, aliases: ReadonlyMap<string, string>): string |
     case '[]':
     case '[?]':
       return rootName(node.args[0], aliases);
+    case 'rcall':
+      return rootName(node.args[1], aliases);
     default:
       return undefined;
   }
@@ -151,6 +159,7 @@ function comprehensionAliases(
   receiver: ASTNode,
   args: readonly ASTNode[],
   aliases: ReadonlyMap<string, string>,
+  untrustedPathsByRoot: ReadonlyMap<string, readonly string[]>,
 ): ReadonlyMap<string, string> {
   if (!['all', 'exists', 'exists_one', 'filter', 'map'].includes(method)) return aliases;
 
@@ -158,7 +167,7 @@ function comprehensionAliases(
   if (alias?.op !== 'id') return aliases;
 
   const root = rootName(receiver, aliases);
-  if (root !== 'executions') return aliases;
+  if (root === undefined || !untrustedPathsByRoot.has(root)) return aliases;
 
   return new Map([...aliases, [alias.args, root]]);
 }

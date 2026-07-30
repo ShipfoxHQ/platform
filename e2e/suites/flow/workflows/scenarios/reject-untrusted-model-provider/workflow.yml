@@ -1,4 +1,4 @@
-name: Reject untrusted model provider
+name: Reject external model provider selection
 runner: __RUNNER_LABEL__
 triggers:
   on_push:

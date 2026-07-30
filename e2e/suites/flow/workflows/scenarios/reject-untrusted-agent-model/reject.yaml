@@ -1,4 +1,4 @@
 error_code: invalid-definition
 message_includes:
-  - Workflow agent.model interpolation cannot use untrusted context
+  - Workflow agent.model interpolation cannot use external context
   - '"event"'
