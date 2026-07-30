@@ -126,13 +126,13 @@ export const ListeningProgression: Story = {
       <StorySection label="pending, no executions">
         <JobCardStory job={listeningJobPending()} />
       </StorySection>
-      <StorySection label="running, 0 executions">
+      <StorySection label="listening, 0 executions">
         <JobCardStory job={listeningJobNoExecutions()} />
       </StorySection>
-      <StorySection label="running, 1 running execution">
+      <StorySection label="listening, 1 running execution">
         <JobCardStory job={listeningJobOneExecution()} initialJobExecutionId="exec-listen-one-1" />
       </StorySection>
-      <StorySection label="running, mixed executions">
+      <StorySection label="listening, mixed executions">
         <JobCardStory job={listeningJobMixedExecutions()} initialJobExecutionId="exec-listen-6" />
       </StorySection>
       <StorySection label="failed, resolved">
@@ -145,19 +145,19 @@ export const ListeningProgression: Story = {
 export const ManyExecutions: Story = {
   render: () => (
     <div className="flex flex-col gap-16">
-      <StorySection label="running, 64 executions, short name">
+      <StorySection label="listening, 64 executions, short name">
         <JobCardStory
           job={manyExecutionsListeningJob('gate', 'job-many-short')}
           initialJobExecutionId="exec-many-job-many-short-64"
         />
       </StorySection>
-      <StorySection label="running, 64 executions, medium name">
+      <StorySection label="listening, 64 executions, medium name">
         <JobCardStory
           job={manyExecutionsListeningJob('release-gates', 'job-many-medium')}
           initialJobExecutionId="exec-many-job-many-medium-64"
         />
       </StorySection>
-      <StorySection label="running, 64 executions, long name">
+      <StorySection label="listening, 64 executions, long name">
         <JobCardStory
           job={manyExecutionsListeningJob(
             'release-production-multi-region-with-canary-validation',

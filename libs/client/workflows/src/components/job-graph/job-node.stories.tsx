@@ -187,7 +187,7 @@ export const ListeningProgression: Story = {
       <JobNode
         node={makeNode({
           id: 'job-listening-running',
-          label: 'running, 0 executions',
+          label: 'listening, 0 executions',
           mode: 'listening',
           status: 'running',
           listenerStatus: 'listening',
@@ -204,7 +204,7 @@ export const ListeningProgression: Story = {
       <JobNode
         node={makeNode({
           id: 'job-one-running-execution',
-          label: 'running, 1 running execution',
+          label: 'listening, 1 running execution',
           mode: 'listening',
           status: 'running',
           listenerStatus: 'listening',
@@ -221,7 +221,7 @@ export const ListeningProgression: Story = {
       <JobNode
         node={makeNode({
           id: 'job-mixed-executions',
-          label: 'running, mixed executions',
+          label: 'listening, mixed executions',
           mode: 'listening',
           status: 'running',
           listenerStatus: 'listening',

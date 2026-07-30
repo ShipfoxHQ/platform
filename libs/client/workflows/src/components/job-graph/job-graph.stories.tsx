@@ -93,6 +93,23 @@ export const Empty: Story = {
   args: {run: makeRun({jobs: []})},
 };
 
+export const LargeWideAndTall: Story = {
+  args: {
+    run: makeRun({
+      jobs: [
+        ...linearJobs(10),
+        ...Array.from({length: 10}, (_, index) =>
+          makeJob({
+            name: `parallel-${String(index + 1).padStart(2, '0')}`,
+            position: 20 + index,
+            status: index < 2 ? 'running' : 'pending',
+          }),
+        ),
+      ],
+    }),
+  },
+};
+
 export const Selected: Story = {
   args: {
     run: makeRun({
@@ -108,23 +125,6 @@ export const Selected: Story = {
         name: 'deploy, Running',
       })
       .click();
-  },
-};
-
-export const LargeWideAndTall: Story = {
-  args: {
-    run: makeRun({
-      jobs: [
-        ...linearJobs(10),
-        ...Array.from({length: 10}, (_, index) =>
-          makeJob({
-            name: `parallel-${String(index + 1).padStart(2, '0')}`,
-            position: 20 + index,
-            status: index < 2 ? 'running' : 'pending',
-          }),
-        ),
-      ],
-    }),
   },
 };
 
