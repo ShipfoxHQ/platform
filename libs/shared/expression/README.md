@@ -25,12 +25,11 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
 - **Typed errors**: Reports bad text and run failures with stable error classes.
 - **`workflowContextDefinitions`**: Names the workflow contexts (`run`,
   `trigger`, `event`, `inputs`, `job`, `executions`, `execution`, `jobs`, `step`) and
-  gives each a shape, trust metadata, availability site, sensitivity, and host.
+  gives each a shape, availability site, sensitivity, and host.
   Known-shape contexts ship a typed environment; open ones use `syntax`.
-- **`workflowInterpolationFieldPolicies`**: Says which trust tier each
-  agent model/provider selection accepts, and whether its value needs sanitizing
-  before display. Use `workflowInterpolationFieldAcceptsContext` to enforce the
-  authored-context boundary for those selections.
+- **`workflowInterpolationFieldPolicies`**: Defines the host, fill-site, and
+  failure constraints for each interpolatable field. Use
+  `workflowInterpolationFieldAcceptsHost` for host checks.
 
 Use this package where workflow code accepts or runs expression text. It keeps
 the CEL parser behind a Shipfox API. Other packages do not need to depend on the
@@ -74,9 +73,8 @@ const passed = evaluateWorkflowPredicate(expression, {
 
 - Use `syntax` when fields are not known yet.
 - Use `typed` when the caller knows the names and field types in scope.
-- Treat the `event`, `inputs`, and open `jobs` contexts as external data. Agent
-  model/provider selection keeps an authored-context boundary; other
-  interpolatable fields rely on their structural sink guarantees.
+- Context values can include external data. Interpolatable fields rely on their
+  structural sink guarantees, while host and availability checks remain enforced.
 - Evaluation is deterministic and has no side effects.
 - Workflow evaluation does not include config-templating functions. Use a
   caller-owned environment when a custom function is intentionally needed.
@@ -104,10 +102,9 @@ const passed = evaluateWorkflowPredicate(expression, {
 - Template closing scans are string-aware, line-comment-aware, and brace-aware,
   so `}}` inside CEL strings, `//` comments, or map literals does not close the
   expression span.
-- Context root extraction fails closed for agent-selection checks. It skips only
-  identifiers that are provably not context roots and may over-include comprehension
-  variables or struct keys; downstream code maps context roots to the known workflow
-  contexts.
+- Context root extraction fails closed for context checks. It skips only identifiers
+  that are provably not context roots and may over-include comprehension variables or
+  struct keys; downstream code maps context roots to the known workflow contexts.
 - Run command interpolation hoists expression values into generated environment
   variables and references them through double-quoted shell expansion. This keeps
   interpolated values from being parsed as shell syntax, but it does not make

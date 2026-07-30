@@ -60,25 +60,19 @@ export const workflowContextReservedRoots = {
 } as const satisfies Record<string, ReservedRootDefinition>;
 export type WorkflowContextReservedRoot = keyof typeof workflowContextReservedRoots;
 
-export const workflowContextTrustTiers = ['trusted', 'untrusted'] as const;
-export type WorkflowContextTrustTier = (typeof workflowContextTrustTiers)[number];
-
 export type WorkflowContextShape = 'known' | 'open';
 
 export interface TypedWorkflowContextDefinition {
   readonly availability: AvailabilitySite;
-  readonly trustTier: WorkflowContextTrustTier;
   readonly sensitivity: WorkflowContextSensitivity;
   readonly host: 'server';
   readonly shape: 'known';
   readonly checkMode: 'typed';
   readonly typeEnvironment: ExpressionTypeEnvironment;
-  readonly untrustedPaths?: readonly string[];
 }
 
 export interface OpenWorkflowContextDefinition {
   readonly availability: AvailabilitySite;
-  readonly trustTier: WorkflowContextTrustTier;
   readonly sensitivity: WorkflowContextSensitivity;
   readonly host: 'server';
   readonly shape: 'open';
@@ -87,7 +81,6 @@ export interface OpenWorkflowContextDefinition {
 }
 
 export interface RunnerWorkflowContextDefinition {
-  readonly trustTier: WorkflowContextTrustTier;
   readonly sensitivity: 'ephemeral';
   readonly host: 'runner';
   readonly shape: 'open';
@@ -257,7 +250,6 @@ export function buildTypedRootsEnvironment(params: {
 export const workflowContextDefinitions = {
   run: {
     availability: 'run-creation',
-    trustTier: 'trusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'known',
@@ -266,7 +258,6 @@ export const workflowContextDefinitions = {
   },
   trigger: {
     availability: 'ingest',
-    trustTier: 'trusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'known',
@@ -275,7 +266,6 @@ export const workflowContextDefinitions = {
   },
   event: {
     availability: 'ingest',
-    trustTier: 'untrusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'open',
@@ -283,7 +273,6 @@ export const workflowContextDefinitions = {
   },
   inputs: {
     availability: 'run-creation',
-    trustTier: 'untrusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'open',
@@ -291,7 +280,6 @@ export const workflowContextDefinitions = {
   },
   job: {
     availability: 'run-creation',
-    trustTier: 'trusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'known',
@@ -300,27 +288,22 @@ export const workflowContextDefinitions = {
   },
   executions: {
     availability: 'execution-creation',
-    trustTier: 'trusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'known',
     checkMode: 'typed',
     typeEnvironment: executionsTypeEnvironment,
-    untrustedPaths: ['events'],
   },
   execution: {
     availability: 'execution-creation',
-    trustTier: 'trusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'known',
     checkMode: 'typed',
     typeEnvironment: executionTypeEnvironment,
-    untrustedPaths: ['events'],
   },
   jobs: {
     availability: 'job-activation',
-    trustTier: 'untrusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'open',
@@ -328,7 +311,6 @@ export const workflowContextDefinitions = {
   },
   needs: {
     availability: 'job-activation',
-    trustTier: 'untrusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'known',
@@ -337,7 +319,6 @@ export const workflowContextDefinitions = {
   },
   steps: {
     availability: 'step-dispatch',
-    trustTier: 'trusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'open',
@@ -345,17 +326,14 @@ export const workflowContextDefinitions = {
   },
   step: {
     availability: 'step-dispatch',
-    trustTier: 'trusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'known',
     checkMode: 'typed',
     typeEnvironment: stepTypeEnvironment,
-    untrustedPaths: ['outputs'],
   },
   vars: {
     availability: 'run-creation',
-    trustTier: 'trusted',
     sensitivity: 'persistable',
     host: 'server',
     shape: 'open',
@@ -363,7 +341,6 @@ export const workflowContextDefinitions = {
     literalKeyOnly: true,
   },
   secrets: {
-    trustTier: 'trusted',
     sensitivity: 'ephemeral',
     host: 'runner',
     shape: 'open',
@@ -392,10 +369,8 @@ export type WorkflowFieldFailurePolicy = (typeof workflowFieldFailurePolicies)[n
 export type WorkflowInterpolationFailurePolicy = Exclude<WorkflowFieldFailurePolicy, 'fail-closed'>;
 
 export interface WorkflowInterpolationFieldPolicy {
-  readonly acceptedTrustTiers: readonly WorkflowContextTrustTier[];
   readonly acceptedHosts: readonly WorkflowContextHost[];
   readonly failurePolicy: WorkflowInterpolationFailurePolicy;
-  readonly renderSanitize: boolean;
   readonly minimumFillTarget?: AvailabilitySite;
   readonly selfReference?: {
     readonly root: WorkflowContextName;
@@ -403,8 +378,6 @@ export interface WorkflowInterpolationFieldPolicy {
   };
 }
 
-const trustedOnlyTrustTiers: readonly WorkflowContextTrustTier[] = ['trusted'];
-const anyTrustTier: readonly WorkflowContextTrustTier[] = ['trusted', 'untrusted'];
 const serverOnlyHosts: readonly WorkflowContextHost[] = ['server'];
 const anyHost: readonly WorkflowContextHost[] = ['server', 'runner'];
 
@@ -412,87 +385,61 @@ export const workflowInterpolationFieldPolicies: Readonly<
   Record<WorkflowInterpolationField, WorkflowInterpolationFieldPolicy>
 > = {
   run: {
-    acceptedTrustTiers: trustedOnlyTrustTiers,
     acceptedHosts: anyHost,
     failurePolicy: 'fail',
-    renderSanitize: false,
   },
   'env.value': {
-    acceptedTrustTiers: anyTrustTier,
     acceptedHosts: anyHost,
     failurePolicy: 'fail',
-    renderSanitize: false,
   },
   'agent.prompt': {
-    acceptedTrustTiers: anyTrustTier,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
-    renderSanitize: false,
   },
   'agent.model': {
-    acceptedTrustTiers: trustedOnlyTrustTiers,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
-    renderSanitize: false,
   },
   'agent.provider': {
-    acceptedTrustTiers: trustedOnlyTrustTiers,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
-    renderSanitize: false,
   },
   'agent.thinking': {
-    acceptedTrustTiers: trustedOnlyTrustTiers,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
-    renderSanitize: false,
   },
   'job.runner': {
-    acceptedTrustTiers: anyTrustTier,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
-    renderSanitize: false,
   },
   'job.outputs': {
-    acceptedTrustTiers: anyTrustTier,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
-    renderSanitize: false,
     minimumFillTarget: 'execution-resolution',
   },
   'job.name': {
-    acceptedTrustTiers: anyTrustTier,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'degrade',
-    renderSanitize: true,
   },
   'workflow.run_name': {
-    acceptedTrustTiers: anyTrustTier,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'degrade',
-    renderSanitize: true,
     minimumFillTarget: 'run-creation',
     selfReference: {root: 'run', key: 'run_name'},
   },
   'job.execution_name': {
-    acceptedTrustTiers: anyTrustTier,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'degrade',
-    renderSanitize: true,
     minimumFillTarget: 'execution-creation',
     selfReference: {root: 'execution', key: 'name'},
   },
   'step.name': {
-    acceptedTrustTiers: anyTrustTier,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'degrade',
-    renderSanitize: true,
   },
   'step.feedback': {
-    acceptedTrustTiers: anyTrustTier,
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
-    renderSanitize: false,
   },
 };
 
@@ -588,35 +535,11 @@ export function getWorkflowContextTypeEnvironment(
   return context.shape === 'known' ? context.typeEnvironment : undefined;
 }
 
-export function getWorkflowContextUntrustedPaths(
-  name: WorkflowContextName,
-): readonly string[] | undefined {
-  const context = getWorkflowContextDefinition(name);
-  return context.shape === 'known' ? context.untrustedPaths : undefined;
-}
-
-export function workflowInterpolationFieldAcceptsTrustTier(
-  field: WorkflowInterpolationField,
-  trustTier: WorkflowContextTrustTier,
-): boolean {
-  return workflowInterpolationFieldPolicies[field].acceptedTrustTiers.includes(trustTier);
-}
-
 export function workflowInterpolationFieldAcceptsHost(
   field: WorkflowInterpolationField,
   host: WorkflowContextHost,
 ): boolean {
   return workflowInterpolationFieldPolicies[field].acceptedHosts.includes(host);
-}
-
-export function workflowInterpolationFieldAcceptsContext(
-  field: WorkflowInterpolationField,
-  context: WorkflowContextName,
-): boolean {
-  return workflowInterpolationFieldAcceptsTrustTier(
-    field,
-    workflowContextDefinitions[context].trustTier,
-  );
 }
 
 export function workflowContextRootRequiresLiteralKey(root: string): boolean {

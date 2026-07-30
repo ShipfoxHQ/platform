@@ -4400,9 +4400,9 @@ describe('normalizeWorkflowDocument', () => {
     it.each([
       ['model', {model: interpolation('event.model'), prompt: 'Fix it.'}, 'event'],
       ['provider', {provider: interpolation('inputs.provider'), prompt: 'Fix it.'}, 'inputs'],
-    ] as const)('rejects external context in agent %s interpolation', (_field, step, root) => {
+    ] as const)('allows external context in agent %s interpolation', (field, step, root) => {
       const document: WorkflowDocument = {
-        name: 'unsafe agent field',
+        name: 'external agent field',
         jobs: {
           fix: {
             steps: [step],
@@ -4410,51 +4410,30 @@ describe('normalizeWorkflowDocument', () => {
         },
       };
 
-      const error = expectInvalid(document);
+      const model = normalizeWorkflowDocument(document);
 
-      expect(error.issues).toEqual([
-        expect.objectContaining({
-          code: 'untrusted-agent-selection-context',
-          details: expect.objectContaining({rejectedRoots: [root]}),
-        }),
-      ]);
-    });
-
-    it('rejects step outputs in agent model interpolation', () => {
-      const document: WorkflowDocument = {
-        name: 'step output agent model',
-        jobs: {
-          build: {
-            steps: [
-              {key: 'collect', run: 'npm run collect', outputs: {value: {type: 'string'}}},
-              {
-                model: interpolation('steps.collect.outputs.value'),
-                prompt: 'Fix it.',
-              },
-            ],
-          },
+      expect(model.jobs[0]?.steps[0]).toMatchObject({
+        kind: 'agent',
+        templates: {
+          [field]: [{kind: 'deferred', roots: [root]}],
         },
-      };
-
-      const error = expectInvalid(document);
-
-      expect(error.issues).toEqual([
-        expect.objectContaining({
-          code: 'untrusted-agent-selection-context',
-          path: ['jobs', 'build', 'steps', 1, 'model'],
-          details: expect.objectContaining({rejectedRoots: ['steps']}),
-        }),
-      ]);
+      });
     });
 
     it.each([
+      ['model', {model: interpolation('steps.collect.outputs.value'), prompt: 'Fix it.'}, 'steps'],
+      [
+        'provider',
+        {provider: interpolation('steps.collect.outputs.value'), prompt: 'Fix it.'},
+        'steps',
+      ],
       [
         'model',
         {
           model: interpolation('steps.filter(s, true).map(s, s.outputs.value)[0]'),
           prompt: 'Fix it.',
         },
-        ['jobs', 'build', 'steps', 0, 'model'],
+        'steps',
       ],
       [
         'provider',
@@ -4462,51 +4441,46 @@ describe('normalizeWorkflowDocument', () => {
           provider: interpolation('steps.filter(s, true).map(s, s.outputs.value)[0]'),
           prompt: 'Fix it.',
         },
-        ['jobs', 'build', 'steps', 0, 'provider'],
+        'steps',
       ],
-    ] as const)('rejects comprehension-wrapped step outputs in agent %s interpolation', (_field, step, path) => {
+      [
+        'model',
+        {model: interpolation('execution.events[0].data.body'), prompt: 'Fix it.'},
+        'execution',
+      ],
+      [
+        'provider',
+        {provider: interpolation('execution.events[0].data.body'), prompt: 'Fix it.'},
+        'execution',
+      ],
+      [
+        'model',
+        {model: interpolation('execution["events"][0].data.body'), prompt: 'Fix it.'},
+        'execution',
+      ],
+      [
+        'provider',
+        {provider: interpolation('execution["events"][0].data.body'), prompt: 'Fix it.'},
+        'execution',
+      ],
+    ] as const)('allows path-specific external context in agent %s interpolation', (field, step, root) => {
       const document: WorkflowDocument = {
-        name: 'comprehension step output agent selection',
+        name: 'path-specific external agent field',
         jobs: {
-          build: {
-            steps: [step],
+          fix: {
+            steps: [{key: 'collect', run: 'collect'}, step],
           },
         },
       };
 
-      const error = expectInvalid(document);
+      const model = normalizeWorkflowDocument(document);
 
-      expect(error.issues).toEqual([
-        expect.objectContaining({
-          code: 'untrusted-agent-selection-context',
-          path,
-          details: expect.objectContaining({rejectedRoots: ['steps']}),
-        }),
-      ]);
-    });
-
-    it.each([
-      'execution.events[0].data.body',
-      'execution["events"][0].data.body',
-    ])('rejects execution event subpaths in agent model interpolation: %s', (source) => {
-      const document: WorkflowDocument = {
-        name: 'execution event agent model',
-        jobs: {
-          build: {
-            steps: [{model: interpolation(source), prompt: 'Fix it.'}],
-          },
+      expect(model.jobs[0]?.steps[1]).toMatchObject({
+        kind: 'agent',
+        templates: {
+          [field]: [{kind: 'deferred', roots: [root]}],
         },
-      };
-
-      const error = expectInvalid(document);
-
-      expect(error.issues).toEqual([
-        expect.objectContaining({
-          code: 'untrusted-agent-selection-context',
-          path: ['jobs', 'build', 'steps', 0, 'model'],
-          details: expect.objectContaining({rejectedRoots: ['execution']}),
-        }),
-      ]);
+      });
     });
 
     it.each([

@@ -5,12 +5,10 @@ import {
   analyzeContextRootKeyAccess,
   createWorkflowExpression,
   type ExpressionTypeEnvironment,
-  extractCelUntrustedPathAccesses,
   getWorkflowContextAvailability,
   getWorkflowContextDefinition,
   getWorkflowContextHost,
   getWorkflowContextTypeEnvironment,
-  getWorkflowContextUntrustedPaths,
   getWorkflowInterpolationFieldSelfReference,
   InvalidWorkflowExpressionError,
   InvalidWorkflowTemplateError,
@@ -23,7 +21,6 @@ import {
   type WorkflowTemplateExprSegment,
   type WorkflowTemplateSegment,
   workflowContextNames,
-  workflowInterpolationFieldAcceptsContext,
   workflowInterpolationFieldAcceptsHost,
 } from '@shipfox/expression';
 import type {WorkflowFieldTemplate} from '../entities/workflow-model.js';
@@ -155,29 +152,6 @@ function validateExpressionSegment(params: {
   const knownRoots = contextRoots.filter(isWorkflowContextName);
   const unknownRoots = contextRoots.filter((root) => !isWorkflowContextName(root));
 
-  const rejectedAgentSelectionRoots = knownRoots.filter(
-    (root) =>
-      isAgentSelectionField(params.field) &&
-      !workflowInterpolationFieldAcceptsContext(params.field, root),
-  );
-  const rejectedAgentSelectionPathRoots = isAgentSelectionField(params.field)
-    ? findAgentSelectionPathRoots(params.segment, knownRoots)
-    : [];
-  const rejectedAgentSelectionContextRoots = uniqueStrings([
-    ...rejectedAgentSelectionRoots,
-    ...rejectedAgentSelectionPathRoots,
-  ]).filter(isWorkflowContextName);
-  if (rejectedAgentSelectionContextRoots.length > 0) {
-    params.issues.push(
-      agentSelectionContextIssue({
-        ...params,
-        contextRoots,
-        rejectedRoots: rejectedAgentSelectionContextRoots,
-      }),
-    );
-    return undefined;
-  }
-
   const rejectedHostRoots = knownRoots.filter(
     (root) => !workflowInterpolationFieldAcceptsHost(params.field, getWorkflowContextHost(root)),
   );
@@ -304,55 +278,6 @@ function validateExpressionSegment(params: {
     );
     return undefined;
   }
-}
-
-function isAgentSelectionField(field: StoredInterpolationField): boolean {
-  return field === 'agent.model' || field === 'agent.provider';
-}
-
-function findAgentSelectionPathRoots(
-  segment: WorkflowTemplateExprSegment,
-  knownRoots: readonly WorkflowContextName[],
-): readonly WorkflowContextName[] {
-  const untrustedPathsByRoot = new Map<string, readonly string[]>();
-  for (const root of knownRoots) {
-    const paths = getWorkflowContextUntrustedPaths(root);
-    if (paths === undefined || paths.length === 0) continue;
-    untrustedPathsByRoot.set(root, paths);
-  }
-  if (knownRoots.includes('steps')) {
-    untrustedPathsByRoot.set('steps', [
-      ...new Set([...(untrustedPathsByRoot.get('steps') ?? []), 'outputs']),
-    ]);
-  }
-  if (untrustedPathsByRoot.size === 0) return [];
-
-  return extractCelUntrustedPathAccesses({
-    source: segment.expression.source,
-    untrustedPathsByRoot,
-  }).filter(isWorkflowContextName);
-}
-
-function agentSelectionContextIssue(params: {
-  field: WorkflowInterpolationField;
-  source: string;
-  path: readonly WorkflowModelValidationIssuePathSegment[];
-  contextRoots: readonly string[];
-  rejectedRoots: readonly WorkflowContextName[];
-}): WorkflowModelValidationIssue {
-  return issue({
-    code: 'untrusted-agent-selection-context',
-    message: `${fieldLabel(params.field)} interpolation cannot use external context ${formatList(
-      params.rejectedRoots,
-    )}. Agent model and provider selections must come from workflow-authored context.`,
-    path: params.path,
-    details: {
-      field: params.field,
-      source: params.source,
-      contextRoots: params.contextRoots,
-      rejectedRoots: params.rejectedRoots,
-    },
-  });
 }
 
 function runnerContextInFieldIssue(params: {
