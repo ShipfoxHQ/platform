@@ -39,6 +39,28 @@ describe('JobCard execution names', () => {
     expect(screen.getByText('Execution #1')).toBeInTheDocument();
     expect(screen.queryByText('Deploy application')).not.toBeInTheDocument();
   });
+
+  test('does not use the static job name when no execution exists', () => {
+    const job = workflowJob({
+      key: 'deploy',
+      name: 'Deploy application',
+      job_executions: [],
+    });
+
+    render(
+      <JobCard
+        workspaceId={WORKSPACE_ID}
+        job={job}
+        selectedJobExecution={undefined}
+        selectedAttemptId={null}
+        onSelectedJobExecutionChange={undefined}
+        onSelectedAttemptChange={undefined}
+      />,
+    );
+
+    expect(screen.queryByRole('heading', {name: 'Deploy application'})).not.toBeInTheDocument();
+    expect(screen.getByText('Waiting for this job to start')).toBeInTheDocument();
+  });
 });
 
 describe('JobExecutionSwitcher execution names', () => {

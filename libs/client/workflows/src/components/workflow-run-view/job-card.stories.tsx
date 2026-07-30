@@ -73,7 +73,7 @@ export const States: Story = {
       <StorySection label="single execution">
         <JobCardStory job={singleExecutionJob()} />
       </StorySection>
-      <StorySection label="display name fallback">
+      <StorySection label="execution name with missing job name">
         <JobCardStory job={keyFallbackJob()} />
       </StorySection>
       <StorySection label="queueing execution">
