@@ -18,6 +18,8 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
 - **`MAX_RANGE_ELEMENTS`**: The per-evaluation range materialization limit,
   currently 1,000 values.
 - **`evaluateWorkflowPredicate`**: Returns `true` only for the boolean `true`.
+- **`classifyShellCodePosition`**: Finds named workflow bindings passed directly
+  to shell positions that re-evaluate their arguments.
 - **`parseWorkflowTemplate`**: Splits strings with `${{ ... }}` spans into
   ordered literal and expression segments.
 - **`extractCelContextRoots`**: Returns the sorted top-level CEL identifiers mentioned
@@ -113,7 +115,11 @@ const passed = evaluateWorkflowPredicate(expression, {
   interpolated values from being parsed as shell syntax, but it does not make
   commands and shell positions that deliberately re-evaluate their arguments
   safe, such as `eval`, `sh -c "$value"`, `let`, `declare -i`, arithmetic
-  expressions, or array subscripts like `array[$value]`.
+  expressions, or array subscripts like `array[$value]`. Use
+  `classifyShellCodePosition` with the generated binding names and workflow env
+  names to detect these direct code-position references. The analysis is pure,
+  intentionally shallow, and may miss indirect shell data flow; it is designed
+  to avoid false-positive warnings.
 Trigger filters can use `syntax` while integration event payloads are still open.
 Gate expressions can use `typed` because their local fields are known.
 
