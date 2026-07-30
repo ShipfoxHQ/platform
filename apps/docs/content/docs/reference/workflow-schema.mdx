@@ -9,6 +9,7 @@ import {
   AgentStepFields,
   CheckoutFields,
   CheckoutPermissionsFields,
+  CheckoutStepFields,
   EnvironmentVariables,
   GateFailureFields,
   GateFields,
@@ -51,12 +52,19 @@ workflow.
 
 ## Step fields
 
-Each step is either a run step or an agent step. The schema rejects unknown
-fields and invalid field combinations.
+Each step is either a run step, an agent step, or a checkout step. The schema
+rejects unknown fields and invalid field combinations.
+
+Checkout steps are defined in the schema. Model normalization and runtime
+execution support are tracked separately.
 
 ### Run step fields
 
 <RunStepFields />
+
+### Checkout step fields
+
+<CheckoutStepFields />
 
 ### Agent step fields
 

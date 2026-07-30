@@ -1037,6 +1037,43 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.jobs[0]?.checkout).toEqual(DEFAULT_JOB_CHECKOUT);
   });
 
+  it('reports the staged job checkout opt-out until model support lands', () => {
+    const error = expectInvalid({
+      name: 'checkout disabled',
+      jobs: {
+        build: {
+          checkout: false,
+          steps: [{run: 'npm test'}],
+        },
+      },
+    });
+
+    expect(error.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'unsupported-checkout',
+        path: ['jobs', 'build', 'checkout'],
+      }),
+    );
+  });
+
+  it('reports the staged checkout step until model support lands', () => {
+    const error = expectInvalid({
+      name: 'checkout step',
+      jobs: {
+        build: {
+          steps: [{checkout: {repository: 'acme/api'}}],
+        },
+      },
+    });
+
+    expect(error.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'unsupported-checkout',
+        path: ['jobs', 'build', 'steps', 0, 'checkout'],
+      }),
+    );
+  });
+
   it('normalizes checkout contents write and defaults persisted credentials', () => {
     const document: WorkflowDocument = {
       name: 'write checkout',

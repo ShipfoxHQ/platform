@@ -194,7 +194,11 @@ function normalizeJob(params: {
     issues: params.issues,
     defaultRunnerLabels: params.context.defaultRunnerLabels,
   });
-  const checkout = normalizeJobCheckout(params.job.checkout);
+  const checkout = normalizeJobCheckout({
+    checkout: params.job.checkout,
+    issues: params.issues,
+    path: ['jobs', params.sourceName, 'checkout'],
+  });
   const jobEnv = normalizeEnv({
     env: params.job.env,
     path: ['jobs', params.sourceName, 'env'],
@@ -473,8 +477,8 @@ function normalizeJobSteps(params: {
 }): readonly WorkflowModelStep[] {
   const usedStepIds = new Map<string, number>();
 
-  return params.job.steps.map((step, index) =>
-    normalizeStep({
+  return params.job.steps.flatMap((step, index) => {
+    const normalized = normalizeStep({
       step,
       index,
       sourceName: params.sourceName,
@@ -489,8 +493,9 @@ function normalizeJobSteps(params: {
       upstreamJobs: params.upstreamJobs,
       directNeedJobs: params.directNeedJobs,
       context: params.context,
-    }),
-  );
+    });
+    return normalized === undefined ? [] : [normalized];
+  });
 }
 
 function normalizeStep(params: {
@@ -508,7 +513,7 @@ function normalizeStep(params: {
   upstreamJobs: readonly WorkflowJobTypeOverlay[];
   directNeedJobs: readonly WorkflowJobTypeOverlay[];
   context: NormalizeContext;
-}): WorkflowModelStep {
+}): WorkflowModelStep | undefined {
   const stepKey = params.step.key;
   const stepId =
     stepKey === undefined
@@ -634,8 +639,18 @@ function normalizeStep(params: {
     });
   }
 
-  // workflowDocumentStepSchema requires either `run` or an agent `prompt`; this
-  // keeps the model-step union honest if callers bypass the document parser.
+  if (params.step.checkout !== undefined) {
+    params.issues.push(
+      issue({
+        code: 'unsupported-checkout',
+        message: 'Checkout steps are not supported by the workflow model yet.',
+        path: ['jobs', params.sourceName, 'steps', params.index, 'checkout'],
+      }),
+    );
+    return undefined;
+  }
+
+  // Keep the model-step union honest if callers bypass the document parser.
   throw new Error(`Workflow step "${stepId}" is neither a run nor an agent step`);
 }
 
