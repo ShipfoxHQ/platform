@@ -140,6 +140,7 @@ export interface WorkflowModelCheckoutStep extends WorkflowModelStepBase {
   readonly kind: 'checkout';
   readonly checkout: WorkflowModelStepCheckout;
   readonly templates?: {
+    readonly workingDirectory?: WorkflowFieldTemplate;
     readonly name?: WorkflowFieldTemplate;
   };
 }
