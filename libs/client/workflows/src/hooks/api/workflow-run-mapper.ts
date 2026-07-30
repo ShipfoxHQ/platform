@@ -36,6 +36,7 @@ export function toWorkflowRun(dto: WorkflowRunResponseDto): WorkflowRun {
     projectId: dto.project_id,
     definitionId: dto.definition_id,
     name: dto.name,
+    workflowName: dto.workflow_name,
     currentAttempt: dto.current_attempt,
     triggerProvider: dto.trigger_provider,
     triggerSource: dto.trigger_source,

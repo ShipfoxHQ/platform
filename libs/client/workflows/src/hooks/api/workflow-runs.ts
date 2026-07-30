@@ -339,6 +339,7 @@ function buildTempRun({
     projectId,
     definitionId,
     name,
+    workflowName: name,
     status: 'pending',
     currentAttempt: 1,
     latestAttempt: 1,

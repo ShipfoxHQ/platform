@@ -18,6 +18,9 @@ import {
 import {
   isWorkflowRunTerminal,
   isWorkflowStatus,
+  jobDisplayName,
+  jobExecutionDefinitionDisplayName,
+  workflowRunDefinitionDisplayName,
   workflowRunShortId,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
@@ -52,6 +55,7 @@ describe('workflow run model mapping', () => {
       projectId: '44444444-4444-4444-8444-444444444444',
       definitionId: '55555555-5555-4555-8555-555555555555',
       name: 'deploy-web',
+      workflowName: 'deploy-web',
       currentAttempt: 3,
       triggerProvider: 'github',
       triggerSource: 'github_acme',
@@ -376,6 +380,20 @@ describe('workflow run model mapping', () => {
     });
   });
 
+  test('uses the job key when a static job name is missing', () => {
+    expect(jobDisplayName({name: null, key: 'deploy-prod'})).toBe('deploy-prod');
+  });
+
+  test('only exposes static context when a resolved execution name differs', () => {
+    const job = {name: 'Deploy', key: 'deploy'};
+
+    expect(jobExecutionDefinitionDisplayName(job, {name: 'Deploy'})).toBeUndefined();
+    expect(jobExecutionDefinitionDisplayName(job, {name: 'Deploy production'})).toBe('Deploy');
+    expect(jobExecutionDefinitionDisplayName({name: null, key: 'deploy'}, {name: 'Deploy'})).toBe(
+      'deploy',
+    );
+  });
+
   test('returns no job display duration when a job has multiple executions', () => {
     const job = workflowJobDto({
       job_executions: [
@@ -601,6 +619,17 @@ describe('workflow run model mapping', () => {
       rerunMode: 'all',
     });
     expect(attempt.displayDuration).toMatchObject({state: 'fixed', elapsed: {seconds: 50}});
+  });
+});
+
+describe('workflow run display names', () => {
+  test('only exposes the static workflow context when it differs from the effective name', () => {
+    expect(
+      workflowRunDefinitionDisplayName({name: 'Deploy', workflowName: 'Deploy'}),
+    ).toBeUndefined();
+    expect(
+      workflowRunDefinitionDisplayName({name: 'Deploy production', workflowName: 'Deploy'}),
+    ).toBe('Deploy');
   });
 });
 

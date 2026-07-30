@@ -29,6 +29,8 @@ const RERUN_BUTTON_NAME = /^Re-run/;
 const ATTEMPT_2_PATTERN = /Attempt 2/;
 const COPY_RUN_BUTTON_NAME = /Copy run/;
 const EXECUTION_ONE_MENU_ITEM_PATTERN = /#1/;
+const LISTENING_EXECUTION_SWITCHER_NAME =
+  'Switch job execution for release-gates, currently execution 2: Deployment status event';
 const JOB_TEMPLATE_NAME = ['Implement $', '{{ event.issue.identifier }}'].join('');
 
 describe('WorkflowRunView', () => {
@@ -243,9 +245,7 @@ describe('WorkflowRunView', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('deployment_status (2)')).toBeInTheDocument();
 
-    await user.click(
-      screen.getByRole('button', {name: 'Switch job execution, currently execution 2'}),
-    );
+    await user.click(screen.getByRole('button', {name: LISTENING_EXECUTION_SWITCHER_NAME}));
     await user.click(screen.getByRole('menuitem', {name: EXECUTION_ONE_MENU_ITEM_PATTERN}));
 
     expect(await screen.findByText('first-event')).toBeInTheDocument();

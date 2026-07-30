@@ -78,7 +78,12 @@ export function workflowRunDto(
 export function workflowRunListItem(
   overrides: Partial<WorkflowRunResponseDto> = {},
 ): WorkflowRunListItem {
-  return toWorkflowRunListItem(workflowRunDto(overrides));
+  return toWorkflowRunListItem(
+    workflowRunDto({
+      workflow_name: overrides.workflow_name ?? overrides.name ?? 'deploy-web',
+      ...overrides,
+    }),
+  );
 }
 
 export function workflowRunListResponseDto(
@@ -285,6 +290,7 @@ export function sequencedWorkflowRunDto(
     project_id: 'proj-demo',
     definition_id: 'def-demo',
     name,
+    workflow_name: name,
     status,
     trigger_provider: status === 'pending' ? null : 'github',
     trigger_source: status === 'pending' ? '' : 'github_acme',

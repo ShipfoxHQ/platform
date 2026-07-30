@@ -108,7 +108,7 @@ export class Job {
   }
 
   get displayName(): string {
-    return this.name || this.key;
+    return jobDisplayName(this);
   }
 
   get displayDuration(): JobDisplayDuration | null {
@@ -122,6 +122,18 @@ export class Job {
       this.jobExecutions.length > 0 && (this.mode === 'listening' || this.jobExecutions.length > 1)
     );
   }
+}
+
+export function jobDisplayName(job: Pick<Job, 'name' | 'key'>): string {
+  return job.name ?? job.key;
+}
+
+export function jobExecutionDefinitionDisplayName(
+  job: Pick<Job, 'name' | 'key'>,
+  execution: Pick<JobExecution, 'name'>,
+): string | undefined {
+  const staticName = jobDisplayName(job);
+  return staticName === execution.name ? undefined : staticName;
 }
 
 export function isTerminalJobStatus(status: JobStatus): boolean {

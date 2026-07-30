@@ -4,7 +4,8 @@ import type {WorkflowRunListStatusFilter} from './types.js';
 export function runMatchesSearch(run: WorkflowRunListItem, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (needle === '') return true;
-  const haystack = `${run.id} ${run.name} ${run.status} ${run.triggerLabel}`.toLowerCase();
+  const haystack =
+    `${run.id} ${run.name} ${run.workflowName} ${run.status} ${run.triggerLabel}`.toLowerCase();
   return haystack.includes(needle);
 }
 

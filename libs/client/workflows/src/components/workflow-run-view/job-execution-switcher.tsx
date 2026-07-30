@@ -9,9 +9,15 @@ import {Icon} from '@shipfox/react-ui/icon';
 import {Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {useMemo} from 'react';
+import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
-import {deriveJobExecutionDisplayStatus, type Job, type JobExecution} from '#core/workflow-run.js';
-import {JobExecutionTimeText} from './job-execution-time-text.js';
+import {
+  deriveJobExecutionDisplayStatus,
+  type Job,
+  type JobExecution,
+  jobDisplayName,
+} from '#core/workflow-run.js';
+import {formatJobExecutionTime, JobExecutionTimeText} from './job-execution-time-text.js';
 
 export interface JobExecutionSwitcherProps {
   job: Job;
@@ -62,7 +68,7 @@ export function JobExecutionSwitcher({
             : 'min-h-28 gap-6 px-8 py-4 text-sm leading-20 text-foreground-neutral-subtle hover:bg-background-components-hover',
           className,
         )}
-        aria-label={`Switch job execution, currently execution ${selected.sequence}`}
+        aria-label={`Switch job execution for ${jobDisplayName(job)}, currently execution ${selected.sequence}: ${selected.name}`}
       >
         {variant === 'title' ? (
           <TitleExecutionSummary execution={selected} />
@@ -87,6 +93,7 @@ export function JobExecutionSwitcher({
               <button
                 type="button"
                 aria-current={isSelected ? 'true' : undefined}
+                aria-label={executionAccessibleLabel(jobExecution)}
                 className="w-full text-left"
               >
                 <WorkflowStatusIcon
@@ -98,7 +105,7 @@ export function JobExecutionSwitcher({
                   #{jobExecution.sequence}
                 </span>
                 <span className="min-w-0 truncate text-xs leading-20 text-foreground-neutral-base">
-                  {job.displayName}
+                  {jobExecution.name}
                 </span>
                 {!isSelected && jobExecution.statusReason ? (
                   <span className="min-w-0 flex-1 truncate text-xs leading-20 text-foreground-neutral-muted">
@@ -121,6 +128,20 @@ export function JobExecutionSwitcher({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function executionAccessibleLabel(execution: JobExecution): string {
+  const status = getWorkflowStatusVisual(deriveJobExecutionDisplayStatus(execution));
+  return [
+    `Execution #${execution.sequence}: ${execution.name}`,
+    status.label,
+    execution.statusReason ?? undefined,
+    execution.displayDuration
+      ? `duration ${formatJobExecutionTime(execution.displayDuration)}`
+      : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(', ');
 }
 
 function TitleExecutionSummary({execution}: {execution: JobExecution}) {
