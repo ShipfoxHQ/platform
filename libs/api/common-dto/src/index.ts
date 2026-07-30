@@ -15,3 +15,9 @@ export {
 } from './administration-action.js';
 export {displayNameSchema} from './schemas/display-name.js';
 export {emailSchema} from './schemas/email.js';
+export {
+  RESOURCE_SLUG_PATTERN,
+  slugifyName,
+  slugSchema,
+  withSlugSuffix,
+} from './schemas/slug.js';
