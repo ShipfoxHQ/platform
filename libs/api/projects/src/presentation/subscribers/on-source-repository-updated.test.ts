@@ -71,4 +71,38 @@ describe('onSourceRepositoryUpdated', () => {
 
     await expect(onSourceRepositoryUpdated(event.payload, event)).resolves.toBeUndefined();
   });
+
+  it('deduplicates the same repository update event for a project', async () => {
+    const workspaceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    const externalRepositoryId = `github:${crypto.randomUUID()}`;
+    await projectFactory.create({
+      workspaceId,
+      sourceConnectionId: connectionId,
+      sourceExternalRepositoryId: externalRepositoryId,
+      sourceRepositoryOwner: 'old-owner',
+      sourceRepositoryName: 'old-name',
+      sourceDefaultBranch: 'main',
+    });
+    const event = buildEvent({workspaceId, connectionId, externalRepositoryId});
+
+    await onSourceRepositoryUpdated(event.payload, event);
+    const duplicate = {
+      ...event,
+      payload: {
+        ...event.payload,
+        repository: {...event.payload.repository, name: 'stale-name'},
+      },
+    };
+    await onSourceRepositoryUpdated(duplicate.payload, duplicate);
+
+    const refreshed = await getProjectBySource({
+      workspaceId,
+      sourceConnectionId: connectionId,
+      sourceExternalRepositoryId: externalRepositoryId,
+    });
+    expect(refreshed).toMatchObject({
+      sourceRepositoryName: 'platform-renamed',
+    });
+  });
 });

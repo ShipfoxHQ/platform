@@ -17,6 +17,9 @@ export function db() {
   return _db;
 }
 
+export type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
+export type Executor = ReturnType<typeof db> | Tx;
+
 export function closeDb(): void {
   _db = undefined;
 }

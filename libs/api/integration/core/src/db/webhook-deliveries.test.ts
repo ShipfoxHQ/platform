@@ -323,7 +323,9 @@ describe('publishSourceRepositoryUpdated', () => {
     expect(
       outbox.filter((row) => row.eventType === INTEGRATION_SOURCE_REPOSITORY_UPDATED),
     ).toHaveLength(2);
-    expect(outbox[0]?.payload).toMatchObject({
+    expect(
+      outbox.find((row) => row.eventType === INTEGRATION_EVENT_RECEIVED)?.payload,
+    ).toMatchObject({
       event: 'installation_repositories.added',
       payload: params.rawPayload,
     });

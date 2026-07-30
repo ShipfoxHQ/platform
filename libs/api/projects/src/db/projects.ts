@@ -2,7 +2,7 @@ import {and, count, desc, eq, ilike, inArray, lt, or, type SQL} from 'drizzle-or
 import type {Project} from '#core/entities/project.js';
 import {ProjectAlreadyExistsError, ProjectNotFoundError} from '#core/errors.js';
 import {recordProjectCreated} from '#metrics/instance.js';
-import {db} from './db.js';
+import {db, type Executor} from './db.js';
 import {projects, toProject} from './schema/projects.js';
 
 export interface CreateProjectParams {
@@ -135,6 +135,7 @@ export async function getProjectBySource(
 }
 
 export interface UpdateProjectSourceRepositoryParams extends GetProjectBySourceParams {
+  tx?: Executor;
   sourceRepositoryOwner: string;
   sourceRepositoryName: string;
   sourceDefaultBranch: string;
@@ -143,7 +144,8 @@ export interface UpdateProjectSourceRepositoryParams extends GetProjectBySourceP
 export async function updateProjectSourceRepository(
   params: UpdateProjectSourceRepositoryParams,
 ): Promise<Project | undefined> {
-  const rows = await db()
+  const executor = params.tx ?? db();
+  const rows = await executor
     .update(projects)
     .set({
       sourceRepositoryOwner: params.sourceRepositoryOwner,

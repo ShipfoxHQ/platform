@@ -1,22 +1,43 @@
 import type {IntegrationSourceRepositoryUpdatedEvent} from '@shipfox/api-integration-core-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {DomainEvent} from '@shipfox/node-outbox';
-import {updateProjectSourceRepository} from '#db/projects.js';
+import {db} from '#db/db.js';
+import {recordIntegrationEventForProject} from '#db/integration-event-dedup.js';
+import {getProjectBySource, updateProjectSourceRepository} from '#db/projects.js';
 
 export async function onSourceRepositoryUpdated(
   payload: IntegrationSourceRepositoryUpdatedEvent,
   event: DomainEvent<IntegrationSourceRepositoryUpdatedEvent>,
 ): Promise<void> {
-  const project = await updateProjectSourceRepository({
+  const project = await getProjectBySource({
     workspaceId: payload.workspaceId,
     sourceConnectionId: payload.connectionId,
     sourceExternalRepositoryId: payload.repository.externalRepositoryId,
-    sourceRepositoryOwner: payload.repository.owner,
-    sourceRepositoryName: payload.repository.name,
-    sourceDefaultBranch: payload.repository.defaultBranch,
   });
 
-  if (project) return;
+  if (project) {
+    const outcome = await db().transaction(async (tx) => {
+      const {firstSeen} = await recordIntegrationEventForProject({
+        tx,
+        integrationEventId: event.id,
+        projectId: project.id,
+      });
+      if (!firstSeen) return 'duplicate';
+
+      const updated = await updateProjectSourceRepository({
+        tx,
+        workspaceId: payload.workspaceId,
+        sourceConnectionId: payload.connectionId,
+        sourceExternalRepositoryId: payload.repository.externalRepositoryId,
+        sourceRepositoryOwner: payload.repository.owner,
+        sourceRepositoryName: payload.repository.name,
+        sourceDefaultBranch: payload.repository.defaultBranch,
+      });
+      return updated ? 'updated' : 'missing';
+    });
+
+    if (outcome !== 'missing') return;
+  }
 
   logger().info(
     {

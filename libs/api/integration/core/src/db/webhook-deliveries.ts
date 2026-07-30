@@ -16,6 +16,12 @@ import {integrationsWebhookDeliveries} from './schema/webhook-deliveries.js';
 type IntegrationDb = ReturnType<typeof db>;
 type IntegrationTx = Parameters<Parameters<IntegrationDb['transaction']>[0]>[0];
 type Executor = IntegrationDb | IntegrationTx;
+type IntegrationOutboxEvent = {
+  [K in keyof IntegrationsEventMap & string]: {
+    type: K;
+    payload: IntegrationsEventMap[K];
+  };
+}[keyof IntegrationsEventMap & string];
 
 function connectionDedupScope(connectionId: string): string {
   return `connection:${connectionId}`;
@@ -68,77 +74,7 @@ export async function publishIntegrationEventReceived(
   return {published: true};
 }
 
-export interface PublishSourcePushParams {
-  tx: IntegrationTx;
-  provider: string;
-  source: string;
-  workspaceId: string;
-  connectionId: string;
-  connectionName: string;
-  deliveryId: string;
-  receivedAt: string;
-  rawPayload: unknown;
-  push: SourcePushPayload;
-}
-
-// Emits a single source-control push as two outbox rows: the generic
-// `INTEGRATION_EVENT_RECEIVED` envelope with the raw provider payload for triggers, and the
-// typed `INTEGRATION_SOURCE_COMMIT_PUSHED` event for domain modules. One delivery-dedup gates
-// both, so a redelivered webhook writes nothing. Requires a transaction: the dedup insert and
-// both outbox rows must commit or roll back together.
-export async function publishSourcePush(
-  params: PublishSourcePushParams,
-): Promise<{published: boolean}> {
-  const inserted = await params.tx
-    .insert(integrationsWebhookDeliveries)
-    .values({
-      provider: params.provider,
-      dedupScope: providerDedupScope(params.provider),
-      deliveryId: params.deliveryId,
-    })
-    .onConflictDoNothing({
-      target: [
-        integrationsWebhookDeliveries.provider,
-        integrationsWebhookDeliveries.dedupScope,
-        integrationsWebhookDeliveries.deliveryId,
-      ],
-    })
-    .returning({deliveryId: integrationsWebhookDeliveries.deliveryId});
-
-  if (inserted.length === 0) return {published: false};
-
-  await writeOutboxEvents<IntegrationsEventMap>(params.tx, integrationsOutbox, [
-    {
-      type: INTEGRATION_EVENT_RECEIVED,
-      payload: {
-        provider: params.provider,
-        source: params.source,
-        event: 'push',
-        workspaceId: params.workspaceId,
-        connectionId: params.connectionId,
-        connectionName: params.connectionName,
-        deliveryId: params.deliveryId,
-        receivedAt: params.receivedAt,
-        payload: params.rawPayload,
-      },
-    },
-    {
-      type: INTEGRATION_SOURCE_COMMIT_PUSHED,
-      payload: {
-        provider: params.provider,
-        workspaceId: params.workspaceId,
-        connectionId: params.connectionId,
-        deliveryId: params.deliveryId,
-        receivedAt: params.receivedAt,
-        push: params.push,
-      },
-    },
-  ]);
-
-  return {published: true};
-}
-
-export interface PublishSourceRepositoryUpdatedParams {
+interface PublishSourceEventsParams {
   tx: IntegrationTx;
   provider: string;
   source: string;
@@ -149,15 +85,11 @@ export interface PublishSourceRepositoryUpdatedParams {
   receivedAt: string;
   rawPayload: unknown;
   event: string;
-  repositories: SourceRepositoryIdentity[];
+  typedEvents: IntegrationOutboxEvent[];
 }
 
-// Emits the generic provider envelope for triggers and one typed repository event per
-// normalized repository for domain modules. One delivery-dedup gates all rows, so a
-// redelivered webhook writes nothing. Requires a transaction: the dedup insert and all
-// outbox rows must commit or roll back together.
-export async function publishSourceRepositoryUpdated(
-  params: PublishSourceRepositoryUpdatedParams,
+async function publishSourceEvents(
+  params: PublishSourceEventsParams,
 ): Promise<{published: boolean}> {
   const inserted = await params.tx
     .insert(integrationsWebhookDeliveries)
@@ -192,13 +124,92 @@ export async function publishSourceRepositoryUpdated(
         payload: params.rawPayload,
       },
     },
-    ...params.repositories.map(
-      (
-        repository,
-      ): {
-        type: typeof INTEGRATION_SOURCE_REPOSITORY_UPDATED;
-        payload: IntegrationsEventMap[typeof INTEGRATION_SOURCE_REPOSITORY_UPDATED];
-      } => ({
+    ...params.typedEvents,
+  ]);
+
+  return {published: true};
+}
+
+export interface PublishSourcePushParams {
+  tx: IntegrationTx;
+  provider: string;
+  source: string;
+  workspaceId: string;
+  connectionId: string;
+  connectionName: string;
+  deliveryId: string;
+  receivedAt: string;
+  rawPayload: unknown;
+  push: SourcePushPayload;
+}
+
+// Emits a single source-control push as two outbox rows: the generic
+// `INTEGRATION_EVENT_RECEIVED` envelope with the raw provider payload for triggers, and the
+// typed `INTEGRATION_SOURCE_COMMIT_PUSHED` event for domain modules. One delivery-dedup gates
+// both, so a redelivered webhook writes nothing. Requires a transaction: the dedup insert and
+// both outbox rows must commit or roll back together.
+export function publishSourcePush(params: PublishSourcePushParams): Promise<{published: boolean}> {
+  return publishSourceEvents({
+    tx: params.tx,
+    provider: params.provider,
+    source: params.source,
+    workspaceId: params.workspaceId,
+    connectionId: params.connectionId,
+    connectionName: params.connectionName,
+    deliveryId: params.deliveryId,
+    receivedAt: params.receivedAt,
+    rawPayload: params.rawPayload,
+    event: 'push',
+    typedEvents: [
+      {
+        type: INTEGRATION_SOURCE_COMMIT_PUSHED,
+        payload: {
+          provider: params.provider,
+          workspaceId: params.workspaceId,
+          connectionId: params.connectionId,
+          deliveryId: params.deliveryId,
+          receivedAt: params.receivedAt,
+          push: params.push,
+        },
+      },
+    ],
+  });
+}
+
+export interface PublishSourceRepositoryUpdatedParams {
+  tx: IntegrationTx;
+  provider: string;
+  source: string;
+  workspaceId: string;
+  connectionId: string;
+  connectionName: string;
+  deliveryId: string;
+  receivedAt: string;
+  rawPayload: unknown;
+  event: string;
+  repositories: SourceRepositoryIdentity[];
+}
+
+// Emits the generic provider envelope for triggers and one typed repository event per
+// normalized repository for domain modules. One delivery-dedup gates all rows, so a
+// redelivered webhook writes nothing. Requires a transaction: the dedup insert and all
+// outbox rows must commit or roll back together.
+export function publishSourceRepositoryUpdated(
+  params: PublishSourceRepositoryUpdatedParams,
+): Promise<{published: boolean}> {
+  return publishSourceEvents({
+    tx: params.tx,
+    provider: params.provider,
+    source: params.source,
+    workspaceId: params.workspaceId,
+    connectionId: params.connectionId,
+    connectionName: params.connectionName,
+    deliveryId: params.deliveryId,
+    receivedAt: params.receivedAt,
+    rawPayload: params.rawPayload,
+    event: params.event,
+    typedEvents: params.repositories.map(
+      (repository): IntegrationOutboxEvent => ({
         type: INTEGRATION_SOURCE_REPOSITORY_UPDATED,
         payload: {
           provider: params.provider,
@@ -210,9 +221,7 @@ export async function publishSourceRepositoryUpdated(
         },
       }),
     ),
-  ]);
-
-  return {published: true};
+  });
 }
 
 export interface PublishSourceCommitPushedParams {
