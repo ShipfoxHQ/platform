@@ -3,7 +3,9 @@ import type {
   DefinitionSyncErrorCode,
   DefinitionSyncState,
   DefinitionSyncStatus,
+  DefinitionSyncWarning,
 } from '#core/entities/sync-state.js';
+import {limitDefinitionSyncWarnings} from '#core/entities/sync-state.js';
 import {db} from './db.js';
 import {definitionSyncStates, toDefinitionSyncState} from './schema/sync-states.js';
 
@@ -18,6 +20,7 @@ export interface MarkDefinitionSyncParams extends DefinitionSyncStateKey {
   status: DefinitionSyncStatus;
   lastErrorCode?: DefinitionSyncErrorCode | null | undefined;
   lastErrorMessage?: string | null | undefined;
+  warnings?: readonly DefinitionSyncWarning[] | null | undefined;
   startedAt?: Date | null | undefined;
   finishedAt?: Date | null | undefined;
 }
@@ -26,6 +29,7 @@ export async function markDefinitionSyncState(
   params: MarkDefinitionSyncParams,
 ): Promise<DefinitionSyncState> {
   const now = new Date();
+  const warnings = limitDefinitionSyncWarnings(params.warnings ?? []);
   const [row] = await db()
     .insert(definitionSyncStates)
     .values({
@@ -36,6 +40,7 @@ export async function markDefinitionSyncState(
       status: params.status,
       lastErrorCode: params.lastErrorCode ?? null,
       lastErrorMessage: params.lastErrorMessage ?? null,
+      warnings,
       startedAt: params.startedAt ?? null,
       finishedAt: params.finishedAt ?? null,
       updatedAt: now,
@@ -51,6 +56,7 @@ export async function markDefinitionSyncState(
         status: params.status,
         lastErrorCode: params.lastErrorCode ?? null,
         lastErrorMessage: params.lastErrorMessage ?? null,
+        warnings,
         ...(params.startedAt !== undefined ? {startedAt: params.startedAt} : {}),
         ...(params.finishedAt !== undefined ? {finishedAt: params.finishedAt} : {}),
         updatedAt: now,

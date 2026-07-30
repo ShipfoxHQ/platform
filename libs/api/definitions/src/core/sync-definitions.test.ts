@@ -230,6 +230,7 @@ describe('fetchAndParseWorkflows', () => {
     expect(result[0]?.name).toBe('CI');
     expect(result[0]?.path).toBe('.shipfox/workflows/ci.yml');
     expect(result[0]?.contentHash).toMatch(LOWERCASE_SHA256_HEX_RE);
+    expect(result[0]?.warnings).toEqual([]);
   });
 
   it('produces stable content hashes for identical content', async () => {

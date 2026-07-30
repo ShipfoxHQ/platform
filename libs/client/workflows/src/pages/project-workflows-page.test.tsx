@@ -54,6 +54,13 @@ describe('ProjectWorkflowsPage', () => {
               finished_at: null,
               last_error_code: 'no-workflow-files',
               last_error_message: 'No workflow files found',
+              warnings: [
+                {
+                  code: 're-evaluating-command',
+                  message: 'Workflow data is re-executed as shell code.',
+                  path: 'jobs.build.steps.0.run',
+                },
+              ],
             },
           }),
         ),
@@ -66,6 +73,47 @@ describe('ProjectWorkflowsPage', () => {
       await screen.findByText('No workflow files found under .shipfox/workflows/.'),
     ).toBeInTheDocument();
     expect(screen.getByText('Workflow sync failed')).toBeInTheDocument();
+    expect(screen.queryByText('Workflow definition warnings')).not.toBeInTheDocument();
+  });
+
+  test('shows definition warnings without rendering a sync failure', async () => {
+    configureApiClient({
+      fetchImpl: createProjectDetailFetch({
+        definitions: jsonResponse(
+          definitionsDto({
+            sync: {
+              ref: 'main',
+              status: 'succeeded',
+              last_sync_at: '2026-05-07T01:00:00.000Z',
+              started_at: '2026-05-07T00:59:55.000Z',
+              finished_at: '2026-05-07T01:00:00.000Z',
+              last_error_code: null,
+              last_error_message: null,
+              warnings: [
+                {
+                  code: 're-evaluating-command',
+                  message: 'Workflow data is re-executed as shell code.',
+                  path: 'jobs.build.steps.0.run',
+                },
+                {
+                  code: 're-evaluating-command',
+                  message: 'Workflow data is re-executed as shell code.',
+                  path: 'jobs.build.steps.0.run',
+                },
+              ],
+            },
+          }),
+        ),
+      }),
+    });
+
+    renderWorkflowsPage();
+
+    expect(await screen.findByText('Workflow definition warnings')).toBeInTheDocument();
+    expect(screen.getAllByText('Workflow data is re-executed as shell code.')).toHaveLength(2);
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getAllByText('jobs.build.steps.0.run')).toHaveLength(2);
+    expect(screen.queryByText('Workflow sync failed')).not.toBeInTheDocument();
   });
 
   test('opens and closes the definition drawer by clicking the row', async () => {
@@ -238,6 +286,7 @@ function baseDefinitionsDto() {
       finished_at: '2026-05-07T01:00:00.000Z',
       last_error_code: null,
       last_error_message: null,
+      warnings: [],
     },
   };
 }

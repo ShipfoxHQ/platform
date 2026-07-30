@@ -99,6 +99,7 @@ describe('GET /api/definitions', () => {
       finished_at: finishedAt.toISOString(),
       last_error_code: null,
       last_error_message: null,
+      warnings: [],
     });
   });
 

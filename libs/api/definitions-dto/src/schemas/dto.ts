@@ -1,5 +1,10 @@
 import {z} from 'zod';
 
+export const DEFINITION_SYNC_WARNINGS_MAX_COUNT = 100;
+export const DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH = 128;
+export const DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH = 2048;
+export const DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH = 512;
+
 export const createDefinitionBodySchema = z
   .object({
     project_id: z.string().uuid(),
@@ -71,9 +76,9 @@ export const definitionValidationErrorSchema = z.object({
 export type DefinitionValidationErrorDto = z.infer<typeof definitionValidationErrorSchema>;
 
 export const definitionValidationWarningSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  path: z.string().optional(),
+  code: z.string().max(DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
+  message: z.string().max(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
+  path: z.string().max(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH).optional(),
 });
 
 export type DefinitionValidationWarningDto = z.infer<typeof definitionValidationWarningSchema>;
@@ -110,6 +115,7 @@ export const definitionSyncSummarySchema = z.object({
     ])
     .nullable(),
   last_error_message: z.string().nullable(),
+  warnings: z.array(definitionValidationWarningSchema).max(DEFINITION_SYNC_WARNINGS_MAX_COUNT),
 });
 
 export type DefinitionSyncSummaryDto = z.infer<typeof definitionSyncSummarySchema>;
