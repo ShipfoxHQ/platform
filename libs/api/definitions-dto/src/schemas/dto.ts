@@ -70,6 +70,14 @@ export const definitionValidationErrorSchema = z.object({
 
 export type DefinitionValidationErrorDto = z.infer<typeof definitionValidationErrorSchema>;
 
+export const definitionValidationWarningSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  path: z.string().optional(),
+});
+
+export type DefinitionValidationWarningDto = z.infer<typeof definitionValidationWarningSchema>;
+
 export const definitionListQuerySchema = z.object({
   project_id: z.string().uuid(),
   limit: z.coerce.number().int().min(1).max(100).default(50),

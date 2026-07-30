@@ -2,6 +2,7 @@ import type {
   WorkflowModelValidationIssue,
   WorkflowModelValidationIssueCode,
   WorkflowModelValidationIssuePathSegment,
+  WorkflowModelValidationIssueSeverity,
 } from './invalid-workflow-model-error.js';
 
 export function issue(params: {
@@ -9,12 +10,14 @@ export function issue(params: {
   message: string;
   path: readonly WorkflowModelValidationIssuePathSegment[];
   details?: Readonly<Record<string, unknown>>;
+  severity?: WorkflowModelValidationIssueSeverity;
 }): WorkflowModelValidationIssue {
   if (params.details === undefined) {
     return {
       code: params.code,
       message: params.message,
       path: params.path,
+      ...(params.severity === undefined ? {} : {severity: params.severity}),
     };
   }
 
@@ -23,5 +26,6 @@ export function issue(params: {
     message: params.message,
     path: params.path,
     details: params.details,
+    ...(params.severity === undefined ? {} : {severity: params.severity}),
   };
 }

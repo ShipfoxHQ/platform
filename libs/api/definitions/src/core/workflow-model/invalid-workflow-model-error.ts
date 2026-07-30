@@ -55,11 +55,14 @@ export type WorkflowModelValidationIssueCode =
 
 export type WorkflowModelValidationIssuePathSegment = string | number;
 
+export type WorkflowModelValidationIssueSeverity = 'error' | 'warning';
+
 export interface WorkflowModelValidationIssue {
   readonly code: WorkflowModelValidationIssueCode;
   readonly message: string;
   readonly path: readonly WorkflowModelValidationIssuePathSegment[];
   readonly details?: Readonly<Record<string, unknown>>;
+  readonly severity?: WorkflowModelValidationIssueSeverity;
 }
 
 export class InvalidWorkflowModelError extends Error {
