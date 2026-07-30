@@ -27,6 +27,11 @@ const projects = createFakeInterModuleClients({
     getProjectById: () => ({project: null}),
     getWorkspaceProjectCounts: () => ({counts: []}),
     requireProjectForWorkspace: async (input) => await requireProjectForWorkspace(input),
+    resolveCheckoutTarget: () => ({
+      projectId: crypto.randomUUID(),
+      connectionId: crypto.randomUUID(),
+      externalRepositoryId: 'repo',
+    }),
   }),
 }).projects;
 

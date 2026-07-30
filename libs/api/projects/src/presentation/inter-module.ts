@@ -4,7 +4,7 @@ import {
   defineInterModulePresentation,
   type InterModulePresentation,
 } from '@shipfox/inter-module';
-import {getProjectById, getWorkspaceProjectCounts} from '#db/projects.js';
+import {getProjectById, getWorkspaceProjectCounts, resolveCheckoutTarget} from '#db/projects.js';
 
 export function createProjectsInterModulePresentation(): InterModulePresentation<
   typeof projectsInterModuleContract
@@ -32,5 +32,16 @@ export function createProjectsInterModulePresentation(): InterModulePresentation
     getWorkspaceProjectCounts: async ({workspaceIds}) => ({
       counts: await getWorkspaceProjectCounts({workspaceIds}),
     }),
+    resolveCheckoutTarget: async (input) => {
+      const target = await resolveCheckoutTarget(input);
+      if (target === undefined) {
+        throw createInterModuleKnownError(
+          projectsInterModuleContract.methods.resolveCheckoutTarget,
+          'checkout-repository-not-authorized',
+          {},
+        );
+      }
+      return target;
+    },
   });
 }

@@ -14,6 +14,8 @@ export type {
   ListAdminProjectsResult,
   ListProjectsParams,
   ListProjectsResult,
+  ResolveCheckoutTargetParams,
+  ResolvedCheckoutTarget,
 } from './projects.js';
 export {
   createProject,
@@ -24,6 +26,7 @@ export {
   listAdminProjects,
   listProjects,
   requireProjectForWorkspace,
+  resolveCheckoutTarget,
 } from './projects.js';
 export {projectsIntegrationEventDedup} from './schema/integration-event-dedup.js';
 export {projectsOutbox} from './schema/outbox.js';

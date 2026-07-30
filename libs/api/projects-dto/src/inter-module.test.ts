@@ -16,6 +16,36 @@ describe('projectsInterModuleContract', () => {
     expect(result.project?.id).toBe(projectId);
   });
 
+  test('accepts checkout targets addressed by project or repository', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const connectionId = '00000000-0000-4000-8000-000000000002';
+
+    expect(
+      projectsInterModuleContract.methods.resolveCheckoutTarget.input.parse({
+        workspaceId,
+        defaults: {connectionId, owner: 'acme'},
+        target: {project: '00000000-0000-4000-8000-000000000003'},
+      }).target,
+    ).toEqual({project: '00000000-0000-4000-8000-000000000003'});
+    expect(
+      projectsInterModuleContract.methods.resolveCheckoutTarget.input.parse({
+        workspaceId,
+        defaults: {connectionId, owner: 'acme'},
+        target: {connection: connectionId, repository: 'acme/api'},
+      }).target,
+    ).toEqual({connection: connectionId, repository: 'acme/api'});
+  });
+
+  test('defines the checkout authorization failure', () => {
+    const details = {};
+
+    expect(
+      projectsInterModuleContract.methods.resolveCheckoutTarget.errors[
+        'checkout-repository-not-authorized'
+      ].parse(details),
+    ).toEqual(details);
+  });
+
   test.each([
     ['project-not-found', {projectId: '00000000-0000-4000-8000-000000000001'}],
     [
