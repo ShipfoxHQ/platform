@@ -334,6 +334,40 @@ describe('runJobSteps', () => {
     });
   });
 
+  it('reports resolved checkout details', async () => {
+    const setup = buildSetupStep();
+    const ac = new AbortController();
+    const checkout = {
+      repository: 'acme/api',
+      ref: 'refs/pull/412/head',
+      commit: '9f2c000000000000000000000000000000000000',
+      path: '/runner/workspace/job-1',
+    };
+
+    await reportStepResult({
+      leaseClient,
+      step: setup,
+      attempt: 1,
+      result: {success: true, checkout, error: null, exit_code: 0},
+      logOutcome: 'drained',
+      jobId: JOB_ID,
+      jobExecutionId: JOB_CONTEXT.jobExecutionId,
+      stepLabel: 'Set up job',
+      signal: ac.signal,
+    });
+
+    expect(reportStepMock).toHaveBeenCalledWith(leaseClient, {
+      stepId: setup.id,
+      attempt: 1,
+      status: 'succeeded',
+      error: null,
+      exitCode: 0,
+      checkout,
+      logOutcome: 'drained',
+      signal: ac.signal,
+    });
+  });
+
   it('logs failed step identity and bounded error context', async () => {
     const error = vi.spyOn(logger(), 'error').mockImplementation(() => undefined);
     const run = buildRunStep();

@@ -215,6 +215,31 @@ describe('POST /runs/jobs/current/steps/:stepId/report', () => {
     expect(attempt?.exitCode).toBe(0);
   });
 
+  test('persists dedicated checkout details alongside user output', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(1);
+    const token = await mintActiveLeaseToken({jobId});
+    await nextStepForJob(jobId);
+    const checkout = {
+      repository: 'https://github.com/acme/api.git',
+      ref: 'refs/pull/412/head',
+      commit: '9f2c000000000000000000000000000000000000',
+      path: '/runner/workspace/job-1',
+    };
+    const res = await app.inject({
+      method: 'POST',
+      url: reportUrl(steps[0]?.id as string),
+      headers: {authorization: `Bearer ${token}`},
+      payload: reportPayload({
+        status: 'succeeded',
+        output: {artifact: 'dist/app.tgz', checkout: 'user-value'},
+        checkout,
+        exit_code: 0,
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+    const [attempt] = await getStepAttempts(jobId);
+    expect(attempt?.output).toEqual({artifact: 'dist/app.tgz', checkout});
+  });
   test('rejects a failed report without an error', async () => {
     const {jobId, steps} = await arrangeJobWithSteps(1);
     const token = await mintActiveLeaseToken({jobId});

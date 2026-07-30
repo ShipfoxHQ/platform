@@ -13,4 +13,4 @@ export {
   parseStepOutput,
   StepOutputError,
 } from '#core/step-output.js';
-export type {StepResult} from '#core/step-result.js';
+export type {CheckoutResult, StepResult} from '#core/step-result.js';

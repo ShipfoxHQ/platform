@@ -537,6 +537,63 @@ describe('api-client auth contexts', () => {
       log_outcome: 'drained',
     });
   });
+  it('reportStep includes checkout details as a dedicated field', async () => {
+    stubFetch(() => jsonResponse({ok: true, cancel: false}));
+    const leaseClient = createLeaseClient('lease-checkout');
+    await reportStep(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 1,
+      status: 'succeeded',
+      exitCode: 0,
+      checkout: {
+        repository: 'acme/api',
+        ref: 'refs/pull/412/head',
+        commit: '9f2c000000000000000000000000000000000000',
+        path: '/runner/workspace/job-1',
+      },
+      logOutcome: 'drained',
+    });
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toMatchObject({
+      checkout: {
+        repository: 'acme/api',
+        ref: 'refs/pull/412/head',
+        commit: '9f2c000000000000000000000000000000000000',
+        path: '/runner/workspace/job-1',
+      },
+    });
+  });
+  it('keeps user output separate from checkout details', async () => {
+    stubFetch(() => jsonResponse({ok: true, cancel: false}));
+    const leaseClient = createLeaseClient('lease-checkout-collision');
+    await reportStep(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 1,
+      status: 'succeeded',
+      exitCode: 0,
+      outputs: {checkout: 'user-value'},
+      checkout: {
+        repository: 'acme/api',
+        ref: 'main',
+        commit: '9f2c000000000000000000000000000000000000',
+        path: '/runner/workspace/job-1',
+      },
+      logOutcome: 'drained',
+    });
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      status: 'succeeded',
+      attempt: 1,
+      exit_code: 0,
+      output: {checkout: 'user-value'},
+      checkout: {
+        repository: 'acme/api',
+        ref: 'main',
+        commit: '9f2c000000000000000000000000000000000000',
+        path: '/runner/workspace/job-1',
+      },
+      log_outcome: 'drained',
+    });
+  });
 
   it('reportStep omits output when it is undefined', async () => {
     stubFetch(() => jsonResponse({ok: true, cancel: false}));
@@ -547,6 +604,22 @@ describe('api-client auth contexts', () => {
       attempt: 1,
       status: 'succeeded',
       exitCode: 0,
+      logOutcome: 'drained',
+    });
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).not.toHaveProperty('output');
+  });
+
+  it('reportStep omits output when outputs is explicitly null', async () => {
+    stubFetch(() => jsonResponse({ok: true, cancel: false}));
+    const leaseClient = createLeaseClient('lease-output-null');
+
+    await reportStep(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 1,
+      status: 'succeeded',
+      exitCode: 0,
+      outputs: null,
       logOutcome: 'drained',
     });
 

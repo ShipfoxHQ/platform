@@ -30,6 +30,7 @@ import {
 import {type StepSecretsResponseDto, stepSecretsResponseSchema} from '@shipfox/api-secrets-dto';
 import {
   type AgentConfigIssueDto,
+  type CheckoutResultDto,
   type CheckoutTokenResponseDto,
   checkoutTokenResponseSchema,
   type LogOutcomeDto,
@@ -330,6 +331,7 @@ export async function reportStep(
     logOutcome: LogOutcomeDto;
     response?: string | null;
     outputs?: Record<string, string> | null;
+    checkout?: CheckoutResultDto | null;
     signal?: AbortSignal;
   },
 ): Promise<ReportStepResponseDto> {
@@ -337,13 +339,16 @@ export async function reportStep(
     params.error === null || params.error === undefined
       ? params.error
       : {...params.error, message: params.error.message.slice(0, STEP_ERROR_MESSAGE_MAX_LENGTH)};
+  const hasOutputs = params.outputs !== undefined && params.outputs !== null;
+  const hasCheckout = params.checkout !== undefined && params.checkout !== null;
   const body = reportStepBodySchema.parse({
     status: params.status,
     error: error ?? undefined,
     attempt: params.attempt,
     exit_code: params.exitCode,
     ...(params.response ? {response: params.response.slice(0, STEP_RESPONSE_MAX_LENGTH)} : {}),
-    ...(params.outputs ? {output: params.outputs} : {}),
+    ...(hasOutputs ? {output: params.outputs} : {}),
+    ...(hasCheckout ? {checkout: params.checkout} : {}),
     log_outcome: params.logOutcome,
   });
 

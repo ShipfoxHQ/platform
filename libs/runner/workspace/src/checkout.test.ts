@@ -92,6 +92,35 @@ describe('checkoutRepository argv', () => {
       ['rev-parse', 'HEAD'],
     ]);
   });
+  it('passes a positive fetch depth to git', async () => {
+    queueSuccessfulCheckout();
+
+    await checkoutRepository({...BASE, fetchDepth: 5});
+
+    expect(spawnMock.mock.calls[2]?.[1]).toEqual([
+      'fetch',
+      '--progress',
+      '--no-tags',
+      '--prune',
+      '--depth=5',
+      'origin',
+      'main',
+    ]);
+  });
+  it('omits the depth flag when fetching full history', async () => {
+    queueSuccessfulCheckout();
+
+    await checkoutRepository({...BASE, fetchDepth: 0});
+
+    expect(spawnMock.mock.calls[2]?.[1]).toEqual([
+      'fetch',
+      '--progress',
+      '--no-tags',
+      '--prune',
+      'origin',
+      'main',
+    ]);
+  });
 
   it('injects a bearer credential only on fetch and excludes it from displayed commands', async () => {
     queueSuccessfulCheckout();

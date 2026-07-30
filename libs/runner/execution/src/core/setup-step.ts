@@ -71,7 +71,7 @@ export async function executeSetupStep(params: {
   log?.writeOutputLine('Setup completed successfully. The job is ready to run.');
   logger().info(setupLogFields(jobContext), 'Setup step completed');
   return {
-    result: {success: true, error: null, exit_code: 0},
+    result: {success: true, error: null, exit_code: 0, checkout: checkout.value.checkout},
     ...(checkout.value.ambientGitConfigPath
       ? {ambientGitConfigPath: checkout.value.ambientGitConfigPath}
       : {}),
@@ -124,7 +124,12 @@ async function runCheckoutSetup(params: {
   leaseClient: KyInstance;
   signal: AbortSignal;
   log?: SetupLogSink | undefined;
-}): Promise<SetupPhaseResult<{ambientGitConfigPath?: string | undefined}>> {
+}): Promise<
+  SetupPhaseResult<{
+    ambientGitConfigPath?: string | undefined;
+    checkout: NonNullable<StepResult['checkout']>;
+  }>
+> {
   const {log} = params;
   log?.writeGroupStart('Checkout');
   try {
@@ -174,7 +179,12 @@ async function checkoutRepositoryForSetup(params: {
   checkout: CheckoutTokenResponseDto;
   signal: AbortSignal;
   log?: SetupLogSink | undefined;
-}): Promise<SetupPhaseResult<{ambientGitConfigPath?: string | undefined}>> {
+}): Promise<
+  SetupPhaseResult<{
+    ambientGitConfigPath?: string | undefined;
+    checkout: NonNullable<StepResult['checkout']>;
+  }>
+> {
   const {cwd, gitConfigPath, checkout, signal, log} = params;
   try {
     log?.writeGroup({
@@ -202,7 +212,15 @@ async function checkoutRepositoryForSetup(params: {
     });
     return {
       ok: true,
-      value: ambientGitConfigPath ? {ambientGitConfigPath} : {},
+      value: {
+        checkout: {
+          repository: checkout.repository_url,
+          ref: checkout.ref,
+          commit,
+          path: cwd,
+        },
+        ...(ambientGitConfigPath ? {ambientGitConfigPath} : {}),
+      },
     };
   } catch (error) {
     const reason =

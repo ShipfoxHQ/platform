@@ -24,4 +24,19 @@ describe('reportStepBodySchema', () => {
 
     expect(result.success).toBe(false);
   });
+  it('accepts resolved checkout details as a dedicated report field', () => {
+    const parsed = reportStepBodySchema.parse({
+      status: 'succeeded',
+      attempt: 1,
+      exit_code: 0,
+      log_outcome: 'drained',
+      checkout: {
+        repository: 'https://github.com/acme/api.git',
+        ref: 'refs/pull/412/head',
+        commit: '9f2c000000000000000000000000000000000000',
+        path: '/runner/workspace/job-1',
+      },
+    });
+    expect(parsed.checkout?.ref).toBe('refs/pull/412/head');
+  });
 });

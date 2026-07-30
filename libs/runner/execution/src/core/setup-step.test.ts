@@ -170,7 +170,17 @@ describe('executeSetupStep', () => {
       },
     });
     expect(result).toEqual({
-      result: {success: true, error: null, exit_code: 0},
+      result: {
+        success: true,
+        error: null,
+        exit_code: 0,
+        checkout: {
+          repository: 'https://github.com/acme/repo.git',
+          ref: 'main',
+          commit: 'abc123',
+          path: CWD,
+        },
+      },
       ambientGitConfigPath: GIT_CONFIG_PATH,
     });
   });
@@ -190,7 +200,19 @@ describe('executeSetupStep', () => {
     const result = await run();
 
     expect(writeAmbientGitCredentialMock).not.toHaveBeenCalled();
-    expect(result).toEqual({result: {success: true, error: null, exit_code: 0}});
+    expect(result).toEqual({
+      result: {
+        success: true,
+        error: null,
+        exit_code: 0,
+        checkout: {
+          repository: 'https://github.com/acme/repo.git',
+          ref: 'main',
+          commit: 'abc123',
+          path: CWD,
+        },
+      },
+    });
   });
 
   it('warns and succeeds when ambient credential writing fails', async () => {
@@ -209,7 +231,19 @@ describe('executeSetupStep', () => {
 
     const result = await run(log);
 
-    expect(result).toEqual({result: {success: true, error: null, exit_code: 0}});
+    expect(result).toEqual({
+      result: {
+        success: true,
+        error: null,
+        exit_code: 0,
+        checkout: {
+          repository: 'https://github.com/acme/repo.git',
+          ref: 'main',
+          commit: 'abc123',
+          path: CWD,
+        },
+      },
+    });
     expect(log.writeGroup).toHaveBeenCalledWith({
       name: 'Repository access was not persisted',
       lines: [
@@ -236,7 +270,19 @@ describe('executeSetupStep', () => {
 
     const result = await run();
 
-    expect(result).toEqual({result: {success: true, error: null, exit_code: 0}});
+    expect(result).toEqual({
+      result: {
+        success: true,
+        error: null,
+        exit_code: 0,
+        checkout: {
+          repository: 'https://github.com/acme/repo.git',
+          ref: 'main',
+          commit: 'abc123',
+          path: CWD,
+        },
+      },
+    });
     expect(warn).toHaveBeenCalledWith(
       {
         name: 'Repository access was not persisted',
