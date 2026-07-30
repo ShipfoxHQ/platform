@@ -1,0 +1,12 @@
+trigger: push
+run:
+  status: succeeded
+jobs:
+  publish:
+    status: succeeded
+    steps:
+      publish:
+        status: succeeded
+        exit_code: 0
+        logs:
+          include: ["published"]

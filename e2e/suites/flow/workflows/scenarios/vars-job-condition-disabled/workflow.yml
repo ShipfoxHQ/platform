@@ -1,0 +1,13 @@
+name: Vars job condition disabled
+runner: __RUNNER_LABEL__
+triggers:
+  on_push:
+    source: __GITEA_SOURCE__
+    event: push
+    filter: 'event.ref == "refs/heads/main" && event.repository.full_name == "__GITEA_REPOSITORY__"'
+jobs:
+  publish:
+    if: '${{ vars.PUBLISHING_ENABLED == "true" }}'
+    steps:
+      - key: publish
+        run: echo "published"

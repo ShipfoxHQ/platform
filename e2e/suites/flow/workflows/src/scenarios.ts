@@ -20,6 +20,20 @@ const seededSecretsSchema = z
   })
   .strict();
 
+const seededVariableSchema = z
+  .object({
+    key: z.string().min(1),
+    value: z.string(),
+    scope: z.enum(['workspace', 'project']).default('project'),
+  })
+  .strict();
+
+const seededVariablesSchema = z
+  .object({
+    variables: z.array(seededVariableSchema).default([]),
+  })
+  .strict();
+
 const modelProviderSchema = z
   .object({
     script_key: z.string().min(1),
@@ -27,6 +41,7 @@ const modelProviderSchema = z
   .strict();
 
 export type SeededSecret = z.infer<typeof seededSecretSchema>;
+export type SeededVariable = z.infer<typeof seededVariableSchema>;
 
 export interface ScenarioFile {
   path: string;
@@ -40,6 +55,7 @@ interface BaseScenario {
   workflowYaml: string;
   extraFiles: ScenarioFile[];
   seededSecrets: SeededSecret[];
+  seededVariables: SeededVariable[];
   fakeModelProviderScriptKey?: string | undefined;
 }
 
@@ -89,6 +105,12 @@ function loadSeededSecrets(dir: string): SeededSecret[] {
   return seededSecretsSchema.parse(yaml.load(readFileSync(path, 'utf8'))).secrets;
 }
 
+function loadSeededVariables(dir: string): SeededVariable[] {
+  const path = join(dir, 'variables.yaml');
+  if (!existsSync(path)) return [];
+  return seededVariablesSchema.parse(yaml.load(readFileSync(path, 'utf8'))).variables;
+}
+
 function loadModelProviderScriptKey(dir: string): string | undefined {
   const path = join(dir, 'model-provider.yaml');
   if (!existsSync(path)) return undefined;
@@ -114,6 +136,7 @@ function loadScenario(root: string, name: string): Scenario {
     workflowYaml: readFileSync(workflowPath, 'utf8'),
     extraFiles: readScenarioFiles(join(dir, 'files')),
     seededSecrets: loadSeededSecrets(dir),
+    seededVariables: loadSeededVariables(dir),
     fakeModelProviderScriptKey: loadModelProviderScriptKey(dir),
   };
 
