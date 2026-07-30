@@ -118,7 +118,7 @@ export function JobNode({
         />
       ) : null}
       <div className="flex min-w-0 flex-1 items-center gap-8">
-        <WorkflowStatusIcon status={status} jobMode={node.mode} size={14} />
+        <WorkflowStatusIcon status={status} size={14} />
         <JobLabel label={node.displayName} />
       </div>
       <JobDurationLabel duration={node.displayDuration} />

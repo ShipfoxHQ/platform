@@ -46,7 +46,6 @@ const PENDING_RING_MASK = 'radial-gradient(circle closest-side, transparent 0 52
 
 export interface WorkflowStatusIconProps {
   status: WorkflowDisplayStatus;
-  jobMode?: 'one_shot' | 'listening';
   /** Optical diameter in px: 14 in the DAG node and run row. */
   size?: number;
   /** Pulsing halo for the running state. */
@@ -66,7 +65,6 @@ export interface WorkflowStatusIconProps {
  */
 export function WorkflowStatusIcon({
   status,
-  jobMode = 'one_shot',
   size = 14,
   ripple = true,
   tooltip = true,
@@ -76,7 +74,7 @@ export function WorkflowStatusIcon({
   const box = dotSizeClass[size] ?? 'size-14';
 
   let glyph: ReactNode;
-  if (visual.kind === 'listening' || (visual.kind === 'running' && jobMode === 'listening')) {
+  if (visual.kind === 'listening') {
     glyph = (
       <span
         className={cn(
