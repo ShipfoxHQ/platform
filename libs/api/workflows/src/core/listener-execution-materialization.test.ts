@@ -21,6 +21,7 @@ describe('materializeListenerExecution', () => {
       model,
       run: {
         id: crypto.randomUUID(),
+        number: 1,
         name: 'Review run',
         workflowName: 'Review run',
         definitionId: crypto.randomUUID(),

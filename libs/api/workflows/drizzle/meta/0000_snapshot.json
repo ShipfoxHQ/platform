@@ -1216,6 +1216,47 @@
       },
       "isRLSEnabled": false
     },
+    "public.workflows_workflow_run_counters": {
+      "name": "workflows_workflow_run_counters",
+      "schema": "",
+      "columns": {
+        "definition_id": {
+          "name": "definition_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "next_number": {
+          "name": "next_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "workflows_wrrc_definition_id_unique": {
+          "name": "workflows_wrrc_definition_id_unique",
+          "columns": [
+            {
+              "expression": "definition_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.workflows_workflow_runs": {
       "name": "workflows_workflow_runs",
       "schema": "",
@@ -1242,6 +1283,12 @@
         "definition_id": {
           "name": "definition_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "number": {
+          "name": "number",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
@@ -1355,6 +1402,27 @@
           "columns": [
             {
               "expression": "trigger_idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workflows_wr_definition_number_unique": {
+          "name": "workflows_wr_definition_number_unique",
+          "columns": [
+            {
+              "expression": "definition_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "number",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

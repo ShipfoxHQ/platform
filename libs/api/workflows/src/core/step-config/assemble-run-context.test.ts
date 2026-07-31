@@ -19,6 +19,7 @@ const date = new Date('2026-06-30T12:00:00.000Z');
 describe('assembleWorkflowRunContext', () => {
   const run = {
     id: 'run-1',
+    number: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -42,6 +43,7 @@ describe('assembleWorkflowRunContext', () => {
     expect(context).toEqual({
       run: {
         id: 'run-1',
+        number: 1,
         name: 'Build',
         workflow_name: 'Build',
         definition_id: 'def-1',
@@ -78,6 +80,7 @@ describe('assembleWorkflowRunContext', () => {
 describe('assembleCreationContext', () => {
   const run = {
     id: 'run-1',
+    number: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -117,6 +120,7 @@ describe('assembleCreationContext', () => {
 describe('assembleExecutionCreationContext', () => {
   const run = {
     id: 'run-1',
+    number: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -228,6 +232,7 @@ describe('assembleExecutionCreationContext', () => {
 describe('assembleJobActivationContext', () => {
   const run = {
     id: 'run-1',
+    number: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -335,6 +340,7 @@ describe('assembleJobActivationContext', () => {
 describe('listener filter snapshots', () => {
   const run = {
     id: 'run-1',
+    number: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -927,6 +933,7 @@ describe('assembleJobResolutionContext', () => {
 describe('assembleExecutionResolutionContext', () => {
   const run = {
     id: 'run-1',
+    number: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',

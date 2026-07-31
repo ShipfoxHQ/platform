@@ -118,6 +118,7 @@ describe('GET /api/workflows/runs/:id', () => {
     const body = res.json();
     expect(body.id).toBe(run.id);
     expect(body).toMatchObject({name: 'Test', workflow_name: 'Test'});
+    expect(body.number).toBe(run.number);
     expect(body.source_snapshot).toBeNull();
     expect(body.jobs).toHaveLength(1);
     expect(body.jobs[0].key).toBe('build');

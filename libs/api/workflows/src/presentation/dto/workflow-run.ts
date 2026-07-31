@@ -7,6 +7,7 @@ export function toRunDto(run: WorkflowRun, latestAttempt = run.currentAttempt): 
     id: run.id,
     project_id: run.projectId,
     definition_id: run.definitionId,
+    number: run.number,
     name: run.name,
     workflow_name: run.workflowName,
     status: run.status,

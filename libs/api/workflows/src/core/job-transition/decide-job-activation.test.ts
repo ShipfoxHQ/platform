@@ -113,6 +113,7 @@ function expression(source: string) {
 function workflowRun(): WorkflowRun {
   return {
     id: crypto.randomUUID(),
+    number: 1,
     workspaceId: crypto.randomUUID(),
     projectId: crypto.randomUUID(),
     definitionId: crypto.randomUUID(),

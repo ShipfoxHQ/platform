@@ -148,11 +148,13 @@ describe('workflow context registry', () => {
   });
 
   it('exports type environments for the known v1 context fields', () => {
-    expect(getWorkflowContextTypeEnvironment('run')).toEqual({
+    const runTypeEnvironment = getWorkflowContextTypeEnvironment('run');
+    expect(runTypeEnvironment).toEqual({
       run: {
         kind: 'object',
         fields: {
           id: 'string',
+          number: 'int',
           name: 'string',
           run_name: 'string',
           definition_id: 'string',
@@ -162,6 +164,13 @@ describe('workflow context registry', () => {
         },
       },
     });
+    if (!runTypeEnvironment) throw new Error('Run type environment is not defined');
+    expect(() =>
+      createWorkflowExpression({
+        source: 'run.number > 0',
+        check: {mode: 'typed', typeEnvironment: runTypeEnvironment},
+      }),
+    ).not.toThrow();
     expect(getWorkflowContextTypeEnvironment('trigger')).toEqual({
       trigger: {
         kind: 'object',

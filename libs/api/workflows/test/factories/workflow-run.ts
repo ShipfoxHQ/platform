@@ -32,6 +32,7 @@ export const workflowRunFactory = Factory.define<WorkflowRun, WorkflowRunTransie
       workspaceId,
       projectId,
       definitionId,
+      number: 1,
       name: 'Test Workflow',
       workflowName: 'Test Workflow',
       nameOverride: null,

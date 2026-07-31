@@ -33,6 +33,7 @@ export interface MaterializeListenerExecutionParams {
   readonly run: Pick<
     WorkflowRun,
     | 'id'
+    | 'number'
     | 'name'
     | 'workflowName'
     | 'definitionId'
