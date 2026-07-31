@@ -222,6 +222,7 @@ function projectDto() {
     id: PROJECT_ID,
     workspace_id: PROJECT_TEST_WID,
     name: 'Platform',
+    slug: 'platform',
     source: {
       connection_id: CONNECTION_ID,
       external_repository_id: 'platform',
