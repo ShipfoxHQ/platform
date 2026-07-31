@@ -5,6 +5,7 @@ import {
   analyzeContextRootKeyAccess,
   createWorkflowExpression,
   type ExpressionTypeEnvironment,
+  extractCelContextPathRoots,
   getWorkflowContextAvailability,
   getWorkflowContextDefinition,
   getWorkflowContextHost,
@@ -45,6 +46,31 @@ export type StoredInterpolationField =
   | 'step.name'
   | 'step.working_directory'
   | 'step.feedback';
+
+const infrastructureSelectorFields = new Set<StoredInterpolationField>([
+  'job.runner',
+  'agent.model',
+  'agent.provider',
+]);
+
+const infrastructureSelectorAllowedRoots = new Set<WorkflowContextName>([
+  'run',
+  'trigger',
+  'job',
+  'executions',
+  'execution',
+  'steps',
+  'step',
+  'vars',
+  'secrets',
+]);
+
+const infrastructureSelectorExternalPaths = new Map<string, readonly string[]>([
+  ['executions', ['events']],
+  ['execution', ['events']],
+  ['steps', ['outputs']],
+  ['step', ['outputs']],
+]);
 
 export function parseInterpolationField(params: {
   field: StoredInterpolationField;
@@ -152,6 +178,22 @@ function validateExpressionSegment(params: {
   const contextRoots = uniqueStrings(params.segment.contextRoots);
   const knownRoots = contextRoots.filter(isWorkflowContextName);
   const unknownRoots = contextRoots.filter((root) => !isWorkflowContextName(root));
+
+  const rejectedInfrastructureSelectorRoots = findInfrastructureSelectorRoots({
+    field: params.field,
+    expression: params.segment.expression,
+    knownRoots,
+  });
+  if (rejectedInfrastructureSelectorRoots.length > 0) {
+    params.issues.push(
+      infrastructureSelectorContextIssue({
+        ...params,
+        contextRoots,
+        rejectedRoots: rejectedInfrastructureSelectorRoots,
+      }),
+    );
+    return undefined;
+  }
 
   const rejectedHostRoots = knownRoots.filter(
     (root) => !workflowInterpolationFieldAcceptsHost(params.field, getWorkflowContextHost(root)),
@@ -279,6 +321,49 @@ function validateExpressionSegment(params: {
     );
     return undefined;
   }
+}
+
+function findInfrastructureSelectorRoots(params: {
+  field: StoredInterpolationField;
+  expression: WorkflowTemplateExprSegment['expression'];
+  knownRoots: readonly WorkflowContextName[];
+}): readonly WorkflowContextName[] {
+  if (!infrastructureSelectorFields.has(params.field)) return [];
+
+  const pathRoots = extractCelContextPathRoots({
+    source: params.expression.source,
+    pathsByRoot: infrastructureSelectorExternalPaths,
+  });
+  const rejectedRoots = new Set<WorkflowContextName>(
+    params.knownRoots.filter((root) => !infrastructureSelectorAllowedRoots.has(root)),
+  );
+  for (const root of pathRoots) {
+    if (isWorkflowContextName(root)) rejectedRoots.add(root);
+  }
+
+  return [...rejectedRoots].sort();
+}
+
+function infrastructureSelectorContextIssue(params: {
+  field: WorkflowInterpolationField;
+  source: string;
+  path: readonly WorkflowModelValidationIssuePathSegment[];
+  contextRoots: readonly string[];
+  rejectedRoots: readonly WorkflowContextName[];
+}): WorkflowModelValidationIssue {
+  return issue({
+    code: 'untrusted-infrastructure-selection-context',
+    message: `${fieldLabel(params.field)} interpolation cannot use external context ${formatList(
+      params.rejectedRoots,
+    )}. Infrastructure selectors must come from approved workflow or configuration context.`,
+    path: params.path,
+    details: {
+      field: params.field,
+      source: params.source,
+      contextRoots: params.contextRoots,
+      rejectedRoots: params.rejectedRoots,
+    },
+  });
 }
 
 function runnerContextInFieldIssue(params: {

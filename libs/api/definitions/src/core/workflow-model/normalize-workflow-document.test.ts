@@ -3770,7 +3770,7 @@ describe('normalizeWorkflowDocument', () => {
         env: {RUN_ID: interpolation('run.id'), PORT: 3000},
         jobs: {
           build: {
-            runner: ['linux', interpolation('execution.events[0].data.runner')],
+            runner: ['linux', interpolation('job.key')],
             env: {JOB_NAME: interpolation('job.key')},
             steps: [
               {
@@ -3808,12 +3808,12 @@ describe('normalizeWorkflowDocument', () => {
             kind: 'deferred',
             expression: {
               language: 'cel',
-              source: 'execution.events[0].data.runner',
+              source: 'job.key',
               check: 'typed',
               resultType: 'string',
             },
-            roots: ['execution'],
-            fillTarget: 'execution-creation',
+            roots: ['job'],
+            fillTarget: 'run-creation',
           },
         ],
       ]);
@@ -4417,9 +4417,15 @@ describe('normalizeWorkflowDocument', () => {
     it.each([
       ['model', {model: interpolation('event.model'), prompt: 'Fix it.'}, 'event'],
       ['provider', {provider: interpolation('inputs.provider'), prompt: 'Fix it.'}, 'inputs'],
-    ] as const)('allows external context in agent %s interpolation', (field, step, root) => {
+      ['model', {model: interpolation('needs[0].outputs.value'), prompt: 'Fix it.'}, 'needs'],
+      [
+        'provider',
+        {provider: interpolation('jobs.build.outputs.value'), prompt: 'Fix it.'},
+        'jobs',
+      ],
+    ] as const)('rejects external context in agent %s interpolation', (field, step, root) => {
       const document: WorkflowDocument = {
-        name: 'external agent field',
+        name: 'unsafe agent field',
         jobs: {
           fix: {
             steps: [step],
@@ -4427,14 +4433,17 @@ describe('normalizeWorkflowDocument', () => {
         },
       };
 
-      const model = normalizeWorkflowDocument(document);
+      const error = expectInvalid(document);
 
-      expect(model.jobs[0]?.steps[0]).toMatchObject({
-        kind: 'agent',
-        templates: {
-          [field]: [{kind: 'deferred', roots: [root]}],
-        },
-      });
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'untrusted-infrastructure-selection-context',
+          details: expect.objectContaining({
+            field: `agent.${field}`,
+            rejectedRoots: [root],
+          }),
+        }),
+      ]);
     });
 
     it.each([
@@ -4480,7 +4489,17 @@ describe('normalizeWorkflowDocument', () => {
         {provider: interpolation('execution["events"][0].data.body'), prompt: 'Fix it.'},
         'execution',
       ],
-    ] as const)('allows path-specific external context in agent %s interpolation', (field, step, root) => {
+      [
+        'model',
+        {model: interpolation('executions[0].events[0].data.body'), prompt: 'Fix it.'},
+        'executions',
+      ],
+      [
+        'provider',
+        {provider: interpolation('executions[0].events[0].data.body'), prompt: 'Fix it.'},
+        'executions',
+      ],
+    ] as const)('rejects path-specific external context in agent %s interpolation', (_field, step, root) => {
       const document: WorkflowDocument = {
         name: 'path-specific external agent field',
         jobs: {
@@ -4490,14 +4509,97 @@ describe('normalizeWorkflowDocument', () => {
         },
       };
 
-      const model = normalizeWorkflowDocument(document);
+      const error = expectInvalid(document);
 
-      expect(model.jobs[0]?.steps[1]).toMatchObject({
-        kind: 'agent',
-        templates: {
-          [field]: [{kind: 'deferred', roots: [root]}],
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'untrusted-infrastructure-selection-context',
+          path: ['jobs', 'fix', 'steps', 1, expect.any(String)],
+          details: expect.objectContaining({rejectedRoots: [root]}),
+        }),
+      ]);
+    });
+
+    it.each([
+      ['event', interpolation('event.runner')],
+      ['inputs', interpolation('inputs.runner')],
+      ['execution', interpolation('execution.events[0].data.runner')],
+      ['execution', interpolation('execution["events"][0].data.runner')],
+      ['executions', interpolation('executions[0].events[0].data.runner')],
+      ['steps', interpolation('steps.filter(s, true).map(s, s.outputs.runner)[0]')],
+      ['step', interpolation('step.outputs.runner')],
+      ['needs', interpolation('needs[0].outputs.runner')],
+      ['jobs', interpolation('jobs.build.outputs.runner')],
+      ['execution', interpolation('dyn(execution).events[0].data.runner')],
+      ['execution', interpolation('(true ? execution : execution).events[0].data.runner')],
+      ['execution', interpolation('[execution][0].events[0].data.runner')],
+      ['execution', interpolation('{x: execution}.x.events[0].data.runner')],
+      [
+        'executions',
+        interpolation(
+          'executions.exists(e, e[job.key] == "gpu-flag") ? "gpu-runner" : "cpu-runner"',
+        ),
+      ],
+    ] as const)('rejects %s context from a dynamic runner selector', (root, runner) => {
+      const document: WorkflowDocument = {
+        name: 'unsafe runner selector',
+        jobs: {
+          build: {
+            runner,
+            steps: [{run: 'echo ok'}],
+          },
+        },
+      };
+
+      const error = expectInvalid(document);
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'untrusted-infrastructure-selection-context',
+          path: ['jobs', 'build', 'runner', 0],
+          details: expect.objectContaining({field: 'job.runner', rejectedRoots: [root]}),
+        }),
+      ]);
+    });
+
+    it('reports all rejected contexts used by a dynamic runner selector', () => {
+      const error = expectInvalid({
+        name: 'multiple unsafe runner contexts',
+        jobs: {
+          build: {
+            runner: interpolation('event.runner + inputs.runner'),
+            steps: [{run: 'echo ok'}],
+          },
         },
       });
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'untrusted-infrastructure-selection-context',
+          details: expect.objectContaining({rejectedRoots: ['event', 'inputs']}),
+        }),
+      ]);
+    });
+
+    it.each([
+      'run.name',
+      'trigger.source',
+      'job.key',
+      'executions[0].name',
+      'execution.name',
+      'vars.RUNNER',
+    ])('keeps approved %s context available to dynamic runner selectors', (source) => {
+      const model = normalizeWorkflowDocument({
+        name: 'approved runner selector',
+        jobs: {
+          build: {
+            runner: interpolation(source),
+            steps: [{run: 'echo ok'}],
+          },
+        },
+      });
+
+      expect(model.jobs[0]?.runnerTemplates).toHaveLength(1);
     });
 
     it.each([

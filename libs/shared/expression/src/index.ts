@@ -123,6 +123,7 @@ export {
   InvalidWorkflowTemplateError,
   invalidWorkflowTemplateErrorCode,
 } from './template/errors.js';
+export {extractCelContextPathRoots} from './template/extract-cel-context-path-roots.js';
 export {extractCelContextRoots} from './template/extract-cel-context-roots.js';
 export {parseWorkflowTemplate} from './template/parse-workflow-template.js';
 export type {
