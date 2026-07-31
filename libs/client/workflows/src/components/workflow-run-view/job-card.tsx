@@ -77,7 +77,7 @@ export function JobCard({
     jobExecutionId: undefined,
     attemptId: null,
   });
-  const title = selectedJobExecution?.name ?? job.displayName;
+  const title = selectedJobExecution?.displayName ?? job.displayName;
   const isNonDefaultExecutionSelected =
     selectedJobExecution !== undefined && selectedJobExecution.id !== defaultJobExecution(job)?.id;
   const selectedExecutionStatus = isNonDefaultExecutionSelected
@@ -151,15 +151,17 @@ export function JobCard({
           ) : (
             <div className="flex min-w-0 items-center gap-8">
               <JobStatusBadge status={selectedExecutionStatus} />
-              <Text
-                as="h2"
-                id={titleId}
-                size="sm"
-                bold
-                className="min-w-0 truncate text-foreground-neutral-base"
-              >
-                {title}
-              </Text>
+              <div className="flex min-w-0 items-center gap-8">
+                <Text
+                  as="h2"
+                  id={titleId}
+                  size="sm"
+                  bold
+                  className="min-w-0 truncate text-foreground-neutral-base"
+                >
+                  {title}
+                </Text>
+              </div>
             </div>
           )}
           {sourceAvailable && selectedSourceAction && sourcePanelId && onOpenStepSource ? (

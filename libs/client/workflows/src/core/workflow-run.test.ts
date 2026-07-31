@@ -6,6 +6,7 @@ import {
   toWorkflowRunListPage,
 } from '#hooks/api/workflow-run-mapper.js';
 import {
+  workflowJob,
   workflowJobDto,
   workflowJobExecutionDto,
   workflowRunAttemptDto,
@@ -374,6 +375,18 @@ describe('workflow run model mapping', () => {
       state: 'fixed',
       elapsed: {minutes: 1, seconds: 55},
     });
+  });
+
+  test('exposes display names for jobs and job executions', () => {
+    const job = workflowJob({
+      name: 'Deploy',
+      key: 'deploy',
+      job_executions: [workflowJobExecutionDto({name: 'Deploy production'})],
+    });
+
+    expect(job.displayName).toBe('Deploy');
+    expect(job.jobExecutions[0]?.displayName).toBe('Deploy production');
+    expect(workflowJob({name: null, key: 'deploy-prod'}).displayName).toBe('deploy-prod');
   });
 
   test('returns no job display duration when a job has multiple executions', () => {

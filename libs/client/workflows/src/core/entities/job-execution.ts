@@ -54,6 +54,10 @@ export class JobExecution {
     Object.assign(this, fields);
   }
 
+  get displayName(): string {
+    return this.name;
+  }
+
   get queueTime(): JobExecutionTime | null {
     return jobExecutionQueueTimeFromTimestamps(this);
   }

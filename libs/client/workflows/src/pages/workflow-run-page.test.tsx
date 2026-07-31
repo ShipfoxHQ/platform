@@ -32,7 +32,7 @@ const DEPLOY_ATTEMPT_TWO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002';
 const DEPLOY_EXECUTION_ONE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-000000000001';
 const DEPLOY_EXECUTION_TWO_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-000000000002';
 const SMOKE_WEB_RE = /smoke-web/u;
-const EXECUTION_ONE_MENU_ITEM_PATTERN = /#1/;
+const EXECUTION_ONE_MENU_ITEM = /Execution #1: deploy review #1/u;
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_OVERRIDES = {
   id: RUN_ID,
@@ -150,10 +150,14 @@ describe('WorkflowRunPage', () => {
 
     await user.click(
       await screen.findByRole('button', {
-        name: 'Switch job execution, currently execution 2',
+        name: 'Switch job execution, currently execution 2: deploy review #2',
       }),
     );
-    await user.click(screen.getByRole('menuitem', {name: EXECUTION_ONE_MENU_ITEM_PATTERN}));
+    await user.click(
+      screen.getByRole('menuitem', {
+        name: EXECUTION_ONE_MENU_ITEM,
+      }),
+    );
 
     await waitFor(() => {
       expect(currentSearch(router)).toMatchObject({
@@ -162,6 +166,7 @@ describe('WorkflowRunPage', () => {
       });
     });
     expect(screen.getByRole('button', {name: 'deploy, Failed, attempt 1'})).toBeInTheDocument();
+    expect(screen.getAllByText('deploy review #1')).not.toHaveLength(0);
 
     await user.click(screen.getByRole('button', {name: 'deploy, Failed, attempt 1'}));
 
@@ -464,7 +469,7 @@ function retryRunDetailDto(): WorkflowRunDetailResponseDto {
             id: DEPLOY_EXECUTION_ONE_ID,
             job_id: DEPLOY_JOB_ID,
             sequence: 1,
-            name: 'deploy',
+            name: 'deploy review #1',
             status: 'failed',
             started_at: '2026-05-07T01:01:00.000Z',
             finished_at: '2026-05-07T01:02:00.000Z',
@@ -488,7 +493,7 @@ function retryRunDetailDto(): WorkflowRunDetailResponseDto {
             id: DEPLOY_EXECUTION_TWO_ID,
             job_id: DEPLOY_JOB_ID,
             sequence: 2,
-            name: 'deploy',
+            name: 'deploy review #2',
             status: 'running',
             started_at: '2026-05-07T01:03:00.000Z',
             steps: [

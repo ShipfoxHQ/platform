@@ -13,7 +13,7 @@ import {JobNode} from './job-node.js';
 const NOW = Date.parse('2026-06-26T12:00:00.000Z');
 
 type NodeOverrides = Omit<Partial<WorkflowRunJobDetailDto>, 'job_executions'> & {
-  name: string;
+  name?: string | null;
   job_executions?: WorkflowRunJobDetailDto['job_executions'];
   queued_at?: string | null;
   started_at?: string | null;
@@ -297,6 +297,14 @@ describe('JobNode status indicator', () => {
     await user.hover(screen.getByRole('img', {name: 'Running'}));
 
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Running');
+  });
+
+  test('uses the job key when the static name is missing', () => {
+    const node = makeNode({key: 'deploy-prod', name: null, status: 'succeeded'});
+
+    renderNode(node);
+
+    expect(screen.getByRole('button', {name: 'deploy-prod, Succeeded'})).toBeInTheDocument();
   });
 
   test('shows a running lifecycle without a running step as pending', () => {

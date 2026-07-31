@@ -108,7 +108,7 @@ export class Job {
   }
 
   get displayName(): string {
-    return this.name || this.key;
+    return this.name ?? this.key;
   }
 
   get displayDuration(): JobDisplayDuration | null {
