@@ -1713,20 +1713,25 @@ describe('detectAndExpireStuckJobs', () => {
         requiredLabels: ['linux'],
       });
 
-    // Both operations acquire the pending-row lock before the running-row lock.
-    const [reaped, claimed] = await Promise.all([
+    // The reaper may acquire the execution lock first, or it may skip the row while the claim
+    // transaction holds it. Either interleaving must complete without deadlocking.
+    const [firstReap, claimed] = await Promise.all([
       detectAndExpireStuckJobs({thresholdSeconds: 180}),
       claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null}),
     ]);
 
-    expect(reaped.expired).toBeGreaterThanOrEqual(1);
-    expect(claimed).toBeNull();
+    // Once the contending claim settles, the next tick reaps a row that the non-blocking
+    // advisory-lock scan intentionally skipped.
+    const secondReap = await detectAndExpireStuckJobs({thresholdSeconds: 180});
 
+    expect(claimed).toBeNull();
+    expect(firstReap.expired + secondReap.expired).toBeGreaterThanOrEqual(1);
     // The expired job is gone and not re-claimable; its orphan pending row is swept.
     expect(await runningJobsForTest()).toHaveLength(0);
     expect(
       await db().select().from(pendingJobExecutions).where(eq(pendingJobExecutions.jobId, jobId)),
     ).toHaveLength(0);
+    expect(await outboxForJobs([jobId])).toHaveLength(1);
     expect(
       await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null}),
     ).toBeNull();
