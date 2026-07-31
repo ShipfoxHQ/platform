@@ -1,9 +1,8 @@
 import {ClientError, type FastifyReply, type FastifyRequest} from '@shipfox/node-fastify';
+import {describeRateLimitError} from '@shipfox/node-rate-limit';
 import {
   checkWorkspacesRateLimit,
   WORKSPACE_SLUG_AVAILABILITY_RATE_LIMIT,
-  WorkspacesRateLimitExceededError,
-  WorkspacesRateLimitUnavailableError,
 } from '#core/rate-limit.js';
 
 function routeName(request: FastifyRequest): string {
@@ -20,59 +19,30 @@ export function createWorkspaceSlugAvailabilityRateLimitPreHandler() {
         ...WORKSPACE_SLUG_AVAILABILITY_RATE_LIMIT,
       });
     } catch (error) {
-      if (error instanceof WorkspacesRateLimitExceededError) {
+      const presentation = describeRateLimitError({
+        error,
+        route: routeName(request),
+        unavailableCode: 'workspace-rate-limit-unavailable',
+        unavailableMessage: 'Workspace rate limiter unavailable',
+      });
+      if (!presentation) throw error;
+
+      if (presentation.status === 429) {
         request.log.warn(
-          {
-            action: error.action,
-            scope: error.scope,
-            route: routeName(request),
-            retryAfterSeconds: error.retryAfterSeconds,
-            identifierHmacPrefix: error.identifierHmacPrefix,
-          },
+          {...presentation.data, retryAfterSeconds: presentation.retryAfterSeconds},
           'Workspace rate limit blocked request',
         );
-        reply.header('Retry-After', String(error.retryAfterSeconds));
-        throw new ClientError('Rate limit exceeded', 'rate-limited', {
-          status: 429,
-          details: {retry_after_seconds: error.retryAfterSeconds},
-          data: {
-            action: error.action,
-            scope: error.scope,
-            route: routeName(request),
-            identifierHmacPrefix: error.identifierHmacPrefix,
-          },
-          cause: error,
-        });
+        reply.header('Retry-After', String(presentation.retryAfterSeconds));
+      } else {
+        request.log.error({...presentation.data, err: error}, 'Workspace rate limiter unavailable');
       }
 
-      if (error instanceof WorkspacesRateLimitUnavailableError) {
-        request.log.error(
-          {
-            action: error.action,
-            scope: error.scope,
-            route: routeName(request),
-            identifierHmacPrefix: error.identifierHmacPrefix,
-            err: error,
-          },
-          'Workspace rate limiter unavailable',
-        );
-        throw new ClientError(
-          'Workspace rate limiter unavailable',
-          'workspace-rate-limit-unavailable',
-          {
-            status: 503,
-            data: {
-              action: error.action,
-              scope: error.scope,
-              route: routeName(request),
-              identifierHmacPrefix: error.identifierHmacPrefix,
-            },
-            cause: error,
-          },
-        );
-      }
-
-      throw error;
+      throw new ClientError(presentation.message, presentation.code, {
+        status: presentation.status,
+        ...(presentation.details ? {details: presentation.details} : {}),
+        data: presentation.data,
+        cause: error,
+      });
     }
   };
 }

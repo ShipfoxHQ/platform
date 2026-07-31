@@ -42,6 +42,59 @@ export interface ConsumeRateLimitResult {
 }
 
 /**
+ * Table-specific operations used by the shared fixed-window persistence
+ * mechanics. Each API package keeps its own table and database boundary.
+ */
+export interface RateLimitPersistenceAdapter<
+  Transaction,
+  Action extends string = string,
+  Scope extends string = string,
+> {
+  transaction: <Result>(callback: (transaction: Transaction) => Promise<Result>) => Promise<Result>;
+  setStatementTimeout: (transaction: Transaction, timeoutMs: number) => Promise<void>;
+  consume: (
+    transaction: Transaction,
+    params: ConsumeRateLimitParams<Action, Scope>,
+  ) => Promise<ConsumeRateLimitResult | undefined>;
+  prune: (now: Date) => Promise<number>;
+}
+
+/**
+ * Builds table-owned rate-limit persistence functions with shared transaction,
+ * timeout, missing-row, and opportunistic-pruning behavior.
+ */
+export function createRateLimitPersistence<
+  Transaction,
+  Action extends string = string,
+  Scope extends string = string,
+>(adapter: RateLimitPersistenceAdapter<Transaction, Action, Scope>) {
+  let nextPruneAt = 0;
+
+  return {
+    consume: async (
+      params: ConsumeRateLimitParams<Action, Scope>,
+    ): Promise<ConsumeRateLimitResult> => {
+      return await adapter.transaction(async (transaction) => {
+        await adapter.setStatementTimeout(transaction, params.timeoutMs);
+        const result = await adapter.consume(transaction, params);
+        if (!result) throw new Error('Rate limit upsert returned no rows');
+        return result;
+      });
+    },
+    prune: async (
+      params: {now?: Date | undefined; minIntervalMs?: number | undefined} = {},
+    ): Promise<number | undefined> => {
+      const now = params.now ?? new Date();
+      const minIntervalMs = params.minIntervalMs ?? 60_000;
+      if (minIntervalMs > 0 && now.getTime() < nextPruneAt) return undefined;
+
+      nextPruneAt = now.getTime() + minIntervalMs;
+      return await adapter.prune(now);
+    },
+  };
+}
+
+/**
  * Parameters for one rate-limit check.
  *
  * Callers provide product policy, HMAC separation, persistence, and metrics.
@@ -140,6 +193,64 @@ export class RateLimitPolicyError extends Error {
     super(message);
     this.name = 'RateLimitPolicyError';
   }
+}
+
+export interface RateLimitErrorPresentation {
+  status: 429 | 503;
+  code: string;
+  message: string;
+  retryAfterSeconds?: number;
+  details?: {retry_after_seconds: number};
+  data: {
+    action: string;
+    scope: string;
+    route: string;
+    identifierHmacPrefix: string;
+  };
+}
+
+/**
+ * Normalizes rate-limit failures for HTTP adapters without coupling this
+ * shared package to a specific web framework or domain error type.
+ */
+export function describeRateLimitError(params: {
+  error: unknown;
+  route: string;
+  unavailableCode: string;
+  unavailableMessage: string;
+}): RateLimitErrorPresentation | undefined {
+  const {error} = params;
+  if (error instanceof RateLimitExceededError) {
+    return {
+      status: 429,
+      code: 'rate-limited',
+      message: 'Rate limit exceeded',
+      retryAfterSeconds: error.retryAfterSeconds,
+      details: {retry_after_seconds: error.retryAfterSeconds},
+      data: {
+        action: error.action,
+        scope: error.scope,
+        route: params.route,
+        identifierHmacPrefix: error.identifierHmacPrefix,
+      },
+    };
+  }
+
+  if (error instanceof RateLimitUnavailableError) {
+    return {
+      status: 503,
+      code: params.unavailableCode,
+      message: params.unavailableMessage,
+      data: {
+        action: error.action,
+        scope: error.scope,
+        route: params.route,
+        identifierHmacPrefix: error.identifierHmacPrefix,
+      },
+    };
+  }
+
+  return undefined;
 }
 
 const DEFAULT_TIMEOUT_MS = 250;

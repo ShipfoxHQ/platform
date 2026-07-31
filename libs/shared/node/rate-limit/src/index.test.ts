@@ -1,6 +1,7 @@
 import {
   type ConsumeRateLimitParams,
   checkRateLimit,
+  createRateLimitPersistence,
   hashRateLimitIdentifier,
   RateLimitExceededError,
   RateLimitPolicyError,
@@ -205,6 +206,54 @@ describe('checkRateLimit', () => {
     await expect(result).resolves.toBeUndefined();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onPruneFailure).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createRateLimitPersistence', () => {
+  it('shares transaction timeout and missing-row handling', async () => {
+    const events: string[] = [];
+    const persistence = createRateLimitPersistence<{id: string}>({
+      transaction: async (callback) => await callback({id: 'transaction'}),
+      setStatementTimeout: (transaction, timeoutMs) => {
+        events.push(`${transaction.id}:${timeoutMs}`);
+        return Promise.resolve();
+      },
+      consume: (transaction, params) => {
+        events.push(`${transaction.id}:${params.action}`);
+        return Promise.resolve({count: 1, expiresAt: params.expiresAt});
+      },
+      prune: () => Promise.resolve(0),
+    });
+
+    await expect(
+      persistence.consume({
+        action: 'login',
+        scope: 'email',
+        identifierHmac: 'hmac',
+        windowStart: new Date('2026-06-23T00:00:00Z'),
+        expiresAt: new Date('2026-06-23T00:01:00Z'),
+        timeoutMs: 750,
+      }),
+    ).resolves.toMatchObject({count: 1});
+    expect(events).toEqual(['transaction:750', 'transaction:login']);
+  });
+
+  it('throttles opportunistic pruning through the shared persistence', async () => {
+    const prune = vi.fn(async () => 1);
+    const persistence = createRateLimitPersistence<object>({
+      transaction: async (callback) => await callback({}),
+      setStatementTimeout: () => Promise.resolve(),
+      consume: (_transaction, params) => Promise.resolve({count: 1, expiresAt: params.expiresAt}),
+      prune,
+    });
+    const firstNow = new Date('2026-06-23T00:00:00Z');
+    const secondNow = new Date('2026-06-23T00:00:30Z');
+
+    await expect(persistence.prune({now: firstNow, minIntervalMs: 60_000})).resolves.toBe(1);
+    await expect(
+      persistence.prune({now: secondNow, minIntervalMs: 60_000}),
+    ).resolves.toBeUndefined();
+    expect(prune).toHaveBeenCalledTimes(1);
   });
 });
 

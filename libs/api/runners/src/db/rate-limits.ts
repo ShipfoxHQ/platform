@@ -1,28 +1,25 @@
+import {
+  type ConsumeRateLimitParams,
+  type ConsumeRateLimitResult,
+  createRateLimitPersistence,
+} from '@shipfox/node-rate-limit';
 import {lt, sql} from 'drizzle-orm';
 import {db} from './db.js';
 import {runnersRateLimits} from './schema/rate-limits.js';
 
-export interface ConsumeRunnersRateLimitParams {
-  action: string;
-  scope: string;
-  identifierHmac: string;
-  windowStart: Date;
-  expiresAt: Date;
-  timeoutMs: number;
-}
+type RunnersRateLimitTransaction = Parameters<
+  Parameters<ReturnType<typeof db>['transaction']>[0]
+>[0];
 
-export interface ConsumeRunnersRateLimitResult {
-  count: number;
-  expiresAt: Date;
-}
-
-export async function consumeRunnersRateLimit(
-  params: ConsumeRunnersRateLimitParams,
-): Promise<ConsumeRunnersRateLimitResult> {
-  return await db().transaction(async (tx) => {
-    await tx.execute(sql`select set_config('statement_timeout', ${`${params.timeoutMs}ms`}, true)`);
-
-    const rows = await tx
+const persistence = createRateLimitPersistence<RunnersRateLimitTransaction>({
+  transaction: (callback) => db().transaction(callback),
+  setStatementTimeout: async (transaction, timeoutMs) => {
+    await transaction.execute(
+      sql`select set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`,
+    );
+  },
+  consume: async (transaction, params) => {
+    const rows = await transaction
       .insert(runnersRateLimits)
       .values({
         action: params.action,
@@ -46,24 +43,15 @@ export async function consumeRunnersRateLimit(
       })
       .returning({count: runnersRateLimits.count, expiresAt: runnersRateLimits.expiresAt});
 
-    const row = rows[0];
-    if (!row) throw new Error('Rate limit upsert returned no rows');
-    return row;
-  });
-}
+    return rows[0];
+  },
+  prune: async (now) => {
+    const result = await db().delete(runnersRateLimits).where(lt(runnersRateLimits.expiresAt, now));
+    return result.rowCount ?? 0;
+  },
+});
 
-let nextPruneAt = 0;
-
-export async function pruneExpiredRunnersRateLimits(
-  params: {now?: Date | undefined; minIntervalMs?: number | undefined} = {},
-): Promise<number | undefined> {
-  const now = params.now ?? new Date();
-  const minIntervalMs = params.minIntervalMs ?? 60_000;
-  if (minIntervalMs > 0 && now.getTime() < nextPruneAt) return undefined;
-
-  nextPruneAt = now.getTime() + minIntervalMs;
-
-  const result = await db().delete(runnersRateLimits).where(lt(runnersRateLimits.expiresAt, now));
-
-  return result.rowCount ?? 0;
-}
+export type ConsumeRunnersRateLimitParams = ConsumeRateLimitParams<string, string>;
+export type ConsumeRunnersRateLimitResult = ConsumeRateLimitResult;
+export const consumeRunnersRateLimit = persistence.consume;
+export const pruneExpiredRunnersRateLimits = persistence.prune;

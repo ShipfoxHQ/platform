@@ -1,11 +1,8 @@
 import {requireProvisionerContext} from '@shipfox/api-auth-context';
 import {ClientError, type FastifyReply, type FastifyRequest} from '@shipfox/node-fastify';
+import {describeRateLimitError} from '@shipfox/node-rate-limit';
 import {config} from '#config.js';
-import {
-  checkRunnersRateLimit,
-  RunnersRateLimitExceededError,
-  RunnersRateLimitUnavailableError,
-} from '#core/rate-limit.js';
+import {checkRunnersRateLimit} from '#core/rate-limit.js';
 import {getRunnerContext} from '#presentation/auth/index.js';
 
 function routeName(request: FastifyRequest): string {
@@ -30,55 +27,33 @@ async function enforceRateLimit(params: {
       windowSeconds: params.windowSeconds,
     });
   } catch (error) {
-    if (error instanceof RunnersRateLimitExceededError) {
+    const presentation = describeRateLimitError({
+      error,
+      route: routeName(params.request),
+      unavailableCode: 'runners-rate-limit-unavailable',
+      unavailableMessage: 'Runners rate limiter unavailable',
+    });
+    if (!presentation) throw error;
+
+    if (presentation.status === 429) {
       params.request.log.warn(
-        {
-          action: error.action,
-          scope: error.scope,
-          route: routeName(params.request),
-          retryAfterSeconds: error.retryAfterSeconds,
-          identifierHmacPrefix: error.identifierHmacPrefix,
-        },
+        {...presentation.data, retryAfterSeconds: presentation.retryAfterSeconds},
         'Runners rate limit blocked request',
       );
-      params.reply.header('Retry-After', String(error.retryAfterSeconds));
-      throw new ClientError('Rate limit exceeded', 'rate-limited', {
-        status: 429,
-        details: {retry_after_seconds: error.retryAfterSeconds},
-        data: {
-          action: error.action,
-          scope: error.scope,
-          route: routeName(params.request),
-          identifierHmacPrefix: error.identifierHmacPrefix,
-        },
-        cause: error,
-      });
-    }
-
-    if (error instanceof RunnersRateLimitUnavailableError) {
+      params.reply.header('Retry-After', String(presentation.retryAfterSeconds));
+    } else {
       params.request.log.error(
-        {
-          action: error.action,
-          scope: error.scope,
-          route: routeName(params.request),
-          identifierHmacPrefix: error.identifierHmacPrefix,
-          err: error,
-        },
+        {...presentation.data, err: error},
         'Runners rate limiter unavailable',
       );
-      throw new ClientError('Runners rate limiter unavailable', 'runners-rate-limit-unavailable', {
-        status: 503,
-        data: {
-          action: error.action,
-          scope: error.scope,
-          route: routeName(params.request),
-          identifierHmacPrefix: error.identifierHmacPrefix,
-        },
-        cause: error,
-      });
     }
 
-    throw error;
+    throw new ClientError(presentation.message, presentation.code, {
+      status: presentation.status,
+      ...(presentation.details ? {details: presentation.details} : {}),
+      data: presentation.data,
+      cause: error,
+    });
   }
 }
 
