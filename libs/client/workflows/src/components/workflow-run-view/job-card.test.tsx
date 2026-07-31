@@ -10,7 +10,7 @@ const FIRST_EXECUTION_ACCESSIBLE_NAME =
 const SECOND_EXECUTION_MENU_ITEM = /Execution #2: Review PR #479/;
 
 describe('JobCard execution names', () => {
-  test('shows the resolved execution name and sequence', () => {
+  test('shows only the resolved execution name', () => {
     const job = workflowJob({
       key: 'deploy',
       name: 'Deploy application',
@@ -36,8 +36,8 @@ describe('JobCard execution names', () => {
     );
 
     expect(screen.getByRole('heading', {name: 'Deploy production'})).toBeInTheDocument();
-    expect(screen.getByText('Execution #1')).toBeInTheDocument();
     expect(screen.queryByText('Deploy application')).not.toBeInTheDocument();
+    expect(screen.queryByText('Execution #1')).not.toBeInTheDocument();
   });
 
   test('does not use the static job name when no execution exists', () => {

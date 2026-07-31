@@ -154,15 +154,6 @@ export function JobCard({
             <div className="flex min-w-0 items-center gap-8">
               <JobStatusBadge status={selectedExecutionStatus} />
               <div className="flex min-w-0 items-center gap-8">
-                {selectedJobExecution ? (
-                  <Text
-                    as="span"
-                    size="xs"
-                    className="shrink-0 text-foreground-neutral-muted tabular-nums"
-                  >
-                    Execution #{selectedJobExecution.sequence}
-                  </Text>
-                ) : null}
                 {title ? (
                   <Text
                     as="h2"
