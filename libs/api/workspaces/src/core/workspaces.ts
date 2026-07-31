@@ -7,7 +7,6 @@ import {
 } from '@shipfox/api-workspaces-dto';
 import {isUniqueViolation} from '@shipfox/node-drizzle';
 import {writeOutboxEvent} from '@shipfox/node-outbox';
-import {eq} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {
   findMembership,
@@ -78,13 +77,7 @@ export async function createWorkspaceForUser(params: {
       .onConflictDoNothing({target: workspaces.slug})
       .returning();
     if (!workspaceRow) {
-      const [conflict] = await tx
-        .select({slug: workspaces.slug})
-        .from(workspaces)
-        .where(eq(workspaces.slug, params.slug))
-        .limit(1);
-      if (conflict) throw new WorkspaceSlugConflictError(params.slug);
-      throw new Error('Insert returned no rows');
+      throw new WorkspaceSlugConflictError(params.slug);
     }
     await tx.insert(memberships).values({
       userId: params.userId,

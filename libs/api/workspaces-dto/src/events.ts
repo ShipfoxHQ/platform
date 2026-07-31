@@ -20,7 +20,8 @@ export type WorkspacesInvitationSendRequestedEvent = z.infer<
 export const workspaceCreatedEventSchema = z.object({
   workspaceId: z.string().nonempty(),
   name: z.string().nonempty(),
-  slug: z.string().nonempty(),
+  // Existing outbox rows may predate workspace slugs.
+  slug: z.string().nonempty().optional(),
   creatorUserId: z.string().nonempty(),
 });
 export type WorkspaceCreatedEvent = z.infer<typeof workspaceCreatedEventSchema>;

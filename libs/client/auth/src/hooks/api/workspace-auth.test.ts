@@ -34,6 +34,7 @@ describe('createWorkspace', () => {
 
     const request = fetchImpl.mock.calls[0]?.[0] as Request;
     expect(result.name).toBe('Acme');
+    expect(result.slug).toBe('acme');
     expect(request.url).toBe('https://api.example.test/workspaces');
     expect(request.method).toBe('POST');
     expect(requestBody).toEqual({name: 'Acme', slug: 'acme'});

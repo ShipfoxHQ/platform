@@ -15,10 +15,11 @@ import {
 describe('workspaces core', () => {
   test('createWorkspaceForUser creates a workspace and membership for the user', async () => {
     const user = userFactory.build();
+    const slug = `core-${crypto.randomUUID().slice(0, 8)}`;
 
     const workspace = await createWorkspaceForUser({
       name: 'Core Workspace',
-      slug: `core-${crypto.randomUUID().slice(0, 8)}`,
+      slug,
       userId: user.userId,
       userEmail: user.email,
       userName: user.name,
@@ -26,6 +27,7 @@ describe('workspaces core', () => {
     const membership = await findMembership({userId: user.userId, workspaceId: workspace.id});
 
     expect(workspace.name).toBe('Core Workspace');
+    expect(workspace.slug).toBe(slug);
     expect(membership).toBeDefined();
   });
 
