@@ -5,6 +5,10 @@ function validateDefinition(yaml: string, options = {}) {
   return validateDefinitionBase(yaml, {agentValidationCatalog, ...options});
 }
 
+function interpolation(source: string): string {
+  return '$'.concat('{{ ', source, ' }}');
+}
+
 describe('validateDefinition', () => {
   test('valid YAML returns { valid: true, definition }', () => {
     const yaml = `
@@ -120,6 +124,128 @@ jobs:
     expect(result.valid).toBe(true);
     if (result.valid) {
       expect(result.definition.model.jobs[0]?.runner).toEqual(['ubuntu-latest']);
+    }
+  });
+
+  test.each([
+    [
+      'an env binding',
+      'MSG',
+      `
+name: Re-evaluating command
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - env:
+          MSG: '${interpolation('event.x')}'
+        run: eval "$MSG"
+`,
+    ],
+    [
+      'a hoisted interpolation',
+      '__sf_0',
+      `
+name: Re-evaluating command
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - run: 'eval "${interpolation('event.x')}"'
+`,
+    ],
+  ] as const)('returns one non-fatal warning for %s', (_description, valueName, yaml) => {
+    const result = validateDefinition(yaml);
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toMatchObject({
+        code: 're-evaluating-command',
+        path: 'jobs.build.steps.0.run',
+      });
+      expect(result.warnings[0]?.message).toContain(`$${valueName}`);
+      expect(result.warnings[0]?.message).toContain('eval');
+      expect(result.warnings[0]?.message).toContain('re-executed as code');
+      expect(result.definition.model.jobs[0]?.steps).toHaveLength(1);
+    }
+  });
+
+  test.each([
+    'eval "$(cat script.sh)"',
+    "sh -c 'echo fixed'",
+    'source ./scripts/setup.sh',
+    'xargs cmd "$MSG"',
+  ])('does not warn for the common data-safe form %s', (run) => {
+    const result = validateDefinition(`
+name: Safe command
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - env:
+          MSG: fixed
+        run: |
+          ${run}
+`);
+
+    expect(result).toMatchObject({valid: true, warnings: []});
+  });
+
+  test.each([
+    ['command substitution', `echo $(${interpolation('event.ref')})`, 'command substitution'],
+    ['backtick substitution', `echo \`${interpolation('event.ref')}\``, 'backtick substitution'],
+    ['arithmetic expansion', `echo $(( ${interpolation('event.ref')} + 1 ))`, 'shell arithmetic'],
+  ])('warns for interpolation inside %s', (_description, run, construct) => {
+    const result = validateDefinition(`
+name: Unsafe interpolation
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - run: |
+          ${run}
+`);
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toMatchObject({
+        code: 're-evaluating-command',
+        path: 'jobs.build.steps.0.run',
+      });
+      expect(result.warnings[0]?.message).toContain('event.ref');
+      expect(result.warnings[0]?.message).toContain(construct);
+    }
+  });
+
+  test('warns for every repeated and unsafe flagged position', () => {
+    const result = validateDefinition(`
+name: Multiple re-evaluating commands
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - env:
+          MSG: fixed
+        run: |
+          eval "$MSG" "$MSG"; echo $(${interpolation('event.first')}); eval "$MSG"; echo $((1 + ${interpolation('event.second')}))
+`);
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.warnings).toHaveLength(5);
+      expect(result.warnings.every((warning) => warning.code === 're-evaluating-command')).toBe(
+        true,
+      );
+      expect(result.warnings.every((warning) => warning.path === 'jobs.build.steps.0.run')).toBe(
+        true,
+      );
+      expect(result.warnings.filter((warning) => warning.message.includes('eval'))).toHaveLength(3);
+      expect(result.warnings.some((warning) => warning.message.includes('event.first'))).toBe(true);
+      expect(result.warnings.some((warning) => warning.message.includes('event.second'))).toBe(
+        true,
+      );
     }
   });
 

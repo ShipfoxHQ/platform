@@ -146,6 +146,30 @@ describe('hoistPlannedRunCommand', () => {
     expect((error as Error).message).toContain('Bind the value to env and reference $VAR');
   });
 
+  it('retains every unsafe interpolation and safe binding in the error analysis', () => {
+    const field = plannedField(
+      `echo $(${templateExpression(' run.first ')}) ; eval "${templateExpression(' run.second ')}"; echo $((1 + ${templateExpression(' run.third ')}))`,
+    );
+
+    let error: unknown;
+    try {
+      hoistPlannedRunCommand({field});
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(UnsafeRunInterpolationError);
+    expect(error).toMatchObject({
+      occurrences: [
+        {region: 'paren-sub', source: 'run.first'},
+        {region: 'arith', source: 'run.third'},
+      ],
+      partial: {
+        bindings: [{name: '__sf_0'}],
+      },
+    });
+  });
+
   it('does not let quotes inside comments affect later interpolation sites', () => {
     const field = plannedField(
       `# "comment only"\nprintf '%s\\n' ${templateExpression(' run.id ')}`,

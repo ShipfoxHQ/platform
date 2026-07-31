@@ -27,6 +27,19 @@ jobs:
       - run: pnpm test
 `;
 
+const eventInterpolation = '$'.concat('{{ event.x }}');
+
+const warningYaml = `
+name: Warning only
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - env:
+          MSG: '${eventInterpolation}'
+        run: eval "$MSG"
+`;
+
 const validIntegrationYaml = `
 name: Agent CI
 runner: ubuntu-latest
@@ -231,6 +244,31 @@ describe('fetchAndParseWorkflows', () => {
     expect(result[0]?.path).toBe('.shipfox/workflows/ci.yml');
     expect(result[0]?.contentHash).toMatch(LOWERCASE_SHA256_HEX_RE);
     expect(result[0]?.warnings).toEqual([]);
+  });
+
+  it('keeps warning-only definitions available to the sync path', async () => {
+    const result = await fetchAndParseWorkflows({
+      ...baseContext,
+      ref: 'main',
+      paths: ['.shipfox/workflows/warning.yml'],
+      sourceControl: sourceControl({
+        fetchFile: vi.fn(() =>
+          Promise.resolve({
+            path: '.shipfox/workflows/warning.yml',
+            ref: 'main',
+            content: warningYaml,
+          }),
+        ),
+      }),
+    });
+
+    expect(result[0]?.warnings).toMatchObject([
+      {
+        code: 're-evaluating-command',
+        path: 'jobs.build.steps.0.run',
+      },
+    ]);
+    expect(result[0]?.definition.model.jobs[0]?.steps).toHaveLength(1);
   });
 
   it('produces stable content hashes for identical content', async () => {

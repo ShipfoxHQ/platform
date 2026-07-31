@@ -3,8 +3,13 @@ import {DEFAULT_JOB_CHECKOUT} from '@shipfox/api-definitions-dto';
 import {
   type AvailabilitySite,
   buildTypedRootsEnvironment,
+  classifyShellCodePosition,
   type ExpressionType,
   type ExpressionTypeEnvironment,
+  hoistPlannedRunCommand,
+  type ShellReevaluatingConstruct,
+  type UnsafeRunInterpolation,
+  UnsafeRunInterpolationError,
   type WorkflowJobTypeOverlay,
   type WorkflowStepTypeOverlay,
 } from '@shipfox/expression';
@@ -33,7 +38,10 @@ import type {
   WorkflowOutputTemplates,
   WorkflowStepSourceLocationMap,
 } from '../entities/workflow-model.js';
-import type {WorkflowModelValidationIssue} from './invalid-workflow-model-error.js';
+import type {
+  WorkflowModelValidationIssue,
+  WorkflowModelValidationIssuePathSegment,
+} from './invalid-workflow-model-error.js';
 import {normalizeAgentIntegrations} from './normalize-agent-integrations.js';
 import {normalizeEnv} from './normalize-env.js';
 import {normalizeIfCondition} from './normalize-if-condition.js';
@@ -181,6 +189,8 @@ function normalizeJob(params: {
     sourceName: params.sourceName,
     jobId: id,
     job: params.job,
+    workflowEnvKeys: Object.keys(params.document.env ?? {}),
+    jobEnvKeys: Object.keys(params.job.env ?? {}),
     issues: params.issues,
     stepSourceLocations: params.stepSourceLocations,
     fillSite: stepFillSite,
@@ -469,6 +479,8 @@ function normalizeJobSteps(params: {
   sourceName: string;
   jobId: string;
   job: WorkflowDocumentJob;
+  workflowEnvKeys: readonly string[];
+  jobEnvKeys: readonly string[];
   issues: WorkflowModelValidationIssue[];
   stepSourceLocations: WorkflowStepSourceLocationMap | undefined;
   fillSite: AvailabilitySite;
@@ -487,6 +499,8 @@ function normalizeJobSteps(params: {
       sourceName: params.sourceName,
       jobId: params.jobId,
       allSteps: params.job.steps,
+      workflowEnvKeys: params.workflowEnvKeys,
+      jobEnvKeys: params.jobEnvKeys,
       usedStepIds,
       issues: params.issues,
       stepSourceLocations: params.stepSourceLocations,
@@ -507,6 +521,8 @@ function normalizeStep(params: {
   sourceName: string;
   jobId: string;
   allSteps: readonly WorkflowDocumentStep[];
+  workflowEnvKeys: readonly string[];
+  jobEnvKeys: readonly string[];
   usedStepIds: Map<string, number>;
   issues: WorkflowModelValidationIssue[];
   stepSourceLocations: WorkflowStepSourceLocationMap | undefined;
@@ -634,6 +650,8 @@ function normalizeStep(params: {
       stepBase,
       sourceName: params.sourceName,
       stepIndex: params.index,
+      workflowEnvKeys: params.workflowEnvKeys,
+      jobEnvKeys: params.jobEnvKeys,
       name,
       workingDirectory,
       issues: params.issues,
@@ -704,6 +722,8 @@ function normalizeRunStep(params: {
   stepBase: WorkflowModelStepBaseFields;
   sourceName: string;
   stepIndex: number;
+  workflowEnvKeys: readonly string[];
+  jobEnvKeys: readonly string[];
   name: WorkflowFieldTemplate | undefined;
   workingDirectory: WorkflowFieldTemplate | undefined;
   issues: WorkflowModelValidationIssue[];
@@ -732,6 +752,15 @@ function normalizeRunStep(params: {
     allowedJobReferences: params.allowedJobReferences,
     typeOverlay: params.typeOverlay,
   });
+  addReevaluatingCommandWarnings({
+    command: commandTemplate,
+    source: params.step.run,
+    workflowEnvKeys: params.workflowEnvKeys,
+    jobEnvKeys: params.jobEnvKeys,
+    stepEnvKeys: Object.keys(params.step.env ?? {}),
+    path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'run'],
+    issues: params.issues,
+  });
   const templates = optionalRunStepTemplates({
     command: commandTemplate,
     name: params.name,
@@ -746,6 +775,103 @@ function normalizeRunStep(params: {
     ...(stepEnv.env === undefined ? {} : {env: stepEnv.env}),
     ...(templates === undefined ? {} : {templates}),
   };
+}
+
+function addReevaluatingCommandWarnings(params: {
+  command: WorkflowFieldTemplate | undefined;
+  source: string;
+  workflowEnvKeys: readonly string[];
+  jobEnvKeys: readonly string[];
+  stepEnvKeys: readonly string[];
+  path: readonly WorkflowModelValidationIssuePathSegment[];
+  issues: WorkflowModelValidationIssue[];
+}): void {
+  const envKeys = new Set([...params.workflowEnvKeys, ...params.jobEnvKeys, ...params.stepEnvKeys]);
+  let hoisted: ReturnType<typeof hoistPlannedRunCommand>;
+
+  try {
+    hoisted = hoistPlannedRunCommand({
+      field: {
+        segments: params.command ?? [{kind: 'literal', value: params.source}],
+      },
+      reservedNames: envKeys,
+    });
+  } catch (error) {
+    if (!(error instanceof UnsafeRunInterpolationError)) return;
+
+    for (const occurrence of error.occurrences) {
+      params.issues.push(
+        issue({
+          code: 're-evaluating-command',
+          message: unsafeInterpolationWarningMessage(occurrence),
+          path: params.path,
+          severity: 'warning',
+        }),
+      );
+    }
+
+    if (error.partial === undefined) return;
+    hoisted = error.partial;
+  }
+
+  try {
+    const matches = classifyShellCodePosition({
+      command: hoisted.command,
+      workflowDataNames: [...envKeys, ...hoisted.bindings.map((binding) => binding.name)],
+    }).matches;
+
+    for (const match of matches) {
+      params.issues.push(
+        issue({
+          code: 're-evaluating-command',
+          message: reevaluatingCommandWarningMessage(match.construct, match.name),
+          path: params.path,
+          severity: 'warning',
+        }),
+      );
+    }
+  } catch {
+    return;
+  }
+}
+
+function unsafeInterpolationWarningMessage(error: UnsafeRunInterpolation): string {
+  const regionLabel = {
+    single: 'single-quoted shell text',
+    double: 'double-quoted shell text',
+    'dollar-single': 'ANSI-C shell text',
+    'dollar-double': 'dollar-double-quoted shell text',
+    'paren-sub': 'command substitution',
+    arith: 'shell arithmetic',
+    backtick: 'backtick substitution',
+    'param-brace': 'shell parameter expansion',
+    heredoc: 'a heredoc',
+    'line-comment': 'a shell comment',
+    escape: 'a shell escape',
+  }[error.region];
+
+  return `Value "${error.source}" is inside ${regionLabel} and will be re-executed as code. Hoisting cannot protect it; move the interpolation to a normal quoted argument instead.`;
+}
+
+function reevaluatingCommandWarningMessage(
+  construct: ShellReevaluatingConstruct,
+  name: string,
+): string {
+  const constructLabel = {
+    eval: 'eval',
+    'sh-c': 'sh -c',
+    'bash-c': 'bash -c',
+    source: 'source',
+    let: 'let',
+    'declare-i': 'declare -i',
+    arithmetic: 'shell arithmetic',
+    awk: 'awk',
+    jq: 'jq',
+    sed: 'sed',
+    'xargs-sh-c': 'xargs sh -c',
+  }[construct];
+
+  return `Value "$${name}" is passed to ${constructLabel} and re-executed as code. Hoisting cannot protect it; pass the value to a fixed program instead.`;
 }
 
 function normalizeAgentStep(params: {

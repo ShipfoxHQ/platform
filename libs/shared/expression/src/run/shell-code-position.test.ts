@@ -113,6 +113,19 @@ describe('classifyShellCodePosition', () => {
     expect(result.matches).toEqual([{name: '__sf_0', construct: 'eval'}]);
   });
 
+  it('preserves every repeated workflow reference in a code position', () => {
+    const result = classifyShellCodePosition({
+      command: 'eval "$MSG" "$MSG"; eval "$MSG"',
+      workflowDataNames,
+    });
+
+    expect(result.matches).toEqual([
+      {name: 'MSG', construct: 'eval'},
+      {name: 'MSG', construct: 'eval'},
+      {name: 'MSG', construct: 'eval'},
+    ]);
+  });
+
   it('reports arithmetic references without following command substitutions', () => {
     const result = classifyShellCodePosition({
       command: 'echo $(( MSG + $(cat script.sh) ))',
