@@ -62,6 +62,7 @@
     "type:emit": "shipfox-tsc-emit"
   },
   "dependencies": {
+    "@shipfox/api-common-dto": "workspace:*",
     "@shipfox/api-definitions-dto": "workspace:*",
     "@shipfox/api-integration-core-dto": "workspace:*",
     "@shipfox/api-projects-dto": "workspace:*",

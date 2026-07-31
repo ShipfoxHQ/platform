@@ -1,10 +1,11 @@
-import {displayNameSchema} from '@shipfox/api-common-dto';
+import {displayNameSchema, slugSchema} from '@shipfox/api-common-dto';
 import {z} from 'zod';
 import {projectResponseSchema} from '../schemas/project.js';
 
 export const e2eCreateProjectBodySchema = z.object({
   workspace_id: z.string().uuid(),
   name: displayNameSchema,
+  slug: slugSchema.optional(),
   source_connection_id: z.string().uuid().optional(),
   source_external_repository_id: z.string().min(1).max(255).optional(),
 });

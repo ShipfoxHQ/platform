@@ -15,9 +15,12 @@ import {
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import type {AuthMethod} from '@shipfox/node-fastify';
 import {closeApp, createApp} from '@shipfox/node-fastify';
+import {sql} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import type {Project} from '#core/entities/project.js';
+import {db} from '#db/db.js';
 import {createProject} from '#db/projects.js';
+import {projectsOutbox} from '#db/schema/outbox.js';
 import {createProjectRoutes} from './index.js';
 
 let authenticatedMemberships: UserContextMembership[] = [];
@@ -95,6 +98,7 @@ describe('project routes', () => {
       payload: {
         workspace_id: workspaceId,
         name: '  Platform  ',
+        slug: 'platform',
         source: {
           connection_id: sourceConnectionId,
           external_repository_id: 'gitea:gitea-owner/platform',
@@ -104,10 +108,288 @@ describe('project routes', () => {
 
     expect(res.statusCode).toBe(201);
     expect(res.json().name).toBe('Platform');
+    expect(res.json().slug).toBe('platform');
     expect(res.json().source).toEqual({
       connection_id: sourceConnectionId,
       external_repository_id: 'gitea:gitea-owner/platform',
     });
+  });
+
+  test('returns a distinct conflict when a slug is taken in the workspace', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        workspace_id: workspaceId,
+        name: 'Platform',
+        slug: 'platform',
+        source: {
+          connection_id: sourceConnectionId,
+          external_repository_id: 'gitea:gitea-owner/platform',
+        },
+      },
+    });
+    vi.mocked(integrations.resolveSourceRepository).mockResolvedValueOnce({
+      connection: {
+        id: crypto.randomUUID(),
+        provider: 'gitea',
+        slug: 'gitea_owner',
+      },
+      repository: {
+        externalRepositoryId: 'gitea:gitea-owner/other',
+        owner: 'gitea-owner',
+        name: 'other',
+        fullName: 'gitea-owner/other',
+        defaultBranch: 'main',
+        visibility: 'private',
+        cloneUrl: 'https://gitea.local/gitea-owner/other.git',
+        htmlUrl: 'https://gitea.local/gitea-owner/other',
+      },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        workspace_id: workspaceId,
+        name: 'Other',
+        slug: 'platform',
+        source: {
+          connection_id: crypto.randomUUID(),
+          external_repository_id: 'gitea:gitea-owner/other',
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('slug-conflict');
+    expect(res.json().code).not.toBe('project-already-exists');
+  });
+
+  test('allows the same slug in different workspaces', async () => {
+    const secondWorkspaceId = crypto.randomUUID();
+    authenticatedMemberships = [
+      {workspaceId, role: 'admin', workspaceStatus: 'active'},
+      {workspaceId: secondWorkspaceId, role: 'admin', workspaceStatus: 'active'},
+    ];
+    await app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        workspace_id: workspaceId,
+        name: 'Platform',
+        slug: 'platform',
+        source: {
+          connection_id: sourceConnectionId,
+          external_repository_id: 'gitea:gitea-owner/platform',
+        },
+      },
+    });
+    vi.mocked(integrations.resolveSourceRepository).mockResolvedValueOnce({
+      connection: {
+        id: crypto.randomUUID(),
+        provider: 'gitea',
+        slug: 'gitea_owner',
+      },
+      repository: {
+        externalRepositoryId: 'gitea:gitea-owner/other-workspace',
+        owner: 'gitea-owner',
+        name: 'other-workspace',
+        fullName: 'gitea-owner/other-workspace',
+        defaultBranch: 'main',
+        visibility: 'private',
+        cloneUrl: 'https://gitea.local/gitea-owner/other-workspace.git',
+        htmlUrl: 'https://gitea.local/gitea-owner/other-workspace',
+      },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        workspace_id: secondWorkspaceId,
+        name: 'Platform',
+        slug: 'platform',
+        source: {
+          connection_id: crypto.randomUUID(),
+          external_repository_id: 'gitea:gitea-owner/other-workspace',
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().slug).toBe('platform');
+  });
+
+  test('accepts a project slug named new', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        workspace_id: workspaceId,
+        name: 'New Project',
+        slug: 'new',
+        source: {
+          connection_id: sourceConnectionId,
+          external_repository_id: 'gitea:gitea-owner/platform',
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().slug).toBe('new');
+  });
+
+  test('renames a project, frees the old slug, and writes an update event', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        workspace_id: workspaceId,
+        name: 'Platform',
+        slug: 'platform',
+        source: {
+          connection_id: sourceConnectionId,
+          external_repository_id: 'gitea:gitea-owner/platform',
+        },
+      },
+    });
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/projects/${createRes.json().id}`,
+      headers: {authorization: 'Bearer user'},
+      payload: {name: 'Renamed Platform', slug: 'renamed-platform'},
+    });
+
+    expect(patchRes.statusCode).toBe(200);
+    expect(patchRes.json()).toMatchObject({
+      name: 'Renamed Platform',
+      slug: 'renamed-platform',
+    });
+
+    const events = await db()
+      .select()
+      .from(projectsOutbox)
+      .where(sql`${projectsOutbox.payload}->>'projectId' = ${createRes.json().id}`);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'projects.project.updated',
+          payload: expect.objectContaining({
+            name: 'Renamed Platform',
+            slug: 'renamed-platform',
+          }),
+        }),
+      ]),
+    );
+
+    vi.mocked(integrations.resolveSourceRepository).mockResolvedValueOnce({
+      connection: {
+        id: crypto.randomUUID(),
+        provider: 'gitea',
+        slug: 'gitea_owner',
+      },
+      repository: {
+        externalRepositoryId: 'gitea:gitea-owner/other',
+        owner: 'gitea-owner',
+        name: 'other',
+        fullName: 'gitea-owner/other',
+        defaultBranch: 'main',
+        visibility: 'private',
+        cloneUrl: 'https://gitea.local/gitea-owner/other.git',
+        htmlUrl: 'https://gitea.local/gitea-owner/other',
+      },
+    });
+    const reuseRes = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        workspace_id: workspaceId,
+        name: 'Other',
+        slug: 'platform',
+        source: {
+          connection_id: crypto.randomUUID(),
+          external_repository_id: 'gitea:gitea-owner/other',
+        },
+      },
+    });
+    expect(reuseRes.statusCode).toBe(201);
+  });
+
+  test('treats an empty project update as a no-op', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        workspace_id: workspaceId,
+        name: 'Platform',
+        slug: 'platform',
+        source: {
+          connection_id: sourceConnectionId,
+          external_repository_id: 'gitea:gitea-owner/platform',
+        },
+      },
+    });
+    const created = createRes.json();
+    const beforeEvents = await db()
+      .select()
+      .from(projectsOutbox)
+      .where(sql`${projectsOutbox.payload}->>'projectId' = ${created.id}`);
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/projects/${created.id}`,
+      headers: {authorization: 'Bearer user'},
+      payload: {},
+    });
+
+    expect(patchRes.statusCode).toBe(200);
+    expect(patchRes.json()).toMatchObject({
+      name: 'Platform',
+      slug: 'platform',
+      updated_at: created.updated_at,
+    });
+    const afterEvents = await db()
+      .select()
+      .from(projectsOutbox)
+      .where(sql`${projectsOutbox.payload}->>'projectId' = ${created.id}`);
+    expect(afterEvents).toHaveLength(beforeEvents.length);
+  });
+
+  test('returns a slug conflict when updating to another project slug', async () => {
+    const first = await createProject({
+      workspaceId,
+      name: 'Platform',
+      slug: 'platform',
+      sourceConnectionId: crypto.randomUUID(),
+      sourceExternalRepositoryId: 'gitea:platform',
+    });
+    const second = await createProject({
+      workspaceId,
+      name: 'Other',
+      slug: 'other',
+      sourceConnectionId: crypto.randomUUID(),
+      sourceExternalRepositoryId: 'gitea:other',
+    });
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/projects/${second.id}`,
+      headers: {authorization: 'Bearer user'},
+      payload: {slug: first.slug},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('slug-conflict');
   });
 
   test.each([
@@ -122,6 +404,7 @@ describe('project routes', () => {
       payload: {
         workspace_id: workspaceId,
         name,
+        slug: 'invalid-name',
         source: {
           connection_id: sourceConnectionId,
           external_repository_id: 'gitea:gitea-owner/platform',
@@ -141,6 +424,7 @@ describe('project routes', () => {
       payload: {
         workspace_id: workspaceId,
         name: 'Platform',
+        slug: 'platform',
         source: {
           connection_id: sourceConnectionId,
           external_repository_id: 'gitea:gitea-owner/platform',
@@ -189,6 +473,7 @@ describe('project routes', () => {
         payload: {
           workspace_id: workspaceId,
           name,
+          slug: name.toLowerCase(),
           source: {
             connection_id: sourceConnectionId,
             external_repository_id: `gitea:gitea-owner/${name.toLowerCase()}-${index}`,
@@ -212,6 +497,7 @@ describe('project routes', () => {
     const payload = {
       workspace_id: workspaceId,
       name: 'Platform',
+      slug: 'platform',
       source: {
         connection_id: sourceConnectionId,
         external_repository_id: 'gitea:gitea-owner/platform',
@@ -252,6 +538,7 @@ describe('project routes', () => {
       payload: {
         workspace_id: workspaceId,
         name: 'Platform',
+        slug: 'platform',
         source: {
           connection_id: sourceConnectionId,
           external_repository_id: 'gitea:gitea-owner/platform',
@@ -320,6 +607,7 @@ describe('project routes', () => {
         await createProject({
           workspaceId,
           name,
+          slug: name.toLowerCase(),
           sourceConnectionId: crypto.randomUUID(),
           sourceExternalRepositoryId: `gitea:${name.toLowerCase()}`,
         }),
@@ -375,12 +663,14 @@ describe('project routes', () => {
     const firstProject = await createProject({
       workspaceId: firstWorkspaceId,
       name: 'GlobalAdminLookupAlpha',
+      slug: 'global-admin-lookup-alpha',
       sourceConnectionId: crypto.randomUUID(),
       sourceExternalRepositoryId: 'gitea:global-admin-lookup-alpha',
     });
     const secondProject = await createProject({
       workspaceId: secondWorkspaceId,
       name: 'GlobalAdminLookupBeta',
+      slug: 'global-admin-lookup-beta',
       sourceConnectionId: crypto.randomUUID(),
       sourceExternalRepositoryId: 'gitea:global-admin-lookup-beta',
     });
@@ -404,6 +694,7 @@ describe('project routes', () => {
     const project = await createProject({
       workspaceId,
       name: 'Platform',
+      slug: 'platform',
       sourceConnectionId: crypto.randomUUID(),
       sourceExternalRepositoryId: 'gitea:platform',
     });

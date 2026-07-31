@@ -49,6 +49,7 @@ describe('createProject', () => {
         id: '44444444-4444-4444-8444-444444444444',
         workspace_id: '11111111-1111-4111-8111-111111111111',
         name: 'Platform',
+        slug: 'platform',
         source: {
           connection_id: '33333333-3333-4333-8333-333333333333',
           external_repository_id: 'platform',
@@ -61,6 +62,7 @@ describe('createProject', () => {
     const body = {
       workspaceId: '11111111-1111-4111-8111-111111111111',
       name: 'Platform',
+      slug: 'platform',
       source: {
         connectionId: '33333333-3333-4333-8333-333333333333',
         externalRepositoryId: 'platform',
@@ -71,11 +73,13 @@ describe('createProject', () => {
 
     const request = fetchImpl.mock.calls[0]?.[0] as Request;
     expect(result.name).toBe('Platform');
+    expect(result.slug).toBe('platform');
     expect(request.url).toBe('https://api.example.test/projects');
     expect(request.method).toBe('POST');
     expect(requestBody).toEqual({
       workspace_id: body.workspaceId,
       name: body.name,
+      slug: body.slug,
       source: {
         connection_id: body.source.connectionId,
         external_repository_id: body.source.externalRepositoryId,

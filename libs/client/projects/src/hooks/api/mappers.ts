@@ -8,6 +8,7 @@ export function toProject(dto: ProjectResponseDto): Project {
     id: dto.id,
     workspaceId: dto.workspace_id,
     name: dto.name,
+    slug: dto.slug,
     source: {
       connectionId: dto.source.connection_id,
       externalRepositoryId: dto.source.external_repository_id,

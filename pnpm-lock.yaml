@@ -1402,6 +1402,9 @@ importers:
 
   e2e/setup/projects:
     dependencies:
+      '@shipfox/api-common-dto':
+        specifier: workspace:*
+        version: link:../../../libs/api/common-dto
       '@shipfox/api-projects-dto':
         specifier: workspace:*
         version: link:../../../libs/api/projects-dto
@@ -1828,6 +1831,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.29.0(zod@4.4.3)
+      '@shipfox/api-common-dto':
+        specifier: workspace:*
+        version: link:../../../../libs/api/common-dto
       '@shipfox/api-definitions-dto':
         specifier: workspace:*
         version: link:../../../../libs/api/definitions-dto
@@ -3675,6 +3681,9 @@ importers:
       '@shipfox/api-auth-dto':
         specifier: workspace:*
         version: link:../auth-dto
+      '@shipfox/api-common-dto':
+        specifier: workspace:*
+        version: link:../common-dto
       '@shipfox/api-integration-core-dto':
         specifier: workspace:*
         version: link:../integration/core-dto
@@ -5383,6 +5392,9 @@ importers:
 
   libs/client/projects:
     dependencies:
+      '@shipfox/api-common-dto':
+        specifier: workspace:*
+        version: link:../../api/common-dto
       '@shipfox/api-definitions-dto':
         specifier: workspace:*
         version: link:../../api/definitions-dto

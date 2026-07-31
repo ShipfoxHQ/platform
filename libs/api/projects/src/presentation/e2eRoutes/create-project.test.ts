@@ -6,6 +6,7 @@ import {projectsE2eRoutes} from './index.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const E2E_SOURCE_RE = /^e2e:/u;
+const GENERATED_PROJECT_SLUG_RE = /^e2e-project-/u;
 
 describe('projects E2E routes', () => {
   afterEach(async () => {
@@ -32,6 +33,28 @@ describe('projects E2E routes', () => {
     });
     expect(res.json().source.connection_id).toMatch(UUID_RE);
     expect(res.json().source.external_repository_id).toMatch(E2E_SOURCE_RE);
+  });
+
+  test('generates distinct slugs for repeated names in one workspace', async () => {
+    const workspaceId = crypto.randomUUID();
+    const app = await createApp({routes: [projectsE2eRoutes], swagger: false});
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      payload: {workspace_id: workspaceId, name: 'E2E Project'},
+    });
+    const second = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      payload: {workspace_id: workspaceId, name: 'E2E Project'},
+    });
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect(first.json().slug).toMatch(GENERATED_PROJECT_SLUG_RE);
+    expect(second.json().slug).toMatch(GENERATED_PROJECT_SLUG_RE);
+    expect(second.json().slug).not.toBe(first.json().slug);
   });
 
   test('preserves explicit synthetic source values', async () => {

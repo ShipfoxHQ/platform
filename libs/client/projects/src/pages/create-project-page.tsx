@@ -1,3 +1,4 @@
+import {slugifyName} from '@shipfox/api-common-dto';
 import {createProjectBodySchema} from '@shipfox/api-projects-dto';
 import {useMaybeActiveWorkspace} from '@shipfox/client-auth';
 import {
@@ -69,21 +70,29 @@ export function CreateProjectPage() {
   const defaultProjectName = projectNameFromRepository(
     selectedRepository?.name ?? selectedRepositoryId ?? '',
   );
+  const defaultProjectSlug = slugifyName(defaultProjectName, {fallback: 'project'});
 
   const [formError, setFormError] = useState<string | undefined>();
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [slugConflict, setSlugConflict] = useState(false);
 
   const form = useForm({
-    defaultValues: {name: defaultProjectName},
+    defaultValues: {name: defaultProjectName, slug: defaultProjectSlug},
     onSubmit: async ({value}) => {
-      await createProjectFromForm(nameTouched ? value.name : defaultProjectName);
+      const projectSlug = slugTouched ? value.slug : slugifyName(value.name, {fallback: 'project'});
+      await createProjectFromForm(nameTouched ? value.name : defaultProjectName, projectSlug);
     },
   });
 
   useEffect(() => {
     if (!nameTouched && form.state.values.name !== defaultProjectName) {
       form.setFieldValue('name', defaultProjectName);
+      if (!slugTouched) {
+        setSlugConflict(false);
+        form.setFieldValue('slug', slugifyName(defaultProjectName, {fallback: 'project'}));
+      }
     }
-  }, [defaultProjectName, form, nameTouched]);
+  }, [defaultProjectName, form, nameTouched, slugTouched]);
 
   function selectConnection(connectionId: string) {
     setSelectedConnectionId(connectionId);
@@ -102,8 +111,9 @@ export function CreateProjectPage() {
     return <Navigate to="/workspaces/$wid/integrations" params={{wid: workspace.id}} replace />;
   }
 
-  async function createProjectFromForm(projectName: string) {
+  async function createProjectFromForm(projectName: string, projectSlug: string) {
     setFormError(undefined);
+    setSlugConflict(false);
     if (!workspace) {
       setFormError('Workspace is still loading. Try again in a moment.');
       errorRef.current?.focus();
@@ -124,6 +134,7 @@ export function CreateProjectPage() {
       const command: CreateProjectCommand = {
         workspaceId: workspace.id,
         name: projectName,
+        slug: projectSlug,
         source: {
           connectionId: selectedConnection.id,
           externalRepositoryId: selectedRepository.externalRepositoryId,
@@ -143,6 +154,11 @@ export function CreateProjectPage() {
           to: '/workspaces/$wid/projects/$pid',
           params: {wid: workspace.id, pid: copy.existingProjectId},
         });
+        return;
+      }
+      if (copy.slugConflict) {
+        setSlugConflict(true);
+        requestAnimationFrame(() => document.getElementById('project-slug')?.focus());
         return;
       }
       setFormError(`${copy.title}: ${copy.message}`);
@@ -288,11 +304,51 @@ export function CreateProjectPage() {
                     type="text"
                     value={field.state.value}
                     onChange={(event) => {
+                      const nextName = event.target.value;
                       setNameTouched(true);
-                      field.handleChange(event.target.value);
+                      field.handleChange(nextName);
+                      if (!slugTouched) {
+                        setSlugConflict(false);
+                        form.setFieldValue('slug', slugifyName(nextName, {fallback: 'project'}));
+                      }
                     }}
                     onBlur={field.handleBlur}
                     placeholder="Platform"
+                  />
+                </FormField>
+              )}
+            </form.Field>
+
+            <form.Field
+              name="slug"
+              validators={{
+                onBlur: createProjectBodySchema.shape.slug,
+                onSubmit: createProjectBodySchema.shape.slug,
+              }}
+            >
+              {(field) => (
+                <FormField
+                  label="Project slug"
+                  id="project-slug"
+                  error={slugConflict ? 'This project slug is already in use.' : fieldError(field)}
+                  description={
+                    <span className="font-code" aria-live="polite">
+                      {`/w/${workspace.slug}/p/${field.state.value}`}
+                    </span>
+                  }
+                >
+                  <FormFieldInput
+                    name="slug"
+                    type="text"
+                    value={field.state.value}
+                    onChange={(event) => {
+                      setSlugTouched(true);
+                      setSlugConflict(false);
+                      field.handleChange(event.target.value);
+                    }}
+                    onBlur={field.handleBlur}
+                    placeholder="platform"
+                    className="font-code"
                   />
                 </FormField>
               )}

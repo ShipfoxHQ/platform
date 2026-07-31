@@ -17,4 +17,6 @@ export {
   projectDtoSchema,
   projectResponseSchema,
   projectSourceDtoSchema,
+  type UpdateProjectBodyDto,
+  updateProjectBodySchema,
 } from './project.js';

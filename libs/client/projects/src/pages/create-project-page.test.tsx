@@ -6,6 +6,7 @@ import {CreateProjectPage} from './create-project-page.js';
 const CONNECTION_ID = '33333333-3333-4333-8333-333333333333';
 const SECOND_CONNECTION_ID = '66666666-6666-4666-8666-666666666666';
 const REPOSITORY_NOT_FOUND_RE = /Repository not found/;
+const PROJECT_REQUEST_FAILED_RE = /Project request failed/;
 const GITEA_RADIO_LABEL_RE = /^Gitea Source$/;
 
 describe('CreateProjectPage', () => {
@@ -33,24 +34,59 @@ describe('CreateProjectPage', () => {
 
     renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
     const nameInput = await screen.findByLabelText('Project name');
+    const slugInput = await screen.findByLabelText('Project slug');
     await waitFor(() => expect(nameInput).toHaveValue('Platform'));
+    expect(slugInput).toHaveValue('platform');
+    expect(slugInput).toHaveAttribute('aria-describedby', 'project-slug-description');
+    expect(screen.getByText('/w/acme/p/platform')).toBeInTheDocument();
     expect(screen.getByRole('radio', {name: GITEA_RADIO_LABEL_RE})).toBeChecked();
     expect(screen.getAllByText('gitea-owner/platform').length).toBeGreaterThan(0);
     fireEvent.change(nameInput, {
       target: {value: '  Launch Pad  '},
     });
+    fireEvent.change(slugInput, {
+      target: {value: 'launchpad'},
+    });
+    expect(screen.getByText('/w/acme/p/launchpad')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 
     expect(await screen.findByRole('heading', {name: 'Runs'})).toBeInTheDocument();
     expect(createProjectBody).toEqual({
       workspace_id: PROJECT_TEST_WID,
       name: 'Launch Pad',
+      slug: 'launchpad',
       source: {
         connection_id: CONNECTION_ID,
         external_repository_id: 'platform',
       },
     });
   }, 10_000);
+
+  test('auto-derives the slug from each keystroke in the name field until the slug is touched', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return Promise.resolve(jsonResponse({connections: [connectionDto()]}));
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        return Promise.resolve(jsonResponse({repositories: [repositoryDto()], next_cursor: null}));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    const nameInput = await screen.findByLabelText('Project name');
+    const slugInput = await screen.findByLabelText('Project slug');
+    await waitFor(() => expect(nameInput).toHaveValue('Platform'));
+
+    fireEvent.change(nameInput, {target: {value: 'L'}});
+    fireEvent.change(nameInput, {target: {value: 'La'}});
+    fireEvent.change(nameInput, {target: {value: 'Launch Pad'}});
+
+    expect(slugInput).toHaveValue('launch-pad');
+    expect(screen.getByText('/w/acme/p/launch-pad')).toBeInTheDocument();
+  });
 
   test('uses the current repository-derived name when submitted before touching the field', async () => {
     let createProjectBody: unknown;
@@ -78,6 +114,7 @@ describe('CreateProjectPage', () => {
     expect(createProjectBody).toEqual({
       workspace_id: PROJECT_TEST_WID,
       name: 'Platform',
+      slug: 'platform',
       source: {
         connection_id: CONNECTION_ID,
         external_repository_id: 'platform',
@@ -232,6 +269,66 @@ describe('CreateProjectPage', () => {
     expect(await screen.findByRole('heading', {name: 'Runs'})).toBeInTheDocument();
   });
 
+  test('surfaces a slug conflict on the slug field without a generic form error', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return Promise.resolve(jsonResponse({connections: [connectionDto()]}));
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        return Promise.resolve(jsonResponse({repositories: [repositoryDto()], next_cursor: null}));
+      }
+      if (request.url.endsWith('/projects') && request.method === 'POST') {
+        return Promise.resolve(jsonResponse({code: 'slug-conflict'}, {status: 409}));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
+
+    expect(await screen.findByText('This project slug is already in use.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Project slug')).toHaveAttribute(
+      'aria-describedby',
+      'project-slug-error',
+    );
+    await waitFor(() => expect(screen.getByLabelText('Project slug')).toHaveFocus());
+    expect(screen.queryByText(PROJECT_REQUEST_FAILED_RE)).not.toBeInTheDocument();
+  });
+
+  test('clears a slug conflict when the slug is regenerated from the project name', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return Promise.resolve(jsonResponse({connections: [connectionDto()]}));
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        return Promise.resolve(jsonResponse({repositories: [repositoryDto()], next_cursor: null}));
+      }
+      if (request.url.endsWith('/projects') && request.method === 'POST') {
+        return Promise.resolve(jsonResponse({code: 'slug-conflict'}, {status: 409}));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
+
+    expect(await screen.findByText('This project slug is already in use.')).toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText('Project name'), {
+      target: {value: 'Launch Pad'},
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('This project slug is already in use.')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Project slug')).toHaveValue('launch-pad');
+    });
+  });
+
   test('shows provider-specific submit errors', async () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
@@ -302,6 +399,7 @@ function projectDto({id}: {id: string}) {
     id,
     workspace_id: '11111111-1111-4111-8111-111111111111',
     name: 'Project Detail',
+    slug: 'project-detail',
     source: {
       connection_id: CONNECTION_ID,
       external_repository_id: 'platform',

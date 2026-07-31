@@ -4,6 +4,7 @@ export interface ProjectErrorCopy {
   title: string;
   message: string;
   existingProjectId?: string | undefined;
+  slugConflict?: boolean | undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,6 +97,13 @@ export function projectErrorCopy(error: unknown): ProjectErrorCopy {
       title: 'Project already exists',
       message: 'This repository is already connected to a Shipfox project.',
       existingProjectId: stringDetail(error, 'existing_project_id'),
+    };
+  }
+  if (error.code === 'slug-conflict') {
+    return {
+      title: 'Project slug already exists',
+      message: 'Choose another slug and try again.',
+      slugConflict: true,
     };
   }
 

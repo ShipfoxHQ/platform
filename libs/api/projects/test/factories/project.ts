@@ -1,3 +1,4 @@
+import {withSlugSuffix} from '@shipfox/api-common-dto';
 import {Factory} from 'fishery';
 import type {Project} from '#core/entities/index.js';
 import {createProject} from '#db/index.js';
@@ -9,6 +10,7 @@ export const projectFactory = Factory.define<Project>(({sequence, onCreate}) => 
       sourceConnectionId: project.sourceConnectionId,
       sourceExternalRepositoryId: project.sourceExternalRepositoryId,
       name: project.name,
+      slug: project.slug,
     }),
   );
 
@@ -21,6 +23,7 @@ export const projectFactory = Factory.define<Project>(({sequence, onCreate}) => 
     sourceRepositoryName: null,
     sourceDefaultBranch: null,
     name: `Project ${sequence}`,
+    slug: withSlugSuffix('project', sequence + 1),
     createdAt: new Date(),
     updatedAt: new Date(),
   };

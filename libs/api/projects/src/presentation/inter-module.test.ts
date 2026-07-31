@@ -47,6 +47,7 @@ async function insertProject(params: {
       sourceRepositoryOwner: params.owner,
       sourceRepositoryName: params.name,
       name: params.name ?? 'Project',
+      slug: `p-${crypto.randomUUID().slice(0, 8)}`,
     })
     .returning({
       projectId: projects.id,
