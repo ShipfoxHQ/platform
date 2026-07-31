@@ -5,13 +5,13 @@ import {
 } from '@shipfox/node-rate-limit';
 import {lt, sql} from 'drizzle-orm';
 import {db} from './db.js';
-import {runnersRateLimits} from './schema/rate-limits.js';
+import {workspacesRateLimits} from './schema/rate-limits.js';
 
-type RunnersRateLimitTransaction = Parameters<
+type WorkspacesRateLimitTransaction = Parameters<
   Parameters<ReturnType<typeof db>['transaction']>[0]
 >[0];
 
-const persistence = createRateLimitPersistence<RunnersRateLimitTransaction>({
+const persistence = createRateLimitPersistence<WorkspacesRateLimitTransaction>({
   transaction: (callback) => db().transaction(callback),
   setStatementTimeout: async (transaction, timeoutMs) => {
     await transaction.execute(
@@ -20,7 +20,7 @@ const persistence = createRateLimitPersistence<RunnersRateLimitTransaction>({
   },
   consume: async (transaction, params) => {
     const rows = await transaction
-      .insert(runnersRateLimits)
+      .insert(workspacesRateLimits)
       .values({
         action: params.action,
         scope: params.scope,
@@ -31,27 +31,29 @@ const persistence = createRateLimitPersistence<RunnersRateLimitTransaction>({
       })
       .onConflictDoUpdate({
         target: [
-          runnersRateLimits.action,
-          runnersRateLimits.scope,
-          runnersRateLimits.identifierHmac,
-          runnersRateLimits.windowStart,
+          workspacesRateLimits.action,
+          workspacesRateLimits.scope,
+          workspacesRateLimits.identifierHmac,
+          workspacesRateLimits.windowStart,
         ],
         set: {
-          count: sql`${runnersRateLimits.count} + 1`,
+          count: sql`${workspacesRateLimits.count} + 1`,
           updatedAt: sql`now()`,
         },
       })
-      .returning({count: runnersRateLimits.count, expiresAt: runnersRateLimits.expiresAt});
+      .returning({count: workspacesRateLimits.count, expiresAt: workspacesRateLimits.expiresAt});
 
     return rows[0];
   },
   prune: async (now) => {
-    const result = await db().delete(runnersRateLimits).where(lt(runnersRateLimits.expiresAt, now));
+    const result = await db()
+      .delete(workspacesRateLimits)
+      .where(lt(workspacesRateLimits.expiresAt, now));
     return result.rowCount ?? 0;
   },
 });
 
-export type ConsumeRunnersRateLimitParams = ConsumeRateLimitParams<string, string>;
-export type ConsumeRunnersRateLimitResult = ConsumeRateLimitResult;
-export const consumeRunnersRateLimit = persistence.consume;
-export const pruneExpiredRunnersRateLimits = persistence.prune;
+export type ConsumeWorkspacesRateLimitParams = ConsumeRateLimitParams<string, string>;
+export type ConsumeWorkspacesRateLimitResult = ConsumeRateLimitResult;
+export const consumeWorkspacesRateLimit = persistence.consume;
+export const pruneExpiredWorkspacesRateLimits = persistence.prune;

@@ -71,6 +71,8 @@ export {
   type WorkspaceAdminSummaryDto,
   type WorkspaceDto,
   type WorkspaceResponseDto,
+  type WorkspaceSlugAvailabilityQueryDto,
+  type WorkspaceSlugAvailabilityResponseDto,
   workspaceAdministrationMutationBodySchema,
   workspaceAdministrationMutationResponseSchema,
   workspaceAdminJobCountsSchema,
@@ -80,5 +82,7 @@ export {
   workspaceAdminSummarySchema,
   workspaceDtoSchema,
   workspaceResponseSchema,
+  workspaceSlugAvailabilityQuerySchema,
+  workspaceSlugAvailabilityResponseSchema,
   workspaceStatusSchema,
 } from './workspace.js';

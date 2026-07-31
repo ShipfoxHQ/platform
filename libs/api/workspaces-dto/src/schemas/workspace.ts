@@ -21,6 +21,22 @@ export const updateWorkspaceBodySchema = z
 
 export type UpdateWorkspaceBodyDto = z.infer<typeof updateWorkspaceBodySchema>;
 
+export const workspaceSlugAvailabilityQuerySchema = z.object({
+  slug: slugSchema,
+});
+
+export type WorkspaceSlugAvailabilityQueryDto = z.infer<
+  typeof workspaceSlugAvailabilityQuerySchema
+>;
+
+export const workspaceSlugAvailabilityResponseSchema = z.object({
+  available: z.boolean(),
+});
+
+export type WorkspaceSlugAvailabilityResponseDto = z.infer<
+  typeof workspaceSlugAvailabilityResponseSchema
+>;
+
 export const workspaceDtoSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),

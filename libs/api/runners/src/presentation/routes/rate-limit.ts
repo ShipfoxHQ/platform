@@ -1,11 +1,8 @@
 import {requireProvisionerContext} from '@shipfox/api-auth-context';
 import {ClientError, type FastifyReply, type FastifyRequest} from '@shipfox/node-fastify';
+import {enforceRateLimit as enforceSharedRateLimit} from '@shipfox/node-rate-limit';
 import {config} from '#config.js';
-import {
-  checkRunnersRateLimit,
-  RunnersRateLimitExceededError,
-  RunnersRateLimitUnavailableError,
-} from '#core/rate-limit.js';
+import {checkRunnersRateLimit} from '#core/rate-limit.js';
 import {getRunnerContext} from '#presentation/auth/index.js';
 
 function routeName(request: FastifyRequest): string {
@@ -21,65 +18,37 @@ async function enforceRateLimit(params: {
   limit: number;
   windowSeconds: number;
 }): Promise<void> {
-  try {
-    await checkRunnersRateLimit({
-      action: params.action,
-      scope: params.scope,
-      identifier: params.identifier,
-      limit: params.limit,
-      windowSeconds: params.windowSeconds,
-    });
-  } catch (error) {
-    if (error instanceof RunnersRateLimitExceededError) {
-      params.request.log.warn(
-        {
-          action: error.action,
-          scope: error.scope,
-          route: routeName(params.request),
-          retryAfterSeconds: error.retryAfterSeconds,
-          identifierHmacPrefix: error.identifierHmacPrefix,
-        },
-        'Runners rate limit blocked request',
-      );
-      params.reply.header('Retry-After', String(error.retryAfterSeconds));
-      throw new ClientError('Rate limit exceeded', 'rate-limited', {
-        status: 429,
-        details: {retry_after_seconds: error.retryAfterSeconds},
-        data: {
-          action: error.action,
-          scope: error.scope,
-          route: routeName(params.request),
-          identifierHmacPrefix: error.identifierHmacPrefix,
-        },
-        cause: error,
-      });
-    }
-
-    if (error instanceof RunnersRateLimitUnavailableError) {
-      params.request.log.error(
-        {
-          action: error.action,
-          scope: error.scope,
-          route: routeName(params.request),
-          identifierHmacPrefix: error.identifierHmacPrefix,
-          err: error,
-        },
-        'Runners rate limiter unavailable',
-      );
-      throw new ClientError('Runners rate limiter unavailable', 'runners-rate-limit-unavailable', {
-        status: 503,
-        data: {
-          action: error.action,
-          scope: error.scope,
-          route: routeName(params.request),
-          identifierHmacPrefix: error.identifierHmacPrefix,
-        },
-        cause: error,
-      });
-    }
-
-    throw error;
-  }
+  await enforceSharedRateLimit({
+    request: params.request,
+    reply: params.reply,
+    check: () =>
+      checkRunnersRateLimit({
+        action: params.action,
+        scope: params.scope,
+        identifier: params.identifier,
+        limit: params.limit,
+        windowSeconds: params.windowSeconds,
+      }),
+    route: routeName(params.request),
+    unavailableCode: 'runners-rate-limit-unavailable',
+    unavailableMessage: 'Runners rate limiter unavailable',
+    setRetryAfter: (reply, retryAfterSeconds) => {
+      reply.header('Retry-After', String(retryAfterSeconds));
+    },
+    logWarn: (request, context) => {
+      request.log.warn(context, 'Runners rate limit blocked request');
+    },
+    logError: (request, context) => {
+      request.log.error(context, 'Runners rate limiter unavailable');
+    },
+    createClientError: (presentation, cause) =>
+      new ClientError(presentation.message, presentation.code, {
+        status: presentation.status,
+        ...(presentation.details ? {details: presentation.details} : {}),
+        data: presentation.data,
+        cause,
+      }),
+  });
 }
 
 export function createProvisionerMintRateLimitPreHandler() {

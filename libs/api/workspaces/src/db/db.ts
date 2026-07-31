@@ -4,6 +4,7 @@ import {workspacesAdminCommandResults} from './schema/admin-command-results.js';
 import {invitations} from './schema/invitations.js';
 import {memberships} from './schema/memberships.js';
 import {workspacesOutbox} from './schema/outbox.js';
+import {workspacesRateLimits} from './schema/rate-limits.js';
 import {workspaces} from './schema/workspaces.js';
 
 export const schema = {
@@ -12,6 +13,7 @@ export const schema = {
   memberships,
   invitations,
   workspacesOutbox,
+  workspacesRateLimits,
 };
 
 let _db: NodePgDatabase<typeof schema> | undefined;

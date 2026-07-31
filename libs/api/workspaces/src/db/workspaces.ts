@@ -68,6 +68,16 @@ export async function getWorkspaceById(id: string): Promise<Workspace | undefine
   return toWorkspace(row);
 }
 
+export async function isWorkspaceSlugAvailable(slug: string): Promise<boolean> {
+  const rows = await db()
+    .select({id: workspaces.id})
+    .from(workspaces)
+    .where(eq(workspaces.slug, slug))
+    .limit(1);
+
+  return rows.length === 0;
+}
+
 export interface AdminWorkspaceRow extends Workspace {
   memberCount: number;
 }

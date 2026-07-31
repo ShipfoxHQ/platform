@@ -39,6 +39,7 @@ export {
 } from './invitations.js';
 export {type EnsureMembershipParams, ensureMembership} from './memberships.js';
 export {
+  checkWorkspaceSlugAvailability,
   createWorkspaceForUser,
   getWorkspace,
   listUserWorkspaceMemberships,

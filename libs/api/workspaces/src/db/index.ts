@@ -22,8 +22,17 @@ export {
   listMembershipsByWorkspace,
   removeMembership,
 } from './memberships.js';
+export type {
+  ConsumeWorkspacesRateLimitParams,
+  ConsumeWorkspacesRateLimitResult,
+} from './rate-limits.js';
+export {
+  consumeWorkspacesRateLimit,
+  pruneExpiredWorkspacesRateLimits,
+} from './rate-limits.js';
 export {workspacesAdminCommandResults} from './schema/admin-command-results.js';
 export {workspacesOutbox} from './schema/outbox.js';
+export {workspacesRateLimits} from './schema/rate-limits.js';
 export type {
   AdminWorkspaceRow,
   CreateWorkspaceParams,
@@ -36,6 +45,7 @@ export {
   createWorkspace,
   getWorkspaceById,
   getWorkspaceServiceMetrics,
+  isWorkspaceSlugAvailable,
   listAdminWorkspaces,
   updateWorkspace,
 } from './workspaces.js';
