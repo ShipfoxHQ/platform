@@ -156,6 +156,7 @@ export function assembleJobActivationContext(
       ...assembleWorkflowRunContext(params),
       ...assembleJobsContext(params.jobs),
       needs: params.jobs.map(assembleJobContext),
+      vars: params.vars ?? {},
     },
   };
 }
@@ -425,8 +426,8 @@ export function assembleStepDispatchContext(params: {
   return {
     site: 'step-dispatch',
     values: {
-      ...(params.vars === undefined ? {} : {vars: params.vars}),
-      ...(params.jobs === undefined ? {} : assembleJobsContext(params.jobs)),
+      vars: params.vars ?? {},
+      ...assembleJobsContext(params.jobs ?? []),
       ...(params.jobExecution === undefined
         ? {}
         : {
@@ -518,7 +519,7 @@ export function assembleGateContext(params: {
   return {
     site: 'step-report',
     values: {
-      ...(params.vars === undefined ? {} : {vars: params.vars}),
+      vars: params.vars ?? {},
       step: {
         ...(params.exitCode === null ? {} : {exit_code: BigInt(params.exitCode)}),
         status: params.status,
@@ -528,12 +529,18 @@ export function assembleGateContext(params: {
   };
 }
 
-export function assembleJobResolutionContext(
-  executions: readonly JobExecution[],
-): WorkflowEvaluationContext {
+export function assembleJobResolutionContext(params: {
+  readonly executions: readonly JobExecution[];
+  readonly jobs: readonly JobContextInput[];
+  readonly vars?: Record<string, string> | undefined;
+}): WorkflowEvaluationContext {
   return {
     site: 'job-resolution',
-    values: assembleExecutionsContext(executions),
+    values: {
+      ...assembleExecutionsContext(params.executions),
+      ...assembleJobsContext(params.jobs),
+      vars: params.vars ?? {},
+    },
   };
 }
 

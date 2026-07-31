@@ -101,7 +101,7 @@ const runTypeEnvironment = {
       id: 'string',
       number: 'int',
       name: 'string',
-      run_name: 'string',
+      workflow_name: 'string',
       definition_id: 'string',
       project_id: 'string',
       workspace_id: 'string',
@@ -150,7 +150,6 @@ const executionType = {
     index: 'int',
     name: 'string',
     status: 'string',
-    failed: 'bool',
     started_at: 'timestamp',
     finished_at: 'timestamp',
     events: {
@@ -169,7 +168,13 @@ const executionsTypeEnvironment = {
 } as const satisfies ExpressionTypeEnvironment;
 
 const executionTypeEnvironment = {
-  execution: executionType,
+  execution: {
+    kind: 'object',
+    fields: {
+      ...executionType.fields,
+      failed: 'bool',
+    },
+  },
 } as const satisfies ExpressionTypeEnvironment;
 
 const stepGateType = {
@@ -204,7 +209,7 @@ const stepEntityType = {
   },
 } as const;
 
-const stepTypeEnvironment = {
+const stepDispatchTypeEnvironment = {
   step: {
     kind: 'object',
     fields: {
@@ -217,9 +222,27 @@ const stepTypeEnvironment = {
           feedback: 'string',
         },
       },
+    },
+  },
+} as const satisfies ExpressionTypeEnvironment;
+
+const stepReportTypeEnvironment = {
+  step: {
+    kind: 'object',
+    fields: {
       exit_code: 'int',
       status: 'string',
       outputs: {kind: 'map'},
+    },
+  },
+} as const satisfies ExpressionTypeEnvironment;
+
+const stepTypeEnvironment = {
+  step: {
+    kind: 'object',
+    fields: {
+      ...stepDispatchTypeEnvironment.step.fields,
+      ...stepReportTypeEnvironment.step.fields,
     },
   },
 } as const satisfies ExpressionTypeEnvironment;
@@ -429,7 +452,7 @@ export const workflowInterpolationFieldPolicies: Readonly<
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'degrade',
     minimumFillTarget: 'run-creation',
-    selfReference: {root: 'run', key: 'run_name'},
+    selfReference: {root: 'run', key: 'name'},
   },
   'job.execution_name': {
     acceptedHosts: serverOnlyHosts,
@@ -509,6 +532,13 @@ const workflowPredicateFieldMinimumFillTargets = {
   'job.if': 'job-activation',
   'step.if': 'step-dispatch',
 } as const satisfies Record<WorkflowPredicateField, AvailabilitySite>;
+
+const workflowPredicateFieldTypeEnvironments: Partial<
+  Record<WorkflowPredicateField, ExpressionTypeEnvironment>
+> = {
+  'step.success': stepReportTypeEnvironment,
+  'step.if': stepDispatchTypeEnvironment,
+};
 
 export function getWorkflowContextDefinition(name: WorkflowContextName): WorkflowContextDefinition {
   return workflowContextDefinitions[name];
@@ -610,6 +640,17 @@ export function getWorkflowPredicateFieldMinimumFillTarget(
   field: WorkflowPredicateField,
 ): AvailabilitySite {
   return workflowPredicateFieldMinimumFillTargets[field];
+}
+
+export function getWorkflowPredicateFieldTypeEnvironment(
+  field: WorkflowPredicateField,
+  root: WorkflowContextName,
+): ExpressionTypeEnvironment | undefined {
+  const typeEnvironment: ExpressionTypeEnvironment | undefined =
+    workflowPredicateFieldTypeEnvironments[field];
+  if (typeEnvironment === undefined) return getWorkflowContextTypeEnvironment(root);
+  const rootType = typeEnvironment[root];
+  return rootType === undefined ? getWorkflowContextTypeEnvironment(root) : {[root]: rootType};
 }
 
 export function getWorkflowPredicateContextRoots<Field extends WorkflowPredicateField>(

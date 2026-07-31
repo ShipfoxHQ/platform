@@ -1,3 +1,4 @@
+import {getWorkflowPredicateContextRoots} from '@shipfox/expression';
 import type {JobExecution} from '#core/entities/job-execution.js';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {
@@ -271,6 +272,9 @@ describe('assembleJobActivationContext', () => {
       ],
     });
 
+    expect(Object.keys(context.values).sort()).toEqual(
+      [...getWorkflowPredicateContextRoots('job.if')].sort(),
+    );
     expect(context).toEqual({
       site: 'job-activation',
       values: {
@@ -332,6 +336,7 @@ describe('assembleJobActivationContext', () => {
             executions: [],
           },
         ],
+        vars: {},
       },
     });
   });
@@ -362,7 +367,7 @@ describe('listener filter snapshots', () => {
           source: 'github',
           event: 'pull_request',
           filter:
-            'jobs.build.outputs.pr_number == event.pull_request.number && inputs.environment == "prod" && trigger.event == "pull_request" && run.id != "" && job.key == "await"',
+            'jobs.build.outputs.pr_number == event.pull_request.number && inputs.environment == "prod" && trigger.event == "pull_request" && run.id != "" && job.key == "await" && vars.ENABLED == "true"',
         },
       ],
       until: null,
@@ -372,6 +377,7 @@ describe('listener filter snapshots', () => {
       run,
       triggerPayload,
       inputs: {environment: 'prod'},
+      vars: {ENABLED: 'true'},
       plan,
       dependencyJobs: [
         {
@@ -392,6 +398,7 @@ describe('listener filter snapshots', () => {
       trigger: {source: 'github', event: 'pull_request'},
       inputs: {environment: 'prod'},
       job: {key: 'await'},
+      vars: {ENABLED: 'true'},
       jobs: {
         build: expect.objectContaining({
           key: 'build',
@@ -401,6 +408,11 @@ describe('listener filter snapshots', () => {
         }),
       },
     });
+    expect(Object.keys(matcher?.filter_snapshot ?? {}).sort()).toEqual(
+      getWorkflowPredicateContextRoots('listener.on')
+        .filter((root) => root !== 'event')
+        .sort(),
+    );
     expect(matcher?.filter_snapshot).not.toHaveProperty('event');
     expect(matcher?.filter_snapshot?.jobs).not.toHaveProperty('review');
   });
@@ -564,6 +576,9 @@ describe('assembleStepDispatchContext', () => {
       jobExecution: execution,
     });
 
+    expect(Object.keys(context.values).sort()).toEqual(
+      [...getWorkflowPredicateContextRoots('step.if')].sort(),
+    );
     expect(context).toEqual({
       site: 'step-dispatch',
       values: {
@@ -585,6 +600,7 @@ describe('assembleStepDispatchContext', () => {
           ],
           outputs: {},
         },
+        jobs: {},
         step: {
           attempt: 2n,
           is_retry: true,
@@ -607,6 +623,7 @@ describe('assembleStepDispatchContext', () => {
           test: {status: 'pending', attempts: []},
           running: {status: 'running', attempts: []},
         },
+        vars: {},
       },
     });
   });
@@ -850,9 +867,13 @@ describe('assembleGateContext', () => {
   it('wraps the reported step result with the step-report site', () => {
     const context = assembleGateContext({status: 'failed', exitCode: 1});
 
+    expect(Object.keys(context.values).sort()).toEqual(
+      [...getWorkflowPredicateContextRoots('step.success')].sort(),
+    );
     expect(context).toEqual({
       site: 'step-report',
       values: {
+        vars: {},
         step: {
           exit_code: 1n,
           status: 'failed',
@@ -884,11 +905,16 @@ describe('assembleJobResolutionContext', () => {
       jobExecution({sequence: 1, name: 'Second', status: 'succeeded', finishedAt: date}),
     ];
 
-    const context = assembleJobResolutionContext(executions);
+    const context = assembleJobResolutionContext({executions, jobs: []});
 
+    expect(Object.keys(context.values).sort()).toEqual(
+      [...getWorkflowPredicateContextRoots('job.success')].sort(),
+    );
     expect(context).toEqual({
       site: 'job-resolution',
       values: {
+        jobs: {},
+        vars: {},
         executions: [
           {
             index: 0,

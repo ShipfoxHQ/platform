@@ -108,7 +108,6 @@ function normalizeListeningTrigger(params: {
     validatePredicateExpression({
       field: params.field,
       source: params.trigger.filter,
-      site: 'job-activation',
       path: params.path,
       invalidCode: 'invalid-listener-filter',
       invalidMessage: `${params.field === 'listener.on' ? 'Listener on' : 'Listener until'} filter must be a valid CEL boolean expression.`,

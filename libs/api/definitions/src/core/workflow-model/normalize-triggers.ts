@@ -107,7 +107,6 @@ function validateTriggerFilter(params: {
   validatePredicateExpression({
     field: 'trigger.filter',
     source: trigger.filter,
-    site: 'ingest',
     path,
     invalidCode: 'invalid-trigger-filter',
     invalidMessage: 'Trigger filter must be a valid boolean predicate.',

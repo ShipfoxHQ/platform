@@ -9,6 +9,7 @@ import {
   getWorkflowInterpolationFieldFailurePolicy,
   getWorkflowPredicateContextRoots,
   getWorkflowPredicateFieldMinimumFillTarget,
+  getWorkflowPredicateFieldTypeEnvironment,
   projectWorkflowPredicateContext,
   resolveContextRootAvailability,
   resolveContextRootHost,
@@ -159,7 +160,7 @@ describe('workflow context registry', () => {
           id: 'string',
           number: 'int',
           name: 'string',
-          run_name: 'string',
+          workflow_name: 'string',
           definition_id: 'string',
           project_id: 'string',
           workspace_id: 'string',
@@ -209,6 +210,9 @@ describe('workflow context registry', () => {
         },
       },
     });
+    expect(getWorkflowContextTypeEnvironment('executions')).not.toHaveProperty(
+      'executions.element.fields.failed',
+    );
     expect(getWorkflowContextTypeEnvironment('needs')).toMatchObject({
       needs: {
         kind: 'list',
@@ -673,6 +677,28 @@ describe('workflow context registry', () => {
         }),
       ).toEqual({});
     });
+
+    it('uses predicate-specific types for runtime-specific properties', () => {
+      expect(getWorkflowPredicateFieldTypeEnvironment('step.if', 'execution')).toMatchObject({
+        execution: {fields: {failed: 'bool'}},
+      });
+      expect(getWorkflowPredicateFieldTypeEnvironment('step.if', 'step')).toMatchObject({
+        step: {fields: {attempt: 'int', is_retry: 'bool'}},
+      });
+      expect(getWorkflowPredicateFieldTypeEnvironment('step.success', 'step')).toEqual({
+        step: {
+          kind: 'object',
+          fields: {
+            exit_code: 'int',
+            status: 'string',
+            outputs: {kind: 'map'},
+          },
+        },
+      });
+      expect(
+        getWorkflowPredicateFieldTypeEnvironment('job.success', 'executions'),
+      ).not.toHaveProperty('executions.element.fields.failed');
+    });
   });
 
   it('supports CEL type-checking against the known context fields', () => {
@@ -796,7 +822,7 @@ describe('workflow interpolation field policies', () => {
   it('declares dynamic-name self-reference targets in field policies', () => {
     expect(workflowInterpolationFieldPolicies['workflow.run_name'].selfReference).toEqual({
       root: 'run',
-      key: 'run_name',
+      key: 'name',
     });
     expect(workflowInterpolationFieldPolicies['job.execution_name'].selfReference).toEqual({
       root: 'execution',

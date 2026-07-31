@@ -108,8 +108,8 @@ gate:
 A job's optional `success` expression decides whether the job succeeded once
 all its executions settle. In scope is `executions`, a list where each element
 carries `index`, `name`, `status`, `events`, `outputs`, and timing fields, plus
-`vars`. The default succeeds when no execution failed. It also succeeds when a
-listening job resolves with no executions:
+`jobs` and `vars`. The default succeeds when no execution failed. It also
+succeeds when a listening job resolves with no executions:
 
 This job fragment belongs under an existing workflow's `jobs` map:
 
