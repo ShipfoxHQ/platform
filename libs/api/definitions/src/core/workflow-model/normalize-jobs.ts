@@ -7,6 +7,7 @@ import {
   type ExpressionTypeEnvironment,
   hoistPlannedRunCommand,
   type ShellReevaluatingConstruct,
+  type UnsafeRunInterpolation,
   UnsafeRunInterpolationError,
   type WorkflowJobTypeOverlay,
   type WorkflowStepTypeOverlay,
@@ -768,17 +769,21 @@ function addReevaluatingCommandWarnings(params: {
       reservedNames: envKeys,
     });
   } catch (error) {
-    if (error instanceof UnsafeRunInterpolationError) {
+    if (!(error instanceof UnsafeRunInterpolationError)) return;
+
+    for (const occurrence of error.occurrences) {
       params.issues.push(
         issue({
           code: 're-evaluating-command',
-          message: unsafeInterpolationWarningMessage(error),
+          message: unsafeInterpolationWarningMessage(occurrence),
           path: params.path,
           severity: 'warning',
         }),
       );
     }
-    return;
+
+    if (error.partial === undefined) return;
+    hoisted = error.partial;
   }
 
   try {
@@ -802,7 +807,7 @@ function addReevaluatingCommandWarnings(params: {
   }
 }
 
-function unsafeInterpolationWarningMessage(error: UnsafeRunInterpolationError): string {
+function unsafeInterpolationWarningMessage(error: UnsafeRunInterpolation): string {
   const regionLabel = {
     single: 'single-quoted shell text',
     double: 'double-quoted shell text',

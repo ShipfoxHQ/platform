@@ -110,6 +110,7 @@ export {
   hoistPlannedRunCommand,
   type PlannedRunCommandBinding,
   type RunCommandHoistOptions,
+  type UnsafeRunInterpolation,
   UnsafeRunInterpolationError,
   unsafeRunInterpolationErrorCode,
 } from './run/hoist-run-command.js';

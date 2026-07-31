@@ -102,7 +102,7 @@ export function classifyShellCodePosition(params: {
   readonly workflowDataNames: Iterable<string>;
 }): ShellCodePositionAnalysis {
   const workflowDataNames = new Set(params.workflowDataNames);
-  const matches = new Map<string, ShellCodePositionMatch>();
+  const matches: ShellCodePositionMatch[] = [];
 
   if (workflowDataNames.size === 0) return {matches: []};
 
@@ -112,8 +112,7 @@ export function classifyShellCodePosition(params: {
   const report = (reference: ShellVariableReference, construct: ShellReevaluatingConstruct) => {
     if (!workflowDataNames.has(reference.name)) return;
 
-    const key = `${construct}:${reference.name}`;
-    if (!matches.has(key)) matches.set(key, {construct, name: reference.name});
+    matches.push({construct, name: reference.name});
   };
 
   const reportReferences = (
@@ -212,7 +211,7 @@ export function classifyShellCodePosition(params: {
 
   analyzeCommand(command);
 
-  return {matches: [...matches.values()]};
+  return {matches};
 }
 
 function tokenizeShell(source: string): readonly ShellToken[] {

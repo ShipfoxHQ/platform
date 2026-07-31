@@ -27,16 +27,30 @@ export interface HoistedPlannedRunCommand {
   readonly bindings: readonly PlannedRunCommandBinding[];
 }
 
+export interface UnsafeRunInterpolation {
+  readonly region: ShellUnsafeRegion;
+  readonly source: string;
+}
+
 export class UnsafeRunInterpolationError extends Error {
   readonly code = unsafeRunInterpolationErrorCode;
+  readonly occurrences: readonly UnsafeRunInterpolation[];
+  readonly partial: HoistedPlannedRunCommand | undefined;
   readonly region: ShellUnsafeRegion;
   readonly source: string;
 
-  constructor(params: {readonly region: ShellUnsafeRegion; readonly source: string}) {
+  constructor(params: {
+    readonly region: ShellUnsafeRegion;
+    readonly source: string;
+    readonly occurrences?: readonly UnsafeRunInterpolation[];
+    readonly partial?: HoistedPlannedRunCommand;
+  }) {
     super(
       `Unsafe run interpolation inside ${params.region}. Bind the value to env and reference $VAR instead.`,
     );
     this.name = 'UnsafeRunInterpolationError';
+    this.occurrences = params.occurrences ?? [{region: params.region, source: params.source}];
+    this.partial = params.partial;
     this.region = params.region;
     this.source = params.source;
   }
@@ -51,13 +65,24 @@ export function hoistPlannedRunCommand(params: {
   readonly field: ResolvedField;
   readonly reservedNames?: Iterable<string>;
 }): HoistedPlannedRunCommand {
-  return hoistCommandSegments({
+  const result = hoistCommandSegments({
     segments: params.field.segments,
     options: params.reservedNames === undefined ? {} : {reservedNames: params.reservedNames},
     literalText: (segment) => segment.value,
     isBindingSegment: (segment): segment is ResolvedFieldDeferredSegment =>
       segment.kind === 'deferred',
   });
+
+  const firstUnsafeInterpolation = result.unsafeInterpolations[0];
+  if (firstUnsafeInterpolation !== undefined) {
+    throw new UnsafeRunInterpolationError({
+      ...firstUnsafeInterpolation,
+      occurrences: result.unsafeInterpolations,
+      partial: {command: result.command, bindings: result.bindings},
+    });
+  }
+
+  return {command: result.command, bindings: result.bindings};
 }
 
 function hoistCommandSegments<
@@ -71,10 +96,12 @@ function hoistCommandSegments<
 }): {
   readonly command: string;
   readonly bindings: readonly {readonly name: string; readonly segment: BindingSegment}[];
+  readonly unsafeInterpolations: readonly UnsafeRunInterpolation[];
 } {
   let command = '';
   let state: ShellScanState = initialShellScanState;
   const bindings: {name: string; segment: BindingSegment}[] = [];
+  const unsafeInterpolations: UnsafeRunInterpolation[] = [];
   const reservedNames = new Set(params.options.reservedNames ?? []);
   let nextIndex = 0;
 
@@ -90,10 +117,11 @@ function hoistCommandSegments<
 
     const site = classifyShellSite(state);
     if (site.kind === 'unsafe') {
-      throw new UnsafeRunInterpolationError({
+      unsafeInterpolations.push({
         region: site.region,
         source: segment.expression.source,
       });
+      continue;
     }
 
     const name = nextGeneratedName(reservedNames, nextIndex);
@@ -103,7 +131,7 @@ function hoistCommandSegments<
     command += shellReference(name, site);
   }
 
-  return {command, bindings};
+  return {command, bindings, unsafeInterpolations};
 }
 
 function nextGeneratedName(reservedNames: ReadonlySet<string>, startIndex: number): string {

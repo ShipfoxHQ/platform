@@ -219,6 +219,36 @@ jobs:
     }
   });
 
+  test('warns for every repeated and unsafe flagged position', () => {
+    const result = validateDefinition(`
+name: Multiple re-evaluating commands
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - env:
+          MSG: fixed
+        run: |
+          eval "$MSG" "$MSG"; echo $(${interpolation('event.first')}); eval "$MSG"; echo $((1 + ${interpolation('event.second')}))
+`);
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.warnings).toHaveLength(5);
+      expect(result.warnings.every((warning) => warning.code === 're-evaluating-command')).toBe(
+        true,
+      );
+      expect(result.warnings.every((warning) => warning.path === 'jobs.build.steps.0.run')).toBe(
+        true,
+      );
+      expect(result.warnings.filter((warning) => warning.message.includes('eval'))).toHaveLength(3);
+      expect(result.warnings.some((warning) => warning.message.includes('event.first'))).toBe(true);
+      expect(result.warnings.some((warning) => warning.message.includes('event.second'))).toBe(
+        true,
+      );
+    }
+  });
+
   test('disabled Pi search tools return precise definition validation paths', () => {
     const yaml = `
 name: Pi tools
