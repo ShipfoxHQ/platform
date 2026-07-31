@@ -8,6 +8,10 @@ import {
   useWorkflowRunDurationAccessibleLabel,
   WorkflowRunDurationLabel,
 } from '#components/workflow-run-duration-label.js';
+import {
+  formatWorkflowRunNumberLabel,
+  WorkflowRunNumberLabel,
+} from '#components/workflow-run-number-label.js';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
 import type {WorkflowRunListItem} from '#core/workflow-run.js';
@@ -55,6 +59,7 @@ export function WorkflowRunRow({
 }) {
   const durationLabel = useWorkflowRunDurationAccessibleLabel(run.runAttempt.displayDuration);
   const statusLabel = getWorkflowStatusVisual(run.status).label;
+  const runNumberLabel = formatWorkflowRunNumberLabel(run);
   const body = (
     <>
       {selected ? (
@@ -72,6 +77,12 @@ export function WorkflowRunRow({
       </div>
 
       <div className="flex min-w-0 items-center gap-8">
+        {run.number !== null ? (
+          <>
+            <WorkflowRunNumberLabel run={run} />
+            {run.triggerDisplayLabel ? <RunMetadataSeparator /> : null}
+          </>
+        ) : null}
         {run.triggerDisplayLabel ? (
           <TriggerLabel run={run} />
         ) : (
@@ -114,7 +125,7 @@ export function WorkflowRunRow({
           withoutWorkflowRunSelectionSearch(previous)) as never
       }
       aria-current={selected ? 'page' : undefined}
-      aria-label={[run.name, statusLabel, durationLabel, run.triggerLabel]
+      aria-label={[run.name, runNumberLabel, statusLabel, durationLabel, run.triggerLabel]
         .filter((part): part is string => Boolean(part))
         .join(', ')}
       className={cn(

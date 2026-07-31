@@ -34,7 +34,6 @@ export {
   JobExecution,
   TERMINAL_WORKFLOW_RUN_STATUSES,
   WORKFLOW_RUN_STATUSES,
-  workflowRunShortId,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
 export {

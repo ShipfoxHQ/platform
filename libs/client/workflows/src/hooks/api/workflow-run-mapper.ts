@@ -25,7 +25,6 @@ import {
   type WorkflowRunDetail,
   type WorkflowRunListItem,
   type WorkflowRunListPage,
-  workflowRunShortId,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
@@ -35,7 +34,9 @@ export function toWorkflowRun(dto: WorkflowRunResponseDto): WorkflowRun {
     id: dto.id,
     projectId: dto.project_id,
     definitionId: dto.definition_id,
+    number: dto.number,
     name: dto.name,
+    workflowName: dto.workflow_name,
     currentAttempt: dto.current_attempt,
     triggerProvider: dto.trigger_provider,
     triggerSource: dto.trigger_source,
@@ -55,7 +56,6 @@ export function toWorkflowRun(dto: WorkflowRunResponseDto): WorkflowRun {
       : null,
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
-    shortId: workflowRunShortId(dto.id),
     isTemporary: dto.id.startsWith('temp-'),
   };
 }

@@ -240,6 +240,8 @@ describe('workflow run API hooks', () => {
       expect(cached?.pages[0]?.runs[0]).toMatchObject({
         projectId: PROJECT_ID,
         definitionId: DEFINITION_ID,
+        number: null,
+        workflowName: 'New run',
         status: 'pending',
         triggerSource: 'manual',
         triggerProvider: null,

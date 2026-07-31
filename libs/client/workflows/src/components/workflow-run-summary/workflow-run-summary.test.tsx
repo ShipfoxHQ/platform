@@ -29,13 +29,14 @@ describe('WorkflowRunSummary', () => {
     restoreElementWidthDescriptors();
   });
 
-  test('renders status, trigger metadata, and trigger time', async () => {
-    renderSummary();
+  test('renders status, run number, trigger metadata, and trigger time', async () => {
+    renderSummary({workflow_name: 'CI', number: 5184});
 
     const summary = await screen.findByRole('region', {name: 'deploy-web'});
 
     expect(within(summary).getByRole('heading', {name: 'deploy-web'})).toBeInTheDocument();
     expect(within(summary).getAllByText('Running')).not.toHaveLength(0);
+    expect(within(summary).getByText('CI #5184')).toBeInTheDocument();
     expect(within(summary).getByText('fire')).toBeInTheDocument();
     expect(within(summary).queryByText('manual')).not.toBeInTheDocument();
     expect(within(summary).getByText(RELATIVE_TIME_TEXT_PATTERN)).toBeInTheDocument();
@@ -44,6 +45,15 @@ describe('WorkflowRunSummary', () => {
     expect(
       within(summary).queryByRole('button', {name: COPY_RUN_BUTTON_NAME}),
     ).not.toBeInTheDocument();
+  });
+
+  test('omits the run number before the server assigns one', async () => {
+    const run = {...workflowRunDetail({workflow_name: 'CI'}), number: null};
+    render(<WorkflowRunSummary run={run} />);
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).queryByText('CI #1')).not.toBeInTheDocument();
   });
 
   test('uses the selected run attempt for summary status and trigger time', async () => {

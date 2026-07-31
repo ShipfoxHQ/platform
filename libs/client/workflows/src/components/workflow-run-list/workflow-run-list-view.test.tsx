@@ -58,7 +58,11 @@ describe('WorkflowRunListView', () => {
   });
 
   test('renders optimistic temp runs without a navigable link', async () => {
-    renderListView([run('pending', 'queued-build', 'temp-1234'), run('running', 'deploy-web')]);
+    const optimisticRun = {
+      ...run('pending', 'queued-build', 'temp-1234', {workflow_name: 'CI'}),
+      number: null,
+    };
+    renderListView([optimisticRun, run('running', 'deploy-web')]);
 
     // The canonical run is a link to its detail page; the optimistic temp run is shown but
     // not yet navigable (its detail page does not exist until the canonical row replaces it).
@@ -66,6 +70,7 @@ describe('WorkflowRunListView', () => {
     expect(links.some((link) => link.textContent?.includes('deploy-web'))).toBe(true);
     expect(links.some((link) => link.textContent?.includes('queued-build'))).toBe(false);
     expect(screen.getByText('queued-build')).toBeInTheDocument();
+    expect(screen.queryByText('CI #1')).not.toBeInTheDocument();
   });
 
   test('shows a finished run duration in the row metadata', async () => {
@@ -84,6 +89,31 @@ describe('WorkflowRunListView', () => {
         name: (name) => name.includes('build-image') && name.includes('ran 2m 14s'),
       }),
     ).toBeInTheDocument();
+  });
+
+  test('renders the workflow name beside the run number', async () => {
+    renderListView([
+      run('succeeded', 'Deploy production', 'run-deploy-production', {
+        number: 5184,
+        workflow_name: 'CI',
+      }),
+    ]);
+
+    expect(await screen.findByText('CI #5184')).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', {name: (name) => name.includes('CI #5184')}),
+    ).toBeInTheDocument();
+  });
+
+  test('omits the run number while an optimistic run is waiting for the server', async () => {
+    const optimisticRun = {
+      ...run('pending', 'queued-build', 'temp-1234', {workflow_name: 'CI'}),
+      number: null,
+    };
+    renderListView([optimisticRun]);
+
+    expect(await screen.findByText('queued-build')).toBeInTheDocument();
+    expect(screen.queryByText('CI #1')).not.toBeInTheDocument();
   });
 
   test('shows a live running run duration in the row metadata', async () => {

@@ -8,9 +8,10 @@ describe('runMatchesSearch', () => {
     expect(matches).toBe(true);
   });
 
-  test('matches case-insensitively across id, name, status, and trigger', () => {
+  test('matches case-insensitively across id, name, status, trigger, and number', () => {
     const run = workflowRunListItem({
       id: 'ABCD1234-X',
+      number: 5184,
       name: 'Deploy Production',
       status: 'running',
       trigger_provider: 'github',
@@ -22,6 +23,16 @@ describe('runMatchesSearch', () => {
     expect(runMatchesSearch(run, 'deploy production')).toBe(true);
     expect(runMatchesSearch(run, 'RUNNING')).toBe(true);
     expect(runMatchesSearch(run, 'github_acme · push')).toBe(true);
+    expect(runMatchesSearch(run, '5184')).toBe(true);
+  });
+
+  test('matches the workflow name even when the run has a different display name', () => {
+    const run = workflowRunListItem({
+      name: 'Deploy to production',
+      workflow_name: 'CI',
+    });
+
+    expect(runMatchesSearch(run, 'CI')).toBe(true);
   });
 
   test('returns false when nothing in the run contains the query', () => {

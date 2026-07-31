@@ -35,7 +35,9 @@ export interface WorkflowRun {
   id: string;
   projectId: string;
   definitionId: string;
+  number: number | null;
   name: string;
+  workflowName: string;
   currentAttempt: number;
   triggerProvider: string | null;
   triggerSource: string;
@@ -47,7 +49,6 @@ export interface WorkflowRun {
   sourceSnapshot: WorkflowSourceSnapshot | null;
   createdAt: string;
   updatedAt: string;
-  shortId: string;
   isTemporary: boolean;
 }
 
@@ -71,10 +72,6 @@ export interface WorkflowRunListPage {
 
 export interface ManualWorkflowLaunch {
   workflowRunId: string;
-}
-
-export function workflowRunShortId(id: string): string {
-  return id.length <= 8 ? id : id.slice(0, 8);
 }
 
 export function workflowRunTriggerLabel({

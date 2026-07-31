@@ -338,7 +338,9 @@ function buildTempRun({
     id,
     projectId,
     definitionId,
+    number: null,
     name,
+    workflowName: name,
     status: 'pending',
     currentAttempt: 1,
     latestAttempt: 1,
@@ -352,7 +354,6 @@ function buildTempRun({
     sourceSnapshot: null,
     createdAt,
     updatedAt: createdAt,
-    shortId: id.slice(0, 8),
     isTemporary: true,
     runAttempt: new WorkflowRunAttemptSummary({
       workflowRunId: id,
