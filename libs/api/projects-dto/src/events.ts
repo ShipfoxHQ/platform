@@ -7,15 +7,23 @@ export const PROJECT_UPDATED = 'projects.project.updated' as const;
 export const PROJECT_SOURCE_BOUND = 'projects.project.source_bound' as const;
 export const PROJECT_SOURCE_COMMIT_OBSERVED = 'projects.project.source_commit_observed' as const;
 
-export const projectCreatedEventSchema = z.object({
+const projectCreatedEventWithoutSlugSchema = z.object({
   actorId: nonEmptyStringSchema,
   workspaceId: nonEmptyStringSchema,
   projectId: nonEmptyStringSchema,
-  slug: nonEmptyStringSchema,
   sourceConnectionId: nonEmptyStringSchema,
   sourceExternalRepositoryId: nonEmptyStringSchema,
 });
-export type ProjectCreatedEvent = z.infer<typeof projectCreatedEventSchema>;
+
+const projectCreatedEventWithSlugSchema = projectCreatedEventWithoutSlugSchema.extend({
+  slug: nonEmptyStringSchema,
+});
+
+export const projectCreatedEventSchema = z.union([
+  projectCreatedEventWithSlugSchema,
+  projectCreatedEventWithoutSlugSchema,
+]);
+export type ProjectCreatedEvent = z.infer<typeof projectCreatedEventWithSlugSchema>;
 
 export const projectUpdatedEventSchema = z.object({
   actorId: nonEmptyStringSchema,

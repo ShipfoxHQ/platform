@@ -290,6 +290,37 @@ describe('CreateProjectPage', () => {
     expect(screen.queryByText(PROJECT_REQUEST_FAILED_RE)).not.toBeInTheDocument();
   });
 
+  test('clears a slug conflict when the slug is regenerated from the project name', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return Promise.resolve(jsonResponse({connections: [connectionDto()]}));
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        return Promise.resolve(jsonResponse({repositories: [repositoryDto()], next_cursor: null}));
+      }
+      if (request.url.endsWith('/projects') && request.method === 'POST') {
+        return Promise.resolve(jsonResponse({code: 'slug-conflict'}, {status: 409}));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
+
+    expect(await screen.findByText('This project slug is already in use.')).toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText('Project name'), {
+      target: {value: 'Launch Pad'},
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('This project slug is already in use.')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Project slug')).toHaveValue('launch-pad');
+    });
+  });
+
   test('shows provider-specific submit errors', async () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;

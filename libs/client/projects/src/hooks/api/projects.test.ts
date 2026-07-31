@@ -73,6 +73,7 @@ describe('createProject', () => {
 
     const request = fetchImpl.mock.calls[0]?.[0] as Request;
     expect(result.name).toBe('Platform');
+    expect(result.slug).toBe('platform');
     expect(request.url).toBe('https://api.example.test/projects');
     expect(request.method).toBe('POST');
     expect(requestBody).toEqual({

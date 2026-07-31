@@ -159,8 +159,8 @@ export async function updateProject(
     const [row] = await executor
       .update(projects)
       .set({
-        name: nextName,
-        slug: nextSlug,
+        ...(params.name !== undefined ? {name: params.name} : {}),
+        ...(params.slug !== undefined ? {slug: params.slug} : {}),
         updatedAt: new Date(),
       })
       .where(eq(projects.id, params.projectId))

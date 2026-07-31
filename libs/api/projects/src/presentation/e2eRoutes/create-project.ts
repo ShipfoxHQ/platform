@@ -13,7 +13,12 @@ function syntheticExternalRepositoryId(): string {
   return `e2e:${randomUUID()}`;
 }
 
-let e2eProjectSequence = 1;
+const MAX_GENERATED_SLUG_ATTEMPTS = 5;
+
+function generatedProjectSlug(slugBase: string): string {
+  const suffix = Number.parseInt(randomUUID().replaceAll('-', '').slice(0, 8), 16);
+  return withSlugSuffix(slugBase, suffix);
+}
 
 export const createE2eProjectRoute = defineRoute({
   method: 'POST',
@@ -42,18 +47,33 @@ export const createE2eProjectRoute = defineRoute({
     throw error;
   },
   handler: async (request, reply) => {
-    const project = await createProject({
-      workspaceId: request.body.workspace_id,
-      name: request.body.name,
-      slug:
-        request.body.slug ??
-        withSlugSuffix(slugifyName(request.body.name, {fallback: 'project'}), ++e2eProjectSequence),
-      sourceConnectionId: request.body.source_connection_id ?? randomUUID(),
-      sourceExternalRepositoryId:
-        request.body.source_external_repository_id ?? syntheticExternalRepositoryId(),
-    });
+    const requestedSlug = request.body.slug;
+    const slugBase = slugifyName(request.body.name, {fallback: 'project'});
+    let slug = requestedSlug ?? generatedProjectSlug(slugBase);
 
-    reply.code(201);
-    return toProjectDto(project);
+    for (let attempt = 0; attempt < MAX_GENERATED_SLUG_ATTEMPTS; attempt += 1) {
+      try {
+        const project = await createProject({
+          workspaceId: request.body.workspace_id,
+          name: request.body.name,
+          slug,
+          sourceConnectionId: request.body.source_connection_id ?? randomUUID(),
+          sourceExternalRepositoryId:
+            request.body.source_external_repository_id ?? syntheticExternalRepositoryId(),
+        });
+
+        reply.code(201);
+        return toProjectDto(project);
+      } catch (error) {
+        const shouldRetrySlug =
+          requestedSlug === undefined &&
+          error instanceof ProjectSlugConflictError &&
+          attempt < MAX_GENERATED_SLUG_ATTEMPTS - 1;
+        if (!shouldRetrySlug) throw error;
+        slug = generatedProjectSlug(slugBase);
+      }
+    }
+
+    throw new Error('Unable to generate a unique project slug');
   },
 });

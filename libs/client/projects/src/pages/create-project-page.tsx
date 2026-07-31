@@ -88,6 +88,7 @@ export function CreateProjectPage() {
     if (!nameTouched && form.state.values.name !== defaultProjectName) {
       form.setFieldValue('name', defaultProjectName);
       if (!slugTouched) {
+        setSlugConflict(false);
         form.setFieldValue('slug', slugifyName(defaultProjectName, {fallback: 'project'}));
       }
     }
@@ -307,6 +308,7 @@ export function CreateProjectPage() {
                       setNameTouched(true);
                       field.handleChange(nextName);
                       if (!slugTouched) {
+                        setSlugConflict(false);
                         form.setFieldValue('slug', slugifyName(nextName, {fallback: 'project'}));
                       }
                     }}
