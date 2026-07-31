@@ -37,6 +37,7 @@ describe('CreateProjectPage', () => {
     const slugInput = await screen.findByLabelText('Project slug');
     await waitFor(() => expect(nameInput).toHaveValue('Platform'));
     expect(slugInput).toHaveValue('platform');
+    expect(slugInput).toHaveAttribute('aria-describedby', 'project-slug-description');
     expect(screen.getByRole('radio', {name: GITEA_RADIO_LABEL_RE})).toBeChecked();
     expect(screen.getAllByText('gitea-owner/platform').length).toBeGreaterThan(0);
     fireEvent.change(nameInput, {
@@ -286,6 +287,10 @@ describe('CreateProjectPage', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 
     expect(await screen.findByText('This project slug is already in use.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Project slug')).toHaveAttribute(
+      'aria-describedby',
+      'project-slug-error',
+    );
     await waitFor(() => expect(screen.getByLabelText('Project slug')).toHaveFocus());
     expect(screen.queryByText(PROJECT_REQUEST_FAILED_RE)).not.toBeInTheDocument();
   });

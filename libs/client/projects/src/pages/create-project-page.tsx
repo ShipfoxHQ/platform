@@ -331,6 +331,7 @@ export function CreateProjectPage() {
                   label="Project slug"
                   id="project-slug"
                   error={slugConflict ? 'This project slug is already in use.' : fieldError(field)}
+                  description="Used in project URLs."
                 >
                   <FormFieldInput
                     name="slug"
@@ -345,9 +346,6 @@ export function CreateProjectPage() {
                     placeholder="platform"
                     className="font-code"
                   />
-                  <Text size="sm" className="text-foreground-neutral-muted">
-                    Used in project URLs.
-                  </Text>
                 </FormField>
               )}
             </form.Field>
