@@ -195,12 +195,7 @@ export class RateLimitPolicyError extends Error {
   }
 }
 
-export interface RateLimitErrorPresentation {
-  status: 429 | 503;
-  code: string;
-  message: string;
-  retryAfterSeconds?: number;
-  details?: {retry_after_seconds: number};
+interface RateLimitErrorPresentationBase {
   data: {
     action: string;
     scope: string;
@@ -208,6 +203,27 @@ export interface RateLimitErrorPresentation {
     identifierHmacPrefix: string;
   };
 }
+
+export type RateLimitErrorPresentation =
+  | (RateLimitErrorPresentationBase & {
+      status: 429;
+      code: 'rate-limited';
+      message: 'Rate limit exceeded';
+      retryAfterSeconds: number;
+      details: {retry_after_seconds: number};
+    })
+  | (RateLimitErrorPresentationBase & {
+      status: 503;
+      code: string;
+      message: string;
+      details?: never;
+      retryAfterSeconds?: never;
+    });
+
+export type RateLimitLogContext = RateLimitErrorPresentation['data'] & {
+  retryAfterSeconds?: number;
+  err?: unknown;
+};
 
 /**
  * Normalizes rate-limit failures for HTTP adapters without coupling this
@@ -251,6 +267,48 @@ export function describeRateLimitError(params: {
   }
 
   return undefined;
+}
+
+/**
+ * Runs one rate-limit check and centralizes HTTP adapter error handling.
+ * Callers provide only their domain checker, messages, logging, and framework
+ * error constructor.
+ */
+export async function enforceRateLimit<Request, Reply>(params: {
+  request: Request;
+  reply: Reply;
+  check: () => Promise<void>;
+  route: string;
+  unavailableCode: string;
+  unavailableMessage: string;
+  setRetryAfter: (reply: Reply, retryAfterSeconds: number) => void;
+  logWarn: (request: Request, context: RateLimitLogContext) => void;
+  logError: (request: Request, context: RateLimitLogContext) => void;
+  createClientError: (presentation: RateLimitErrorPresentation, cause: unknown) => Error;
+}): Promise<void> {
+  try {
+    await params.check();
+  } catch (error) {
+    const presentation = describeRateLimitError({
+      error,
+      route: params.route,
+      unavailableCode: params.unavailableCode,
+      unavailableMessage: params.unavailableMessage,
+    });
+    if (!presentation) throw error;
+
+    if (presentation.status === 429) {
+      params.logWarn(params.request, {
+        ...presentation.data,
+        retryAfterSeconds: presentation.retryAfterSeconds,
+      });
+      params.setRetryAfter(params.reply, presentation.retryAfterSeconds);
+    } else {
+      params.logError(params.request, {...presentation.data, err: error});
+    }
+
+    throw params.createClientError(presentation, error);
+  }
 }
 
 const DEFAULT_TIMEOUT_MS = 250;

@@ -1,6 +1,6 @@
 import {requireProvisionerContext} from '@shipfox/api-auth-context';
 import {ClientError, type FastifyReply, type FastifyRequest} from '@shipfox/node-fastify';
-import {describeRateLimitError} from '@shipfox/node-rate-limit';
+import {enforceRateLimit as enforceSharedRateLimit} from '@shipfox/node-rate-limit';
 import {config} from '#config.js';
 import {checkRunnersRateLimit} from '#core/rate-limit.js';
 import {getRunnerContext} from '#presentation/auth/index.js';
@@ -18,43 +18,37 @@ async function enforceRateLimit(params: {
   limit: number;
   windowSeconds: number;
 }): Promise<void> {
-  try {
-    await checkRunnersRateLimit({
-      action: params.action,
-      scope: params.scope,
-      identifier: params.identifier,
-      limit: params.limit,
-      windowSeconds: params.windowSeconds,
-    });
-  } catch (error) {
-    const presentation = describeRateLimitError({
-      error,
-      route: routeName(params.request),
-      unavailableCode: 'runners-rate-limit-unavailable',
-      unavailableMessage: 'Runners rate limiter unavailable',
-    });
-    if (!presentation) throw error;
-
-    if (presentation.status === 429) {
-      params.request.log.warn(
-        {...presentation.data, retryAfterSeconds: presentation.retryAfterSeconds},
-        'Runners rate limit blocked request',
-      );
-      params.reply.header('Retry-After', String(presentation.retryAfterSeconds));
-    } else {
-      params.request.log.error(
-        {...presentation.data, err: error},
-        'Runners rate limiter unavailable',
-      );
-    }
-
-    throw new ClientError(presentation.message, presentation.code, {
-      status: presentation.status,
-      ...(presentation.details ? {details: presentation.details} : {}),
-      data: presentation.data,
-      cause: error,
-    });
-  }
+  await enforceSharedRateLimit({
+    request: params.request,
+    reply: params.reply,
+    check: () =>
+      checkRunnersRateLimit({
+        action: params.action,
+        scope: params.scope,
+        identifier: params.identifier,
+        limit: params.limit,
+        windowSeconds: params.windowSeconds,
+      }),
+    route: routeName(params.request),
+    unavailableCode: 'runners-rate-limit-unavailable',
+    unavailableMessage: 'Runners rate limiter unavailable',
+    setRetryAfter: (reply, retryAfterSeconds) => {
+      reply.header('Retry-After', String(retryAfterSeconds));
+    },
+    logWarn: (request, context) => {
+      request.log.warn(context, 'Runners rate limit blocked request');
+    },
+    logError: (request, context) => {
+      request.log.error(context, 'Runners rate limiter unavailable');
+    },
+    createClientError: (presentation, cause) =>
+      new ClientError(presentation.message, presentation.code, {
+        status: presentation.status,
+        ...(presentation.details ? {details: presentation.details} : {}),
+        data: presentation.data,
+        cause,
+      }),
+  });
 }
 
 export function createProvisionerMintRateLimitPreHandler() {

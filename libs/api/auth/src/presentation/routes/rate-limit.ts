@@ -1,5 +1,5 @@
 import {ClientError, type FastifyReply, type FastifyRequest} from '@shipfox/node-fastify';
-import {describeRateLimitError} from '@shipfox/node-rate-limit';
+import {enforceRateLimit as enforceSharedRateLimit} from '@shipfox/node-rate-limit';
 import {
   type AuthRateLimitAction,
   type AuthRateLimitPolicy,
@@ -48,39 +48,36 @@ async function enforceRateLimit(params: {
   const policy = policies[params.action][params.scope];
   if (!policy) return;
 
-  try {
-    await checkAuthRateLimit({
-      action: params.action,
-      scope: params.scope,
-      identifier: params.identifier,
-      ...policy,
-    });
-  } catch (error) {
-    const presentation = describeRateLimitError({
-      error,
-      route: routeName(params.request),
-      unavailableCode: 'auth-rate-limit-unavailable',
-      unavailableMessage: 'Authentication rate limiter unavailable',
-    });
-    if (!presentation) throw error;
-
-    if (presentation.status === 429) {
-      params.request.log.warn(
-        {...presentation.data, retryAfterSeconds: presentation.retryAfterSeconds},
-        'Auth rate limit blocked request',
-      );
-      params.reply.header('Retry-After', String(presentation.retryAfterSeconds));
-    } else {
-      params.request.log.error({...presentation.data, err: error}, 'Auth rate limiter unavailable');
-    }
-
-    throw new ClientError(presentation.message, presentation.code, {
-      status: presentation.status,
-      ...(presentation.details ? {details: presentation.details} : {}),
-      data: presentation.data,
-      cause: error,
-    });
-  }
+  await enforceSharedRateLimit({
+    request: params.request,
+    reply: params.reply,
+    check: () =>
+      checkAuthRateLimit({
+        action: params.action,
+        scope: params.scope,
+        identifier: params.identifier,
+        ...policy,
+      }),
+    route: routeName(params.request),
+    unavailableCode: 'auth-rate-limit-unavailable',
+    unavailableMessage: 'Authentication rate limiter unavailable',
+    setRetryAfter: (reply, retryAfterSeconds) => {
+      reply.header('Retry-After', String(retryAfterSeconds));
+    },
+    logWarn: (request, context) => {
+      request.log.warn(context, 'Auth rate limit blocked request');
+    },
+    logError: (request, context) => {
+      request.log.error(context, 'Auth rate limiter unavailable');
+    },
+    createClientError: (presentation, cause) =>
+      new ClientError(presentation.message, presentation.code, {
+        status: presentation.status,
+        ...(presentation.details ? {details: presentation.details} : {}),
+        data: presentation.data,
+        cause,
+      }),
+  });
 }
 
 export function createAuthRateLimitPreHandler(action: AuthRateLimitAction) {
