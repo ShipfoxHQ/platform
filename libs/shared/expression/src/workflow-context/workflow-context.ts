@@ -116,6 +116,13 @@ const triggerTypeEnvironment = {
     fields: {
       source: 'string',
       event: 'string',
+      project: {
+        kind: 'object',
+        fields: {id: 'string'},
+      },
+      repository: 'string',
+      ref: 'string',
+      commit: 'string',
     },
   },
 } as const satisfies ExpressionTypeEnvironment;

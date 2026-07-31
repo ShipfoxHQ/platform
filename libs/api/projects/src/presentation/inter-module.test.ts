@@ -74,6 +74,35 @@ async function expectUnauthorized(
 }
 
 describe('Projects checkout target inter-module presentation', () => {
+  test('resolves a project by its workspace-scoped source repository', async () => {
+    const client = createClient();
+    const workspaceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    const project = await insertProject({
+      workspaceId,
+      connectionId,
+      owner: 'acme',
+      name: 'api',
+      externalRepositoryId: 'github:42',
+    });
+
+    await expect(
+      client.getProjectBySource({
+        workspaceId,
+        sourceConnectionId: connectionId,
+        sourceExternalRepositoryId: project.externalRepositoryId,
+      }),
+    ).resolves.toMatchObject({project: {id: project.projectId}});
+
+    await expect(
+      client.getProjectBySource({
+        workspaceId: crypto.randomUUID(),
+        sourceConnectionId: connectionId,
+        sourceExternalRepositoryId: project.externalRepositoryId,
+      }),
+    ).resolves.toEqual({project: null});
+  });
+
   test('resolves a project target in its workspace', async () => {
     const client = createClient();
     const workspaceId = crypto.randomUUID();

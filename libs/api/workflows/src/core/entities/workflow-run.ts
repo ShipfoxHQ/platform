@@ -22,6 +22,13 @@ export function isWorkflowRunTerminal(
   return TERMINAL_WORKFLOW_RUN_STATUSES.has(status);
 }
 
+export interface WorkflowRunTriggerReference {
+  project: {id: string} | null;
+  repository: string | null;
+  ref: string | null;
+  commit: string | null;
+}
+
 export interface WorkflowSourceSnapshot {
   content: string;
   format: 'yaml';
@@ -70,6 +77,8 @@ export interface WorkflowRun {
   triggerSource: string;
   triggerEvent: string;
   triggerPayload: TriggerPayload;
+  /** Provider-neutral trigger facts captured at run creation, when available. */
+  triggerReference?: WorkflowRunTriggerReference | null | undefined;
   inputs: Record<string, unknown> | null;
   sourceSnapshot: WorkflowSourceSnapshot | null;
   triggerIdempotencyKey: string | null;

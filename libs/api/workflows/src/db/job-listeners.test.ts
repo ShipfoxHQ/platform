@@ -324,7 +324,14 @@ describe('activateJobListener', () => {
     const snapshot = payload.on[0]?.filter_snapshot;
     expect(snapshot).toEqual({
       run: expect.objectContaining({id: expect.any(String), name: 'Test Workflow'}),
-      trigger: {source: 'github', event: 'pull_request'},
+      trigger: {
+        source: 'github',
+        event: 'pull_request',
+        project: null,
+        repository: null,
+        ref: null,
+        commit: null,
+      },
       inputs: {environment: 'prod'},
       job: {key: 'await', name: 'await'},
       jobs: {

@@ -57,6 +57,7 @@ export function createWorkflowsInterModulePresentation(params: {
             projectId: input.projectId,
             definitionId: input.definitionId,
             triggerPayload: input.triggerPayload,
+            triggerConnectionId: input.triggerConnectionId,
             inputs: input.inputs,
             triggerIdempotencyKey: input.idempotencyKey,
             integrations: params.integrations,

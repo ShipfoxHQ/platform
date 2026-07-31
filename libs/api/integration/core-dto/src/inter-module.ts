@@ -14,6 +14,11 @@ const repository = z.object({
   cloneUrl: z.string(),
   htmlUrl: z.string(),
 });
+const triggerReference = z.object({
+  externalRepositoryId: z.string(),
+  ref: z.string(),
+  commit: z.string(),
+});
 const sourceInput = z.object({workspaceId: id, connectionId: id, externalRepositoryId: z.string()});
 const providerError = z.object({
   reason: z.string(),
@@ -36,6 +41,11 @@ export const integrationsInterModuleContract = defineInterModuleContract({
     resolveSourceRepository: {
       input: sourceInput,
       output: z.object({connection: z.object({id, provider, slug: z.string()}), repository}),
+      errors: sourceErrors,
+    },
+    resolveTriggerReference: {
+      input: z.object({workspaceId: id, connectionId: id, payload: z.unknown()}),
+      output: triggerReference.nullable(),
       errors: sourceErrors,
     },
     listSourceFiles: {

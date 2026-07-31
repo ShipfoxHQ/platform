@@ -37,6 +37,104 @@ describe('workflow run queries', () => {
   });
 
   describe('createWorkflowRun', () => {
+    test('persists normalized integration trigger facts alongside the payload', async () => {
+      const triggerConnectionId = crypto.randomUUID();
+      const integrations = {
+        resolveTriggerReference: vi.fn().mockResolvedValue({
+          externalRepositoryId: 'github:42',
+          ref: 'refs/heads/main',
+          commit: 'a'.repeat(40),
+        }),
+        resolveSourceRepository: vi.fn().mockResolvedValue({
+          connection: {id: triggerConnectionId, provider: 'github', slug: 'github-main'},
+          repository: {
+            externalRepositoryId: 'github:42',
+            owner: 'acme',
+            name: 'api',
+            fullName: 'acme/api',
+            defaultBranch: 'main',
+            visibility: 'private' as const,
+            cloneUrl: 'https://github.com/acme/api.git',
+            htmlUrl: 'https://github.com/acme/api',
+          },
+        }),
+      } as never;
+      const projects = {
+        getProjectBySource: vi.fn().mockResolvedValue({project: {id: 'project-1'}}),
+      } as never;
+
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerConnectionId,
+        triggerPayload: {
+          provider: 'github',
+          source: 'github-main',
+          event: 'push',
+          deliveryId: 'delivery-1',
+          data: {ref: 'refs/heads/main', headCommitSha: 'a'.repeat(40)},
+        },
+        integrations,
+        projects,
+      });
+
+      const triggerReference = {
+        project: {id: 'project-1'},
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        commit: 'a'.repeat(40),
+      };
+      expect(run.triggerReference).toEqual(triggerReference);
+      await expect(
+        db()
+          .select({triggerReference: workflowRuns.triggerReference})
+          .from(workflowRuns)
+          .where(eq(workflowRuns.id, run.id)),
+      ).resolves.toEqual([{triggerReference}]);
+    });
+
+    test('creates a run when trigger enrichment fails', async () => {
+      const triggerConnectionId = crypto.randomUUID();
+      const integrations = {
+        resolveTriggerReference: vi.fn().mockResolvedValue({
+          externalRepositoryId: 'github:42',
+          ref: 'refs/heads/main',
+          commit: 'a'.repeat(40),
+        }),
+        resolveSourceRepository: vi.fn().mockRejectedValue(new Error('source unavailable')),
+      } as never;
+      const projects = {
+        getProjectBySource: vi.fn().mockResolvedValue({project: {id: 'project-1'}}),
+      } as never;
+
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerConnectionId,
+        triggerPayload: {
+          provider: 'github',
+          source: 'github-main',
+          event: 'push',
+          deliveryId: 'delivery-1',
+          data: {ref: 'refs/heads/main', headCommitSha: 'a'.repeat(40)},
+        },
+        integrations,
+        projects,
+      });
+
+      expect(run.triggerReference).toBeNull();
+      await expect(
+        db()
+          .select({triggerReference: workflowRuns.triggerReference})
+          .from(workflowRuns)
+          .where(eq(workflowRuns.id, run.id)),
+      ).resolves.toEqual([{triggerReference: null}]);
+    });
+
     test('resolves and persists a dynamic run name while preserving the static snapshot', async () => {
       const run = await createWorkflowRun({
         workspaceId,

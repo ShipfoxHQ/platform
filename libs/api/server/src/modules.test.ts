@@ -123,6 +123,7 @@ describe('defaultModules', () => {
             getAgentToolsContext: vi.fn(),
             listSourceFiles: vi.fn(),
             resolveSourceRepository: vi.fn(),
+            resolveTriggerReference: vi.fn(),
           }),
         ],
       },
@@ -157,6 +158,7 @@ describe('defaultModules', () => {
       interModulePresentations: [
         defineInterModulePresentation(projectsInterModuleContract, {
           getProjectById: () => ({project: null}),
+          getProjectBySource: () => ({project: null}),
           getWorkspaceProjectCounts: () => ({counts: []}),
           requireProjectForWorkspace: () => ({
             project: {

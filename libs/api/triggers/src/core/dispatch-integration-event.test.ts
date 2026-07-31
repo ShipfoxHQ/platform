@@ -114,6 +114,7 @@ describe('dispatchIntegrationEvent', () => {
 
   test('passes the source, event, deliveryId and raw payload through as the trigger payload', async () => {
     const workspaceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
     const deliveryId = crypto.randomUUID();
     const payload = {ref: 'refs/heads/feature', headCommitSha: 'deadbeef'};
     await triggerSubscriptionFactory.create({
@@ -123,10 +124,11 @@ describe('dispatchIntegrationEvent', () => {
       config: {},
     });
 
-    await dispatch({workspaceId, deliveryId, payload});
+    await dispatch({workspaceId, connectionId, deliveryId, payload});
 
     expect(runWorkflow).toHaveBeenCalledWith(
       expect.objectContaining({
+        triggerConnectionId: connectionId,
         triggerPayload: {
           provider: 'github',
           source: 'github',

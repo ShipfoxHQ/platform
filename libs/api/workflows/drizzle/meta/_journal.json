@@ -15,6 +15,13 @@
       "when": 1783439600000,
       "tag": "0001_agent_tool_materialization",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785487448508,
+      "tag": "0002_tough_raza",
+      "breakpoints": true
     }
   ]
 }

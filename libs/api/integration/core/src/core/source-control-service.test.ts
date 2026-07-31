@@ -92,6 +92,28 @@ describe('integration source-control service', () => {
     expect(result.repository.externalRepositoryId).toBe('gitea:gitea-owner/platform');
   });
 
+  it('resolves a normalized trigger reference through an active source-control connection', async () => {
+    const resolveTriggerReference = vi.fn(() => ({
+      externalRepositoryId: repository.externalRepositoryId,
+      ref: 'refs/heads/main',
+      commit: 'a'.repeat(40),
+    }));
+    const service = createService({resolveTriggerReference});
+
+    await expect(
+      service.resolveTriggerReference({
+        workspaceId,
+        connectionId: connection.id,
+        payload: {ref: 'refs/heads/main'},
+      }),
+    ).resolves.toEqual({
+      externalRepositoryId: repository.externalRepositoryId,
+      ref: 'refs/heads/main',
+      commit: 'a'.repeat(40),
+    });
+    expect(resolveTriggerReference).toHaveBeenCalledWith({ref: 'refs/heads/main'});
+  });
+
   it('rejects a missing connection', async () => {
     const service = createService();
 

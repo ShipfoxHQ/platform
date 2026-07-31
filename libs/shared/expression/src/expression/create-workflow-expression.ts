@@ -89,6 +89,12 @@ function createTypeCheckingEnvironment(): Environment {
     return Number.isInteger(left) && BigInt(left) === right;
   });
 
+  // Typed context fields may be absent at runtime while still exposing their
+  // known shape when present. CEL's built-in equality overloads do not allow a
+  // declared object type to compare with null, so keep null checks aligned with
+  // the runtime context contract.
+  environment.registerOperator('dyn != null', (left: unknown, right: null) => left !== right);
+
   return environment;
 }
 
