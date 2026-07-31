@@ -182,7 +182,9 @@ export function WorkflowRunSummary({
               </>
             ) : null}
 
-            {attemptSwitcher || run.triggerDisplayLabel ? <MetadataSeparator /> : null}
+            {run.number !== null || attemptSwitcher || run.triggerDisplayLabel ? (
+              <MetadataSeparator />
+            ) : null}
             <RelativeTime
               value={run.runAttempt.createdAt}
               className="shrink-0 whitespace-nowrap text-xs leading-20 text-foreground-neutral-muted"

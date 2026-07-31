@@ -56,6 +56,21 @@ describe('WorkflowRunSummary', () => {
     expect(within(summary).queryByText('CI #1')).not.toBeInTheDocument();
   });
 
+  test('separates a standalone run number from the run timestamp', async () => {
+    const run = workflowRunDetail({
+      workflow_name: 'CI',
+      trigger_source: '',
+      trigger_event: '',
+    });
+    render(<WorkflowRunSummary run={run} />);
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getByText('CI #1')).toBeInTheDocument();
+    const timestamp = within(summary).getByText(RELATIVE_TIME_TEXT_PATTERN);
+    expect(timestamp.previousElementSibling).toHaveAttribute('aria-hidden', 'true');
+  });
+
   test('uses the selected run attempt for summary status and trigger time', async () => {
     const rootCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const attemptCreatedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
