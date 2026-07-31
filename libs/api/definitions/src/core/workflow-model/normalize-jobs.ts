@@ -229,7 +229,6 @@ function normalizeJob(params: {
   const condition = normalizeIfCondition({
     field: 'job.if',
     source: params.job.if,
-    site: 'job-activation',
     path: ['jobs', params.sourceName, 'if'],
     invalidCode: 'invalid-job-if',
     invalidMessage: 'Job if must be a valid wrapped CEL boolean expression.',
@@ -584,7 +583,6 @@ function normalizeStep(params: {
   const condition = normalizeIfCondition({
     field: 'step.if',
     source: params.step.if,
-    site: 'step-dispatch',
     path: ['jobs', params.sourceName, 'steps', params.index, 'if'],
     invalidCode: 'invalid-step-if',
     invalidMessage: 'Step if must be a valid wrapped CEL boolean expression.',

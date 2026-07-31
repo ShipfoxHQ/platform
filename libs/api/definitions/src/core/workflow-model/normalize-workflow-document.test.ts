@@ -151,7 +151,7 @@ describe('normalizeWorkflowDocument', () => {
   it('allows computed access to unrelated dynamic-name context fields', () => {
     const model = normalizeWorkflowDocument({
       name: 'Workflow',
-      run_name: interpolation('run["name"]'),
+      run_name: interpolation('run["workflow_name"]'),
       jobs: {
         build: {
           execution_name: interpolation('execution["status"]'),
@@ -169,7 +169,7 @@ describe('normalizeWorkflowDocument', () => {
       'run_name',
       {
         name: 'Workflow',
-        run_name: interpolation('run.run_name'),
+        run_name: interpolation('run.name'),
         jobs: {build: {steps: [{run: 'build'}]}},
       },
     ],
@@ -177,7 +177,7 @@ describe('normalizeWorkflowDocument', () => {
       'run_name bracket access',
       {
         name: 'Workflow',
-        run_name: interpolation('run["run_name"]'),
+        run_name: interpolation('run["name"]'),
         jobs: {build: {steps: [{run: 'build'}]}},
       },
     ],
@@ -1232,7 +1232,7 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
-  it('validates listener filters against job-activation roots', () => {
+  it('validates listener filters against their persisted snapshot roots', () => {
     const document: WorkflowDocument = {
       name: 'listener filter roots',
       jobs: {
@@ -1274,6 +1274,8 @@ describe('normalizeWorkflowDocument', () => {
   it.each([
     ['step root', 'step.status == "succeeded"', 'context-unavailable-at-predicate-site'],
     ['steps root', 'steps.build.outputs.sha == "abc"', 'context-unavailable-at-predicate-site'],
+    ['executions root', 'executions.size() > 0', 'context-unavailable-at-predicate-site'],
+    ['matrix root', 'matrix.os == "linux"', 'context-unavailable-at-predicate-site'],
     ['runner root', 'runner.os == "linux"', 'runner-context-in-server-predicate'],
     ['non-boolean source', 'event.action', 'invalid-listener-filter'],
   ] as const)('reports invalid listener on filters for %s', (_label, filter, code) => {

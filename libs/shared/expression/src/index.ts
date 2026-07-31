@@ -145,6 +145,7 @@ export {
   getWorkflowInterpolationFieldSelfReference,
   getWorkflowPredicateContextRoots,
   getWorkflowPredicateFieldMinimumFillTarget,
+  getWorkflowPredicateFieldTypeEnvironment,
   type OpenWorkflowContextDefinition,
   projectWorkflowPredicateContext,
   type ReservedRootDefinition,

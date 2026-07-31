@@ -17,7 +17,6 @@ export function normalizeJobSuccess(params: {
   const expression = validatePredicateExpression({
     field: 'job.success',
     source: params.source,
-    site: 'job-resolution',
     path: ['jobs', params.sourceName, 'success'],
     invalidCode: 'invalid-job-success',
     invalidMessage: 'Job success must be a valid CEL boolean expression.',

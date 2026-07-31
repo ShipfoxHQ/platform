@@ -79,7 +79,6 @@ function normalizeGateSuccess(params: {
   return validatePredicateExpression({
     field: 'step.success',
     source: params.source,
-    site: 'step-report',
     path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'gate', 'success'],
     invalidCode: 'invalid-step-gate-success',
     invalidMessage: 'Step gate success must be a valid CEL boolean expression.',

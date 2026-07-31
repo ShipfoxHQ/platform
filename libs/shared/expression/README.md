@@ -32,6 +32,11 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
 - **`workflowInterpolationFieldPolicies`**: Defines the host, fill-site, and
   failure constraints for each interpolatable field. Use
   `workflowInterpolationFieldAcceptsHost` for host checks.
+- **`workflowPredicateContextRoots`**: Defines the exact context roots each
+  predicate field receives. Read it with `getWorkflowPredicateContextRoots`,
+  narrow runtime context with `projectWorkflowPredicateContext`, and read
+  predicate-specific property shapes with
+  `getWorkflowPredicateFieldTypeEnvironment`.
 
 Use this package where workflow code accepts or runs expression text. It keeps
 the CEL parser behind a Shipfox API. Other packages do not need to depend on the
@@ -75,6 +80,9 @@ const passed = evaluateWorkflowPredicate(expression, {
 
 - Use `syntax` when fields are not known yet.
 - Use `typed` when the caller knows the names and field types in scope.
+- Predicate evaluation narrows the supplied context to the roots
+  `workflowPredicateContextRoots` declares for that field, so a reference
+  outside the policy fails closed rather than reading an incidental value.
 - Context values can include external data. Interpolatable fields rely on their
   structural sink guarantees, while host and availability checks remain enforced.
 - Evaluation is deterministic and has no side effects.

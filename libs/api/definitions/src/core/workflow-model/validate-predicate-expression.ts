@@ -1,15 +1,15 @@
 import {
   type AvailabilitySite,
-  availabilitySites,
   createWorkflowExpression,
+  type ExpressionType,
   type ExpressionTypeEnvironment,
   extractExactContextRoots,
   getWorkflowContextDefinition,
-  getWorkflowContextTypeEnvironment,
   getWorkflowPredicateContextRoots,
+  getWorkflowPredicateFieldMinimumFillTarget,
+  getWorkflowPredicateFieldTypeEnvironment,
   InvalidWorkflowExpressionError,
   predicateSourceIsBooleanShaped,
-  resolveContextRootAvailability,
   resolveContextRootHost,
   validateServerEvaluable,
   type WorkflowContextName,
@@ -29,7 +29,6 @@ import {workflowFieldLabel} from './workflow-field-label.js';
 export function validatePredicateExpression(params: {
   field: WorkflowPredicateField;
   source: string;
-  site: AvailabilitySite;
   path: readonly WorkflowModelValidationIssuePathSegment[];
   invalidCode: WorkflowModelValidationIssueCode;
   invalidMessage: string;
@@ -37,6 +36,7 @@ export function validatePredicateExpression(params: {
   allowedJobReferences?: ReadonlySet<string>;
   typeOverlay?: ExpressionTypeEnvironment | undefined;
 }): WorkflowExpression | undefined {
+  const site = getWorkflowPredicateFieldMinimumFillTarget(params.field);
   const syntaxExpression = createSyntaxExpression(params);
   if (syntaxExpression === undefined) return undefined;
 
@@ -55,6 +55,7 @@ export function validatePredicateExpression(params: {
       ...serverEvaluability.violations.map((violation) =>
         runnerContextInServerPredicateIssue({
           ...params,
+          site,
           contextRoots,
           runnerRoots: violation.runnerRoots,
         }),
@@ -65,17 +66,15 @@ export function validatePredicateExpression(params: {
 
   const predicateContextRoots = getWorkflowPredicateContextRoots(params.field);
   const unavailableRoots = knownRoots.filter(
-    (root) =>
-      !predicateContextRoots.includes(root as (typeof predicateContextRoots)[number]) ||
-      !isRootAvailableAt(root, params.site),
+    (root) => !predicateContextRoots.includes(root as (typeof predicateContextRoots)[number]),
   );
   if (unavailableRoots.length > 0) {
     params.issues.push(
       unavailablePredicateContextIssue({
         ...params,
+        site,
         contextRoots,
         unavailableRoots,
-        predicateContextRoots,
       }),
     );
     return undefined;
@@ -96,7 +95,11 @@ export function validatePredicateExpression(params: {
     return undefined;
   }
 
-  if (params.typeOverlay === undefined && knownRoots.some((root) => hasSyntaxOnlyCheckMode(root))) {
+  if (
+    params.typeOverlay === undefined &&
+    knownRoots.length > 0 &&
+    knownRoots.every((root) => hasSyntaxOnlyCheckMode(root))
+  ) {
     if (
       isWorkflowFilterPredicateField(params.field) &&
       !predicateSourceIsBooleanShaped(syntaxExpression.source)
@@ -121,7 +124,7 @@ export function validatePredicateExpression(params: {
         mode: 'typed',
         // `undefined` preserves the legacy syntax-only path above. `{}` means
         // callers intentionally requested typed checking with the standard roots.
-        typeEnvironment: mergeTypeEnvironments(knownRoots, params.typeOverlay),
+        typeEnvironment: mergeTypeEnvironments(params.field, knownRoots, params.typeOverlay),
         expectedResultType: 'bool',
       },
     });
@@ -232,7 +235,6 @@ function unavailablePredicateContextIssue(params: {
   path: readonly WorkflowModelValidationIssuePathSegment[];
   contextRoots: readonly string[];
   unavailableRoots: readonly string[];
-  predicateContextRoots: readonly string[];
 }): WorkflowModelValidationIssue {
   return issue({
     code: 'context-unavailable-at-predicate-site',
@@ -240,11 +242,9 @@ function unavailablePredicateContextIssue(params: {
       params.unavailableRoots,
     )} ${formatList(params.unavailableRoots)} that ${availabilityVerb(
       params.unavailableRoots,
-    )} not available in its evaluation context at ${describeAvailabilitySite(params.site)}. ${params.unavailableRoots
-      .map((root) =>
-        unavailableRootAvailabilityMessage(root, params.field, params.predicateContextRoots),
-      )
-      .join(' ')}`,
+    )} not supplied when ${fieldLabel(params.field)} is evaluated at ${describeAvailabilitySite(
+      params.site,
+    )}.`,
     path: params.path,
     details: {
       field: params.field,
@@ -256,33 +256,13 @@ function unavailablePredicateContextIssue(params: {
   });
 }
 
-function isRootAvailableAt(root: string, site: AvailabilitySite): boolean {
-  const availability = resolveContextRootAvailability(root);
-  if (availability === undefined) return false;
-
-  return availabilitySites.indexOf(availability) <= availabilitySites.indexOf(site);
-}
-
-function unavailableRootAvailabilityMessage(
-  root: string,
-  field: WorkflowPredicateField,
-  predicateContextRoots: readonly string[],
-): string {
-  if (!predicateContextRoots.includes(root)) {
-    return `"${root}" is not supplied to ${fieldLabel(field)}.`;
-  }
-
-  const availability = resolveContextRootAvailability(root);
-  if (availability === undefined) return `"${root}" is not available at any server site.`;
-  return `"${root}" becomes available at ${describeAvailabilitySite(availability)}.`;
-}
-
 function hasSyntaxOnlyCheckMode(root: string): boolean {
   if (!isWorkflowContextName(root)) return resolveContextRootHost(root) === 'server';
   return isWorkflowContextName(root) && getWorkflowContextDefinition(root).checkMode === 'syntax';
 }
 
 function mergeTypeEnvironments(
+  field: WorkflowPredicateField,
   roots: readonly string[],
   typeOverlay?: ExpressionTypeEnvironment,
 ): ExpressionTypeEnvironment {
@@ -290,26 +270,43 @@ function mergeTypeEnvironments(
 
   for (const root of roots) {
     const overlayType = typeOverlay?.[root];
-    if (overlayType !== undefined) {
-      typeEnvironment[root] = overlayType;
-      continue;
-    }
-
     if (!isWorkflowContextName(root)) {
-      if (typeOverlay !== undefined) typeEnvironment[root] = {kind: 'map'};
+      if (overlayType !== undefined) typeEnvironment[root] = overlayType;
+      else typeEnvironment[root] = {kind: 'map'};
       continue;
     }
 
-    const contextTypeEnvironment = getWorkflowContextTypeEnvironment(root);
+    const contextTypeEnvironment = getWorkflowPredicateFieldTypeEnvironment(field, root);
     if (contextTypeEnvironment === undefined) {
-      if (typeOverlay !== undefined) typeEnvironment[root] = {kind: 'map'};
+      if (overlayType !== undefined) typeEnvironment[root] = overlayType;
+      else typeEnvironment[root] = {kind: 'map'};
       continue;
     }
 
-    Object.assign(typeEnvironment, contextTypeEnvironment);
+    const contextType = contextTypeEnvironment[root];
+    if (contextType === undefined) continue;
+    typeEnvironment[root] =
+      overlayType === undefined ? contextType : overlayKnownFields(contextType, overlayType);
   }
 
   return typeEnvironment;
+}
+
+function overlayKnownFields(base: ExpressionType, overlay: ExpressionType): ExpressionType {
+  if (typeof base === 'string' || typeof overlay === 'string') return overlay;
+  if (base.kind !== 'object' || overlay.kind !== 'object') return overlay;
+
+  // Preserve output specialization without reintroducing properties absent from this field's
+  // runtime shape.
+  return {
+    kind: 'object',
+    fields: Object.fromEntries(
+      Object.entries(base.fields).map(([key, fieldType]) => [
+        key,
+        overlay.fields[key] ?? fieldType,
+      ]),
+    ),
+  };
 }
 
 function isWorkflowContextName(root: string): root is WorkflowContextName {

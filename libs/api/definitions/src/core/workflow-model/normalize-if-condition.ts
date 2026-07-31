@@ -21,7 +21,6 @@ const ifExpressionSyntax = `\${{ }}`;
 export function normalizeIfCondition(params: {
   readonly field: Extract<WorkflowPredicateField, 'job.if' | 'step.if'>;
   readonly source: string | undefined;
-  readonly site: 'job-activation' | 'step-dispatch';
   readonly path: readonly WorkflowModelValidationIssuePathSegment[];
   readonly invalidCode: Extract<
     WorkflowModelValidationIssueCode,
@@ -59,7 +58,6 @@ export function normalizeIfCondition(params: {
   return validatePredicateExpression({
     field: params.field,
     source: expressionSegment.expression.source,
-    site: params.site,
     path: params.path,
     invalidCode: params.invalidCode,
     invalidMessage: params.invalidMessage,

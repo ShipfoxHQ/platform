@@ -9,8 +9,7 @@ import type {JobStatusReason} from '../entities/job.js';
 import type {JobExecution} from '../entities/job-execution.js';
 import type {PersistedEvaluationTraceEntry} from '../entities/step.js';
 import {
-  assembleExecutionsContext,
-  assembleJobsContext,
+  assembleJobResolutionContext,
   type JobContextInput,
 } from '../step-config/assemble-run-context.js';
 import type {RuntimeCompletionStatus} from '../workflow-scheduling/runtime-dag.js';
@@ -31,23 +30,19 @@ export function deriveJobSuccess(params: {
     source: params.success ?? DEFAULT_JOB_SUCCESS,
     check: {mode: 'syntax'},
   });
-  const context = {
-    ...(params.vars === undefined ? {} : {vars: params.vars}),
-    ...assembleExecutionsContext(params.executions),
-    ...assembleJobsContext(params.jobs),
-  };
+  const context = assembleJobResolutionContext(params);
   const outcome = evaluatePlannedPredicateAtSite({
     expression,
     field: 'job.success',
-    site: 'job-resolution',
-    context,
+    site: context.site,
+    context: context.values,
   });
   const trace = capTraceEntries([
     {
       ...predicateTraceEntry({
         expression: expression.source,
         route: outcome.route,
-        site: 'job-resolution',
+        site: context.site,
         value: outcome.value,
         degraded: outcome.evaluationFailed,
       }),

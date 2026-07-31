@@ -1,11 +1,13 @@
-import type {ExpressionTypeEnvironment} from '@shipfox/expression';
+import {
+  type ExpressionTypeEnvironment,
+  getWorkflowPredicateFieldMinimumFillTarget,
+} from '@shipfox/expression';
 import type {WorkflowModelValidationIssue} from './invalid-workflow-model-error.js';
 import {validatePredicateExpression} from './validate-predicate-expression.js';
 
 function validate(params: {
   source: string;
   field: Parameters<typeof validatePredicateExpression>[0]['field'];
-  site: Parameters<typeof validatePredicateExpression>[0]['site'];
   allowedJobReferences?: ReadonlySet<string>;
   typeOverlay?: ExpressionTypeEnvironment;
 }): {
@@ -16,7 +18,6 @@ function validate(params: {
   const expression = validatePredicateExpression({
     field: params.field,
     source: params.source,
-    site: params.site,
     path: ['predicate'],
     invalidCode: 'invalid-job-success',
     invalidMessage: 'Predicate must be a valid CEL boolean expression.',
@@ -36,7 +37,7 @@ describe('validatePredicateExpression', () => {
     ['trigger.event == "push"', 'typed'],
     ['has(event.ref)', 'syntax'],
   ] as const)('accepts trigger filters at ingest: %s', (source, check) => {
-    const result = validate({field: 'trigger.filter', source, site: 'ingest'});
+    const result = validate({field: 'trigger.filter', source});
 
     expect(result.issues).toEqual([]);
     expect(result.expression).toMatchObject({source, check});
@@ -46,7 +47,7 @@ describe('validatePredicateExpression', () => {
     ['event.ref', 'Predicate source must be boolean-shaped.'],
     ['trigger.event', 'must return bool'],
   ])('rejects non-boolean trigger filters: %s', (source, reason) => {
-    const result = validate({field: 'trigger.filter', source, site: 'ingest'});
+    const result = validate({field: 'trigger.filter', source});
 
     expect(result.expression).toBeUndefined();
     expect(result.issues).toEqual([
@@ -66,7 +67,7 @@ describe('validatePredicateExpression', () => {
     'jobs.build.status == "succeeded"',
     'vars.ENV == "prod"',
   ])('rejects trigger filter roots that are unavailable at ingest: %s', (source) => {
-    const result = validate({field: 'trigger.filter', source, site: 'ingest'});
+    const result = validate({field: 'trigger.filter', source});
 
     expect(result.expression).toBeUndefined();
     expect(result.issues).toEqual([
@@ -80,7 +81,7 @@ describe('validatePredicateExpression', () => {
   it.each([
     ['runner.os == "linux"', 'runner-context-in-server-predicate'],
   ])('rejects forbidden server predicate roots: %s', (source, code) => {
-    const result = validate({field: 'trigger.filter', source, site: 'ingest'});
+    const result = validate({field: 'trigger.filter', source});
 
     expect(result.expression).toBeUndefined();
     expect(result.issues).toEqual([
@@ -99,10 +100,10 @@ describe('validatePredicateExpression', () => {
     ['listener.on', 'job-activation'],
     ['listener.until', 'job-activation'],
   ] as const)('accepts vars in %s at its evaluation site', (field, site) => {
+    expect(getWorkflowPredicateFieldMinimumFillTarget(field)).toBe(site);
     const result = validate({
       field,
       source: 'vars.ENABLED == "true"',
-      site,
     });
 
     expect(result.issues).toEqual([]);
@@ -110,15 +111,15 @@ describe('validatePredicateExpression', () => {
   });
 
   it.each([
-    ['step.success', 'step-report', 'step.status == "succeeded"'],
-    ['job.success', 'job-resolution', 'executions.all(e, e.status == "succeeded")'],
-    ['trigger.filter', 'ingest', 'event.action == "created"'],
-    ['listener.on', 'job-activation', 'trigger.event == "pull_request"'],
-    ['listener.until', 'job-activation', 'job.key == "await-review"'],
-    ['job.if', 'job-activation', 'needs.exists(n, n.status == "succeeded")'],
-    ['step.if', 'step-dispatch', 'execution.status == "running"'],
-  ] as const)('accepts the runtime context contract for %s', (field, site, source) => {
-    const result = validate({field, source, site});
+    ['step.success', 'step.status == "succeeded"'],
+    ['job.success', 'executions.all(e, e.status == "succeeded")'],
+    ['trigger.filter', 'event.action == "created"'],
+    ['listener.on', 'trigger.event == "pull_request"'],
+    ['listener.until', 'job.key == "await-review"'],
+    ['job.if', 'needs.exists(n, n.status == "succeeded")'],
+    ['step.if', 'execution.status == "running"'],
+  ] as const)('accepts the runtime context contract for %s', (field, source) => {
+    const result = validate({field, source});
 
     expect(result.issues).toEqual([]);
     expect(result.expression).toMatchObject({source});
@@ -151,13 +152,15 @@ describe('validatePredicateExpression', () => {
     ['job.if', 'job-activation', 'execution.status == "running"', 'execution', 'Job if'],
     ['step.if', 'step-dispatch', 'run.id == "run-1"', 'run', 'Step if'],
   ] as const)('rejects roots omitted from the %s runtime context', (field, site, source, root, label) => {
-    const result = validate({field, source, site});
+    const result = validate({field, source});
 
     expect(result.expression).toBeUndefined();
     expect(result.issues).toEqual([
       expect.objectContaining({
         code: 'context-unavailable-at-predicate-site',
-        message: expect.stringContaining(`"${root}" is not supplied to ${label}.`),
+        message: expect.stringContaining(
+          `"${root}" that is not supplied when ${label} is evaluated at`,
+        ),
         details: expect.objectContaining({
           field,
           source,
@@ -181,7 +184,6 @@ describe('validatePredicateExpression', () => {
     const result = validate({
       field,
       source,
-      site: 'job-activation',
       ...(allowedJobs === undefined ? {} : {allowedJobReferences: allowedJobs}),
     });
 
@@ -193,7 +195,7 @@ describe('validatePredicateExpression', () => {
     'step.status == "succeeded"',
     'steps.build.outputs.sha == "abc"',
   ])('rejects listener roots that are unavailable at job activation: %s', (source) => {
-    const result = validate({field: 'listener.on', source, site: 'job-activation'});
+    const result = validate({field: 'listener.on', source});
 
     expect(result.expression).toBeUndefined();
     expect(result.issues).toEqual([
@@ -204,11 +206,72 @@ describe('validatePredicateExpression', () => {
     ]);
   });
 
+  it.each([
+    ['listener.on', 'executions.size() > 0', 'executions'],
+    ['listener.until', 'execution.status == "waiting"', 'execution'],
+    ['listener.on', 'needs.size() > 0', 'needs'],
+    ['listener.until', 'matrix.os == "linux"', 'matrix'],
+    ['job.if', 'job.key == "build"', 'job'],
+    ['job.if', 'executions.size() > 0', 'executions'],
+    ['step.if', 'run.id == "run-1"', 'run'],
+    ['step.success', 'execution.status == "failed"', 'execution'],
+    ['job.success', 'run.id == "run-1"', 'run'],
+  ] as const)('rejects %s context that its runtime evaluator does not supply: %s', (field, source, unavailableRoot) => {
+    const result = validate({field, source});
+
+    expect(result.expression).toBeUndefined();
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        code: 'context-unavailable-at-predicate-site',
+        details: expect.objectContaining({
+          field,
+          source,
+          unavailableRoots: [unavailableRoot],
+        }),
+      }),
+    ]);
+  });
+
+  it.each([
+    ['step.if', 'step.exit_code == 0'],
+    ['step.success', 'step.attempt > 1'],
+    ['job.success', 'executions.exists(e, e.failed)'],
+  ] as const)('rejects %s properties absent from its runtime shape: %s', (field, source) => {
+    const result = validate({field, source, typeOverlay: {}});
+
+    expect(result.expression).toBeUndefined();
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-job-success',
+        details: expect.objectContaining({
+          field,
+          source,
+          reason: expect.stringContaining('No such key'),
+        }),
+      }),
+    ]);
+  });
+
+  it('still checks typed properties when a predicate also uses open context', () => {
+    const result = validate({
+      field: 'step.success',
+      source: 'step.attempt > 1 && vars.RETRY == "true"',
+    });
+
+    expect(result.expression).toBeUndefined();
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        details: expect.objectContaining({
+          reason: expect.stringContaining('No such key: attempt'),
+        }),
+      }),
+    ]);
+  });
+
   it('rejects listener job references without a direct needs edge', () => {
     const result = validate({
       field: 'listener.on',
       source: 'jobs.build.outputs.pr_number == event.issue.number',
-      site: 'job-activation',
       allowedJobReferences: new Set(['test']),
     });
 
@@ -225,7 +288,6 @@ describe('validatePredicateExpression', () => {
     const result = validate({
       field: 'job.success',
       source: 'jobs.build.outputs.ready',
-      site: 'job-resolution',
     });
 
     expect(result.issues).toEqual([]);

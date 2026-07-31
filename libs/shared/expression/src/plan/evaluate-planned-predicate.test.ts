@@ -62,6 +62,21 @@ describe('evaluatePlannedPredicateAtSite', () => {
     });
   });
 
+  it('treats absent restart provenance as optional when guarded with has', () => {
+    const result = evaluatePlannedPredicateAtSite({
+      expression: expression('has(step.restart) && step.restart.feedback != ""'),
+      field: 'step.if',
+      site: 'step-dispatch',
+      context: {step: {attempt: 1, is_retry: false}},
+    });
+
+    expect(result).toEqual({
+      value: false,
+      evaluationFailed: false,
+      route: {roots: ['step'], runnerRoots: [], fillTarget: 'step-dispatch'},
+    });
+  });
+
   it('fails closed when the predicate needs a later server fill site', () => {
     const result = evaluatePlannedPredicateAtSite({
       expression: expression('executions.all(e, e.status == "succeeded")'),
