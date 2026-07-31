@@ -1,7 +1,7 @@
 ---
 title: "Runner Provisioner Configuration Reference"
 sidebarTitle: "Runner Provisioner"
-description: "Every Shipfox runner provisioner environment variable with its default, plus the runner template file schema: labels, image, cpu, memory, cost, and max_concurrency."
+description: "Every Shipfox runner provisioner environment variable with its default, plus the runner template file schema: vars, defaults, matrix families, labels, image, cpu, memory, cost, and max_concurrency."
 ---
 
 This page is the canonical reference for configuring the Docker runner provisioner (`@shipfox/provisioner-docker`). For how a provisioner works, see [Runner Provisioners](/operations/runner-provisioners); for starting one, see [Run a provisioner](/installation/runner-provisioner).
@@ -94,29 +94,106 @@ container output.
 
 ## Template file schema
 
-The templates file maps label sets to the containers that provide them:
+The templates file can contain shared lookup data, a default fragment, hand-written
+one-offs, and any number of independent matrix families. This is a complete Docker
+example with a general fleet, a separate GPU family, and one hand-written template:
 
 ```yaml
+vars:
+  image_by_os:
+    ubuntu22: ghcr.io/shipfoxhq/runner:ubuntu22
+    ubuntu24: ghcr.io/shipfoxhq/runner:ubuntu24
+
+defaults:
+  labels: [docker]
+  target_concurrency: 0
+
 templates:
-  docker-ubuntu22-2vcpu:
-    labels: [ubuntu22, ubuntu22-2vcpu]
-    image: shipfox-runner:ubuntu22
-    cpu: 2
-    memory: 4GiB
-    max_concurrency: 100
+  docker-local-debug:
+    labels: [docker, local-debug]
+    image: ghcr.io/shipfoxhq/runner:debug
+    cpu: 1
+    memory: 2GiB
+    max_concurrency: 2
+    cost: 1
+
+matrix:
+  general:
+    axes:
+      os: [ubuntu22, ubuntu24]
+      cpu: [2, 4]
+    template:
+      labels: [docker, "${{ os }}", "${{ cpu }}vcpu"]
+      image: "${{ vars.image_by_os[os] }}"
+      cpu: "${{ cpu }}"
+      memory: "${{ cpu * 2.0 }}GiB"
+      max_concurrency: 50
+      cost: "${{ cpu }}"
+
+  gpu:
+    axes:
+      cuda: [cuda12, cuda13]
+      memory: [16g, 32g]
+    template:
+      labels: [docker, gpu, "${{ cuda }}", "${{ memory }}"]
+      image: "ghcr.io/shipfoxhq/runner:${{ cuda }}"
+      cpu: 8
+      memory: "${{ memory }}"
+      max_concurrency: 10
+      cost: 20
 ```
+
+The checked-in Docker and EC2 files at `apps/provisioner-docker/templates.example.yaml`
+and `apps/provisioner-ec2/templates.example.yaml` use the same shape. Copy one, replace
+the placeholder images, AMI IDs, subnets, and security groups, then point
+`SHIPFOX_PROVISIONER_TEMPLATES_FILE` at the copy.
+
+| Top-level key | Type | Description |
+| --- | --- | --- |
+| `vars` | map | Shared lookup data available to every family. EC2 operators use it for their own AMI and instance-type maps. |
+| `defaults` | map | A fragment merged under every hand-written and generated template. Maps merge recursively; lists and scalars replace wholesale. |
+| `templates` | map | Hand-written entries for genuine one-offs or per-variant overrides. A hand-written key shadows a generated key and emits a warning. |
+| `matrix` | map | Independent named families. Each family has its own axes and produces its own generated keys. |
+
+### Matrix families
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `axes` | map | Named axes whose values are crossed. An axis can be a list or an expression that returns a list. The default key includes every axis in declaration order. |
+| `exclude` | map list | Partial bindings to remove from the cartesian product. |
+| `include` | map list | Complete bindings to append as extra variants. Every declared axis must be present. |
+| `let` | map | Per-variant expressions evaluated in declaration order. Each binding can use axes, `vars`, and earlier bindings. |
+| `key` | expression | Optional explicit key. Use it only when opting out of the default key guarantee. |
+| `template` | map | Provider-specific template fields rendered for each variant. |
+
+Families are independent. Adding a GPU pool means adding a `gpu` block with GPU
+axes; it does not mean adding GPU axes to the general fleet. Labels may overlap across
+families. Matching is subset-based, and the lowest `cost` wins when several templates
+can serve the same job, followed by specificity.
+
+Defaults do not append lists. If `defaults.subnets` contains two general subnets and
+a GPU family sets `subnets: [subnet-gpu]`, the GPU template has only `subnet-gpu`.
+Use a block override whenever a family needs a different list or scalar.
+
+The provider validates every rendered template with a strict schema. For Docker,
+unknown top-level or template keys now fail with a file-scoped error. This is a
+breaking upgrade for existing Docker files that relied on mistyped keys being ignored;
+remove those keys before upgrading. The optional Docker `cost` field defaults to `cpu`.
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `labels` | `string[]` | Labels the started runner registers with. A template can serve any job whose required labels are all in this list. |
-| `image` | `string` | Container image to start. |
-| `cpu` | `number` | vCPUs allocated to the container. The default selection cost when `cost` is omitted. |
+| `image` | `string` | Optional container image to start. Defaults to `ghcr.io/shipfoxhq/runner:latest`. |
+| `cpu` | `number` | vCPUs allocated to the container. The default Docker selection cost when `cost` is omitted. |
 | `memory` | `string` | Memory allocation, such as `4GiB`. |
 | `max_concurrency` | `number` | Cap on live containers started from this template. |
 | `target_concurrency` | `number` | Enrolled, unassigned runners to keep ready without demand. Defaults to `0`. Keep it at or below `max_concurrency`: the provisioner does not currently reject a template where it is higher. |
-| `cost` | `number` | Optional positive selection cost. Lower costs are preferred when several templates satisfy the same labels. Defaults to `cpu`. |
+| `cost` | `number` | Positive selection cost. Lower costs are preferred when several templates satisfy the same labels. Docker defaults it to `cpu`. |
 
-**Template selection:** when several templates satisfy a job's labels, the provisioner picks the lowest `cost` (or `cpu` when `cost` is omitted), then the most specific. The file and each template use strict schemas, so unknown keys fail with a file-scoped validation error.
+**Template selection:** when several templates satisfy a job's labels, the provisioner
+picks the lowest `cost` (or `cpu` for Docker when `cost` is omitted), then the most
+specific. Use a hand-written entry under `templates:` to override one generated key;
+the hand-written value wins and the loader logs the shadowed variant.
 
 ## Related pages
 

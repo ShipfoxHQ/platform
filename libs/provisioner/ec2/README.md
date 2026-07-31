@@ -19,23 +19,71 @@ workspace ID, workspace registration token, or activation token.
 
 ## Template config
 
-The template file is YAML keyed by template name:
+The template file can contain shared `vars`, a `defaults` fragment, hand-written
+`templates`, and independent `matrix` families. Operators own the lookup maps under
+`vars`; the provider does not ship AWS instance-family or ratio tables.
 
 ```yaml
+vars:
+  ami_by_arch_os:
+    x64:
+      ubuntu2404: ami-0123456789abcdef0
+  instance_family_by_arch_cpu:
+    x64:
+      4: m7i
+  size_by_cpu:
+    4: xlarge
+  gpu_ami_by_model_driver:
+    a10:
+      cuda12: ami-0123456789abcde10
+  gpu_instance_type_by_model:
+    a10: g5.2xlarge
+
+defaults:
+  labels: [ec2]
+  subnets: [subnet-general-a, subnet-general-b]
+  security_groups: [sg-runner]
+  iam_instance_profile: shipfox-runner
+  associate_public_ip: false
+  root_volume_gb: 100
+  max_concurrency: 50
+  target_concurrency: 0
+
 templates:
-  ec2-ubuntu22-2vcpu-spot:
-    labels: [ubuntu22, ubuntu22-2vcpu]
-    ami: ami-0123456789abcdef0
-    instance_type: m6i.large
-    market: spot
-    spot_max_price: null
-    subnets: [subnet-aaa, subnet-bbb]
-    security_groups: [sg-runner]
-    iam_instance_profile: shipfox-runner
-    associate_public_ip: false
-    root_volume_gb: 100
-    max_concurrency: 200
-    cost: 5
+  ec2-one-off-debug:
+    labels: [ec2, debug]
+    ami: ami-0123456789abcdef9
+    instance_type: t3.small
+    market: on-demand
+    subnets: [subnet-general-a]
+    max_concurrency: 2
+    cost: 1
+
+matrix:
+  general:
+    axes:
+      arch: [x64]
+      cpu: [4]
+      os: [ubuntu2404]
+    template:
+      labels: [ec2, "${{ arch }}", "${{ os }}", "${{ cpu }}vcpu"]
+      ami: "${{ vars.ami_by_arch_os[arch][os] }}"
+      instance_type: "${{ vars.instance_family_by_arch_cpu[arch][cpu] }}.${{ vars.size_by_cpu[cpu] }}"
+      market: on-demand
+      cost: "${{ cpu }}"
+
+  gpu:
+    axes:
+      model: [a10]
+      driver: [cuda12]
+    template:
+      labels: [ec2, gpu, "${{ model }}", "${{ driver }}"]
+      ami: "${{ vars.gpu_ami_by_model_driver[model][driver] }}"
+      instance_type: "${{ vars.gpu_instance_type_by_model[model] }}"
+      market: spot
+      spot_max_price: 1.25
+      subnets: [subnet-gpu]
+      cost: 25
 ```
 
 Loading fails fast with a clear, file-scoped error on a missing file, malformed YAML, an
@@ -47,6 +95,15 @@ canonicalized with the shared runner-label rules.
 default. Set `cost` to an explicit unitless ranking where lower values win template
 selection. Give a Spot template a lower cost than its on-demand equivalent so the planner
 prefers Spot before spilling to on-demand capacity.
+
+Families are independent. The general and GPU families above use different axes and
+markets; the GPU block's `subnets` replaces the general default list rather than
+appending to it. Labels may overlap across families because matching is subset-based;
+the lowest `cost` wins before specificity does. A hand-written entry under `templates:`
+shadows a generated key and is the per-variant override idiom.
+
+The runnable two-family example, including the complete AMI lookup maps, lives at
+[`apps/provisioner-ec2/templates.example.yaml`](../../../apps/provisioner-ec2/templates.example.yaml).
 
 ## Runtime configuration
 
