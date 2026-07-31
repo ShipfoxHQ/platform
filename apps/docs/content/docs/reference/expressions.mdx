@@ -156,17 +156,6 @@ templates:
 
 The sequence `$${{` writes a literal `${{`.
 
-### Infrastructure selectors
-
-The `job.runner`, agent `model`, and agent `provider` fields select execution
-infrastructure. Use values that you write in the workflow for these fields.
-
-Event, trigger-input, listening-event, and output data can currently reach
-these fields. Definition validation does not block this data.
-
-The `agent.thinking` field is an enum, not a template site. These fields are
-not a safety boundary.
-
 **Shipfox resolves each reference when its data becomes available:**
 
 - `trigger` and `event` at ingest
