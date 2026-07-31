@@ -1247,7 +1247,7 @@ describe('normalizeWorkflowDocument', () => {
                 source: 'github',
                 event: 'pull_request_review',
                 filter:
-                  'run.id != "" && inputs.target == event.issue.number && job.key == "review" && executions.all(execution, execution.status != "") && matrix.os == "linux" && jobs.build.outputs.pr_number == event.issue.number',
+                  'run.id != "" && trigger.event == "pull_request_review" && inputs.target == event.issue.number && vars.ENABLED == "true" && job.key == "review" && jobs.build.outputs.pr_number == event.issue.number',
               },
             ],
             until: [
@@ -1266,7 +1266,7 @@ describe('normalizeWorkflowDocument', () => {
     const model = normalizeWorkflowDocument(document);
 
     expect(model.jobs[1]?.listening?.on[0]?.filter).toBe(
-      'run.id != "" && inputs.target == event.issue.number && job.key == "review" && executions.all(execution, execution.status != "") && matrix.os == "linux" && jobs.build.outputs.pr_number == event.issue.number',
+      'run.id != "" && trigger.event == "pull_request_review" && inputs.target == event.issue.number && vars.ENABLED == "true" && job.key == "review" && jobs.build.outputs.pr_number == event.issue.number',
     );
     expect(model.jobs[1]?.listening?.until?.[0]?.filter).toBe('event.action == "closed"');
   });
@@ -1866,7 +1866,7 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
-  it('accepts server roots available at step reporting in gate success', () => {
+  it('rejects server roots omitted from the gate success context', () => {
     const document: WorkflowDocument = {
       name: 'server-context gate',
       jobs: {
@@ -1874,14 +1874,21 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const model = normalizeWorkflowDocument(document);
+    const error = expectInvalid(document);
 
-    expect(model.jobs[0]?.steps[0]?.gate?.success).toEqual({
-      language: 'cel',
-      source: 'run.id != ""',
-      check: 'typed',
-      resultType: 'bool',
-    });
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'context-unavailable-at-predicate-site',
+        message: expect.stringContaining('Step gate success references context "run"'),
+        path: ['jobs', 'build', 'steps', 0, 'gate', 'success'],
+        details: expect.objectContaining({
+          field: 'step.success',
+          source: 'run.id != ""',
+          unavailableRoots: ['run'],
+          site: 'step-report',
+        }),
+      }),
+    ]);
   });
 
   it('rejects runner-host roots in gate success with a server-predicate issue', () => {
@@ -1929,7 +1936,7 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
-  it('accepts jobs root references at the gate predicate site', () => {
+  it('rejects jobs root references omitted from the gate success context', () => {
     const document: WorkflowDocument = {
       name: 'jobs-context gate',
       jobs: {
@@ -1943,13 +1950,21 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const model = normalizeWorkflowDocument(document);
+    const error = expectInvalid(document);
 
-    expect(model.jobs[1]?.steps[0]?.gate?.success).toEqual({
-      language: 'cel',
-      source: 'jobs.build.status == "succeeded"',
-      check: 'syntax',
-    });
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'context-unavailable-at-predicate-site',
+        message: expect.stringContaining('Step gate success references context "jobs"'),
+        path: ['jobs', 'deploy', 'steps', 0, 'gate', 'success'],
+        details: expect.objectContaining({
+          field: 'step.success',
+          source: 'jobs.build.status == "succeeded"',
+          unavailableRoots: ['jobs'],
+          site: 'step-report',
+        }),
+      }),
+    ]);
   });
 
   it('parses job output mappings at execution resolution', () => {
@@ -2699,7 +2714,7 @@ describe('normalizeWorkflowDocument', () => {
         path: ['jobs', 'build', 'if'],
         details: expect.objectContaining({
           field: 'job.if',
-          unavailableRoots: ['execution.failed'],
+          unavailableRoots: ['execution'],
         }),
       }),
     ]);

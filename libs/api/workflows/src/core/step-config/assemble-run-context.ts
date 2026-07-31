@@ -1,7 +1,9 @@
 import {
   analyzeContextRootKeyAccess,
   extractExactContextRoots,
+  getWorkflowPredicateContextRoots,
   type WorkflowExpressionEvaluationContext,
+  type WorkflowPredicateContextRoot,
 } from '@shipfox/expression';
 import type {Job, JobListeningTrigger} from '#core/entities/job.js';
 import type {JobExecution} from '#core/entities/job-execution.js';
@@ -158,7 +160,8 @@ export function assembleJobActivationContext(
   };
 }
 
-type ListenerSnapshotRoot = 'run' | 'trigger' | 'inputs' | 'vars' | 'job' | 'jobs';
+type ListenerPredicateField = 'listener.on' | 'listener.until';
+type ListenerSnapshotRoot = Exclude<WorkflowPredicateContextRoot<ListenerPredicateField>, 'event'>;
 
 export interface MatcherSnapshotPlan {
   readonly matcher: JobListeningTrigger;
@@ -179,14 +182,17 @@ export function planListenerFilterSnapshots(params: {
 }): ListenerSnapshotPlan {
   const roots = new Set<ListenerSnapshotRoot>();
   const jobKeys = new Set<string>();
-  const on = params.on.map((matcher) => planMatcherFilterSnapshot(matcher, roots, jobKeys));
+  const on = params.on.map((matcher) =>
+    planMatcherFilterSnapshot('listener.on', matcher, roots, jobKeys),
+  );
   const until = (params.until ?? []).map((matcher) =>
-    planMatcherFilterSnapshot(matcher, roots, jobKeys),
+    planMatcherFilterSnapshot('listener.until', matcher, roots, jobKeys),
   );
   return {on, until, roots, jobKeys};
 }
 
 function planMatcherFilterSnapshot(
+  field: ListenerPredicateField,
   matcher: JobListeningTrigger,
   allRoots: Set<ListenerSnapshotRoot>,
   allJobKeys: Set<string>,
@@ -195,9 +201,9 @@ function planMatcherFilterSnapshot(
 
   let roots: ListenerSnapshotRoot[];
   try {
-    roots = extractExactContextRoots(matcher.filter)
-      .filter((root) => root !== 'event')
-      .filter(isListenerSnapshotRoot);
+    roots = extractExactContextRoots(matcher.filter).filter((root) =>
+      isListenerSnapshotRoot(field, root),
+    );
   } catch {
     return {matcher, roots: new Set(), jobKeys: new Set()};
   }
@@ -217,14 +223,15 @@ function planMatcherFilterSnapshot(
   return {matcher, roots: new Set(roots), jobKeys};
 }
 
-function isListenerSnapshotRoot(root: string): root is ListenerSnapshotRoot {
+function isListenerSnapshotRoot(
+  field: ListenerPredicateField,
+  root: string,
+): root is ListenerSnapshotRoot {
   return (
-    root === 'run' ||
-    root === 'trigger' ||
-    root === 'inputs' ||
-    root === 'vars' ||
-    root === 'job' ||
-    root === 'jobs'
+    root !== 'event' &&
+    getWorkflowPredicateContextRoots(field).includes(
+      root as WorkflowPredicateContextRoot<ListenerPredicateField>,
+    )
   );
 }
 

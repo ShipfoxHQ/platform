@@ -267,6 +267,32 @@ describe('routeEventToJobListeners', () => {
   });
 
   it.each([
+    'on',
+    'until',
+  ] as const)('fails closed when a %s listener snapshot contains a foreign root', async (kind) => {
+    const workspaceId = crypto.randomUUID();
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      kind,
+      source: 'github',
+      event: 'pull_request_review',
+      config: {
+        filter: 'executions.size() > 0',
+        filter_snapshot: {executions: [{status: 'succeeded'}]},
+      },
+    });
+
+    const result = await route({workspaceId});
+
+    expect(deliverEventToListener).not.toHaveBeenCalled();
+    expect(listenerFilterErrored).toHaveBeenCalledWith(
+      expect.objectContaining({kind}),
+      'Listener filter evaluation failed',
+    );
+    expect(result).toMatchObject({engagedCount: 1, matchedJobCount: 0, acceptedJobCount: 0});
+  });
+
+  it.each([
     {name: 'missing jobs snapshot', filterSnapshot: {}},
     {name: 'empty jobs snapshot', filterSnapshot: {jobs: {}}},
   ])('records filter-error when listener filter evaluation fails with $name', async ({

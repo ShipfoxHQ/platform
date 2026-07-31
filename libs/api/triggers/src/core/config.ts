@@ -2,6 +2,7 @@ import {
   createWorkflowExpression,
   evaluateWorkflowPredicateFailClosed,
   InvalidWorkflowExpressionError,
+  projectWorkflowPredicateContext,
   type WorkflowExpression,
 } from '@shipfox/expression';
 import type {TriggerSubscription} from './entities/subscription.js';
@@ -70,10 +71,10 @@ export function evaluateTriggerFilter(
 ): TriggerFilterEvaluation {
   return evaluateStoredFilter({
     value: params.subscription.config.filter,
-    context: {
+    context: projectWorkflowPredicateContext('trigger.filter', {
       event: params.payload,
       trigger: {source: params.source, event: params.event},
-    },
+    }),
     invalidReason: 'Trigger subscription filter must be a non-empty string when set',
     evaluationFailedReason: 'Trigger filter evaluation failed',
   });
