@@ -163,7 +163,7 @@ the placeholder images, AMI IDs, subnets, and security groups, then point
 | `exclude` | map list | Partial bindings to remove from the cartesian product. |
 | `include` | map list | Complete bindings to append as extra variants. Every declared axis must be present. |
 | `let` | map | Per-variant expressions evaluated in declaration order. Each binding can use axes, `vars`, and earlier bindings. |
-| `key` | expression | Optional explicit key. Use it only when opting out of the default key guarantee. |
+| `key` | expression | Optional explicit key. Without one, the loader builds a key from the family name and each axis value (or object axis `name`) in declaration order, joining parts with hyphens and escaping separators inside values; generated keys must be unique within the file. Use an explicit key only when you need a different naming scheme. |
 | `template` | map | Provider-specific template fields rendered for each variant. |
 
 Families are independent. Adding a GPU pool means adding a `gpu` block with GPU
