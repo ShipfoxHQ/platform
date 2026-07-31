@@ -19,11 +19,12 @@ export const INTEGRATIONS_TEST_WID = '11111111-1111-4111-8111-111111111111';
 export interface TestWorkspace {
   id: string;
   name: string;
+  slug: string;
   membershipId: string;
 }
 
 export function testWorkspace(overrides: Partial<TestWorkspace> = {}): TestWorkspace {
-  return {id: INTEGRATIONS_TEST_WID, name: 'Acme', membershipId: 'm-1', ...overrides};
+  return {id: INTEGRATIONS_TEST_WID, name: 'Acme', slug: 'acme', membershipId: 'm-1', ...overrides};
 }
 
 export function jsonResponse(body: unknown, init: ResponseInit = {}) {

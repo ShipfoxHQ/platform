@@ -10,12 +10,13 @@ describe('toWorkspace', () => {
     const dto: WorkspaceResponseDto = {
       id: '11111111-1111-4111-8111-111111111111',
       name: 'Acme',
+      slug: 'acme',
       status,
       settings: {},
       created_at: '2026-04-27T00:00:00.000Z',
       updated_at: '2026-04-27T00:00:00.000Z',
     };
 
-    expect(toWorkspace(dto)).toEqual({id: dto.id, name: dto.name, status});
+    expect(toWorkspace(dto)).toEqual({id: dto.id, name: dto.name, slug: dto.slug, status});
   });
 });

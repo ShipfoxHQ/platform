@@ -5,6 +5,7 @@ export function toWorkspaceDto(workspace: Workspace): WorkspaceDto {
   return {
     id: workspace.id,
     name: workspace.name,
+    slug: workspace.slug,
     status: workspace.status,
     settings: workspace.settings,
     created_at: workspace.createdAt.toISOString(),

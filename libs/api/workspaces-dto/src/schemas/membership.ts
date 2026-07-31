@@ -17,6 +17,7 @@ export type MembershipDto = z.infer<typeof membershipDtoSchema>;
 
 export const membershipWithWorkspaceSchema = membershipDtoSchema.extend({
   workspace_name: z.string(),
+  workspace_slug: z.string(),
   workspace_status: workspaceStatusSchema.default('active'),
 });
 

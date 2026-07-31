@@ -3,6 +3,7 @@ import {workspaceRoleSchema} from './schemas/membership.js';
 
 export const WORKSPACES_INVITATION_SEND_REQUESTED = 'workspaces.invitation.send_requested' as const;
 export const WORKSPACES_WORKSPACE_CREATED = 'workspaces.workspace.created' as const;
+export const WORKSPACES_WORKSPACE_UPDATED = 'workspaces.workspace.updated' as const;
 export const WORKSPACES_MEMBER_INVITED = 'workspaces.member.invited' as const;
 export const WORKSPACES_MEMBER_JOINED = 'workspaces.member.joined' as const;
 
@@ -19,9 +20,18 @@ export type WorkspacesInvitationSendRequestedEvent = z.infer<
 export const workspaceCreatedEventSchema = z.object({
   workspaceId: z.string().nonempty(),
   name: z.string().nonempty(),
+  // Existing outbox rows may predate workspace slugs.
+  slug: z.string().nonempty().optional(),
   creatorUserId: z.string().nonempty(),
 });
 export type WorkspaceCreatedEvent = z.infer<typeof workspaceCreatedEventSchema>;
+
+export const workspaceUpdatedEventSchema = z.object({
+  workspaceId: z.string().nonempty(),
+  name: z.string().nonempty(),
+  slug: z.string().nonempty(),
+});
+export type WorkspaceUpdatedEvent = z.infer<typeof workspaceUpdatedEventSchema>;
 
 export const workspacesMemberInvitedSchema = z.object({
   workspaceId: z.string().uuid(),
@@ -42,6 +52,7 @@ export type WorkspacesMemberJoinedEvent = z.infer<typeof workspacesMemberJoinedS
 export interface WorkspacesEventMap {
   [WORKSPACES_INVITATION_SEND_REQUESTED]: WorkspacesInvitationSendRequestedEvent;
   [WORKSPACES_WORKSPACE_CREATED]: WorkspaceCreatedEvent;
+  [WORKSPACES_WORKSPACE_UPDATED]: WorkspaceUpdatedEvent;
   [WORKSPACES_MEMBER_INVITED]: WorkspacesMemberInvitedEvent;
   [WORKSPACES_MEMBER_JOINED]: WorkspacesMemberJoinedEvent;
 }
@@ -49,6 +60,7 @@ export interface WorkspacesEventMap {
 export const workspacesEventSchemas = {
   [WORKSPACES_INVITATION_SEND_REQUESTED]: workspacesInvitationSendRequestedSchema,
   [WORKSPACES_WORKSPACE_CREATED]: workspaceCreatedEventSchema,
+  [WORKSPACES_WORKSPACE_UPDATED]: workspaceUpdatedEventSchema,
   [WORKSPACES_MEMBER_INVITED]: workspacesMemberInvitedSchema,
   [WORKSPACES_MEMBER_JOINED]: workspacesMemberJoinedSchema,
 } satisfies Record<keyof WorkspacesEventMap, z.ZodType>;

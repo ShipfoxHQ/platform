@@ -25,7 +25,14 @@ import {router} from './shipfox-app.gen';
 
 const authState: AuthState = {
   status: 'authenticated',
-  workspaces: [{id: 'workspace', name: 'External workspace', membershipId: 'membership'}],
+  workspaces: [
+    {
+      id: 'workspace',
+      name: 'External workspace',
+      slug: 'external-workspace',
+      membershipId: 'membership',
+    },
+  ],
 };
 
 export const auth: AuthStateValue = {

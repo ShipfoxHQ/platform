@@ -1,17 +1,30 @@
-import {displayNameSchema} from '@shipfox/api-common-dto';
+import {displayNameSchema, slugSchema} from '@shipfox/api-common-dto';
 import {z} from 'zod';
 
 export const workspaceStatusSchema = z.enum(['active', 'suspended', 'deleted']);
 
 export const createWorkspaceBodySchema = z.object({
   name: displayNameSchema,
+  slug: slugSchema,
 });
 
 export type CreateWorkspaceBodyDto = z.infer<typeof createWorkspaceBodySchema>;
 
+export const updateWorkspaceBodySchema = z
+  .object({
+    name: displayNameSchema.optional(),
+    slug: slugSchema.optional(),
+  })
+  .refine((body) => body.name !== undefined || body.slug !== undefined, {
+    message: 'At least one of name or slug is required',
+  });
+
+export type UpdateWorkspaceBodyDto = z.infer<typeof updateWorkspaceBodySchema>;
+
 export const workspaceDtoSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
+  slug: slugSchema,
   status: workspaceStatusSchema,
   settings: z.record(z.string(), z.unknown()),
   created_at: z.string(),

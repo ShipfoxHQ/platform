@@ -21,6 +21,7 @@ describe('Workspaces inter-module presentation', () => {
     const creatorUserId = crypto.randomUUID();
     const workspace = await createWorkspaceForUser({
       name: 'Creator Workspace',
+      slug: `creator-${crypto.randomUUID().slice(0, 8)}`,
       userId: creatorUserId,
     });
     await createMembership({workspaceId: workspace.id, userId: crypto.randomUUID()});
@@ -35,6 +36,7 @@ describe('Workspaces inter-module presentation', () => {
     const creatorUserId = crypto.randomUUID();
     const workspace = await createWorkspaceForUser({
       name: 'Outlasted Creator Workspace',
+      slug: `outlasted-${crypto.randomUUID().slice(0, 8)}`,
       userId: creatorUserId,
     });
     const remainingUserId = crypto.randomUUID();
@@ -58,9 +60,21 @@ describe('Workspaces inter-module presentation', () => {
   test('carries workspace status into token claims', async () => {
     const client = createClient();
     const userId = crypto.randomUUID();
-    const active = await createWorkspaceForUser({name: 'Active Workspace', userId});
-    const suspended = await createWorkspaceForUser({name: 'Suspended Workspace', userId});
-    const deleted = await createWorkspaceForUser({name: 'Deleted Workspace', userId});
+    const active = await createWorkspaceForUser({
+      name: 'Active Workspace',
+      slug: `active-${crypto.randomUUID().slice(0, 8)}`,
+      userId,
+    });
+    const suspended = await createWorkspaceForUser({
+      name: 'Suspended Workspace',
+      slug: `suspended-${crypto.randomUUID().slice(0, 8)}`,
+      userId,
+    });
+    const deleted = await createWorkspaceForUser({
+      name: 'Deleted Workspace',
+      slug: `deleted-${crypto.randomUUID().slice(0, 8)}`,
+      userId,
+    });
     await updateWorkspace({id: suspended.id, status: 'suspended'});
     await updateWorkspace({id: deleted.id, status: 'deleted'});
 
@@ -86,7 +100,11 @@ describe('Workspaces inter-module presentation', () => {
   test('preserves suspended-workspace access errors through the claim boundary', async () => {
     const client = createClient();
     const userId = crypto.randomUUID();
-    const workspace = await createWorkspaceForUser({name: 'Suspended Access Workspace', userId});
+    const workspace = await createWorkspaceForUser({
+      name: 'Suspended Access Workspace',
+      slug: `suspended-access-${crypto.randomUUID().slice(0, 8)}`,
+      userId,
+    });
     await updateWorkspace({id: workspace.id, status: 'suspended'});
 
     const claims = await client.listMembershipsForTokenClaims({userId});

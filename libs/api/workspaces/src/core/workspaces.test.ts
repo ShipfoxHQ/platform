@@ -15,9 +15,11 @@ import {
 describe('workspaces core', () => {
   test('createWorkspaceForUser creates a workspace and membership for the user', async () => {
     const user = userFactory.build();
+    const slug = `core-${crypto.randomUUID().slice(0, 8)}`;
 
     const workspace = await createWorkspaceForUser({
       name: 'Core Workspace',
+      slug,
       userId: user.userId,
       userEmail: user.email,
       userName: user.name,
@@ -25,6 +27,7 @@ describe('workspaces core', () => {
     const membership = await findMembership({userId: user.userId, workspaceId: workspace.id});
 
     expect(workspace.name).toBe('Core Workspace');
+    expect(workspace.slug).toBe(slug);
     expect(membership).toBeDefined();
   });
 
@@ -33,6 +36,7 @@ describe('workspaces core', () => {
 
     const workspace = await createWorkspaceForUser({
       name: 'Evented Workspace',
+      slug: `evented-${crypto.randomUUID().slice(0, 8)}`,
       userId: user.userId,
       userEmail: user.email,
       userName: user.name,
@@ -47,6 +51,7 @@ describe('workspaces core', () => {
       payload: {
         workspaceId: workspace.id,
         name: workspace.name,
+        slug: workspace.slug,
         creatorUserId: user.userId,
       },
     });
@@ -56,6 +61,7 @@ describe('workspaces core', () => {
     const user = userFactory.build();
     const workspace = await createWorkspaceForUser({
       name: 'Member Workspace',
+      slug: `member-${crypto.randomUUID().slice(0, 8)}`,
       userId: user.userId,
       userEmail: user.email,
       userName: user.name,
@@ -75,6 +81,7 @@ describe('workspaces core', () => {
   test('getWorkspaceOperatingState returns the current status without workspace details', async () => {
     const workspace = await createWorkspaceForUser({
       name: 'Operating State Workspace',
+      slug: `operating-${crypto.randomUUID().slice(0, 8)}`,
       userId: crypto.randomUUID(),
     });
 
@@ -89,6 +96,7 @@ describe('workspaces core', () => {
     const user = userFactory.build();
     const workspace = await createWorkspaceForUser({
       name: 'Suspended Workspace',
+      slug: `suspended-${crypto.randomUUID().slice(0, 8)}`,
       userId: user.userId,
       userEmail: user.email,
       userName: user.name,
@@ -109,6 +117,7 @@ describe('workspaces core', () => {
     const outsider = userFactory.build();
     const workspace = await createWorkspaceForUser({
       name: 'Private Workspace',
+      slug: `private-${crypto.randomUUID().slice(0, 8)}`,
       userId: owner.userId,
       userEmail: owner.email,
       userName: owner.name,

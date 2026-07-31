@@ -27,6 +27,7 @@ export {
   WorkspaceDeletedError,
   WorkspaceNotFoundError,
   WorkspaceNotSuspendedError,
+  WorkspaceSlugConflictError,
 } from './errors.js';
 export {
   acceptWorkspaceInvitation,
@@ -46,4 +47,5 @@ export {
   type RequireWorkspaceMembershipResult,
   removeWorkspaceMember,
   requireWorkspaceMembership,
+  updateWorkspaceDetails,
 } from './workspaces.js';

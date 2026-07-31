@@ -4743,6 +4743,9 @@ importers:
       '@shipfox/api-auth-dto':
         specifier: workspace:*
         version: link:../../api/auth-dto
+      '@shipfox/api-common-dto':
+        specifier: workspace:*
+        version: link:../../api/common-dto
       '@shipfox/api-workspaces-dto':
         specifier: workspace:*
         version: link:../../api/workspaces-dto

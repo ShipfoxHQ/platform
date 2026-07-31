@@ -66,7 +66,7 @@ function IntegrationGalleryStory({scenario}: IntegrationGalleryStoryProps) {
     const nextStore = createStore();
     nextStore.set(authStateAtom, {
       status: 'authenticated',
-      workspaces: [{id: WORKSPACE_ID, name: 'Acme', membershipId: 'membership-1'}],
+      workspaces: [{id: WORKSPACE_ID, name: 'Acme', slug: 'acme', membershipId: 'membership-1'}],
     });
     return nextStore;
   }, []);

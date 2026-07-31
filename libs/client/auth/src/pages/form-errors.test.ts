@@ -106,7 +106,17 @@ describe('passwordResetConfirmErrorToFormError', () => {
 });
 
 describe('workspaceOnboardingErrorToFormError', () => {
-  test('routes any error to a form-level alert', () => {
+  test('routes slug conflicts to the slug field', () => {
+    const result = workspaceOnboardingErrorToFormError(apiError('slug-conflict', 409));
+
+    expect(result).toEqual({
+      kind: 'field',
+      field: 'slug',
+      message: 'That workspace slug is already taken.',
+    });
+  });
+
+  test('routes other errors to a form-level alert', () => {
     const result = workspaceOnboardingErrorToFormError(apiError('conflict', 409));
 
     expect(result).toEqual({kind: 'form', message: 'conflict server message'});

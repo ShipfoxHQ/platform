@@ -9,6 +9,8 @@ import {toWorkspace, workspaces} from './schema/workspaces.js';
 
 export interface CreateWorkspaceParams {
   name: string;
+  /** Existing database-only fixtures predate the required API slug. */
+  slug?: string | undefined;
 }
 
 export async function createWorkspace(params: CreateWorkspaceParams): Promise<Workspace> {
@@ -16,6 +18,7 @@ export async function createWorkspace(params: CreateWorkspaceParams): Promise<Wo
     .insert(workspaces)
     .values({
       name: params.name,
+      slug: params.slug ?? `workspace-${crypto.randomUUID().slice(0, 8)}`,
     })
     .returning();
 
@@ -28,19 +31,26 @@ export async function createWorkspace(params: CreateWorkspaceParams): Promise<Wo
 export interface UpdateWorkspaceParams {
   id: string;
   name?: string | undefined;
+  slug?: string | undefined;
   status?: WorkspaceStatus | undefined;
   settings?: Record<string, unknown> | undefined;
 }
 
+type WorkspaceDatabase = ReturnType<typeof db>;
+type WorkspaceTransaction = Parameters<Parameters<WorkspaceDatabase['transaction']>[0]>[0];
+
 export async function updateWorkspace(
   params: UpdateWorkspaceParams,
+  options: {tx?: WorkspaceDatabase | WorkspaceTransaction | undefined} = {},
 ): Promise<Workspace | undefined> {
+  const executor = options.tx ?? db();
   const set: Record<string, unknown> = {updatedAt: sql`NOW()`};
   if (params.name !== undefined) set.name = params.name;
+  if (params.slug !== undefined) set.slug = params.slug;
   if (params.status !== undefined) set.status = params.status;
   if (params.settings !== undefined) set.settings = params.settings;
 
-  const rows = await db()
+  const rows = await executor
     .update(workspaces)
     .set(set)
     .where(eq(workspaces.id, params.id))

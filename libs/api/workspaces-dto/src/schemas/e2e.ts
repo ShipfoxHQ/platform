@@ -1,4 +1,4 @@
-import {displayNameSchema} from '@shipfox/api-common-dto';
+import {displayNameSchema, slugSchema} from '@shipfox/api-common-dto';
 import {z} from 'zod';
 import {invitationDtoSchema} from './invitation.js';
 import {workspaceResponseSchema} from './workspace.js';
@@ -8,6 +8,7 @@ export const e2eCreateWorkspaceBodySchema = z.object({
   user_email: z.string().email().optional(),
   user_name: z.string().nullable().optional(),
   name: displayNameSchema,
+  slug: slugSchema.optional(),
 });
 
 export type E2eCreateWorkspaceBodyDto = z.infer<typeof e2eCreateWorkspaceBodySchema>;

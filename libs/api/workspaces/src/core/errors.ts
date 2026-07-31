@@ -5,6 +5,13 @@ export class WorkspaceNotFoundError extends Error {
   }
 }
 
+export class WorkspaceSlugConflictError extends Error {
+  constructor(slug: string) {
+    super(`Workspace slug is already taken: ${slug}`);
+    this.name = 'WorkspaceSlugConflictError';
+  }
+}
+
 export class WorkspaceInactiveError extends Error {
   constructor(workspaceId: string) {
     super(`Workspace is not active: ${workspaceId}`);

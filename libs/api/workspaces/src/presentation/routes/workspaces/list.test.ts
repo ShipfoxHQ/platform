@@ -49,6 +49,7 @@ describe('GET /workspaces', () => {
           user_id: userId,
           workspace_id: workspace.id,
           workspace_name: 'Acme',
+          workspace_slug: workspace.slug,
         },
       ],
     });

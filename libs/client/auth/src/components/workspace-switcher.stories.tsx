@@ -39,6 +39,7 @@ function workspace(id: string, name: string, index: number): Workspace {
   return {
     id,
     name,
+    slug: name.toLowerCase().replaceAll(' ', '-'),
     membershipId: `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
   };
 }

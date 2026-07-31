@@ -25,6 +25,7 @@ export {
   TokenExpiredError,
   TokenInvalidError,
   WorkspaceNotFoundError,
+  WorkspaceSlugConflictError,
 } from '#core/errors.js';
 export {
   acceptWorkspaceInvitation,

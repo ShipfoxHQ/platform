@@ -40,6 +40,11 @@ export function passwordResetConfirmErrorToFormError(
   return {kind: 'form', message: authErrorMessage(error)};
 }
 
-export function workspaceOnboardingErrorToFormError(error: unknown): FormErrorMapping<'name'> {
+export function workspaceOnboardingErrorToFormError(
+  error: unknown,
+): FormErrorMapping<'name' | 'slug'> {
+  if (apiCode(error) === 'slug-conflict') {
+    return {kind: 'field', field: 'slug', message: 'That workspace slug is already taken.'};
+  }
   return {kind: 'form', message: authErrorMessage(error)};
 }

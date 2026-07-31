@@ -11,7 +11,9 @@ describe('generated composition router', () => {
   test('renders added and overridden routes', async () => {
     const auth: AuthStateValue = {
       status: 'authenticated',
-      workspaces: [{id: 'workspace', name: 'Workspace', membershipId: 'membership'}],
+      workspaces: [
+        {id: 'workspace', name: 'Workspace', slug: 'workspace', membershipId: 'membership'},
+      ],
       isLoading: false,
       isAuthenticated: true,
       hasWorkspace: true,

@@ -43,8 +43,12 @@ Invitation email uses the shared `@shipfox/node-mailer` configuration.
 
 ## Routes / API / Data Model
 
-Routes mount under `/workspaces`. They make and list workspaces, manage members,
-and make, list, view, accept, or revoke invites. The composed module also mounts
+Routes mount under `/workspaces`. They make, list, and update workspaces, manage
+members, and make, list, view, accept, or revoke invites. Every workspace has a
+unique `slug` used in client URLs; creating a workspace requires one, and
+`PATCH /workspaces/:workspaceId` can rename it. A taken slug returns
+`slug-conflict`. Updates write a `workspaces.workspace.updated` outbox event.
+The composed module also mounts
 `GET /admin/workspaces`, which requires the Auth `admin-observer` role and returns
 bounded workspace identity, lifecycle, member, project, and best-effort job-count
 summaries. Supporting count failures are represented as `unknown`. `POST

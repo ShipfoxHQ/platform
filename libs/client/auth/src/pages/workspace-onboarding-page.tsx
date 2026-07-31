@@ -1,3 +1,4 @@
+import {slugifyName} from '@shipfox/api-common-dto';
 import {createWorkspaceBodySchema} from '@shipfox/api-workspaces-dto';
 import {displayNameFieldError} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
@@ -39,13 +40,14 @@ export function WorkspaceOnboardingPage() {
   const navigate = useNavigate();
   const setLastWorkspaceId = useSetAtom(lastWorkspaceIdAtom);
   const [formError, setFormError] = useState<string | undefined>();
+  const [slugTouched, setSlugTouched] = useState(false);
 
   const form = useForm({
-    defaultValues: {name: ''},
+    defaultValues: {name: '', slug: ''},
     onSubmit: async ({value}) => {
       setFormError(undefined);
       try {
-        const command = createWorkspaceBodySchema.parse({name: value.name});
+        const command = createWorkspaceBodySchema.parse({name: value.name, slug: value.slug});
         const created = await createWorkspace.mutateAsync(command);
         toast.success('Workspace created.');
         // Pin the new workspace as the last-active one so a page refresh and
@@ -59,7 +61,14 @@ export function WorkspaceOnboardingPage() {
         await navigate({to: '/workspaces/$wid', params: {wid: created.id}});
       } catch (error) {
         const mapped = workspaceOnboardingErrorToFormError(error);
-        setFormError(mapped.message);
+        if (mapped.kind === 'field') {
+          form.setFieldMeta(mapped.field, (previous) => ({
+            ...previous,
+            errorMap: {...previous.errorMap, onServer: mapped.message},
+          }));
+        } else {
+          setFormError(mapped.message);
+        }
       }
     },
   });
@@ -129,7 +138,49 @@ export function WorkspaceOnboardingPage() {
                         placeholder="Acme"
                         type="text"
                         value={field.state.value}
-                        onChange={(event) => field.handleChange(event.target.value)}
+                        onChange={(event) => {
+                          const name = event.target.value;
+                          field.handleChange(name);
+                          if (!slugTouched) {
+                            form.setFieldValue(
+                              'slug',
+                              name ? slugifyName(name, {fallback: 'workspace'}) : '',
+                            );
+                          }
+                        }}
+                        onBlur={field.handleBlur}
+                      />
+                    </FormField>
+                  )}
+                </form.Field>
+                <form.Field
+                  name="slug"
+                  validators={{
+                    onBlur: createWorkspaceBodySchema.shape.slug,
+                    onSubmit: createWorkspaceBodySchema.shape.slug,
+                  }}
+                >
+                  {(field) => (
+                    <FormField
+                      label="Workspace slug"
+                      id="workspace-slug"
+                      description={
+                        <span className="break-all font-code" aria-live="polite">
+                          {`${window.location.origin}/w/${field.state.value || 'acme'}`}
+                        </span>
+                      }
+                      error={fieldError(field)}
+                    >
+                      <FormFieldInput
+                        autoComplete="off"
+                        name="slug"
+                        placeholder="acme"
+                        type="text"
+                        value={field.state.value}
+                        onChange={(event) => {
+                          setSlugTouched(true);
+                          field.handleChange(event.target.value);
+                        }}
                         onBlur={field.handleBlur}
                       />
                     </FormField>

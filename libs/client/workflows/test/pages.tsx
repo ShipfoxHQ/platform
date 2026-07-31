@@ -30,7 +30,7 @@ export const PROJECT_TEST_WID = '11111111-1111-4111-8111-111111111111';
 const authState: AuthState = {
   status: 'authenticated',
   token: 'token',
-  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', membershipId: 'm-1'}],
+  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: 'acme', membershipId: 'm-1'}],
 };
 
 export function jsonResponse(body: unknown, init: ResponseInit = {}) {
