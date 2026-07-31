@@ -1,7 +1,8 @@
 import {randomUUID} from 'node:crypto';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {DEFAULT_RUNNER_IMAGE, DockerTemplateConfigError, loadDockerTemplates} from '#templates.js';
 
 const mocks = vi.hoisted(() => ({debug: vi.fn(), info: vi.fn(), warn: vi.fn()}));
@@ -10,6 +11,10 @@ vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => mocks}));
 const SHADOWED_TEMPLATE_CPU_PATTERN = /templates\.docker-2-ubuntu22\.cpu/;
 const COMBINED_TEMPLATE_CAP_PATTERN =
   /matrix expands to 1000 templates.*plus 1 hand-written; the maximum is 1000/;
+const EXAMPLE_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../../apps/provisioner-docker/templates.example.yaml',
+);
 
 let dir: string;
 
@@ -48,6 +53,28 @@ templates:
 `;
 
 describe('loadDockerTemplates', () => {
+  it('loads the checked-in two-family example file', () => {
+    const templates = loadDockerTemplates(EXAMPLE_PATH);
+
+    expect(templates).toHaveLength(9);
+    expect(templates.map(({key}) => key)).toEqual([
+      'docker-local-debug',
+      'general-ubuntu22-2',
+      'general-ubuntu22-4',
+      'general-ubuntu24-2',
+      'general-ubuntu24-4',
+      'gpu-cuda12-16g',
+      'gpu-cuda12-32g',
+      'gpu-cuda13-16g',
+      'gpu-cuda13-32g',
+    ]);
+    expect(templates.find(({key}) => key === 'gpu-cuda12-16g')).toMatchObject({
+      labels: ['16g', 'cuda12', 'docker', 'gpu'],
+      cost: 20,
+      spec: {cpu: 8, memory: '16g'},
+    });
+  });
+
   it('maps each config entry to a provider-agnostic template', () => {
     const path = writeTemplates(VALID);
 

@@ -1,18 +1,87 @@
 # Point SHIPFOX_PROVISIONER_TEMPLATES_FILE at a copy of this file.
 # The AMI must be a prebaked Shipfox runner image that reads /etc/shipfox/runner.env.
+# A matrix block is one independent family. The general fleet and GPU pool below
+# deliberately use different axes, markets, and subnets.
+vars:
+  ami_by_arch_os:
+    x64:
+      ubuntu2204: ami-0123456789abcdef0
+      ubuntu2404: ami-0123456789abcdef1
+    arm64:
+      ubuntu2204: ami-0123456789abcdef2
+      ubuntu2404: ami-0123456789abcdef3
+  instance_family_by_arch_cpu:
+    x64:
+      4: m7i
+      8: m7i
+    arm64:
+      4: m7g
+      8: m7g
+  size_by_cpu:
+    4: xlarge
+    8: 2xlarge
+  gpu_ami_by_model_driver:
+    a10:
+      cuda12: ami-0123456789abcde10
+    l4:
+      cuda12: ami-0123456789abcde11
+  gpu_instance_type_by_model:
+    a10: g5.2xlarge
+    l4: g6.2xlarge
+
+defaults:
+  labels: [ec2]
+  subnets: [subnet-general-a, subnet-general-b]
+  security_groups: [sg-runner]
+  iam_instance_profile: shipfox-runner
+  associate_public_ip: false
+  root_volume_gb: 100
+  root_device_name: /dev/sda1
+  max_concurrency: 50
+  target_concurrency: 0
+
+# Keep templates: for a genuine one-off. It is not part of either family below.
 templates:
-  ec2-ubuntu22-2vcpu-spot:
-    labels: [ubuntu22, ubuntu22-2vcpu]
-    ami: ami-0123456789abcdef0
-    instance_type: m6i.large
-    market: spot
-    spot_max_price: null
-    subnets: [subnet-0123456789abcdef0]
-    security_groups: [sg-0123456789abcdef0]
-    iam_instance_profile: shipfox-runner
-    associate_public_ip: false
-    root_volume_gb: 100
-    root_device_name: /dev/sda1
-    max_concurrency: 100
-    target_concurrency: 0
-    cost: 5
+  ec2-one-off-debug:
+    labels: [ec2, debug]
+    ami: ami-0123456789abcdef9
+    instance_type: t3.small
+    market: on-demand
+    subnets: [subnet-general-a]
+    root_volume_gb: 40
+    max_concurrency: 2
+    cost: 1
+
+matrix:
+  general:
+    axes:
+      arch: [x64, arm64]
+      cpu: [4, 8]
+      os: [ubuntu2204, ubuntu2404]
+    let:
+      ami: "${{ vars.ami_by_arch_os[arch][os] }}"
+      family: "${{ vars.instance_family_by_arch_cpu[arch][cpu] }}"
+      size: "${{ vars.size_by_cpu[cpu] }}"
+    template:
+      labels: [ec2, "${{ arch }}", "${{ os }}", "${{ cpu }}vcpu"]
+      ami: "${{ ami }}"
+      instance_type: "${{ family }}.${{ size }}"
+      market: on-demand
+      max_concurrency: 50
+      cost: "${{ cpu }}"
+
+  gpu:
+    axes:
+      model: [a10, l4]
+      driver: [cuda12]
+    template:
+      labels: [ec2, gpu, "${{ model }}", "${{ driver }}"]
+      ami: "${{ vars.gpu_ami_by_model_driver[model][driver] }}"
+      instance_type: "${{ vars.gpu_instance_type_by_model[model] }}"
+      market: spot
+      spot_max_price: 1.25
+      subnets: [subnet-gpu]
+      security_groups: [sg-gpu]
+      root_volume_gb: 200
+      max_concurrency: 10
+      cost: 25

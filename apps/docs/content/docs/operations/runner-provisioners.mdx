@@ -69,24 +69,62 @@ keeps a small prewarmed pool.
 ## Templates
 
 A **template** maps a label set to the container that provides it. Templates live in
-a YAML file the provisioner loads at startup:
+a YAML file the provisioner loads at startup. A file can share lookup data through
+`vars`, apply a fragment through `defaults`, keep genuine one-offs under `templates:`,
+and generate variants through independent `matrix` families.
 
 ```yaml
+defaults:
+  target_concurrency: 0
+
 templates:
-  docker-ubuntu22-2vcpu:
-    labels: [ubuntu22, ubuntu22-2vcpu]   # labels the started runner registers with
-    image: shipfox-runner:ubuntu22       # container image to start
-    cpu: 2
-    memory: 4GiB
-    max_concurrency: 100
-    target_concurrency: 0
+  docker-local-debug:
+    labels: [docker, local-debug]
+    cpu: 1
+    memory: 2GiB
+    max_concurrency: 2
+    cost: 1
+
+matrix:
+  general:
+    axes:
+      os: [ubuntu22, ubuntu24]
+      cpu: [2, 4]
+    template:
+      labels: [docker, "${{ os }}", "${{ cpu }}vcpu"]
+      image: "ghcr.io/shipfoxhq/runner:${{ os }}"
+      cpu: "${{ cpu }}"
+      memory: "${{ cpu * 2.0 }}GiB"
+      max_concurrency: 50
+      cost: "${{ cpu }}"
+
+  gpu:
+    axes:
+      cuda: [cuda12, cuda13]
+      memory: [16g, 32g]
+    template:
+      labels: [docker, gpu, "${{ cuda }}", "${{ memory }}"]
+      image: "ghcr.io/shipfoxhq/runner:${{ cuda }}"
+      cpu: 8
+      memory: "${{ memory }}"
+      max_concurrency: 10
+      cost: 20
 ```
 
-When several templates satisfy a job's labels, the provisioner chooses the one
-with the lowest `cost`. If `cost` is omitted, the template's CPU count is used.
-A specificity rule breaks a tie. The full template schema and every environment
-variable are in the
+The two matrix blocks are independent families. Add another hardware class by adding
+another block with its own axes; do not add unrelated axes to the general fleet.
+Labels may overlap across families. Matching is subset-based, and the lowest `cost`
+wins when several templates can serve a job. A hand-written entry whose key matches a
+generated key shadows that generated variant and is the per-variant override idiom.
+
+`defaults` is a deep merge for maps, but lists and scalars replace wholesale. If a
+family needs a different subnet list or security-group list, set the full list in that
+family. The full template schema and every environment variable are in the
 [Runner Provisioner reference](/reference/runner-provisioner).
+
+Docker template files use strict schemas. Unknown top-level or template keys that may
+have been silently ignored before now fail with a file-scoped error, so remove them
+when upgrading an existing file.
 
 ## Related pages
 

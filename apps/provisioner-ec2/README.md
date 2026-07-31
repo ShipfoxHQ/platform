@@ -19,6 +19,18 @@ The AMI must include the Shipfox runner and its shutdown watchdog. Cloud-init wr
 `/etc/shipfox/runner.env` with the API URL, one-use token, labels, poll time, and
 maximum lifetime. The AMI reads that file and shuts down when its watchdog exits.
 
+## Template families
+
+The checked-in [`templates.example.yaml`](templates.example.yaml) contains a general
+on-demand fleet and an independent GPU Spot pool. They use different axes, markets,
+and subnet lists, so adding GPU capacity does not widen the general fleet's
+cross-product. The file also keeps one genuine one-off under `templates:`.
+
+EC2 operators provide their own AMI and instance-type lookup maps under `vars`.
+`defaults` applies common launch settings to every family, but a list override such
+as the GPU `subnets` replaces the default list rather than appending to it. Labels may
+overlap across families; lower `cost` wins when more than one template matches.
+
 ## Configuration
 
 | Variable | Required | Default | Purpose |

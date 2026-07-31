@@ -16,15 +16,48 @@ app.
 
 ## Template config
 
-The template file is YAML keyed by template name:
+The template file can contain shared `vars`, a `defaults` fragment, hand-written
+`templates`, and independent `matrix` families. Keep `templates:` for a genuine
+one-off or a per-variant override:
 
 ```yaml
+defaults:
+  labels: [docker]
+  target_concurrency: 0
+
 templates:
-  docker-ubuntu22-2vcpu:
-    labels: [ubuntu22, ubuntu22-2vcpu]
-    cpu: 2
-    memory: 4GiB
-    max_concurrency: 100
+  docker-local-debug:
+    labels: [docker, local-debug]
+    image: ghcr.io/shipfoxhq/runner:debug
+    cpu: 1
+    memory: 2GiB
+    max_concurrency: 2
+    cost: 1
+
+matrix:
+  general:
+    axes:
+      os: [ubuntu22, ubuntu24]
+      cpu: [2, 4]
+    template:
+      labels: [docker, "${{ os }}", "${{ cpu }}vcpu"]
+      image: "ghcr.io/shipfoxhq/runner:${{ os }}"
+      cpu: "${{ cpu }}"
+      memory: "${{ cpu * 2.0 }}GiB"
+      max_concurrency: 50
+      cost: "${{ cpu }}"
+
+  gpu:
+    axes:
+      cuda: [cuda12, cuda13]
+      memory: [16g, 32g]
+    template:
+      labels: [docker, gpu, "${{ cuda }}", "${{ memory }}"]
+      image: "ghcr.io/shipfoxhq/runner:${{ cuda }}"
+      cpu: 8
+      memory: "${{ memory }}"
+      max_concurrency: 10
+      cost: 20
 ```
 
 Loading fails fast with a clear, file-scoped error on a missing file, malformed YAML,
@@ -32,6 +65,19 @@ an invalid or unknown field, an unusable label, or an empty template set. Labels
 canonicalized (trim, lowercase, dedupe, sort) with the shared runner-label rules.
 The optional `cost` field controls template selection; when it is omitted, the vCPU
 count is used. Lower costs win when several templates satisfy the same generic label.
+Labels may overlap across families; matching is subset-based, so `cost` breaks the tie
+before specificity does. Families are independent, so adding hardware means adding a
+block rather than adding unrelated axes to an existing cross-product.
+
+`defaults` deep-merges maps, but lists and scalars replace wholesale. A family that
+sets `labels` or another list must provide the complete list. A hand-written entry
+whose key matches a generated key shadows the generated template and logs a warning;
+this is the per-variant override idiom.
+
+Docker file and template schemas are strict. Unknown keys that may have been silently
+ignored in older files now fail with a file-scoped validation error. Remove those keys
+before upgrading an existing operator file. The runnable two-family example lives at
+[`apps/provisioner-docker/templates.example.yaml`](../../../apps/provisioner-docker/templates.example.yaml).
 
 ## Current behavior
 

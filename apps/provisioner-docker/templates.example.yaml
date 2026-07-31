@@ -1,18 +1,42 @@
 # Example Docker runner templates for local development.
 # Point SHIPFOX_PROVISIONER_TEMPLATES_FILE at a copy of this file and edit to taste.
-# Each template advertises runner labels and the maximum concurrent containers this
-# provisioner may manage for that template.
-templates:
-  docker-ubuntu22-2vcpu:
-    labels: [ubuntu22, ubuntu22-2vcpu]
-    cpu: 2
-    memory: 4GiB
-    max_concurrency: 100
-    target_concurrency: 0
+# A matrix block is one independent family. Add hardware by adding a family, not by
+# growing one cross-product with unrelated axes.
+defaults:
+  labels: [docker]
+  target_concurrency: 0
 
-  docker-ubuntu22-4vcpu:
-    labels: [ubuntu22, ubuntu22-4vcpu]
-    cpu: 4
-    memory: 8GiB
-    max_concurrency: 50
-    target_concurrency: 0
+# Keep templates: for a genuine one-off. It is not part of either family below.
+templates:
+  docker-local-debug:
+    labels: [docker, local-debug]
+    image: ghcr.io/shipfoxhq/runner:debug
+    cpu: 1
+    memory: 2GiB
+    max_concurrency: 2
+    cost: 1
+
+matrix:
+  general:
+    axes:
+      os: [ubuntu22, ubuntu24]
+      cpu: [2, 4]
+    template:
+      labels: [docker, "${{ os }}", "${{ cpu }}vcpu"]
+      image: "ghcr.io/shipfoxhq/runner:${{ os }}"
+      cpu: "${{ cpu }}"
+      memory: "${{ cpu * 2.0 }}GiB"
+      max_concurrency: 50
+      cost: "${{ cpu }}"
+
+  gpu:
+    axes:
+      cuda: [cuda12, cuda13]
+      memory: [16g, 32g]
+    template:
+      labels: [docker, gpu, "${{ cuda }}", "${{ memory }}"]
+      image: "ghcr.io/shipfoxhq/runner:${{ cuda }}"
+      cpu: 8
+      memory: "${{ memory }}"
+      max_concurrency: 10
+      cost: 20

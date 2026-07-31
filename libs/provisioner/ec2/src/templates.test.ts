@@ -1,7 +1,8 @@
 import {randomUUID} from 'node:crypto';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import {Ec2TemplateConfigError, loadEc2Templates} from '#templates.js';
 
@@ -22,6 +23,10 @@ function writeTemplates(contents: string): string {
 }
 
 const expression = (source: string) => `\${{ ${source} }}`;
+const EXAMPLE_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../../apps/provisioner-ec2/templates.example.yaml',
+);
 
 function template(overrides: Record<string, string> = {}, extra = ''): string {
   const defaults = `
@@ -79,6 +84,33 @@ templates:
 `;
 
 describe('loadEc2Templates', () => {
+  it('loads the checked-in two-family example file', () => {
+    const templates = loadEc2Templates(EXAMPLE_PATH);
+
+    expect(templates).toHaveLength(11);
+    expect(templates.filter(({key}) => key.startsWith('general-'))).toHaveLength(8);
+    expect(templates.filter(({key}) => key.startsWith('gpu-'))).toHaveLength(2);
+    expect(templates[0]).toMatchObject({
+      key: 'ec2-one-off-debug',
+      cost: 1,
+      spec: {market: 'on-demand', subnets: ['subnet-general-a']},
+    });
+    expect(templates.find(({key}) => key === 'general-x64-4-ubuntu2204')).toMatchObject({
+      spec: {
+        market: 'on-demand',
+        subnets: ['subnet-general-a', 'subnet-general-b'],
+      },
+    });
+    expect(templates.find(({key}) => key === 'gpu-a10-cuda12')).toMatchObject({
+      cost: 25,
+      spec: {
+        market: 'spot',
+        subnets: ['subnet-gpu'],
+        securityGroups: ['sg-gpu'],
+      },
+    });
+  });
+
   it('maps each config entry to a provider-agnostic template', () => {
     const path = writeTemplates(VALID);
 

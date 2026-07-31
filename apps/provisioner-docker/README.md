@@ -60,6 +60,20 @@ until observation succeeds.
 | `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | no | `250` | Runner instances created per request (1–1000). |
 | `SHIPFOX_RUNNER_POLL_MAX_DURATION_MS` | no | `300000` | Injected into each runner as `SHIPFOX_POLL_MAX_DURATION_MS`. |
 
+## Template file
+
+Copy [`templates.example.yaml`](templates.example.yaml) and point
+`SHIPFOX_PROVISIONER_TEMPLATES_FILE` at the copy. The example has independent
+`general` and `gpu` matrix families plus one hand-written local-debug template.
+Use a new matrix block for another hardware class instead of adding unrelated axes
+to an existing family.
+
+`defaults` maps merge recursively, while lists and scalars replace wholesale. Labels
+may overlap across families; when multiple templates match, lower `cost` wins before
+specificity. A hand-written entry under `templates:` shadows a generated key and is
+the per-variant override idiom. The provider rejects unknown file and template keys,
+so remove mistyped keys before upgrading an older Docker template file.
+
 ## Runner image
 
 When a template omits `image`, the provisioner uses the published
