@@ -19,7 +19,7 @@ import {
 import {memberships} from '#db/schema/memberships.js';
 import {workspacesOutbox} from '#db/schema/outbox.js';
 import {toWorkspace, workspaces} from '#db/schema/workspaces.js';
-import {getWorkspaceById, updateWorkspace} from '#db/workspaces.js';
+import {getWorkspaceById, isWorkspaceSlugAvailable, updateWorkspace} from '#db/workspaces.js';
 import type {Workspace} from './entities/workspace.js';
 import {
   MembershipNotFoundError,
@@ -99,6 +99,10 @@ export async function createWorkspaceForUser(params: {
 
     return workspace;
   });
+}
+
+export async function checkWorkspaceSlugAvailability(slug: string): Promise<boolean> {
+  return await isWorkspaceSlugAvailable(slug);
 }
 
 export async function updateWorkspaceDetails(params: {

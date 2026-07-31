@@ -4499,6 +4499,9 @@ importers:
       '@shipfox/inter-module':
         specifier: workspace:*
         version: link:../../shared/common/inter-module
+      '@shipfox/node-auth-root-key':
+        specifier: workspace:*
+        version: link:../../shared/node/auth-root-key
       '@shipfox/node-drizzle':
         specifier: workspace:*
         version: link:../../shared/node/drizzle
@@ -4523,6 +4526,9 @@ importers:
       '@shipfox/node-postgres':
         specifier: workspace:*
         version: link:../../shared/node/postgres
+      '@shipfox/node-rate-limit':
+        specifier: workspace:*
+        version: link:../../shared/node/rate-limit
       '@shipfox/node-tokens':
         specifier: workspace:*
         version: link:../../shared/node/tokens

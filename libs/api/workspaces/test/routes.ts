@@ -2,8 +2,8 @@ import type {OutgoingHttpHeaders} from 'node:http';
 import {AUTH_USER, buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import {withSlugSuffix} from '@shipfox/api-common-dto';
 import {WORKSPACES_INVITATION_SEND_REQUESTED} from '@shipfox/api-workspaces-dto';
-import type {AuthMethod} from '@shipfox/node-fastify';
-import {createApp, type FastifyInstance} from '@shipfox/node-fastify';
+import type {AppConfig, AuthMethod} from '@shipfox/node-fastify';
+import {ClientError, createApp, type FastifyInstance} from '@shipfox/node-fastify';
 import type {Mailer, MailMessage} from '@shipfox/node-mailer';
 import {hashOpaqueToken} from '@shipfox/node-tokens';
 import {and, desc, eq, sql} from 'drizzle-orm';
@@ -53,6 +53,9 @@ const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
   authenticate: async (request) => {
     const raw = request.headers.authorization?.replace(BEARER_RE, '');
+    if (!raw) {
+      throw new ClientError('Authentication required', 'unauthorized', {status: 401});
+    }
     if (raw?.startsWith('claim:')) {
       const [, userId, email, workspaceId, status] = raw.split(':');
       if (!userId || !email || !workspaceId) throw new Error('Invalid test user claim token');
@@ -145,8 +148,11 @@ export async function latestInvitationLinkTo(email: string): Promise<string> {
   return payload?.inviteLink ?? '';
 }
 
-export async function createWorkspacesTestApp(): Promise<FastifyInstance> {
+export async function createWorkspacesTestApp(
+  options: Pick<AppConfig, 'fastifyOptions'> = {},
+): Promise<FastifyInstance> {
   return await createApp({
+    ...options,
     auth: [fakeUserAuth],
     routes: workspacesRoutes,
     swagger: false,

@@ -9,6 +9,7 @@ import {
   createWorkspaceRoute,
   listUserWorkspacesRoute,
   updateWorkspaceRoute,
+  workspaceSlugAvailabilityRoute,
 } from './workspaces/index.js';
 
 export const workspacesRoutes: RouteGroup[] = [
@@ -18,6 +19,7 @@ export const workspacesRoutes: RouteGroup[] = [
     routes: [
       listUserWorkspacesRoute,
       createWorkspaceRoute,
+      workspaceSlugAvailabilityRoute,
       updateWorkspaceRoute,
       {
         prefix: '/:workspaceId/members',

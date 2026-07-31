@@ -59,6 +59,7 @@
     "@shipfox/api-workspaces-dto": "workspace:*",
     "@shipfox/config": "workspace:*",
     "@shipfox/inter-module": "workspace:*",
+    "@shipfox/node-auth-root-key": "workspace:*",
     "@shipfox/node-drizzle": "workspace:*",
     "@shipfox/node-fastify": "workspace:*",
     "@shipfox/node-email": "workspace:*",
@@ -67,6 +68,7 @@
     "@shipfox/node-opentelemetry": "workspace:*",
     "@shipfox/node-outbox": "workspace:*",
     "@shipfox/node-postgres": "workspace:*",
+    "@shipfox/node-rate-limit": "workspace:*",
     "@shipfox/node-tokens": "workspace:*",
     "drizzle-orm": "catalog:",
     "zod": "catalog:"

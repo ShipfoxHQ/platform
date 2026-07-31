@@ -38,16 +38,18 @@ const membership = await ensureMembership({
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `CLIENT_BASE_URL` | `http://localhost:5173` | Base URL used in workspace invitation links. |
+| `AUTH_ROOT_KEY` | none | Root key used to HMAC source IPs for the workspace slug availability rate limit. |
 
 Invitation email uses the shared `@shipfox/node-mailer` configuration.
 
 ## Routes / API / Data Model
 
-Routes mount under `/workspaces`. They make, list, and update workspaces, manage
-members, and make, list, view, accept, or revoke invites. Every workspace has a
-unique `slug` used in client URLs; creating a workspace requires one, and
-`PATCH /workspaces/:workspaceId` can rename it. A taken slug returns
-`slug-conflict`. Updates write a `workspaces.workspace.updated` outbox event.
+Routes mount under `/workspaces`. They make, list, and update workspaces, check
+workspace slug availability, manage members, and make, list, view, accept, or
+revoke invites. Every workspace has a unique `slug` used in client URLs;
+creating a workspace requires one, and `PATCH /workspaces/:workspaceId` can
+rename it. A taken slug returns `slug-conflict`. Updates write a
+`workspaces.workspace.updated` outbox event.
 The composed module also mounts
 `GET /admin/workspaces`, which requires the Auth `admin-observer` role and returns
 bounded workspace identity, lifecycle, member, project, and best-effort job-count
@@ -65,6 +67,7 @@ The module creates these tables:
 - `workspaces_invitations`
 - `workspaces_outbox`
 - `workspaces_admin_command_results`
+- `workspaces_rate_limits`
 
 ## Behavior Notes
 
@@ -75,6 +78,10 @@ counts only new rows.
 
 Invite acceptance keeps its current transaction. It does not change a row that
 is already there.
+
+`GET /workspaces/slug-availability?slug=acme` requires an authenticated user and
+returns only `{available: boolean}`. A malformed slug returns 400. Requests are
+limited to 60 per source IP in a five-minute window.
 
 `ensureMembership` fails when its workspace does not exist. Workspace checks
 throw `WorkspaceNotFoundError` or `MembershipRequiredError`. Invite helpers

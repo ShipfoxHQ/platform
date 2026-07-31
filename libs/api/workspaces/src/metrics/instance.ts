@@ -3,6 +3,7 @@ import {instanceMetrics} from '@shipfox/node-opentelemetry';
 export type WorkspacesInvitationEmailRequested = 'requested' | 'skipped';
 export type WorkspacesMembershipChangeAction = 'added' | 'removed';
 export type WorkspacesInvitationAcceptOutcome = 'added' | 'already_member';
+export type WorkspacesRateLimitOutcome = 'allowed' | 'blocked' | 'unavailable';
 
 const meter = instanceMetrics.getMeter('workspaces');
 
@@ -27,6 +28,20 @@ const invitationAcceptedCount = meter.createCounter<{
 }>('workspaces_invitation_accepted', {
   description: 'Workspace invitations accepted by membership outcome',
 });
+
+const workspaceRateLimitCheckCount = meter.createCounter<{
+  action: 'slug-availability';
+  outcome: WorkspacesRateLimitOutcome;
+}>('workspaces_rate_limit_checks', {
+  description: 'Workspace rate-limit checks by action and outcome',
+});
+
+const workspaceRateLimitPruneFailureCount = meter.createCounter(
+  'workspaces_rate_limit_prune_failures',
+  {
+    description: 'Workspace rate-limit prune failures',
+  },
+);
 
 function recordMetric(record: () => void): void {
   try {
@@ -54,4 +69,15 @@ export function recordWorkspaceInvitationAccepted(
   outcome: WorkspacesInvitationAcceptOutcome,
 ): void {
   recordMetric(() => invitationAcceptedCount.add(1, {outcome}));
+}
+
+export function recordWorkspaceRateLimitCheck(params: {
+  action: 'slug-availability';
+  outcome: WorkspacesRateLimitOutcome;
+}): void {
+  recordMetric(() => workspaceRateLimitCheckCount.add(1, params));
+}
+
+export function recordWorkspaceRateLimitPruneFailure(): void {
+  recordMetric(() => workspaceRateLimitPruneFailureCount.add(1));
 }
