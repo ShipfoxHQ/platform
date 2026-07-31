@@ -77,7 +77,7 @@ export function JobCard({
     jobExecutionId: undefined,
     attemptId: null,
   });
-  const title = selectedJobExecution?.name;
+  const title = selectedJobExecution?.name ?? job.displayName;
   const isNonDefaultExecutionSelected =
     selectedJobExecution !== undefined && selectedJobExecution.id !== defaultJobExecution(job)?.id;
   const selectedExecutionStatus = isNonDefaultExecutionSelected
@@ -126,7 +126,7 @@ export function JobCard({
 
   return (
     <section
-      aria-labelledby={title ? titleId : undefined}
+      aria-labelledby={titleId}
       className="flex min-h-0 flex-col rounded-8 border border-border-neutral-base bg-background-components-base"
     >
       <div className="grid min-h-52 min-w-0 grid-cols-1 gap-y-4 px-16 py-12">
@@ -135,11 +135,9 @@ export function JobCard({
           job.jobExecutions.length > 0 &&
           onSelectedJobExecutionChange ? (
             <>
-              {title ? (
-                <Text as="h2" id={titleId} size="sm" bold className="sr-only">
-                  {title}
-                </Text>
-              ) : null}
+              <Text as="h2" id={titleId} size="sm" bold className="sr-only">
+                {title}
+              </Text>
               <div className="flex min-w-0 items-center gap-8">
                 <JobStatusBadge status={selectedExecutionStatus} />
                 <JobExecutionSwitcher
@@ -154,17 +152,15 @@ export function JobCard({
             <div className="flex min-w-0 items-center gap-8">
               <JobStatusBadge status={selectedExecutionStatus} />
               <div className="flex min-w-0 items-center gap-8">
-                {title ? (
-                  <Text
-                    as="h2"
-                    id={titleId}
-                    size="sm"
-                    bold
-                    className="min-w-0 truncate text-foreground-neutral-base"
-                  >
-                    {title}
-                  </Text>
-                ) : null}
+                <Text
+                  as="h2"
+                  id={titleId}
+                  size="sm"
+                  bold
+                  className="min-w-0 truncate text-foreground-neutral-base"
+                >
+                  {title}
+                </Text>
               </div>
             </div>
           )}

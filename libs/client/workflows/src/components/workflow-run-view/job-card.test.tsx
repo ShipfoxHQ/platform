@@ -40,7 +40,7 @@ describe('JobCard execution names', () => {
     expect(screen.queryByText('Execution #1')).not.toBeInTheDocument();
   });
 
-  test('does not use the static job name when no execution exists', () => {
+  test('uses the static job name only when no execution exists', () => {
     const job = workflowJob({
       key: 'deploy',
       name: 'Deploy application',
@@ -58,7 +58,7 @@ describe('JobCard execution names', () => {
       />,
     );
 
-    expect(screen.queryByRole('heading', {name: 'Deploy application'})).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Deploy application'})).toBeInTheDocument();
     expect(screen.getByText('Waiting for this job to start')).toBeInTheDocument();
   });
 });
