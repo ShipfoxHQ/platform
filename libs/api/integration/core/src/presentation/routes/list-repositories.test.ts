@@ -126,6 +126,7 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
               await Promise.resolve();
               throw new Error('not used');
             },
+            resolveTriggerReference: () => null,
           },
         },
       }),

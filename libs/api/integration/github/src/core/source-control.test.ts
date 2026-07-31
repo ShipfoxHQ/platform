@@ -3,6 +3,8 @@ import {githubInstallationFactory} from '#test/index.js';
 import {GithubIntegrationProviderError} from './errors.js';
 import {GithubSourceControlProvider} from './source-control.js';
 
+const VALID_COMMIT = 'a'.repeat(40);
+
 function githubClient(overrides: Partial<GithubApiClient> = {}): GithubApiClient {
   return {
     exchangeOAuthCode: vi.fn(() => Promise.resolve('token')),
@@ -94,6 +96,68 @@ describe('GithubSourceControlProvider', () => {
       updatedAt: new Date(),
     };
   }
+
+  it('normalizes push trigger references', () => {
+    const provider = new GithubSourceControlProvider(githubClient());
+
+    const result = provider.resolveTriggerReference({
+      ref: 'refs/heads/feature/review',
+      after: VALID_COMMIT,
+      repository: {id: 42},
+    });
+
+    expect(result).toEqual({
+      externalRepositoryId: 'github:42',
+      ref: 'refs/heads/feature/review',
+      commit: VALID_COMMIT,
+    });
+  });
+
+  it('normalizes pull-request trigger references from the head repository', () => {
+    const provider = new GithubSourceControlProvider(githubClient());
+
+    const result = provider.resolveTriggerReference({
+      repository: {id: 42},
+      pull_request: {
+        number: 17,
+        head: {
+          sha: VALID_COMMIT,
+          repo: {id: 42},
+        },
+        base: {repo: {id: 42}},
+      },
+    });
+
+    expect(result).toEqual({
+      externalRepositoryId: 'github:42',
+      ref: 'refs/pull/17/head',
+      commit: VALID_COMMIT,
+    });
+  });
+
+  it.each([
+    undefined,
+    {},
+    {ref: 'refs/heads/main', after: VALID_COMMIT},
+    {ref: 'refs/heads/feature branch', after: VALID_COMMIT, repository: {id: 42}},
+    {ref: 'refs/heads/feature..branch', after: VALID_COMMIT, repository: {id: 42}},
+    {ref: 'refs/heads/main', after: '0'.repeat(40), repository: {id: 42}},
+    {ref: 'refs/heads/main', after: 'not-a-commit', repository: {id: 42}},
+    {
+      repository: {id: 42},
+      pull_request: {
+        number: 17,
+        head: {sha: VALID_COMMIT, repo: {id: 84}},
+        base: {repo: {id: 42}},
+      },
+    },
+  ])('returns null for an unresolvable or unsafe trigger payload', (payload) => {
+    const provider = new GithubSourceControlProvider(githubClient());
+
+    const result = provider.resolveTriggerReference(payload);
+
+    expect(result).toBeNull();
+  });
 
   it('lists repositories using installation auth metadata', async () => {
     await createInstallation();

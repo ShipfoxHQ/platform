@@ -52,6 +52,7 @@ describe('integration source-control service', () => {
         await Promise.resolve();
         return {path: '.shipfox/workflows/ci.yml', ref: 'main', content: 'name: CI'};
       },
+      resolveTriggerReference: () => null,
       createCheckoutSpec: async (input) => {
         await Promise.resolve();
         return {repositoryUrl: repository.cloneUrl, ref: input.ref ?? repository.defaultBranch};

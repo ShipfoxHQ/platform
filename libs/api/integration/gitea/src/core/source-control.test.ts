@@ -3,6 +3,8 @@ import type {GiteaApiClient, GiteaRepository} from '#api/client.js';
 import {GiteaIntegrationProviderError} from './errors.js';
 import {GiteaSourceControlProvider} from './source-control.js';
 
+const VALID_COMMIT = 'a'.repeat(40);
+
 const REPOSITORY: GiteaRepository = {
   ownerLogin: 'shipfox',
   name: 'platform',
@@ -53,6 +55,90 @@ function connection(): IntegrationConnection<'gitea'> {
 }
 
 describe('GiteaSourceControlProvider', () => {
+  it('normalizes push trigger references', () => {
+    const provider = new GiteaSourceControlProvider(giteaClient());
+
+    const result = provider.resolveTriggerReference({
+      ref: 'refs/heads/feature/review',
+      after: VALID_COMMIT,
+      repository: {full_name: 'shipfox/platform'},
+    });
+
+    expect(result).toEqual({
+      externalRepositoryId: 'gitea:shipfox/platform',
+      ref: 'refs/heads/feature/review',
+      commit: VALID_COMMIT,
+    });
+  });
+
+  it('normalizes pull-request trigger references from the head repository', () => {
+    const provider = new GiteaSourceControlProvider(giteaClient());
+
+    const result = provider.resolveTriggerReference({
+      repository: {full_name: 'shipfox/platform'},
+      pull_request: {
+        number: 17,
+        head: {
+          sha: VALID_COMMIT,
+          repo: {full_name: 'shipfox/platform'},
+        },
+        base: {repo: {full_name: 'shipfox/platform'}},
+      },
+    });
+
+    expect(result).toEqual({
+      externalRepositoryId: 'gitea:shipfox/platform',
+      ref: 'refs/pull/17/head',
+      commit: VALID_COMMIT,
+    });
+  });
+
+  it.each([
+    undefined,
+    {},
+    {ref: 'refs/heads/main', after: VALID_COMMIT},
+    {
+      ref: 'refs/heads/feature branch',
+      after: VALID_COMMIT,
+      repository: {full_name: 'shipfox/platform'},
+    },
+    {
+      ref: 'refs/heads/feature..branch',
+      after: VALID_COMMIT,
+      repository: {full_name: 'shipfox/platform'},
+    },
+    {
+      ref: 'refs/heads/main',
+      after: '0'.repeat(40),
+      repository: {full_name: 'shipfox/platform'},
+    },
+    {
+      ref: 'refs/heads/main',
+      after: 'not-a-commit',
+      repository: {full_name: 'shipfox/platform'},
+    },
+    {ref: 'refs/heads/main', after: VALID_COMMIT, repository: {full_name: 'shipfox'}},
+    {
+      ref: 'refs/heads/main',
+      after: VALID_COMMIT,
+      repository: {full_name: 'shipfox/platform/extra'},
+    },
+    {
+      repository: {full_name: 'shipfox/platform'},
+      pull_request: {
+        number: 17,
+        head: {sha: VALID_COMMIT, repo: {full_name: 'fork/platform'}},
+        base: {repo: {full_name: 'shipfox/platform'}},
+      },
+    },
+  ])('returns null for an unresolvable or unsafe trigger payload', (payload) => {
+    const provider = new GiteaSourceControlProvider(giteaClient());
+
+    const result = provider.resolveTriggerReference(payload);
+
+    expect(result).toBeNull();
+  });
+
   it('lists org repositories scoped to the connection account', async () => {
     const gitea = giteaClient();
     const provider = new GiteaSourceControlProvider(gitea);
