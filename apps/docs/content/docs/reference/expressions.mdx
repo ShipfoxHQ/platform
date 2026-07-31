@@ -12,13 +12,12 @@ and outputs. Both roles use the same read-only engine: expressions compute
 over the data in scope, and they cannot reach the database, the network, or
 the filesystem.
 
-One rule separates the two roles. **Templates may read your configuration, but
-predicates read run state only.** A template can inject `${{ vars.API_URL }}`
-into a prompt, and a run step can bind `${{ secrets.NPM_TOKEN }}` into its
-env. A predicate (`filter`, `if`, `gate.success`, job `success`) can see the
-event, step results, and outputs, but never a variable or a secret. This keeps
-decisions reproducible from run state and keeps secret values out of every
-evaluation path.
+One rule separates the two roles. **Templates read context at their fill site,
+while predicates receive a field-specific server-side context.** Job and step
+conditionals, gates, listening-job filters, and job success predicates can read
+`vars` after run creation. A trigger filter runs before run creation, so it
+cannot read `vars`. No predicate can read `secrets`, because secret values exist
+only on the runner.
 
 ## The CEL engine
 
@@ -30,13 +29,33 @@ There are no custom functions and no side effects.
 
 ## Predicates
 
+### Predicate context
+
+Predicates run on the server, and each predicate type receives a specific
+context. A root can exist at a lifecycle site but still be absent from a
+predicate's field context.
+
+| Predicate | Context |
+|---|---|
+| `trigger.filter` | `event` and `trigger` |
+| Listening-job `on` and `until` filters | The incoming listener event as `event`, plus snapshotted `run`, `trigger`, `inputs`, `vars`, `job`, and referenced `jobs` values |
+| `job.if` | `run`, `trigger`, `event`, `inputs`, `vars`, `jobs`, and `needs` |
+| `step.if` | `vars`, `jobs`, `execution`, `step`, and `steps` |
+| `gate.success` | `step` and `vars` |
+| Job `success` | `executions`, `jobs`, and `vars` |
+
+For a listening-job filter, `event` is the event that may create a new
+execution. In a trigger filter, `event` is the payload that may create the
+run. `secrets` is unavailable to every predicate.
+
 ### Trigger filters
 
 A trigger's `filter` runs when the event arrives, before any run is created.
 In scope: `event` (the payload) and `trigger` (`source` and `event`). A false
 result skips the event. An expression error **fails closed**: the trigger does
 not fire. The same filter shape applies to a listening job's `on` and `until`
-entries.
+entries, but those filters evaluate the incoming listener event against the
+activation snapshot described above.
 
 This trigger fragment belongs under an existing workflow's `triggers` map:
 
@@ -73,9 +92,9 @@ jobs:
 ### Gate success: `gate.success`
 
 Evaluated the moment a gated step finishes. In scope: `step.exit_code` (an
-integer), `step.status` (a string), and `step.outputs` (the step's declared
-outputs). See [Feedback loops](/understand/feedback-loops) for the full gate
-model.
+integer), `step.status` (a string), `step.outputs` (the step's declared
+outputs), and `vars`. See [Feedback loops](/understand/feedback-loops) for the
+full gate model.
 
 This gate fragment belongs on a run or agent step:
 
@@ -88,9 +107,9 @@ gate:
 
 A job's optional `success` expression decides whether the job succeeded once
 all its executions settle. In scope is `executions`, a list where each element
-carries `index`, `name`, `status`, `events`, `outputs`, and timing fields. The
-default succeeds when no execution failed. It also succeeds when a listening
-job resolves with no executions:
+carries `index`, `name`, `status`, `events`, `outputs`, and timing fields, plus
+`vars`. The default succeeds when no execution failed. It also succeeds when a
+listening job resolves with no executions:
 
 This job fragment belongs under an existing workflow's `jobs` map:
 
@@ -120,12 +139,22 @@ Interpolation fills run context into string values. It works in:
 
 To write a literal `${{`, escape it as `$${{`.
 
+### Infrastructure selectors
+
+`job.runner`, agent `model`, and agent `provider` select execution
+infrastructure. Use workflow-authored values for these fields. Incoming event,
+trigger input, listening-event, and output data can currently reach these
+selectors through interpolation because definition validation does not enforce
+that boundary. `agent.thinking` is an enum, not a template site. Do not treat
+these fields as a safety boundary until the selector checks are enforced.
+
 **Resolution is staged.** Each reference resolves at the moment its data
-exists: `event`, `inputs`, and `vars` when the run is created, `needs` and
-`jobs` when the job starts, `steps.*` and `step.*` when the step is
-dispatched, and gate `feedback` when the gate fails. You just write the reference.
-Shipfox fills it as late as needed. A reference that cannot resolve fails the
-run or step with a typed error instead of passing empty text through.
+exists: `event` and `trigger` at ingest, `inputs`, `job`, and `vars` at run
+creation, `executions` and `execution` at execution creation, `needs` and
+`jobs` at job activation, and `steps.*` and `step.*` at step dispatch. Secrets
+resolve during runner fill. You write the reference once, and Shipfox fills it
+as late as needed. A reference used before its context exists fails with the
+`context-unavailable-at-fill-site` error instead of passing empty text through.
 
 This job fragment belongs under an existing workflow's `jobs` map:
 
@@ -142,42 +171,40 @@ jobs:
 
 ### Context available
 
-| Root | Holds | Trust | Available from |
+| Root | Holds | Available from |
 |---|---|---|---|
-| `run` | `id`, `name`, `definition_id`, `project_id`, `workspace_id`, `created_at` | Trusted | Run creation |
-| `trigger` | `source`, `event` | Trusted | Run creation |
-| `event` | The trigger's raw event payload (open shape, e.g. `event.ref`, `event.title`) | Untrusted | Run creation |
-| `inputs` | Values from the trigger's `with` block (open shape) | Untrusted | Run creation |
-| `vars` | Workspace/project [variables](/reference/secrets-variables), literal keys only | Trusted | Run creation |
-| `needs` | List of direct dependency jobs with their status and outputs | Untrusted | Job start |
-| `jobs` | Named upstream jobs with their status and outputs | Untrusted | Job start |
-| `execution` | Current job execution metadata and its listening-job events | Trusted (event data untrusted) | Job execution |
-| `steps.<key>` | Earlier steps' `status`, `exit_code`, `outputs`, `attempts` | Trusted (outputs untrusted) | Step dispatch |
-| `step` | `attempt`, `is_retry`, `restart.from`, `restart.feedback` | Trusted | Step dispatch |
-| `secrets` | Workspace/project [secrets](/reference/secrets-variables), literal keys only | Runner-only | Run-step `run` and `env` values only |
-
-<Callout type="info">
-  **Untrusted context can't select infrastructure.** `event`, `inputs`,
-  `execution.events`, and outputs carry data from outside your control. They may
-  flow into `env` and `prompt` values, but **not** directly into `run` commands
-  or into an agent's `model`, `provider`, or `thinking` fields. Bind outside data
-  to `env` before using it in a shell command.
-</Callout>
+| `run` | `id`, `name`, `workflow_name`, `definition_id`, `project_id`, `workspace_id`, `created_at` | Run creation |
+| `trigger` | `source`, `event` | Ingest |
+| `event` | The trigger's raw event payload (open shape, such as `event.ref`, `event.title`) | Ingest |
+| `inputs` | Values from the trigger's `with` block (open shape) | Run creation |
+| `job` | The current job's `key` and `name` | Run creation |
+| `executions` | The current job's executions, including `index`, `name`, `status`, `events`, `outputs`, and timing fields | Execution creation |
+| `execution` | Current execution metadata and its listening-job events | Execution creation |
+| `needs` | Direct dependency jobs with their status and outputs | Job activation |
+| `jobs` | Named upstream jobs with their status and outputs | Job activation |
+| `steps.<key>` | Earlier steps' `status`, `exit_code`, `outputs`, and `attempts` | Step dispatch |
+| `step` | `attempt`, `is_retry`, `restart.from`, and `restart.feedback` | Step dispatch |
+| `vars` | Workspace/project [variables](/reference/secrets-variables), literal keys only | Run creation |
+| `secrets` | Workspace/project [secrets](/reference/secrets-variables), literal keys only. Runner-only. | Runner fill |
 
 ### Secrets and variables
 
 `${{ vars.KEY }}` resolves server-side when the run is created and works in
-every template site. `${{ secrets.KEY }}` never resolves on the server: it is
-allowed only in a run step's `run` command or `env` values, and the runner
-pulls the value just before the step executes. Neither works in predicates.
+every template site and in server predicates after run creation. The `secrets`
+root never resolves on the server. `${{ secrets.KEY }}` is allowed only in a
+run step's `run` command or `env` values, and the runner pulls the value just
+before the step executes. Secrets never work in predicates.
 The full model lives in [Secrets and variables](/reference/secrets-variables).
 
-### Inside `run` commands
+### Run-command safety
 
-Trusted values can be interpolated into a `run` command. Untrusted values from
-events, inputs, listening events, or outputs are rejected there. Bind an
-untrusted value to `env`, then quote the shell variable in the command. This
-keeps outside data separate from shell code.
+Shipfox hoists each template in a `run` command into a generated environment
+binding and uses quoted shell expansion. This keeps interpolated text from
+being parsed as shell syntax. It does not protect commands that deliberately
+re-evaluate their arguments as code, such as `eval`, `sh -c "$value"`, `let`,
+`declare -i`, arithmetic expressions, or array subscripts. Keep workflow data
+out of those code positions. See [Commands receive template values as data](/understand/data-and-templating#commands-receive-template-values-as-data)
+for the shell data-position model.
 
 ### Outputs
 
