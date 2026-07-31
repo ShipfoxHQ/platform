@@ -331,7 +331,11 @@ export function CreateProjectPage() {
                   label="Project slug"
                   id="project-slug"
                   error={slugConflict ? 'This project slug is already in use.' : fieldError(field)}
-                  description="Used in project URLs."
+                  description={
+                    <span className="font-code" aria-live="polite">
+                      {`/w/${workspace.slug}/p/${field.state.value}`}
+                    </span>
+                  }
                 >
                   <FormFieldInput
                     name="slug"

@@ -38,6 +38,7 @@ describe('CreateProjectPage', () => {
     await waitFor(() => expect(nameInput).toHaveValue('Platform'));
     expect(slugInput).toHaveValue('platform');
     expect(slugInput).toHaveAttribute('aria-describedby', 'project-slug-description');
+    expect(screen.getByText('/w/acme/p/platform')).toBeInTheDocument();
     expect(screen.getByRole('radio', {name: GITEA_RADIO_LABEL_RE})).toBeChecked();
     expect(screen.getAllByText('gitea-owner/platform').length).toBeGreaterThan(0);
     fireEvent.change(nameInput, {
@@ -46,6 +47,7 @@ describe('CreateProjectPage', () => {
     fireEvent.change(slugInput, {
       target: {value: 'launchpad'},
     });
+    expect(screen.getByText('/w/acme/p/launchpad')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 
     expect(await screen.findByRole('heading', {name: 'Runs'})).toBeInTheDocument();
@@ -83,6 +85,7 @@ describe('CreateProjectPage', () => {
     fireEvent.change(nameInput, {target: {value: 'Launch Pad'}});
 
     expect(slugInput).toHaveValue('launch-pad');
+    expect(screen.getByText('/w/acme/p/launch-pad')).toBeInTheDocument();
   });
 
   test('uses the current repository-derived name when submitted before touching the field', async () => {
