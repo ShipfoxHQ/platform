@@ -44,6 +44,7 @@ export type WorkflowModelValidationIssueCode =
   | 'runner-context-not-bare'
   | 'runner-context-in-field'
   | 'runner-context-in-server-predicate'
+  | 're-evaluating-command'
   | 'self-job-dependency'
   | 'too-many-runner-labels'
   | 'unknown-secret-store'
