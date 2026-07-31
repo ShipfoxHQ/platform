@@ -2,4 +2,4 @@
 "@shipfox/client-workflows": major
 ---
 
-Displays workflow run numbers beside their workflow names and removes the ambiguous UUID short-id label.
+Replaces the exported workflow-run UUID short-id with API-provided workflow names and run numbers in client workflow metadata.
