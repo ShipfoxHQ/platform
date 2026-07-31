@@ -63,7 +63,7 @@ export function JobExecutionSwitcher({
             : 'min-h-28 gap-6 px-8 py-4 text-sm leading-20 text-foreground-neutral-subtle hover:bg-background-components-hover',
           className,
         )}
-        aria-label={`Switch job execution, currently execution ${selected.sequence}: ${selected.name}`}
+        aria-label={`Switch job execution, currently execution ${selected.sequence}: ${selected.displayName}`}
       >
         {variant === 'title' ? (
           <TitleExecutionSummary execution={selected} />
@@ -100,7 +100,7 @@ export function JobExecutionSwitcher({
                   #{jobExecution.sequence}
                 </span>
                 <span className="min-w-0 truncate text-xs leading-20 text-foreground-neutral-base">
-                  {job.displayNameForExecution(jobExecution)}
+                  {jobExecution.displayName}
                 </span>
                 {!isSelected && jobExecution.statusReason ? (
                   <span className="min-w-0 flex-1 truncate text-xs leading-20 text-foreground-neutral-muted">
@@ -128,7 +128,7 @@ export function JobExecutionSwitcher({
 function executionAccessibleLabel(execution: JobExecution): string {
   const status = getWorkflowStatusVisual(deriveJobExecutionDisplayStatus(execution));
   return [
-    `Execution #${execution.sequence}: ${execution.name}`,
+    `Execution #${execution.sequence}: ${execution.displayName}`,
     status.label,
     execution.statusReason ?? undefined,
     execution.displayDuration
@@ -146,7 +146,7 @@ function TitleExecutionSummary({execution}: {execution: JobExecution}) {
         #{execution.sequence}
       </Text>
       <Text as="span" size="sm" bold className="min-w-0 truncate text-foreground-neutral-base">
-        {execution.name}
+        {execution.displayName}
       </Text>
     </span>
   );

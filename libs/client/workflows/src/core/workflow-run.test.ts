@@ -377,11 +377,15 @@ describe('workflow run model mapping', () => {
     });
   });
 
-  test('uses the execution name and falls back to the static job name', () => {
-    const job = workflowJob({name: 'Deploy', key: 'deploy'});
+  test('exposes display names for jobs and job executions', () => {
+    const job = workflowJob({
+      name: 'Deploy',
+      key: 'deploy',
+      job_executions: [workflowJobExecutionDto({name: 'Deploy production'})],
+    });
 
-    expect(job.displayNameForExecution({name: 'Deploy production'})).toBe('Deploy production');
-    expect(job.displayNameForExecution()).toBe('Deploy');
+    expect(job.displayName).toBe('Deploy');
+    expect(job.jobExecutions[0]?.displayName).toBe('Deploy production');
     expect(workflowJob({name: null, key: 'deploy-prod'}).displayName).toBe('deploy-prod');
   });
 

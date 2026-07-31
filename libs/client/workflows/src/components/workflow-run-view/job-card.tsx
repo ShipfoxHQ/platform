@@ -77,7 +77,7 @@ export function JobCard({
     jobExecutionId: undefined,
     attemptId: null,
   });
-  const title = job.displayNameForExecution(selectedJobExecution);
+  const title = selectedJobExecution?.displayName ?? job.displayName;
   const isNonDefaultExecutionSelected =
     selectedJobExecution !== undefined && selectedJobExecution.id !== defaultJobExecution(job)?.id;
   const selectedExecutionStatus = isNonDefaultExecutionSelected

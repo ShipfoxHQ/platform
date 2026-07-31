@@ -111,10 +111,6 @@ export class Job {
     return this.name ?? this.key;
   }
 
-  displayNameForExecution(execution?: Pick<JobExecution, 'name'>): string {
-    return execution?.name ?? this.displayName;
-  }
-
   get displayDuration(): JobDisplayDuration | null {
     if (this.mode === 'listening') return null;
     if (this.jobExecutions.length !== 1) return null;
