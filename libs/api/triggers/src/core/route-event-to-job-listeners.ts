@@ -1,3 +1,4 @@
+import {projectWorkflowPredicateContext} from '@shipfox/expression';
 import {logger} from '@shipfox/node-opentelemetry';
 import {findMatchingJobListenerSubscriptions} from '#db/job-listener-subscriptions.js';
 import {evaluateStoredFilter, type StoredFilterEvaluation} from './config.js';
@@ -121,7 +122,10 @@ function evaluateListenerFilter(params: EvaluateListenerFilterParams): StoredFil
   if (typeof filter !== 'string' || filter.trim() === '') {
     return evaluateStoredFilter({
       value: filter,
-      context: {event: params.payload},
+      context: projectWorkflowPredicateContext(
+        params.subscription.kind === 'on' ? 'listener.on' : 'listener.until',
+        {event: params.payload},
+      ),
       invalidReason: 'Listener subscription filter must be a non-empty string when set',
       evaluationFailedReason: 'Listener filter evaluation failed',
     });
@@ -132,7 +136,10 @@ function evaluateListenerFilter(params: EvaluateListenerFilterParams): StoredFil
 
   return evaluateStoredFilter({
     value: filter,
-    context: {...snapshot.value, event: params.payload},
+    context: projectWorkflowPredicateContext(
+      params.subscription.kind === 'on' ? 'listener.on' : 'listener.until',
+      {...snapshot.value, event: params.payload},
+    ),
     invalidReason: 'Listener subscription filter must be a non-empty string when set',
     evaluationFailedReason: 'Listener filter evaluation failed',
   });

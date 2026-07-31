@@ -1,3 +1,4 @@
+import * as expression from '@shipfox/expression';
 import {evaluateStoredFilter, evaluateTriggerFilter, readConfigInputs} from './config.js';
 import type {TriggerSubscription} from './entities/subscription.js';
 
@@ -87,6 +88,28 @@ describe('evaluateTriggerFilter', () => {
 
     expect(matches).toEqual({kind: 'matched'});
     expect(misses).toEqual({kind: 'filtered'});
+  });
+
+  test('passes trigger filters through the field-specific context projection', () => {
+    const projectContext = vi.spyOn(expression, 'projectWorkflowPredicateContext');
+    const payload = {ref: 'refs/heads/main'};
+
+    try {
+      const result = evaluateTriggerFilter({
+        subscription: subscriptionWithConfig({filter: 'event.ref == "refs/heads/main"'}),
+        source: 'github',
+        event: 'push',
+        payload,
+      });
+
+      expect(result).toEqual({kind: 'matched'});
+      expect(projectContext).toHaveBeenCalledWith('trigger.filter', {
+        event: payload,
+        trigger: {source: 'github', event: 'push'},
+      });
+    } finally {
+      projectContext.mockRestore();
+    }
   });
 
   test('returns filter-error when the stored filter cannot be parsed', () => {

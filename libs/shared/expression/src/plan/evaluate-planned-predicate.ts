@@ -9,7 +9,10 @@ import type {
   FillTarget,
   WorkflowPredicateField,
 } from '../workflow-context/workflow-context.js';
-import {getWorkflowPredicateFieldMinimumFillTarget} from '../workflow-context/workflow-context.js';
+import {
+  getWorkflowPredicateFieldMinimumFillTarget,
+  projectWorkflowPredicateContext,
+} from '../workflow-context/workflow-context.js';
 import {shouldFillAtSite} from './fill.js';
 import {type RoutedExpression, routeExpression} from './route-expression.js';
 
@@ -28,7 +31,13 @@ export function evaluatePlannedPredicateAtSite(params: {
     return {value: false, evaluationFailed: true, route};
   }
 
-  return {...evaluateWorkflowPredicateFailClosed(params.expression, params.context), route};
+  return {
+    ...evaluateWorkflowPredicateFailClosed(
+      params.expression,
+      projectWorkflowPredicateContext(params.field, params.context),
+    ),
+    route,
+  };
 }
 
 function routePredicateExpression(

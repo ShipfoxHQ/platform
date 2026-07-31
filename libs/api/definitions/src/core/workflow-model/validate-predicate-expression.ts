@@ -1,17 +1,16 @@
 import {
   type AvailabilitySite,
-  analyzeContextRootKeyAccess,
   availabilitySites,
   createWorkflowExpression,
   type ExpressionTypeEnvironment,
   extractExactContextRoots,
   getWorkflowContextDefinition,
   getWorkflowContextTypeEnvironment,
+  getWorkflowPredicateContextRoots,
   InvalidWorkflowExpressionError,
   predicateSourceIsBooleanShaped,
   resolveContextRootAvailability,
   resolveContextRootHost,
-  routeExpression,
   validateServerEvaluable,
   type WorkflowContextName,
   type WorkflowExpression,
@@ -64,29 +63,20 @@ export function validatePredicateExpression(params: {
     return undefined;
   }
 
-  const unavailableRoots = knownRoots.filter((root) => !isRootAvailableAt(root, params.site));
+  const predicateContextRoots = getWorkflowPredicateContextRoots(params.field);
+  const unavailableRoots = knownRoots.filter(
+    (root) =>
+      !predicateContextRoots.includes(root as (typeof predicateContextRoots)[number]) ||
+      !isRootAvailableAt(root, params.site),
+  );
   if (unavailableRoots.length > 0) {
     params.issues.push(
-      unavailablePredicateContextIssue({...params, contextRoots, unavailableRoots}),
-    );
-    return undefined;
-  }
-
-  const route = routeExpression(syntaxExpression);
-  if (route.fillTarget !== 'runner-fill' && !isSiteAtOrAfter(params.site, route.fillTarget)) {
-    const unavailableRoots = unavailableRouteReferences(syntaxExpression);
-    params.issues.push(
-      unavailableRoots.length > 0
-        ? unavailablePredicateContextIssue({
-            ...params,
-            contextRoots,
-            unavailableRoots,
-          })
-        : routeUnavailablePredicateContextIssue({
-            ...params,
-            contextRoots,
-            fillTarget: route.fillTarget,
-          }),
+      unavailablePredicateContextIssue({
+        ...params,
+        contextRoots,
+        unavailableRoots,
+        predicateContextRoots,
+      }),
     );
     return undefined;
   }
@@ -242,6 +232,7 @@ function unavailablePredicateContextIssue(params: {
   path: readonly WorkflowModelValidationIssuePathSegment[];
   contextRoots: readonly string[];
   unavailableRoots: readonly string[];
+  predicateContextRoots: readonly string[];
 }): WorkflowModelValidationIssue {
   return issue({
     code: 'context-unavailable-at-predicate-site',
@@ -249,8 +240,10 @@ function unavailablePredicateContextIssue(params: {
       params.unavailableRoots,
     )} ${formatList(params.unavailableRoots)} that ${availabilityVerb(
       params.unavailableRoots,
-    )} not available at ${describeAvailabilitySite(params.site)}. ${params.unavailableRoots
-      .map(unavailableRootAvailabilityMessage)
+    )} not available in its evaluation context at ${describeAvailabilitySite(params.site)}. ${params.unavailableRoots
+      .map((root) =>
+        unavailableRootAvailabilityMessage(root, params.field, params.predicateContextRoots),
+      )
       .join(' ')}`,
     path: params.path,
     details: {
@@ -263,30 +256,6 @@ function unavailablePredicateContextIssue(params: {
   });
 }
 
-function routeUnavailablePredicateContextIssue(params: {
-  field: WorkflowPredicateField;
-  source: string;
-  site: AvailabilitySite;
-  path: readonly WorkflowModelValidationIssuePathSegment[];
-  contextRoots: readonly string[];
-  fillTarget: AvailabilitySite;
-}): WorkflowModelValidationIssue {
-  return issue({
-    code: 'context-unavailable-at-predicate-site',
-    message: `${fieldLabel(params.field)} requires context filled at ${describeAvailabilitySite(
-      params.fillTarget,
-    )}, but it is evaluated at ${describeAvailabilitySite(params.site)}.`,
-    path: params.path,
-    details: {
-      field: params.field,
-      source: params.source,
-      contextRoots: params.contextRoots,
-      fillTarget: params.fillTarget,
-      site: params.site,
-    },
-  });
-}
-
 function isRootAvailableAt(root: string, site: AvailabilitySite): boolean {
   const availability = resolveContextRootAvailability(root);
   if (availability === undefined) return false;
@@ -294,21 +263,18 @@ function isRootAvailableAt(root: string, site: AvailabilitySite): boolean {
   return availabilitySites.indexOf(availability) <= availabilitySites.indexOf(site);
 }
 
-function unavailableRootAvailabilityMessage(root: string): string {
-  if (root === 'execution.failed') {
-    return '"execution.failed" becomes available at step dispatch.';
+function unavailableRootAvailabilityMessage(
+  root: string,
+  field: WorkflowPredicateField,
+  predicateContextRoots: readonly string[],
+): string {
+  if (!predicateContextRoots.includes(root)) {
+    return `"${root}" is not supplied to ${fieldLabel(field)}.`;
   }
 
   const availability = resolveContextRootAvailability(root);
   if (availability === undefined) return `"${root}" is not available at any server site.`;
   return `"${root}" becomes available at ${describeAvailabilitySite(availability)}.`;
-}
-
-function unavailableRouteReferences(expression: WorkflowExpression): readonly string[] {
-  const access = analyzeContextRootKeyAccess(expression, ['execution']);
-  return access.references.some((reference) => reference.key === 'failed')
-    ? ['execution.failed']
-    : [];
 }
 
 function hasSyntaxOnlyCheckMode(root: string): boolean {
@@ -368,10 +334,6 @@ function availabilityVerb(roots: readonly string[]): 'is' | 'are' {
 
 function describeAvailabilitySite(site: AvailabilitySite): string {
   return availabilitySiteLabels[site];
-}
-
-function isSiteAtOrAfter(site: AvailabilitySite, fillTarget: AvailabilitySite): boolean {
-  return availabilitySites.indexOf(site) >= availabilitySites.indexOf(fillTarget);
 }
 
 function formatList(values: readonly string[]): string {

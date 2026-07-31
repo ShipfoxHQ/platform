@@ -47,6 +47,21 @@ describe('evaluatePlannedPredicateAtSite', () => {
     });
   });
 
+  it('fails closed when runtime context contains no roots accepted by the field', () => {
+    const result = evaluatePlannedPredicateAtSite({
+      expression: expression('jobs.build.status == "succeeded"'),
+      field: 'step.success',
+      site: 'step-report',
+      context: {jobs: {build: {status: 'succeeded'}}},
+    });
+
+    expect(result).toEqual({
+      value: false,
+      evaluationFailed: true,
+      route: {roots: ['jobs'], runnerRoots: [], fillTarget: 'step-report'},
+    });
+  });
+
   it('fails closed when the predicate needs a later server fill site', () => {
     const result = evaluatePlannedPredicateAtSite({
       expression: expression('executions.all(e, e.status == "succeeded")'),

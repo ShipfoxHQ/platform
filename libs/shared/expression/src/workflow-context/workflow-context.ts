@@ -1,3 +1,4 @@
+import type {WorkflowExpressionEvaluationContext} from '../evaluator/evaluate-workflow-expression.js';
 import type {ExpressionType, ExpressionTypeEnvironment} from '../expression/workflow-expression.js';
 import {
   type OutputDeclarations,
@@ -465,6 +466,37 @@ export const workflowPredicateFields = [
 ] as const;
 export type WorkflowPredicateField = (typeof workflowPredicateFields)[number];
 
+const listenerPredicateContextRoots = [
+  'event',
+  'run',
+  'trigger',
+  'inputs',
+  'vars',
+  'job',
+  'jobs',
+] as const satisfies readonly WorkflowContextName[];
+
+/**
+ * The roots that the runtime passes to each server-evaluated predicate.
+ *
+ * This is intentionally narrower than lifecycle availability. A root can
+ * exist by the time a predicate runs and still not belong to that predicate's
+ * evaluation context.
+ */
+export const workflowPredicateContextRoots = {
+  'step.success': ['step', 'vars'],
+  'job.success': ['executions', 'jobs', 'vars'],
+  'trigger.filter': ['event', 'trigger'],
+  'listener.on': listenerPredicateContextRoots,
+  'listener.until': listenerPredicateContextRoots,
+  'job.if': ['run', 'trigger', 'event', 'inputs', 'vars', 'jobs', 'needs'],
+  'step.if': ['vars', 'jobs', 'execution', 'step', 'steps'],
+} as const satisfies Record<WorkflowPredicateField, readonly WorkflowContextName[]>;
+
+export type WorkflowPredicateContextRoot<
+  Field extends WorkflowPredicateField = WorkflowPredicateField,
+> = (typeof workflowPredicateContextRoots)[Field][number];
+
 export const workflowPredicateFieldFailurePolicy =
   'fail-closed' as const satisfies WorkflowFieldFailurePolicy;
 
@@ -578,6 +610,22 @@ export function getWorkflowPredicateFieldMinimumFillTarget(
   field: WorkflowPredicateField,
 ): AvailabilitySite {
   return workflowPredicateFieldMinimumFillTargets[field];
+}
+
+export function getWorkflowPredicateContextRoots<Field extends WorkflowPredicateField>(
+  field: Field,
+): readonly WorkflowPredicateContextRoot<Field>[] {
+  return workflowPredicateContextRoots[field];
+}
+
+export function projectWorkflowPredicateContext(
+  field: WorkflowPredicateField,
+  context: WorkflowExpressionEvaluationContext,
+): WorkflowExpressionEvaluationContext {
+  const roots = new Set(getWorkflowPredicateContextRoots(field));
+  return Object.fromEntries(
+    Object.entries(context).filter(([root]) => roots.has(root as WorkflowPredicateContextRoot)),
+  );
 }
 
 export interface WorkflowContextAvailabilityReferenceEntry {

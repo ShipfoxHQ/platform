@@ -110,13 +110,71 @@ describe('validatePredicateExpression', () => {
   });
 
   it.each([
+    ['step.success', 'step-report', 'step.status == "succeeded"'],
+    ['job.success', 'job-resolution', 'executions.all(e, e.status == "succeeded")'],
+    ['trigger.filter', 'ingest', 'event.action == "created"'],
+    ['listener.on', 'job-activation', 'trigger.event == "pull_request"'],
+    ['listener.until', 'job-activation', 'job.key == "await-review"'],
+    ['job.if', 'job-activation', 'needs.exists(n, n.status == "succeeded")'],
+    ['step.if', 'step-dispatch', 'execution.status == "running"'],
+  ] as const)('accepts the runtime context contract for %s', (field, site, source) => {
+    const result = validate({field, source, site});
+
+    expect(result.issues).toEqual([]);
+    expect(result.expression).toMatchObject({source});
+  });
+
+  it.each([
+    [
+      'step.success',
+      'step-report',
+      'jobs.build.status == "succeeded"',
+      'jobs',
+      'Step gate success',
+    ],
+    ['job.success', 'job-resolution', 'step.status == "succeeded"', 'step', 'Job success'],
+    ['trigger.filter', 'ingest', 'run.id == "run-1"', 'run', 'Trigger filter'],
+    [
+      'listener.on',
+      'job-activation',
+      'execution.status == "waiting"',
+      'execution',
+      'Listener on filter',
+    ],
+    [
+      'listener.until',
+      'job-activation',
+      'execution.status == "waiting"',
+      'execution',
+      'Listener until filter',
+    ],
+    ['job.if', 'job-activation', 'execution.status == "running"', 'execution', 'Job if'],
+    ['step.if', 'step-dispatch', 'run.id == "run-1"', 'run', 'Step if'],
+  ] as const)('rejects roots omitted from the %s runtime context', (field, site, source, root, label) => {
+    const result = validate({field, source, site});
+
+    expect(result.expression).toBeUndefined();
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        code: 'context-unavailable-at-predicate-site',
+        message: expect.stringContaining(`"${root}" is not supplied to ${label}.`),
+        details: expect.objectContaining({
+          field,
+          source,
+          unavailableRoots: [root],
+          site,
+        }),
+      }),
+    ]);
+  });
+
+  it.each([
     ['listener.on', 'event.action == "created"', undefined],
     ['listener.on', 'run.id == "run-1"', undefined],
+    ['listener.on', 'trigger.event == "pull_request"', undefined],
     ['listener.until', 'inputs.target == event.issue.number', undefined],
+    ['listener.until', 'vars.ENABLED == "true"', undefined],
     ['listener.until', 'job.key == "await-review"', undefined],
-    ['listener.on', 'executions.all(execution, execution.status != "")', undefined],
-    ['listener.until', 'execution.status == "waiting"', undefined],
-    ['listener.on', 'matrix.os == "linux"', undefined],
     ['listener.until', 'jobs.build.outputs.pr_number == event.issue.number', new Set(['build'])],
     ['listener.until', 'has(jobs.build.outputs.pr_number)', new Set(['build'])],
   ] as const)('accepts listener filters at job activation: %s %s', (field, source, allowedJobs) => {

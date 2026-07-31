@@ -7,7 +7,9 @@ import {
   type FillTarget,
   getWorkflowContextTypeEnvironment,
   getWorkflowInterpolationFieldFailurePolicy,
+  getWorkflowPredicateContextRoots,
   getWorkflowPredicateFieldMinimumFillTarget,
+  projectWorkflowPredicateContext,
   resolveContextRootAvailability,
   resolveContextRootHost,
   rootsAvailableAt,
@@ -24,6 +26,7 @@ import {
   workflowInterpolationFieldAcceptsHost,
   workflowInterpolationFieldPolicies,
   workflowInterpolationFields,
+  workflowPredicateContextRoots,
   workflowPredicateFieldFailurePolicy,
   workflowPredicateFields,
 } from './workflow-context.js';
@@ -609,6 +612,66 @@ describe('workflow context registry', () => {
       expect(getWorkflowPredicateFieldMinimumFillTarget('listener.until')).toBe('job-activation');
       expect(getWorkflowPredicateFieldMinimumFillTarget('job.if')).toBe('job-activation');
       expect(getWorkflowPredicateFieldMinimumFillTarget('step.if')).toBe('step-dispatch');
+    });
+
+    it('declares the runtime roots for every predicate field', () => {
+      expect(workflowPredicateContextRoots).toEqual({
+        'step.success': ['step', 'vars'],
+        'job.success': ['executions', 'jobs', 'vars'],
+        'trigger.filter': ['event', 'trigger'],
+        'listener.on': ['event', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs'],
+        'listener.until': ['event', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs'],
+        'job.if': ['run', 'trigger', 'event', 'inputs', 'vars', 'jobs', 'needs'],
+        'step.if': ['vars', 'jobs', 'execution', 'step', 'steps'],
+      });
+      expect(getWorkflowPredicateContextRoots('listener.on')).toEqual([
+        'event',
+        'run',
+        'trigger',
+        'inputs',
+        'vars',
+        'job',
+        'jobs',
+      ]);
+    });
+
+    it.each([
+      ['step.success', ['step', 'vars']],
+      ['job.success', ['executions', 'jobs', 'vars']],
+      ['trigger.filter', ['event', 'trigger']],
+      ['listener.on', ['event', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs']],
+      ['listener.until', ['event', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs']],
+      ['job.if', ['run', 'trigger', 'event', 'inputs', 'vars', 'jobs', 'needs']],
+      ['step.if', ['vars', 'jobs', 'execution', 'step', 'steps']],
+    ] as const)('projects runtime contexts for %s', (field, expectedRoots) => {
+      const context = {
+        run: {id: 'run-1'},
+        trigger: {event: 'push'},
+        event: {action: 'opened'},
+        inputs: {environment: 'prod'},
+        job: {key: 'build'},
+        executions: [],
+        execution: {status: 'running'},
+        jobs: {build: {status: 'succeeded'}},
+        needs: [],
+        steps: {build: {status: 'succeeded'}},
+        step: {status: 'succeeded'},
+        vars: {ENABLED: 'true'},
+        secrets: {TOKEN: 'secret'},
+      };
+
+      expect(Object.keys(projectWorkflowPredicateContext(field, context)).sort()).toEqual(
+        [...expectedRoots].sort(),
+      );
+    });
+
+    it('returns an empty context when no accepted roots are supplied', () => {
+      expect(
+        projectWorkflowPredicateContext('trigger.filter', {
+          jobs: {build: {status: 'succeeded'}},
+          secrets: {TOKEN: 'secret'},
+        }),
+      ).toEqual({});
     });
   });
 
