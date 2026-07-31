@@ -109,12 +109,15 @@ describe('WorkspaceOnboardingPage', () => {
     );
     const name = await screen.findByLabelText('Workspace name');
     const slug = screen.getByLabelText('Workspace slug');
+    expect(screen.getByText(`${window.location.origin}/w/acme`)).toBeInTheDocument();
     fireEvent.change(name, {target: {value: 'Acme Labs'}});
     expect(slug).toHaveValue('acme-labs');
+    expect(screen.getByText(`${window.location.origin}/w/acme-labs`)).toBeInTheDocument();
 
     fireEvent.change(slug, {target: {value: 'custom-workspace'}});
     fireEvent.change(name, {target: {value: 'Renamed Labs'}});
     expect(slug).toHaveValue('custom-workspace');
+    expect(screen.getByText(`${window.location.origin}/w/custom-workspace`)).toBeInTheDocument();
   });
 
   test('shows a duplicate slug error on the slug field', async () => {

@@ -164,7 +164,11 @@ export function WorkspaceOnboardingPage() {
                     <FormField
                       label="Workspace slug"
                       id="workspace-slug"
-                      description="Used in workspace URLs. Lowercase letters, numbers, and hyphens only."
+                      description={
+                        <span className="break-all font-code" aria-live="polite">
+                          {`${window.location.origin}/w/${field.state.value || 'acme'}`}
+                        </span>
+                      }
                       error={fieldError(field)}
                     >
                       <FormFieldInput
