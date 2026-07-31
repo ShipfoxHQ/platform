@@ -13,6 +13,7 @@ describe('workflowsInterModuleContract', () => {
         deliveryId: 'delivery-1',
         data: {ref: 'refs/heads/main'},
       },
+      triggerConnectionId: '00000000-0000-4000-8000-000000000005',
       idempotencyKey: 'subscription-1:event-1',
     });
     const delivery = workflowsInterModuleContract.methods.deliverEventToJobListener.input.parse({
@@ -28,6 +29,7 @@ describe('workflowsInterModuleContract', () => {
     });
 
     expect(start.idempotencyKey).toBe('subscription-1:event-1');
+    expect(start.triggerConnectionId).toBe('00000000-0000-4000-8000-000000000005');
     expect(delivery.disposition).toBe('fire');
   });
 

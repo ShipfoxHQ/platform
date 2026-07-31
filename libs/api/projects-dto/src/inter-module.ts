@@ -34,6 +34,14 @@ export const projectsInterModuleContract = defineInterModuleContract({
       input: z.object({projectId: idSchema}),
       output: z.object({project: projectSchema.nullable()}),
     },
+    getProjectBySource: {
+      input: z.object({
+        workspaceId: idSchema,
+        sourceConnectionId: idSchema,
+        sourceExternalRepositoryId: z.string(),
+      }),
+      output: z.object({project: projectSchema.nullable()}),
+    },
     requireProjectForWorkspace: {
       input: z.object({projectId: idSchema, workspaceId: idSchema}),
       output: z.object({project: projectSchema}),

@@ -1,6 +1,19 @@
 import {integrationsInterModuleContract} from './inter-module.js';
 
 describe('integrationsInterModuleContract', () => {
+  test('accepts a nullable normalized trigger reference', () => {
+    const result = integrationsInterModuleContract.methods.resolveTriggerReference.output.parse({
+      externalRepositoryId: 'github:42',
+      ref: 'refs/heads/main',
+      commit: 'a'.repeat(40),
+    });
+
+    expect(result?.externalRepositoryId).toBe('github:42');
+    expect(
+      integrationsInterModuleContract.methods.resolveTriggerReference.output.parse(null),
+    ).toBeNull();
+  });
+
   test('accepts a source repository lookup through the producer contract', () => {
     const result = integrationsInterModuleContract.methods.resolveSourceRepository.output.parse({
       connection: {

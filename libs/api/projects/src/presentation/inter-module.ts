@@ -7,6 +7,7 @@ import {
 } from '@shipfox/inter-module';
 import {
   getProjectById,
+  getProjectBySource,
   getWorkspaceProjectCounts,
   resolveCheckoutTarget,
   updateProjectSourceMetadata,
@@ -17,6 +18,9 @@ export function createProjectsInterModulePresentation(params: {
 }): InterModulePresentation<typeof projectsInterModuleContract> {
   return defineInterModulePresentation(projectsInterModuleContract, {
     getProjectById: async ({projectId}) => ({project: (await getProjectById(projectId)) ?? null}),
+    getProjectBySource: async (input) => ({
+      project: (await getProjectBySource(input)) ?? null,
+    }),
     requireProjectForWorkspace: async ({projectId, workspaceId}) => {
       const project = await getProjectById(projectId);
       if (project === undefined) {

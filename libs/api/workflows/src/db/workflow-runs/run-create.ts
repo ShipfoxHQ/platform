@@ -20,6 +20,7 @@ import type {
   WorkflowSourceSnapshot,
 } from '#core/entities/workflow-run.js';
 import {InterpolationUnresolvableError} from '#core/errors.js';
+import {resolveWorkflowRunTriggerReference} from '#core/resolve-trigger-reference.js';
 import {assembleCreationContext} from '#core/step-config/assemble-run-context.js';
 import type {MaterializedWorkflowJob} from '#core/step-config/materialize-workflow-model.js';
 import type {WorkflowStepTemplateDiagnostic} from '#core/step-config/resolve-step-config.js';
@@ -54,6 +55,7 @@ export interface CreateWorkflowRunParams {
   name?: string | undefined;
   model: WorkflowModel;
   triggerPayload: TriggerPayload;
+  triggerConnectionId?: string | undefined;
   inputs?: Record<string, unknown> | undefined;
   sourceSnapshot?: WorkflowSourceSnapshot | null | undefined;
   triggerIdempotencyKey?: string | undefined;
@@ -64,6 +66,13 @@ export interface CreateWorkflowRunParams {
 }
 
 export async function createWorkflowRun(params: CreateWorkflowRunParams): Promise<WorkflowRun> {
+  const triggerReference = await resolveWorkflowRunTriggerReference({
+    workspaceId: params.workspaceId,
+    triggerConnectionId: params.triggerConnectionId,
+    triggerPayload: params.triggerPayload,
+    integrations: params.integrations,
+    projects: params.projects,
+  });
   const staticName = params.name ?? params.model.name;
   const agentToolContext =
     params.integrations === undefined
@@ -115,6 +124,7 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
         triggerSource: params.triggerPayload.source,
         triggerEvent: params.triggerPayload.event,
         triggerPayload: params.triggerPayload,
+        triggerReference,
         inputs: params.inputs ?? null,
         sourceSnapshot: params.sourceSnapshot ?? null,
         triggerIdempotencyKey: params.triggerIdempotencyKey ?? null,

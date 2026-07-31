@@ -52,7 +52,14 @@ describe('assembleWorkflowRunContext', () => {
         workspace_id: 'workspace-1',
         created_at: run.createdAt,
       },
-      trigger: {source: 'github', event: 'push'},
+      trigger: {
+        source: 'github',
+        event: 'push',
+        project: null,
+        repository: null,
+        ref: null,
+        commit: null,
+      },
       event: {ref: 'refs/heads/main'},
       inputs: {deploy: true},
     });
@@ -114,6 +121,35 @@ describe('assembleCreationContext', () => {
         },
         inputs: {deploy: true},
       }),
+    });
+  });
+
+  it('exposes the normalized trigger reference on the trigger root', () => {
+    const context = assembleWorkflowRunContext({
+      run: {
+        ...run,
+        triggerReference: {
+          project: {id: 'project-1'},
+          repository: 'acme/api',
+          ref: 'refs/pull/42/head',
+          commit: 'a'.repeat(40),
+        },
+      },
+      triggerPayload: {
+        source: 'github',
+        event: 'pull_request',
+        deliveryId: 'delivery-1',
+        data: {},
+      },
+    });
+
+    expect(context.trigger).toEqual({
+      source: 'github',
+      event: 'pull_request',
+      project: {id: 'project-1'},
+      repository: 'acme/api',
+      ref: 'refs/pull/42/head',
+      commit: 'a'.repeat(40),
     });
   });
 });
@@ -395,7 +431,14 @@ describe('listener filter snapshots', () => {
 
     expect(matcher?.filter_snapshot).toEqual({
       run: expect.objectContaining({id: 'run-1', name: 'Build'}),
-      trigger: {source: 'github', event: 'pull_request'},
+      trigger: {
+        source: 'github',
+        event: 'pull_request',
+        project: null,
+        repository: null,
+        ref: null,
+        commit: null,
+      },
       inputs: {environment: 'prod'},
       job: {key: 'await'},
       vars: {ENABLED: 'true'},

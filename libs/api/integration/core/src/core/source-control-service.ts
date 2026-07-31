@@ -13,12 +13,14 @@ import type {
   FileSnapshot,
   RepositoryPage,
   RepositorySnapshot,
+  TriggerReference,
 } from './providers/source-control.js';
 
 export interface IntegrationSourceControlService {
   getConnection(connectionId: string): Promise<IntegrationConnection>;
   listRepositories(input: ListSourceRepositoriesInput): Promise<RepositoryPage>;
   resolveRepository(input: ResolveSourceRepositoryInput): Promise<ResolvedSourceRepository>;
+  resolveTriggerReference(input: ResolveTriggerReferenceInput): Promise<TriggerReference | null>;
   listFiles(input: ListSourceFilesInput): Promise<FilePage>;
   fetchFile(input: FetchSourceFileInput): Promise<FileSnapshot>;
   createCheckoutSpec(input: CreateSourceCheckoutSpecInput): Promise<CheckoutSpec>;
@@ -35,6 +37,12 @@ export interface ResolveSourceRepositoryInput {
   workspaceId: string;
   connectionId: string;
   externalRepositoryId: string;
+}
+
+export interface ResolveTriggerReferenceInput {
+  workspaceId: string;
+  connectionId: string;
+  payload: unknown;
 }
 
 export interface ListSourceFilesInput extends ResolveSourceRepositoryInput {
@@ -106,6 +114,19 @@ export function createSourceControlIntegrationService({
       });
 
       return {connection, repository};
+    },
+
+    async resolveTriggerReference({workspaceId, connectionId, payload}) {
+      const connection = await getConnection(connectionId);
+      if (connection.workspaceId !== workspaceId) {
+        throw new IntegrationConnectionWorkspaceMismatchError(connectionId);
+      }
+
+      // Not every integration source names a repository (for example Linear),
+      // so a missing source-control adapter is a valid null reference rather
+      // than a failed run creation.
+      const sourceControl = registry.get(connection.provider).adapters.source_control;
+      return sourceControl?.resolveTriggerReference(payload) ?? null;
     },
 
     async listFiles({workspaceId, connectionId, externalRepositoryId, ref, prefix, limit, cursor}) {

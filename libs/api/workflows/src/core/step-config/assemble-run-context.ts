@@ -8,7 +8,11 @@ import {
 import type {Job, JobListeningTrigger} from '#core/entities/job.js';
 import type {JobExecution} from '#core/entities/job-execution.js';
 import type {Step, StepAttempt, StepStatus} from '#core/entities/step.js';
-import type {TriggerPayload, WorkflowRun} from '#core/entities/workflow-run.js';
+import type {
+  TriggerPayload,
+  WorkflowRun,
+  WorkflowRunTriggerReference,
+} from '#core/entities/workflow-run.js';
 import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
 
 export interface JobContextInput {
@@ -27,7 +31,7 @@ export interface AssembleWorkflowRunContextParams {
     | 'projectId'
     | 'workspaceId'
     | 'createdAt'
-  >;
+  > & {readonly triggerReference?: WorkflowRunTriggerReference | null | undefined};
   readonly triggerPayload: TriggerPayload;
   readonly inputs?: Record<string, unknown> | null | undefined;
   readonly vars?: Record<string, string> | undefined;
@@ -36,6 +40,7 @@ export interface AssembleWorkflowRunContextParams {
 export function assembleWorkflowRunContext(
   params: AssembleWorkflowRunContextParams,
 ): WorkflowExpressionEvaluationContext {
+  const triggerReference = params.run.triggerReference;
   return {
     run: {
       id: params.run.id,
@@ -50,6 +55,10 @@ export function assembleWorkflowRunContext(
     trigger: {
       source: params.triggerPayload.source,
       event: params.triggerPayload.event,
+      project: triggerReference?.project ?? null,
+      repository: triggerReference?.repository ?? null,
+      ref: triggerReference?.ref ?? null,
+      commit: triggerReference?.commit ?? null,
     },
     event: 'data' in params.triggerPayload ? params.triggerPayload.data : null,
     inputs: params.inputs ?? null,

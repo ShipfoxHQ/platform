@@ -1,3 +1,4 @@
+import {evaluateWorkflowPredicate} from '../evaluator/evaluate-workflow-expression.js';
 import {createWorkflowExpression} from '../expression/create-workflow-expression.js';
 import {InvalidWorkflowExpressionError} from '../expression/errors.js';
 import {
@@ -181,9 +182,34 @@ describe('workflow context registry', () => {
         fields: {
           source: 'string',
           event: 'string',
+          project: {
+            kind: 'object',
+            fields: {id: 'string'},
+          },
+          repository: 'string',
+          ref: 'string',
+          commit: 'string',
         },
       },
     });
+    expect(() =>
+      createWorkflowExpression({
+        source: 'trigger.project != null && trigger.commit != null',
+        check: {mode: 'typed', typeEnvironment: workflowContextDefinitions.trigger.typeEnvironment},
+      }),
+    ).not.toThrow();
+    const expression = createWorkflowExpression({
+      source: 'trigger.project != null && trigger.commit != null',
+      check: {mode: 'syntax'},
+    });
+    expect(
+      evaluateWorkflowPredicate(expression, {
+        trigger: {project: {id: 'project-1'}, commit: 'a'.repeat(40)},
+      }),
+    ).toBe(true);
+    expect(evaluateWorkflowPredicate(expression, {trigger: {project: null, commit: null}})).toBe(
+      false,
+    );
     expect(getWorkflowContextTypeEnvironment('job')).toEqual({
       job: {
         kind: 'object',

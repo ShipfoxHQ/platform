@@ -41,6 +41,12 @@ export function createIntegrationsInterModulePresentation(params: {
           repository: resolved.repository,
         };
       }),
+    resolveTriggerReference: async (input) =>
+      await known(
+        contract.methods.resolveTriggerReference,
+        input,
+        async () => await params.sourceControl.resolveTriggerReference(input),
+      ),
     listSourceFiles: async (input) =>
       await known(
         contract.methods.listSourceFiles,

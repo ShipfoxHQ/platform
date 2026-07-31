@@ -54,6 +54,7 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         workspaceId: idSchema,
         projectId: idSchema,
         definitionId: idSchema,
+        triggerConnectionId: idSchema.optional(),
         triggerPayload: triggerPayloadSchema,
         inputs: z.record(z.string(), z.unknown()).optional(),
         idempotencyKey: z.string().min(1),

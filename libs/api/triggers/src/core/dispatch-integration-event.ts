@@ -87,6 +87,7 @@ export async function dispatchIntegrationEvent(
         workspaceId: subscription.workspaceId,
         projectId: subscription.projectId,
         definitionId: subscription.workflowDefinitionId,
+        triggerConnectionId: params.connectionId,
         triggerPayload: {
           provider: params.provider,
           source: params.source,

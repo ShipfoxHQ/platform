@@ -16,6 +16,7 @@ import {
 import type {
   TriggerPayload,
   WorkflowRun,
+  WorkflowRunTriggerReference,
   WorkflowSourceSnapshot,
 } from '#core/entities/workflow-run.js';
 import {pgTable} from './common.js';
@@ -46,6 +47,7 @@ export const workflowRuns = pgTable(
     triggerSource: text('trigger_source').notNull(),
     triggerEvent: text('trigger_event').notNull(),
     triggerPayload: jsonb('trigger_payload').notNull().$type<TriggerPayload>(),
+    triggerReference: jsonb('trigger_reference').$type<WorkflowRunTriggerReference>(),
     inputs: jsonb('inputs').$type<Record<string, unknown>>(),
     sourceSnapshot: jsonb('source_snapshot').$type<WorkflowSourceSnapshot>(),
     triggerIdempotencyKey: text('trigger_idempotency_key'),
@@ -105,6 +107,7 @@ export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
     triggerSource: row.triggerSource,
     triggerEvent: row.triggerEvent,
     triggerPayload: row.triggerPayload as TriggerPayload,
+    triggerReference: row.triggerReference ?? null,
     inputs: row.inputs ?? null,
     sourceSnapshot: row.sourceSnapshot ?? null,
     triggerIdempotencyKey: row.triggerIdempotencyKey,
