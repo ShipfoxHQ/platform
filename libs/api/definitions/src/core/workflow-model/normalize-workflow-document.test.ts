@@ -4499,6 +4499,22 @@ describe('normalizeWorkflowDocument', () => {
         {provider: interpolation('executions[0].events[0].data.body'), prompt: 'Fix it.'},
         'executions',
       ],
+      ['model', {model: interpolation('execution.outputs.value'), prompt: 'Fix it.'}, 'execution'],
+      [
+        'provider',
+        {provider: interpolation('execution.outputs.value'), prompt: 'Fix it.'},
+        'execution',
+      ],
+      [
+        'model',
+        {model: interpolation('executions[0].outputs.value'), prompt: 'Fix it.'},
+        'executions',
+      ],
+      [
+        'provider',
+        {provider: interpolation('executions[0].outputs.value'), prompt: 'Fix it.'},
+        'executions',
+      ],
     ] as const)('rejects path-specific external context in agent %s interpolation', (_field, step, root) => {
       const document: WorkflowDocument = {
         name: 'path-specific external agent field',
@@ -4526,6 +4542,8 @@ describe('normalizeWorkflowDocument', () => {
       ['execution', interpolation('execution.events[0].data.runner')],
       ['execution', interpolation('execution["events"][0].data.runner')],
       ['executions', interpolation('executions[0].events[0].data.runner')],
+      ['execution', interpolation('execution.outputs.runner')],
+      ['executions', interpolation('executions[0].outputs.runner')],
       ['steps', interpolation('steps.filter(s, true).map(s, s.outputs.runner)[0]')],
       ['step', interpolation('step.outputs.runner')],
       ['needs', interpolation('needs[0].outputs.runner')],

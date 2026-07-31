@@ -66,8 +66,8 @@ const infrastructureSelectorAllowedRoots = new Set<WorkflowContextName>([
 ]);
 
 const infrastructureSelectorExternalPaths = new Map<string, readonly string[]>([
-  ['executions', ['events']],
-  ['execution', ['events']],
+  ['executions', ['events', 'outputs']],
+  ['execution', ['events', 'outputs']],
   ['steps', ['outputs']],
   ['step', ['outputs']],
 ]);

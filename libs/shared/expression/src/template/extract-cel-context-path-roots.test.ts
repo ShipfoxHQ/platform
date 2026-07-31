@@ -1,8 +1,8 @@
 import {extractCelContextPathRoots} from './extract-cel-context-path-roots.js';
 
 const pathsByRoot = new Map<string, readonly string[]>([
-  ['execution', ['events']],
-  ['executions', ['events']],
+  ['execution', ['events', 'outputs']],
+  ['executions', ['events', 'outputs']],
   ['steps', ['outputs']],
   ['step', ['outputs']],
 ]);
@@ -15,8 +15,10 @@ describe('extractCelContextPathRoots', () => {
   it.each([
     ['execution.events[0].data', ['execution']],
     ['execution["events"][0].data', ['execution']],
+    ['execution.outputs.value', ['execution']],
     ['executions[0].events', ['executions']],
     ['executions[0]["events"]', ['executions']],
+    ['executions[0].outputs.value', ['executions']],
     ['execution.events.exists(e, e.data.ok)', ['execution']],
     ['executions.map(e, e.events[0].data.body)', ['executions']],
     ['executions.exists(e, e.events.size() > 0)', ['executions']],
