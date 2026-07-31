@@ -1,39 +1,40 @@
 ---
 title: "Expressions and Interpolation (CEL)"
 sidebarTitle: "Expressions (CEL)"
-description: "Shipfox evaluates CEL in trigger filters, if conditionals, gates, and job success, and resolves ${{ }} templates in commands, env, prompts, and outputs from staged run context."
+description: "Shipfox uses CEL predicates to make workflow decisions. It uses ${{ }} templates to put context in commands, environment values, prompts, and outputs."
 ---
 
-Shipfox uses [CEL (Common Expression Language)](https://cel.dev) in two roles.
-**Predicates** decide an outcome: does this event fire the trigger, does this
-job or step run, did a gated step succeed. **Templates** produce strings: the
-`${{ }}` syntax fills run context into prompts, commands, env values, names,
-and outputs. Both roles use the same read-only engine: expressions compute
-over the data in scope, and they cannot reach the database, the network, or
-the filesystem.
+Shipfox uses [CEL (Common Expression Language)](https://cel.dev) in two ways.
+A **predicate** gives a true or false result. This result controls a trigger,
+job, step, or gate.
 
-One rule separates the two roles. **Templates read context at their fill site,
-while predicates receive a field-specific server-side context.** Job and step
-conditionals, gates, listening-job filters, and job success predicates can read
-`vars` after run creation. A trigger filter runs before run creation, so it
-cannot read `vars`. No predicate can read `secrets`, because secret values exist
-only on the runner.
+A **template** puts a string value in text. The text can be a prompt, command,
+environment value, name, or output. Templates use the `${{ }}` syntax.
+
+Each workflow field can use context that exists when Shipfox reads the field.
+A trigger `filter` cannot use `vars` or step outputs because no run exists yet.
+Job and step `if` fields can use `vars`.
+
+Only `run` commands and `env` values can use `secrets`. The
+[context table](#context-available) shows when each context root becomes
+available.
 
 ## The CEL engine
 
-Expressions support CEL's standard value types (integers, strings, booleans,
-lists, maps), its standard operators (`==`, `!=`, `<`, `>`, `&&`, `||`, `!`,
-`in`, arithmetic) and macros (`.map()`, `.filter()`, `.all()`, `.exists()`),
-plus string helpers like `.contains()`, `.startsWith()`, and `.endsWith()`.
-There are no custom functions and no side effects.
+Expressions use the standard features of CEL:
+
+- Value types: integers, strings, booleans, lists, and maps
+- Operators: `==`, `!=`, `<`, `>`, `&&`, `||`, `!`, `in`, and arithmetic
+- Macros: `.map()`, `.filter()`, `.all()`, and `.exists()`
+- String functions: `.contains()`, `.startsWith()`, and `.endsWith()`
+
+The engine has no custom functions. Expressions cannot cause side effects.
 
 ## Predicates
 
 ### Predicate context
 
-Predicates run on the server, and each predicate type receives a specific
-context. A root can exist at a lifecycle site but still be absent from a
-predicate's field context.
+Each predicate field can read only the context in this table:
 
 | Predicate | Context |
 |---|---|
@@ -44,20 +45,24 @@ predicate's field context.
 | `gate.success` | `step` and `vars` |
 | Job `success` | `executions`, `jobs`, and `vars` |
 
-For a listening-job filter, `event` is the event that may create a new
-execution. In a trigger filter, `event` is the payload that may create the
-run. `secrets` is unavailable to every predicate.
+In a listening-job filter, `event` can start a new execution. In a trigger
+filter, `event` can start a new run. No predicate can read `secrets`.
 
 ### Trigger filters
 
-A trigger's `filter` runs when the event arrives, before any run is created.
-In scope: `event` (the payload) and `trigger` (`source` and `event`). A false
-result skips the event. An expression error **fails closed**: the trigger does
-not fire. The same filter shape applies to a listening job's `on` and `until`
-entries, but those filters evaluate the incoming listener event against the
-activation snapshot described above.
+Shipfox evaluates a trigger `filter` when the event arrives. At this time, a
+run does not exist.
 
-This trigger fragment belongs under an existing workflow's `triggers` map:
+The filter can read `event`. This context contains the payload. The filter can
+also read the `source` and `event` fields of `trigger`.
+
+A false result stops the event. If the expression has an error, Shipfox does
+not start the trigger. This is fail-closed behavior.
+
+Listening jobs have `on` and `until` fields. These fields use the incoming
+listener event and the context in the predicate table.
+
+This example is a trigger fragment in the `triggers` map of a workflow:
 
 ```yaml
 triggers:
@@ -69,11 +74,13 @@ triggers:
 
 ### Conditionals: `if`
 
-Jobs and steps accept an `if:` field holding exactly one `${{ }}`-wrapped CEL
-boolean. When it is false, the job or step is marked **skipped**, not failed.
-An evaluation error also skips, recorded with a distinct reason.
+Jobs and steps can have an `if` field. This field contains exactly one CEL
+boolean in `${{ }}`.
 
-This job fragment belongs under an existing workflow's `jobs` map:
+A false result gives the **skipped** status to the job or step. An evaluation
+error gives the same status. The recorded reason gives the cause.
+
+This example is a job fragment in the `jobs` map of a workflow:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
@@ -91,12 +98,17 @@ jobs:
 
 ### Gate success: `gate.success`
 
-Evaluated the moment a gated step finishes. In scope: `step.exit_code` (an
-integer), `step.status` (a string), `step.outputs` (the step's declared
-outputs), and `vars`. See [Feedback loops](/understand/feedback-loops) for the
-full gate model.
+Shipfox evaluates `gate.success` when the gated step finishes. The expression
+can read these fields:
 
-This gate fragment belongs on a run or agent step:
+- `step.exit_code` is an integer
+- `step.status` is a string
+- `step.outputs` contains the declared outputs of the step
+- `vars` contains the workflow variables
+
+[Feedback loops](/understand/feedback-loops) gives the full gate model.
+
+This example is a gate fragment on a run step or an agent step:
 
 ```yaml
 gate:
@@ -105,13 +117,17 @@ gate:
 
 ### Job success: `success`
 
-A job's optional `success` expression decides whether the job succeeded once
-all its executions settle. In scope is `executions`, a list where each element
-carries `index`, `name`, `status`, `events`, `outputs`, and timing fields, plus
-`jobs` and `vars`. The default succeeds when no execution failed. It also
-succeeds when a listening job resolves with no executions:
+A job can have a `success` expression. Shipfox gets its result after all
+executions finish. This expression can read the `executions` list, `jobs`, and
+`vars`.
 
-This job fragment belongs under an existing workflow's `jobs` map:
+Each list item contains `index`, `name`, and `status`. It also contains
+`events`, `outputs`, and time fields.
+
+By default, a job succeeds if no execution fails. A listening job also succeeds
+if it has no executions when it resolves.
+
+This example is a job fragment in the `jobs` map of a workflow:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
@@ -122,7 +138,7 @@ jobs:
       - run: ./maybe-flaky.sh
 ```
 
-Add this `success` field to a job to require at least one execution:
+The next `success` field is true only if the job has one or more executions:
 
 ```yaml
 success: 'executions.size() > 0 && executions.all(e, e.status == "succeeded")'
@@ -130,33 +146,40 @@ success: 'executions.size() > 0 && executions.all(e, e.status == "succeeded")'
 
 ## Templates: `${{ }}`
 
-Interpolation fills run context into string values. It works in:
+Interpolation puts run-context values in strings. These fields can contain
+templates:
 
-- `run` commands and `env` values (run steps)
-- agent `prompt`, `model`, and `provider`
-- job `runner`, `name`, and `outputs`
-- step `name` and gate `on_failure.feedback`
+- The `run` commands and `env` values of run steps
+- The `prompt`, `model`, and `provider` fields of agent steps
+- The `runner`, `name`, and `outputs` fields of jobs
+- The `name` and `on_failure.feedback` fields of steps
 
-To write a literal `${{`, escape it as `$${{`.
+The sequence `$${{` writes a literal `${{`.
 
 ### Infrastructure selectors
 
-`job.runner`, agent `model`, and agent `provider` select execution
-infrastructure. Use workflow-authored values for these fields. Incoming event,
-trigger input, listening-event, and output data can currently reach these
-selectors through interpolation because definition validation does not enforce
-that boundary. `agent.thinking` is an enum, not a template site. Do not treat
-these fields as a safety boundary until the selector checks are enforced.
+The `job.runner`, agent `model`, and agent `provider` fields select execution
+infrastructure. Use values that you write in the workflow for these fields.
 
-**Resolution is staged.** Each reference resolves at the moment its data
-exists: `event` and `trigger` at ingest, `inputs`, `job`, and `vars` at run
-creation, `executions` and `execution` at execution creation, `needs` and
-`jobs` at job activation, and `steps.*` and `step.*` at step dispatch. Secrets
-resolve during runner fill. You write the reference once, and Shipfox fills it
-as late as needed. A reference used before its context exists fails with the
-`context-unavailable-at-fill-site` error instead of passing empty text through.
+Event, trigger-input, listening-event, and output data can currently reach
+these fields. Definition validation does not block this data.
 
-This job fragment belongs under an existing workflow's `jobs` map:
+The `agent.thinking` field is an enum, not a template site. These fields are
+not a safety boundary.
+
+**Shipfox resolves each reference when its data becomes available:**
+
+- `trigger` and `event` at ingest
+- `run`, `inputs`, `job`, and `vars` at run creation
+- `executions` and `execution` at execution creation
+- `needs` and `jobs` at job activation
+- `steps.*` and `step.*` at step dispatch
+- `secrets` at runner fill
+
+A typed error occurs if Shipfox cannot resolve a reference. The error code is
+`context-unavailable-at-fill-site`. Shipfox does not use empty text.
+
+This example is a job fragment in the `jobs` map of a workflow:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
@@ -172,46 +195,65 @@ jobs:
 ### Context available
 
 | Root | Holds | Available from |
-|---|---|---|---|
+|---|---|---|
 | `run` | `id`, `name`, `workflow_name`, `definition_id`, `project_id`, `workspace_id`, `created_at` | Run creation |
 | `trigger` | `source`, `event` | Ingest |
-| `event` | The trigger's raw event payload (open shape, such as `event.ref`, `event.title`) | Ingest |
-| `inputs` | Values from the trigger's `with` block (open shape) | Run creation |
-| `job` | The current job's `key` and `name` | Run creation |
-| `executions` | The current job's executions, including `index`, `name`, `status`, `events`, `outputs`, and timing fields | Execution creation |
+| `event` | The raw event payload of the trigger (open shape, such as `event.ref`, `event.title`) | Ingest |
+| `inputs` | Values from the `with` block of the trigger (open shape) | Run creation |
+| `job` | The `key` and `name` of the current job | Run creation |
+| `executions` | The executions of the current job, including `index`, `name`, `status`, `events`, `outputs`, and time fields | Execution creation |
 | `execution` | Current execution metadata and its listening-job events | Execution creation |
 | `needs` | Direct dependency jobs with their status and outputs | Job activation |
 | `jobs` | Named upstream jobs with their status and outputs | Job activation |
-| `steps.<key>` | Earlier steps' `status`, `exit_code`, `outputs`, and `attempts` | Step dispatch |
+| `steps.<key>` | The `status`, `exit_code`, `outputs`, and `attempts` of earlier steps | Step dispatch |
 | `step` | `attempt`, `is_retry`, `restart.from`, and `restart.feedback` | Step dispatch |
-| `vars` | Workspace/project [variables](/reference/secrets-variables), literal keys only | Run creation |
-| `secrets` | Workspace/project [secrets](/reference/secrets-variables), literal keys only. Runner-only. | Runner fill |
+| `vars` | Workspace and project [variables](/reference/secrets-variables), literal keys only | Run creation |
+| `secrets` | Workspace and project [secrets](/reference/secrets-variables), literal keys only. Only the runner holds these values. | Runner fill |
 
 ### Secrets and variables
 
-`${{ vars.KEY }}` resolves server-side when the run is created and works in
-every template site and in server predicates after run creation. The `secrets`
-root never resolves on the server. `${{ secrets.KEY }}` is allowed only in a
-run step's `run` command or `env` values, and the runner pulls the value just
-before the step executes. Secrets never work in predicates.
-The full model lives in [Secrets and variables](/reference/secrets-variables).
+Shipfox resolves `${{ vars.KEY }}` on the server when it creates the run.
+Every template site can read this context.
+
+Predicates can read `vars` after run creation if the predicate table lists this
+context. A trigger `filter` cannot read `vars` because no run exists at ingest.
+
+The server never resolves `${{ secrets.KEY }}`. Only the `run` and `env` fields
+of a run step can use this context.
+
+The runner gets the secret value immediately before the step starts. Predicates
+cannot read this value.
+
+[Secrets and variables](/reference/secrets-variables) gives the full model.
 
 ### Run-command safety
 
-Shipfox hoists each template in a `run` command into a generated environment
-binding and uses quoted shell expansion. This keeps interpolated text from
-being parsed as shell syntax. It does not protect commands that deliberately
-re-evaluate their arguments as code, such as `eval`, `sh -c "$value"`, `let`,
-`declare -i`, arithmetic expressions, or array subscripts. Keep workflow data
-out of those code positions. See [Commands receive template values as data](/understand/data-and-templating#commands-receive-template-values-as-data)
-for the shell data-position model.
+Shipfox puts each template in a `run` command into a generated environment
+binding. It uses quoted shell expansion. Thus, the shell does not parse the
+interpolated text.
+
+Some commands parse their arguments again as code:
+
+- `eval`
+- `sh -c "$value"`
+- `let`
+- `declare -i`
+- Arithmetic expressions
+- Array subscripts
+
+Do not put workflow data in these code positions. [Commands receive template
+values as
+data](/understand/data-and-templating#commands-receive-template-values-as-data)
+explains the shell data-position model.
 
 ### Outputs
 
-Steps declare typed outputs and later steps or jobs read them through
-`steps.<key>.outputs` and `needs`/`jobs`. The authored shape and the runtime
-mechanics live in [Step outputs](/reference/workflow-schema#step-outputs). The
-mental model lives in [Context and templating](/understand/data-and-templating).
+Steps declare typed outputs. Later steps can read these outputs through
+`steps.<key>.outputs`. Jobs can read them through `needs` or `jobs`.
+
+[Step outputs](/reference/workflow-schema#step-outputs) gives the authored shape
+and runtime operation. [Context and
+templating](/understand/data-and-templating) explains the context model.
 
 ## Shipped vs. roadmap
 
@@ -229,9 +271,9 @@ mental model lives in [Context and templating](/understand/data-and-templating).
 
 <Cards>
   <Card title="Workflow schema" href="/reference/workflow-schema">
-    The full YAML schema these expressions live in.
+    The full YAML schema that contains these expressions.
   </Card>
   <Card title="Context and templating" href="/understand/data-and-templating">
-    The mental model: what data flows through a run, and why the rules exist.
+    The model of context data in a run and the reasons for the rules.
   </Card>
 </Cards>
