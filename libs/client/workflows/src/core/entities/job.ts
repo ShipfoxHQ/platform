@@ -108,7 +108,11 @@ export class Job {
   }
 
   get displayName(): string {
-    return jobDisplayName(this);
+    return this.name ?? this.key;
+  }
+
+  displayNameForExecution(execution?: Pick<JobExecution, 'name'>): string {
+    return execution?.name ?? this.displayName;
   }
 
   get displayDuration(): JobDisplayDuration | null {
@@ -122,10 +126,6 @@ export class Job {
       this.jobExecutions.length > 0 && (this.mode === 'listening' || this.jobExecutions.length > 1)
     );
   }
-}
-
-export function jobDisplayName(job: Pick<Job, 'name' | 'key'>): string {
-  return job.name ?? job.key;
 }
 
 export function isTerminalJobStatus(status: JobStatus): boolean {

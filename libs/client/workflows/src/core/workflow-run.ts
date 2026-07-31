@@ -13,7 +13,6 @@ export {
   deriveJobDisplayStatus,
   isTerminalJobStatus,
   Job,
-  jobDisplayName,
   resolveJobExecution,
   TERMINAL_WORKFLOW_JOB_STATUSES,
   WORKFLOW_JOB_STATUSES,

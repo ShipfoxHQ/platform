@@ -100,7 +100,7 @@ export function JobExecutionSwitcher({
                   #{jobExecution.sequence}
                 </span>
                 <span className="min-w-0 truncate text-xs leading-20 text-foreground-neutral-base">
-                  {jobExecution.name}
+                  {job.displayNameForExecution(jobExecution)}
                 </span>
                 {!isSelected && jobExecution.statusReason ? (
                   <span className="min-w-0 flex-1 truncate text-xs leading-20 text-foreground-neutral-muted">

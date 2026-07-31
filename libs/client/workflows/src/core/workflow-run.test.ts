@@ -6,6 +6,7 @@ import {
   toWorkflowRunListPage,
 } from '#hooks/api/workflow-run-mapper.js';
 import {
+  workflowJob,
   workflowJobDto,
   workflowJobExecutionDto,
   workflowRunAttemptDto,
@@ -18,7 +19,6 @@ import {
 import {
   isWorkflowRunTerminal,
   isWorkflowStatus,
-  jobDisplayName,
   workflowRunShortId,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
@@ -377,8 +377,12 @@ describe('workflow run model mapping', () => {
     });
   });
 
-  test('uses the job key when a static job name is missing', () => {
-    expect(jobDisplayName({name: null, key: 'deploy-prod'})).toBe('deploy-prod');
+  test('uses the execution name and falls back to the static job name', () => {
+    const job = workflowJob({name: 'Deploy', key: 'deploy'});
+
+    expect(job.displayNameForExecution({name: 'Deploy production'})).toBe('Deploy production');
+    expect(job.displayNameForExecution()).toBe('Deploy');
+    expect(workflowJob({name: null, key: 'deploy-prod'}).displayName).toBe('deploy-prod');
   });
 
   test('returns no job display duration when a job has multiple executions', () => {
