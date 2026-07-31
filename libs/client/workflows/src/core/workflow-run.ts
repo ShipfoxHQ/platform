@@ -61,7 +61,6 @@ export {
   isWorkflowStatus,
   TERMINAL_WORKFLOW_RUN_STATUSES,
   WORKFLOW_RUN_STATUSES,
-  workflowRunShortId,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from './entities/workflow-run.js';

@@ -19,7 +19,6 @@ import {
 import {
   isWorkflowRunTerminal,
   isWorkflowStatus,
-  workflowRunShortId,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from './workflow-run.js';
@@ -52,7 +51,9 @@ describe('workflow run model mapping', () => {
       id: '66666666-6666-4666-8666-666666666666',
       projectId: '44444444-4444-4444-8444-444444444444',
       definitionId: '55555555-5555-4555-8555-555555555555',
+      number: 1,
       name: 'deploy-web',
+      workflowName: 'deploy-web',
       currentAttempt: 3,
       triggerProvider: 'github',
       triggerSource: 'github_acme',
@@ -64,7 +65,6 @@ describe('workflow run model mapping', () => {
       sourceSnapshot: {format: 'yaml', content: 'jobs: {}'},
       createdAt: '2026-05-07T01:01:00.000Z',
       updatedAt: '2026-05-07T01:02:00.000Z',
-      shortId: '66666666',
       isTemporary: false,
     });
     expect(run).not.toHaveProperty('status');
@@ -92,7 +92,6 @@ describe('workflow run model mapping', () => {
       triggerLabel: '',
       inputs: null,
       sourceSnapshot: null,
-      shortId: 'temp-123',
       isTemporary: true,
     });
   });
@@ -641,12 +640,7 @@ describe('workflow run helpers', () => {
     expect(neither).toBe('');
   });
 
-  test('formats short ids and classifies workflow statuses', () => {
-    const short = workflowRunShortId('abc123');
-    const long = workflowRunShortId('66666666-6666-4666-8666-666666666666');
-
-    expect(short).toBe('abc123');
-    expect(long).toBe('66666666');
+  test('classifies workflow statuses', () => {
     expect(isWorkflowRunTerminal('succeeded')).toBe(true);
     expect(isWorkflowRunTerminal('running')).toBe(false);
     expect(isWorkflowStatus('pending')).toBe(true);

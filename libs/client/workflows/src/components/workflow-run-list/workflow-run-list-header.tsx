@@ -27,7 +27,7 @@ export function WorkflowRunListHeader({
       <Input
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
-        placeholder="Run id or trigger..."
+        placeholder="Run id, number, or trigger..."
         aria-label="Search runs"
         size="small"
         iconLeft={<Icon name="searchLine" className="size-14 text-foreground-neutral-muted" />}

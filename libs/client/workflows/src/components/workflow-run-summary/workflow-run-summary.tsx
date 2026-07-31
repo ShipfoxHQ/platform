@@ -14,6 +14,7 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip
 import {Header, Text} from '@shipfox/react-ui/typography';
 import type {Ref} from 'react';
 import {useId} from 'react';
+import {WorkflowRunNumberLabel} from '#components/workflow-run-number-label.js';
 import {
   isWorkflowRunTerminal,
   type Job,
@@ -133,6 +134,13 @@ export function WorkflowRunSummary({
           </div>
 
           <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-12 overflow-hidden text-foreground-neutral-muted">
+            {run.number !== null ? (
+              <>
+                <WorkflowRunNumberLabel run={run} />
+                {attemptSwitcher || run.triggerDisplayLabel ? <MetadataSeparator /> : null}
+              </>
+            ) : null}
+
             {attemptSwitcher ? (
               <WorkflowRunAttemptSwitcher
                 workspaceId={attemptSwitcher.workspaceId}
@@ -174,7 +182,9 @@ export function WorkflowRunSummary({
               </>
             ) : null}
 
-            {attemptSwitcher || run.triggerDisplayLabel ? <MetadataSeparator /> : null}
+            {run.number !== null || attemptSwitcher || run.triggerDisplayLabel ? (
+              <MetadataSeparator />
+            ) : null}
             <RelativeTime
               value={run.runAttempt.createdAt}
               className="shrink-0 whitespace-nowrap text-xs leading-20 text-foreground-neutral-muted"
