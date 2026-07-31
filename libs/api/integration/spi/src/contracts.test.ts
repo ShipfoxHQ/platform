@@ -11,6 +11,8 @@ describe('git ref names', () => {
   it.each([
     'refs/heads/main',
     'refs/heads/feature/review',
+    'refs/heads/foo./bar',
+    'refs/heads/foo/-bar',
     'refs/pull/17/head',
   ])('accepts %s', (ref) => {
     expect(isValidGitRefName(ref)).toBe(true);
@@ -18,6 +20,8 @@ describe('git ref names', () => {
 
   it.each([
     '',
+    'HEAD',
+    'main',
     '-main',
     'refs/heads/foo bar',
     'refs/heads/foo..bar',
@@ -29,11 +33,8 @@ describe('git ref names', () => {
     expect(isValidGitRefName(ref)).toBe(false);
   });
 
-  it.each([
-    'refs/tags/-evil',
-    'refs/heads/feature/-evil',
-  ])('rejects unsafe trigger ref %s', (ref) => {
-    expect(isValidTriggerRef(ref)).toBe(false);
+  it.each(['refs/tags/-evil', 'refs/heads/feature/-evil'])('accepts safe trigger ref %s', (ref) => {
+    expect(isValidTriggerRef(ref)).toBe(true);
   });
 });
 

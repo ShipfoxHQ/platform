@@ -140,8 +140,6 @@ describe('GithubSourceControlProvider', () => {
     {},
     {ref: 'refs/heads/main', after: VALID_COMMIT},
     {ref: 'refs/heads/feature branch', after: VALID_COMMIT, repository: {id: 42}},
-    {ref: 'refs/heads/-feature', after: VALID_COMMIT, repository: {id: 42}},
-    {ref: 'refs/tags/-evil', after: VALID_COMMIT, repository: {id: 42}},
     {ref: 'refs/heads/feature..branch', after: VALID_COMMIT, repository: {id: 42}},
     {ref: 'refs/heads/main', after: '0'.repeat(40), repository: {id: 42}},
     {ref: 'refs/heads/main', after: 'not-a-commit', repository: {id: 42}},

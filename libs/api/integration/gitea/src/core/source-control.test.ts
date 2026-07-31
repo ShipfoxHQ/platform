@@ -103,16 +103,6 @@ describe('GiteaSourceControlProvider', () => {
       repository: {full_name: 'shipfox/platform'},
     },
     {
-      ref: 'refs/heads/-feature',
-      after: VALID_COMMIT,
-      repository: {full_name: 'shipfox/platform'},
-    },
-    {
-      ref: 'refs/tags/-evil',
-      after: VALID_COMMIT,
-      repository: {full_name: 'shipfox/platform'},
-    },
-    {
       ref: 'refs/heads/feature..branch',
       after: VALID_COMMIT,
       repository: {full_name: 'shipfox/platform'},

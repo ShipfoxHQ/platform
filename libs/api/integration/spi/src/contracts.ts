@@ -308,6 +308,7 @@ export function parseProviderRepositoryId(
 export function isValidGitRefName(ref: string): boolean {
   if (!ref || ref === '@' || ref.startsWith('-')) return false;
   if (
+    !ref.includes('/') ||
     ref.startsWith('/') ||
     ref.endsWith('/') ||
     ref.includes('//') ||
@@ -329,10 +330,7 @@ export function isValidGitRefName(ref: string): boolean {
   const components = ref.split('/');
   return components.every(
     (component) =>
-      component.length > 0 &&
-      !component.startsWith('.') &&
-      !component.endsWith('.') &&
-      !component.endsWith('.lock'),
+      component.length > 0 && !component.startsWith('.') && !component.endsWith('.lock'),
   );
 }
 
@@ -354,7 +352,7 @@ export function positiveInteger(value: unknown): number | null {
 
 /** Validates a provider ref before it is passed to a git operation. */
 export function isValidTriggerRef(ref: string): boolean {
-  return isValidGitRefName(ref) && ref.split('/').every((component) => !component.startsWith('-'));
+  return isValidGitRefName(ref);
 }
 
 export function isValidGitObjectId(value: string): boolean {
