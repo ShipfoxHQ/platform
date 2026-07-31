@@ -1056,22 +1056,43 @@ describe('normalizeWorkflowDocument', () => {
     );
   });
 
-  it('reports the staged checkout step until model support lands', () => {
-    const error = expectInvalid({
+  it('normalizes checkout steps and their static defaults', () => {
+    const model = normalizeWorkflowDocument({
       name: 'checkout step',
       jobs: {
         build: {
-          steps: [{checkout: {repository: 'acme/api'}}],
+          steps: [
+            {
+              key: 'fetch-target',
+              checkout: {
+                repository: 'acme/api',
+                ref: 'refs/heads/main',
+                'fetch-depth': 0,
+                path: 'target',
+                permissions: {contents: 'write'},
+                'persist-credentials': false,
+                force: true,
+              },
+            },
+          ],
         },
       },
     });
 
-    expect(error.issues).toContainEqual(
-      expect.objectContaining({
-        code: 'unsupported-checkout',
-        path: ['jobs', 'build', 'steps', 0, 'checkout'],
-      }),
-    );
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      id: expect.stringContaining('fetch-target'),
+      key: 'fetch-target',
+      kind: 'checkout',
+      checkout: {
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        fetchDepth: 0,
+        path: 'target',
+        permissions: {contents: 'write'},
+        persistCredentials: false,
+        force: true,
+      },
+    });
   });
 
   it('normalizes checkout contents write and defaults persisted credentials', () => {

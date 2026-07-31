@@ -15,6 +15,18 @@ export interface WorkflowModelJobCheckout {
   readonly persistCredentials: boolean;
 }
 
+export interface WorkflowModelStepCheckout {
+  readonly project?: string;
+  readonly connection?: string;
+  readonly repository?: string;
+  readonly ref?: string;
+  readonly fetchDepth: number;
+  readonly path?: string;
+  readonly permissions: {readonly contents: 'read' | 'write'};
+  readonly persistCredentials: boolean;
+  readonly force?: boolean;
+}
+
 export const DEFAULT_JOB_CHECKOUT: WorkflowModelJobCheckout = {
   permissions: {contents: 'read'},
   persistCredentials: true,
@@ -85,7 +97,10 @@ export interface WorkflowModelListeningBatch {
   readonly maxSize?: number;
   readonly maxWaitMs?: number;
 }
-export type WorkflowModelStep = WorkflowModelRunStep | WorkflowModelAgentStep;
+export type WorkflowModelStep =
+  | WorkflowModelRunStep
+  | WorkflowModelAgentStep
+  | WorkflowModelCheckoutStep;
 interface WorkflowModelStepBase {
   readonly id: string;
   readonly key?: string;
@@ -120,6 +135,14 @@ export interface WorkflowModelAgentStep extends WorkflowModelStepBase {
     readonly prompt?: WorkflowFieldTemplate;
     readonly model?: WorkflowFieldTemplate;
     readonly provider?: WorkflowFieldTemplate;
+    readonly workingDirectory?: WorkflowFieldTemplate;
+    readonly name?: WorkflowFieldTemplate;
+  };
+}
+export interface WorkflowModelCheckoutStep extends WorkflowModelStepBase {
+  readonly kind: 'checkout';
+  readonly checkout: WorkflowModelStepCheckout;
+  readonly templates?: {
     readonly workingDirectory?: WorkflowFieldTemplate;
     readonly name?: WorkflowFieldTemplate;
   };

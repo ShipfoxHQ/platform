@@ -456,7 +456,7 @@ function toSelectedAttemptError(
     signal: typeof error.signal === 'string' ? error.signal : undefined,
     reason: resolvedReason,
     agentConfigIssue,
-    category: step.type === 'setup' ? 'setup' : 'user',
+    category: step.type === 'setup' || step.type === 'checkout' ? 'setup' : 'user',
   };
 }
 

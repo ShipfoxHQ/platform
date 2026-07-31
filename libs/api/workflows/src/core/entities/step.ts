@@ -13,6 +13,10 @@ import type {InterpolationUnresolvableField} from '../errors.js';
 
 export type StepStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
 
+export const STEP_TYPES = ['setup', 'run', 'agent', 'checkout'] as const;
+
+export type StepType = (typeof STEP_TYPES)[number];
+
 export const STEP_STATUS_REASONS = [
   'default_gate_rejected',
   'condition_rejected',
@@ -86,7 +90,7 @@ export interface Step {
   status: StepStatus;
   statusReason: StepStatusReason | null;
   evaluationTrace: readonly PersistedEvaluationTraceEntry[] | null;
-  type: string;
+  type: StepType;
   config: Record<string, unknown>;
   condition: WorkflowExpression | null;
   configPlan: StepConfigDispatchPlan | null;

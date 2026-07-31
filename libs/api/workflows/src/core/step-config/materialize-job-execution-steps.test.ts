@@ -177,6 +177,53 @@ describe('materializeJobExecutionSteps', () => {
     });
   });
 
+  it('materializes checkout steps with their resolved config and default name', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          steps: [
+            {
+              checkout: {
+                repository: 'acme/api',
+                ref: 'refs/heads/main',
+                fetchDepth: 0,
+                path: 'target',
+                permissions: {contents: 'write'},
+                persistCredentials: false,
+                force: true,
+              },
+            },
+          ],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+
+    const steps = await materializeJobExecutionSteps({model, job, context: jobExecutionContext()});
+
+    expect(steps[1]).toEqual({
+      key: null,
+      name: 'Checkout',
+      sourceLocation: null,
+      status: 'pending',
+      type: 'checkout',
+      config: {
+        checkout: {
+          repository: 'acme/api',
+          ref: 'refs/heads/main',
+          fetch_depth: 0,
+          path: 'target',
+          permissions: {contents: 'write'},
+          persist_credentials: false,
+          force: true,
+        },
+      },
+      authoredConfig: null,
+      position: 1,
+    });
+  });
+
   it('prepends setup and resolves job-execution context fields', async () => {
     const model = workflowModel({
       jobs: {

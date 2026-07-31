@@ -117,13 +117,16 @@ function materializedConfigPlan(
 }
 
 function stepDisplayName(step: WorkflowModelStep): string {
-  switch (step.kind) {
+  const {kind} = step;
+  switch (kind) {
     case 'run':
       return firstLine(step.command.value);
     case 'agent':
       return step.model === undefined
         ? firstLine(step.prompt)
         : `${step.model} · ${firstLine(step.prompt)}`;
+    case 'checkout':
+      return 'Checkout';
     default:
       return assertNever(step);
   }

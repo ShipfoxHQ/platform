@@ -26,6 +26,7 @@ type WorkflowModelJob = WorkflowModel['jobs'][number];
 type WorkflowModelStep = WorkflowModelJob['steps'][number];
 type WorkflowModelRunStep = Extract<WorkflowModelStep, {kind: 'run'}>;
 type WorkflowModelAgentStep = Extract<WorkflowModelStep, {kind: 'agent'}>;
+type WorkflowModelCheckoutStep = Extract<WorkflowModelStep, {kind: 'checkout'}>;
 
 export type {StepConfigField, WorkflowStepTemplateDiagnostic};
 
@@ -108,6 +109,21 @@ async function buildStepConfig(
       diagnostics: [...workingDirectory.diagnostics, ...run.diagnostics],
       trace: [...workingDirectory.trace, ...run.trace],
       hasTemplates: run.hasTemplates || workingDirectory.hasTemplates,
+    };
+  }
+
+  const checkoutStep = checkoutStepOrNull(params.step);
+  if (checkoutStep !== null) {
+    return {
+      config: {
+        ...checkoutStepConfig(checkoutStep),
+        ...gate,
+        ...outputs,
+      },
+      configPlan: null,
+      diagnostics: [],
+      trace: [],
+      hasTemplates: false,
     };
   }
 
@@ -206,6 +222,28 @@ function runStepOrNull(step: WorkflowModelStep): WorkflowModelRunStep | null {
 function agentStepOrNull(step: WorkflowModelStep): WorkflowModelAgentStep | null {
   const isAgentStep = step.kind === 'agent';
   return isAgentStep ? step : null;
+}
+
+function checkoutStepOrNull(step: WorkflowModelStep): WorkflowModelCheckoutStep | null {
+  const isCheckoutStep = step.kind === 'checkout';
+  return isCheckoutStep ? step : null;
+}
+
+function checkoutStepConfig(step: WorkflowModelCheckoutStep): Record<string, unknown> {
+  const checkout = step.checkout;
+  return {
+    checkout: {
+      ...(checkout.project === undefined ? {} : {project: checkout.project}),
+      ...(checkout.connection === undefined ? {} : {connection: checkout.connection}),
+      ...(checkout.repository === undefined ? {} : {repository: checkout.repository}),
+      ...(checkout.ref === undefined ? {} : {ref: checkout.ref}),
+      fetch_depth: checkout.fetchDepth,
+      ...(checkout.path === undefined ? {} : {path: checkout.path}),
+      permissions: checkout.permissions,
+      persist_credentials: checkout.persistCredentials,
+      ...(checkout.force === undefined ? {} : {force: checkout.force}),
+    },
+  };
 }
 
 function gateConfigForStep(step: WorkflowModelStep): Record<string, unknown> {
