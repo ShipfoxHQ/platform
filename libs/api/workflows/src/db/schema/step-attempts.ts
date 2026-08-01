@@ -21,8 +21,8 @@ import {stepStatusEnum, steps} from './steps.js';
 
 // Append-only execution history. One row per dispatched attempt of a step,
 // inserted `running` at dispatch and finalized terminal at report. `steps` holds
-// the fast current projection; this table is the audit trail and — via the
-// unique (step_id, attempt) constraint — the idempotency anchor.
+// the fast current projection; this table is the audit trail. The unique
+// (step_id, attempt) constraint is the idempotency anchor.
 export const stepAttempts = pgTable(
   'step_attempts',
   {

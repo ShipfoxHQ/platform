@@ -223,7 +223,7 @@ export function InvitationAcceptPage() {
     );
   }
 
-  // Authenticated + matches — auto-accept is in flight or about to render its
+  // Authenticated + matches: auto-accept is in flight or about to render its
   // result. Show either the pending state or the error state.
   if (accept.isError) {
     return (

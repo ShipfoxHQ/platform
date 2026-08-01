@@ -18,7 +18,7 @@ export class InterModuleValidationError extends Error {
 /**
  * Rejects a call that failed for a reason the caller must never see: a bad
  * handler output, a malformed known-error attempt, an undeclared handler
- * exception, or a serialization defect. Carries no `cause` — diagnosis lives in
+ * exception, or a serialization defect. Carries no `cause`: diagnosis lives in
  * `reportInternalError` and traces, never in the value returned to the caller.
  */
 export class InterModuleOpaqueError extends Error {

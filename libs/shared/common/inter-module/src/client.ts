@@ -19,7 +19,7 @@ export interface InterModuleDispatchCall {
 
 /**
  * The seam a transport author implements. Given a call description, it resolves
- * with the method's output or rejects — with a known error, a validation
+ * with the method's output or rejects with a known error, a validation
  * rejection, an opaque failure, or the call's `AbortSignal` reason.
  */
 export type InterModuleDispatch = (call: InterModuleDispatchCall) => Promise<unknown>;
@@ -33,8 +33,8 @@ export type InterModuleClient<Def extends InterModuleContractDefinition> = {
 
 /**
  * Builds a typed client over `dispatch`. This is the only seam a transport author
- * needs to implement — the in-memory transport, a fake test presentation, and any
- * future network transport all produce a client this same way.
+ * needs to implement. The in-memory transport, a fake test presentation, and
+ * any future network transport all produce a client this same way.
  */
 export function createInterModuleClient<Def extends InterModuleContractDefinition>(
   contract: InterModuleContract<Def>,

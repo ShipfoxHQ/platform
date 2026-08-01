@@ -17,7 +17,7 @@ export type KnownErrorRevival =
  * error rather than trusting the handler's own error instance. A thrown value
  * with no marker at all is `undeclared` (an ordinary handler bug); one with the
  * marker that fails re-validation (forged code, invalid or non-JSON-safe
- * details) is a `known-error-contract-defect` — a producer bug, not a caller-
+ * details) is a `known-error-contract-defect`: a producer bug, not a caller-
  * visible known error.
  */
 export function reviveThrownKnownError(

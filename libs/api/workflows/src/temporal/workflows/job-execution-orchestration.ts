@@ -26,7 +26,7 @@ import {remainingMs} from './deadline.js';
  * execution pending while it is queued, then performs the versioned pending → running
  * transition after the current claim. One deadline spans both waits; claim never resets
  * it. Signals can arrive in any order, so the precedence is finished > lease expired >
- * claimed > timeout. Lease cleanup remains best-effort — a runners DB outage must never
+ * claimed > timeout. Lease cleanup remains best-effort: a runners DB outage must never
  * block the child workflow from returning the job outcome to run-orchestration.
  */
 

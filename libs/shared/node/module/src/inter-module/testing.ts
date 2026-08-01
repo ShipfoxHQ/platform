@@ -19,12 +19,12 @@ export type FakeInterModuleClients<Presentations extends FakeInterModulePresenta
 /**
  * Builds one real, fully validated client per named fake presentation, backed by
  * an isolated in-memory transport created and sealed for this call alone. Not
- * coupled to Vitest or any other test framework — any test runner can call this
+ * coupled to Vitest or any other test framework: any test runner can call this
  * to exercise a caller against a fake producer without the transport's
  * composition ceremony (`createClient` → `register` → `seal`).
  *
  * Each presentation is one built with `defineInterModulePresentation`, exactly
- * as a production module would build it — that keeps each entry's contract and
+ * as a production module would build it: that keeps each entry's contract and
  * handlers inferred together, so a fake still gets full type checking.
  *
  * Each test that calls this gets its own transport instance; nothing here is

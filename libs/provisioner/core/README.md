@@ -22,13 +22,13 @@ observation, reporting, assignment, or termination handling.
 
 ## Public API
 
-- `startProvisioner({adapter})` — run the loop until a shutdown signal. The adapter
+- `startProvisioner({adapter})`: run the loop until a shutdown signal. The adapter
   supplies the provider's templates and its launcher.
-- `ProvisionerAdapter`, `ProvisionerTemplate`, `LaunchRunner`, `ProviderRunnerLaunch`
-  — the contract a provider implements.
-- `loggingLaunch` — a default launcher that records each planned runner without
+- `ProvisionerAdapter`, `ProvisionerTemplate`, `LaunchRunner`, and `ProviderRunnerLaunch`
+  are the contract a provider implements.
+- `loggingLaunch`: a default launcher that records each planned runner without
   starting it (used until a provider ships a real launcher).
-- `ProvisionerAuthenticationError` — thrown at startup when the token is rejected.
+- `ProvisionerAuthenticationError`: thrown at startup when the token is rejected.
 
 ## Key pieces (internal)
 

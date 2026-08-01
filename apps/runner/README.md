@@ -68,12 +68,12 @@ configured root is empty, the filesystem root (`/`), or a home directory.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SHIPFOX_API_URL` | — | Base URL of the Shipfox API. |
-| `SHIPFOX_RUNNER_REGISTRATION_TOKEN` | — | Manual (`sf_mrt_...`) or ephemeral (`sf_ert_...`) registration token. Set this or `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`, not both. |
-| `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN` | — | One-use managed-runner bootstrap token. The runner enrolls and waits for an assignment before exchanging its activation token for a runner session. Set this or `SHIPFOX_RUNNER_REGISTRATION_TOKEN`, not both. |
-| `SHIPFOX_RUNNER_PROVIDER_KIND` | — | Provider kind the managed runner declares during enrollment, such as `ec2` or `docker`. Required with `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`. |
+| `SHIPFOX_API_URL` | N/A | Base URL of the Shipfox API. |
+| `SHIPFOX_RUNNER_REGISTRATION_TOKEN` | N/A | Manual (`sf_mrt_...`) or ephemeral (`sf_ert_...`) registration token. Set this or `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`, not both. |
+| `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN` | N/A | One-use managed-runner bootstrap token. The runner enrolls and waits for an assignment before exchanging its activation token for a runner session. Set this or `SHIPFOX_RUNNER_REGISTRATION_TOKEN`, not both. |
+| `SHIPFOX_RUNNER_PROVIDER_KIND` | N/A | Provider kind the managed runner declares during enrollment, such as `ec2` or `docker`. Required with `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`. |
 | `SHIPFOX_RUNNER_PROTOCOL_VERSION` | `1` | Protocol version the managed runner declares during enrollment. |
-| `SHIPFOX_RUNNER_LABELS` | — | Comma-separated labels registered on this runner session, such as `linux,x64,self-hosted`. |
+| `SHIPFOX_RUNNER_LABELS` | N/A | Comma-separated labels registered on this runner session, such as `linux,x64,self-hosted`. |
 | `SHIPFOX_RUNNER_WORKSPACE_ROOT` | OS temp dir | Parent directory for per-job workspaces (see above). |
 | `SHIPFOX_POLL_INTERVAL_MS` | `1000` | Base poll interval when requesting jobs. |
 | `SHIPFOX_POLL_MAX_INTERVAL_MS` | `5000` | Maximum backoff interval when no jobs are available or the API errors. |

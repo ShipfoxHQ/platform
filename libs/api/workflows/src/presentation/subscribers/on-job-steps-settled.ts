@@ -7,7 +7,7 @@ import {isWorkflowNotFound} from '#temporal/workflow-not-found.js';
 // Per-step execution finishes a job inside recordStepResult (no runner /complete
 // call), which enqueues WORKFLOWS_JOB_STEPS_SETTLED in the same transaction. The
 // persisted per-step projection is already terminal, so the workflow only flips
-// the job status — no steps are carried.
+// the job status: no steps are carried.
 export async function onJobStepsSettled(payload: WorkflowsJobStepsSettledEventDto): Promise<void> {
   logger().info(
     {

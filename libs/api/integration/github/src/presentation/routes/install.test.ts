@@ -100,7 +100,7 @@ async function createTestApp(options: CreateTestAppOptions = {}): Promise<Fastif
 
         return Promise.resolve(connection);
       }),
-    // Webhook receiver dependencies — install/OAuth tests don't exercise them.
+    // Webhook receiver dependencies: install/OAuth tests don't exercise them.
     coreDb: vi.fn() as never,
     publishIntegrationEventReceived: vi.fn(() => Promise.resolve({published: false})),
     publishSourceRepositoryUpdated: vi.fn(() => Promise.resolve({published: false})),

@@ -70,7 +70,7 @@ export function SignupPage() {
           try {
             await refreshAuth();
           } catch {
-            // Refresh failures don't block the success message — the next API
+            // Refresh failures don't block the success message: the next API
             // call's 401 handling will re-route the user.
           }
           toast.success(`You joined ${invitationPending.workspaceName}.`);
@@ -118,8 +118,9 @@ export function SignupPage() {
     }
   }, [invitationPending, form, setAuthFormDraft]);
 
-  // Sync form values back to the Jotai draft on unmount (only email + password
-  // — name is intentionally not persisted across navigation). Skipped after a
+  // Sync form values back to the Jotai draft on unmount. The draft stores only
+  // email and password; name is intentionally not persisted across navigation.
+  // Skipped after a
   // successful signup because we just intentionally cleared the draft.
   useEffect(() => {
     return () => {

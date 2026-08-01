@@ -22,7 +22,7 @@ export interface SessionForwarder {
  * Tails a growing append-only JSONL file by byte offset and forwards each complete line.
  *
  * pi persists each session entry synchronously (appendFileSync) and may defer the first write
- * until the first assistant message, then bulk-write several lines at once — a byte-offset
+ * until the first assistant message, then bulk-write several lines at once: a byte-offset
  * reader handles both, where a line-index reader would not. A poll can observe a partial write
  * (a large entry spans several write() syscalls), so the carry buffer holds raw bytes, not a
  * decoded string: bytes are split on the newline and only whole lines are decoded, so a read

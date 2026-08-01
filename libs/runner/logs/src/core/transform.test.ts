@@ -3,7 +3,7 @@ import {LogTransformer, type TransformEvent} from '#core/transform.js';
 const REPLACEMENT = '�';
 
 // An 18-byte (multiple-of-3) secret so its standalone base64 has no padding and the phase-0
-// wire form equals the full encoding — keeps the encoded-form assertions exact.
+// wire form equals the full encoding: keeps the encoded-form assertions exact.
 const SECRET = 'sf_mrt_SECRET12345';
 
 function outputText(events: TransformEvent[]): string {
@@ -126,7 +126,7 @@ describe('LogTransformer secret masking', () => {
   it('masks a secret straddling a forced no-newline flush boundary', () => {
     const transformer = new LogTransformer([SECRET]);
     // A long unterminated line whose tail is the start of the secret. The lookbehind must hold
-    // the partial secret back, then mask it once the rest arrives — no plaintext on the way out.
+    // the partial secret back, then mask it once the rest arrives: no plaintext on the way out.
     const head = 'x'.repeat(40_000);
 
     const first = transformer.push(Buffer.from(`${head}sf_mrt_SE`), 'stdout');

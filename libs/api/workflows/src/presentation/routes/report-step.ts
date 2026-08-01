@@ -12,7 +12,7 @@ export function createReportStepRoute(runners: RunnersInterModuleClient) {
     method: 'POST',
     path: '/steps/:stepId/report',
     description:
-      'Reports whether a step succeeded or failed. The job is identified by the access token. Reporting the same step more than once is safe: once a step has finished, later reports for it are ignored. The runner does not call a separate job-completion endpoint — finalization is driven server-side from the recorded step results, and the `cancel` flag tells the runner to stop once the job has finished without full success.',
+      'Reports whether a step succeeded or failed. The job is identified by the access token. Reporting the same step more than once is safe: once a step has finished, later reports for it are ignored. The runner does not call a separate job-completion endpoint: finalization is driven server-side from the recorded step results, and the `cancel` flag tells the runner to stop once the job has finished without full success.',
     schema: {
       params: z.object({stepId: z.string().uuid()}),
       body: reportStepBodySchema,

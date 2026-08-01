@@ -76,7 +76,7 @@ The provider mounts these authenticated routes (`AUTH_USER` bearer token):
 
 Sentry has no `state` parameter in its install redirect, so the workspace is
 taken from the request body (`workspace_id`) and authorized against the live
-session. `POST /connect` accepts `{workspace_id, code, installation_id}` only —
+session. `POST /connect` accepts `{workspace_id, code, installation_id}` only.
 the organization slug is derived from Sentry after the code exchange, never
 trusted from the client. The exchanged token is used in-memory for the optional
 verify-install call and then discarded; **no Sentry token is persisted**.

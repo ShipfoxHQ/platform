@@ -71,7 +71,7 @@ test('form login routes a user with workspaces straight to /workspaces/$wid', as
 
   // Record every URL the page transits through. Asserting only the final URL
   // would let a brief flash through /setup/workspaces/new slip past
-  // Playwright auto-wait — that flash is the bug we're guarding against.
+  // Playwright auto-wait: that flash is the bug we're guarding against.
   const urlsSeen: string[] = [];
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) {

@@ -38,7 +38,7 @@ export interface WorkflowStart {
   /**
    * Optional Temporal cron expression (e.g. `* * * * *`). When set, the
    * workflow is started with `cronSchedule` so Temporal handles recurrence
-   * natively — no continueAsNew loop or external scheduler needed.
+   * natively: no continueAsNew loop or external scheduler needed.
    */
   cronSchedule?: string;
 }

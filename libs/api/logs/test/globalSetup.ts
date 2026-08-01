@@ -11,7 +11,7 @@ const BUCKET_READY_POLL_INTERVAL_MS = 500;
 
 // `garage-init` exits 0 once it has posted the key/bucket ACLs, but Garage does not guarantee
 // those are immediately usable for S3 uploads. Poll HeadBucket so the suite never starts before
-// the store will accept the configured credentials — without this, the compaction tests race the
+// the store will accept the configured credentials: without this, the compaction tests race the
 // ACL propagation and fail with `AccessDenied: No such key`.
 async function waitForBucketReachable(timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;

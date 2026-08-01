@@ -63,9 +63,9 @@ output; control records are flat by `type`:
 
 Two layers stop a runner from writing what it should not:
 
-1. **Lease scope** — the lease binds writes to the job's own `(step, attempt)`, so cross-job
+1. **Lease scope**: the lease binds writes to the job's own `(step, attempt)`, so cross-job
    injection is structurally impossible.
-2. **Distinct raw/write and stored/read unions** — every line is validated against the **raw**
+2. **Distinct raw/write and stored/read unions**: every line is validated against the **raw**
    record union. The server-only `capped`/`runner_lost` tombstones are members of the read union
    only, not the raw write union, so a forged tombstone append is rejected (400). A forged
    tombstone that is otherwise a valid record is logged as a narrowed audit warning (no payload,
@@ -86,13 +86,13 @@ the live tail and the full history. It is workspace-scoped through the stream ro
 `workspace_id`; a 404 covers both a missing stream and a cross-workspace step, so existence never
 leaks.
 
-- **Hot (open, or closed but not yet compacted)** — inline NDJSON read from the Postgres chunks,
+- **Hot (open, or closed but not yet compacted)**: inline NDJSON read from the Postgres chunks,
   walked by chunk `seq` so server control tombstones interleave with normalized runner records
   exactly as compaction concatenates them, making the inline bytes byte-identical to the
   decompressed object.
   Pages are bounded by `LOG_READ_INLINE_MAX_BYTES`; the client follows `has_more`/`next_cursor` to
   drain the backlog, then tails from the last cursor.
-- **Cold (compacted, `object_key` set)** — a presigned GET URL (`LOG_READ_URL_TTL_SECONDS`) so the
+- **Cold (compacted, `object_key` set)**: a presigned GET URL (`LOG_READ_URL_TTL_SECONDS`) so the
   browser fetches the object directly and API egress is bypassed.
 
 ## Agent-session capture
@@ -124,7 +124,7 @@ rejected with 400, and the runner drops it with a `gap`); the request body limit
 One shared, job-wide, generous accrual budget covers a job's logs. When the job's stored bytes
 cross the budget, the job is capped and further appends are dropped. The append that crosses the
 budget is stored in full, then an in-band `capped` tombstone record is injected once; later appends
-are accepted-and-dropped. The cap is a **job-level** signal — a stream can be byte-complete and
+are accepted-and-dropped. The cap is a **job-level** signal: a stream can be byte-complete and
 still sit under a capped job if a sibling step exhausted the shared budget.
 
 A stream closes on one of four triggers, all converging on the same guarded, exactly-once close:

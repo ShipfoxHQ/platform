@@ -215,7 +215,7 @@ function WorkflowDefinitionsList({
                 // The workflow-name cell holds a `<button>` so the row is
                 // keyboard-reachable (Tab focuses, Enter/Space activates
                 // via native button semantics). The TableRow itself is no
-                // longer clickable — a row-level onClick would be invisible
+                // longer clickable: a row-level onClick would be invisible
                 // to keyboard users and require custom keydown handling.
                 // The `group` class on the row still drives the Run button
                 // reveal on hover or focus-within.

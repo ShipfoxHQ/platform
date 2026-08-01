@@ -69,8 +69,8 @@ export class AttemptSpool {
   /**
    * Reads whole NDJSON records starting at `offset`, up to `maxBytes` worth, never
    * past what has been written. The returned buffer ends on a record boundary (a
-   * trailing `\n`), so the uploader never ships — and the server never commits — a
-   * torn last line, and every committed offset stays parseable.
+   * trailing `\n`). The uploader never ships a torn last line. The server never
+   * commits one, so every committed offset stays parseable.
    *
    * Returns empty once caught up. The lone exception to the whole-record guarantee
    * is a single record larger than `maxBytes`: it is returned split rather than

@@ -20,7 +20,7 @@ export {
 // `document.fonts.ready` resolves once every font face requested so far has
 // finished loading. Argos's built-in `waitForFonts` only checks
 // `document.fonts.status === "loaded"`, which is satisfied before a
-// `font-display: swap` face has even started fetching — so the fallback can be
+// `font-display: swap` face has even started fetching. The fallback can be
 // captured on cold CI. Awaiting `document.fonts.ready` first closes that window.
 async function waitForFonts(handler: Page | Frame): Promise<void> {
   await handler.evaluate(() => document.fonts.ready);

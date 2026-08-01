@@ -61,7 +61,7 @@ export async function createRefreshTokenForActiveUser(
 }
 
 /**
- * Looks up the live session token by hash — one that can still authenticate as
+ * Looks up the live session token by hash. It can still authenticate as
  * the current session. Returns `undefined` for revoked, expired, or already
  * rotated tokens; rotated rows survive in the table only for the grace window
  * and are not "active".
@@ -90,8 +90,8 @@ export async function findActiveRefreshTokenByHash(params: {
 /**
  * Looks up a non-revoked, non-expired token by hash, including ones already
  * rotated. Rotation reads {@link RefreshToken.rotatedAt} to decide whether to
- * rotate, honour the grace window, or reject reuse, so — unlike
- * {@link findActiveRefreshTokenByHash} — it must still see rotated rows.
+ * rotate, honour the grace window, or reject reuse, so, unlike
+ * {@link findActiveRefreshTokenByHash}, it must still see rotated rows.
  */
 export async function findRefreshTokenByHash(params: {
   hashedToken: string;

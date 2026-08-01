@@ -29,7 +29,7 @@ export function GuestGuard({children}: PropsWithChildren) {
 
   useEffect(() => {
     if (auth.isAuthenticated && target !== undefined) {
-      // Bypass the typed route matcher — `target` is an arbitrary same-origin
+      // Bypass the typed route matcher: `target` is an arbitrary same-origin
       // path resolved at runtime, so we let the URL change drive route resolution.
       router.history.replace(target);
     }

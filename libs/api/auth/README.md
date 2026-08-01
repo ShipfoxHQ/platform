@@ -116,16 +116,16 @@ itself.
 - **Audience:** signed-in users on first-party clients (web app, CLI).
 - **Grants:** the user's own account routes and, downstream, any route that
   authorizes against the membership claims. Its scope is "this user, with these
-  memberships" — never a single resource.
+  memberships", never a single resource.
 - **Lifecycle:**
-  - *Emit* — issued on login, signup verification, and password reset.
-  - *Exchange* — sent on each request; a longer-lived refresh session mints a
+  - *Emit*: issued on login, signup verification, and password reset.
+  - *Exchange*: sent on each request; a longer-lived refresh session mints a
     fresh token when it expires.
-  - *Store* — held in client memory only, never persisted to disk or local
+  - *Store*: held in client memory only, never persisted to disk or local
     storage. Refresh sessions are stored server-side as hashes, never in raw form.
-  - *Discard* — expires at the configured `exp` time. Revoking the refresh
+  - *Discard*: expires at the configured `exp` time. Revoking the refresh
     session blocks renewal but does not invalidate the issued access token.
-- **Tradeoff — stale memberships:** because memberships ride in the claims, a
+- **Tradeoff: stale memberships:** because memberships ride in the claims, a
   membership or workspace-status change only takes effect on the next token
   issuance or refresh. Accepted because the recommended lifetime is 15 minutes,
   so the staleness window is bounded and a per-request membership read is avoided.
@@ -137,7 +137,7 @@ The runner exchanges its long-lived registration token at startup, then uses the
 short-lived session token to claim jobs. Heartbeat and step/report/log operations
 use the per-job lease token instead.
 
-- **Scope — one workspace's runner data plane.** The token names one runner
+- **Scope: one workspace's runner data plane.** The token names one runner
   session, one workspace, the fixed `workspace` scope, and the session's immutable
   label set. It can claim jobs for that workspace. It is not a user identity and
   does not authorize dashboard management routes.
@@ -148,7 +148,7 @@ use the per-job lease token instead.
 - **Mechanics.** Signed with HMAC-SHA256 using the derived runner-session key
   and the `runner-session` audience. The default lifetime is `1h`, short enough
   to bound the residual claim window when a registration token is revoked.
-- **Tradeoff — no per-session revocation in v1.** Claim stays stateless and does
+- **Tradeoff: no per-session revocation in v1.** Claim stays stateless and does
   not check the runner session row on each poll. Revoking the registration token
   blocks new sessions, but an existing session can keep claiming until
   `AUTH_RUNNER_SESSION_TOKEN_EXPIRES_IN` elapses. A job execution claimed before
@@ -163,7 +163,7 @@ A single-job **capability** token, not a session. It is the means by which a
 runner proves it is the legitimate holder of one specific job while it reports
 progress and drives that job to completion.
 
-- **Scope — exactly one job execution.** The token authorizes action on the
+- **Scope: exactly one job execution.** The token authorizes action on the
   single job execution it names, for the runner holding it. It is **not** a runner
   identity, it is **not** workspace-wide, and it is **not** a substitute for the
   long-lived runner credential used to claim work in the first place. The
@@ -175,9 +175,9 @@ progress and drives that job to completion.
 - **Trust boundary.** There is exactly one issuer: the scheduling side mints a
   lease when a runner claims a job execution, next-step re-scopes it to the
   dispatched step attempt, and heartbeat re-mints the same narrow capability
-  after server state accepts the heartbeat. Everything
-  downstream only *verifies* — an in-process signature check, with no callback to
-  the issuer. The runner, and the untrusted agent workload it hosts, never mints
+  after server state accepts the heartbeat. Everything downstream only *verifies*
+  the token with an in-process signature check. It makes no callback to the
+  issuer. The runner, and the untrusted agent workload it hosts, never mints
   or modifies a token; it only presents the one it was handed.
 - **Mechanics.** Signed with HMAC-SHA256 using the job-lease key derived from
   `AUTH_ROOT_KEY`. Its claims name the job, job execution, and surrounding
@@ -187,13 +187,13 @@ progress and drives that job to completion.
   execution. The root key is supplied through configuration, never embedded in
   code or committed. The raw token must **never** be written to logs, traces, or
   error payloads. There is no automatic redaction to fall back on.
-- **Defense in depth — server state is the final authority.** A valid token is
+- **Defense in depth: server state is the final authority.** A valid token is
   never sufficient on its own to advance work. On the lease's own request path the
   gate is server-side step and progression state: a report against a step that has
   already reached a terminal state (finished, failed, or cancelled) is ignored, so
   a still-valid token cannot re-drive work that is already done. Job-level
   finalization is enforced outside the lease path. Cancellation flows the other way
-  as well — the server can ask the runner to stop at any point, and that request
+  as well: the server can ask the runner to stop at any point, and that request
   rides on the response to each heartbeat rather than depending on the token.
 - **Log append scope.** A step-scoped lease is a signed membership and attempt
   check for append-log authorization. It is not an active-step proof: until the
@@ -207,7 +207,7 @@ progress and drives that job to completion.
   other workspaces. If `AUTH_ROOT_KEY` leaks, rotate it. This invalidates every
   live token and email challenge derived from the old root, including every live
   lease, and forces fresh claims.
-- **Tradeoff — no per-token revocation.** A single outstanding lease cannot be
+- **Tradeoff: no per-token revocation.** A single outstanding lease cannot be
   revoked on its own by token ID. The claiming runner's credential is not
   re-checked on each request, so a lease for already-claimed work can continue to
   be renewed by heartbeat until server state cancels, completes, times out, or
@@ -217,7 +217,7 @@ progress and drives that job to completion.
 - **Guidelines for future changes.** Keep the authority narrow: do not add claims
   that grant access beyond the single job, keep the lifetime bounded, keep a single
   issuer, and keep every other side verify-only. If the no-revocation window ever
-  proves too wide, the right fix is to bind the lease to live runner or job state —
+  proves too wide, the right fix is to bind the lease to live runner or job state.
   not to broaden what the token itself can authorize.
 
 ## Routes

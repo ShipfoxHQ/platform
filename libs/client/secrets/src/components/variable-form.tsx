@@ -84,7 +84,7 @@ export function VariableForm({
   }, [needsFullValue, fullValueQuery.data, form]);
 
   // The full value must be loaded before a save is allowed, otherwise submitting would
-  // overwrite the stored value with the truncated preview. Block until it arrives —
+  // overwrite the stored value with the truncated preview. Block until it arrives.
   // whether the fetch is still pending or has failed.
   const awaitingFullValue = needsFullValue && fullValueQuery.data === undefined;
   const loadingFullValue = needsFullValue && fullValueQuery.isPending;

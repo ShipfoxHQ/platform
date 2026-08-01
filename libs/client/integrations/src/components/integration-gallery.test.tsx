@@ -203,11 +203,11 @@ const openActions = async (name: string) => {
 };
 
 const SORTED_NAMES_RE = /acme-(early|late)/;
-// The meta line carries the date only — the provider is named once, by the
+// The meta line carries the date only: the provider is named once, by the
 // icon and the account name, never repeated as body text in the row.
 const ADDED_META_RE = /^Added /;
 
-describe('IntegrationGallery — installed section', () => {
+describe('IntegrationGallery: installed section', () => {
   test('renders two distinct cards for two connections sharing one provider', async () => {
     renderGallery(
       {},
@@ -511,7 +511,7 @@ describe('IntegrationGallery — installed section', () => {
     expect(within(installedRegion()).getByText(ADDED_META_RE)).toBeVisible();
   });
 
-  test('names the provider once per row — not repeated in the meta line', async () => {
+  test('names the provider once per row: not repeated in the meta line', async () => {
     renderGallery({}, {connections: [githubConnection]});
 
     await screen.findByText('acme-corp');
@@ -549,7 +549,7 @@ describe('IntegrationGallery — installed section', () => {
   });
 });
 
-describe('IntegrationGallery — available section', () => {
+describe('IntegrationGallery: available section', () => {
   test('lists every provider with an Install link, including installed ones', async () => {
     renderGallery({}, {connections: [githubConnection]});
 

@@ -144,7 +144,7 @@ function MemberRow({
 
   return (
     <TableRow className={remove.isPending ? 'opacity-60' : undefined}>
-      <TableCell className="font-medium">{member.name ?? '—'}</TableCell>
+      <TableCell className="font-medium">{member.name ?? 'N/A'}</TableCell>
       <TableCell>
         <Code variant="paragraph">{member.email}</Code>
       </TableCell>
@@ -283,7 +283,7 @@ function InvitationRow({
       <TableCell>
         <Code variant="paragraph">{invitation.email}</Code>
       </TableCell>
-      <TableCell>{invitation.invitedByDisplay ?? '—'}</TableCell>
+      <TableCell>{invitation.invitedByDisplay ?? 'N/A'}</TableCell>
       <TableCell>
         <div className="flex items-center gap-8">
           <Text size="sm">{formatDate(invitation.expiresAt)}</Text>

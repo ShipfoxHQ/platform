@@ -145,7 +145,7 @@ export class StreamFramer {
     return encodeRecord(endRecord({ts: this.now(), totalBytes}));
   }
 
-  // One verbatim agent session entry per record — never split (splitting would break the
+  // One verbatim agent session entry per record: never split (splitting would break the
   // entry's JSON). The caller drops an over-cap line before this runs. payloadBytes counts
   // the entry's bytes toward the stream's end total, like output `data`. An empty line frames
   // nothing (the DTO requires `data` non-empty), so it is never emitted as a record.

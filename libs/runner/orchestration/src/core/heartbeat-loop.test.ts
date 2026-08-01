@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 
 function buildHTTPError(status: number): HTTPError {
-  // Construct a minimal Response object — ky's HTTPError just reads .response.status
+  // Construct a minimal Response object: ky's HTTPError just reads .response.status
   const response = {status} as Response;
   const request = {} as Request;
   const options = {} as ConstructorParameters<typeof HTTPError>[2];
@@ -36,7 +36,7 @@ describe('startHeartbeatLoop', () => {
       maxStaleMs: 1000,
     });
 
-    // Flush any pending microtasks before asserting the timer has not fired —
+    // Flush any pending microtasks before asserting the timer has not fired.
     // a regression that resolved the first tick synchronously would leak past
     // an immediate `expect` without this.
     await Promise.resolve();

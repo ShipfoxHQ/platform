@@ -33,7 +33,7 @@ export type SentryIssueWebhookDto = z.infer<typeof sentryIssueWebhookSchema>;
 
 // Sentry delivers the installation lifecycle under `data.installation` (issue
 // webhooks instead carry a top-level `installation`). The signed payload carries
-// the same material the browser redirect delivers unauthenticated — the install
+// the same material the browser redirect delivers while unauthenticated. The install
 // uuid, the org slug, and the single-use authorization `code`. Only consumed
 // fields are validated; `status`/`actor` are tolerated-but-optional. The raw
 // `code` is security-sensitive and must never be logged.

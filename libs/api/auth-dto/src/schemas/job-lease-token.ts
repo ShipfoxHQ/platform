@@ -2,7 +2,7 @@ import {z} from 'zod';
 
 /**
  * Audience claim binding a token to the job-lease use case. Distinct from auth
- * tokens (separate secret) — this is defense-in-depth so the two token classes stay
+ * tokens (separate secret): this is defense-in-depth so the two token classes stay
  * non-interchangeable even if a verifier is ever misconfigured.
  */
 export const JOB_LEASE_TOKEN_AUDIENCE = 'runner-job-lease';

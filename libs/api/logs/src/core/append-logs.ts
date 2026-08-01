@@ -124,7 +124,7 @@ function parseAppendBody(body: Buffer): ParsedBody {
 
 /**
  * A line that fails the raw write union but is a valid record under the read union
- * can only be a server-only `capped`/`runner_lost` tombstone — i.e. a forgery
+ * can only be a server-only `capped`/`runner_lost` tombstone: i.e. a forgery
  * attempt. Returns its type for the audit warn, or undefined for plain garbage.
  */
 function detectForgedType(line: string): string | undefined {

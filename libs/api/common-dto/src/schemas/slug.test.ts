@@ -27,7 +27,9 @@ describe('slugSchema', () => {
 
 describe('slugifyName', () => {
   it('lowercases, folds diacritics, and collapses non-alphanumeric runs', () => {
-    expect(slugifyName('Équipe Renard — API', {fallback: 'workspace'})).toBe('equipe-renard-api');
+    expect(slugifyName('Équipe Renard \u2014 API', {fallback: 'workspace'})).toBe(
+      'equipe-renard-api',
+    );
   });
 
   it('trims hyphens and truncates to 40 characters', () => {

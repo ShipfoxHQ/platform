@@ -155,7 +155,7 @@ describe('LogUploader.flush', () => {
     await uploader.flush();
 
     expect(uploader.isStopped()).toBe(true);
-    // Probe, then one data send that made no progress, then stop — not an endless re-send.
+    // Probe, then one data send that made no progress, then stop. It is not an endless re-send.
     expect(calls).toBe(2);
   });
 

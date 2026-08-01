@@ -37,7 +37,7 @@ export interface SessionLogStream extends LogStreamLifecycle {
 /**
  * Forwards verbatim agent session entries onto the step attempt's log stream as opaque
  * `agent_session` records over the shared `RecordSink`. One entry rides one record (never
- * split — that would break the entry's JSON); masking applies whole-line, so no streaming
+ * split: that would break the entry's JSON); masking applies whole-line, so no streaming
  * lookbehind is needed. An over-window entry is dropped with a gap rather than forwarded.
  */
 export function createSessionLogStream(options: SessionLogStreamOptions): SessionLogStream {

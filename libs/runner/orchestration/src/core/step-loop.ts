@@ -807,7 +807,7 @@ export async function reportStepResult(params: {
     stepId: step.id,
     attempt,
     status: result.success ? 'succeeded' : 'failed',
-    // null on success, the error shape on failure — matches reportStepBodySchema's refine.
+    // null on success, the error shape on failure: matches reportStepBodySchema's refine.
     error: result.error,
     exitCode: result.exit_code,
     ...(result.response === undefined ? {} : {response: result.response}),

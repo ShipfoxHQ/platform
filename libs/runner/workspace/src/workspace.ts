@@ -48,7 +48,7 @@ export function resolveWorkspaceRoot(root: string | undefined): string {
   const resolved = resolve(root);
 
   // A filesystem root ('/' on POSIX, 'C:\\' on Windows) has no parent and would
-  // put job dirs at the top level — never manage cleanup there.
+  // put job dirs at the top level. Never manage cleanup there.
   if (resolved === parse(resolved).root) throw new UnsafeWorkspaceRootError(root);
 
   // The home directory holds the operator's files; a stray recursive cleanup

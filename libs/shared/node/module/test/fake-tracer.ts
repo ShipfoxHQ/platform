@@ -24,7 +24,7 @@ interface FakeSpan {
  *
  * `startActiveSpan` tracks the "current" span with a plain variable reset in a
  * `finally` block, which only correctly nests spans created synchronously
- * within the active callback (not ones created after an `await`) — sufficient
+ * within the active callback (not ones created after an `await`): sufficient
  * for this transport's own dispatch code, which never awaits before starting
  * its nested presentation span. A real OpenTelemetry SDK uses
  * `AsyncLocalStorage` instead, which nests correctly across `await` too.

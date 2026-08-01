@@ -14,7 +14,7 @@ interface RedirectInstallPageProps {
   loadingLabel?: string;
   /**
    * Runs before leaving the app (e.g. to persist the workspace id for a
-   * state-less provider callback). Must not throw — a failed side effect
+   * state-less provider callback. It must not throw. A failed side effect
    * should never block the redirect.
    */
   beforeRedirect?: (workspaceId: string) => void;

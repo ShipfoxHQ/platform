@@ -11,7 +11,7 @@ import {pgTable} from './common.js';
  *
  * Per-row `stored_bytes_used` is bounded by the per-job budget, so `mode:
  * 'number'` is safe on the hot path. Any cross-row aggregate (workspace or
- * system-wide totals) MUST read as bigint at the query site — the global sum
+ * system-wide totals) MUST read as bigint at the query site: the global sum
  * is unbounded and would silently lose precision past 2^53 as a JS number.
  */
 export const jobAccounting = pgTable('job_accounting', {

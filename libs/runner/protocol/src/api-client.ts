@@ -94,7 +94,7 @@ const baseUrl = config.SHIPFOX_API_URL.endsWith('/')
 
 /**
  * The runner's registration bearer credential, exposed so the log masker can scrub it
- * from captured step output. For masking only — never log this value.
+ * from captured step output. Use it only for masking. Never log this value.
  */
 export function runnerRegistrationToken(): string {
   return config.SHIPFOX_RUNNER_REGISTRATION_TOKEN;
@@ -283,9 +283,9 @@ function hasRunnerSessionExhaustedCode(body: unknown): boolean {
   );
 }
 
-// next/report are idempotent, so we widen ky's retry to POST (off by default): a lost
-// response is retried in place, never re-pulling or re-executing a step. A 404 is not
-// retried — it surfaces so the loop can stop.
+// next/report are idempotent, so we widen ky's retry to POST (off by default).
+// A lost response is retried in place, never re-pulling or re-executing a step. A 404 is not
+// retried: it surfaces so the loop can stop.
 export type LeaseTokenSource = string | (() => string);
 
 export function readLeaseToken(leaseToken: LeaseTokenSource): string {

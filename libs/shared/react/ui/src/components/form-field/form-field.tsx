@@ -45,7 +45,7 @@ export interface FormFieldProps {
   label: ReactNode;
   /** Optional id; auto-generated via useId() when omitted. */
   id?: string | undefined;
-  /** Field-level error message — when truthy, sets aria-invalid on the input. */
+  /** Field-level error message: when truthy, sets aria-invalid on the input. */
   error?: string | undefined;
   /** Helper text shown when there is no error. */
   description?: ReactNode;

@@ -103,7 +103,7 @@ export function createSentryApiClient(): SentryApiClient {
 
 // The typed error deliberately drops Sentry's status and body so no token, code,
 // or client secret can leak to the client or the logged error chain. That also
-// strips the one detail a self-hoster needs to fix a misconfigured Sentry app —
+// strips the one detail a self-hoster needs to fix a misconfigured Sentry app.
 // e.g. a 403 on `get-installation` means the app is missing "Organization: Read"
 // (see README "Required permissions"). So we log the upstream status
 // here, the only place it survives, keyed by the operation that failed.

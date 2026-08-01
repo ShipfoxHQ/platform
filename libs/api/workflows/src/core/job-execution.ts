@@ -468,8 +468,8 @@ async function recordStepResultInTransaction(
     };
   }
 
-  // Evaluate the gate (if any) at the service boundary — the only place the CEL
-  // engine runs — and pass the precomputed outcome into the pure decision.
+  // Evaluate the gate (if any) at the service boundary. This is the only place
+  // the CEL engine runs. Pass the precomputed outcome into the pure decision.
   const shouldEvaluateGate = outputCoercion.kind !== 'failed';
   const gate = shouldEvaluateGate ? readStepGate(target.config) : undefined;
   const vars =

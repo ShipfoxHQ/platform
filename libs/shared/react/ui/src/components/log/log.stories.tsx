@@ -52,7 +52,7 @@ const Section = ({label, children}: {label: string; children: ReactNode}) => (
 );
 
 /**
- * Controls-driven surface — flip the args to explore timestamps, wrap, and the
+ * Controls-driven surface: flip the args to explore timestamps, wrap, and the
  * gutter. The click- and hook-driven behaviors (switch timestamps, per-line
  * wrap) live in the `Interactive` story, since they own state the args cannot.
  */
@@ -69,7 +69,7 @@ export const Playground: Story = {
           </LogContent>
         </LogRow>
         <LogRow lineNumber={36} timestamp={at(9.7)} tone="warning">
-          <LogContent variant="code">WARN deprecated glob@7 — upgrade to glob@10</LogContent>
+          <LogContent variant="code">WARN deprecated glob@7: upgrade to glob@10</LogContent>
         </LogRow>
         <LogRow lineNumber={37} timestamp={at(9.9)} tone="error">
           <LogContent variant="code">
@@ -120,7 +120,7 @@ export const LineNumbers: Story = {
           </LogRow>
           <LogRow lineNumber={null}>
             <LogContent variant="code" className="text-foreground-neutral-muted">
-              lineNumber=null — a marker row keeps the gutter blank
+              lineNumber=null: a marker row keeps the gutter blank
             </LogContent>
           </LogRow>
           <LogRow lineNumber={3}>
@@ -192,7 +192,7 @@ export const Selected: Story = {
           <LogContent variant="code">a normal row</LogContent>
         </LogRow>
         <LogRow lineNumber={12} selected>
-          <LogContent variant="code">selected — the cursor row (j / k)</LogContent>
+          <LogContent variant="code">selected: the cursor row (j / k)</LogContent>
         </LogRow>
         <LogRow lineNumber={13}>
           <LogContent variant="code">another normal row</LogContent>
@@ -210,19 +210,19 @@ export const Indent: Story = {
     <div className="max-w-3xl">
       <LogRows>
         <LogRow lineNumber={1} indent={0}>
-          <LogContent variant="code">depth 0 — build</LogContent>
+          <LogContent variant="code">depth 0: build</LogContent>
         </LogRow>
         <LogRow lineNumber={2} indent={1}>
-          <LogContent variant="code">depth 1 — typecheck</LogContent>
+          <LogContent variant="code">depth 1: typecheck</LogContent>
         </LogRow>
         <LogRow lineNumber={3} indent={2}>
-          <LogContent variant="code">depth 2 — transform module</LogContent>
+          <LogContent variant="code">depth 2: transform module</LogContent>
         </LogRow>
         <LogRow lineNumber={4} indent={3}>
-          <LogContent variant="code">depth 3 — emit chunk</LogContent>
+          <LogContent variant="code">depth 3: emit chunk</LogContent>
         </LogRow>
         <LogRow lineNumber={5} indent={1}>
-          <LogContent variant="code">depth 1 — bundle</LogContent>
+          <LogContent variant="code">depth 1: bundle</LogContent>
         </LogRow>
       </LogRows>
     </div>
@@ -241,7 +241,7 @@ export const Wrapping: Story = {
       'ERROR  TypeError: Cannot read properties of undefined (reading "id") at withRetry (src/api/retry.ts:42:18) at async runStep (src/runner/step.ts:118:7)';
     return (
       <div className="flex max-w-md flex-col gap-16">
-        <Section label="wrap=false — the line scrolls; a right fade marks the truncation">
+        <Section label="wrap=false: the line scrolls; a right fade marks the truncation">
           <LogRows wrap={false}>
             <LogRow lineNumber={120} tone="error">
               <LogContent variant="code">{long}</LogContent>
@@ -251,7 +251,7 @@ export const Wrapping: Story = {
             </LogRow>
           </LogRows>
         </Section>
-        <Section label="wrap=true — continuation lines hang-indent under the first">
+        <Section label="wrap=true: continuation lines hang-indent under the first">
           <LogRows wrap>
             <LogRow lineNumber={120} tone="error">
               <LogContent variant="code">{long}</LogContent>
@@ -291,7 +291,7 @@ export const Interactive: Story = {
         id: 4,
         ts: 2.31,
         tone: 'warning',
-        text: 'WARN  deprecated glob@7 — upgrade to glob@10 to avoid the slow recursive walk on large repositories',
+        text: 'WARN  deprecated glob@7: upgrade to glob@10 to avoid the slow recursive walk on large repositories',
       },
       {id: 5, ts: 2.95, text: 'done in 412ms'},
     ];
@@ -299,7 +299,7 @@ export const Interactive: Story = {
     const [exceptions, setExceptions] = useState<ReadonlySet<number>>(() => new Set());
 
     // Toggling the global `wrap` control clears the per-line overrides so the
-    // global wins. Adjusted during render — React's reset-on-prop-change pattern.
+    // global wins. Adjusted during render: React's reset-on-prop-change pattern.
     const lastWrap = useRef(args.wrap);
     if (lastWrap.current !== args.wrap) {
       lastWrap.current = args.wrap;
@@ -372,10 +372,10 @@ export const Hover: Story = {
           <LogContent variant="code">a resting row</LogContent>
         </LogRow>
         <LogRow lineNumber={2} className="story-hovered">
-          <LogContent variant="code">hovered — the row tints to mark the pointer target</LogContent>
+          <LogContent variant="code">hovered: the row tints to mark the pointer target</LogContent>
         </LogRow>
         <LogRow lineNumber={3} className="story-hovered" selected>
-          <LogContent variant="code">selected + hovered — the cursor row stays distinct</LogContent>
+          <LogContent variant="code">selected + hovered: the cursor row stays distinct</LogContent>
         </LogRow>
       </LogRows>
     </div>
@@ -393,24 +393,24 @@ export const Content: Story = {
       <LogRows>
         <LogRow lineNumber={1}>
           <LogContent variant="text">
-            variant="text" — prose in the display font that wraps like normal copy.
+            variant="text": prose in the display font that wraps like normal copy.
           </LogContent>
         </LogRow>
         <LogRow lineNumber={2}>
-          <LogContent variant="code">variant="code" — monospace output</LogContent>
+          <LogContent variant="code">variant="code": monospace output</LogContent>
         </LogRow>
         <LogRow lineNumber={3}>
           <LogContent variant="code">{'  whitespace   and\ttabs   are preserved'}</LogContent>
         </LogRow>
         <LogRow lineNumber={4}>
           <LogContent variant="code" ansi>
-            {`${ESC}[32m✓${ESC}[0m code + ansi — escapes become themed spans`}
+            {`${ESC}[32m✓${ESC}[0m code + ansi: escapes become themed spans`}
           </LogContent>
         </LogRow>
         <LogRow lineNumber={5}>
           <LogContent>
             <span className="inline-flex items-center gap-6">
-              arbitrary children — <Badge variant="neutral">any node</Badge>
+              arbitrary children: <Badge variant="neutral">any node</Badge>
             </span>
           </LogContent>
         </LogRow>
@@ -451,7 +451,7 @@ export const Ansi: Story = {
 
 /**
  * `LogHeader` is an optional band inside a row body: a left cluster plus an
- * optional right-aligned `end` slot. It is pure layout — supply the glyphs,
+ * optional right-aligned `end` slot. It is pure layout: supply the glyphs,
  * badges, and meta yourself.
  */
 export const Header: Story = {
@@ -488,7 +488,7 @@ export const Header: Story = {
 };
 
 /**
- * Composition is the API. The library ships no record components — output
+ * Composition is the API. The library ships no record components: output
  * lines, agent turns, tool results, and timeline markers are all assembled from
  * the four primitives, interleaved in one stream.
  */

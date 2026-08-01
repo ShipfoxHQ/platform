@@ -8,7 +8,7 @@ const CALLBACK_URL =
 
 // Typed against the real connect response DTO so a contract change fails
 // `turbo type` instead of letting the stub pass on a stale shape (e2e packages
-// import *-dto packages for types only — see settings-catalogue.e2e.ts).
+// import *-dto packages for types only: see settings-catalogue.e2e.ts).
 function sentryConnectionFixture(workspaceId: string): SentryConnectResponseDto {
   return {
     id: '00000000-0000-4000-8000-0000000000ab',
@@ -100,7 +100,7 @@ test('Sentry callback installs to a workspace on success', async ({
   await sentryCallback.installButton().click();
 
   // The stub never persisted a connection, so we assert only the success toast
-  // and the redirect target — not that Sentry appears in the gallery.
+  // and the redirect target. Sentry does not need to appear in the gallery.
   await expect(sentryCallback.message('Sentry installed.')).toBeVisible();
   await expect(page).toHaveURL(
     new RegExp(`/workspaces/${workspace.id}/settings/integrations/?$`, 'u'),

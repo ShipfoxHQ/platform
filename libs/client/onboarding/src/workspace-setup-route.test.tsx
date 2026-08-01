@@ -56,7 +56,7 @@ function sourceConnection(overrides: {lifecycle_status?: string} = {}) {
 }
 
 // The query cache stores the mapped domain shape (camelCase), not the wire
-// DTO `sourceConnection()` mocks for fetch responses — keep this seed in sync
+// DTO `sourceConnection()` mocks for fetch responses: keep this seed in sync
 // with `toIntegrationConnection` in client-integrations.
 function cachedSourceConnection() {
   return {

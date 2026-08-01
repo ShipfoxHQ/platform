@@ -49,11 +49,11 @@ You can still pass `--tag` explicitly (e.g. for a one-off local build); doing so
 
 ### Environment
 
-- `IMAGE_REGISTRIES` — space-separated registry bases for the derived tags (e.g. `ghcr.io/shipfoxhq docker.io/shipfoxhq`). Each base produces its own tag set; unset means the validation path (one local `<name>:ci` tag, or no tag in GitHub Actions cache-only validation). Read by name, so a credential variable is never mistaken for a registry.
-- `GITHUB_SHA` / `BUILD_NUMBER` / `GITHUB_REF_NAME` — the commit identity for the `sha-<short>`, `build-<number>`, and moving branch tags. The moving tag is `latest` on the default branch (`main`) and the sanitized branch name otherwise. `GITHUB_SHA` also becomes the `IMAGE_REVISION` build-arg.
-- `NODE_VERSION` / `PNPM_VERSION` — forwarded as `--build-arg` for the base image.
-- `GITHUB_ACTIONS` — enables the gha BuildKit cache.
-- `npm_package_name` — the prune target for `--setup-context` (set by the package manager when run through a script).
+- `IMAGE_REGISTRIES`: space-separated registry bases for the derived tags (e.g. `ghcr.io/shipfoxhq docker.io/shipfoxhq`). Each base produces its own tag set; unset means the validation path (one local `<name>:ci` tag, or no tag in GitHub Actions cache-only validation). Read by name, so a credential variable is never mistaken for a registry.
+- `GITHUB_SHA` / `BUILD_NUMBER` / `GITHUB_REF_NAME`: the commit identity for the `sha-<short>`, `build-<number>`, and moving branch tags. The moving tag is `latest` on the default branch (`main`) and the sanitized branch name otherwise. `GITHUB_SHA` also becomes the `IMAGE_REVISION` build-arg.
+- `NODE_VERSION` / `PNPM_VERSION`: forwarded as `--build-arg` for the base image.
+- `GITHUB_ACTIONS`: enables the gha BuildKit cache.
+- `npm_package_name`: the prune target for `--setup-context` (set by the package manager when run through a script).
 
 ## License
 

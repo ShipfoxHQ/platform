@@ -14,7 +14,7 @@ export interface LoadErrorCopyOptions {
 // synthesizes `network-error` (transport failure) and `request-failed` (server
 // error body with no code); the server adds `server-error`, `unauthorized`, and
 // `forbidden`. Provider codes (timeout, rate-limited, provider-unavailable, ...)
-// belong to setup flows and stay in projectErrorCopy — mapping them here would be
+// belong to setup flows and stay in projectErrorCopy: mapping them here would be
 // dead code on these surfaces.
 const messageByCode: Record<string, string> = {
   'network-error': "We couldn't reach the server. Check your connection and try again.",

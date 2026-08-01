@@ -274,7 +274,7 @@ export async function runJob(
   } catch (stepLoopError) {
     // A non-retryable error surfaced (e.g. an unexpected throw from the loop).
     // Bail this job; the lease expires server-side and the outer poll moves on.
-    // Do not re-pull (would re-execute). Setup failures do NOT reach here — they
+    // Do not re-pull (would re-execute). Setup failures do NOT reach here: they
     // report through the step protocol and finalize the job.
     logger().error({err: stepLoopError, jobId: job.job_id}, 'Job step loop failed');
   } finally {

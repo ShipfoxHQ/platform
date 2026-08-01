@@ -478,7 +478,7 @@ describe('jobExecutionOrchestration', () => {
     expect(finalStatusesFor('job-timeout-error')).toEqual([]);
   });
 
-  test('no signal — workflow stays blocked indefinitely', async () => {
+  test('no signal: workflow stays blocked indefinitely', async () => {
     setCfg({dag: makeDag([]), jobResults: new Map(), skipSignal: true});
 
     const handle = await testEnv.client.workflow.start('jobExecutionOrchestration', {

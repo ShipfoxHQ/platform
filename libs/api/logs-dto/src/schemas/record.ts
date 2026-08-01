@@ -2,10 +2,10 @@ import {z} from 'zod';
 import {sessionViewRowSchema} from './session-view.js';
 
 /**
- * NDJSON log record contract — one JSON object per line, runner-framed.
+ * NDJSON log record contract: one JSON object per line, runner-framed.
  *
  * `offset` / `committed_length` are byte positions in the raw append NDJSON spool stream
- * (envelope included) — the offset-CAS axis the runner tracks. The per-job accrual
+ * (envelope included) is the offset-CAS axis the runner tracks. The per-job accrual
  * budget charges the normalized NDJSON bytes the server stores, so framing and control records
  * count against it too. The per-record byte caps below bound each record so a single
  * entry's overhead is known and a runner cannot grow storage without moving the
@@ -144,7 +144,7 @@ export function parseLogRecordLine(line: string): LogRecord {
 /**
  * Parses one NDJSON line against the raw write union. A forged
  * server-only `capped` / `runner_lost` record fails here even though it is valid
- * under the read union — this is the write-path forgery guard.
+ * under the read union: this is the write-path forgery guard.
  */
 export function parseRawLogRecordLine(line: string): RawLogRecord {
   return rawLogRecordSchema.parse(JSON.parse(line));

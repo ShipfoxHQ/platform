@@ -121,7 +121,7 @@ function run(options: RunOptions = {}) {
   };
 }
 
-describe('handleSentryConnect — browser-first (no row)', () => {
+describe('handleSentryConnect: browser-first (no row)', () => {
   it('exchanges, persists the unclaimed row, then binds and verifies last', async () => {
     const sentry = sentryClient();
     const {connectSentryInstallation, persistVerifiedUnclaimedInstallation, result} = run({sentry});
@@ -179,7 +179,7 @@ describe('handleSentryConnect — browser-first (no row)', () => {
   });
 });
 
-describe('handleSentryConnect — verified, unclaimed row exists (webhook-first)', () => {
+describe('handleSentryConnect: verified, unclaimed row exists (webhook-first)', () => {
   it('binds via same-code race when the exchange is already used and the hash matches', async () => {
     const sentry = sentryClient({
       exchangeAuthorizationCode: vi.fn(() =>
@@ -237,7 +237,7 @@ describe('handleSentryConnect — verified, unclaimed row exists (webhook-first)
   });
 });
 
-describe('handleSentryConnect — already claimed / tombstoned', () => {
+describe('handleSentryConnect: already claimed / tombstoned', () => {
   it('is idempotent for an install already claimed to the same workspace', async () => {
     const existing = connection({workspaceId: WORKSPACE_ID});
     const {sentry, connectSentryInstallation, result} = run({
@@ -272,7 +272,7 @@ describe('handleSentryConnect — already claimed / tombstoned', () => {
   });
 });
 
-describe('handleSentryConnect — simultaneous race', () => {
+describe('handleSentryConnect: simultaneous race', () => {
   it('returns a retryable error when the code is already used and no row is visible yet', async () => {
     const sentry = sentryClient({
       exchangeAuthorizationCode: vi.fn(() =>

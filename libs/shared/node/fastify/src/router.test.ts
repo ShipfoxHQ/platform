@@ -70,7 +70,7 @@ describe('route mounting', () => {
     expect(res.json()).toEqual({nested: true});
   });
 
-  test('auth inheritance — route inherits group auth', async () => {
+  test('auth inheritance: route inherits group auth', async () => {
     const authCalled: string[] = [];
     const app = await createApp({
       auth: [
@@ -96,7 +96,7 @@ describe('route mounting', () => {
     expect(authCalled).toEqual(['client']);
   });
 
-  test('auth override — route auth replaces group auth', async () => {
+  test('auth override: route auth replaces group auth', async () => {
     const authCalled: string[] = [];
     const app = await createApp({
       auth: [

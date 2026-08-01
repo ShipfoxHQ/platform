@@ -25,7 +25,7 @@ test('Sentry install redirects to Sentry and stores the workspace handoff', asyn
     expectedUrl: SENTRY_INSTALL_URL,
     // Sentry's redirect carries no state param, so the install page stashes the
     // workspace id for the callback to pre-select. Read it before the redirect
-    // fires — once the navigation is aborted the document denies storage access.
+    // fires: once the navigation is aborted the document denies storage access.
     beforeReleaseInstall: async () => {
       const storedWorkspaceId = await page.evaluate(
         (key) => window.sessionStorage.getItem(key),

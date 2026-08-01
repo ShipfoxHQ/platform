@@ -771,8 +771,8 @@ async function runSummary(options: CliOptions): Promise<void> {
     ...config.apps.map((app) => {
       const deployment = deployments.find((candidate) => candidate.appId === app.id);
       const deploymentUrl =
-        deployment?.url === undefined ? '—' : `[open deployment](${deployment.url})`;
-      const commit = sourceCommit === undefined ? '—' : `\`${sourceCommit.slice(0, 12)}\``;
+        deployment?.url === undefined ? 'N/A' : `[open deployment](${deployment.url})`;
+      const commit = sourceCommit === undefined ? 'N/A' : `\`${sourceCommit.slice(0, 12)}\``;
       return `| ${markdownCell(app.id)} | ${markdownCell(appStatus({plan, report: verificationReport, deployment, appId: app.id}))} | ${deploymentUrl} | ${commit} |`;
     }),
     ...(config.apps.length === 0 ? ['No apps are configured for this deployment.'] : []),

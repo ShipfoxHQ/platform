@@ -66,7 +66,7 @@ export async function issueJobLeaseToken(claims: IssueJobLeaseTokenParams): Prom
   return token;
 }
 
-/** Returns the claims on success, or `null` for any invalid input — never throws. */
+/** Returns the claims on success, or `null` for any invalid input. Never throws. */
 export async function verifyJobLeaseToken(token: string): Promise<JobLeaseTokenClaims | null> {
   try {
     const claims = await verifyHs256({

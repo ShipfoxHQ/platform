@@ -18,7 +18,7 @@ export interface LoadErrorStateProps {
 
 /**
  * Calm placeholder for a section that failed to load: an error-toned EmptyState
- * with a single Retry action. Announced via `role="status"` (polite) — a section
+ * with a single Retry action. Announced via `role="status"` (polite): a section
  * load failure is recoverable, not an assertive `role="alert"`. Presentational
  * only: the caller owns `onRetry`/`retrying`, so this stays free of data-layer deps.
  */
