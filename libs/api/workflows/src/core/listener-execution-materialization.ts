@@ -26,7 +26,6 @@ import {
   materializeJobRunner,
   resolveJobExecutionName,
 } from './step-config/index.js';
-import {staticJobName} from './step-config/static-job-name.js';
 
 export interface MaterializeListenerExecutionParams {
   readonly model: WorkflowModel | null;
@@ -89,7 +88,7 @@ export async function materializeListenerExecution(
 
     const materializationJob = {
       ...params.job,
-      name: params.job.name ?? staticJobName(modelJob) ?? null,
+      name: params.job.name ?? modelJob.name ?? null,
     };
     executionName = materializationJob.name ?? params.job.key;
 

@@ -79,6 +79,55 @@ const integrationValidationContext = {
 } satisfies IntegrationValidationContext;
 
 describe('normalizeWorkflowDocument', () => {
+  it('rejects interpolated workflow names in favor of run_name', () => {
+    const error = expectInvalid({
+      name: interpolation('inputs.environment'),
+      jobs: {build: {steps: [{run: 'build'}]}},
+    });
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-interpolation-template',
+        message: 'Workflow name must be literal. Move runtime interpolation to run_name.',
+        path: ['name'],
+      }),
+    ]);
+  });
+
+  it('rejects unterminated workflow-name templates with the migration guidance', () => {
+    const error = expectInvalid({
+      name: '$' + '{{ unterminated',
+      jobs: {build: {steps: [{run: 'build'}]}},
+    });
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-interpolation-template',
+        message: 'Workflow name must be literal. Move runtime interpolation to run_name.',
+        path: ['name'],
+        details: expect.objectContaining({reason: 'unterminated opener'}),
+      }),
+    ]);
+  });
+
+  it('rejects unterminated job-name templates with the migration guidance', () => {
+    const error = expectInvalid({
+      name: 'Deploy',
+      jobs: {
+        build: {name: '$' + '{{ unterminated', steps: [{run: 'build'}]},
+      },
+    });
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-interpolation-template',
+        message: 'Job name must be literal. Move runtime interpolation to execution_name.',
+        path: ['jobs', 'build', 'name'],
+        details: expect.objectContaining({reason: 'unterminated opener'}),
+      }),
+    ]);
+  });
+
   it('normalizes workflow run and job execution name templates', () => {
     const model = normalizeWorkflowDocument({
       name: 'Deploy application',
@@ -3952,7 +4001,7 @@ describe('normalizeWorkflowDocument', () => {
       expect(model).not.toHaveProperty('templates');
       expect(model.jobs[0]?.steps[0]).not.toHaveProperty('templates');
       expect(model.env).toEqual({VALUE: '$${{ event.ref }}'});
-      expect(model.jobs[0]?.name).toEqual([{kind: 'literal', value: 'Build app'}]);
+      expect(model.jobs[0]?.name).toBe('Build app');
       expect(model.jobs[0]?.steps[0]).toMatchObject({
         kind: 'run',
         command: {value: 'echo $${{ event.ref }}'},
@@ -4264,10 +4313,12 @@ describe('normalizeWorkflowDocument', () => {
       expect(error.issues).toEqual([
         expect.objectContaining({
           code: 'invalid-interpolation-template',
+          message: 'Job name must be literal. Move runtime interpolation to execution_name.',
           path: ['jobs', 'build', 'name'],
         }),
         expect.objectContaining({
           code: 'invalid-interpolation-template',
+          message: 'Job name must be literal. Move runtime interpolation to execution_name.',
           path: ['jobs', 'review', 'name'],
         }),
       ]);

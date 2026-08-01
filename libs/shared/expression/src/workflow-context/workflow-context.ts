@@ -391,7 +391,6 @@ export type WorkflowInterpolationField =
   | 'agent.thinking'
   | 'job.runner'
   | 'job.outputs'
-  | 'job.name'
   | 'workflow.run_name'
   | 'job.execution_name'
   | 'step.name'
@@ -450,10 +449,6 @@ export const workflowInterpolationFieldPolicies: Readonly<
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
     minimumFillTarget: 'execution-resolution',
-  },
-  'job.name': {
-    acceptedHosts: serverOnlyHosts,
-    failurePolicy: 'degrade',
   },
   'workflow.run_name': {
     acceptedHosts: serverOnlyHosts,

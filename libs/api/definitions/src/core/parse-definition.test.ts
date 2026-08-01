@@ -66,7 +66,7 @@ describe('parseDefinition', () => {
       },
     });
     expect(definition.model.jobs[0]).toMatchObject({
-      name: [{kind: 'literal', value: 'Review batch'}],
+      name: 'Review batch',
       executionName: [
         {kind: 'literal', value: 'Review batch '},
         {kind: 'deferred', roots: ['execution'], fillTarget: 'execution-creation'},

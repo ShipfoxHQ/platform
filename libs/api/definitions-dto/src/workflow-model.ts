@@ -70,7 +70,7 @@ export interface WorkflowModelJob {
   readonly outputTypes?: Readonly<Record<string, ExpressionType>>;
   readonly executionTimeoutMs?: number;
   readonly listening?: WorkflowModelJobListening;
-  readonly name?: WorkflowFieldTemplate;
+  readonly name?: string;
   readonly executionName?: WorkflowFieldTemplate;
   readonly env?: Readonly<Record<string, string>>;
   readonly templates?: {readonly env?: WorkflowEnvTemplates};
@@ -189,18 +189,18 @@ const workflowModelSchema = z.custom<WorkflowModel>(
 );
 
 export const workflowModelSnapshotSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   model: workflowModelSchema,
 });
 export type WorkflowModelSnapshot = z.infer<typeof workflowModelSnapshotSchema>;
 
 export function createWorkflowModelSnapshot(model: WorkflowModel): WorkflowModelSnapshot {
-  return {version: 1, model};
+  return {version: 2, model};
 }
 
 export function workflowModelFromSnapshot(snapshot: WorkflowModelSnapshot): WorkflowModel {
   switch (snapshot.version) {
-    case 1:
+    case 2:
       return snapshot.model;
   }
 }

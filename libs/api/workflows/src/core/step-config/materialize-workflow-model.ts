@@ -11,7 +11,6 @@ import {
   type MaterializedWorkflowStep,
   materializeJobExecutionSteps,
 } from './materialize-job-execution-steps.js';
-import {staticJobName} from './static-job-name.js';
 import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
 
 type WorkflowModelJob = WorkflowModel['jobs'][number];
@@ -54,7 +53,7 @@ export async function materializeWorkflowModel(
 
   return await Promise.all(
     model.jobs.map(async (job, position) => {
-      const name = staticJobName(job);
+      const name = job.name;
       return {
         key: job.key,
         mode: job.mode,

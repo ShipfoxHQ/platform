@@ -7,6 +7,35 @@ const nonEmptyRecordSchema = <ValueSchema extends z.ZodType>(valueSchema: ValueS
     .record(z.string().min(1), valueSchema)
     .refine((value) => Object.keys(value).length > 0, {message: 'Expected at least one entry'});
 
+const workflowNameSchema = literalNameSchema(
+  'Workflow name must be literal. Move runtime interpolation to run_name.',
+).meta({description: 'Static literal human-readable workflow name.'});
+const jobNameSchema = literalNameSchema(
+  'Job name must be literal. Move runtime interpolation to execution_name.',
+).meta({description: 'Static literal human-readable job name.'});
+
+function literalNameSchema(message: string) {
+  return z
+    .string()
+    .min(1)
+    .superRefine((value, ctx) => {
+      if (containsInterpolation(value)) ctx.addIssue({code: 'custom', message});
+    });
+}
+
+function containsInterpolation(source: string): boolean {
+  let index = 0;
+  while (index < source.length) {
+    if (source.startsWith('$${{', index)) {
+      index += 4;
+      continue;
+    }
+    if (source.startsWith('${{', index)) return true;
+    index += 1;
+  }
+  return false;
+}
+
 // Runner shell steps execute on Unix shells, so workflow env names follow the
 // portable POSIX-style variable shape.
 const envNameSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
@@ -552,7 +581,7 @@ export const workflowDocumentJobSchema = z.strictObject({
     description:
       'Event-listening configuration for this job. See [listening jobs](/understand/listening-jobs).',
   }),
-  name: z.string().min(1).optional().meta({description: 'Static literal human-readable job name.'}),
+  name: jobNameSchema.optional(),
   execution_name: z.string().min(1).optional().meta({
     description: 'Dynamic name for each job execution. Supports workflow expressions.',
   }),
@@ -566,7 +595,7 @@ export const workflowDocumentJobSchema = z.strictObject({
 });
 
 export const workflowDocumentSchema = z.strictObject({
-  name: z.string().min(1).meta({description: 'Static literal human-readable workflow name.'}),
+  name: workflowNameSchema,
   run_name: z.string().min(1).optional().meta({
     description: 'Dynamic name for each workflow run. Supports workflow expressions.',
   }),
