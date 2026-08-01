@@ -69,6 +69,34 @@ export const clientArchitectureExceptions = {
         'OAuth callback completion refreshes the integration cache after a cross-route handoff.',
       test: 'libs/client/integrations/src/application/complete-integration-callback.test.ts',
     },
+    {
+      file: 'libs/client/auth/src/pages/signup-page.tsx',
+      owner: 'signup page coordinator',
+      reason:
+        'Signup verifies the invitation membership from the auth cache before selecting the joined workspace.',
+      test: 'libs/client/auth/src/pages/signup-page.test.tsx',
+    },
+    {
+      file: 'libs/client/integrations/src/pages/linear-callback-page.tsx',
+      owner: 'Linear callback coordinator',
+      reason:
+        'The OAuth callback passes the auth cache to the workspace navigation coordinator after completion.',
+      test: 'libs/client/integrations/src/pages/linear-callback-page.test.tsx',
+    },
+    {
+      file: 'libs/client/integrations/src/pages/sentry-callback-page.tsx',
+      owner: 'Sentry callback coordinator',
+      reason:
+        'The OAuth callback passes the auth cache to the workspace navigation coordinator after completion.',
+      test: 'libs/client/integrations/src/pages/sentry-callback-page.test.tsx',
+    },
+    {
+      file: 'libs/client/integrations/src/pages/slack-callback-page.tsx',
+      owner: 'Slack callback coordinator',
+      reason:
+        'The OAuth callback passes the auth cache to the workspace navigation coordinator after completion.',
+      test: 'libs/client/integrations/src/slack-callback.test.ts',
+    },
   ],
   queryPolicy: [stepLogsQueryException],
 } as const satisfies ClientArchitectureExceptionRegistry;
@@ -504,7 +532,7 @@ export function validateExceptionSourceUsage(
 ): void {
   for (const exception of registry.cacheOperation) {
     const source = sources.get(exception.file);
-    if (!source || queryClientMethodOperationCount(source) === 0) {
+    if (!source || queryClientOperationCount(source) === 0) {
       throw new Error(`Client architecture cache-operation exception is stale: ${exception.file}`);
     }
   }

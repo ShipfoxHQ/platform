@@ -474,6 +474,32 @@ qc.invalidateQueries({queryKey: ['projects']});`,
     );
   });
 
+  test('accepts a coordinator exception that passes the query client to a helper', () => {
+    const registry: ClientArchitectureExceptionRegistry = {
+      cacheOperation: [
+        {
+          file: 'libs/client/integrations/src/pages/linear-callback-page.tsx',
+          owner: 'Linear callback coordinator',
+          reason: 'The callback passes the cache to the workspace navigation coordinator.',
+          test: 'libs/client/integrations/src/pages/linear-callback-page.test.tsx',
+        },
+      ],
+      queryPolicy: [],
+    };
+
+    assert.doesNotThrow(() =>
+      validateExceptionSourceUsage(
+        new Map([
+          [
+            'libs/client/integrations/src/pages/linear-callback-page.tsx',
+            'const queryClient = useQueryClient();\nreturn resolveWorkspaceSlug({queryClient});',
+          ],
+        ]),
+        registry,
+      ),
+    );
+  });
+
   test('rejects a query-policy exception whose source now owns its policy', () => {
     const registry: ClientArchitectureExceptionRegistry = {
       cacheOperation: [],
