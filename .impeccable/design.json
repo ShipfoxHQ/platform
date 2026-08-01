@@ -271,7 +271,7 @@
     "shadows": [
       {
         "name": "border-base",
-        "value": "0 -1px 0 0 rgba(255,255,255,0.06), 0 0 0 1px rgba(24,24,27,0.06), 0 0 0 1px #27272a, 0 0 1px 1.5px rgba(24,24,27,0.24), 0 2px 2px 0 rgba(24,24,27,0.24)",
+        "value": "0 -1px 0 0 rgba(255,255,255,0.06), 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 1px #27272a, 0 0 1px 1.5px rgba(24,24,27,0.24), 0 2px 2px 0 rgba(24,24,27,0.24)",
         "purpose": "Default surface and input keyline: hairline ring plus faint ambient drop."
       },
       {
@@ -327,7 +327,7 @@
       "refersTo": "button-primary",
       "description": "The dominant action in a form, modal, or header. Inverted neutral fill, never orange.",
       "html": "<button class=\"ds-btn-primary\">Run workflow</button>",
-      "css": ".ds-btn-primary { display:inline-flex; align-items:center; height:32px; padding:0 10px; border-radius:6px; background:#27272a; color:#ffffff; font-family:Inter,sans-serif; font-size:14px; font-weight:500; border:none; cursor:pointer; box-shadow:0 0 0 1px #52525b, 0 2px 2px 0 rgba(24,24,27,0.24); transition:background .12s ease; } .ds-btn-primary:hover { background:#3f3f46; } .ds-btn-primary:active { background:#52525b; } .ds-btn-primary:focus-visible { outline:none; box-shadow:0 0 0 1px #52525b, 0 0 0 2px #ffffff, 0 0 0 4px #e63e00; }"
+      "css": ".ds-btn-primary { display:inline-flex; align-items:center; height:32px; padding:0 10px; border-radius:6px; background:var(--background-button-inverted-default, #27272a); color:var(--foreground-neutral-on-color, #ffffff); font-family:Inter,sans-serif; font-size:14px; font-weight:500; border:none; cursor:pointer; box-shadow:var(--shadow-button-inverted, 0 0 0 1px #52525b, 0 2px 2px 0 rgba(24,24,27,0.24)); transition:background .12s ease; } .ds-btn-primary:hover { background:var(--background-button-inverted-hover, #3f3f46); } .ds-btn-primary:active { background:var(--background-button-inverted-pressed, #52525b); } .ds-btn-primary:focus-visible { outline:none; box-shadow:var(--shadow-button-inverted-focus, 0 0 0 1px #52525b, 0 0 0 2px #ffffff, 0 0 0 4px #e63e00); }"
     },
     {
       "name": "Secondary Button",
@@ -335,7 +335,7 @@
       "refersTo": "button-secondary",
       "description": "Secondary actions beside a primary, and toolbar buttons. Neutral surface with a soft shadow.",
       "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
-      "css": ".ds-btn-secondary { display:inline-flex; align-items:center; height:32px; padding:0 10px; border-radius:6px; background:#ffffff; color:#0f0f10; font-family:Inter,sans-serif; font-size:14px; font-weight:500; border:none; cursor:pointer; box-shadow:0 0 0 1px rgba(24,24,27,0.08), 0 2px 4px 0 rgba(24,24,27,0.08); transition:background .12s ease; } .ds-btn-secondary:hover { background:#f4f4f5; } .ds-btn-secondary:focus-visible { outline:none; box-shadow:0 0 0 1px rgba(24,24,27,0.08), 0 0 0 2px #ffffff, 0 0 0 4px #e63e00; }"
+      "css": ".ds-btn-secondary { display:inline-flex; align-items:center; height:32px; padding:0 10px; border-radius:6px; background:var(--background-button-neutral-default, #ffffff); color:var(--foreground-neutral-base, #0f0f10); font-family:Inter,sans-serif; font-size:14px; font-weight:500; border:none; cursor:pointer; box-shadow:var(--shadow-button-neutral, 0 0 0 1px rgba(24,24,27,0.08), 0 2px 4px 0 rgba(24,24,27,0.08)); transition:background .12s ease; } .ds-btn-secondary:hover { background:var(--background-button-neutral-hover, #f4f4f5); } .ds-btn-secondary:focus-visible { outline:none; box-shadow:var(--shadow-button-neutral-focus, 0 0 0 1px rgba(24,24,27,0.08), 0 0 0 2px #ffffff, 0 0 0 4px #e63e00); }"
     },
     {
       "name": "Danger Button",
@@ -343,7 +343,7 @@
       "refersTo": "button-danger",
       "description": "Destructive actions: delete, revoke, cancel a run.",
       "html": "<button class=\"ds-btn-danger\">Cancel run</button>",
-      "css": ".ds-btn-danger { display:inline-flex; align-items:center; height:32px; padding:0 10px; border-radius:6px; background:#e11d48; color:#ffffff; font-family:Inter,sans-serif; font-size:14px; font-weight:500; border:none; cursor:pointer; box-shadow:0 0 0 1px #be123c, 0 2px 2px 0 rgba(24,24,27,0.24); transition:background .12s ease; } .ds-btn-danger:hover { background:#be123c; } .ds-btn-danger:focus-visible { outline:none; box-shadow:0 0 0 1px #be123c, 0 0 0 2px #ffffff, 0 0 0 4px #e63e00; }"
+      "css": ".ds-btn-danger { display:inline-flex; align-items:center; height:32px; padding:0 10px; border-radius:6px; background:var(--background-button-danger-default, #e11d48); color:var(--foreground-neutral-on-color, #ffffff); font-family:Inter,sans-serif; font-size:14px; font-weight:500; border:none; cursor:pointer; box-shadow:var(--shadow-button-danger, 0 0 0 1px #be123c, 0 2px 2px 0 rgba(24,24,27,0.24)); transition:background .12s ease; } .ds-btn-danger:hover { background:var(--background-button-danger-hover, #be123c); } .ds-btn-danger:focus-visible { outline:none; box-shadow:var(--shadow-button-danger-focus, 0 0 0 1px #be123c, 0 0 0 2px #ffffff, 0 0 0 4px #e63e00); }"
     },
     {
       "name": "Text Input",
@@ -351,7 +351,7 @@
       "refersTo": "input",
       "description": "Default text field, 32px tall, hairline keyline, orange focus ring.",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"sentry_prod\" />",
-      "css": ".ds-input { height:32px; padding:0 8px; border-radius:4px; background:#ffffff; color:#0f0f10; font-family:Inter,sans-serif; font-size:14px; border:none; box-shadow:0 0 0 1px #d4d4d8, 0 1px 2px 0 rgba(24,24,27,0.06); } .ds-input::placeholder { color:#71717a; } .ds-input:focus { outline:none; box-shadow:0 0 0 1px #e63e00, 0 0 0 3px rgba(255,75,0,0.25); }"
+      "css": ".ds-input { height:32px; padding:0 8px; border-radius:4px; background:var(--background-field-base, #ffffff); color:var(--foreground-neutral-base, #0f0f10); font-family:Inter,sans-serif; font-size:14px; border:none; box-shadow:var(--shadow-border-base, 0 0 0 1px #d4d4d8, 0 1px 2px 0 rgba(24,24,27,0.06)); } .ds-input::placeholder { color:var(--foreground-neutral-muted, #71717a); } .ds-input:focus { outline:none; box-shadow:0 0 0 1px var(--border-highlights-interactive, #e63e00), 0 0 0 3px rgba(255,75,0,0.25); }"
     },
     {
       "name": "Status Badge (Running)",
@@ -359,7 +359,7 @@
       "refersTo": "badge-status",
       "description": "State as the headline of a card or header. Color plus word only, no leading glyph or dot inside the pill.",
       "html": "<span class=\"ds-badge-running\">Running</span>",
-      "css": ".ds-badge-running { display:inline-flex; align-items:center; padding:2px 6px; border-radius:4px; background:#dbeafe; color:#1e40af; font-family:Inter,sans-serif; font-size:12px; font-weight:500; box-shadow:inset 0 0 0 1px #bfdbfe; }"
+      "css": ".ds-badge-running { display:inline-flex; align-items:center; padding:2px 6px; border-radius:4px; background:var(--tag-blue-bg, #dbeafe); color:var(--tag-blue-text, #1e40af); font-family:Inter,sans-serif; font-size:12px; font-weight:500; box-shadow:inset 0 0 0 1px var(--tag-blue-border, #bfdbfe); }"
     },
     {
       "name": "Card",
@@ -367,7 +367,7 @@
       "refersTo": "card",
       "description": "Default container. 8px corners, component surface, hairline keyline, never tinted to a status.",
       "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">fix_sentry_issue</div><div class=\"ds-card-meta\">3 jobs · 12 steps</div></div>",
-      "css": ".ds-card { background:#fafafa; border-radius:8px; padding:24px; box-shadow:0 0 0 1px rgba(24,24,27,0.08), 0 2px 4px 0 rgba(24,24,27,0.08); font-family:Inter,sans-serif; color:#0f0f10; } .ds-card-title { font-size:16px; font-weight:500; } .ds-card-meta { margin-top:6px; font-family:'Commit Mono',monospace; font-size:13px; color:#71717a; }"
+      "css": ".ds-card { background:var(--background-components-base, #fafafa); border-radius:8px; padding:24px; box-shadow:var(--shadow-button-neutral, 0 0 0 1px rgba(24,24,27,0.08), 0 2px 4px 0 rgba(24,24,27,0.08)); font-family:Inter,sans-serif; color:var(--foreground-neutral-base, #0f0f10); } .ds-card-title { font-size:16px; font-weight:500; } .ds-card-meta { margin-top:6px; font-family:'Commit Mono',monospace; font-size:13px; color:var(--foreground-neutral-muted, #71717a); }"
     },
     {
       "name": "Status Glyph (Running)",
@@ -375,7 +375,7 @@
       "refersTo": "badge-status",
       "description": "Signature dense-row state marker: a saturated disc with an external pulsing ripple halo for the live running state. Shape plus color, never color alone. Static under reduced motion.",
       "html": "<span class=\"ds-status-running\" role=\"img\" aria-label=\"Running\"></span>",
-      "css": ".ds-status-running { position:relative; display:inline-block; width:14px; height:14px; border-radius:9999px; background:#3b82f6; } .ds-status-running::after { content:\"\"; position:absolute; inset:-4px; border-radius:9999px; border:2px solid #3b82f6; opacity:.5; animation:ds-ripple 1.4s ease-out infinite; } @keyframes ds-ripple { 0% { transform:scale(.65); opacity:.6; } 100% { transform:scale(1.4); opacity:0; } } @media (prefers-reduced-motion: reduce) { .ds-status-running::after { animation:none; opacity:0; } }"
+      "css": ".ds-status-running { position:relative; display:inline-block; width:14px; height:14px; border-radius:9999px; background:var(--tag-blue-icon, #3b82f6); } .ds-status-running::after { content:\"\"; position:absolute; inset:-4px; border-radius:9999px; border:2px solid var(--tag-blue-icon, #3b82f6); opacity:.5; animation:ds-ripple 1.4s ease-out infinite; } @keyframes ds-ripple { 0% { transform:scale(.65); opacity:.6; } 100% { transform:scale(1.4); opacity:0; } } @media (prefers-reduced-motion: reduce) { .ds-status-running::after { animation:none; opacity:0; } }"
     },
     {
       "name": "Code Surface",
@@ -383,7 +383,7 @@
       "refersTo": "card",
       "description": "Multi-line code, log, and YAML: Commit Mono on the near-black inverted surface in both themes, with muted line numbers.",
       "html": "<pre class=\"ds-code\"><code><span class=\"ds-ln\">1</span>run: npm test\n<span class=\"ds-ln\">2</span>gate:\n<span class=\"ds-ln\">3</span>  on_failure:\n<span class=\"ds-ln\">4</span>    restart_from: fix</code></pre>",
-      "css": ".ds-code { margin:0; background:#1a1a1b; color:#f4f4f5; font-family:'Commit Mono',monospace; font-size:13px; line-height:20px; padding:12px 16px; border-radius:8px; overflow-x:auto; } .ds-code .ds-ln { display:inline-block; width:20px; margin-right:16px; color:#71717a; user-select:none; text-align:right; }"
+      "css": ".ds-code { margin:0; background:var(--background-contrast-base, #1a1a1b); color:var(--foreground-contrast-primary, #f4f4f5); font-family:'Commit Mono',monospace; font-size:13px; line-height:20px; padding:12px 16px; border-radius:8px; overflow-x:auto; } .ds-code .ds-ln { display:inline-block; width:20px; margin-right:16px; color:var(--foreground-neutral-muted, #71717a); user-select:none; text-align:right; }"
     }
   ],
   "narrative": {
