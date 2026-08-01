@@ -1,5 +1,5 @@
 import {useAuthState, useRefreshAuth} from '@shipfox/client-auth';
-import {useRouteSearch} from '@shipfox/client-shell/runtime';
+import {listUserWorkspaces, useRouteSearch} from '@shipfox/client-shell/runtime';
 import {createSingleFlight, sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {toast} from '@shipfox/react-ui/toast';
@@ -69,16 +69,20 @@ export function SlackCallbackPage() {
           toast.success('Slack installed.');
         }
         try {
-          const workspace = workspaces.find(({id}) => id === connection.workspaceId);
-          await navigate(
-            workspace
-              ? {
-                  to: '/w/$workspaceSlug/settings/integrations',
-                  params: {workspaceSlug: workspace.slug},
-                  replace: true,
-                }
-              : {to: '/', replace: true},
-          );
+          const currentWorkspaces = await listUserWorkspaces()
+            .then(({memberships}) => memberships)
+            .catch(() => workspaces);
+          if (disposed) return;
+          const workspace = currentWorkspaces.find(({id}) => id === connection.workspaceId);
+          if (!workspace) {
+            setCompletedWorkspaceId(connection.workspaceId);
+            return;
+          }
+          await navigate({
+            to: '/w/$workspaceSlug/settings/integrations',
+            params: {workspaceSlug: workspace.slug},
+            replace: true,
+          });
         } catch {
           if (!disposed) setCompletedWorkspaceId(connection.workspaceId);
         }

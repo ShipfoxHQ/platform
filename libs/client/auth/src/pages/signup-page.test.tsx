@@ -158,6 +158,80 @@ describe('SignupPage', () => {
     );
   });
 
+  test('keeps invitation signup recoverable when the post-signup refresh fails', async () => {
+    const invitationToken = 'invite-token';
+    const redirect = `/invitations/accept?token=${encodeURIComponent(invitationToken)}`;
+    const user = pageUserFactory.build({email: 'invitee@example.com', name: 'Invitee'});
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    const session = {token: 'access-token', user};
+    let refreshAttempts = 0;
+    const fetchImpl = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === 'https://api.example.test/auth/me') {
+        return jsonResponse({code: 'unauthorized', message: 'Unauthorized'}, {status: 401});
+      }
+      if (url.includes('/invitations/preview?')) {
+        return jsonResponse({
+          status: 'pending',
+          workspace_id: workspaceId,
+          workspace_name: 'Invite Workspace',
+          email: user.email,
+          invited_by_display: 'owner@example.com',
+          expires_at: '2026-05-18T00:00:00.000Z',
+        });
+      }
+      if (url === 'https://api.example.test/auth/signup') {
+        return jsonResponse(
+          {
+            user,
+            membership: {
+              id: '22222222-2222-4222-8222-222222222222',
+              user_id: user.id,
+              workspace_id: workspaceId,
+            },
+          },
+          {status: 201},
+        );
+      }
+      if (url === 'https://api.example.test/auth/refresh') {
+        refreshAttempts += 1;
+        if (refreshAttempts <= 2) {
+          return jsonResponse({code: 'server-error', message: 'Refresh failed'}, {status: 500});
+        }
+        return jsonResponse(session);
+      }
+      if (url === 'https://api.example.test/workspaces') {
+        return jsonResponse({
+          memberships: [
+            {
+              id: '33333333-3333-4333-8333-333333333333',
+              user_id: user.id,
+              workspace_id: workspaceId,
+              workspace_name: 'Invite Workspace',
+              workspace_slug: 'invite-workspace',
+              workspace_status: 'active',
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    configureApiClient({fetchImpl});
+
+    renderAuthPage(`/auth/signup?redirect=${encodeURIComponent(redirect)}`, <SignupPage />);
+    await screen.findByRole('heading', {name: 'Join Invite Workspace'});
+    fireEvent.change(screen.getByLabelText('Name'), {target: {value: user.name}});
+    fireEvent.change(screen.getByLabelText('Email'), {target: {value: user.email}});
+    fireEvent.change(screen.getByLabelText('Password'), {target: {value: 'long secure password'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Create account'}));
+
+    expect(await screen.findByRole('button', {name: 'Retry sign-in'})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Join Invite Workspace'})).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Retry sign-in'}));
+    expect(await screen.findByRole('heading', {name: 'Authenticated home'})).toBeInTheDocument();
+  });
+
   test('surfaces duplicate-email errors', async () => {
     const fetchImpl = vi
       .fn()

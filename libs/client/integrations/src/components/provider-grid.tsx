@@ -1,4 +1,3 @@
-import {useActiveWorkspace} from '@shipfox/client-auth';
 import {QueryLoadError} from '@shipfox/client-ui';
 import {IntegrationIcon} from '@shipfox/integration-icons';
 import {Card} from '@shipfox/react-ui/card';
@@ -12,6 +11,7 @@ import type {IntegrationProvider} from '#core/models.js';
 import {PROVIDER_CATALOG} from '#provider-catalog.js';
 
 export interface ProviderGridProps {
+  workspaceSlug: string;
   providers: IntegrationProvider[];
   isPending: boolean;
   isFetching?: boolean;
@@ -29,6 +29,7 @@ export const PROVIDER_SURFACE_CLASS =
   'overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base';
 
 export function ProviderGrid({
+  workspaceSlug,
   providers,
   isPending,
   isFetching = false,
@@ -76,7 +77,11 @@ export function ProviderGrid({
     <ul className={PROVIDER_GRID_CLASS}>
       {installableProviders.map((provider) => (
         <li key={provider.provider}>
-          <ProviderCard provider={provider} onOpenProvider={onOpenProvider} />
+          <ProviderCard
+            provider={provider}
+            workspaceSlug={workspaceSlug}
+            onOpenProvider={onOpenProvider}
+          />
         </li>
       ))}
     </ul>
@@ -85,12 +90,13 @@ export function ProviderGrid({
 
 function ProviderCard({
   provider,
+  workspaceSlug,
   onOpenProvider,
 }: {
   provider: IntegrationProvider;
+  workspaceSlug: string;
   onOpenProvider?: ((provider: string) => void) | undefined;
 }) {
-  const workspace = useActiveWorkspace();
   const catalog = PROVIDER_CATALOG[provider.provider];
   if (!catalog) return null;
 
@@ -110,7 +116,7 @@ function ProviderCard({
   return (
     <Link
       to={catalog.setupPath}
-      params={{workspaceSlug: workspace.slug}}
+      params={{workspaceSlug}}
       aria-label={`Install ${provider.displayName}`}
       className="group flex h-full min-w-0 items-center justify-between gap-12 rounded-8 border border-border-neutral-base bg-background-neutral-base p-16 transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
     >

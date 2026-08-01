@@ -96,7 +96,10 @@ export function ClientApp() {
         store={store}
         config={config.config}
       >
-        <RouterProvider router={router} context={{auth, queryClient, workspaceSetup}} />
+        <RouterProvider
+          router={router}
+          context={{auth, queryClient, workspaceSetup, projectSlugResolver}}
+        />
       </ShellProviders>
     </ChromeProvider>
   );

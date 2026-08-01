@@ -95,32 +95,44 @@ export async function resolveProjectSlug({
       .flatMap((page) => page.projects)
       .find((candidate) => candidate.slug === projectSlug);
     if (project) {
-      await queryClient.refetchQueries({queryKey, type: 'all'});
-      const refreshedData =
-        queryClient.getQueryData<InfiniteData<ProjectList, string | undefined>>(queryKey);
-      return refreshedData?.pages
-        .flatMap((page) => page.projects)
-        .find((candidate) => candidate.slug === projectSlug)?.id;
+      return await refetchAndResolveProjectSlug(queryClient, queryKey, workspaceId, projectSlug);
     }
 
     const cursor = data.pages.at(-1)?.nextCursor;
     if (!cursor) {
-      await queryClient.refetchQueries({queryKey, type: 'all'});
-      const refreshedData =
-        queryClient.getQueryData<InfiniteData<ProjectList, string | undefined>>(queryKey);
-      return refreshedData?.pages
-        .flatMap((page) => page.projects)
-        .find((candidate) => candidate.slug === projectSlug)?.id;
+      return await refetchAndResolveProjectSlug(queryClient, queryKey, workspaceId, projectSlug);
     }
-    const nextPage = await listProjects({workspaceId, cursor});
-    data = {
-      pages: [...data.pages, nextPage],
-      pageParams: [...data.pageParams, cursor],
-    };
-    queryClient.setQueryData(queryKey, data);
+    return await resolveProjectSlugBySearch(workspaceId, projectSlug);
   }
 
   return undefined;
+}
+
+async function refetchAndResolveProjectSlug(
+  queryClient: QueryClient,
+  queryKey: ReturnType<typeof projectsQueryKeys.list>,
+  workspaceId: string,
+  projectSlug: string,
+): Promise<string | undefined> {
+  await queryClient.refetchQueries({queryKey, type: 'all'});
+  const data = queryClient.getQueryData<InfiniteData<ProjectList, string | undefined>>(queryKey);
+
+  if (!data) return undefined;
+  const project = data.pages
+    .flatMap((page) => page.projects)
+    .find((candidate) => candidate.slug === projectSlug);
+  if (project) return project.id;
+
+  if (!data.pages.at(-1)?.nextCursor) return undefined;
+  return await resolveProjectSlugBySearch(workspaceId, projectSlug);
+}
+
+async function resolveProjectSlugBySearch(
+  workspaceId: string,
+  projectSlug: string,
+): Promise<string | undefined> {
+  const result = await listProjects({workspaceId, search: projectSlug, limit: 100});
+  return result.projects.find((project) => project.slug === projectSlug)?.id;
 }
 
 export async function getProject(projectId: string): Promise<Project> {

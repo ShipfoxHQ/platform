@@ -620,7 +620,7 @@ Both the linked iteration gate and packed-tarball gate passed on 2026-07-16. The
 and installed a 12-package `@shipfox/*` runtime closure outside the workspace.
 
 The consumer's `tsc --noEmit` accepted typed `Link` and `useSearch` for the added
-`/w/$workspaceSlug/p/$projectSlug/insights` route. It resolved emitted `defineRoute()` declarations, anchor return
+`/w/$workspaceSlug/insights` route. It resolved emitted `defineRoute()` declarations, anchor return
 types, and the generated `Register` augmentation from `dist`.
 
 The proof found two package issues:

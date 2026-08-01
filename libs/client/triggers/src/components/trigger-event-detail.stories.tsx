@@ -25,7 +25,9 @@ function minutesAgo(minutes: number): string {
 }
 
 function createStoryQueryClient() {
-  const queryClient = new QueryClient();
+  const queryClient = new QueryClient({
+    defaultOptions: {queries: {staleTime: Number.POSITIVE_INFINITY, retry: false}},
+  });
   queryClient.setQueryData(projectsQueryKeys.list(WORKSPACE_ID), {
     pages: [{projects: [{id: PROJECT_ID, slug: 'checkout-api'}], nextCursor: null}],
     pageParams: [undefined],

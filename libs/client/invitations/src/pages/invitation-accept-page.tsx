@@ -30,16 +30,36 @@ export function InvitationAcceptPage() {
   const preview = usePreviewInvitation(token);
   const accept = useAcceptInvitation();
   const hasKickedAccept = useRef(false);
+  const hasRetriedWorkspaceHydration = useRef(false);
   const [authRefreshFailed, setAuthRefreshFailed] = useState(false);
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string>();
 
   useEffect(() => {
     if (!pendingWorkspaceId || auth.isLoading || !auth.isAuthenticated) return;
-    if (!auth.workspaces.some(({id}) => id === pendingWorkspaceId)) return;
+    if (!auth.workspaces.some(({id}) => id === pendingWorkspaceId)) {
+      if (hasRetriedWorkspaceHydration.current) {
+        setPendingWorkspaceId(undefined);
+        setAuthRefreshFailed(true);
+        return;
+      }
+      hasRetriedWorkspaceHydration.current = true;
+      void refreshAuth().catch(() => {
+        setPendingWorkspaceId(undefined);
+        setAuthRefreshFailed(true);
+      });
+      return;
+    }
 
     setPendingWorkspaceId(undefined);
     void navigate({to: '/', replace: true});
-  }, [auth.isAuthenticated, auth.isLoading, auth.workspaces, navigate, pendingWorkspaceId]);
+  }, [
+    auth.isAuthenticated,
+    auth.isLoading,
+    auth.workspaces,
+    navigate,
+    pendingWorkspaceId,
+    refreshAuth,
+  ]);
 
   useEffect(() => {
     if (!token) {
@@ -252,6 +272,7 @@ export function InvitationAcceptPage() {
             try {
               await refreshAuth();
               setAuthRefreshFailed(false);
+              hasRetriedWorkspaceHydration.current = false;
               setPendingWorkspaceId(data.workspaceId);
             } catch {
               setAuthRefreshFailed(true);

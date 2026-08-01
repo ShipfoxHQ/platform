@@ -446,7 +446,7 @@ describe('project routes', () => {
     expect(res.json().projects[0].source.connection_id).toBe(sourceConnectionId);
   });
 
-  test('filters projects by `search` (case-insensitive substring on name)', async () => {
+  test('filters projects by `search` (case-insensitive substring on name or slug)', async () => {
     const names = ['Platform', 'Runner', 'Notifier'];
     for (const [index, name] of names.entries()) {
       vi.mocked(integrations.resolveSourceRepository).mockResolvedValueOnce({

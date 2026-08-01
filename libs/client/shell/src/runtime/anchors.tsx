@@ -9,6 +9,7 @@ import {useActiveWorkspace, useMaybeActiveWorkspace} from './active-workspace.js
 import {anchorPaths} from './anchor-paths.js';
 import {rememberLastWorkspaceId} from './last-workspace.js';
 import type {RouterContext} from './router-context.js';
+import type {WorkspaceSetupState} from './workspace-setup.js';
 import {
   WorkspaceLayoutErrorRoute,
   WorkspaceSetupPending,
@@ -84,6 +85,7 @@ export function buildAnchorSkeleton({
     beforeLoad: async ({context, params}) => {
       const auth = context.auth;
       if (!auth || auth.isLoading || !context.queryClient) return;
+      if ((context as RouterContext & Partial<WorkspaceSetupState>).unavailable) return;
       const workspace = auth.workspaces.find(
         (candidate) => candidate.slug === params.workspaceSlug,
       );

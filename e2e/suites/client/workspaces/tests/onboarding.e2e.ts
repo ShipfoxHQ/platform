@@ -46,6 +46,7 @@ test.describe('workspace onboarding', () => {
     setupShell,
     workspaceHome,
     workspaceOnboarding,
+    workspaceSwitcher,
   }) => {
     const user = await auth.createUser();
     await auth.loginAs(page, user);
@@ -63,7 +64,12 @@ test.describe('workspace onboarding', () => {
     const workspaceSlug = workspaceHome.currentWorkspaceSlug();
     expect(workspaceSlug).toBeTruthy();
     expect(workspaceSlug).not.toMatch(UUID_RE);
-    expect(await workspaceHome.readLastWorkspaceId(user.user.id)).toMatch(UUID_RE);
+    const lastWorkspaceId = await workspaceHome.readLastWorkspaceId(user.user.id);
+    expect(lastWorkspaceId).toMatch(UUID_RE);
     await stableScreenshot(page, 'workspaces/onboarding-complete');
+    await workspaceSwitcher.open();
+    expect(await workspaceSwitcher.workspaceOption(workspaceName).getAttribute('data-value')).toBe(
+      lastWorkspaceId,
+    );
   });
 });

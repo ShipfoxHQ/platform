@@ -56,6 +56,7 @@ export async function renderComposedShell({
       auth,
       queryClient,
       workspaceSetup: async () => ({hideProjectNavigation: false}),
+      projectSlugResolver: async () => 'project',
     },
   });
   render(

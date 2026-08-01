@@ -30,7 +30,7 @@ const authState: AuthState = {
     email: 'user@example.com',
     emailVerifiedAt: new Date().toISOString(),
   },
-  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: 'acme', membershipId: 'm-1'}],
+  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: PROJECT_TEST_WSLUG, membershipId: 'm-1'}],
 };
 
 export function jsonResponse(body: unknown, init: ResponseInit = {}) {

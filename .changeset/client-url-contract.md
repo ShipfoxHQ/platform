@@ -12,6 +12,7 @@
 "@shipfox/client-triggers": major
 "@shipfox/client-workflows": major
 "@shipfox/client-workspace-settings": major
+"@shipfox/api-projects": patch
 ---
 
-Move client routes to slug-based `/w/$workspaceSlug` and `/p/$projectSlug` URLs and enforce the new composition contract.
+Move client routes to slug-based `/w/$workspaceSlug` and `/p/$projectSlug` URLs, enforce the new composition contract, and support bounded project-slug resolution.

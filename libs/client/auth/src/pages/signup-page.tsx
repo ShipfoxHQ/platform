@@ -40,6 +40,12 @@ export function SignupPage() {
   const [nextResendAvailableAt, setNextResendAvailableAt] = useState<string | undefined>();
   const [formError, setFormError] = useState<string | undefined>();
   const [resendError, setResendError] = useState<string | undefined>();
+  const [invitationRefreshFailure, setInvitationRefreshFailure] = useState<{
+    workspaceId: string;
+    workspaceName: string;
+    userId?: string | undefined;
+  }>();
+  const [isRetryingInvitationRefresh, setIsRetryingInvitationRefresh] = useState(false);
   const draftRef = useRef(authFormDraft);
   draftRef.current = authFormDraft;
   // Set just before clearing the draft on success so the unmount cleanup
@@ -70,8 +76,12 @@ export function SignupPage() {
           try {
             await refreshAuth();
           } catch {
-            // Refresh failures don't block the success message: the next API
-            // call's 401 handling will re-route the user.
+            setInvitationRefreshFailure({
+              workspaceId: result.membership.workspaceId,
+              workspaceName: invitationPending.workspaceName,
+              userId: result.user?.id,
+            });
+            return;
           }
           toast.success(`You joined ${invitationPending.workspaceName}.`);
           if (result.user?.id) {
@@ -110,6 +120,27 @@ export function SignupPage() {
     },
   });
 
+  async function retryInvitationAuthRefresh() {
+    if (!invitationRefreshFailure || isRetryingInvitationRefresh) return;
+    setIsRetryingInvitationRefresh(true);
+    try {
+      await refreshAuth();
+    } catch {
+      return;
+    } finally {
+      setIsRetryingInvitationRefresh(false);
+    }
+    if (invitationRefreshFailure.userId) {
+      rememberLastWorkspaceId(
+        invitationRefreshFailure.userId,
+        invitationRefreshFailure.workspaceId,
+      );
+    }
+    toast.success(`You joined ${invitationRefreshFailure.workspaceName}.`);
+    setInvitationRefreshFailure(undefined);
+    await navigate({to: '/'});
+  }
+
   // When arriving from an invitation link, prefill the email and lock it.
   useEffect(() => {
     if (invitationPending && form.state.values.email !== invitationPending.email) {
@@ -146,6 +177,34 @@ export function SignupPage() {
     } catch (error) {
       setResendError(authErrorMessage(error));
     }
+  }
+
+  if (invitationRefreshFailure) {
+    return (
+      <AuthShell
+        title={`Join ${invitationRefreshFailure.workspaceName}`}
+        description="Your account was created, but we could not finish signing you in."
+      >
+        <Callout role="alert" type="error">
+          <div className="flex flex-col gap-8">
+            <Text size="sm">
+              Try again to finish joining your workspace. You can safely retry this step.
+            </Text>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-fit"
+              isLoading={isRetryingInvitationRefresh}
+              onClick={() => {
+                void retryInvitationAuthRefresh();
+              }}
+            >
+              Retry sign-in
+            </Button>
+          </div>
+        </Callout>
+      </AuthShell>
+    );
   }
 
   if (emailChallenge) {

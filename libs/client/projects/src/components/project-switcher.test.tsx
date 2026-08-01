@@ -59,11 +59,7 @@ function renderProjectSwitcher({
     getParentRoute: () => rootRoute,
     path: '/w/$workspaceSlug',
     component: () => (
-      <ProjectSwitcher
-        workspaceId={PROJECT_TEST_WID}
-        workspaceSlug="workspace"
-        onSelect={onSelect}
-      />
+      <ProjectSwitcher workspaceId={PROJECT_TEST_WID} workspaceSlug="acme" onSelect={onSelect} />
     ),
   });
   const createProjectRoute = createRoute({

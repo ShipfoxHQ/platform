@@ -1,8 +1,10 @@
+import {useActiveWorkspace} from '@shipfox/client-auth';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {ProviderGrid} from '#components/provider-grid.js';
 import {useIntegrationProvidersQuery} from '#hooks/api/integrations.js';
 
 export function SourceControlOnboardingPage() {
+  const workspace = useActiveWorkspace();
   const providersQuery = useIntegrationProvidersQuery({capability: 'source_control'});
 
   return (
@@ -15,6 +17,7 @@ export function SourceControlOnboardingPage() {
       </header>
 
       <ProviderGrid
+        workspaceSlug={workspace.slug}
         providers={providersQuery.data ?? []}
         isPending={providersQuery.isPending}
         isFetching={providersQuery.isFetching}

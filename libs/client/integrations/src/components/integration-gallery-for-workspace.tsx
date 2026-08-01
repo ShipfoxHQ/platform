@@ -153,15 +153,18 @@ export function IntegrationGalleryForWorkspace({
           </Text>
         </div>
 
-        <ProviderGrid
-          providers={providers}
-          isPending={providersQuery.isPending}
-          isFetching={providersQuery.isFetching}
-          error={providersQuery.isError ? providersQuery.error : undefined}
-          onRetry={() => void providersQuery.refetch()}
-          emptyMessage={emptyProvidersMessage}
-          onOpenProvider={setCreateProvider}
-        />
+        {workspaceSlug ? (
+          <ProviderGrid
+            workspaceSlug={workspaceSlug}
+            providers={providers}
+            isPending={providersQuery.isPending}
+            isFetching={providersQuery.isFetching}
+            error={providersQuery.isError ? providersQuery.error : undefined}
+            onRetry={() => void providersQuery.refetch()}
+            emptyMessage={emptyProvidersMessage}
+            onOpenProvider={setCreateProvider}
+          />
+        ) : null}
       </section>
       <WebhookCreateModal
         workspaceId={workspaceId}

@@ -20,7 +20,7 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
-import {useMemo} from 'react';
+import {useEffect, useMemo} from 'react';
 import type {
   TriggerEventDetail as TriggerEventDetailModel,
   TriggerEventMatchedWorkflowResult,
@@ -262,6 +262,10 @@ function EventRunsWithProjects({
   event: TriggerEventDetailModel;
 }) {
   const projectsQuery = useProjectsInfiniteQuery(workspaceId);
+  useEffect(() => {
+    if (!projectsQuery.hasNextPage || projectsQuery.isFetchingNextPage) return;
+    void projectsQuery.fetchNextPage();
+  }, [projectsQuery.fetchNextPage, projectsQuery.hasNextPage, projectsQuery.isFetchingNextPage]);
   const projectSlugs = useMemo(
     () =>
       new Map(

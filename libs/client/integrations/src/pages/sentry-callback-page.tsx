@@ -127,6 +127,7 @@ export function SentryCallbackPage() {
         const currentWorkspaces = await listUserWorkspaces()
           .then(({memberships}) => memberships)
           .catch(() => workspaces);
+        if (disposedRef.current) return;
         const workspace = currentWorkspaces.find(({id}) => id === workspaceId);
         await navigate(
           workspace

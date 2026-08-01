@@ -9,8 +9,8 @@ import {WorkflowRunFirstTimeUse} from './workflow-run-first-time-use.js';
 
 interface WorkflowRunPageProps {
   projectId: string;
-  workspaceSlug?: string | undefined;
-  projectSlug?: string | undefined;
+  workspaceSlug: string;
+  projectSlug: string;
   workflowRunId?: string | undefined;
   search?: WorkflowRunsSearch;
 }

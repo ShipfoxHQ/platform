@@ -6,7 +6,7 @@ const LOGIN_URL_RE = /\/auth\/login$/u;
 const LOGIN_WITH_REDIRECT_URL_RE = /\/auth\/login\?redirect=/u;
 const SIGNUP_URL_RE = /\/auth\/signup$/u;
 const ONBOARDING_URL_RE = /\/setup\/workspaces\/new\/?$/u;
-const ANY_WORKSPACE_URL_RE = /\/w\//u;
+const ANY_WORKSPACE_URL_RE = /\/w\/[a-z0-9]+(?:-[a-z0-9]+)*(?:\/|$)/u;
 const SIGNUP_NOT_ALLOWED_MESSAGE =
   process.env.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE ??
   'This E2E deployment does not accept new accounts.';
