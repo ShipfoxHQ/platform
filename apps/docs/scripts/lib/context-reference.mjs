@@ -24,6 +24,11 @@ export const WORKFLOW_FIELD_YAML_KEYS = {
   'job.execution_name': 'jobs.<job_id>.execution_name',
   'step.name': 'jobs.<job_id>.steps[*].name',
   'step.working_directory': 'jobs.<job_id>.steps[*].working_directory',
+  'checkout.project': 'jobs.<job_id>.steps[*].checkout.project',
+  'checkout.connection': 'jobs.<job_id>.steps[*].checkout.connection',
+  'checkout.repository': 'jobs.<job_id>.steps[*].checkout.repository',
+  'checkout.ref': 'jobs.<job_id>.steps[*].checkout.ref',
+  'checkout.path': 'jobs.<job_id>.steps[*].checkout.path',
   'step.feedback': 'jobs.<job_id>.steps[*].gate.on_failure.feedback',
 };
 
