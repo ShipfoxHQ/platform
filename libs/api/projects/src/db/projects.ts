@@ -356,7 +356,11 @@ export async function listProjects(params: ListProjectsParams): Promise<ListProj
   if (cursorCondition) conditions.push(cursorCondition);
   if (params.search) {
     const searchPattern = `%${escapeIlikePattern(params.search)}%`;
-    conditions.push(or(ilike(projects.name, searchPattern), ilike(projects.slug, searchPattern)));
+    const searchCondition = or(
+      ilike(projects.name, searchPattern),
+      ilike(projects.slug, searchPattern),
+    );
+    if (searchCondition) conditions.push(searchCondition);
   }
 
   const rows = await db()
