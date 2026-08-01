@@ -150,6 +150,18 @@ rejects unknown fields and invalid field combinations.
 
 <RunStepFields />
 
+A `${{ }}` value in `run` reaches the command as a quoted shell variable, so the
+shell reads it as text and not as part of the command.
+
+<Callout title="Keep run data out of code positions" type="warn">
+  A few commands read their argument as shell code again: `eval`,
+  `sh -c "$value"`, `let`, `declare -i`, arithmetic expressions, and array
+  subscripts. A value that reaches one of them runs as a command on the runner,
+  with the job's credentials and workspace. Event payloads, trigger inputs, and
+  step outputs come from outside the workflow, so prefer passing them as
+  arguments: `deploy "$TARGET"` rather than `eval "deploy $TARGET"`.
+</Callout>
+
 ### Checkout step fields
 
 <CheckoutStepFields />

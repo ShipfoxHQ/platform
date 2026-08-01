@@ -86,31 +86,16 @@ Outputs suit small facts. Files and build products belong in external artifact
 storage, with an output carrying their location. Exact output types and limits
 live in [Step outputs](/reference/workflow-schema#step-outputs).
 
-## Commands receive template values as data
+## Templates carry untrusted data
 
-Shipfox does not splice template values into shell text. It binds each
-interpolated value to the command environment and replaces the template with a
-quoted shell reference. This happens automatically, including for events,
-inputs, listening events, and outputs.
+Events, inputs, and step outputs carry data the workflow did not write. A shell
+step reads that data as text, so it cannot run as a command. [A few shell
+constructs](/reference/workflow-schema#run-step-fields) re-read their own
+arguments and break that.
 
-This binding keeps an interpolated value in a data position. A command that
-re-executes its arguments can parse the value as shell code again. Keep workflow
-data out of those code positions: `eval`, `sh -c "$value"`, `let`, `declare -i`,
-arithmetic expressions, and array subscripts.
-
-Infrastructure selectors are not a trust boundary either. The `runner` field of
-a job and the `model`, `provider`, and `thinking` fields of an agent step accept
-templates like any other field. Event data can choose where a job runs and how
-much reasoning it uses. Use a literal or a variable when that choice must not
-depend on the event.
-
-Prompts do not have shell injection, but they still have instruction injection.
-Tell the agent which fields are data. Limit the tools and write access on that
-step.
-
-Secrets are different again. Keep raw secrets out of prompts and persisted
-outputs. Use a run step when a command needs a secret. For external work, give
-the agent a narrow tool that keeps the credential behind its integration connection.
+Nothing guards a prompt or a job setting this way. An event can plant orders
+for an agent. It can also pick the runner a job uses. Keep an event out of any
+choice you would not let a stranger make.
 
 [Secrets and variables](/reference/secrets-variables) describes storage,
 masking, and binding. [Integrations, integration connections, and
