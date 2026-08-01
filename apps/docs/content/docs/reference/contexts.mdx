@@ -24,18 +24,13 @@ reads `step` and `vars`.
 
 <ContextAvailability />
 
-A predicate is evaluated once, so it reads only what exists at that moment. A
-template can combine contexts that become available at different times.
+A field cannot read the value it sets. For example, `run_name` cannot read
+`run.name`.
 
-Only a run step's `run` command and `env` values can reference `secrets`. See
-[Secrets and variables](/reference/secrets-variables#using-secrets).
-
-Reading a context that the table does not list for a field fails the sync, with
-an error that names the context. The workflow never runs with an empty value in
-its place. See [Correct a context that is not
+Reading a context the table does not list for the field fails the sync, with an
+error that names the context. The workflow never runs with an empty value in its
+place. See [Correct a context that is not
 available](/how-to/run-and-troubleshoot/workflow-sync#correct-a-context-that-is-not-available).
-
-A field cannot read the value it sets: `run_name` cannot read `run.name`.
 
 ## Context properties
 

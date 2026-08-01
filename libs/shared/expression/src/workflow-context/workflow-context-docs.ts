@@ -104,12 +104,13 @@ export const workflowContextDocs = [
     root: 'event',
     summary: 'The raw payload of the event that started the run.',
     shapeNote:
-      'The provider owns this payload, so it has no fixed shape. Read the fields it documents, such as `event.ref` or `event.pull_request.number`.',
+      'The provider owns this payload, so it has no fixed shape. Each provider page under [Integrations](/integrations) lists the events Shipfox delivers and links the payload each one carries.',
   },
   {
     root: 'inputs',
     summary: 'Values the trigger `with` block passed into the run.',
-    shapeNote: 'The keys are the ones the workflow declares in its trigger `with` block.',
+    shapeNote:
+      'The keys are the ones the trigger declares. See [trigger fields](/reference/workflow-schema#trigger-fields).',
   },
   {
     root: 'job',
@@ -175,12 +176,12 @@ export const workflowContextDocs = [
     root: 'vars',
     summary: 'Workspace and project variables.',
     shapeNote:
-      'The keys are the variable names the workspace defines. Only a literal key is allowed, so `vars["KEY"]` works and a computed key does not.',
+      'The keys are the variable names the workspace defines. See [Secrets and variables](/reference/secrets-variables).',
   },
   {
     root: 'secrets',
     summary: 'Workspace and project secrets.',
     shapeNote:
-      'The keys are the secret names the workspace defines. Only a literal key is allowed. The runner reads the value, so no predicate can read it.',
+      'The keys are the secret names the workspace defines. See [Secrets and variables](/reference/secrets-variables).',
   },
 ] as const satisfies readonly WorkflowContextDoc[];
