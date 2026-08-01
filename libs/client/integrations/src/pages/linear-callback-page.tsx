@@ -36,7 +36,9 @@ export function LinearCallbackPage() {
   const params = useRouteSearch(parseLinearCallbackQuery);
   const workspaceId = useMemo(() => readLinearInstallWorkspace(sessionStorageOrUndefined()), []);
   const [failure, setFailure] = useState<LinearCallbackFailure | undefined>();
-  const [completedWorkspaceId, setCompletedWorkspaceId] = useState<string>();
+  const [completedWorkspace, setCompletedWorkspace] = useState<{
+    slug?: string | undefined;
+  }>();
   useEffect(() => {
     if (!params || isLoading) return;
 
@@ -72,9 +74,10 @@ export function LinearCallbackPage() {
           if (disposed) return;
           const workspace = currentWorkspaces.find(({id}) => id === connection.workspaceId);
           if (!workspace) {
-            setCompletedWorkspaceId(connection.workspaceId);
+            setCompletedWorkspace({});
             return;
           }
+          setCompletedWorkspace({slug: workspace.slug});
           await navigate({
             to: '/w/$workspaceSlug/settings/integrations',
             params: {workspaceSlug: workspace.slug},
@@ -82,6 +85,7 @@ export function LinearCallbackPage() {
           });
         } catch {
           // Keep the completed callback page visible if client navigation is interrupted.
+          if (!disposed) setCompletedWorkspace({});
         }
       },
       (error: unknown) => {
@@ -112,19 +116,21 @@ export function LinearCallbackPage() {
           startOver: true,
           signIn: false,
         }}
-        workspaceId={workspaceId}
         workspaceSlug={workspaces.find(({id}) => id === workspaceId)?.slug}
       />
     );
   }
 
-  if (completedWorkspaceId)
+  if (completedWorkspace)
     return (
       <CallbackStatusShell
         title="Linear connected"
-        message="Linear is connected. Continue in integrations settings."
-        workspaceId={completedWorkspaceId}
-        workspaceSlug={workspaces.find(({id}) => id === completedWorkspaceId)?.slug}
+        message={
+          completedWorkspace.slug
+            ? 'Linear is connected. Continue in integrations settings.'
+            : 'Linear is connected. Return to Shipfox to continue.'
+        }
+        workspaceSlug={completedWorkspace.slug}
         installPath="/w/$workspaceSlug/integrations/linear"
       />
     );
@@ -134,7 +140,6 @@ export function LinearCallbackPage() {
   return (
     <LinearCallbackFailurePage
       failure={failure}
-      workspaceId={workspaceId}
       workspaceSlug={workspaces.find(({id}) => id === workspaceId)?.slug}
     />
   );
@@ -142,11 +147,9 @@ export function LinearCallbackPage() {
 
 function LinearCallbackFailurePage({
   failure,
-  workspaceId,
   workspaceSlug,
 }: {
   failure: LinearCallbackFailure;
-  workspaceId: string | undefined;
   workspaceSlug: string | undefined;
 }) {
   return (
@@ -155,7 +158,6 @@ function LinearCallbackFailurePage({
       message={failure.message}
       startOver={failure.startOver}
       switchAccount={failure.signIn}
-      workspaceId={workspaceId}
       workspaceSlug={workspaceSlug}
       installPath="/w/$workspaceSlug/integrations/linear"
     />

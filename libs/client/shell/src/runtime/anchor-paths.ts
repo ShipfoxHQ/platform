@@ -22,6 +22,7 @@ export {anchorPaths, entityPrefixRegistry, slugParamPrefixes};
 
 export function validateRoutePathInvariants(path: string): void {
   const segments = path.split('/').filter(Boolean);
+  const seenSlugParams = new Set<string>();
   for (const [index, segment] of segments.entries()) {
     const nextSegment = segments[index + 1];
     if (segment.length === 1 && Object.hasOwn(entityPrefixRegistry, segment)) {
@@ -35,10 +36,16 @@ export function validateRoutePathInvariants(path: string): void {
     if (!segment.startsWith('$')) continue;
     const param = segment.slice(1) as keyof typeof slugParamPrefixes;
     const prefix = slugParamPrefixes[param];
-    if (prefix !== undefined && segments[index - 1] !== prefix) {
-      throw new Error(
-        `Route "${path}" places slug parameter "${param}" outside prefix "${prefix}".`,
-      );
+    if (prefix !== undefined) {
+      if (seenSlugParams.has(param)) {
+        throw new Error(`Route "${path}" repeats slug parameter "${param}".`);
+      }
+      seenSlugParams.add(param);
+      if (segments[index - 1] !== prefix) {
+        throw new Error(
+          `Route "${path}" places slug parameter "${param}" outside prefix "${prefix}".`,
+        );
+      }
     }
     if (prefix === undefined) {
       const previousSegment = segments[index - 1];
@@ -51,6 +58,14 @@ export function validateRoutePathInvariants(path: string): void {
           `Route "${path}" must place UUID parameter "${param}" after a page segment.`,
         );
       }
+    }
+  }
+
+  const workspacePrefixIndex = segments.indexOf('w');
+  const projectPrefixIndex = segments.indexOf('p');
+  if (workspacePrefixIndex !== -1 && projectPrefixIndex !== -1) {
+    if (workspacePrefixIndex > projectPrefixIndex) {
+      throw new Error(`Route "${path}" must place workspace prefix "w" before project prefix "p".`);
     }
   }
 }

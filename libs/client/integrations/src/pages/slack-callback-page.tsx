@@ -35,7 +35,9 @@ export function SlackCallbackPage() {
   const params = useRouteSearch(parseSlackCallbackQuery);
   const workspaceId = useMemo(() => readSlackInstallWorkspace(sessionStorageOrUndefined()), []);
   const [failure, setFailure] = useState<SlackCallbackFailure>();
-  const [completedWorkspaceId, setCompletedWorkspaceId] = useState<string>();
+  const [completedWorkspace, setCompletedWorkspace] = useState<{
+    slug?: string | undefined;
+  }>();
 
   useEffect(() => {
     if (!params || isLoading) return;
@@ -54,7 +56,9 @@ export function SlackCallbackPage() {
       async (connection) => {
         if (disposed) return;
         if (completedCallbacks.has(key)) {
-          setCompletedWorkspaceId(connection.workspaceId);
+          setCompletedWorkspace({
+            slug: workspaces.find(({id}) => id === connection.workspaceId)?.slug,
+          });
           return;
         }
         completedCallbacks.add(key);
@@ -75,16 +79,17 @@ export function SlackCallbackPage() {
           if (disposed) return;
           const workspace = currentWorkspaces.find(({id}) => id === connection.workspaceId);
           if (!workspace) {
-            setCompletedWorkspaceId(connection.workspaceId);
+            setCompletedWorkspace({});
             return;
           }
+          setCompletedWorkspace({slug: workspace.slug});
           await navigate({
             to: '/w/$workspaceSlug/settings/integrations',
             params: {workspaceSlug: workspace.slug},
             replace: true,
           });
         } catch {
-          if (!disposed) setCompletedWorkspaceId(connection.workspaceId);
+          if (!disposed) setCompletedWorkspace({});
         }
       },
       (error: unknown) => {
@@ -110,18 +115,20 @@ export function SlackCallbackPage() {
         title="Invalid Slack callback"
         message="This Slack link is missing required parameters. Start the install again from workspace settings."
         startOver
-        workspaceId={workspaceId}
         workspaceSlug={workspaces.find(({id}) => id === workspaceId)?.slug}
         installPath="/w/$workspaceSlug/integrations/slack"
       />
     );
-  if (completedWorkspaceId)
+  if (completedWorkspace)
     return (
       <CallbackStatusShell
         title="Slack connected"
-        message="Slack is connected. Continue in integrations settings."
-        workspaceId={completedWorkspaceId}
-        workspaceSlug={workspaces.find(({id}) => id === completedWorkspaceId)?.slug}
+        message={
+          completedWorkspace.slug
+            ? 'Slack is connected. Continue in integrations settings.'
+            : 'Slack is connected. Return to Shipfox to continue.'
+        }
+        workspaceSlug={completedWorkspace.slug}
         installPath="/w/$workspaceSlug/integrations/slack"
       />
     );
@@ -129,7 +136,6 @@ export function SlackCallbackPage() {
     return (
       <CallbackStatusShell
         {...failure}
-        workspaceId={workspaceId}
         workspaceSlug={workspaces.find(({id}) => id === workspaceId)?.slug}
         switchAccount={failure.signIn}
         installPath="/w/$workspaceSlug/integrations/slack"

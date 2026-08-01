@@ -176,7 +176,9 @@ nest below it at `/p/$projectSlug`, and workspace settings routes nest below
 `/w/$workspaceSlug/settings`. The prefix registry maps `w` to the workspace slug and `p` to the
 project slug. A registered prefix must be followed immediately by its dynamic slug parameter, and
 the corresponding slug parameter may not appear outside its registered prefix. Other dynamic
-parameters must follow a page segment rather than being placed directly after an entity prefix.
+parameters must follow a page segment rather than being placed directly after an entity prefix. A
+workspace prefix must precede a project prefix, and each registered slug parameter may appear only
+once in a route path.
 
 Composition validates these path invariants for every feature-owned layout and route before it
 builds the generated route tree. A feature contribution that puts a registered slug outside its
@@ -365,6 +367,11 @@ id, key, or feature id.
 | Duplicate config key | `Config key "<key>" is contributed by both features "<first>" and "<second>". Reuse the same schema instance to intentionally share it.` |
 | Invalid anchor nesting | `Route "<path>" must be nested under anchor "<anchor>" (<anchor-path>).` |
 | Invalid layout nesting | `Route "<path>" must be nested under layout "<layout>" (<layout-path>).` |
+| Prefix without slug parameter | `Route "<path>" uses prefix "<prefix>" without a dynamic parameter immediately after it.` |
+| Slug outside prefix | `Route "<path>" places slug parameter "<param>" outside prefix "<prefix>".` |
+| Repeated slug parameter | `Route "<path>" repeats slug parameter "<param>".` |
+| Inverted entity prefixes | `Route "<path>" must place workspace prefix "w" before project prefix "p".` |
+| UUID parameter after entity prefix | `Route "<path>" must place UUID parameter "<param>" after a page segment.` |
 | Root parent inside protected anchor | `Route "<path>" in feature "<feature>" cannot use root parent inside reserved anchor "<anchor>" (<anchor-path>). Use parent "<anchor>".` |
 | Route module not found | `Could not resolve route implementation "<specifier>" for "<path>".` |
 | Invalid route export | `Route implementation "<specifier>" for "<path>" must export default defineRoute(...).` |

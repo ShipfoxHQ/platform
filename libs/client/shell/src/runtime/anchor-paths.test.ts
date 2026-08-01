@@ -28,4 +28,16 @@ describe('client route path invariants', () => {
       'must place UUID parameter "projectId" after a page segment',
     );
   });
+
+  test('rejects repeated slug parameters', () => {
+    expect(() =>
+      validateRoutePathInvariants('/w/$workspaceSlug/p/$projectSlug/w/$workspaceSlug'),
+    ).toThrow('repeats slug parameter "workspaceSlug"');
+  });
+
+  test('requires workspace prefixes to precede project prefixes', () => {
+    expect(() => validateRoutePathInvariants('/p/$projectSlug/w/$workspaceSlug/runs')).toThrow(
+      'must place workspace prefix "w" before project prefix "p"',
+    );
+  });
 });

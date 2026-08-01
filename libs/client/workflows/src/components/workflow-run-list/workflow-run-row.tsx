@@ -104,16 +104,16 @@ export function WorkflowRunRow({
       </div>
     </>
   );
+  const rowClassName = cn(
+    'group relative flex w-full flex-col gap-4 rounded-8 border border-transparent px-10 py-8 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
+    selected && 'bg-background-components-hover',
+  );
 
   // Optimistic manual runs (temp-<uuid>) have no detail page until the canonical row
   // replaces them on the next poll, so they render non-interactively instead of as a link
   // that would navigate to a workflow run id the detail route rejects.
   if (run.isTemporary) {
-    return (
-      <div className="relative flex w-full flex-col gap-4 rounded-8 border border-transparent px-10 py-8 text-left">
-        {body}
-      </div>
-    );
+    return <div className={rowClassName}>{body}</div>;
   }
 
   const runLink =
@@ -129,22 +129,13 @@ export function WorkflowRunRow({
         aria-label={[run.name, runNumberLabel, statusLabel, durationLabel, run.triggerLabel]
           .filter((part): part is string => Boolean(part))
           .join(', ')}
-        className={cn(
-          'group relative flex w-full flex-col gap-4 rounded-8 border border-transparent px-10 py-8 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
-          selected && 'bg-background-components-hover',
-        )}
+        className={rowClassName}
       >
         {body}
       </Link>
     ) : null;
 
-  return (
-    runLink ?? (
-      <div className="relative flex w-full flex-col gap-4 rounded-8 border border-transparent px-10 py-8 text-left">
-        {body}
-      </div>
-    )
-  );
+  return runLink ?? <div className={rowClassName}>{body}</div>;
 }
 
 function TriggerLabel({run}: {run: WorkflowRunListItem}) {

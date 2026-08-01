@@ -131,7 +131,8 @@ describe('resolveProjectSlug', () => {
       )
       .mockResolvedValueOnce(
         jsonResponse({projects: [projectResponse('renamed-api', projectId)], next_cursor: null}),
-      );
+      )
+      .mockResolvedValueOnce(jsonResponse({projects: [], next_cursor: null}));
     configureApiClient({fetchImpl});
     const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
 
@@ -140,7 +141,7 @@ describe('resolveProjectSlug', () => {
     await expect(
       resolveProjectSlug({queryClient, workspaceId, projectSlug: 'checkout-api'}),
     ).resolves.toBeUndefined();
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   test('paginates from the refreshed first page after a cached miss', async () => {
@@ -169,6 +170,34 @@ describe('resolveProjectSlug', () => {
       resolveProjectSlug({queryClient, workspaceId, projectSlug: 'new-project'}),
     ).resolves.toBe(projectId);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  test('paginates slug search results until it finds the exact slug', async () => {
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    const projectId = '44444444-4444-4444-8444-444444444444';
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({projects: [projectResponse('old-project')], next_cursor: null}),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({projects: [projectResponse('still-old')], next_cursor: null}),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({projects: [projectResponse('matching-name')], next_cursor: 'cursor-1'}),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({projects: [projectResponse('target-project', projectId)], next_cursor: null}),
+      );
+    configureApiClient({fetchImpl});
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+
+    await queryClient.fetchInfiniteQuery(projectsInfiniteQueryOptions(workspaceId));
+
+    await expect(
+      resolveProjectSlug({queryClient, workspaceId, projectSlug: 'target-project'}),
+    ).resolves.toBe(projectId);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 });
 

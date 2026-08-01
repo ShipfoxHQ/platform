@@ -9,7 +9,6 @@ export function CallbackStatusShell({
   message,
   startOver,
   switchAccount,
-  workspaceId,
   workspaceSlug,
   installPath,
 }: {
@@ -17,7 +16,6 @@ export function CallbackStatusShell({
   message: string;
   startOver?: boolean;
   switchAccount?: boolean;
-  workspaceId?: string | undefined;
   workspaceSlug?: string | undefined;
   installPath: '/w/$workspaceSlug/integrations/linear' | '/w/$workspaceSlug/integrations/slack';
 }) {
@@ -53,7 +51,7 @@ export function CallbackStatusShell({
             <ButtonLink asChild className="min-h-44 w-full sm:w-fit">
               <Link
                 to="/auth/logout"
-                search={workspaceId ? {redirect: logoutRedirect ?? '/'} : undefined}
+                search={logoutRedirect ? {redirect: logoutRedirect} : undefined}
               >
                 Switch account
               </Link>

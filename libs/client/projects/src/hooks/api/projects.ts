@@ -23,6 +23,8 @@ export const projectsQueryKeys = {
   all: ['projects'] as const,
   list: (workspaceId: string, search = '') =>
     [...projectsQueryKeys.all, 'list', workspaceId, search] as const,
+  slug: (workspaceId: string, projectSlug: string) =>
+    [...projectsQueryKeys.all, 'slug', workspaceId, projectSlug] as const,
   exists: (workspaceId: string) => [...projectsQueryKeys.all, 'exists', workspaceId] as const,
   detail: (projectId: string) => [...projectsQueryKeys.all, 'detail', projectId] as const,
 };
@@ -33,6 +35,9 @@ type ProjectListQueryKey =
 type ProjectExistenceQueryKey =
   | ReturnType<typeof projectsQueryKeys.exists>
   | readonly ['projects', 'exists'];
+type ProjectSlugQueryKey =
+  | ReturnType<typeof projectsQueryKeys.slug>
+  | readonly ['projects', 'slug'];
 type ProjectDetailQueryKey =
   | ReturnType<typeof projectsQueryKeys.detail>
   | readonly ['projects', 'detail'];
@@ -49,6 +54,12 @@ type ProjectExistenceQueryOptions = UseQueryOptions<
   Error,
   ProjectList,
   ProjectExistenceQueryKey
+>;
+type ProjectSlugQueryOptions = UseQueryOptions<
+  Project | undefined,
+  Error,
+  Project | undefined,
+  ProjectSlugQueryKey
 >;
 type ProjectDetailQueryOptions = UseQueryOptions<Project, Error, Project, ProjectDetailQueryKey>;
 
@@ -102,7 +113,7 @@ export async function resolveProjectSlug({
     if (!cursor) {
       return await refetchAndResolveProjectSlug(queryClient, queryKey, workspaceId, projectSlug);
     }
-    return await resolveProjectSlugBySearch(workspaceId, projectSlug);
+    return await resolveProjectSlugBySearch(queryClient, workspaceId, projectSlug);
   }
 
   return undefined;
@@ -121,18 +132,47 @@ async function refetchAndResolveProjectSlug(
   const project = data.pages
     .flatMap((page) => page.projects)
     .find((candidate) => candidate.slug === projectSlug);
-  if (project) return project.id;
+  if (project) {
+    queryClient.setQueryData(projectsQueryKeys.slug(workspaceId, projectSlug), project);
+    return project.id;
+  }
 
-  if (!data.pages.at(-1)?.nextCursor) return undefined;
-  return await resolveProjectSlugBySearch(workspaceId, projectSlug);
+  return await resolveProjectSlugBySearch(queryClient, workspaceId, projectSlug);
 }
 
 async function resolveProjectSlugBySearch(
+  queryClient: QueryClient,
   workspaceId: string,
   projectSlug: string,
 ): Promise<string | undefined> {
-  const result = await listProjects({workspaceId, search: projectSlug, limit: 100});
-  return result.projects.find((project) => project.slug === projectSlug)?.id;
+  const queryKey = projectsQueryKeys.slug(workspaceId, projectSlug);
+  const project = await findProjectBySlug({workspaceId, projectSlug});
+  if (project) {
+    queryClient.setQueryData(queryKey, project);
+    return project.id;
+  }
+  return undefined;
+}
+
+async function findProjectBySlug({
+  workspaceId,
+  projectSlug,
+}: {
+  workspaceId: string;
+  projectSlug: string;
+}): Promise<Project | undefined> {
+  let result = await listProjects({workspaceId, search: projectSlug, limit: 100});
+  while (true) {
+    const project = result.projects.find((candidate) => candidate.slug === projectSlug);
+    if (project) return project;
+    if (!result.nextCursor) return undefined;
+    result = await listProjects({
+      workspaceId,
+      search: projectSlug,
+      limit: 100,
+      cursor: result.nextCursor,
+    });
+  }
 }
 
 export async function getProject(projectId: string): Promise<Project> {
@@ -202,6 +242,22 @@ export function projectQueryOptions(projectId: string | undefined): ProjectDetai
   });
 }
 
+export function projectSlugQueryOptions(
+  workspaceId: string | undefined,
+  projectSlug: string | undefined,
+): ProjectSlugQueryOptions {
+  return queryOptions({
+    queryKey:
+      workspaceId && projectSlug
+        ? projectsQueryKeys.slug(workspaceId, projectSlug)
+        : ([...projectsQueryKeys.all, 'slug'] as const),
+    enabled: Boolean(workspaceId && projectSlug),
+    queryFn: () =>
+      findProjectBySlug({workspaceId: workspaceId ?? '', projectSlug: projectSlug ?? ''}),
+    staleTime: 30_000,
+  });
+}
+
 export function useProjectsInfiniteQuery(
   workspaceId: string | undefined,
   search?: string,
@@ -212,7 +268,12 @@ export function useProjectsInfiniteQuery(
 export function useProjectQuery(projectId: string | undefined) {
   return useQuery(projectQueryOptions(projectId));
 }
-
+export function useProjectSlugQuery(
+  workspaceId: string | undefined,
+  projectSlug: string | undefined,
+) {
+  return useQuery(projectSlugQueryOptions(workspaceId, projectSlug));
+}
 export function useCreateProjectMutation() {
   const queryClient = useQueryClient();
   return useMutation({

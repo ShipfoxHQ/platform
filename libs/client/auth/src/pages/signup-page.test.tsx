@@ -207,6 +207,8 @@ describe('SignupPage', () => {
               id: '33333333-3333-4333-8333-333333333333',
               user_id: user.id,
               workspace_id: workspaceId,
+              created_at: '2026-05-01T00:00:00.000Z',
+              updated_at: '2026-05-01T00:00:00.000Z',
               workspace_name: 'Invite Workspace',
               workspace_slug: 'invite-workspace',
               workspace_status: 'active',

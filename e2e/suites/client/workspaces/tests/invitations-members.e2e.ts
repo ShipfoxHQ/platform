@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {stableScreenshot} from '@shipfox/e2e-kit/ui';
 import {expect, test} from './test.js';
+import {workspaceUrlRe} from './workspace-urls.js';
 
 const PENDING_INVITATION_RE = /open invitation already exists/u;
 const VISUAL_OWNER_EMAIL = 'owner@example.test';
@@ -8,10 +9,6 @@ const VISUAL_INVITEE_EMAIL = 'invitee@example.test';
 const VISUAL_PENDING_EMAIL = 'pending-invitee@example.test';
 const VISUAL_JOINED_DATE = 'May 1, 2026';
 const VISUAL_EXPIRES_DATE = 'May 20, 2026';
-
-function workspaceUrlRe(slug: string): RegExp {
-  return new RegExp(`/w/${slug}(/|$)`, 'u');
-}
 
 function textRe(text: string): RegExp {
   return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u');

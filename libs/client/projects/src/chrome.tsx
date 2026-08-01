@@ -4,17 +4,18 @@ import {
   useRouteParams,
 } from '@shipfox/client-shell/runtime';
 import {ProjectCrumb} from '#components/project-crumb.js';
-import {resolveProjectSlug, useProjectsInfiniteQuery} from '#hooks/api/projects.js';
+import {resolveProjectSlug, useProjectSlugQuery} from '#hooks/api/projects.js';
 
 export {resolveProjectSlug};
 
-export function useMaybeActiveProject() {
+export function useMaybeActiveProjectQuery() {
   const workspace = useActiveWorkspace();
   const {projectSlug} = useRouteParams(parseWorkspaceProjectParams);
-  const projectsQuery = useProjectsInfiniteQuery(workspace.id);
-  return projectsQuery.data?.pages
-    .flatMap((page) => page.projects)
-    .find((project) => project.slug === projectSlug);
+  return useProjectSlugQuery(workspace.id, projectSlug);
+}
+
+export function useMaybeActiveProject() {
+  return useMaybeActiveProjectQuery().data;
 }
 
 export function useActiveProject() {

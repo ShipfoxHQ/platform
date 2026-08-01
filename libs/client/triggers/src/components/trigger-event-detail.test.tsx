@@ -66,9 +66,10 @@ function renderWithProviders(
   ui: ReactElement,
   {includeListProject = true, includeDetailProject = false} = {},
 ) {
-  const queryClient = new QueryClient();
+  const queryClient = new QueryClient({
+    defaultOptions: {queries: {retry: false, staleTime: Infinity}},
+  });
   const project = {id: PROJECT_ID, slug: 'checkout-api'};
-  queryClient.setQueryDefaults(projectsQueryKeys.detail(PROJECT_ID), {staleTime: Infinity});
   queryClient.setQueryData(projectsQueryKeys.list(WORKSPACE_ID), {
     pages: [{projects: includeListProject ? [project] : [], nextCursor: null}],
     pageParams: [undefined],

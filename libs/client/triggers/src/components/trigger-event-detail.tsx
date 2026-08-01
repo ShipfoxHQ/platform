@@ -272,16 +272,25 @@ function EventRunsWithProjects({
     [projectsQuery.data],
   );
 
-  return <EventRunsList workspaceSlug={workspaceSlug} projectSlugs={projectSlugs} event={event} />;
+  return (
+    <EventRunsList
+      workspaceSlug={workspaceSlug}
+      projectSlugs={projectSlugs}
+      projectDetailLookupEnabled={!projectsQuery.isPending && !projectsQuery.isFetching}
+      event={event}
+    />
+  );
 }
 
 function EventRunsList({
   workspaceSlug,
   projectSlugs,
+  projectDetailLookupEnabled = false,
   event,
 }: {
   workspaceSlug?: string | undefined;
   projectSlugs: ReadonlyMap<string, string>;
+  projectDetailLookupEnabled?: boolean;
   event: TriggerEventDetailModel;
 }) {
   return (
@@ -296,6 +305,7 @@ function EventRunsList({
             workspaceSlug={workspaceSlug}
             projectId={decision.projectId ?? undefined}
             projectSlug={decision.projectId ? projectSlugs.get(decision.projectId) : undefined}
+            projectDetailLookupEnabled={projectDetailLookupEnabled}
             decision={decision}
           />
         ))}
@@ -308,14 +318,20 @@ function DecisionRow({
   projectId,
   projectSlug,
   workspaceSlug,
+  projectDetailLookupEnabled,
   decision,
 }: {
   projectId?: string | undefined;
   projectSlug?: string | undefined;
   workspaceSlug?: string | undefined;
+  projectDetailLookupEnabled: boolean;
   decision: TriggerEventMatchedWorkflowResult;
 }) {
-  const projectQuery = useProjectQuery(projectSlug ? undefined : projectId);
+  const canRenderRunLink =
+    decision.decision === 'triggered' && Boolean(decision.runId && decision.runName);
+  const projectQuery = useProjectQuery(
+    canRenderRunLink && projectDetailLookupEnabled && !projectSlug ? projectId : undefined,
+  );
   const resolvedProjectSlug = projectSlug ?? projectQuery.data?.slug;
 
   if (decision.decision !== 'triggered' || !decision.runId || !decision.runName) {

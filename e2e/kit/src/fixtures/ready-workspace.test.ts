@@ -8,7 +8,7 @@ describe('createReadyWorkspace fixture', () => {
 
   it('creates a user, workspace, project, session, and browser login', async () => {
     const user = {user: {id: 'user-1'}};
-    const workspace = {id: 'workspace-1'};
+    const workspace = {id: 'workspace-1', slug: 'ready-workspace'};
     const project = {id: 'project-1'};
     const session = {token: 'session-token'};
     const page = {};
@@ -45,6 +45,7 @@ describe('createReadyWorkspace fixture', () => {
     expect(result).toEqual({
       userId: 'user-1',
       workspaceId: 'workspace-1',
+      workspaceSlug: 'ready-workspace',
       projectId: 'project-1',
       sessionToken: 'session-token',
     });
