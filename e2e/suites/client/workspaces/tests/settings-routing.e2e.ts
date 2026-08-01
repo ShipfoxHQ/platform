@@ -14,11 +14,9 @@ test.describe('workspace settings routing', () => {
     await projects.createProject({workspaceId: workspace.id});
     await auth.loginAs(page, user);
 
-    await membersSettings.gotoDefault(workspace.id);
+    await membersSettings.gotoDefault(workspace.slug);
 
-    await expect(page).toHaveURL(
-      new RegExp(`/workspaces/${workspace.id}/settings/members/?$`, 'u'),
-    );
+    await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/settings/members/?$`, 'u'));
     await expect(membersSettings.heading()).toBeVisible();
   });
 
@@ -36,9 +34,9 @@ test.describe('workspace settings routing', () => {
     });
     await auth.loginAs(page, user);
 
-    await workspaceHome.gotoSettings(workspace.id);
+    await workspaceHome.gotoSettings(workspace.slug);
 
-    await expect(page).toHaveURL(new RegExp(`/workspaces/${workspace.id}/integrations/?$`, 'u'));
+    await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/integrations/?$`, 'u'));
     await expect(setupShell.sourceControlHeading()).toBeVisible({
       timeout: SETUP_NAVIGATION_TIMEOUT_MS,
     });
@@ -61,12 +59,10 @@ test.describe('workspace settings routing', () => {
     await projects.createProject({workspaceId: workspace.id});
     await auth.loginAs(page, user);
 
-    await workspaceHome.goto(workspace.id);
+    await workspaceHome.goto(workspace.slug);
     await workspaceHome.settingsTab().click();
 
-    await expect(page).toHaveURL(
-      new RegExp(`/workspaces/${workspace.id}/settings/members/?$`, 'u'),
-    );
+    await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/settings/members/?$`, 'u'));
     await expect(membersSettings.heading()).toBeVisible();
   });
 });

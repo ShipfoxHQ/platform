@@ -41,7 +41,10 @@ function renderCallback(options: {
     path: `/integrations/sentry/callback${search}`,
     routePath: '/integrations/sentry/callback',
     element: <SentryCallbackPage />,
-    extraRoutes: ['/workspaces/$wid/settings/integrations', '/workspaces/$wid/integrations/sentry'],
+    extraRoutes: [
+      '/w/$workspaceSlug/settings/integrations',
+      '/w/$workspaceSlug/integrations/sentry',
+    ],
     ...(options.workspaces ? {workspaces: options.workspaces} : {}),
     ...(options.loadingAuth ? {loadingAuth: true} : {}),
   });
@@ -104,7 +107,7 @@ describe('SentryCallbackPage', () => {
 
     fireEvent.click(await screen.findByRole('button', {name: 'Install'}));
 
-    await screen.findByTestId('route:/workspaces/$wid/settings/integrations');
+    await screen.findByTestId('route:/w/$workspaceSlug/settings/integrations');
     expect(connectSentryMock).toHaveBeenCalledWith({
       body: {
         workspace_id: testWorkspace().id,
@@ -126,7 +129,7 @@ describe('SentryCallbackPage', () => {
     fireEvent.click(await screen.findByRole('button', {name: 'Install'}));
     fireEvent.click(await screen.findByRole('button', {name: 'Retry'}));
 
-    await screen.findByTestId('route:/workspaces/$wid/settings/integrations');
+    await screen.findByTestId('route:/w/$workspaceSlug/settings/integrations');
     expect(connectSentryMock).toHaveBeenCalledTimes(2);
   });
 
@@ -203,7 +206,7 @@ describe('SentryCallbackPage', () => {
     renderCallback({installationId: 'install-remount'});
     fireEvent.click(await screen.findByRole('button', {name: 'Install'}));
 
-    await screen.findByTestId('route:/workspaces/$wid/settings/integrations');
+    await screen.findByTestId('route:/w/$workspaceSlug/settings/integrations');
     await waitFor(() => expect(connectSentryMock).toHaveBeenCalledTimes(2));
   });
 });

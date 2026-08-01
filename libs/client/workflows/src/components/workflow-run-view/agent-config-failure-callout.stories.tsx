@@ -42,7 +42,7 @@ const meta = {
       });
       const agentSettingsRoute = createRoute({
         getParentRoute: () => rootRoute,
-        path: '/workspaces/$wid/settings/agents',
+        path: '/w/$workspaceSlug/settings/agents',
         component: () => null,
       });
       const router = createRouter({
@@ -55,6 +55,7 @@ const meta = {
   ],
   args: {
     workspaceId: WORKSPACE_ID,
+    workspaceSlug: 'acme',
     config,
     error: makeError('provider_not_configured'),
   },

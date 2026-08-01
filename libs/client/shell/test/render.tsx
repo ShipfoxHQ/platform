@@ -1,5 +1,5 @@
 import {QueryClient} from '@tanstack/react-query';
-import {createMemoryHistory, createRouter, Outlet, RouterProvider} from '@tanstack/react-router';
+import {createMemoryHistory, createRouter, RouterProvider} from '@tanstack/react-router';
 import {render} from '@testing-library/react';
 import {createStore} from 'jotai';
 import {composeClientFeatures} from '#compose/compose-client-features.js';
@@ -45,7 +45,7 @@ export async function renderComposedShell({
   };
   const chrome: ChromeSlots = {
     ProjectBreadcrumb: () => null,
-    ProjectLayoutGuard: Outlet,
+    projectSlugResolver: async () => 'project',
     ...chromeOverrides,
   };
   store.set(authStateAtom, auth);

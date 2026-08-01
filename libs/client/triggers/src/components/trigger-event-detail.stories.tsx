@@ -2,6 +2,7 @@ import {argosScreenshot} from '@argos-ci/storybook/vitest';
 import type {TriggerEventDetailResponseDto} from '@shipfox/api-triggers-dto';
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
   createMemoryHistory,
   createRootRoute,
@@ -22,16 +23,29 @@ function minutesAgo(minutes: number): string {
   return new Date(Date.now() - minutes * 60_000).toISOString();
 }
 
+function createStoryQueryClient() {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(['projects', 'detail', PROJECT_ID], {
+    id: PROJECT_ID,
+    slug: 'checkout-api',
+  });
+  return queryClient;
+}
+
 const withRouter: Decorator = (Story) => {
+  const queryClient = createStoryQueryClient();
+
   function StoryRoute() {
     return (
-      <RelativeTimeProvider>
-        <div className="min-h-screen bg-background-subtle-base p-24 [--app-content-h:calc(100dvh_-_96px)]">
-          <div className="@container ml-auto w-[860px]">
-            <Story />
+      <QueryClientProvider client={queryClient}>
+        <RelativeTimeProvider>
+          <div className="min-h-screen bg-background-subtle-base p-24 [--app-content-h:calc(100dvh_-_96px)]">
+            <div className="@container ml-auto w-[860px]">
+              <Story />
+            </div>
           </div>
-        </div>
-      </RelativeTimeProvider>
+        </RelativeTimeProvider>
+      </QueryClientProvider>
     );
   }
 
@@ -43,7 +57,7 @@ const withRouter: Decorator = (Story) => {
   });
   const runRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid/runs/$workflowRunId',
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: StoryRoute,
   });
   const router = createRouter({
@@ -145,7 +159,7 @@ const meta = {
   },
   decorators: [withRouter],
   args: {
-    workspaceId: WORKSPACE_ID,
+    workspaceSlug: 'acme',
     event: routedEvent,
     onBack: () => undefined,
   },

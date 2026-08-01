@@ -58,7 +58,7 @@ export function WorkspaceOnboardingPage() {
         } catch {
           // localStorage may throw in private browsing or quota-exceeded.
         }
-        await navigate({to: '/workspaces/$wid', params: {wid: created.id}});
+        await navigate({to: '/w/$workspaceSlug', params: {workspaceSlug: created.slug}});
       } catch (error) {
         const mapped = workspaceOnboardingErrorToFormError(error);
         if (mapped.kind === 'field') {

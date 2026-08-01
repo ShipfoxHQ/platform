@@ -5,7 +5,7 @@ export const projectsNavigation = [
     id: 'nav.projects',
     scope: 'workspace',
     label: 'Projects',
-    to: '/workspaces/$wid',
+    to: '/w/$workspaceSlug',
     exact: true,
     order: 100,
   },
@@ -15,17 +15,17 @@ export const projectsFeature = defineClientFeature({
   id: 'shipfox.projects',
   routes: [
     {
-      path: '/workspaces/$wid',
+      path: '/w/$workspaceSlug',
       parent: 'workspaceLayout',
       impl: '@shipfox/client-projects/routes/home',
     },
     {
-      path: '/workspaces/$wid/projects/new',
+      path: '/w/$workspaceSlug/projects/new',
       parent: 'workspaceLayout',
       impl: '@shipfox/client-projects/routes/create-project',
     },
     {
-      path: '/workspaces/$wid/projects/$pid',
+      path: '/w/$workspaceSlug/p/$projectSlug',
       parent: 'projectLayout',
       impl: '@shipfox/client-projects/routes/project-index',
     },

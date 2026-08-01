@@ -10,6 +10,7 @@ export function CallbackStatusShell({
   startOver,
   switchAccount,
   workspaceId,
+  workspaceSlug,
   installPath,
 }: {
   title: string;
@@ -17,14 +18,15 @@ export function CallbackStatusShell({
   startOver?: boolean;
   switchAccount?: boolean;
   workspaceId?: string | undefined;
-  installPath: '/workspaces/$wid/integrations/linear' | '/workspaces/$wid/integrations/slack';
+  workspaceSlug?: string | undefined;
+  installPath: '/w/$workspaceSlug/integrations/linear' | '/w/$workspaceSlug/integrations/slack';
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => headingRef.current?.focus(), []);
   const recoveryVariant = startOver || switchAccount ? 'muted' : 'base';
-  const settings = workspaceId ? (
+  const settings = workspaceSlug ? (
     <ButtonLink asChild variant={recoveryVariant} className="min-h-44 w-full sm:w-fit">
-      <Link to="/workspaces/$wid/settings/integrations" params={{wid: workspaceId}}>
+      <Link to="/w/$workspaceSlug/settings/integrations" params={{workspaceSlug}}>
         Back to integrations
       </Link>
     </ButtonLink>
@@ -33,7 +35,9 @@ export function CallbackStatusShell({
       <Link to="/">Back to Shipfox</Link>
     </ButtonLink>
   );
-  const logoutRedirect = workspaceId ? installPath.replace('$wid', workspaceId) : undefined;
+  const logoutRedirect = workspaceSlug
+    ? installPath.replace('$workspaceSlug', workspaceSlug)
+    : undefined;
 
   return (
     <main className="flex min-h-screen bg-background-subtle-base px-16 py-32">
@@ -55,9 +59,9 @@ export function CallbackStatusShell({
               </Link>
             </ButtonLink>
           ) : null}
-          {startOver && workspaceId ? (
+          {startOver && workspaceSlug ? (
             <ButtonLink asChild className="min-h-44 w-full sm:w-fit">
-              <Link to={installPath} params={{wid: workspaceId}}>
+              <Link to={installPath} params={{workspaceSlug}}>
                 Start over
               </Link>
             </ButtonLink>

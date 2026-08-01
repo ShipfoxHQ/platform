@@ -54,7 +54,7 @@ function WorkspaceSwitcherStory({activeWorkspaceId, workspaces}: WorkspaceSwitch
     const rootRoute = createRootRoute({component: Outlet});
     const workspaceRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: '/workspaces/$wid',
+      path: '/w/$workspaceSlug',
       component: () => (
         <JotaiProvider store={store}>
           <div className="min-h-screen bg-background-neutral-base p-24">
@@ -73,7 +73,7 @@ function WorkspaceSwitcherStory({activeWorkspaceId, workspaces}: WorkspaceSwitch
 
     return createRouter({
       routeTree: rootRoute.addChildren([workspaceRoute, setupRoute]),
-      history: createMemoryHistory({initialEntries: [`/workspaces/${activeWorkspaceId}`]}),
+      history: createMemoryHistory({initialEntries: ['/w/acme']}),
     });
   }, [activeWorkspaceId, store]);
 

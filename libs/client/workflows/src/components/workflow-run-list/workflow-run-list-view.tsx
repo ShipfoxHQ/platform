@@ -9,8 +9,8 @@ import {WorkflowRunListHeader} from './workflow-run-list-header.js';
 export function WorkflowRunListView({
   runs,
   query,
-  workspaceId,
-  projectId,
+  workspaceSlug,
+  projectSlug,
   selectedWorkflowRunId,
   className,
   search = '',
@@ -62,8 +62,8 @@ export function WorkflowRunListView({
           query={query}
           totalRuns={runs.length}
           runs={filteredRuns}
-          workspaceId={workspaceId}
-          projectId={projectId}
+          workspaceSlug={workspaceSlug}
+          projectSlug={projectSlug}
           selectedWorkflowRunId={selectedWorkflowRunId}
           onClearFilters={handleClearFilters}
         />

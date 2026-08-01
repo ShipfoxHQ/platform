@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import {configureApiClient} from '@shipfox/client-api';
 import {screen} from '@testing-library/react';
-import {INTEGRATIONS_TEST_WID, jsonResponse, renderIntegrationsPage} from '#test/render.js';
+import {jsonResponse, renderIntegrationsPage} from '#test/render.js';
 import {SourceControlOnboardingPage} from './source-control-onboarding-page.js';
 
 describe('SourceControlOnboardingPage', () => {
@@ -24,10 +24,10 @@ describe('SourceControlOnboardingPage', () => {
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
     renderIntegrationsPage({
-      path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations`,
-      routePath: '/workspaces/$wid/integrations',
+      path: '/w/acme/integrations',
+      routePath: '/w/$workspaceSlug/integrations',
       element: <SourceControlOnboardingPage />,
-      extraRoutes: ['/workspaces/$wid/integrations/github'],
+      extraRoutes: ['/w/$workspaceSlug/integrations/github'],
     });
 
     expect(await screen.findByRole('heading', {name: 'Install source control'})).toBeVisible();

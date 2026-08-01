@@ -13,8 +13,8 @@ interface WorkflowRunListContentProps {
   query: WorkflowRunListQuery;
   totalRuns: number;
   runs: WorkflowRunListItem[];
-  workspaceId: string;
-  projectId: string;
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
   selectedWorkflowRunId?: string | undefined;
   onClearFilters: () => void;
 }
@@ -23,8 +23,8 @@ export function WorkflowRunListContent({
   query,
   totalRuns,
   runs,
-  workspaceId,
-  projectId,
+  workspaceSlug,
+  projectSlug,
   selectedWorkflowRunId,
   onClearFilters,
 }: WorkflowRunListContentProps) {
@@ -48,8 +48,8 @@ export function WorkflowRunListContent({
       {!isPending && runs.length > 0 ? (
         <WorkflowRunRowList
           runs={runs}
-          workspaceId={workspaceId}
-          projectId={projectId}
+          workspaceSlug={workspaceSlug}
+          projectSlug={projectSlug}
           selectedWorkflowRunId={selectedWorkflowRunId}
         />
       ) : null}

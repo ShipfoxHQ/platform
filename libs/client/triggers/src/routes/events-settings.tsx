@@ -4,7 +4,7 @@ import type {TriggerEventFilters} from '#core/trigger-event.js';
 import {EventsPage} from '#pages/events-page.js';
 import {type TriggerEventsSearch, validateTriggerEventsSearch} from '#search.js';
 
-const routeApi = getRouteApi('/workspaces/$wid/settings/events');
+const routeApi = getRouteApi('/w/$workspaceSlug/settings/events');
 
 // Wrapped (not just re-typed) so the search validator's own type is portable outside this
 // package: TanStack Router's `const` generics capture the exact declared function, and a
@@ -24,7 +24,12 @@ export default defineRoute({
       void navigate({search: {...search, ...patch}, replace: true});
     };
     return (
-      <EventsPage workspaceId={workspace.id} filters={search} onFiltersChange={onFiltersChange} />
+      <EventsPage
+        workspaceId={workspace.id}
+        workspaceSlug={workspace.slug}
+        filters={search}
+        onFiltersChange={onFiltersChange}
+      />
     );
   },
 });

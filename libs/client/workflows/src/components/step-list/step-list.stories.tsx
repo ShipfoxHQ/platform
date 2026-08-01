@@ -21,7 +21,6 @@ import {
 import {AgentConfigFailureCallout as AgentConfigFailureCalloutView} from '../workflow-run-view/agent-config-failure-callout.js';
 import {StepList} from './step-list.js';
 
-const WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
 const AGENTS_LINK_NAME = 'Configure Agents';
 
 const meta = {
@@ -70,7 +69,7 @@ const withAgentSettingsRoute: Decorator = (Story) => {
   });
   const agentSettingsRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/settings/agents',
+    path: '/w/$workspaceSlug/settings/agents',
     component: () => null,
   });
   const router = createRouter({
@@ -390,7 +389,7 @@ function renderAgentConfigFailureCallout() {
       defaultSelectedAttemptId={attempt.id}
       renderExpandedStep={() => (
         <AgentConfigFailureCalloutView
-          workspaceId={WORKSPACE_ID}
+          workspaceSlug="acme"
           config={{provider: 'anthropic', model: 'claude-opus-4-8', thinking: 'high'}}
           error={{
             message: 'Model provider credentials are not configured',

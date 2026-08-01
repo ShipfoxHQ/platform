@@ -36,8 +36,9 @@ interface WorkflowSourceFocus {
 }
 
 export interface WorkflowRunViewProps {
-  workspaceId: string;
   projectId: string;
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
   workflowRunId?: string | undefined;
   selection?: WorkflowRunSelectionInput | undefined;
   onSelectionChange?: ((selection: WorkflowRunSelectionInput) => void) | undefined;
@@ -49,8 +50,9 @@ export interface WorkflowRunViewProps {
  * loading state itself.
  */
 export function WorkflowRunView({
-  workspaceId,
   projectId,
+  workspaceSlug,
+  projectSlug,
   workflowRunId,
   selection,
   onSelectionChange,
@@ -62,8 +64,8 @@ export function WorkflowRunView({
     <RelativeTimeProvider>
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <RunViewContent
-          workspaceId={workspaceId}
-          projectId={projectId}
+          workspaceSlug={workspaceSlug}
+          projectSlug={projectSlug}
           query={runQuery}
           rerunMutation={rerunMutation}
           selection={selection}
@@ -75,15 +77,15 @@ export function WorkflowRunView({
 }
 
 function RunViewContent({
-  workspaceId,
-  projectId,
+  workspaceSlug,
+  projectSlug,
   query,
   rerunMutation,
   selection,
   onSelectionChange,
 }: {
-  workspaceId: string;
-  projectId: string;
+  workspaceSlug: string | undefined;
+  projectSlug: string | undefined;
   query: ReturnType<typeof useWorkflowRunAttemptQuery>;
   rerunMutation: ReturnType<typeof useRerunWorkflowRunMutation>;
   selection: WorkflowRunSelectionInput | undefined;
@@ -161,12 +163,20 @@ function RunViewContent({
     sourceFocus?.location ?? resolvedSelection?.step?.sourceLocation ?? null;
   const sourceSnapshot = runData.sourceSnapshot;
   async function rerun(mode: WorkflowRunRerunMode) {
+    if (!workspaceSlug || !projectSlug) {
+      toast.error('Could not start re-run from this route.');
+      return;
+    }
     try {
       const run = await rerunMutation.mutateAsync({workflowRunId: runData.id, mode});
       toast.success('Re-run started');
       await navigate({
-        to: '/workspaces/$wid/projects/$pid/runs/$workflowRunId',
-        params: {wid: workspaceId, pid: projectId, workflowRunId: run.id},
+        to: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
+        params: {
+          workspaceSlug,
+          projectSlug,
+          workflowRunId: run.id,
+        },
         search: ((previous: Record<string, unknown>) =>
           withoutWorkflowRunSelectionSearch(previous)) as never,
       });
@@ -274,8 +284,8 @@ function RunViewContent({
     <>
       <div className="flex min-w-0 flex-1 flex-col">
         <WorkflowRunSummary
-          workspaceId={workspaceId}
-          projectId={projectId}
+          workspaceSlug={workspaceSlug}
+          projectSlug={projectSlug}
           run={runData}
           sourceAvailable={sourceAvailable}
           sourceOpen={sourcePanelOpen && sourceFocus === null}
@@ -298,7 +308,7 @@ function RunViewContent({
             />
             {selectedJob ? (
               <JobCard
-                workspaceId={workspaceId}
+                workspaceSlug={workspaceSlug}
                 job={selectedJob}
                 selectedJobExecution={selectedJobExecution}
                 selectedAttemptId={selectedJob.carriedOver ? undefined : selectedAttemptId}

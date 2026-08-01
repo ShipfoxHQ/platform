@@ -28,6 +28,7 @@ import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library
 import {loadWorkspaceSetupRoute} from './workspace-setup-route.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
+const WORKSPACE_SLUG = 'acme';
 const MEMBERSHIP_ID = '44444444-4444-4444-8444-444444444444';
 const USER_ID = '55555555-5555-4555-8555-555555555555';
 
@@ -161,7 +162,8 @@ function renderSetupRoute(
       beforeLoad: ({context, location, params}) =>
         loadWorkspaceSetupRoute({
           queryClient: context.queryClient,
-          workspaceId: (params as {wid: string}).wid,
+          workspaceId: WORKSPACE_ID,
+          workspaceSlug: (params as {workspaceSlug: string}).workspaceSlug,
           pathname: location.pathname,
         }),
       pendingComponent: FullPageLoader,
@@ -169,13 +171,13 @@ function renderSetupRoute(
       component: () => <GuardedRoute label={label} />,
     });
   const routeTree = rootRoute.addChildren([
-    guardedRoute('/workspaces/$wid', 'Workspace home'),
-    guardedRoute('/workspaces/$wid/model-provider', 'Model provider onboarding'),
-    guardedRoute('/workspaces/$wid/integrations', 'VCS onboarding'),
-    guardedRoute('/workspaces/$wid/integrations/gitea', 'Gitea install'),
-    guardedRoute('/workspaces/$wid/projects/new', 'Create project'),
-    guardedRoute('/workspaces/$wid/settings/agents', 'Settings agents'),
-    guardedRoute('/workspaces/$wid/settings/integrations', 'Settings integrations'),
+    guardedRoute('/w/$workspaceSlug', 'Workspace home'),
+    guardedRoute('/w/$workspaceSlug/model-provider', 'Model provider onboarding'),
+    guardedRoute('/w/$workspaceSlug/integrations', 'VCS onboarding'),
+    guardedRoute('/w/$workspaceSlug/integrations/gitea', 'Gitea install'),
+    guardedRoute('/w/$workspaceSlug/projects/new', 'Create project'),
+    guardedRoute('/w/$workspaceSlug/settings/agents', 'Settings agents'),
+    guardedRoute('/w/$workspaceSlug/settings/integrations', 'Settings integrations'),
   ]);
   const router = createRouter({
     defaultPendingMs: 0,
@@ -245,14 +247,14 @@ describe('workspace setup route hook', () => {
   });
 
   test('renders a loader while the project existence query is pending', async () => {
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, setupFetch({projectsPending: true}));
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, setupFetch({projectsPending: true}));
 
     expect(await screen.findByRole('status', {name: 'Loading'})).toBeInTheDocument();
     expect(screen.queryByText('Workspace home')).not.toBeInTheDocument();
   });
 
   test('renders a retryable setup-status error when the project query fails', async () => {
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, setupFetch({projectsFail: true}));
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, setupFetch({projectsFail: true}));
 
     expect(await screen.findByText('Could not load workspace setup')).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Retry'})).toBeInTheDocument();
@@ -265,7 +267,7 @@ describe('workspace setup route hook', () => {
   ] as const)('stops workspace setup for a %s workspace before loading workspace data', async (workspaceStatus) => {
     const fetchImpl = setupFetch({workspaceStatus, projectsPending: true});
 
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl);
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl);
 
     expect(await screen.findByText('Workspace unavailable')).toBeInTheDocument();
     expect(screen.getByTestId('project-navigation')).toHaveTextContent('hidden');
@@ -275,7 +277,7 @@ describe('workspace setup route hook', () => {
   test('allows normal workspace content and skips source connections when a project exists', async () => {
     const fetchImpl = setupFetch({projects: [projectStub()]});
 
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl);
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl);
 
     expect(await screen.findByText('Workspace home')).toBeInTheDocument();
     expect(screen.getByTestId('project-navigation')).toHaveTextContent('visible');
@@ -287,7 +289,7 @@ describe('workspace setup route hook', () => {
   test('keeps cached completed-workspace state when the project refetch fails', async () => {
     const fetchImpl = setupFetch({projectsFail: true});
 
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl, {
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl, {
       seedQueryClient: (queryClient) => {
         queryClient.setQueryData(projectExistenceQueryOptions(WORKSPACE_ID).queryKey, {
           projects: [projectStub()] as never,
@@ -314,17 +316,14 @@ describe('workspace setup route hook', () => {
       connections: [sourceConnection({lifecycle_status: 'disabled'})],
     });
 
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl);
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl);
 
     expect(await screen.findByText('VCS onboarding')).toBeInTheDocument();
     expect(screen.getByTestId('project-navigation')).toHaveTextContent('hidden');
   });
 
   test('keeps integrations settings available before source-control onboarding', async () => {
-    renderSetupRoute(
-      `/workspaces/${WORKSPACE_ID}/settings/integrations`,
-      setupFetch({connections: []}),
-    );
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}/settings/integrations`, setupFetch({connections: []}));
 
     expect(await screen.findByText('Settings integrations')).toBeInTheDocument();
     expect(screen.getByTestId('project-navigation')).toHaveTextContent('hidden');
@@ -332,7 +331,7 @@ describe('workspace setup route hook', () => {
 
   test('sends a workspace with active VCS and no project to project creation', async () => {
     renderSetupRoute(
-      `/workspaces/${WORKSPACE_ID}/integrations`,
+      `/w/${WORKSPACE_SLUG}/integrations`,
       setupFetch({connections: [sourceConnection()]}),
     );
 
@@ -342,7 +341,7 @@ describe('workspace setup route hook', () => {
 
   test('sends a source-connected workspace with no provider config to provider onboarding', async () => {
     renderSetupRoute(
-      `/workspaces/${WORKSPACE_ID}/integrations`,
+      `/w/${WORKSPACE_SLUG}/integrations`,
       setupFetch({
         connections: [sourceConnection()],
         providerConfigs: [],
@@ -356,7 +355,7 @@ describe('workspace setup route hook', () => {
 
   test('keeps the provider onboarding route available while provider setup is pending', async () => {
     renderSetupRoute(
-      `/workspaces/${WORKSPACE_ID}/model-provider`,
+      `/w/${WORKSPACE_SLUG}/model-provider`,
       setupFetch({
         connections: [sourceConnection()],
         providerConfigs: [],
@@ -370,7 +369,7 @@ describe('workspace setup route hook', () => {
 
   test('keeps model provider settings available before first project creation', async () => {
     renderSetupRoute(
-      `/workspaces/${WORKSPACE_ID}/settings/agents`,
+      `/w/${WORKSPACE_SLUG}/settings/agents`,
       setupFetch({
         connections: [sourceConnection()],
         providerConfigs: [],
@@ -386,7 +385,7 @@ describe('workspace setup route hook', () => {
     const fetchImpl = setupFetch({connections: [sourceConnection()]});
     dismissModelProviderOnboarding(WORKSPACE_ID);
 
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl);
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl);
 
     expect(await screen.findByText('Create project')).toBeInTheDocument();
     expect(calledUrls(fetchImpl).some((url) => url.endsWith('/agent/model-providers'))).toBe(false);
@@ -395,7 +394,7 @@ describe('workspace setup route hook', () => {
   test('uses cached provider config state when the provider config refetch fails', async () => {
     const fetchImpl = setupFetch({connections: [sourceConnection()], providerConfigsFail: true});
 
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl, {
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl, {
       seedQueryClient: (queryClient) => {
         queryClient.setQueryData(modelProviderConfigsQueryOptions(WORKSPACE_ID).queryKey, {
           configs: [
@@ -424,7 +423,7 @@ describe('workspace setup route hook', () => {
 
   test('fails open to project creation when provider configs cannot load without cache', async () => {
     renderSetupRoute(
-      `/workspaces/${WORKSPACE_ID}`,
+      `/w/${WORKSPACE_SLUG}`,
       setupFetch({connections: [sourceConnection()], providerConfigsFail: true}),
     );
 
@@ -435,7 +434,7 @@ describe('workspace setup route hook', () => {
   test('keeps cached source-connection state when the source refetch fails', async () => {
     const fetchImpl = setupFetch({connectionsFail: true});
 
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl, {
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl, {
       seedQueryClient: (queryClient) => {
         queryClient.setQueryData(sourceConnectionsQueryOptions(WORKSPACE_ID).queryKey, [
           cachedSourceConnection(),
@@ -454,10 +453,7 @@ describe('workspace setup route hook', () => {
   });
 
   test('redirects the completed workspace integrations index to settings integrations', async () => {
-    renderSetupRoute(
-      `/workspaces/${WORKSPACE_ID}/integrations`,
-      setupFetch({projects: [projectStub()]}),
-    );
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}/integrations`, setupFetch({projects: [projectStub()]}));
 
     expect(await screen.findByText('Settings integrations')).toBeInTheDocument();
     expect(screen.getByTestId('project-navigation')).toHaveTextContent('visible');
@@ -465,7 +461,7 @@ describe('workspace setup route hook', () => {
 
   test('keeps completed workspace integration install routes available', async () => {
     renderSetupRoute(
-      `/workspaces/${WORKSPACE_ID}/integrations/gitea`,
+      `/w/${WORKSPACE_SLUG}/integrations/gitea`,
       setupFetch({projects: [projectStub()]}),
     );
 
@@ -474,7 +470,7 @@ describe('workspace setup route hook', () => {
   });
 
   test('renders a retryable setup-status error when the source connection query fails', async () => {
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, setupFetch({connectionsFail: true}));
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, setupFetch({connectionsFail: true}));
 
     expect(await screen.findByText('Could not load workspace setup')).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Retry'})).toBeInTheDocument();
@@ -512,7 +508,7 @@ describe('workspace setup route hook', () => {
       return Promise.resolve(jsonResponse({}, {status: 404}));
     });
 
-    renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl);
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl);
 
     fireEvent.click(await screen.findByRole('button', {name: 'Retry'}));
 
@@ -522,14 +518,14 @@ describe('workspace setup route hook', () => {
 
   test('re-evaluates the guard on navigation between children without refetching fresh existence', async () => {
     const fetchImpl = setupFetch({projects: [projectStub()]});
-    const {router} = renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl);
+    const {router} = renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl);
 
     expect(await screen.findByText('Workspace home')).toBeInTheDocument();
 
     await act(async () => {
       await router.navigate({
-        to: '/workspaces/$wid/integrations',
-        params: {wid: WORKSPACE_ID},
+        to: '/w/$workspaceSlug/integrations',
+        params: {workspaceSlug: WORKSPACE_SLUG},
       });
     });
 
@@ -568,7 +564,7 @@ describe('workspace setup route hook', () => {
       }
       return Promise.resolve(jsonResponse({}, {status: 404}));
     });
-    const {queryClient, router} = renderSetupRoute(`/workspaces/${WORKSPACE_ID}`, fetchImpl);
+    const {queryClient, router} = renderSetupRoute(`/w/${WORKSPACE_SLUG}`, fetchImpl);
 
     expect(await screen.findByText('Create project')).toBeInTheDocument();
     projects = [projectStub()];
@@ -580,8 +576,8 @@ describe('workspace setup route hook', () => {
 
     await act(async () => {
       await router.navigate({
-        to: '/workspaces/$wid',
-        params: {wid: WORKSPACE_ID},
+        to: '/w/$workspaceSlug',
+        params: {workspaceSlug: WORKSPACE_SLUG},
       });
     });
 
@@ -596,14 +592,14 @@ describe('workspace setup route hook', () => {
     });
     const throwingRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: '/workspaces/$wid',
+      path: '/w/$workspaceSlug',
       beforeLoad: () => ({hideProjectNavigation: false}),
       errorComponent: WorkspaceLayoutErrorRoute,
       component: ThrowingWorkspaceRoute,
     });
     const router = createRouter({
       defaultPendingMs: 0,
-      history: createMemoryHistory({initialEntries: [`/workspaces/${WORKSPACE_ID}`]}),
+      history: createMemoryHistory({initialEntries: [`/w/${WORKSPACE_SLUG}`]}),
       routeTree: rootRoute.addChildren([throwingRoute]),
       context: {queryClient},
     });
@@ -621,13 +617,13 @@ describe('workspace setup route hook', () => {
     });
     const layoutRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: '/workspaces/$wid',
+      path: '/w/$workspaceSlug',
       beforeLoad: () => undefined,
       component: WorkspaceLayoutParity,
     });
     const router = createRouter({
       defaultPendingMs: 0,
-      history: createMemoryHistory({initialEntries: [`/workspaces/${WORKSPACE_ID}`]}),
+      history: createMemoryHistory({initialEntries: [`/w/${WORKSPACE_SLUG}`]}),
       routeTree: rootRoute.addChildren([layoutRoute]),
       context: {queryClient},
     });

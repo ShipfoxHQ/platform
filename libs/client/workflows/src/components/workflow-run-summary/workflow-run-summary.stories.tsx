@@ -71,12 +71,12 @@ const withAttemptApi: Decorator = (Story) => {
   const rootRoute = createRootRoute({component: Outlet});
   const runRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid/runs/$workflowRunId',
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: () => <Story />,
   });
   const router = createRouter({
     history: createMemoryHistory({
-      initialEntries: [`/workspaces/${WORKSPACE_ID}/projects/${PROJECT_ID}/runs/${CURRENT_RUN_ID}`],
+      initialEntries: [`/w/acme/p/project/runs/${CURRENT_RUN_ID}`],
     }),
     routeTree: rootRoute.addChildren([runRoute]),
   });
@@ -157,6 +157,8 @@ const ATTEMPT_SUMMARY_ARGS = {
   }),
   workspaceId: WORKSPACE_ID,
   projectId: PROJECT_ID,
+  workspaceSlug: 'acme',
+  projectSlug: 'project',
   latestAttempt: 3,
 };
 
@@ -352,8 +354,6 @@ export const ActionVariantsWithAttempts: Story = {
       {ACTION_VARIANTS.map(({label, run, props}, index) => (
         <WorkflowRunSummary
           key={label}
-          workspaceId={WORKSPACE_ID}
-          projectId={PROJECT_ID}
           run={{
             ...run,
             id: `22222222-2222-4222-8222-${String(index + 2).padStart(12, '0')}`,

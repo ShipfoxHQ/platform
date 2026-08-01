@@ -40,7 +40,6 @@ function makeProps(overrides: Partial<EventsListProps> = {}): EventsListProps {
     facets: {sources: [{value: 'github_acme', count: 1}], events: [{value: 'push', count: 1}]},
     filters: {},
     onFiltersChange: vi.fn(),
-    workspaceId: 'ws-1',
     hasNextPage: false,
     isFetchingNextPage: false,
     onLoadMore: vi.fn(),

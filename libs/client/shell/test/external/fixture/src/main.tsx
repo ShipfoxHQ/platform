@@ -16,7 +16,7 @@ import {
 import {ShellProviders} from '@shipfox/client-shell/testing';
 import {DropdownMenuItem} from '@shipfox/react-ui/dropdown-menu';
 import {QueryClient} from '@tanstack/react-query';
-import {Outlet, RouterProvider} from '@tanstack/react-router';
+import {RouterProvider} from '@tanstack/react-router';
 import {createStore} from 'jotai';
 import {useState} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -51,8 +51,8 @@ function FixtureProjectBreadcrumb() {
   return null;
 }
 
-function FixtureProjectLayoutGuard() {
-  return <Outlet />;
+async function projectSlugResolver() {
+  return 'project';
 }
 
 function FixtureAccountMenuEntry() {
@@ -86,7 +86,7 @@ export function ClientApp() {
     <ChromeProvider
       chrome={{
         ProjectBreadcrumb: FixtureProjectBreadcrumb,
-        ProjectLayoutGuard: FixtureProjectLayoutGuard,
+        projectSlugResolver,
         AccountMenuEntry: FixtureAccountMenuEntry,
       }}
     >

@@ -3,12 +3,57 @@ import type {RouteParentId} from '#contract.js';
 
 const anchorPaths = {
   root: '/',
-  workspaceLayout: '/workspaces/$wid',
-  projectLayout: '/workspaces/$wid/projects/$pid',
-  workspaceSettings: '/workspaces/$wid/settings',
+  workspaceLayout: '/w/$workspaceSlug',
+  projectLayout: '/w/$workspaceSlug/p/$projectSlug',
+  workspaceSettings: '/w/$workspaceSlug/settings',
 } as const;
 
-export {anchorPaths};
+const entityPrefixRegistry = {
+  w: 'workspace',
+  p: 'project',
+} as const;
+
+const slugParamPrefixes = {
+  workspaceSlug: 'w',
+  projectSlug: 'p',
+} as const;
+
+export {anchorPaths, entityPrefixRegistry, slugParamPrefixes};
+
+export function validateRoutePathInvariants(path: string): void {
+  const segments = path.split('/').filter(Boolean);
+  for (const [index, segment] of segments.entries()) {
+    const nextSegment = segments[index + 1];
+    if (segment.length === 1 && Object.hasOwn(entityPrefixRegistry, segment)) {
+      if (!nextSegment?.startsWith('$')) {
+        throw new Error(
+          `Route "${path}" uses prefix "${segment}" without a dynamic parameter immediately after it.`,
+        );
+      }
+    }
+
+    if (!segment.startsWith('$')) continue;
+    const param = segment.slice(1) as keyof typeof slugParamPrefixes;
+    const prefix = slugParamPrefixes[param];
+    if (prefix !== undefined && segments[index - 1] !== prefix) {
+      throw new Error(
+        `Route "${path}" places slug parameter "${param}" outside prefix "${prefix}".`,
+      );
+    }
+    if (prefix === undefined) {
+      const previousSegment = segments[index - 1];
+      if (
+        !previousSegment ||
+        previousSegment.startsWith('$') ||
+        Object.hasOwn(entityPrefixRegistry, previousSegment)
+      ) {
+        throw new Error(
+          `Route "${path}" must place UUID parameter "${param}" after a page segment.`,
+        );
+      }
+    }
+  }
+}
 
 export function routePathForAnchor(anchor: keyof typeof anchorPaths, fullPath: string): string {
   const anchorPath = anchorPaths[anchor];

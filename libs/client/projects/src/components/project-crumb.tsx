@@ -6,19 +6,27 @@ import {ProjectSwitcher} from './project-switcher.js';
 
 export interface ProjectCrumbProps {
   workspaceId: string;
+  workspaceSlug: string;
   projectId?: string | undefined;
+  projectSlug?: string | undefined;
   projectName?: string | undefined;
 }
 
-export function ProjectCrumb({workspaceId, projectId, projectName}: ProjectCrumbProps) {
+export function ProjectCrumb({
+  workspaceId,
+  workspaceSlug,
+  projectId,
+  projectSlug,
+  projectName,
+}: ProjectCrumbProps) {
   const [open, setOpen] = useState(false);
 
-  if (projectId && projectName) {
+  if (projectSlug && projectName) {
     return (
       <div className="flex items-center">
         <Link
-          to="/workspaces/$wid/projects/$pid"
-          params={{wid: workspaceId, pid: projectId}}
+          to="/w/$workspaceSlug/p/$projectSlug"
+          params={{workspaceSlug, projectSlug}}
           aria-current="page"
           className="text-md font-medium text-foreground-neutral-base px-6 py-4 rounded-6 hover:bg-background-components-hover transition-colors max-w-[240px] truncate"
         >
@@ -39,6 +47,7 @@ export function ProjectCrumb({workspaceId, projectId, projectName}: ProjectCrumb
           <PopoverContent className="w-[320px] p-0" align="start" sideOffset={8}>
             <ProjectSwitcher
               workspaceId={workspaceId}
+              workspaceSlug={workspaceSlug}
               activeProjectId={projectId}
               onSelect={() => setOpen(false)}
             />
@@ -63,7 +72,11 @@ export function ProjectCrumb({workspaceId, projectId, projectName}: ProjectCrumb
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-[320px] p-0" align="start" sideOffset={8}>
-        <ProjectSwitcher workspaceId={workspaceId} onSelect={() => setOpen(false)} />
+        <ProjectSwitcher
+          workspaceId={workspaceId}
+          workspaceSlug={workspaceSlug}
+          onSelect={() => setOpen(false)}
+        />
       </PopoverContent>
     </Popover>
   );

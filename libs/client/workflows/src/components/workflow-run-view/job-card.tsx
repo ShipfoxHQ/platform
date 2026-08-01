@@ -45,7 +45,7 @@ interface LocalSelectedAttempt {
 }
 
 export function JobCard({
-  workspaceId,
+  workspaceSlug,
   job,
   selectedJobExecution,
   selectedAttemptId,
@@ -57,7 +57,7 @@ export function JobCard({
   focusedSourceStepId,
   onOpenStepSource,
 }: {
-  workspaceId: string;
+  workspaceSlug?: string | undefined;
   job: Job;
   selectedJobExecution: JobExecution | undefined;
   selectedAttemptId: string | null | undefined;
@@ -104,7 +104,7 @@ export function JobCard({
       <CarriedOverStepPanel />
     ) : (
       <StepAttemptDetailPanel
-        workspaceId={workspaceId}
+        workspaceSlug={workspaceSlug}
         step={step}
         stepId={stepId}
         attempt={attempt}
@@ -395,14 +395,14 @@ function selectedStepSourceAction(
 }
 
 function StepAttemptDetailPanel({
-  workspaceId,
+  workspaceSlug,
   step,
   stepId,
   attempt,
   attemptError,
   attemptStatus,
 }: {
-  workspaceId: string;
+  workspaceSlug?: string | undefined;
   step: Step;
   stepId: string;
   attempt: number;
@@ -415,7 +415,7 @@ function StepAttemptDetailPanel({
     <div className="flex min-w-0 flex-col gap-10">
       {isAgentConfigFailure(step, selectedAttemptError) ? (
         <AgentConfigFailureCallout
-          workspaceId={workspaceId}
+          workspaceSlug={workspaceSlug}
           config={step.agentConfig}
           error={selectedAttemptError}
         />

@@ -8,7 +8,7 @@ export const triggersFeature = defineClientFeature({
   id: 'shipfox.triggers',
   routes: [
     {
-      path: '/workspaces/$wid/settings/events',
+      path: '/w/$workspaceSlug/settings/events',
       parent: 'workspaceSettings',
       impl: '@shipfox/client-triggers/routes/events-settings',
     },

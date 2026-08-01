@@ -28,9 +28,9 @@ if (!HTMLElement.prototype.releasePointerCapture) {
 }
 
 const SETUP_ROUTES = [
-  '/workspaces/$wid/integrations/github',
-  '/workspaces/$wid/integrations/sentry',
-  '/workspaces/$wid/settings/events',
+  '/w/$workspaceSlug/integrations/github',
+  '/w/$workspaceSlug/integrations/sentry',
+  '/w/$workspaceSlug/settings/events',
 ];
 const EXTERNAL_SETTINGS_ACTION_RE = /Open.*settings/u;
 
@@ -189,8 +189,8 @@ function renderGallery(
     fetchImpl: fetchForGallery(options),
   });
   return renderIntegrationsPage({
-    path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations`,
-    routePath: '/workspaces/$wid/integrations',
+    path: '/w/acme/integrations',
+    routePath: '/w/$workspaceSlug/integrations',
     element: <IntegrationGallery workspaceId={INTEGRATIONS_TEST_WID} {...props} />,
     extraRoutes: SETUP_ROUTES,
   });
@@ -375,8 +375,8 @@ describe('IntegrationGallery: installed section', () => {
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     renderIntegrationsPage({
-      path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations`,
-      routePath: '/workspaces/$wid/integrations',
+      path: '/w/acme/integrations',
+      routePath: '/w/$workspaceSlug/integrations',
       element: <IntegrationGallery />,
       extraRoutes: SETUP_ROUTES,
     });
@@ -410,8 +410,8 @@ describe('IntegrationGallery: installed section', () => {
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     renderIntegrationsPage({
-      path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations`,
-      routePath: '/workspaces/$wid/integrations',
+      path: '/w/acme/integrations',
+      routePath: '/w/$workspaceSlug/integrations',
       element: <IntegrationGallery />,
       extraRoutes: SETUP_ROUTES,
     });
@@ -441,8 +441,8 @@ describe('IntegrationGallery: installed section', () => {
     const fetchImpl = fetchForGallery({connections: [webhookConnection]});
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     renderIntegrationsPage({
-      path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations`,
-      routePath: '/workspaces/$wid/integrations',
+      path: '/w/acme/integrations',
+      routePath: '/w/$workspaceSlug/integrations',
       element: <IntegrationGallery />,
       extraRoutes: SETUP_ROUTES,
     });

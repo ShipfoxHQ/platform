@@ -9,12 +9,12 @@ test.describe('variables settings', () => {
     variablesScreen,
     createReadyWorkspace,
   }) => {
-    const {workspaceId} = await createReadyWorkspace({
+    const {workspaceSlug} = await createReadyWorkspace({
       name: 'Variables Create Workspace',
     });
     const value = 'debug';
 
-    await variablesScreen.goto(workspaceId);
+    await variablesScreen.goto(workspaceSlug);
     await expect(variablesScreen.emptyState()).toBeVisible();
     await variablesScreen.createVariable(VARIABLE_CREATE_KEY, value);
 
@@ -28,7 +28,7 @@ test.describe('variables settings', () => {
     variablesScreen,
     createReadyWorkspace,
   }) => {
-    const {userId, workspaceId} = await createReadyWorkspace({
+    const {userId, workspaceId, workspaceSlug} = await createReadyWorkspace({
       name: 'Variables Edit Workspace',
     });
     const oldValue = 'info';
@@ -40,7 +40,7 @@ test.describe('variables settings', () => {
       value: oldValue,
     });
 
-    await variablesScreen.goto(workspaceId);
+    await variablesScreen.goto(workspaceSlug);
     const row = variablesScreen.rowByKey(VARIABLE_EDIT_KEY);
     await expect(row.getByText(oldValue, {exact: true})).toBeVisible();
     const dialog = await variablesScreen.openUpdateDialog(VARIABLE_EDIT_KEY);
@@ -60,7 +60,7 @@ test.describe('variables settings', () => {
     variablesScreen,
     createReadyWorkspace,
   }) => {
-    const {userId, workspaceId} = await createReadyWorkspace({
+    const {userId, workspaceId, workspaceSlug} = await createReadyWorkspace({
       name: 'Variables Delete Workspace',
     });
     await secrets.createVariable({
@@ -70,7 +70,7 @@ test.describe('variables settings', () => {
       value: 'trace',
     });
 
-    await variablesScreen.goto(workspaceId);
+    await variablesScreen.goto(workspaceSlug);
     const row = variablesScreen.rowByKey(VARIABLE_DELETE_KEY);
     await variablesScreen.deleteVariable(VARIABLE_DELETE_KEY);
 

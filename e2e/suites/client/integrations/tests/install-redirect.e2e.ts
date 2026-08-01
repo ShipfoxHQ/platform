@@ -19,7 +19,7 @@ test('Sentry install redirects to Sentry and stores the workspace handoff', asyn
   await auth.loginAs(page, user);
 
   await assertInstallRedirect(page, {
-    installPath: `/workspaces/${workspace.id}/integrations/sentry`,
+    installPath: `/w/${workspace.slug}/integrations/sentry`,
     installEndpoint: '**/integrations/sentry/install',
     externalHost: 'https://sentry.io',
     expectedUrl: SENTRY_INSTALL_URL,
@@ -45,7 +45,7 @@ test('GitHub install redirects to GitHub', async ({page, auth, workspaces}) => {
   await auth.loginAs(page, user);
 
   await assertInstallRedirect(page, {
-    installPath: `/workspaces/${workspace.id}/integrations/github`,
+    installPath: `/w/${workspace.slug}/integrations/github`,
     installEndpoint: '**/integrations/github/install',
     externalHost: 'https://github.com',
     expectedUrl: GITHUB_INSTALL_URL,
@@ -61,7 +61,7 @@ test('Linear install redirects to Linear', async ({page, auth, workspaces}) => {
   await auth.loginAs(page, user);
 
   await assertInstallRedirect(page, {
-    installPath: `/workspaces/${workspace.id}/integrations/linear`,
+    installPath: `/w/${workspace.slug}/integrations/linear`,
     installEndpoint: '**/integrations/linear/install',
     externalHost: 'https://linear.app',
     expectedUrl: LINEAR_INSTALL_URL,

@@ -13,6 +13,7 @@ export interface WorkspaceSetupState {
 export interface WorkspaceSetupRouteOptions {
   queryClient: QueryClient;
   workspaceId: string;
+  workspaceSlug: string;
   pathname: string;
 }
 export type WorkspaceSetupGate = (

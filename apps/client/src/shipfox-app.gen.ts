@@ -50,7 +50,7 @@ const skeleton = buildAnchorSkeleton({
       "id": "nav.projects",
       "scope": "workspace",
       "label": "Projects",
-      "to": "/workspaces/$wid",
+      "to": "/w/$workspaceSlug",
       "exact": true,
       "order": 100
     },
@@ -58,21 +58,21 @@ const skeleton = buildAnchorSkeleton({
       "id": "nav.runs",
       "scope": "project",
       "label": "Runs",
-      "to": "/workspaces/$wid/projects/$pid/runs",
+      "to": "/w/$workspaceSlug/p/$projectSlug/runs",
       "order": 100
     },
     {
       "id": "nav.workflows",
       "scope": "project",
       "label": "Workflows",
-      "to": "/workspaces/$wid/projects/$pid/workflows",
+      "to": "/w/$workspaceSlug/p/$projectSlug/workflows",
       "order": 200
     },
     {
       "id": "nav.settings",
       "scope": "workspace",
       "label": "Settings",
-      "to": "/workspaces/$wid/settings",
+      "to": "/w/$workspaceSlug/settings",
       "order": 200
     }
   ],
@@ -205,133 +205,133 @@ const route10 = createRoute({
 const route11 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/integrations",
-  ...routeOptions(route11Module.default, "@shipfox/client-integrations/routes/integrations", "/workspaces/$wid/integrations"),
+  ...routeOptions(route11Module.default, "@shipfox/client-integrations/routes/integrations", "/w/$workspaceSlug/integrations"),
 });
 
 const route12 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/integrations/gitea",
-  ...routeOptions(route12Module.default, "@shipfox/client-integrations/routes/gitea", "/workspaces/$wid/integrations/gitea"),
+  ...routeOptions(route12Module.default, "@shipfox/client-integrations/routes/gitea", "/w/$workspaceSlug/integrations/gitea"),
 });
 
 const route13 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/integrations/github",
-  ...routeOptions(route13Module.default, "@shipfox/client-integrations/routes/github", "/workspaces/$wid/integrations/github"),
+  ...routeOptions(route13Module.default, "@shipfox/client-integrations/routes/github", "/w/$workspaceSlug/integrations/github"),
 });
 
 const route14 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/integrations/linear",
-  ...routeOptions(route14Module.default, "@shipfox/client-integrations/routes/linear", "/workspaces/$wid/integrations/linear"),
+  ...routeOptions(route14Module.default, "@shipfox/client-integrations/routes/linear", "/w/$workspaceSlug/integrations/linear"),
 });
 
 const route15 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/integrations/sentry",
-  ...routeOptions(route15Module.default, "@shipfox/client-integrations/routes/sentry", "/workspaces/$wid/integrations/sentry"),
+  ...routeOptions(route15Module.default, "@shipfox/client-integrations/routes/sentry", "/w/$workspaceSlug/integrations/sentry"),
 });
 
 const route16 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/integrations/slack",
-  ...routeOptions(route16Module.default, "@shipfox/client-integrations/routes/slack", "/workspaces/$wid/integrations/slack"),
+  ...routeOptions(route16Module.default, "@shipfox/client-integrations/routes/slack", "/w/$workspaceSlug/integrations/slack"),
 });
 
 const route17 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/integrations",
-  ...routeOptions(route17Module.default, "@shipfox/client-integrations/routes/integrations-settings", "/workspaces/$wid/settings/integrations"),
+  ...routeOptions(route17Module.default, "@shipfox/client-integrations/routes/integrations-settings", "/w/$workspaceSlug/settings/integrations"),
 });
 
 const route18 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/",
-  ...routeOptions(route18Module.default, "@shipfox/client-projects/routes/home", "/workspaces/$wid"),
+  ...routeOptions(route18Module.default, "@shipfox/client-projects/routes/home", "/w/$workspaceSlug"),
 });
 
 const route19 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/projects/new",
-  ...routeOptions(route19Module.default, "@shipfox/client-projects/routes/create-project", "/workspaces/$wid/projects/new"),
+  ...routeOptions(route19Module.default, "@shipfox/client-projects/routes/create-project", "/w/$workspaceSlug/projects/new"),
 });
 
 const route20 = createRoute({
   getParentRoute: () => skeleton.projectLayout,
   path: "/",
-  ...routeOptions(route20Module.default, "@shipfox/client-projects/routes/project-index", "/workspaces/$wid/projects/$pid"),
+  ...routeOptions(route20Module.default, "@shipfox/client-projects/routes/project-index", "/w/$workspaceSlug/p/$projectSlug"),
 });
 
 const route21 = createRoute({
   getParentRoute: () => skeleton.projectLayout,
   path: "/workflows",
-  ...routeOptions(route21Module.default, "@shipfox/client-workflows/routes/workflows", "/workspaces/$wid/projects/$pid/workflows"),
+  ...routeOptions(route21Module.default, "@shipfox/client-workflows/routes/workflows", "/w/$workspaceSlug/p/$projectSlug/workflows"),
 });
 
 const route22 = createRoute({
   getParentRoute: () => skeleton.projectLayout,
   path: "/runs",
-  ...routeOptions(route22Module.default, "@shipfox/client-workflows/routes/runs", "/workspaces/$wid/projects/$pid/runs"),
+  ...routeOptions(route22Module.default, "@shipfox/client-workflows/routes/runs", "/w/$workspaceSlug/p/$projectSlug/runs"),
 });
 
 const route23 = createRoute({
   getParentRoute: () => skeleton.projectLayout,
   path: "/runs/$workflowRunId",
-  ...routeOptions(route23Module.default, "@shipfox/client-workflows/routes/run-detail", "/workspaces/$wid/projects/$pid/runs/$workflowRunId"),
+  ...routeOptions(route23Module.default, "@shipfox/client-workflows/routes/run-detail", "/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"),
 });
 
 const route24 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/model-provider",
-  ...routeOptions(route24Module.default, "@shipfox/client-agent/routes/model-provider", "/workspaces/$wid/model-provider"),
+  ...routeOptions(route24Module.default, "@shipfox/client-agent/routes/model-provider", "/w/$workspaceSlug/model-provider"),
 });
 
 const route25 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/agents",
-  ...routeOptions(route25Module.default, "@shipfox/client-agent/routes/agents-settings", "/workspaces/$wid/settings/agents"),
+  ...routeOptions(route25Module.default, "@shipfox/client-agent/routes/agents-settings", "/w/$workspaceSlug/settings/agents"),
 });
 
 const route26 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/runners",
-  ...routeOptions(route26Module.default, "@shipfox/client-runners/routes/runners-settings", "/workspaces/$wid/settings/runners"),
+  ...routeOptions(route26Module.default, "@shipfox/client-runners/routes/runners-settings", "/w/$workspaceSlug/settings/runners"),
 });
 
 const route27 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/provisioners",
-  ...routeOptions(route27Module.default, "@shipfox/client-runners/routes/provisioners-settings", "/workspaces/$wid/settings/provisioners"),
+  ...routeOptions(route27Module.default, "@shipfox/client-runners/routes/provisioners-settings", "/w/$workspaceSlug/settings/provisioners"),
 });
 
 const route28 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/secrets",
-  ...routeOptions(route28Module.default, "@shipfox/client-secrets/routes/secrets-settings", "/workspaces/$wid/settings/secrets"),
+  ...routeOptions(route28Module.default, "@shipfox/client-secrets/routes/secrets-settings", "/w/$workspaceSlug/settings/secrets"),
 });
 
 const route29 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/variables",
-  ...routeOptions(route29Module.default, "@shipfox/client-secrets/routes/variables-settings", "/workspaces/$wid/settings/variables"),
+  ...routeOptions(route29Module.default, "@shipfox/client-secrets/routes/variables-settings", "/w/$workspaceSlug/settings/variables"),
 });
 
 const route30 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/events",
-  ...routeOptions(route30Module.default, "@shipfox/client-triggers/routes/events-settings", "/workspaces/$wid/settings/events"),
+  ...routeOptions(route30Module.default, "@shipfox/client-triggers/routes/events-settings", "/w/$workspaceSlug/settings/events"),
 });
 
 const route31 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/",
-  ...routeOptions(route31Module.default, "@shipfox/client-workspace-settings/routes/index", "/workspaces/$wid/settings"),
+  ...routeOptions(route31Module.default, "@shipfox/client-workspace-settings/routes/index", "/w/$workspaceSlug/settings"),
 });
 
 const route32 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/members",
-  ...routeOptions(route32Module.default, "@shipfox/client-workspace-settings/routes/members", "/workspaces/$wid/settings/members"),
+  ...routeOptions(route32Module.default, "@shipfox/client-workspace-settings/routes/members", "/w/$workspaceSlug/settings/members"),
 });
 
 const projectLayout = skeleton.projectLayout.addChildren([route20, route21, route22, route23]);

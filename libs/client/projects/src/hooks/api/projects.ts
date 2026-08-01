@@ -7,6 +7,7 @@ import {checkedApiRequest} from '@shipfox/client-api';
 import {
   type InfiniteData,
   keepPreviousData,
+  type QueryClient,
   queryOptions,
   type UseInfiniteQueryOptions,
   type UseQueryOptions,
@@ -70,6 +71,49 @@ export async function listProjects({
   return toProjectList(
     await checkedApiRequest(listProjectsResponseSchema, `/projects?${params.toString()}`, {signal}),
   );
+}
+
+export async function resolveProjectSlug({
+  queryClient,
+  workspaceId,
+  projectSlug,
+}: {
+  queryClient: QueryClient;
+  workspaceId: string;
+  projectSlug: string;
+}): Promise<string | undefined> {
+  const queryKey = projectsQueryKeys.list(workspaceId);
+  let data = queryClient.getQueryData<InfiniteData<ProjectList, string | undefined>>(queryKey);
+
+  if (!data) {
+    await queryClient.fetchInfiniteQuery(projectsInfiniteQueryOptions(workspaceId));
+    data = queryClient.getQueryData<InfiniteData<ProjectList, string | undefined>>(queryKey);
+  }
+
+  while (data) {
+    const project = data.pages
+      .flatMap((page) => page.projects)
+      .find((candidate) => candidate.slug === projectSlug);
+    if (project) return project.id;
+
+    const cursor = data.pages.at(-1)?.nextCursor;
+    if (!cursor) {
+      await queryClient.refetchQueries({queryKey, type: 'all'});
+      const refreshedData =
+        queryClient.getQueryData<InfiniteData<ProjectList, string | undefined>>(queryKey);
+      return refreshedData?.pages
+        .flatMap((page) => page.projects)
+        .find((candidate) => candidate.slug === projectSlug)?.id;
+    }
+    const nextPage = await listProjects({workspaceId, cursor});
+    data = {
+      pages: [...data.pages, nextPage],
+      pageParams: [...data.pageParams, cursor],
+    };
+    queryClient.setQueryData(queryKey, data);
+  }
+
+  return undefined;
 }
 
 export async function getProject(projectId: string): Promise<Project> {

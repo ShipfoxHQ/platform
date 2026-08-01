@@ -7,6 +7,8 @@ import {
   WORKSPACE_INTEGRATIONS_URL_RE,
 } from './workspace-urls.js';
 
+const UUID_RE = /^[0-9a-f-]{36}$/u;
+
 test.describe('workspace onboarding', () => {
   test('redirects a no-workspace user from / to onboarding', async ({
     auth,
@@ -58,9 +60,10 @@ test.describe('workspace onboarding', () => {
       timeout: SETUP_NAVIGATION_TIMEOUT_MS,
     });
     await setupShell.expectNavigationHidden();
-    const workspaceId = workspaceHome.currentWorkspaceId();
-    expect(workspaceId).toBeTruthy();
-    expect(await workspaceHome.readLastWorkspaceId(user.user.id)).toBe(workspaceId);
+    const workspaceSlug = workspaceHome.currentWorkspaceSlug();
+    expect(workspaceSlug).toBeTruthy();
+    expect(workspaceSlug).not.toMatch(UUID_RE);
+    expect(await workspaceHome.readLastWorkspaceId(user.user.id)).toMatch(UUID_RE);
     await stableScreenshot(page, 'workspaces/onboarding-complete');
   });
 });

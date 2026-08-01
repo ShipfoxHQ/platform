@@ -39,22 +39,22 @@ function createTestRouter(path: string, element: ReactElement) {
   const rootRoute = createRootRoute({component: Outlet});
   const runnersRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/settings/runners',
+    path: '/w/$workspaceSlug/settings/runners',
     component: () => element,
   });
   const provisionersRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/settings/provisioners',
+    path: '/w/$workspaceSlug/settings/provisioners',
     component: () => element,
   });
   const modelProvidersRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/settings/agents',
+    path: '/w/$workspaceSlug/settings/agents',
     component: () => element,
   });
   const integrationsRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/settings/integrations',
+    path: '/w/$workspaceSlug/settings/integrations',
     component: () => element,
   });
 

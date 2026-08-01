@@ -33,8 +33,8 @@ const STATUS_BADGE_LABEL_WIDTH_CH = Math.max(
 type WorkflowRunAction = 'cancel' | 'rerun-all' | 'rerun-menu' | 'none';
 
 export interface WorkflowRunSummaryProps {
-  workspaceId?: string | undefined;
-  projectId?: string | undefined;
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
   run: WorkflowRunDetail;
   sourceAvailable?: boolean | undefined;
   sourceOpen?: boolean | undefined;
@@ -49,8 +49,8 @@ export interface WorkflowRunSummaryProps {
 }
 
 export function WorkflowRunSummary({
-  workspaceId,
-  projectId,
+  workspaceSlug,
+  projectSlug,
   run,
   sourceAvailable = false,
   sourceOpen = false,
@@ -67,8 +67,8 @@ export function WorkflowRunSummary({
   const status = getWorkflowStatusVisual(run.runAttempt.status);
   const action = workflowRunActionForRun(run);
   const attemptSwitcher =
-    latestAttempt && latestAttempt > 1 && workspaceId && projectId
-      ? {workspaceId, projectId, latestAttempt}
+    latestAttempt && latestAttempt > 1 && workspaceSlug && projectSlug
+      ? {workspaceSlug, projectSlug, latestAttempt}
       : null;
   const displayDuration = run.runAttempt.displayDuration;
   const {ref: headingTextRef, isTruncated: isHeadingTruncated} =
@@ -143,8 +143,8 @@ export function WorkflowRunSummary({
 
             {attemptSwitcher ? (
               <WorkflowRunAttemptSwitcher
-                workspaceId={attemptSwitcher.workspaceId}
-                projectId={attemptSwitcher.projectId}
+                workspaceSlug={attemptSwitcher.workspaceSlug}
+                projectSlug={attemptSwitcher.projectSlug}
                 run={run}
                 latestAttempt={attemptSwitcher.latestAttempt}
               />

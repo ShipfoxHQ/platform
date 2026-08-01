@@ -15,8 +15,8 @@ export function WorkspaceCrumb({workspace, compact = false}: WorkspaceCrumbProps
   return (
     <div className="flex items-center">
       <Link
-        to="/workspaces/$wid"
-        params={{wid: workspace.id}}
+        to="/w/$workspaceSlug"
+        params={{workspaceSlug: workspace.slug}}
         aria-current="page"
         className={`inline-block text-md font-medium text-foreground-neutral-base px-6 py-4 rounded-6 hover:bg-background-components-hover transition-colors truncate ${compact ? 'max-w-[120px] sm:max-w-[200px]' : 'max-w-[200px]'}`}
       >

@@ -13,8 +13,8 @@ export class CustomModelProviderScreen {
     this.toast = new Toast(page);
   }
 
-  async goto(workspaceId: string): Promise<void> {
-    await this.shell.goto(workspaceId, 'agents');
+  async goto(workspaceSlug: string): Promise<void> {
+    await this.shell.goto(workspaceSlug, 'agents');
   }
 
   configuredProvidersSection(): Locator {

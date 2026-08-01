@@ -20,7 +20,7 @@ export function MainLayout({
   hideProjectNavigation?: boolean;
 }) {
   const workspace = useMaybeActiveWorkspace();
-  const {pid} = useRouteParams(parseWorkspaceProjectParams);
+  const {projectSlug} = useRouteParams(parseWorkspaceProjectParams);
   const matches = useMatches();
   if (!workspace) return <FullPageLoader />;
   const fullBleed = matches.some((match) => match.staticData.layout === 'full-bleed');
@@ -31,7 +31,7 @@ export function MainLayout({
     <div className="h-screen w-full flex flex-col bg-background-subtle-base">
       <NavBar hideProjectNavigation={hideProjectNavigation} />
       {hideProjectNavigation ? undefined : (
-        <NavTabs entries={navigation} scope={pid ? 'project' : 'workspace'} />
+        <NavTabs entries={navigation} scope={projectSlug ? 'project' : 'workspace'} />
       )}
       {fullBleed ? (
         <main className="flex-1 min-h-0 flex flex-col overflow-hidden">

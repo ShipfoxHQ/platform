@@ -44,14 +44,17 @@ export function InvitationAcceptPage() {
 
   const completeAccept = useCallback(
     async (workspaceId: string, workspaceName: string) => {
+      const userId = auth.user?.id;
+      if (!userId) throw new Error('Cannot complete invitation without an authenticated user.');
       await completeInvitationAcceptance({
+        userId,
         workspaceId,
         workspaceName,
         refreshAuth,
         navigate,
       });
     },
-    [navigate, refreshAuth],
+    [auth.user?.id, navigate, refreshAuth],
   );
 
   const runAccept = useCallback(

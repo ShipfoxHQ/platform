@@ -21,7 +21,7 @@ import {Link, Navigate, useNavigate} from '@tanstack/react-router';
 import {useEffect, useRef, useState} from 'react';
 import {ModelProviderReminderBanner} from '#components/model-provider-reminder-banner.js';
 import {type CreateProjectCommand, projectNameFromRepository} from '#core/project.js';
-import {useCreateProjectMutation} from '#hooks/api/projects.js';
+import {getProject, useCreateProjectMutation} from '#hooks/api/projects.js';
 import {projectErrorCopy} from '#project-error.js';
 
 export function CreateProjectPage() {
@@ -108,7 +108,13 @@ export function CreateProjectPage() {
   }
 
   if (!connectionsQuery.isError && connections.length === 0) {
-    return <Navigate to="/workspaces/$wid/integrations" params={{wid: workspace.id}} replace />;
+    return (
+      <Navigate
+        to="/w/$workspaceSlug/integrations"
+        params={{workspaceSlug: workspace.slug}}
+        replace
+      />
+    );
   }
 
   async function createProjectFromForm(projectName: string, projectSlug: string) {
@@ -143,16 +149,17 @@ export function CreateProjectPage() {
       const project = await createProject.mutateAsync(command);
       toast.success('Project created.');
       await navigate({
-        to: '/workspaces/$wid/projects/$pid',
-        params: {wid: workspace.id, pid: project.id},
+        to: '/w/$workspaceSlug/p/$projectSlug',
+        params: {workspaceSlug: workspace.slug, projectSlug: project.slug},
       });
     } catch (error) {
       const copy = projectErrorCopy(error);
       if (copy.existingProjectId) {
         toast.info('Project already exists.');
+        const project = await getProject(copy.existingProjectId);
         await navigate({
-          to: '/workspaces/$wid/projects/$pid',
-          params: {wid: workspace.id, pid: copy.existingProjectId},
+          to: '/w/$workspaceSlug/p/$projectSlug',
+          params: {workspaceSlug: workspace.slug, projectSlug: project.slug},
         });
         return;
       }
@@ -225,7 +232,10 @@ export function CreateProjectPage() {
 
               {connections.length === 1 ? (
                 <Button asChild variant="transparent" size="sm" className="shrink-0">
-                  <Link to="/workspaces/$wid/integrations" params={{wid: workspace.id}}>
+                  <Link
+                    to="/w/$workspaceSlug/integrations"
+                    params={{workspaceSlug: workspace.slug}}
+                  >
                     Add another integration
                   </Link>
                 </Button>

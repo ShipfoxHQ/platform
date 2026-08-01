@@ -64,6 +64,7 @@ export function composeClientApp({
                 router={router}
                 queryClient={queryClient}
                 workspaceSetup={workspaceSetup}
+                projectSlugResolver={chrome?.projectSlugResolver}
               />
               <Toaster />
             </ShellProviderStack>
@@ -78,10 +79,12 @@ function RoutedApp({
   router,
   queryClient,
   workspaceSetup,
+  projectSlugResolver,
 }: {
   router: AnyRouter;
   queryClient: QueryClient;
   workspaceSetup: WorkspaceSetupGate | undefined;
+  projectSlugResolver: ChromeSlots['projectSlugResolver'] | undefined;
 }) {
   const auth = useAuthState();
 
@@ -92,7 +95,7 @@ function RoutedApp({
   return (
     <RouterProvider
       router={router as never}
-      context={{auth, queryClient, workspaceSetup} as never}
+      context={{auth, queryClient, workspaceSetup, projectSlugResolver} as never}
     />
   );
 }

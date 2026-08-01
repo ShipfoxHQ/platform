@@ -24,13 +24,15 @@ export function WorkspaceSwitcher({activeWorkspaceId, onSelect}: WorkspaceSwitch
   const setLastWorkspaceId = useSetAtom(lastWorkspaceIdAtom);
 
   const handleSelect = (workspaceId: string) => {
+    const workspace = workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace) return;
     try {
       setLastWorkspaceId(workspaceId);
       if (user?.id) rememberLastWorkspaceId(user.id, workspaceId);
     } catch {
       // localStorage may throw in private browsing or quota-exceeded; persistence is best-effort.
     }
-    navigate({to: '/workspaces/$wid', params: {wid: workspaceId}});
+    navigate({to: '/w/$workspaceSlug', params: {workspaceSlug: workspace.slug}});
     onSelect?.();
   };
 

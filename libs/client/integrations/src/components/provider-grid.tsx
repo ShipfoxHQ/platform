@@ -1,3 +1,4 @@
+import {useActiveWorkspace} from '@shipfox/client-auth';
 import {QueryLoadError} from '@shipfox/client-ui';
 import {IntegrationIcon} from '@shipfox/integration-icons';
 import {Card} from '@shipfox/react-ui/card';
@@ -16,7 +17,6 @@ export interface ProviderGridProps {
   isFetching?: boolean;
   error?: Error | null | undefined;
   onRetry?: () => void;
-  workspaceId: string;
   emptyMessage: string;
   loadingLabel?: string;
   errorSubject?: string;
@@ -34,7 +34,6 @@ export function ProviderGrid({
   isFetching = false,
   error,
   onRetry,
-  workspaceId,
   emptyMessage,
   loadingLabel = 'Loading providers',
   errorSubject = 'available integrations',
@@ -77,11 +76,7 @@ export function ProviderGrid({
     <ul className={PROVIDER_GRID_CLASS}>
       {installableProviders.map((provider) => (
         <li key={provider.provider}>
-          <ProviderCard
-            provider={provider}
-            workspaceId={workspaceId}
-            onOpenProvider={onOpenProvider}
-          />
+          <ProviderCard provider={provider} onOpenProvider={onOpenProvider} />
         </li>
       ))}
     </ul>
@@ -90,13 +85,12 @@ export function ProviderGrid({
 
 function ProviderCard({
   provider,
-  workspaceId,
   onOpenProvider,
 }: {
   provider: IntegrationProvider;
-  workspaceId: string;
   onOpenProvider?: ((provider: string) => void) | undefined;
 }) {
+  const workspace = useActiveWorkspace();
   const catalog = PROVIDER_CATALOG[provider.provider];
   if (!catalog) return null;
 
@@ -116,7 +110,7 @@ function ProviderCard({
   return (
     <Link
       to={catalog.setupPath}
-      params={{wid: workspaceId}}
+      params={{workspaceSlug: workspace.slug}}
       aria-label={`Install ${provider.displayName}`}
       className="group flex h-full min-w-0 items-center justify-between gap-12 rounded-8 border border-border-neutral-base bg-background-neutral-base p-16 transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
     >

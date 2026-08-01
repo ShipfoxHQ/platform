@@ -170,6 +170,20 @@ route supplies its path, parent, and router context.
 Route manifests use full paths. Composition removes trailing slashes from non-root paths before any
 comparison. `/` remains `/`. Navigation targets use the same normalization.
 
+The client URL prefixes are part of the composition contract, not an implementation detail of the
+default application. Workspace-scoped routes start with `/w/$workspaceSlug`, project-scoped routes
+nest below it at `/p/$projectSlug`, and workspace settings routes nest below
+`/w/$workspaceSlug/settings`. The prefix registry maps `w` to the workspace slug and `p` to the
+project slug. A registered prefix must be followed immediately by its dynamic slug parameter, and
+the corresponding slug parameter may not appear outside its registered prefix. Other dynamic
+parameters must follow a page segment rather than being placed directly after an entity prefix.
+
+Composition validates these path invariants for every feature-owned layout and route before it
+builds the generated route tree. A feature contribution that uses the legacy `/workspaces/...`
+shape, or otherwise puts a registered slug outside its prefix, fails at composition time with a
+route-path diagnostic. External feature authors should therefore use the anchor paths below as the
+source of truth when declaring routes and navigation targets.
+
 The shell owns four anchors:
 
 | Anchor | Purpose |
@@ -307,7 +321,7 @@ composition check accepts non-empty strings and rejects malformed role metadata.
 or define a role policy.
 
 A settings section adds navigation data only. The feature contributes its page as a normal route. A
-section with `pathSegment: 'sso'` requires `/workspaces/$wid/settings/sso`. Section ids must be
+section with `pathSegment: 'sso'` requires `/w/$workspaceSlug/settings/sso`. Section ids must be
 unique. The settings index redirects to the first sorted section.
 
 ### Runtime configuration
@@ -468,12 +482,12 @@ export const workflowsFeature = defineClientFeature({
   id: 'shipfox.workflows',
   routes: [
     {
-      path: '/workspaces/$wid/projects/$pid/workflows',
+      path: '/w/$workspaceSlug/p/$projectSlug/workflows',
       parent: 'projectLayout',
       impl: '@shipfox/client-workflows/routes/workflows-index',
     },
     {
-      path: '/workspaces/$wid/projects/$pid/workflows/$workflowId',
+      path: '/w/$workspaceSlug/p/$projectSlug/workflows/$workflowId',
       parent: 'projectLayout',
       impl: '@shipfox/client-workflows/routes/workflow-detail',
     },
@@ -483,7 +497,7 @@ export const workflowsFeature = defineClientFeature({
       id: 'workflows',
       scope: 'project',
       label: 'Workflows',
-      to: '/workspaces/$wid/projects/$pid/workflows',
+      to: '/w/$workspaceSlug/p/$projectSlug/workflows',
       order: 200,
     },
   ],
@@ -500,7 +514,7 @@ export const ssoFeature = defineClientFeature({
   id: 'acme.sso',
   routes: [
     {
-      path: '/workspaces/$wid/settings/sso',
+      path: '/w/$workspaceSlug/settings/sso',
       parent: 'workspaceSettings',
       impl: '@acme/shipfox-sso-client/routes/settings',
     },

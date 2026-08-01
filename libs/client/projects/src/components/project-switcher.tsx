@@ -14,11 +14,17 @@ import {useProjectsInfiniteQuery} from '#hooks/api/projects.js';
 
 export interface ProjectSwitcherProps {
   workspaceId: string;
+  workspaceSlug: string;
   activeProjectId?: string | undefined;
   onSelect?: () => void;
 }
 
-export function ProjectSwitcher({workspaceId, activeProjectId, onSelect}: ProjectSwitcherProps) {
+export function ProjectSwitcher({
+  workspaceId,
+  workspaceSlug,
+  activeProjectId,
+  onSelect,
+}: ProjectSwitcherProps) {
   const navigate = useNavigate();
   const [searchValue, setSearchValue] = useState('');
   const query = useProjectsInfiniteQuery(workspaceId);
@@ -33,20 +39,25 @@ export function ProjectSwitcher({workspaceId, activeProjectId, onSelect}: Projec
   }, [query.hasNextPage, query.isFetchingNextPage, query.fetchNextPage]);
 
   const handleSelect = (projectId: string) => {
+    const project = projects.find((candidate) => candidate.id === projectId);
+    if (!project) return;
     navigate({
-      to: '/workspaces/$wid/projects/$pid',
-      params: {wid: workspaceId, pid: projectId},
+      to: '/w/$workspaceSlug/p/$projectSlug',
+      params: {
+        workspaceSlug,
+        projectSlug: project.slug,
+      },
     });
     onSelect?.();
   };
 
   const handleSelectAll = () => {
-    navigate({to: '/workspaces/$wid', params: {wid: workspaceId}});
+    navigate({to: '/w/$workspaceSlug', params: {workspaceSlug}});
     onSelect?.();
   };
 
   const handleCreate = () => {
-    navigate({to: '/workspaces/$wid/projects/new', params: {wid: workspaceId}});
+    navigate({to: '/w/$workspaceSlug/projects/new', params: {workspaceSlug}});
     onSelect?.();
   };
 

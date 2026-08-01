@@ -177,7 +177,7 @@ export function validateSettingsSections(
           [existingFeatureId, feature.id],
         );
       }
-      const path = `/workspaces/$wid/settings/${section.pathSegment}`;
+      const path = `/w/$workspaceSlug/settings/${section.pathSegment}`;
       const normalizedPath = normalizeRoutePath(path);
       const routeOwner = routes.get(normalizedPath);
       if (routeOwner === undefined && !routes.has(normalizedPath)) {

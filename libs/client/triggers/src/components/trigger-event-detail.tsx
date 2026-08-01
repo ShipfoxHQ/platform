@@ -1,3 +1,4 @@
+import {useProjectQuery} from '@shipfox/client-projects';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -34,17 +35,19 @@ const DETAIL_RAIL_CLASS =
   '@min-[820px]:sticky @min-[820px]:top-16 @min-[820px]:max-h-[calc(var(--app-content-h,100dvh_-_96px)_-_32px)] @min-[820px]:min-h-[min(320px,calc(var(--app-content-h,100dvh_-_96px)_-_32px))]';
 
 export interface TriggerEventDetailProps {
-  workspaceId: string;
+  workspaceSlug?: string | undefined;
   eventId?: string | undefined;
   onBack: () => void;
 }
 
-export function TriggerEventDetail({workspaceId, eventId, onBack}: TriggerEventDetailProps) {
+export function TriggerEventDetail({workspaceSlug, eventId, onBack}: TriggerEventDetailProps) {
   const query = useTriggerEventQuery(eventId);
 
   if (!eventId) return <TriggerEventDetailPlaceholder />;
   if (query.data) {
-    return <TriggerEventDetailView workspaceId={workspaceId} event={query.data} onBack={onBack} />;
+    return (
+      <TriggerEventDetailView workspaceSlug={workspaceSlug} event={query.data} onBack={onBack} />
+    );
   }
   if (query.isError)
     return <TriggerEventDetailError onBack={onBack} onRetry={() => query.refetch()} />;
@@ -52,11 +55,11 @@ export function TriggerEventDetail({workspaceId, eventId, onBack}: TriggerEventD
 }
 
 export function TriggerEventDetailView({
-  workspaceId,
+  workspaceSlug,
   event,
   onBack,
 }: {
-  workspaceId: string;
+  workspaceSlug?: string | undefined;
   event: TriggerEventDetailModel;
   onBack: () => void;
 }) {
@@ -124,7 +127,7 @@ export function TriggerEventDetailView({
         key={event.id}
         className="flex min-h-0 flex-1 flex-col gap-20 overflow-y-auto p-16 scrollbar"
       >
-        <EventRuns workspaceId={workspaceId} event={event} />
+        <EventRuns workspaceSlug={workspaceSlug} event={event} />
         <EventPayload payload={formattedPayload} />
       </div>
     </aside>
@@ -207,7 +210,13 @@ function TriggerEventDetailError({onBack, onRetry}: {onBack: () => void; onRetry
   );
 }
 
-function EventRuns({workspaceId, event}: {workspaceId: string; event: TriggerEventDetailModel}) {
+function EventRuns({
+  workspaceSlug,
+  event,
+}: {
+  workspaceSlug?: string | undefined;
+  event: TriggerEventDetailModel;
+}) {
   if (event.decisions.length === 0) {
     if (event.outcome === 'discarded') {
       return (
@@ -226,7 +235,7 @@ function EventRuns({workspaceId, event}: {workspaceId: string; event: TriggerEve
       </Text>
       <ul className="-mx-8 flex flex-col gap-1">
         {event.decisions.map((decision) => (
-          <DecisionRow key={decision.id} workspaceId={workspaceId} decision={decision} />
+          <DecisionRow key={decision.id} workspaceSlug={workspaceSlug} decision={decision} />
         ))}
       </ul>
     </section>
@@ -234,12 +243,16 @@ function EventRuns({workspaceId, event}: {workspaceId: string; event: TriggerEve
 }
 
 function DecisionRow({
-  workspaceId,
+  workspaceSlug,
   decision,
 }: {
-  workspaceId: string;
+  workspaceSlug?: string | undefined;
   decision: TriggerEventMatchedWorkflowResult;
 }) {
+  const projectQuery = useProjectQuery(
+    workspaceSlug && decision.projectId ? decision.projectId : undefined,
+  );
+
   if (decision.decision !== 'triggered' || !decision.runId || !decision.runName) {
     return (
       <li className="flex min-w-0 items-start gap-8 rounded-6 px-8 py-6">
@@ -266,27 +279,39 @@ function DecisionRow({
     );
   }
 
+  const projectSlug = projectQuery.data?.slug;
+
   return (
-    <li>
-      <Link
-        to="/workspaces/$wid/projects/$pid/runs/$workflowRunId"
-        params={{wid: workspaceId, pid: decision.projectId ?? '', workflowRunId: decision.runId}}
-        className="flex min-w-0 items-start gap-8 rounded-6 px-8 py-6 transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none"
-      >
-        <Icon
-          name="cornerDownRightLine"
-          className="mt-3 size-14 shrink-0 text-foreground-neutral-muted"
-          aria-hidden="true"
-        />
-        <span className="flex min-w-0 flex-col gap-1">
-          <Text as="span" size="sm" className="min-w-0 truncate text-foreground-neutral-base">
-            {decision.subscriptionName}
-          </Text>
+    <li className="flex min-w-0 items-start gap-8 rounded-6 px-8 py-6">
+      <Icon
+        name="cornerDownRightLine"
+        className="mt-3 size-14 shrink-0 text-foreground-neutral-muted"
+        aria-hidden="true"
+      />
+      <span className="flex min-w-0 flex-col gap-1">
+        <Text as="span" size="sm" className="min-w-0 truncate text-foreground-neutral-base">
+          {decision.subscriptionName}
+        </Text>
+        {workspaceSlug && projectSlug ? (
+          <Link
+            to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
+            params={{
+              workspaceSlug,
+              projectSlug,
+              workflowRunId: decision.runId,
+            }}
+            className="truncate text-foreground-neutral-muted"
+          >
+            <Code as="span" variant="label">
+              {decision.runName}
+            </Code>
+          </Link>
+        ) : (
           <Code as="span" variant="label" className="truncate text-foreground-neutral-muted">
             {decision.runName}
           </Code>
-        </span>
-      </Link>
+        )}
+      </span>
     </li>
   );
 }

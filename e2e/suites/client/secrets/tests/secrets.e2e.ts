@@ -9,12 +9,12 @@ test.describe('secrets settings', () => {
     secretsScreen,
     createReadyWorkspace,
   }) => {
-    const {workspaceId} = await createReadyWorkspace({
+    const {workspaceSlug} = await createReadyWorkspace({
       name: 'Secrets Create Workspace',
     });
     const value = 'secret-create-value-e2e';
 
-    await secretsScreen.goto(workspaceId);
+    await secretsScreen.goto(workspaceSlug);
     await expect(secretsScreen.emptyState()).toBeVisible();
     await secretsScreen.createSecret(SECRET_CREATE_KEY, value);
 
@@ -27,7 +27,7 @@ test.describe('secrets settings', () => {
     secretsScreen,
     createReadyWorkspace,
   }) => {
-    const {userId, workspaceId} = await createReadyWorkspace({
+    const {userId, workspaceId, workspaceSlug} = await createReadyWorkspace({
       name: 'Secrets Edit Workspace',
     });
     const oldValue = 'secret-edit-old-value-e2e';
@@ -39,7 +39,7 @@ test.describe('secrets settings', () => {
       value: oldValue,
     });
 
-    await secretsScreen.goto(workspaceId);
+    await secretsScreen.goto(workspaceSlug);
     const dialog = await secretsScreen.openUpdateDialog(SECRET_EDIT_KEY);
     await expect(dialog.field('Name')).toBeDisabled();
     await expect(dialog.field('Name')).toHaveValue(SECRET_EDIT_KEY);
@@ -58,7 +58,7 @@ test.describe('secrets settings', () => {
     secretsScreen,
     createReadyWorkspace,
   }) => {
-    const {userId, workspaceId} = await createReadyWorkspace({
+    const {userId, workspaceId, workspaceSlug} = await createReadyWorkspace({
       name: 'Secrets Delete Workspace',
     });
     await secrets.createSecret({
@@ -68,7 +68,7 @@ test.describe('secrets settings', () => {
       value: 'secret-delete-value-e2e',
     });
 
-    await secretsScreen.goto(workspaceId);
+    await secretsScreen.goto(workspaceSlug);
     const row = secretsScreen.rowByKey(SECRET_DELETE_KEY);
     await secretsScreen.deleteSecret(SECRET_DELETE_KEY);
 

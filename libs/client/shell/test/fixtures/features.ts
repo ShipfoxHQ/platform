@@ -5,12 +5,12 @@ export const features = [
     id: 'shipfox.projects',
     routes: [
       {
-        path: '/workspaces/$wid/projects/$pid/overview',
+        path: '/w/$workspaceSlug/p/$projectSlug/overview',
         parent: 'projectLayout',
         impl: '#test/default-route-impl.js',
       },
       {
-        path: '/workspaces/$wid/settings/members',
+        path: '/w/$workspaceSlug/settings/members',
         parent: 'workspaceSettings',
         impl: '#test/default-route-impl.js',
       },
@@ -20,7 +20,7 @@ export const features = [
         id: 'projects',
         scope: 'workspace',
         label: 'Projects',
-        to: '/workspaces/$wid/projects/$pid/overview',
+        to: '/w/$workspaceSlug/p/$projectSlug/overview',
         order: 100,
       },
     ],
@@ -32,12 +32,12 @@ export const features = [
     id: 'acme.insights',
     routes: [
       {
-        path: '/workspaces/$wid/insights',
+        path: '/w/$workspaceSlug/insights',
         parent: 'workspaceLayout',
         impl: '#test/named-route-impl.js',
       },
       {
-        path: '/workspaces/$wid/projects/$pid/overview',
+        path: '/w/$workspaceSlug/p/$projectSlug/overview',
         parent: 'projectLayout',
         override: true,
         impl: '#test/search-route-impl.js',
@@ -48,7 +48,7 @@ export const features = [
         id: 'insights',
         scope: 'workspace',
         label: 'Insights',
-        to: '/workspaces/$wid/insights',
+        to: '/w/$workspaceSlug/insights',
         order: 200,
       },
     ],

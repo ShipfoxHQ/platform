@@ -1,4 +1,6 @@
+import {useMaybeActiveProject} from '@shipfox/client-projects';
 import {defineRoute, useRouteParams, useRouteSearch} from '@shipfox/client-shell/runtime';
+import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {WorkflowRunPage} from '#pages/workflow-run-page.js';
 import {validateWorkflowRunsSearch, workflowRouteParams} from './inputs.js';
 
@@ -6,13 +8,17 @@ export default defineRoute({
   staticData: {layout: 'full-bleed'},
   validateSearch: validateWorkflowRunsSearch,
   component: () => {
-    const {wid, pid, workflowRunId} = useRouteParams(workflowRouteParams);
+    const {workspaceSlug, projectSlug, workflowRunId} = useRouteParams(workflowRouteParams);
+    const project = useMaybeActiveProject();
+    const search = useRouteSearch(validateWorkflowRunsSearch);
+    if (!project) return <FullPageLoader />;
     return (
       <WorkflowRunPage
-        workspaceId={wid}
-        projectId={pid}
+        projectId={project.id}
+        workspaceSlug={workspaceSlug}
+        projectSlug={projectSlug}
         workflowRunId={workflowRunId}
-        search={useRouteSearch(validateWorkflowRunsSearch)}
+        search={search}
       />
     );
   },

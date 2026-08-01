@@ -155,7 +155,6 @@ export function IntegrationGalleryForWorkspace({
           isFetching={providersQuery.isFetching}
           error={providersQuery.isError ? providersQuery.error : undefined}
           onRetry={() => void providersQuery.refetch()}
-          workspaceId={workspaceId}
           emptyMessage={emptyProvidersMessage}
           onOpenProvider={setCreateProvider}
         />

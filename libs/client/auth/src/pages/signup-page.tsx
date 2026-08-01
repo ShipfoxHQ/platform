@@ -1,5 +1,5 @@
 import {signupBodySchema} from '@shipfox/api-auth-dto';
-import {AuthShell, useRouteSearch} from '@shipfox/client-shell/runtime';
+import {AuthShell, rememberLastWorkspaceId, useRouteSearch} from '@shipfox/client-shell/runtime';
 import {displayNameFieldError} from '@shipfox/client-ui';
 import {Button, ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -74,10 +74,10 @@ export function SignupPage() {
             // call's 401 handling will re-route the user.
           }
           toast.success(`You joined ${invitationPending.workspaceName}.`);
-          await navigate({
-            to: '/workspaces/$wid',
-            params: {wid: result.membership.workspaceId},
-          });
+          if (result.user?.id) {
+            rememberLastWorkspaceId(result.user.id, result.membership.workspaceId);
+          }
+          await navigate({to: '/'});
           return;
         }
 

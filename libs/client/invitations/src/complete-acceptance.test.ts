@@ -22,16 +22,14 @@ describe('completeInvitationAcceptance', () => {
     await completeInvitationAcceptance({
       navigate,
       refreshAuth,
+      userId: 'user-1',
       workspaceId: 'workspace-1',
       workspaceName: 'Acme',
     });
 
     expect(refreshAuth).toHaveBeenCalledTimes(1);
     expect(toast.success).toHaveBeenCalledWith('You joined Acme.');
-    expect(navigate).toHaveBeenCalledWith({
-      params: {wid: 'workspace-1'},
-      to: '/workspaces/$wid',
-    });
+    expect(navigate).toHaveBeenCalledWith({to: '/'});
     expect(calls).toEqual(['refreshAuth', 'navigate']);
   });
 
@@ -42,14 +40,12 @@ describe('completeInvitationAcceptance', () => {
     await completeInvitationAcceptance({
       navigate,
       refreshAuth,
+      userId: 'user-1',
       workspaceId: 'workspace-1',
       workspaceName: 'Acme',
     });
 
     expect(toast.success).toHaveBeenCalledWith('You joined Acme.');
-    expect(navigate).toHaveBeenCalledWith({
-      params: {wid: 'workspace-1'},
-      to: '/workspaces/$wid',
-    });
+    expect(navigate).toHaveBeenCalledWith({to: '/'});
   });
 });

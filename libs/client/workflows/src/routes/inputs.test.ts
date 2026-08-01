@@ -10,13 +10,13 @@ describe('workflow route inputs', () => {
   });
 
   it('requires workspace and project path parameters', () => {
-    expect(workflowRouteParams({wid: 'workspace-1', pid: 'project-1'})).toEqual({
-      wid: 'workspace-1',
-      pid: 'project-1',
+    expect(workflowRouteParams({workspaceSlug: 'workspace-1', projectSlug: 'project-1'})).toEqual({
+      workspaceSlug: 'workspace-1',
+      projectSlug: 'project-1',
     });
-    expect(() => workflowRouteParams({wid: 'workspace-1'})).toThrow(
+    expect(() => workflowRouteParams({workspaceSlug: 'workspace-1'})).toThrow(
       'Workflow route is missing required path parameters.',
     );
-    expect(() => workflowRouteParams({wid: 'workspace-1', pid: null})).toThrow();
+    expect(() => workflowRouteParams({workspaceSlug: 'workspace-1', projectSlug: null})).toThrow();
   });
 });

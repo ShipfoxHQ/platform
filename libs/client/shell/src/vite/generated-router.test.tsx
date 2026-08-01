@@ -1,5 +1,5 @@
 import {QueryClient} from '@tanstack/react-query';
-import {createMemoryHistory, Outlet, RouterProvider} from '@tanstack/react-router';
+import {createMemoryHistory, RouterProvider} from '@tanstack/react-router';
 import {render, screen} from '@testing-library/react';
 import {createStore} from 'jotai';
 import {authStateAtom} from '#runtime/auth.js';
@@ -20,16 +20,17 @@ describe('generated composition router', () => {
     };
     const chrome: ChromeSlots = {
       ProjectBreadcrumb: () => null,
-      ProjectLayoutGuard: Outlet,
+      projectSlugResolver: async () => 'project',
     };
     const queryClient = new QueryClient();
     const store = createStore();
     store.set(authStateAtom, auth);
     router.update({
-      history: createMemoryHistory({initialEntries: ['/workspaces/workspace/insights']}),
+      history: createMemoryHistory({initialEntries: ['/w/workspace/insights']}),
       context: {
         auth,
         queryClient,
+        projectSlugResolver: async () => 'project',
         workspaceSetup: async () => ({hideProjectNavigation: false}),
       },
     });
@@ -50,8 +51,8 @@ describe('generated composition router', () => {
     expect(await screen.findByText('Named route')).toBeVisible();
 
     await router.navigate({
-      to: '/workspaces/$wid/projects/$pid/overview',
-      params: {wid: 'workspace', pid: 'project'},
+      to: '/w/$workspaceSlug/p/$projectSlug/overview',
+      params: {workspaceSlug: 'workspace', projectSlug: 'project'},
       search: {tab: 'overview'},
     });
 

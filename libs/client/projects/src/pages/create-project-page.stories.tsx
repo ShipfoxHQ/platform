@@ -17,7 +17,7 @@ import {useMemo} from 'react';
 import {CreateProjectPage} from './create-project-page.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
-const WORKSPACE_PATH = `/workspaces/${WORKSPACE_ID}/projects/new`;
+const WORKSPACE_PATH = '/w/acme/projects/new';
 const GITHUB_CONNECTION_ID = '33333333-3333-4333-8333-333333333333';
 const GITEA_CONNECTION_ID = '44444444-4444-4444-8444-444444444444';
 
@@ -107,7 +107,7 @@ function createStoryRouter() {
   const rootRoute = createRootRoute({component: Outlet});
   const workspaceRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid',
+    path: '/w/$workspaceSlug',
     component: Outlet,
   });
   const createProjectRoute = createRoute({
@@ -127,7 +127,7 @@ function createStoryRouter() {
   });
   const projectRoute = createRoute({
     getParentRoute: () => workspaceRoute,
-    path: 'projects/$pid',
+    path: 'p/$projectSlug',
     component: () => <div />,
   });
 

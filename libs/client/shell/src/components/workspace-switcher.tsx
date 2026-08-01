@@ -30,7 +30,9 @@ export function WorkspaceSwitcher({
     } catch {
       // Local storage is best effort.
     }
-    navigate({to: '/workspaces/$wid', params: {wid}});
+    const workspace = workspaces.find((candidate) => candidate.id === wid);
+    if (!workspace) return;
+    navigate({to: '/w/$workspaceSlug', params: {workspaceSlug: workspace.slug}});
     onSelect?.();
   };
   return (

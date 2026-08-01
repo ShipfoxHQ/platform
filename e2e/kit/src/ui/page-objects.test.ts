@@ -26,8 +26,8 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   events: 'Events',
 };
 
-function settingsPath(workspaceId: string, tab: SettingsTab): string {
-  return `/workspaces/${workspaceId}/settings/${tab}`;
+function settingsPath(workspaceSlug: string, tab: SettingsTab): string {
+  return `/w/${workspaceSlug}/settings/${tab}`;
 }
 
 function locator(name: string) {

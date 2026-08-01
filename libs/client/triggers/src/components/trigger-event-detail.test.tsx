@@ -1,5 +1,6 @@
 import type {TriggerEventDetailResponseDto} from '@shipfox/api-triggers-dto';
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {fireEvent, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {ReactElement} from 'react';
@@ -61,13 +62,22 @@ function makeEvent(
 }
 
 function renderWithProviders(ui: ReactElement) {
-  return render(<RelativeTimeProvider>{ui}</RelativeTimeProvider>);
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(['projects', 'detail', PROJECT_ID], {
+    id: PROJECT_ID,
+    slug: 'checkout-api',
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RelativeTimeProvider>{ui}</RelativeTimeProvider>
+    </QueryClientProvider>,
+  );
 }
 
 function renderDetailView(event: TriggerEventDetailResponseDto, onBack = vi.fn()) {
   return renderWithProviders(
     <TriggerEventDetailView
-      workspaceId={WORKSPACE_ID}
+      workspaceSlug="acme"
       event={toTriggerEventDetail(event)}
       onBack={onBack}
     />,
@@ -82,7 +92,7 @@ describe('TriggerEventDetailView', () => {
     expect(screen.getByText('Deploy production')).toBeInTheDocument();
     expect(screen.getByRole('link', {name: DEPLOY_RUN_LINK_NAME})).toHaveAttribute(
       'href',
-      `/workspaces/${WORKSPACE_ID}/projects/${PROJECT_ID}/runs/${RUN_ID}`,
+      `/w/acme/p/checkout-api/runs/${RUN_ID}`,
     );
     expect(screen.getByText(PAYLOAD_REF_LINE)).toBeInTheDocument();
   });
@@ -179,9 +189,7 @@ describe('TriggerEventDetail', () => {
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useTriggerEventQuery>);
 
-    renderWithProviders(
-      <TriggerEventDetail workspaceId={WORKSPACE_ID} eventId={EVENT_ID} onBack={vi.fn()} />,
-    );
+    renderWithProviders(<TriggerEventDetail eventId={EVENT_ID} onBack={vi.fn()} />);
 
     expect(await screen.findByRole('button', {name: 'Back to events'})).toBeInTheDocument();
   });
@@ -194,9 +202,7 @@ describe('TriggerEventDetail', () => {
       refetch,
     } as unknown as ReturnType<typeof useTriggerEventQuery>);
 
-    renderWithProviders(
-      <TriggerEventDetail workspaceId={WORKSPACE_ID} eventId={EVENT_ID} onBack={vi.fn()} />,
-    );
+    renderWithProviders(<TriggerEventDetail eventId={EVENT_ID} onBack={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole('button', {name: 'Retry'}));
 

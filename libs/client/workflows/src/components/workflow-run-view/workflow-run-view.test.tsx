@@ -15,7 +15,7 @@ import {
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
-import {jsonResponse, PROJECT_TEST_WID, renderProjectPage} from '#test/pages.js';
+import {jsonResponse, PROJECT_TEST_WSLUG, renderProjectPage} from '#test/pages.js';
 import {WorkflowRunView} from './workflow-run-view.js';
 
 const RUN_ID = '66666666-6666-4666-8666-666666666666';
@@ -339,7 +339,7 @@ describe('WorkflowRunView', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Configure Agents'})).toHaveAttribute(
       'href',
-      `/workspaces/${PROJECT_TEST_WID}/settings/agents`,
+      `/w/${PROJECT_TEST_WSLUG}/settings/agents`,
     );
   });
 
@@ -416,7 +416,7 @@ describe('WorkflowRunView', () => {
     expect(screen.getByText('Configure credentials for anthropic')).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Configure Agents'})).toHaveAttribute(
       'href',
-      `/workspaces/${PROJECT_TEST_WID}/settings/agents`,
+      `/w/${PROJECT_TEST_WSLUG}/settings/agents`,
     );
   });
 
@@ -937,7 +937,7 @@ describe('WorkflowRunView', () => {
     expect(successSpy).toHaveBeenCalledWith('Re-run started');
     await waitFor(() =>
       expect(router.state.location.pathname).toBe(
-        `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/runs/${rerunId}`,
+        `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${rerunId}`,
       ),
     );
     expect((router.state.location.search as Record<string, unknown>).runAttempt).toBeUndefined();
@@ -1047,11 +1047,12 @@ describe('WorkflowRunView', () => {
     configureApiClient({fetchImpl: fetchImpl as typeof fetch});
 
     const {router} = renderProjectPage(
-      `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/runs/${RUN_ID}?job=${BUILD_JOB_ID}&step=${CHECKOUT_STEP_ID}&stepAttempt=${CHECKOUT_ATTEMPT_ID}`,
+      `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${RUN_ID}?job=${BUILD_JOB_ID}&step=${CHECKOUT_STEP_ID}&stepAttempt=${CHECKOUT_ATTEMPT_ID}`,
       () => (
         <WorkflowRunView
-          workspaceId={PROJECT_TEST_WID}
           projectId={PROJECT_ID}
+          workspaceSlug={PROJECT_TEST_WSLUG}
+          projectSlug="project"
           workflowRunId={RUN_ID}
         />
       ),
@@ -1062,7 +1063,7 @@ describe('WorkflowRunView', () => {
 
     await waitFor(() =>
       expect(router.state.location.pathname).toBe(
-        `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/runs/${RUN_ID}`,
+        `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${RUN_ID}`,
       ),
     );
     expect(router.state.location.search).toEqual({runAttempt: 2});
@@ -1125,17 +1126,15 @@ describe('WorkflowRunView', () => {
 });
 
 function renderView(props: Partial<Parameters<typeof WorkflowRunView>[0]> = {}, search = '') {
-  return renderProjectPage(
-    `/workspaces/${PROJECT_TEST_WID}/projects/x/runs/${RUN_ID}${search}`,
-    () => (
-      <WorkflowRunView
-        workspaceId={PROJECT_TEST_WID}
-        projectId={PROJECT_ID}
-        workflowRunId={RUN_ID}
-        {...props}
-      />
-    ),
-  );
+  return renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/p/project/runs/${RUN_ID}${search}`, () => (
+    <WorkflowRunView
+      projectId={PROJECT_ID}
+      workspaceSlug={PROJECT_TEST_WSLUG}
+      projectSlug="project"
+      workflowRunId={RUN_ID}
+      {...props}
+    />
+  ));
 }
 
 function requestUrl(input: RequestInfo | URL): URL {

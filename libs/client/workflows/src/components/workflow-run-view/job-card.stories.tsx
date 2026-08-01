@@ -233,7 +233,6 @@ function JobCardStory({
 
   return (
     <JobCard
-      workspaceId={WORKSPACE_ID}
       job={job}
       selectedJobExecution={selectedJobExecution}
       selectedAttemptId={selectedAttemptId}

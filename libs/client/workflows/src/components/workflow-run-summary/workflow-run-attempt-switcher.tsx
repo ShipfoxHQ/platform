@@ -16,15 +16,15 @@ import {useWorkflowRunAttemptsQuery} from '#hooks/api/workflow-runs.js';
 import {WorkflowStatusIcon} from '../workflow-status/workflow-status-icon.js';
 
 export interface WorkflowRunAttemptSwitcherProps {
-  workspaceId: string;
-  projectId: string;
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
   run: WorkflowRunDetail;
   latestAttempt: number;
 }
 
 export function WorkflowRunAttemptSwitcher({
-  workspaceId,
-  projectId,
+  workspaceSlug,
+  projectSlug,
   run,
   latestAttempt,
 }: WorkflowRunAttemptSwitcherProps) {
@@ -35,6 +35,7 @@ export function WorkflowRunAttemptSwitcher({
   });
 
   if (latestAttempt <= 1) return null;
+  if (!workspaceSlug || !projectSlug) return null;
 
   const attempts = attemptsQuery.data ?? [];
   const latestLoadedAttempt = Math.max(0, ...attempts.map((attempt) => attempt.attempt));
@@ -73,8 +74,8 @@ export function WorkflowRunAttemptSwitcher({
                   attempt={attempt}
                   current={attempt.id === run.runAttempt.id}
                   workflowRunId={run.id}
-                  workspaceId={workspaceId}
-                  projectId={projectId}
+                  workspaceSlug={workspaceSlug}
+                  projectSlug={projectSlug}
                 />
               ))
           : null}
@@ -107,20 +108,20 @@ function AttemptItem({
   attempt,
   current,
   workflowRunId,
-  workspaceId,
-  projectId,
+  workspaceSlug,
+  projectSlug,
 }: {
   attempt: WorkflowRunAttempt;
   current: boolean;
   workflowRunId: string;
-  workspaceId: string;
-  projectId: string;
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
 }) {
   return (
     <DropdownMenuItem asChild className={cn(current && 'text-foreground-neutral-base')}>
       <Link
-        to="/workspaces/$wid/projects/$pid/runs/$workflowRunId"
-        params={{wid: workspaceId, pid: projectId, workflowRunId}}
+        to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
+        params={{workspaceSlug, projectSlug, workflowRunId}}
         search={
           ((previous: Record<string, unknown>) => {
             if (current) return previous;

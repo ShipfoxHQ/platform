@@ -69,7 +69,7 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
             }
           />
           <Button asChild iconLeft="addLine" className="shrink-0 max-[640px]:w-full">
-            <Link to="/workspaces/$wid/projects/new" params={{wid: workspace.id}}>
+            <Link to="/w/$workspaceSlug/projects/new" params={{workspaceSlug: workspace.slug}}>
               New project
             </Link>
           </Button>
@@ -83,7 +83,7 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
       {query.isError && hasNoData ? <QueryLoadError query={query} subject="projects" /> : null}
 
       {!isInitialLoading && !query.isError && projects.length === 0 && !search ? (
-        <EmptyProjects workspaceId={workspace.id} />
+        <EmptyProjects workspaceSlug={workspace.slug} />
       ) : null}
 
       {!query.isFetching && !query.isError && projects.length === 0 && search ? (
@@ -103,7 +103,7 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
                 connectionsResolved={connectionsQuery.isSuccess}
                 connectionsSettled={connectionsQuery.isSuccess || connectionsQuery.isError}
                 key={project.id}
-                workspaceId={workspace.id}
+                workspaceSlug={workspace.slug}
               />
             ))}
           </ul>
@@ -152,7 +152,7 @@ function ProjectsSkeleton() {
   );
 }
 
-function EmptyProjects({workspaceId}: {workspaceId: string}) {
+function EmptyProjects({workspaceSlug}: {workspaceSlug: string}) {
   return (
     <EmptyState
       icon="folderLine"
@@ -160,7 +160,7 @@ function EmptyProjects({workspaceId}: {workspaceId: string}) {
       description="Connect a repository-backed project to start building workflows."
       action={
         <Button asChild iconRight="chevronRight">
-          <Link to="/workspaces/$wid/projects/new" params={{wid: workspaceId}}>
+          <Link to="/w/$workspaceSlug/projects/new" params={{workspaceSlug}}>
             Create project
           </Link>
         </Button>
@@ -189,13 +189,13 @@ function ProjectCard({
   connection,
   connectionsResolved,
   connectionsSettled,
-  workspaceId,
+  workspaceSlug,
 }: {
   project: Project;
   connection: IntegrationConnection | undefined;
   connectionsResolved: boolean;
   connectionsSettled: boolean;
-  workspaceId: string;
+  workspaceSlug: string;
 }) {
   // On a resolved fetch, `active` carries no badge while a missing connection
   // reads as an error so a broken source is still flagged. An unresolved or
@@ -205,8 +205,8 @@ function ProjectCard({
   return (
     <li>
       <Link
-        to="/workspaces/$wid/projects/$pid"
-        params={{wid: workspaceId, pid: project.id}}
+        to="/w/$workspaceSlug/p/$projectSlug"
+        params={{workspaceSlug, projectSlug: project.slug}}
         className="block h-full rounded-8 focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
       >
         <Card className="h-full p-16 transition-colors hover:bg-background-components-hover">

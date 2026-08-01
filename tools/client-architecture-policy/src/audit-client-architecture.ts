@@ -266,7 +266,7 @@ function featureContributionOccurrences(file: string, source: string): number {
     if (!routes.has(normalizeManifestPath(target)) && !hasExplicitCoordinator) occurrences += 1;
   }
   for (const segment of capturedMatches(source, settingsPathPattern)) {
-    const target = normalizeManifestPath(`/workspaces/$wid/settings/${segment}`);
+    const target = normalizeManifestPath(`/w/$workspaceSlug/settings/${segment}`);
     if (!routes.has(target) && !hasExplicitCoordinator) occurrences += 1;
   }
 

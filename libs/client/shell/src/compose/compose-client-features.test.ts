@@ -8,7 +8,7 @@ describe('composeClientFeatures', () => {
         routes: [
           {path: '/projects', parent: 'root', impl: 'projects'},
           {
-            path: '/workspaces/$wid/settings/members',
+            path: '/w/$workspaceSlug/settings/members',
             parent: 'workspaceSettings',
             impl: 'members',
           },
@@ -22,7 +22,7 @@ describe('composeClientFeatures', () => {
 
     expect(composition.routes.map(({path}) => path)).toEqual([
       '/projects',
-      '/workspaces/$wid/settings/members',
+      '/w/$workspaceSlug/settings/members',
     ]);
     expect(composition.navigation.map(({id}) => id)).toEqual(['projects']);
     expect(composition.settingsSections.map(({id}) => id)).toEqual(['members']);

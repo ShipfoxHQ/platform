@@ -11,12 +11,12 @@ export class RunnerTokensScreen {
     this.shell = new SettingsShell(page);
   }
 
-  async gotoManualTokens(workspaceId: string): Promise<void> {
-    await this.shell.goto(workspaceId, 'runners');
+  async gotoManualTokens(workspaceSlug: string): Promise<void> {
+    await this.shell.goto(workspaceSlug, 'runners');
   }
 
-  async gotoProvisionerTokens(workspaceId: string): Promise<void> {
-    await this.shell.goto(workspaceId, 'provisioners');
+  async gotoProvisionerTokens(workspaceSlug: string): Promise<void> {
+    await this.shell.goto(workspaceSlug, 'provisioners');
   }
 
   manualTokensSection(): Locator {

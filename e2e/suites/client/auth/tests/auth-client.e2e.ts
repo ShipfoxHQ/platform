@@ -6,15 +6,15 @@ const LOGIN_URL_RE = /\/auth\/login$/u;
 const LOGIN_WITH_REDIRECT_URL_RE = /\/auth\/login\?redirect=/u;
 const SIGNUP_URL_RE = /\/auth\/signup$/u;
 const ONBOARDING_URL_RE = /\/setup\/workspaces\/new\/?$/u;
-const ANY_WORKSPACE_URL_RE = /\/workspaces\//u;
+const ANY_WORKSPACE_URL_RE = /\/w\//u;
 const SIGNUP_NOT_ALLOWED_MESSAGE =
   process.env.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE ??
   'This E2E deployment does not accept new accounts.';
 const ALLOWED_SIGNUP_EMAIL_DOMAIN =
   process.env.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS?.split(',')[0]?.trim() ?? 'allowed.example.test';
 
-function workspaceUrlRe(wid: string): RegExp {
-  return new RegExp(`/workspaces/${wid}(/|$)`, 'u');
+function workspaceUrlRe(workspaceSlug: string): RegExp {
+  return new RegExp(`/w/${workspaceSlug}(/|$)`, 'u');
 }
 
 test('redirects guests from the app root to login', async ({page, guestRedirects, login}) => {
@@ -60,7 +60,7 @@ test('starts email verification for an address in the signup allowlist', async (
   });
   await expect(signup.verificationHeading()).toBeVisible();
 });
-test('form login routes a user with workspaces straight to /workspaces/$wid', async ({
+test('form login routes a user with workspaces straight to /w/$workspaceSlug', async ({
   page,
   auth,
   login,
@@ -82,7 +82,7 @@ test('form login routes a user with workspaces straight to /workspaces/$wid', as
   await login.goto();
   await login.submit(user.email, user.password);
 
-  await expect(page).toHaveURL(workspaceUrlRe(wsA.id));
+  await expect(page).toHaveURL(workspaceUrlRe(wsA.slug));
 
   for (const url of urlsSeen) {
     expect(url, `transit URL must not flash through onboarding: ${url}`).not.toMatch(
@@ -118,7 +118,7 @@ test('restores a nested deep link after login', async ({
   // Fresh E2E workspaces have no source connections, so WorkspaceSetupGuard
   // redirects /projects/new to /integrations. The deep-link restore is proven
   // by the URL transiting *through* /projects/new before that redirect.
-  const target = `/workspaces/${ws.id}/projects/new`;
+  const target = `/w/${ws.slug}/projects/new`;
 
   const urlsSeen: string[] = [];
   page.on('framenavigated', (frame) => {
@@ -137,11 +137,11 @@ test('restores a nested deep link after login', async ({
   const preLoginCount = urlsSeen.length;
   await login.submitButton().click();
 
-  await expect(page).toHaveURL(workspaceUrlRe(ws.id));
+  await expect(page).toHaveURL(workspaceUrlRe(ws.slug));
 
   const postLoginUrls = urlsSeen.slice(preLoginCount);
   const visitedNestedPath = postLoginUrls.some(
-    (url) => new URL(url).pathname === `/workspaces/${ws.id}/projects/new`,
+    (url) => new URL(url).pathname === `/w/${ws.slug}/projects/new`,
   );
   expect(
     visitedNestedPath,
@@ -158,11 +158,11 @@ test('preserves search and hash in the deep link after login', async ({
 }) => {
   const user = await auth.createUser();
   const ws = await workspaces.create({userId: user.user.id, name: `DL ${randomUUID()}`});
-  // WorkspaceSetupGuard at /workspaces/$wid redirects fresh workspaces to
+  // WorkspaceSetupGuard at /w/$workspaceSlug redirects fresh workspaces to
   // /integrations and that redirect drops the search/hash. The restore is
   // proven by the URL transiting through the original deep target with search
   // and hash intact.
-  const target = `/workspaces/${ws.id}?tab=runs#header`;
+  const target = `/w/${ws.slug}?tab=runs#header`;
 
   const urlsSeen: string[] = [];
   page.on('framenavigated', (frame) => {
@@ -181,14 +181,12 @@ test('preserves search and hash in the deep link after login', async ({
   const preLoginCount = urlsSeen.length;
   await login.submitButton().click();
 
-  await expect(page).toHaveURL(workspaceUrlRe(ws.id));
+  await expect(page).toHaveURL(workspaceUrlRe(ws.slug));
 
   const postLoginUrls = urlsSeen.slice(preLoginCount);
   const visitedTargetWithSearchAndHash = postLoginUrls.some((url) => {
     const u = new URL(url);
-    return (
-      u.pathname === `/workspaces/${ws.id}` && u.search === '?tab=runs' && u.hash === '#header'
-    );
+    return u.pathname === `/w/${ws.slug}` && u.search === '?tab=runs' && u.hash === '#header';
   });
   expect(
     visitedTargetWithSearchAndHash,
@@ -222,9 +220,9 @@ test('routes an already-authenticated visitor of /auth/login?redirect= straight 
   const ws = await workspaces.create({userId: user.user.id, name: `Auth ${randomUUID()}`});
   await auth.loginAs(page, user);
 
-  await login.goto(`/workspaces/${ws.id}`);
+  await login.goto(`/w/${ws.slug}`);
 
-  await expect(page).toHaveURL(workspaceUrlRe(ws.id));
+  await expect(page).toHaveURL(workspaceUrlRe(ws.slug));
   await expect(login.heading()).not.toBeVisible();
 });
 

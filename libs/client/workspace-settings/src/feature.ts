@@ -9,7 +9,7 @@ export const workspaceSettingsNavigation = [
     id: 'nav.settings',
     scope: 'workspace',
     label: 'Settings',
-    to: '/workspaces/$wid/settings',
+    to: '/w/$workspaceSlug/settings',
     order: 200,
   },
 ] as const satisfies readonly NavTabEntry[];
@@ -28,12 +28,12 @@ export const workspaceSettingsFeature = defineClientFeature({
   id: 'shipfox.workspace-settings',
   routes: [
     {
-      path: '/workspaces/$wid/settings',
+      path: '/w/$workspaceSlug/settings',
       parent: 'workspaceSettings',
       impl: '@shipfox/client-workspace-settings/routes/index',
     },
     {
-      path: '/workspaces/$wid/settings/members',
+      path: '/w/$workspaceSlug/settings/members',
       parent: 'workspaceSettings',
       impl: '@shipfox/client-workspace-settings/routes/members',
     },

@@ -1,10 +1,8 @@
-import {useActiveWorkspace} from '@shipfox/client-auth';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {ProviderGrid} from '#components/provider-grid.js';
 import {useIntegrationProvidersQuery} from '#hooks/api/integrations.js';
 
 export function SourceControlOnboardingPage() {
-  const workspace = useActiveWorkspace();
   const providersQuery = useIntegrationProvidersQuery({capability: 'source_control'});
 
   return (
@@ -22,7 +20,6 @@ export function SourceControlOnboardingPage() {
         isFetching={providersQuery.isFetching}
         error={providersQuery.isError ? providersQuery.error : undefined}
         onRetry={() => void providersQuery.refetch()}
-        workspaceId={workspace.id}
         emptyMessage="Enable at least one source-control provider in the application settings."
       />
     </div>

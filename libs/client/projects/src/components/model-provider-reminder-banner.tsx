@@ -1,4 +1,5 @@
 import {useModelProviderConfigsQuery} from '@shipfox/client-agent';
+import {useActiveWorkspace} from '@shipfox/client-auth';
 import {createTypedBrowserStorage, sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {
   Alert,
@@ -13,6 +14,7 @@ import {Link} from '@tanstack/react-router';
 import {useState} from 'react';
 
 export function ModelProviderReminderBanner({workspaceId}: {workspaceId: string}) {
+  const workspace = useActiveWorkspace();
   const configsQuery = useModelProviderConfigsQuery(workspaceId);
   const [dismissed, setDismissed] = useState(() => isReminderDismissed(workspaceId));
   const configs = configsQuery.data?.configs;
@@ -39,7 +41,7 @@ export function ModelProviderReminderBanner({workspaceId}: {workspaceId: string}
         </AlertDescription>
         <AlertActions>
           <Button asChild size="sm" variant="secondary">
-            <Link to="/workspaces/$wid/settings/agents" params={{wid: workspaceId}}>
+            <Link to="/w/$workspaceSlug/settings/agents" params={{workspaceSlug: workspace.slug}}>
               Agents
             </Link>
           </Button>

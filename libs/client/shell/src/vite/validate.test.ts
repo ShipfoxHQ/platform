@@ -15,7 +15,7 @@ describe('composition validation', () => {
         routes: [
           route,
           {
-            path: '/workspaces/$wid/settings/members',
+            path: '/w/$workspaceSlug/settings/members',
             parent: 'workspaceSettings',
             impl: '#test/default-route-impl.js',
           },
@@ -144,12 +144,12 @@ describe('composition validation', () => {
     ];
 
     expect(() =>
-      validateSettingsSections(duplicate, ['/workspaces/$wid/settings/members']),
+      validateSettingsSections(duplicate, ['/w/$workspaceSlug/settings/members']),
     ).toThrow(
       'Settings section "members" is contributed by both features "acme.one" and "acme.two".',
     );
     expect(() => validateSettingsSections(missing, [])).toThrow(
-      'Settings section "insights" in feature "acme.insights" requires route "/workspaces/$wid/settings/insights".',
+      'Settings section "insights" in feature "acme.insights" requires route "/w/$workspaceSlug/settings/insights".',
     );
   });
 

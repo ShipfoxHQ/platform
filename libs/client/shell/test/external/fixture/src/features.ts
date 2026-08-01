@@ -17,7 +17,7 @@ export const externalFeature = defineClientFeature({
       impl: './features/login-override',
     },
     {
-      path: '/workspaces/$wid/settings/external',
+      path: '/w/$workspaceSlug/settings/external',
       parent: 'workspaceSettings',
       impl: './features/external-settings',
     },
@@ -31,7 +31,7 @@ export const externalFeature = defineClientFeature({
       id: 'nav.external',
       scope: 'workspace',
       label: 'External',
-      to: '/workspaces/$wid/settings/external',
+      to: '/w/$workspaceSlug/settings/external',
       order: 150,
     },
   ],

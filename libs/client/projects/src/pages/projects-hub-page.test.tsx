@@ -1,10 +1,15 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {fireEvent, screen, waitFor} from '@testing-library/react';
-import {jsonResponse, PROJECT_TEST_WID, renderProjectPage} from '#test/pages.js';
+import {
+  jsonResponse,
+  PROJECT_TEST_WID,
+  PROJECT_TEST_WSLUG,
+  renderProjectPage,
+} from '#test/pages.js';
 import {ProjectsHubPage} from './projects-hub-page.js';
 
 const NEW_PROJECT_REGEX = /New project/i;
-const WORKSPACE_PROJECTS_NEW_HREF = `/workspaces/${PROJECT_TEST_WID}/projects/new`;
+const WORKSPACE_PROJECTS_NEW_HREF = `/w/${PROJECT_TEST_WSLUG}/projects/new`;
 const CONNECTION_ID = '33333333-3333-4333-8333-333333333333';
 
 describe('ProjectsHubPage', () => {
@@ -20,7 +25,7 @@ describe('ProjectsHubPage', () => {
       }),
     });
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}`, <ProjectsHubPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     expect(await screen.findByText('Create your first project')).toBeInTheDocument();
     // The page-level "Projects" title belongs in content because the top nav owns
@@ -48,12 +53,12 @@ describe('ProjectsHubPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}`, <ProjectsHubPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     expect(await screen.findByText('Finish setting up a model provider')).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Agents'})).toHaveAttribute(
       'href',
-      `/workspaces/${PROJECT_TEST_WID}/settings/agents`,
+      `/w/${PROJECT_TEST_WSLUG}/settings/agents`,
     );
     fireEvent.click(screen.getByRole('button', {name: 'Close'}));
 
@@ -69,7 +74,7 @@ describe('ProjectsHubPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}`, <ProjectsHubPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     expect(await screen.findByText('Create your first project')).toBeInTheDocument();
     expect(screen.queryByText('Finish setting up a model provider')).not.toBeInTheDocument();
@@ -104,7 +109,7 @@ describe('ProjectsHubPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}`, <ProjectsHubPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
     expect(await screen.findByText('Platform')).toBeInTheDocument();
     const projectLink = screen.getByText('Platform').closest('a');
     // The whole card is the link, carrying the neutral focus ring (matching the
@@ -124,7 +129,7 @@ describe('ProjectsHubPage', () => {
       }),
     });
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}`, <ProjectsHubPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     expect(await screen.findByText("Couldn't load projects")).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Retry loading projects'})).toBeInTheDocument();
@@ -147,7 +152,7 @@ describe('ProjectsHubPage', () => {
       }),
     });
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}`, <ProjectsHubPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     expect(await screen.findByText('Platform')).toBeInTheDocument();
 
@@ -182,7 +187,7 @@ describe('ProjectsHubPage', () => {
       }),
     });
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}`, <ProjectsHubPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     expect(await screen.findByText('Platform')).toBeInTheDocument();
     expect(await screen.findByText(label)).toBeInTheDocument();
@@ -201,7 +206,7 @@ describe('ProjectsHubPage', () => {
       }),
     });
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}`, <ProjectsHubPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     expect(await screen.findByText('Platform')).toBeInTheDocument();
 

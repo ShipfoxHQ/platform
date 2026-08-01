@@ -10,11 +10,11 @@ import {Link} from '@tanstack/react-router';
 import type {AgentStepConfig, StepError} from '#core/workflow-run.js';
 
 export function AgentConfigFailureCallout({
-  workspaceId,
+  workspaceSlug,
   config,
   error,
 }: {
-  workspaceId: string;
+  workspaceSlug?: string | undefined;
   config: AgentStepConfig | null;
   error: StepError | null;
 }) {
@@ -25,10 +25,10 @@ export function AgentConfigFailureCallout({
       <AlertContent>
         <AlertTitle>{copy.title}</AlertTitle>
         <AlertDescription>{copy.description}</AlertDescription>
-        {copy.showProviderCta ? (
+        {copy.showProviderCta && workspaceSlug ? (
           <AlertActions>
             <Button asChild size="2xs" variant="secondary" iconRight="chevronRight">
-              <Link to="/workspaces/$wid/settings/agents" params={{wid: workspaceId}}>
+              <Link to="/w/$workspaceSlug/settings/agents" params={{workspaceSlug}}>
                 Configure Agents
               </Link>
             </Button>

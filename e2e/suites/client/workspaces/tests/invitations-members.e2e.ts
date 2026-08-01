@@ -9,8 +9,8 @@ const VISUAL_PENDING_EMAIL = 'pending-invitee@example.test';
 const VISUAL_JOINED_DATE = 'May 1, 2026';
 const VISUAL_EXPIRES_DATE = 'May 20, 2026';
 
-function workspaceUrlRe(wid: string): RegExp {
-  return new RegExp(`/workspaces/${wid}(/|$)`, 'u');
+function workspaceUrlRe(slug: string): RegExp {
+  return new RegExp(`/w/${slug}(/|$)`, 'u');
 }
 
 function textRe(text: string): RegExp {
@@ -76,10 +76,10 @@ test('accepts an invitation for an existing user outside the signup allowlist vi
   await projects.createProject({workspaceId: workspace.id});
   await invitationAccept.button('Log in').click();
 
-  await expect(page).toHaveURL(workspaceUrlRe(workspace.id));
+  await expect(page).toHaveURL(workspaceUrlRe(workspace.slug));
   await expect(invitationAccept.message('You joined Invitation Flow Workspace.')).toBeVisible();
 
-  await membersSettings.goto(workspace.id);
+  await membersSettings.goto(workspace.slug);
   await expect(membersSettings.heading()).toBeVisible();
   await expect(membersSettings.memberText(owner.email)).toBeVisible();
   await expect(membersSettings.memberText(invitee.email)).toBeVisible();
@@ -132,10 +132,10 @@ test('creates an account from an invitation outside the signup allowlist with th
   await projects.createProject({workspaceId: workspace.id});
   await invitationAccept.button('Create account').click();
 
-  await expect(page).toHaveURL(workspaceUrlRe(workspace.id));
+  await expect(page).toHaveURL(workspaceUrlRe(workspace.slug));
   await expect(invitationAccept.message('You joined Invitation Signup Workspace.')).toBeVisible();
 
-  await membersSettings.goto(workspace.id);
+  await membersSettings.goto(workspace.slug);
   await expect(membersSettings.memberText(inviteeEmail)).toBeVisible();
   await expect(membersSettings.memberText('Signup Invitee')).toBeVisible();
 });
@@ -158,7 +158,7 @@ test('creates, rejects duplicate, and revokes a pending invitation from members 
   await projects.createProject({workspaceId: workspace.id});
   await auth.loginAs(page, owner);
 
-  await membersSettings.goto(workspace.id);
+  await membersSettings.goto(workspace.slug);
   await expect(membersSettings.pendingInvitationsHeading()).toBeVisible();
   await expect(membersSettings.emptyPendingInvitations()).toBeVisible();
   const ownerJoinedText = await membersSettings.memberCellText(textRe(owner.email), 2);

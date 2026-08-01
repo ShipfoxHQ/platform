@@ -6,8 +6,9 @@ import {renderWithRouter} from '#test/render.js';
 import type {WorkflowRunListQuery} from './types.js';
 import {WorkflowRunListView} from './workflow-run-list-view.js';
 
-const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
+const WORKSPACE_SLUG = 'acme';
+const PROJECT_SLUG = 'checkout-api';
 
 function loadedQuery(): WorkflowRunListQuery {
   return {
@@ -180,8 +181,8 @@ function renderListView(runs: WorkflowRunListItem[]) {
     <WorkflowRunListView
       runs={runs}
       query={loadedQuery()}
-      workspaceId={WORKSPACE_ID}
-      projectId={PROJECT_ID}
+      workspaceSlug={WORKSPACE_SLUG}
+      projectSlug={PROJECT_SLUG}
     />,
   );
 }

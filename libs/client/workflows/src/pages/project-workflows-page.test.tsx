@@ -1,6 +1,11 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {fireEvent, screen, waitFor} from '@testing-library/react';
-import {jsonResponse, PROJECT_TEST_WID, renderProjectPage} from '#test/pages.js';
+import {
+  jsonResponse,
+  PROJECT_TEST_WID,
+  PROJECT_TEST_WSLUG,
+  renderProjectPage,
+} from '#test/pages.js';
 import {ProjectWorkflowsPage} from './project-workflows-page.js';
 
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
@@ -171,10 +176,9 @@ describe('ProjectWorkflowsPage', () => {
 });
 
 function renderWorkflowsPage() {
-  return renderProjectPage(
-    `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/workflows`,
-    () => <ProjectWorkflowsPage projectId={PROJECT_ID} />,
-  );
+  return renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/p/project/workflows`, () => (
+    <ProjectWorkflowsPage projectId={PROJECT_ID} />
+  ));
 }
 
 function createProjectDetailFetch({

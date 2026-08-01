@@ -4,7 +4,7 @@ import {ApiError} from '@shipfox/client-api';
 import {screen, waitFor} from '@testing-library/react';
 import {StrictMode} from 'react';
 import {LINEAR_INSTALL_WORKSPACE_KEY} from '#linear-callback.js';
-import {INTEGRATIONS_TEST_WID, renderIntegrationsPage} from '#test/render.js';
+import {INTEGRATIONS_TEST_WID, renderIntegrationsPage, testWorkspace} from '#test/render.js';
 import {LinearCallbackPage} from './linear-callback-page.js';
 
 const {completeCallbackMock} = vi.hoisted(() => ({completeCallbackMock: vi.fn()}));
@@ -37,8 +37,8 @@ function renderCallback(search: string, options?: {strict?: boolean}) {
       <LinearCallbackPage />
     ),
     extraRoutes: [
-      '/workspaces/$wid/settings/integrations',
-      '/workspaces/$wid/integrations/linear',
+      '/w/$workspaceSlug/settings/integrations',
+      '/w/$workspaceSlug/integrations/linear',
       '/auth/login',
     ],
   });
@@ -66,11 +66,11 @@ describe('LinearCallbackPage', () => {
   });
 
   test('submits a callback once in Strict Mode, clears the handoff, and navigates to the response workspace', async () => {
-    const responseWorkspaceId = '22222222-2222-4222-8222-222222222222';
+    const responseWorkspaceId = INTEGRATIONS_TEST_WID;
     window.sessionStorage.setItem(LINEAR_INSTALL_WORKSPACE_KEY, INTEGRATIONS_TEST_WID);
     completeCallbackMock.mockResolvedValue({
       id: 'connection-1',
-      workspace_id: responseWorkspaceId,
+      workspaceId: responseWorkspaceId,
       provider: 'linear',
       external_account_id: 'linear-org',
       slug: 'linear_org',
@@ -81,7 +81,21 @@ describe('LinearCallbackPage', () => {
       updated_at: '2026-01-01T00:00:00.000Z',
     });
 
-    renderCallback('?code=grant-code-success&state=signed-state-success', {strict: true});
+    renderIntegrationsPage({
+      path: '/integrations/linear/callback?code=grant-code-success&state=signed-state-success',
+      routePath: '/integrations/linear/callback',
+      element: (
+        <StrictMode>
+          <LinearCallbackPage />
+        </StrictMode>
+      ),
+      workspaces: [testWorkspace({id: responseWorkspaceId, slug: 'acme'})],
+      extraRoutes: [
+        '/w/$workspaceSlug/settings/integrations',
+        '/w/$workspaceSlug/integrations/linear',
+        '/auth/login',
+      ],
+    });
 
     await waitFor(() =>
       expect(completeCallbackMock).toHaveBeenCalledWith({
@@ -92,7 +106,7 @@ describe('LinearCallbackPage', () => {
     expect(completeCallbackMock).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
-        screen.getByTestId('route:/workspaces/$wid/settings/integrations'),
+        screen.getByTestId('route:/w/$workspaceSlug/settings/integrations'),
       ).toBeInTheDocument(),
     );
     expect(window.sessionStorage.getItem(LINEAR_INSTALL_WORKSPACE_KEY)).toBeNull();
@@ -136,14 +150,10 @@ describe('LinearCallbackPage', () => {
 
     expect(switchAccountLink).toHaveAttribute(
       'href',
-      `/auth/logout?redirect=${encodeURIComponent(
-        `/workspaces/${INTEGRATIONS_TEST_WID}/integrations/linear`,
-      )}`,
+      `/auth/logout?redirect=${encodeURIComponent('/w/acme/integrations/linear')}`,
     );
     expect(switchAccountUrl.pathname).toBe('/auth/logout');
-    expect(switchAccountUrl.searchParams.get('redirect')).toBe(
-      `/workspaces/${INTEGRATIONS_TEST_WID}/integrations/linear`,
-    );
+    expect(switchAccountUrl.searchParams.get('redirect')).toBe('/w/acme/integrations/linear');
     expect(screen.getByRole('link', {name: 'Start over'})).toBeVisible();
   });
 

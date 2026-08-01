@@ -14,7 +14,7 @@ import {
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
-import {jsonResponse, PROJECT_TEST_WID, renderProjectPage} from '#test/pages.js';
+import {jsonResponse, PROJECT_TEST_WSLUG, renderProjectPage} from '#test/pages.js';
 import {WorkflowRunPage} from './workflow-run-page.js';
 
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
@@ -261,11 +261,12 @@ describe('WorkflowRunPage', () => {
 
 function renderRunsPath(search = '') {
   return renderProjectPage(
-    `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/runs${search}`,
+    `/w/${PROJECT_TEST_WSLUG}/p/project/runs${search}`,
     ({workflowRunId, search}) => (
       <WorkflowRunPage
-        workspaceId={PROJECT_TEST_WID}
         projectId={PROJECT_ID}
+        workspaceSlug={PROJECT_TEST_WSLUG}
+        projectSlug="project"
         workflowRunId={workflowRunId}
         search={search}
       />
@@ -275,11 +276,12 @@ function renderRunsPath(search = '') {
 
 function renderRunPath(search = '') {
   return renderProjectPage(
-    `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/runs/${RUN_ID}${search}`,
+    `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${RUN_ID}${search}`,
     ({workflowRunId, search}) => (
       <WorkflowRunPage
-        workspaceId={PROJECT_TEST_WID}
         projectId={PROJECT_ID}
+        workspaceSlug={PROJECT_TEST_WSLUG}
+        projectSlug="project"
         workflowRunId={workflowRunId}
         search={search}
       />

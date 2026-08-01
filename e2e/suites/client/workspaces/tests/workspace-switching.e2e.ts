@@ -21,13 +21,13 @@ test.describe('workspace switching', () => {
     await projects.createProject({workspaceId: wsB.id});
     await auth.loginAs(page, user);
 
-    await workspaceHome.goto(wsA.id);
-    await expect(page).toHaveURL(workspaceUrlRe(wsA.id));
+    await workspaceHome.goto(wsA.slug);
+    await expect(page).toHaveURL(workspaceUrlRe(wsA.slug));
     await workspaceSwitcher.open();
     await expect(workspaceSwitcher.workspaceOption(workspaceAName)).toBeVisible();
     await workspaceSwitcher.pickWorkspace(workspaceBName);
 
-    await expect(page).toHaveURL(workspaceUrlRe(wsB.id));
+    await expect(page).toHaveURL(workspaceUrlRe(wsB.slug));
     await expect(topNav.currentWorkspace(workspaceBName)).toBeVisible();
     expect(await workspaceHome.readLastWorkspaceId(user.user.id)).toBe(wsB.id);
   });
@@ -43,19 +43,19 @@ test.describe('workspace switching', () => {
     const wsB = await workspaces.create({userId: user.user.id, name: 'Beta Workspace'});
     await auth.loginAs(page, user);
 
-    await workspaceHome.gotoIntegrations(wsB.id);
-    await expect(page).toHaveURL(workspaceUrlRe(wsB.id));
+    await workspaceHome.gotoIntegrations(wsB.slug);
+    await expect(page).toHaveURL(workspaceUrlRe(wsB.slug));
     await expect.poll(() => workspaceHome.readMaybeLastWorkspaceId(user.user.id)).toBe(wsB.id);
     await page.reload();
-    await expect(page).toHaveURL(workspaceUrlRe(wsB.id));
+    await expect(page).toHaveURL(workspaceUrlRe(wsB.slug));
     await expect.poll(() => workspaceHome.readMaybeLastWorkspaceId(user.user.id)).toBe(wsB.id);
     await workspaceHome.gotoRoot();
 
-    await expect(page).toHaveURL(workspaceUrlRe(wsB.id));
-    expect(page.url()).not.toMatch(workspaceUrlRe(wsA.id));
+    await expect(page).toHaveURL(workspaceUrlRe(wsB.slug));
+    expect(page.url()).not.toMatch(workspaceUrlRe(wsA.slug));
   });
 
-  test('routes a returning user with workspaces straight to /workspaces/$wid', async ({
+  test('routes a returning user with workspaces straight to /w/$workspaceSlug', async ({
     auth,
     page,
     workspaceHome,
@@ -72,7 +72,7 @@ test.describe('workspace switching', () => {
     });
 
     await workspaceHome.gotoRoot();
-    await expect(page).toHaveURL(workspaceUrlRe(wsA.id));
+    await expect(page).toHaveURL(workspaceUrlRe(wsA.slug));
 
     for (const url of urlsSeen) {
       expect(url, `transit URL must not flash through onboarding: ${url}`).not.toMatch(

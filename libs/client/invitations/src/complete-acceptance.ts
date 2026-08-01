@@ -1,3 +1,4 @@
+import {rememberLastWorkspaceId} from '@shipfox/client-shell/runtime';
 import {toast} from '@shipfox/react-ui/toast';
 import type {NavigateOptions} from '@tanstack/react-router';
 
@@ -11,6 +12,7 @@ import type {NavigateOptions} from '@tanstack/react-router';
  * Call sites construct it via `useRefreshAuth()` from `@shipfox/client-shell/runtime`.
  */
 export async function completeInvitationAcceptance(params: {
+  userId: string;
   workspaceId: string;
   workspaceName: string;
   refreshAuth: () => Promise<unknown>;
@@ -25,9 +27,7 @@ export async function completeInvitationAcceptance(params: {
     // success toast and let the user re-auth if their session has fully
     // expired. The next API call will redirect to login as usual.
   }
+  rememberLastWorkspaceId(params.userId, params.workspaceId);
   toast.success(`You joined ${params.workspaceName}.`);
-  await params.navigate({
-    to: '/workspaces/$wid',
-    params: {wid: params.workspaceId},
-  });
+  await params.navigate({to: '/'});
 }

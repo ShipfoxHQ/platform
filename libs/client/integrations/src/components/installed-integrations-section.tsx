@@ -1,3 +1,4 @@
+import {useActiveWorkspace} from '@shipfox/client-auth';
 import {QueryLoadError} from '@shipfox/client-ui';
 import {IntegrationIcon} from '@shipfox/integration-icons';
 import {IconButton} from '@shipfox/react-ui/button';
@@ -109,6 +110,7 @@ function InstalledRow({
   onDelete: (connectionId: string) => void;
   providerDisplayName: (provider: string) => string | undefined;
 }) {
+  const workspace = useActiveWorkspace();
   const muted = connection.lifecycleStatus === 'disabled';
   const active = isUsableConnection(connection);
   const recentEventsEvent = usageEventsForConnection(connection)[0]?.value ?? 'received';
@@ -161,8 +163,8 @@ function InstalledRow({
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link
-              to="/workspaces/$wid/settings/events"
-              params={{wid: connection.workspaceId}}
+              to="/w/$workspaceSlug/settings/events"
+              params={{workspaceSlug: workspace.slug}}
               search={{source: [connection.slug], event: [recentEventsEvent]}}
             >
               View recent events

@@ -14,7 +14,10 @@ export default defineRoute({
     const target = principalId
       ? [first, ...rest].find((workspace) => workspace.id === getLastWorkspaceId(principalId))
       : undefined;
-    throw redirect({to: '/workspaces/$wid', params: {wid: (target ?? first).id}});
+    throw redirect({
+      to: '/w/$workspaceSlug',
+      params: {workspaceSlug: (target ?? first).slug},
+    });
   },
   component: FullPageLoader,
 });

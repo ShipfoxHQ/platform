@@ -2,7 +2,7 @@ import type {Page} from '@shipfox/playwright';
 import {expect} from './test.js';
 
 export interface InstallRedirectExpectation {
-  /** App route that mounts the RedirectInstallPage (e.g. /workspaces/$wid/integrations/sentry). */
+  /** App route that mounts the RedirectInstallPage (e.g. /w/$workspaceSlug/integrations/sentry). */
   installPath: string;
   /** Glob matching the install POST endpoint, e.g. a trailing /integrations/sentry/install. */
   installEndpoint: string;

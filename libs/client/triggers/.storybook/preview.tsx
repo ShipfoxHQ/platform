@@ -34,20 +34,20 @@ const withRelativeTime: Decorator = (Story) => (
   </RelativeTimeProvider>
 );
 
-// The empty state renders `<Link to="/workspaces/$wid/settings/integrations">`, which needs a
+// The empty state renders `<Link to="/w/$workspaceSlug/settings/integrations">`, which needs a
 // router in context to resolve its href. A memory router seeded at a matching path lets the
 // story render the link without the real app shell.
 const withRouter: Decorator = (Story) => {
   const rootRoute = createRootRoute();
   const integrationsRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/settings/integrations',
+    path: '/w/$workspaceSlug/settings/integrations',
     component: () => <Story />,
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([integrationsRoute]),
     history: createMemoryHistory({
-      initialEntries: ['/workspaces/ws-demo/settings/integrations'],
+      initialEntries: ['/w/ws-demo/settings/integrations'],
     }),
   });
   return <RouterProvider router={router} />;
