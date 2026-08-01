@@ -38,7 +38,7 @@ export function SlackCallbackPage() {
   const [completedWorkspaceId, setCompletedWorkspaceId] = useState<string>();
 
   useEffect(() => {
-    if (!params || isLoading || workspaces.length === 0) return;
+    if (!params || isLoading) return;
     let disposed = false;
     const key = serializeSlackCallbackQuery(params);
     const request = callbackRequests.run(

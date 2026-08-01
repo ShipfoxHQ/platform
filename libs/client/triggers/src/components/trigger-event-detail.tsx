@@ -1,4 +1,4 @@
-import {useProjectQuery} from '@shipfox/client-projects';
+import {useProjectsInfiniteQuery} from '@shipfox/client-projects';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -35,18 +35,29 @@ const DETAIL_RAIL_CLASS =
   '@min-[820px]:sticky @min-[820px]:top-16 @min-[820px]:max-h-[calc(var(--app-content-h,100dvh_-_96px)_-_32px)] @min-[820px]:min-h-[min(320px,calc(var(--app-content-h,100dvh_-_96px)_-_32px))]';
 
 export interface TriggerEventDetailProps {
+  workspaceId?: string | undefined;
   workspaceSlug?: string | undefined;
   eventId?: string | undefined;
   onBack: () => void;
 }
 
-export function TriggerEventDetail({workspaceSlug, eventId, onBack}: TriggerEventDetailProps) {
+export function TriggerEventDetail({
+  workspaceId,
+  workspaceSlug,
+  eventId,
+  onBack,
+}: TriggerEventDetailProps) {
   const query = useTriggerEventQuery(eventId);
 
   if (!eventId) return <TriggerEventDetailPlaceholder />;
   if (query.data) {
     return (
-      <TriggerEventDetailView workspaceSlug={workspaceSlug} event={query.data} onBack={onBack} />
+      <TriggerEventDetailView
+        workspaceId={workspaceId}
+        workspaceSlug={workspaceSlug}
+        event={query.data}
+        onBack={onBack}
+      />
     );
   }
   if (query.isError)
@@ -55,10 +66,12 @@ export function TriggerEventDetail({workspaceSlug, eventId, onBack}: TriggerEven
 }
 
 export function TriggerEventDetailView({
+  workspaceId,
   workspaceSlug,
   event,
   onBack,
 }: {
+  workspaceId?: string | undefined;
   workspaceSlug?: string | undefined;
   event: TriggerEventDetailModel;
   onBack: () => void;
@@ -127,7 +140,7 @@ export function TriggerEventDetailView({
         key={event.id}
         className="flex min-h-0 flex-1 flex-col gap-20 overflow-y-auto p-16 scrollbar"
       >
-        <EventRuns workspaceSlug={workspaceSlug} event={event} />
+        <EventRuns workspaceId={workspaceId} workspaceSlug={workspaceSlug} event={event} />
         <EventPayload payload={formattedPayload} />
       </div>
     </aside>
@@ -211,9 +224,11 @@ function TriggerEventDetailError({onBack, onRetry}: {onBack: () => void; onRetry
 }
 
 function EventRuns({
+  workspaceId,
   workspaceSlug,
   event,
 }: {
+  workspaceId?: string | undefined;
   workspaceSlug?: string | undefined;
   event: TriggerEventDetailModel;
 }) {
@@ -228,6 +243,47 @@ function EventRuns({
     return null;
   }
 
+  if (!workspaceId) {
+    return <EventRunsList workspaceSlug={workspaceSlug} projectSlugs={new Map()} event={event} />;
+  }
+
+  return (
+    <EventRunsWithProjects workspaceId={workspaceId} workspaceSlug={workspaceSlug} event={event} />
+  );
+}
+
+function EventRunsWithProjects({
+  workspaceId,
+  workspaceSlug,
+  event,
+}: {
+  workspaceId: string;
+  workspaceSlug?: string | undefined;
+  event: TriggerEventDetailModel;
+}) {
+  const projectsQuery = useProjectsInfiniteQuery(workspaceId);
+  const projectSlugs = useMemo(
+    () =>
+      new Map(
+        projectsQuery.data?.pages
+          .flatMap((page) => page.projects)
+          .map((project) => [project.id, project.slug] as const),
+      ),
+    [projectsQuery.data],
+  );
+
+  return <EventRunsList workspaceSlug={workspaceSlug} projectSlugs={projectSlugs} event={event} />;
+}
+
+function EventRunsList({
+  workspaceSlug,
+  projectSlugs,
+  event,
+}: {
+  workspaceSlug?: string | undefined;
+  projectSlugs: ReadonlyMap<string, string>;
+  event: TriggerEventDetailModel;
+}) {
   return (
     <section aria-labelledby="trigger-event-runs-heading" className="flex flex-col gap-6">
       <Text id="trigger-event-runs-heading" size="sm" bold>
@@ -235,7 +291,12 @@ function EventRuns({
       </Text>
       <ul className="-mx-8 flex flex-col gap-1">
         {event.decisions.map((decision) => (
-          <DecisionRow key={decision.id} workspaceSlug={workspaceSlug} decision={decision} />
+          <DecisionRow
+            key={decision.id}
+            workspaceSlug={workspaceSlug}
+            projectSlug={decision.projectId ? projectSlugs.get(decision.projectId) : undefined}
+            decision={decision}
+          />
         ))}
       </ul>
     </section>
@@ -243,16 +304,14 @@ function EventRuns({
 }
 
 function DecisionRow({
+  projectSlug,
   workspaceSlug,
   decision,
 }: {
+  projectSlug?: string | undefined;
   workspaceSlug?: string | undefined;
   decision: TriggerEventMatchedWorkflowResult;
 }) {
-  const projectQuery = useProjectQuery(
-    workspaceSlug && decision.projectId ? decision.projectId : undefined,
-  );
-
   if (decision.decision !== 'triggered' || !decision.runId || !decision.runName) {
     return (
       <li className="flex min-w-0 items-start gap-8 rounded-6 px-8 py-6">
@@ -279,10 +338,8 @@ function DecisionRow({
     );
   }
 
-  const projectSlug = projectQuery.data?.slug;
-
-  return (
-    <li className="flex min-w-0 items-start gap-8 rounded-6 px-8 py-6">
+  const row = (
+    <>
       <Icon
         name="cornerDownRightLine"
         className="mt-3 size-14 shrink-0 text-foreground-neutral-muted"
@@ -292,26 +349,32 @@ function DecisionRow({
         <Text as="span" size="sm" className="min-w-0 truncate text-foreground-neutral-base">
           {decision.subscriptionName}
         </Text>
-        {workspaceSlug && projectSlug ? (
-          <Link
-            to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
-            params={{
-              workspaceSlug,
-              projectSlug,
-              workflowRunId: decision.runId,
-            }}
-            className="truncate text-foreground-neutral-muted"
-          >
-            <Code as="span" variant="label">
-              {decision.runName}
-            </Code>
-          </Link>
-        ) : (
-          <Code as="span" variant="label" className="truncate text-foreground-neutral-muted">
-            {decision.runName}
-          </Code>
-        )}
+        <Code as="span" variant="label" className="truncate text-foreground-neutral-muted">
+          {decision.runName}
+        </Code>
       </span>
+    </>
+  );
+  const rowClassName =
+    'flex min-w-0 items-start gap-8 rounded-6 px-8 py-6 hover:bg-background-components-hover focus-visible:outline-none focus-visible:shadow-button-neutral-focus';
+
+  return (
+    <li>
+      {workspaceSlug && projectSlug ? (
+        <Link
+          to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
+          params={{
+            workspaceSlug,
+            projectSlug,
+            workflowRunId: decision.runId,
+          }}
+          className={rowClassName}
+        >
+          {row}
+        </Link>
+      ) : (
+        <div className={rowClassName}>{row}</div>
+      )}
     </li>
   );
 }

@@ -1,5 +1,9 @@
 import {useAuthState, useRefreshAuth} from '@shipfox/client-auth';
-import {useRouteSearch} from '@shipfox/client-shell/runtime';
+import {
+  useRouteSearch,
+  userWorkspacesQueryKey,
+  type WorkspaceSummary,
+} from '@shipfox/client-shell/runtime';
 import {createSingleFlight, sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {Button, ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -7,6 +11,7 @@ import {Card} from '@shipfox/react-ui/card';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
+import {useQueryClient} from '@tanstack/react-query';
 import {Link, useNavigate} from '@tanstack/react-router';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {useCompleteIntegrationCallback} from '#application/complete-integration-callback.js';
@@ -25,6 +30,7 @@ const connectRequests = createSingleFlight<string, IntegrationConnection>();
 
 export function SentryCallbackPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const refreshAuth = useRefreshAuth();
   const {workspaces, isLoading} = useAuthState();
   const completeIntegrationCallback = useCompleteIntegrationCallback();
@@ -124,7 +130,10 @@ export function SentryCallbackPage() {
         clearSentryInstallWorkspace(sessionStorageOrUndefined());
         if (disposedRef.current) return;
         toast.success('Sentry installed.');
-        const workspace = workspaces.find(({id}) => id === workspaceId);
+        const currentWorkspaces =
+          queryClient.getQueryData<{memberships: WorkspaceSummary[]}>(userWorkspacesQueryKey)
+            ?.memberships ?? workspaces;
+        const workspace = currentWorkspaces.find(({id}) => id === workspaceId);
         await navigate(
           workspace
             ? {

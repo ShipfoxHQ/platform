@@ -33,19 +33,21 @@ describe('completeInvitationAcceptance', () => {
     expect(calls).toEqual(['refreshAuth', 'navigate']);
   });
 
-  it('still navigates when auth refresh fails', async () => {
+  it('does not navigate through the stale root route when auth refresh fails', async () => {
     const refreshAuth = vi.fn(() => Promise.reject(new Error('refresh failed')));
     const navigate = vi.fn();
 
-    await completeInvitationAcceptance({
-      navigate,
-      refreshAuth,
-      userId: 'user-1',
-      workspaceId: 'workspace-1',
-      workspaceName: 'Acme',
-    });
+    await expect(
+      completeInvitationAcceptance({
+        navigate,
+        refreshAuth,
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        workspaceName: 'Acme',
+      }),
+    ).resolves.toBe(false);
 
     expect(toast.success).toHaveBeenCalledWith('You joined Acme.');
-    expect(navigate).toHaveBeenCalledWith({to: '/'});
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

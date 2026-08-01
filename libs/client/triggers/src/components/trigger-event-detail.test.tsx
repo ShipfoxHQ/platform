@@ -1,4 +1,5 @@
 import type {TriggerEventDetailResponseDto} from '@shipfox/api-triggers-dto';
+import {projectsQueryKeys} from '@shipfox/client-projects';
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {fireEvent, render, screen} from '@testing-library/react';
@@ -63,9 +64,9 @@ function makeEvent(
 
 function renderWithProviders(ui: ReactElement) {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(['projects', 'detail', PROJECT_ID], {
-    id: PROJECT_ID,
-    slug: 'checkout-api',
+  queryClient.setQueryData(projectsQueryKeys.list(WORKSPACE_ID), {
+    pages: [{projects: [{id: PROJECT_ID, slug: 'checkout-api'}], nextCursor: null}],
+    pageParams: [undefined],
   });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -77,6 +78,7 @@ function renderWithProviders(ui: ReactElement) {
 function renderDetailView(event: TriggerEventDetailResponseDto, onBack = vi.fn()) {
   return renderWithProviders(
     <TriggerEventDetailView
+      workspaceId={WORKSPACE_ID}
       workspaceSlug="acme"
       event={toTriggerEventDetail(event)}
       onBack={onBack}

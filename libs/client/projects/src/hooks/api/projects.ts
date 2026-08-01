@@ -94,7 +94,14 @@ export async function resolveProjectSlug({
     const project = data.pages
       .flatMap((page) => page.projects)
       .find((candidate) => candidate.slug === projectSlug);
-    if (project) return project.id;
+    if (project) {
+      await queryClient.refetchQueries({queryKey, type: 'all'});
+      const refreshedData =
+        queryClient.getQueryData<InfiniteData<ProjectList, string | undefined>>(queryKey);
+      return refreshedData?.pages
+        .flatMap((page) => page.projects)
+        .find((candidate) => candidate.slug === projectSlug)?.id;
+    }
 
     const cursor = data.pages.at(-1)?.nextCursor;
     if (!cursor) {

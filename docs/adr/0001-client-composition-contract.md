@@ -179,10 +179,10 @@ the corresponding slug parameter may not appear outside its registered prefix. O
 parameters must follow a page segment rather than being placed directly after an entity prefix.
 
 Composition validates these path invariants for every feature-owned layout and route before it
-builds the generated route tree. A feature contribution that uses the legacy `/workspaces/...`
-shape, or otherwise puts a registered slug outside its prefix, fails at composition time with a
-route-path diagnostic. External feature authors should therefore use the anchor paths below as the
-source of truth when declaring routes and navigation targets.
+builds the generated route tree. A feature contribution that puts a registered slug outside its
+prefix fails at composition time with a route-path diagnostic. External feature authors should
+therefore use the anchor paths below as the source of truth when declaring routes and navigation
+targets.
 
 The shell owns four anchors:
 
@@ -620,7 +620,7 @@ Both the linked iteration gate and packed-tarball gate passed on 2026-07-16. The
 and installed a 12-package `@shipfox/*` runtime closure outside the workspace.
 
 The consumer's `tsc --noEmit` accepted typed `Link` and `useSearch` for the added
-`/workspaces/$wid/insights` route. It resolved emitted `defineRoute()` declarations, anchor return
+`/w/$workspaceSlug/p/$projectSlug/insights` route. It resolved emitted `defineRoute()` declarations, anchor return
 types, and the generated `Register` augmentation from `dist`.
 
 The proof found two package issues:

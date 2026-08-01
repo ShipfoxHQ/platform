@@ -1,4 +1,3 @@
-import {useActiveWorkspace} from '@shipfox/client-auth';
 import {QueryLoadError} from '@shipfox/client-ui';
 import {IntegrationIcon} from '@shipfox/integration-icons';
 import {IconButton} from '@shipfox/react-ui/button';
@@ -19,6 +18,7 @@ import {type IntegrationConnection, isUsableConnection} from '#core/models.js';
 import {usageEventsForConnection} from './integration-usage-events.js';
 
 interface InstalledIntegrationsSectionProps {
+  workspaceSlug?: string | undefined;
   connections: IntegrationConnection[];
   isPending: boolean;
   isFetching: boolean;
@@ -35,6 +35,7 @@ const INSTALLED_SURFACE_CLASS =
   'overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base';
 
 export function InstalledIntegrationsSection({
+  workspaceSlug,
   connections,
   isPending,
   isFetching,
@@ -82,6 +83,7 @@ export function InstalledIntegrationsSection({
             <InstalledRow
               key={connection.id}
               connection={connection}
+              workspaceSlug={workspaceSlug}
               isMutating={isMutating}
               onUse={onUse}
               onSetActive={(nextActive) => onSetActive(connection, nextActive)}
@@ -97,6 +99,7 @@ export function InstalledIntegrationsSection({
 
 function InstalledRow({
   connection,
+  workspaceSlug,
   isMutating,
   onUse,
   onSetActive,
@@ -104,13 +107,13 @@ function InstalledRow({
   providerDisplayName,
 }: {
   connection: IntegrationConnection;
+  workspaceSlug?: string | undefined;
   isMutating: boolean;
   onUse: (connectionId: string) => void;
   onSetActive: (active: boolean) => void;
   onDelete: (connectionId: string) => void;
   providerDisplayName: (provider: string) => string | undefined;
 }) {
-  const workspace = useActiveWorkspace();
   const muted = connection.lifecycleStatus === 'disabled';
   const active = isUsableConnection(connection);
   const recentEventsEvent = usageEventsForConnection(connection)[0]?.value ?? 'received';
@@ -161,15 +164,17 @@ function InstalledRow({
           <DropdownMenuItem onSelect={() => onUse(connection.id)}>
             Use this integration
           </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link
-              to="/w/$workspaceSlug/settings/events"
-              params={{workspaceSlug: workspace.slug}}
-              search={{source: [connection.slug], event: [recentEventsEvent]}}
-            >
-              View recent events
-            </Link>
-          </DropdownMenuItem>
+          {workspaceSlug ? (
+            <DropdownMenuItem asChild>
+              <Link
+                to="/w/$workspaceSlug/settings/events"
+                params={{workspaceSlug}}
+                search={{source: [connection.slug], event: [recentEventsEvent]}}
+              >
+                View recent events
+              </Link>
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={isMutating} onSelect={() => onSetActive(!active)}>
             {active ? 'Disable integration' : 'Enable integration'}

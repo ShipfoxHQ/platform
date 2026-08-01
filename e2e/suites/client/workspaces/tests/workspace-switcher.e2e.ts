@@ -39,7 +39,11 @@ test.describe('workspace switcher', () => {
     await workspaceSwitcher.open();
     await expect(workspaceSwitcher.workspaceOption(workspaceAName)).toBeVisible();
     await expect(workspaceSwitcher.workspaceOption(workspaceBName)).toBeVisible();
-    expect(await workspaceHome.readLastWorkspaceId(user.user.id)).not.toBe(wsA.id);
+    const workspaceBId = await workspaceSwitcher
+      .workspaceOption(workspaceBName)
+      .getAttribute('data-value');
+    expect(workspaceBId).toBe(wsB.id);
+    expect(await workspaceHome.readLastWorkspaceId(user.user.id)).toBe(workspaceBId);
   });
 
   test('keeps Create workspace visible when search filters every workspace out', async ({

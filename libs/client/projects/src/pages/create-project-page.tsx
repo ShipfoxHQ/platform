@@ -156,11 +156,17 @@ export function CreateProjectPage() {
       const copy = projectErrorCopy(error);
       if (copy.existingProjectId) {
         toast.info('Project already exists.');
-        const project = await getProject(copy.existingProjectId);
-        await navigate({
-          to: '/w/$workspaceSlug/p/$projectSlug',
-          params: {workspaceSlug: workspace.slug, projectSlug: project.slug},
-        });
+        try {
+          const project = await getProject(copy.existingProjectId);
+          await navigate({
+            to: '/w/$workspaceSlug/p/$projectSlug',
+            params: {workspaceSlug: workspace.slug, projectSlug: project.slug},
+          });
+        } catch (recoveryError) {
+          const recoveryCopy = projectErrorCopy(recoveryError);
+          setFormError(`${recoveryCopy.title}: ${recoveryCopy.message}`);
+          requestAnimationFrame(() => errorRef.current?.focus());
+        }
         return;
       }
       if (copy.slugConflict) {

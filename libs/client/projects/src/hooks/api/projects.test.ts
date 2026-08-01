@@ -120,6 +120,28 @@ describe('resolveProjectSlug', () => {
     ).resolves.toBe(projectId);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+
+  test('revalidates a cached slug match before returning it', async () => {
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    const projectId = '44444444-4444-4444-8444-444444444444';
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({projects: [projectResponse('checkout-api', projectId)], next_cursor: null}),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({projects: [projectResponse('renamed-api', projectId)], next_cursor: null}),
+      );
+    configureApiClient({fetchImpl});
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+
+    await queryClient.fetchInfiniteQuery(projectsInfiniteQueryOptions(workspaceId));
+
+    await expect(
+      resolveProjectSlug({queryClient, workspaceId, projectSlug: 'checkout-api'}),
+    ).resolves.toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
 });
 
 function projectResponse(slug: string, id = '33333333-3333-4333-8333-333333333333') {

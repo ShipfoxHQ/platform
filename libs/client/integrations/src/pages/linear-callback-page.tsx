@@ -37,7 +37,7 @@ export function LinearCallbackPage() {
   const workspaceId = useMemo(() => readLinearInstallWorkspace(sessionStorageOrUndefined()), []);
   const [failure, setFailure] = useState<LinearCallbackFailure | undefined>();
   useEffect(() => {
-    if (!params || isLoading || workspaces.length === 0) return;
+    if (!params || isLoading) return;
 
     let disposed = false;
     const key = serializeLinearCallbackQuery(params);

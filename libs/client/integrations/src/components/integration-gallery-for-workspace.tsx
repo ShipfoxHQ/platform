@@ -1,3 +1,4 @@
+import {useAuthState} from '@shipfox/client-auth';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useState} from 'react';
@@ -35,6 +36,8 @@ export function IntegrationGalleryForWorkspace({
   emptyProvidersMessage,
   workspaceId,
 }: IntegrationGalleryForWorkspaceProps) {
+  const {workspaces} = useAuthState();
+  const workspaceSlug = workspaces.find((workspace) => workspace.id === workspaceId)?.slug;
   const [createProvider, setCreateProvider] = useState<string | undefined>();
   const [usageConnectionId, setUsageConnectionId] = useState<string | undefined>();
   const [createdUsageConnection, setCreatedUsageConnection] = useState<
@@ -122,6 +125,7 @@ export function IntegrationGalleryForWorkspace({
   return (
     <div className="flex flex-col gap-24">
       <InstalledIntegrationsSection
+        workspaceSlug={workspaceSlug}
         connections={sortedConnections}
         isPending={connectionsQuery.isPending}
         isFetching={connectionsQuery.isFetching}

@@ -10,6 +10,7 @@ import {projectExistenceQueryOptions} from '@shipfox/client-projects';
 import {
   userWorkspacesQueryOptions,
   WorkspaceSetupLoadError,
+  type WorkspaceSetupRouteOptions,
   type WorkspaceSetupState,
 } from '@shipfox/client-shell/runtime';
 import type {QueryClient} from '@tanstack/react-query';
@@ -17,12 +18,7 @@ import {redirect} from '@tanstack/react-router';
 
 const TRAILING_SLASHES_RE = /\/+$/u;
 
-export interface WorkspaceSetupRouteOptions {
-  queryClient: QueryClient;
-  workspaceId: string;
-  workspaceSlug: string;
-  pathname: string;
-}
+export type {WorkspaceSetupRouteOptions} from '@shipfox/client-shell/runtime';
 
 export async function loadWorkspaceSetupRoute({
   queryClient,

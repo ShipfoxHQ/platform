@@ -76,6 +76,7 @@ export function EventsPage({
             />
           </div>
           <TriggerEventDetail
+            workspaceId={workspaceId}
             workspaceSlug={workspaceSlug}
             eventId={selectedEventId}
             onBack={() => setSelectedEventId(undefined)}

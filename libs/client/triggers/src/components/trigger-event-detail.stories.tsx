@@ -1,5 +1,6 @@
 import {argosScreenshot} from '@argos-ci/storybook/vitest';
 import type {TriggerEventDetailResponseDto} from '@shipfox/api-triggers-dto';
+import {projectsQueryKeys} from '@shipfox/client-projects';
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -25,9 +26,9 @@ function minutesAgo(minutes: number): string {
 
 function createStoryQueryClient() {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(['projects', 'detail', PROJECT_ID], {
-    id: PROJECT_ID,
-    slug: 'checkout-api',
+  queryClient.setQueryData(projectsQueryKeys.list(WORKSPACE_ID), {
+    pages: [{projects: [{id: PROJECT_ID, slug: 'checkout-api'}], nextCursor: null}],
+    pageParams: [undefined],
   });
   return queryClient;
 }
@@ -159,6 +160,7 @@ const meta = {
   },
   decorators: [withRouter],
   args: {
+    workspaceId: WORKSPACE_ID,
     workspaceSlug: 'acme',
     event: routedEvent,
     onBack: () => undefined,

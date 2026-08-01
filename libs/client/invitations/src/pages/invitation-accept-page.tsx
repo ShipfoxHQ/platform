@@ -12,7 +12,7 @@ import {toast} from '@shipfox/react-ui/toast';
 import {Text} from '@shipfox/react-ui/typography';
 import {formatDate} from '@shipfox/react-ui/utils';
 import {Link, useNavigate} from '@tanstack/react-router';
-import {useCallback, useEffect, useRef} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {completeInvitationAcceptance} from '#complete-acceptance.js';
 import {useAcceptInvitation} from '#hooks/api/accept-invitation.js';
 import {usePreviewInvitation} from '#hooks/api/preview-invitation.js';
@@ -30,6 +30,7 @@ export function InvitationAcceptPage() {
   const preview = usePreviewInvitation(token);
   const accept = useAcceptInvitation();
   const hasKickedAccept = useRef(false);
+  const [authRefreshFailed, setAuthRefreshFailed] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -46,13 +47,14 @@ export function InvitationAcceptPage() {
     async (workspaceId: string, workspaceName: string) => {
       const userId = auth.user?.id;
       if (!userId) throw new Error('Cannot complete invitation without an authenticated user.');
-      await completeInvitationAcceptance({
+      const refreshed = await completeInvitationAcceptance({
         userId,
         workspaceId,
         workspaceName,
         refreshAuth,
         navigate,
       });
+      if (!refreshed) setAuthRefreshFailed(true);
     },
     [auth.user?.id, navigate, refreshAuth],
   );
@@ -226,7 +228,31 @@ export function InvitationAcceptPage() {
     );
   }
 
-  // Authenticated + matches: auto-accept is in flight or about to render its
+  if (authRefreshFailed) {
+    return (
+      <AuthShell title={data.workspaceName} description={inviterLine}>
+        <Callout role="alert" type="error">
+          You joined {data.workspaceName}, but we couldn't refresh your session. Retry to continue
+          to the workspace.
+        </Callout>
+        <Button
+          className="w-full"
+          onClick={async () => {
+            try {
+              await refreshAuth();
+              await navigate({to: '/', replace: true});
+            } catch {
+              setAuthRefreshFailed(true);
+            }
+          }}
+        >
+          Retry
+        </Button>
+      </AuthShell>
+    );
+  }
+
+  // Authenticated + matches — auto-accept is in flight or about to render its
   // result. Show either the pending state or the error state.
   if (accept.isError) {
     return (

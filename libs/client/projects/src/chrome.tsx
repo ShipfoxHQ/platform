@@ -25,11 +25,7 @@ export function useActiveProject() {
 
 export function ProjectBreadcrumb() {
   const workspace = useActiveWorkspace();
-  const {projectSlug} = useRouteParams(parseWorkspaceProjectParams);
-  const projectsQuery = useProjectsInfiniteQuery(workspace.id);
-  const project = projectsQuery.data?.pages
-    .flatMap((page) => page.projects)
-    .find((candidate) => candidate.slug === projectSlug);
+  const project = useMaybeActiveProject();
   return (
     <ProjectCrumb
       workspaceId={workspace.id}

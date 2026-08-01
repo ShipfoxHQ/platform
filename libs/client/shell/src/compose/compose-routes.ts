@@ -178,6 +178,7 @@ export function composeRoutes(
   const layoutById = validateLayoutParents(layouts);
   const layoutPaths = new Map<string, ComposedLayout>();
   for (const layout of layouts) {
+    validateRoutePathInvariants(layout.path);
     const existing = layoutPaths.get(layout.path);
     if (existing) {
       throw new RouteCompositionError(
