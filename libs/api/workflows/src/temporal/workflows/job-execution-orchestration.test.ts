@@ -67,6 +67,21 @@ function finalStatusesFor(jobId: string): string[] {
     .map((c) => c.params.status);
 }
 
+async function waitForExecutionStatus(jobExecutionId: string, status: string): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (
+      setExecutionStatusCalls().some(
+        (call) => call.params.jobExecutionId === jobExecutionId && call.params.status === status,
+      )
+    ) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`Timed out waiting for ${jobExecutionId} to reach ${status}`);
+}
+
 function terminalSetJobCall(jobId: string) {
   return setExecutionStatusCalls().find(
     (call) => call.params.jobExecutionId === jobId && call.params.status !== 'running',
@@ -129,6 +144,7 @@ describe('jobExecutionOrchestration', () => {
       jobExecutionId: 'job-pending-before-claim',
       claimedAt: '2026-06-22T10:05:00.000Z',
     });
+    await waitForExecutionStatus('job-pending-before-claim', 'running');
     await handle.signal('job-finished', {
       jobExecutionId: 'job-pending-before-claim',
       status: 'succeeded',
