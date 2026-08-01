@@ -24,6 +24,26 @@ message before changing the workflow.
 | Repository or file not found | The project still points to a repository visible through its source integration connection |
 | Access denied or integration connection unavailable | The source integration is installed and authorized for the repository |
 | Too large or too many files | The workflow files fit the documented [limits](/reference/limits) |
+| Context not available | A field reads a context that does not exist where Shipfox fills that field. See below |
+
+## Correct a context that is not available
+
+A field can read only the contexts listed in [Context
+availability](/reference/contexts#context-availability). If it reads another
+context, sync fails. The error names the field, the unavailable context, and the
+stage where that context first exists:
+
+```text
+Job runner interpolation references context "steps" that is not available at
+job activation. "steps" becomes available at step dispatch.
+```
+
+Correct it in one of two ways:
+
+- Move the reference to a field that Shipfox fills later. A step `run` or `env`
+  value can read step results that `jobs.<job_id>.runner` cannot.
+- Carry the value forward as data. Declare a step output or a job output, then
+  read it through `steps`, `needs`, or `jobs` in the later field.
 
 ## Correct and verify
 

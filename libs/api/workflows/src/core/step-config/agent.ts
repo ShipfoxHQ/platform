@@ -42,6 +42,7 @@ interface AgentFieldResolutions {
   readonly prompt: FieldResolution;
   readonly model: FieldResolution | undefined;
   readonly provider: FieldResolution | undefined;
+  readonly thinking: FieldResolution | undefined;
   readonly hasTemplates: boolean;
 }
 
@@ -72,9 +73,11 @@ export async function resolveAgentStepConfig(
 
   if (usesAuthoredMode) return authoredAgentStepConfig(params.step, fields);
 
-  const hasDeferredModelOrProvider =
-    fields.model?.kind === 'residual' || fields.provider?.kind === 'residual';
-  if (hasDeferredModelOrProvider) return deferredAgentStepConfig(params, fields);
+  const hasDeferredAgentField =
+    fields.model?.kind === 'residual' ||
+    fields.provider?.kind === 'residual' ||
+    fields.thinking?.kind === 'residual';
+  if (hasDeferredAgentField) return deferredAgentStepConfig(params, fields);
 
   return await agentStepConfigWithDefaults(params.step, params, fields);
 }
@@ -119,7 +122,10 @@ export async function completeAgentConfig(params: {
     harness: agent.harness ?? readConfigHarness(params.config),
     provider,
     model,
-    thinking: agent.thinking ?? readConfigThinking(params.config),
+    thinking:
+      agent.thinking === undefined
+        ? readConfigThinking(params.config)
+        : completeAgentField({field: 'agent.thinking', template: agent.thinking, params}),
     resolveAgentDefaults: params.resolveAgentDefaults,
     definitionId: params.definitionId,
   });
@@ -138,7 +144,7 @@ export async function completeAgentConfig(params: {
 }
 
 function completeAgentField(args: {
-  readonly field: 'agent.prompt' | 'agent.model' | 'agent.provider';
+  readonly field: 'agent.prompt' | 'agent.model' | 'agent.provider' | 'agent.thinking';
   readonly template: ResolvedField;
   readonly params: {
     readonly context: WorkflowEvaluationContext;
@@ -161,7 +167,7 @@ export async function completeAgentDefaults(params: {
   readonly harness: WorkflowModelAgentStep['harness'] | undefined;
   readonly provider: string | undefined;
   readonly model: string | undefined;
-  readonly thinking: AgentThinking | undefined;
+  readonly thinking: string | undefined;
   readonly resolveAgentDefaults?: AgentDefaultsResolver | undefined;
   readonly definitionId: string;
 }): Promise<ResolvedAgentDefaults> {
@@ -218,12 +224,23 @@ function resolveAgentFields(params: ResolveAgentStepConfigParams): AgentFieldRes
     trace,
     definitionId: params.definitionId,
   });
+  const thinking = resolveOptionalAgentField({
+    field: 'agent.thinking',
+    value: params.step.thinking,
+    template: params.step.templates?.thinking,
+    context: params.context,
+    mode: params.mode,
+    diagnostics,
+    trace,
+    definitionId: params.definitionId,
+  });
   const hasTemplates =
     params.step.templates?.prompt !== undefined ||
     params.step.templates?.model !== undefined ||
-    params.step.templates?.provider !== undefined;
+    params.step.templates?.provider !== undefined ||
+    params.step.templates?.thinking !== undefined;
 
-  return {diagnostics, trace, prompt, model, provider, hasTemplates};
+  return {diagnostics, trace, prompt, model, provider, thinking, hasTemplates};
 }
 
 function authoredAgentStepConfig(
@@ -260,7 +277,7 @@ function deferredAgentStepConfig(
         ...(fields.model === undefined ? {} : {model: dispatchPlanField(fields.model)}),
         ...(fields.provider === undefined ? {} : {provider: dispatchPlanField(fields.provider)}),
         ...(step.harness === undefined ? {} : {harness: step.harness}),
-        ...(step.thinking === undefined ? {} : {thinking: step.thinking}),
+        ...(fields.thinking === undefined ? {} : {thinking: dispatchPlanField(fields.thinking)}),
         ...agentToolsConfig(step),
         ...materializedAgentIntegrationsConfig(params),
       },
@@ -284,7 +301,7 @@ async function agentStepConfigWithDefaults(
     harness: step.harness,
     provider: providerValue,
     model: modelValue,
-    thinking: step.thinking,
+    thinking: frozenFieldValue(fields.thinking),
     resolveAgentDefaults: params.resolveAgentDefaults,
     definitionId: params.definitionId,
   });
@@ -384,7 +401,7 @@ function frozenFieldValue(field: FieldResolution | undefined): string | undefine
 }
 
 function resolveAgentField(params: {
-  readonly field: 'agent.prompt' | 'agent.model' | 'agent.provider';
+  readonly field: 'agent.prompt' | 'agent.model' | 'agent.provider' | 'agent.thinking';
   readonly value: string;
   readonly template: ResolvedField['segments'] | undefined;
   readonly context: WorkflowEvaluationContext;
@@ -414,7 +431,7 @@ function resolveAgentField(params: {
 }
 
 function resolveOptionalAgentField(params: {
-  readonly field: 'agent.prompt' | 'agent.model' | 'agent.provider';
+  readonly field: 'agent.prompt' | 'agent.model' | 'agent.provider' | 'agent.thinking';
   readonly value: string | undefined;
   readonly template: ResolvedField['segments'] | undefined;
   readonly context: WorkflowEvaluationContext;

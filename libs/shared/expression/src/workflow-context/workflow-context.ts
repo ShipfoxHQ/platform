@@ -6,6 +6,7 @@ import {
 } from '../outputs/output-declarations.js';
 
 export const workflowContextNames = [
+  'workflow',
   'run',
   'trigger',
   'event',
@@ -94,6 +95,18 @@ export type WorkflowContextDefinition =
   | OpenWorkflowContextDefinition
   | RunnerWorkflowContextDefinition;
 
+// `workflow` holds definition facts and `run` holds instance facts, mirroring
+// the `job` and `execution` pair one level down.
+const workflowTypeEnvironment = {
+  workflow: {
+    kind: 'object',
+    fields: {
+      id: 'string',
+      name: 'string',
+    },
+  },
+} as const satisfies ExpressionTypeEnvironment;
+
 const runTypeEnvironment = {
   run: {
     kind: 'object',
@@ -101,8 +114,6 @@ const runTypeEnvironment = {
       id: 'string',
       number: 'int',
       name: 'string',
-      workflow_name: 'string',
-      definition_id: 'string',
       project_id: 'string',
       workspace_id: 'string',
       created_at: 'timestamp',
@@ -281,6 +292,14 @@ export function buildTypedRootsEnvironment(params: {
 }
 
 export const workflowContextDefinitions = {
+  workflow: {
+    availability: 'run-creation',
+    sensitivity: 'persistable',
+    host: 'server',
+    shape: 'known',
+    checkMode: 'typed',
+    typeEnvironment: workflowTypeEnvironment,
+  },
   run: {
     availability: 'run-creation',
     sensitivity: 'persistable',
@@ -518,6 +537,7 @@ export type WorkflowPredicateField = (typeof workflowPredicateFields)[number];
 
 const listenerPredicateContextRoots = [
   'event',
+  'workflow',
   'run',
   'trigger',
   'inputs',
@@ -539,7 +559,7 @@ export const workflowPredicateContextRoots = {
   'trigger.filter': ['event', 'trigger'],
   'listener.on': listenerPredicateContextRoots,
   'listener.until': listenerPredicateContextRoots,
-  'job.if': ['run', 'trigger', 'event', 'inputs', 'vars', 'jobs', 'needs'],
+  'job.if': ['workflow', 'run', 'trigger', 'event', 'inputs', 'vars', 'jobs', 'needs'],
   'step.if': ['vars', 'jobs', 'execution', 'step', 'steps'],
 } as const satisfies Record<WorkflowPredicateField, readonly WorkflowContextName[]>;
 
@@ -684,6 +704,30 @@ export function getWorkflowPredicateContextRoots<Field extends WorkflowPredicate
   field: Field,
 ): readonly WorkflowPredicateContextRoot<Field>[] {
   return workflowPredicateContextRoots[field];
+}
+
+/**
+ * The roots a field can read, whichever kind of field it is.
+ *
+ * A predicate has an enumerated contract because the runtime assembles one
+ * context for it. A template has no single context: each reference is filled
+ * where its data arrives, so its only field-level constraint is which host can
+ * resolve it. Callers that document or check fields should use this instead of
+ * choosing a mechanism themselves.
+ */
+export function contextRootsForField(
+  field: WorkflowPredicateField | WorkflowInterpolationField,
+): readonly WorkflowContextName[] {
+  if (isWorkflowPredicateField(field)) return workflowPredicateContextRoots[field];
+
+  const {acceptedHosts} = workflowInterpolationFieldPolicies[field];
+  return workflowContextNames.filter((name) =>
+    acceptedHosts.includes(workflowContextDefinitions[name].host),
+  );
+}
+
+export function isWorkflowPredicateField(field: string): field is WorkflowPredicateField {
+  return (workflowPredicateFields as readonly string[]).includes(field);
 }
 
 export function projectWorkflowPredicateContext(

@@ -22,6 +22,11 @@ export function buildWorkflowJsonSchema({
   const stepSchema = stepSchemaFor(schema);
   const stepProperties = propertiesOf(stepSchema);
   const thinkingSchema = object(stepProperties.thinking);
+  // `thinking` accepts an enum value or a template, so the per-harness branch
+  // narrows the enum alternative and keeps the template alternative intact.
+  const thinkingBranches = objects(thinkingSchema.anyOf);
+  const thinkingEnumBranch = thinkingBranches.find((branch) => Array.isArray(branch.enum)) ?? {};
+  const thinkingTemplateBranches = thinkingBranches.filter((branch) => !Array.isArray(branch.enum));
 
   delete stepProperties.agent;
   projectWorkflowValidation(schema, stepSchema);
@@ -41,8 +46,13 @@ export function buildWorkflowJsonSchema({
     conditional.then = {
       properties: {
         thinking: {
-          ...thinkingSchema,
-          enum: [...thinkingLevelsForHarness(harness)],
+          ...(typeof thinkingSchema.description === 'string'
+            ? {description: thinkingSchema.description}
+            : {}),
+          anyOf: [
+            {...thinkingEnumBranch, enum: [...thinkingLevelsForHarness(harness)]},
+            ...thinkingTemplateBranches,
+          ],
         },
       },
     };

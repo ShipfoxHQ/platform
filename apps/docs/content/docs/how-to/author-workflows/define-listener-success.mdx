@@ -69,7 +69,7 @@ jobs:
 
 The expression runs after the listener resolves. It requires a non-empty
 `executions` list and rejects any failed execution. The exact execution fields
-remain in the [Expressions reference](/reference/expressions#job-success-success).
+remain in the [Workflow schema](/reference/workflow-schema#job-fields).
 
 Commit and push the file to the project's default branch. Wait for **Require a
 task check** to sync.
@@ -97,5 +97,6 @@ curl -X POST '<ingest-url>' \
   -d '<body-from-the-case>'
 ```
 
-The default result, custom predicate scope, and expression failure behavior live
-in [Expressions](/reference/expressions#job-success-success).
+The [Contexts reference](/reference/contexts#context-availability) lists the
+predicate scope. The [Expressions reference](/reference/expressions#functions-and-macros)
+lists the syntax and functions.

@@ -32,7 +32,9 @@ const agentConfigInputSchema = z.object({
   harness: harnessSchema.optional(),
   provider: modelProviderRefSchema.optional(),
   model: z.string().optional(),
-  thinking: agentThinkingSchema.optional(),
+  // A resolved template may contain any string; the agent module validates it
+  // against the resolved harness and returns the domain error if it is invalid.
+  thinking: z.string().optional(),
 });
 
 const resolvedAgentConfigSchema = z.object({

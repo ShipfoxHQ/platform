@@ -1,0 +1,56 @@
+---
+title: "Workflow contexts"
+sidebarTitle: "Contexts"
+description: "Look up every context a workflow can read, the properties it holds, and the fields that can read it."
+---
+
+import ContextAvailability from '../../generated/reference/context-availability.mdx';
+import ContextProperties from '../../generated/reference/context-properties.mdx';
+import ContextRoots from '../../generated/reference/context-roots.mdx';
+
+A **context** is a group of run data that an expression can read, such as
+`event`, `steps`, or `vars`. Read a property with `context.property`, or with
+`context["property"]` when the name is not an identifier.
+
+For the syntax around a context, see [Expressions](/reference/expressions).
+
+## Available contexts
+
+<ContextRoots />
+
+## Context availability
+
+Each workflow field reads a fixed set of contexts.
+
+<ContextAvailability />
+
+A predicate field reads one context that the server builds for it. A template
+field can reference any context the field is allowed to resolve. Shipfox fills
+each reference when its data exists. Only `run` and `env` reach `secrets`. The
+runner holds secret values.
+
+Two fields cannot read their own result:
+
+- `run_name` cannot read `run.name`.
+- `jobs.<job_id>.execution_name` cannot read `execution.name`.
+
+Workflow `name` and job `name` are literal text and accept no context. Use
+`run_name` and `execution_name` for a name that depends on the run.
+
+## Context properties
+
+<ContextProperties />
+
+## Related pages
+
+<Cards>
+  <Card title="Expressions" href="/reference/expressions">
+    The syntax, operators, and functions available inside `${'{{ }}'}`.
+  </Card>
+  <Card title="Workflow schema" href="/reference/workflow-schema">
+    The fields that carry these expressions.
+  </Card>
+  <Card title="Secrets and variables" href="/reference/secrets-variables">
+    How `vars` and `secrets` are stored, scoped, and bound.
+  </Card>
+</Cards>

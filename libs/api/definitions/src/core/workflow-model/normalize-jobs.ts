@@ -918,6 +918,18 @@ function normalizeAgentStep(params: {
           allowedJobReferences: params.allowedJobReferences,
           typeOverlay: params.typeOverlay,
         });
+  const thinkingTemplate =
+    params.step.thinking === undefined
+      ? undefined
+      : parseInterpolationField({
+          field: 'agent.thinking',
+          source: params.step.thinking,
+          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'thinking'],
+          issues: params.issues,
+          fillSite: params.fillSite,
+          allowedJobReferences: params.allowedJobReferences,
+          typeOverlay: params.typeOverlay,
+        });
   validateAgentStep({
     step: params.step,
     sourceName: params.sourceName,
@@ -940,6 +952,7 @@ function normalizeAgentStep(params: {
     prompt: promptTemplate,
     model: modelTemplate,
     provider: providerTemplate,
+    thinking: thinkingTemplate,
     name: params.name,
     workingDirectory: params.workingDirectory,
   });
@@ -1095,11 +1108,14 @@ function validateHarnessThinking(params: {
 }): void {
   const {harness, thinking} = params.step;
   if (harness === undefined || thinking === undefined) return;
+  // An interpolated level is only known when the step dispatches, so the agent
+  // module checks it against the resolved harness there.
+  if (hasInterpolationSyntax(thinking)) return;
 
   const supportedLevels =
     params.agentValidationCatalog.harnesses.find((entry) => entry.id === harness)
       ?.thinking_levels ?? [];
-  if (supportedLevels.includes(thinking)) return;
+  if ((supportedLevels as readonly string[]).includes(thinking)) return;
   params.issues.push(
     issue({
       code: 'harness-thinking-incompatible',
@@ -1241,6 +1257,7 @@ function optionalAgentStepTemplates(params: {
   prompt: WorkflowFieldTemplate | undefined;
   model: WorkflowFieldTemplate | undefined;
   provider: WorkflowFieldTemplate | undefined;
+  thinking: WorkflowFieldTemplate | undefined;
   name: WorkflowFieldTemplate | undefined;
   workingDirectory: WorkflowFieldTemplate | undefined;
 }):
@@ -1248,6 +1265,7 @@ function optionalAgentStepTemplates(params: {
       prompt?: WorkflowFieldTemplate;
       model?: WorkflowFieldTemplate;
       provider?: WorkflowFieldTemplate;
+      thinking?: WorkflowFieldTemplate;
       name?: WorkflowFieldTemplate;
       workingDirectory?: WorkflowFieldTemplate;
     }
@@ -1256,6 +1274,7 @@ function optionalAgentStepTemplates(params: {
     params.prompt === undefined &&
     params.model === undefined &&
     params.provider === undefined &&
+    params.thinking === undefined &&
     params.name === undefined &&
     params.workingDirectory === undefined
   ) {
@@ -1266,6 +1285,7 @@ function optionalAgentStepTemplates(params: {
     ...(params.prompt === undefined ? {} : {prompt: params.prompt}),
     ...(params.model === undefined ? {} : {model: params.model}),
     ...(params.provider === undefined ? {} : {provider: params.provider}),
+    ...(params.thinking === undefined ? {} : {thinking: params.thinking}),
     ...(params.name === undefined ? {} : {name: params.name}),
     ...(params.workingDirectory === undefined ? {} : {workingDirectory: params.workingDirectory}),
   };

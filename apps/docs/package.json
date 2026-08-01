@@ -16,7 +16,7 @@
     "start": "next start --port ${SHIPFOX_DOCS_PORT:-3500}",
     "type": "shipfox-tsc-check",
     "generate": "tsx --conditions=workspace-source scripts/generate.mjs",
-    "test": "pnpm generate && pnpm test:unit && tsx scripts/check-writing.mjs && tsx scripts/check-links.mjs && tsx scripts/check-workflow-schema.mjs && tsx scripts/check-catalog.mjs && tsx scripts/check-integration-docs.mjs",
+    "test": "pnpm generate && pnpm test:unit && tsx scripts/check-writing.mjs && tsx scripts/check-links.mjs && tsx scripts/check-workflow-schema.mjs && tsx --conditions=workspace-source scripts/check-contexts.mjs && tsx scripts/check-catalog.mjs && tsx scripts/check-integration-docs.mjs",
     "test:unit": "tsx --test",
     "postinstall": "fumadocs-mdx"
   },
@@ -37,6 +37,7 @@
   "devDependencies": {
     "@shipfox/api-agent-dto": "workspace:*",
     "@shipfox/api-integration-core-dto": "workspace:*",
+    "@shipfox/expression": "workspace:*",
     "@shipfox/api-integration-github": "workspace:*",
     "@shipfox/api-integration-github-dto": "workspace:*",
     "@shipfox/api-integration-sentry-dto": "workspace:*",

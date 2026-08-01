@@ -243,6 +243,8 @@ function optionalAgentTemplates(step: TestAgentStep) {
   const model = step.model === undefined ? undefined : fieldTemplate('agent.model', step.model);
   const provider =
     step.provider === undefined ? undefined : fieldTemplate('agent.provider', step.provider);
+  const thinking =
+    step.thinking === undefined ? undefined : fieldTemplate('agent.thinking', step.thinking);
   const name = step.name === undefined ? undefined : fieldTemplate('step.name', step.name);
   const workingDirectory =
     step.workingDirectory === undefined
@@ -252,6 +254,7 @@ function optionalAgentTemplates(step: TestAgentStep) {
     prompt === undefined &&
     model === undefined &&
     provider === undefined &&
+    thinking === undefined &&
     name === undefined &&
     workingDirectory === undefined
   ) {
@@ -262,6 +265,7 @@ function optionalAgentTemplates(step: TestAgentStep) {
       ...(prompt === undefined ? {} : {prompt}),
       ...(model === undefined ? {} : {model}),
       ...(provider === undefined ? {} : {provider}),
+      ...(thinking === undefined ? {} : {thinking}),
       ...(name === undefined ? {} : {name}),
       ...(workingDirectory === undefined ? {} : {workingDirectory}),
     },

@@ -5,6 +5,7 @@ import {
   type AvailabilitySite,
   availabilitySites,
   buildTypedRootsEnvironment,
+  contextRootsForField,
   type FillTarget,
   getWorkflowContextTypeEnvironment,
   getWorkflowInterpolationFieldFailurePolicy,
@@ -36,6 +37,7 @@ import {
 describe('workflow context registry', () => {
   it('defines exactly the v1 contexts', () => {
     expect(workflowContextNames).toEqual([
+      'workflow',
       'run',
       'trigger',
       'event',
@@ -153,6 +155,15 @@ describe('workflow context registry', () => {
   });
 
   it('exports type environments for the known v1 context fields', () => {
+    expect(getWorkflowContextTypeEnvironment('workflow')).toEqual({
+      workflow: {
+        kind: 'object',
+        fields: {
+          id: 'string',
+          name: 'string',
+        },
+      },
+    });
     const runTypeEnvironment = getWorkflowContextTypeEnvironment('run');
     expect(runTypeEnvironment).toEqual({
       run: {
@@ -161,8 +172,6 @@ describe('workflow context registry', () => {
           id: 'string',
           number: 'int',
           name: 'string',
-          workflow_name: 'string',
-          definition_id: 'string',
           project_id: 'string',
           workspace_id: 'string',
           created_at: 'timestamp',
@@ -374,6 +383,7 @@ describe('workflow context registry', () => {
   it('returns the roots available at each availability site', () => {
     expect(rootsAvailableAt('ingest')).toEqual(['trigger', 'event']);
     expect(rootsAvailableAt('run-creation')).toEqual([
+      'workflow',
       'run',
       'trigger',
       'event',
@@ -382,6 +392,7 @@ describe('workflow context registry', () => {
       'vars',
     ]);
     expect(rootsAvailableAt('execution-creation')).toEqual([
+      'workflow',
       'run',
       'trigger',
       'event',
@@ -392,6 +403,7 @@ describe('workflow context registry', () => {
       'vars',
     ]);
     expect(rootsAvailableAt('job-activation')).toEqual([
+      'workflow',
       'run',
       'trigger',
       'event',
@@ -404,6 +416,7 @@ describe('workflow context registry', () => {
       'vars',
     ]);
     expect(rootsAvailableAt('step-dispatch')).toEqual([
+      'workflow',
       'run',
       'trigger',
       'event',
@@ -418,6 +431,7 @@ describe('workflow context registry', () => {
       'vars',
     ]);
     expect(rootsAvailableAt('step-report')).toEqual([
+      'workflow',
       'run',
       'trigger',
       'event',
@@ -432,6 +446,7 @@ describe('workflow context registry', () => {
       'vars',
     ]);
     expect(rootsAvailableAt('execution-resolution')).toEqual([
+      'workflow',
       'run',
       'trigger',
       'event',
@@ -446,6 +461,7 @@ describe('workflow context registry', () => {
       'vars',
     ]);
     expect(rootsAvailableAt('job-resolution')).toEqual([
+      'workflow',
       'run',
       'trigger',
       'event',
@@ -648,18 +664,32 @@ describe('workflow context registry', () => {
       expect(getWorkflowPredicateFieldMinimumFillTarget('step.if')).toBe('step-dispatch');
     });
 
+    it('resolves roots for a predicate field from its declared contract', () => {
+      expect(contextRootsForField('step.success')).toEqual(['step', 'vars']);
+      expect(contextRootsForField('trigger.filter')).toEqual(['event', 'trigger']);
+    });
+
+    it('resolves roots for an interpolation field from its accepted hosts', () => {
+      expect(contextRootsForField('agent.prompt')).toEqual(
+        workflowContextNames.filter((name) => name !== 'secrets'),
+      );
+      expect(contextRootsForField('run')).toEqual(workflowContextNames);
+      expect(contextRootsForField('env.value')).toContain('secrets');
+    });
+
     it('declares the runtime roots for every predicate field', () => {
       expect(workflowPredicateContextRoots).toEqual({
         'step.success': ['step', 'vars'],
         'job.success': ['executions', 'jobs', 'vars'],
         'trigger.filter': ['event', 'trigger'],
-        'listener.on': ['event', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs'],
-        'listener.until': ['event', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs'],
-        'job.if': ['run', 'trigger', 'event', 'inputs', 'vars', 'jobs', 'needs'],
+        'listener.on': ['event', 'workflow', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs'],
+        'listener.until': ['event', 'workflow', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs'],
+        'job.if': ['workflow', 'run', 'trigger', 'event', 'inputs', 'vars', 'jobs', 'needs'],
         'step.if': ['vars', 'jobs', 'execution', 'step', 'steps'],
       });
       expect(getWorkflowPredicateContextRoots('listener.on')).toEqual([
         'event',
+        'workflow',
         'run',
         'trigger',
         'inputs',
@@ -673,12 +703,13 @@ describe('workflow context registry', () => {
       ['step.success', ['step', 'vars']],
       ['job.success', ['executions', 'jobs', 'vars']],
       ['trigger.filter', ['event', 'trigger']],
-      ['listener.on', ['event', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs']],
-      ['listener.until', ['event', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs']],
-      ['job.if', ['run', 'trigger', 'event', 'inputs', 'vars', 'jobs', 'needs']],
+      ['listener.on', ['event', 'workflow', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs']],
+      ['listener.until', ['event', 'workflow', 'run', 'trigger', 'inputs', 'vars', 'job', 'jobs']],
+      ['job.if', ['workflow', 'run', 'trigger', 'event', 'inputs', 'vars', 'jobs', 'needs']],
       ['step.if', ['vars', 'jobs', 'execution', 'step', 'steps']],
     ] as const)('projects runtime contexts for %s', (field, expectedRoots) => {
       const context = {
+        workflow: {id: 'definition-1', name: 'Build'},
         run: {id: 'run-1'},
         trigger: {event: 'push'},
         event: {action: 'opened'},

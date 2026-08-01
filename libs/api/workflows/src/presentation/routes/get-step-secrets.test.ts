@@ -1,5 +1,6 @@
 import {closeApp, createApp, type FastifyInstance} from '@shipfox/node-fastify';
 import {createCapturingLogger} from '@shipfox/node-log/test';
+import {agentThinkingSchema} from '@shipfox/workflow-document';
 import {eq} from 'drizzle-orm';
 import type {StepStatus} from '#core/entities/step.js';
 import {db} from '#db/db.js';
@@ -256,7 +257,7 @@ async function createStep(params: {
       harness: defaults.harness ?? 'pi',
       provider: defaults.provider ?? 'anthropic',
       model: defaults.model ?? 'claude-opus-4-8',
-      thinking: defaults.thinking ?? 'high',
+      thinking: agentThinkingSchema.safeParse(defaults.thinking).data ?? 'high',
     }),
     triggerPayload: {
       source: 'manual',

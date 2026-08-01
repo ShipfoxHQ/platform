@@ -21,7 +21,8 @@ export interface ContextualAgentConfig {
   readonly harness?: Harness | undefined;
   readonly provider?: string | undefined;
   readonly model?: string | undefined;
-  readonly thinking?: AgentThinking | undefined;
+  /** A resolved template can carry any string. `resolveThinking` validates it. */
+  readonly thinking?: string | undefined;
 }
 
 export interface ResolvedAgentConfig {
@@ -249,14 +250,15 @@ function resolveThinking(params: {
   const descriptor = getHarnessDescriptor(params.harness);
 
   if (params.step.thinking !== undefined) {
-    if (!thinkingSchema.safeParse(params.step.thinking).success) {
+    const parsed = thinkingSchema.safeParse(params.step.thinking);
+    if (!parsed.success) {
       throw new UnsupportedHarnessThinkingError(
         params.harness,
         params.step.thinking,
         descriptor.thinkingLevels,
       );
     }
-    return params.step.thinking;
+    return parsed.data;
   }
 
   const candidates = [

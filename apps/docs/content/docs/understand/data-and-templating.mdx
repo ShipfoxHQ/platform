@@ -26,7 +26,7 @@ Workspace variables and project settings provide long-lived configuration.
 Events and outputs describe this run. Secrets grant authority and follow a
 stricter path.
 
-The [Expressions reference](/reference/expressions#context-available) is the
+The [Contexts reference](/reference/contexts#context-availability) is the
 canonical map of which context roots each field can read.
 
 ## Templates carry data; predicates make decisions
@@ -94,8 +94,15 @@ quoted shell reference. This happens automatically, including for events,
 inputs, listening events, and outputs.
 
 This binding keeps an interpolated value in a data position. A command that
-re-executes its arguments, such as `eval` or `sh -c`, can parse the value as
-shell code again. Keep workflow data out of those code positions.
+re-executes its arguments can parse the value as shell code again. Keep workflow
+data out of those code positions: `eval`, `sh -c "$value"`, `let`, `declare -i`,
+arithmetic expressions, and array subscripts.
+
+Infrastructure selectors are not a trust boundary either. The `runner` field of
+a job and the `model`, `provider`, and `thinking` fields of an agent step accept
+templates like any other field. Event data can choose where a job runs and how
+much reasoning it uses. Use a literal or a variable when that choice must not
+depend on the event.
 
 Prompts do not have shell injection, but they still have instruction injection.
 Tell the agent which fields are data. Limit the tools and write access on that

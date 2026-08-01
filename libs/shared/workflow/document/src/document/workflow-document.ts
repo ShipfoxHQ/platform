@@ -8,6 +8,27 @@ const nonEmptyRecordSchema = <ValueSchema extends z.ZodType>(valueSchema: ValueS
     .refine((value) => Object.keys(value).length > 0, {message: 'Expected at least one entry'});
 
 export const WORKFLOW_LITERAL_NAME_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{))*$/;
+// The inverse of a literal name: a literal prefix followed by an unescaped
+// `${{`. An enum field that also accepts a template matches one or the other.
+export const WORKFLOW_INTERPOLATED_VALUE_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{))*\$\{\{/;
+
+// Reasoning effort is an enum so editors can complete it, and a template so a
+// workflow can choose the effort from run context. The resolved value is
+// checked against the harness levels when the step is dispatched.
+export const agentThinkingFieldSchema = z
+  .union([
+    agentThinkingSchema,
+    z.string().regex(WORKFLOW_INTERPOLATED_VALUE_PATTERN, {
+      message:
+        'Agent thinking must be a supported level or a $' +
+        '{{ }} interpolation that resolves to one.',
+    }),
+  ])
+  .meta({
+    description:
+      'Reasoning effort for an agent step. Supported values depend on the resolved harness. Accepts a $' +
+      '{{ }} interpolation. When omitted, Shipfox uses the provider default, or `xhigh` when none is configured.',
+  });
 
 const workflowNameSchema = literalNameSchema(
   'Workflow name must be literal. Move runtime interpolation to run_name.',
@@ -155,11 +176,11 @@ const workflowDocumentTriggerBaseSchema = {
   }),
   with: z.record(z.string(), z.unknown()).optional().meta({
     description:
-      'Provider-specific values used to match or configure the trigger. See [expressions](/reference/expressions#context-available).',
+      'Provider-specific values used to match or configure the trigger. See [Trigger sources](/reference/trigger-sources).',
   }),
   filter: z.string().min(1).optional().meta({
     description:
-      'CEL condition that filters matching events. It is not supported for `manual` or `cron` triggers. See [trigger filters](/reference/expressions#trigger-filters).',
+      'CEL condition that filters matching events. It is not supported for `manual` or `cron` triggers. See [Expressions](/reference/expressions) and [Contexts](/reference/contexts#context-availability).',
   }),
   config: z.record(z.string(), z.unknown()).optional().meta({
     description:
@@ -415,7 +436,7 @@ export const workflowDocumentStepSchema = z
       .meta({
         description:
           'CEL condition wrapped in exactly one $' +
-          '{{ }} interpolation. See [conditionals](/reference/expressions#conditionals-if).',
+          '{{ }} interpolation. See [conditionals](/reference/expressions#syntax).',
       }),
     name: z.string().min(1).optional().meta({description: 'Human-readable step name.'}),
     working_directory: z.string().min(1).optional().meta({
@@ -438,10 +459,7 @@ export const workflowDocumentStepSchema = z
       description:
         'Agent harness. When omitted, Shipfox uses the workspace default harness, or `pi` when none is configured.',
     }),
-    thinking: agentThinkingSchema.optional().meta({
-      description:
-        'Reasoning effort for an agent step. Supported values depend on the resolved harness. When omitted, Shipfox uses the provider default, or `xhigh` when none is configured.',
-    }),
+    thinking: agentThinkingFieldSchema.optional(),
     provider: z.string().min(1).optional().meta({
       description:
         'Model provider ID for an agent step. It requires `prompt` and is not valid on a run step.',
@@ -554,7 +572,7 @@ export const workflowDocumentJobSchema = z.strictObject({
     .meta({
       description:
         'CEL condition wrapped in exactly one $' +
-        '{{ }} interpolation. See [conditionals](/reference/expressions#conditionals-if).',
+        '{{ }} interpolation. See [conditionals](/reference/expressions#syntax).',
     }),
   runner: stringOrStringArraySchema.optional().meta({
     description:
@@ -562,7 +580,7 @@ export const workflowDocumentJobSchema = z.strictObject({
   }),
   success: z.string().min(1).optional().meta({
     description:
-      'CEL expression that determines whether the job succeeds. See [job success](/reference/expressions#job-success-success).',
+      'CEL expression that determines whether the job succeeds. See [Expressions](/reference/expressions#functions-and-macros) and [Contexts](/reference/contexts#context-availability).',
   }),
   outputs: nonEmptyRecordSchema(z.string().min(1)).optional().meta({
     description: 'Named job outputs mapped from step values.',

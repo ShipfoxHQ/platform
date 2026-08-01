@@ -37,6 +37,7 @@ export type StoredInterpolationField =
   | 'agent.prompt'
   | 'agent.model'
   | 'agent.provider'
+  | 'agent.thinking'
   | 'job.outputs'
   | 'workflow.run_name'
   | 'job.execution_name'
