@@ -1,5 +1,10 @@
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
-import {DEFAULT_JOB_CHECKOUT, type WorkflowModel} from '@shipfox/api-definitions-dto';
+import {
+  DEFAULT_JOB_CHECKOUT,
+  type WorkflowFieldTemplate,
+  type WorkflowModel,
+} from '@shipfox/api-definitions-dto';
+import {parseWorkflowTemplate, planInterpolationField} from '@shipfox/expression';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import {AgentConfigUnresolvableError, InterpolationUnresolvableError} from '#core/errors.js';
@@ -28,6 +33,15 @@ function expression(source: string): TestWorkflowExpression {
 
 function template(source: string): string {
   return `\${{ ${source} }}`;
+}
+
+function checkoutTemplate(
+  field: 'checkout.repository' | 'checkout.ref',
+  source: string,
+): WorkflowFieldTemplate {
+  const result = planInterpolationField({field, segments: parseWorkflowTemplate(source)});
+  if (!result.ok) throw new Error(`Expected valid checkout template for ${field}`);
+  return result.plan.field.segments;
 }
 
 function shellRef(name: string): string {
@@ -645,6 +659,71 @@ describe('materializeWorkflowModel', () => {
           roots: ['steps'],
         },
       ],
+    });
+  });
+
+  it('defers checkout target templates until step dispatch', async () => {
+    const repository = template('steps.previous.outputs.repository');
+    const ref = template('steps.previous.outputs.ref');
+    const model = workflowModel({
+      jobs: {
+        build: {
+          steps: [
+            {
+              checkout: {
+                repository,
+                ref,
+                fetchDepth: 1,
+                permissions: {contents: 'read'},
+                persistCredentials: true,
+                templates: {
+                  repository: checkoutTemplate('checkout.repository', repository),
+                  ref: checkoutTemplate('checkout.ref', ref),
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const rows = await materializeWorkflowModel({model, context: creationContext()});
+
+    expect(rows[0]?.steps[1]?.config).toEqual({
+      checkout: {
+        fetch_depth: 1,
+        permissions: {contents: 'read'},
+        persist_credentials: true,
+      },
+    });
+    expect(rows[0]?.steps[1]?.authoredConfig).toEqual({
+      checkout: {
+        repository,
+        ref,
+        fetch_depth: 1,
+        permissions: {contents: 'read'},
+        persist_credentials: true,
+      },
+    });
+    expect(rows[0]?.steps[1]?.configPlan?.checkout).toEqual({
+      repository: {
+        segments: [
+          expect.objectContaining({
+            kind: 'deferred',
+            roots: ['steps'],
+            fillTarget: 'step-dispatch',
+          }),
+        ],
+      },
+      ref: {
+        segments: [
+          expect.objectContaining({
+            kind: 'deferred',
+            roots: ['steps'],
+            fillTarget: 'step-dispatch',
+          }),
+        ],
+      },
     });
   });
 

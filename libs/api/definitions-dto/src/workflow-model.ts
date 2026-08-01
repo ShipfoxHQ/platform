@@ -10,12 +10,28 @@ import {z} from 'zod';
 export const DEFAULT_RUN_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_JOB_SUCCESS = "!executions.exists(e, e.status == 'failed')";
 
-export interface WorkflowModelJobCheckout {
-  readonly permissions: {readonly contents: 'read' | 'write'};
-  readonly persistCredentials: boolean;
+export interface WorkflowModelCheckoutTemplates {
+  readonly project?: WorkflowFieldTemplate;
+  readonly connection?: WorkflowFieldTemplate;
+  readonly repository?: WorkflowFieldTemplate;
+  readonly ref?: WorkflowFieldTemplate;
+  readonly path?: WorkflowFieldTemplate;
 }
 
-export interface WorkflowModelStepCheckout {
+export type WorkflowModelCheckoutTargetKey = keyof WorkflowModelCheckoutTemplates;
+
+export const WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS = [
+  ['project', 'checkout.project'],
+  ['connection', 'checkout.connection'],
+  ['repository', 'checkout.repository'],
+  ['ref', 'checkout.ref'],
+  ['path', 'checkout.path'],
+] as const satisfies readonly (readonly [
+  WorkflowModelCheckoutTargetKey,
+  `checkout.${WorkflowModelCheckoutTargetKey}`,
+])[];
+
+export interface WorkflowModelCheckout {
   readonly project?: string;
   readonly connection?: string;
   readonly repository?: string;
@@ -25,7 +41,15 @@ export interface WorkflowModelStepCheckout {
   readonly permissions: {readonly contents: 'read' | 'write'};
   readonly persistCredentials: boolean;
   readonly force?: boolean;
+  readonly templates?: WorkflowModelCheckoutTemplates;
 }
+
+export type WorkflowModelJobCheckout = Pick<
+  WorkflowModelCheckout,
+  'permissions' | 'persistCredentials'
+>;
+
+export interface WorkflowModelStepCheckout extends WorkflowModelCheckout {}
 
 export const DEFAULT_JOB_CHECKOUT: WorkflowModelJobCheckout = {
   permissions: {contents: 'read'},

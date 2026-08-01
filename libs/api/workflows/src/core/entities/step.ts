@@ -68,6 +68,13 @@ export interface StepConfigDispatchPlan {
   working_directory?: ResolvedField;
   run?: ResolvedField;
   env?: Readonly<Record<string, ResolvedField>>;
+  checkout?: {
+    project?: ResolvedField;
+    connection?: ResolvedField;
+    repository?: ResolvedField;
+    ref?: ResolvedField;
+    path?: ResolvedField;
+  };
   agent?: {
     prompt?: ResolvedField;
     model?: ResolvedField;

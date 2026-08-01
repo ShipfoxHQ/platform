@@ -13,6 +13,7 @@ import {
   EnvironmentVariables,
   GateFailureFields,
   GateFields,
+  JobCheckoutFields,
   JobFields,
   ListeningBatchFields,
   ListeningFields,
@@ -120,11 +121,23 @@ jobs:
 
 <JobFields />
 
+### Job checkout fields
+
+The job-level `checkout` block supports repository permissions and credential
+persistence. `checkout: false` is accepted by the document schema but is not
+supported by the workflow model yet.
+
+<JobCheckoutFields />
+
 ## Checkout fields
+
+These fields apply to an explicit checkout step.
 
 <CheckoutFields />
 
 ### Checkout permissions fields
+
+These permissions apply to both job-level checkout and explicit checkout steps.
 
 <CheckoutPermissionsFields />
 

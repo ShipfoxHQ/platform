@@ -97,7 +97,6 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
 
   const job = object(jobs.additionalProperties);
   addLiteralNamePattern(propertiesOf(job).name);
-  projectCheckoutTargetValidation(propertiesOf(job).checkout);
   projectCheckoutTargetValidation(propertiesOf(stepSchema).checkout);
   const jobOutputs = object(propertiesOf(job).outputs);
   jobOutputs.minProperties = 1;

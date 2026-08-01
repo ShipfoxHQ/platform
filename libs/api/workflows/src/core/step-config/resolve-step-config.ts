@@ -1,4 +1,5 @@
 import type {WorkflowEnvTemplates, WorkflowModel} from '@shipfox/api-definitions-dto';
+import {WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS} from '@shipfox/api-definitions-dto';
 import {
   type AvailabilitySite,
   capTraceEntries,
@@ -72,6 +73,14 @@ interface WorkingDirectoryConfig {
   readonly hasTemplates: boolean;
 }
 
+interface CheckoutConfig {
+  readonly config: Record<string, unknown>;
+  readonly configPlan: Pick<StepConfigDispatchPlan, 'checkout'> | undefined;
+  readonly diagnostics: readonly WorkflowStepTemplateDiagnostic[];
+  readonly trace: readonly WorkflowStepEvaluationTraceEntry[];
+  readonly hasTemplates: boolean;
+}
+
 export async function resolveStepConfig(
   params: ResolveStepConfigParams,
 ): Promise<ResolvedStepConfig> {
@@ -114,16 +123,17 @@ async function buildStepConfig(
 
   const checkoutStep = checkoutStepOrNull(params.step);
   if (checkoutStep !== null) {
+    const checkout = resolveCheckoutStepConfig({...params, step: checkoutStep});
     return {
       config: {
-        ...checkoutStepConfig(checkoutStep),
+        ...checkout.config,
         ...gate,
         ...outputs,
       },
-      configPlan: null,
-      diagnostics: [],
-      trace: [],
-      hasTemplates: false,
+      configPlan: checkout.configPlan === undefined ? null : checkout.configPlan,
+      diagnostics: checkout.diagnostics,
+      trace: checkout.trace,
+      hasTemplates: checkout.hasTemplates,
     };
   }
 
@@ -229,20 +239,60 @@ function checkoutStepOrNull(step: WorkflowModelStep): WorkflowModelCheckoutStep 
   return isCheckoutStep ? step : null;
 }
 
-function checkoutStepConfig(step: WorkflowModelCheckoutStep): Record<string, unknown> {
-  const checkout = step.checkout;
+function resolveCheckoutStepConfig(
+  params: Omit<BuildStepConfigParams, 'context' | 'step'> & {
+    readonly context: WorkflowEvaluationContext;
+    readonly step: WorkflowModelCheckoutStep;
+  },
+): CheckoutConfig {
+  const checkout = params.step.checkout;
+  const config: Record<string, unknown> = {
+    fetch_depth: checkout.fetchDepth,
+    permissions: checkout.permissions,
+    persist_credentials: checkout.persistCredentials,
+    ...(checkout.force === undefined ? {} : {force: checkout.force}),
+  };
+  const checkoutConfig: Record<string, unknown> = config;
+  const checkoutPlan: NonNullable<StepConfigDispatchPlan['checkout']> = {};
+  const diagnostics: WorkflowStepTemplateDiagnostic[] = [];
+  const trace: WorkflowStepEvaluationTraceEntry[] = [];
+  let hasTemplates = false;
+
+  for (const [key, field] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
+    const template = checkout.templates?.[key];
+    if (template !== undefined) hasTemplates = true;
+
+    const value = checkout[key];
+    if (value === undefined) continue;
+
+    if (template === undefined || params.mode === 'authored') {
+      checkoutConfig[key] = value;
+      continue;
+    }
+
+    const resolved = resolveStepField({
+      field,
+      template: {segments: template},
+      context: params.context,
+      definitionId: params.definitionId,
+      errorField: field,
+    });
+    trace.push(...resolved.trace.map((entry) => ({...entry, field})));
+    diagnostics.push(...resolved.diagnostics.map((diagnostic) => ({...diagnostic, field})));
+
+    if (resolved.kind === 'residual') {
+      checkoutPlan[key] = resolved.field;
+    } else {
+      checkoutConfig[key] = resolved.value;
+    }
+  }
+
   return {
-    checkout: {
-      ...(checkout.project === undefined ? {} : {project: checkout.project}),
-      ...(checkout.connection === undefined ? {} : {connection: checkout.connection}),
-      ...(checkout.repository === undefined ? {} : {repository: checkout.repository}),
-      ...(checkout.ref === undefined ? {} : {ref: checkout.ref}),
-      fetch_depth: checkout.fetchDepth,
-      ...(checkout.path === undefined ? {} : {path: checkout.path}),
-      permissions: checkout.permissions,
-      persist_credentials: checkout.persistCredentials,
-      ...(checkout.force === undefined ? {} : {force: checkout.force}),
-    },
+    config: {checkout: config},
+    configPlan: Object.keys(checkoutPlan).length === 0 ? undefined : {checkout: checkoutPlan},
+    diagnostics,
+    trace,
+    hasTemplates,
   };
 }
 

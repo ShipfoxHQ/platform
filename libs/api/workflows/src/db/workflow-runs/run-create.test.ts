@@ -1,4 +1,6 @@
+import type {WorkflowFieldTemplate} from '@shipfox/api-definitions-dto';
 import {WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED} from '@shipfox/api-workflows-dto';
+import {parseWorkflowTemplate, planInterpolationField} from '@shipfox/expression';
 import {and, eq, sql} from 'drizzle-orm';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import {InterpolationUnresolvableError} from '#core/errors.js';
@@ -24,6 +26,15 @@ import {
   resolveJobStatusFromJobExecutions,
   updateJobExecutionStatus,
 } from '../workflow-runs.js';
+
+function checkoutTemplate(source: string): WorkflowFieldTemplate {
+  const result = planInterpolationField({
+    field: 'checkout.repository',
+    segments: parseWorkflowTemplate(source),
+  });
+  if (!result.ok) throw new Error('Expected valid checkout template');
+  return result.plan.field.segments;
+}
 
 describe('workflow run queries', () => {
   let workspaceId: string;
@@ -1031,6 +1042,32 @@ describe('workflow run queries', () => {
             },
           }),
         expected: {field: 'step.working_directory', source: 'vars.REQUIRED'},
+      },
+      {
+        field: 'checkout.repository',
+        model: () =>
+          workflowModel({
+            name: 'Missing checkout repository var',
+            runner: 'ubuntu-latest',
+            jobs: {
+              build: {
+                steps: [
+                  {
+                    checkout: {
+                      repository: template('vars.REQUIRED'),
+                      fetchDepth: 1,
+                      permissions: {contents: 'read'},
+                      persistCredentials: true,
+                      templates: {
+                        repository: checkoutTemplate(template('vars.REQUIRED')),
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          }),
+        expected: {field: 'checkout.repository', source: 'vars.REQUIRED'},
       },
     ] as const)('reports missing variables against $field', async ({model, expected}) => {
       let error: unknown;

@@ -41,6 +41,7 @@ export {
   DEFAULT_JOB_SUCCESS,
   DEFAULT_RUN_TIMEOUT_MS,
   readPersistedWorkflowModel,
+  WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS,
   workflowModelFromSnapshot,
   workflowModelSnapshotSchema,
 } from './workflow-model.js';

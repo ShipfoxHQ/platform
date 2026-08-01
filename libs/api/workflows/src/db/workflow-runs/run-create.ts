@@ -1,4 +1,8 @@
-import {createWorkflowModelSnapshot, type WorkflowModel} from '@shipfox/api-definitions-dto';
+import {
+  createWorkflowModelSnapshot,
+  WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS,
+  type WorkflowModel,
+} from '@shipfox/api-definitions-dto';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
@@ -441,6 +445,10 @@ function referencedVariables(
         collectFieldVariableReferences(step.templates?.provider, references, {
           field: 'agent.provider',
         });
+      } else if (step.kind === 'checkout') {
+        for (const [key, field] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
+          collectFieldVariableReferences(step.checkout.templates?.[key], references, {field});
+        }
       }
     }
   }

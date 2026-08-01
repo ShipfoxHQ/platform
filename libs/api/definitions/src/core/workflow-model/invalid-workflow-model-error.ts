@@ -5,6 +5,7 @@ export type WorkflowModelValidationIssueCode =
   | 'dynamic-name-self-reference'
   | 'context-unavailable-at-predicate-site'
   | 'computed-context-key'
+  | 'checkout-target-invalid'
   | 'duplicate-job-id'
   | 'duplicate-step-id'
   | 'duplicate-trigger-id'

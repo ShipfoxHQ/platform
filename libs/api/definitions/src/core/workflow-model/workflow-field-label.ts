@@ -28,6 +28,16 @@ export function workflowFieldLabel(
       return 'Step name interpolation';
     case 'step.working_directory':
       return 'Step working directory interpolation';
+    case 'checkout.project':
+      return 'Checkout project interpolation';
+    case 'checkout.connection':
+      return 'Checkout connection interpolation';
+    case 'checkout.repository':
+      return 'Checkout repository interpolation';
+    case 'checkout.ref':
+      return 'Checkout ref interpolation';
+    case 'checkout.path':
+      return 'Checkout path interpolation';
     case 'step.success':
       return 'Step gate success';
     case 'step.feedback':

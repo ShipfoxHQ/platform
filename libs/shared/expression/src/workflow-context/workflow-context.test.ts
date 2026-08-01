@@ -618,6 +618,11 @@ describe('workflow context registry', () => {
       expect(getWorkflowInterpolationFieldFailurePolicy('step.name')).toBe('degrade');
       expect(getWorkflowInterpolationFieldFailurePolicy('step.working_directory')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('step.feedback')).toBe('fail');
+      expect(getWorkflowInterpolationFieldFailurePolicy('checkout.project')).toBe('fail');
+      expect(getWorkflowInterpolationFieldFailurePolicy('checkout.connection')).toBe('fail');
+      expect(getWorkflowInterpolationFieldFailurePolicy('checkout.repository')).toBe('fail');
+      expect(getWorkflowInterpolationFieldFailurePolicy('checkout.ref')).toBe('fail');
+      expect(getWorkflowInterpolationFieldFailurePolicy('checkout.path')).toBe('fail');
       expect(
         workflowInterpolationFields.map(
           (field) => workflowInterpolationFieldPolicies[field].failurePolicy,
@@ -839,6 +844,11 @@ describe('workflow interpolation field policies', () => {
       'step.name',
       'step.working_directory',
       'step.feedback',
+      'checkout.project',
+      'checkout.connection',
+      'checkout.repository',
+      'checkout.ref',
+      'checkout.path',
     ]);
     expect(Object.keys(workflowInterpolationFieldPolicies)).toEqual(workflowInterpolationFields);
   });
@@ -869,6 +879,11 @@ describe('workflow interpolation field policies', () => {
     ['step.name', ['server']],
     ['step.working_directory', ['server']],
     ['step.feedback', ['server']],
+    ['checkout.project', ['server']],
+    ['checkout.connection', ['server']],
+    ['checkout.repository', ['server']],
+    ['checkout.ref', ['server']],
+    ['checkout.path', ['server']],
   ] satisfies readonly [
     WorkflowInterpolationField,
     readonly string[],

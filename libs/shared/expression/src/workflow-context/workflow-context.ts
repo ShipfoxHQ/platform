@@ -395,7 +395,12 @@ export type WorkflowInterpolationField =
   | 'job.execution_name'
   | 'step.name'
   | 'step.working_directory'
-  | 'step.feedback';
+  | 'step.feedback'
+  | 'checkout.project'
+  | 'checkout.connection'
+  | 'checkout.repository'
+  | 'checkout.ref'
+  | 'checkout.path';
 
 export const workflowFieldFailurePolicies = ['fail', 'degrade', 'fail-closed'] as const;
 export type WorkflowFieldFailurePolicy = (typeof workflowFieldFailurePolicies)[number];
@@ -471,6 +476,26 @@ export const workflowInterpolationFieldPolicies: Readonly<
     failurePolicy: 'fail',
   },
   'step.feedback': {
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'fail',
+  },
+  'checkout.project': {
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'fail',
+  },
+  'checkout.connection': {
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'fail',
+  },
+  'checkout.repository': {
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'fail',
+  },
+  'checkout.ref': {
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'fail',
+  },
+  'checkout.path': {
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
   },

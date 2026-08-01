@@ -414,20 +414,6 @@ describe('workflowDocumentSchema', () => {
         },
       },
     ],
-    [
-      'checkout target fields',
-      {
-        checkout: {
-          project: '0192f3a1-0000-0000-0000-000000000000',
-          ref: 'refs/heads/main',
-          'fetch-depth': 0,
-          path: 'target',
-          force: true,
-          permissions: {contents: 'read'},
-          'persist-credentials': false,
-        },
-      },
-    ],
     ['checkout disabled', {checkout: false}],
     ['checkout persist credentials false', {checkout: {'persist-credentials': false}}],
     ['empty checkout', {checkout: {}}],
@@ -444,6 +430,28 @@ describe('workflowDocumentSchema', () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it('rejects checkout target fields on a job checkout', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'targeted checkout',
+      jobs: {
+        build: {
+          checkout: {
+            project: '0192f3a1-0000-0000-0000-000000000000',
+            ref: 'refs/heads/main',
+            'fetch-depth': 0,
+            path: 'target',
+            force: true,
+            permissions: {contents: 'read'},
+            'persist-credentials': false,
+          },
+          steps: [{run: 'npm test'}],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it('accepts the shared checkout object on a checkout step', () => {
@@ -474,7 +482,7 @@ describe('workflowDocumentSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects project with connection or repository in a checkout object', () => {
+  it('rejects project with connection or repository in a checkout step', () => {
     for (const checkout of [
       {project: 'project-id', connection: 'github'},
       {project: 'project-id', repository: 'acme/api'},
@@ -483,8 +491,7 @@ describe('workflowDocumentSchema', () => {
         name: 'invalid checkout target',
         jobs: {
           build: {
-            checkout,
-            steps: [{run: 'npm test'}],
+            steps: [{checkout}],
           },
         },
       });

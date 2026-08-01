@@ -88,7 +88,7 @@ describe('buildWorkflowJsonSchema', () => {
     expect(requiredAlternatives(batch)).toEqual(['debounce', 'max_size', 'max_wait']);
   });
 
-  it('publishes checkout fields for both job and checkout-step syntax', () => {
+  it('publishes the supported job checkout subset and full checkout-step fields', () => {
     const schema = buildWorkflowJsonSchema();
     const root = object(schema.properties);
     const jobs = object(root.jobs);
@@ -103,19 +103,10 @@ describe('buildWorkflowJsonSchema', () => {
         expect.objectContaining({const: false}),
       ]),
     );
-    expect(objectSchemaFor(jobCheckout).properties).toEqual(
-      expect.objectContaining({
-        project: expect.any(Object),
-        connection: expect.any(Object),
-        repository: expect.any(Object),
-        ref: expect.any(Object),
-        'fetch-depth': expect.any(Object),
-        path: expect.any(Object),
-        permissions: expect.any(Object),
-        'persist-credentials': expect.any(Object),
-        force: expect.any(Object),
-      }),
-    );
+    expect(objectSchemaFor(jobCheckout).properties).toEqual({
+      permissions: expect.any(Object),
+      'persist-credentials': expect.any(Object),
+    });
     expect(stepCheckout).toEqual(
       expect.objectContaining({
         type: 'object',
