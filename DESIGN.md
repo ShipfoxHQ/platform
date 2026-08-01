@@ -1,493 +1,487 @@
-# Design System — Shipfox
-
-`DESIGN.md` is the canonical design-system source for Shipfox. Read it when a
-change creates or changes a visual or interaction decision. It owns the shared
-visual language: tokens, components, accessibility, motion, status taxonomy,
-patterns, and review anti-patterns.
-
-The system is already built. [The shared CSS](libs/shared/react/ui/index.css)
-and [the `@shipfox/react-ui` package](libs/shared/react/ui/) are canonical for
-exact token and component values. When code and this document differ, use the
-code and update this document in the same change when its guidance has changed.
-This document explains the system and its rationale. It does not prescribe
-individual product pages. Surface-level designs live with their features.
-
+---
+name: Shipfox
+description: The instrument panel for an AI software factory. Calm chrome, loud data, monospace as structure.
+colors:
+  brand: "#ff4b00"
+  brand-deep: "#e63e00"
+  brand-tint: "#fff4f0"
+  ink: "#0f0f10"
+  canvas: "#ffffff"
+  surface: "#fafafa"
+  panel-inverted: "#1a1a1b"
+  primary-fill: "#27272a"
+  border: "#d4d4d8"
+  subtle: "#52525b"
+  muted: "#71717a"
+  running: "#3b82f6"
+  succeeded: "#10b981"
+  failed: "#f43f5e"
+  warning: "#f97316"
+  meta: "#8b5cf6"
+typography:
+  display:
+    fontFamily: "Inter, sans-serif"
+    fontSize: "56px"
+    fontWeight: 500
+    lineHeight: "64px"
+  headline:
+    fontFamily: "Inter, sans-serif"
+    fontSize: "28px"
+    fontWeight: 500
+    lineHeight: "44px"
+  title:
+    fontFamily: "Inter, sans-serif"
+    fontSize: "18px"
+    fontWeight: 500
+    lineHeight: "28px"
+  body:
+    fontFamily: "Inter, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: "24px"
+  label:
+    fontFamily: "Inter, sans-serif"
+    fontSize: "12px"
+    fontWeight: 500
+    lineHeight: "20px"
+  code:
+    fontFamily: "Commit Mono, monospace"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: "20px"
+rounded:
+  input: "4px"
+  button: "6px"
+  card: "8px"
+  modal: "10px"
+  full: "9999px"
+spacing:
+  hairline: "2px"
+  tight: "4px"
+  xs: "6px"
+  sm: "8px"
+  md: "16px"
+  lg: "24px"
+  xl: "32px"
+  section: "48px"
+  hero: "64px"
+components:
+  button-primary:
+    backgroundColor: "{colors.primary-fill}"
+    textColor: "{colors.canvas}"
+    typography: "{typography.body}"
+    rounded: "{rounded.button}"
+    padding: "0 10px"
+    height: "32px"
+  button-primary-hover:
+    backgroundColor: "#3f3f46"
+  button-secondary:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.button}"
+    padding: "0 10px"
+    height: "32px"
+  button-danger:
+    backgroundColor: "#e11d48"
+    textColor: "{colors.canvas}"
+    rounded: "{rounded.button}"
+    height: "32px"
+  input:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.input}"
+    padding: "0 8px"
+    height: "32px"
+  badge-status:
+    typography: "{typography.label}"
+    rounded: "{rounded.input}"
+    padding: "2px 6px"
+  card:
+    backgroundColor: "{colors.surface}"
+    rounded: "{rounded.card}"
+    padding: "24px"
 ---
 
-## 1. Product Context
-
-**What this is.** A multi-tenant, distributed workflow execution platform. Users define DAGs of jobs in YAML, push to VCS, and runs are kicked off by triggers (webhook, schedule, manual). Jobs execute on runners we don't own (the user runs them in their own infra). Steps are either server-side (HTTP, notify, conditional) or worker-side (commands on a runner).
-
-**Who it's for.** Platform engineers, infra teams, and developers who want CI/CD-shaped workflow execution without giving up control of where the work runs. They live in terminals. They read logs at 2am. They expect data density, monospaced numbers that don't dance, keyboard-first navigation, and zero patience for marketing fluff.
-
-**Space/industry.** Developer platform / build & deploy / workflow orchestration. Peers: GitHub Actions, GitLab CI, Buildkite, CircleCI, Argo Workflows, Temporal Cloud, Linear, Vercel, Resend.
-
-**Project type.** Web application (dashboard-heavy) with marketing and auth surfaces. The center of gravity is operator-facing observation: tailing logs, inspecting step output, watching state machines resolve. That bias toward density, monospace, and unambiguous status is what shapes the system.
-
----
-
-## 2. Aesthetic Direction
-
-**Direction.** Industrial / utilitarian, leaning Linear-Vercel-Resend. Function-first, data-dense, monospace as a structural element, restrained but warm. Not brutalist (we have polish, shadows, rounded corners), not playful (no bouncy curves), not editorial (this is a tool, not a magazine).
-
-**Decoration level.** Intentional. Subtle multi-layer shadows on buttons and surfaces, light grain on focus rings, clean separators. No gradients on CTAs, no decorative icons in colored circles, no purple drop-shadows on cards.
-
-**Mood.** A senior engineer's workbench. Calm in the chrome, loud in the data. The product gets out of the way until something needs attention, then it points clearly at what.
-
-**Reference posture.** Vercel's app dashboard for density. Linear for status semantics and motion restraint. Resend for monospace warmth. GitHub Actions for the DAG viewer's information layout. Stripe for table conventions.
-
----
-
-## 3. Typography
-
-The CSS defines two families and a precise scale. Stick to these — both for legibility and to keep the load light.
-
-### Font families
-
-| Token | Stack | Use |
-|---|---|---|
-| `--font-display` | `Inter, sans-serif` | Everything UI. Headings, body, labels, buttons, tables. |
-| `--font-code` | `Commit Mono, monospace` | Code, logs, YAML, SHAs, IDs, paths, refs, durations, JSON. |
-
-Inter is loaded from Google Fonts with full optical sizing and italics. Commit Mono is self-hosted from Storyblok (`commitmono-400`, `commitmono-700`). Both are loaded in `index.css` at the base layer — do not override the family stacks per surface.
-
-`html` sets OpenType features `rlig`, `calt`, `lnum` so digits are tabular by default in headings and copy. This is intentional — durations, run numbers, and metric counters should not jitter on update.
-
-### Scale
-
-| Token | Size | Line height | Typical use |
-|---|---|---|---|
-| `text-xs` | 12px | 20px | Tags, metadata, table footers, code labels |
-| `text-sm` | 13px | 20px | Body in tables, log lines (with `font-code`), helper text |
-| `text-md` | 14px | 24px | Default body, button labels at md, form labels |
-| `text-lg` | 16px | 24px | Card headings, h3, large button labels |
-| `text-xl` | 18px | 28px | Section headings, h2 |
-| `text-2xl` | 24px | 32px | Page sub-headings |
-| `text-3xl` | 28px | 44px | Page headings, h1 in app |
-| `text-4xl` | 40px | 56px | Marketing hero secondary |
-| `text-5xl` | 56px | 64px | Marketing hero primary |
-
-### Weights
-
-| Token | Weight |
-|---|---|
-| `font-weight-regular` | 400 |
-| `font-weight-medium` | 500 |
-| `font-weight-bold` | 700 |
-
-Default weight is regular. Headings and emphasized labels use medium. Bold is rare — reserve it for code emphasis or alert titles.
-
-### Components
-
-The `Header`, `Text`, and `Code` components in `components/typography/*` enforce the scale. Use them.
-
-```tsx
-<Header variant="h1">Run #4291</Header>     // text-3xl, font-medium
-<Header variant="h2">Jobs</Header>          // text-xl, font-medium
-<Text size="md">14 jobs, 12 steps</Text>    // text-md
-<Text size="sm">Started 4 minutes ago</Text> // text-sm
-<Code variant="paragraph">git@github.com:org/repo.git#a1b2c3d</Code> // text-sm font-code
-<Code variant="label">duration</Code>       // text-xs font-code
-```
-
-Do not bypass these components by inlining `text-3xl font-medium` — that scatters typography decisions across the codebase.
-
----
-
-## 4. Color
-
-The system has three layers. Use the highest-level token that fits the job.
-
-### Layer 1 — Primitives
-
-Raw color scales in `index.css`. Names: `--color-neutral-{0..1000}`, `--color-primary-{50..950}`, `--color-{red,orange,green,blue,purple}-{50..950}`, plus `--color-accent-*` (Apple-system-style accents) and `--color-alpha-{black,white}-{0..88}` for translucent overlays.
-
-**Never reach into primitives from a component.** Always use a semantic token. If the token you need does not exist, add it — do not bypass the layer.
-
-### Layer 2 — Semantic tokens
-
-These map to roles. They flip between light and dark mode automatically.
-
-**Background**
-- `bg-background-neutral-base` — page/canvas
-- `bg-background-neutral-background` — page background under panels (slightly different from `base`)
-- `bg-background-components-base` — cards, surface chips
-- `bg-background-components-hover` / `bg-background-components-pressed` — interactive surface states
-- `bg-background-field-base` / `bg-background-field-hover` — inputs
-- `bg-background-subtle-base` — barely-there fill (e.g., zebra rows)
-- `bg-background-contrast-base` — inverted surface (popover, tooltip, modal panel)
-- `bg-background-highlight-base` / `bg-background-highlight-hover` / `bg-background-highlight-interactive` — orange-tinted surfaces; reserve for selected/active brand-tied states
-- `bg-background-modal-overlay` / `bg-background-backdrop-backdrop` — scrims
-- `bg-background-accent-{neutral,blue,purple,success,warning,error}-{soft,base,strong}` — colored fills for non-semantic accents
-
-**Foreground**
-- `text-foreground-neutral-base` — primary text
-- `text-foreground-neutral-subtle` — secondary text
-- `text-foreground-neutral-muted` — tertiary, helper, metadata
-- `text-foreground-neutral-disabled` — disabled state
-- `text-foreground-neutral-on-color` — text on a colored fill (white in light & dark)
-- `text-foreground-neutral-on-inverted` — text on a contrast surface
-- `text-foreground-highlight-interactive` — orange link/CTA text
-- `text-foreground-highlight-error` — error text inline
-
-**Border**
-- `border-border-neutral-base` — default 1px
-- `border-border-neutral-strong` — emphasized
-- `border-border-highlights-interactive` — focused/active
-- `border-border-highlights-error` / `border-border-highlights-danger` — error/destructive states
-
-**Tags** — use the dedicated `--tag-*` tokens for status pills (see §11).
-
-### Layer 3 — Component tokens
-
-Each interactive component (button, checkbox, etc.) has a dedicated token set: `--background-button-*`, `--shadow-button-*`, `--checkbox-*-shadow`. These tokens compose the base + hover + pressed + focus + disabled states for one component family. Do not duplicate them on a new component — extend the layer if you build something new.
-
-### The brand color
-
-`--color-primary-{50..950}` is Shipfox orange. Hero values:
-
-| Token | Hex | Role |
-|---|---|---|
-| `--color-primary-400` | `#ff4b00` | Primary brand orange (dark-mode interactive) |
-| `--color-primary-500` | `#e63e00` | Primary brand orange (light-mode interactive) |
-| `--color-primary-100` | `#ffe6db` | Soft tinted backgrounds |
-| `--color-primary-50` | `#fff4f0` | Faintest tint (hover on interactive surfaces) |
-
-**Where orange appears.**
-1. Focus rings (`--shadow-button-*-focus`). Always.
-2. Interactive highlight surfaces (`background-highlight-*`) — selected nav item, active filter, "this is the thing right now."
-3. Inline links and `text-foreground-highlight-interactive`.
-4. The brand mark (logo).
-
-**Where orange does NOT appear.**
-1. The default primary button is **inverted neutral** (`background-button-inverted-default` → near-black in light, near-white in dark). It is not an orange button. This is deliberate — primary actions appear constantly in tables and modals; orange would be exhausting and would compete with status colors.
-2. Status. Statuses are green/red/orange-warning/blue/neutral. Brand orange and warning orange are different scales (`--color-primary-*` vs `--color-orange-*`). Don't conflate them.
-3. Decorative gradients. There are no brand gradients.
-
-If you find yourself reaching for orange to "make it feel branded," stop. The brand expresses itself through monospace, density, restraint, and a precise focus ring. The logo handles the rest.
-
-### Light & dark
-
-Both themes are first-class. Light is the default for marketing and most app surfaces; dark is used in code-heavy contexts (log viewers, YAML inspectors) and respected when the user picks it. Token values flip via `.dark` selector. Component code never branches on theme — write once, both modes work.
-
-Theme is selected by `<ThemeProvider>` (`state/theme.ts`) with values `"light" | "dark" | "system"`.
-
----
-
-## 5. Spacing
-
-**Critical convention.** `index.css` declares `--spacing: 1px`. In Tailwind v4 this means utility names equal pixels: `p-16` is 16px of padding, `h-32` is 32px tall, `gap-8` is 8px. **This is not stock Tailwind.** Stock Tailwind would make `p-4` = 16px (4 × 0.25rem). Here, `p-4` = 4px. Anyone coming from another Shipfox project or Tailwind tutorial will get this wrong on day one — flag it in code review.
-
-### Scale
-
-Use this set. Do not invent values between them.
-
-| Class | px | Use |
-|---|---|---|
-| `*-2` | 2 | Hairline, icon nudge |
-| `*-4` | 4 | Tight gap (icon + label inside a 2xs button) |
-| `*-6` | 6 | Small gap (xs/sm button internals, badge padding) |
-| `*-8` | 8 | Default small gap |
-| `*-10` | 10 | md button x-padding |
-| `*-12` | 12 | lg/xl button x-padding |
-| `*-16` | 16 | Card padding (compact), form row gap |
-| `*-20` | 20 | Section gap inside a card |
-| `*-24` | 24 | Card padding (default) |
-| `*-32` | 32 | Section gap, page section padding-y |
-| `*-40` | 40 | Major section gap |
-| `*-48` | 48 | Page section gap |
-| `*-64` | 64 | Top of marketing hero, generous breathing |
-
-### Density posture
-
-Default density is **comfortable-compact** for app surfaces. Examples:
-- Default button height: `h-32` (32px), x-padding `px-10`.
-- Default table row height: 36–44px depending on whether avatars/logos are present.
-- Default form row gap: `gap-16`.
-- Default card padding: `p-24`.
-
-Marketing surfaces breathe more (`p-48` and up). Settings and admin look more like the run viewer than the marketing page.
-
----
-
-## 6. Layout
-
-**Approach.** Hybrid. Grid-disciplined inside the app (predictable top nav + content + optional right rail). Editorial latitude only on marketing and auth.
-
-**App shell defaults.**
-- Top header: 56px tall, sticky. Holds logo, workspace crumb, project crumb (when in a project), and user menu.
-- Tab strip: 40px tall, sticky directly below the nav. Always reserved (the slot renders even when no tabs apply) so navigation between workspace home and project detail does not jump.
-- No persistent left nav in v1. Navigation chrome lives entirely in the top bar.
-- Content: fluid, max width capped at 1120px inside the app shell (`max-w-[1120px] mx-auto px-24 py-32`), scaling to ~1440px for marketing.
-- Right rail (when present, e.g., for a "details panel"): 360–420px.
-
-**Marketing.** Single 1280px max content width. Generous vertical rhythm. Asymmetric blocks allowed.
-
-**Border radius.** Use the radius scale, not arbitrary values.
-
-| Token | px | Use |
-|---|---|---|
-| `rounded-2` | 2 | Tag/pill inner elements |
-| `rounded-3` | 3 | Tooltips |
-| `rounded-4` | 4 | Inputs, status pills |
-| `rounded-6` | 6 | Buttons (default), small cards |
-| `rounded-8` | 8 | Cards, popovers |
-| `rounded-10` | 10 | Modal, sheet |
-| `rounded-12` | 12 | Large card, marketing tile |
-| `rounded-16` | 16 | Marketing hero card |
-| `rounded-20` | 20 | Decorative |
-| `rounded-24` | 24 | Decorative |
-| `rounded-full` | 9999 | Avatars, dots, icon-only circular buttons |
-
-Buttons are `rounded-6`. Status pills are `rounded-4` or `rounded-full`. Cards are `rounded-8`. Don't drift.
-
----
-
-## 7. Motion
-
-**Approach.** Minimal-functional, with one carve-out for live data.
-
-**Easing**
-- Enter: `ease-out`
-- Exit: `ease-in`
-- Move (state change in place): `ease-in-out`
-
-**Duration**
-- Micro (50–100ms) — hover/pressed color shifts on buttons, pills, rows
-- Short (150–250ms) — popover/dropdown enter, focus ring appearance
-- Medium (250–400ms) — modal/sheet enter, tab switches
-- Long (400–700ms) — onboarding step transitions, confetti
-
-**Live data carve-out.** New log lines should append without an entrance animation — animation on every log line at 50 lines/second is nausea. DAG status transitions can use a 200ms color crossfade because they're discrete events. Job count badges should `count-up` (component exists in the broader catalog) only on initial load, not on every poll.
-
-**No scroll-driven, parallax, or decorative loop animations** in the app. The marketing surface can be more expressive but should still feel restrained — engineers smell hype from one block away.
-
-`tw-animate-css` is loaded for transition utilities; `framer-motion` is available for stateful transitions (sheet, modal, sheet, drawer). Reach for CSS first; Framer when CSS can't hold the sequence.
-
----
-
-## 8. Components
-
-The system ships with batteries — use them. The `@shipfox/react-ui` package in this workspace exports the full inventory below. Reach for these before building anything new.
-
-`accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`, `callout`, `card`, `code-block`, `collapsible`, `combobox`, `command`, `date-picker`, `date-range-picker`, `dot`, `dropdown-menu`, `empty-state`, `form-field`, `icon`, `input`, `kbd`, `label`, `load-error-state`, `loader`, `log`, `logo`, `markdown`, `modal`, `popover`, `radio-group`, `relative-time`, `scroll-area`, `search`, `select`, `sheet`, `shiny-text`, `skeleton`, `table`, `tabs`, `theme`, `toast`, `tooltip`, `typography`.
-
-Still absent from this package and living only in the broader external catalog: `button-group`, `checkbox`, `confetti`, `count-up`, `dashboard`, `dot-grid`, `dynamic-item`, `form`, `interval-selector`, `item`, `moving-border`, `shipql-editor`, `slider`. When a surface needs one of these, copy it over from the broader catalog rather than rebuilding.
-
-### Buttons (the one most people get wrong)
-
-| Variant | Visual | When |
-|---|---|---|
-| `primary` | Inverted neutral fill (near-black light, near-white dark) | The dominant action in a form, modal, page header |
-| `secondary` | Neutral surface, soft shadow, subtle border | Secondary actions next to primary, toolbar buttons |
-| `danger` | Red fill | Destructive: delete, revoke, force-fail, cancel run |
-| `success` | Green fill | Rare. Use for explicit confirmation actions ("Approve and run") |
-| `transparent` | No fill, hover gets subtle wash | Inline icon buttons, table row actions, nav items |
-| `transparentMuted` | Like transparent but muted text | Lower-priority inline actions |
-
-Sizes: `2xs` (20px), `xs` (24px), `sm` (28px), `md` (32px), `lg` (36px), `xl` (40px). Default is `md`. Run-viewer toolbars and tables tend to use `sm`. Marketing CTAs use `lg`.
-
-**Anti-patterns.** No orange-filled primary buttons. No icon-only buttons without `aria-label`. No buttons inside table cells without a `transparent`/`transparentMuted` variant — full primary buttons in rows scream.
-
-### Form components
-
-Inputs are `h-32` by default, with `--shadow-border-base` border treatment, `text-md` body. Labels use `Text size="sm"` + `font-medium`. Helper text is `Text size="xs"` muted. Error text is `text-foreground-highlight-error` at `text-xs`.
-
-### Icons
-
-`Icon` wraps Remix Icon + Lucide + custom Shipfox marks. Names live in `components/icon/icon.tsx`. Sizing is via tailwind `size-*` (e.g., `size-16` = 16px). Default sizes mirror the button size map (16 at sm/xs, 20 at md/lg/xl).
-
-Use `lucide-react` for stylistically-warm icons in marketing, `@remixicon/react` for app utility icons. Don't mix two visual styles in the same surface.
-
-### Loader
-
-`ShipfoxLoader` is the brand spinner. Use it for page-level loads and meaningful blocking states. Use the lightweight spinner icon (`Icon name="spinner"`) inside buttons and small inline spots.
-
-### Notices
-
-`Callout` is the canonical static notice. It uses a quiet neutral surface with a saturated status side-line or leading glyph, supports `default`, `info`, `success`, `warning`, and `error`, and should be used for inline guidance, form/server errors, empty/error copy, and authored annotation cards that are page content. Keep it passive by default; opt in to `role="alert"` or `aria-live="polite"` only when the notice must be announced.
-
-`Alert` is reserved for dismissible or animated notices. Static `Alert` usages should migrate to `Callout`; once that sweep is complete, `Alert` should compose `Callout` rather than owning a second static notice style.
-
-### Top-nav layout components
-
-The app shell and workspace switcher ship in `@shipfox/client-shell`; project switcher lives in `@shipfox/client-projects`. Each nav element below has fixed dimensions and tokens:
-
-| Component | Dimensions | Tokens / treatment |
-|---|---|---|
-| `NavBar` | `h-56`, `sticky top-0 z-30`, `px-16 gap-12 flex items-center` | `bg-background-subtle-base`, `border-b border-border-neutral-base` |
-| `Logo` | `h-24` (wordmark), `h-20` (mark) | Uses `useResolvedTheme()` to pick light vs dark wordmark; multi-color SVG so `currentColor` does not apply |
-| `WorkspaceCrumb` / `ProjectCrumb` | name link `px-6 py-4 rounded-6`, chevron trigger `size-24 rounded-4 ml-2` | hover `bg-background-components-hover`; active link gets `aria-current="page"`; chevron uses `aria-haspopup="listbox"` + `aria-expanded` |
-| `WorkspaceSwitcher` / `ProjectSwitcher` | popover `w-[280px]` / `w-[320px]` | Built on `Command` + `Popover`; always shows a separator + "+ Create" item pinned at the bottom (sibling of the scrolling `CommandList`, with `forceMount` so it stays visible under search) |
-| `UserMenu` | trigger 28px circular avatar | `Avatar size="sm" content="letters"`; dropdown items: theme switcher (`light` / `dark` / `system`) + `Logout` |
-| `ProjectTabs` | `h-40`, `sticky top-56 z-20`, `px-16 gap-12` | Always rendered (height reserved). Active tab: `border-b-2 border-border-highlights-interactive`. Indicator slide respects `prefers-reduced-motion` via `useReducedMotion()` |
-| `Footer` | `h-40`, `px-16 flex justify-between` | `border-t border-border-neutral-base`, `text-xs text-foreground-neutral-muted`. Left: Docs / Support. Right: empty in v1 (no status badge — see §13). |
-
-Auth and onboarding screens render under `LimitedLayout` (bare `<Outlet />`); they keep their existing centered-card layouts and do not get nav chrome.
-
----
-
-## 9. Status taxonomy
-
-This is the most-product-shaped section. Get the colors and labels wrong and the UI lies to operators.
-
-### Run / Job / Step states
-
-| State | Tag color | Pill text | Meaning |
-|---|---|---|---|
-| `pending` | neutral | "Pending" | Created, not yet eligible (deps unmet) |
-| `queued` | neutral | "Queued" | Eligible, waiting for runner capacity |
-| `running` | blue | "Running" | Actively executing |
-| `awaiting-runner` | warning (orange) | "Awaiting runner" | Queued > N seconds; flag operator attention |
-| `awaiting-manual` | warning (orange) | "Manual" | Manual gate — needs `playManualJob` |
-| `delayed` | neutral | "Delayed" | `when: delayed` timer |
-| `succeeded` | success (green) | "Succeeded" | Terminal, all good |
-| `failed` | error (red) | "Failed" | Terminal, step or job failure |
-| `cancelled` | neutral, dim | "Cancelled" | Terminal, user-initiated cancel |
-| `skipped` | neutral, dim | "Skipped" | Terminal job that did not start because a dependency or condition prevented execution |
-| `runner-disappeared` | error (red) | "Runner lost" | Terminal, heartbeat timeout |
-| `timed-out` | error (red) | "Timed out" | Terminal, duration exceeded |
-
-Use the `--tag-{neutral,blue,success,warning,error,purple}-*` token families. Light backgrounds (`tag-*-bg`), bordered (`tag-*-border`), with text token `tag-*-text` and an optional leading icon token `tag-*-icon`.
-
-`purple` is reserved for non-status taxonomy (e.g., environment labels, tier markers, "internal" / "experimental" badges). Don't expand it into running-state semantics.
-
-### Trigger / delivery / artifact states
-
-Webhook deliveries and trigger events have their own state surface. Use the same tag taxonomy:
-
-- Trigger event: `received` (neutral) → `routed` (blue) → `discarded` (neutral) / `failed` (error)
-- Webhook delivery: `pending` (neutral) → `delivering` (blue) → `succeeded` (success) / `failed` (error) / `disabled` (neutral, with warning icon)
-
----
-
-## 10. Design patterns
-
-System-level patterns. These describe *how* the design system is meant to be applied — what to reach for, what to avoid. Page-specific designs live with their features.
-
-### Status display
-
-Run/job/step state uses an **icon-in-circle status glyph** so the *shape* names the state, not color alone (WCAG 1.4.1: color is never the only channel). Three ways to express state, picked by context:
-
-- **Status glyph** for run/job/step state in a dense node or row: a circular glyph in the saturated `--tag-*-icon` tone, leading the row/node. A neutral ring (pending, a filled disc with a masked-out center, not a thin dotted outline); check, X, and slash discs (succeeded, failed, cancelled/skipped, with the neutral terminal states dimmed); and a filled disc with an external pulsing ripple halo for the live running state (one motion treatment, no spinner; the halo is `motion-safe:` and degrades to a static disc under reduced motion). All glyphs render at one shared optical diameter and shared weight. Built in `client-workflows` as `WorkflowStatusIcon`, composing the shared `Icon`/`Dot` primitives. The glyph carries the status as its accessible name (`role="img"` + `aria-label`) and a hover tooltip, so the state is reachable by pointer and assistive tech wherever the label text isn't already visible.
-- **Dot** (6px circle) for pure presence/density affordances where color alone carries enough meaning. Not for job state.
-- **Pill** (`rounded-4` or `rounded-full`, `text-xs`) when state is the headline of a card or section header: a `Badge` whose fill color and text carry the state. Do NOT add a leading icon, glyph, or `Dot` to a status pill - a circle inside the pill's own rounded border is too many surfaces in a small space. Color + word is enough.
-
-Color always comes from the `--tag-*` family, never from raw color primitives. The glyph or pill is sufficient on its own. Don't also tint the row/card background to match; that turns a status surface into a circus and fights dark mode.
-
-### Trigger labels
-
-Trigger identity displays are compact: show the trigger source icon followed by the event name only. Do not render the source name next to the icon; the icon and source text say the same thing and create noisy rows. Every trigger label display must have a hover tooltip with the full label formatted as `source · event`, omitting missing parts without dangling separators. If an event name is missing, fall back to the source name for the visible label so the row is not blank.
-
-### Code, data, and identifiers
-
-`font-code` (Commit Mono) is structural, not decorative. Reach for it whenever the content is something the user types, copies, or pattern-matches against:
-
-- Source code, YAML, JSON
-- Logs and command output
-- SHAs, IDs, paths, refs, URLs
-- Durations, byte counts, sequence numbers, line numbers
-- Capability tokens, environment names, tag/label values
-
-Body text in `font-display`. Numbers inside body text rendered as content (e.g., "14 jobs failed") in display; numbers presented as data (durations, counters, line numbers) in code. Both fonts have tabular numerals enabled by default at the `html` level so columns of figures don't jitter.
-
-### Density posture
-
-Default to comfortable-compact. The system's defaults already encode this — `h-32` buttons, `gap-16` form rows, `p-24` card padding, 36–44px table rows. When in doubt, take the denser of two reasonable options for app surfaces and the more spacious one for marketing.
-
-A surface is at the wrong density when:
-- A table needs horizontal scroll because cells have too much padding.
-- An app page has more whitespace than content above the fold.
-- A marketing page feels like a settings panel.
-
-### Live and frequently-updating data
-
-Data that changes more than once a second should not animate on update. New log lines, polling status changes, counter ticks — all of these append or swap silently. Animation here causes nausea and obscures the change.
-
-Discrete events (a job transitions from `running` to `succeeded`, a panel slides in) get short, ease-out transitions in the 150–250ms range. Reserve the running-state pulsing ring for the indicator dot itself, not the surrounding card.
-
-### Tables
-
-Tables show up everywhere. The system expects:
-- Sticky header.
-- Hairline borders between rows (`border-border-neutral-base`), not zebra fills.
-- Right-aligned numeric columns with tabular nums.
-- Row hover surfaces (`bg-background-components-hover`).
-- Inline row actions in `transparent` or `transparentMuted` button variants, revealed on hover, not always visible.
-
-### Code, log, and config blocks
-
-When showing multi-line code/log/YAML content:
-- Always `font-code`, `text-sm`, on a contrast surface (`bg-background-contrast-base`) regardless of theme — code reads better on near-black even in light mode.
-- Default to no-wrap with horizontal scroll. Engineers will reach for "soft wrap" if they want it.
-- Show line numbers in `text-foreground-neutral-muted`.
-- Inline validation errors get a `Callout` above the block with file + line; don't rely on color alone.
-
-### Empty states
-
-Use the `empty-state` component pattern. Anatomy: small muted icon, `Header variant="h3"`, one-line `Text size="sm"` muted subtext, one primary CTA. Tell the user what is missing and the next action. No illustrations of cartoon rockets. No "Oops!" copy. No decorative blobs.
-
-### Marketing surfaces
-
-Marketing breathes more — `text-5xl` headlines, `text-xl` body, `gap-64` section gaps, full-bleed background panels in `bg-background-neutral-background`. The brand allows itself slightly more orange (link underlines, accent dot in the wordmark) but the same restraint applies: no gradients on CTAs, no decorative blobs, no centered-everything hero with three icon-in-circle features.
-
----
-
-## 11. Tag colors reference
-
-Tags / pills have their own token family because they need distinct background + border + text + icon tokens that flip cleanly in dark mode. Use these tokens directly via the `Badge` component variants — don't fabricate custom colored pills.
-
-| Family | bg | bg hover | border | text | icon | Use |
-|---|---|---|---|---|---|---|
-| neutral | `tag-neutral-bg` | `tag-neutral-bg-hover` | `tag-neutral-border` | `tag-neutral-text` | `tag-neutral-icon` | Default, terminal-not-success, queued |
-| blue | `tag-blue-bg` | `tag-blue-bg-hover` | `tag-blue-border` | `tag-blue-text` | `tag-blue-icon` | In-progress (running) |
-| success | `tag-success-bg` | `tag-success-bg-hover` | `tag-success-border` | `tag-success-text` | `tag-success-icon` | Succeeded |
-| warning | `tag-warning-bg` | `tag-warning-bg-hover` | `tag-warning-border` | `tag-warning-text` | `tag-warning-icon` | Manual gate, awaiting-runner, attention |
-| error | `tag-error-bg` | `tag-error-bg-hover` | `tag-error-border` | `tag-error-text` | `tag-error-icon` | Failed, runner-lost, timed-out |
-| purple | `tag-purple-bg` | `tag-purple-bg-hover` | `tag-purple-border` | `tag-purple-text` | `tag-purple-icon` | Source/environment/tier metadata only |
-
----
-
-## 12. Accessibility
-
-- Color contrast: text on background combinations are tuned for WCAG AA. Verify before introducing new tokens.
-- Focus visibility: every interactive element has a `--shadow-*-focus` ring using primary orange. Do not strip `outline` without providing the ring.
-- Keyboard: all actions reachable. Surfaces with list-shaped content (tables, DAGs, log entries) should support `j`/`k` traversal and `?` for a shortcuts cheatsheet.
-- Motion: respect `prefers-reduced-motion`. Disable pulsing indicators and tab transitions when the user has it set.
-- ARIA: icon-only buttons require `aria-label`. Live-updating regions (logs, toasts) use `aria-live="polite"`.
-
----
-
-## 13. Anti-patterns (catch these in review)
-
-1. **Orange-filled primary buttons.** Primary is inverted neutral. Orange is the focus ring and the link.
-2. **Hardcoded hex values.** All color references go through tokens. If you find a `#RRGGBB` outside `index.css`, push it into a token.
-3. **Tailwind unit confusion.** `p-4` is 4px, not 16px. Reviewers should flag any mismatch where the author clearly expected stock Tailwind.
-4. **Decorative gradients on CTAs.** Buttons are flat with token-driven shadow stacks. If a designer mocks a purple-to-pink gradient button, push back.
-5. **Status colors on backgrounds of cards/rows.** Status lives in dots, pills, and borders — not in entire row fills (which fight zebra patterns and dark mode).
-6. **Mixing icon styles.** Don't put a Lucide icon next to a Remix icon in the same toolbar. Pick one set per surface.
-7. **Animating high-frequency append-only data.** New log lines, polling counters, status ticks should swap silently. Reserve transitions for discrete events.
-8. **Bypassing the typography components.** No raw `<h1 class="text-3xl font-medium">`. Use `<Header variant="h1">`.
-9. **3-column feature grids with icons in colored circles.** Marketing surfaces stay restrained.
-10. **Custom drop-shadow values.** Use the `--shadow-*` tokens. Custom shadows break dark mode.
-
----
-
-## 14. Decisions log
-
-| Date | Decision | Rationale |
-|---|---|---|
-| 2026-05-05 | Initial DESIGN.md drafted | Documents the existing token-driven system in `libs/shared/react/ui`. Scope is the design system itself plus reusable patterns (status display, code/data, tables, live data, empty states) — not page-level designs, which live with their features. |
-| 2026-05-05 | Brand orange is interactive/focus-only, not the primary CTA fill | Status colors and primary actions both compete for attention — using inverted neutral as the primary CTA reserves orange for "where you are right now" semantics. |
-| 2026-05-05 | Tabular nums on by default | Run viewers, log line numbers, durations, and counts must not jitter on update. |
-| 2026-05-05 | Inter for UI, Commit Mono for code | Inter is the dev-tools default for legibility at 13–14px; Commit Mono carries warmth for the heavy log/YAML/SHA surfaces. |
-| 2026-05-05 | Spacing base = 1px (Tailwind class names == pixels) | Already in `index.css`; documented here because it diverges from stock Tailwind. |
-| 2026-05-05 | Added `radio-group` component (radix wrappers) | Required for accessible single-select pickers in workspace setup (connection picker, repository picker). Hand-rolled keyboard nav was rejected; radix ships tested arrow-key + Home/End + focus management. |
-| 2026-05-07 | Top-nav-only app shell (no left rail) | Mirrors Vercel/Linear; defers left-rail real estate until secondary navigation demand is real. Tab strip beneath nav covers per-project sub-page navigation. Workspace and project crumbs in the top nav have split affordances: name links to entity home, chevron opens picker. |
-| 2026-05-07 | Footer ships without a status badge | Hardcoded green status pill would lie about state (anti-pattern §13). Real status feed deferred until status tooling exists. Footer carries only Docs and Support links. |
-| 2026-05-07 | Added UI primitives: `tabs`, `dropdown-menu`, `avatar`, `popover`, `combobox`, `command`, `sheet`, `kbd`, `scroll-area`, `logo` | Top-nav layout requires switcher (Combobox over Popover+Command), user menu (DropdownMenu), avatar, theme-aware Logo, and mobile collapse (Sheet). Ported from the broader catalog; `--copy-files` flag added to the SWC build script so SVG assets land in `dist/`. |
-| 2026-06-22 | Log disclosure trigger uses an inset orange focus ring instead of the `--shadow-button-neutral-focus` token (divergence from anti-pattern §13.10) | The trigger sits inside `LogRowFrame`'s `overflow-hidden` body, which crops the standard outset ring top and bottom. An inset box-shadow is never clipped by the ancestor. `!important` is required because `tailwind-merge` cannot strip the base token (it classes the custom `shadow-*` as a shadow color, not a box-shadow). The ring keeps `--color-primary-500`, which is theme-invariant, so the focus affordance and dark mode are unaffected. |
-| 2026-06-23 | Job/run/step state uses icon-in-circle status glyphs (`WorkflowStatusIcon` in client-workflows) in dense node/row surfaces, not a color-only `Dot` | The muted dark `--tag-*-text` palette rendered `pending` and `cancelled` as identical dots and leaned on color alone (WCAG 1.4.1). A shape per state plus the saturated `--tag-*-icon` tone fixes both; running keeps the existing ripple halo (no spinner), and pending is a bold masked ring (not a thin dotted outline). The component lives in the feature package, composing shared `Icon`/`Dot`, so the design system stays generic (no new react-ui export). The glyph carries the status as `role="img"`/`aria-label` + a hover tooltip. The run-header status pill is color + word only - no leading icon/dot inside the pill (too many surfaces). |
-| 2026-06-28 | Trigger labels show source icon + event name, with full `source · event` in a tooltip | The source icon already names the source visually, so repeating the source text in dense rows adds noise. The tooltip keeps the full source/event identity available where the event name alone is ambiguous. |
-| 2026-06-29 | Job graph nodes show one bare duration in mono, muted, tabular text | Dense graph nodes already carry state through `WorkflowStatusIcon`, so the duration must not repeat the verb/state. Live queue/run durations and final run spans render as numbers only; accessible labels include the verb for screen readers. Missing duration anchors render nothing rather than a placeholder. Live timers must avoid layout jitter and respect reduced-motion settings. |
-| 2026-07-07 | `Callout` replaces `InlineTips` as the canonical static notice; `Markdown` joins react-ui for sanitized authored content | `InlineTips` already had the quiet neutral surface and 4px status edge that matches §13.5 and the no-tinted-card guidance in §10. `Callout` keeps that base, adds `warning`, and uses Remix status glyphs as an optional shape channel while leaving `Alert` for dismissible/animated notices. `Markdown` centralizes sanitized rendering for untrusted customer-authored annotation bodies. |
+# Design System: Shipfox
+
+Shipfox is an AI software factory: engineers author workflows in YAML, events
+start them, and shell and agent steps run on compute the team controls. The
+center of gravity is the dashboard where those runs are watched, so this system
+is built to instrument autonomous work, not to decorate it. The product this
+system serves is recorded in [PRODUCT.md](PRODUCT.md).
+
+**The code is canonical.** [The shared CSS](libs/shared/react/ui/index.css) and
+the [`@shipfox/react-ui`](libs/shared/react/ui/) package hold the exact token and
+component values. This document explains the system and its intent; the
+frontmatter above is the machine-readable source of the primitives. When code and
+prose disagree, the code wins and this file is corrected in the same change.
+
+## Overview
+
+**Creative North Star: "The Glass Cockpit."**
+
+A glass cockpit is the panel a pilot trusts at 2am: every readout is legible at a
+glance, nothing moves that does not mean something, and the one warning light that
+turns on is the one thing you look at. Shipfox is that panel for engineers flying
+fleets of agents. The chrome is quiet and industrial. The data is where all the
+life is: logs streaming, a run resolving, an agent thinking out loud, tokens and
+cost ticking up. The interface earns trust by getting out of the way until
+something needs attention, then pointing at exactly what.
+
+The aesthetic is industrial and utilitarian, in the lineage of Linear, Vercel,
+and Resend. Function first, data dense, monospace used as a structural element and
+not a garnish. It is not brutalist (there is polish: layered shadows, rounded
+corners, tuned contrast), not playful (no bouncy curves, no mascots), and not
+editorial (this is an instrument, not a magazine). Both light and dark are
+first-class: light leads for most surfaces, dark owns the code-heavy contexts
+(logs, YAML, agent transcripts) and is honored whenever the user picks it.
+
+The users live in terminals and read logs when things are on fire. They expect
+figures that do not dance, status they can trust without reading the label twice,
+keyboard reach, and zero marketing fluff inside the product. Every decision below
+serves that reader.
+
+**Key Characteristics:**
+
+- **Instrument-grade density.** Comfortable-compact by default. Take the denser of
+  two reasonable options on app surfaces, the more spacious on marketing.
+- **Monospace is structure.** Commit Mono carries everything a user types, copies,
+  or pattern-matches. It is load-bearing, not decorative.
+- **Orange is the warning light.** The brand accent marks focus, "you are here,"
+  and the live edge. It is never a fill you reach for to feel branded.
+- **Trustworthy status.** State is carried by shape and color together, never color
+  alone. The UI must not lie to an operator.
+- **Calm chrome, loud data.** Navigation and containers recede; runs, logs, and
+  metrics are the loudest thing on screen.
+
+## Colors
+
+The palette is a warm-neutral canvas, one brand accent (Shipfox orange), and a
+disciplined functional set for status. Color is organized in three layers, and
+components always consume the highest layer that fits.
+
+**Layer 1, primitives.** Raw scales in `index.css`: `--color-neutral-{0..1000}`,
+`--color-primary-{50..950}`, `--color-{red,orange,green,blue,purple}-{50..950}`,
+Apple-style `--color-accent-*`, and `--color-alpha-{black,white}-*` for
+translucent overlays. **Never read a primitive from a component.** If the
+semantic token you need does not exist, add it rather than reaching past the layer.
+
+**Layer 2, semantic tokens.** Role tokens that flip between light and dark
+automatically, so component code never branches on theme. The families:
+
+- Backgrounds: `bg-background-neutral-base` (canvas), `-neutral-background` (page
+  under panels), `-components-base` (cards), `-components-hover` / `-pressed`,
+  `-field-base` / `-field-hover` (inputs), `-subtle-base` (zebra whisper),
+  `-contrast-base` (inverted panel for code, popovers, tooltips),
+  `-highlight-{base,hover,interactive}` (brand-tied selection), `-modal-overlay` /
+  `-backdrop-backdrop` (scrims), and `-accent-{neutral,blue,purple,success,warning,error}-{soft,base,strong}`.
+- Foregrounds: `text-foreground-neutral-{base,subtle,muted,disabled}`,
+  `-on-color` (on a saturated fill), `-on-inverted` (on a contrast surface),
+  `-highlight-interactive` (link/CTA orange), `-highlight-error`.
+- Borders: `border-border-neutral-{base,strong}`,
+  `-highlights-interactive` (focus/active), `-highlights-{error,danger}`.
+
+**Layer 3, component tokens.** Per-family sets that compose base, hover, pressed,
+focus, and disabled for one component: `--background-button-*`, `--shadow-button-*`,
+`--checkbox-*-*`. Do not clone these onto a new component; extend the layer.
+
+### Primary
+
+- **Shipfox Orange** (`brand` / `brand-deep`, `--color-primary-400` / `-500`): the
+  single brand accent. `brand` is the dark-mode interactive value and the brand
+  mark; `brand-deep` is the light-mode interactive value and, at every theme, the
+  focus ring. `brand-tint` (`--color-primary-50`) is the faintest interactive
+  wash on hover.
+
+### Neutral
+
+- **Ink** (`ink`, `--color-neutral-950`): primary text on light.
+- **Subtle / Muted** (`subtle` `--color-neutral-600`, `muted` `--color-neutral-500`):
+  secondary text and metadata.
+- **Canvas / Surface** (`canvas` `--color-neutral-0`, `surface` `--color-neutral-50`):
+  page and component backgrounds on light.
+- **Panel Inverted** (`panel-inverted`, `--color-neutral-900`): the near-black
+  surface used for code, logs, popovers, and tooltips in both themes.
+- **Border** (`border`, `--color-neutral-300`): the default hairline.
+
+Dark mode inverts these roles through the same token names (canvas becomes
+`--color-neutral-900`, ink becomes `--color-neutral-100`, and so on); write once,
+both themes resolve.
+
+### Status and functional
+
+Status is a functional palette, not a set of decorative secondaries. Each hue has
+a dedicated `--tag-*` family (background, hover, border, text, icon) so pills flip
+cleanly in dark mode. Consume them through the `Badge` component; never fabricate a
+custom colored pill.
+
+- **Running** (`running`, blue) for active execution.
+- **Succeeded** (`succeeded`, green) for terminal success.
+- **Failed** (`failed`, red) for failure, runner-lost, and timed-out.
+- **Warning** (`warning`, orange) for manual gates and attention (awaiting runner).
+- **Meta** (`meta`, purple) reserved for non-status taxonomy only: environment,
+  tier, "internal" or "experimental" markers.
+- **Neutral** for pending, queued, delayed, cancelled, and skipped.
+
+The canonical run, job, and step states map onto these: `pending` / `queued` /
+`delayed` neutral, `running` blue, `awaiting-runner` / `awaiting-manual` warning,
+`succeeded` green, `failed` / `runner-disappeared` / `timed-out` red, `cancelled`
+/ `skipped` dimmed neutral. Trigger and delivery surfaces reuse the same taxonomy
+(`received` neutral, `routed` blue, `failed` red, and so on).
+
+**The Warning-Light Rule.** Brand orange marks four things and nothing else:
+the focus ring (always), the active or selected surface ("you are here"), inline
+links, and the brand mark. It is deliberately *not* the primary button (that is
+inverted neutral) and *not* a status hue (warning orange is a different scale,
+`--color-orange-*`, from brand `--color-primary-*`). If you reach for orange to
+make something feel branded, stop. The brand lives in monospace, density,
+restraint, and that one precise ring.
+
+**The Shape-Not-Just-Color Rule.** Status is never carried by color alone
+(WCAG 1.4.1). A glyph shape or a written word always co-signs the hue, and the
+status color lives in the dot, pill, glyph, or border, never as a full row or card
+fill (which fights zebra rhythm and dark mode).
+
+## Typography
+
+**Display and UI Font:** Inter (self-hosted variable, weights 100 to 900, latin +
+latin-ext, with italics). Fallback `sans-serif`.
+**Code Font:** Commit Mono (self-hosted, weights 400 and 700). Fallback `monospace`.
+
+**Character:** Inter is the dev-tool default for legibility at 13 to 14px; Commit
+Mono carries warmth across the heavy log, YAML, and SHA surfaces. `html` enables
+OpenType `rlig`, `calt`, and `lnum`, so digits are tabular by default in both
+families: durations, run numbers, and counters do not jitter when they update.
+
+### Hierarchy
+
+- **Display** (Inter Medium, `text-4xl` 40px / `text-5xl` 56px): marketing hero
+  only.
+- **Headline** (Inter Medium, `text-3xl` 28px/44, `text-2xl` 24px/32): page titles
+  and sub-headings.
+- **Title** (Inter Medium, `text-xl` 18px/28, `text-lg` 16px/24): section headings
+  and card headings.
+- **Body** (Inter Regular, `text-md` 14px/24): default copy, form labels, button
+  labels at md. `text-sm` 13px/20 for table body and helper text.
+- **Label** (Inter Medium, `text-xs` 12px/20): tags, metadata, table footers.
+- **Code** (Commit Mono, `text-sm` 13px/20): everything monospace.
+
+Weights are regular (400) by default, medium (500) for headings and emphasized
+labels, bold (700) rare and reserved for code emphasis or alert titles.
+
+**The Use-The-Components Rule.** Typography flows through `Header`, `Text`, and
+`Code` (`components/typography/*`). Write `<Header variant="h1">` and
+`<Text size="sm">`, never a raw `<h1 class="text-3xl font-medium">`. Inlining the
+scale scatters type decisions across the codebase.
+
+**The Monospace-Is-Structure Rule.** Reach for `font-code` whenever the content is
+something a user types, copies, or pattern-matches: source, YAML, JSON, logs and
+command output, SHAs, IDs, paths, refs, URLs, durations, byte counts, sequence and
+line numbers, capability tokens, and environment or tag values. Numbers written as
+prose ("14 jobs failed") stay in `font-display`; numbers presented as data stay in
+`font-code`.
+
+## Layout
+
+**The spatial model is grid-disciplined in the app, editorial only on marketing
+and auth.** The app is a predictable top nav plus content plus optional right rail.
+Marketing gets asymmetry and air; settings and admin look like the run viewer, not
+the marketing page.
+
+- **App shell.** Top header 56px, sticky, holding the logo, workspace crumb,
+  project crumb, and user menu. A 40px tab strip sits sticky directly beneath and
+  is always reserved (rendered even when empty) so navigation never jumps. No
+  persistent left rail; all navigation chrome lives in the top bar. Content is
+  fluid, capped at 1120px (`max-w-[1120px] mx-auto px-24 py-32`). A details right
+  rail, when present, is 360 to 420px.
+- **Marketing.** Single content column up to ~1280px, generous vertical rhythm,
+  full-bleed background panels allowed.
+- **Auth and onboarding.** Rendered under a bare layout: centered cards, no nav
+  chrome.
+
+**The Pixel-Spacing Rule.** `index.css` sets `--spacing: 1px`, so in this Tailwind
+v4 setup **utility numbers are pixels**: `p-16` is 16px, `gap-8` is 8px, `h-32` is
+32px. This is *not* stock Tailwind, where `p-4` would be 16px. Here `p-4` is 4px.
+Anyone arriving from a tutorial or another repo gets this wrong on day one; flag it
+in review. Use the scale (2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64) and do
+not invent values between the steps.
+
+**Density posture.** Default button height `h-32` with `px-10`; table rows 36 to
+44px; form row gap `gap-16`; card padding `p-24`. A surface is at the wrong density
+when a table needs horizontal scroll from cell padding, when an app page shows more
+whitespace than content above the fold, or when a marketing page feels like a
+settings panel.
+
+## Elevation & Depth
+
+Depth is conveyed by **multi-layer token-driven shadows**, not by flat tonal
+layering alone. Every interactive surface composes a stack: a hairline top
+highlight, a 1px key-line border, and one or two soft ambient drops. These stacks
+are theme-aware inside the token, so a component never sets a raw shadow.
+
+### Shadow Vocabulary
+
+- **`--shadow-border-base`**: the default surface and input keyline (hairline ring
+  plus faint drop). The resting elevation for fields and bordered chips.
+- **`--shadow-button-inverted` / `-neutral` / `-danger` / `-success`**: the
+  per-variant button stacks (key-line in the variant color plus ambient drop).
+- **`--shadow-button-*-focus`**: the same stack plus a 2px halo and a 4px
+  `--color-primary-500` ring. This is the focus affordance across the system.
+- **`--shadow-tooltip`**: the lifted stack for tooltips and popovers.
+- **`--shadow-separator-inset`**: an inset top-highlight / bottom-shadow pair for
+  hairline dividers inside dark panels.
+
+**The Token-Only-Shadow Rule.** Never write a custom `box-shadow` hex. Custom
+shadows break in dark mode because they miss the theme-aware alpha layering the
+tokens carry. If you need a new elevation, add a token.
+
+**The Flat-Focus-Ring Rule.** The orange focus ring is universal and never
+stripped. If a container's `overflow-hidden` would clip the standard outset ring
+(as inside a log row frame), switch that one control to an inset ring in
+`--color-primary-500` (theme-invariant), never remove it.
+
+## Shapes
+
+The form language is **softly rounded, tight radii, hairline borders.** Corners
+signal role, not decoration, and the radius scale is fixed:
+
+- **4px** (`rounded-4`): inputs and status pills.
+- **6px** (`rounded-6`): buttons and small cards. The default component corner.
+- **8px** (`rounded-8`): cards and popovers.
+- **10px** (`rounded-10`): modals and sheets.
+- **12 to 16px**: marketing tiles and hero cards.
+- **`rounded-full`**: avatars, status dots, and icon-only circular buttons.
+
+Borders are 1px hairlines in `border-border-neutral-base`, used between table rows
+in place of zebra fills. Silhouettes stay rectangular and calm; there are no
+organic blobs, no clipped diagonals, no decorative geometry. Buttons are `rounded-6`,
+pills are `rounded-4` or `rounded-full`, cards are `rounded-8`. Do not drift.
+
+## Components
+
+`@shipfox/react-ui` ships the batteries. Reach for an existing component before
+building anything: `accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`,
+`callout`, `card`, `code-block`, `collapsible`, `combobox`, `command`,
+`date-picker`, `date-range-picker`, `dot`, `dropdown-menu`, `empty-state`,
+`form-field`, `icon`, `input`, `kbd`, `label`, `load-error-state`, `loader`, `log`,
+`logo`, `markdown`, `modal`, `popover`, `radio-group`, `relative-time`,
+`scroll-area`, `search`, `select`, `sheet`, `shiny-text`, `skeleton`, `table`,
+`tabs`, `theme`, `toast`, `tooltip`, and `typography`.
+
+### Buttons
+
+- **Shape:** `rounded-6`. Sizes `2xs` (20px), `xs` (24), `sm` (28), `md` (32,
+  default), `lg` (36), `xl` (40). Tables and run-viewer toolbars trend to `sm`;
+  marketing CTAs to `lg`.
+- **Primary:** inverted neutral fill (near-black on light, near-white on dark),
+  `--background-button-inverted-*`. This is the dominant action in a form, modal,
+  or header. It is deliberately not orange: primary actions recur constantly in
+  tables and modals, and an orange fill would exhaust the eye and compete with
+  status.
+- **Secondary:** neutral surface, soft `--shadow-button-neutral`, subtle border.
+- **Danger** (red) / **Success** (green): destructive and explicit-confirm actions;
+  success is rare.
+- **Transparent / TransparentMuted:** no fill, hover wash. The correct variant for
+  inline icon buttons, table row actions, and nav items. Full primary buttons
+  inside table rows scream; use these instead.
+
+### Chips / Badges
+
+- **Status badge:** `Badge` with a `--tag-*` family, `rounded-4` or `rounded-full`,
+  `text-xs`. When state is the headline of a card or header, the pill is **color
+  plus word only**: no leading glyph or dot inside a pill (a circle within a
+  rounded border is too many surfaces in a small space).
+
+### Cards / Containers
+
+- **Corners** `rounded-8`, **background** `bg-background-components-base`, **padding**
+  `p-24` default (`p-16` compact), **border** the hairline, **elevation** from the
+  shadow tokens. Never tint a card or row background to match a status.
+
+### Inputs / Fields
+
+- `h-32` default, `--shadow-border-base` treatment, `text-md` body, `rounded-4`.
+- **Labels** `Text size="sm"` medium; **helper** `Text size="xs"` muted; **error**
+  `text-foreground-highlight-error` at `text-xs`. Focus shows the orange ring.
+
+### Navigation
+
+- **NavBar** `h-56`, sticky, `bg-background-subtle-base`, hairline bottom border,
+  holding a theme-aware `Logo`, split-affordance workspace and project crumbs (name
+  links to the entity, chevron opens a `Command`+`Popover` switcher), and a
+  `UserMenu` on a 28px avatar with the theme switcher and logout.
+- **ProjectTabs** `h-40`, sticky under the nav, always rendered; the active tab
+  carries `border-b-2 border-border-highlights-interactive` and the indicator slide
+  respects `prefers-reduced-motion`.
+
+### Signature: the status glyph
+
+Run, job, and step state in a dense node or row is drawn by `WorkflowStatusIcon`
+(in `client-workflows`, composing the shared `Icon` and `Dot`): a circular glyph in
+the saturated `--tag-*-icon` tone leading the row. A bold masked ring for pending
+(not a thin dotted outline), check / X / slash discs for succeeded / failed /
+cancelled-skipped (terminal neutrals dimmed), and a filled disc with an external
+pulsing ripple halo for the live running state (one motion treatment, no spinner;
+`motion-safe` only, degrading to a static disc under reduced motion). The glyph
+carries the status as its accessible name (`role="img"` + `aria-label`) and a hover
+tooltip. A 6px `Dot` is for pure presence, never for job state.
+
+### Signature: code, log, and config surfaces
+
+Multi-line code, log, and YAML content always renders in `font-code`, `text-sm`, on
+the inverted contrast surface (`bg-background-contrast-base`) in both themes, since
+code reads better on near-black even in light mode. Default to no-wrap with
+horizontal scroll (engineers reach for soft-wrap themselves), show line numbers in
+`text-foreground-neutral-muted`, and surface validation errors as a `Callout` above
+the block with file and line, never color alone. New log lines append silently:
+appending 50 lines a second with an entrance animation is nausea.
+
+### Notices, icons, and loaders
+
+- **`Callout`** is the canonical static notice (quiet neutral surface, saturated
+  status side-line, `default` / `info` / `success` / `warning` / `error`) for
+  inline guidance, form and server errors, and authored annotation cards. `Alert`
+  is reserved for dismissible or animated notices.
+- **`Icon`** wraps Remix Icon, Lucide, and custom Shipfox marks, sized with
+  `size-*`. Use `@remixicon/react` for app utility icons and `lucide-react` for the
+  warmer marketing icons, and never mix the two styles in one surface.
+- **`ShipfoxLoader`** is the brand spinner for page-level and blocking loads; the
+  inline `Icon name="spinner"` goes inside buttons and small spots.
+
+## Do's and Don'ts
+
+### Do:
+
+- **Do** carry status with shape and color together, and keep the status color in
+  the glyph, pill, or border (never a full row or card fill).
+- **Do** route every color through a semantic or component token. A raw `#RRGGBB`
+  outside `index.css` is a bug; push it into a token.
+- **Do** use the typography components (`Header`, `Text`, `Code`) for all type.
+- **Do** keep tables tight: sticky header, hairline row borders (not zebra),
+  right-aligned tabular numerics, row hover surface, and inline actions in
+  `transparent` / `transparentMuted` revealed on hover.
+- **Do** respect `prefers-reduced-motion`: disable pulsing indicators and tab
+  transitions, and give every icon-only button an `aria-label`.
+- **Do** reserve motion for discrete events (150 to 250ms ease-out for a state
+  flip or a panel entering); let high-frequency data (logs, polling counters) swap
+  silently.
+- **Do** let marketing breathe more (`text-5xl` heads, `gap-64` sections) while
+  keeping the same restraint.
+
+### Don't:
+
+- **Don't** make the primary button orange. Primary is inverted neutral; orange is
+  the focus ring, the "you are here," and the link.
+- **Don't** treat `p-4` as 16px. It is 4px here. This diverges from stock Tailwind.
+- **Don't** write a custom `box-shadow`; use the `--shadow-*` tokens or add one, or
+  dark mode breaks.
+- **Don't** put decorative gradients on CTAs, or icons-in-colored-circles feature
+  grids, or centered-everything hero triplets on marketing. Engineers smell hype a
+  block away.
+- **Don't** animate append-only high-frequency data, or tint a card or row
+  background to match a status.
+- **Don't** mix icon styles (Lucide next to Remix) in the same toolbar.
+- **Don't** expand brand orange into status, or `meta` purple into running-state
+  semantics.
