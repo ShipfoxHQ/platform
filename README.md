@@ -82,7 +82,7 @@ then a `gate` reruns the tests and sends the agent back until they pass.
 | **Step** | A `run` shell command or an agent (`model` + `prompt`, on the `pi` or `claude` harness). Runs in order within a job. |
 | **Gate** | A pass/fail [check on a step](apps/docs/content/docs/understand/feedback-loops.mdx) that retries from an earlier step when it fails. Bounded retry loops, no scripting. |
 | **Listening job** | A [job that waits on events](apps/docs/content/docs/understand/listening-jobs.mdx) and runs again per batch inside the same run, until a resolution condition. Drives event-driven, asynchronous workflows. |
-| **Runner** | The application that runs a job's steps, matched to jobs by label. |
+| **Runner** | The application that runs a job's steps. |
 
 ## Getting started
 
