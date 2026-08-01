@@ -291,6 +291,72 @@ describe('completeStepDispatchConfig', () => {
     });
   });
 
+  it('resolves deferred checkout targets at step dispatch', async () => {
+    const pending = step({
+      type: 'checkout',
+      config: {
+        checkout: {
+          fetch_depth: 1,
+          permissions: {contents: 'read'},
+          persist_credentials: true,
+        },
+      },
+      configPlan: {
+        checkout: {
+          repository: plannedField(template('steps.build.outputs.repository')),
+          ref: plannedField(template('steps.build.outputs.ref')),
+        },
+      },
+    });
+
+    const result = await completeStepDispatchConfig({
+      step: pending,
+      context: {
+        ...context,
+        values: {
+          ...context.values,
+          steps: {
+            build: {
+              outputs: {repository: 'acme/api', ref: 'refs/heads/main'},
+            },
+          },
+        },
+      },
+      resolveAgentDefaults,
+      definitionId: 'def-1',
+    });
+
+    expect(result).toEqual({
+      config: {
+        checkout: {
+          fetch_depth: 1,
+          permissions: {contents: 'read'},
+          persist_credentials: true,
+          repository: 'acme/api',
+          ref: 'refs/heads/main',
+        },
+      },
+      trace: [
+        {
+          expression: 'steps.build.outputs.repository',
+          roots: ['steps'],
+          fillTarget: 'step-dispatch',
+          evaluatedAt: 'step-dispatch',
+          value: 'acme/api',
+          field: 'checkout.repository',
+        },
+        {
+          expression: 'steps.build.outputs.ref',
+          roots: ['steps'],
+          fillTarget: 'step-dispatch',
+          evaluatedAt: 'step-dispatch',
+          value: 'refs/heads/main',
+          field: 'checkout.ref',
+        },
+      ],
+    });
+  });
+
   it('rejects invalid resolved working directories', async () => {
     const pending = step({
       config: {working_directory: '../outside'},

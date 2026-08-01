@@ -124,7 +124,8 @@ jobs:
 ### Job checkout fields
 
 The job-level `checkout` block supports repository permissions and credential
-persistence, or `false` to skip the implicit checkout.
+persistence. `checkout: false` is accepted by the document schema but is not
+supported by the workflow model yet.
 
 <JobCheckoutFields />
 

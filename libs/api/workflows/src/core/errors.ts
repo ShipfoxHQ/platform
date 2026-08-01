@@ -67,7 +67,12 @@ export type InterpolationUnresolvableField =
   | 'workflow.run_name'
   | 'step.name'
   | 'step.working_directory'
-  | 'step.feedback';
+  | 'step.feedback'
+  | 'checkout.project'
+  | 'checkout.connection'
+  | 'checkout.repository'
+  | 'checkout.ref'
+  | 'checkout.path';
 
 export class InterpolationUnresolvableError extends Error {
   readonly field: InterpolationUnresolvableField;

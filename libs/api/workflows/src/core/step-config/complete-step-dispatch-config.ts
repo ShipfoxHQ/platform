@@ -47,9 +47,51 @@ export async function completeStepDispatchConfig(params: {
     definitionId: params.definitionId,
     trace,
   });
+  completeCheckoutConfig({
+    config,
+    plan,
+    context: params.context,
+    definitionId: params.definitionId,
+    trace,
+  });
   assertWorkingDirectoryIfPresent(config.working_directory);
 
   return {config, trace: capTraceEntries(trace)};
+}
+
+function completeCheckoutConfig(params: {
+  readonly config: Record<string, unknown>;
+  readonly plan: Step['configPlan'] & object;
+  readonly context: WorkflowEvaluationContext;
+  readonly definitionId: string;
+  readonly trace: PersistedEvaluationTraceEntry[];
+}): void {
+  const checkoutPlan = params.plan.checkout;
+  if (checkoutPlan === undefined) return;
+
+  const checkout = params.config.checkout;
+  if (checkout === null || typeof checkout !== 'object' || Array.isArray(checkout)) {
+    throw new Error('Checkout dispatch config is missing an object');
+  }
+
+  const resolvedCheckout = {...checkout} as Record<string, unknown>;
+  params.config.checkout = resolvedCheckout;
+
+  for (const key of ['project', 'connection', 'repository', 'ref', 'path'] as const) {
+    const field = checkoutPlan[key];
+    if (field === undefined) continue;
+
+    const fieldName = `checkout.${key}` as const;
+    const resolved = completeStepFieldWithTrace({
+      field: fieldName,
+      template: field,
+      context: params.context,
+      definitionId: params.definitionId,
+      errorField: fieldName,
+    });
+    resolvedCheckout[key] = resolved.value;
+    params.trace.push(...resolved.trace.map((entry) => ({...entry, field: fieldName})));
+  }
 }
 
 function assertWorkingDirectoryIfPresent(value: unknown): void {

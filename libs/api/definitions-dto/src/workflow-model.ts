@@ -31,7 +31,10 @@ export interface WorkflowModelCheckout {
   readonly templates?: WorkflowModelCheckoutTemplates;
 }
 
-export interface WorkflowModelJobCheckout extends WorkflowModelCheckout {}
+export type WorkflowModelJobCheckout = Pick<
+  WorkflowModelCheckout,
+  'fetchDepth' | 'permissions' | 'persistCredentials'
+>;
 
 export interface WorkflowModelStepCheckout extends WorkflowModelCheckout {}
 
