@@ -2,15 +2,15 @@ import {parseRedirectContext, type RedirectContext} from '@shipfox/client-auth/r
 
 describe('@shipfox/client-auth/redirect-context', () => {
   test('imports the parser and its type through the Node-safe public subpath', () => {
-    const context: RedirectContext = parseRedirectContext('/workspaces/acme');
+    const context: RedirectContext = parseRedirectContext('/w/acme');
 
-    expect(context).toEqual({returnTo: '/workspaces/acme'});
+    expect(context).toEqual({returnTo: '/w/acme'});
   });
 
   test('returns an ordinary safe return path', () => {
-    const context = parseRedirectContext('/workspaces/acme?tab=runs');
+    const context = parseRedirectContext('/w/acme?tab=runs');
 
-    expect(context).toEqual({returnTo: '/workspaces/acme?tab=runs'});
+    expect(context).toEqual({returnTo: '/w/acme?tab=runs'});
   });
 
   test('separates an invitation token from generic redirect state', () => {
@@ -21,9 +21,7 @@ describe('@shipfox/client-auth/redirect-context', () => {
   });
 
   test('separates an invitation token after path normalization', () => {
-    const context = parseRedirectContext(
-      '/workspaces/../invitations/accept?token=raw-invitation-token',
-    );
+    const context = parseRedirectContext('/w/../invitations/accept?token=raw-invitation-token');
 
     expect(context).toEqual({invitationToken: 'raw-invitation-token'});
   });

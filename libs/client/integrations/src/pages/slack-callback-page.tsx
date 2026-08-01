@@ -131,6 +131,7 @@ export function SlackCallbackPage() {
     return (
       <CallbackStatusShell
         title="Slack connected"
+        status="success"
         message={
           completedWorkspace.slug
             ? 'Slack is connected. Continue in integrations settings.'

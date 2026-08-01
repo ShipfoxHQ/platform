@@ -1,21 +1,11 @@
-import {useMaybeActiveProjectQuery} from '@shipfox/client-projects';
-import {defineRoute, useRouteParams} from '@shipfox/client-shell/runtime';
-import {QueryLoadError} from '@shipfox/client-ui';
-import {FullPageLoader} from '@shipfox/react-ui/loader';
+import {defineRoute} from '@shipfox/client-shell/runtime';
 import {ProjectWorkflowsPage} from '#pages/project-workflows-page.js';
-import {workflowRouteParams} from './inputs.js';
+import {ProjectRoute} from './project-route.js';
 
 export default defineRoute({
   component: () => {
-    // Validate the generated route params before rendering the project-scoped page.
-    useRouteParams(workflowRouteParams);
-    const projectQuery = useMaybeActiveProjectQuery();
-    if (projectQuery.isPending) return <FullPageLoader />;
-    if (projectQuery.isError && projectQuery.data === undefined) {
-      return <QueryLoadError query={projectQuery} subject="project" />;
-    }
-    const project = projectQuery.data;
-    if (!project) return <FullPageLoader />;
-    return <ProjectWorkflowsPage projectId={project.id} />;
+    return (
+      <ProjectRoute>{(project) => <ProjectWorkflowsPage projectId={project.id} />}</ProjectRoute>
+    );
   },
 });

@@ -7,7 +7,7 @@ import {
   WORKSPACE_INTEGRATIONS_URL_RE,
 } from './workspace-urls.js';
 
-const UUID_RE = /^[0-9a-f-]{36}$/u;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 test.describe('workspace onboarding', () => {
   test('redirects a no-workspace user from / to onboarding', async ({
@@ -68,8 +68,8 @@ test.describe('workspace onboarding', () => {
     expect(lastWorkspaceId).toMatch(UUID_RE);
     await stableScreenshot(page, 'workspaces/onboarding-complete');
     await workspaceSwitcher.open();
-    expect(await workspaceSwitcher.workspaceOption(workspaceName).getAttribute('data-value')).toBe(
-      lastWorkspaceId,
-    );
+    const workspaceOption = workspaceSwitcher.workspaceOption(workspaceName);
+    await expect(workspaceOption).toBeVisible();
+    expect(await workspaceOption.getAttribute('data-value')).toBe(lastWorkspaceId);
   });
 });

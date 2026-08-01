@@ -1,30 +1,25 @@
-import {useMaybeActiveProjectQuery} from '@shipfox/client-projects';
 import {defineRoute, useRouteParams, useRouteSearch} from '@shipfox/client-shell/runtime';
-import {QueryLoadError} from '@shipfox/client-ui';
-import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {WorkflowRunPage} from '#pages/workflow-run-page.js';
 import {validateWorkflowRunsSearch, workflowRouteParams} from './inputs.js';
+import {ProjectRoute} from './project-route.js';
 
 export default defineRoute({
   staticData: {layout: 'full-bleed'},
   validateSearch: validateWorkflowRunsSearch,
   component: () => {
     const {workspaceSlug, projectSlug} = useRouteParams(workflowRouteParams);
-    const projectQuery = useMaybeActiveProjectQuery();
     const search = useRouteSearch(validateWorkflowRunsSearch);
-    if (projectQuery.isPending) return <FullPageLoader />;
-    if (projectQuery.isError && projectQuery.data === undefined) {
-      return <QueryLoadError query={projectQuery} subject="project" />;
-    }
-    const project = projectQuery.data;
-    if (!project) return <FullPageLoader />;
     return (
-      <WorkflowRunPage
-        projectId={project.id}
-        workspaceSlug={workspaceSlug}
-        projectSlug={projectSlug}
-        search={search}
-      />
+      <ProjectRoute>
+        {(project) => (
+          <WorkflowRunPage
+            projectId={project.id}
+            workspaceSlug={workspaceSlug}
+            projectSlug={projectSlug}
+            search={search}
+          />
+        )}
+      </ProjectRoute>
     );
   },
 });

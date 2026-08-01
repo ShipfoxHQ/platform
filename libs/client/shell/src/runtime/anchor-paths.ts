@@ -23,6 +23,13 @@ export {anchorPaths, entityPrefixRegistry, slugParamPrefixes};
 export function validateRoutePathInvariants(path: string): void {
   const segments = path.split('/').filter(Boolean);
   const seenSlugParams = new Set<string>();
+
+  if (segments[0] === 'workspaces' && segments[1]?.startsWith('$')) {
+    throw new Error(
+      `Route "${path}" must use the slug-based workspace prefix "w" instead of the legacy "/workspaces" path.`,
+    );
+  }
+
   for (const [index, segment] of segments.entries()) {
     const nextSegment = segments[index + 1];
     if (segment.length === 1 && Object.hasOwn(entityPrefixRegistry, segment)) {
@@ -35,7 +42,7 @@ export function validateRoutePathInvariants(path: string): void {
 
     if (!segment.startsWith('$')) continue;
     const param = segment.slice(1) as keyof typeof slugParamPrefixes;
-    const prefix = slugParamPrefixes[param];
+    const prefix = Object.hasOwn(slugParamPrefixes, param) ? slugParamPrefixes[param] : undefined;
     if (prefix !== undefined) {
       if (seenSlugParams.has(param)) {
         throw new Error(`Route "${path}" repeats slug parameter "${param}".`);
@@ -65,6 +72,9 @@ export function validateRoutePathInvariants(path: string): void {
   const projectPrefixIndex = segments.indexOf('p');
   if (projectPrefixIndex !== -1 && (workspacePrefixIndex !== 0 || projectPrefixIndex !== 2)) {
     throw new Error(`Route "${path}" must place workspace prefix "w" before project prefix "p".`);
+  }
+  if (workspacePrefixIndex !== -1 && workspacePrefixIndex !== 0) {
+    throw new Error(`Route "${path}" must place workspace prefix "w" at the start of the path.`);
   }
 }
 

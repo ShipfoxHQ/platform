@@ -271,12 +271,13 @@ function EventRunsWithProjects({
       ),
     [projectsQuery.data],
   );
+  const visibleProjectSlugs = projectsQuery.isFetching ? new Map<string, string>() : projectSlugs;
 
   return (
     <EventRunsList
       workspaceSlug={workspaceSlug}
-      projectSlugs={projectSlugs}
-      projectDetailLookupEnabled={!projectsQuery.isPending && !projectsQuery.isFetching}
+      projectSlugs={visibleProjectSlugs}
+      projectDetailLookupEnabled={!projectsQuery.isPending}
       event={event}
     />
   );

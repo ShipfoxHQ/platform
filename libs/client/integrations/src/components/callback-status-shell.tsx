@@ -7,6 +7,7 @@ import {useEffect, useRef} from 'react';
 export function CallbackStatusShell({
   title,
   message,
+  status = 'error',
   startOver,
   switchAccount,
   workspaceSlug,
@@ -14,6 +15,7 @@ export function CallbackStatusShell({
 }: {
   title: string;
   message: string;
+  status?: 'error' | 'success';
   startOver?: boolean;
   switchAccount?: boolean;
   workspaceSlug?: string | undefined;
@@ -43,7 +45,7 @@ export function CallbackStatusShell({
         <h2 ref={headingRef} tabIndex={-1} className="text-24 font-semibold outline-none">
           {title}
         </h2>
-        <Callout role="alert" type="error">
+        <Callout role={status === 'error' ? 'alert' : 'status'} type={status}>
           <Text size="sm">{message}</Text>
         </Callout>
         <div className="flex flex-col gap-8 sm:flex-row sm:items-center">

@@ -101,16 +101,12 @@ export async function resolveProjectSlug({
     data = queryClient.getQueryData<InfiniteData<ProjectList, string | undefined>>(queryKey);
   }
 
-  while (data) {
+  if (data) {
     const project = data.pages
       .flatMap((page) => page.projects)
       .find((candidate) => candidate.slug === projectSlug);
-    if (project) {
-      return await refetchAndResolveProjectSlug(queryClient, queryKey, workspaceId, projectSlug);
-    }
-
     const cursor = data.pages.at(-1)?.nextCursor;
-    if (!cursor) {
+    if (project || !cursor) {
       return await refetchAndResolveProjectSlug(queryClient, queryKey, workspaceId, projectSlug);
     }
     return await resolveProjectSlugBySearch(queryClient, workspaceId, projectSlug);
@@ -144,9 +140,10 @@ async function resolveProjectSlugBySearch(
   queryClient: QueryClient,
   workspaceId: string,
   projectSlug: string,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
   const queryKey = projectsQueryKeys.slug(workspaceId, projectSlug);
-  const project = await findProjectBySlug({workspaceId, projectSlug});
+  const project = await findProjectBySlug({workspaceId, projectSlug, signal});
   if (project) {
     queryClient.setQueryData(queryKey, project);
     return project.id;
@@ -157,11 +154,13 @@ async function resolveProjectSlugBySearch(
 async function findProjectBySlug({
   workspaceId,
   projectSlug,
+  signal,
 }: {
   workspaceId: string;
   projectSlug: string;
+  signal?: AbortSignal | undefined;
 }): Promise<Project | undefined> {
-  let result = await listProjects({workspaceId, search: projectSlug, limit: 100});
+  let result = await listProjects({workspaceId, search: projectSlug, limit: 100, signal});
   while (true) {
     const project = result.projects.find((candidate) => candidate.slug === projectSlug);
     if (project) return project;
@@ -171,6 +170,7 @@ async function findProjectBySlug({
       search: projectSlug,
       limit: 100,
       cursor: result.nextCursor,
+      signal,
     });
   }
 }
@@ -252,10 +252,11 @@ export function projectSlugQueryOptions(
         ? projectsQueryKeys.slug(workspaceId, projectSlug)
         : ([...projectsQueryKeys.all, 'slug'] as const),
     enabled: Boolean(workspaceId && projectSlug),
-    queryFn: async () =>
+    queryFn: async ({signal}) =>
       (await findProjectBySlug({
         workspaceId: workspaceId ?? '',
         projectSlug: projectSlug ?? '',
+        signal,
       })) ?? null,
     staleTime: 30_000,
   });

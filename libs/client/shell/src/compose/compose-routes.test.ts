@@ -111,7 +111,7 @@ describe('composeRoutes', () => {
       composeLayouts([
         {
           id: 'acme.decoy',
-          layouts: [{id: 'acme.decoy-layout', path: '/workspaces', parent: 'root', impl: 'decoy'}],
+          layouts: [{id: 'acme.decoy-layout', path: '/legacy', parent: 'root', impl: 'decoy'}],
         },
         {
           id: 'acme.smuggled',

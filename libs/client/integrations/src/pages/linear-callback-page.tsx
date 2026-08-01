@@ -25,6 +25,7 @@ import {resolveWorkspaceSlug} from '#workspace-navigation.js';
 const callbackRequests = createSingleFlight<string, IntegrationConnection>({
   maxTerminalResults: 32,
 });
+const completedCallbacks = new Set<string>();
 // Keeps the success toast firing once per distinct callback even though the
 // effect re-runs against the cached request as the mutation identity churns.
 const toastedCallbacks = new Set<string>();
@@ -60,6 +61,16 @@ export function LinearCallbackPage() {
     request.then(
       async (connection) => {
         if (disposed) return;
+        if (completedCallbacks.has(key)) {
+          const workspaceSlug = await resolveWorkspaceSlug({
+            workspaceId: connection.workspaceId,
+            fallbackWorkspaces: workspaces,
+            queryClient,
+          });
+          if (!disposed) setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
+          return;
+        }
+        completedCallbacks.add(key);
         try {
           clearLinearInstallWorkspace(sessionStorageOrUndefined());
         } catch {
@@ -130,6 +141,7 @@ export function LinearCallbackPage() {
     return (
       <CallbackStatusShell
         title="Linear connected"
+        status="success"
         message={
           completedWorkspace.slug
             ? 'Linear is connected. Continue in integrations settings.'

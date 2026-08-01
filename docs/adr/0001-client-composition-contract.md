@@ -170,22 +170,6 @@ route supplies its path, parent, and router context.
 Route manifests use full paths. Composition removes trailing slashes from non-root paths before any
 comparison. `/` remains `/`. Navigation targets use the same normalization.
 
-The client URL prefixes are part of the composition contract, not an implementation detail of the
-default application. Workspace-scoped routes start with `/w/$workspaceSlug`, project-scoped routes
-start with `/w/$workspaceSlug/p/$projectSlug`, and workspace settings routes nest below
-`/w/$workspaceSlug/settings`. The prefix registry maps `w` to the workspace slug and `p` to the
-project slug. A registered prefix must be followed immediately by its dynamic slug parameter, and
-the corresponding slug parameter may not appear outside its registered prefix. Other dynamic
-parameters must follow a page segment rather than being placed directly after an entity prefix. A
-route containing a project prefix must begin with the workspace and project prefix pair, and each
-registered slug parameter may appear only once in a route path.
-
-Composition validates these path invariants for every feature-owned layout and route before it
-builds the generated route tree. A feature contribution that puts a registered slug outside its
-prefix fails at composition time with a route-path diagnostic. External feature authors should
-therefore use the anchor paths below as the source of truth when declaring routes and navigation
-targets.
-
 The shell owns four anchors:
 
 | Anchor | Purpose |
@@ -323,7 +307,7 @@ composition check accepts non-empty strings and rejects malformed role metadata.
 or define a role policy.
 
 A settings section adds navigation data only. The feature contributes its page as a normal route. A
-section with `pathSegment: 'sso'` requires `/w/$workspaceSlug/settings/sso`. Section ids must be
+section with `pathSegment: 'sso'` requires `/workspaces/$wid/settings/sso`. Section ids must be
 unique. The settings index redirects to the first sorted section.
 
 ### Runtime configuration
@@ -367,11 +351,6 @@ id, key, or feature id.
 | Duplicate config key | `Config key "<key>" is contributed by both features "<first>" and "<second>". Reuse the same schema instance to intentionally share it.` |
 | Invalid anchor nesting | `Route "<path>" must be nested under anchor "<anchor>" (<anchor-path>).` |
 | Invalid layout nesting | `Route "<path>" must be nested under layout "<layout>" (<layout-path>).` |
-| Prefix without slug parameter | `Route "<path>" uses prefix "<prefix>" without a dynamic parameter immediately after it.` |
-| Slug outside prefix | `Route "<path>" places slug parameter "<param>" outside prefix "<prefix>".` |
-| Repeated slug parameter | `Route "<path>" repeats slug parameter "<param>".` |
-| Inverted entity prefixes | `Route "<path>" must place workspace prefix "w" before project prefix "p".` |
-| UUID parameter after entity prefix | `Route "<path>" must place UUID parameter "<param>" after a page segment.` |
 | Root parent inside protected anchor | `Route "<path>" in feature "<feature>" cannot use root parent inside reserved anchor "<anchor>" (<anchor-path>). Use parent "<anchor>".` |
 | Route module not found | `Could not resolve route implementation "<specifier>" for "<path>".` |
 | Invalid route export | `Route implementation "<specifier>" for "<path>" must export default defineRoute(...).` |
@@ -489,12 +468,12 @@ export const workflowsFeature = defineClientFeature({
   id: 'shipfox.workflows',
   routes: [
     {
-      path: '/w/$workspaceSlug/p/$projectSlug/workflows',
+      path: '/workspaces/$wid/projects/$pid/workflows',
       parent: 'projectLayout',
       impl: '@shipfox/client-workflows/routes/workflows-index',
     },
     {
-      path: '/w/$workspaceSlug/p/$projectSlug/workflows/$workflowId',
+      path: '/workspaces/$wid/projects/$pid/workflows/$workflowId',
       parent: 'projectLayout',
       impl: '@shipfox/client-workflows/routes/workflow-detail',
     },
@@ -504,7 +483,7 @@ export const workflowsFeature = defineClientFeature({
       id: 'workflows',
       scope: 'project',
       label: 'Workflows',
-      to: '/w/$workspaceSlug/p/$projectSlug/workflows',
+      to: '/workspaces/$wid/projects/$pid/workflows',
       order: 200,
     },
   ],
@@ -521,7 +500,7 @@ export const ssoFeature = defineClientFeature({
   id: 'acme.sso',
   routes: [
     {
-      path: '/w/$workspaceSlug/settings/sso',
+      path: '/workspaces/$wid/settings/sso',
       parent: 'workspaceSettings',
       impl: '@acme/shipfox-sso-client/routes/settings',
     },
@@ -627,7 +606,7 @@ Both the linked iteration gate and packed-tarball gate passed on 2026-07-16. The
 and installed a 12-package `@shipfox/*` runtime closure outside the workspace.
 
 The consumer's `tsc --noEmit` accepted typed `Link` and `useSearch` for the added
-`/w/$workspaceSlug/insights` route. It resolved emitted `defineRoute()` declarations, anchor return
+`/workspaces/$wid/insights` route. It resolved emitted `defineRoute()` declarations, anchor return
 types, and the generated `Register` augmentation from `dist`.
 
 The proof found two package issues:

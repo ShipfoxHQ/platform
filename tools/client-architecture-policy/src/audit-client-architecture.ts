@@ -95,7 +95,7 @@ export const clientArchitectureExceptions = {
       owner: 'Slack callback coordinator',
       reason:
         'The OAuth callback passes the auth cache to the workspace navigation coordinator after completion.',
-      test: 'libs/client/integrations/src/slack-callback.test.ts',
+      test: 'libs/client/integrations/src/pages/slack-callback-page.test.tsx',
     },
   ],
   queryPolicy: [stepLogsQueryException],

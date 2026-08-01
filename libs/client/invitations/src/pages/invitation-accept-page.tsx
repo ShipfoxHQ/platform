@@ -62,6 +62,10 @@ export function InvitationAcceptPage() {
   ]);
 
   useEffect(() => {
+    hasKickedAccept.current = false;
+    hasRetriedWorkspaceHydration.current = false;
+    setAuthRefreshFailed(false);
+    setPendingWorkspaceId(undefined);
     if (!token) {
       toast.error('This invitation link is missing a token.');
       const timeout = window.setTimeout(() => {

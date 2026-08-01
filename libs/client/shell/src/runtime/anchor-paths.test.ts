@@ -23,6 +23,12 @@ describe('client route path invariants', () => {
     );
   });
 
+  test('rejects inherited parameter names as registered slugs', () => {
+    expect(() => validateRoutePathInvariants('/w/$toString')).toThrow(
+      'must place UUID parameter "toString" after a page segment',
+    );
+  });
+
   test('requires UUID parameters to follow a page segment', () => {
     expect(() => validateRoutePathInvariants('/w/$workspaceSlug/$projectId')).toThrow(
       'must place UUID parameter "projectId" after a page segment',
@@ -41,6 +47,12 @@ describe('client route path invariants', () => {
     );
     expect(() => validateRoutePathInvariants('/w/$workspaceSlug/runs/p/$projectSlug')).toThrow(
       'must place workspace prefix "w" before project prefix "p"',
+    );
+  });
+
+  test('requires workspace prefixes to start the path', () => {
+    expect(() => validateRoutePathInvariants('/settings/w/$workspaceSlug')).toThrow(
+      'must place workspace prefix "w" at the start of the path',
     );
   });
 });
