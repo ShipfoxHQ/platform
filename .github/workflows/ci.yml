@@ -360,6 +360,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
+      CLOUDFLARE_PAGES_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       SHIPFOX_TURBO_CONCURRENCY: "4"
       SHIPFOX_VITEST_MAX_WORKERS: "1"
 
@@ -443,6 +444,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      CLOUDFLARE_PAGES_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       # Reserve one of the runner's four CPUs for the API/client processes,
       # Docker services, and Ollama-backed provider validation.
       SHIPFOX_TURBO_CONCURRENCY: "3"
