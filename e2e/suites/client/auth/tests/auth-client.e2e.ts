@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {stableScreenshot} from '@shipfox/e2e-kit/ui';
+import {ONBOARDING_URL_RE, workspaceUrlRe} from '@shipfox/e2e-kit/workspace-urls';
 import {expect, test} from './test.js';
-import {ONBOARDING_URL_RE, workspaceUrlRe} from '../../workspaces/tests/workspace-urls.js';
 
 const LOGIN_URL_RE = /\/auth\/login$/u;
 const LOGIN_WITH_REDIRECT_URL_RE = /\/auth\/login\?redirect=/u;

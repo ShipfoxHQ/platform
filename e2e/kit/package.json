@@ -43,6 +43,16 @@
         "default": "./dist/ui/index.js"
       }
     },
+    "./workspace-urls": {
+      "workspace-source": {
+        "types": "./src/workspace-urls.ts",
+        "default": "./src/workspace-urls.ts"
+      },
+      "default": {
+        "types": "./dist/workspace-urls.d.ts",
+        "default": "./dist/workspace-urls.js"
+      }
+    },
     "./global-setup": {
       "workspace-source": {
         "types": "./src/setup/global-setup.ts",

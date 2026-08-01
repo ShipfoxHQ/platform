@@ -3,8 +3,8 @@ import {QueryClient} from '@tanstack/react-query';
 import {
   createProject,
   listProjects,
-  projectsInfiniteQueryOptions,
   projectSlugQueryOptions,
+  projectsInfiniteQueryOptions,
   resolveProjectSlug,
 } from './projects.js';
 
