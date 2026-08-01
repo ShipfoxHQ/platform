@@ -154,12 +154,14 @@ A `${{ }}` value in `run` reaches the command as a quoted shell variable, so the
 shell reads it as text and not as part of the command.
 
 <Callout title="Keep run data out of code positions" type="warn">
-  A few commands read their argument as shell code again: `eval`,
-  `sh -c "$value"`, `let`, `declare -i`, arithmetic expressions, and array
-  subscripts. A value that reaches one of them runs as a command on the runner,
-  with the job's credentials and workspace. Event payloads, trigger inputs, and
-  step outputs come from outside the workflow, so prefer passing them as
-  arguments: `deploy "$TARGET"` rather than `eval "deploy $TARGET"`.
+  Some programs read their argument as code again, which puts an interpolated
+  value back in a code position: `eval`, `sh -c`, `bash -c`, `source`, `let`,
+  `declare -i`, shell arithmetic, `awk`, `jq`, `sed`, and `xargs sh -c`. A value
+  that reaches one of them runs on the runner with the job's credentials and
+  workspace. Event payloads, trigger inputs, and step outputs come from outside
+  the workflow, so pass them as arguments to a fixed program instead:
+  `deploy "$TARGET"` rather than `eval "deploy $TARGET"`. A workflow sync warns
+  when it finds one of these positions.
 </Callout>
 
 ### Checkout step fields

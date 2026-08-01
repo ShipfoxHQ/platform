@@ -63,8 +63,9 @@ computed key such as `vars[inputs.name]` is not.
 | `? :` | `run.number == 1 ? "first" : "rerun"` | The middle value when true, the last when false |
 | `( )` | `(a \|\| b) && c` | Groups an expression against precedence |
 
-Comparing values of different types is an error rather than a false result. A
-predicate that errors never passes.
+Comparing values of different types is an error rather than a false result, and
+`int` and `double` count as different types. A predicate that errors never
+passes.
 
 ## Functions and macros
 
