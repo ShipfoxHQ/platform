@@ -167,7 +167,11 @@ export function IntegrationGalleryForWorkspace({
             emptyMessage={emptyProvidersMessage}
             onOpenProvider={setCreateProvider}
           />
-        ) : null}
+        ) : (
+          <Text size="sm" className="text-foreground-neutral-muted" aria-live="polite">
+            Loading workspace details…
+          </Text>
+        )}
       </section>
       <WebhookCreateModal
         workspaceId={workspaceId}
