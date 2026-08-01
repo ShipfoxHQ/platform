@@ -10,12 +10,14 @@ colors:
   surface: "#fafafa"
   panel-inverted: "#1a1a1b"
   primary-fill: "#27272a"
+  primary-fill-hover: "#3f3f46"
   border: "#d4d4d8"
   subtle: "#52525b"
   muted: "#71717a"
   running: "#3b82f6"
   succeeded: "#10b981"
   failed: "#f43f5e"
+  danger: "#e11d48"
   warning: "#f97316"
   meta: "#8b5cf6"
 typography:
@@ -74,7 +76,7 @@ components:
     padding: "0 10px"
     height: "32px"
   button-primary-hover:
-    backgroundColor: "#3f3f46"
+    backgroundColor: "{colors.primary-fill-hover}"
   button-secondary:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.ink}"
@@ -83,9 +85,11 @@ components:
     padding: "0 10px"
     height: "32px"
   button-danger:
-    backgroundColor: "#e11d48"
+    backgroundColor: "{colors.danger}"
     textColor: "{colors.canvas}"
+    typography: "{typography.body}"
     rounded: "{rounded.button}"
+    padding: "0 10px"
     height: "32px"
   input:
     backgroundColor: "{colors.canvas}"
