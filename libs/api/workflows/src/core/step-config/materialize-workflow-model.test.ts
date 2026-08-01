@@ -352,7 +352,6 @@ describe('materializeWorkflowModel', () => {
       jobs: {
         build: {
           checkout: {
-            fetchDepth: 1,
             permissions: {contents: 'write'},
             persistCredentials: false,
           },
@@ -364,7 +363,6 @@ describe('materializeWorkflowModel', () => {
     const rows = await materializeWorkflowModel({model});
 
     expect(rows[0]?.checkout).toEqual({
-      fetchDepth: 1,
       permissions: {contents: 'write'},
       persistCredentials: false,
     });

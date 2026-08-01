@@ -212,7 +212,6 @@ describe('workflow run queries', () => {
           jobs: {
             build: {
               checkout: {
-                fetchDepth: 1,
                 permissions: {contents: 'write'},
                 persistCredentials: false,
               },

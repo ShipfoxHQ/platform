@@ -1243,7 +1243,6 @@ describe('normalizeWorkflowDocument', () => {
     const model = normalizeWorkflowDocument(document);
 
     expect(model.jobs[0]?.checkout).toEqual({
-      fetchDepth: 1,
       permissions: {contents: 'write'},
       persistCredentials: true,
     });
@@ -1263,7 +1262,6 @@ describe('normalizeWorkflowDocument', () => {
     const model = normalizeWorkflowDocument(document);
 
     expect(model.jobs[0]?.checkout).toEqual({
-      fetchDepth: 1,
       permissions: {contents: 'read'},
       persistCredentials: false,
     });

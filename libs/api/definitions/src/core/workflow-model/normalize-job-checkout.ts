@@ -17,6 +17,8 @@ import {issue} from './validation-issue.js';
 
 export {DEFAULT_JOB_CHECKOUT};
 
+const DEFAULT_CHECKOUT_FETCH_DEPTH = 1;
+
 export function normalizeJobCheckout(params: {
   checkout: WorkflowDocumentJob['checkout'];
   issues: WorkflowModelValidationIssue[];
@@ -36,7 +38,6 @@ export function normalizeJobCheckout(params: {
 
   const checkout = params.checkout ?? {};
   return {
-    fetchDepth: DEFAULT_JOB_CHECKOUT.fetchDepth,
     permissions: {
       contents: checkout.permissions?.contents ?? DEFAULT_JOB_CHECKOUT.permissions.contents,
     },
@@ -80,7 +81,7 @@ export function normalizeCheckout(params: {
     ...(params.checkout.connection === undefined ? {} : {connection: params.checkout.connection}),
     ...(params.checkout.repository === undefined ? {} : {repository: params.checkout.repository}),
     ...(params.checkout.ref === undefined ? {} : {ref: params.checkout.ref}),
-    fetchDepth: params.checkout['fetch-depth'] ?? DEFAULT_JOB_CHECKOUT.fetchDepth,
+    fetchDepth: params.checkout['fetch-depth'] ?? DEFAULT_CHECKOUT_FETCH_DEPTH,
     ...(params.checkout.path === undefined ? {} : {path: params.checkout.path}),
     permissions: {
       contents: params.checkout.permissions?.contents ?? DEFAULT_JOB_CHECKOUT.permissions.contents,

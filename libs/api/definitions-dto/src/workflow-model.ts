@@ -46,13 +46,12 @@ export interface WorkflowModelCheckout {
 
 export type WorkflowModelJobCheckout = Pick<
   WorkflowModelCheckout,
-  'fetchDepth' | 'permissions' | 'persistCredentials'
+  'permissions' | 'persistCredentials'
 >;
 
 export interface WorkflowModelStepCheckout extends WorkflowModelCheckout {}
 
 export const DEFAULT_JOB_CHECKOUT: WorkflowModelJobCheckout = {
-  fetchDepth: 1,
   permissions: {contents: 'read'},
   persistCredentials: true,
 };

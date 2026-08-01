@@ -31,7 +31,6 @@ export const jobFactory = Factory.define<Job, JobTransientParams>(({transientPar
                 jobs: {
                   build: {
                     checkout: {
-                      fetchDepth: 1,
                       permissions: checkout.permissions ?? {contents: 'read'},
                       persistCredentials: checkout.persistCredentials ?? true,
                     },
