@@ -56,9 +56,9 @@ type ProjectExistenceQueryOptions = UseQueryOptions<
   ProjectExistenceQueryKey
 >;
 type ProjectSlugQueryOptions = UseQueryOptions<
-  Project | undefined,
+  Project | null,
   Error,
-  Project | undefined,
+  Project | null,
   ProjectSlugQueryKey
 >;
 type ProjectDetailQueryOptions = UseQueryOptions<Project, Error, Project, ProjectDetailQueryKey>;
@@ -252,8 +252,11 @@ export function projectSlugQueryOptions(
         ? projectsQueryKeys.slug(workspaceId, projectSlug)
         : ([...projectsQueryKeys.all, 'slug'] as const),
     enabled: Boolean(workspaceId && projectSlug),
-    queryFn: () =>
-      findProjectBySlug({workspaceId: workspaceId ?? '', projectSlug: projectSlug ?? ''}),
+    queryFn: async () =>
+      (await findProjectBySlug({
+        workspaceId: workspaceId ?? '',
+        projectSlug: projectSlug ?? '',
+      })) ?? null,
     staleTime: 30_000,
   });
 }

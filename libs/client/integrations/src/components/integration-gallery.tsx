@@ -42,6 +42,7 @@ function RoutedIntegrationGallery({
   return (
     <IntegrationGalleryForWorkspace
       workspaceId={workspace.id}
+      workspaceSlug={workspace.slug}
       capability={capability}
       emptyProvidersMessage={emptyProvidersMessage}
     />

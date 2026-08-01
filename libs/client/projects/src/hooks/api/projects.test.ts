@@ -4,6 +4,7 @@ import {
   createProject,
   listProjects,
   projectsInfiniteQueryOptions,
+  projectSlugQueryOptions,
   resolveProjectSlug,
 } from './projects.js';
 
@@ -198,6 +199,24 @@ describe('resolveProjectSlug', () => {
       resolveProjectSlug({queryClient, workspaceId, projectSlug: 'target-project'}),
     ).resolves.toBe(projectId);
     expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('projectSlugQueryOptions', () => {
+  beforeEach(() => {
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl: undefined});
+  });
+
+  test('represents an unknown slug with null query data', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({projects: [], next_cursor: null}));
+    configureApiClient({fetchImpl});
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+
+    await expect(
+      queryClient.fetchQuery(
+        projectSlugQueryOptions('11111111-1111-4111-8111-111111111111', 'missing-project'),
+      ),
+    ).resolves.toBeNull();
   });
 });
 

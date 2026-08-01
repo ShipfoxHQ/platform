@@ -66,7 +66,7 @@ describe('LinearCallbackPage', () => {
   });
 
   test('submits a callback once in Strict Mode, clears the handoff, and navigates to the response workspace', async () => {
-    const responseWorkspaceId = INTEGRATIONS_TEST_WID;
+    const responseWorkspaceId = '22222222-2222-4222-8222-222222222222';
     window.sessionStorage.setItem(LINEAR_INSTALL_WORKSPACE_KEY, INTEGRATIONS_TEST_WID);
     completeCallbackMock.mockResolvedValue({
       id: 'connection-1',
@@ -89,9 +89,12 @@ describe('LinearCallbackPage', () => {
           <LinearCallbackPage />
         </StrictMode>
       ),
-      workspaces: [testWorkspace({id: responseWorkspaceId, slug: 'acme'})],
+      workspaces: [
+        testWorkspace(),
+        testWorkspace({id: responseWorkspaceId, slug: 'response-workspace'}),
+      ],
       extraRoutes: [
-        '/w/$workspaceSlug/settings/integrations',
+        '/w/response-workspace/settings/integrations',
         '/w/$workspaceSlug/integrations/linear',
         '/auth/login',
       ],
@@ -106,7 +109,7 @@ describe('LinearCallbackPage', () => {
     expect(completeCallbackMock).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
-        screen.getByTestId('route:/w/$workspaceSlug/settings/integrations'),
+        screen.getByTestId('route:/w/response-workspace/settings/integrations'),
       ).toBeInTheDocument(),
     );
     expect(window.sessionStorage.getItem(LINEAR_INSTALL_WORKSPACE_KEY)).toBeNull();

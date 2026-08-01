@@ -1,8 +1,9 @@
 import {useAuthState, useRefreshAuth} from '@shipfox/client-auth';
-import {listUserWorkspaces, useRouteSearch} from '@shipfox/client-shell/runtime';
+import {useRouteSearch} from '@shipfox/client-shell/runtime';
 import {createSingleFlight, sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {toast} from '@shipfox/react-ui/toast';
+import {useQueryClient} from '@tanstack/react-query';
 import {useNavigate} from '@tanstack/react-router';
 import {useEffect, useMemo, useState} from 'react';
 import {useCompleteIntegrationCallback} from '#application/complete-integration-callback.js';
@@ -17,6 +18,7 @@ import {
   type SlackCallbackFailure,
   serializeSlackCallbackQuery,
 } from '#slack-callback.js';
+import {resolveWorkspaceSlug} from '#workspace-navigation.js';
 
 // Retain only recent completions: this bounds long-lived callback pages while
 // still covering StrictMode and immediate Back/Forward remounts.
@@ -28,6 +30,7 @@ const toastedCallbacks = new Set<string>();
 
 export function SlackCallbackPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const refreshAuth = useRefreshAuth();
   const completeIntegrationCallback = useCompleteIntegrationCallback();
   const {mutateAsync: completeSlackCallback} = useCompleteSlackCallbackMutation();
@@ -56,9 +59,12 @@ export function SlackCallbackPage() {
       async (connection) => {
         if (disposed) return;
         if (completedCallbacks.has(key)) {
-          setCompletedWorkspace({
-            slug: workspaces.find(({id}) => id === connection.workspaceId)?.slug,
+          const workspaceSlug = await resolveWorkspaceSlug({
+            workspaceId: connection.workspaceId,
+            fallbackWorkspaces: workspaces,
+            queryClient,
           });
+          if (!disposed) setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
           return;
         }
         completedCallbacks.add(key);
@@ -73,19 +79,20 @@ export function SlackCallbackPage() {
           toast.success('Slack installed.');
         }
         try {
-          const currentWorkspaces = await listUserWorkspaces()
-            .then(({memberships}) => memberships)
-            .catch(() => workspaces);
           if (disposed) return;
-          const workspace = currentWorkspaces.find(({id}) => id === connection.workspaceId);
-          if (!workspace) {
+          const workspaceSlug = await resolveWorkspaceSlug({
+            workspaceId: connection.workspaceId,
+            fallbackWorkspaces: workspaces,
+            queryClient,
+          });
+          if (!workspaceSlug) {
             setCompletedWorkspace({});
             return;
           }
-          setCompletedWorkspace({slug: workspace.slug});
+          setCompletedWorkspace({slug: workspaceSlug});
           await navigate({
             to: '/w/$workspaceSlug/settings/integrations',
-            params: {workspaceSlug: workspace.slug},
+            params: {workspaceSlug},
             replace: true,
           });
         } catch {
@@ -105,6 +112,7 @@ export function SlackCallbackPage() {
     isLoading,
     navigate,
     params,
+    queryClient,
     refreshAuth,
     workspaces,
   ]);

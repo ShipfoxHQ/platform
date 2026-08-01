@@ -172,13 +172,13 @@ comparison. `/` remains `/`. Navigation targets use the same normalization.
 
 The client URL prefixes are part of the composition contract, not an implementation detail of the
 default application. Workspace-scoped routes start with `/w/$workspaceSlug`, project-scoped routes
-nest below it at `/p/$projectSlug`, and workspace settings routes nest below
+start with `/w/$workspaceSlug/p/$projectSlug`, and workspace settings routes nest below
 `/w/$workspaceSlug/settings`. The prefix registry maps `w` to the workspace slug and `p` to the
 project slug. A registered prefix must be followed immediately by its dynamic slug parameter, and
 the corresponding slug parameter may not appear outside its registered prefix. Other dynamic
 parameters must follow a page segment rather than being placed directly after an entity prefix. A
-workspace prefix must precede a project prefix, and each registered slug parameter may appear only
-once in a route path.
+route containing a project prefix must begin with the workspace and project prefix pair, and each
+registered slug parameter may appear only once in a route path.
 
 Composition validates these path invariants for every feature-owned layout and route before it
 builds the generated route tree. A feature contribution that puts a registered slug outside its

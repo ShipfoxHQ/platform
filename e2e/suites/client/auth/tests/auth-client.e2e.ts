@@ -1,21 +1,17 @@
 import {randomUUID} from 'node:crypto';
 import {stableScreenshot} from '@shipfox/e2e-kit/ui';
 import {expect, test} from './test.js';
+import {ONBOARDING_URL_RE, workspaceUrlRe} from '../../workspaces/tests/workspace-urls.js';
 
 const LOGIN_URL_RE = /\/auth\/login$/u;
 const LOGIN_WITH_REDIRECT_URL_RE = /\/auth\/login\?redirect=/u;
 const SIGNUP_URL_RE = /\/auth\/signup$/u;
-const ONBOARDING_URL_RE = /\/setup\/workspaces\/new\/?$/u;
 const ANY_WORKSPACE_URL_RE = /\/w\/[a-z0-9]+(?:-[a-z0-9]+)*(?:\/|$)/u;
 const SIGNUP_NOT_ALLOWED_MESSAGE =
   process.env.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE ??
   'This E2E deployment does not accept new accounts.';
 const ALLOWED_SIGNUP_EMAIL_DOMAIN =
   process.env.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS?.split(',')[0]?.trim() ?? 'allowed.example.test';
-
-function workspaceUrlRe(workspaceSlug: string): RegExp {
-  return new RegExp(`/w/${workspaceSlug}(/|$)`, 'u');
-}
 
 test('redirects guests from the app root to login', async ({page, guestRedirects, login}) => {
   await guestRedirects.goto('/');

@@ -11,7 +11,9 @@ export default defineRoute({
     useRouteParams(workflowRouteParams);
     const projectQuery = useMaybeActiveProjectQuery();
     if (projectQuery.isPending) return <FullPageLoader />;
-    if (projectQuery.isError) return <QueryLoadError query={projectQuery} subject="project" />;
+    if (projectQuery.isError && projectQuery.data === undefined) {
+      return <QueryLoadError query={projectQuery} subject="project" />;
+    }
     const project = projectQuery.data;
     if (!project) return <FullPageLoader />;
     return <ProjectWorkflowsPage projectId={project.id} />;

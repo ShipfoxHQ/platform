@@ -39,5 +39,8 @@ describe('client route path invariants', () => {
     expect(() => validateRoutePathInvariants('/p/$projectSlug/w/$workspaceSlug/runs')).toThrow(
       'must place workspace prefix "w" before project prefix "p"',
     );
+    expect(() => validateRoutePathInvariants('/w/$workspaceSlug/runs/p/$projectSlug')).toThrow(
+      'must place workspace prefix "w" before project prefix "p"',
+    );
   });
 });

@@ -1,5 +1,4 @@
 import {useAuthState} from '@shipfox/client-auth';
-import {parseWorkspaceParams, useRouteParams} from '@shipfox/client-shell/runtime';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useState} from 'react';
@@ -30,17 +29,18 @@ interface IntegrationGalleryForWorkspaceProps {
   capability: IntegrationCapability | undefined;
   emptyProvidersMessage: string;
   workspaceId: string;
+  workspaceSlug?: string | undefined;
 }
 
 export function IntegrationGalleryForWorkspace({
   capability,
   emptyProvidersMessage,
   workspaceId,
+  workspaceSlug: explicitWorkspaceSlug,
 }: IntegrationGalleryForWorkspaceProps) {
   const {workspaces} = useAuthState();
-  const {workspaceSlug: routeWorkspaceSlug} = useRouteParams(parseWorkspaceParams);
   const workspaceSlug =
-    workspaces.find((workspace) => workspace.id === workspaceId)?.slug ?? routeWorkspaceSlug;
+    workspaces.find((workspace) => workspace.id === workspaceId)?.slug ?? explicitWorkspaceSlug;
   const [createProvider, setCreateProvider] = useState<string | undefined>();
   const [usageConnectionId, setUsageConnectionId] = useState<string | undefined>();
   const [createdUsageConnection, setCreatedUsageConnection] = useState<
