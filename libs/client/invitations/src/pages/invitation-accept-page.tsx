@@ -31,6 +31,15 @@ export function InvitationAcceptPage() {
   const accept = useAcceptInvitation();
   const hasKickedAccept = useRef(false);
   const [authRefreshFailed, setAuthRefreshFailed] = useState(false);
+  const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string>();
+
+  useEffect(() => {
+    if (!pendingWorkspaceId || auth.isLoading || !auth.isAuthenticated) return;
+    if (!auth.workspaces.some(({id}) => id === pendingWorkspaceId)) return;
+
+    setPendingWorkspaceId(undefined);
+    void navigate({to: '/', replace: true});
+  }, [auth.isAuthenticated, auth.isLoading, auth.workspaces, navigate, pendingWorkspaceId]);
 
   useEffect(() => {
     if (!token) {
@@ -52,11 +61,13 @@ export function InvitationAcceptPage() {
         workspaceId,
         workspaceName,
         refreshAuth,
-        navigate,
+        // Wait for the refreshed workspace list to reach the router context
+        // before resolving the root route.
+        navigate: () => setPendingWorkspaceId(workspaceId),
       });
       if (!refreshed) setAuthRefreshFailed(true);
     },
-    [auth.user?.id, navigate, refreshAuth],
+    [auth.user?.id, refreshAuth],
   );
 
   const runAccept = useCallback(
@@ -240,7 +251,8 @@ export function InvitationAcceptPage() {
           onClick={async () => {
             try {
               await refreshAuth();
-              await navigate({to: '/', replace: true});
+              setAuthRefreshFailed(false);
+              setPendingWorkspaceId(data.workspaceId);
             } catch {
               setAuthRefreshFailed(true);
             }
