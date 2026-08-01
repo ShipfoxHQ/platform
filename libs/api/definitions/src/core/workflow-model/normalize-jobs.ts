@@ -54,7 +54,7 @@ import {normalizeStepOutputs} from './normalize-step-outputs.js';
 import {parseDurationMs} from './parse-duration-ms.js';
 import {parseInterpolationField} from './parse-interpolation-field.js';
 import {stableId} from './stable-id.js';
-import {validateLiteralName} from './validate-literal-name.js';
+import {unescapeLiteralName, validateLiteralName} from './validate-literal-name.js';
 import {issue} from './validation-issue.js';
 
 export interface NormalizeContext {
@@ -269,7 +269,7 @@ function normalizeJob(params: {
       issues: params.issues,
     });
   }
-  const name = params.job.name;
+  const name = params.job.name === undefined ? undefined : unescapeLiteralName(params.job.name);
   const executionName =
     params.job.execution_name === undefined
       ? undefined

@@ -13,7 +13,7 @@ import {normalizeEnv} from './normalize-env.js';
 import {normalizeJobs} from './normalize-jobs.js';
 import {normalizeTriggers} from './normalize-triggers.js';
 import {parseInterpolationField} from './parse-interpolation-field.js';
-import {validateLiteralName} from './validate-literal-name.js';
+import {unescapeLiteralName, validateLiteralName} from './validate-literal-name.js';
 
 export function normalizeWorkflowDocument(
   document: WorkflowDocument,
@@ -73,7 +73,7 @@ export function normalizeWorkflowDocument(
 
   return {
     kind: 'workflow',
-    name: document.name,
+    name: unescapeLiteralName(document.name),
     ...(runName === undefined ? {} : {runName}),
     ...workflowEnv,
     triggers,

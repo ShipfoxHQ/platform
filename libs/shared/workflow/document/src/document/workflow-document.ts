@@ -7,6 +7,8 @@ const nonEmptyRecordSchema = <ValueSchema extends z.ZodType>(valueSchema: ValueS
     .record(z.string().min(1), valueSchema)
     .refine((value) => Object.keys(value).length > 0, {message: 'Expected at least one entry'});
 
+export const WORKFLOW_LITERAL_NAME_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{))*$/;
+
 const workflowNameSchema = literalNameSchema(
   'Workflow name must be literal. Move runtime interpolation to run_name.',
 ).meta({description: 'Static literal human-readable workflow name.'});
@@ -15,25 +17,7 @@ const jobNameSchema = literalNameSchema(
 ).meta({description: 'Static literal human-readable job name.'});
 
 function literalNameSchema(message: string) {
-  return z
-    .string()
-    .min(1)
-    .superRefine((value, ctx) => {
-      if (containsInterpolation(value)) ctx.addIssue({code: 'custom', message});
-    });
-}
-
-function containsInterpolation(source: string): boolean {
-  let index = 0;
-  while (index < source.length) {
-    if (source.startsWith('$${{', index)) {
-      index += 4;
-      continue;
-    }
-    if (source.startsWith('${{', index)) return true;
-    index += 1;
-  }
-  return false;
+  return z.string().min(1).regex(WORKFLOW_LITERAL_NAME_PATTERN, {message});
 }
 
 // Runner shell steps execute on Unix shells, so workflow env names follow the

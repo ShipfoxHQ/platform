@@ -1,3 +1,4 @@
+import {WORKFLOW_LITERAL_NAME_PATTERN} from './workflow-document.js';
 import {buildWorkflowJsonSchema} from './workflow-json-schema.js';
 
 type JsonSchema = Record<string, unknown>;
@@ -29,12 +30,14 @@ describe('buildWorkflowJsonSchema', () => {
 
     expect(rootProperties.name).toMatchObject({
       description: 'Static literal human-readable workflow name.',
+      pattern: WORKFLOW_LITERAL_NAME_PATTERN.source,
     });
     expect(rootProperties.run_name).toMatchObject({
       description: 'Dynamic name for each workflow run. Supports workflow expressions.',
     });
     expect(jobProperties.name).toMatchObject({
       description: 'Static literal human-readable job name.',
+      pattern: WORKFLOW_LITERAL_NAME_PATTERN.source,
     });
     expect(jobProperties.execution_name).toMatchObject({
       description: 'Dynamic name for each job execution. Supports workflow expressions.',

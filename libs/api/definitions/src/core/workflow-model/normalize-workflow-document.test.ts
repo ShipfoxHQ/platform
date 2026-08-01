@@ -169,6 +169,19 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
+  it('unescapes literal workflow and job names', () => {
+    const escapedName = `$${interpolation('inputs.environment')}`;
+    const model = normalizeWorkflowDocument({
+      name: escapedName,
+      jobs: {
+        build: {name: escapedName, steps: [{run: 'build'}]},
+      },
+    });
+
+    expect(model.name).toBe(interpolation('inputs.environment'));
+    expect(model.jobs[0]?.name).toBe(interpolation('inputs.environment'));
+  });
+
   it.each([
     [
       'run_name',

@@ -38,6 +38,10 @@ export function validateLiteralName(params: {
   );
 }
 
+export function unescapeLiteralName(source: string): string {
+  return source.replaceAll('$${{', '${{');
+}
+
 function literalNameIssue(params: {
   field: 'workflow.name' | 'job.name';
   dynamicField: 'run_name' | 'execution_name';
