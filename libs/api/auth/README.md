@@ -217,7 +217,7 @@ progress and drives that job to completion.
 - **Guidelines for future changes.** Keep the authority narrow: do not add claims
   that grant access beyond the single job, keep the lifetime bounded, keep a single
   issuer, and keep every other side verify-only. If the no-revocation window ever
-  proves too wide, the right fix is to bind the lease to live runner or job state.
+  proves too wide, the right fix is to bind the lease to live runner or job state,
   not to broaden what the token itself can authorize.
 
 ## Routes
