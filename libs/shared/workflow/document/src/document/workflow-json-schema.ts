@@ -1,6 +1,10 @@
 import {z} from 'zod';
 import {thinkingLevelsForHarness} from './step-enums.js';
-import {workflowDocumentAgentStepFields, workflowDocumentSchema} from './workflow-document.js';
+import {
+  WORKFLOW_LITERAL_NAME_PATTERN,
+  workflowDocumentAgentStepFields,
+  workflowDocumentSchema,
+} from './workflow-document.js';
 
 type JsonSchema = Record<string, unknown>;
 
@@ -56,6 +60,7 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
   const rootProperties = propertiesOf(schema);
   const jobs = object(rootProperties.jobs);
   const triggers = object(rootProperties.triggers);
+  addLiteralNamePattern(rootProperties.name);
   jobs.minProperties = 1;
   triggers.minProperties = 1;
 
@@ -91,6 +96,7 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
   ];
 
   const job = object(jobs.additionalProperties);
+  addLiteralNamePattern(propertiesOf(job).name);
   projectCheckoutTargetValidation(propertiesOf(job).checkout);
   projectCheckoutTargetValidation(propertiesOf(stepSchema).checkout);
   const jobOutputs = object(propertiesOf(job).outputs);
@@ -101,6 +107,11 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
 
   const gate = object(propertiesOf(stepSchema).gate);
   addAtLeastOneConstraint(gate, ['success', 'on_failure']);
+}
+
+function addLiteralNamePattern(schema: JsonSchema | undefined) {
+  if (schema === undefined) return;
+  schema.pattern = WORKFLOW_LITERAL_NAME_PATTERN.source;
 }
 
 function projectCheckoutTargetValidation(schema: JsonSchema | undefined) {

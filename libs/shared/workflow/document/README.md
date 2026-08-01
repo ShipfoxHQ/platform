@@ -142,6 +142,9 @@ parseWorkflowDocument({
 ## Behavior Notes
 
 - The public contract is the Zod schema and the TypeScript types built from it.
+- Workflow and job `name` fields must be literal and reject `${{ ... }}`. Put
+  runtime interpolation in `run_name` or `execution_name`; write a literal
+  `${{` as `$${{`.
 - Bad input throws a typed `Error`; UI or API code can read `validationError.issues` for field details.
 - The `checkout` block is checked as input shape here. Default resolution,
   permission capping, credential minting, and runner checkout behavior belong to

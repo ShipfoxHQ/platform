@@ -54,6 +54,7 @@ import {normalizeStepOutputs} from './normalize-step-outputs.js';
 import {parseDurationMs} from './parse-duration-ms.js';
 import {parseInterpolationField} from './parse-interpolation-field.js';
 import {stableId} from './stable-id.js';
+import {unescapeLiteralName, validateLiteralName} from './validate-literal-name.js';
 import {issue} from './validation-issue.js';
 
 export interface NormalizeContext {
@@ -258,32 +259,17 @@ function normalizeJob(params: {
     issues: params.issues,
     allowedJobReferences,
   });
-  const name =
-    params.job.name === undefined
-      ? undefined
-      : (parseInterpolationField({
-          field: 'job.name',
-          source: params.job.name,
-          path: ['jobs', params.sourceName, 'name'],
-          issues: params.issues,
-          allowedJobReferences,
-          typeOverlay: upstreamJobsTypeOverlay,
-        }) ?? [{kind: 'literal' as const, value: params.job.name}]);
-  if (name?.some((segment) => segment.kind !== 'literal')) {
-    params.issues.push(
-      issue({
-        code: 'invalid-interpolation-template',
-        message:
-          'Job name must be static text. Use execution_name for a per-execution dynamic name.',
-        path: ['jobs', params.sourceName, 'name'],
-        details: {
-          field: 'job.name',
-          source: params.job.name,
-          reason: 'Job names cannot contain interpolation expressions.',
-        },
-      }),
-    );
+  if (params.job.name !== undefined) {
+    validateLiteralName({
+      field: 'job.name',
+      dynamicField: 'execution_name',
+      source: params.job.name,
+      path: ['jobs', params.sourceName, 'name'],
+      message: 'Job name must be literal. Move runtime interpolation to execution_name.',
+      issues: params.issues,
+    });
   }
+  const name = params.job.name === undefined ? undefined : unescapeLiteralName(params.job.name);
   const executionName =
     params.job.execution_name === undefined
       ? undefined

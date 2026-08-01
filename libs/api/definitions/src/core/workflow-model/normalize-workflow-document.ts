@@ -13,6 +13,7 @@ import {normalizeEnv} from './normalize-env.js';
 import {normalizeJobs} from './normalize-jobs.js';
 import {normalizeTriggers} from './normalize-triggers.js';
 import {parseInterpolationField} from './parse-interpolation-field.js';
+import {unescapeLiteralName, validateLiteralName} from './validate-literal-name.js';
 
 export function normalizeWorkflowDocument(
   document: WorkflowDocument,
@@ -32,6 +33,14 @@ export function normalizeWorkflowDocument(
     agentValidationCatalog: options.agentValidationCatalog,
     integrationValidationContext: options.integrationValidationContext,
   };
+  validateLiteralName({
+    field: 'workflow.name',
+    dynamicField: 'run_name',
+    source: document.name,
+    path: ['name'],
+    message: 'Workflow name must be literal. Move runtime interpolation to run_name.',
+    issues,
+  });
   const jobIdBySourceName = mapJobIds(document, issues);
   const triggers = normalizeTriggers(document, issues);
   const jobs = normalizeJobs(
@@ -64,7 +73,7 @@ export function normalizeWorkflowDocument(
 
   return {
     kind: 'workflow',
-    name: document.name,
+    name: unescapeLiteralName(document.name),
     ...(runName === undefined ? {} : {runName}),
     ...workflowEnv,
     triggers,

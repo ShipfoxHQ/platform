@@ -29,7 +29,7 @@ describe('planInterpolationField', () => {
   it('routes same-site roots to one deferred segment targeting that site', () => {
     const segments = parseWorkflowTemplate(templateExpression(' run.id + "-" + trigger.event '));
 
-    const result = planInterpolationField({field: 'job.name', segments});
+    const result = planInterpolationField({field: 'workflow.run_name', segments});
 
     expect(result).toMatchObject({
       ok: true,

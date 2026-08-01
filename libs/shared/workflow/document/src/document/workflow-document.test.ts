@@ -16,6 +16,44 @@ function interpolation(source: string): string {
 }
 
 describe('workflowDocumentSchema', () => {
+  it.each([
+    [
+      'workflow',
+      {
+        name: interpolation('inputs.environment'),
+        jobs: {deploy: {steps: [{run: 'deploy'}]}},
+      },
+      'Workflow name must be literal. Move runtime interpolation to run_name.',
+    ],
+    [
+      'job',
+      {
+        name: 'Deploy application',
+        jobs: {
+          deploy: {name: interpolation('inputs.environment'), steps: [{run: 'deploy'}]},
+        },
+      },
+      'Job name must be literal. Move runtime interpolation to execution_name.',
+    ],
+  ] as const)('rejects interpolated static %s names', (_field, document, message) => {
+    const result = workflowDocumentSchema.safeParse(document);
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues).toEqual([expect.objectContaining({message})]);
+  });
+
+  it('accepts a literal name containing an escaped interpolation-like sequence', () => {
+    const escapedInterpolation = `$${interpolation('inputs.environment')}`;
+    const result = workflowDocumentSchema.safeParse({
+      name: escapedInterpolation,
+      jobs: {
+        deploy: {name: escapedInterpolation, steps: [{run: 'deploy'}]},
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('accepts dynamic workflow and job execution names', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'Deploy application',

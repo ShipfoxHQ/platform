@@ -92,13 +92,7 @@ export function workflowModel(input: TestWorkflowModelInput = {}): WorkflowModel
       ...(job.if === undefined ? {} : {if: workflowExpression(job.if)}),
       ...(job.success === undefined ? {} : {success: job.success}),
       ...(job.outputs === undefined ? {} : {outputs: outputTemplates(job.outputs)}),
-      ...(job.name === undefined
-        ? {}
-        : {
-            name: fieldTemplate('job.name', job.name) ?? [
-              {kind: 'literal' as const, value: job.name},
-            ],
-          }),
+      ...(job.name === undefined ? {} : {name: job.name}),
       ...(job.executionName === undefined
         ? {}
         : {

@@ -1121,6 +1121,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "vars": {
+          "name": "vars",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_tool_materialization": {
+          "name": "agent_tool_materialization",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "version": {
           "name": "version",
           "type": "integer",
@@ -1296,6 +1308,12 @@
           "name": "name",
           "type": "text",
           "primaryKey": false,
+          "notNull": false
+        },
+        "workflow_name": {
+          "name": "workflow_name",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "status": {
@@ -1336,6 +1354,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
+        },
+        "trigger_reference": {
+          "name": "trigger_reference",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         },
         "inputs": {
           "name": "inputs",
