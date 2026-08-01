@@ -351,7 +351,7 @@
       "refersTo": "input",
       "description": "Default text field, 32px tall, hairline keyline, orange focus ring.",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"sentry_prod\" />",
-      "css": ".ds-input { height:32px; padding:0 8px; border-radius:4px; background:var(--background-field-base, #ffffff); color:var(--foreground-neutral-base, #0f0f10); font-family:Inter,sans-serif; font-size:14px; border:none; box-shadow:var(--shadow-border-base, 0 -1px 0 0 rgba(255,255,255,0.06), 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 1px #27272a, 0 0 1px 1.5px rgba(24,24,27,0.24), 0 2px 2px 0 rgba(24,24,27,0.24)); } .ds-input::placeholder { color:var(--foreground-neutral-muted, #71717a); } .ds-input:focus { outline:none; box-shadow:0 0 0 1px var(--border-highlights-interactive, #e63e00), 0 0 0 3px rgba(255,75,0,0.25); }"
+      "css": ".ds-input { height:32px; padding:0 8px; border-radius:4px; background:var(--background-field-base, #ffffff); color:var(--foreground-neutral-base, #0f0f10); font-family:Inter,sans-serif; font-size:14px; border:none; box-shadow:var(--shadow-border-base, 0 -1px 0 0 rgba(255,255,255,0.06), 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 1px #27272a, 0 0 1px 1.5px rgba(24,24,27,0.24), 0 2px 2px 0 rgba(24,24,27,0.24)); } .ds-input::placeholder { color:var(--foreground-neutral-muted, #71717a); } .ds-input:focus { outline:none; box-shadow:var(--shadow-border-interactive-with-active, 0 0 0 1px #ff8b16, 0 0 0 4px rgba(255,49,0,0.25)); }"
     },
     {
       "name": "Status Badge (Running)",

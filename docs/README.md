@@ -7,12 +7,15 @@ Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for a human contribution or
 [AGENTS.md](../AGENTS.md) for an agent task. Use this map when the task is not
 listed there or when you need to place, update, or review documentation.
 
+For the durable product record that product and design work preserve (its users,
+purpose, positioning, and principles), see [PRODUCT.md](../PRODUCT.md). This map
+names it and links to it; it does not restate it.
+
 ## Find context by task
 
 | Read when the task... | Canonical source | It owns |
 | --- | --- | --- |
 | Needs the product overview or a starting point outside engineering work. | [Root README](../README.md) | Product orientation and repository navigation. |
-| Needs the durable product record: who the product serves, its purpose, positioning, and principles. | [Product record](../PRODUCT.md) | Confirmed product truth that product and design work must preserve. |
 | Starts a human contribution or needs branch, commit, or pull-request guidance. | [Contributing guide](../CONTRIBUTING.md) | Prerequisites, initial setup, contribution workflow, review standards, and essential validation. |
 | Needs local tasks, service recovery, shared Ollama, or affected-package checks. | [Local development and release workflow](guides/local-development-and-release-workflow.md) | Mise, local services, Ollama, and affected-package checks. |
 | Changes a published package or prepares a release. | [Changesets and publishing workflow](guides/local-development-and-release-workflow.md#publish-packages-with-changesets) | Changeset rules, version bumps, summaries, and publishing. |
