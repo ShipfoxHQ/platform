@@ -8,11 +8,8 @@ import ContextAvailability from '../../generated/reference/context-availability.
 import ContextProperties from '../../generated/reference/context-properties.mdx';
 import ContextRoots from '../../generated/reference/context-roots.mdx';
 
-A **context** is a group of run data that an expression can read, such as
-`event`, `steps`, or `vars`. Read a property with `context.property`, or with
-`context["property"]` when the name is not an identifier.
-
-For the syntax around a context, see [Expressions](/reference/expressions).
+A **context** is a group of run data that an expression can read. See
+[Expressions](/reference/expressions) for the syntax.
 
 ## Available contexts
 
@@ -20,22 +17,25 @@ For the syntax around a context, see [Expressions](/reference/expressions).
 
 ## Context availability
 
-Each workflow field reads a fixed set of contexts.
+Different contexts exist at different points in a run, so each field can read
+only some of them. A trigger `filter` runs before Shipfox creates a run, so it
+reads only `event` and `trigger`. A gate runs after its step reports, so it
+reads `step` and `vars`.
 
 <ContextAvailability />
 
-A predicate field reads one context that the server builds for it. A template
-field can reference any context the field is allowed to resolve. Shipfox fills
-each reference when its data exists. Only `run` and `env` reach `secrets`. The
-runner holds secret values.
+A predicate is evaluated once, so it reads only what exists at that moment. A
+template can combine contexts that become available at different times.
 
-Two fields cannot read their own result:
+Only a run step's `run` command and `env` values can reference `secrets`. See
+[Secrets and variables](/reference/secrets-variables#using-secrets).
 
-- `run_name` cannot read `run.name`.
-- `jobs.<job_id>.execution_name` cannot read `execution.name`.
+Reading a context that the table does not list for a field fails the sync, with
+an error that names the context. The workflow never runs with an empty value in
+its place. See [Correct a context that is not
+available](/how-to/run-and-troubleshoot/workflow-sync#correct-a-context-that-is-not-available).
 
-Workflow `name` and job `name` are literal text and accept no context. Use
-`run_name` and `execution_name` for a name that depends on the run.
+A field cannot read the value it sets: `run_name` cannot read `run.name`.
 
 ## Context properties
 
@@ -45,7 +45,7 @@ Workflow `name` and job `name` are literal text and accept no context. Use
 
 <Cards>
   <Card title="Expressions" href="/reference/expressions">
-    The syntax, operators, and functions available inside `${'{{ }}'}`.
+    The syntax, operators, and functions available inside an expression.
   </Card>
   <Card title="Workflow schema" href="/reference/workflow-schema">
     The fields that carry these expressions.

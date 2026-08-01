@@ -13,7 +13,6 @@ import {webhookEventCatalog} from '@shipfox/api-integration-webhook-dto';
 import {
   buildTypedRootsEnvironment,
   contextRootsForField,
-  getWorkflowContextDefinition,
   getWorkflowContextTypeEnvironment,
   workflowContextDocs,
 } from '@shipfox/expression';
@@ -89,25 +88,12 @@ function renderContextAvailability() {
     '| Workflow key | Available contexts |',
     '|---|---|',
     ...Object.entries(WORKFLOW_FIELD_YAML_KEYS).map(
-      ([field, key]) => `| \`${key}\` | ${availableContexts(contextRootsForField(field))} |`,
+      ([field, key]) =>
+        `| \`${key}\` | ${contextRootsForField(field)
+          .map((root) => `\`${root}\``)
+          .join(', ')} |`,
     ),
   ].join('\n');
-}
-
-/**
- * A template field can read every context its host can resolve, so listing all
- * of them per row buries the one distinction that matters: whether `secrets`
- * is reachable.
- */
-function availableContexts(roots) {
-  const serverRoots = workflowContextDocs
-    .map((doc) => doc.root)
-    .filter((root) => getWorkflowContextDefinition(root).host === 'server');
-  if (roots.length === workflowContextDocs.length) return 'Every context, including `secrets`';
-  if (roots.length === serverRoots.length && serverRoots.every((root) => roots.includes(root))) {
-    return 'Every context except `secrets`';
-  }
-  return roots.map((root) => `\`${root}\``).join(', ');
 }
 
 function renderContextProperties() {

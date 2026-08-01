@@ -24,7 +24,7 @@ export interface WorkflowContextDoc {
 const executionFields = {
   index: 'Position of the execution in its job, starting at zero.',
   name: 'Resolved execution name, or the job name when `execution_name` is not set.',
-  status: 'Terminal status of the execution.',
+  status: 'Final status of the execution.',
   started_at: 'Time the execution started.',
   finished_at: 'Time the execution finished.',
   events: 'Listener events in the batch that started this execution. Empty for a standard job.',
@@ -38,31 +38,31 @@ const executionFields = {
 
 const jobEntityFields = {
   key: 'Key of the job in the `jobs` map.',
-  status: 'Terminal status of the job.',
+  status: 'Final status of the job.',
   outputs: 'Declared job outputs, keyed by output name.',
   executions:
     'Executions of the job, each with the properties of the `execution` context. A standard job has one.',
 } as const;
 
 const stepEntityFields = {
-  status: 'Terminal status of the step.',
-  exit_code: 'Exit code of the latest terminal attempt.',
-  outputs: 'Declared step outputs of the latest terminal attempt.',
+  status: 'Final status of the step.',
+  exit_code: 'Exit code of the most recent finished attempt.',
+  outputs: 'Declared step outputs of the most recent finished attempt.',
   response: 'Final agent response. Absent on a run step.',
-  gate: 'Gate result of the latest terminal attempt. Absent when the step has no gate.',
+  gate: 'Gate result of the most recent finished attempt. Absent when the step has no gate.',
   'gate.passed': 'Whether the gate expression passed.',
   'gate.source': 'Gate expression that produced the result.',
-  'gate.reason': 'Why the gate could not be checked, when it was uncheckable.',
+  'gate.reason': 'Why Shipfox could not check the gate.',
   'gate.exit_code': 'Exit code the gate read.',
-  attempts: 'Every terminal attempt of the step, oldest first.',
-  'attempts[*].status': 'Terminal status of the attempt.',
+  attempts: 'Every finished attempt of the step, oldest first.',
+  'attempts[*].status': 'Final status of the attempt.',
   'attempts[*].exit_code': 'Exit code the attempt reported.',
   'attempts[*].outputs': 'Declared outputs the attempt reported.',
   'attempts[*].response': 'Final agent response of the attempt. Absent on a run step.',
   'attempts[*].gate': 'Gate result of the attempt. Absent when the step has no gate.',
   'attempts[*].gate.passed': 'Whether the gate expression passed.',
   'attempts[*].gate.source': 'Gate expression that produced the result.',
-  'attempts[*].gate.reason': 'Why the gate could not be checked, when it was uncheckable.',
+  'attempts[*].gate.reason': 'Why Shipfox could not check the gate.',
   'attempts[*].gate.exit_code': 'Exit code the gate read.',
 } as const;
 
@@ -113,7 +113,7 @@ export const workflowContextDocs = [
   },
   {
     root: 'job',
-    summary: 'The job being evaluated.',
+    summary: 'The current job.',
     fields: {
       key: 'Key of the job in the `jobs` map.',
       name: 'Job `name`, or the job key when no name is set.',
@@ -157,12 +157,11 @@ export const workflowContextDocs = [
   },
   {
     root: 'step',
-    summary: 'The step being evaluated. Its properties depend on the field reading it.',
+    summary: 'The current step. Its properties depend on the field that reads it.',
     fields: {
       attempt: 'Attempt number of the step, starting at one. Not readable in `gate.success`.',
       is_retry: 'Whether this is a repeat attempt. Not readable in `gate.success`.',
-      restart:
-        'Provenance of a restart, when a gate restarted this step. Not readable in `gate.success`.',
+      restart: 'Set when a gate restarted this step. Not readable in `gate.success`.',
       'restart.from':
         'The step whose gate restarted this attempt, with the properties of a `steps` entry. Not readable in `gate.success`.',
       'restart.feedback': 'Feedback the restarting gate produced. Not readable in `gate.success`.',
@@ -182,6 +181,6 @@ export const workflowContextDocs = [
     root: 'secrets',
     summary: 'Workspace and project secrets.',
     shapeNote:
-      'The keys are the secret names the workspace defines. Only a literal key is allowed. The runner resolves the value, so no predicate can read it.',
+      'The keys are the secret names the workspace defines. Only a literal key is allowed. The runner reads the value, so no predicate can read it.',
   },
 ] as const satisfies readonly WorkflowContextDoc[];
