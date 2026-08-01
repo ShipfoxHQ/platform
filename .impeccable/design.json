@@ -287,7 +287,7 @@
       {
         "name": "focus-ring",
         "value": "0 0 0 2px rgba(255,255,255,0.88), 0 0 0 4px #e63e00",
-        "purpose": "The universal orange focus affordance, appended to any component stack. Never stripped."
+        "purpose": "The button focus ring (--color-primary-500), appended to the button stacks. Fields and inputs use --shadow-border-interactive-with-active instead. Never stripped."
       },
       {
         "name": "tooltip",

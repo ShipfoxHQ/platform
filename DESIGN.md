@@ -7,6 +7,7 @@ colors:
   brand-tint: "#fff4f0"
   ink: "#0f0f10"
   canvas: "#ffffff"
+  on-contrast: "rgba(255,255,255,0.88)"
   surface: "#fafafa"
   panel-inverted: "#1a1a1b"
   primary-fill: "#27272a"
@@ -74,7 +75,7 @@ spacing:
 components:
   button-primary:
     backgroundColor: "{colors.primary-fill}"
-    textColor: "{colors.canvas}"
+    textColor: "{colors.on-contrast}"
     typography: "{typography.body}"
     rounded: "{rounded.button}"
     padding: "0 10px"
@@ -202,10 +203,12 @@ focus, and disabled for one component: `--background-button-*`, `--shadow-button
 ### Primary
 
 - **Shipfox Orange** (`brand` / `brand-deep`, `--color-primary-400` / `-500`): the
-  single brand accent. `brand` is the dark-mode interactive value and the brand
-  mark; `brand-deep` is the light-mode interactive value and, at every theme, the
-  focus ring. `brand-tint` (`--color-primary-50`) is the faintest interactive
-  wash on hover.
+  single brand accent. `brand` is the inline-link and foreground accent
+  (`--foreground-highlight-interactive`) in both themes, and the brand mark.
+  `brand-deep` is the button focus ring at every theme, and the light-mode
+  highlight surface (`--background-highlight-interactive`, which flips to `brand`
+  in dark). `brand-tint` (`--color-primary-50`) is the faintest interactive wash
+  on hover.
 
 ### Neutral
 
@@ -340,7 +343,8 @@ are theme-aware inside the token, so a component never sets a raw shadow.
 - **`--shadow-button-inverted` / `-neutral` / `-danger` / `-success`**: the
   per-variant button stacks (key-line in the variant color plus ambient drop).
 - **`--shadow-button-*-focus`**: the same stack plus a 2px halo and a 4px
-  `--color-primary-500` ring. This is the focus affordance across the system.
+  `--color-primary-500` ring. This is the button focus affordance; fields and
+  inputs compose their own `--shadow-border-interactive-with-active` ring.
 - **`--shadow-tooltip`**: the lifted stack for tooltips and popovers.
 - **`--shadow-separator-inset`**: an inset top-highlight / bottom-shadow pair for
   hairline dividers inside dark panels.
@@ -349,10 +353,13 @@ are theme-aware inside the token, so a component never sets a raw shadow.
 shadows break in dark mode because they miss the theme-aware alpha layering the
 tokens carry. If you need a new elevation, add a token.
 
-**The Flat-Focus-Ring Rule.** The orange focus ring is universal and never
-stripped. If a container's `overflow-hidden` would clip the standard outset ring
-(as inside a log row frame), switch that one control to an inset ring in
-`--color-primary-500` (theme-invariant), never remove it.
+**The Flat-Focus-Ring Rule.** An orange focus ring is universal and never
+stripped, though the exact token differs by family: buttons compose
+`--shadow-button-*-focus` (a `--color-primary-500` ring) and fields compose
+`--shadow-border-interactive-with-active`. If a container's `overflow-hidden`
+would clip the standard outset ring (as inside a log row frame), switch that one
+control to an inset ring in `--color-primary-500` (theme-invariant), never remove
+it.
 
 ## Shapes
 

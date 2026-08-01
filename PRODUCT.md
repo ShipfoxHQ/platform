@@ -22,7 +22,7 @@ workflows built from shell commands and AI agents. Workflows plug into the tools
 that power an engineering team, such as ticketing, monitoring, chat, and source
 control, through one secured layer. The same connection that starts a workflow
 when something happens also lets the workflow act back on those tools. Runs
-happen in ephemeral, sandboxed environments and are fully observable end to end,
+happen in isolated environments and are fully observable end to end,
 so teams can see what their agents did, why, and at what cost.
 
 Success is that a user connects a repository and gets their first real workflow
@@ -55,9 +55,10 @@ and on how far a team can scale and control their factory from there.
   you can read a Shipfox workflow.
 - **Triggering.** Runs start from events on connected integrations (GitHub,
   Sentry, Slack, Linear, and a generic webhook for anything else) or on demand.
-- **Execution.** Workflows run in ephemeral, sandboxed runners. On cloud, Shipfox
-  provides and manages them. Teams can also register their own runners or have
-  Shipfox provision them on demand in their own infrastructure.
+- **Execution.** Workflows run on isolated runners. On cloud, Shipfox provides
+  and manages them, provisioning ephemeral runners per job or reusing long-lived
+  capacity. Teams can also register their own runners or have Shipfox provision
+  them on demand in their own infrastructure.
 - **Observation.** The dashboard gives full visibility into every run, so teams can
   troubleshoot failures, monitor how workflows behave over time, and fine-tune
   them.
@@ -79,7 +80,7 @@ must not diverge from it:
   failure, up to a safe limit.
 - **Listening job:** a job that waits on events and runs again per batch inside
   the same run until a resolution condition.
-- **Runner:** the sandboxed process that executes a job. Shipfox provides and
+- **Runner:** the application that runs a job's steps. Shipfox provides and
   manages runners on cloud; users can also register their own or have Shipfox
   provision them in their infrastructure.
 - **Harness:** the agent runtime for an agent step. `pi` runs any of 30+
