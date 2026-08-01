@@ -1,4 +1,4 @@
-import {useProjectsInfiniteQuery} from '@shipfox/client-projects';
+import {useProjectQuery, useProjectsInfiniteQuery} from '@shipfox/client-projects';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -20,7 +20,7 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
-import {useEffect, useMemo} from 'react';
+import {useMemo} from 'react';
 import type {
   TriggerEventDetail as TriggerEventDetailModel,
   TriggerEventMatchedWorkflowResult,
@@ -262,10 +262,6 @@ function EventRunsWithProjects({
   event: TriggerEventDetailModel;
 }) {
   const projectsQuery = useProjectsInfiniteQuery(workspaceId);
-  useEffect(() => {
-    if (!projectsQuery.hasNextPage || projectsQuery.isFetchingNextPage) return;
-    void projectsQuery.fetchNextPage();
-  }, [projectsQuery.fetchNextPage, projectsQuery.hasNextPage, projectsQuery.isFetchingNextPage]);
   const projectSlugs = useMemo(
     () =>
       new Map(
@@ -298,6 +294,7 @@ function EventRunsList({
           <DecisionRow
             key={decision.id}
             workspaceSlug={workspaceSlug}
+            projectId={decision.projectId}
             projectSlug={decision.projectId ? projectSlugs.get(decision.projectId) : undefined}
             decision={decision}
           />
@@ -308,14 +305,19 @@ function EventRunsList({
 }
 
 function DecisionRow({
+  projectId,
   projectSlug,
   workspaceSlug,
   decision,
 }: {
+  projectId?: string | undefined;
   projectSlug?: string | undefined;
   workspaceSlug?: string | undefined;
   decision: TriggerEventMatchedWorkflowResult;
 }) {
+  const projectQuery = useProjectQuery(projectSlug ? undefined : projectId);
+  const resolvedProjectSlug = projectSlug ?? projectQuery.data?.slug;
+
   if (decision.decision !== 'triggered' || !decision.runId || !decision.runName) {
     return (
       <li className="flex min-w-0 items-start gap-8 rounded-6 px-8 py-6">
@@ -364,12 +366,12 @@ function DecisionRow({
 
   return (
     <li>
-      {workspaceSlug && projectSlug ? (
+      {workspaceSlug && resolvedProjectSlug ? (
         <Link
           to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
           params={{
             workspaceSlug,
-            projectSlug,
+            projectSlug: resolvedProjectSlug,
             workflowRunId: decision.runId,
           }}
           className={rowClassName}

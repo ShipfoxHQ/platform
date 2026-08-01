@@ -62,12 +62,18 @@ function makeEvent(
   };
 }
 
-function renderWithProviders(ui: ReactElement) {
+function renderWithProviders(
+  ui: ReactElement,
+  {includeListProject = true, includeDetailProject = false} = {},
+) {
   const queryClient = new QueryClient();
+  const project = {id: PROJECT_ID, slug: 'checkout-api'};
+  queryClient.setQueryDefaults(projectsQueryKeys.detail(PROJECT_ID), {staleTime: Infinity});
   queryClient.setQueryData(projectsQueryKeys.list(WORKSPACE_ID), {
-    pages: [{projects: [{id: PROJECT_ID, slug: 'checkout-api'}], nextCursor: null}],
+    pages: [{projects: includeListProject ? [project] : [], nextCursor: null}],
     pageParams: [undefined],
   });
+  if (includeDetailProject) queryClient.setQueryData(projectsQueryKeys.detail(PROJECT_ID), project);
   return render(
     <QueryClientProvider client={queryClient}>
       <RelativeTimeProvider>{ui}</RelativeTimeProvider>
@@ -75,7 +81,11 @@ function renderWithProviders(ui: ReactElement) {
   );
 }
 
-function renderDetailView(event: TriggerEventDetailResponseDto, onBack = vi.fn()) {
+function renderDetailView(
+  event: TriggerEventDetailResponseDto,
+  onBack = vi.fn(),
+  options?: {includeListProject?: boolean; includeDetailProject?: boolean},
+) {
   return renderWithProviders(
     <TriggerEventDetailView
       workspaceId={WORKSPACE_ID}
@@ -83,6 +93,7 @@ function renderDetailView(event: TriggerEventDetailResponseDto, onBack = vi.fn()
       event={toTriggerEventDetail(event)}
       onBack={onBack}
     />,
+    options,
   );
 }
 
@@ -167,6 +178,18 @@ describe('TriggerEventDetailView', () => {
 
     expect(await screen.findByText('No run created')).toBeInTheDocument();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  test('resolves a matched project from its detail query when it is not in the list page', async () => {
+    renderDetailView(makeEvent(), vi.fn(), {
+      includeListProject: false,
+      includeDetailProject: true,
+    });
+
+    expect(await screen.findByRole('link', {name: DEPLOY_RUN_LINK_NAME})).toHaveAttribute(
+      'href',
+      `/w/acme/p/checkout-api/runs/${RUN_ID}`,
+    );
   });
 
   test('calls onBack from the focused detail panel control', async () => {
