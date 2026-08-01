@@ -5,7 +5,7 @@ import {sessionViewRowSchema} from './session-view.js';
  * NDJSON log record contract: one JSON object per line, runner-framed.
  *
  * `offset` / `committed_length` are byte positions in the raw append NDJSON spool stream
- * (envelope included) is the offset-CAS axis the runner tracks. The per-job accrual
+ * (envelope included): the offset-CAS axis the runner tracks. The per-job accrual
  * budget charges the normalized NDJSON bytes the server stores, so framing and control records
  * count against it too. The per-record byte caps below bound each record so a single
  * entry's overhead is known and a runner cannot grow storage without moving the
