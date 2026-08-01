@@ -18,6 +18,19 @@ export interface WorkflowModelCheckoutTemplates {
   readonly path?: WorkflowFieldTemplate;
 }
 
+export type WorkflowModelCheckoutTargetKey = keyof WorkflowModelCheckoutTemplates;
+
+export const WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS = [
+  ['project', 'checkout.project'],
+  ['connection', 'checkout.connection'],
+  ['repository', 'checkout.repository'],
+  ['ref', 'checkout.ref'],
+  ['path', 'checkout.path'],
+] as const satisfies readonly (readonly [
+  WorkflowModelCheckoutTargetKey,
+  `checkout.${WorkflowModelCheckoutTargetKey}`,
+])[];
+
 export interface WorkflowModelCheckout {
   readonly project?: string;
   readonly connection?: string;

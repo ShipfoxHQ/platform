@@ -1,3 +1,4 @@
+import {WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS} from '@shipfox/api-definitions-dto';
 import {assertWorkingDirectory} from '@shipfox/api-workflows-dto';
 import {capTraceEntries} from '@shipfox/expression';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
@@ -77,11 +78,10 @@ function completeCheckoutConfig(params: {
   const resolvedCheckout = {...checkout} as Record<string, unknown>;
   params.config.checkout = resolvedCheckout;
 
-  for (const key of ['project', 'connection', 'repository', 'ref', 'path'] as const) {
+  for (const [key, fieldName] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
     const field = checkoutPlan[key];
     if (field === undefined) continue;
 
-    const fieldName = `checkout.${key}` as const;
     const resolved = completeStepFieldWithTrace({
       field: fieldName,
       template: field,

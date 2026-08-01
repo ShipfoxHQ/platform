@@ -1,8 +1,5 @@
-import type {
-  WorkflowEnvTemplates,
-  WorkflowModel,
-  WorkflowModelCheckoutTemplates,
-} from '@shipfox/api-definitions-dto';
+import type {WorkflowEnvTemplates, WorkflowModel} from '@shipfox/api-definitions-dto';
+import {WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS} from '@shipfox/api-definitions-dto';
 import {
   type AvailabilitySite,
   capTraceEntries,
@@ -83,16 +80,6 @@ interface CheckoutConfig {
   readonly trace: readonly WorkflowStepEvaluationTraceEntry[];
   readonly hasTemplates: boolean;
 }
-
-type CheckoutTargetKey = keyof WorkflowModelCheckoutTemplates;
-
-const checkoutTargetFields = [
-  ['project', 'checkout.project'],
-  ['connection', 'checkout.connection'],
-  ['repository', 'checkout.repository'],
-  ['ref', 'checkout.ref'],
-  ['path', 'checkout.path'],
-] as const satisfies readonly (readonly [CheckoutTargetKey, `checkout.${CheckoutTargetKey}`])[];
 
 export async function resolveStepConfig(
   params: ResolveStepConfigParams,
@@ -271,7 +258,7 @@ function resolveCheckoutStepConfig(
   const trace: WorkflowStepEvaluationTraceEntry[] = [];
   let hasTemplates = false;
 
-  for (const [key, field] of checkoutTargetFields) {
+  for (const [key, field] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
     const template = checkout.templates?.[key];
     if (template !== undefined) hasTemplates = true;
 

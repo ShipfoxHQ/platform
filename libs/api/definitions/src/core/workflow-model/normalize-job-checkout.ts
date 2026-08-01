@@ -1,8 +1,9 @@
 import {
   DEFAULT_JOB_CHECKOUT,
+  WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS,
   type WorkflowFieldTemplate,
   type WorkflowModelCheckout,
-  type WorkflowModelCheckoutTemplates,
+  type WorkflowModelCheckoutTargetKey,
   type WorkflowModelJobCheckout,
 } from '@shipfox/api-definitions-dto';
 import type {AvailabilitySite, ExpressionTypeEnvironment} from '@shipfox/expression';
@@ -15,16 +16,6 @@ import {parseInterpolationField} from './parse-interpolation-field.js';
 import {issue} from './validation-issue.js';
 
 export {DEFAULT_JOB_CHECKOUT};
-
-type CheckoutTargetKey = keyof WorkflowModelCheckoutTemplates;
-
-const checkoutTargetFields = [
-  ['project', 'checkout.project'],
-  ['connection', 'checkout.connection'],
-  ['repository', 'checkout.repository'],
-  ['ref', 'checkout.ref'],
-  ['path', 'checkout.path'],
-] as const satisfies readonly (readonly [CheckoutTargetKey, `${string}.${CheckoutTargetKey}`])[];
 
 export function normalizeJobCheckout(params: {
   checkout: WorkflowDocumentJob['checkout'];
@@ -63,8 +54,8 @@ export function normalizeCheckout(params: {
 }): WorkflowModelCheckout {
   validateCheckoutTargetShape(params);
 
-  const templates: Partial<Record<CheckoutTargetKey, WorkflowFieldTemplate>> = {};
-  for (const [key, field] of checkoutTargetFields) {
+  const templates: Partial<Record<WorkflowModelCheckoutTargetKey, WorkflowFieldTemplate>> = {};
+  for (const [key, field] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
     const source = params.checkout[key];
     if (source === undefined) continue;
 
