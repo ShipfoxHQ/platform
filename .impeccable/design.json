@@ -243,6 +243,51 @@
           "#c4b5fd",
           "#ede9fe"
         ]
+      },
+      "danger": {
+        "role": "status",
+        "displayName": "Danger Fill",
+        "canonical": "#e11d48",
+        "tonalRamp": [
+          "#4c0519",
+          "#881337",
+          "#be123c",
+          "#e11d48",
+          "#f43f5e",
+          "#fb7185",
+          "#fda4af",
+          "#ffe4e6"
+        ]
+      },
+      "primary-fill-hover": {
+        "role": "neutral",
+        "displayName": "Primary Fill Hover",
+        "canonical": "#3f3f46",
+        "tonalRamp": [
+          "#0f0f10",
+          "#1a1a1b",
+          "#27272a",
+          "#3f3f46",
+          "#52525b",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8"
+        ]
+      },
+      "on-contrast": {
+        "role": "neutral",
+        "displayName": "Label On Contrast",
+        "canonical": "rgba(255,255,255,0.88)",
+        "tonalRamp": [
+          "rgba(255,255,255,0.16)",
+          "rgba(255,255,255,0.24)",
+          "rgba(255,255,255,0.40)",
+          "rgba(255,255,255,0.56)",
+          "rgba(255,255,255,0.64)",
+          "rgba(255,255,255,0.72)",
+          "rgba(255,255,255,0.88)",
+          "#ffffff"
+        ]
       }
     },
     "typographyMeta": {

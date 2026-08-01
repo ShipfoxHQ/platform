@@ -394,7 +394,7 @@ building anything: `accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`
 - **Shape:** `rounded-6`. Sizes `2xs` (20px), `xs` (24), `sm` (28), `md` (32,
   default), `lg` (36), `xl` (40). Tables and run-viewer toolbars trend to `sm`;
   marketing CTAs to `lg`.
-- **Primary:** inverted neutral fill (near-black on light, near-white on dark),
+- **Primary:** inverted neutral fill (near-black on light, a mid-tone neutral on dark),
   `--background-button-inverted-*`. This is the dominant action in a form, modal,
   or header. It is deliberately not orange: primary actions recur constantly in
   tables and modals, and an orange fill would exhaust the eye and compete with
