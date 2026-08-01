@@ -18,8 +18,8 @@
 
 Shipfox is a continuous shipping platform for workflows that reason and react:
 every step is a shell command or an AI agent, and events drive the run from start
-to finish, on compute you own. A software factory that assembles itself in your
-repo.
+to finish, in secure, ephemeral sandboxes. A software factory that assembles
+itself in your repo.
 
 ```yaml
 name: Fix new Sentry issues
@@ -68,8 +68,9 @@ then a `gate` reruns the tests and sends the agent back until they pass.
 - **Pick the agent, not just the model.** Run an agent step on the `pi` harness
   (any of 30+ providers) or the `claude` harness (the Claude Agent SDK on your
   Anthropic key), chosen per step.
-- **Your own runners, your own keys.** Runners poll outbound, so nothing connects
-  into your network. Model traffic leaves from your runners across 30+ providers.
+- **Secure, ephemeral runners.** Every job runs in a fresh, isolated sandbox that
+  polls outbound for work, so nothing connects in. Bring your own keys across 30+
+  model providers.
 
 ## Core concepts
 
@@ -82,7 +83,7 @@ then a `gate` reruns the tests and sends the agent back until they pass.
 | **Step** | A `run` shell command or an agent (`model` + `prompt`, on the `pi` or `claude` harness). Runs in order within a job. |
 | **Gate** | A pass/fail [check on a step](apps/docs/content/docs/understand/feedback-loops.mdx) that retries from an earlier step when it fails. Bounded retry loops, no scripting. |
 | **Listening job** | A [job that waits on events](apps/docs/content/docs/understand/listening-jobs.mdx) and runs again per batch inside the same run, until a resolution condition. Drives event-driven, asynchronous workflows. |
-| **Runner** | A process you register on your own compute; matched to jobs by label. |
+| **Runner** | A secure, ephemeral sandbox that runs a job's steps, matched to jobs by label. |
 
 ## Getting started
 

@@ -123,8 +123,12 @@ system serves is recorded in [PRODUCT.md](PRODUCT.md).
 **The code is canonical.** [The shared CSS](libs/shared/react/ui/index.css) and
 the [`@shipfox/react-ui`](libs/shared/react/ui/) package hold the exact token and
 component values. This document explains the system and its intent; the
-frontmatter above is the machine-readable source of the primitives. When code and
-prose disagree, the code wins and this file is corrected in the same change.
+frontmatter above is the machine-readable source of the primitives, recorded as
+their light-mode canonical values. The semantic tokens named in each section flip
+for dark mode, so tooling that needs theme-correct output resolves the named token
+(for example `--background-button-inverted-default`) rather than the raw hex. When
+code and prose disagree, the code wins and this file is corrected in the same
+change.
 
 ## Overview
 

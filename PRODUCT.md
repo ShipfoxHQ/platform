@@ -64,7 +64,9 @@ and on how far a team can scale and control their factory from there.
 
 ## Capabilities and Constraints
 
-Confirmed vocabulary (canonical terms, keep them consistent):
+Confirmed vocabulary. The [Root README](README.md) core-concepts table is the
+canonical glossary; this list summarizes those terms for the product record and
+must not diverge from it:
 
 - **Workflow:** one YAML file under `.shipfox/workflows/`; one file, one workflow.
 - **Trigger:** what starts a run, an integration event or an on-demand fire.
