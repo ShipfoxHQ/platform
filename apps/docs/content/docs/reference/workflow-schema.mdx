@@ -13,6 +13,7 @@ import {
   EnvironmentVariables,
   GateFailureFields,
   GateFields,
+  JobCheckoutFields,
   JobFields,
   ListeningBatchFields,
   ListeningFields,
@@ -120,7 +121,16 @@ jobs:
 
 <JobFields />
 
+### Job checkout fields
+
+The job-level `checkout` block supports repository permissions and credential
+persistence, or `false` to skip the implicit checkout.
+
+<JobCheckoutFields />
+
 ## Checkout fields
+
+These fields apply to an explicit checkout step.
 
 <CheckoutFields />
 

@@ -43,7 +43,12 @@ export type StoredInterpolationField =
   | 'job.runner'
   | 'step.name'
   | 'step.working_directory'
-  | 'step.feedback';
+  | 'step.feedback'
+  | 'checkout.project'
+  | 'checkout.connection'
+  | 'checkout.repository'
+  | 'checkout.ref'
+  | 'checkout.path';
 
 export function parseInterpolationField(params: {
   field: StoredInterpolationField;

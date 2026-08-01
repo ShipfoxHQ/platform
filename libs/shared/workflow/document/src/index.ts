@@ -22,6 +22,7 @@ export {
   WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_SERIALIZED_BYTES,
   WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES,
   type WorkflowDocument,
+  type WorkflowDocumentCheckout,
   type WorkflowDocumentEnv,
   type WorkflowDocumentJob,
   type WorkflowDocumentJobCheckout,

@@ -256,7 +256,8 @@ function renderWorkflowSchemaReference() {
   const integrations = object(steps.properties).integrations;
   const integration = object(integrations.items);
   const gate = object(steps.properties).gate;
-  const checkout = objectSchemaFor(object(jobs.properties).checkout);
+  const jobCheckout = objectSchemaFor(object(jobs.properties).checkout);
+  const checkout = objectSchemaFor(object(steps.properties).checkout);
   const checkoutPermissions = object(checkout.properties).permissions;
   const gateFailure = object(gate.properties).on_failure;
   const triggers = object(root.triggers);
@@ -283,16 +284,20 @@ function renderWorkflowSchemaReference() {
     component('JobFields', object(jobs.properties), {
       required: ['steps'],
       nested: {
-        checkout: '#checkout-fields',
+        checkout: '#job-checkout-fields',
         listening: '#listening-fields',
       },
       types: {
         outputs: recordType('string'),
-        checkout: namedType('Checkout'),
+        checkout: namedType('JobCheckout'),
         listening: namedType('Listening'),
         env: namedType('Environment'),
         steps: codeType('Step[]'),
       },
+    }),
+    component('JobCheckoutFields', object(jobCheckout.properties), {
+      nested: {permissions: '#checkout-permissions-fields'},
+      types: {permissions: namedType('CheckoutPermissions')},
     }),
     component('CheckoutFields', object(checkout.properties), {
       nested: {permissions: '#checkout-permissions-fields'},

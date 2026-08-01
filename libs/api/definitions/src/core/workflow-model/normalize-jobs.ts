@@ -1,5 +1,4 @@
 import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
-import {DEFAULT_JOB_CHECKOUT} from '@shipfox/api-definitions-dto';
 import {
   type AvailabilitySite,
   buildTypedRootsEnvironment,
@@ -45,7 +44,7 @@ import type {
 import {normalizeAgentIntegrations} from './normalize-agent-integrations.js';
 import {normalizeEnv} from './normalize-env.js';
 import {normalizeIfCondition} from './normalize-if-condition.js';
-import {normalizeJobCheckout} from './normalize-job-checkout.js';
+import {normalizeCheckout, normalizeJobCheckout} from './normalize-job-checkout.js';
 import {normalizeJobListening} from './normalize-job-listening.js';
 import {normalizeJobSuccess} from './normalize-job-success.js';
 import {normalizeNeeds} from './normalize-needs.js';
@@ -662,7 +661,17 @@ function normalizeStep(params: {
   }
 
   if (params.step.checkout !== undefined) {
-    return normalizeCheckoutStep({step: params.step, stepBase, name});
+    return normalizeCheckoutStep({
+      step: params.step,
+      stepBase,
+      name,
+      sourceName: params.sourceName,
+      stepIndex: params.index,
+      issues: params.issues,
+      fillSite: params.fillSite,
+      allowedJobReferences: params.allowedJobReferences,
+      typeOverlay,
+    });
   }
 
   // Keep the model-step union honest if callers bypass the document parser.
@@ -673,25 +682,26 @@ function normalizeCheckoutStep(params: {
   step: WorkflowDocumentStep;
   stepBase: WorkflowModelStepBaseFields;
   name: WorkflowFieldTemplate | undefined;
+  sourceName: string;
+  stepIndex: number;
+  issues: WorkflowModelValidationIssue[];
+  fillSite: AvailabilitySite;
+  allowedJobReferences: ReadonlySet<string>;
+  typeOverlay?: ExpressionTypeEnvironment | undefined;
 }): WorkflowModelCheckoutStep {
   const checkout = params.step.checkout;
   if (checkout === undefined) {
     throw new Error('Checkout step normalization requires checkout settings');
   }
 
-  const normalizedCheckout: WorkflowModelStepCheckout = {
-    ...(checkout.project === undefined ? {} : {project: checkout.project}),
-    ...(checkout.connection === undefined ? {} : {connection: checkout.connection}),
-    ...(checkout.repository === undefined ? {} : {repository: checkout.repository}),
-    ...(checkout.ref === undefined ? {} : {ref: checkout.ref}),
-    fetchDepth: checkout['fetch-depth'] ?? 1,
-    ...(checkout.path === undefined ? {} : {path: checkout.path}),
-    permissions: {
-      contents: checkout.permissions?.contents ?? DEFAULT_JOB_CHECKOUT.permissions.contents,
-    },
-    persistCredentials: checkout['persist-credentials'] ?? DEFAULT_JOB_CHECKOUT.persistCredentials,
-    ...(checkout.force === undefined ? {} : {force: checkout.force}),
-  };
+  const normalizedCheckout: WorkflowModelStepCheckout = normalizeCheckout({
+    checkout,
+    issues: params.issues,
+    path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'checkout'],
+    fillSite: params.fillSite,
+    allowedJobReferences: params.allowedJobReferences,
+    typeOverlay: params.typeOverlay,
+  });
 
   return {
     ...params.stepBase,

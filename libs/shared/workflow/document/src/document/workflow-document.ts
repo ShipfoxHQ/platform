@@ -296,6 +296,21 @@ const workflowDocumentStepGateSchema = z
     message: 'Expected success or on_failure',
   });
 
+const workflowDocumentCheckoutPermissionsSchema = z
+  .strictObject({
+    contents: z.enum(['read', 'write']).optional().meta({
+      description: 'Repository contents permission granted to checkout.',
+    }),
+  })
+  .optional()
+  .meta({
+    description: 'Repository permissions used during checkout.',
+  });
+
+const workflowDocumentPersistCredentialsSchema = z.boolean().optional().meta({
+  description: 'Whether checkout credentials remain available to later run steps.',
+});
+
 export const workflowDocumentCheckoutSchema = z
   .strictObject({
     project: z.string().min(1).optional().meta({
@@ -316,19 +331,8 @@ export const workflowDocumentCheckoutSchema = z
     path: z.string().min(1).optional().meta({
       description: 'Relative path under the job workspace where this repository is checked out.',
     }),
-    permissions: z
-      .strictObject({
-        contents: z.enum(['read', 'write']).optional().meta({
-          description: 'Repository contents permission granted to checkout.',
-        }),
-      })
-      .optional()
-      .meta({
-        description: 'Repository permissions used during checkout.',
-      }),
-    'persist-credentials': z.boolean().optional().meta({
-      description: 'Whether checkout credentials remain available to later run steps.',
-    }),
+    permissions: workflowDocumentCheckoutPermissionsSchema,
+    'persist-credentials': workflowDocumentPersistCredentialsSchema,
     force: z.boolean().optional().meta({
       description: 'Whether checkout may replace an occupied destination.',
     }),
@@ -351,7 +355,13 @@ export const workflowDocumentCheckoutSchema = z
   });
 
 const workflowDocumentJobCheckoutSchema = z
-  .union([workflowDocumentCheckoutSchema, z.literal(false)])
+  .union([
+    z.strictObject({
+      permissions: workflowDocumentCheckoutPermissionsSchema,
+      'persist-credentials': workflowDocumentPersistCredentialsSchema,
+    }),
+    z.literal(false),
+  ])
   .meta({
     description:
       'Checkout settings for repository content and credentials, or false to skip checkout.',
@@ -601,6 +611,7 @@ export const workflowDocumentSchema = z.strictObject({
 });
 
 export type WorkflowDocument = z.infer<typeof workflowDocumentSchema>;
+export type WorkflowDocumentCheckout = z.infer<typeof workflowDocumentCheckoutSchema>;
 export type WorkflowDocumentJobCheckout = z.infer<typeof workflowDocumentJobCheckoutSchema>;
 export type WorkflowDocumentEnv = z.infer<typeof workflowDocumentEnvSchema>;
 export type WorkflowDocumentJob = z.infer<typeof workflowDocumentJobSchema>;

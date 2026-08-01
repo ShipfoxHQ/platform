@@ -1118,6 +1118,74 @@ describe('normalizeWorkflowDocument', () => {
     );
   });
 
+  it('normalizes checkout-step targets from earlier step outputs', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'templated checkout step',
+      jobs: {
+        build: {
+          steps: [
+            {
+              key: 'route',
+              run: 'echo route',
+              outputs: {
+                connection: {type: 'string'},
+                repository: {type: 'string'},
+                ref: {type: 'string'},
+                path: {type: 'string'},
+              },
+            },
+            {
+              key: 'checkout',
+              checkout: {
+                connection: interpolation('inputs.connection'),
+                repository: interpolation('steps.route.outputs.repository'),
+                ref: interpolation('steps.route.outputs.ref'),
+                path: interpolation('steps.route.outputs.path'),
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(model.jobs[0]?.steps[1]).toMatchObject({
+      kind: 'checkout',
+      checkout: {
+        connection: interpolation('inputs.connection'),
+        repository: interpolation('steps.route.outputs.repository'),
+        ref: interpolation('steps.route.outputs.ref'),
+        path: interpolation('steps.route.outputs.path'),
+        fetchDepth: 1,
+        permissions: {contents: 'read'},
+        persistCredentials: true,
+        templates: {
+          connection: [{kind: 'deferred', roots: ['inputs'], fillTarget: 'run-creation'}],
+          repository: [{kind: 'deferred', roots: ['steps'], fillTarget: 'step-dispatch'}],
+          ref: [{kind: 'deferred', roots: ['steps'], fillTarget: 'step-dispatch'}],
+          path: [{kind: 'deferred', roots: ['steps'], fillTarget: 'step-dispatch'}],
+        },
+      },
+    });
+  });
+
+  it('reports invalid checkout target combinations from model normalization', () => {
+    const error = expectInvalid({
+      name: 'invalid checkout target',
+      jobs: {
+        build: {
+          steps: [{checkout: {project: 'project-id', repository: 'acme/api'}}],
+        },
+      },
+    });
+
+    expect(error.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'checkout-target-invalid',
+        path: ['jobs', 'build', 'steps', 0, 'checkout', 'repository'],
+      }),
+    );
+  });
+
   it('normalizes checkout steps and their static defaults', () => {
     const model = normalizeWorkflowDocument({
       name: 'checkout step',
@@ -1175,6 +1243,7 @@ describe('normalizeWorkflowDocument', () => {
     const model = normalizeWorkflowDocument(document);
 
     expect(model.jobs[0]?.checkout).toEqual({
+      fetchDepth: 1,
       permissions: {contents: 'write'},
       persistCredentials: true,
     });
@@ -1194,6 +1263,7 @@ describe('normalizeWorkflowDocument', () => {
     const model = normalizeWorkflowDocument(document);
 
     expect(model.jobs[0]?.checkout).toEqual({
+      fetchDepth: 1,
       permissions: {contents: 'read'},
       persistCredentials: false,
     });

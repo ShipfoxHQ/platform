@@ -10,12 +10,15 @@ import {z} from 'zod';
 export const DEFAULT_RUN_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_JOB_SUCCESS = "!executions.exists(e, e.status == 'failed')";
 
-export interface WorkflowModelJobCheckout {
-  readonly permissions: {readonly contents: 'read' | 'write'};
-  readonly persistCredentials: boolean;
+export interface WorkflowModelCheckoutTemplates {
+  readonly project?: WorkflowFieldTemplate;
+  readonly connection?: WorkflowFieldTemplate;
+  readonly repository?: WorkflowFieldTemplate;
+  readonly ref?: WorkflowFieldTemplate;
+  readonly path?: WorkflowFieldTemplate;
 }
 
-export interface WorkflowModelStepCheckout {
+export interface WorkflowModelCheckout {
   readonly project?: string;
   readonly connection?: string;
   readonly repository?: string;
@@ -25,9 +28,15 @@ export interface WorkflowModelStepCheckout {
   readonly permissions: {readonly contents: 'read' | 'write'};
   readonly persistCredentials: boolean;
   readonly force?: boolean;
+  readonly templates?: WorkflowModelCheckoutTemplates;
 }
 
+export interface WorkflowModelJobCheckout extends WorkflowModelCheckout {}
+
+export interface WorkflowModelStepCheckout extends WorkflowModelCheckout {}
+
 export const DEFAULT_JOB_CHECKOUT: WorkflowModelJobCheckout = {
+  fetchDepth: 1,
   permissions: {contents: 'read'},
   persistCredentials: true,
 };
