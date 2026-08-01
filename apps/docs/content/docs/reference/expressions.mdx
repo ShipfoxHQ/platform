@@ -39,49 +39,55 @@ computed key such as `vars[inputs.name]` is not.
 
 ## Types
 
-| Type | Example |
+| Type | Written as |
 | --- | --- |
 | `string` | `"refs/heads/main"` |
 | `int` | `42` |
 | `double` | `1.5` |
 | `bool` | `true` |
-| `timestamp` | `run.created_at` |
-| `list` | `execution.events` |
-| `map` | `steps.build.outputs` |
+| `list` | `["main", "release"]` |
+| `map` | `{"env": "prod"}` |
+| `timestamp` | `timestamp("2026-01-01T00:00:00Z")` |
 
 ## Operators
 
-| Operator | Meaning |
-| --- | --- |
-| `==`, `!=` | Equal, not equal |
-| `<`, `<=`, `>`, `>=` | Ordered comparison |
-| `&&`, `||`, `!` | And, or, not |
-| `in` | Membership in a list or map |
-| `+`, `-`, `*`, `/`, `%` | Arithmetic. `+` also joins strings and lists |
-| `? :` | Conditional value |
+| Operator | Example | Result |
+| --- | --- | --- |
+| `==`, `!=` | `trigger.event == "push"` | Compares two values of the same type |
+| `<`, `<=`, `>`, `>=` | `run.created_at > timestamp("2026-01-01T00:00:00Z")` | Orders numbers, strings, and timestamps |
+| `&&`, `\|\|`, `!` | `job.key == "deploy" && !step.is_retry` | Combines boolean values |
+| `in` | `"prod" in inputs.environments` | True when a list contains the value |
+| `in` | `"API_URL" in vars` | True when a map contains the key |
+| `+` | `"v" + inputs.version` | Adds numbers, joins strings, joins lists |
+| `-`, `*`, `/`, `%` | `executions.size() % 2 == 0` | Arithmetic on numbers |
+| `? :` | `run.number == 1 ? "first" : "rerun"` | The middle value when true, the last when false |
+| `( )` | `(a \|\| b) && c` | Groups an expression against precedence |
+
+Comparing values of different types is an error rather than a false result. A
+predicate that errors never passes.
 
 ## Functions and macros
 
-| Call | Result |
-| --- | --- |
-| `list.size()`, `string.size()` | Number of elements or characters |
-| `list.all(item, predicate)` | True when every element matches |
-| `list.exists(item, predicate)` | True when at least one element matches |
-| `list.exists_one(item, predicate)` | True when exactly one element matches |
-| `list.filter(item, predicate)` | The elements that match |
-| `list.map(item, expression)` | The expression applied to each element |
-| `string.contains(part)` | True when the string contains `part` |
-| `string.startsWith(part)`, `string.endsWith(part)` | Prefix and suffix tests |
-| `string.matches(pattern)` | True when the string matches a regular expression |
+| Call | Example | Result |
+| --- | --- | --- |
+| `list.size()`, `string.size()` | `executions.size() > 1` | Number of elements or characters |
+| `list.all(item, predicate)` | `executions.all(e, e.status == "succeeded")` | True when every element matches |
+| `list.exists(item, predicate)` | `execution.events.exists(e, e.event == "push")` | True when at least one element matches |
+| `list.exists_one(item, predicate)` | `needs.exists_one(j, j.status == "failed")` | True when exactly one element matches |
+| `list.filter(item, predicate)` | `executions.filter(e, e.status == "failed")` | The elements that match |
+| `list.map(item, expression)` | `needs.map(j, j.key)` | The expression applied to each element |
+| `string.contains(part)` | `event.ref.contains("release")` | True when the string contains `part` |
+| `string.startsWith(part)`, `string.endsWith(part)` | `event.ref.startsWith("refs/heads/")` | Prefix and suffix tests |
+| `string.matches(pattern)` | `event.ref.matches("^refs/tags/v[0-9]+$")` | True when the string matches a regular expression |
+| `string.split(separator)` | `event.ref.split("/")[2]` | The parts between each separator |
+| `string.lowerAscii()`, `string.upperAscii()` | `event.ref.lowerAscii()` | The string in one case |
+| `has(field)` | `has(event.pull_request)` | True when the field is present |
+| `string(value)`, `int(value)`, `double(value)` | `"run-" + string(run.number)` | The value converted to that type |
+| `timestamp(string)` | `timestamp("2026-01-01T00:00:00Z")` | A timestamp from an RFC 3339 string |
 
-This job `success` predicate uses a macro over the executions of the job:
-
-```yaml
-success: 'executions.all(e, e.status == "succeeded")'
-```
-
-Shipfox adds no custom functions. Expressions can use CEL's standard functions
-when the required context is available.
+The [CEL language
+definition](https://github.com/google/cel-spec/blob/master/doc/langdef.md#standard-definitions)
+documents the full standard library.
 
 ## Related pages
 
