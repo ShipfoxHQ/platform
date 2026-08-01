@@ -294,7 +294,7 @@ function EventRunsList({
           <DecisionRow
             key={decision.id}
             workspaceSlug={workspaceSlug}
-            projectId={decision.projectId}
+            projectId={decision.projectId ?? undefined}
             projectSlug={decision.projectId ? projectSlugs.get(decision.projectId) : undefined}
             decision={decision}
           />
