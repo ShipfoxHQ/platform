@@ -16,6 +16,10 @@ export function WorkflowRunListView({
   search = '',
   statusFilter = 'all',
   onFiltersChange,
+  hasNextPage = false,
+  isFetchingNextPage = false,
+  isFetchNextPageError = false,
+  onLoadMore,
 }: WorkflowRunListViewProps) {
   const [localSearch, setLocalSearch] = useState(search);
   const [localStatusFilter, setLocalStatusFilter] = useState(statusFilter);
@@ -28,7 +32,7 @@ export function WorkflowRunListView({
   });
 
   function handleClearFilters() {
-    if (onFiltersChange) onFiltersChange({});
+    if (onFiltersChange) onFiltersChange({search: '', status: 'all'});
     else {
       setLocalSearch('');
       setLocalStatusFilter('all');
@@ -39,7 +43,7 @@ export function WorkflowRunListView({
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
       <aside
         className={cn(
-          'flex w-304 shrink-0 flex-col border-r border-border-neutral-base bg-background-subtle-base',
+          'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background-subtle-base',
           className,
         )}
         aria-label="Workflow runs"
@@ -47,14 +51,12 @@ export function WorkflowRunListView({
         <WorkflowRunListHeader
           query={currentSearch}
           onQueryChange={(next) => {
-            if (onFiltersChange)
-              onFiltersChange({...(next ? {search: next} : {}), status: currentStatusFilter});
+            if (onFiltersChange) onFiltersChange({search: next, status: currentStatusFilter});
             else setLocalSearch(next);
           }}
           statusFilter={currentStatusFilter}
           onStatusFilterChange={(next) => {
-            if (onFiltersChange)
-              onFiltersChange({...(currentSearch ? {search: currentSearch} : {}), status: next});
+            if (onFiltersChange) onFiltersChange({search: currentSearch, status: next});
             else setLocalStatusFilter(next);
           }}
         />
@@ -66,6 +68,10 @@ export function WorkflowRunListView({
           projectSlug={projectSlug}
           selectedWorkflowRunId={selectedWorkflowRunId}
           onClearFilters={handleClearFilters}
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          isFetchNextPageError={isFetchNextPageError}
+          {...(onLoadMore ? {onLoadMore} : {})}
         />
       </aside>
     </TimeTickerProvider>

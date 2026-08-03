@@ -1,5 +1,5 @@
 import {defineRoute, useRouteParams, useRouteSearch} from '@shipfox/client-shell/runtime';
-import {WorkflowRunPage} from '#pages/workflow-run-page.js';
+import {WorkflowRunDetailPage} from '#pages/workflow-run-detail-page.js';
 import {validateWorkflowRunsSearch, workflowRouteParams} from './inputs.js';
 import {ProjectRoute} from './project-route.js';
 
@@ -12,7 +12,7 @@ export default defineRoute({
     return (
       <ProjectRoute>
         {(project) => (
-          <WorkflowRunPage
+          <WorkflowRunDetailPage
             projectId={project.id}
             workspaceSlug={workspaceSlug}
             projectSlug={projectSlug}

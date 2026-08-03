@@ -12,6 +12,10 @@ export interface WorkflowRunListProps {
   search?: string;
   statusFilter?: WorkflowRunListStatusFilter;
   onFiltersChange?: (filters: {search?: string; status?: WorkflowRunListStatusFilter}) => void;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+  isFetchNextPageError?: boolean;
+  onLoadMore?: () => void;
 }
 
 export type WorkflowRunListQuery = QueryLoadErrorQuery & {isPending: boolean};
@@ -26,4 +30,8 @@ export interface WorkflowRunListViewProps {
   search?: string;
   statusFilter?: WorkflowRunListStatusFilter;
   onFiltersChange?: (filters: {search?: string; status?: WorkflowRunListStatusFilter}) => void;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+  isFetchNextPageError?: boolean;
+  onLoadMore?: () => void;
 }

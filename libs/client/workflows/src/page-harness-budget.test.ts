@@ -8,7 +8,7 @@ const PAGE_HARNESS_ALLOWLIST = [
   'src/components/workflow-run-summary/workflow-run-attempt-switcher.test.tsx',
   'src/components/workflow-run-view/workflow-run-view.test.tsx',
   'src/pages/project-workflows-page.test.tsx',
-  'src/pages/workflow-run-page.test.tsx',
+  'src/pages/workflow-run-pages.test.tsx',
 ];
 
 const srcDir = dirname(fileURLToPath(import.meta.url));

@@ -3,6 +3,7 @@ import type {WorkflowRunListItem} from '#core/workflow-run.js';
 import type {WorkflowRunListQuery} from './types.js';
 import {
   WorkflowRunListEmpty,
+  WorkflowRunListLoadMore,
   WorkflowRunListNoMatches,
   WorkflowRunListSkeleton,
   WorkflowRunListStaleError,
@@ -17,6 +18,10 @@ interface WorkflowRunListContentProps {
   projectSlug?: string | undefined;
   selectedWorkflowRunId?: string | undefined;
   onClearFilters: () => void;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  isFetchNextPageError: boolean;
+  onLoadMore?: () => void;
 }
 
 export function WorkflowRunListContent({
@@ -27,6 +32,10 @@ export function WorkflowRunListContent({
   projectSlug,
   selectedWorkflowRunId,
   onClearFilters,
+  hasNextPage,
+  isFetchingNextPage,
+  isFetchNextPageError,
+  onLoadMore,
 }: WorkflowRunListContentProps) {
   const {isPending, isError} = query;
   // A refetch that fails after a prior success keeps the rows on screen behind a slim
@@ -43,7 +52,13 @@ export function WorkflowRunListContent({
       {!isPending && refreshFailed ? <WorkflowRunListStaleError query={query} /> : null}
       {!isPending && !isError && totalRuns === 0 ? <WorkflowRunListEmpty /> : null}
       {!isPending && totalRuns > 0 && runs.length === 0 ? (
-        <WorkflowRunListNoMatches onClear={onClearFilters} />
+        <WorkflowRunListNoMatches
+          onClear={onClearFilters}
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          isFetchNextPageError={isFetchNextPageError}
+          {...(onLoadMore ? {onLoadMore} : {})}
+        />
       ) : null}
       {!isPending && runs.length > 0 ? (
         <WorkflowRunRowList
@@ -51,6 +66,14 @@ export function WorkflowRunListContent({
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
           selectedWorkflowRunId={selectedWorkflowRunId}
+        />
+      ) : null}
+      {!isPending && runs.length > 0 ? (
+        <WorkflowRunListLoadMore
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          isFetchNextPageError={isFetchNextPageError}
+          {...(onLoadMore ? {onLoadMore} : {})}
         />
       ) : null}
     </div>

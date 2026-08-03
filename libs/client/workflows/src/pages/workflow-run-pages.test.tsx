@@ -15,12 +15,14 @@ import {
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
 import {jsonResponse, PROJECT_TEST_WSLUG, renderProjectPage} from '#test/pages.js';
-import {WorkflowRunPage} from './workflow-run-page.js';
+import {WorkflowRunDetailPage} from './workflow-run-detail-page.js';
+import {WorkflowRunsPage} from './workflow-run-list-page.js';
 
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
 const DEFINITION_ID = '55555555-5555-4555-8555-555555555555';
 const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const SECOND_RUN_ID = '66666666-6666-4666-8666-000000000002';
+const OLDER_RUN_ID = '66666666-6666-4666-8666-000000000003';
 const BUILD_JOB_ID = '77777777-7777-4777-8777-777777777777';
 const BUILD_STEP_ID = '99999999-9999-4999-8999-000000000000';
 const BUILD_ATTEMPT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000000';
@@ -32,6 +34,8 @@ const DEPLOY_ATTEMPT_TWO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002';
 const DEPLOY_EXECUTION_ONE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-000000000001';
 const DEPLOY_EXECUTION_TWO_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-000000000002';
 const SMOKE_WEB_RE = /smoke-web/u;
+const DEPLOY_WEB_RE = /deploy-web/u;
+const OLDER_RUN_RE = /older-run/u;
 const EXECUTION_ONE_MENU_ITEM = /Execution #1: deploy review #1/u;
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_OVERRIDES = {
@@ -47,45 +51,87 @@ const SECOND_RUN_OVERRIDES = {
   id: SECOND_RUN_ID,
   name: 'smoke-web',
 } satisfies Partial<WorkflowRunResponseDto>;
+const OLDER_RUN_OVERRIDES = {
+  ...RUN_OVERRIDES,
+  id: OLDER_RUN_ID,
+  name: 'older-run',
+} satisfies Partial<WorkflowRunResponseDto>;
 
-describe('WorkflowRunPage', () => {
-  test('keeps the runs list mounted and only skeletons the run view until a run is selected', async () => {
+describe('WorkflowRunPages', () => {
+  test('renders the list route without mounting run detail', async () => {
     configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
 
     renderRunsPath();
 
-    // The run view has nothing to show until a run is selected, so it skeletons...
-    expect(await screen.findByLabelText('Loading workflow run')).toBeInTheDocument();
-    // ...but the runs list itself stays mounted; it is never replaced by a page skeleton.
+    expect(await screen.findByLabelText('Loading runs')).toBeInTheDocument();
     expect(screen.getByLabelText('Workflow runs')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Loading workflow run')).not.toBeInTheDocument();
   });
 
-  test('redirects to the most recent run when opened without a workflow run id', async () => {
+  test('keeps the list route and filters in place instead of redirecting to a run', async () => {
     configureApiClient({fetchImpl: createRunsListFetch()});
 
-    const {router} = renderRunsPath(
-      `?job=${DEPLOY_JOB_ID}&step=${DEPLOY_STEP_ID}&stepAttempt=${DEPLOY_ATTEMPT_TWO_ID}&runAttempt=1`,
-    );
+    const {router} = renderRunsPath('?search=deploy-web&status=running');
 
-    // Landing on /runs with runs present redirects to the newest run, so its row becomes the
-    // selected (current) row in the rail even though the opened URL carried no workflow run id.
-    const selectedRow = await screen.findByRole('link', {current: 'page'});
-    expect(selectedRow).toHaveTextContent('deploy-web');
-    expect(currentSearch(router).job).toBeUndefined();
-    expect(currentSearch(router).step).toBeUndefined();
-    expect(currentSearch(router).stepAttempt).toBeUndefined();
-    expect(currentSearch(router).runAttempt).toBeUndefined();
+    expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/w/${PROJECT_TEST_WSLUG}/p/project/runs`);
+    expect(currentSearch(router)).toMatchObject({search: 'deploy-web', status: 'running'});
+    expect(screen.queryByLabelText('Loading workflow run')).not.toBeInTheDocument();
   });
 
-  test('shows the first-time-use surface when the project has no runs', async () => {
+  test('clearing filters on the list route resets search and status in the URL', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: createRunsListFetch()});
+
+    const {router} = renderRunsPath('?search=no-such-run&status=failed');
+
+    expect(await screen.findByText('No matching runs')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Clear filters'}));
+
+    await waitFor(() => {
+      expect(currentSearch(router).search).toBeUndefined();
+    });
+    expect(currentSearch(router).status).toBeUndefined();
+    expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
+  });
+
+  test('loads older pages before reporting that a search has no matches', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = createPaginatedRunsFetch();
+    configureApiClient({fetchImpl});
+
+    renderRunsPath('?search=older-run');
+
+    expect(await screen.findByText('No matches in loaded history')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Load more runs'}));
+
+    expect(await screen.findByRole('link', {name: OLDER_RUN_RE})).toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.some((call) => {
+        const url = new URL(requestInputUrl(call[0]));
+        return url.searchParams.get('cursor') === 'cursor-2';
+      }),
+    ).toBe(true);
+  });
+
+  test('shows the list empty state without mounting run detail', async () => {
     configureApiClient({fetchImpl: createEmptyRunsFetch()});
 
     renderRunsPath();
 
-    expect(await screen.findByText('No workflow runs yet')).toBeInTheDocument();
-    // The rail and the perpetual detail skeleton give way to the onboarding surface entirely.
-    expect(screen.queryByLabelText('Workflow runs')).not.toBeInTheDocument();
+    expect(await screen.findByText('No runs yet')).toBeInTheDocument();
+    expect(screen.getByLabelText('Workflow runs')).toBeInTheDocument();
     expect(screen.queryByLabelText('Loading workflow run')).not.toBeInTheDocument();
+  });
+
+  test('renders the detail route without mounting the run list', async () => {
+    configureApiClient({fetchImpl: createRunDetailFetch()});
+
+    renderRunPath();
+
+    expect(await screen.findByRole('button', {name: 'deploy, Running'})).toBeInTheDocument();
+    expect(screen.queryByLabelText('Workflow runs')).not.toBeInTheDocument();
   });
 
   test('restores a deep-linked job and exact attempt after data loads', async () => {
@@ -234,7 +280,7 @@ describe('WorkflowRunPage', () => {
     );
   });
 
-  test('run rail links clear job, step, and attempt when switching runs', async () => {
+  test('run list links navigate to detail and back restores list filters', async () => {
     const user = userEvent.setup();
     configureApiClient({
       fetchImpl: createRunDetailFetch({
@@ -245,32 +291,51 @@ describe('WorkflowRunPage', () => {
         },
       }),
     });
-    const {router} = renderRunPath(`?step=${DEPLOY_STEP_ID}&stepAttempt=${DEPLOY_ATTEMPT_TWO_ID}`);
+    const {router} = renderRunsPath('?search=smoke&status=running');
 
     await user.click(await screen.findByRole('link', {name: SMOKE_WEB_RE}));
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toContain(SECOND_RUN_ID);
+      expect(router.state.location.pathname).toBe(
+        `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${SECOND_RUN_ID}`,
+      );
     });
-    expect(currentSearch(router).job).toBeUndefined();
-    expect(currentSearch(router).step).toBeUndefined();
-    expect(currentSearch(router).stepAttempt).toBeUndefined();
-    expect(currentSearch(router).runAttempt).toBeUndefined();
+    expect(screen.queryByLabelText('Workflow runs')).not.toBeInTheDocument();
+    expect(currentSearch(router)).toMatchObject({search: 'smoke', status: 'running'});
+
+    await act(() => {
+      router.history.back();
+    });
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe(`/w/${PROJECT_TEST_WSLUG}/p/project/runs`);
+    });
+    expect(currentSearch(router)).toMatchObject({search: 'smoke', status: 'running'});
+    expect(screen.getByLabelText('Workflow runs')).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: SMOKE_WEB_RE})).toBeInTheDocument();
   });
 });
 
 function renderRunsPath(search = '') {
   return renderProjectPage(
     `/w/${PROJECT_TEST_WSLUG}/p/project/runs${search}`,
-    ({workflowRunId, search}) => (
-      <WorkflowRunPage
-        projectId={PROJECT_ID}
-        workspaceSlug={PROJECT_TEST_WSLUG}
-        projectSlug="project"
-        workflowRunId={workflowRunId}
-        search={search}
-      />
-    ),
+    ({workflowRunId, search}) =>
+      workflowRunId ? (
+        <WorkflowRunDetailPage
+          projectId={PROJECT_ID}
+          workspaceSlug={PROJECT_TEST_WSLUG}
+          projectSlug="project"
+          workflowRunId={workflowRunId}
+          search={search}
+        />
+      ) : (
+        <WorkflowRunsPage
+          projectId={PROJECT_ID}
+          workspaceSlug={PROJECT_TEST_WSLUG}
+          projectSlug="project"
+          search={search}
+        />
+      ),
   );
 }
 
@@ -278,7 +343,7 @@ function renderRunPath(search = '') {
   return renderProjectPage(
     `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${RUN_ID}${search}`,
     ({workflowRunId, search}) => (
-      <WorkflowRunPage
+      <WorkflowRunDetailPage
         projectId={PROJECT_ID}
         workspaceSlug={PROJECT_TEST_WSLUG}
         projectSlug="project"
@@ -304,6 +369,25 @@ function createRunsListFetch() {
     }
     if (url.pathname === `/workflows/runs/${RUN_ID}`) {
       return Promise.resolve(jsonResponse(workflowRunDetailDto({...RUN_OVERRIDES, jobs: []})));
+    }
+
+    return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+  });
+}
+
+function createPaginatedRunsFetch() {
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL(requestInputUrl(input));
+
+    if (url.pathname === '/workflows/runs') {
+      const isSecondPage = url.searchParams.get('cursor') === 'cursor-2';
+      return Promise.resolve(
+        jsonResponse({
+          runs: [workflowRunDto(isSecondPage ? OLDER_RUN_OVERRIDES : RUN_OVERRIDES)],
+          next_cursor: isSecondPage ? null : 'cursor-2',
+          filtered_total_count: isSecondPage ? null : 2,
+        }),
+      );
     }
 
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));

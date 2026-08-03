@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import type {WorkflowRunListItem, WorkflowRunStatus} from '#core/workflow-run.js';
 import {workflowRunListItem} from '#test/fixtures/workflow-run.js';
 import {renderWithRouter} from '#test/render.js';
-import type {WorkflowRunListQuery} from './types.js';
+import type {WorkflowRunListQuery, WorkflowRunListViewProps} from './types.js';
 import {WorkflowRunListView} from './workflow-run-list-view.js';
 
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
@@ -173,9 +173,27 @@ describe('WorkflowRunListView', () => {
     expect(screen.getByText('build-image')).toBeInTheDocument();
     expect(screen.getByLabelText('Search runs')).toHaveValue('');
   });
+
+  test('offers older pages before reporting that a filter has no matches', async () => {
+    const user = userEvent.setup();
+    const onLoadMore = vi.fn();
+    renderListView([run('succeeded', 'recent-run')], {
+      hasNextPage: true,
+      onLoadMore,
+    });
+
+    await user.type(await screen.findByLabelText('Search runs'), 'older-run');
+
+    expect(screen.getByText('No matches in loaded history')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Load more runs'}));
+    expect(onLoadMore).toHaveBeenCalledOnce();
+  });
 });
 
-function renderListView(runs: WorkflowRunListItem[]) {
+function renderListView(
+  runs: WorkflowRunListItem[],
+  options: Pick<WorkflowRunListViewProps, 'hasNextPage' | 'onLoadMore'> = {},
+) {
   // Row links need router context; the query and data stay injected by props.
   renderWithRouter(
     <WorkflowRunListView
@@ -183,6 +201,7 @@ function renderListView(runs: WorkflowRunListItem[]) {
       query={loadedQuery()}
       workspaceSlug={WORKSPACE_SLUG}
       projectSlug={PROJECT_SLUG}
+      {...options}
     />,
   );
 }

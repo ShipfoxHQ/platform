@@ -300,7 +300,7 @@ function RunViewContent({
         />
         {query.isError ? <WorkflowRunStaleError query={query} /> : null}
         <div className="min-h-0 flex-1 overflow-auto bg-background-neutral-base p-16">
-          <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-16">
+          <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-16">
             <JobGraph
               run={runData}
               selectedJobId={selectedJob?.id}

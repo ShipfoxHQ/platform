@@ -51,4 +51,5 @@ export {
   workflowRunsQueryKeys,
 } from './hooks/api/workflow-runs.js';
 export {ProjectWorkflowsPage} from './pages/project-workflows-page.js';
-export {WorkflowRunPage} from './pages/workflow-run-page.js';
+export {WorkflowRunDetailPage} from './pages/workflow-run-detail-page.js';
+export {WorkflowRunsPage} from './pages/workflow-run-list-page.js';
