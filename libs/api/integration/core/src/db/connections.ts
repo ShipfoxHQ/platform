@@ -191,6 +191,31 @@ export async function getIntegrationConnectionById(
 
 export type GetIntegrationConnectionByIdFn = typeof getIntegrationConnectionById;
 
+export interface GetIntegrationConnectionBySlugParams {
+  workspaceId: string;
+  slug: string;
+}
+
+export async function getIntegrationConnectionBySlug(
+  params: GetIntegrationConnectionBySlugParams,
+): Promise<IntegrationConnection | undefined> {
+  const rows = await db()
+    .select()
+    .from(integrationConnections)
+    .where(
+      and(
+        eq(integrationConnections.workspaceId, params.workspaceId),
+        eq(integrationConnections.slug, params.slug),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  if (!row) return undefined;
+  return toIntegrationConnection(row);
+}
+
+export type GetIntegrationConnectionBySlugFn = typeof getIntegrationConnectionBySlug;
+
 export interface UpdateIntegrationConnectionLifecycleStatusParams {
   id: string;
   lifecycleStatus: IntegrationConnectionLifecycleStatus;

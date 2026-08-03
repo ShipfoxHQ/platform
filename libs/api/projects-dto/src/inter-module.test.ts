@@ -9,11 +9,13 @@ describe('projectsInterModuleContract', () => {
         workspaceId: '00000000-0000-4000-8000-000000000002',
         sourceConnectionId: '00000000-0000-4000-8000-000000000003',
         sourceExternalRepositoryId: 'shipfox/project',
+        sourceRepositoryOwner: 'shipfox',
         name: 'Project',
       },
     });
 
     expect(result.project?.id).toBe(projectId);
+    expect(result.project?.sourceRepositoryOwner).toBe('shipfox');
   });
 
   test('accepts checkout targets addressed by project or repository', () => {

@@ -4,6 +4,7 @@ import {z} from 'zod';
 const id = z.string().uuid();
 const provider = z.string().min(1);
 const capability = z.enum(['source_control', 'agent_tools']);
+const connection = z.object({id, provider, slug: z.string().min(1)});
 const repository = z.object({
   externalRepositoryId: z.string(),
   owner: z.string(),
@@ -40,8 +41,12 @@ export const integrationsInterModuleContract = defineInterModuleContract({
   methods: {
     resolveSourceRepository: {
       input: sourceInput,
-      output: z.object({connection: z.object({id, provider, slug: z.string()}), repository}),
+      output: z.object({connection, repository}),
       errors: sourceErrors,
+    },
+    resolveConnection: {
+      input: z.object({workspaceId: id, slug: z.string().min(1)}),
+      output: connection.nullable(),
     },
     resolveTriggerReference: {
       input: z.object({workspaceId: id, connectionId: id, payload: z.unknown()}),

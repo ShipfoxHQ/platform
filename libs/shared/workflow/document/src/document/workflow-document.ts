@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {checkoutTargetValidationIssues} from './checkout-target-validation.js';
 import {agentThinkingSchema, harnessSchema} from './step-enums.js';
 
 const stringOrStringArraySchema = z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]);
@@ -359,18 +360,17 @@ export const workflowDocumentCheckoutSchema = z
     }),
   })
   .superRefine((checkout, ctx) => {
-    if (checkout.project !== undefined && checkout.connection !== undefined) {
+    for (const validationIssue of checkoutTargetValidationIssues(checkout)) {
+      const message =
+        validationIssue.kind === 'project-with-connection'
+          ? '"connection" cannot be combined with "project".'
+          : validationIssue.kind === 'project-with-repository'
+            ? '"repository" cannot be combined with "project".'
+            : '"connection" requires "repository".';
       ctx.addIssue({
         code: 'custom',
-        path: ['connection'],
-        message: '"connection" cannot be combined with "project".',
-      });
-    }
-    if (checkout.project !== undefined && checkout.repository !== undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['repository'],
-        message: '"repository" cannot be combined with "project".',
+        path: [validationIssue.path],
+        message,
       });
     }
   });

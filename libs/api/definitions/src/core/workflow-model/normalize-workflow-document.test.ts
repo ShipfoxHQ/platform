@@ -1202,6 +1202,23 @@ describe('normalizeWorkflowDocument', () => {
         path: ['jobs', 'build', 'steps', 0, 'checkout', 'repository'],
       }),
     );
+
+    const missingRepository = expectInvalid({
+      name: 'missing checkout repository',
+      jobs: {
+        build: {
+          steps: [{checkout: {connection: 'github'}}],
+        },
+      },
+    });
+
+    expect(missingRepository.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'checkout-target-invalid',
+        path: ['jobs', 'build', 'steps', 0, 'checkout', 'repository'],
+        details: {fields: ['connection', 'repository']},
+      }),
+    );
   });
 
   it('normalizes checkout steps and their static defaults', () => {

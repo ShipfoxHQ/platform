@@ -36,6 +36,22 @@ describe('integrationsInterModuleContract', () => {
     expect(result.repository.fullName).toBe('shipfox/project');
   });
 
+  test('accepts a workspace-scoped connection lookup through the producer contract', () => {
+    const input = integrationsInterModuleContract.methods.resolveConnection.input.parse({
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      slug: 'github-main',
+    });
+    const output = integrationsInterModuleContract.methods.resolveConnection.output.parse({
+      id: '00000000-0000-4000-8000-000000000002',
+      provider: 'github',
+      slug: 'github-main',
+    });
+
+    expect(input.slug).toBe('github-main');
+    expect(output?.id).toBe('00000000-0000-4000-8000-000000000002');
+    expect(integrationsInterModuleContract.methods.resolveConnection.output.parse(null)).toBeNull();
+  });
+
   test.each([
     ['connection-not-found', {connectionId: '00000000-0000-4000-8000-000000000001'}],
     ['provider-unavailable', {provider: 'github'}],

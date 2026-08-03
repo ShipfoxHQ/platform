@@ -23,11 +23,12 @@ describe('toCheckoutTokenDto', () => {
       },
     };
 
-    const dto = toCheckoutTokenDto(spec, {persist: true});
+    const dto = toCheckoutTokenDto(spec, {fetchDepth: 1, persist: true});
 
     expect(dto).toEqual({
       repository_url: 'https://github.com/acme/repo.git',
       ref: 'main',
+      fetch_depth: 1,
       git_author: {
         name: 'shipfox-test[bot]',
         email: '1+shipfox-test[bot]@users.noreply.github.com',
@@ -55,17 +56,22 @@ describe('toCheckoutTokenDto', () => {
       },
     };
 
-    const dto = toCheckoutTokenDto(spec, {persist: false});
+    const dto = toCheckoutTokenDto(spec, {fetchDepth: 0, persist: false});
 
+    expect(dto).toMatchObject({fetch_depth: 0});
     expect(dto.auth).toMatchObject({carry: 'header', host: 'github.com', persist: false});
   });
 
   it('omits auth when the spec has no credentials', () => {
     const spec: CheckoutSpec = {repositoryUrl: 'https://example.com/acme/repo.git', ref: 'trunk'};
 
-    const dto = toCheckoutTokenDto(spec, {persist: true});
+    const dto = toCheckoutTokenDto(spec, {fetchDepth: 1, persist: true});
 
-    expect(dto).toEqual({repository_url: 'https://example.com/acme/repo.git', ref: 'trunk'});
+    expect(dto).toEqual({
+      repository_url: 'https://example.com/acme/repo.git',
+      ref: 'trunk',
+      fetch_depth: 1,
+    });
     expect(dto.auth).toBeUndefined();
   });
 
@@ -75,7 +81,7 @@ describe('toCheckoutTokenDto', () => {
       ref: 'main',
     };
 
-    expect(() => toCheckoutTokenDto(spec, {persist: true})).toThrow();
+    expect(() => toCheckoutTokenDto(spec, {fetchDepth: 1, persist: true})).toThrow();
   });
 
   it('rejects an scp-like URL that embeds credentials', () => {
@@ -84,15 +90,19 @@ describe('toCheckoutTokenDto', () => {
       ref: 'main',
     };
 
-    expect(() => toCheckoutTokenDto(spec, {persist: true})).toThrow();
+    expect(() => toCheckoutTokenDto(spec, {fetchDepth: 1, persist: true})).toThrow();
   });
 
   it('accepts a credential-free scp-like URL', () => {
     const spec: CheckoutSpec = {repositoryUrl: 'git@github.com:acme/repo.git', ref: 'main'};
 
-    const dto = toCheckoutTokenDto(spec, {persist: true});
+    const dto = toCheckoutTokenDto(spec, {fetchDepth: 1, persist: true});
 
-    expect(dto).toEqual({repository_url: 'git@github.com:acme/repo.git', ref: 'main'});
+    expect(dto).toEqual({
+      repository_url: 'git@github.com:acme/repo.git',
+      ref: 'main',
+      fetch_depth: 1,
+    });
   });
 
   it('maps the host from an scp-like credentialed URL', () => {
@@ -106,7 +116,7 @@ describe('toCheckoutTokenDto', () => {
       },
     };
 
-    const dto = toCheckoutTokenDto(spec, {persist: true});
+    const dto = toCheckoutTokenDto(spec, {fetchDepth: 1, persist: true});
 
     expect(dto.auth).toMatchObject({host: 'github.com'});
   });

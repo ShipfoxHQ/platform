@@ -118,8 +118,11 @@ export type {
 } from '#core/providers/source-control.js';
 export type {IntegrationSourceControlService} from '#core/source-control-service.js';
 export {createSourceControlIntegrationService} from '#core/source-control-service.js';
-export type {GetIntegrationConnectionByIdFn} from '#db/connections.js';
-export {getIntegrationConnectionById} from '#db/connections.js';
+export type {
+  GetIntegrationConnectionByIdFn,
+  GetIntegrationConnectionBySlugFn,
+} from '#db/connections.js';
+export {getIntegrationConnectionById, getIntegrationConnectionBySlug} from '#db/connections.js';
 export type {
   ClaimWebhookDeliveryFn,
   PublishIntegrationEventReceivedFn,

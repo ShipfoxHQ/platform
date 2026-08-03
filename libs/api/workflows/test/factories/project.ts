@@ -5,6 +5,7 @@ interface Project {
   workspaceId: string;
   sourceConnectionId: string;
   sourceExternalRepositoryId: string;
+  sourceRepositoryOwner: string | null;
   name: string;
   createdAt: Date;
   updatedAt: Date;
@@ -15,6 +16,7 @@ export const projectFactory = Factory.define<Project>(({sequence}) => ({
   workspaceId: crypto.randomUUID(),
   sourceConnectionId: crypto.randomUUID(),
   sourceExternalRepositoryId: `acme/repo-${sequence}`,
+  sourceRepositoryOwner: 'acme',
   name: `Project ${sequence}`,
   createdAt: new Date(),
   updatedAt: new Date(),

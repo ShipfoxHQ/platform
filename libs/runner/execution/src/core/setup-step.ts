@@ -51,6 +51,8 @@ export async function executeSetupStep(params: {
   gitConfigPath: string;
   leaseClient: KyInstance;
   signal: AbortSignal;
+  stepId: string;
+  attempt: number;
   log?: SetupLogSink | undefined;
   jobContext?: SetupJobContext | undefined;
 }): Promise<SetupStepExecution> {
@@ -123,6 +125,8 @@ async function runCheckoutSetup(params: {
   gitConfigPath: string;
   leaseClient: KyInstance;
   signal: AbortSignal;
+  stepId: string;
+  attempt: number;
   log?: SetupLogSink | undefined;
 }): Promise<
   SetupPhaseResult<{
@@ -147,15 +151,17 @@ type SetupPhaseResult<T> = {ok: true; value: T} | {ok: false; result: StepResult
 async function requestCheckoutCredentials(params: {
   leaseClient: KyInstance;
   signal: AbortSignal;
+  stepId: string;
+  attempt: number;
   log?: SetupLogSink | undefined;
 }): Promise<SetupPhaseResult<CheckoutTokenResponseDto>> {
-  const {leaseClient, signal, log} = params;
+  const {leaseClient, signal, stepId, attempt, log} = params;
   try {
     log?.writeGroup({
       name: 'Request repository access',
       lines: ['Requesting short-lived repository access from Shipfox.'],
     });
-    const checkout = await requestCheckoutToken(leaseClient, {signal});
+    const checkout = await requestCheckoutToken(leaseClient, {stepId, attempt, signal});
     log?.writeGroup({
       name: 'Repository access granted',
       lines: credentialLines(checkout.auth),
@@ -197,6 +203,7 @@ async function checkoutRepositoryForSetup(params: {
     const commit = await checkoutRepository({
       repositoryUrl: checkout.repository_url,
       ref: checkout.ref,
+      fetchDepth: checkout.fetch_depth,
       auth: checkout.auth,
       cwd,
       signal,

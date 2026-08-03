@@ -33,9 +33,22 @@ export const checkoutTokenAuthSchema = z.discriminatedUnion('kind', [
 
 export type CheckoutTokenAuthDto = z.infer<typeof checkoutTokenAuthSchema>;
 
+export const checkoutTokenParamsSchema = z.object({
+  stepId: z.string().uuid(),
+});
+
+export type CheckoutTokenParamsDto = z.infer<typeof checkoutTokenParamsSchema>;
+
+export const checkoutTokenQuerySchema = z.object({
+  attempt: z.coerce.number().int().positive(),
+});
+
+export type CheckoutTokenQueryDto = z.infer<typeof checkoutTokenQuerySchema>;
+
 export const checkoutTokenResponseSchema = z.object({
   repository_url: z.string().min(1),
   ref: z.string().min(1),
+  fetch_depth: z.number().int().nonnegative(),
   git_author: checkoutGitAuthorSchema.optional(),
   // Optional: credential-free providers (e.g. the debug source control) return a
   // public clone URL with no auth material, so the runner clones without a token.

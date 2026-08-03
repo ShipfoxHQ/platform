@@ -1,8 +1,33 @@
-import {checkoutTokenResponseSchema} from './checkout-token.js';
+import {
+  checkoutTokenParamsSchema,
+  checkoutTokenQuerySchema,
+  checkoutTokenResponseSchema,
+} from './checkout-token.js';
+
+describe('checkout token request schemas', () => {
+  it('accepts a UUID step id', () => {
+    const stepId = crypto.randomUUID();
+
+    expect(checkoutTokenParamsSchema.parse({stepId})).toEqual({stepId});
+  });
+
+  it('rejects a non-UUID step id', () => {
+    expect(() => checkoutTokenParamsSchema.parse({stepId: 'step-1'})).toThrow();
+  });
+
+  it('coerces a positive integer attempt', () => {
+    expect(checkoutTokenQuerySchema.parse({attempt: '2'})).toEqual({attempt: 2});
+  });
+
+  it.each([0, -1, 'not-a-number'])('rejects invalid attempt %p', (attempt) => {
+    expect(() => checkoutTokenQuerySchema.parse({attempt})).toThrow();
+  });
+});
 
 const bearerResponse = {
   repository_url: 'https://github.com/acme/repo.git',
   ref: 'main',
+  fetch_depth: 1,
   auth: {
     kind: 'bearer',
     token: 'gh-token',
@@ -16,6 +41,7 @@ const bearerResponse = {
 const basicResponse = {
   repository_url: 'https://github.com/acme/repo.git',
   ref: 'main',
+  fetch_depth: 1,
   auth: {
     kind: 'basic',
     username: 'x-access-token',
@@ -55,7 +81,11 @@ describe('checkoutTokenResponseSchema', () => {
   });
 
   it('accepts a credential-free response with no auth (debug provider)', () => {
-    const input = {repository_url: 'https://github.com/acme/repo.git', ref: 'main'};
+    const input = {
+      repository_url: 'https://github.com/acme/repo.git',
+      ref: 'main',
+      fetch_depth: 1,
+    };
 
     const result = checkoutTokenResponseSchema.parse(input);
 
@@ -156,6 +186,18 @@ describe('checkoutTokenResponseSchema', () => {
     const input = {...bearerResponse, repository_url: ''};
 
     const parse = () => checkoutTokenResponseSchema.parse(input);
+
+    expect(parse).toThrow();
+  });
+
+  it('accepts zero for a full-history fetch', () => {
+    const result = checkoutTokenResponseSchema.parse({...bearerResponse, fetch_depth: 0});
+
+    expect(result.fetch_depth).toBe(0);
+  });
+
+  it('rejects a negative fetch depth', () => {
+    const parse = () => checkoutTokenResponseSchema.parse({...bearerResponse, fetch_depth: -1});
 
     expect(parse).toThrow();
   });

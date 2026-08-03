@@ -47,7 +47,7 @@ function assertNoScpCredentials(repositoryUrl: string): void {
 
 export function toCheckoutTokenDto(
   spec: CheckoutSpec,
-  options: {persist: boolean},
+  options: {fetchDepth: number; persist: boolean},
 ): CheckoutTokenResponseDto {
   assertNoEmbeddedCredentials(spec.repositoryUrl);
 
@@ -57,6 +57,7 @@ export function toCheckoutTokenDto(
   return {
     repository_url: spec.repositoryUrl,
     ref: spec.ref,
+    fetch_depth: options.fetchDepth,
     ...(spec.gitAuthor
       ? {git_author: {name: spec.gitAuthor.name, email: spec.gitAuthor.email}}
       : {}),

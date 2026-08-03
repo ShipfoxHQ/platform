@@ -5,6 +5,7 @@ import {
   createIntegrationConnection,
   deleteIntegrationConnection,
   getIntegrationConnectionById,
+  getIntegrationConnectionBySlug,
   listIntegrationConnections,
   listIntegrationConnectionsByProvider,
   resolveUniqueConnectionSlug,
@@ -61,6 +62,23 @@ describe('integration connection queries', () => {
     const result = await listIntegrationConnections({workspaceId});
 
     expect(result).toHaveLength(2);
+  });
+
+  it('resolves a connection by slug within its workspace', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'github',
+      externalAccountId: 'debug-1',
+      slug: 'github_main',
+      displayName: 'GitHub',
+    });
+
+    await expect(
+      getIntegrationConnectionBySlug({workspaceId, slug: 'github_main'}),
+    ).resolves.toMatchObject({id: connection.id, slug: 'github_main'});
+    await expect(
+      getIntegrationConnectionBySlug({workspaceId: crypto.randomUUID(), slug: 'github_main'}),
+    ).resolves.toBeUndefined();
   });
 
   it('resolves a unique slug in workspace scope', async () => {

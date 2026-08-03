@@ -122,6 +122,7 @@ describe('defaultModules', () => {
             fetchSourceFile: vi.fn(),
             getAgentToolsContext: vi.fn(),
             listSourceFiles: vi.fn(),
+            resolveConnection: vi.fn(),
             resolveSourceRepository: vi.fn(),
             resolveTriggerReference: vi.fn(),
           }),

@@ -4,6 +4,8 @@ export {
   agentThinkingSchema,
   type BuildWorkflowJsonSchemaOptions,
   buildWorkflowJsonSchema,
+  type CheckoutTargetValidationIssue,
+  checkoutTargetValidationIssues,
   claudeAgentThinkingSchema,
   DEFAULT_AGENT_THINKING,
   DEFAULT_HARNESS,

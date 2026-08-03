@@ -190,12 +190,18 @@ export class NoFailedJobsError extends Error {
   }
 }
 
-// The run's project (and therefore its source repository) cannot be resolved, so
-// there is nothing to check out.
+// The checkout target cannot be resolved, so there is nothing to check out.
 export class CheckoutIntentUnresolvedError extends Error {
-  constructor(projectId: string) {
-    super(`Checkout intent unresolved: project ${projectId} not found`);
+  constructor(target: {kind: 'project' | 'connection'; value: string}) {
+    super(`Checkout intent unresolved: ${target.kind} ${target.value} not found`);
     this.name = 'CheckoutIntentUnresolvedError';
+  }
+}
+
+export class CheckoutConfigInvalidError extends Error {
+  constructor(readonly stepId: string) {
+    super(`Checkout config is invalid for step ${stepId}`);
+    this.name = 'CheckoutConfigInvalidError';
   }
 }
 

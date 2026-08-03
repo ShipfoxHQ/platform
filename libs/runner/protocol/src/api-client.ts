@@ -387,16 +387,23 @@ function stripStepErrorClassification(
   return {message, exit_code, signal};
 }
 
-// Exchanges the job lease for short-lived, read-only checkout credentials. The job is
-// identified by the lease claims, so no id is sent. Retries ride the leaseClient policy
-// (which honors Retry-After); each retry re-mints a fresh short-lived credential.
+// Exchanges the job lease for short-lived checkout credentials for one frozen checkout step.
+// Retries ride the leaseClient policy (which honors Retry-After); each retry re-mints a fresh
+// short-lived credential.
 export async function requestCheckoutToken(
   leaseClient: KyInstance,
-  options: {signal?: AbortSignal} = {},
+  params: {
+    stepId: string;
+    attempt: number;
+    signal?: AbortSignal;
+  },
 ): Promise<CheckoutTokenResponseDto> {
   const response = await leaseClient.post(
-    'runs/jobs/current/checkout-token',
-    options.signal ? {signal: options.signal} : undefined,
+    `runs/jobs/current/steps/${params.stepId}/checkout-token`,
+    {
+      searchParams: {attempt: params.attempt},
+      ...(params.signal ? {signal: params.signal} : {}),
+    },
   );
   return checkoutTokenResponseSchema.parse(await response.json());
 }
