@@ -28,7 +28,7 @@ through Wrangler Direct Upload.
 The tool works only with Cloudflare Pages. One config can list several apps and
 environments. The CLI keeps Pages terms such as projects and branches visible.
 
-## Installation / Setup
+## Installation and setup
 
 ```sh
 pnpm add -D @shipfox/cloudflare-pages

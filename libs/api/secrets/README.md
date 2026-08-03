@@ -11,7 +11,7 @@
 - **Store resolver**: `resolveSecretStore` supports the built-in `local` store and rejects unknown store names with `UnknownSecretStoreError`.
 - **Domain errors**: Typed errors let route layers map validation, cap, crypto, and config failures to client responses.
 
-## Installation / Setup
+## Installation and setup
 
 Install the package from the registry:
 
@@ -104,7 +104,7 @@ Startup checks each KEK as a canonical base64 value for a 32-byte key. It also r
 
 Keys must match `^[A-Z_][A-Z0-9_]*$`. Keys and namespaces may be at most 128 characters. Namespaces may be empty or a lowercase slug path.
 
-## Data Model
+## Data model
 
 This module owns tables with the `secrets_` prefix.
 
@@ -181,7 +181,7 @@ Secret decryption failures collapse to `SecretDecryptionError`. The error does n
 
 Deleting a workspace data key makes existing secrets unreadable. Reads fail closed instead of returning unauthenticated plaintext.
 
-## Behavior Notes
+## Behavior notes
 
 - **Scope precedence:** project-scoped rows override workspace-scoped rows on reads and namespace lists.
 - **Exact deletes:** deletes target only the exact scope passed by the caller. Deleting a project secret does not delete the workspace fallback.

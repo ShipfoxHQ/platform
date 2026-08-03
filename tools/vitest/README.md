@@ -8,7 +8,7 @@ Lightweight wrapper around Vitest with sensible defaults for Shipfox projects. I
 - **`shipfox-vitest-watch`**: Run tests in watch mode.
 - **`defineConfig(config)`**: Merge your Vitest config with Shipfox base settings (auto-excludes `node_modules/`, `dist/`, `build/`, `out/`).
 - **`defineProject(config)`**: Configure a project in a Vitest workspace.
-- **Re-exports** all of `vitest` via `@shipfox/vitest/vi` for convenient imports.
+- **Re-exports** all `vitest` exports via `@shipfox/vitest/vi` for convenient imports.
 
 ## Installation
 

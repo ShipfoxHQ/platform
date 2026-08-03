@@ -27,7 +27,7 @@ You need:
 ## Add the workflow
 
 Create `.shipfox/workflows/sentry-issue-to-pr.yml`. Replace `sentry_acme`
-with your Sentry integration connection slug. This is a complete workflow:
+with the slug of your Sentry integration connection. This is a complete workflow:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
@@ -36,7 +36,7 @@ runner: ubuntu-latest
 
 triggers:
   on_issue:
-    source: sentry_acme # Replace with your Sentry integration connection slug.
+    source: sentry_acme # Replace with the slug of your Sentry integration connection.
     event: issue.created
 
 jobs:

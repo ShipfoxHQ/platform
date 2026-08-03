@@ -10,7 +10,7 @@ Polls the Shipfox API for jobs and executes their steps on the runner host.
 
 ## Workspace directories
 
-The runner prepares a fresh working directory for every job, runs all of the
+The runner prepares a fresh working directory for every job, runs all the
 job's steps from it, and removes it afterwards. Steps do **not** inherit the
 runner process's working directory.
 

@@ -13,7 +13,7 @@ drafts or other base branches.
 You need:
 
 - A project connected to GitHub.
-- Its GitHub integration connection slug. This guide uses `github_acme` as a placeholder.
+- The slug of its GitHub integration connection. This guide uses `github_acme` as a placeholder.
 - An online runner with the `ubuntu-latest` label.
 - A Node.js repository with a lockfile and an `npm test` command.
 
@@ -22,7 +22,7 @@ Replace `main` below if the repository uses another default branch.
 ## Add the filtered workflow
 
 Create `.shipfox/workflows/ready-pull-request-checks.yml`. Replace
-`github_acme` with your GitHub integration connection slug. This is a complete workflow:
+`github_acme` with the slug of your GitHub integration connection. This is a complete workflow:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
@@ -31,7 +31,7 @@ runner: ubuntu-latest
 
 triggers:
   opened_ready:
-    source: github_acme # Replace with your GitHub integration connection slug.
+    source: github_acme # Replace with the slug of your GitHub integration connection.
     event: pull_request.opened
     filter: event.pull_request.base.ref == "main" && event.pull_request.draft == false
 

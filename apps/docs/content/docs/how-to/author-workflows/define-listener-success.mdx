@@ -22,7 +22,7 @@ You need:
 ## Add the workflow
 
 Create `.shipfox/workflows/require-task-check.yml`. Replace `task_hook` with the
-custom webhook integration connection slug. This is a complete workflow:
+slug of the integration connection for the custom webhook. This is a complete workflow:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
@@ -31,7 +31,7 @@ runner: ubuntu-latest
 
 triggers:
   task_started:
-    source: task_hook # Replace with your webhook integration connection slug.
+    source: task_hook # Replace with the slug of your webhook integration connection.
     event: received
     filter: event.body.kind == "start"
 

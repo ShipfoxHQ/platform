@@ -47,7 +47,7 @@ is wrong, stop there and show the error near that field. If the text is good,
 save the small value this package returns. Later, pass that value and plain data
 back to this package to get the result for one run.
 
-## Installation / Setup
+## Installation and setup
 
 ```sh
 pnpm add @shipfox/expression
@@ -76,7 +76,7 @@ const passed = evaluateWorkflowPredicate(expression, {
 });
 ```
 
-## Behavior Notes
+## Behavior notes
 
 - Use `syntax` when fields are not known yet.
 - Use `typed` when the caller knows the names and field types in scope.

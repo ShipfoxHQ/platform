@@ -61,7 +61,7 @@ node --import @shipfox/api-server/instrumentation ./dist/index.js
 | `API_PORT` | shared `PORT` | Sets the listener port. |
 | `API_TRUST_PROXY` | `false` | Sets proxy IP checks. |
 
-## Behavior Notes
+## Behavior notes
 
 - **Custom composition**: Pass a module list to make a custom server. A module must declare a unique `loginMethods` entry. `createServer` throws before startup side effects when no login method is available.
 - **Login-method catalog**: Every server composition exposes a public, unauthenticated `GET /auth/login-methods`, listing the bounded IDs of every module-contributed login method.

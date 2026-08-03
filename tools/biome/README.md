@@ -58,7 +58,7 @@ shipfox-biome-format --write
 shipfox-biome-format --write src/ test/
 ```
 
-## Behavior Notes
+## Behavior notes
 
 Package checks use the root `biome.json`. Pass `--config-path` only for a
 focused config, such as a fixture tree. The normal form reads files. The write

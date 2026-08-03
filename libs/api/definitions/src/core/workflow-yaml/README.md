@@ -29,7 +29,7 @@ to read and easy to change.
 
 That keeps the next part clear too.
 
-## Installation / Setup
+## Installation and setup
 
 This code is part of `@shipfox/api-definitions`. It is not a standalone package.
 
@@ -59,7 +59,7 @@ jobs:
 console.log(document.jobs.build.steps[0]?.run);
 ```
 
-## Behavior Notes
+## Behavior notes
 
 The parser owns only YAML concerns. It does not set defaults. It does not change
 job ids. It does not build job graphs. It does not check expressions.

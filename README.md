@@ -43,8 +43,8 @@ jobs:
             feedback: Unit tests are failing
 ```
 
-If you've written GitHub Actions, you already know how to read this file, and
-that's deliberate. What's different is what a step can be and the control flow
+If you have written GitHub Actions, you already know how to read this file, and
+that is deliberate. What is different is what a step can be and the control flow
 around it: a Sentry issue starts the run, an agent reproduces and fixes the cause,
 then a `gate` reruns the tests and sends the agent back until they pass.
 

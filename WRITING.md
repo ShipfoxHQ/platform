@@ -83,9 +83,11 @@ Treat the output as guidance, not a gate:
 
 - The grade signal is the one to chase. A high grade almost always means one
   sentence is trying to say three things; split it.
+<!-- vale off -->
 - Domain terms (workflow, provisioner, idempotent, repository) inflate both
   numbers. Keep them when they carry meaning; hunt only for words like
   "utilize", "facilitate", or "subsequent" that add nothing.
+<!-- vale on -->
 - Reference material (field tables, env-var lists) is exempt from the
   vocabulary floor; field names skew the count.
 

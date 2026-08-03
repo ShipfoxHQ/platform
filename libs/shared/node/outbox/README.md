@@ -52,7 +52,7 @@ const [delivery] = await outbox.claim({batchSize: 100, leaseDurationMs: 30_000})
 if (delivery) await outbox.acknowledge(delivery);
 ```
 
-## Data Model
+## Data model
 
 `createPostgresOutboxTable` creates an `outbox` table in the given table namespace.
 It needs PostgreSQL 18 because that release added the built-in `uuidv7()` function used by its primary key.
@@ -66,7 +66,7 @@ It needs PostgreSQL 18 because that release added the built-in `uuidv7()` functi
 | `last_dispatch_error`, `last_dispatch_failed_at` | Store the last failure. |
 | `dispatched_at`, `dead_lettered_at` | Store terminal delivery state. |
 
-## Behavior Notes
+## Behavior notes
 
 - Insert an outbox event through the same Drizzle transaction as the domain write. A rollback then removes both writes.
 - The caller owns each stable idempotency key. Reusing a key keeps the first event and returns `duplicate`.

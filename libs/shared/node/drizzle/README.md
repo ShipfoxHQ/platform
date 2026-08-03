@@ -35,7 +35,7 @@ const db = drizzle(pool);
 await runMigrations(db, './drizzle', '__drizzle_migrations_users');
 ```
 
-## Behavior Notes
+## Behavior notes
 
 - `uuidv7PrimaryKey()` uses the built-in `uuidv7()` function. That function needs PostgreSQL 18.
 - Give each module its own migration table when modules share a database. Their histories stay separate.

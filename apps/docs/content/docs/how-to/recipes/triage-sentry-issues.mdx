@@ -14,14 +14,14 @@ You need:
 
 - A Shipfox project whose repository contains the affected code.
 - A Sentry integration connection in the workspace.
-- The Sentry integration connection slug. This recipe uses `sentry_acme` as a placeholder.
+- The slug of the Sentry integration connection. This recipe uses `sentry_acme` as a placeholder.
 - An online runner with the `ubuntu-latest` label.
 - A configured model provider and workspace agent defaults.
 
 ## Add the workflow
 
 Create `.shipfox/workflows/triage-sentry.yml`. Replace `sentry_acme` with
-your Sentry integration connection slug. This is a complete workflow:
+the slug of your Sentry integration connection. This is a complete workflow:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
@@ -30,7 +30,7 @@ runner: ubuntu-latest
 
 triggers:
   on_issue:
-    source: sentry_acme # Replace with your Sentry integration connection slug.
+    source: sentry_acme # Replace with the slug of your Sentry integration connection.
     event: issue.created
 
 jobs:
