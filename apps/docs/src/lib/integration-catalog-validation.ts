@@ -25,7 +25,10 @@ export function validateIntegrationCatalog(
       throw new Error(`${prefix} declares agent tools but its tool count is 0.`);
     if (provider.availability === 'coming-soon' && provider.capabilities.length > 0)
       throw new Error(`${prefix} is coming soon but declares capabilities.`);
-    if (provider.availability === 'available' && !provider.setupHref)
-      throw new Error(`${prefix} is available but has no setup page.`);
+    if (
+      (provider.availability === 'available' || provider.availability === 'preview') &&
+      !provider.setupHref
+    )
+      throw new Error(`${prefix} is ${provider.availability} but has no setup page.`);
   }
 }

@@ -34,12 +34,13 @@ const providers = [
     slug: 'linear',
     name: 'Linear',
     summary: 'Planned issue tracking integration.',
-    availability: 'coming-soon',
+    availability: 'preview',
     capabilities: [],
     categories: ['issue-tracking'],
     aliases: ['issues', 'tickets'],
     icon: 'linear',
     overviewHref: '/integrations/linear',
+    setupHref: '/integrations/linear/setup',
     eventCount: 0,
     toolCount: 0,
   },
@@ -53,13 +54,32 @@ assert.throws(
   () => validateIntegrationCatalog([{...providers[0], toolCount: 0}]),
   /declares agent tools but its tool count is 0/,
 );
+assert.doesNotThrow(() =>
+  validateIntegrationCatalog([
+    {
+      ...providers[2],
+      capabilities: ['events'],
+      eventCount: 1,
+    },
+  ]),
+);
+assert.doesNotThrow(() =>
+  validateIntegrationCatalog([{...providers[2], availability: 'coming-soon'}]),
+);
 assert.throws(
-  () => validateIntegrationCatalog([{...providers[2], capabilities: ['events'], eventCount: 1}]),
+  () =>
+    validateIntegrationCatalog([
+      {...providers[2], availability: 'coming-soon', capabilities: ['agent_tools'], toolCount: 1},
+    ]),
   /coming soon but declares capabilities/,
 );
 assert.throws(
   () => validateIntegrationCatalog([{...providers[0], setupHref: undefined}]),
   /available but has no setup page/,
+);
+assert.throws(
+  () => validateIntegrationCatalog([{...providers[2], setupHref: undefined}]),
+  /preview but has no setup page/,
 );
 assert.throws(
   () => validateIntegrationCatalog([providers[1]], {sentry: ['events', 'agent_tools']}),

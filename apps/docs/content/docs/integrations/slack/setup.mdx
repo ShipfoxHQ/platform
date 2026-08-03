@@ -1,0 +1,46 @@
+---
+title: "Connect Slack to a Shipfox workspace"
+sidebarTitle: "Setup"
+description: "Install the Shipfox Slack app, copy the integration connection slug, and verify agent-tool access."
+---
+
+Connect Slack when an agent step needs to read or update messages in a Slack
+workspace. See the [Slack overview](/integrations/slack) for its capabilities.
+
+## Before you begin
+
+You need access to workspace integration settings. You also need permission to
+install and approve an app in the target Slack workspace.
+
+## Install the Slack app
+
+<Steps>
+  <Step>
+
+    **Start the integration connection**
+
+    Open **Settings → Integrations** in the workspace. Select **Slack**, then
+    start the integration connection.
+  </Step>
+  <Step>
+
+    **Approve the app**
+
+    Select the target Slack workspace and install the Shipfox app. Approve the
+    requested bot scopes so Shipfox can use the Slack agent tools.
+  </Step>
+  <Step>
+
+    **Record the integration connection slug**
+
+    Open the new integration connection's menu. Select **Use this integration**.
+    Copy the slug from the tool-selection example. Agent steps use that value as
+    `connection`.
+  </Step>
+</Steps>
+
+## Verify the integration connection
+
+Open **Settings → Integrations** and check that the Slack integration connection
+is active and advertises agent tools. Use the saved slug with a selector from the
+[Slack agent-tool reference](/integrations/slack/tools).

@@ -1,24 +1,18 @@
 ---
 title: "Slack integration"
 sidebarTitle: "Slack"
-status: "soon"
-description: "Check the Slack integration's current availability and the custom webhook alternative for Slack events."
+description: "Look up the Slack integration's availability, OAuth access, integration connection identity, and agent tools."
 catalog:
-  summary: "Planned messaging integration for receiving Slack events in Shipfox."
-  availability: "coming-soon"
-  capabilities: []
+  summary: "Connect a Slack workspace and give agents scoped Slack tools."
+  availability: "available"
+  capabilities: ["agent_tools"]
   categories: ["messaging"]
   aliases: ["chatops", "notifications"]
   icon: "slack"
 ---
 
-<Callout type="info">
-  **Coming soon.** The Slack integration is not available. Shipfox cannot
-  create Slack integration connections yet.
-</Callout>
-
-The planned Slack integration is intended to receive Slack events in Shipfox.
-Its event and agent-tool capabilities are not available.
+Slack connects a Slack workspace to Shipfox. Agent steps can use selected Slack
+tools through the integration connection.
 
 ## Categories and related terms
 
@@ -26,15 +20,41 @@ Its event and agent-tool capabilities are not available.
 
 **Related terms:** ChatOps, notifications.
 
-**Availability:** Coming soon.
+**Availability:** Available.
 
 ## Authentication
 
-Not available.
+Shipfox uses Slack OAuth with a bot token. Install the Shipfox app in the target
+Slack workspace and approve its requested bot scopes.
+
+The app requests read access for channel history and metadata, direct-message
+history, user profiles, reactions, and mentions. It requests write access for
+messages, reactions, and canvases. It also requests the `commands` scope for
+slash commands.
+
+The required bot scopes are:
+
+- Read: `app_mentions:read`, `im:history`, `im:read`, `mpim:history`,
+  `mpim:read`, `channels:history`, `groups:history`, `channels:read`,
+  `groups:read`, `users:read`, and `reactions:read`.
+- Write: `chat:write`, `reactions:write`, and `canvases:write`.
+- Commands: `commands`.
 
 ## Integration connection identity
 
-Slack integration connection slugs are not available.
+The slug of a Slack integration connection defaults to `slack_<workspace>`,
+where `<workspace>` is the normalized Slack team name. For example,
+`slack_acme`. Shipfox uses the team ID when the team name is unavailable, falls
+back to `slack` when neither is available, and makes the slug unique within the
+workspace. Use it as `connection` in an agent integration selection.
+
+```yaml
+integrations:
+  - connection: slack_acme
+    include: [read_channel]
+```
+
+For the agent integration contract, see the [workflow schema reference](/reference/workflow-schema#agent-integration-fields).
 
 ## Capabilities
 
@@ -42,11 +62,6 @@ Slack integration connection slugs are not available.
 | --- | --- |
 | Source control | **Not available.** |
 | Events | **Not available.** |
-| Agent tools | **Not available.** |
+| Agent tools | Available. [View Slack agent tools](/integrations/slack/tools). |
 
-## Available alternative
-
-Use a [custom webhook](/integrations/webhooks) for Slack events today. Create
-a webhook integration connection, point a Slack outgoing webhook or automation
-at its ingest URL, and trigger workflows on `received`. Shipfox passes the
-request payload to the run as `event`.
+[Connect Slack](/integrations/slack/setup) to create an integration connection.

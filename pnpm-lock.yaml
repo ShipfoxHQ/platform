@@ -713,9 +713,15 @@ importers:
       '@shipfox/api-integration-github-dto':
         specifier: workspace:*
         version: link:../../libs/api/integration/github-dto
+      '@shipfox/api-integration-linear':
+        specifier: workspace:*
+        version: link:../../libs/api/integration/linear
       '@shipfox/api-integration-sentry-dto':
         specifier: workspace:*
         version: link:../../libs/api/integration/sentry-dto
+      '@shipfox/api-integration-slack':
+        specifier: workspace:*
+        version: link:../../libs/api/integration/slack
       '@shipfox/api-integration-webhook-dto':
         specifier: workspace:*
         version: link:../../libs/api/integration/webhook-dto

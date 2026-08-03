@@ -39,8 +39,8 @@ export const registeredIntegrationProviders: readonly RegisteredIntegrationProvi
     availability: 'available',
     capabilities: ['events'],
   },
-  {slug: 'linear', kind: 'catalog', availability: 'coming-soon', capabilities: []},
-  {slug: 'slack', kind: 'catalog', availability: 'coming-soon', capabilities: []},
+  {slug: 'linear', kind: 'catalog', availability: 'available', capabilities: ['agent_tools']},
+  {slug: 'slack', kind: 'catalog', availability: 'available', capabilities: ['agent_tools']},
   {
     slug: 'cron',
     kind: 'built-in-source',
