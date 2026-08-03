@@ -335,6 +335,22 @@
   --alpha-250: var(--color-alpha-black-10);
   --alpha-400: var(--color-alpha-black-24);
 
+  /* Semantic Spacing */
+  --space-tight: 4px;
+  --space-inline: 8px;
+  --space-cluster: 12px;
+  --space-group: 16px;
+  --space-section: 24px;
+  --space-region: 32px;
+
+  --pad-tight: 8px;
+  --pad-row-x: 16px;
+  --pad-row-y: 12px;
+  --pad-panel-compact: 16px;
+  --pad-panel: 24px;
+  --pad-frame-x: 24px;
+  --pad-frame-y: 32px;
+
   /* Shadow */
   --shadow-border-base:
     0 -1px 0 0 var(--color-alpha-white-6), 0 0 0 1px var(--color-alpha-white-6),
@@ -410,6 +426,23 @@
     0 4px 8px 0 var(--color-alpha-black-8);
   --shadow-separator-inset:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.06);
+}
+
+[data-density="compact"] {
+  --space-tight: 2px;
+  --space-inline: 4px;
+  --space-cluster: 8px;
+  --space-group: 12px;
+  --space-section: 16px;
+  --space-region: 24px;
+
+  --pad-tight: 4px;
+  --pad-row-x: 12px;
+  --pad-row-y: 8px;
+  --pad-panel-compact: 12px;
+  --pad-panel: 16px;
+  --pad-frame-x: 16px;
+  --pad-frame-y: 24px;
 }
 
 .dark {
@@ -967,6 +1000,59 @@
   --shadow-checkbox-indeterminate-focus: var(--checkbox-indeterminate-focus-shadow);
   --shadow-tooltip: var(--shadow-tooltip);
   --shadow-separator-inset: var(--shadow-separator-inset);
+}
+
+/* Semantic spacing utilities are explicit to keep gap and padding roles distinct. */
+@utility gap-tight {
+  gap: var(--space-tight);
+}
+
+@utility gap-inline {
+  gap: var(--space-inline);
+}
+
+@utility gap-cluster {
+  gap: var(--space-cluster);
+}
+
+@utility gap-group {
+  gap: var(--space-group);
+}
+
+@utility gap-section {
+  gap: var(--space-section);
+}
+
+@utility gap-region {
+  gap: var(--space-region);
+}
+
+@utility p-tight {
+  padding: var(--pad-tight);
+}
+
+@utility p-panel-compact {
+  padding: var(--pad-panel-compact);
+}
+
+@utility p-panel {
+  padding: var(--pad-panel);
+}
+
+@utility px-row {
+  padding-inline: var(--pad-row-x);
+}
+
+@utility py-row {
+  padding-block: var(--pad-row-y);
+}
+
+@utility px-frame {
+  padding-inline: var(--pad-frame-x);
+}
+
+@utility py-frame {
+  padding-block: var(--pad-frame-y);
 }
 
 @layer base {
