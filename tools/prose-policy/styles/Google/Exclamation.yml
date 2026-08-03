@@ -9,4 +9,4 @@ action:
     - trim_right
     - "!"
 tokens:
-  - '\w+!'
+  - '\w+!(?![\w])'
