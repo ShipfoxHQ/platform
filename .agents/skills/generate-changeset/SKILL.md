@@ -14,6 +14,10 @@ When a change may affect a published package, read the
 It owns when a Changeset is required, package eligibility, bump levels, and
 the shared summary rules.
 
+Before writing the summary, read the [repository writing guide](../../../WRITING.md).
+Apply its word, terminology, contraction, and sentence-length rules. Changeset
+summaries are published as release notes and are checked by the prose policy.
+
 ## Process
 
 1. Inspect `git diff origin/main...HEAD --name-only` and apply the shared
