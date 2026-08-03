@@ -8,8 +8,9 @@
 - **Amends:** [ADR 0001: Public client composition contract](0001-client-composition-contract.md)
 
 ADR 0001 remains canonical for the anchor path table, root-parented route
-protection, and exact composition diagnostics. This amendment records the URL
-and resource-identity decisions those anchors implement.
+protection, and exact composition diagnostics, including the prefix-specific
+messages. This amendment records the URL and resource-identity decisions those
+anchors implement.
 
 ## Context
 
@@ -53,14 +54,10 @@ mutable, and a renamed slug is immediately available for another resource.
 
 ### Client anchors and URL scheme
 
-The URL forms associated with the shell anchors are:
-
-| Anchor | Path | Scope |
-| --- | --- | --- |
-| `workspaceLayout` | `/w/$workspaceSlug` | Workspace |
-| `projectLayout` | `/w/$workspaceSlug/p/$projectSlug` | Project |
-| `workspaceSettings` | `/w/$workspaceSlug/settings` | Workspace settings |
-| `projectSettings` | `/w/$workspaceSlug/p/$projectSlug/settings` | Project settings |
+The [anchor path table in ADR 0001](0001-client-composition-contract.md#paths-and-anchors)
+is canonical. This ADR records the URL scheme encoded by those anchors: client
+workspace and project navigation uses slug segments, while resource requests
+continue to use UUIDs after resolution.
 
 Examples below the anchors use the same prefixes:
 
@@ -95,7 +92,8 @@ Two invariants enforce the registry:
 The workspace prefix must be first. The project prefix must follow the workspace
 prefix pair. A registered slug parameter cannot appear twice or outside its
 prefix. Composition checks these rules before it builds the generated route
-tree.
+tree. The exact messages for these checks remain in the Diagnostics section of
+ADR 0001.
 
 UUID references deliberately have no prefix. Runs keep
 `runs/$workflowRunId`, and jobs keep their page segment below the run. An earlier

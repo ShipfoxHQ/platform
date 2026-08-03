@@ -91,7 +91,7 @@ not identify or authorize a workspace.
 Workflow run numbers follow the same boundary. The number is allocated per
 workflow definition and is exposed for display and workflow expressions. It is
 never resolved by an HTTP route. Run and job addresses remain UUIDs. See
-[ADR 0009](../adr/0009-client-url-prefix-invariants.md) for the decision and
+[ADR 0009](../adr/0009-client-urls-resource-identity.md) for the decision and
 rejected alternatives.
 
 For contract primitives and transport-specific behavior, read the

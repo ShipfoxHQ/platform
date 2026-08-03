@@ -70,7 +70,7 @@ Settings contributions declare an optional `scope` of `workspace` or `project`.
 Entries without a scope remain workspace settings; project-scoped entries render
 under the `projectSettings` anchor.
 
-This split is the client side of [ADR 0009](../adr/0009-client-url-prefix-invariants.md).
+This split is the client side of [ADR 0009](../adr/0009-client-urls-resource-identity.md).
 The API remains slug-free in resource identity positions, so
 `requireWorkspaceAccess` continues to authorize the UUID selected by the client.
 

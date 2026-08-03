@@ -5,7 +5,7 @@
 - **Decision owners:** E1 platform composition seams
 - **Linear issue:** [ENG-959](https://linear.app/shipfox/issue/ENG-959/author-the-client-composition-adr)
 - **Implementation issue:** [ENG-938](https://linear.app/shipfox/issue/ENG-938/implement-and-publish-the-client-composition-seam)
-- **Amended by:** [ADR 0009: Client URLs and resource identity](0009-client-url-prefix-invariants.md)
+- **Amended by:** [ADR 0009: Client URLs and resource identity](0009-client-urls-resource-identity.md)
 
 ## Context
 
@@ -360,6 +360,13 @@ id, key, or feature id.
 | Invalid anchor nesting | `Route "<path>" must be nested under anchor "<anchor>" (<anchor-path>).` |
 | Invalid layout nesting | `Route "<path>" must be nested under layout "<layout>" (<layout-path>).` |
 | Root parent inside protected anchor | `Route "<path>" in feature "<feature>" cannot use root parent inside reserved anchor "<anchor>" (<anchor-path>). Use parent "<anchor>".` |
+| Legacy workspace path | `Route "<path>" must use the slug-based workspace prefix "w" instead of the legacy "/workspaces" path.` |
+| Prefix without slug parameter | `Route "<path>" uses prefix "<prefix>" without a dynamic parameter immediately after it.` |
+| Slug outside prefix | `Route "<path>" places slug parameter "<param>" outside prefix "<prefix>".` |
+| Repeated slug parameter | `Route "<path>" repeats slug parameter "<param>".` |
+| Workspace prefix not first | `Route "<path>" must place workspace prefix "w" at the start of the path.` |
+| Inverted entity prefixes | `Route "<path>" must place workspace prefix "w" before project prefix "p".` |
+| UUID parameter after entity prefix | `Route "<path>" must place UUID parameter "<param>" after a page segment.` |
 | Route module not found | `Could not resolve route implementation "<specifier>" for "<path>".` |
 | Invalid route export | `Route implementation "<specifier>" for "<path>" must export default defineRoute(...).` |
 | Feature evaluation | `Failed to evaluate features module "<file>". Features modules must be Node-safe: <cause>` |
@@ -615,7 +622,7 @@ Both the linked iteration gate and packed-tarball gate passed on 2026-07-16. The
 and installed a 12-package `@shipfox/*` runtime closure outside the workspace.
 
 The consumer's `tsc --noEmit` accepted typed `Link` and `useSearch` for the added
-`/w/$workspaceSlug/insights` route. It resolved emitted `defineRoute()` declarations, anchor return
+`/workspaces/$wid/insights` route. It resolved emitted `defineRoute()` declarations, anchor return
 types, and the generated `Register` augmentation from `dist`.
 
 The proof found two package issues:
