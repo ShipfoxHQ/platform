@@ -7,6 +7,10 @@ Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for a human contribution or
 [AGENTS.md](../AGENTS.md) for an agent task. Use this map when the task is not
 listed there or when you need to place, update, or review documentation.
 
+For the durable product record that product and design work preserve (its users,
+purpose, positioning, and principles), see [PRODUCT.md](../PRODUCT.md). This map
+names it and links to it; it does not restate it.
+
 ## Find context by task
 
 | Read when the task... | Canonical source | It owns |
