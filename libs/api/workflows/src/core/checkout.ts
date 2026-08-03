@@ -144,12 +144,11 @@ async function resolveConnectionId(params: {
   defaultConnectionId: string;
   slug: string;
 }): Promise<string> {
-  const context = await params.integrations.getAgentToolsContext({
+  const connection = await params.integrations.resolveConnection({
     workspaceId: params.workspaceId,
-    defaultConnectionId: params.defaultConnectionId,
+    slug: params.slug,
   });
-  const connection = context.workspaceConnections.find(({slug}) => slug === params.slug);
-  if (connection === undefined) {
+  if (connection === null) {
     throw new CheckoutIntentUnresolvedError(params.defaultConnectionId);
   }
   return connection.id;

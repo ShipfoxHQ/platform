@@ -21,7 +21,7 @@ import {
 } from '#core/errors.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
 import type {IntegrationSourceControlService} from '#core/source-control-service.js';
-import {getIntegrationConnectionById} from '#db/connections.js';
+import {getIntegrationConnectionById, getIntegrationConnectionBySlug} from '#db/connections.js';
 
 export function createIntegrationsInterModulePresentation(params: {
   registry: IntegrationProviderRegistry;
@@ -41,6 +41,10 @@ export function createIntegrationsInterModulePresentation(params: {
           repository: resolved.repository,
         };
       }),
+    resolveConnection: async (input) => {
+      const resolved = await getIntegrationConnectionBySlug(input);
+      return resolved ? {id: resolved.id, provider: resolved.provider, slug: resolved.slug} : null;
+    },
     resolveTriggerReference: async (input) =>
       await known(
         contract.methods.resolveTriggerReference,

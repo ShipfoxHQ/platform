@@ -1,4 +1,6 @@
 ---
+"@shipfox/api-integration-core-dto": minor
+"@shipfox/api-integration-core": patch
 "@shipfox/api-projects-dto": minor
 "@shipfox/api-workflows-dto": major
 "@shipfox/api-workflows": major

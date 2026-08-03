@@ -12,18 +12,18 @@ const projects = {
   resolveCheckoutTarget,
 } as Pick<ProjectsModuleClient, 'getProjectById' | 'resolveCheckoutTarget'>;
 
-const getAgentToolsContext = vi.fn();
+const resolveConnection = vi.fn();
 const createCheckoutSpec = vi.fn();
 const integrations = {
-  getAgentToolsContext,
+  resolveConnection,
   createCheckoutSpec,
-} as Pick<IntegrationsModuleClient, 'createCheckoutSpec' | 'getAgentToolsContext'>;
+} as Pick<IntegrationsModuleClient, 'createCheckoutSpec' | 'resolveConnection'>;
 
 describe('createStepCheckoutSpec', () => {
   beforeEach(() => {
     getProjectById.mockReset();
     resolveCheckoutTarget.mockReset();
-    getAgentToolsContext.mockReset();
+    resolveConnection.mockReset();
     createCheckoutSpec.mockReset();
   });
 
@@ -150,11 +150,7 @@ describe('createStepCheckoutSpec', () => {
     const connectionId = crypto.randomUUID();
     const step = checkoutStep({connection: 'github', repository: 'acme/repo'});
     getProjectById.mockResolvedValue({project});
-    getAgentToolsContext.mockResolvedValue({
-      workspaceConnections: [
-        {slug: 'github', id: connectionId, provider: 'github', capabilities: ['source_control']},
-      ],
-    });
+    resolveConnection.mockResolvedValue({id: connectionId, provider: 'github', slug: 'github'});
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId,
@@ -173,9 +169,9 @@ describe('createStepCheckoutSpec', () => {
       projects: projects as ProjectsModuleClient,
     });
 
-    expect(getAgentToolsContext).toHaveBeenCalledWith({
+    expect(resolveConnection).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
-      defaultConnectionId: project.sourceConnectionId,
+      slug: 'github',
     });
     expect(resolveCheckoutTarget).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
