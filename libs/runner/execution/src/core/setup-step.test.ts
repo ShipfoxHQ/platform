@@ -148,6 +148,7 @@ describe('executeSetupStep', () => {
       expect.objectContaining({
         repositoryUrl: 'https://github.com/acme/repo.git',
         ref: 'main',
+        fetchDepth: 1,
         auth: {
           kind: 'bearer',
           token: 't',

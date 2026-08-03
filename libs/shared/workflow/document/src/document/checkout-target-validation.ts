@@ -36,7 +36,11 @@ export function checkoutTargetValidationIssues(target: {
       fields: ['project', 'repository'],
     });
   }
-  if (target.connection !== undefined && target.repository === undefined) {
+  if (
+    target.project === undefined &&
+    target.connection !== undefined &&
+    target.repository === undefined
+  ) {
     issues.push({
       kind: 'connection-without-repository',
       path: 'repository',

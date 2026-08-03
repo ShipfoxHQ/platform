@@ -61,7 +61,13 @@ export async function createStepCheckoutSpec({
     throw new CheckoutIntentUnresolvedError(projectId);
   }
 
-  const target = checkoutTarget(checkout, projectId);
+  const target = await checkoutTarget({
+    checkout,
+    defaultProjectId: projectId,
+    defaultConnectionId: defaultProject.sourceConnectionId,
+    integrations,
+    workspaceId,
+  });
   const resolvedTarget = await projects.resolveCheckoutTarget({
     workspaceId,
     defaults: {
@@ -105,15 +111,48 @@ function parseCheckoutConfig(step: Step): CheckoutConfig {
   return result.data;
 }
 
-function checkoutTarget(checkout: CheckoutConfig, defaultProjectId: string) {
+async function checkoutTarget(params: {
+  checkout: CheckoutConfig;
+  defaultProjectId: string;
+  defaultConnectionId: string;
+  integrations: IntegrationsModuleClient;
+  workspaceId: string;
+}) {
+  const {checkout} = params;
   if (checkout.project !== undefined) return {project: checkout.project};
   if (checkout.repository !== undefined) {
+    const connection =
+      checkout.connection === undefined
+        ? undefined
+        : await resolveConnectionId({
+            integrations: params.integrations,
+            workspaceId: params.workspaceId,
+            defaultConnectionId: params.defaultConnectionId,
+            slug: checkout.connection,
+          });
     return {
-      ...(checkout.connection === undefined ? {} : {connection: checkout.connection}),
+      ...(connection === undefined ? {} : {connection}),
       repository: checkout.repository,
     };
   }
-  return {project: defaultProjectId};
+  return {project: params.defaultProjectId};
+}
+
+async function resolveConnectionId(params: {
+  integrations: IntegrationsModuleClient;
+  workspaceId: string;
+  defaultConnectionId: string;
+  slug: string;
+}): Promise<string> {
+  const context = await params.integrations.getAgentToolsContext({
+    workspaceId: params.workspaceId,
+    defaultConnectionId: params.defaultConnectionId,
+  });
+  const connection = context.workspaceConnections.find(({slug}) => slug === params.slug);
+  if (connection === undefined) {
+    throw new CheckoutIntentUnresolvedError(params.defaultConnectionId);
+  }
+  return connection.id;
 }
 
 function defaultOwner(

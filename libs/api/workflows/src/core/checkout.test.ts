@@ -12,15 +12,18 @@ const projects = {
   resolveCheckoutTarget,
 } as Pick<ProjectsModuleClient, 'getProjectById' | 'resolveCheckoutTarget'>;
 
+const getAgentToolsContext = vi.fn();
 const createCheckoutSpec = vi.fn();
 const integrations = {
+  getAgentToolsContext,
   createCheckoutSpec,
-} as Pick<IntegrationsModuleClient, 'createCheckoutSpec'>;
+} as Pick<IntegrationsModuleClient, 'createCheckoutSpec' | 'getAgentToolsContext'>;
 
 describe('createStepCheckoutSpec', () => {
   beforeEach(() => {
     getProjectById.mockReset();
     resolveCheckoutTarget.mockReset();
+    getAgentToolsContext.mockReset();
     createCheckoutSpec.mockReset();
   });
 
@@ -139,6 +142,45 @@ describe('createStepCheckoutSpec', () => {
       workspaceId: project.workspaceId,
       defaults: {connectionId: project.sourceConnectionId, owner: 'acme'},
       target: {repository: 'repo'},
+    });
+  });
+
+  it('resolves an explicit connection slug before resolving a repository target', async () => {
+    const project = projectFactory.build();
+    const connectionId = crypto.randomUUID();
+    const step = checkoutStep({connection: 'github', repository: 'acme/repo'});
+    getProjectById.mockResolvedValue({project});
+    getAgentToolsContext.mockResolvedValue({
+      workspaceConnections: [
+        {slug: 'github', id: connectionId, provider: 'github', capabilities: ['source_control']},
+      ],
+    });
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: 'main',
+    });
+
+    await createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(getAgentToolsContext).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      defaultConnectionId: project.sourceConnectionId,
+    });
+    expect(resolveCheckoutTarget).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      defaults: {connectionId: project.sourceConnectionId, owner: 'acme'},
+      target: {connection: connectionId, repository: 'acme/repo'},
     });
   });
 

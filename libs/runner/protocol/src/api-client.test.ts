@@ -340,6 +340,7 @@ describe('api-client auth contexts', () => {
 
     expect(checkout.repository_url).toBe('https://github.com/acme/repo.git');
     expect(checkout.ref).toBe('main');
+    expect(checkout.fetch_depth).toBe(1);
     expect(calls[0]?.url).toContain(`runs/jobs/current/steps/${STEP_ID}/checkout-token?attempt=2`);
     expect(calls[0]?.authorization).toBe('Bearer lease-ghi');
   });

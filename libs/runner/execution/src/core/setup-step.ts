@@ -203,6 +203,7 @@ async function checkoutRepositoryForSetup(params: {
     const commit = await checkoutRepository({
       repositoryUrl: checkout.repository_url,
       ref: checkout.ref,
+      fetchDepth: checkout.fetch_depth,
       auth: checkout.auth,
       cwd,
       signal,
