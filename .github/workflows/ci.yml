@@ -242,7 +242,7 @@ jobs:
       - name: Set up mise
         uses: ./.github/actions/setup-mise
         with:
-          tools: node npm:pnpm npm:turbo
+          tools: node npm:pnpm npm:turbo vale
 
       - name: Set up pnpm
         uses: ./.github/actions/setup-pnpm
