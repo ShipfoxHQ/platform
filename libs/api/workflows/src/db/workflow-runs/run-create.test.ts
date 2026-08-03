@@ -316,7 +316,12 @@ describe('workflow run queries', () => {
         type: 'setup',
         name: 'Set up job',
         position: 0,
-        config: {},
+        config: {
+          checkout: {
+            permissions: {contents: 'read'},
+            persist_credentials: true,
+          },
+        },
       });
       expect(jobSteps[1]).toMatchObject({position: 1, config: {run: 'echo hello'}});
     });

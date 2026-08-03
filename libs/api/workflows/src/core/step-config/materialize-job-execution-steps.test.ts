@@ -202,6 +202,15 @@ describe('materializeJobExecutionSteps', () => {
 
     const steps = await materializeJobExecutionSteps({model, job, context: jobExecutionContext()});
 
+    expect(steps[0]).toMatchObject({
+      type: 'setup',
+      config: {
+        checkout: {
+          permissions: {contents: 'read'},
+          persist_credentials: true,
+        },
+      },
+    });
     expect(steps[1]).toEqual({
       key: null,
       name: 'Checkout',
@@ -221,6 +230,61 @@ describe('materializeJobExecutionSteps', () => {
       },
       authoredConfig: null,
       position: 1,
+    });
+  });
+
+  it('propagates a non-default job checkout policy into the setup step config', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          checkout: {
+            permissions: {contents: 'write'},
+            persistCredentials: false,
+          },
+          steps: [{run: 'echo hello'}],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+
+    const steps = await materializeJobExecutionSteps({model, job, context: jobExecutionContext()});
+
+    expect(steps[0]).toMatchObject({
+      type: 'setup',
+      config: {
+        checkout: {
+          permissions: {contents: 'write'},
+          persist_credentials: false,
+        },
+      },
+    });
+  });
+
+  it('falls back to the default checkout policy for legacy jobs', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {steps: [{run: 'echo hello'}]},
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+    const legacyJob = {...job, checkout: undefined} as unknown as typeof job;
+
+    const steps = await materializeJobExecutionSteps({
+      model,
+      job: legacyJob,
+      context: jobExecutionContext(),
+    });
+
+    expect(steps[0]).toMatchObject({
+      type: 'setup',
+      config: {
+        checkout: {
+          permissions: {contents: 'read'},
+          persist_credentials: true,
+        },
+      },
     });
   });
 
@@ -250,7 +314,12 @@ describe('materializeJobExecutionSteps', () => {
         sourceLocation: null,
         status: 'pending',
         type: 'setup',
-        config: {},
+        config: {
+          checkout: {
+            permissions: {contents: 'read'},
+            persist_credentials: true,
+          },
+        },
         authoredConfig: null,
         position: 0,
       },

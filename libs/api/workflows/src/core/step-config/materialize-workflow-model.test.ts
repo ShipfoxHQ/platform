@@ -132,7 +132,12 @@ describe('materializeWorkflowModel', () => {
       sourceLocation: null,
       status: 'pending',
       type: 'setup',
-      config: {},
+      config: {
+        checkout: {
+          permissions: {contents: 'read'},
+          persist_credentials: true,
+        },
+      },
       authoredConfig: null,
       position: 0,
     };
@@ -477,7 +482,12 @@ describe('materializeWorkflowModel', () => {
 
     const rows = await materializeWorkflowModel({model});
 
-    expect(rows[0]?.steps[0]?.config).toEqual({});
+    expect(rows[0]?.steps[0]?.config).toEqual({
+      checkout: {
+        permissions: {contents: 'read'},
+        persist_credentials: true,
+      },
+    });
     expect(rows[0]?.steps[1]?.config).toEqual({
       run: 'npm test',
       env: {
@@ -1276,7 +1286,12 @@ describe('materializeWorkflowModel', () => {
         sourceLocation: null,
         status: 'pending',
         type: 'setup',
-        config: {},
+        config: {
+          checkout: {
+            permissions: {contents: 'read'},
+            persist_credentials: true,
+          },
+        },
         authoredConfig: null,
         position: 0,
       },
