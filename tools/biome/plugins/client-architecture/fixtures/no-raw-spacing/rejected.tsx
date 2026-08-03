@@ -9,6 +9,11 @@ export function RejectedSpacing() {
       <div className="p-4" />
       <div className="p-row" />
       <div className="sm:p-4" />
+      <div
+        className="
+          p-4
+        "
+      />
     </>
   );
 }

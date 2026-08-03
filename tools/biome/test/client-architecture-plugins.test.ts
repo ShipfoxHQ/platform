@@ -160,7 +160,7 @@ describe('client-architecture Biome plugins', () => {
         const output = `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`;
         assert.match(output, rawSpacingRulePattern);
         assert.match(output, rawSpacingRejectedLocationPattern);
-        assert.equal(output.match(rawSpacingDiagnosticPattern)?.length, 8);
+        assert.equal(output.match(rawSpacingDiagnosticPattern)?.length, 9);
         return true;
       },
     );
