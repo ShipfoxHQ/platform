@@ -15,7 +15,7 @@ export {productionizeImports} from '@shipfox/tool-utils';
  * ingest dist" way. `turbo prune` writes a self-contained workspace into `out/`,
  * then each pruned package's already-built (turbo-cached) `dist/` is overlaid
  * into `out/full/`. The image ingests those `dist/`s plus a real `node_modules`
- * and never recompiles TypeScript — `shipfox-swc` transpiles per file and does
+ * and never recompiles TypeScript: `shipfox-swc` transpiles per file and does
  * not bundle, so the workspace `dist/`s are what the running app needs.
  */
 export function setupContext(packageName: string) {

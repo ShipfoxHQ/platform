@@ -10,7 +10,7 @@
 
 /* Self-hosted Inter (variable, latin subsets). Vendors the woff2 subsets that
    Google Fonts served so the font is registered synchronously at first paint
-   instead of behind a CDN @import — Argos screenshots no longer race the
+   instead of behind a CDN @import: Argos screenshots no longer race the
    fallback face on cold CI. */
 @font-face {
   font-family: "Inter";

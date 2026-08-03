@@ -357,7 +357,7 @@ describe('createStepLogStream', () => {
 
   it('never writes the secret or any of its wire forms to the spool', async () => {
     // Reserved characters ('/', '+', '=') so the URL-encoded form genuinely differs from the
-    // literal — a base64url-shaped token's URL form equals the literal and would prove nothing.
+    // literal: a base64url-shaped token's URL form equals the literal and would prove nothing.
     const secret = 'sf/rt+SECRET=12';
     const forms = secretWireForms(secret); // the exact set the masker derives, incl. the literal
     const stream = createStepLogStream({
@@ -381,7 +381,7 @@ describe('createStepLogStream', () => {
     expect(forms).toContain(encodeURIComponent(secret));
     expect(encodeURIComponent(secret)).not.toBe(secret);
 
-    // Read the plaintext spool file directly: not one wire form may have reached disk.
+    // Read the plaintext spool file directly. No wire form may have reached disk.
     const raw = await readFile(join(dir, 'logs', `${STEP_ID}-11.ndjson`), 'utf8');
     for (const form of forms) {
       expect(raw).not.toContain(form);

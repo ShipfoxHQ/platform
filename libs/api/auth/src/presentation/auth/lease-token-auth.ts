@@ -4,7 +4,7 @@ import {verifyJobLeaseToken} from '#core/job-lease-token.js';
 import {createBearerTokenAuthMethod} from './bearer-token-auth.js';
 
 /**
- * Trust boundary: the signed token is the sole authority — `claims.jobId` scopes
+ * Trust boundary: the signed token is the sole authority. `claims.jobId` scopes
  * every runner request to exactly one job. `workflowRunId`/`workflowRunAttemptId`/`workspaceId`
  * are carried for consumers but are NOT verified against the database here.
  *

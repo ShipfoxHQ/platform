@@ -40,7 +40,7 @@ function toStepErrorDto(
 
 // Inverse of toStepErrorDto: reported wire errors land on the domain row in
 // camelCase so the read path renders them back without a special case. `category`
-// is intentionally NOT persisted — the server derives it from the step type on
+// is intentionally NOT persisted: the server derives it from the step type on
 // read, so a runner-supplied category is ignored here.
 export function fromStepErrorDto(error: StepErrorDto | undefined): Record<string, unknown> | null {
   if (!error) return null;

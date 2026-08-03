@@ -4,7 +4,7 @@ import {Factory} from 'fishery';
 // over the wire: the lifecycle data nests under `data.installation` and carries
 // the single-use authorization `code`. Tests serialize the built object to form a
 // signed request body; the route parses and validates it with the production Zod
-// schema. Build-only — the payload is never persisted, so there is no onCreate
+// schema. Build-only: the payload is never persisted, so there is no onCreate
 // handler.
 export interface SentryInstallationWebhookPayload {
   action: string;

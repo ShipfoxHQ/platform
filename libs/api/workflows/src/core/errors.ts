@@ -214,7 +214,7 @@ export class StepNotRunningError extends Error {
 
 // A report whose attempt is ahead of the step's current attempt. The host
 // allocates attempt numbers, so a runner can never report one it was not
-// dispatched — this is a protocol error, not an idempotent no-op.
+// dispatched: this is a protocol error, not an idempotent no-op.
 export class StepAttemptAheadError extends Error {
   constructor(
     readonly stepId: string,

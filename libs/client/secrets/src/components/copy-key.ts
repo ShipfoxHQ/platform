@@ -2,7 +2,7 @@ import {toast} from '@shipfox/react-ui/toast';
 
 /**
  * Copies a bare key name (e.g. `MY_TOKEN`) to the clipboard. Guarded because
- * `navigator.clipboard` is undefined in insecure contexts and older browsers —
+ * `navigator.clipboard` is undefined in insecure contexts and older browsers.
  * a missing API or a rejected write surfaces a toast instead of an unhandled
  * rejection.
  */

@@ -70,7 +70,7 @@ interface StartedModuleService {
 
 /**
  * Initializes modules in array order. Modules are processed sequentially
- * so migration order is deterministic — list modules with shared dependencies first.
+ * so migration order is deterministic: list modules with shared dependencies first.
  *
  * Publishers and subscribers declared on each module are registered automatically
  * into the shared pub/sub registry.

@@ -4,7 +4,7 @@ import {z} from 'zod';
  * Append endpoint contract: `POST .../steps/:stepId/logs?attempt=N&offset=B`.
  *
  * The body is raw NDJSON bytes (whole records, newline-terminated), not a
- * Zod-validated object — it is parsed line by line against the raw log record
+ * Zod-validated object: it is parsed line by line against the raw log record
  * union (`rawLogRecordSchema`). `offset` is a position in the raw
  * NDJSON spool stream; both `offset` and the returned `committed_length` are
  * bounded far below 2^53 by the accrual budget, so JavaScript `number` is safe.

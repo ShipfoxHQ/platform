@@ -100,7 +100,7 @@ export async function previewInvitation(params: {token: string}): Promise<Previe
 
   const workspace = await getWorkspaceById(invitation.workspaceId);
   if (!workspace) {
-    // Workspace cascade-deleted — the invitation row is orphaned. Treat as invalid.
+    // Workspace cascade-deleted: the invitation row is orphaned. Treat as invalid.
     return {status: 'invalid'};
   }
 

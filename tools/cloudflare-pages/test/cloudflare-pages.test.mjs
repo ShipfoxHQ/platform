@@ -960,7 +960,7 @@ test('names app GitHub deployments with a readable preview label', async () => {
     runner,
   });
 
-  assert.equal(requests[0].payload.environment, 'Preview – storybook – PR 42');
+  assert.equal(requests[0].payload.environment, 'Preview: storybook: PR 42');
 });
 
 test('registers successful applications from a partial deployment manifest', async () => {
@@ -981,7 +981,7 @@ test('registers successful applications from a partial deployment manifest', asy
   assert.equal(result.ok, true);
   assert.equal(result.apps.length, 1);
   assert.equal(requests.length, 2);
-  assert.equal(requests[0].payload.environment, 'Preview – storybook');
+  assert.equal(requests[0].payload.environment, 'Preview: storybook');
 });
 
 test('uses the GitHub repository from the CI environment for deployment registration', async () => {
@@ -1021,7 +1021,7 @@ test('marks production GitHub deployments as non-transient production deployment
     runner,
   });
 
-  assert.equal(requests[0].payload.environment, 'Production – storybook');
+  assert.equal(requests[0].payload.environment, 'Production: storybook');
   assert.equal(requests[0].payload.transient_environment, false);
   assert.equal(requests[0].payload.production_environment, true);
 });
@@ -1045,7 +1045,7 @@ test('retains a created GitHub deployment when its in-progress status fails', as
       appId: 'storybook',
       id: '123',
       url: 'https://storybook.pages.dev',
-      environment: 'Preview – storybook',
+      environment: 'Preview: storybook',
       repository: 'ShipfoxHQ/example',
     },
   ]);

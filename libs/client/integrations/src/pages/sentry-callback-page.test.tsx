@@ -149,7 +149,7 @@ describe('SentryCallbackPage', () => {
     await waitFor(() => expect(screen.getByRole('button', {name: 'Retry'})).toBeDisabled());
 
     // A second attempt (via the still-enabled workspace Install) fails with no
-    // backoff hint — the lock must clear so the user is not stranded.
+    // backoff hint: the lock must clear so the user is not stranded.
     fireEvent.click(screen.getByRole('button', {name: 'Install'}));
     await waitFor(() => expect(screen.getByRole('button', {name: 'Retry'})).toBeEnabled());
   });

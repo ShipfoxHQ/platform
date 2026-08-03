@@ -12,7 +12,7 @@ export interface InstallRedirectExpectation {
   expectedUrl: string;
   /**
    * Runs inside the install-POST handler, after the body is captured but before
-   * the response is fulfilled — i.e. while the app document is still intact and
+   * the response is fulfilled: i.e. while the app document is still intact and
    * the redirect has not fired. Sentry uses it to read its sessionStorage
    * handoff, which is unreadable once the aborted navigation denies the document.
    */

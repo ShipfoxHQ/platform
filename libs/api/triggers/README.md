@@ -162,14 +162,14 @@ unique per `(workflow_definition_id, name)`.
 
 ### Words we do not use
 
-- `provider` — reserved for the integration module's identity
+- `provider`: reserved for the integration module's identity
   (`integrations_connections.provider`). Trigger code says `source`.
-- `eventType` / `type` — replaced by `event`. The bare word `type` would
+- `eventType` / `type`: replaced by `event`. The bare word `type` would
   collide with TypeScript discriminators and with the `IntegrationProvider`
   capability `type` field.
-- `triggerContext` — the runtime payload on a run is called
+- `triggerContext`: the runtime payload on a run is called
   `triggerPayload`.
-- `kind` — every trigger is identified by `(source, event)`. There is no
+- `kind`: every trigger is identified by `(source, event)`. There is no
   separate axis.
 
 ## Architecture
@@ -205,17 +205,17 @@ or POST /workflow-definitions/:definitionId/fire-manual → look up manual subsc
                 └─────────────────────────────────────────────────────┘
 ```
 
-### Layer 1 — workflow definition (source of truth)
+### Layer 1: workflow definition (source of truth)
 
 The YAML `triggers` map lives inside `workflow_definitions.definition`
 (JSONB owned by the definitions module). That is the only place trigger
 declarations live in raw form.
 
-### Layer 2 — projection (queryable)
+### Layer 2: projection (queryable)
 
 `triggers_subscriptions` is rebuilt from `DEFINITION_RESOLVED` events,
 which carry the parsed `triggers` map. The triggers module never reads the
-definitions table — the event is the contract.
+definitions table: the event is the contract.
 
 Cron triggers also project into `triggers_cron_schedules`, keyed by
 `subscription_id`. That table stores the resolved cron expression, timezone,
@@ -223,15 +223,15 @@ next fire time, and last fire time used by the cron firing engine.
 
 Indexes:
 
-- `(workflow_definition_id, name)` — unique. One row per YAML trigger.
-- `(workspace_id, source, event)` — the hot path for matching incoming
+- `(workflow_definition_id, name)`: unique. One row per YAML trigger.
+- `(workspace_id, source, event)`: the hot path for matching incoming
   integration events at workspace scope.
-- `(workflow_definition_id)` — used to clean up the projection on
+- `(workflow_definition_id)`: used to clean up the projection on
   `DEFINITION_DELETED`.
-- `triggers_cron_schedules.next_fire_at` — used to drain due cron schedules
+- `triggers_cron_schedules.next_fire_at`: used to drain due cron schedules
   in next-fire order.
 
-### Layer 3 — run history (immutable)
+### Layer 3: run history (immutable)
 
 `workflow_runs.trigger_source` and `trigger_event` are indexed text
 columns. `trigger_payload` is a JSONB column typed by `TriggerPayload`:

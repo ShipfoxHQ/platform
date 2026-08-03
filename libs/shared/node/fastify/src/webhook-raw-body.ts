@@ -16,8 +16,8 @@ export interface RawBodyPluginOptions {
  * offsets and payload byte counts must match the bytes the runner sent).
  *
  * It removes the inherited content-type parsers within its scope, so register it
- * on a route group dedicated to the raw content type — not one that also serves
- * JSON-parsed routes.
+ * on a route group dedicated to the raw content type. Do not register it on a
+ * group that also serves JSON-parsed routes.
  */
 export function createRawBodyPlugin({
   contentType,

@@ -20,7 +20,7 @@ const sentryInstallWorkspaceStorageKey = {
 } satisfies BrowserStorageKey<string>;
 
 // Storage helpers swallow failures (quota, private mode, disabled storage):
-// the handoff is an optimization, never a requirement — the callback always
+// the handoff is an optimization, never a requirement: the callback always
 // asks for explicit confirmation and only uses the stored id to pre-select.
 export function saveSentryInstallWorkspace(storage: WorkspaceStorage, workspaceId: string): void {
   installWorkspaceStorage(storage).write(workspaceId);
@@ -67,7 +67,7 @@ export type SentryWorkspacePreselection =
   | {kind: 'none'};
 
 // Sentry's redirect carries no state token, so the callback can never prove it
-// belongs to an install the user started — installation always requires an
+// belongs to an install the user started. Installation always requires an
 // explicit click. The stored id (and a sole workspace) only pre-select.
 export function preselectSentryWorkspace(
   storedId: string | undefined,

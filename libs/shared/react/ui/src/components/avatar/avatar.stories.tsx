@@ -4,7 +4,7 @@ import {Avatar} from './avatar.js';
 import {AvatarGroup, AvatarGroupTooltip} from './avatar-group.js';
 
 // In Playwright (Argos CI) navigator.webdriver is true. DiceBear image fetches
-// are unreliable in CI — skip them so screenshots are deterministic.
+// are unreliable in CI. Skip them so screenshots are deterministic.
 const isTest = typeof navigator !== 'undefined' && navigator.webdriver === true;
 
 const contentOptions = ['letters', 'logo', 'logoPlaceholder', 'image', 'upload'] as const;

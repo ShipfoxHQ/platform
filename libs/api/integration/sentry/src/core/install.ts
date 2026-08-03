@@ -236,7 +236,7 @@ async function claimBrowserFirst(
 }
 
 // The browser-first exchange got "already used" with no row visible at lookup: a
-// concurrent webhook won the exchange. Re-read once — if its verified row is now
+// concurrent webhook won the exchange. Re-read once: if its verified row is now
 // visible we reconcile through the same proof rules; if it got claimed we resolve
 // it; if it was tombstoned we surface that terminally (matching the top-level
 // check); otherwise it is still mid-flight, so the claim is retryable.

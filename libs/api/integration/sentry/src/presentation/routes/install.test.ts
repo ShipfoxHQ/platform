@@ -94,7 +94,7 @@ async function createTestApp(options: CreateTestAppOptions = {}): Promise<Fastif
           updatedAt: new Date(),
         }),
       ),
-    // Webhook receiver dependencies — install/connect tests don't exercise them.
+    // Webhook receiver dependencies: install/connect tests don't exercise them.
     coreDb: vi.fn() as never,
     publishIntegrationEventReceived: vi.fn(() => Promise.resolve({published: false})),
     recordDeliveryOnly: vi.fn(() => Promise.resolve()),

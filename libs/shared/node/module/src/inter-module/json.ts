@@ -7,7 +7,7 @@ const ARRAY_INDEX_PATTERN = /^(0|[1-9]\d*)$/;
  *
  * Cycle detection tracks only the active recursion path (the current DFS
  * stack), not every object visited. A value reachable twice through two
- * different branches is not a cycle and is allowed — it becomes two
+ * different branches is not a cycle and is allowed: it becomes two
  * independent copies once `JSON.stringify`/`JSON.parse` runs. Only a value
  * that reappears among its own ancestors is rejected.
  */
@@ -17,7 +17,7 @@ export function isJsonSafeValue(value: unknown): boolean {
   } catch {
     // A hostile Proxy trap (getPrototypeOf/ownKeys/getOwnPropertyDescriptor/get)
     // can throw mid-walk. A value that cannot be safely introspected is not
-    // JSON-safe by definition — treat the throw as "unsafe", never let it
+    // JSON-safe by definition: treat the throw as "unsafe", never let it
     // escape as a raw exception.
     return false;
   }
@@ -60,7 +60,7 @@ function checkJsonSafe(value: unknown, activePath: Set<unknown>): boolean {
     if (typeof key === 'symbol') return false;
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     // `JSON.stringify` silently drops a non-enumerable own property (unlike an
-    // array index, which it always serializes regardless of enumerability) —
+    // array index, which it always serializes regardless of enumerability).
     // reject rather than let the later JSON copy silently lose the field.
     if (!descriptor || descriptor.get || descriptor.set || !descriptor.enumerable) return false;
   }

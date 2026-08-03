@@ -39,7 +39,7 @@ export interface CreateInMemoryInterModuleTransportOptions {
  * ```
  *
  * `createClient` and `register` reject a duplicate or mismatched-contract-object
- * call immediately, without mutating any state — the rejected call itself never
+ * call immediately, without mutating any state: the rejected call itself never
  * corrupts the graph, so fixing the caller's code and retrying that same call is
  * always enough to recover. `seal()` only has to catch what neither of those can
  * know in advance: a client whose module never got a presentation registered.
@@ -47,7 +47,7 @@ export interface CreateInMemoryInterModuleTransportOptions {
  * Clients may be created before presentations so two modules can call each
  * other without a code import cycle. A client and its presentation must
  * reference the exact same contract object `defineInterModuleContract`
- * returned — matching module/method name strings alone is not enough.
+ * returned: matching module/method name strings alone is not enough.
  */
 export interface InterModuleTransport {
   createClient<Def extends InterModuleContractDefinition>(
@@ -197,9 +197,8 @@ export function createInMemoryInterModuleTransport(
     requireBuilding('seal');
 
     // createClient()/register() already reject a duplicate or mismatched
-    // contract the moment it would occur, so the only issue left to detect
-    // here — only knowable once the caller decides composition is complete —
-    // is a client requirement whose module never got a presentation.
+    // contract the moment it would occur. The only issue left to detect here is
+    // a client requirement whose module never got a presentation.
     const issues: string[] = [];
     for (const moduleName of clientContractByModule.keys()) {
       if (!registrationByModule.has(moduleName)) {

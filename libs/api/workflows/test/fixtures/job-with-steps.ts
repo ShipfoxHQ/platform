@@ -3,7 +3,7 @@ import {createWorkflowRun, getJobsByWorkflowRunId, getStepsByJobId} from '#db/wo
 import {stripSetupStep} from '#test/fixtures/strip-setup-step.js';
 import {workflowModel} from '#test/index.js';
 
-// Jobs and steps have no standalone factory — they only exist as children
+// Jobs and steps have no standalone factory: they only exist as children
 // materialized from a WorkflowModel by createWorkflowRun, which also prepends a
 // synthetic "Set up job" step to every job. This fixture exercises step-execution
 // mechanics in isolation, so it strips that step (see stripSetupStep) to keep the

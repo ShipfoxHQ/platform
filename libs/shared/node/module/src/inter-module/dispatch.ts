@@ -35,7 +35,7 @@ export type InterModuleHandlerFn = (input: unknown, context: InterModuleHandlerC
  * Fires `reportInternalError` without ever blocking the caller on it: a
  * reporter that returns a promise that never settles must not hang the
  * dispatch boundary. Any synchronous throw or eventual async rejection is
- * drained — the reporter's own failure never affects the caller's outcome.
+ * drained: the reporter's own failure never affects the caller's outcome.
  */
 function drainReport(
   reportInternalError: InterModuleReportInternalError,
@@ -125,7 +125,7 @@ export function runInterModuleCall(callOptions: RunInterModuleCallOptions): Prom
 
   try {
     // The presentation span is started *inside* this callback (not as a
-    // sibling call) so it activates as the client span's child — a span
+    // sibling call) so it activates as the client span's child. A span
     // merely created via `startSpan` never becomes the parent of a later,
     // separately created span; only an *active* span does. Both callbacks may
     // throw synchronously (e.g. a pre-aborted signal); the surrounding
@@ -238,7 +238,7 @@ type HandlerSettlement =
 /**
  * The producer half of the dispatch boundary: races the handler's settlement
  * against `signal`, revives a declared known error into a fresh copy, and
- * validates and copies a successful output. Never throws — the caller
+ * validates and copies a successful output. Never throws: the caller
  * translates the returned settlement into its own rejection or resolution.
  */
 async function invokeHandlerWithCancellation(params: {
@@ -267,7 +267,7 @@ async function invokeHandlerWithCancellation(params: {
   try {
     const context: InterModuleHandlerContext = {signal: signal ?? new AbortController().signal};
     // `.then(onFulfilled, onRejected)` is attached synchronously, right here, so
-    // the handler's own promise always has a consumer — even if the abort race
+    // the handler's own promise always has a consumer: even if the abort race
     // below settles first, this promise's eventual settlement never surfaces as
     // an unhandled rejection.
     const handlerPromise = invokeHandler(handler, input, context).then(

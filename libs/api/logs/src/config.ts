@@ -97,7 +97,7 @@ if (config.LOG_READ_INLINE_MAX_BYTES < 1) {
 }
 
 // A whole agent_session line is one record in one body. If the body limit is below the
-// line cap, a legitimate large session line could never fit in one request body — Fastify
+// line cap, a legitimate large session line could never fit in one request body: Fastify
 // would 413 it before the per-line validator runs. Fail fast at startup instead.
 if (config.LOG_APPEND_BODY_LIMIT_BYTES < config.LOG_MAX_SESSION_LINE_BYTES) {
   throw new Error(

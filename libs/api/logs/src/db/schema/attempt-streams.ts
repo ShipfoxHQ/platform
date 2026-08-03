@@ -17,7 +17,7 @@ import {pgTable} from './common.js';
 
 /**
  * One stream per (job, step, attempt). Identity is scoped by `job_id` (from the
- * lease), so a lease can only ever reach its own job's streams — cross-job log
+ * lease), so a lease can only ever reach its own job's streams; cross-job log
  * injection is structurally impossible. `workspace_id`, `project_id`, and `workflow_run_attempt_id`
  * are stamped from the lease at create time; they are functionally determined by
  * `job_id` via workflows FKs, so they are denormalized here for self-contained
@@ -32,7 +32,7 @@ import {pgTable} from './common.js';
  * Per-row `committed_length` and `declared_total_bytes` are bounded by the
  * per-job budget, so `mode: 'number'` is safe on the hot path. Any cross-row
  * aggregate (workspace or system-wide totals) MUST read as bigint at the
- * query site — the global sum is unbounded and would silently lose precision
+ * query site: the global sum is unbounded and would silently lose precision
  * past 2^53 as a JS number.
  */
 export const attemptStreams = pgTable(

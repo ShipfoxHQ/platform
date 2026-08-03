@@ -486,7 +486,7 @@ describe('inter-module dispatch: cancellation', () => {
     expect(called).toBe(false);
   });
 
-  it('rejects with the signal reason even when the input is also invalid — cancellation wins', async () => {
+  it('rejects with the signal reason even when the input is also invalid: cancellation wins', async () => {
     let called = false;
     const client = buildWidgetsHarness({
       getWidget: ({id}) => {
@@ -498,7 +498,7 @@ describe('inter-module dispatch: cancellation', () => {
     const reason = new Error('already aborted');
     controller.abort(reason);
 
-    // @ts-expect-error id must be a string — deliberately invalid, to prove cancellation still wins
+    // @ts-expect-error id must be a string: deliberately invalid, to prove cancellation still wins
     await expect(client.getWidget({id: 42}, {signal: controller.signal})).rejects.toBe(reason);
     expect(called).toBe(false);
   });
@@ -509,7 +509,7 @@ describe('inter-module dispatch: cancellation', () => {
       getWidget: () => {
         controller.abort(new Error('reentrant abort'));
         return new Promise(() => {
-          // Never settles on its own — only the abort race can resolve this call.
+          // Never settles on its own: only the abort race can resolve this call.
         });
       },
     });

@@ -41,7 +41,7 @@ function hasKnownErrorMarker(error: unknown): error is MarkedError {
  * validation. A transport uses this narrow check to tell "never minted as a
  * known error" (an undeclared handler bug) apart from "minted, but fails
  * `isInterModuleKnownError`'s full re-validation" (a forged or malformed known
- * error) — two outcomes `isInterModuleKnownError` alone cannot distinguish.
+ * error). The two outcomes `isInterModuleKnownError` alone cannot distinguish.
  * The marker itself stays this package's implementation detail; callers
  * outside it must not reconstruct the `Symbol.for` key by hand.
  */
@@ -52,7 +52,7 @@ export function hasInterModuleKnownErrorMarker(error: unknown): boolean {
 /**
  * Mints a known error for `code`, validating `details` against the schema that
  * `methodContract` declares for that code. Throws a plain (unmarked) `Error` when
- * `code` is not declared or `details` fails its schema — that throw is a contract
+ * `code` is not declared or `details` fails its schema: that throw is a contract
  * defect at the call site, not a known error, and never carries the marker.
  */
 export function createInterModuleKnownError<
@@ -72,7 +72,7 @@ export function createInterModuleKnownError<
 
   const parsedDetails: unknown = schema.parse(details);
   // Re-validating a known error (`isInterModuleKnownError`) re-parses
-  // `error.details` — already this schema's *output* — through the same
+  // `error.details`, already this schema's *output*, through the same
   // schema. A shape-changing `.transform()`/`.pipe()` would then silently
   // fail that later re-validation. Catch the contract violation loudly here,
   // at the point of minting, instead of leaving it as a silent, documented-
@@ -108,8 +108,8 @@ export function createInterModuleKnownError<
  * code's own details schema instead of trusting `instanceof`, so a forged or
  * cross-method error never narrows.
  *
- * Re-validation re-parses `error.details` — already the code's schema
- * *output* — through that same schema. An error-detail schema must therefore
+ * Re-validation re-parses `error.details`, already the code's schema
+ * *output*, through that same schema. An error-detail schema must therefore
  * keep its input and output shapes identical (the common case for a plain
  * `z.object({...})`); a shape-changing `.transform()`/`.pipe()` makes a
  * legitimately minted known error fail this re-validation and downgrades it to
@@ -131,7 +131,7 @@ export function isInterModuleKnownError<Method extends InterModuleMethodContract
   } catch {
     // A schema that behaves asynchronously makes `safeParse` throw instead of
     // returning `{success: false}` (Zod requires `parseAsync` for those). A
-    // forged or malformed error must never crash this check — treat any
+    // forged or malformed error must never crash this check: treat any
     // unexpected throw the same as a failed match.
     return false;
   }

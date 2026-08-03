@@ -175,7 +175,7 @@ export async function listSourceConnections({
   });
   // The endpoint returns every lifecycle status (the settings hub needs that),
   // but source-control consumers (onboarding redirect, project creation) only
-  // act on usable connections — a disabled/error one must read as "not there".
+  // act on usable connections. A disabled/error one must read as "not there".
   return connections.filter(isUsableConnection);
 }
 

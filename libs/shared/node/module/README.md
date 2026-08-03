@@ -128,7 +128,7 @@ transport.seal(); // rejects a client whose module never got a presentation regi
 ```
 
 `createClient`/`register` reject a duplicate or mismatched-contract-object call
-immediately, without recording anything — the rejected call never corrupts the
+immediately, without recording anything: the rejected call never corrupts the
 graph, so fixing the caller and retrying that same call is always enough to
 recover.
 

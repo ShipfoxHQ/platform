@@ -12,17 +12,17 @@ the platform's public HTTP surface.
 
 Instance side (admin-credentialed, against `E2E_GITEA_URL`):
 
-- `createOrg(params?)` — org + read-only team (`includes_all_repositories`) + bot
+- `createOrg(params?)`: org + read-only team (`includes_all_repositories`) + bot
   membership + org push webhook, mirroring `dev/gitea/bootstrap.sh`. Returns
   `{org, teamId, webhookId}`. A fresh org per suite run is required because an org can
   only ever be linked to one workspace.
-- `createRepo({org, name, ...})` — create a repo in the org. Returns `{name, fullName,
+- `createRepo({org, name, ...})`: create a repo in the org. Returns `{name, fullName,
   cloneUrl, defaultBranch}`.
-- `commitFiles({org, repo, message, files, branch?})` — one commit for the whole batch
+- `commitFiles({org, repo, message, files, branch?})`: one commit for the whole batch
   through Gitea's change-files contents API. Returns the commit SHA. File `content` is
   UTF-8 text; the helper base64-encodes it. `operation` defaults to `create`; `update`
   and `delete` need the file's current blob `sha`.
-- `deleteRepo({org, repo})`, `deleteOrg({org})` — teardown. `deleteOrg` deletes the org's
+- `deleteRepo({org, repo})`, `deleteOrg({org})`: teardown. `deleteOrg` deletes the org's
   repositories first, then the org (Gitea rejects deleting an org that still owns repos).
 
 `createOrg` and `createConnectedOrg` are self-cleaning: if a step fails after the org is
@@ -31,15 +31,15 @@ rethrowing, so a failed run leaves no orphan org in the shared instance.
 
 Platform side (through the product route):
 
-- `connectGiteaOrg({workspaceId, org, sessionToken})` — `POST
+- `connectGiteaOrg({workspaceId, org, sessionToken})`: `POST
   /integrations/gitea/connections`, authenticated with the suite user's session token.
   Returns the connection DTO.
 
 Convenience:
 
-- `createConnectedOrg({workspaceId, sessionToken, name?})` — `createOrg` then
+- `createConnectedOrg({workspaceId, sessionToken, name?})`: `createOrg` then
   `connectGiteaOrg`, returning `{org, teamId, webhookId, connection}`.
-- `createGiteaHelper()` / `giteaHelper` — the factory and the Playwright fixture
+- `createGiteaHelper()` / `giteaHelper`: the factory and the Playwright fixture
   (`gitea`). Compose it with the other helpers:
 
   ```ts

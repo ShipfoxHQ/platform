@@ -9,7 +9,7 @@ const GROUP_END_LINE = '::endgroup::';
  * with or without a trailing CR/LF). `::group::<name>` and `::endgroup::` are the only two;
  * everything else returns undefined and stays normal output.
  *
- * The `::` must start the line — GitHub treats workflow commands as line-leading, so a `::`
+ * The `::` must start the line: GitHub treats workflow commands as line-leading, so a `::`
  * mid-line or after whitespace is plain text. `::endgroup::` must match exactly, so a
  * trailing argument (`::endgroup:: x`) is not a marker. The name is returned verbatim;
  * secret masking and the DTO's byte cap are applied downstream (the transform masks it, the

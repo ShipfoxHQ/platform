@@ -133,7 +133,7 @@ jobs:
           NPM_CONFIG_PROVENANCE: "true"
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: shipfox
-          # Publish must never populate the shared cache — only read what CI built.
+          # Publish must never populate the shared cache: only read what CI built.
           TURBO_CACHE: local:rw,remote:r
         run: pnpm run release:publish
 

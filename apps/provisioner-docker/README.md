@@ -42,13 +42,13 @@ until observation succeeds.
 | --- | --- | --- | --- |
 | `SHIPFOX_API_URL` | no | `https://api.shipfox.io` | Base URL of the Shipfox API. Set it for a self-hosted API. |
 | `SHIPFOX_RUNNER_API_URL` | no | `SHIPFOX_API_URL` | API URL injected into runner containers as `SHIPFOX_API_URL`; set it when containers reach the API through a different address. |
-| `SHIPFOX_PROVISIONER_TOKEN` | yes | — | Long-lived provisioner token (keep it in `.env.local`, never commit it). |
-| `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | yes | — | Path to the YAML template file (see `templates.example.yaml`). |
+| `SHIPFOX_PROVISIONER_TOKEN` | yes | N/A | Long-lived provisioner token (keep it in `.env.local`, never commit it). |
+| `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | yes | N/A | Path to the YAML template file (see `templates.example.yaml`). |
 | `SHIPFOX_PROVISIONER_DOCKER_HOST` | no | local Docker socket | Docker daemon host used by dockerode. |
-| `SHIPFOX_PROVISIONER_DOCKER_NETWORK` | no | — | Docker network attached to runner containers, for example a Compose network that can reach the API. |
-| `SHIPFOX_PROVISIONER_DOCKER_EXTRA_HOSTS` | no | — | Comma-separated host mappings added to runner containers, such as `host.docker.internal:host-gateway`. |
+| `SHIPFOX_PROVISIONER_DOCKER_NETWORK` | no | N/A | Docker network attached to runner containers, for example a Compose network that can reach the API. |
+| `SHIPFOX_PROVISIONER_DOCKER_EXTRA_HOSTS` | no | N/A | Comma-separated host mappings added to runner containers, such as `host.docker.internal:host-gateway`. |
 | `SHIPFOX_PROVISIONER_DOCKER_LOG_DRIVER` | no | Docker daemon default | Logging driver for runner containers. |
-| `SHIPFOX_PROVISIONER_DOCKER_LOG_OPTIONS` | no | — | JSON object of string-valued driver options; requires the driver setting. |
+| `SHIPFOX_PROVISIONER_DOCKER_LOG_OPTIONS` | no | N/A | JSON object of string-valued driver options; requires the driver setting. |
 | `SHIPFOX_PROVISIONER_DOCKER_FAILED_CONTAINER_RETENTION_MS` | no | `3600000` | Failed-container retention TTL in milliseconds; `0` disables retention. |
 | `SHIPFOX_PROVISIONER_DOCKER_MAX_RETAINED_FAILED_CONTAINERS` | no | `20` | Maximum retained failed containers; `0` disables retention. |
 | `SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS` | no | `120000` | How long a `created` runner container may linger before being reaped as stale. |
@@ -57,7 +57,7 @@ until observation succeeds.
 | `SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS` | no | `5000` | Backoff ceiling. |
 | `SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS` | no | `1000` | Provider observation and reconciliation cadence; backs off on errors up to the larger of 5000ms and this cadence. |
 | `SHIPFOX_PROVISIONER_MAX_RESERVATIONS` | no | `250` | Most reservations requested per poll (also capped by free capacity and the API's limit of 1000). |
-| `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | no | `250` | Runner instances created per request (1–1000). |
+| `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | no | `250` | Runner instances created per request (1 to 1000). |
 | `SHIPFOX_RUNNER_POLL_MAX_DURATION_MS` | no | `300000` | Injected into each runner as `SHIPFOX_POLL_MAX_DURATION_MS`. |
 
 ## Template file

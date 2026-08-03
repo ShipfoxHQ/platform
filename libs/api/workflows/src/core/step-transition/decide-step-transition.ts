@@ -27,7 +27,7 @@ export interface StepReport {
 // Precomputed gate evaluation (the CEL engine runs in evaluate-gate.ts, never
 // here). `passed`/`failed` are clean evaluations; `uncheckable` means the gate
 // could not be evaluated (no exit code, or an evaluation error) and is treated
-// as a plain command failure — never a restart.
+// as a plain command failure. It is never a restart.
 export type GateOutcome =
   | {kind: 'no-gate'}
   | {kind: 'passed'; source: string; trace?: readonly PersistedEvaluationTraceEntry[]}
@@ -55,7 +55,7 @@ export interface DecideStepTransitionInput {
   // to DEFAULT_RESTART_ATTEMPT_CAP.
   maxAttempts?: number;
   // The gating step's own execution count (number of its attempts), used for the
-  // cap. Defaults to `reportedAttempt` — correct for a single-gate job, where the
+  // cap. Defaults to `reportedAttempt`: correct for a single-gate job, where the
   // two are equal; the service passes the real count so a downstream gate in a
   // multi-gate job isn't penalized for upstream-induced rewinds.
   gatingAttemptCount?: number;

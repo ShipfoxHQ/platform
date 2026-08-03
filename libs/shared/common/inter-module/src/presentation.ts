@@ -24,7 +24,7 @@ export type InterModulePresentationHandlers<Def extends InterModuleContractDefin
 
 /**
  * Closes a producer's domain code over its own contract. A transport's `register`
- * requires the exact contract object a client was created from — a presentation
+ * requires the exact contract object a client was created from: a presentation
  * built against a different (even structurally identical) contract object is a
  * mismatch, not a match, so two contexts can never accidentally cross-wire.
  */

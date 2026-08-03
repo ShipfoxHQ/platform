@@ -17,7 +17,7 @@ const WORKFLOWS_PATH = resolve(import.meta.dirname, '../../../dist/temporal/work
 export {TASK_QUEUE};
 
 // ---------------------------------------------------------------------------
-// Shared mutable test config — each test sets this before starting a workflow.
+// Shared mutable test config: each test sets this before starting a workflow.
 // Activities read from it via closure. Tests run serially within a describe.
 // ---------------------------------------------------------------------------
 
@@ -29,7 +29,7 @@ export interface TestConfig {
   enqueueError?: string;
   /** If true, enqueueJobExecutionForRunner sends two job-finished signals (for dedup testing) */
   duplicateSignal?: boolean;
-  /** If true, enqueueJobExecutionForRunner does nothing (no signal — for timeout testing) */
+  /** If true, enqueueJobExecutionForRunner does nothing without a signal for timeout testing */
   skipSignal?: boolean;
   /** If true, emit the claim but hold back the terminal outcome (for deadline testing) */
   skipOutcomeSignal?: boolean;
@@ -205,7 +205,7 @@ export async function setupEnv(): Promise<void> {
     activities: createMockActivities(),
   });
 
-  // Run worker in background — it processes tasks until shutdown is called
+  // Run worker in background: it processes tasks until shutdown is called
   workerRunPromise = worker.run();
   workerRunPromise.catch(() => {
     // Suppress unhandled rejection on shutdown

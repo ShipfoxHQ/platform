@@ -4,7 +4,7 @@ import {loadErrorCopy} from './load-error-copy.js';
 
 /**
  * Minimal shape of a React Query result this component reads. Typed structurally
- * so client-ui stays decoupled from react-query's generics — any `UseQueryResult`
+ * so client-ui stays decoupled from react-query's generics: any `UseQueryResult`
  * is assignable. `data` is `undefined` only until the first successful fetch, which
  * is exactly the "errored with nothing loaded" signal we gate on.
  */

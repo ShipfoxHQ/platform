@@ -15,7 +15,7 @@ export interface UseLogWrapResult {
   globalWrap: boolean;
   /** How many lines currently differ from the global default. */
   overriddenCount: number;
-  /** The `wrap` value for a row — `undefined` inherits the global default. */
+  /** The `wrap` value for a row: `undefined` inherits the global default. */
   rowWrap: (id: LogLineId) => boolean | undefined;
   /** Whether a line currently overrides the global default. */
   isOverridden: (id: LogLineId) => boolean;

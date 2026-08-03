@@ -1546,7 +1546,7 @@ describe('detectAndExpireStuckJobs', () => {
   });
 
   it('skips a row whose heartbeat refreshed before the atomic DELETE re-evaluates the predicate', async () => {
-    // Pre-stale, then refresh, then run — the cutoff is folded into the DELETE's
+    // Pre-stale, then refresh, then run: the cutoff is folded into the DELETE's
     // WHERE so the live row survives even though the iteration SELECT saw it stale.
     const {jobId} = await makeStaleJob(600);
     await db()

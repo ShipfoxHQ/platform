@@ -167,7 +167,7 @@ function base64Encode(bytes: Uint8Array, alphabet: string): string {
  * 0, 1, or 2 (mod 3) inside a larger base64 blob (e.g. a token inside a base64-encoded
  * request body). For each phase we encode `phase` filler bytes followed by the secret,
  * drop the `lead` chars the filler produced, and keep the `keep` chars that depend only on
- * the secret's own bytes — the run that appears no matter what surrounds the secret.
+ * the secret's own bytes: the run that appears no matter what surrounds the secret.
  */
 function base64Alignments(bytes: Uint8Array, alphabet: string): string[] {
   const alignments: string[] = [];

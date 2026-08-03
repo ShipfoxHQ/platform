@@ -37,9 +37,9 @@ overlap across families; lower `cost` wins when more than one template matches.
 | --- | --- | --- | --- |
 | `SHIPFOX_API_URL` | no | `https://api.shipfox.io` | Base URL of the Shipfox API. Set it for a self-hosted API. |
 | `SHIPFOX_RUNNER_API_URL` | no | `SHIPFOX_API_URL` | API URL injected into runner instances when they reach the API through a different address. |
-| `SHIPFOX_PROVISIONER_TOKEN` | yes | — | Long-lived provisioner token. |
-| `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | yes | — | Path to the EC2 template YAML file. |
-| `AWS_REGION` | yes | — | AWS region where the provider launches instances. |
+| `SHIPFOX_PROVISIONER_TOKEN` | yes | N/A | Long-lived provisioner token. |
+| `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | yes | N/A | Path to the EC2 template YAML file. |
+| `AWS_REGION` | yes | N/A | AWS region where the provider launches instances. |
 | `SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS` | no | `300000` | Maximum time an EC2 instance may remain pending without runner enrollment. |
 | `SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS` | no | `60000` | Interval between full EC2/backend reconciliation passes. |
 | `SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS` | no | `30` | Demand long-poll duration. |

@@ -41,7 +41,7 @@ export class SentryVerificationInProgressError extends Error {
 /**
  * Base for issue deliveries we received and authenticated but deliberately do
  * not publish. The webhook layer records them for dedup and acknowledges with a
- * 204 rather than treating them as failures — a sustained non-2xx can make Sentry
+ * 204 rather than treating them as failures: a sustained non-2xx can make Sentry
  * disable the webhook. Carries no HTTP concerns so workers/jobs can reuse it.
  */
 export class SentryIssueDroppedError extends Error {}

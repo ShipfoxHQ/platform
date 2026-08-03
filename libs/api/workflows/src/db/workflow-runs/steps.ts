@@ -379,8 +379,8 @@ export interface RewindStepsToPendingParams {
 // Restart-only: rewind every step at or after `fromPosition` back to pending,
 // clearing its result and bumping both `version` and `current_attempt` so the next
 // dispatch opens a fresh attempt. This DELIBERATELY bypasses the never-downgrade
-// guard used everywhere else — it is the one place that resurrects terminal steps
-// — so it must only be called from the durable-restart path, never the ordinary
+// guard used everywhere else. It is the one place that resurrects terminal steps,
+// so it must only be called from the durable-restart path, never the ordinary
 // report path. It must run in the same transaction as the failed-attempt write.
 export async function rewindStepsToPending(
   params: RewindStepsToPendingParams,
@@ -405,7 +405,7 @@ export async function rewindStepsToPending(
 }
 
 // Count a single step's own attempts. Used to bound the restart cap on the
-// gating step's actual executions — `steps.current_attempt` can't be used for
+// gating step's actual executions: `steps.current_attempt` can't be used for
 // the cap because a rewind also bumps it for downstream steps swept into the
 // rewind range (which would inflate a later gate's cap in a multi-gate job).
 export async function countStepAttempts(stepId: string, tx: Tx): Promise<number> {

@@ -26,7 +26,7 @@ export interface UploaderOptions {
  * scheduled. Real appends are only ever made at offset == committed; on
  * (re)start a zero-length probe learns the server's committed offset first, so a
  * body never straddles the commit point. `capped` (budget exhausted) and
- * `stopped` (endpoint gone / lease rejected) are terminal — server-side stream
+ * `stopped` (endpoint gone / lease rejected) are terminal: server-side stream
  * lifecycle takes over from there.
  */
 export class LogUploader {

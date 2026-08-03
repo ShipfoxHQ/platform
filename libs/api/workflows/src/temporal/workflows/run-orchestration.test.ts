@@ -382,7 +382,7 @@ describe('runOrchestration', () => {
     const runAttemptStatuses = setRunAttemptStatusCalls().map((c) => c.params.status);
     expect(runAttemptStatuses).toEqual(['running', 'failed']);
 
-    // A, B, C enqueued — D skipped because B failed
+    // A, B, C enqueued: D skipped because B failed
     expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(3);
     const jobStatuses = setJobStatusCalls().map((c) => ({
       id: c.params.jobId,

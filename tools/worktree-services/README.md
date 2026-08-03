@@ -62,7 +62,7 @@ starts the Compose services selected by the repository config.
 
 ## Port ranges
 
-The default range is `20000–45999`. The package allocates 20-port blocks. Set
+The default range is `20000 to 45999`. The package allocates 20-port blocks. Set
 a different range in the consuming repository's `mise.toml` when several
 repositories run on one machine:
 

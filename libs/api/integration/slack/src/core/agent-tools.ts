@@ -357,7 +357,7 @@ const italicPattern = /\*([^*]+)\*|_([^_]+)_/g;
 const blockquotePattern = /^>\s?/gm;
 // Reserved code spans are wrapped in a delimiter built at runtime (String.fromCharCode) rather than
 // a literal escape in source. A real chat message is vanishingly unlikely to contain a NUL byte, but
-// isn't guaranteed not to, so any that do appear are stripped from the input first — after that, the
+// isn't guaranteed not to, so any that do appear are stripped from the input first. After that, the
 // only NUL bytes left are the ones this function inserts, so restoration can't misfire on user text.
 const codePlaceholderDelimiter = String.fromCharCode(0);
 const codePlaceholderPattern = new RegExp(

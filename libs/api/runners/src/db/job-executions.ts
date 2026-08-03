@@ -358,7 +358,7 @@ async function touchRunnerSessionLiveness(params: {
  * Releases a job execution's lease when the orchestration workflow finalizes it: deletes the
  * running-job-execution row AND any lingering pending row for the same execution, in one tx.
  * Idempotent (0-row no-op), no token scope (the workflow is authoritative), and
- * emits no event — the workflow already owns the outcome. Sweeping the pending row
+ * emits no event: the workflow already owns the outcome. Sweeping the pending row
  * too closes the at-least-once window where an enqueue retry left an orphan that a
  * later claim would otherwise pick up for an already-finished job execution.
  */

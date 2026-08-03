@@ -30,7 +30,7 @@ export async function issueRunnerSessionToken(
   return token;
 }
 
-/** Returns the claims on success, or `null` for any invalid input — never throws. */
+/** Returns the claims on success, or `null` for any invalid input. Never throws. */
 export async function verifyRunnerSessionToken(
   token: string,
 ): Promise<RunnerSessionTokenClaims | null> {

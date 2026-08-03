@@ -10,7 +10,7 @@ import type {IntegrationProvider} from '#core/entities/provider.js';
  * and one-shot boot-time tasks. Providers that own none of these simply omit them.
  *
  * A startup task is run once after modules are initialized (migrations done). The
- * provider owns its own wiring — core runs each task generically and isolates
+ * provider owns its own wiring: core runs each task generically and isolates
  * failures so a task can never gate API boot.
  */
 export interface IntegrationModuleParts {

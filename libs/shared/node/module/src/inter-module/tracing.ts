@@ -33,7 +33,7 @@ export function startActiveInterModuleSpan<T>(
 
 /**
  * Sets only stable, bounded attributes (module, method, transport, outcome, and
- * — for a known error — its code) and ends the span. Never attach payloads,
+ * the code for a known error) and ends the span. Never attach payloads,
  * identifiers, messages, stacks, causes, or raw exception events to a span.
  */
 export function endInterModuleSpan(

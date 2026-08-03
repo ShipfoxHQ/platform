@@ -3,7 +3,7 @@ import type {LogRecord} from './log-model.js';
 /**
  * Pure render transform for the step-log read stream. The runner emits a flat,
  * ordered NDJSON record list; `group_start`/`group_end` form a tree that the
- * reader reconstructs here before rendering. No React, no state — one function
+ * reader reconstructs here before rendering. No React, no state: one function
  * over the record array.
  *
  *   records[] ──▶ buildLogTree ──▶ { nodes (forest), terminated, originTs, lineCount }

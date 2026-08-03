@@ -42,8 +42,8 @@ function deploymentEnvironmentName(
   appId: string,
   pullRequest: string,
 ): string {
-  const pullRequestSuffix = environment === 'Preview' && pullRequest ? ` – PR ${pullRequest}` : '';
-  return `${environment} – ${appId}${pullRequestSuffix}`;
+  const pullRequestSuffix = environment === 'Preview' && pullRequest ? `: PR ${pullRequest}` : '';
+  return `${environment}: ${appId}${pullRequestSuffix}`;
 }
 
 function deploymentEnvironmentSettings(environment: string): {
