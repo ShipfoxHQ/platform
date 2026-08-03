@@ -65,6 +65,10 @@ Job name must be literal. Move runtime interpolation to execution_name.
 metadata, trigger event data, workflow inputs, referenced workflow variables,
 and stable run facts that already exist at creation time.
 
+The allocated `run.number` is one of those run facts. It is a positive,
+sequential number scoped to the workflow definition. Use it in a dynamic field
+when the field can read the `run` context.
+
 It cannot use job, execution, step, or job-output values that do not exist when
 the run is created. A rerun keeps the original resolved run name.
 
@@ -95,6 +99,24 @@ diagnostic without changing execution status.
 Dynamic-name expressions that use unavailable context or invalid syntax are
 definition validation errors. Rerunning a workflow keeps its resolved run
 name. Rerunning a job execution keeps its resolved execution name.
+
+### Run number
+
+`run.number` is a display label for the current run. It starts at `1` for each
+workflow definition and increases for later runs of that definition. It is not
+a URL or API identifier. Run routes continue to use the run UUID.
+
+For example, a job execution can include the number in its display name:
+
+```yaml
+# yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
+name: Deploy
+jobs:
+  deploy:
+    execution_name: 'Deploy #${{ run.number }}'
+    steps:
+      - run: ./deploy.sh
+```
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json

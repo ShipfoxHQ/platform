@@ -74,6 +74,26 @@ when practical. An outbox event is a public producer contract. Define its name
 and payload in the producer DTO package. Write it in the same transaction as
 the state change. Register its publisher table in the module declaration.
 
+## Resource identity and human identifiers
+
+HTTP routes identify workspaces, projects, runs, and jobs with UUID path
+parameters. Request DTOs and inter-module contracts keep those UUIDs when they
+refer to an existing resource. A workspace or project `slug` is a mutable
+navigation and display field. It can be set or changed through its resource
+contract, but it does not replace the UUID in an identity position.
+
+The client resolves workspace and project slugs before it calls these routes.
+The server therefore does not resolve a slug during `requireWorkspaceAccess` or
+`requireProjectAccess`, and session claims do not carry slugs. The workspace
+slug-availability route is a namespace check that returns only a boolean. It does
+not identify or authorize a workspace.
+
+Workflow run numbers follow the same boundary. The number is allocated per
+workflow definition and is exposed for display and workflow expressions. It is
+never resolved by an HTTP route. Run and job addresses remain UUIDs. See
+[ADR 0009](../adr/0009-client-url-prefix-invariants.md) for the decision and
+rejected alternatives.
+
 For contract primitives and transport-specific behavior, read the
 [inter-module package README](../../libs/shared/common/inter-module/README.md).
 It owns that package's public API and constraints.

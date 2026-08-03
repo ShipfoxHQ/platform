@@ -41,6 +41,21 @@ workflow identifier. Keep the schema field name as `connection` in code.
 before it. Use a prepositional phrase instead: write "the slug of your GitHub
 integration connection", not "your GitHub integration connection slug".
 
+### Identifier terms
+
+Qualify `slug` at first use in each document. Use these terms consistently:
+
+| Term | Meaning |
+| --- | --- |
+| Workspace slug | A mutable, globally unique value used in client URLs. |
+| Project slug | A mutable value unique within a workspace and used in client URLs. |
+| Slug of an integration connection | The workflow `source` value for an integration connection. It is not a client URL identifier. |
+| Feature id | A stable namespaced composition identifier such as `shipfox.workflows`. Do not call it a feature slug. |
+
+After the first qualified use, shorten a term only when the surrounding section
+still makes its owner clear. Keep `integration connection` qualified in product
+documentation, even when the page already discusses integrations.
+
 ### Choose the type before writing
 
 Write one sentence that names the reader need before drafting:

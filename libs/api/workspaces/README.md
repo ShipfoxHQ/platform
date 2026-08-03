@@ -60,6 +60,18 @@ summaries. Supporting count failures are represented as `unknown`. `POST
 status, correlation_id}`. Both write a redacted `administration.action.performed`
 outbox event and record their result for idempotent retries.
 
+Workspace identity fields are:
+
+| Field | Constraint | Use |
+| --- | --- | --- |
+| `id` | UUID, stable | API resource identity and foreign references |
+| `name` | Required display text | Workspace label |
+| `slug` | Required, globally unique resource slug | Client navigation and display |
+
+The API keeps `id` in resource path parameters. `slug` is accepted on create and
+update, and a duplicate returns `409 slug-conflict`. A slug change frees the old
+value immediately. No API resource route resolves a workspace from its slug.
+
 The module creates these tables:
 
 - `workspaces`

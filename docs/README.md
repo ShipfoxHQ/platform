@@ -25,6 +25,7 @@ names it and links to it; it does not restate it.
 | Changes agent behavior or needs agent execution instructions. | [Agent instructions](../AGENTS.md) | Repository-specific agent execution, change hygiene, and conditional context loading. |
 | Adds, updates, or exempts a dependency. | [Dependency version policy](policies/dependency-versions.md) | Version ranges, exceptions, coordinated package families, and dependency checks. |
 | Changes a cross-package client composition seam. | [ADR 0001](adr/0001-client-composition-contract.md) | The public client composition contract and its decision rationale. |
+| Changes client URL identifiers, route prefixes, or slug and UUID boundaries. | [ADR 0009](adr/0009-client-url-prefix-invariants.md) | Client URL prefixes, resource identity, settings scopes, and run-number display semantics. |
 | Changes server module boundaries or an inter-module call. | [ADR 0002](adr/0002-api-inter-module-architecture.md) | Producer-owned inter-module contracts and bounded-context crossings. |
 | Changes database ownership, cross-module persistence access, or namespace rules. | [ADR 0006](adr/0006-database-ownership-boundaries.md) | The decision and tradeoffs behind owner-only database access. |
 | Adds or changes a backend module, DTO, outbox event, HTTP boundary, or server package dependency. | [Backend architecture](architecture/backend-architecture.md) | The current backend module model and package-boundary rules. |
