@@ -178,4 +178,122 @@ describe('writeAmbientGitCredential (real git)', () => {
 
     expect(exact).toBe(`Authorization: Bearer ${token}`);
   });
+
+  it('keeps credentials for multiple repository URLs', async () => {
+    const configPath = join(workdir, 'git-cred.config');
+    const firstRepositoryUrl = 'https://github.com/acme/first.git';
+    const secondRepositoryUrl = 'https://github.com/acme/second.git';
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: firstRepositoryUrl,
+      auth: {
+        kind: 'bearer',
+        token: 'first-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: secondRepositoryUrl,
+      auth: {
+        kind: 'bearer',
+        token: 'second-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+
+    await expect(
+      gitOutput(
+        ['config', '--file', configPath, '--get-urlmatch', 'http.extraHeader', firstRepositoryUrl],
+        workdir,
+      ),
+    ).resolves.toBe('Authorization: Bearer first-token');
+    await expect(
+      gitOutput(
+        ['config', '--file', configPath, '--get-urlmatch', 'http.extraHeader', secondRepositoryUrl],
+        workdir,
+      ),
+    ).resolves.toBe('Authorization: Bearer second-token');
+  });
+
+  it('replaces an existing credential when the same repository is checked out again', async () => {
+    const configPath = join(workdir, 'git-cred.config');
+    const repositoryUrl = 'https://github.com/acme/repeated.git';
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl,
+      auth: {
+        kind: 'bearer',
+        token: 'first-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl,
+      auth: {
+        kind: 'bearer',
+        token: 'second-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+
+    await expect(
+      gitOutput(
+        ['config', '--file', configPath, '--get-urlmatch', 'http.extraHeader', repositoryUrl],
+        workdir,
+      ),
+    ).resolves.toBe('Authorization: Bearer second-token');
+  });
+
+  it('leaves the existing config in place when Git cannot parse its staged copy', async () => {
+    const configPath = join(workdir, 'git-cred.config');
+    const repositoryUrl = 'https://github.com/acme/repeated.git';
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl,
+      auth: {
+        kind: 'bearer',
+        token: 'first-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+    const original = await readFile(configPath, 'utf8');
+    const malformed = `${original}[broken\n`;
+    await writeFile(configPath, malformed);
+
+    await expect(
+      writeAmbientGitCredential({
+        configPath,
+        repositoryUrl,
+        auth: {
+          kind: 'bearer',
+          token: 'second-token',
+          expires_at: '2026-01-01T00:00:00Z',
+          carry: 'header',
+          host: 'github.com',
+          persist: true,
+        },
+      }),
+    ).rejects.toThrow();
+    await expect(readFile(configPath, 'utf8')).resolves.toBe(malformed);
+  });
 });

@@ -394,9 +394,17 @@ describe('writeAmbientGitCredential', () => {
     root = await mkdtemp(join(tmpdir(), 'shipfox-ambient-git-'));
     priorGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
     delete process.env.GIT_CONFIG_GLOBAL;
+    execFileMock.mockImplementation((...args: unknown[]) => {
+      const callback = args.at(-1) as (
+        error: null,
+        result: {stdout: string; stderr: string},
+      ) => void;
+      callback(null, {stdout: '', stderr: ''});
+    });
   });
 
   afterEach(async () => {
+    execFileMock.mockReset();
     if (priorGitConfigGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
     else process.env.GIT_CONFIG_GLOBAL = priorGitConfigGlobal;
     await rm(root, {recursive: true, force: true});
@@ -424,6 +432,94 @@ describe('writeAmbientGitCredential', () => {
     expect(content).toContain('[http "https://github.com/acme/repo.git"]');
     expect(content).toContain('extraHeader = "Authorization: Bearer tok-123"');
     expect(content).toContain('[http]\n\tfollowRedirects = false');
+  });
+
+  it('accumulates credentials for multiple repositories in one config', async () => {
+    const configPath = join(root, 'creds', 'git-cred.config');
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/first.git',
+      auth: {
+        kind: 'bearer',
+        token: 'first-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/second.git',
+      auth: {
+        kind: 'bearer',
+        token: 'second-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    const mode = (await stat(configPath)).mode & 0o777;
+    expect(mode).toBe(0o600);
+    expect(content.match(/\[http "/g)).toHaveLength(2);
+    expect(content).toContain(
+      '[http "https://github.com/acme/first.git"]\n\textraHeader = "Authorization: Bearer first-token"',
+    );
+    expect(content).toContain(
+      '[http "https://github.com/acme/second.git"]\n\textraHeader = "Authorization: Bearer second-token"',
+    );
+  });
+
+  it('keeps the first supplied Git author while accumulating later repositories', async () => {
+    const configPath = join(root, 'creds', 'git-cred.config');
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/initial.git',
+      auth: {
+        kind: 'bearer',
+        token: 'initial-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/first.git',
+      auth: {
+        kind: 'bearer',
+        token: 'first-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+      gitAuthor: {name: 'First Author', email: 'first@example.com'},
+    });
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/second.git',
+      auth: {
+        kind: 'bearer',
+        token: 'second-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+      gitAuthor: {name: 'Second Author', email: 'second@example.com'},
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content.match(/\[user\]/g)).toHaveLength(1);
+    expect(content).toContain('name = "First Author"');
+    expect(content).not.toContain('name = "Second Author"');
   });
 
   it('includes the prior global config when it exists', async () => {
