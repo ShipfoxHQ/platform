@@ -93,6 +93,31 @@ describe('CreateProjectPage', () => {
     expect(screen.getByText('/w/acme/p/launch-pad')).toBeInTheDocument();
   });
 
+  test('checks project slug availability from memory without an availability request', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return Promise.resolve(jsonResponse({connections: [connectionDto()]}));
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        return Promise.resolve(jsonResponse({repositories: [repositoryDto()], next_cursor: null}));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
+    const slugInput = await screen.findByLabelText('Project slug');
+    fireEvent.change(slugInput, {target: {value: 'custom-project'}});
+
+    expect(await screen.findByText('Slug is available.')).toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.some(([input]) =>
+        (input as Request).url.includes('/projects/slug-availability'),
+      ),
+    ).toBe(false);
+  });
+
   test('uses the current repository-derived name when submitted before touching the field', async () => {
     let createProjectBody: unknown;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {

@@ -86,6 +86,20 @@ export const projectsFeature = defineClientFeature({
     assert.deepEqual(violations, []);
   });
 
+  test('allows project-scoped settings contributions owned by a project route', () => {
+    const violations = auditClientSource(
+      'libs/client/projects/src/feature.ts',
+      `import {defineClientFeature} from '@shipfox/client-shell';
+export const projectsFeature = defineClientFeature({
+  id: 'shipfox.projects',
+  routes: [{path: '/w/$workspaceSlug/p/$projectSlug/settings/general', parent: 'projectSettings'}],
+  settingsSections: [{pathSegment: 'general', scope: 'project'}],
+});`,
+    );
+
+    assert.deepEqual(violations, []);
+  });
+
   test('requires navigation registries to be defined in a feature manifest', () => {
     const violations = auditClientSource(
       'libs/client/projects/src/navigation.ts',

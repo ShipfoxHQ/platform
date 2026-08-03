@@ -2,6 +2,7 @@ import {
   createProjectBodySchema,
   listProjectsResponseSchema,
   projectResponseSchema,
+  updateProjectBodySchema,
 } from '@shipfox/api-projects-dto';
 import {checkedApiRequest} from '@shipfox/client-api';
 import {
@@ -16,7 +17,13 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import type {CreateProjectCommand, Project, ProjectList} from '#core/project.js';
+import {useCallback} from 'react';
+import type {
+  CreateProjectCommand,
+  Project,
+  ProjectList,
+  UpdateProjectCommand,
+} from '#core/project.js';
 import {toProject, toProjectList} from './mappers.js';
 
 const PROJECT_LIST_STALE_TIME = 30_000;
@@ -211,6 +218,50 @@ export async function createProject(command: CreateProjectCommand): Promise<Proj
   );
 }
 
+export async function updateProject(command: UpdateProjectCommand): Promise<Project> {
+  const body = updateProjectBodySchema.parse({name: command.name, slug: command.slug});
+  return toProject(
+    await checkedApiRequest(projectResponseSchema, `/projects/${command.projectId}`, {
+      method: 'PATCH',
+      body,
+    }),
+  );
+}
+
+export function isProjectSlugAvailable({
+  queryClient,
+  workspaceId,
+  projectSlug,
+  currentProjectId,
+}: {
+  queryClient: QueryClient;
+  workspaceId: string;
+  projectSlug: string;
+  currentProjectId?: string | undefined;
+}): boolean {
+  const cachedLists = queryClient.getQueriesData<InfiniteData<ProjectList, string | undefined>>({
+    queryKey: [...projectsQueryKeys.all, 'list', workspaceId],
+  });
+  const conflict = cachedLists
+    .flatMap(([, data]) => data?.pages.flatMap((page) => page.projects) ?? [])
+    .some((project) => project.slug === projectSlug && project.id !== currentProjectId);
+  return !conflict;
+}
+
+export function useProjectSlugAvailability(
+  workspaceId: string | undefined,
+  currentProjectId?: string,
+): (projectSlug: string) => boolean {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (projectSlug: string) =>
+      workspaceId
+        ? isProjectSlugAvailable({queryClient, workspaceId, projectSlug, currentProjectId})
+        : true,
+    [currentProjectId, queryClient, workspaceId],
+  );
+}
+
 export function projectsInfiniteQueryOptions(
   workspaceId: string | undefined,
   search?: string,
@@ -321,6 +372,19 @@ export function useCreateProjectMutation() {
         refetchType: 'active',
       });
       await queryClient.invalidateQueries({queryKey: projectsQueryKeys.list(command.workspaceId)});
+    },
+  });
+}
+
+export function useUpdateProjectMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: updateProject,
+    onSuccess: async (project) => {
+      queryClient.setQueryData(projectsQueryKeys.detail(project.id), project);
+      queryClient.setQueryData(projectsQueryKeys.slug(project.workspaceId, project.slug), project);
+      await queryClient.invalidateQueries({queryKey: projectsQueryKeys.list(project.workspaceId)});
     },
   });
 }

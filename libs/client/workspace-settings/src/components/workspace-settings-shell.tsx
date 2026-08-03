@@ -1,12 +1,14 @@
-import {useActiveWorkspace} from '@shipfox/client-shell/runtime';
+import {useMaybeActiveWorkspace} from '@shipfox/client-shell/runtime';
+import {FullPageLoader} from '@shipfox/react-ui/loader';
 import type {ReactNode} from 'react';
 
 interface WorkspaceSettingsShellProps {
-  children: (workspace: ReturnType<typeof useActiveWorkspace>) => ReactNode;
+  children: (workspace: NonNullable<ReturnType<typeof useMaybeActiveWorkspace>>) => ReactNode;
 }
 
 export function WorkspaceSettingsShell({children}: WorkspaceSettingsShellProps) {
-  const workspace = useActiveWorkspace();
+  const workspace = useMaybeActiveWorkspace();
+  if (!workspace) return <FullPageLoader />;
 
   return children(workspace);
 }

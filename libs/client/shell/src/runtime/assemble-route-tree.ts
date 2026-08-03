@@ -7,7 +7,13 @@ import type {RouteImpl} from '#runtime/define-route.js';
 
 export type ResolveRouteImpl = (specifier: string) => RouteImpl | Promise<RouteImpl>;
 
-const shellAnchors = ['root', 'workspaceLayout', 'projectLayout', 'workspaceSettings'] as const;
+const shellAnchors = [
+  'root',
+  'workspaceLayout',
+  'projectLayout',
+  'workspaceSettings',
+  'projectSettings',
+] as const;
 
 function isShellAnchor(parent: RouteParentId): parent is (typeof shellAnchors)[number] {
   return shellAnchors.includes(parent as (typeof shellAnchors)[number]);
@@ -111,7 +117,13 @@ export async function assembleRouteTree(
     ...routeChildrenFor(parent),
     ...layouts.filter((layout) => layout.parent === parent).map((layout) => layoutTree(layout.id)),
   ];
-  const projectLayout = skeleton.projectLayout.addChildren(childrenFor('projectLayout') as never);
+  const projectSettings = skeleton.projectSettings.addChildren(
+    childrenFor('projectSettings') as never,
+  );
+  const projectLayout = skeleton.projectLayout.addChildren([
+    ...childrenFor('projectLayout'),
+    projectSettings,
+  ] as never);
   const workspaceSettings = skeleton.workspaceSettings.addChildren(
     childrenFor('workspaceSettings') as never,
   );

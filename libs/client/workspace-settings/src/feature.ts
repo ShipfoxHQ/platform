@@ -16,6 +16,13 @@ export const workspaceSettingsNavigation = [
 
 export const workspaceSettingsSections = [
   {
+    id: 'settings.general',
+    pathSegment: 'general',
+    label: 'General',
+    icon: 'settings3Line',
+    order: 50,
+  },
+  {
     id: 'settings.members',
     pathSegment: 'members',
     label: 'Members',
@@ -36,6 +43,11 @@ export const workspaceSettingsFeature = defineClientFeature({
       path: '/w/$workspaceSlug/settings/members',
       parent: 'workspaceSettings',
       impl: '@shipfox/client-workspace-settings/routes/members',
+    },
+    {
+      path: '/w/$workspaceSlug/settings/general',
+      parent: 'workspaceSettings',
+      impl: '@shipfox/client-workspace-settings/routes/general',
     },
   ],
   navigation: workspaceSettingsNavigation,

@@ -56,5 +56,5 @@ export function settingsEntries(features: readonly ClientFeature[]): SettingsSec
       })),
     )
     .sort(byOrder)
-    .map(({entry}) => entry);
+    .map(({entry}) => ({...entry, scope: entry.scope ?? 'workspace'}));
 }

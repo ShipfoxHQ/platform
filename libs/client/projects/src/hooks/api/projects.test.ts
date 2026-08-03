@@ -2,11 +2,13 @@ import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient} from '@tanstack/react-query';
 import {
   createProject,
+  isProjectSlugAvailable,
   listProjects,
   projectSlugQueryOptions,
   projectsInfiniteQueryOptions,
   projectsQueryKeys,
   resolveProjectSlug,
+  updateProject,
 } from './projects.js';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -93,6 +95,66 @@ describe('createProject', () => {
         external_repository_id: body.source.externalRepositoryId,
       },
     });
+  });
+});
+
+describe('updateProject', () => {
+  beforeEach(() => {
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl: undefined});
+  });
+
+  test('patches the project body', async () => {
+    let requestBody: unknown;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      requestBody = await (input as Request).clone().json();
+      return jsonResponse(projectResponse('renamed-project'));
+    });
+    configureApiClient({fetchImpl});
+
+    const result = await updateProject({
+      projectId: '33333333-3333-4333-8333-333333333333',
+      name: 'Renamed project',
+      slug: 'renamed-project',
+    });
+
+    const request = fetchImpl.mock.calls[0]?.[0] as Request;
+    expect(result.slug).toBe('renamed-project');
+    expect(request.url).toBe(
+      'https://api.example.test/projects/33333333-3333-4333-8333-333333333333',
+    );
+    expect(request.method).toBe('PATCH');
+    expect(requestBody).toEqual({name: 'Renamed project', slug: 'renamed-project'});
+  });
+});
+
+describe('isProjectSlugAvailable', () => {
+  test('uses cached project lists without making a request', () => {
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(projectsQueryKeys.list(workspaceId, 'taken'), {
+      pages: [
+        {
+          projects: [projectResponse('taken-project')],
+          nextCursor: null,
+        },
+      ],
+      pageParams: [undefined],
+    });
+
+    expect(isProjectSlugAvailable({queryClient, workspaceId, projectSlug: 'taken-project'})).toBe(
+      false,
+    );
+    expect(
+      isProjectSlugAvailable({
+        queryClient,
+        workspaceId,
+        projectSlug: 'taken-project',
+        currentProjectId: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).toBe(true);
+    expect(isProjectSlugAvailable({queryClient, workspaceId, projectSlug: 'new-project'})).toBe(
+      true,
+    );
   });
 });
 
