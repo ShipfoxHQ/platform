@@ -352,14 +352,15 @@ triggers:
 | Events | [View events](/integrations/<provider>/events) or **Not available**. |
 | Agent tools | [View agent tools](/integrations/<provider>/tools) or **Not available**. |
 
-[Set up this integration](/integrations/<provider>/setup)
+<If `setup.mdx` exists, link to [Set up this integration](/integrations/<provider>/setup).
+Otherwise, omit this line.>
 ````
 
-For a Preview provider, state the Preview status before the purpose and
-availability statement. The fixed capability rows make every missing capability
-a deliberate answer. The overview always covers purpose, availability,
-authentication method, required access, integration connection slug behavior,
-capability summary, and links to its available pages.
+For a Preview provider, select Preview in the availability statement. The fixed
+capability rows make every missing capability a deliberate answer. The overview
+always covers purpose, availability, authentication method, required access,
+integration connection slug behavior, capability summary, and links to its
+available pages.
 
 ### Provider setup template (How-to)
 
