@@ -61,11 +61,16 @@
     {
       "path": "../no-direct-browser-storage.grit",
       "includes": ["**/browser-storage/**"]
+    },
+    {
+      "path": "../no-raw-spacing.grit",
+      "includes": ["**/no-raw-spacing/**"]
     }
   ],
   "files": {
     "includes": [
       "**/*.ts",
+      "**/*.tsx",
       "!**/*.test.ts",
       "!**/*.test.tsx",
       "!**/*.stories.ts",
