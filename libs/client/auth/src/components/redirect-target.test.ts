@@ -11,10 +11,10 @@ function encodeRepeatedly(value: string, times: number): string {
 describe('sanitizeRedirectPath', () => {
   describe.each([
     ['simple absolute path', '/foo'],
-    ['nested workspace path', '/workspaces/abc/projects/xyz'],
+    ['nested workspace path', '/w/abc/p/xyz'],
     ['path with search', '/foo?bar=1'],
     ['path with hash', '/foo#hash'],
-    ['path with search and hash', '/workspaces/abc?tab=runs#header'],
+    ['path with search and hash', '/w/abc?tab=runs#header'],
   ])('accepts %s', (_label, input) => {
     test('returns the original string', () => {
       const result = sanitizeRedirectPath(input);
@@ -39,7 +39,7 @@ describe('sanitizeRedirectPath', () => {
     ['/auth/reset with token', '/auth/reset?token=x'],
     ['/auth with query bypass', '/auth?token=x'],
     ['/auth with fragment bypass', '/auth#foo'],
-    ['normalized auth path', '/workspaces/../auth/logout'],
+    ['normalized auth path', '/w/../auth/logout'],
   ])('rejects %s', (_label, input) => {
     test('returns undefined', () => {
       const result = sanitizeRedirectPath(input);
@@ -66,7 +66,7 @@ describe('sanitizeRedirectPath', () => {
     });
 
     test('rejects a percent-encoded normalized auth path', () => {
-      const result = sanitizeRedirectPath('/workspaces/%2e%2e/auth/logout');
+      const result = sanitizeRedirectPath('/w/%2e%2e/auth/logout');
 
       expect(result).toBeUndefined();
     });
@@ -106,12 +106,8 @@ describe('sanitizeRedirectPath', () => {
 describe('sanitizeLogoutRedirectPath', () => {
   describe.each([
     ['explicit login fallback', '/auth/login', '/auth/login'],
-    ['same-origin workspace path', '/workspaces/abc', '/workspaces/abc'],
-    [
-      'same-origin path with search and hash',
-      '/workspaces/abc?tab=runs#header',
-      '/workspaces/abc?tab=runs#header',
-    ],
+    ['same-origin workspace path', '/w/abc', '/w/abc'],
+    ['same-origin path with search and hash', '/w/abc?tab=runs#header', '/w/abc?tab=runs#header'],
   ])('accepts %s', (_label, input, expected) => {
     test('returns the safe destination', () => {
       expect(sanitizeLogoutRedirectPath(input)).toBe(expected);
@@ -123,7 +119,7 @@ describe('sanitizeLogoutRedirectPath', () => {
     ['external URL', 'https://attacker.example'],
     ['protocol-relative URL', '//attacker.example'],
     ['auth route other than login', '/auth/reset'],
-    ['login route with a query', '/auth/login?redirect=/workspaces/abc'],
+    ['login route with a query', '/auth/login?redirect=/w/abc'],
     ['raw invitation token', '/invitations/accept?token=sf_i_raw-token'],
     ['raw invitation token with trailing slash', '/invitations/accept/?token=sf_i_raw-token'],
     ['double-encoded auth route', '/%2561uth/login'],

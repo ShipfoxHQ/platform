@@ -10,6 +10,7 @@ import {projectExistenceQueryOptions} from '@shipfox/client-projects';
 import {
   userWorkspacesQueryOptions,
   WorkspaceSetupLoadError,
+  type WorkspaceSetupRouteOptions,
   type WorkspaceSetupState,
 } from '@shipfox/client-shell/runtime';
 import type {QueryClient} from '@tanstack/react-query';
@@ -17,15 +18,12 @@ import {redirect} from '@tanstack/react-router';
 
 const TRAILING_SLASHES_RE = /\/+$/u;
 
-export interface WorkspaceSetupRouteOptions {
-  queryClient: QueryClient;
-  workspaceId: string;
-  pathname: string;
-}
+export type {WorkspaceSetupRouteOptions} from '@shipfox/client-shell/runtime';
 
 export async function loadWorkspaceSetupRoute({
   queryClient,
   workspaceId,
+  workspaceSlug,
   pathname,
 }: WorkspaceSetupRouteOptions): Promise<WorkspaceSetupState> {
   const workspace = await fetchWorkspaceSummary(queryClient, workspaceId);
@@ -45,10 +43,10 @@ export async function loadWorkspaceSetupRoute({
   const normalizedPathname = normalizePath(pathname);
 
   if (projects.projects.length > 0) {
-    if (isIntegrationsIndexPath(normalizedPathname, workspaceId)) {
+    if (isIntegrationsIndexPath(normalizedPathname, workspaceSlug)) {
       throw redirect({
-        to: '/workspaces/$wid/settings/integrations',
-        params: {wid: workspaceId},
+        to: '/w/$workspaceSlug/settings/integrations',
+        params: {workspaceSlug},
         replace: true,
       });
     }
@@ -60,41 +58,41 @@ export async function loadWorkspaceSetupRoute({
   const hasSourceConnection = sourceConnections.length > 0;
 
   if (!hasSourceConnection) {
-    if (isIntegrationSetupPath(normalizedPathname, workspaceId)) {
+    if (isIntegrationSetupPath(normalizedPathname, workspaceSlug)) {
       return {hideProjectNavigation: true};
     }
 
     throw redirect({
-      to: '/workspaces/$wid/integrations',
-      params: {wid: workspaceId},
+      to: '/w/$workspaceSlug/integrations',
+      params: {workspaceSlug},
       replace: true,
     });
   }
 
-  if (isAgentSettingsPath(normalizedPathname, workspaceId)) {
+  if (isAgentSettingsPath(normalizedPathname, workspaceSlug)) {
     return {hideProjectNavigation: true};
   }
 
   const providerHandled = await hasHandledModelProviderOnboarding(queryClient, workspaceId);
   if (!providerHandled) {
-    if (isModelProviderOnboardingPath(normalizedPathname, workspaceId)) {
+    if (isModelProviderOnboardingPath(normalizedPathname, workspaceSlug)) {
       return {hideProjectNavigation: true};
     }
 
     throw redirect({
-      to: '/workspaces/$wid/model-provider',
-      params: {wid: workspaceId},
+      to: '/w/$workspaceSlug/model-provider',
+      params: {workspaceSlug},
       replace: true,
     });
   }
 
-  if (isProjectCreationPath(normalizedPathname, workspaceId)) {
+  if (isProjectCreationPath(normalizedPathname, workspaceSlug)) {
     return {hideProjectNavigation: true};
   }
 
   throw redirect({
-    to: '/workspaces/$wid/projects/new',
-    params: {wid: workspaceId},
+    to: '/w/$workspaceSlug/projects/new',
+    params: {workspaceSlug},
     replace: true,
   });
 }
@@ -157,31 +155,31 @@ function normalizePath(pathname: string) {
   return pathname.replace(TRAILING_SLASHES_RE, '');
 }
 
-function workspacePath(workspaceId: string, suffix: string) {
-  return `/workspaces/${workspaceId}${suffix}`;
+function workspacePath(workspaceSlug: string, suffix: string) {
+  return `/w/${workspaceSlug}${suffix}`;
 }
 
-function isIntegrationsIndexPath(pathname: string, workspaceId: string) {
-  return pathname === workspacePath(workspaceId, '/integrations');
+function isIntegrationsIndexPath(pathname: string, workspaceSlug: string) {
+  return pathname === workspacePath(workspaceSlug, '/integrations');
 }
 
-function isIntegrationSetupPath(pathname: string, workspaceId: string) {
-  const basePath = workspacePath(workspaceId, '/integrations');
+function isIntegrationSetupPath(pathname: string, workspaceSlug: string) {
+  const basePath = workspacePath(workspaceSlug, '/integrations');
   return (
     pathname === basePath ||
     pathname.startsWith(`${basePath}/`) ||
-    pathname === workspacePath(workspaceId, '/settings/integrations')
+    pathname === workspacePath(workspaceSlug, '/settings/integrations')
   );
 }
 
-function isProjectCreationPath(pathname: string, workspaceId: string) {
-  return pathname === workspacePath(workspaceId, '/projects/new');
+function isProjectCreationPath(pathname: string, workspaceSlug: string) {
+  return pathname === workspacePath(workspaceSlug, '/projects/new');
 }
 
-function isModelProviderOnboardingPath(pathname: string, workspaceId: string) {
-  return pathname === workspacePath(workspaceId, '/model-provider');
+function isModelProviderOnboardingPath(pathname: string, workspaceSlug: string) {
+  return pathname === workspacePath(workspaceSlug, '/model-provider');
 }
 
-function isAgentSettingsPath(pathname: string, workspaceId: string) {
-  return pathname === workspacePath(workspaceId, '/settings/agents');
+function isAgentSettingsPath(pathname: string, workspaceSlug: string) {
+  return pathname === workspacePath(workspaceSlug, '/settings/agents');
 }

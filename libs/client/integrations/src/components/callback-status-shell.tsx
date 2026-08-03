@@ -7,24 +7,26 @@ import {useEffect, useRef} from 'react';
 export function CallbackStatusShell({
   title,
   message,
+  status = 'error',
   startOver,
   switchAccount,
-  workspaceId,
+  workspaceSlug,
   installPath,
 }: {
   title: string;
   message: string;
+  status?: 'error' | 'success';
   startOver?: boolean;
   switchAccount?: boolean;
-  workspaceId?: string | undefined;
-  installPath: '/workspaces/$wid/integrations/linear' | '/workspaces/$wid/integrations/slack';
+  workspaceSlug?: string | undefined;
+  installPath: '/w/$workspaceSlug/integrations/linear' | '/w/$workspaceSlug/integrations/slack';
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => headingRef.current?.focus(), []);
   const recoveryVariant = startOver || switchAccount ? 'muted' : 'base';
-  const settings = workspaceId ? (
+  const settings = workspaceSlug ? (
     <ButtonLink asChild variant={recoveryVariant} className="min-h-44 w-full sm:w-fit">
-      <Link to="/workspaces/$wid/settings/integrations" params={{wid: workspaceId}}>
+      <Link to="/w/$workspaceSlug/settings/integrations" params={{workspaceSlug}}>
         Back to integrations
       </Link>
     </ButtonLink>
@@ -33,7 +35,9 @@ export function CallbackStatusShell({
       <Link to="/">Back to Shipfox</Link>
     </ButtonLink>
   );
-  const logoutRedirect = workspaceId ? installPath.replace('$wid', workspaceId) : undefined;
+  const logoutRedirect = workspaceSlug
+    ? installPath.replace('$workspaceSlug', workspaceSlug)
+    : undefined;
 
   return (
     <main className="flex min-h-screen bg-background-subtle-base px-16 py-32">
@@ -41,7 +45,7 @@ export function CallbackStatusShell({
         <h2 ref={headingRef} tabIndex={-1} className="text-24 font-semibold outline-none">
           {title}
         </h2>
-        <Callout role="alert" type="error">
+        <Callout role={status === 'error' ? 'alert' : 'status'} type={status}>
           <Text size="sm">{message}</Text>
         </Callout>
         <div className="flex flex-col gap-8 sm:flex-row sm:items-center">
@@ -49,15 +53,15 @@ export function CallbackStatusShell({
             <ButtonLink asChild className="min-h-44 w-full sm:w-fit">
               <Link
                 to="/auth/logout"
-                search={workspaceId ? {redirect: logoutRedirect ?? '/'} : undefined}
+                search={logoutRedirect ? {redirect: logoutRedirect} : undefined}
               >
                 Switch account
               </Link>
             </ButtonLink>
           ) : null}
-          {startOver && workspaceId ? (
+          {startOver && workspaceSlug ? (
             <ButtonLink asChild className="min-h-44 w-full sm:w-fit">
-              <Link to={installPath} params={{wid: workspaceId}}>
+              <Link to={installPath} params={{workspaceSlug}}>
                 Start over
               </Link>
             </ButtonLink>

@@ -4,20 +4,20 @@ describe('PROVIDER_CATALOG', () => {
   test('contains route entries for github, sentry, and gitea', () => {
     expect(PROVIDER_CATALOG.github).toMatchObject({
       kind: 'redirect-install',
-      setupPath: '/workspaces/$wid/integrations/github',
+      setupPath: '/w/$workspaceSlug/integrations/github',
     });
     expect(PROVIDER_CATALOG.sentry).toMatchObject({
       kind: 'redirect-install',
-      setupPath: '/workspaces/$wid/integrations/sentry',
+      setupPath: '/w/$workspaceSlug/integrations/sentry',
     });
     expect(PROVIDER_CATALOG.linear).toMatchObject({
       kind: 'redirect-install',
       iconName: 'linear',
-      setupPath: '/workspaces/$wid/integrations/linear',
+      setupPath: '/w/$workspaceSlug/integrations/linear',
     });
     expect(PROVIDER_CATALOG.gitea).toMatchObject({
       kind: 'direct-connect',
-      setupPath: '/workspaces/$wid/integrations/gitea',
+      setupPath: '/w/$workspaceSlug/integrations/gitea',
     });
   });
 

@@ -20,14 +20,14 @@ import {useMemo} from 'react';
 import {IntegrationGallery} from './integration-gallery.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
-const WORKSPACE_PATH = `/workspaces/${WORKSPACE_ID}/settings/integrations`;
+const WORKSPACE_PATH = '/w/acme/settings/integrations';
 const SETUP_PATHS = [
-  '/workspaces/$wid/integrations/github',
-  '/workspaces/$wid/integrations/sentry',
-  '/workspaces/$wid/integrations/linear',
-  '/workspaces/$wid/integrations/slack',
-  '/workspaces/$wid/integrations/gitea',
-  '/workspaces/$wid/settings/events',
+  '/w/$workspaceSlug/integrations/github',
+  '/w/$workspaceSlug/integrations/sentry',
+  '/w/$workspaceSlug/integrations/linear',
+  '/w/$workspaceSlug/integrations/slack',
+  '/w/$workspaceSlug/integrations/gitea',
+  '/w/$workspaceSlug/settings/events',
 ] as const;
 
 type Scenario =
@@ -74,7 +74,7 @@ function IntegrationGalleryStory({scenario}: IntegrationGalleryStoryProps) {
     const rootRoute = createRootRoute({component: Outlet});
     const workspaceRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: '/workspaces/$wid',
+      path: '/w/$workspaceSlug',
       component: Outlet,
     });
     const galleryRoute = createRoute({
@@ -89,7 +89,7 @@ function IntegrationGalleryStory({scenario}: IntegrationGalleryStoryProps) {
     const setupRoutes = SETUP_PATHS.map((path) =>
       createRoute({
         getParentRoute: () => workspaceRoute,
-        path: path.replace('/workspaces/$wid/', ''),
+        path: path.replace('/w/$workspaceSlug/', ''),
         component: () => <div />,
       }),
     );

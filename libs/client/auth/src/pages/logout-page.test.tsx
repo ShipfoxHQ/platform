@@ -27,7 +27,7 @@ function renderLogoutPage(path: string) {
   });
   const workspaceRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid',
+    path: '/w/$workspaceSlug',
     component: () => <h1>Workspace destination</h1>,
   });
   const router = createRouter({
@@ -56,7 +56,7 @@ describe('LogoutPage', () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, {status: 204}));
     configureApiClient({fetchImpl});
 
-    renderLogoutPage('/auth/logout?redirect=%2Fworkspaces%2Facme');
+    renderLogoutPage('/auth/logout?redirect=%2Fw%2Facme');
 
     expect(await screen.findByRole('heading', {name: 'Workspace destination'})).toBeVisible();
     const request = fetchImpl.mock.calls[0]?.[0] as Request;

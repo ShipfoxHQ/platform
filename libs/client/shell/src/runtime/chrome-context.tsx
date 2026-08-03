@@ -1,9 +1,10 @@
 import type {ComponentType, PropsWithChildren} from 'react';
 import {createContext, useContext} from 'react';
+import type {ProjectSlugResolver} from './router-context.js';
 
 export interface ChromeSlots {
   ProjectBreadcrumb: ComponentType;
-  ProjectLayoutGuard: ComponentType;
+  projectSlugResolver: ProjectSlugResolver;
   /**
    * Optional content rendered in the account menu before the shell-owned logout
    * action. The composing component must render one DropdownMenuItem or return

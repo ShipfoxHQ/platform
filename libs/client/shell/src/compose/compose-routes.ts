@@ -5,7 +5,7 @@ import type {
   RouteContribution,
   RouteParentId,
 } from '#contract.js';
-import {anchorPaths} from '#runtime/anchor-paths.js';
+import {anchorPaths, validateRoutePathInvariants} from '#runtime/anchor-paths.js';
 import {LayoutCompositionError, RouteCompositionError} from './errors.js';
 import {normalizeRoutePath} from './normalize-route-path.js';
 
@@ -164,6 +164,7 @@ export function composeLayouts(features: readonly ClientFeature[]): ComposedLayo
   );
   const layoutById = validateLayoutParents(layouts);
   for (const layout of layouts) {
+    validateRoutePathInvariants(layout.path);
     validateNestedRoute(layout.path, layout.parent, layoutById, layout.featureId);
   }
   return layouts;
@@ -177,6 +178,7 @@ export function composeRoutes(
   const layoutById = validateLayoutParents(layouts);
   const layoutPaths = new Map<string, ComposedLayout>();
   for (const layout of layouts) {
+    validateRoutePathInvariants(layout.path);
     const existing = layoutPaths.get(layout.path);
     if (existing) {
       throw new RouteCompositionError(
@@ -254,6 +256,7 @@ export function composeRoutes(
     validateNestedRoute(layout.path, layout.parent, layoutById, layout.featureId);
   }
   for (const route of routes.values()) {
+    validateRoutePathInvariants(route.path);
     validateNestedRoute(route.path, route.parent, layoutById, route.featureId);
   }
   return [...routes.values()];

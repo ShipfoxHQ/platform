@@ -176,7 +176,7 @@ function createStoryRouter(scenario: Scenario) {
   const rootRoute = createRootRoute({component: Outlet});
   const workspaceRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid',
+    path: '/w/$workspaceSlug',
     component: Outlet,
   });
   const integrationsRoute = createRoute({
@@ -192,7 +192,7 @@ function createStoryRouter(scenario: Scenario) {
 
   return createRouter({
     history: createMemoryHistory({
-      initialEntries: [`/workspaces/${WORKSPACE_ID}/settings/integrations`],
+      initialEntries: ['/w/acme/settings/integrations'],
     }),
     routeTree: rootRoute.addChildren([
       workspaceRoute.addChildren([integrationsRoute, eventsRoute]),

@@ -2,10 +2,10 @@ import {defineRoute} from '@shipfox/client-shell/runtime';
 import {redirect} from '@tanstack/react-router';
 
 export default defineRoute({
-  beforeLoad: ({params}: {params: {wid: string; pid: string}}) => {
+  beforeLoad: ({params}: {params: {workspaceSlug: string; projectSlug: string}}) => {
     throw redirect({
-      to: '/workspaces/$wid/projects/$pid/runs',
-      params: {wid: params.wid, pid: params.pid},
+      to: '/w/$workspaceSlug/p/$projectSlug/runs',
+      params: {workspaceSlug: params.workspaceSlug, projectSlug: params.projectSlug},
     });
   },
 });

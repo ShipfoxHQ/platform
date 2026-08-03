@@ -42,20 +42,20 @@ const withRelativeTime: Decorator = (Story) => (
   </RelativeTimeProvider>
 );
 
-// Run rows render `<Link to="/workspaces/$wid/projects/$pid/runs/$runId">` and read
+// Run rows render `<Link to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId">` and read
 // `useParams`, both of which need a router in context. A memory router seeded at a
 // matching path lets the rows render and resolve their hrefs without a real app shell.
 const withRouter: Decorator = (Story) => {
   const rootRoute = createRootRoute();
   const runRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid/runs/$runId',
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: () => <Story />,
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([runRoute]),
     history: createMemoryHistory({
-      initialEntries: ['/workspaces/ws-demo/projects/proj-demo/runs/run-1'],
+      initialEntries: ['/w/ws-demo/p/proj-demo/runs/run-1'],
     }),
   });
   return <RouterProvider router={router} />;

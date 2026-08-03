@@ -11,8 +11,8 @@ export class IntegrationsCatalogueScreen {
     this.shell = new SettingsShell(page);
   }
 
-  async goto(workspaceId: string): Promise<void> {
-    await this.shell.goto(workspaceId, 'integrations');
+  async goto(workspaceSlug: string): Promise<void> {
+    await this.shell.goto(workspaceSlug, 'integrations');
   }
 
   availableHeading(): Locator {
@@ -51,8 +51,8 @@ export class SourceControlSetupScreen {
     await this.page.goto('/');
   }
 
-  async goto(workspaceId: string): Promise<void> {
-    await this.page.goto(`/workspaces/${workspaceId}/integrations`);
+  async goto(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/integrations`);
   }
 
   heading(): Locator {
@@ -63,8 +63,8 @@ export class SourceControlSetupScreen {
     return this.page.getByRole('heading', {name: 'Choose agent harness'});
   }
 
-  providerLink(workspaceId: string, provider: string): Locator {
-    return this.page.locator(`a[href$="/workspaces/${workspaceId}/integrations/${provider}"]`);
+  providerLink(workspaceSlug: string, provider: string): Locator {
+    return this.page.locator(`a[href$="/w/${workspaceSlug}/integrations/${provider}"]`);
   }
 
   projectTab(): Locator {
@@ -91,8 +91,8 @@ export class ProviderInstallScreen {
     this.toast = new Toast(page);
   }
 
-  async goto(workspaceId: string, provider: string): Promise<void> {
-    await this.page.goto(`/workspaces/${workspaceId}/integrations/${provider}`);
+  async goto(workspaceSlug: string, provider: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/integrations/${provider}`);
   }
 
   organizationField(): Locator {

@@ -24,11 +24,11 @@ test('creates a manual runner registration token from settings', async ({
   test.setTimeout(60_000);
 
   await page.clock.setFixedTime(VISUAL_TEST_NOW);
-  const {workspaceId} = await createReadyWorkspace({
+  const {workspaceSlug} = await createReadyWorkspace({
     name: 'Manual Token Create Workspace',
   });
 
-  await runnerTokens.gotoManualTokens(workspaceId);
+  await runnerTokens.gotoManualTokens(workspaceSlug);
   await expect(runnerTokens.manualEmptyState()).toBeVisible();
   await stableScreenshot(page, 'runners/settings-runners-empty');
 
@@ -61,7 +61,11 @@ test('revokes a manual runner registration token from settings', async ({
   runnerTokens,
   createReadyWorkspace,
 }) => {
-  const {sessionToken: userToken, workspaceId} = await createReadyWorkspace({
+  const {
+    sessionToken: userToken,
+    workspaceId,
+    workspaceSlug,
+  } = await createReadyWorkspace({
     name: 'Manual Token Revoke Workspace',
   });
   await mintManualRegistrationToken({
@@ -71,7 +75,7 @@ test('revokes a manual runner registration token from settings', async ({
     ttlSeconds: 3600,
   });
 
-  await runnerTokens.gotoManualTokens(workspaceId);
+  await runnerTokens.gotoManualTokens(workspaceSlug);
   const row = runnerTokens.manualTokenRow('E2E manual revoke runner');
   await expect(row).toBeVisible();
 
@@ -99,11 +103,11 @@ test('creates a provisioner registration token from settings', async ({
   test.setTimeout(60_000);
 
   await page.clock.setFixedTime(VISUAL_TEST_NOW);
-  const {workspaceId} = await createReadyWorkspace({
+  const {workspaceSlug} = await createReadyWorkspace({
     name: 'Provisioner Token Create Workspace',
   });
 
-  await runnerTokens.gotoProvisionerTokens(workspaceId);
+  await runnerTokens.gotoProvisionerTokens(workspaceSlug);
   await expect(runnerTokens.provisionerEmptyState()).toBeVisible();
   await stableScreenshot(page, 'runners/settings-provisioners-empty');
 
@@ -142,7 +146,11 @@ test('revokes a provisioner registration token from settings', async ({
   runnerTokens,
   createReadyWorkspace,
 }) => {
-  const {sessionToken: userToken, workspaceId} = await createReadyWorkspace({
+  const {
+    sessionToken: userToken,
+    workspaceId,
+    workspaceSlug,
+  } = await createReadyWorkspace({
     name: 'Provisioner Token Revoke Workspace',
   });
   await mintProvisionerToken({
@@ -152,7 +160,7 @@ test('revokes a provisioner registration token from settings', async ({
     ttlSeconds: 3600,
   });
 
-  await runnerTokens.gotoProvisionerTokens(workspaceId);
+  await runnerTokens.gotoProvisionerTokens(workspaceSlug);
   const row = runnerTokens.provisionerTokenRow('E2E revoke provisioner');
   await expect(row).toBeVisible();
 

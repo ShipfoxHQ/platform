@@ -10,7 +10,7 @@ function accountMenuFeature() {
   return defineClientFeature({
     id: 'acme.account-menu',
     routes: [
-      {path: '/workspaces/$wid/account-menu', parent: 'workspaceLayout', impl: 'account-menu'},
+      {path: '/w/$workspaceSlug/account-menu', parent: 'workspaceLayout', impl: 'account-menu'},
     ],
   });
 }
@@ -24,7 +24,7 @@ function PrivateAccountMenuEntry() {
 async function openAccountMenu(chrome: Partial<ChromeSlots> = {}) {
   await renderComposedShell({
     features: [accountMenuFeature()],
-    initialPath: '/workspaces/workspace/account-menu',
+    initialPath: '/w/workspace/account-menu',
     resolveImpl: () => defineRoute({component: () => <h1>Account menu</h1>}),
     chrome,
   });

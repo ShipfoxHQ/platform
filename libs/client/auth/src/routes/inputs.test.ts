@@ -2,8 +2,8 @@ import {validatePasswordResetSearch, validateRedirectSearch} from './inputs.js';
 
 describe('auth route inputs', () => {
   it('keeps only a non-empty redirect', () => {
-    expect(validateRedirectSearch({redirect: '/workspaces/w-1'})).toEqual({
-      redirect: '/workspaces/w-1',
+    expect(validateRedirectSearch({redirect: '/w/acme'})).toEqual({
+      redirect: '/w/acme',
     });
     expect(validateRedirectSearch({redirect: ''})).toEqual({});
     expect(validateRedirectSearch({redirect: ['unexpected']})).toEqual({});

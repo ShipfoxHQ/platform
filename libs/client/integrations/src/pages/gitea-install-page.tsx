@@ -24,7 +24,7 @@ export function GiteaInstallPage() {
       try {
         await connect.mutateAsync({workspace_id: workspaceId, org: value.org.trim()});
         toast.success('Gitea organization installed.');
-        await navigate({to: '/workspaces/$wid', params: {wid: workspaceId}});
+        await navigate({to: '/w/$workspaceSlug', params: {workspaceSlug: workspace.slug}});
       } catch (error) {
         const mapped = giteaConnectErrorToFormError(error);
         if (mapped.kind === 'field') {
@@ -88,7 +88,7 @@ export function GiteaInstallPage() {
             Install
           </Button>
           <ButtonLink asChild variant="muted">
-            <Link to="/workspaces/$wid/integrations" params={{wid: workspace.id}}>
+            <Link to="/w/$workspaceSlug/integrations" params={{workspaceSlug: workspace.slug}}>
               Cancel
             </Link>
           </ButtonLink>

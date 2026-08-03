@@ -23,19 +23,19 @@ function optionalRouteString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-export function parseWorkspaceParams(input: Record<string, unknown>): {wid?: string} {
-  const wid = optionalRouteString(input.wid);
-  return wid ? {wid} : {};
+export function parseWorkspaceParams(input: Record<string, unknown>): {workspaceSlug?: string} {
+  const workspaceSlug = optionalRouteString(input.workspaceSlug);
+  return workspaceSlug ? {workspaceSlug} : {};
 }
 
 export function parseWorkspaceProjectParams(input: Record<string, unknown>): {
-  wid?: string;
-  pid?: string;
+  workspaceSlug?: string;
+  projectSlug?: string;
 } {
-  const wid = optionalRouteString(input.wid);
-  const pid = optionalRouteString(input.pid);
+  const workspaceSlug = optionalRouteString(input.workspaceSlug);
+  const projectSlug = optionalRouteString(input.projectSlug);
   return {
-    ...(wid ? {wid} : {}),
-    ...(pid ? {pid} : {}),
+    ...(workspaceSlug ? {workspaceSlug} : {}),
+    ...(projectSlug ? {projectSlug} : {}),
   };
 }

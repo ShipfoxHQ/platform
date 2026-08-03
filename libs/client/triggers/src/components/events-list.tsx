@@ -18,7 +18,7 @@ export function EventsList({
   facets,
   filters,
   onFiltersChange,
-  workspaceId,
+  workspaceSlug,
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
@@ -53,7 +53,7 @@ export function EventsList({
       {query.isPending ? <EventsListSkeleton /> : null}
       {!query.isPending ? <QueryLoadError query={query} subject="events" icon="pulseLine" /> : null}
       {!query.isPending && refreshFailed ? <EventsListStaleError query={query} /> : null}
-      {showEmptyState && !activeFilters ? <EventsListEmpty workspaceId={workspaceId} /> : null}
+      {showEmptyState && !activeFilters ? <EventsListEmpty workspaceSlug={workspaceSlug} /> : null}
       {showEmptyState && activeFilters ? <EventsListNoMatches onClear={clearFilters} /> : null}
 
       {events.length > 0 ? (

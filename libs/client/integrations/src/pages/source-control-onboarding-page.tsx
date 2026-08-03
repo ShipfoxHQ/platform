@@ -17,12 +17,12 @@ export function SourceControlOnboardingPage() {
       </header>
 
       <ProviderGrid
+        workspaceSlug={workspace.slug}
         providers={providersQuery.data ?? []}
         isPending={providersQuery.isPending}
         isFetching={providersQuery.isFetching}
         error={providersQuery.isError ? providersQuery.error : undefined}
         onRetry={() => void providersQuery.refetch()}
-        workspaceId={workspace.id}
         emptyMessage="Enable at least one source-control provider in the application settings."
       />
     </div>

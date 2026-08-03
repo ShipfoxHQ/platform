@@ -1,3 +1,4 @@
+import {useProjectQuery, useProjectsInfiniteQuery} from '@shipfox/client-projects';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -34,17 +35,30 @@ const DETAIL_RAIL_CLASS =
   '@min-[820px]:sticky @min-[820px]:top-16 @min-[820px]:max-h-[calc(var(--app-content-h,100dvh_-_96px)_-_32px)] @min-[820px]:min-h-[min(320px,calc(var(--app-content-h,100dvh_-_96px)_-_32px))]';
 
 export interface TriggerEventDetailProps {
-  workspaceId: string;
+  workspaceId?: string | undefined;
+  workspaceSlug?: string | undefined;
   eventId?: string | undefined;
   onBack: () => void;
 }
 
-export function TriggerEventDetail({workspaceId, eventId, onBack}: TriggerEventDetailProps) {
+export function TriggerEventDetail({
+  workspaceId,
+  workspaceSlug,
+  eventId,
+  onBack,
+}: TriggerEventDetailProps) {
   const query = useTriggerEventQuery(eventId);
 
   if (!eventId) return <TriggerEventDetailPlaceholder />;
   if (query.data) {
-    return <TriggerEventDetailView workspaceId={workspaceId} event={query.data} onBack={onBack} />;
+    return (
+      <TriggerEventDetailView
+        workspaceId={workspaceId}
+        workspaceSlug={workspaceSlug}
+        event={query.data}
+        onBack={onBack}
+      />
+    );
   }
   if (query.isError)
     return <TriggerEventDetailError onBack={onBack} onRetry={() => query.refetch()} />;
@@ -53,10 +67,12 @@ export function TriggerEventDetail({workspaceId, eventId, onBack}: TriggerEventD
 
 export function TriggerEventDetailView({
   workspaceId,
+  workspaceSlug,
   event,
   onBack,
 }: {
-  workspaceId: string;
+  workspaceId?: string | undefined;
+  workspaceSlug?: string | undefined;
   event: TriggerEventDetailModel;
   onBack: () => void;
 }) {
@@ -124,7 +140,7 @@ export function TriggerEventDetailView({
         key={event.id}
         className="flex min-h-0 flex-1 flex-col gap-20 overflow-y-auto p-16 scrollbar"
       >
-        <EventRuns workspaceId={workspaceId} event={event} />
+        <EventRuns workspaceId={workspaceId} workspaceSlug={workspaceSlug} event={event} />
         <EventPayload payload={formattedPayload} />
       </div>
     </aside>
@@ -207,7 +223,15 @@ function TriggerEventDetailError({onBack, onRetry}: {onBack: () => void; onRetry
   );
 }
 
-function EventRuns({workspaceId, event}: {workspaceId: string; event: TriggerEventDetailModel}) {
+function EventRuns({
+  workspaceId,
+  workspaceSlug,
+  event,
+}: {
+  workspaceId?: string | undefined;
+  workspaceSlug?: string | undefined;
+  event: TriggerEventDetailModel;
+}) {
   if (event.decisions.length === 0) {
     if (event.outcome === 'discarded') {
       return (
@@ -219,6 +243,55 @@ function EventRuns({workspaceId, event}: {workspaceId: string; event: TriggerEve
     return null;
   }
 
+  if (!workspaceId) {
+    return <EventRunsList workspaceSlug={workspaceSlug} projectSlugs={new Map()} event={event} />;
+  }
+
+  return (
+    <EventRunsWithProjects workspaceId={workspaceId} workspaceSlug={workspaceSlug} event={event} />
+  );
+}
+
+function EventRunsWithProjects({
+  workspaceId,
+  workspaceSlug,
+  event,
+}: {
+  workspaceId: string;
+  workspaceSlug?: string | undefined;
+  event: TriggerEventDetailModel;
+}) {
+  const projectsQuery = useProjectsInfiniteQuery(workspaceId);
+  const projectSlugs = useMemo(
+    () =>
+      new Map(
+        projectsQuery.data?.pages
+          .flatMap((page) => page.projects)
+          .map((project) => [project.id, project.slug] as const),
+      ),
+    [projectsQuery.data],
+  );
+  return (
+    <EventRunsList
+      workspaceSlug={workspaceSlug}
+      projectSlugs={projectSlugs}
+      projectDetailLookupEnabled={!projectsQuery.isPending}
+      event={event}
+    />
+  );
+}
+
+function EventRunsList({
+  workspaceSlug,
+  projectSlugs,
+  projectDetailLookupEnabled = false,
+  event,
+}: {
+  workspaceSlug?: string | undefined;
+  projectSlugs: ReadonlyMap<string, string>;
+  projectDetailLookupEnabled?: boolean;
+  event: TriggerEventDetailModel;
+}) {
   return (
     <section aria-labelledby="trigger-event-runs-heading" className="flex flex-col gap-6">
       <Text id="trigger-event-runs-heading" size="sm" bold>
@@ -226,7 +299,14 @@ function EventRuns({workspaceId, event}: {workspaceId: string; event: TriggerEve
       </Text>
       <ul className="-mx-8 flex flex-col gap-1">
         {event.decisions.map((decision) => (
-          <DecisionRow key={decision.id} workspaceId={workspaceId} decision={decision} />
+          <DecisionRow
+            key={decision.id}
+            workspaceSlug={workspaceSlug}
+            projectId={decision.projectId ?? undefined}
+            projectSlug={decision.projectId ? projectSlugs.get(decision.projectId) : undefined}
+            projectDetailLookupEnabled={projectDetailLookupEnabled}
+            decision={decision}
+          />
         ))}
       </ul>
     </section>
@@ -234,12 +314,25 @@ function EventRuns({workspaceId, event}: {workspaceId: string; event: TriggerEve
 }
 
 function DecisionRow({
-  workspaceId,
+  projectId,
+  projectSlug,
+  workspaceSlug,
+  projectDetailLookupEnabled,
   decision,
 }: {
-  workspaceId: string;
+  projectId?: string | undefined;
+  projectSlug?: string | undefined;
+  workspaceSlug?: string | undefined;
+  projectDetailLookupEnabled: boolean;
   decision: TriggerEventMatchedWorkflowResult;
 }) {
+  const canRenderRunLink =
+    decision.decision === 'triggered' && Boolean(decision.runId && decision.runName);
+  const projectQuery = useProjectQuery(
+    canRenderRunLink && projectDetailLookupEnabled && !projectSlug ? projectId : undefined,
+  );
+  const resolvedProjectSlug = projectSlug ?? projectQuery.data?.slug;
+
   if (decision.decision !== 'triggered' || !decision.runId || !decision.runName) {
     return (
       <li className="flex min-w-0 items-start gap-8 rounded-6 px-8 py-6">
@@ -266,27 +359,43 @@ function DecisionRow({
     );
   }
 
+  const row = (
+    <>
+      <Icon
+        name="cornerDownRightLine"
+        className="mt-3 size-14 shrink-0 text-foreground-neutral-muted"
+        aria-hidden="true"
+      />
+      <span className="flex min-w-0 flex-col gap-1">
+        <Text as="span" size="sm" className="min-w-0 truncate text-foreground-neutral-base">
+          {decision.subscriptionName}
+        </Text>
+        <Code as="span" variant="label" className="truncate text-foreground-neutral-muted">
+          {decision.runName}
+        </Code>
+      </span>
+    </>
+  );
+  const rowClassName =
+    'flex min-w-0 items-start gap-8 rounded-6 px-8 py-6 hover:bg-background-components-hover focus-visible:outline-none focus-visible:shadow-button-neutral-focus';
+
   return (
     <li>
-      <Link
-        to="/workspaces/$wid/projects/$pid/runs/$workflowRunId"
-        params={{wid: workspaceId, pid: decision.projectId ?? '', workflowRunId: decision.runId}}
-        className="flex min-w-0 items-start gap-8 rounded-6 px-8 py-6 transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none"
-      >
-        <Icon
-          name="cornerDownRightLine"
-          className="mt-3 size-14 shrink-0 text-foreground-neutral-muted"
-          aria-hidden="true"
-        />
-        <span className="flex min-w-0 flex-col gap-1">
-          <Text as="span" size="sm" className="min-w-0 truncate text-foreground-neutral-base">
-            {decision.subscriptionName}
-          </Text>
-          <Code as="span" variant="label" className="truncate text-foreground-neutral-muted">
-            {decision.runName}
-          </Code>
-        </span>
-      </Link>
+      {workspaceSlug && resolvedProjectSlug ? (
+        <Link
+          to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
+          params={{
+            workspaceSlug,
+            projectSlug: resolvedProjectSlug,
+            workflowRunId: decision.runId,
+          }}
+          className={rowClassName}
+        >
+          {row}
+        </Link>
+      ) : (
+        <div className={rowClassName}>{row}</div>
+      )}
     </li>
   );
 }

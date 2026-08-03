@@ -25,7 +25,7 @@ function createTestRouter(path: string, element: ReactElement) {
   });
   const workspaceRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: 'workspaces/$wid',
+    path: 'w/$workspaceSlug',
     component: () => <h1>Authenticated home</h1>,
   });
   const loginRoute = createRoute({

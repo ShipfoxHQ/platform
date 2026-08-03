@@ -67,12 +67,12 @@ describe('composeRoutes', () => {
         {
           id: 'acme.shell',
           layouts: [
-            {id: 'acme.fake-workspace', path: '/workspaces/$wid', parent: 'root', impl: 'fake'},
+            {id: 'acme.fake-workspace', path: '/w/$workspaceSlug', parent: 'root', impl: 'fake'},
           ],
         },
       ]),
     ).toThrow(
-      'Layout "acme.fake-workspace" in feature "acme.shell" targets path "/workspaces/$wid" which is reserved by a shell anchor.',
+      'Layout "acme.fake-workspace" in feature "acme.shell" targets path "/w/$workspaceSlug" which is reserved by a shell anchor.',
     );
   });
 
@@ -81,11 +81,11 @@ describe('composeRoutes', () => {
       composeRoutes([
         {
           id: 'acme.reports',
-          routes: [{path: '/workspaces/$wid/reports', parent: 'root', impl: 'reports'}],
+          routes: [{path: '/w/$workspaceSlug/reports', parent: 'root', impl: 'reports'}],
         },
       ]),
     ).toThrow(
-      'Route "/workspaces/$wid/reports" in feature "acme.reports" cannot use root parent inside reserved anchor "workspaceLayout" (/workspaces/$wid). Use parent "workspaceLayout".',
+      'Route "/w/$workspaceSlug/reports" in feature "acme.reports" cannot use root parent inside reserved anchor "workspaceLayout" (/w/$workspaceSlug). Use parent "workspaceLayout".',
     );
     expect(() =>
       composeLayouts([
@@ -94,7 +94,7 @@ describe('composeRoutes', () => {
           layouts: [
             {
               id: 'acme.reports.layout',
-              path: '/workspaces/$wid/reports',
+              path: '/w/$workspaceSlug/reports',
               parent: 'root',
               impl: 'reports',
             },
@@ -102,7 +102,7 @@ describe('composeRoutes', () => {
         },
       ]),
     ).toThrow(
-      'Route "/workspaces/$wid/reports" in feature "acme.reports" cannot use root parent inside reserved anchor "workspaceLayout" (/workspaces/$wid). Use parent "workspaceLayout".',
+      'Route "/w/$workspaceSlug/reports" in feature "acme.reports" cannot use root parent inside reserved anchor "workspaceLayout" (/w/$workspaceSlug). Use parent "workspaceLayout".',
     );
   });
 
@@ -111,14 +111,14 @@ describe('composeRoutes', () => {
       composeLayouts([
         {
           id: 'acme.decoy',
-          layouts: [{id: 'acme.decoy-layout', path: '/workspaces', parent: 'root', impl: 'decoy'}],
+          layouts: [{id: 'acme.decoy-layout', path: '/legacy', parent: 'root', impl: 'decoy'}],
         },
         {
           id: 'acme.smuggled',
           layouts: [
             {
               id: 'acme.smuggled-layout',
-              path: '/workspaces/$wid/reports',
+              path: '/w/$workspaceSlug/reports',
               parent: 'acme.decoy-layout',
               impl: 'reports',
             },
@@ -126,7 +126,7 @@ describe('composeRoutes', () => {
         },
       ]),
     ).toThrow(
-      'Route "/workspaces/$wid/reports" in feature "acme.smuggled" cannot use root parent inside reserved anchor "workspaceLayout" (/workspaces/$wid). Use parent "workspaceLayout".',
+      'Route "/w/$workspaceSlug/reports" in feature "acme.smuggled" cannot use root parent inside reserved anchor "workspaceLayout" (/w/$workspaceSlug). Use parent "workspaceLayout".',
     );
   });
 
@@ -246,7 +246,7 @@ describe('composeRoutes', () => {
           id: 'shipfox.projects',
           routes: [
             {
-              path: '/workspaces/$wid/projects',
+              path: '/w/$workspaceSlug/projects',
               parent: 'workspaceLayout',
               impl: 'base',
             },
@@ -256,7 +256,7 @@ describe('composeRoutes', () => {
           id: 'acme.projects',
           routes: [
             {
-              path: '/workspaces/$wid/projects',
+              path: '/w/$workspaceSlug/projects',
               parent: 'root',
               override: true,
               impl: 'override',
@@ -265,7 +265,7 @@ describe('composeRoutes', () => {
         },
       ]),
     ).toThrow(
-      'Route override for "/workspaces/$wid/projects" from feature "acme.projects" cannot change anchor from "workspaceLayout" in feature "shipfox.projects" to "root".',
+      'Route override for "/w/$workspaceSlug/projects" from feature "acme.projects" cannot change anchor from "workspaceLayout" in feature "shipfox.projects" to "root".',
     );
   });
 });

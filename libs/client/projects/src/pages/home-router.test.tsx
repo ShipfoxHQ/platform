@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import {configureApiClient} from '@shipfox/client-api';
 import {screen} from '@testing-library/react';
-import {jsonResponse, PROJECT_TEST_WID, renderProjectPage} from '#test/pages.js';
+import {jsonResponse, PROJECT_TEST_WSLUG, renderProjectPage} from '#test/pages.js';
 import {HomeRouter} from './home-router.js';
 
 describe('HomeRouter', () => {
@@ -16,7 +16,7 @@ describe('HomeRouter', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}`, <HomeRouter />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <HomeRouter />);
 
     expect(await screen.findByRole('heading', {name: 'Projects'})).toBeInTheDocument();
     const calledUrls = fetchImpl.mock.calls.map(([input]) =>

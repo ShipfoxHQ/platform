@@ -23,7 +23,7 @@ test.describe('workspace switcher', () => {
     await projects.createProject({workspaceId: wsA.id});
     await auth.loginAs(page, user);
 
-    await workspaceHome.goto(wsA.id);
+    await workspaceHome.goto(wsA.slug);
     await workspaceSwitcher.open();
     await expect(workspaceSwitcher.workspaceOption(workspaceAName)).toBeVisible();
     await expect(workspaceSwitcher.createWorkspaceOption()).toBeVisible();
@@ -33,13 +33,17 @@ test.describe('workspace switcher', () => {
 
     await expect(page).toHaveURL(WORKSPACE_INTEGRATIONS_URL_RE);
     await setupShell.expectNavigationHidden();
-    const newWorkspaceId = workspaceHome.currentWorkspaceId();
-    expect(newWorkspaceId).toBeTruthy();
-    expect(newWorkspaceId).not.toBe(wsA.id);
+    const newWorkspaceSlug = workspaceHome.currentWorkspaceSlug();
+    expect(newWorkspaceSlug).toBeTruthy();
+    expect(newWorkspaceSlug).not.toBe(wsA.slug);
     await workspaceSwitcher.open();
     await expect(workspaceSwitcher.workspaceOption(workspaceAName)).toBeVisible();
     await expect(workspaceSwitcher.workspaceOption(workspaceBName)).toBeVisible();
-    expect(await workspaceHome.readLastWorkspaceId(user.user.id)).toBe(newWorkspaceId);
+    const workspaceBId = await workspaceSwitcher
+      .workspaceOption(workspaceBName)
+      .getAttribute('data-value');
+    expect(workspaceBId).toBeTruthy();
+    expect(await workspaceHome.readLastWorkspaceId(user.user.id)).toBe(workspaceBId);
   });
 
   test('keeps Create workspace visible when search filters every workspace out', async ({
@@ -55,7 +59,7 @@ test.describe('workspace switcher', () => {
     await projects.createProject({workspaceId: wsA.id});
     await auth.loginAs(page, user);
 
-    await workspaceHome.goto(wsA.id);
+    await workspaceHome.goto(wsA.slug);
     await workspaceSwitcher.open();
     await workspaceSwitcher.search('zzz-no-match');
 
@@ -82,8 +86,8 @@ test.describe('workspace switcher', () => {
     }
     await auth.loginAs(page, user);
 
-    await workspaceHome.goto(first.id);
-    await expect(page).toHaveURL(workspaceUrlRe(first.id));
+    await workspaceHome.goto(first.slug);
+    await expect(page).toHaveURL(workspaceUrlRe(first.slug));
     await workspaceSwitcher.open();
     await expect(workspaceSwitcher.workspaceOption('Workspace 01')).toBeVisible();
     await expect(workspaceSwitcher.createWorkspaceOption()).toBeVisible();

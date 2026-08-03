@@ -1,13 +1,14 @@
 export interface ProjectRouteParams {
-  wid: string;
-  pid: string;
+  workspaceSlug: string;
+  projectSlug: string;
 }
 
 export function projectRouteParams(input: Record<string, unknown>): ProjectRouteParams {
-  const wid = stringParam(input.wid);
-  const pid = stringParam(input.pid);
-  if (!wid || !pid) throw new Error('Project route is missing required path parameters.');
-  return {wid, pid};
+  const workspaceSlug = stringParam(input.workspaceSlug);
+  const projectSlug = stringParam(input.projectSlug);
+  if (!workspaceSlug || !projectSlug)
+    throw new Error('Project route is missing required path parameters.');
+  return {workspaceSlug, projectSlug};
 }
 
 function stringParam(value: unknown): string | undefined {

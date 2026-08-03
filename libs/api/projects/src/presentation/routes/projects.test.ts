@@ -446,9 +446,14 @@ describe('project routes', () => {
     expect(res.json().projects[0].source.connection_id).toBe(sourceConnectionId);
   });
 
-  test('filters projects by `search` (case-insensitive substring on name)', async () => {
-    const names = ['Platform', 'Runner', 'Notifier'];
-    for (const [index, name] of names.entries()) {
+  test('filters projects by `search` (case-insensitive substring on name or slug)', async () => {
+    const projects = [
+      {name: 'Platform', slug: 'platform'},
+      {name: 'Runner', slug: 'runner'},
+      {name: 'Notifier', slug: 'notifier'},
+      {name: 'Cloud', slug: 'runnbox'},
+    ];
+    for (const [index, {name, slug}] of projects.entries()) {
       vi.mocked(integrations.resolveSourceRepository).mockResolvedValueOnce({
         connection: {
           id: sourceConnectionId,
@@ -473,7 +478,7 @@ describe('project routes', () => {
         payload: {
           workspace_id: workspaceId,
           name,
-          slug: name.toLowerCase(),
+          slug,
           source: {
             connection_id: sourceConnectionId,
             external_repository_id: `gitea:gitea-owner/${name.toLowerCase()}-${index}`,
@@ -490,7 +495,7 @@ describe('project routes', () => {
 
     expect(res.statusCode).toBe(200);
     const returned = res.json().projects.map((project: {name: string}) => project.name);
-    expect(returned).toEqual(['Runner']);
+    expect(returned).toEqual(['Cloud', 'Runner']);
   });
 
   test('returns 409 when the source repository already has a project', async () => {

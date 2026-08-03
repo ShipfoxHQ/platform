@@ -12,6 +12,7 @@ import {
 
 export interface EventsPageProps {
   workspaceId: string;
+  workspaceSlug?: string | undefined;
   filters: TriggerEventFilters;
   onFiltersChange: (patch: Partial<TriggerEventFilters>) => void;
 }
@@ -20,7 +21,12 @@ export interface EventsPageProps {
  * Workspace-scoped Events list. Router-agnostic: filters and their setter come in as props
  * (the settings wrapper binds them to the URL), so a story can drive it with local state.
  */
-export function EventsPage({workspaceId, filters, onFiltersChange}: EventsPageProps) {
+export function EventsPage({
+  workspaceId,
+  workspaceSlug,
+  filters,
+  onFiltersChange,
+}: EventsPageProps) {
   const query = useTriggerEventsInfiniteQuery(workspaceId, filters);
   const facetsQuery = useTriggerEventFacetsQuery(workspaceId);
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>();
@@ -59,7 +65,7 @@ export function EventsPage({workspaceId, filters, onFiltersChange}: EventsPagePr
               facets={facetsQuery.data}
               filters={filters}
               onFiltersChange={onFiltersChange}
-              workspaceId={workspaceId}
+              workspaceSlug={workspaceSlug}
               hasNextPage={query.hasNextPage}
               isFetchingNextPage={query.isFetchingNextPage}
               onLoadMore={() => {
@@ -71,6 +77,7 @@ export function EventsPage({workspaceId, filters, onFiltersChange}: EventsPagePr
           </div>
           <TriggerEventDetail
             workspaceId={workspaceId}
+            workspaceSlug={workspaceSlug}
             eventId={selectedEventId}
             onBack={() => setSelectedEventId(undefined)}
           />

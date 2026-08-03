@@ -1,7 +1,8 @@
-export function modelProviderRouteParams(input: Record<string, unknown>): {wid: string} {
-  const wid = stringParam(input.wid);
-  if (!wid) throw new Error('Model provider route is missing the workspace path parameter.');
-  return {wid};
+export function modelProviderRouteParams(input: Record<string, unknown>): {workspaceSlug: string} {
+  const workspaceSlug = stringParam(input.workspaceSlug);
+  if (!workspaceSlug)
+    throw new Error('Model provider route is missing the workspace path parameter.');
+  return {workspaceSlug};
 }
 
 function stringParam(value: unknown): string | undefined {

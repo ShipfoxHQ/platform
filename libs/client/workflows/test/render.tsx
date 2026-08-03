@@ -19,7 +19,7 @@ function createComponentRouter(element: ReactElement) {
   // Workflow run rows link here; TanStack Router needs the target route to build hrefs.
   const runDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid/runs/$workflowRunId',
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: () => null,
   });
 

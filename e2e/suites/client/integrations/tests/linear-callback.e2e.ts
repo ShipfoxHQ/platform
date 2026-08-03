@@ -66,9 +66,7 @@ test('Linear callback redirects to the verified workspace settings on success', 
 
   await page.goto('/integrations/linear/callback?code=grant-code&state=signed-state');
 
-  await expect(page).toHaveURL(
-    new RegExp(`/workspaces/${workspace.id}/settings/integrations/?$`, 'u'),
-  );
+  await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'));
   await expect(page.getByText('Linear installed.')).toBeVisible();
   await stableScreenshot(page, 'integrations/linear-callback-success');
 });

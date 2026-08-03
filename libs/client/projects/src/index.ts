@@ -7,7 +7,13 @@ export {
   projectNameFromRepository,
   selectProjectSource,
 } from '#core/project.js';
-export {ProjectBreadcrumb, ProjectLayoutGuard} from './chrome.js';
+export {
+  ProjectBreadcrumb,
+  resolveProjectSlug,
+  useActiveProject,
+  useMaybeActiveProject,
+  useMaybeActiveProjectQuery,
+} from './chrome.js';
 export {ProjectCrumb, type ProjectCrumbProps} from './components/project-crumb.js';
 export {ProjectSwitcher, type ProjectSwitcherProps} from './components/project-switcher.js';
 export {SourceStrip} from './components/source-strip.js';

@@ -1,6 +1,11 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {fireEvent, screen, waitFor} from '@testing-library/react';
-import {jsonResponse, PROJECT_TEST_WID, renderProjectPage} from '#test/pages.js';
+import {
+  jsonResponse,
+  PROJECT_TEST_WID,
+  PROJECT_TEST_WSLUG,
+  renderProjectPage,
+} from '#test/pages.js';
 import {CreateProjectPage} from './create-project-page.js';
 
 const CONNECTION_ID = '33333333-3333-4333-8333-333333333333';
@@ -32,7 +37,7 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     const nameInput = await screen.findByLabelText('Project name');
     const slugInput = await screen.findByLabelText('Project slug');
     await waitFor(() => expect(nameInput).toHaveValue('Platform'));
@@ -75,7 +80,7 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     const nameInput = await screen.findByLabelText('Project name');
     const slugInput = await screen.findByLabelText('Project slug');
     await waitFor(() => expect(nameInput).toHaveValue('Platform'));
@@ -106,7 +111,7 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 
@@ -137,7 +142,7 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     expect((await screen.findAllByText('Gitea Source')).length).toBeGreaterThan(0);
     expect(await screen.findByText('Other Gitea Source')).toBeInTheDocument();
     expect(screen.queryByText('gitea-owner/platform')).not.toBeInTheDocument();
@@ -160,7 +165,7 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
     fireEvent.change(await screen.findByLabelText('Project name'), {
       target: {value: 'Bad\u202eName'},
@@ -191,9 +196,9 @@ describe('CreateProjectPage', () => {
       }),
     });
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     const link = await screen.findByRole('link', {name: 'Add another integration'});
-    expect(link).toHaveAttribute('href', `/workspaces/${PROJECT_TEST_WID}/integrations`);
+    expect(link).toHaveAttribute('href', `/w/${PROJECT_TEST_WSLUG}/integrations`);
   });
 
   test('shows the model provider reminder on project creation when no provider is configured', async () => {
@@ -214,12 +219,12 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
 
     expect(await screen.findByText('Finish setting up a model provider')).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Agents'})).toHaveAttribute(
       'href',
-      `/workspaces/${PROJECT_TEST_WID}/settings/agents`,
+      `/w/${PROJECT_TEST_WSLUG}/settings/agents`,
     );
   });
 
@@ -260,7 +265,7 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 
@@ -285,7 +290,7 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 
@@ -314,7 +319,7 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 
@@ -342,7 +347,7 @@ describe('CreateProjectPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderProjectPage(`/workspaces/${PROJECT_TEST_WID}/projects/new`, <CreateProjectPage />);
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 

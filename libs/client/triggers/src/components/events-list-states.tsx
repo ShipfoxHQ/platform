@@ -25,7 +25,7 @@ export function EventsListSkeleton() {
   );
 }
 
-export function EventsListEmpty({workspaceId}: {workspaceId: string}) {
+export function EventsListEmpty({workspaceSlug}: {workspaceSlug?: string | undefined}) {
   return (
     <div className="p-16">
       <EmptyState
@@ -33,11 +33,13 @@ export function EventsListEmpty({workspaceId}: {workspaceId: string}) {
         title="No events yet"
         description="Events appear here once a connected integration delivers one or you fire a trigger."
         action={
-          <Button asChild size="sm" variant="secondary">
-            <Link to="/workspaces/$wid/settings/integrations" params={{wid: workspaceId}}>
-              Configure integrations
-            </Link>
-          </Button>
+          workspaceSlug ? (
+            <Button asChild size="sm" variant="secondary">
+              <Link to="/w/$workspaceSlug/settings/integrations" params={{workspaceSlug}}>
+                Configure integrations
+              </Link>
+            </Button>
+          ) : undefined
         }
       />
     </div>

@@ -56,12 +56,12 @@ test('creates a custom model provider backed by a fake OpenAI-compatible provide
   customModelProviders,
   createReadyWorkspace,
 }) => {
-  const {workspaceId, sessionToken} = await createReadyWorkspace({
+  const {workspaceId, workspaceSlug, sessionToken} = await createReadyWorkspace({
     name: 'Model Provider Create Workspace',
   });
   const script = await createFakeProviderScript('create', 1);
 
-  await customModelProviders.goto(workspaceId);
+  await customModelProviders.goto(workspaceSlug);
   const dialog = await customModelProviders.openCreateDialog();
 
   await customModelProviders.fillProviderIdentity(dialog, {
@@ -113,7 +113,7 @@ test('edits an existing custom model provider and validates the provider endpoin
   customModelProviders,
   createReadyWorkspace,
 }) => {
-  const {workspaceId, sessionToken} = await createReadyWorkspace({
+  const {workspaceId, workspaceSlug, sessionToken} = await createReadyWorkspace({
     name: 'Model Provider Edit Workspace',
   });
   const script = await createFakeProviderScript('edit', 2);
@@ -126,7 +126,7 @@ test('edits an existing custom model provider and validates the provider endpoin
     displayName: EDIT_PROVIDER_NAME,
   });
 
-  await customModelProviders.goto(workspaceId);
+  await customModelProviders.goto(workspaceSlug);
   const row = customModelProviders.configuredProviderRow(EDIT_PROVIDER_NAME);
   await expect(row).toBeVisible();
   const dialog = await customModelProviders.openEditDialog(EDIT_PROVIDER_NAME);
@@ -159,7 +159,7 @@ test('deletes an existing custom model provider', async ({
   customModelProviders,
   createReadyWorkspace,
 }) => {
-  const {workspaceId, sessionToken} = await createReadyWorkspace({
+  const {workspaceId, workspaceSlug, sessionToken} = await createReadyWorkspace({
     name: 'Model Provider Delete Workspace',
   });
   const script = await createFakeProviderScript('delete', 1);
@@ -172,7 +172,7 @@ test('deletes an existing custom model provider', async ({
     displayName: DELETE_PROVIDER_NAME,
   });
 
-  await customModelProviders.goto(workspaceId);
+  await customModelProviders.goto(workspaceSlug);
   const row = customModelProviders.configuredProviderRow(DELETE_PROVIDER_NAME);
   await expect(row).toBeVisible();
   const dialog = await customModelProviders.openDeleteDialog(DELETE_PROVIDER_NAME);

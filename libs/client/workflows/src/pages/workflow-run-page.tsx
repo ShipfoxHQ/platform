@@ -8,8 +8,9 @@ import {type WorkflowRunsSearch, workflowRunSearchParams} from '#routes/inputs.j
 import {WorkflowRunFirstTimeUse} from './workflow-run-first-time-use.js';
 
 interface WorkflowRunPageProps {
-  workspaceId: string;
   projectId: string;
+  workspaceSlug: string;
+  projectSlug: string;
   workflowRunId?: string | undefined;
   search?: WorkflowRunsSearch;
 }
@@ -22,8 +23,9 @@ interface WorkflowRunPageProps {
  *   on the first-time-use surface instead of an empty rail and a perpetual detail skeleton.
  */
 function useWorkflowRunPageTarget(
-  workspaceId: string,
   projectId: string,
+  workspaceSlug: string | undefined,
+  projectSlug: string | undefined,
   workflowRunId: string | undefined,
   search: WorkflowRunsSearch,
 ) {
@@ -37,24 +39,36 @@ function useWorkflowRunPageTarget(
 
   useEffect(() => {
     if (workflowRunId || !isLoaded || !firstWorkflowRunId) return;
+    if (!workspaceSlug || !projectSlug) return;
     navigate({
-      to: '/workspaces/$wid/projects/$pid/runs/$workflowRunId',
-      params: {wid: workspaceId, pid: projectId, workflowRunId: firstWorkflowRunId},
+      to: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
+      params: {
+        workspaceSlug,
+        projectSlug,
+        workflowRunId: firstWorkflowRunId,
+      },
       search: workflowRunSearchParams(search, {}),
       replace: true,
     });
-  }, [navigate, workspaceId, projectId, workflowRunId, isLoaded, firstWorkflowRunId, search]);
+  }, [navigate, workspaceSlug, projectSlug, workflowRunId, isLoaded, firstWorkflowRunId, search]);
 
   return {hasNoRuns: isLoaded && firstWorkflowRunId === undefined};
 }
 
 export function WorkflowRunPage({
-  workspaceId,
   projectId,
+  workspaceSlug,
+  projectSlug,
   workflowRunId,
   search = {},
 }: WorkflowRunPageProps) {
-  const {hasNoRuns} = useWorkflowRunPageTarget(workspaceId, projectId, workflowRunId, search);
+  const {hasNoRuns} = useWorkflowRunPageTarget(
+    projectId,
+    workspaceSlug,
+    projectSlug,
+    workflowRunId,
+    search,
+  );
   const navigate = useNavigate();
   const selection: WorkflowRunSelectionInput = search;
   const onSelectionChange = useCallback(
@@ -73,8 +87,9 @@ export function WorkflowRunPage({
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       <WorkflowRunList
-        workspaceId={workspaceId}
         projectId={projectId}
+        workspaceSlug={workspaceSlug}
+        projectSlug={projectSlug}
         selectedWorkflowRunId={workflowRunId}
         search={search.search ?? ''}
         statusFilter={search.status ?? 'all'}
@@ -83,8 +98,9 @@ export function WorkflowRunPage({
         }
       />
       <WorkflowRunView
-        workspaceId={workspaceId}
         projectId={projectId}
+        workspaceSlug={workspaceSlug}
+        projectSlug={projectSlug}
         workflowRunId={workflowRunId}
         selection={selection}
         onSelectionChange={onSelectionChange}

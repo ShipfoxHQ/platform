@@ -8,13 +8,12 @@ import {
   workflowRunAttemptDto,
   workflowRunDetail,
 } from '#test/fixtures/workflow-run.js';
-import {jsonResponse, PROJECT_TEST_WID, renderProjectPage} from '#test/pages.js';
+import {jsonResponse, PROJECT_TEST_WSLUG, renderProjectPage} from '#test/pages.js';
 import {WorkflowRunAttemptSwitcher} from './workflow-run-attempt-switcher.js';
 
 const ROOT_RUN_ID = '11111111-1111-4111-8111-111111111111';
 const CURRENT_RUN_ID = '22222222-2222-4222-8222-222222222222';
 const THIRD_RUN_ID = '33333333-3333-4333-8333-333333333333';
-const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
 const SWITCH_ATTEMPT_PATTERN = /Switch attempt/;
 const ATTEMPT_1_PATTERN = /Attempt 1/;
 const ATTEMPT_2_PATTERN = /Attempt 2/;
@@ -176,7 +175,7 @@ describe('WorkflowRunAttemptSwitcher', () => {
       ),
     });
     const {router} = renderSwitcher({
-      path: `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/runs/${CURRENT_RUN_ID}?job=job-1&step=step-1&stepAttempt=attempt-1`,
+      path: `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${CURRENT_RUN_ID}?job=job-1&step=step-1&stepAttempt=attempt-1`,
     });
 
     await user.click(await screen.findByRole('button', {name: 'Switch attempt, currently 2 of 4'}));
@@ -184,14 +183,14 @@ describe('WorkflowRunAttemptSwitcher', () => {
 
     expect(attemptLink).toHaveAttribute(
       'href',
-      `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/runs/${CURRENT_RUN_ID}?runAttempt=1`,
+      `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${CURRENT_RUN_ID}?runAttempt=1`,
     );
 
     await user.click(attemptLink);
 
     await waitFor(() =>
       expect(router.state.location.pathname).toBe(
-        `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/runs/${CURRENT_RUN_ID}`,
+        `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${CURRENT_RUN_ID}`,
       ),
     );
     expect(router.state.location.search).toEqual({runAttempt: 1});
@@ -200,7 +199,7 @@ describe('WorkflowRunAttemptSwitcher', () => {
 
 function renderSwitcher({
   latestAttempt = 4,
-  path = `/workspaces/${PROJECT_TEST_WID}/projects/${PROJECT_ID}/runs/${CURRENT_RUN_ID}`,
+  path = `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${CURRENT_RUN_ID}`,
 }: {
   latestAttempt?: number | undefined;
   path?: string | undefined;
@@ -219,8 +218,8 @@ function renderSwitcher({
   return renderProjectPage(path, () => (
     <div data-testid="attempt-switcher-test-mount">
       <WorkflowRunAttemptSwitcher
-        workspaceId={PROJECT_TEST_WID}
-        projectId={PROJECT_ID}
+        workspaceSlug={PROJECT_TEST_WSLUG}
+        projectSlug="project"
         run={run}
         latestAttempt={latestAttempt}
       />

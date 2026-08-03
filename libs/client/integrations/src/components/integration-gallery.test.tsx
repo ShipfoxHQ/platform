@@ -3,7 +3,12 @@ import '@testing-library/jest-dom/vitest';
 import type {IntegrationConnectionDto} from '@shipfox/api-integration-core-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {fireEvent, screen, waitFor, within} from '@testing-library/react';
-import {INTEGRATIONS_TEST_WID, jsonResponse, renderIntegrationsPage} from '#test/render.js';
+import {
+  INTEGRATIONS_TEST_WID,
+  jsonResponse,
+  renderIntegrationsPage,
+  testWorkspace,
+} from '#test/render.js';
 import {IntegrationGallery} from './integration-gallery.js';
 
 if (!HTMLElement.prototype.hasPointerCapture) {
@@ -28,9 +33,9 @@ if (!HTMLElement.prototype.releasePointerCapture) {
 }
 
 const SETUP_ROUTES = [
-  '/workspaces/$wid/integrations/github',
-  '/workspaces/$wid/integrations/sentry',
-  '/workspaces/$wid/settings/events',
+  '/w/$workspaceSlug/integrations/github',
+  '/w/$workspaceSlug/integrations/sentry',
+  '/w/$workspaceSlug/settings/events',
 ];
 const EXTERNAL_SETTINGS_ACTION_RE = /Open.*settings/u;
 
@@ -183,16 +188,18 @@ function fetchForGallery(options: FetchOptions = {}) {
 function renderGallery(
   props: Parameters<typeof IntegrationGallery>[0] = {},
   options: FetchOptions = {},
+  renderOptions: {workspaces?: Parameters<typeof renderIntegrationsPage>[0]['workspaces']} = {},
 ) {
   configureApiClient({
     baseUrl: 'https://api.example.test',
     fetchImpl: fetchForGallery(options),
   });
   return renderIntegrationsPage({
-    path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations`,
-    routePath: '/workspaces/$wid/integrations',
+    path: '/w/acme/integrations',
+    routePath: '/w/$workspaceSlug/integrations',
     element: <IntegrationGallery workspaceId={INTEGRATIONS_TEST_WID} {...props} />,
     extraRoutes: SETUP_ROUTES,
+    ...(renderOptions.workspaces ? {workspaces: renderOptions.workspaces} : {}),
   });
 }
 
@@ -206,8 +213,16 @@ const SORTED_NAMES_RE = /acme-(early|late)/;
 // The meta line carries the date only: the provider is named once, by the
 // icon and the account name, never repeated as body text in the row.
 const ADDED_META_RE = /^Added /;
+const GITHUB_LINK_RE = /GitHub/u;
 
-describe('IntegrationGallery: installed section', () => {
+describe('IntegrationGallery — installed section', () => {
+  test('waits for an explicit workspace id to hydrate before showing install links', async () => {
+    renderGallery({}, {}, {workspaces: [testWorkspace({id: 'stale-workspace', slug: 'acme'})]});
+
+    expect(await screen.findByText('Loading workspace details…')).toBeVisible();
+    expect(screen.queryByRole('link', {name: GITHUB_LINK_RE})).not.toBeInTheDocument();
+  });
+
   test('renders two distinct cards for two connections sharing one provider', async () => {
     renderGallery(
       {},
@@ -375,8 +390,8 @@ describe('IntegrationGallery: installed section', () => {
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     renderIntegrationsPage({
-      path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations`,
-      routePath: '/workspaces/$wid/integrations',
+      path: '/w/acme/integrations',
+      routePath: '/w/$workspaceSlug/integrations',
       element: <IntegrationGallery />,
       extraRoutes: SETUP_ROUTES,
     });
@@ -410,8 +425,8 @@ describe('IntegrationGallery: installed section', () => {
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     renderIntegrationsPage({
-      path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations`,
-      routePath: '/workspaces/$wid/integrations',
+      path: '/w/acme/integrations',
+      routePath: '/w/$workspaceSlug/integrations',
       element: <IntegrationGallery />,
       extraRoutes: SETUP_ROUTES,
     });
@@ -441,8 +456,8 @@ describe('IntegrationGallery: installed section', () => {
     const fetchImpl = fetchForGallery({connections: [webhookConnection]});
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     renderIntegrationsPage({
-      path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations`,
-      routePath: '/workspaces/$wid/integrations',
+      path: '/w/acme/integrations',
+      routePath: '/w/$workspaceSlug/integrations',
       element: <IntegrationGallery />,
       extraRoutes: SETUP_ROUTES,
     });

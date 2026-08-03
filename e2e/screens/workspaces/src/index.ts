@@ -16,8 +16,8 @@ export class WorkspaceOnboardingScreen {
     await this.page.goto('/');
   }
 
-  async gotoWorkspace(workspaceId: string): Promise<void> {
-    await this.page.goto(`/workspaces/${workspaceId}`);
+  async gotoWorkspace(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}`);
   }
 
   heading(): Locator {
@@ -45,23 +45,23 @@ export class WorkspaceHomeScreen {
     await this.page.goto('/');
   }
 
-  async goto(workspaceId: string): Promise<void> {
-    await this.page.goto(`/workspaces/${workspaceId}`);
+  async goto(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}`);
   }
 
-  async gotoIntegrations(workspaceId: string): Promise<void> {
-    await this.page.goto(`/workspaces/${workspaceId}/integrations`);
+  async gotoIntegrations(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/integrations`);
   }
 
-  async gotoSettings(workspaceId: string): Promise<void> {
-    await this.page.goto(`/workspaces/${workspaceId}/settings`);
+  async gotoSettings(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/settings`);
   }
 
   settingsTab(): Locator {
     return this.page.getByRole('tab', {name: 'Settings'});
   }
 
-  currentWorkspaceId(): string | undefined {
+  currentWorkspaceSlug(): string | undefined {
     return new URL(this.page.url()).pathname.split('/')[2];
   }
 
@@ -95,12 +95,12 @@ export class MembersSettingsScreen {
     this.shell = new SettingsShell(page);
   }
 
-  async goto(workspaceId: string): Promise<void> {
-    await this.shell.goto(workspaceId, 'members');
+  async goto(workspaceSlug: string): Promise<void> {
+    await this.shell.goto(workspaceSlug, 'members');
   }
 
-  async gotoDefault(workspaceId: string): Promise<void> {
-    await this.page.goto(`/workspaces/${workspaceId}/settings`);
+  async gotoDefault(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/settings`);
   }
 
   heading(): Locator {

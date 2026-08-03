@@ -1,3 +1,4 @@
+import {useAuthState} from '@shipfox/client-auth';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useState} from 'react';
@@ -35,6 +36,8 @@ export function IntegrationGalleryForWorkspace({
   emptyProvidersMessage,
   workspaceId,
 }: IntegrationGalleryForWorkspaceProps) {
+  const {workspaces} = useAuthState();
+  const workspaceSlug = workspaces.find((workspace) => workspace.id === workspaceId)?.slug;
   const [createProvider, setCreateProvider] = useState<string | undefined>();
   const [usageConnectionId, setUsageConnectionId] = useState<string | undefined>();
   const [createdUsageConnection, setCreatedUsageConnection] = useState<
@@ -122,6 +125,7 @@ export function IntegrationGalleryForWorkspace({
   return (
     <div className="flex flex-col gap-24">
       <InstalledIntegrationsSection
+        workspaceSlug={workspaceSlug}
         connections={sortedConnections}
         isPending={connectionsQuery.isPending}
         isFetching={connectionsQuery.isFetching}
@@ -149,16 +153,22 @@ export function IntegrationGalleryForWorkspace({
           </Text>
         </div>
 
-        <ProviderGrid
-          providers={providers}
-          isPending={providersQuery.isPending}
-          isFetching={providersQuery.isFetching}
-          error={providersQuery.isError ? providersQuery.error : undefined}
-          onRetry={() => void providersQuery.refetch()}
-          workspaceId={workspaceId}
-          emptyMessage={emptyProvidersMessage}
-          onOpenProvider={setCreateProvider}
-        />
+        {workspaceSlug ? (
+          <ProviderGrid
+            workspaceSlug={workspaceSlug}
+            providers={providers}
+            isPending={providersQuery.isPending}
+            isFetching={providersQuery.isFetching}
+            error={providersQuery.isError ? providersQuery.error : undefined}
+            onRetry={() => void providersQuery.refetch()}
+            emptyMessage={emptyProvidersMessage}
+            onOpenProvider={setCreateProvider}
+          />
+        ) : (
+          <Text size="sm" className="text-foreground-neutral-muted" aria-live="polite">
+            Loading workspace details…
+          </Text>
+        )}
       </section>
       <WebhookCreateModal
         workspaceId={workspaceId}

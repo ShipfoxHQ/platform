@@ -5,8 +5,9 @@ import type {WorkflowRunListProps} from './types.js';
 import {WorkflowRunListView} from './workflow-run-list-view.js';
 
 export function WorkflowRunList({
-  workspaceId,
   projectId,
+  workspaceSlug,
+  projectSlug,
   selectedWorkflowRunId,
   className,
   search = '',
@@ -23,8 +24,8 @@ export function WorkflowRunList({
     <WorkflowRunListView
       runs={runs}
       query={query}
-      workspaceId={workspaceId}
-      projectId={projectId}
+      workspaceSlug={workspaceSlug}
+      projectSlug={projectSlug}
       selectedWorkflowRunId={selectedWorkflowRunId}
       className={className}
       search={search}

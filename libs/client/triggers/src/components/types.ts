@@ -13,7 +13,7 @@ export interface EventsListProps {
   facets: TriggerEventFacets | undefined;
   filters: TriggerEventFilters;
   onFiltersChange: (patch: Partial<TriggerEventFilters>) => void;
-  workspaceId: string;
+  workspaceSlug?: string | undefined;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   onLoadMore: () => void;

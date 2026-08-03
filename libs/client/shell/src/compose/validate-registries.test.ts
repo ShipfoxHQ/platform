@@ -5,7 +5,7 @@ import {validateNavigation, validateSettingsSections} from './validate-registrie
 const duplicateNavigationMessage = /projects.*shipfox\.one.*acme\.two/u;
 const missingNavigationMessage = /insights.*acme\.two.*\/insights/u;
 const duplicateSettingsMessage = /members.*shipfox\.one.*acme\.two/u;
-const missingSettingsMessage = /sso.*acme\.two.*\/workspaces\/\$wid\/settings\/sso/u;
+const missingSettingsMessage = /sso.*acme\.two.*\/w\/\$workspaceSlug\/settings\/sso/u;
 
 describe('registry validation', () => {
   test('accepts child navigation scoped to a feature-owned layout', () => {
@@ -232,7 +232,7 @@ describe('registry validation', () => {
             ],
           },
         ],
-        ['/workspaces/$wid/settings/members'],
+        ['/w/$workspaceSlug/settings/members'],
       ),
     ).toThrow(duplicateSettingsMessage);
   });
@@ -259,7 +259,7 @@ describe('registry validation', () => {
         id: 'shipfox.projects',
         routes: [
           {
-            path: '/workspaces/$wid/settings/members',
+            path: '/w/$workspaceSlug/settings/members',
             parent: 'workspaceSettings' as const,
             impl: 'projects-members',
           },
@@ -274,7 +274,7 @@ describe('registry validation', () => {
     ];
 
     expect(() => validateSettingsSections(features, composeRoutes(features))).toThrow(
-      'Settings section "members" in feature "acme.shell" targets route "/workspaces/$wid/settings/members" owned by feature "shipfox.projects". Declare coordinator: "acme.shell" to own this cross-feature contribution.',
+      'Settings section "members" in feature "acme.shell" targets route "/w/$workspaceSlug/settings/members" owned by feature "shipfox.projects". Declare coordinator: "acme.shell" to own this cross-feature contribution.',
     );
   });
 });

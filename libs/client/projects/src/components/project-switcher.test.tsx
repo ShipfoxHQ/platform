@@ -57,16 +57,18 @@ function renderProjectSwitcher({
   const rootRoute = createRootRoute({component: Outlet});
   const workspaceRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid',
-    component: () => <ProjectSwitcher workspaceId={PROJECT_TEST_WID} onSelect={onSelect} />,
+    path: '/w/$workspaceSlug',
+    component: () => (
+      <ProjectSwitcher workspaceId={PROJECT_TEST_WID} workspaceSlug="acme" onSelect={onSelect} />
+    ),
   });
   const createProjectRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/new',
+    path: '/w/$workspaceSlug/projects/new',
     component: () => <div data-testid="create-project-route">Create project route</div>,
   });
   const router = createRouter({
-    history: createMemoryHistory({initialEntries: [`/workspaces/${PROJECT_TEST_WID}`]}),
+    history: createMemoryHistory({initialEntries: ['/w/acme']}),
     routeTree: rootRoute.addChildren([workspaceRoute, createProjectRoute]),
   });
 

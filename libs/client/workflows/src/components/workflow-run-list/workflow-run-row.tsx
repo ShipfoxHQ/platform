@@ -19,13 +19,13 @@ import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js
 
 export function WorkflowRunRowList({
   runs,
-  workspaceId,
-  projectId,
+  workspaceSlug,
+  projectSlug,
   selectedWorkflowRunId,
 }: {
   runs: WorkflowRunListItem[];
-  workspaceId: string;
-  projectId: string;
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
   selectedWorkflowRunId?: string | undefined;
 }) {
   return (
@@ -35,8 +35,8 @@ export function WorkflowRunRowList({
           <li key={run.id}>
             <WorkflowRunRow
               run={run}
-              workspaceId={workspaceId}
-              projectId={projectId}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
               selected={run.id === selectedWorkflowRunId}
             />
           </li>
@@ -48,13 +48,13 @@ export function WorkflowRunRowList({
 
 export function WorkflowRunRow({
   run,
-  workspaceId,
-  projectId,
+  workspaceSlug,
+  projectSlug,
   selected,
 }: {
   run: WorkflowRunListItem;
-  workspaceId: string;
-  projectId: string;
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
   selected: boolean;
 }) {
   const durationLabel = useWorkflowRunDurationAccessibleLabel(run.runAttempt.displayDuration);
@@ -104,40 +104,38 @@ export function WorkflowRunRow({
       </div>
     </>
   );
+  const rowClassName = cn(
+    'group relative flex w-full flex-col gap-4 rounded-8 border border-transparent px-10 py-8 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
+    selected && 'bg-background-components-hover',
+  );
 
   // Optimistic manual runs (temp-<uuid>) have no detail page until the canonical row
   // replaces them on the next poll, so they render non-interactively instead of as a link
   // that would navigate to a workflow run id the detail route rejects.
   if (run.isTemporary) {
-    return (
-      <div className="relative flex w-full flex-col gap-4 rounded-8 border border-transparent px-10 py-8 text-left">
-        {body}
-      </div>
-    );
+    return <div className={rowClassName}>{body}</div>;
   }
 
-  const runLink = (
-    <Link
-      to="/workspaces/$wid/projects/$pid/runs/$workflowRunId"
-      params={{wid: workspaceId, pid: projectId, workflowRunId: run.id}}
-      search={
-        ((previous: Record<string, unknown>) =>
-          withoutWorkflowRunSelectionSearch(previous)) as never
-      }
-      aria-current={selected ? 'page' : undefined}
-      aria-label={[run.name, runNumberLabel, statusLabel, durationLabel, run.triggerLabel]
-        .filter((part): part is string => Boolean(part))
-        .join(', ')}
-      className={cn(
-        'group relative flex w-full flex-col gap-4 rounded-8 border border-transparent px-10 py-8 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
-        selected && 'bg-background-components-hover',
-      )}
-    >
-      {body}
-    </Link>
-  );
+  const runLink =
+    workspaceSlug && projectSlug ? (
+      <Link
+        to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
+        params={{workspaceSlug, projectSlug, workflowRunId: run.id}}
+        search={
+          ((previous: Record<string, unknown>) =>
+            withoutWorkflowRunSelectionSearch(previous)) as never
+        }
+        aria-current={selected ? 'page' : undefined}
+        aria-label={[run.name, runNumberLabel, statusLabel, durationLabel, run.triggerLabel]
+          .filter((part): part is string => Boolean(part))
+          .join(', ')}
+        className={rowClassName}
+      >
+        {body}
+      </Link>
+    ) : null;
 
-  return runLink;
+  return runLink ?? <div className={rowClassName}>{body}</div>;
 }
 
 function TriggerLabel({run}: {run: WorkflowRunListItem}) {

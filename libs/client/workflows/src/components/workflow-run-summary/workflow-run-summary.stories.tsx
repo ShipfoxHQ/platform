@@ -26,8 +26,6 @@ import {WorkflowRunSummary} from './workflow-run-summary.js';
 const ROOT_RUN_ID = '11111111-1111-4111-8111-111111111111';
 const CURRENT_RUN_ID = '22222222-2222-4222-8222-222222222222';
 const NEXT_RUN_ID = '33333333-3333-4333-8333-333333333333';
-const WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
-const PROJECT_ID = '55555555-5555-4555-8555-555555555555';
 const SWITCH_ATTEMPT_PATTERN = /Switch attempt/;
 const ATTEMPT_3_PATTERN = /Attempt 3/;
 const STORYBOOK_NOW = '2026-06-26T12:00:00.000Z';
@@ -71,12 +69,12 @@ const withAttemptApi: Decorator = (Story) => {
   const rootRoute = createRootRoute({component: Outlet});
   const runRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid/runs/$workflowRunId',
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: () => <Story />,
   });
   const router = createRouter({
     history: createMemoryHistory({
-      initialEntries: [`/workspaces/${WORKSPACE_ID}/projects/${PROJECT_ID}/runs/${CURRENT_RUN_ID}`],
+      initialEntries: [`/w/acme/p/project/runs/${CURRENT_RUN_ID}`],
     }),
     routeTree: rootRoute.addChildren([runRoute]),
   });
@@ -155,8 +153,8 @@ const ATTEMPT_SUMMARY_ARGS = {
     }),
     status: 'failed',
   }),
-  workspaceId: WORKSPACE_ID,
-  projectId: PROJECT_ID,
+  workspaceSlug: 'acme',
+  projectSlug: 'project',
   latestAttempt: 3,
 };
 
@@ -352,8 +350,6 @@ export const ActionVariantsWithAttempts: Story = {
       {ACTION_VARIANTS.map(({label, run, props}, index) => (
         <WorkflowRunSummary
           key={label}
-          workspaceId={WORKSPACE_ID}
-          projectId={PROJECT_ID}
           run={{
             ...run,
             id: `22222222-2222-4222-8222-${String(index + 2).padStart(12, '0')}`,
@@ -369,6 +365,8 @@ export const ActionVariantsWithAttempts: Story = {
               rerunMode: null,
             }),
           }}
+          workspaceSlug="acme"
+          projectSlug="project"
           latestAttempt={3}
           {...props}
         />

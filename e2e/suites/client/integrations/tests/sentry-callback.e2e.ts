@@ -102,9 +102,7 @@ test('Sentry callback installs to a workspace on success', async ({
   // The stub never persisted a connection, so we assert only the success toast
   // and the redirect target. Sentry does not need to appear in the gallery.
   await expect(sentryCallback.message('Sentry installed.')).toBeVisible();
-  await expect(page).toHaveURL(
-    new RegExp(`/workspaces/${workspace.id}/settings/integrations/?$`, 'u'),
-  );
+  await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'));
 });
 
 test('Sentry callback offers Start over on a terminal failure', async ({

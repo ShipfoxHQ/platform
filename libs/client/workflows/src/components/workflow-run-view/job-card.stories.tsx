@@ -18,7 +18,6 @@ import {
 import type {StepExpandedContext} from '../step-list/index.js';
 import {JobCard} from './job-card.js';
 
-const WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
 const SWITCH_EXECUTION_PATTERN = /Switch job execution/;
 const EXECUTION_FIVE_PATTERN = /#5/;
 
@@ -41,7 +40,6 @@ const meta = {
     ),
   ],
   args: {
-    workspaceId: WORKSPACE_ID,
     job: singleExecutionJob(),
     selectedJobExecution: singleExecutionJob().jobExecutions[0],
     selectedAttemptId: null,
@@ -233,7 +231,6 @@ function JobCardStory({
 
   return (
     <JobCard
-      workspaceId={WORKSPACE_ID}
       job={job}
       selectedJobExecution={selectedJobExecution}
       selectedAttemptId={selectedAttemptId}

@@ -11,12 +11,12 @@ import type {IntegrationProvider} from '#core/models.js';
 import {PROVIDER_CATALOG} from '#provider-catalog.js';
 
 export interface ProviderGridProps {
+  workspaceSlug: string;
   providers: IntegrationProvider[];
   isPending: boolean;
   isFetching?: boolean;
   error?: Error | null | undefined;
   onRetry?: () => void;
-  workspaceId: string;
   emptyMessage: string;
   loadingLabel?: string;
   errorSubject?: string;
@@ -29,12 +29,12 @@ export const PROVIDER_SURFACE_CLASS =
   'overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base';
 
 export function ProviderGrid({
+  workspaceSlug,
   providers,
   isPending,
   isFetching = false,
   error,
   onRetry,
-  workspaceId,
   emptyMessage,
   loadingLabel = 'Loading providers',
   errorSubject = 'available integrations',
@@ -79,7 +79,7 @@ export function ProviderGrid({
         <li key={provider.provider}>
           <ProviderCard
             provider={provider}
-            workspaceId={workspaceId}
+            workspaceSlug={workspaceSlug}
             onOpenProvider={onOpenProvider}
           />
         </li>
@@ -90,11 +90,11 @@ export function ProviderGrid({
 
 function ProviderCard({
   provider,
-  workspaceId,
+  workspaceSlug,
   onOpenProvider,
 }: {
   provider: IntegrationProvider;
-  workspaceId: string;
+  workspaceSlug: string;
   onOpenProvider?: ((provider: string) => void) | undefined;
 }) {
   const catalog = PROVIDER_CATALOG[provider.provider];
@@ -116,7 +116,7 @@ function ProviderCard({
   return (
     <Link
       to={catalog.setupPath}
-      params={{wid: workspaceId}}
+      params={{workspaceSlug}}
       aria-label={`Install ${provider.displayName}`}
       className="group flex h-full min-w-0 items-center justify-between gap-12 rounded-8 border border-border-neutral-base bg-background-neutral-base p-16 transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
     >

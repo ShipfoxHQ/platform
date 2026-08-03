@@ -37,15 +37,16 @@ export function workflowRunSearchParams(
 }
 
 export function workflowRouteParams(input: Record<string, unknown>): {
-  wid: string;
-  pid: string;
+  workspaceSlug: string;
+  projectSlug: string;
   workflowRunId?: string;
 } {
-  const wid = string(input.wid);
-  const pid = string(input.pid);
-  if (!wid || !pid) throw new Error('Workflow route is missing required path parameters.');
+  const workspaceSlug = string(input.workspaceSlug);
+  const projectSlug = string(input.projectSlug);
+  if (!workspaceSlug || !projectSlug)
+    throw new Error('Workflow route is missing required path parameters.');
   const workflowRunId = string(input.workflowRunId);
-  return workflowRunId ? {wid, pid, workflowRunId} : {wid, pid};
+  return workflowRunId ? {workspaceSlug, projectSlug, workflowRunId} : {workspaceSlug, projectSlug};
 }
 
 function string(value: unknown): string | undefined {

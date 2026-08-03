@@ -15,12 +15,12 @@ export const secretsFeature = defineClientFeature({
   id: 'shipfox.secrets',
   routes: [
     {
-      path: '/workspaces/$wid/settings/secrets',
+      path: '/w/$workspaceSlug/settings/secrets',
       parent: 'workspaceSettings',
       impl: '@shipfox/client-secrets/routes/secrets-settings',
     },
     {
-      path: '/workspaces/$wid/settings/variables',
+      path: '/w/$workspaceSlug/settings/variables',
       parent: 'workspaceSettings',
       impl: '@shipfox/client-secrets/routes/variables-settings',
     },

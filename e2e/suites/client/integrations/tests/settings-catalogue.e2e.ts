@@ -36,13 +36,13 @@ test('settings catalogue lists available providers with an empty installed state
   integrationsCatalogue,
   createReadyWorkspace,
 }) => {
-  const {workspaceId} = await createReadyWorkspace({
+  const {workspaceSlug} = await createReadyWorkspace({
     name: 'Integrations Settings Workspace',
   });
 
   await stubProviders(page);
 
-  await integrationsCatalogue.goto(workspaceId);
+  await integrationsCatalogue.goto(workspaceSlug);
 
   await expect(integrationsCatalogue.availableHeading()).toBeVisible();
   await expect(integrationsCatalogue.installLink('GitHub')).toBeVisible();
@@ -61,17 +61,17 @@ test('settings catalogue shows an installed provider after Gitea install', async
   providerInstall,
   createReadyWorkspace,
 }) => {
-  const {workspaceId} = await createReadyWorkspace({
+  const {workspaceSlug} = await createReadyWorkspace({
     name: 'Integrations Installed Workspace',
   });
 
   const org = await gitea.createOrg();
 
-  await providerInstall.goto(workspaceId, 'gitea');
+  await providerInstall.goto(workspaceSlug, 'gitea');
   await providerInstall.installOrganization(org.org);
   await providerInstall.expectInstalled('Gitea organization installed.');
 
-  await integrationsCatalogue.goto(workspaceId);
+  await integrationsCatalogue.goto(workspaceSlug);
 
   const installedName = integrationsCatalogue.installedProviderName(`Gitea ${org.org}`);
   await expect(installedName).toBeVisible();

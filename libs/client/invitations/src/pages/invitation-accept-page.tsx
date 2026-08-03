@@ -12,7 +12,7 @@ import {toast} from '@shipfox/react-ui/toast';
 import {Text} from '@shipfox/react-ui/typography';
 import {formatDate} from '@shipfox/react-ui/utils';
 import {Link, useNavigate} from '@tanstack/react-router';
-import {useCallback, useEffect, useRef} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {completeInvitationAcceptance} from '#complete-acceptance.js';
 import {useAcceptInvitation} from '#hooks/api/accept-invitation.js';
 import {usePreviewInvitation} from '#hooks/api/preview-invitation.js';
@@ -30,8 +30,42 @@ export function InvitationAcceptPage() {
   const preview = usePreviewInvitation(token);
   const accept = useAcceptInvitation();
   const hasKickedAccept = useRef(false);
+  const hasRetriedWorkspaceHydration = useRef(false);
+  const [authRefreshFailed, setAuthRefreshFailed] = useState(false);
+  const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string>();
 
   useEffect(() => {
+    if (!pendingWorkspaceId || auth.isLoading || !auth.isAuthenticated) return;
+    if (!auth.workspaces.some(({id}) => id === pendingWorkspaceId)) {
+      if (hasRetriedWorkspaceHydration.current) {
+        setPendingWorkspaceId(undefined);
+        setAuthRefreshFailed(true);
+        return;
+      }
+      hasRetriedWorkspaceHydration.current = true;
+      void refreshAuth().catch(() => {
+        setPendingWorkspaceId(undefined);
+        setAuthRefreshFailed(true);
+      });
+      return;
+    }
+
+    setPendingWorkspaceId(undefined);
+    void navigate({to: '/', replace: true});
+  }, [
+    auth.isAuthenticated,
+    auth.isLoading,
+    auth.workspaces,
+    navigate,
+    pendingWorkspaceId,
+    refreshAuth,
+  ]);
+
+  useEffect(() => {
+    hasKickedAccept.current = false;
+    hasRetriedWorkspaceHydration.current = false;
+    setAuthRefreshFailed(false);
+    setPendingWorkspaceId(undefined);
     if (!token) {
       toast.error('This invitation link is missing a token.');
       const timeout = window.setTimeout(() => {
@@ -44,14 +78,20 @@ export function InvitationAcceptPage() {
 
   const completeAccept = useCallback(
     async (workspaceId: string, workspaceName: string) => {
-      await completeInvitationAcceptance({
+      const userId = auth.user?.id;
+      if (!userId) throw new Error('Cannot complete invitation without an authenticated user.');
+      const refreshed = await completeInvitationAcceptance({
+        userId,
         workspaceId,
         workspaceName,
         refreshAuth,
-        navigate,
+        // Wait for the refreshed workspace list to reach the router context
+        // before resolving the root route.
+        navigate: () => setPendingWorkspaceId(workspaceId),
       });
+      if (!refreshed) setAuthRefreshFailed(true);
     },
-    [navigate, refreshAuth],
+    [auth.user?.id, refreshAuth],
   );
 
   const runAccept = useCallback(
@@ -223,7 +263,33 @@ export function InvitationAcceptPage() {
     );
   }
 
-  // Authenticated + matches: auto-accept is in flight or about to render its
+  if (authRefreshFailed) {
+    return (
+      <AuthShell title={data.workspaceName} description={inviterLine}>
+        <Callout role="alert" type="error">
+          You joined {data.workspaceName}, but we couldn't refresh your session. Retry to continue
+          to the workspace.
+        </Callout>
+        <Button
+          className="w-full"
+          onClick={async () => {
+            try {
+              await refreshAuth();
+              setAuthRefreshFailed(false);
+              hasRetriedWorkspaceHydration.current = false;
+              setPendingWorkspaceId(data.workspaceId);
+            } catch {
+              setAuthRefreshFailed(true);
+            }
+          }}
+        >
+          Retry
+        </Button>
+      </AuthShell>
+    );
+  }
+
+  // Authenticated + matches — auto-accept is in flight or about to render its
   // result. Show either the pending state or the error state.
   if (accept.isError) {
     return (

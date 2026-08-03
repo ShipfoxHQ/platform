@@ -59,7 +59,7 @@ export function RedirectInstallPage({
           <Text size="sm">{errorMessage}</Text>
         </Callout>
         <ButtonLink asChild variant="muted" className="w-fit">
-          <Link to="/workspaces/$wid/integrations" params={{wid: workspace.id}}>
+          <Link to="/w/$workspaceSlug/integrations" params={{workspaceSlug: workspace.slug}}>
             Back to integrations
           </Link>
         </ButtonLink>

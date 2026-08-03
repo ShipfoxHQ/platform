@@ -1,5 +1,10 @@
 import {signupBodySchema} from '@shipfox/api-auth-dto';
-import {AuthShell, useRouteSearch} from '@shipfox/client-shell/runtime';
+import {
+  AuthShell,
+  rememberLastWorkspaceId,
+  useRouteSearch,
+  userWorkspacesQueryKey,
+} from '@shipfox/client-shell/runtime';
 import {displayNameFieldError} from '@shipfox/client-ui';
 import {Button, ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -8,6 +13,7 @@ import {Icon} from '@shipfox/react-ui/icon';
 import {toast} from '@shipfox/react-ui/toast';
 import {Text} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
+import {useQueryClient} from '@tanstack/react-query';
 import {Link, useNavigate} from '@tanstack/react-router';
 import {useAtom} from 'jotai';
 import {useEffect, useRef, useState} from 'react';
@@ -30,6 +36,7 @@ export function SignupPage() {
   const verifyEmail = useVerifyEmailAuth();
   const resendEmailVerification = useResendEmailVerificationAuth();
   const refreshAuth = useRefreshAuth();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const search = useRouteSearch(validateRedirectSearch);
   const invitationToken = extractInvitationToken(search.redirect);
@@ -40,11 +47,35 @@ export function SignupPage() {
   const [nextResendAvailableAt, setNextResendAvailableAt] = useState<string | undefined>();
   const [formError, setFormError] = useState<string | undefined>();
   const [resendError, setResendError] = useState<string | undefined>();
+  const [invitationRefreshFailure, setInvitationRefreshFailure] = useState<{
+    workspaceId: string;
+    workspaceName: string;
+    userId?: string | undefined;
+  }>();
+  const [isRetryingInvitationRefresh, setIsRetryingInvitationRefresh] = useState(false);
   const draftRef = useRef(authFormDraft);
   draftRef.current = authFormDraft;
   // Set just before clearing the draft on success so the unmount cleanup
   // below does not repersist the just-submitted credentials.
   const skipDraftPersistRef = useRef(false);
+
+  async function refreshInvitationWorkspace(workspaceId: string) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await refreshAuth();
+        const workspaces = queryClient.getQueryData<{
+          memberships: Array<{id: string}>;
+        }>(userWorkspacesQueryKey);
+        const memberships = workspaces?.memberships ?? [];
+        if (memberships.some(({id}) => id === workspaceId)) return true;
+      } catch {
+        // A mount-time refresh can race the post-signup refresh. Retry once so
+        // an in-flight request that predates membership creation does not turn
+        // a successful invitation into a manual recovery flow.
+      }
+    }
+    return false;
+  }
 
   const form = useForm({
     defaultValues: {email: authFormDraft.email, password: authFormDraft.password, name: ''},
@@ -67,17 +98,20 @@ export function SignupPage() {
         setAuthFormDraft(initialAuthFormDraft);
 
         if (invitationToken && result.membership && invitationPending) {
-          try {
-            await refreshAuth();
-          } catch {
-            // Refresh failures don't block the success message: the next API
-            // call's 401 handling will re-route the user.
+          const joinedWorkspace = await refreshInvitationWorkspace(result.membership.workspaceId);
+          if (!joinedWorkspace) {
+            setInvitationRefreshFailure({
+              workspaceId: result.membership.workspaceId,
+              workspaceName: invitationPending.workspaceName,
+              userId: result.user?.id,
+            });
+            return;
           }
           toast.success(`You joined ${invitationPending.workspaceName}.`);
-          await navigate({
-            to: '/workspaces/$wid',
-            params: {wid: result.membership.workspaceId},
-          });
+          if (result.user?.id) {
+            rememberLastWorkspaceId(result.user.id, result.membership.workspaceId);
+          }
+          await navigate({to: '/'});
           return;
         }
 
@@ -109,6 +143,23 @@ export function SignupPage() {
       }
     },
   });
+
+  async function retryInvitationAuthRefresh() {
+    if (!invitationRefreshFailure || isRetryingInvitationRefresh) return;
+    setIsRetryingInvitationRefresh(true);
+    const joinedWorkspace = await refreshInvitationWorkspace(invitationRefreshFailure.workspaceId);
+    setIsRetryingInvitationRefresh(false);
+    if (!joinedWorkspace) return;
+    if (invitationRefreshFailure.userId) {
+      rememberLastWorkspaceId(
+        invitationRefreshFailure.userId,
+        invitationRefreshFailure.workspaceId,
+      );
+    }
+    toast.success(`You joined ${invitationRefreshFailure.workspaceName}.`);
+    setInvitationRefreshFailure(undefined);
+    await navigate({to: '/'});
+  }
 
   // When arriving from an invitation link, prefill the email and lock it.
   useEffect(() => {
@@ -146,6 +197,34 @@ export function SignupPage() {
     } catch (error) {
       setResendError(authErrorMessage(error));
     }
+  }
+
+  if (invitationRefreshFailure) {
+    return (
+      <AuthShell
+        title={`Join ${invitationRefreshFailure.workspaceName}`}
+        description="Your account was created, but we could not finish signing you in."
+      >
+        <Callout role="alert" type="error">
+          <div className="flex flex-col gap-8">
+            <Text size="sm">
+              Try again to finish joining your workspace. You can safely retry this step.
+            </Text>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-fit"
+              isLoading={isRetryingInvitationRefresh}
+              onClick={() => {
+                void retryInvitationAuthRefresh();
+              }}
+            >
+              Retry sign-in
+            </Button>
+          </div>
+        </Callout>
+      </AuthShell>
+    );
   }
 
   if (emailChallenge) {

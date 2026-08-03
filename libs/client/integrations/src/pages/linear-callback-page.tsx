@@ -1,8 +1,9 @@
-import {useRefreshAuth} from '@shipfox/client-auth';
+import {useAuthState, useRefreshAuth} from '@shipfox/client-auth';
 import {useRouteSearch} from '@shipfox/client-shell/runtime';
 import {createSingleFlight, sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {toast} from '@shipfox/react-ui/toast';
+import {useQueryClient} from '@tanstack/react-query';
 import {useNavigate} from '@tanstack/react-router';
 import {useEffect, useMemo, useState} from 'react';
 import {useCompleteIntegrationCallback} from '#application/complete-integration-callback.js';
@@ -17,26 +18,33 @@ import {
   readLinearInstallWorkspace,
   serializeLinearCallbackQuery,
 } from '#linear-callback.js';
+import {rememberCallbackKey, resolveWorkspaceSlug} from '#workspace-navigation.js';
 
 // Retain only recent completions: this bounds long-lived callback pages while
 // still covering StrictMode and immediate Back/Forward remounts.
 const callbackRequests = createSingleFlight<string, IntegrationConnection>({
   maxTerminalResults: 32,
 });
+const completedCallbacks = new Set<string>();
 // Keeps the success toast firing once per distinct callback even though the
 // effect re-runs against the cached request as the mutation identity churns.
 const toastedCallbacks = new Set<string>();
 
 export function LinearCallbackPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const refreshAuth = useRefreshAuth();
   const completeIntegrationCallback = useCompleteIntegrationCallback();
   const {mutateAsync: completeLinearCallback} = useCompleteLinearCallbackMutation();
+  const {workspaces, isLoading} = useAuthState();
   const params = useRouteSearch(parseLinearCallbackQuery);
   const workspaceId = useMemo(() => readLinearInstallWorkspace(sessionStorageOrUndefined()), []);
   const [failure, setFailure] = useState<LinearCallbackFailure | undefined>();
+  const [completedWorkspace, setCompletedWorkspace] = useState<{
+    slug?: string | undefined;
+  }>();
   useEffect(() => {
-    if (!params) return;
+    if (!params || isLoading) return;
 
     let disposed = false;
     const key = serializeLinearCallbackQuery(params);
@@ -53,6 +61,16 @@ export function LinearCallbackPage() {
     request.then(
       async (connection) => {
         if (disposed) return;
+        if (completedCallbacks.has(key)) {
+          const workspaceSlug = await resolveWorkspaceSlug({
+            workspaceId: connection.workspaceId,
+            fallbackWorkspaces: workspaces,
+            queryClient,
+          });
+          if (!disposed) setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
+          return;
+        }
+        rememberCallbackKey(completedCallbacks, key);
         try {
           clearLinearInstallWorkspace(sessionStorageOrUndefined());
         } catch {
@@ -60,17 +78,31 @@ export function LinearCallbackPage() {
         }
         if (disposed) return;
         if (!toastedCallbacks.has(key)) {
-          toastedCallbacks.add(key);
+          rememberCallbackKey(toastedCallbacks, key);
           toast.success('Linear installed.');
         }
+        let workspaceSlug: string | undefined;
         try {
+          if (disposed) return;
+          workspaceSlug = await resolveWorkspaceSlug({
+            workspaceId: connection.workspaceId,
+            fallbackWorkspaces: workspaces,
+            queryClient,
+          });
+          if (disposed) return;
+          if (!workspaceSlug) {
+            setCompletedWorkspace({});
+            return;
+          }
+          setCompletedWorkspace({slug: workspaceSlug});
           await navigate({
-            to: '/workspaces/$wid/settings/integrations',
-            params: {wid: connection.workspaceId},
+            to: '/w/$workspaceSlug/settings/integrations',
+            params: {workspaceSlug},
             replace: true,
           });
         } catch {
           // Keep the completed callback page visible if client navigation is interrupted.
+          if (!disposed) setCompletedWorkspace({slug: workspaceSlug});
         }
       },
       (error: unknown) => {
@@ -82,7 +114,16 @@ export function LinearCallbackPage() {
     return () => {
       disposed = true;
     };
-  }, [completeIntegrationCallback, completeLinearCallback, navigate, params, refreshAuth]);
+  }, [
+    completeIntegrationCallback,
+    completeLinearCallback,
+    isLoading,
+    navigate,
+    params,
+    queryClient,
+    refreshAuth,
+    workspaces,
+  ]);
 
   if (!params) {
     return (
@@ -93,22 +134,42 @@ export function LinearCallbackPage() {
           startOver: true,
           signIn: false,
         }}
-        workspaceId={workspaceId}
+        workspaceSlug={workspaces.find(({id}) => id === workspaceId)?.slug}
       />
     );
   }
 
+  if (completedWorkspace)
+    return (
+      <CallbackStatusShell
+        title="Linear connected"
+        status="success"
+        message={
+          completedWorkspace.slug
+            ? 'Linear is connected. Continue in integrations settings.'
+            : 'Linear is connected. Return to Shipfox to continue.'
+        }
+        workspaceSlug={completedWorkspace.slug}
+        installPath="/w/$workspaceSlug/integrations/linear"
+      />
+    );
+
   if (!failure) return <FullPageLoader aria-label="Connecting Linear" />;
 
-  return <LinearCallbackFailurePage failure={failure} workspaceId={workspaceId} />;
+  return (
+    <LinearCallbackFailurePage
+      failure={failure}
+      workspaceSlug={workspaces.find(({id}) => id === workspaceId)?.slug}
+    />
+  );
 }
 
 function LinearCallbackFailurePage({
   failure,
-  workspaceId,
+  workspaceSlug,
 }: {
   failure: LinearCallbackFailure;
-  workspaceId: string | undefined;
+  workspaceSlug: string | undefined;
 }) {
   return (
     <CallbackStatusShell
@@ -116,8 +177,8 @@ function LinearCallbackFailurePage({
       message={failure.message}
       startOver={failure.startOver}
       switchAccount={failure.signIn}
-      workspaceId={workspaceId}
-      installPath="/workspaces/$wid/integrations/linear"
+      workspaceSlug={workspaceSlug}
+      installPath="/w/$workspaceSlug/integrations/linear"
     />
   );
 }

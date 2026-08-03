@@ -13,14 +13,14 @@ describe('composition registries', () => {
             id: 'first-a',
             scope: 'workspace',
             label: 'First A',
-            to: '/workspaces/$wid/first-a/',
+            to: '/w/$workspaceSlug/first-a/',
             order: 100,
           },
           {
             id: 'first-b',
             scope: 'workspace',
             label: 'First B',
-            to: '/workspaces/$wid/first-b',
+            to: '/w/$workspaceSlug/first-b',
             order: 100,
           },
         ],
@@ -28,10 +28,10 @@ describe('composition registries', () => {
           {id: 'first', pathSegment: 'first', label: 'First setting', icon: 'userLine', order: 100},
         ],
         routes: [
-          {path: '/workspaces/$wid/first-a', parent: 'workspaceLayout', impl: 'first-a'},
-          {path: '/workspaces/$wid/first-b', parent: 'workspaceLayout', impl: 'first-b'},
+          {path: '/w/$workspaceSlug/first-a', parent: 'workspaceLayout', impl: 'first-a'},
+          {path: '/w/$workspaceSlug/first-b', parent: 'workspaceLayout', impl: 'first-b'},
           {
-            path: '/workspaces/$wid/settings/first',
+            path: '/w/$workspaceSlug/settings/first',
             parent: 'workspaceSettings',
             impl: 'first-setting',
           },
@@ -44,7 +44,7 @@ describe('composition registries', () => {
             id: 'second',
             scope: 'workspace',
             label: 'Second',
-            to: '/workspaces/$wid/second',
+            to: '/w/$workspaceSlug/second',
             order: 100,
           },
         ],
@@ -58,9 +58,9 @@ describe('composition registries', () => {
           },
         ],
         routes: [
-          {path: '/workspaces/$wid/second', parent: 'workspaceLayout', impl: 'second'},
+          {path: '/w/$workspaceSlug/second', parent: 'workspaceLayout', impl: 'second'},
           {
-            path: '/workspaces/$wid/settings/second',
+            path: '/w/$workspaceSlug/settings/second',
             parent: 'workspaceSettings',
             impl: 'second-setting',
           },
@@ -70,7 +70,7 @@ describe('composition registries', () => {
 
     await renderComposedShell({
       features,
-      initialPath: '/workspaces/workspace/settings/first',
+      initialPath: '/w/workspace/settings/first',
       resolveImpl: () => defineRoute({component: () => <h1>Settings page</h1>}),
     });
 
@@ -80,10 +80,7 @@ describe('composition registries', () => {
       'First B',
       'Second',
     ]);
-    expect((await screen.findAllByRole('tab'))[0]).toHaveAttribute(
-      'href',
-      '/workspaces/workspace/first-a',
-    );
+    expect((await screen.findAllByRole('tab'))[0]).toHaveAttribute('href', '/w/workspace/first-a');
     const settingsNavigation = screen.getByRole('navigation', {name: 'Workspace settings'});
     expect(settingsNavigation.parentElement).toHaveClass('grid', 'grid-cols-[180px_minmax(0,1fr)]');
     const settingsLinks = within(settingsNavigation).getAllByRole('link');

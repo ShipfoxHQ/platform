@@ -7,9 +7,9 @@ import {SettingsNav} from '#components/settings-nav.js';
 import type {NavTabEntry, SettingsSectionEntry} from '#contract.js';
 import {useActiveWorkspace, useMaybeActiveWorkspace} from './active-workspace.js';
 import {anchorPaths} from './anchor-paths.js';
-import {useChrome} from './chrome-context.js';
 import {rememberLastWorkspaceId} from './last-workspace.js';
 import type {RouterContext} from './router-context.js';
+import type {WorkspaceSetupState} from './workspace-setup.js';
 import {
   WorkspaceLayoutErrorRoute,
   WorkspaceSetupPending,
@@ -37,10 +37,12 @@ export function buildAnchorSkeleton({
       if (!auth || auth.isLoading || !context.queryClient) return;
       if (!auth.isAuthenticated)
         throw redirect({to: '/auth/login' as never, search: {redirect: location.href} as never});
-      if (!auth.workspaces.some((workspace) => workspace.id === params.wid))
-        throw redirect({to: '/'});
+      const workspace = auth.workspaces.find(
+        (candidate) => candidate.slug === params.workspaceSlug,
+      );
+      if (!workspace) throw redirect({to: '/'});
       try {
-        if (auth.user?.id) rememberLastWorkspaceId(auth.user.id, params.wid);
+        if (auth.user?.id) rememberLastWorkspaceId(auth.user.id, workspace.id);
       } catch {
         // Local storage is best effort.
       }
@@ -48,7 +50,8 @@ export function buildAnchorSkeleton({
         throw new Error('Client composition includes workspace routes but no workspaceSetup gate.');
       return await context.workspaceSetup({
         queryClient: context.queryClient,
-        workspaceId: params.wid,
+        workspaceId: workspace.id,
+        workspaceSlug: params.workspaceSlug,
         pathname: location.pathname,
       });
     },
@@ -78,11 +81,31 @@ export function buildAnchorSkeleton({
   });
   const projectLayout = createRoute({
     getParentRoute: () => workspaceLayout,
-    path: '/projects/$pid',
-    component: () => {
-      const {ProjectLayoutGuard} = useChrome();
-      return <ProjectLayoutGuard />;
+    path: '/p/$projectSlug',
+    beforeLoad: async ({context, params}) => {
+      const auth = context.auth;
+      if (!auth || auth.isLoading || !context.queryClient) return;
+      if ((context as RouterContext & Partial<WorkspaceSetupState>).unavailable) return;
+      const workspace = auth.workspaces.find(
+        (candidate) => candidate.slug === params.workspaceSlug,
+      );
+      if (!workspace) throw redirect({to: '/'});
+      if (!context.projectSlugResolver) {
+        throw new Error('Client composition includes project routes but no project slug resolver.');
+      }
+      const projectId = await context.projectSlugResolver({
+        queryClient: context.queryClient,
+        workspaceId: workspace.id,
+        projectSlug: params.projectSlug,
+      });
+      if (!projectId) {
+        throw redirect({
+          to: '/w/$workspaceSlug',
+          params: {workspaceSlug: params.workspaceSlug},
+        });
+      }
     },
+    component: Outlet,
   });
   const workspaceSettings = createRoute({
     getParentRoute: () => workspaceLayout,

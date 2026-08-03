@@ -11,8 +11,8 @@ function renderInstallPage(
   options?: {strict?: boolean},
 ) {
   return renderIntegrationsPage({
-    path: `/workspaces/${INTEGRATIONS_TEST_WID}/integrations/github`,
-    routePath: '/workspaces/$wid/integrations/github',
+    path: '/w/acme/integrations/github',
+    routePath: '/w/$workspaceSlug/integrations/github',
     element: options?.strict ? (
       <StrictMode>
         <RedirectInstallPage {...props} />
@@ -20,7 +20,7 @@ function renderInstallPage(
     ) : (
       <RedirectInstallPage {...props} />
     ),
-    extraRoutes: ['/workspaces/$wid/integrations'],
+    extraRoutes: ['/w/$workspaceSlug/integrations'],
   });
 }
 

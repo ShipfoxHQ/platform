@@ -3,11 +3,11 @@ import {parseWorkspaceParams, useRouteParams} from './route-inputs.js';
 
 export function useActiveWorkspace(): Workspace {
   const workspace = useMaybeActiveWorkspace();
-  if (!workspace) throw new Error('useActiveWorkspace called outside a /workspaces/$wid route');
+  if (!workspace) throw new Error('useActiveWorkspace called outside a /w/$workspaceSlug route');
   return workspace;
 }
 
 export function useMaybeActiveWorkspace(): Workspace | undefined {
-  const {wid} = useRouteParams(parseWorkspaceParams);
-  return useAuthState().workspaces.find((workspace) => workspace.id === wid);
+  const {workspaceSlug} = useRouteParams(parseWorkspaceParams);
+  return useAuthState().workspaces.find((workspace) => workspace.slug === workspaceSlug);
 }

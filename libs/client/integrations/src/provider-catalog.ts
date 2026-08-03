@@ -4,11 +4,11 @@ import type {IconName} from '@shipfox/react-ui/icon';
 // Literal union (not string) so `<Link to={catalog.setupPath}>` stays typed
 // against TanStack Router's route tree.
 export type ProviderSetupPath =
-  | '/workspaces/$wid/integrations/github'
-  | '/workspaces/$wid/integrations/gitea'
-  | '/workspaces/$wid/integrations/sentry'
-  | '/workspaces/$wid/integrations/linear'
-  | '/workspaces/$wid/integrations/slack';
+  | '/w/$workspaceSlug/integrations/github'
+  | '/w/$workspaceSlug/integrations/gitea'
+  | '/w/$workspaceSlug/integrations/sentry'
+  | '/w/$workspaceSlug/integrations/linear'
+  | '/w/$workspaceSlug/integrations/slack';
 
 interface RouteProviderCatalogEntry {
   kind: 'redirect-install' | 'direct-connect';
@@ -27,27 +27,27 @@ export const PROVIDER_CATALOG: Record<string, ProviderCatalogEntry> = {
   github: {
     kind: 'redirect-install',
     iconName: PROVIDER_ICONS.github,
-    setupPath: '/workspaces/$wid/integrations/github',
+    setupPath: '/w/$workspaceSlug/integrations/github',
   },
   sentry: {
     kind: 'redirect-install',
     iconName: PROVIDER_ICONS.sentry,
-    setupPath: '/workspaces/$wid/integrations/sentry',
+    setupPath: '/w/$workspaceSlug/integrations/sentry',
   },
   linear: {
     kind: 'redirect-install',
     iconName: PROVIDER_ICONS.linear,
-    setupPath: '/workspaces/$wid/integrations/linear',
+    setupPath: '/w/$workspaceSlug/integrations/linear',
   },
   slack: {
     kind: 'redirect-install',
     iconName: PROVIDER_ICONS.slack,
-    setupPath: '/workspaces/$wid/integrations/slack',
+    setupPath: '/w/$workspaceSlug/integrations/slack',
   },
   gitea: {
     kind: 'direct-connect',
     iconName: PROVIDER_ICONS.gitea,
-    setupPath: '/workspaces/$wid/integrations/gitea',
+    setupPath: '/w/$workspaceSlug/integrations/gitea',
   },
   webhook: {
     kind: 'modal-connect',

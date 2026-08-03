@@ -4,7 +4,6 @@ import {workflowJob, workflowJobExecutionDto} from '#test/fixtures/workflow-run.
 import {JobCard} from './job-card.js';
 import {JobExecutionSwitcher} from './job-execution-switcher.js';
 
-const WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
 const FIRST_EXECUTION_ACCESSIBLE_NAME =
   /Execution #1: Review PR #476, Failed, validation failed, duration 1m 55s/;
 const SECOND_EXECUTION_MENU_ITEM = /Execution #2: Review PR #479/;
@@ -26,7 +25,6 @@ describe('JobCard execution names', () => {
 
     render(
       <JobCard
-        workspaceId={WORKSPACE_ID}
         job={job}
         selectedJobExecution={execution}
         selectedAttemptId={null}
@@ -49,7 +47,6 @@ describe('JobCard execution names', () => {
 
     render(
       <JobCard
-        workspaceId={WORKSPACE_ID}
         job={job}
         selectedJobExecution={undefined}
         selectedAttemptId={null}

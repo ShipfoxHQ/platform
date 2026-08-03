@@ -4,8 +4,9 @@ import type {WorkflowRunListItem} from '#core/workflow-run.js';
 export type WorkflowRunListStatusFilter = 'all' | 'failed' | 'running';
 
 export interface WorkflowRunListProps {
-  workspaceId: string;
   projectId: string;
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
   selectedWorkflowRunId?: string | undefined;
   className?: string | undefined;
   search?: string;
@@ -18,8 +19,8 @@ export type WorkflowRunListQuery = QueryLoadErrorQuery & {isPending: boolean};
 export interface WorkflowRunListViewProps {
   runs: WorkflowRunListItem[];
   query: WorkflowRunListQuery;
-  workspaceId: string;
-  projectId: string;
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
   selectedWorkflowRunId?: string | undefined;
   className?: string | undefined;
   search?: string;

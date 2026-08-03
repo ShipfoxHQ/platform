@@ -12,7 +12,6 @@ import {within} from 'storybook/test';
 import type {AgentStepConfig, StepError} from '#core/workflow-run.js';
 import {AgentConfigFailureCallout} from './agent-config-failure-callout.js';
 
-const WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
 const AGENTS_LINK_NAME = 'Configure Agents';
 
 const config: AgentStepConfig = {
@@ -42,7 +41,7 @@ const meta = {
       });
       const agentSettingsRoute = createRoute({
         getParentRoute: () => rootRoute,
-        path: '/workspaces/$wid/settings/agents',
+        path: '/w/$workspaceSlug/settings/agents',
         component: () => null,
       });
       const router = createRouter({
@@ -54,7 +53,7 @@ const meta = {
     },
   ],
   args: {
-    workspaceId: WORKSPACE_ID,
+    workspaceSlug: 'acme',
     config,
     error: makeError('provider_not_configured'),
   },

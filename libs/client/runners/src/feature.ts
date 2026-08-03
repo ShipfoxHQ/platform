@@ -21,12 +21,12 @@ export const runnersFeature = defineClientFeature({
   id: 'shipfox.runners',
   routes: [
     {
-      path: '/workspaces/$wid/settings/runners',
+      path: '/w/$workspaceSlug/settings/runners',
       parent: 'workspaceSettings',
       impl: '@shipfox/client-runners/routes/runners-settings',
     },
     {
-      path: '/workspaces/$wid/settings/provisioners',
+      path: '/w/$workspaceSlug/settings/provisioners',
       parent: 'workspaceSettings',
       impl: '@shipfox/client-runners/routes/provisioners-settings',
     },

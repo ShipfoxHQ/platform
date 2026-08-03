@@ -18,9 +18,9 @@ import {CreateProjectPage} from '#pages/create-project-page.js';
 import {ProjectsHubPage} from '#pages/projects-hub-page.js';
 
 // All test renders that exercise pages requiring `useActiveWorkspace()` mount
-// under `/workspaces/$wid`. The seeded workspace id (see authState) is the wid
-// used in routes.
+// under `/w/$workspaceSlug`. APIs still use the UUID below.
 export const PROJECT_TEST_WID = '11111111-1111-4111-8111-111111111111';
+export const PROJECT_TEST_WSLUG = 'acme';
 
 const authState: AuthState = {
   status: 'authenticated',
@@ -30,7 +30,7 @@ const authState: AuthState = {
     email: 'user@example.com',
     emailVerifiedAt: new Date().toISOString(),
   },
-  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: 'acme', membershipId: 'm-1'}],
+  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: PROJECT_TEST_WSLUG, membershipId: 'm-1'}],
 };
 
 export function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -51,36 +51,31 @@ function createTestRouter(path: string, element: ReactElement) {
   });
   const workspaceRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid',
-    component: () =>
-      initialPath === `/workspaces/${PROJECT_TEST_WID}` ? element : <ProjectsHubPage />,
+    path: '/w/$workspaceSlug',
+    component: () => (initialPath === `/w/${PROJECT_TEST_WSLUG}` ? element : <ProjectsHubPage />),
   });
   const workspaceNewProjectRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/new',
+    path: '/w/$workspaceSlug/projects/new',
     component: () =>
-      initialPath === `/workspaces/${PROJECT_TEST_WID}/projects/new` ? (
-        element
-      ) : (
-        <CreateProjectPage />
-      ),
+      initialPath === `/w/${PROJECT_TEST_WSLUG}/projects/new` ? element : <CreateProjectPage />,
   });
   const integrationsRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/integrations',
+    path: '/w/$workspaceSlug/integrations',
     component: () => <div>Integrations gallery placeholder</div>,
   });
   const modelProviderSettingsRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/settings/agents',
+    path: '/w/$workspaceSlug/settings/agents',
     component: () => <div>Agent settings placeholder</div>,
   });
   const projectDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid',
+    path: '/w/$workspaceSlug/p/$projectSlug',
     component: () => {
-      const params = useParams({strict: false}) as {pid?: string};
-      if (initialPath === `/workspaces/${PROJECT_TEST_WID}/projects/${params.pid}`) {
+      const params = useParams({strict: false}) as {projectSlug?: string};
+      if (initialPath === `/w/${PROJECT_TEST_WSLUG}/p/${params.projectSlug}`) {
         return element;
       }
 
@@ -92,10 +87,10 @@ function createTestRouter(path: string, element: ReactElement) {
   });
   const projectWorkflowsRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid/workflows',
+    path: '/w/$workspaceSlug/p/$projectSlug/workflows',
     component: () => {
-      const params = useParams({strict: false}) as {pid?: string};
-      if (initialPath === `/workspaces/${PROJECT_TEST_WID}/projects/${params.pid}/workflows`) {
+      const params = useParams({strict: false}) as {projectSlug?: string};
+      if (initialPath === `/w/${PROJECT_TEST_WSLUG}/p/${params.projectSlug}/workflows`) {
         return element;
       }
 

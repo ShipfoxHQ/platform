@@ -20,14 +20,14 @@ const skeleton = buildAnchorSkeleton({
       "id": "projects",
       "scope": "workspace",
       "label": "Projects",
-      "to": "/workspaces/$wid/projects/$pid/overview",
+      "to": "/w/$workspaceSlug/p/$projectSlug/overview",
       "order": 100
     },
     {
       "id": "insights",
       "scope": "workspace",
       "label": "Insights",
-      "to": "/workspaces/$wid/insights",
+      "to": "/w/$workspaceSlug/insights",
       "order": 200
     }
   ],
@@ -45,19 +45,19 @@ const skeleton = buildAnchorSkeleton({
 const route0 = createRoute({
   getParentRoute: () => skeleton.projectLayout,
   path: "/overview",
-  ...routeOptions(route0Module.default, "#test/search-route-impl.js", "/workspaces/$wid/projects/$pid/overview"),
+  ...routeOptions(route0Module.default, "#test/search-route-impl.js", "/w/$workspaceSlug/p/$projectSlug/overview"),
 });
 
 const route1 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
   path: "/members",
-  ...routeOptions(route1Module.default, "#test/default-route-impl.js", "/workspaces/$wid/settings/members"),
+  ...routeOptions(route1Module.default, "#test/default-route-impl.js", "/w/$workspaceSlug/settings/members"),
 });
 
 const route2 = createRoute({
   getParentRoute: () => skeleton.workspaceLayout,
   path: "/insights",
-  ...routeOptions(route2Module.default, "#test/named-route-impl.js", "/workspaces/$wid/insights"),
+  ...routeOptions(route2Module.default, "#test/named-route-impl.js", "/w/$workspaceSlug/insights"),
 });
 
 const projectLayout = skeleton.projectLayout.addChildren([route0]);

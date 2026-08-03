@@ -19,18 +19,19 @@ import {validateWorkflowRunsSearch} from '#routes/inputs.js';
 
 // The workflow run page navigates with the router (run rows are links and the page redirects
 // to the first run), so the harness mounts the page under a memory router whose route tree
-// carries the `/workspaces/$wid/projects/$pid/runs/$workflowRunId` params the components read. The
+// carries the `/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId` params the components read. The
 // page is supplied as a factory the detail route calls with the current `workflowRunId`, mirroring
 // the real route wiring so a redirect re-renders the page with the run it landed on.
 export const PROJECT_TEST_WID = '11111111-1111-4111-8111-111111111111';
+export const PROJECT_TEST_WSLUG = 'acme';
 
 // Pages that render components depending on `useActiveWorkspace()` (e.g. the project source
-// strip) need an authenticated workspace matching `$wid` in the atom `client-shell/runtime`
+// strip) need an authenticated workspace matching `$workspaceSlug` in the atom `client-shell/runtime`
 // reads. A fixed membership id is fine here: nothing in these tests asserts on it.
 const authState: AuthState = {
   status: 'authenticated',
   token: 'token',
-  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: 'acme', membershipId: 'm-1'}],
+  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: PROJECT_TEST_WSLUG, membershipId: 'm-1'}],
 };
 
 export function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -51,7 +52,7 @@ function createTestRouter(
   const rootRoute = createRootRoute({component: Outlet});
   const runsRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid/runs',
+    path: '/w/$workspaceSlug/p/$projectSlug/runs',
     component: function RunsRoute() {
       return renderPage({
         search: validateWorkflowRunsSearch(useSearch({strict: false}) as Record<string, unknown>),
@@ -60,7 +61,7 @@ function createTestRouter(
   });
   const runDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid/runs/$workflowRunId',
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: function RunDetailRoute() {
       const {workflowRunId} = useParams({strict: false}) as {workflowRunId?: string};
       return renderPage({
@@ -71,12 +72,12 @@ function createTestRouter(
   });
   const workflowsRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/projects/$pid/workflows',
+    path: '/w/$workspaceSlug/p/$projectSlug/workflows',
     component: () => renderPage({search: {}}),
   });
   const modelProviderSettingsRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/workspaces/$wid/settings/agents',
+    path: '/w/$workspaceSlug/settings/agents',
     component: () => <div>Agent settings placeholder</div>,
   });
 

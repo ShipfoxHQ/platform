@@ -90,12 +90,12 @@ const meta = {
   parameters: {layout: 'padded'},
   decorators: [withWidth],
   args: {
+    workspaceSlug: 'acme',
     events: SAMPLE_EVENTS,
     query: makeQuery(),
     facets: SAMPLE_FACETS,
     filters: {},
     onFiltersChange: () => undefined,
-    workspaceId: 'ws-demo',
     hasNextPage: false,
     isFetchingNextPage: false,
     onLoadMore: () => undefined,

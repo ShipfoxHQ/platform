@@ -14,12 +14,12 @@ export const agentFeature = defineClientFeature({
   id: 'shipfox.agent',
   routes: [
     {
-      path: '/workspaces/$wid/model-provider',
+      path: '/w/$workspaceSlug/model-provider',
       parent: 'workspaceLayout',
       impl: '@shipfox/client-agent/routes/model-provider',
     },
     {
-      path: '/workspaces/$wid/settings/agents',
+      path: '/w/$workspaceSlug/settings/agents',
       parent: 'workspaceSettings',
       impl: '@shipfox/client-agent/routes/agents-settings',
     },

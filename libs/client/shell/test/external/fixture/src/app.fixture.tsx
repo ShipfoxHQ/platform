@@ -70,7 +70,7 @@ test('renders the external route, provider order, navigation, settings, and conf
   window.__SHIPFOX_CONFIG__ = {EXTERNAL_GREETING: 'Hello from the external fixture'};
   router.update({
     history: createMemoryHistory({
-      initialEntries: ['/workspaces/workspace/settings/external'],
+      initialEntries: ['/w/external-workspace/settings/external'],
     }),
     context: {auth, queryClient: new QueryClient(), workspaceSetup},
   });

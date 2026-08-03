@@ -4,6 +4,7 @@ import type {WorkspaceFixtures} from './workspace.js';
 export interface ReadyWorkspace {
   userId: string;
   workspaceId: string;
+  workspaceSlug: string;
   projectId: string;
   sessionToken: string;
 }
@@ -37,6 +38,7 @@ async function createReadyWorkspace(params: {
   return {
     userId: user.user.id,
     workspaceId: workspace.id,
+    workspaceSlug: workspace.slug,
     projectId: project.id,
     sessionToken: session.token,
   };

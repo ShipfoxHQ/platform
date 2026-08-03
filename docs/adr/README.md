@@ -18,6 +18,7 @@ documentation model and other engineering sources, start with the
 | [0006: Database ownership boundaries](0006-database-ownership-boundaries.md) | Accepted; amends ADR 0002 | Owner-only database access and stable database namespaces. |
 | [0007: Cross-repository architecture validation](0007-cross-repository-architecture-validation.md) | Accepted | Validation layers, shared policy distribution, and downstream package metadata. |
 | [0008: Administration controls](0008-administration-controls.md) | Accepted | Fixed instance-administrator roles, module-owned administration behavior, and suspension semantics. |
+| [0009: Client URL prefix invariants](0009-client-url-prefix-invariants.md) | Accepted; supersedes ADR 0001 for route paths | Slug-based client URL prefixes and composition-time route-path validation. |
 
 When a decision changes, add a new ADR that supersedes or amends the earlier
 record. Keep the original record intact so readers can understand why the

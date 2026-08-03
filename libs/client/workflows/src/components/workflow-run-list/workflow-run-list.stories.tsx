@@ -52,8 +52,8 @@ const meta = {
   args: {
     runs: SAMPLE_RUNS,
     query: makeQuery(),
-    workspaceId: 'ws-demo',
-    projectId: 'proj-demo',
+    workspaceSlug: 'acme',
+    projectSlug: 'checkout-api',
   },
 } satisfies Meta<typeof WorkflowRunListView>;
 

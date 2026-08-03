@@ -7,6 +7,8 @@ import {
   WORKSPACE_INTEGRATIONS_URL_RE,
 } from './workspace-urls.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
 test.describe('workspace onboarding', () => {
   test('redirects a no-workspace user from / to onboarding', async ({
     auth,
@@ -44,6 +46,7 @@ test.describe('workspace onboarding', () => {
     setupShell,
     workspaceHome,
     workspaceOnboarding,
+    workspaceSwitcher,
   }) => {
     const user = await auth.createUser();
     await auth.loginAs(page, user);
@@ -58,9 +61,15 @@ test.describe('workspace onboarding', () => {
       timeout: SETUP_NAVIGATION_TIMEOUT_MS,
     });
     await setupShell.expectNavigationHidden();
-    const workspaceId = workspaceHome.currentWorkspaceId();
-    expect(workspaceId).toBeTruthy();
-    expect(await workspaceHome.readLastWorkspaceId(user.user.id)).toBe(workspaceId);
+    const workspaceSlug = workspaceHome.currentWorkspaceSlug();
+    expect(workspaceSlug).toBeTruthy();
+    expect(workspaceSlug).not.toMatch(UUID_RE);
+    const lastWorkspaceId = await workspaceHome.readLastWorkspaceId(user.user.id);
+    expect(lastWorkspaceId).toMatch(UUID_RE);
     await stableScreenshot(page, 'workspaces/onboarding-complete');
+    await workspaceSwitcher.open();
+    const workspaceOption = workspaceSwitcher.workspaceOption(workspaceName);
+    await expect(workspaceOption).toBeVisible();
+    expect(await workspaceOption.getAttribute('data-value')).toBe(lastWorkspaceId);
   });
 });

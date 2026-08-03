@@ -7,6 +7,7 @@ import {Card} from '@shipfox/react-ui/card';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
+import {useQueryClient} from '@tanstack/react-query';
 import {Link, useNavigate} from '@tanstack/react-router';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {useCompleteIntegrationCallback} from '#application/complete-integration-callback.js';
@@ -20,11 +21,13 @@ import {
   readSentryInstallWorkspace,
   type SentryConnectFailure,
 } from '#sentry-callback.js';
+import {resolveWorkspaceSlug} from '#workspace-navigation.js';
 
 const connectRequests = createSingleFlight<string, IntegrationConnection>();
 
 export function SentryCallbackPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const refreshAuth = useRefreshAuth();
   const {workspaces, isLoading} = useAuthState();
   const completeIntegrationCallback = useCompleteIntegrationCallback();
@@ -124,11 +127,21 @@ export function SentryCallbackPage() {
         clearSentryInstallWorkspace(sessionStorageOrUndefined());
         if (disposedRef.current) return;
         toast.success('Sentry installed.');
-        await navigate({
-          to: '/workspaces/$wid/settings/integrations',
-          params: {wid: workspaceId},
-          replace: true,
+        const workspaceSlug = await resolveWorkspaceSlug({
+          workspaceId,
+          fallbackWorkspaces: workspaces,
+          queryClient,
         });
+        if (disposedRef.current) return;
+        await navigate(
+          workspaceSlug
+            ? {
+                to: '/w/$workspaceSlug/settings/integrations',
+                params: {workspaceSlug},
+                replace: true,
+              }
+            : {to: '/', replace: true},
+        );
       })
       .catch((error: unknown) => {
         if (disposedRef.current) return;
@@ -151,6 +164,9 @@ export function SentryCallbackPage() {
     : workspaces;
 
   const failureWorkspaceId = failure?.workspaceId ?? preselectedId ?? workspaces[0]?.id;
+  const failureWorkspace = failureWorkspaceId
+    ? workspaces.find(({id}) => id === failureWorkspaceId)
+    : undefined;
 
   return (
     <CallbackColumn>
@@ -178,9 +194,14 @@ export function SentryCallbackPage() {
                 Retry
               </Button>
             ) : null}
-            {failure.failure.kind === 'terminal' && failure.failure.startOver ? (
+            {failure.failure.kind === 'terminal' &&
+            failure.failure.startOver &&
+            failureWorkspace ? (
               <Button asChild size="sm" variant="secondary" className="w-fit">
-                <Link to="/workspaces/$wid/integrations/sentry" params={{wid: failure.workspaceId}}>
+                <Link
+                  to="/w/$workspaceSlug/integrations/sentry"
+                  params={{workspaceSlug: failureWorkspace.slug}}
+                >
                   Start over
                 </Link>
               </Button>
@@ -209,9 +230,12 @@ export function SentryCallbackPage() {
         ))}
       </section>
 
-      {failureWorkspaceId ? (
+      {failureWorkspace ? (
         <ButtonLink asChild variant="muted" className="w-fit">
-          <Link to="/workspaces/$wid/settings/integrations" params={{wid: failureWorkspaceId}}>
+          <Link
+            to="/w/$workspaceSlug/settings/integrations"
+            params={{workspaceSlug: failureWorkspace.slug}}
+          >
             Back to settings
           </Link>
         </ButtonLink>

@@ -15,14 +15,14 @@ const entries: readonly NavTabEntry[] = [
     id: 'projects',
     scope: 'workspace',
     label: 'Projects',
-    to: '/workspaces/$wid/projects',
+    to: '/w/$workspaceSlug/projects',
     exact: true,
   },
   {
     id: 'settings',
     scope: 'workspace',
     label: 'Settings',
-    to: '/workspaces/$wid/settings',
+    to: '/w/$workspaceSlug/settings',
   },
 ];
 
@@ -35,16 +35,16 @@ describe('NavTabs', () => {
     const rootRoute = createRootRoute({component: Outlet});
     const projectsRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: '/workspaces/$wid/projects',
+      path: '/w/$workspaceSlug/projects',
       component: WorkspaceTabs,
     });
     const settingsRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: '/workspaces/$wid/settings',
+      path: '/w/$workspaceSlug/settings',
       component: WorkspaceTabs,
     });
     const router = createRouter({
-      history: createMemoryHistory({initialEntries: ['/workspaces/workspace/settings']}),
+      history: createMemoryHistory({initialEntries: ['/w/workspace/settings']}),
       routeTree: rootRoute.addChildren([projectsRoute, settingsRoute]),
     });
 

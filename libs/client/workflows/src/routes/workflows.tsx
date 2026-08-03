@@ -1,10 +1,11 @@
-import {defineRoute, useRouteParams} from '@shipfox/client-shell/runtime';
+import {defineRoute} from '@shipfox/client-shell/runtime';
 import {ProjectWorkflowsPage} from '#pages/project-workflows-page.js';
-import {workflowRouteParams} from './inputs.js';
+import {ProjectRoute} from './project-route.js';
 
 export default defineRoute({
   component: () => {
-    const {pid} = useRouteParams(workflowRouteParams);
-    return <ProjectWorkflowsPage projectId={pid} />;
+    return (
+      <ProjectRoute>{(project) => <ProjectWorkflowsPage projectId={project.id} />}</ProjectRoute>
+    );
   },
 });

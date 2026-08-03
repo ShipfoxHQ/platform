@@ -5907,6 +5907,9 @@ importers:
       '@shipfox/client-api':
         specifier: workspace:*
         version: link:../api
+      '@shipfox/client-projects':
+        specifier: workspace:*
+        version: link:../projects
       '@shipfox/client-shell':
         specifier: workspace:*
         version: link:../shell

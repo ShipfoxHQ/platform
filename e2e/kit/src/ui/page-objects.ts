@@ -23,8 +23,8 @@ export const SETTINGS_TAB_LABELS: Record<SettingsTab, string> = {
   events: 'Events',
 };
 
-export function settingsPath(workspaceId: string, tab: SettingsTab): string {
-  return `/workspaces/${workspaceId}/settings/${tab}`;
+export function settingsPath(workspaceSlug: string, tab: SettingsTab): string {
+  return `/w/${workspaceSlug}/settings/${tab}`;
 }
 
 export class TopNav {
@@ -139,9 +139,9 @@ export class SetupShell {
 export class SettingsShell {
   constructor(private readonly page: Page) {}
 
-  async goto(workspaceId: string, tab: SettingsTab): Promise<void> {
-    await this.page.goto(settingsPath(workspaceId, tab));
-    await expect(this.page).toHaveURL(new RegExp(`${settingsPath(workspaceId, tab)}/?$`, 'u'));
+  async goto(workspaceSlug: string, tab: SettingsTab): Promise<void> {
+    await this.page.goto(settingsPath(workspaceSlug, tab));
+    await expect(this.page).toHaveURL(new RegExp(`${settingsPath(workspaceSlug, tab)}/?$`, 'u'));
     await expect(this.heading()).toBeVisible();
     await expect(this.activeNavLink(tab)).toHaveAttribute('aria-current', 'page');
   }

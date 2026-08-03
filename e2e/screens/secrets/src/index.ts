@@ -24,8 +24,8 @@ abstract class KeyValueSettingsScreen {
     this.toast = new Toast(page);
   }
 
-  async goto(workspaceId: string): Promise<void> {
-    await this.shell.goto(workspaceId, this.tab);
+  async goto(workspaceSlug: string): Promise<void> {
+    await this.shell.goto(workspaceSlug, this.tab);
   }
 
   section(): Locator {

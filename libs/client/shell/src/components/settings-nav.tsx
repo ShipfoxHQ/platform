@@ -7,12 +7,14 @@ import {parseWorkspaceParams, useRouteParams} from '#runtime/route-inputs.js';
 export function SettingsNav({entries}: {entries: readonly SettingsSectionEntry[]}) {
   const params = useRouteParams(parseWorkspaceParams);
   const matchRoute = useMatchRoute();
-  if (!params.wid) return null;
+  if (!params.workspaceSlug) return null;
   return (
     <nav aria-label="Workspace settings" className="flex flex-col gap-4">
       {entries.map((entry) => {
-        const to = `/workspaces/$wid/settings/${entry.pathSegment}`;
-        const active = Boolean(matchRoute({to: to as never, params: {wid: params.wid} as never}));
+        const to = `/w/$workspaceSlug/settings/${entry.pathSegment}`;
+        const active = Boolean(
+          matchRoute({to: to as never, params: {workspaceSlug: params.workspaceSlug} as never}),
+        );
         return (
           <Button
             key={entry.id}
@@ -22,7 +24,7 @@ export function SettingsNav({entries}: {entries: readonly SettingsSectionEntry[]
           >
             <Link
               to={to as never}
-              params={{wid: params.wid} as never}
+              params={{workspaceSlug: params.workspaceSlug} as never}
               aria-current={active ? 'page' : undefined}
             >
               <Icon name={entry.icon} className="size-16" />
