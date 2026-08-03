@@ -309,6 +309,57 @@ describe('Workflows inter-module presentation', () => {
     ).toBe(code);
   });
 
+  test.each([
+    ['suspended', 'workspace-suspended'],
+    ['deleted', 'workspace-deleted'],
+  ] as const)('rejects fire deliveries with a pre-resolved trigger reference for %s workspaces', async (status, code) => {
+    const jobId = '00000000-0000-4000-8000-000000000006';
+    const workspaceId = '00000000-0000-4000-8000-000000000007';
+    mocks.getJobScope.mockResolvedValue({workspaceId, projectId: input.projectId});
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.deliverEventToJobListener(
+        {
+          jobId,
+          disposition: 'fire',
+          eventRef: 'event-1',
+          deliveryId: 'delivery-1',
+          source: 'github',
+          event: 'push',
+          provider: 'github',
+          payload: {},
+          receivedAt: '2026-07-20T12:00:00.000Z',
+          triggerReference: {
+            project: {id: input.projectId},
+            repository: 'acme/api',
+            ref: 'refs/heads/main',
+            commit: 'a'.repeat(40),
+          },
+        },
+        {signal: new AbortController().signal},
+      ),
+    ).catch((caught: unknown) => caught);
+
+    expect(getWorkspaceOperatingState).toHaveBeenCalledWith({workspaceId});
+    expect(mocks.deliverEventToListener).not.toHaveBeenCalled();
+    expect(
+      isInterModuleKnownError(
+        workflowsInterModuleContract.methods.deliverEventToJobListener,
+        error,
+      ) && error.code,
+    ).toBe(code);
+  });
+
   test('allows resolve deliveries for suspended workspaces', async () => {
     const jobId = '00000000-0000-4000-8000-000000000006';
     mocks.getJobScope.mockResolvedValue({workspaceId: input.workspaceId});

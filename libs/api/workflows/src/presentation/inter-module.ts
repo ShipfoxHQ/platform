@@ -83,27 +83,28 @@ export function createWorkflowsInterModulePresentation(params: {
     deliverEventToJobListener: async (input) => {
       const method = workflowsInterModuleContract.methods.deliverEventToJobListener;
       try {
+        const scope = input.disposition === 'fire' ? await getJobScope(input.jobId) : undefined;
+        if (scope) {
+          await assertWorkspaceAdmitsNewJobs(params.workspaces, scope.workspaceId);
+        }
+
         let triggerReference: WorkflowRunTriggerReference | null = null;
         if (input.triggerReference !== undefined) {
           triggerReference = input.triggerReference;
-        } else if (input.disposition === 'fire') {
-          const scope = await getJobScope(input.jobId);
-          if (scope) {
-            await assertWorkspaceAdmitsNewJobs(params.workspaces, scope.workspaceId);
-            triggerReference = await resolveWorkflowRunTriggerReference({
-              workspaceId: scope.workspaceId,
-              triggerConnectionId: input.triggerConnectionId,
-              triggerPayload: {
-                provider: input.provider,
-                source: input.source,
-                event: input.event,
-                deliveryId: input.deliveryId,
-                data: input.payload,
-              },
-              integrations: params.integrations,
-              projects: params.projects,
-            });
-          }
+        } else if (scope) {
+          triggerReference = await resolveWorkflowRunTriggerReference({
+            workspaceId: scope.workspaceId,
+            triggerConnectionId: input.triggerConnectionId,
+            triggerPayload: {
+              provider: input.provider,
+              source: input.source,
+              event: input.event,
+              deliveryId: input.deliveryId,
+              data: input.payload,
+            },
+            integrations: params.integrations,
+            projects: params.projects,
+          });
         }
         return await deliverEventToListener({
           ...input,
