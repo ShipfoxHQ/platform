@@ -36,11 +36,18 @@ one, [connect GitHub](/integrations/github/setup) first.
   </Step>
   <Step>
 
-    **Name and create the project**
+    **Name the project and set its slug**
 
-    Keep the suggested name or enter a clearer one. Select **Create project**.
+    Keep the suggested name or enter a clearer one. The form fills **Project slug**
+    from the name. Edit the slug when the URL should use a different value.
+    Select **Create project**.
   </Step>
 </Steps>
+
+The project slug is unique within the workspace. Shipfox uses it in client URLs
+such as `/w/acme/p/checkout-api/runs`. If you rename the project later, links and
+bookmarks that use the old slug stop working. The old slug becomes available for
+another project.
 
 ## Verify workflow discovery
 

@@ -37,6 +37,17 @@ if: ${{ trigger.event == "push" }}
 `vars` and `secrets` accept a literal key only. `vars["API_URL"]` is valid and a
 computed key such as `vars[inputs.name]` is not.
 
+## Run identifiers
+
+The `run` context has a UUID `id` and a sequential `number`. The UUID identifies
+the run in API and client routes. The number is scoped to the workflow
+definition and is available for labels, predicates, and display text. It is not
+resolved as a route address.
+
+```yaml
+execution_name: 'Deploy #${{ run.number }}'
+```
+
 ## Types
 
 | Type | Written as |

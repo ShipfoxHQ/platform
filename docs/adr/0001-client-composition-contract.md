@@ -5,6 +5,7 @@
 - **Decision owners:** E1 platform composition seams
 - **Linear issue:** [ENG-959](https://linear.app/shipfox/issue/ENG-959/author-the-client-composition-adr)
 - **Implementation issue:** [ENG-938](https://linear.app/shipfox/issue/ENG-938/implement-and-publish-the-client-composition-seam)
+- **Amended by:** [ADR 0009: Client URLs and resource identity](0009-client-urls-resource-identity.md)
 
 ## Context
 
@@ -47,9 +48,10 @@ feature modules.
 
 ### Stable identifiers
 
-Every feature has a stable namespaced slug such as `shipfox.workflows` or `acme.sso`. Feature ids are
-part of the public compatibility surface. Applications must not derive them from display names or
-package versions.
+Every feature has a stable namespaced feature id such as `shipfox.workflows` or `acme.sso`. Feature
+ids are part of the public compatibility surface. Applications must not derive them from display
+names or package versions. A feature id is not a workspace slug, project slug, or integration
+connection slug.
 
 Provider, navigation, and settings contributions also have stable ids. Their ids stay stable when
 labels, icons, routes, or implementations change. Checks compare ids within each contribution kind
@@ -74,7 +76,8 @@ export type AnchorId =
   | 'root'
   | 'workspaceLayout'
   | 'projectLayout'
-  | 'workspaceSettings';
+  | 'workspaceSettings'
+  | 'projectSettings';
 
 export type RouteParentId = AnchorId | (string & {});
 
@@ -118,6 +121,7 @@ export interface SettingsSectionEntry {
   pathSegment: string;
   label: string;
   icon: IconName;
+  scope?: 'workspace' | 'project';
   order?: number;
 }
 
@@ -170,14 +174,16 @@ route supplies its path, parent, and router context.
 Route manifests use full paths. Composition removes trailing slashes from non-root paths before any
 comparison. `/` remains `/`. Navigation targets use the same normalization.
 
-The shell owns four anchors:
+The shell owns the following anchors. These paths are contract values; the
+composition diagnostics quote them verbatim when reporting an anchor violation.
 
-| Anchor | Purpose |
-| --- | --- |
-| `root` | Root document and global error boundary |
-| `workspaceLayout` | Routes scoped to a workspace |
-| `projectLayout` | Routes scoped to a project |
-| `workspaceSettings` | Routes rendered inside workspace settings |
+| Anchor | Path | Purpose |
+| --- | --- | --- |
+| `root` | `/` | Root document and global error boundary |
+| `workspaceLayout` | `/w/$workspaceSlug` | Routes scoped to a workspace |
+| `projectLayout` | `/w/$workspaceSlug/p/$projectSlug` | Routes scoped to a project |
+| `workspaceSettings` | `/w/$workspaceSlug/settings` | Routes rendered inside workspace settings |
+| `projectSettings` | `/w/$workspaceSlug/p/$projectSlug/settings` | Routes rendered inside project settings |
 
 Features may also declare layout contributions. A layout has a stable id, a full path, a parent, and
 a public route implementation. A route from any composed feature can name that layout id as its
@@ -217,7 +223,7 @@ The generated file:
 
 - starts with a generated-file warning;
 - statically imports every route implementation;
-- creates code-based routes below the four anchors;
+- creates code-based routes below the shell anchors;
 - exports `routeTree` and `router`;
 - augments TanStack Router's `Register` with the consumer's router type; and
 - checks that each implementation is a `defineRoute()` result.
@@ -307,8 +313,10 @@ composition check accepts non-empty strings and rejects malformed role metadata.
 or define a role policy.
 
 A settings section adds navigation data only. The feature contributes its page as a normal route. A
-section with `pathSegment: 'sso'` requires `/workspaces/$wid/settings/sso`. Section ids must be
-unique. The settings index redirects to the first sorted section.
+workspace section with `pathSegment: 'sso'` requires `/w/$workspaceSlug/settings/sso`. Section ids
+must be unique. The optional `scope` defaults to `workspace`; project sections use
+`/w/$workspaceSlug/p/$projectSlug/settings/<pathSegment>`. The settings index redirects to the
+first sorted section for its scope.
 
 ### Runtime configuration
 
@@ -352,6 +360,13 @@ id, key, or feature id.
 | Invalid anchor nesting | `Route "<path>" must be nested under anchor "<anchor>" (<anchor-path>).` |
 | Invalid layout nesting | `Route "<path>" must be nested under layout "<layout>" (<layout-path>).` |
 | Root parent inside protected anchor | `Route "<path>" in feature "<feature>" cannot use root parent inside reserved anchor "<anchor>" (<anchor-path>). Use parent "<anchor>".` |
+| Legacy workspace path | `Route "<path>" must use the slug-based workspace prefix "w" instead of the legacy "/workspaces" path.` |
+| Prefix without slug parameter | `Route "<path>" uses prefix "<prefix>" without a dynamic parameter immediately after it.` |
+| Slug outside prefix | `Route "<path>" places slug parameter "<param>" outside prefix "<prefix>".` |
+| Repeated slug parameter | `Route "<path>" repeats slug parameter "<param>".` |
+| Workspace prefix not first | `Route "<path>" must place workspace prefix "w" at the start of the path.` |
+| Inverted entity prefixes | `Route "<path>" must place workspace prefix "w" before project prefix "p".` |
+| UUID parameter after entity prefix | `Route "<path>" must place UUID parameter "<param>" after a page segment.` |
 | Route module not found | `Could not resolve route implementation "<specifier>" for "<path>".` |
 | Invalid route export | `Route implementation "<specifier>" for "<path>" must export default defineRoute(...).` |
 | Feature evaluation | `Failed to evaluate features module "<file>". Features modules must be Node-safe: <cause>` |
@@ -468,12 +483,12 @@ export const workflowsFeature = defineClientFeature({
   id: 'shipfox.workflows',
   routes: [
     {
-      path: '/workspaces/$wid/projects/$pid/workflows',
+      path: '/w/$workspaceSlug/p/$projectSlug/workflows',
       parent: 'projectLayout',
       impl: '@shipfox/client-workflows/routes/workflows-index',
     },
     {
-      path: '/workspaces/$wid/projects/$pid/workflows/$workflowId',
+      path: '/w/$workspaceSlug/p/$projectSlug/workflows/$workflowId',
       parent: 'projectLayout',
       impl: '@shipfox/client-workflows/routes/workflow-detail',
     },
@@ -483,7 +498,7 @@ export const workflowsFeature = defineClientFeature({
       id: 'workflows',
       scope: 'project',
       label: 'Workflows',
-      to: '/workspaces/$wid/projects/$pid/workflows',
+      to: '/w/$workspaceSlug/p/$projectSlug/workflows',
       order: 200,
     },
   ],
@@ -500,7 +515,7 @@ export const ssoFeature = defineClientFeature({
   id: 'acme.sso',
   routes: [
     {
-      path: '/workspaces/$wid/settings/sso',
+      path: '/w/$workspaceSlug/settings/sso',
       parent: 'workspaceSettings',
       impl: '@acme/shipfox-sso-client/routes/settings',
     },
@@ -511,6 +526,7 @@ export const ssoFeature = defineClientFeature({
       pathSegment: 'sso',
       label: 'Single sign-on',
       icon: 'keyLine',
+      scope: 'workspace',
       order: 450,
     },
   ],
@@ -675,8 +691,7 @@ Translate the routes under `libs/client/router/src/routes/**`:
 | Workspace settings | `@shipfox/client-workspace-settings` |
 | Integration callbacks and settings | `@shipfox/client-integrations` |
 
-The four structural routes become shell anchors. The router package dissolves after the last route
-moves.
+The structural routes become shell anchors. The router package dissolves after the last route moves.
 
 ### 4. Replace hardcoded registries
 

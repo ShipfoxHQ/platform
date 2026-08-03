@@ -18,6 +18,20 @@ A workspace answers who shares. A project answers which code owns the work.
 This keeps team setup broad and run history narrow.
 The split can grow with the team.
 
+## Slugs separate URLs from identity
+
+Each workspace has a required workspace slug. It is unique across the
+installation. Each project has a required project slug. It is unique within its
+workspace.
+
+The client uses these slugs in readable URLs such as
+`/w/acme/p/checkout-api/runs`. The API continues to identify the workspace and
+project with UUIDs. A slug is a navigation and display value, not a replacement
+for the resource identity.
+
+Slugs can change. A rename frees the old value and breaks links that still use
+the old URL. Shipfox warns before a rename so shared links can be updated.
+
 ## Shared resources belong to the workspace
 
 Many resources can serve more than one project. These include integration connections,

@@ -34,12 +34,27 @@ page. Split a page when its subject requires more than one reader mode.
 Use **integration connection** for the workspace resource created when an
 integration is connected. Do not use **connection** by itself for this resource,
 especially in titles, navigation, prerequisites, and other text that readers may
-see without surrounding context. Use **integration connection slug** for its
-workflow identifier. Keep the schema field name as `connection` in code.
+see without surrounding context. Use **the slug of an integration connection**
+for its workflow identifier. Keep the schema field name as `connection` in code.
 
 `integration connection` is a fixed compound. Do not put another noun directly
 before it. Use a prepositional phrase instead: write "the slug of your GitHub
 integration connection", not "your GitHub integration connection slug".
+
+### Identifier terms
+
+Qualify `slug` at first use in each document. Use these terms consistently:
+
+| Term | Meaning |
+| --- | --- |
+| Workspace slug | A mutable, globally unique value used in client URLs. |
+| Project slug | A mutable value unique within a workspace and used in client URLs. |
+| Slug of an integration connection | The workflow `source` value for an integration connection. It is not a client URL identifier. |
+| Feature id | A stable namespaced composition identifier such as `shipfox.workflows`. Do not call it a feature slug. |
+
+After the first qualified use, shorten a term only when the surrounding section
+still makes its owner clear. Keep `integration connection` qualified in product
+documentation, even when the page already discusses integrations.
 
 ### Choose the type before writing
 
@@ -67,7 +82,7 @@ needs it. Link to the task that creates the missing starting state.
 ### One canonical home per fact
 
 Every exact fact lives on one reference page: field tables and accepted values
-in `reference/workflow-schema.mdx`, provider IDs in
+in `reference/workflow-schema.mdx`, provider ids in
 `reference/model-providers.mdx`, numbers and defaults in
 `reference/limits.mdx`, and environment variables in the matching reference
 page. Other pages use only the facts needed to serve their reader and link to

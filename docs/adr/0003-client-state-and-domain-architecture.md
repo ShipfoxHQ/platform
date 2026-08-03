@@ -139,6 +139,7 @@ export interface Project {
   id: string;
   workspaceId: string;
   name: string;
+  slug: string;
   source: ProjectSource;
 }
 
@@ -157,10 +158,16 @@ export function toProject(dto: ProjectResponseDto): Project {
     id: dto.id,
     workspaceId: dto.workspace_id,
     name: dto.name,
+    slug: dto.slug,
     source: toProjectSource(dto.source),
   };
 }
 ```
+
+The project model carries both values on purpose. `id` is the stable resource
+identity used by API requests and query keys. `slug` is the mutable navigation
+and display identifier used by client URLs. The mapper keeps the distinction at
+the DTO boundary so pages do not infer identity from a URL segment.
 
 **React Query stores domain models by default.** Mapping in `queryFn` creates one canonical cached
 shape. A component-level `select` can create a local projection, but it cannot be the only place that
