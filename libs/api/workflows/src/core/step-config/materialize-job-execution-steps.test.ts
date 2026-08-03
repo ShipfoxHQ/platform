@@ -5,6 +5,7 @@ import {
   AGENT_INTEGRATION_MCP_TRANSPORT,
 } from '@shipfox/api-agent-dto';
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
+import {createWorkflowExpression} from '@shipfox/expression';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import type {AgentToolCatalogEntry, AgentToolMaterializationContext} from '#core/agent-tools.js';
@@ -29,6 +30,19 @@ function template(source: string): string {
 
 function shellRef(name: string): string {
   return `\${${name}}`;
+}
+
+function checkout(repository: string) {
+  return {
+    repository,
+    fetchDepth: 1,
+    permissions: {contents: 'read' as const},
+    persistCredentials: true,
+  };
+}
+
+function condition(source: string) {
+  return createWorkflowExpression({source, check: {mode: 'syntax'}});
 }
 
 function jobExecutionContext(): WorkflowEvaluationContext {
@@ -208,12 +222,7 @@ describe('materializeJobExecutionSteps', () => {
 
     expect(steps[0]).toMatchObject({
       type: 'setup',
-      config: {
-        checkout: {
-          permissions: {contents: 'read'},
-          persist_credentials: true,
-        },
-      },
+      config: {},
     });
     expect(steps[1]).toEqual({
       key: null,
@@ -234,6 +243,106 @@ describe('materializeJobExecutionSteps', () => {
       },
       authoredConfig: null,
       position: 1,
+    });
+  });
+
+  it('places a leading checkout at the job root when its path is omitted', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          steps: [{checkout: checkout('acme/api')}, {run: 'echo use checkout'}],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+
+    const steps = await materializeJobExecutionSteps({model, job, context: jobExecutionContext()});
+
+    expect(steps[0]).toMatchObject({type: 'setup', config: {}});
+    expect(steps[1]).toMatchObject({
+      type: 'checkout',
+      config: {checkout: {repository: 'acme/api', path: '.'}},
+    });
+    expect(steps[2]).toMatchObject({type: 'run', config: {run: 'echo use checkout'}});
+  });
+
+  it('keeps the implicit checkout when an explicit checkout is not leading', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          steps: [
+            {run: 'echo route'},
+            {checkout: checkout('acme/api')},
+            {run: 'echo use checkout'},
+          ],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+
+    const steps = await materializeJobExecutionSteps({model, job, context: jobExecutionContext()});
+
+    expect(steps[0]).toMatchObject({
+      type: 'setup',
+      config: {
+        checkout: {
+          permissions: {contents: 'read'},
+          persist_credentials: true,
+        },
+      },
+    });
+    expect(steps[2]).toMatchObject({
+      type: 'checkout',
+      config: {
+        checkout: {
+          repository: 'acme/api',
+          fetch_depth: 1,
+          permissions: {contents: 'read'},
+          persist_credentials: true,
+        },
+      },
+    });
+    expect(steps[2]?.config.checkout).not.toHaveProperty('path');
+    expect(steps[3]).toMatchObject({type: 'run', config: {run: 'echo use checkout'}});
+  });
+
+  it('omits the implicit checkout when the job opts out', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          checkout: false,
+          steps: [{run: 'echo no repository'}],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+
+    const steps = await materializeJobExecutionSteps({model, job, context: jobExecutionContext()});
+
+    expect(steps[0]).toMatchObject({type: 'setup', config: {}});
+  });
+
+  it('does not restore the implicit checkout for a leading checkout with a false if', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          steps: [{if: condition('false'), checkout: checkout('acme/api')}],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+
+    const steps = await materializeJobExecutionSteps({model, job, context: jobExecutionContext()});
+
+    expect(steps[0]).toMatchObject({type: 'setup', config: {}});
+    expect(steps[1]).toMatchObject({
+      type: 'checkout',
+      condition: expect.any(Object),
+      config: {checkout: {repository: 'acme/api', path: '.'}},
     });
   });
 

@@ -1,4 +1,4 @@
-import type {WorkflowModel} from '@shipfox/api-definitions-dto';
+import {DEFAULT_JOB_CHECKOUT, type WorkflowModel} from '@shipfox/api-definitions-dto';
 import {canonicalizeLabels, findInvalidLabels, MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import type {
@@ -19,7 +19,7 @@ export interface MaterializedWorkflowJob {
   readonly mode: WorkflowModelJob['mode'];
   readonly success?: string;
   readonly executionTimeoutMs?: number;
-  readonly checkout: WorkflowModelJob['checkout'];
+  readonly checkout: Exclude<WorkflowModelJob['checkout'], false>;
   readonly listening?: WorkflowModelJob['listening'];
   readonly name?: string;
   readonly outputs?: WorkflowModelJob['outputs'];
@@ -61,7 +61,7 @@ export async function materializeWorkflowModel(
         ...(job.executionTimeoutMs === undefined
           ? {}
           : {executionTimeoutMs: job.executionTimeoutMs}),
-        checkout: job.checkout,
+        checkout: job.checkout === false ? DEFAULT_JOB_CHECKOUT : job.checkout,
         ...(job.listening === undefined ? {} : {listening: job.listening}),
         ...(name === undefined ? {} : {name}),
         ...(job.outputs === undefined ? {} : {outputs: job.outputs}),

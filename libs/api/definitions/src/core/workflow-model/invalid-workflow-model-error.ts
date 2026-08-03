@@ -53,7 +53,6 @@ export type WorkflowModelValidationIssueCode =
   | 'unknown-integration-method'
   | 'unknown-integration-tool'
   | 'unknown-job-dependency'
-  | 'unsupported-checkout'
   | 'untrusted-agent-selection-context';
 
 export type WorkflowModelValidationIssuePathSegment = string | number;

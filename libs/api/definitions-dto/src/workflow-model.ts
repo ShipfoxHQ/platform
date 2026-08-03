@@ -87,7 +87,7 @@ export interface WorkflowModelJob {
   readonly mode: 'one_shot' | 'listening';
   readonly runner: readonly string[];
   readonly runnerTemplates?: readonly WorkflowFieldTemplate[];
-  readonly checkout: WorkflowModelJobCheckout;
+  readonly checkout: WorkflowModelJobCheckout | false;
   readonly if?: WorkflowExpression;
   readonly success?: string;
   readonly outputs?: WorkflowOutputTemplates;

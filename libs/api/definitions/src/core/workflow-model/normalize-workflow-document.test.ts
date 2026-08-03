@@ -1122,8 +1122,8 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.jobs[0]?.checkout).toEqual(DEFAULT_JOB_CHECKOUT);
   });
 
-  it('reports the staged job checkout opt-out until model support lands', () => {
-    const error = expectInvalid({
+  it('preserves the job checkout opt-out in the model', () => {
+    const model = normalizeWorkflowDocument({
       name: 'checkout disabled',
       jobs: {
         build: {
@@ -1133,12 +1133,7 @@ describe('normalizeWorkflowDocument', () => {
       },
     });
 
-    expect(error.issues).toContainEqual(
-      expect.objectContaining({
-        code: 'unsupported-checkout',
-        path: ['jobs', 'build', 'checkout'],
-      }),
-    );
+    expect(model.jobs[0]?.checkout).toBe(false);
   });
 
   it('normalizes checkout-step targets from earlier step outputs', () => {

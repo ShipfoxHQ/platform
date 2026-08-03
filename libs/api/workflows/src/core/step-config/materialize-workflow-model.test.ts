@@ -702,6 +702,7 @@ describe('materializeWorkflowModel', () => {
     expect(rows[0]?.steps[1]?.config).toEqual({
       checkout: {
         fetch_depth: 1,
+        path: '.',
         permissions: {contents: 'read'},
         persist_credentials: true,
       },
