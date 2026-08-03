@@ -102,8 +102,11 @@ function collectCatalogProviderIssues(
     if (catalog.availability !== provider.availability)
       issues.push(`${prefix}: set catalog availability to "${provider.availability}".`);
 
-    if (overview.status === 'soon')
-      issues.push(`${prefix}: remove status "soon" from the overview.`);
+    const expectedSoonStatus = provider.availability === 'coming-soon';
+    if ((overview.status === 'soon') !== expectedSoonStatus)
+      issues.push(
+        `${prefix}: ${expectedSoonStatus ? 'set status to "soon"' : 'remove status "soon"'} so it matches availability.`,
+      );
 
     const actualCapabilities = strings(catalog.capabilities);
     for (const capability of provider.capabilities) {
@@ -135,7 +138,18 @@ function collectCatalogProviderIssues(
   collectReferencePageIssues(directory, provider, generated, 'events', issues);
   collectReferencePageIssues(directory, provider, generated, 'tools', issues);
 
-  if (!directory.pages.includes('setup')) {
+  if (provider.availability === 'coming-soon') {
+    if (provider.capabilities.length > 0)
+      issues.push(
+        `${prefix}: coming-soon providers must not declare capabilities in the manifest.`,
+      );
+    for (const page of canonicalPages.slice(1)) {
+      if (directory.pages.includes(page))
+        issues.push(
+          `${prefix}: remove ${page}.mdx because coming-soon providers have no shipped reference pages.`,
+        );
+    }
+  } else if (!directory.pages.includes('setup')) {
     issues.push(`${prefix}: add setup.mdx for the connectable provider.`);
   }
 

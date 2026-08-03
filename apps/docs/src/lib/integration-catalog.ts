@@ -1,4 +1,4 @@
-export const INTEGRATION_CATALOG_AVAILABILITIES = ['available', 'preview'] as const;
+export const INTEGRATION_CATALOG_AVAILABILITIES = ['available', 'preview', 'coming-soon'] as const;
 export const INTEGRATION_CATALOG_CAPABILITIES = [
   'source_control',
   'events',
@@ -27,6 +27,7 @@ export type CatalogIcon = (typeof INTEGRATION_CATALOG_ICONS)[number];
 export const catalogAvailabilityLabels: Record<CatalogAvailability, string> = {
   available: 'Available',
   preview: 'Preview',
+  'coming-soon': 'Coming soon',
 };
 
 export const catalogCapabilityLabels: Record<CatalogCapability, string> = {

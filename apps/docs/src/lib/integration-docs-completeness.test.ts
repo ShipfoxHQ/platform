@@ -13,6 +13,10 @@ const linearAvailabilityIssuePattern =
 const sentryCapabilitiesIssuePattern =
   /Integration provider "sentry": remove the stale "agent_tools" capability/;
 const cronSectionIssuePattern = /Built-in source "cron": add a "## cron" section/;
+const linearSoonStatusIssuePattern =
+  /Integration provider "linear": remove status "soon" so it matches availability\./;
+const linearMissingSetupIssuePattern =
+  /Integration provider "linear": add setup\.mdx for the connectable provider\./;
 
 const validInput: IntegrationDocsCompletenessInput = {
   providers: registeredIntegrationProviders,
@@ -112,6 +116,69 @@ test('reports provider-named fixes for missing and stale documentation', () => {
   assert.match(issues.join('\n'), linearAvailabilityIssuePattern);
   assert.match(issues.join('\n'), sentryCapabilitiesIssuePattern);
   assert.match(issues.join('\n'), cronSectionIssuePattern);
+});
+
+test('reports status "soon" and a missing setup page for a catalog provider', () => {
+  const input: IntegrationDocsCompletenessInput = {
+    ...validInput,
+    integrationDirectories: {
+      ...validInput.integrationDirectories,
+      linear: directory(
+        'linear',
+        ['index', 'tools'],
+        ['index', 'tools'],
+        {
+          availability: 'available',
+          capabilities: ['agent_tools'],
+          categories: ['issue-tracking'],
+          aliases: ['issues'],
+        },
+        'soon',
+      ),
+    },
+  };
+
+  const issues = collectIntegrationDocIssues(input);
+
+  assert.match(issues.join('\n'), linearSoonStatusIssuePattern);
+  assert.match(issues.join('\n'), linearMissingSetupIssuePattern);
+});
+
+test('accepts a coming-soon provider with only an overview', () => {
+  const input: IntegrationDocsCompletenessInput = {
+    ...validInput,
+    providers: validInput.providers.map((provider) =>
+      provider.kind === 'catalog' && provider.slug === 'linear'
+        ? {...provider, availability: 'coming-soon' as const, capabilities: []}
+        : provider,
+    ),
+    generatedCatalog: {
+      ...validInput.generatedCatalog,
+      linear: {
+        availability: 'coming-soon',
+        capabilities: [],
+        eventCount: 0,
+        toolCount: 0,
+      },
+    },
+    integrationDirectories: {
+      ...validInput.integrationDirectories,
+      linear: directory(
+        'linear',
+        ['index'],
+        ['index'],
+        {
+          availability: 'coming-soon',
+          capabilities: [],
+          categories: ['issue-tracking'],
+          aliases: ['issues'],
+        },
+        'soon',
+      ),
+    },
+  };
+
+  assert.deepEqual(collectIntegrationDocIssues(input), []);
 });
 
 test('uses the built-in source identifier for the source table row', () => {

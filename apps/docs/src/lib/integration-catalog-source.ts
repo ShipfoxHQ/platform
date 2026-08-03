@@ -17,6 +17,7 @@ interface GeneratedCatalogData {
 const availabilityOrder = {
   available: 0,
   preview: 1,
+  'coming-soon': 2,
 } as const;
 
 export function getIntegrationCatalog(): CatalogProvider[] {
@@ -31,8 +32,10 @@ export function getIntegrationCatalog(): CatalogProvider[] {
         throw new Error(`Integration catalog metadata is missing for provider "${slug}".`);
       if (!page.data.sidebarTitle)
         throw new Error(`Integration catalog name is missing for provider "${slug}".`);
-      if (page.data.status === 'soon')
-        throw new Error(`Integration catalog provider "${slug}" must not use status "soon".`);
+      if ((page.data.status === 'soon') !== (catalog.availability === 'coming-soon'))
+        throw new Error(
+          `Integration catalog provider "${slug}" has status "${page.data.status ?? 'none'}" but availability "${catalog.availability}".`,
+        );
 
       const generatedData = generatedCatalogData[slug];
       const setupPage = source.getPage([...page.slugs, 'setup']);

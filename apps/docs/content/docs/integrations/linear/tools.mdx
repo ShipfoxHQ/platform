@@ -17,6 +17,7 @@ agent integration contract, see the [workflow schema reference](/reference/workf
 ## Tool catalog
 
 The catalog uses Linear's OAuth scopes. Read tools require `read` access. Write
-tools require `write` access and may need explicit write approval in the workflow.
+tools require `write` access, and the workflow step's `integrations` entry must
+set `allow_write: true` or Shipfox rejects the step at validation.
 
 <LinearTools />

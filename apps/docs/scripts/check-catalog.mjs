@@ -63,6 +63,16 @@ assert.doesNotThrow(() =>
     },
   ]),
 );
+assert.doesNotThrow(() =>
+  validateIntegrationCatalog([{...providers[2], availability: 'coming-soon'}]),
+);
+assert.throws(
+  () =>
+    validateIntegrationCatalog([
+      {...providers[2], availability: 'coming-soon', capabilities: ['agent_tools'], toolCount: 1},
+    ]),
+  /coming soon but declares capabilities/,
+);
 assert.throws(
   () => validateIntegrationCatalog([{...providers[0], setupHref: undefined}]),
   /available but has no setup page/,

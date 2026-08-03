@@ -17,6 +17,8 @@ agent integration contract, see the [workflow schema reference](/reference/workf
 ## Tool catalog
 
 The catalog uses the Slack bot scopes required by each tool. Read tools inspect
-workspace data. Write tools change messages, reactions, or canvases.
+workspace data. Write tools change messages, reactions, or canvases, and the
+workflow step's `integrations` entry must set `allow_write: true` or Shipfox
+rejects the step at validation.
 
 <SlackTools />

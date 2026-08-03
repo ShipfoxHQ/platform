@@ -197,14 +197,15 @@ function renderEventCatalog(catalog) {
   return lines.join('\n').trimEnd();
 }
 
+const UNCATEGORIZED_TOOL_CATEGORY = 'tools';
+
 function renderToolCatalog(catalog, selectionCatalog) {
   const lines = [];
-  const categories = [...new Set(catalog.map((tool) => tool.category ?? 'tools'))];
+  const categoryOf = (tool) => tool.category ?? UNCATEGORIZED_TOOL_CATEGORY;
+  const categories = [...new Set(catalog.map(categoryOf))];
   for (const category of categories) {
     lines.push(`### ${category.replaceAll('_', ' ')}`, '');
-    for (const tool of catalog.filter(
-      (candidate) => (candidate.category ?? 'tools') === category,
-    )) {
+    for (const tool of catalog.filter((candidate) => categoryOf(candidate) === category)) {
       lines.push(
         `#### \`${tool.id}\``,
         '',
@@ -245,6 +246,18 @@ function renderToolCatalog(catalog, selectionCatalog) {
   return lines.join('\n').trimEnd();
 }
 
+function unwrapNullableProperty(property) {
+  const branches = objects(property.anyOf);
+  const nullBranch = branches.find((branch) => branch.type === 'null');
+  const valueBranch = branches.find((branch) => branch !== nullBranch);
+  if (branches.length !== 2 || !nullBranch || !valueBranch) return property;
+  return {...valueBranch, type: `${valueBranch.type ?? 'value'} | null`};
+}
+
+function escapeTableCell(value) {
+  return value.replaceAll('|', '\\|');
+}
+
 function renderFields(schema) {
   const properties = object(schema.properties);
   const required = new Set(strings(schema.required));
@@ -254,7 +267,7 @@ function renderFields(schema) {
     ),
   );
   const rows = Object.entries(properties).map(([name, value]) => {
-    const property = object(value);
+    const property = unwrapNullableProperty(object(value));
     const requirement = required.has(name)
       ? 'Required'
       : conditional.has(name)
@@ -266,7 +279,7 @@ function renderFields(schema) {
             .map((item) => `\`${item}\``)
             .join(', ')}`
         : (property.type ?? 'value');
-    return `| \`${name}\` | ${type} | ${requirement} | ${property.description ?? ''} |`;
+    return `| \`${name}\` | ${escapeTableCell(type)} | ${requirement} | ${escapeTableCell(property.description ?? '')} |`;
   });
   if (rows.length === 0) return ['This schema accepts an object with provider-defined fields.'];
   const alternatives = objects(schema.anyOf)
@@ -296,9 +309,12 @@ function methodRequirements(schema, methodId) {
 }
 
 function formatScope(scope) {
-  return Array.isArray(scope) && scope.length > 0
-    ? scope.map((entry) => `\`${object(entry).permission}:${object(entry).access}\``).join(', ')
-    : 'None.';
+  if (Array.isArray(scope) && scope.length > 0)
+    return scope
+      .map((entry) => `\`${object(entry).permission}:${object(entry).access}\``)
+      .join(', ');
+  if (typeof scope === 'string' && scope.length > 0) return `\`${scope}\``;
+  return 'None.';
 }
 
 function formatSelectors(toolId, selectionCatalog) {
