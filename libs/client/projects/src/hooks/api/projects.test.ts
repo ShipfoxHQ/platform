@@ -5,6 +5,7 @@ import {
   listProjects,
   projectSlugQueryOptions,
   projectsInfiniteQueryOptions,
+  projectsQueryKeys,
   resolveProjectSlug,
 } from './projects.js';
 
@@ -132,8 +133,31 @@ describe('resolveProjectSlug', () => {
       )
       .mockResolvedValueOnce(
         jsonResponse({projects: [projectResponse('renamed-api', projectId)], next_cursor: null}),
-      )
-      .mockResolvedValueOnce(jsonResponse({projects: [], next_cursor: null}));
+      );
+    configureApiClient({fetchImpl});
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+
+    await queryClient.fetchInfiniteQuery(projectsInfiniteQueryOptions(workspaceId));
+    queryClient.setQueryData(
+      projectsQueryKeys.list(workspaceId),
+      queryClient.getQueryData(projectsQueryKeys.list(workspaceId)),
+      {updatedAt: 0},
+    );
+
+    await expect(
+      resolveProjectSlug({queryClient, workspaceId, projectSlug: 'checkout-api'}),
+    ).resolves.toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test('uses a fresh cached slug and hydrates the detail query', async () => {
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    const projectId = '44444444-4444-4444-8444-444444444444';
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({projects: [projectResponse('checkout-api', projectId)], next_cursor: null}),
+      );
     configureApiClient({fetchImpl});
     const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
 
@@ -141,8 +165,12 @@ describe('resolveProjectSlug', () => {
 
     await expect(
       resolveProjectSlug({queryClient, workspaceId, projectSlug: 'checkout-api'}),
-    ).resolves.toBeUndefined();
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    ).resolves.toBe(projectId);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryData(projectsQueryKeys.detail(projectId))).toMatchObject({
+      id: projectId,
+      slug: 'checkout-api',
+    });
   });
 
   test('paginates from the refreshed first page after a cached miss', async () => {
@@ -166,6 +194,11 @@ describe('resolveProjectSlug', () => {
     const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
 
     await queryClient.fetchInfiniteQuery(projectsInfiniteQueryOptions(workspaceId));
+    queryClient.setQueryData(
+      projectsQueryKeys.list(workspaceId),
+      queryClient.getQueryData(projectsQueryKeys.list(workspaceId)),
+      {updatedAt: 0},
+    );
 
     await expect(
       resolveProjectSlug({queryClient, workspaceId, projectSlug: 'new-project'}),
@@ -182,7 +215,7 @@ describe('resolveProjectSlug', () => {
         jsonResponse({projects: [projectResponse('old-project')], next_cursor: null}),
       )
       .mockResolvedValueOnce(
-        jsonResponse({projects: [projectResponse('still-old')], next_cursor: null}),
+        jsonResponse({projects: [projectResponse('still-old')], next_cursor: 'cursor-1'}),
       )
       .mockResolvedValueOnce(
         jsonResponse({projects: [projectResponse('matching-name')], next_cursor: 'cursor-1'}),

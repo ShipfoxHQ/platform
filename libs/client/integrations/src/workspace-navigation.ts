@@ -10,6 +10,14 @@ interface UserWorkspacesQueryData {
   memberships: WorkspaceSlugCandidate[];
 }
 
+export function rememberCallbackKey(keys: Set<string>, key: string, maxSize = 32): void {
+  keys.delete(key);
+  keys.add(key);
+  if (keys.size <= maxSize) return;
+  const oldest = keys.values().next().value;
+  if (typeof oldest === 'string') keys.delete(oldest);
+}
+
 export async function resolveWorkspaceSlug({
   workspaceId,
   fallbackWorkspaces,

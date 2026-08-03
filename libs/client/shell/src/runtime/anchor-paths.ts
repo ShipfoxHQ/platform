@@ -70,11 +70,18 @@ export function validateRoutePathInvariants(path: string): void {
 
   const workspacePrefixIndex = segments.indexOf('w');
   const projectPrefixIndex = segments.indexOf('p');
-  if (projectPrefixIndex !== -1 && (workspacePrefixIndex !== 0 || projectPrefixIndex !== 2)) {
+  if (
+    workspacePrefixIndex !== -1 &&
+    projectPrefixIndex !== -1 &&
+    workspacePrefixIndex > projectPrefixIndex
+  ) {
     throw new Error(`Route "${path}" must place workspace prefix "w" before project prefix "p".`);
   }
   if (workspacePrefixIndex !== -1 && workspacePrefixIndex !== 0) {
     throw new Error(`Route "${path}" must place workspace prefix "w" at the start of the path.`);
+  }
+  if (projectPrefixIndex !== -1 && (workspacePrefixIndex !== 0 || projectPrefixIndex !== 2)) {
+    throw new Error(`Route "${path}" must place workspace prefix "w" before project prefix "p".`);
   }
 }
 

@@ -18,7 +18,7 @@ import {
   readLinearInstallWorkspace,
   serializeLinearCallbackQuery,
 } from '#linear-callback.js';
-import {resolveWorkspaceSlug} from '#workspace-navigation.js';
+import {rememberCallbackKey, resolveWorkspaceSlug} from '#workspace-navigation.js';
 
 // Retain only recent completions: this bounds long-lived callback pages while
 // still covering StrictMode and immediate Back/Forward remounts.
@@ -70,7 +70,7 @@ export function LinearCallbackPage() {
           if (!disposed) setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
           return;
         }
-        completedCallbacks.add(key);
+        rememberCallbackKey(completedCallbacks, key);
         try {
           clearLinearInstallWorkspace(sessionStorageOrUndefined());
         } catch {
@@ -78,16 +78,18 @@ export function LinearCallbackPage() {
         }
         if (disposed) return;
         if (!toastedCallbacks.has(key)) {
-          toastedCallbacks.add(key);
+          rememberCallbackKey(toastedCallbacks, key);
           toast.success('Linear installed.');
         }
+        let workspaceSlug: string | undefined;
         try {
           if (disposed) return;
-          const workspaceSlug = await resolveWorkspaceSlug({
+          workspaceSlug = await resolveWorkspaceSlug({
             workspaceId: connection.workspaceId,
             fallbackWorkspaces: workspaces,
             queryClient,
           });
+          if (disposed) return;
           if (!workspaceSlug) {
             setCompletedWorkspace({});
             return;
@@ -100,7 +102,7 @@ export function LinearCallbackPage() {
           });
         } catch {
           // Keep the completed callback page visible if client navigation is interrupted.
-          if (!disposed) setCompletedWorkspace({});
+          if (!disposed) setCompletedWorkspace({slug: workspaceSlug});
         }
       },
       (error: unknown) => {

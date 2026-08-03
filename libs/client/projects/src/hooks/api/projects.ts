@@ -19,6 +19,8 @@ import {
 import type {CreateProjectCommand, Project, ProjectList} from '#core/project.js';
 import {toProject, toProjectList} from './mappers.js';
 
+const PROJECT_LIST_STALE_TIME = 30_000;
+
 export const projectsQueryKeys = {
   all: ['projects'] as const,
   list: (workspaceId: string, search = '') =>
@@ -105,6 +107,11 @@ export async function resolveProjectSlug({
     const project = data.pages
       .flatMap((page) => page.projects)
       .find((candidate) => candidate.slug === projectSlug);
+    const dataUpdatedAt = queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0;
+    if (project && Date.now() - dataUpdatedAt < PROJECT_LIST_STALE_TIME) {
+      cacheResolvedProject(queryClient, workspaceId, projectSlug, project);
+      return project.id;
+    }
     const cursor = data.pages.at(-1)?.nextCursor;
     if (project || !cursor) {
       return await refetchAndResolveProjectSlug(queryClient, queryKey, workspaceId, projectSlug);
@@ -129,11 +136,22 @@ async function refetchAndResolveProjectSlug(
     .flatMap((page) => page.projects)
     .find((candidate) => candidate.slug === projectSlug);
   if (project) {
-    queryClient.setQueryData(projectsQueryKeys.slug(workspaceId, projectSlug), project);
+    cacheResolvedProject(queryClient, workspaceId, projectSlug, project);
     return project.id;
   }
 
+  if (!data.pages.at(-1)?.nextCursor) return undefined;
   return await resolveProjectSlugBySearch(queryClient, workspaceId, projectSlug);
+}
+
+function cacheResolvedProject(
+  queryClient: QueryClient,
+  workspaceId: string,
+  projectSlug: string,
+  project: Project,
+): void {
+  queryClient.setQueryData(projectsQueryKeys.slug(workspaceId, projectSlug), project);
+  queryClient.setQueryData(projectsQueryKeys.detail(project.id), project);
 }
 
 async function resolveProjectSlugBySearch(
@@ -142,10 +160,9 @@ async function resolveProjectSlugBySearch(
   projectSlug: string,
   signal?: AbortSignal,
 ): Promise<string | undefined> {
-  const queryKey = projectsQueryKeys.slug(workspaceId, projectSlug);
   const project = await findProjectBySlug({workspaceId, projectSlug, signal});
   if (project) {
-    queryClient.setQueryData(queryKey, project);
+    cacheResolvedProject(queryClient, workspaceId, projectSlug, project);
     return project.id;
   }
   return undefined;
@@ -216,6 +233,7 @@ export function projectsInfiniteQueryOptions(
       }),
     getNextPageParam: (lastPage: ProjectList) => lastPage.nextCursor ?? undefined,
     placeholderData: keepPreviousData,
+    staleTime: PROJECT_LIST_STALE_TIME,
   };
 }
 
@@ -252,12 +270,19 @@ export function projectSlugQueryOptions(
         ? projectsQueryKeys.slug(workspaceId, projectSlug)
         : ([...projectsQueryKeys.all, 'slug'] as const),
     enabled: Boolean(workspaceId && projectSlug),
-    queryFn: async ({signal}) =>
-      (await findProjectBySlug({
-        workspaceId: workspaceId ?? '',
-        projectSlug: projectSlug ?? '',
+    queryFn: async ({signal, client}) => {
+      const resolvedWorkspaceId = workspaceId ?? '';
+      const resolvedProjectSlug = projectSlug ?? '';
+      const project = await findProjectBySlug({
+        workspaceId: resolvedWorkspaceId,
+        projectSlug: resolvedProjectSlug,
         signal,
-      })) ?? null,
+      });
+      if (project) {
+        cacheResolvedProject(client, resolvedWorkspaceId, resolvedProjectSlug, project);
+      }
+      return project ?? null;
+    },
     staleTime: 30_000,
   });
 }

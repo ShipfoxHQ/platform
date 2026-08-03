@@ -165,7 +165,7 @@ describe('SignupPage', () => {
     const workspaceId = '11111111-1111-4111-8111-111111111111';
     const session = {token: 'access-token', user};
     let signupCompleted = false;
-    let failedPostSignupRefresh = false;
+    let postSignupRefreshFailures = 0;
     const fetchImpl = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = requestUrl(input);
       if (url === 'https://api.example.test/auth/me') {
@@ -196,8 +196,8 @@ describe('SignupPage', () => {
         );
       }
       if (url === 'https://api.example.test/auth/refresh') {
-        if (signupCompleted && !failedPostSignupRefresh) {
-          failedPostSignupRefresh = true;
+        if (signupCompleted && postSignupRefreshFailures < 2) {
+          postSignupRefreshFailures += 1;
           return jsonResponse({code: 'server-error', message: 'Refresh failed'}, {status: 500});
         }
         return jsonResponse(session);

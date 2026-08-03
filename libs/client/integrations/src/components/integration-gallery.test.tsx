@@ -216,7 +216,7 @@ const ADDED_META_RE = /^Added /;
 const GITHUB_LINK_RE = /GitHub/u;
 
 describe('IntegrationGallery — installed section', () => {
-  test('does not use the route slug for an unavailable explicit workspace id', async () => {
+  test('waits for an explicit workspace id to hydrate before showing install links', async () => {
     renderGallery({}, {}, {workspaces: [testWorkspace({id: 'stale-workspace', slug: 'acme'})]});
 
     expect(await screen.findByText('Loading workspace details…')).toBeVisible();

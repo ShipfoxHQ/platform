@@ -29,18 +29,15 @@ interface IntegrationGalleryForWorkspaceProps {
   capability: IntegrationCapability | undefined;
   emptyProvidersMessage: string;
   workspaceId: string;
-  workspaceSlug?: string | undefined;
 }
 
 export function IntegrationGalleryForWorkspace({
   capability,
   emptyProvidersMessage,
   workspaceId,
-  workspaceSlug: explicitWorkspaceSlug,
 }: IntegrationGalleryForWorkspaceProps) {
   const {workspaces} = useAuthState();
-  const workspaceSlug =
-    workspaces.find((workspace) => workspace.id === workspaceId)?.slug ?? explicitWorkspaceSlug;
+  const workspaceSlug = workspaces.find((workspace) => workspace.id === workspaceId)?.slug;
   const [createProvider, setCreateProvider] = useState<string | undefined>();
   const [usageConnectionId, setUsageConnectionId] = useState<string | undefined>();
   const [createdUsageConnection, setCreatedUsageConnection] = useState<

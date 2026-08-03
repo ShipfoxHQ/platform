@@ -60,16 +60,21 @@ export function SignupPage() {
   const skipDraftPersistRef = useRef(false);
 
   async function refreshInvitationWorkspace(workspaceId: string) {
-    try {
-      await refreshAuth();
-      const workspaces = queryClient.getQueryData<{
-        memberships: Array<{id: string}>;
-      }>(userWorkspacesQueryKey);
-      const memberships = workspaces?.memberships ?? [];
-      return memberships.some(({id}) => id === workspaceId);
-    } catch {
-      return false;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await refreshAuth();
+        const workspaces = queryClient.getQueryData<{
+          memberships: Array<{id: string}>;
+        }>(userWorkspacesQueryKey);
+        const memberships = workspaces?.memberships ?? [];
+        if (memberships.some(({id}) => id === workspaceId)) return true;
+      } catch {
+        // A mount-time refresh can race the post-signup refresh. Retry once so
+        // an in-flight request that predates membership creation does not turn
+        // a successful invitation into a manual recovery flow.
+      }
     }
+    return false;
   }
 
   const form = useForm({

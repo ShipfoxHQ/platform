@@ -31,7 +31,7 @@ export const PROJECT_TEST_WSLUG = 'acme';
 const authState: AuthState = {
   status: 'authenticated',
   token: 'token',
-  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: 'acme', membershipId: 'm-1'}],
+  workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: PROJECT_TEST_WSLUG, membershipId: 'm-1'}],
 };
 
 export function jsonResponse(body: unknown, init: ResponseInit = {}) {
