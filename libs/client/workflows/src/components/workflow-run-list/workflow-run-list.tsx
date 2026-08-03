@@ -1,4 +1,4 @@
-import {useMemo} from 'react';
+import {useCallback, useMemo} from 'react';
 import type {WorkflowRunListItem} from '#core/workflow-run.js';
 import {useWorkflowRunsInfiniteQuery} from '#hooks/api/workflow-runs.js';
 import type {WorkflowRunListProps} from './types.js';
@@ -13,8 +13,15 @@ export function WorkflowRunList({
   search = '',
   statusFilter = 'all',
   onFiltersChange,
+  hasNextPage,
+  isFetchingNextPage,
+  isFetchNextPageError,
+  onLoadMore,
 }: WorkflowRunListProps) {
   const query = useWorkflowRunsInfiniteQuery(projectId, {});
+  const handleLoadMore = useCallback(() => {
+    void query.fetchNextPage();
+  }, [query.fetchNextPage]);
   const runs = useMemo<WorkflowRunListItem[]>(
     () => query.data?.pages.flatMap((page) => page.runs) ?? [],
     [query.data],
@@ -31,6 +38,10 @@ export function WorkflowRunList({
       search={search}
       statusFilter={statusFilter}
       {...(onFiltersChange ? {onFiltersChange} : {})}
+      hasNextPage={hasNextPage ?? query.hasNextPage}
+      isFetchingNextPage={isFetchingNextPage ?? query.isFetchingNextPage}
+      isFetchNextPageError={isFetchNextPageError ?? query.isFetchNextPageError}
+      onLoadMore={onLoadMore ?? handleLoadMore}
     />
   );
 }

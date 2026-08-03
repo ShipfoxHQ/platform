@@ -22,6 +22,7 @@ const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
 const DEFINITION_ID = '55555555-5555-4555-8555-555555555555';
 const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const SECOND_RUN_ID = '66666666-6666-4666-8666-000000000002';
+const OLDER_RUN_ID = '66666666-6666-4666-8666-000000000003';
 const BUILD_JOB_ID = '77777777-7777-4777-8777-777777777777';
 const BUILD_STEP_ID = '99999999-9999-4999-8999-000000000000';
 const BUILD_ATTEMPT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000000';
@@ -34,6 +35,7 @@ const DEPLOY_EXECUTION_ONE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-000000000001';
 const DEPLOY_EXECUTION_TWO_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-000000000002';
 const SMOKE_WEB_RE = /smoke-web/u;
 const DEPLOY_WEB_RE = /deploy-web/u;
+const OLDER_RUN_RE = /older-run/u;
 const EXECUTION_ONE_MENU_ITEM = /Execution #1: deploy review #1/u;
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_OVERRIDES = {
@@ -48,6 +50,11 @@ const SECOND_RUN_OVERRIDES = {
   ...RUN_OVERRIDES,
   id: SECOND_RUN_ID,
   name: 'smoke-web',
+} satisfies Partial<WorkflowRunResponseDto>;
+const OLDER_RUN_OVERRIDES = {
+  ...RUN_OVERRIDES,
+  id: OLDER_RUN_ID,
+  name: 'older-run',
 } satisfies Partial<WorkflowRunResponseDto>;
 
 describe('WorkflowRunPages', () => {
@@ -87,6 +94,25 @@ describe('WorkflowRunPages', () => {
     });
     expect(currentSearch(router).status).toBeUndefined();
     expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
+  });
+
+  test('loads older pages before reporting that a search has no matches', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = createPaginatedRunsFetch();
+    configureApiClient({fetchImpl});
+
+    renderRunsPath('?search=older-run');
+
+    expect(await screen.findByText('No matches in loaded history')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Load more runs'}));
+
+    expect(await screen.findByRole('link', {name: OLDER_RUN_RE})).toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.some((call) => {
+        const url = new URL(requestInputUrl(call[0]));
+        return url.searchParams.get('cursor') === 'cursor-2';
+      }),
+    ).toBe(true);
   });
 
   test('shows the list empty state without mounting run detail', async () => {
@@ -343,6 +369,25 @@ function createRunsListFetch() {
     }
     if (url.pathname === `/workflows/runs/${RUN_ID}`) {
       return Promise.resolve(jsonResponse(workflowRunDetailDto({...RUN_OVERRIDES, jobs: []})));
+    }
+
+    return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+  });
+}
+
+function createPaginatedRunsFetch() {
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL(requestInputUrl(input));
+
+    if (url.pathname === '/workflows/runs') {
+      const isSecondPage = url.searchParams.get('cursor') === 'cursor-2';
+      return Promise.resolve(
+        jsonResponse({
+          runs: [workflowRunDto(isSecondPage ? OLDER_RUN_OVERRIDES : RUN_OVERRIDES)],
+          next_cursor: isSecondPage ? null : 'cursor-2',
+          filtered_total_count: isSecondPage ? null : 2,
+        }),
+      );
     }
 
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));

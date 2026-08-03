@@ -16,6 +16,10 @@ export function WorkflowRunListView({
   search = '',
   statusFilter = 'all',
   onFiltersChange,
+  hasNextPage = false,
+  isFetchingNextPage = false,
+  isFetchNextPageError = false,
+  onLoadMore,
 }: WorkflowRunListViewProps) {
   const [localSearch, setLocalSearch] = useState(search);
   const [localStatusFilter, setLocalStatusFilter] = useState(statusFilter);
@@ -64,6 +68,10 @@ export function WorkflowRunListView({
           projectSlug={projectSlug}
           selectedWorkflowRunId={selectedWorkflowRunId}
           onClearFilters={handleClearFilters}
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          isFetchNextPageError={isFetchNextPageError}
+          {...(onLoadMore ? {onLoadMore} : {})}
         />
       </aside>
     </TimeTickerProvider>

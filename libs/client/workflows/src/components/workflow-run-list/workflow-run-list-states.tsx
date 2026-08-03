@@ -68,19 +68,86 @@ export function WorkflowRunListEmpty() {
   );
 }
 
-export function WorkflowRunListNoMatches({onClear}: {onClear: () => void}) {
+export function WorkflowRunListNoMatches({
+  onClear,
+  hasNextPage,
+  isFetchingNextPage,
+  isFetchNextPageError,
+  onLoadMore,
+}: {
+  onClear: () => void;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  isFetchNextPageError: boolean;
+  onLoadMore?: () => void;
+}) {
   return (
-    <div className="p-16">
+    <div className="flex flex-col gap-8 p-16">
+      {isFetchNextPageError ? (
+        <Callout role="alert" type="error">
+          Could not load more workflow runs. Try again to continue searching older runs.
+        </Callout>
+      ) : null}
       <EmptyState
         icon="filterOffLine"
-        title="No matching runs"
-        description="No runs match your current search or status filter."
+        title={hasNextPage ? 'No matches in loaded history' : 'No matching runs'}
+        description={
+          hasNextPage
+            ? 'No loaded runs match your current search or status filter. Load more to search older runs.'
+            : 'No runs match your current search or status filter.'
+        }
         action={
-          <Button type="button" size="sm" variant="secondary" onClick={onClear}>
-            Clear filters
-          </Button>
+          <div className="flex flex-wrap justify-center gap-8">
+            {hasNextPage && onLoadMore ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                isLoading={isFetchingNextPage}
+                onClick={onLoadMore}
+              >
+                Load more runs
+              </Button>
+            ) : null}
+            <Button type="button" size="sm" variant="secondary" onClick={onClear}>
+              Clear filters
+            </Button>
+          </div>
         }
       />
+    </div>
+  );
+}
+
+export function WorkflowRunListLoadMore({
+  hasNextPage,
+  isFetchingNextPage,
+  isFetchNextPageError,
+  onLoadMore,
+}: {
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  isFetchNextPageError: boolean;
+  onLoadMore?: () => void;
+}) {
+  if (!hasNextPage || !onLoadMore) return null;
+
+  return (
+    <div className="flex flex-col items-center gap-8 border-t border-border-neutral-base p-8">
+      {isFetchNextPageError ? (
+        <Callout role="alert" type="error">
+          Could not load more workflow runs. Try again.
+        </Callout>
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        isLoading={isFetchingNextPage}
+        onClick={onLoadMore}
+      >
+        Load more runs
+      </Button>
     </div>
   );
 }
