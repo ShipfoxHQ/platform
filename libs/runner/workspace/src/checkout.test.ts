@@ -522,6 +522,45 @@ describe('writeAmbientGitCredential', () => {
     expect(content).not.toContain('name = "Second Author"');
   });
 
+  it('recognizes a commented Git author section while accumulating repositories', async () => {
+    const configPath = join(root, 'creds', 'git-cred.config');
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/first.git',
+      auth: {
+        kind: 'bearer',
+        token: 'first-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+      gitAuthor: {name: 'First Author', email: 'first@example.com'},
+    });
+    const initial = await readFile(configPath, 'utf8');
+    await writeFile(configPath, initial.replace('[user]\n', '[user] # configured by the job\n'));
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/second.git',
+      auth: {
+        kind: 'bearer',
+        token: 'second-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+      gitAuthor: {name: 'Second Author', email: 'second@example.com'},
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content.match(/^\[user\].*$/gm)).toHaveLength(1);
+    expect(content).toContain('name = "First Author"');
+    expect(content).not.toContain('name = "Second Author"');
+  });
+
   it('includes the prior global config when it exists', async () => {
     const baseConfig = join(root, 'base.gitconfig');
     const configPath = join(root, 'git-cred.config');

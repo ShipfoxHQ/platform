@@ -223,6 +223,92 @@ describe('writeAmbientGitCredential (real git)', () => {
     ).resolves.toBe('Authorization: Bearer second-token');
   });
 
+  it('serializes concurrent updates to one config', async () => {
+    const configPath = join(workdir, 'git-cred.config');
+    const initialRepositoryUrl = 'https://github.com/acme/initial.git';
+    const firstConcurrentRepositoryUrl = 'https://github.com/acme/first.git';
+    const secondConcurrentRepositoryUrl = 'https://github.com/acme/second.git';
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: initialRepositoryUrl,
+      auth: {
+        kind: 'bearer',
+        token: 'initial-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+    await Promise.all([
+      writeAmbientGitCredential({
+        configPath,
+        repositoryUrl: firstConcurrentRepositoryUrl,
+        auth: {
+          kind: 'bearer',
+          token: 'first-token',
+          expires_at: '2026-01-01T00:00:00Z',
+          carry: 'header',
+          host: 'github.com',
+          persist: true,
+        },
+      }),
+      writeAmbientGitCredential({
+        configPath,
+        repositoryUrl: secondConcurrentRepositoryUrl,
+        auth: {
+          kind: 'bearer',
+          token: 'second-token',
+          expires_at: '2026-01-01T00:00:00Z',
+          carry: 'header',
+          host: 'github.com',
+          persist: true,
+        },
+      }),
+    ]);
+
+    await expect(
+      gitOutput(
+        [
+          'config',
+          '--file',
+          configPath,
+          '--get-urlmatch',
+          'http.extraHeader',
+          initialRepositoryUrl,
+        ],
+        workdir,
+      ),
+    ).resolves.toBe('Authorization: Bearer initial-token');
+    await expect(
+      gitOutput(
+        [
+          'config',
+          '--file',
+          configPath,
+          '--get-urlmatch',
+          'http.extraHeader',
+          firstConcurrentRepositoryUrl,
+        ],
+        workdir,
+      ),
+    ).resolves.toBe('Authorization: Bearer first-token');
+    await expect(
+      gitOutput(
+        [
+          'config',
+          '--file',
+          configPath,
+          '--get-urlmatch',
+          'http.extraHeader',
+          secondConcurrentRepositoryUrl,
+        ],
+        workdir,
+      ),
+    ).resolves.toBe('Authorization: Bearer second-token');
+  });
+
   it('replaces an existing credential when the same repository is checked out again', async () => {
     const configPath = join(workdir, 'git-cred.config');
     const repositoryUrl = 'https://github.com/acme/repeated.git';
@@ -258,6 +344,46 @@ describe('writeAmbientGitCredential (real git)', () => {
         workdir,
       ),
     ).resolves.toBe('Authorization: Bearer second-token');
+  });
+
+  it('keeps the first author when the user section has a trailing comment', async () => {
+    const configPath = join(workdir, 'git-cred.config');
+    const repositoryUrl = 'https://github.com/acme/commented.git';
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl,
+      auth: {
+        kind: 'bearer',
+        token: 'first-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+      gitAuthor: {name: 'First Author', email: 'first@example.com'},
+    });
+    const initial = await readFile(configPath, 'utf8');
+    await writeFile(configPath, initial.replace('[user]\n', '[user] ; configured by the job\n'));
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/second-commented.git',
+      auth: {
+        kind: 'bearer',
+        token: 'second-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+      gitAuthor: {name: 'Second Author', email: 'second@example.com'},
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content.match(/^\[user\].*$/gm)).toHaveLength(1);
+    expect(content).toContain('name = "First Author"');
+    expect(content).not.toContain('name = "Second Author"');
   });
 
   it('leaves the existing config in place when Git cannot parse its staged copy', async () => {

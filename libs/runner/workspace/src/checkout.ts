@@ -2,7 +2,7 @@ import {execFile, spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {access, appendFile, chmod, mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {dirname, join} from 'node:path';
+import {dirname, join, resolve} from 'node:path';
 import {promisify} from 'node:util';
 import type {CheckoutTokenAuthDto} from '@shipfox/api-workflows-dto';
 
@@ -14,6 +14,8 @@ const GIT_VERSION_RE = /^git version (\d+)\.(\d+)\.(\d+)/;
 const CONFIG_LINE_BREAK_RE = /[\r\n]/;
 const MIN_GIT_VERSION = {major: 2, minor: 31, patch: 0};
 const GIT_CONFIG_INDEXED_ENV_RE = /^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/;
+const ambientGitConfigLocks = new Map<string, Promise<void>>();
+const GIT_USER_SECTION_RE = /^\[user\]\s*(?:[;#].*)?$/i;
 
 /** Thrown when `git` is not on the runner host's PATH; surfaced as `git_unavailable`. */
 export class GitUnavailableError extends Error {
@@ -198,61 +200,85 @@ export async function checkoutRepository(params: {
   }
 }
 
-export async function writeAmbientGitCredential(params: {
+export function writeAmbientGitCredential(params: {
   configPath: string;
   repositoryUrl: string;
   auth: CheckoutTokenAuthDto;
   gitAuthor?: {name: string; email: string} | undefined;
 }): Promise<void> {
   const {configPath, repositoryUrl, auth, gitAuthor} = params;
-  const includePath = await ambientIncludePath();
-  const existing = await readAmbientGitConfig(configPath);
-  const userLines = gitAuthor
-    ? [
-        GIT_USER_SECTION_HEADER,
-        `\tname = ${gitConfigQuotedValue(gitAuthor.name)}`,
-        `\temail = ${gitConfigQuotedValue(gitAuthor.email)}`,
-      ]
-    : [];
-  const repositoryLines = [
-    `[http "${gitConfigSubsection(repositoryUrl)}"]`,
-    `\textraHeader = ${gitConfigQuotedValue(`Authorization: ${authorizationValue(auth)}`)}`,
-  ];
 
-  await mkdir(dirname(configPath), {recursive: true});
-  const temporaryConfigPath = `${configPath}.${randomUUID()}.tmp`;
-  try {
-    if (existing === undefined || existing.trim() === '') {
-      const lines = [
-        ...(includePath ? ['[include]', `\tpath = ${gitConfigQuotedValue(includePath)}`] : []),
-        ...userLines,
-        ...repositoryLines,
-        '[http]',
-        '\tfollowRedirects = false',
-        '',
-      ];
-      await writeFile(temporaryConfigPath, lines.join('\n'), {flag: 'wx', mode: 0o600});
-    } else {
-      await writeFile(temporaryConfigPath, existing, {flag: 'wx', mode: 0o600});
-      await unsetAmbientGitCredential(temporaryConfigPath, repositoryUrl);
+  return withAmbientGitConfigLock(configPath, async () => {
+    const includePath = await ambientIncludePath();
+    const existing = await readAmbientGitConfig(configPath);
+    const userLines = gitAuthor
+      ? [
+          GIT_USER_SECTION_HEADER,
+          `\tname = ${gitConfigQuotedValue(gitAuthor.name)}`,
+          `\temail = ${gitConfigQuotedValue(gitAuthor.email)}`,
+        ]
+      : [];
+    const repositoryLines = [
+      `[http "${gitConfigSubsection(repositoryUrl)}"]`,
+      `\textraHeader = ${gitConfigQuotedValue(`Authorization: ${authorizationValue(auth)}`)}`,
+    ];
 
-      const current = await readFile(temporaryConfigPath, 'utf8');
-      // [user] applies to the whole ambient config. Keep the first author for v1; per-repository
-      // identities need includeIf gitdir: and are intentionally deferred.
-      const additions = [
-        ...(gitAuthor && !hasGitAuthorSection(current) ? userLines : []),
-        ...repositoryLines,
-        '',
-      ].join('\n');
-      await appendFile(temporaryConfigPath, `${current.endsWith('\n') ? '' : '\n'}${additions}`);
+    await mkdir(dirname(configPath), {recursive: true});
+    const temporaryConfigPath = `${configPath}.${randomUUID()}.tmp`;
+    try {
+      if (existing === undefined || existing.trim() === '') {
+        const lines = [
+          ...(includePath ? ['[include]', `\tpath = ${gitConfigQuotedValue(includePath)}`] : []),
+          ...userLines,
+          ...repositoryLines,
+          '[http]',
+          '\tfollowRedirects = false',
+          '',
+        ];
+        await writeFile(temporaryConfigPath, lines.join('\n'), {flag: 'wx', mode: 0o600});
+      } else {
+        await writeFile(temporaryConfigPath, existing, {flag: 'wx', mode: 0o600});
+        await unsetAmbientGitCredential(temporaryConfigPath, repositoryUrl);
+
+        const current = await readFile(temporaryConfigPath, 'utf8');
+        // [user] applies to the whole ambient config. Keep the first author for v1; per-repository
+        // identities need includeIf gitdir: and are intentionally deferred.
+        const additions = [
+          ...(gitAuthor && !hasGitAuthorSection(current) ? userLines : []),
+          ...repositoryLines,
+          '',
+        ].join('\n');
+        await appendFile(temporaryConfigPath, `${current.endsWith('\n') ? '' : '\n'}${additions}`);
+      }
+
+      await chmod(temporaryConfigPath, 0o600);
+      await rename(temporaryConfigPath, configPath);
+    } finally {
+      await rm(temporaryConfigPath, {force: true});
     }
+    await chmod(configPath, 0o600);
+  });
+}
 
-    await chmod(temporaryConfigPath, 0o600);
-    await rename(temporaryConfigPath, configPath);
+async function withAmbientGitConfigLock<T>(
+  configPath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const lockKey = resolve(configPath);
+  const previous = ambientGitConfigLocks.get(lockKey) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolvePromise) => {
+    release = resolvePromise;
+  });
+  ambientGitConfigLocks.set(lockKey, current);
+
+  await previous;
+  try {
+    return await operation();
   } finally {
-    await rm(temporaryConfigPath, {force: true});
+    release();
+    if (ambientGitConfigLocks.get(lockKey) === current) ambientGitConfigLocks.delete(lockKey);
   }
-  await chmod(configPath, 0o600);
 }
 
 function basicCredential(auth: {username: string; token: string}): string {
@@ -491,7 +517,7 @@ async function readAmbientGitConfig(configPath: string): Promise<string | undefi
 }
 
 function hasGitAuthorSection(config: string): boolean {
-  return config.split('\n').some((line) => line.trim() === GIT_USER_SECTION_HEADER);
+  return config.split('\n').some((line) => GIT_USER_SECTION_RE.test(line.trim()));
 }
 
 function isFileNotFoundError(error: unknown): boolean {

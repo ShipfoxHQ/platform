@@ -153,7 +153,7 @@ apps/client/src/shipfox-app.gen.ts
 .gstack/
 
 # Impeccable local hook cache
-.impeccable/hook.cache.json
+**/.impeccable/hook.cache.json
 
 # Playwright
 test-results/
