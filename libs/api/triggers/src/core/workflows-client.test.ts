@@ -52,6 +52,7 @@ function localWorkflowsClient(): WorkflowsModuleClient {
           {definitionId},
         );
       },
+      resolveWorkflowRunTriggerReference: () => null,
       deliverEventToJobListener: ({jobId}) => {
         if (jobId === listenerErrorInput.jobId) {
           throw createInterModuleKnownError(
@@ -92,6 +93,13 @@ async function runConsumerSuite(client: WorkflowsModuleClient): Promise<void> {
     buffered: true,
     skipped: false,
   });
+  await expect(
+    client.resolveWorkflowRunTriggerReference({
+      workspaceId: input.workspaceId,
+      triggerConnectionId: crypto.randomUUID(),
+      triggerPayload: input.triggerPayload,
+    }),
+  ).resolves.toBeNull();
   await expect(client.deliverEventToJobListener(listenerErrorInput)).rejects.toMatchObject({
     code: 'workspace-not-found',
     details: {workspaceId: input.workspaceId},

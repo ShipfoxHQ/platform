@@ -712,6 +712,10 @@ function makeTriggerEvent(
     event,
     delivery_id: `delivery-${sequence}`,
     received_at: listeningTimestamp(sequence, 1),
+    project: null,
+    repository: null,
+    ref: null,
+    commit: null,
     data: {sequence},
   };
 }

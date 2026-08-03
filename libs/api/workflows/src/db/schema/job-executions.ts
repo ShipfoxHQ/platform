@@ -11,7 +11,11 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import {toJobStatusReason} from '#core/entities/job.js';
-import type {JobExecution, WorkflowExecutionEvent} from '#core/entities/job-execution.js';
+import {
+  type JobExecution,
+  normalizeWorkflowExecutionEvent,
+  type WorkflowExecutionEvent,
+} from '#core/entities/job-execution.js';
 import type {PersistedEvaluationTraceEntry} from '#core/entities/step.js';
 import {pgTable} from './common.js';
 import {jobStatusReasonEnum, jobs} from './jobs.js';
@@ -74,7 +78,7 @@ export function toJobExecution(row: JobExecutionDb, fallbackName: string): JobEx
     runner: row.runner as string[] | null,
     status: row.status,
     statusReason: toJobStatusReason(row.statusReason),
-    triggerEvents: row.triggerEvents,
+    triggerEvents: row.triggerEvents.map(normalizeWorkflowExecutionEvent),
     outputs: row.outputs,
     evaluationTrace: row.evaluationTrace ?? null,
     version: row.version,

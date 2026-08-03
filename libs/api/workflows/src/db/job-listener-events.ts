@@ -2,6 +2,7 @@ import {WORKFLOWS_JOB_EVENT_DELIVERED} from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
 import {isJobTerminal} from '#core/entities/job.js';
 import type {JobListenerEventDisposition} from '#core/entities/job-listener-event.js';
+import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {recordListenerEventReceived} from '#metrics/instance.js';
 import {db} from './db.js';
 import {writeWorkflowsOutboxEvent} from './outbox-writes.js';
@@ -16,6 +17,7 @@ export interface DeliverEventToListenerParams {
   source: string;
   event: string;
   provider: string;
+  triggerReference?: WorkflowRunTriggerReference | null | undefined;
   payload: unknown;
   receivedAt: Date;
 }
@@ -47,6 +49,7 @@ export async function deliverEventToListener(
         deliveryId: params.deliveryId,
         source: params.source,
         event: params.event,
+        triggerReference: params.triggerReference ?? null,
         payload: params.payload,
         receivedAt: params.receivedAt,
       })

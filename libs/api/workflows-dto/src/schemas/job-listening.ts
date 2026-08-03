@@ -33,6 +33,10 @@ export const workflowExecutionEventSchema = z.object({
   event: z.string(),
   delivery_id: z.string(),
   received_at: z.string(),
+  project: z.object({id: z.string().uuid()}).nullable(),
+  repository: z.string().nullable(),
+  ref: z.string().nullable(),
+  commit: z.string().nullable(),
   data: z.unknown(),
 });
 

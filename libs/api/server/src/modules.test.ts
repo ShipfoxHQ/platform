@@ -236,6 +236,7 @@ describe('defaultModules', () => {
             deliverEventToJobListener: vi.fn(),
             getLeasedAgentToolContext: vi.fn(),
             getStepLogContext: vi.fn(),
+            resolveWorkflowRunTriggerReference: vi.fn(),
             startRunFromTrigger: vi.fn(),
           },
         },

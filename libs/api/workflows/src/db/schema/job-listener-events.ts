@@ -1,6 +1,7 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {index, jsonb, pgEnum, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
 import type {JobListenerEvent} from '#core/entities/job-listener-event.js';
+import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {pgTable} from './common.js';
 import {jobExecutions} from './job-executions.js';
 import {jobs} from './jobs.js';
@@ -22,6 +23,7 @@ export const jobListenerEvents = pgTable(
     deliveryId: text('delivery_id').notNull(),
     source: text('source').notNull(),
     event: text('event').notNull(),
+    triggerReference: jsonb('trigger_reference').$type<WorkflowRunTriggerReference>(),
     payload: jsonb('payload').notNull(),
     receivedAt: timestamp('received_at', {withTimezone: true}).notNull(),
     consumedByExecutionId: uuid('consumed_by_execution_id').references(() => jobExecutions.id, {
@@ -50,6 +52,7 @@ export function toJobListenerEvent(row: JobListenerEventDb): JobListenerEvent {
     deliveryId: row.deliveryId,
     source: row.source,
     event: row.event,
+    triggerReference: row.triggerReference ?? null,
     payload: row.payload,
     receivedAt: row.receivedAt,
     consumedByExecutionId: row.consumedByExecutionId,

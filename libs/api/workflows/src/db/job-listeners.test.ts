@@ -6,6 +6,7 @@ import {createWorkflowExpression} from '@shipfox/expression';
 import {and, asc, eq, isNull} from 'drizzle-orm';
 import type {JobListeningTrigger, JobStatus} from '#core/entities/job.js';
 import type {JobExecutionStatus} from '#core/entities/job-execution.js';
+import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {nextStepForJob, recordStepResult} from '#core/job-execution.js';
 import {db} from '#db/db.js';
 import {deliverEventToListener} from '#db/job-listener-events.js';
@@ -83,6 +84,7 @@ function bufferEvent(
   disposition: 'fire' | 'resolve' = 'fire',
   eventRef = crypto.randomUUID(),
   receivedAt = new Date('2026-01-01T00:00:00.000Z'),
+  triggerReference?: WorkflowRunTriggerReference | null,
 ) {
   return deliverEventToListener({
     jobId,
@@ -92,6 +94,7 @@ function bufferEvent(
     source: 'github',
     event: 'pull_request',
     provider: 'github',
+    triggerReference,
     payload: {action: 'opened'},
     receivedAt,
   });
@@ -477,6 +480,62 @@ describe('drainListenerEventsIntoExecution', () => {
       first.toISOString(),
       middle.toISOString(),
       last.toISOString(),
+    ]);
+  });
+
+  it('exposes each buffered event reference on its execution event', async () => {
+    const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
+    const firstReference: WorkflowRunTriggerReference = {
+      project: {id: crypto.randomUUID()},
+      repository: 'acme/one',
+      ref: 'refs/heads/main',
+      commit: '1'.repeat(40),
+    };
+    const secondReference: WorkflowRunTriggerReference = {
+      project: {id: crypto.randomUUID()},
+      repository: 'acme/two',
+      ref: 'refs/pull/12/head',
+      commit: '2'.repeat(40),
+    };
+
+    await bufferEvent(
+      job.id,
+      'fire',
+      crypto.randomUUID(),
+      new Date('2026-01-01T00:00:00.000Z'),
+      firstReference,
+    );
+    await bufferEvent(
+      job.id,
+      'fire',
+      crypto.randomUUID(),
+      new Date('2026-01-01T00:01:00.000Z'),
+      secondReference,
+    );
+
+    await drainListenerEventsIntoExecution({jobId: job.id, expectedSequence: 1});
+
+    const [execution] = await db()
+      .select()
+      .from(jobExecutions)
+      .where(and(eq(jobExecutions.jobId, job.id), eq(jobExecutions.sequence, 1)));
+    expect(execution?.triggerEvents).toEqual([
+      {
+        source: 'github',
+        event: 'pull_request',
+        delivery_id: expect.any(String),
+        received_at: '2026-01-01T00:00:00.000Z',
+        ...firstReference,
+        data: {action: 'opened'},
+      },
+      {
+        source: 'github',
+        event: 'pull_request',
+        delivery_id: expect.any(String),
+        received_at: '2026-01-01T00:01:00.000Z',
+        ...secondReference,
+        data: {action: 'opened'},
+      },
     ]);
   });
 
