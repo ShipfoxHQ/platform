@@ -927,17 +927,6 @@
 
   /* Spacing */
   --spacing: 1px;
-  --spacing-inline: var(--space-inline);
-  --spacing-cluster: var(--space-cluster);
-  --spacing-group: var(--space-group);
-  --spacing-section: var(--space-section);
-  --spacing-region: var(--space-region);
-  --spacing-row-x: var(--pad-row-x);
-  --spacing-row-y: var(--pad-row-y);
-  --spacing-panel-compact: var(--pad-panel-compact);
-  --spacing-panel: var(--pad-panel);
-  --spacing-frame-x: var(--pad-frame-x);
-  --spacing-frame-y: var(--pad-frame-y);
 
   /* Radius */
   --radius-2: 2px;
@@ -1013,13 +1002,41 @@
   --shadow-separator-inset: var(--shadow-separator-inset);
 }
 
-/* Tight spacing uses explicit utilities because gap and padding have different values. */
+/* Semantic spacing utilities are explicit to keep gap and padding roles distinct. */
 @utility gap-tight {
   gap: var(--space-tight);
 }
 
+@utility gap-inline {
+  gap: var(--space-inline);
+}
+
+@utility gap-cluster {
+  gap: var(--space-cluster);
+}
+
+@utility gap-group {
+  gap: var(--space-group);
+}
+
+@utility gap-section {
+  gap: var(--space-section);
+}
+
+@utility gap-region {
+  gap: var(--space-region);
+}
+
 @utility p-tight {
   padding: var(--pad-tight);
+}
+
+@utility p-panel-compact {
+  padding: var(--pad-panel-compact);
+}
+
+@utility p-panel {
+  padding: var(--pad-panel);
 }
 
 @utility px-row {

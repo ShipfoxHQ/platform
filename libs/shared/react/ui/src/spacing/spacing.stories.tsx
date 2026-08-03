@@ -14,7 +14,7 @@ function SpacingPreview() {
   return (
     <div className="min-h-screen bg-background-neutral-background text-foreground-neutral-base">
       <div className="mx-auto flex max-w-[1120px] flex-col gap-region px-frame py-frame">
-        <header className="flex items-center justify-between gap-cluster border-b border-border-neutral-base pb-panel">
+        <header className="flex items-center justify-between gap-cluster border-b border-border-neutral-base p-panel">
           <div className="flex items-center gap-inline">
             <div className="size-24 rounded-full bg-background-contrast-base" />
             <div className="flex flex-col gap-tight">
