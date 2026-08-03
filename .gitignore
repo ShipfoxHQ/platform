@@ -152,6 +152,9 @@ apps/client/src/shipfox-app.gen.ts
 # GStack local agent artifacts
 .gstack/
 
+# Impeccable local hook cache
+.impeccable/hook.cache.json
+
 # Playwright
 test-results/
 playwright-report/
