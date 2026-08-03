@@ -40,6 +40,7 @@ const providers = [
     aliases: ['issues', 'tickets'],
     icon: 'linear',
     overviewHref: '/integrations/linear',
+    setupHref: '/integrations/linear/setup',
     eventCount: 0,
     toolCount: 0,
   },
@@ -59,7 +60,6 @@ assert.doesNotThrow(() =>
       ...providers[2],
       capabilities: ['events'],
       eventCount: 1,
-      setupHref: '/integrations/linear/setup',
     },
   ]),
 );
@@ -76,6 +76,10 @@ assert.throws(
 assert.throws(
   () => validateIntegrationCatalog([{...providers[0], setupHref: undefined}]),
   /available but has no setup page/,
+);
+assert.throws(
+  () => validateIntegrationCatalog([{...providers[2], setupHref: undefined}]),
+  /preview but has no setup page/,
 );
 assert.throws(
   () => validateIntegrationCatalog([providers[1]], {sentry: ['events', 'agent_tools']}),
