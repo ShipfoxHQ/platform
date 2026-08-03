@@ -150,3 +150,31 @@ url = "https://releases.hashicorp.com/packer/1.15.4/packer_1.15.4_windows_amd64.
 [[tools.vale]]
 version = "3.16.0"
 backend = "aqua:vale-cli/vale"
+
+[tools.vale."platforms.linux-arm64"]
+checksum = "sha256:1d7d3c559886d2582d327eb7f12b0f8eaf061ad6b9feb415ac7d1df3610b2ea8"
+url = "https://github.com/vale-cli/vale/releases/download/v3.16.0/vale_3.16.0_Linux_arm64.tar.gz"
+
+[tools.vale."platforms.linux-arm64-musl"]
+checksum = "sha256:1d7d3c559886d2582d327eb7f12b0f8eaf061ad6b9feb415ac7d1df3610b2ea8"
+url = "https://github.com/vale-cli/vale/releases/download/v3.16.0/vale_3.16.0_Linux_arm64.tar.gz"
+
+[tools.vale."platforms.linux-x64"]
+checksum = "sha256:1049f4a585ccd1af96dcf4bdc16800cb3ce426b432da2b27893def42dcfe0ccb"
+url = "https://github.com/vale-cli/vale/releases/download/v3.16.0/vale_3.16.0_Linux_64-bit.tar.gz"
+
+[tools.vale."platforms.linux-x64-musl"]
+checksum = "sha256:1049f4a585ccd1af96dcf4bdc16800cb3ce426b432da2b27893def42dcfe0ccb"
+url = "https://github.com/vale-cli/vale/releases/download/v3.16.0/vale_3.16.0_Linux_64-bit.tar.gz"
+
+[tools.vale."platforms.macos-arm64"]
+checksum = "sha256:9452b8429c6f23aec292c83d474fe3cdb8e3bb00e48dbd3a6ac7a4b3a9a5c39e"
+url = "https://github.com/vale-cli/vale/releases/download/v3.16.0/vale_3.16.0_macOS_arm64.tar.gz"
+
+[tools.vale."platforms.macos-x64"]
+checksum = "sha256:d2a6620513c8295294f724afe902e2e97641ace5004f739f6c25b046799af22c"
+url = "https://github.com/vale-cli/vale/releases/download/v3.16.0/vale_3.16.0_macOS_64-bit.tar.gz"
+
+[tools.vale."platforms.windows-x64"]
+checksum = "sha256:60b6fd5f6250ea92819298e1bbde7876b1ee0f70d815c4039675f50773c01720"
+url = "https://github.com/vale-cli/vale/releases/download/v3.16.0/vale_3.16.0_Windows_64-bit.zip"
