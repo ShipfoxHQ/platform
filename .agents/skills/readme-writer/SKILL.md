@@ -1,6 +1,6 @@
 ---
 name: readme-writer
-description: "Use this skill to write or revise a README.md for a Shipfox workspace package (libs/*, tools/*). It applies the shared package README standard and runs the repository readability check. Trigger on write a README, draft README, rewrite README, document this package, or improve the README."
+description: "Use this skill to write or revise a README.md for a Shipfox workspace package (libs/*, tools/*). It applies the shared package README standard and repository prose policy. Trigger on write a README, draft README, rewrite README, document this package, or improve the README."
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 ---
 
@@ -39,14 +39,10 @@ Do not document symbols that the package does not export or ship.
    copying fast-changing values.
 3. Check nearby package READMEs only for local conventions or comparable
    examples. They do not override the shared standard.
-4. Run the repository readability check:
-
-```sh
-node .agents/skills/readme-writer/scripts/readability.mjs <path-to-README.md>
-```
-
+4. Run `mise exec -- turbo verify --filter=@shipfox/prose-policy` and review its
+   warnings and suggestions for the README.
 5. Apply the guidance in `WRITING.md` to improve the result, then reread the
    README as a package consumer.
 
-Report the public sources inspected, the sections included, and the readability
+Report the public sources inspected, the sections included, and the prose-policy
 result.

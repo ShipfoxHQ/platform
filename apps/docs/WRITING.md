@@ -3,7 +3,7 @@
 Rules specific to the docs app (`content/docs/`). They sit on top of the
 repo-wide [WRITING.md](../../WRITING.md), which owns the general structure,
 sentence, word, and punctuation rules (including the strict no-em-dash rule)
-and the language-level targets. Read that first.
+and sentence-length limits. Read that first.
 
 ## Absolute punctuation rule
 
@@ -36,6 +36,10 @@ integration is connected. Do not use **connection** by itself for this resource,
 especially in titles, navigation, prerequisites, and other text that readers may
 see without surrounding context. Use **integration connection slug** for its
 workflow identifier. Keep the schema field name as `connection` in code.
+
+`integration connection` is a fixed compound. Do not put another noun directly
+before it. Use a prepositional phrase instead: write "the slug of your GitHub
+integration connection", not "your GitHub integration connection slug".
 
 ### Choose the type before writing
 
@@ -128,7 +132,6 @@ consequences or tradeoffs that are not visible from the schema alone.
 - Mechanics and behavior tables when they support the mental model.
 - One minimal annotated YAML example per sub-topic when an example helps.
 - A short correction for a misconception that readers actually encounter.
-- At most one roadmap callout.
 
 ### What an explanation must not contain
 
@@ -162,10 +165,6 @@ consequences or tradeoffs that are not visible from the schema alone.
 
 Do not manufacture history, alternatives, or controversy. Include them only
 when they help the reader reason about Shipfox.
-
-For unreleased features (`status: "soon"` in frontmatter), open with a warning
-callout and mark examples as illustrative. Keep the temporary field table on the
-page until the feature ships, then move it to the canonical reference.
 
 ## How-to guides
 
@@ -290,10 +289,8 @@ when the provider advertises `agent_tools`. The overview's fixed
 `## Capabilities` block states every absent capability as **Not available**.
 Never omit a row silently.
 
-A provider that is not connectable has only an overview with `status: "soon"`.
-Open it with a callout, label its examples as illustrative, and do not describe
-unshipped behavior as available. A connectable Preview provider may have a
-setup page, but its overview still makes the Preview status clear. Follow
+A connectable Preview provider may have a setup page, but its overview must make
+the Preview status clear. Follow
 [Schema fields: document only shipped surface](#schema-fields-document-only-shipped-surface)
 when deciding what to document.
 
@@ -325,17 +322,12 @@ what it can do. It is the hub for all provider pages.
 ---
 title: "<Provider> integration"
 sidebarTitle: "<Provider>"
-status: "soon"
 description: "<State the provider surface this reference describes.>"
 ---
 
-<Callout type="info">
-  **Coming soon.** <State the availability and make any examples illustrative.>
-</Callout>
-
 <One sentence that states the provider's purpose.>
 
-**Availability:** Available | Preview | Coming soon.
+**Availability:** Available | Preview.
 
 ## Authentication
 
@@ -363,13 +355,11 @@ triggers:
 [Set up this integration](/integrations/<provider>/setup)
 ````
 
-For a generally available provider, omit the `status` line and callout, then keep
-the purpose and availability statement as the opening block. For an unavailable
-provider, use the callout before any prose and replace the setup link with an
-explicit statement that setup is not available. The fixed capability rows make
-every missing capability a deliberate answer. The overview always covers purpose,
-availability, authentication method, required access, integration connection slug
-behavior, capability summary, and links to its available pages.
+For a Preview provider, state the Preview status before the purpose and
+availability statement. The fixed capability rows make every missing capability
+a deliberate answer. The overview always covers purpose, availability,
+authentication method, required access, integration connection slug behavior,
+capability summary, and links to its available pages.
 
 ### Provider setup template (How-to)
 
@@ -513,13 +503,12 @@ tool needs sensitive handling; it is not a separate approval policy.
 
 ### New provider checklist
 
-1. Read the provider registry's `capabilities[]` and enabled flag, then decide
-   whether the provider is Available, Preview, or Coming soon.
+1. Read the provider registry's `capabilities[]` and enabled flag, then confirm
+   that the provider is Available or Preview before documenting it.
 2. Write `index.mdx` with purpose, availability, authentication method, required
    access, integration connection slug behavior, the fixed capability block, and
    links to every available sibling page.
-3. Write `setup.mdx` when the provider is connectable. Do not create it for an
-   unavailable provider.
+3. Write `setup.mdx` when the provider is connectable.
 4. Write `events.mdx` only when the provider emits Shipfox-named events.
    Otherwise, make the Events row in the overview say **Not available**.
 5. Write `tools.mdx` only when `capabilities[]` includes `agent_tools`.
@@ -546,8 +535,7 @@ feature's spec and Linear project. The Zod schema
 for docs visibility.
 
 The rule cuts both ways: docs must not lag shipped features any more than they
-may lead them. A coming-soon callout on a shipped feature makes the product look
-smaller than it is. When a feature ships, its docs update in the same slice.
+may lead them. When a feature ships, its docs update in the same slice.
 
 Two gates keep pages honest:
 
@@ -594,8 +582,8 @@ an exact insertion point, such as "Add this job under the existing `jobs` map" o
 
 ### Illustrative pseudocode
 
-Use illustrative YAML only for unreleased behavior or when representation, not
-execution, is the subject. Label it as illustrative before the block. Never ask
+Use illustrative YAML when representation, not execution, is the subject. Label
+it as illustrative before the block. Never ask
 the reader to run it, and never let it appear to document shipped behavior.
 
 ### Rules for every workflow example
@@ -667,19 +655,6 @@ contextual links.
   (`scripts/generate.mjs` regions, checked by `turbo test`).
 - Put expert or debugging detail in `Accordions`, not inline.
 
-## Language level
-
-Check prose pages (tutorials, understand, how-to, getting-started, and indexes)
-with the readability script from the repo root:
-
-```sh
-node .agents/skills/readme-writer/scripts/readability.mjs apps/docs/content/docs/<page>.mdx
-```
-
-Targets and interpretation live in the root [WRITING.md](../../WRITING.md).
-Reference pages are exempt from the vocabulary floor because field names skew
-the count.
-
 ## Frontmatter
 
 - `title`: becomes the H1. Tutorial and how-to titles name the concrete project
@@ -687,6 +662,5 @@ the count.
   product surface.
 - `sidebarTitle`: stays short. For explanation pages, it must sell the capability
   when the subject name alone does not. For task pages, it names the result.
-- `status: "soon"`: renders the sidebar badge for unreleased features.
 - `description`: states the page's reader need and promised value in one or two
   sentences. It must not promise a result the body does not produce.

@@ -36,9 +36,17 @@ Most readers skim. Write so a skimmer still gets the point.
 - Put the subject first. "The runner polls the API" reads faster than
   "Polling of the API is done by the runner."
 - Keep paragraphs under about 5 lines.
-- Active voice, present tense.
+- Prefer active voice and present tense. Passive voice is acceptable when the
+  actor is unknown or irrelevant, especially in reference material.
 - Never chain steps with "first... then...". Readers read top to bottom;
   use a list or numbered steps instead.
+
+<!-- vale off -->
+Prefer negative contractions such as "don't" and "can't". Expand other
+contractions because forms such as "it's" and "there's" can be ambiguous. If a
+sentence turns on a negation, restructure it so the reader cannot miss the
+negative word.
+<!-- vale on -->
 
 <!-- vale off -->
 ## Words
@@ -49,7 +57,11 @@ Most readers skim. Write so a skimmer still gets the point.
 - Cut filler: "you can", "please", "you may try", "simply", "just".
 - No marketing adjectives: "powerful", "seamless", "robust", "battle-tested".
 - Say "you" only when instructing. Everything else reads as description.
-- Define acronyms on first use.
+- The house glossary needs no first-use expansion: API, DTO, ADR, CEL, MIT,
+  YAML, MDX, JWT, SDK, CLI, HTTP, URL, UI, SQL, OAuth, MCP, E2E, and CI.
+- In product documentation, define every acronym outside the house glossary on
+  first use. Engineering documentation may assume its technical audience knows
+  established domain acronyms.
 <!-- vale on -->
 
 ## Punctuation
@@ -61,10 +73,10 @@ rule. Rewrite the sentence with whichever form fits:
 
 | Instead of | Use |
 | --- | --- |
+| Two complete thoughts | Two sentences: `The agent edits. The gate loops.` |
 | A parenthetical aside | Parentheses: `the value (shown once) expires` |
 | Two closely related clauses | A semicolon: `labels route jobs; see Runners` |
 | A clause that introduces an explanation | A colon: `one rule matters: cardinality` |
-| Two complete thoughts | Two sentences: `The agent edits. The gate loops.` |
 
 Regular hyphens in compound words (`single-job`, `read-only`) are fine.
 
@@ -72,24 +84,20 @@ Regular hyphens in compound words (`single-job`, `read-only`) are fine.
 
 Write for a competent reader whose English may be a second language.
 
-Check any prose-heavy file with the readability script, from the repo root:
+Keep descriptive and reference sentences to 25 words or fewer. Keep sentences
+in tutorials, getting-started pages, and how-to guides to 20 words or fewer.
+Tables, code, headings, and other fragments do not count as sentences.
 
-```sh
-node .agents/skills/readme-writer/scripts/readability.mjs <path/to/file.md>
-```
+## Enforcement
 
-Targets: Flesch-Kincaid grade <= 9 and top-1000 vocabulary coverage >= 60%.
-Treat the output as guidance, not a gate:
+Vale enforces this guide across repository documentation, product
+documentation, package READMEs, and Changeset summaries. Error-level rules are
+mechanical and block verification. Warnings and suggestions identify prose that
+needs author judgment.
 
-- The grade signal is the one to chase. A high grade almost always means one
-  sentence is trying to say three things; split it.
-<!-- vale off -->
-- Domain terms (workflow, provisioner, idempotent, repository) inflate both
-  numbers. Keep them when they carry meaning; hunt only for words like
-  "utilize", "facilitate", or "subsequent" that add nothing.
-<!-- vale on -->
-- Reference material (field tables, env-var lists) is exempt from the
-  vocabulary floor; field names skew the count.
+Read [ADR 0010](docs/adr/0010-prose-standard-and-enforcement.md) before adding
+or changing a prose rule. It records the sources, measurements, rejected
+alternatives, enforcement scope, and accepted divergences behind this guide.
 
 ## Package READMEs
 
@@ -105,11 +113,12 @@ Use the sections that apply, in this order:
 <one-line description>       required
 
 ## What it does              required
-## Installation / Setup      required
+## Installation and setup    required
 ## Usage                     required, with one runnable snippet
 ## Environment               when the package reads process.env
-## Routes / API / Data Model when the package exposes one of these
-## Behavior Notes            optional, for non-obvious semantics
+## Routes / API              when the package exposes one of these
+## Data model                when the package owns persistent data
+## Behavior notes            optional, for non-obvious semantics
 ## Development               required
 ## License                   required
 ```
@@ -129,7 +138,7 @@ List the public surface under **What it does**. Start each bullet with the
 bolded exported symbol or concept, then explain it in one sentence. Group
 related exports when individual bullets would add noise.
 
-Under **Installation / Setup**, show the dependency command or `workspace:*`
+Under **Installation and setup**, show the dependency command or `workspace:*`
 snippet that matches the package's distribution. Do not document unexported
 symbols or internal helpers.
 
@@ -139,7 +148,7 @@ Include one small runnable TypeScript example that exercises the primary entry
 point. Import from the package root, not an internal path. If setup is needed,
 show it as a second smaller block in the same section.
 
-Use **Environment**, **Routes**, **API**, or **Data Model** only when they
+Use **Environment**, **Routes**, **API**, or **Data model** only when they
 apply. Use a table for more than three repeated rows and bullets otherwise.
 Link to executable configuration or schemas instead of copying fast-changing
 defaults and accepted values.

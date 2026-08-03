@@ -51,6 +51,7 @@ names it and links to it; it does not restate it.
 | Needs a package-local API, configuration, fixture, or operational constraint. | [Package README standard](../WRITING.md#package-readmes) | How to find and shape the owning package README; the README beside the package owns the local detail. |
 | Creates or changes a visual or interaction decision. | [Design system](../DESIGN.md) | Shared tokens, components, accessibility, motion, status taxonomy, patterns, and review anti-patterns. Code owns exact token and component values. |
 | Writes engineering prose or a runbook. | [Writing guide](../WRITING.md) | Repository prose, style, punctuation, and readability. |
+| Adds or changes a prose rule. | [ADR 0010](adr/0010-prose-standard-and-enforcement.md) | The rationale, rule sources, enforcement model, and accepted divergences behind the prose standard. |
 | Creates or updates a package README. | [Package README standard](../WRITING.md#package-readmes) | Required sections, public API, local checks, and license. |
 | Writes or reviews code comments, module exports, or non-trivial control flow. | [Code style policy](policies/code-style.md) | Shared code-comment, import and export, and control-flow rules. |
 | Writes product or self-hosting documentation. | [Docs writing guide](../apps/docs/WRITING.md) | Product documentation page types, templates, and local terminology. |
