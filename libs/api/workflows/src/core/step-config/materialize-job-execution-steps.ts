@@ -1,4 +1,4 @@
-import type {WorkflowModel} from '@shipfox/api-definitions-dto';
+import {DEFAULT_JOB_CHECKOUT, type WorkflowModel} from '@shipfox/api-definitions-dto';
 import type {WorkflowExpression} from '@shipfox/expression';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import type {
@@ -41,15 +41,14 @@ export interface MaterializeJobExecutionStepsParams {
 
 // Synthetic "Set up job" step prepended when a job execution's steps are materialized.
 // The runner prepares the workspace here; failures report through the normal step
-// protocol instead of hanging the job until the lease/timeout fires. Its config is
-// credential-free.
-const SETUP_STEP: MaterializedWorkflowStep = {
+// protocol instead of hanging the job until the lease/timeout fires. Its config carries
+// checkout policy, never credential material.
+const SETUP_STEP: Omit<MaterializedWorkflowStep, 'config'> = {
   key: null,
   name: 'Set up job',
   sourceLocation: null,
   status: 'pending',
   type: 'setup',
-  config: {},
   authoredConfig: null,
   position: 0,
 };
@@ -68,7 +67,7 @@ export async function materializeJobExecutionSteps(
   } = params;
 
   return [
-    SETUP_STEP,
+    setupStepForJob(job),
     ...(await Promise.all(
       job.steps.map(async (step, stepPosition) => {
         const stepContext = {
@@ -105,6 +104,20 @@ export async function materializeJobExecutionSteps(
       }),
     )),
   ];
+}
+
+function setupStepForJob(job: WorkflowModelJob): MaterializedWorkflowStep {
+  const checkout = job.checkout ?? DEFAULT_JOB_CHECKOUT;
+
+  return {
+    ...SETUP_STEP,
+    config: {
+      checkout: {
+        permissions: checkout.permissions,
+        persist_credentials: checkout.persistCredentials,
+      },
+    },
+  };
 }
 
 function materializedConfigPlan(
