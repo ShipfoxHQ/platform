@@ -40,8 +40,11 @@ export interface MarkdownLink {
  * explicit so adding a new exception requires changing this policy.
  */
 export const excludedDocumentationPaths = [
+  {path: '.agents/skills/', reason: 'Agent skills own their provider-specific documentation.'},
+  {path: '.claude/skills/', reason: 'Claude skills own their provider-specific documentation.'},
   {path: '.changeset/', reason: 'Changeset files are release metadata.'},
   {path: '.context/', reason: 'Workspace collaboration files are local state.'},
+  {path: '.github/skills/', reason: 'GitHub skills own their provider-specific documentation.'},
   {path: 'apps/docs/WRITING.md', reason: 'The docs app owns its surface-specific writing guide.'},
   {path: 'apps/docs/content/', reason: 'The docs app owns product documentation links.'},
   {path: '**/CHANGELOG.md', reason: 'Changelogs are generated release output.'},
@@ -243,11 +246,7 @@ function isIncludedDocumentationPath(relativePath: string): boolean {
 }
 
 function isApprovedRoot(relativePath: string): boolean {
-  return (
-    entrypointFiles.has(relativePath) ||
-    path.posix.basename(relativePath) === 'README.md' ||
-    relativePath.startsWith('.agents/skills/')
-  );
+  return entrypointFiles.has(relativePath) || path.posix.basename(relativePath) === 'README.md';
 }
 
 function parseTarget(

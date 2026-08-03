@@ -9,9 +9,9 @@ documents are reachable from an approved entrypoint or index.
 Product pages under `apps/docs/content/` remain owned by the docs app's link
 checker. Changelogs and Changeset files are generated release metadata. Local
 `README.md` files are approved roots because package and subsystem documentation
-is intentionally discoverable beside the code that owns it. Agent skills are
-also explicit roots because they own agent-only workflow behavior while linking
-shared rules back to human-readable repository sources.
+is intentionally discoverable beside the code that owns it. Provider-managed
+agent skills remain outside this graph because they own agent-only workflow
+behavior and can contain provider-specific references.
 
 ## Installation / Setup
 
