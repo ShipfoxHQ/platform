@@ -1,0 +1,6 @@
+extends: occurrence
+message: "Keep procedural sentences to 20 words or fewer (found %d)."
+level: warning
+scope: sentence
+max: 20
+token: '\b\w+\b'

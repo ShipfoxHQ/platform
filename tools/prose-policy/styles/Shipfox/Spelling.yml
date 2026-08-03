@@ -1,0 +1,3 @@
+extends: spelling
+message: "Check the spelling of '%s' against the project vocabulary."
+level: warning

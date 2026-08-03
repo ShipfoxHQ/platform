@@ -36,7 +36,7 @@ bodies, headers, and console logs disabled. Inputs are masked by the client SDK.
 
 ## Explore
 
-In the project, you can see:
+The project includes:
 
 - `lib/source.ts`: Code for content source adapter, [`loader()`](https://fumadocs.dev/docs/headless/source-api) provides the interface to access your content.
 - `app/layout.config.tsx`: Shared options for layouts, optional but preferred to keep.
@@ -49,7 +49,8 @@ In the project, you can see:
 
 ### Fumadocs MDX
 
-A `source.config.ts` config file has been included, you can customise different options like frontmatter schema.
+The repository includes a `source.config.ts` file. Customize options such as
+the frontmatter schema.
 
 Read the [Introduction](https://fumadocs.dev/docs/mdx) for further details.
 

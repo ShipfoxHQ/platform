@@ -135,7 +135,7 @@ change.
 
 **Creative North Star: "The Glass Cockpit."**
 
-A glass cockpit is the panel a pilot trusts at 2am: every readout is legible at a
+A glass cockpit is the panel a pilot trusts at 2 AM: every readout is legible at a
 glance, nothing moves that does not mean something, and the one warning light that
 turns on is the one thing you look at. Shipfox is that panel for engineers flying
 fleets of agents. The chrome is quiet and industrial. The data is where all the
@@ -254,10 +254,12 @@ inverted neutral) and *not* a status hue (warning orange is a different scale,
 make something feel branded, stop. The brand lives in monospace, density,
 restraint, and that one precise ring.
 
+<!-- vale off -->
 **The Shape-Not-Just-Color Rule.** Status is never carried by color alone
 (WCAG 1.4.1). A glyph shape or a written word always co-signs the hue, and the
 status color lives in the dot, pill, glyph, or border, never as a full row or card
 fill (which fights zebra rhythm and dark mode).
+<!-- vale on -->
 
 ## Typography
 
@@ -349,7 +351,7 @@ are theme-aware inside the token, so a component never sets a raw shadow.
 - **`--shadow-separator-inset`**: an inset top-highlight / bottom-shadow pair for
   hairline dividers inside dark panels.
 
-**The Token-Only-Shadow Rule.** Never write a custom `box-shadow` hex. Custom
+**The Token-Only Shadow Rule.** Never write a custom `box-shadow` hex. Custom
 shadows break in dark mode because they miss the theme-aware alpha layering the
 tokens carry. If you need a new elevation, add a token.
 
@@ -483,7 +485,7 @@ appending 50 lines a second with an entrance animation is nausea.
   `transparent` / `transparentMuted` revealed on hover.
 - **Do** respect `prefers-reduced-motion`: disable pulsing indicators and tab
   transitions, and give every icon-only button an `aria-label`.
-- **Do** reserve motion for discrete events (150 to 250ms ease-out for a state
+- **Do** reserve motion for discrete events (150 to 250 ms ease-out for a state
   flip or a panel entering); let high-frequency data (logs, polling counters) swap
   silently.
 - **Do** let marketing breathe more (`text-5xl` heads, `gap-64` sections) while

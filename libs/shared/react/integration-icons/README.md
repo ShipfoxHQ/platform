@@ -3,7 +3,7 @@
 The source-to-icon mapping for integration providers (GitHub, Sentry, Linear,
 Slack, Gitea, generic webhooks), plus the `IntegrationIcon` component that
 renders it. This is a leaf package: no routing, no connection state, no
-business logic, just presentation data any client feature can depend on.
+business logic, presentation data only, which any client feature can depend on.
 
 ## What it does
 

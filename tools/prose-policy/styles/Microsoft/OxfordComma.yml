@@ -1,0 +1,13 @@
+extends: existence
+message: "Use the Oxford comma in '%s'."
+link: https://learn.microsoft.com/en-us/style-guide/punctuation/commas
+scope: sentence
+level: suggestion
+nonword: true
+# List items may be several words long, not just one (issue #30). Two guards keep
+# the false-positive rate down: the item can't open with a clause-introducer
+# (', which ...', ', specifically ...'), and neither item may contain an
+# auxiliary verb, which is what distinguishes a list from a compound predicate
+# (', it has some downsides and is officially discouraged.').
+tokens:
+  - ',\s(?!(?:which|who|whom|whose|that|where|when|while|because|since|although|though|if|unless|so|but|and|or|however|therefore|thus|specifically|especially|namely|then|take|see|note|consider|make|use|either|neither)\b)(?:(?!\b(?:is|are|was|were|has|have|had|be|been|being|will|would|can|could|should|may|might|must|do|does|did)\b)\w+ ){0,4}\w+ (?:and|or) (?:(?!\b(?:is|are|was|were|has|have|had|be|been|being|will|would|can|could|should|may|might|must|do|does|did)\b)\w+ ){0,4}\w+[.?!]'

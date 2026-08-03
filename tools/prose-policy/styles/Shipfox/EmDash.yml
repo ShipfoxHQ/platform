@@ -1,0 +1,5 @@
+extends: existence
+message: "Replace Unicode dash punctuation with a context-appropriate alternative."
+level: error
+raw:
+  - '[\x{2013}\x{2014}]'

@@ -1,0 +1,12 @@
+extends: existence
+message: "Replace marketing language with a specific description of the behavior."
+level: error
+ignorecase: true
+tokens:
+  - powerful
+  - seamless
+  - robust
+  - battle-tested
+  - world-class
+  - blazing
+  - effortless

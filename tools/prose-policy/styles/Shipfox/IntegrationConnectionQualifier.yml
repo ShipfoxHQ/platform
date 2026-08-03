@@ -1,0 +1,7 @@
+extends: existence
+vocab: false
+message: "Avoid stacking a qualifier before '%s'; use a prepositional phrase."
+level: warning
+ignorecase: true
+raw:
+  - '\b(?:the|a|an|your|our|their|this|that|each|any)\s+\w+(?:\s+\w+){0,3}\s+integration connection\b'

@@ -146,3 +146,7 @@ url = "https://releases.hashicorp.com/packer/1.15.4/packer_1.15.4_darwin_amd64.z
 [tools.packer."platforms.windows-x64"]
 checksum = "sha256:a50db29fae2972f5e5d05ecee23f80e303d605f8132dc2167848fc89184f044b"
 url = "https://releases.hashicorp.com/packer/1.15.4/packer_1.15.4_windows_amd64.zip"
+
+[[tools.vale]]
+version = "3.16.0"
+backend = "aqua:vale-cli/vale"

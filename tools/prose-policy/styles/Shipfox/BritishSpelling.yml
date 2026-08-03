@@ -1,0 +1,64 @@
+extends: substitution
+message: "Use American spelling: '%s' instead of '%s'."
+level: warning
+ignorecase: true
+capitalize: true
+action:
+  name: replace
+swap:
+  acknowledgement: acknowledgment
+  ageing: aging
+  aluminium: aluminum
+  analyse: analyze
+  analysed: analyzed
+  analysing: analyzing
+  apologise: apologize
+  apologised: apologized
+  authorise: authorize
+  authorised: authorized
+  behaviour: behavior
+  catalogue: catalog
+  centre: center
+  civilise: civilize
+  colour: color
+  customise: customize
+  customised: customized
+  defence: defense
+  emphasise: emphasize
+  emphasised: emphasized
+  endeavour: endeavor
+  enrol: enroll
+  enrolment: enrollment
+  favour: favor
+  favourite: favorite
+  fulfil: fulfill
+  fulfilment: fulfillment
+  generalise: generalize
+  honour: honor
+  initialise: initialize
+  initialised: initialized
+  licence: license
+  localise: localize
+  manoeuvre: maneuver
+  modelling: modeling
+  organisation: organization
+  organise: organize
+  organised: organized
+  optimise: optimize
+  optimised: optimized
+  practise: practice
+  programme: program
+  realise: realize
+  realised: realized
+  recognise: recognize
+  recognised: recognized
+  signalling: signaling
+  specialise: specialize
+  specialised: specialized
+  summarise: summarize
+  summarised: summarized
+  theatre: theater
+  travelling: traveling
+  travelled: traveled
+  towards: toward
+  whilst: while

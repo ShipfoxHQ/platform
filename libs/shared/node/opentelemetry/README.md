@@ -111,7 +111,7 @@ export OTEL_INSTANCE_METRICS_PORT="9464"
 export OTEL_SERVICE_METRICS_PORT="9474"
 ```
 
-You can also set metrics ports in code with `startInstanceInstrumentation` options.
+Set metrics ports in code with `startInstanceInstrumentation` options.
 
 ## Development
 

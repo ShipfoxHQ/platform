@@ -32,7 +32,7 @@ Spawns the provisioner dist (`node .../provisioner-docker/dist/index.js`), appen
 its stdout and stderr to `logFile` (keep this file as a CI artifact), and resolves
 once the provisioner reports as active for the workspace. It rejects, after killing
 the child, if the process exits before it becomes active or the readiness budget
-(default 30s) runs out.
+(default 30 s) runs out.
 
 ```ts
 const handle = await startProvisioner({
@@ -54,7 +54,7 @@ depends on `^build`, and this package depends on `@shipfox/provisioner-docker`.
 
 ### `stopProvisioner(handle, options?)`
 
-Sends `SIGTERM` (then `SIGKILL` after a grace period, default 15s) so the
+Sends `SIGTERM` (then `SIGKILL` after a grace period, default 15 s) so the
 provisioner reaps its own containers, then removes any container still carrying the
 `shipfox.workspace_id=<workspaceId>` label as a backstop. The backstop is
 best-effort: a Docker failure is written to stderr, not thrown.
@@ -80,7 +80,7 @@ E2E_ENABLED=true pnpm --filter=@shipfox/api dev
 turbo build --filter=@shipfox/provisioner-docker
 ```
 
-Then, from a scratch script (run with the workspace conditions, e.g. `tsx`):
+Then, from a scratch script (run with the workspace conditions, for example `tsx`):
 
 ```ts
 import {createUser, createSession} from '@shipfox/e2e-setup-auth';

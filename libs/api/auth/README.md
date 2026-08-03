@@ -60,7 +60,7 @@ Required environment:
 | `AUTH_JOB_LEASE_TOKEN_EXPIRES_IN` | `90m` | Job lease token lifetime. |
 | `AUTH_RUNNER_SESSION_TOKEN_EXPIRES_IN` | `1h` | Runner session token lifetime. |
 | `AUTH_REFRESH_TOKEN_EXPIRES_IN_DAYS` | `14` | Refresh token and cookie lifetime. |
-| `AUTH_REFRESH_ROTATION_GRACE_SECONDS` | `30` | Grace window for accepting a just-rotated refresh token during concurrent refreshes. |
+| `AUTH_REFRESH_ROTATION_GRACE_SECONDS` | `30` | Grace window for accepting a recently rotated refresh token during concurrent refreshes. |
 | `AUTH_REFRESH_COOKIE_NAME` | `shipfox_refresh_token` | HTTP cookie name for refresh sessions. |
 | `AUTH_PASSWORD_ENABLED` | `true` | Enables password and email-verification routes. Set to `false` when another module provides login. Server construction fails if no login method is available. |
 | `AUTH_SIGNUP_GATE_ENABLED` | `false` | Restricts new account creation to the configured signup email allowlist. Requires `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` or `AUTH_SIGNUP_ALLOWED_EMAILS` to be set. |

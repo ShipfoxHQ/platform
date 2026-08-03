@@ -1,0 +1,6 @@
+extends: existence
+message: "Expand non-negative contractions such as '%s'."
+level: warning
+raw:
+  - >-
+    \b(?:[A-Za-z]+(?:'|’)(?:s|re|ve|ll|d|m)|let(?:'|’)s)\b
