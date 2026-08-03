@@ -34,7 +34,7 @@ const providers = [
     slug: 'linear',
     name: 'Linear',
     summary: 'Planned issue tracking integration.',
-    availability: 'coming-soon',
+    availability: 'preview',
     capabilities: [],
     categories: ['issue-tracking'],
     aliases: ['issues', 'tickets'],
@@ -53,9 +53,15 @@ assert.throws(
   () => validateIntegrationCatalog([{...providers[0], toolCount: 0}]),
   /declares agent tools but its tool count is 0/,
 );
-assert.throws(
-  () => validateIntegrationCatalog([{...providers[2], capabilities: ['events'], eventCount: 1}]),
-  /coming soon but declares capabilities/,
+assert.doesNotThrow(() =>
+  validateIntegrationCatalog([
+    {
+      ...providers[2],
+      capabilities: ['events'],
+      eventCount: 1,
+      setupHref: '/integrations/linear/setup',
+    },
+  ]),
 );
 assert.throws(
   () => validateIntegrationCatalog([{...providers[0], setupHref: undefined}]),

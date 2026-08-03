@@ -51,14 +51,14 @@ const providers: CatalogProvider[] = [
     slug: 'linear',
     name: 'Linear',
     summary: 'Issue tracking',
-    availability: 'coming-soon',
-    capabilities: [],
+    availability: 'available',
+    capabilities: ['agent_tools'],
     categories: ['issue-tracking'],
     aliases: ['issues'],
     icon: 'linear',
     overviewHref: '/integrations/linear',
     eventCount: 0,
-    toolCount: 0,
+    toolCount: 1,
   },
 ];
 
@@ -91,7 +91,7 @@ describe('filterProviders', () => {
 
     assert.deepEqual(
       filtered.map((provider) => provider.slug),
-      ['github', 'sentry', 'webhooks'],
+      ['github', 'sentry', 'webhooks', 'linear'],
     );
   });
 });

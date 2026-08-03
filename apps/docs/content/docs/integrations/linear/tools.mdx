@@ -1,0 +1,22 @@
+---
+title: "Linear agent tools"
+sidebarTitle: "Tools"
+description: "Look up the Linear tools, selectors, permissions, inputs, and outputs available to agent steps."
+---
+
+import LinearTools from '../../../generated/integrations/linear/tools.mdx';
+
+This reference lists the shipped Linear agent-tool catalog. See the [Linear
+overview](/integrations/linear) for availability and setup.
+
+## Selectors
+
+Use a standalone tool selector in an agent step's `integrations:` block. For the
+agent integration contract, see the [workflow schema reference](/reference/workflow-schema#agent-integration-fields).
+
+## Tool catalog
+
+The catalog uses Linear's OAuth scopes. Read tools require `read` access. Write
+tools require `write` access and may need explicit write approval in the workflow.
+
+<LinearTools />

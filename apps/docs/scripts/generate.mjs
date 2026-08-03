@@ -8,7 +8,15 @@ import {
   githubAgentToolSelectionCatalog,
 } from '@shipfox/api-integration-github/agent-tools';
 import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
+import {
+  linearAgentToolCatalog,
+  linearAgentToolSelectionCatalog,
+} from '@shipfox/api-integration-linear/agent-tools';
 import {sentryEventCatalog} from '@shipfox/api-integration-sentry-dto';
+import {
+  slackAgentToolCatalog,
+  slackAgentToolSelectionCatalog,
+} from '@shipfox/api-integration-slack/agent-tools';
 import {webhookEventCatalog} from '@shipfox/api-integration-webhook-dto';
 import {
   buildTypedRootsEnvironment,
@@ -33,8 +41,16 @@ const dtoCatalogBySlug = {
     toolCatalog: githubAgentToolCatalog,
     toolSelectionCatalog: githubAgentToolSelectionCatalog,
   },
+  linear: {
+    toolCatalog: linearAgentToolCatalog,
+    toolSelectionCatalog: linearAgentToolSelectionCatalog,
+  },
   sentry: {
     eventCatalog: sentryEventCatalog,
+  },
+  slack: {
+    toolCatalog: slackAgentToolCatalog,
+    toolSelectionCatalog: slackAgentToolSelectionCatalog,
   },
   webhooks: {
     eventCatalog: webhookEventCatalog,
@@ -183,9 +199,12 @@ function renderEventCatalog(catalog) {
 
 function renderToolCatalog(catalog, selectionCatalog) {
   const lines = [];
-  for (const category of [...new Set(catalog.map((tool) => tool.category))]) {
+  const categories = [...new Set(catalog.map((tool) => tool.category ?? 'tools'))];
+  for (const category of categories) {
     lines.push(`### ${category.replaceAll('_', ' ')}`, '');
-    for (const tool of catalog.filter((candidate) => candidate.category === category)) {
+    for (const tool of catalog.filter(
+      (candidate) => (candidate.category ?? 'tools') === category,
+    )) {
       lines.push(
         `#### \`${tool.id}\``,
         '',

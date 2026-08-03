@@ -28,6 +28,16 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
+    },
+    "./agent-tools": {
+      "workspace-source": {
+        "types": "./src/core/agent-tools.ts",
+        "default": "./src/core/agent-tools.ts"
+      },
+      "default": {
+        "types": "./dist/core/agent-tools.d.ts",
+        "default": "./dist/core/agent-tools.js"
+      }
     }
   },
   "scripts": {

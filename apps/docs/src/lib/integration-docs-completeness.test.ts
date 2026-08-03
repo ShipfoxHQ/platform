@@ -9,7 +9,7 @@ import {registeredIntegrationProviders} from '@/lib/registered-integration-provi
 
 const githubToolsIssuePattern = /Integration provider "github": add tools\.mdx/;
 const linearAvailabilityIssuePattern =
-  /Integration provider "linear": set catalog availability to "coming-soon"/;
+  /Integration provider "linear": set catalog availability to "available"/;
 const sentryCapabilitiesIssuePattern =
   /Integration provider "sentry": remove the stale "agent_tools" capability/;
 const cronSectionIssuePattern = /Built-in source "cron": add a "## cron" section/;
@@ -25,8 +25,8 @@ const validInput: IntegrationDocsCompletenessInput = {
     },
     sentry: {availability: 'available', capabilities: ['events'], eventCount: 1, toolCount: 0},
     webhooks: {availability: 'available', capabilities: ['events'], eventCount: 1, toolCount: 0},
-    linear: {availability: 'coming-soon', capabilities: [], eventCount: 0, toolCount: 0},
-    slack: {availability: 'coming-soon', capabilities: [], eventCount: 0, toolCount: 0},
+    linear: {availability: 'available', capabilities: ['agent_tools'], eventCount: 0, toolCount: 1},
+    slack: {availability: 'available', capabilities: ['agent_tools'], eventCount: 0, toolCount: 1},
   },
   integrationDirectories: {
     github: directory(
@@ -52,30 +52,18 @@ const validInput: IntegrationDocsCompletenessInput = {
       categories: ['custom'],
       aliases: ['hooks'],
     }),
-    linear: directory(
-      'linear',
-      ['index'],
-      ['index'],
-      {
-        availability: 'coming-soon',
-        capabilities: [],
-        categories: ['issue-tracking'],
-        aliases: ['issues'],
-      },
-      'soon',
-    ),
-    slack: directory(
-      'slack',
-      ['index'],
-      ['index'],
-      {
-        availability: 'coming-soon',
-        capabilities: [],
-        categories: ['messaging'],
-        aliases: ['chat'],
-      },
-      'soon',
-    ),
+    linear: directory('linear', ['index', 'setup', 'tools'], ['index', 'setup', 'tools'], {
+      availability: 'available',
+      capabilities: ['agent_tools'],
+      categories: ['issue-tracking'],
+      aliases: ['issues'],
+    }),
+    slack: directory('slack', ['index', 'setup', 'tools'], ['index', 'setup', 'tools'], {
+      availability: 'available',
+      capabilities: ['agent_tools'],
+      categories: ['messaging'],
+      aliases: ['chat'],
+    }),
   },
   categoryLabels: catalogCategoryLabels,
   triggerSources: '## Sources at a glance\n| Cron | `cron` | `tick` |\n\n## cron',
@@ -104,7 +92,7 @@ test('reports provider-named fixes for missing and stale documentation', () => {
         ...linear,
         overview: {
           ...linearOverview,
-          catalog: {...linearOverview.catalog, availability: 'available'},
+          catalog: {...linearOverview.catalog, availability: 'preview'},
         },
       },
       sentry: {

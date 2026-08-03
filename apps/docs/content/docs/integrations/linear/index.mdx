@@ -1,24 +1,18 @@
 ---
 title: "Linear integration"
 sidebarTitle: "Linear"
-status: "soon"
-description: "Check the Linear integration's current availability and the custom webhook alternative for Linear events."
+description: "Look up the Linear integration's availability, OAuth access, integration connection identity, and agent tools."
 catalog:
-  summary: "Planned issue-tracking integration for receiving Linear events in Shipfox."
-  availability: "coming-soon"
-  capabilities: []
+  summary: "Connect a Linear workspace and give agents scoped Linear tools."
+  availability: "available"
+  capabilities: ["agent_tools"]
   categories: ["issue-tracking"]
   aliases: ["issues", "tickets"]
   icon: "linear"
 ---
 
-<Callout type="info">
-  **Coming soon.** The Linear integration is not available. Shipfox cannot
-  create Linear integration connections yet.
-</Callout>
-
-The planned Linear integration is intended to receive Linear events in Shipfox.
-Its event and agent-tool capabilities are not available.
+Linear connects a Linear workspace to Shipfox. Agent steps can use selected
+Linear tools through the integration connection.
 
 ## Categories and related terms
 
@@ -26,15 +20,29 @@ Its event and agent-tool capabilities are not available.
 
 **Related terms:** Issues, tickets.
 
-**Availability:** Coming soon.
+**Availability:** Available.
 
 ## Authentication
 
-Not available.
+Shipfox uses Linear OAuth. Authorize the Shipfox app for the target Linear
+workspace. The OAuth flow requests `read`, `write`, `app:assignable`, and
+`app:mentionable` access.
 
 ## Integration connection identity
 
-Linear integration connection slugs are not available.
+The slug of a Linear integration connection defaults to
+`linear_<organization>`, where `<organization>` is the Linear organization URL
+key. For example, `linear_acme`. Shipfox normalizes the key, falls back to
+`linear` when it is unavailable, and makes the slug unique within the workspace.
+Use it as `connection` in an agent integration selection.
+
+```yaml
+integrations:
+  - connection: linear_acme
+    include: [list_issues]
+```
+
+For the agent integration contract, see the [workflow schema reference](/reference/workflow-schema#agent-integration-fields).
 
 ## Capabilities
 
@@ -42,11 +50,6 @@ Linear integration connection slugs are not available.
 | --- | --- |
 | Source control | **Not available.** |
 | Events | **Not available.** |
-| Agent tools | **Not available.** |
+| Agent tools | Available. [View Linear agent tools](/integrations/linear/tools). |
 
-## Available alternative
-
-Use a [custom webhook](/integrations/webhooks) for Linear events today. Create
-a webhook integration connection, point a Linear webhook at its ingest URL, and
-trigger workflows on `received`. Shipfox passes the request payload to the run
-as `event`.
+[Connect Linear](/integrations/linear/setup) to create an integration connection.
