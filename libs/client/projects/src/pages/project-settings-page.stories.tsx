@@ -122,6 +122,9 @@ export const SlugChangeWarning: Story = {
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('Change project slug?');
     expect(dialog).toHaveTextContent('Links and bookmarks pointing at the old URL stop working.');
+    expect(dialog).toHaveTextContent(
+      'Workflows that reference this project slug may stop working.',
+    );
   },
 };
 

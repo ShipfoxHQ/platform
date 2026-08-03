@@ -84,7 +84,7 @@ describe('SlugField', () => {
       'old slug becomes available for someone else to take',
     );
     expect(screen.getByRole('dialog')).toHaveTextContent(
-      'slug has been written down by hand needs updating',
+      'Workflows that reference this project slug may stop working.',
     );
   });
 

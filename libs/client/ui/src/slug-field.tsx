@@ -155,7 +155,7 @@ export function SlugChangeWarning({
           <ul className="list-disc pl-20 text-sm text-foreground-neutral-base">
             <li>Links and bookmarks pointing at the old URL stop working.</li>
             <li>The old slug becomes available for someone else to take.</li>
-            <li>Any place the slug has been written down by hand needs updating.</li>
+            <li>Workflows that reference this {entityLabel} slug may stop working.</li>
           </ul>
         </ModalBody>
         <ModalFooter>
