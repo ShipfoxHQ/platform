@@ -323,6 +323,7 @@ describe('api-client auth contexts', () => {
       jsonResponse({
         repository_url: 'https://github.com/acme/repo.git',
         ref: 'main',
+        fetch_depth: 1,
         auth: {
           kind: 'bearer',
           token: 'tok-123',
@@ -335,11 +336,11 @@ describe('api-client auth contexts', () => {
     );
     const leaseClient = createLeaseClient('lease-ghi');
 
-    const checkout = await requestCheckoutToken(leaseClient);
+    const checkout = await requestCheckoutToken(leaseClient, {stepId: STEP_ID, attempt: 2});
 
     expect(checkout.repository_url).toBe('https://github.com/acme/repo.git');
     expect(checkout.ref).toBe('main');
-    expect(calls[0]?.url).toContain('runs/jobs/current/checkout-token');
+    expect(calls[0]?.url).toContain(`runs/jobs/current/steps/${STEP_ID}/checkout-token?attempt=2`);
     expect(calls[0]?.authorization).toBe('Bearer lease-ghi');
   });
 

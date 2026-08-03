@@ -1,4 +1,8 @@
 export {
+  type CheckoutTargetValidationIssue,
+  checkoutTargetValidationIssues,
+} from './checkout-target-validation.js';
+export {
   type AgentThinking,
   agentThinkingByHarness,
   agentThinkingSchema,

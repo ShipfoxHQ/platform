@@ -1,95 +1,67 @@
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
-import * as workflowRuns from '#db/workflow-runs.js';
-import {jobFactory} from '#test/factories/job.js';
 import {projectFactory} from '#test/factories/project.js';
-import {createJobCheckoutSpec, resolveCheckoutIntent} from './checkout.js';
-import {
-  CheckoutIntentUnresolvedError,
-  JobNotFoundError,
-  WorkflowRunNotFoundError,
-} from './errors.js';
+import {createStepCheckoutSpec} from './checkout.js';
+import type {Step} from './entities/step.js';
+import {CheckoutConfigInvalidError, CheckoutIntentUnresolvedError} from './errors.js';
 
 const getProjectById = vi.fn();
-const projects = {getProjectById} as Pick<ProjectsModuleClient, 'getProjectById'>;
+const resolveCheckoutTarget = vi.fn();
+const projects = {
+  getProjectById,
+  resolveCheckoutTarget,
+} as Pick<ProjectsModuleClient, 'getProjectById' | 'resolveCheckoutTarget'>;
 
-describe('resolveCheckoutIntent', () => {
-  it('resolves connection + repo from the project, using the project workspace', async () => {
+const createCheckoutSpec = vi.fn();
+const integrations = {
+  createCheckoutSpec,
+} as Pick<IntegrationsModuleClient, 'createCheckoutSpec'>;
+
+describe('createStepCheckoutSpec', () => {
+  beforeEach(() => {
+    getProjectById.mockReset();
+    resolveCheckoutTarget.mockReset();
+    createCheckoutSpec.mockReset();
+  });
+
+  it('resolves the default project target and setup-step defaults', async () => {
     const project = projectFactory.build();
+    const step = checkoutStep({
+      permissions: {contents: 'read'},
+      persist_credentials: true,
+    });
     getProjectById.mockResolvedValue({project});
-    const job = await jobFactory.create({}, {transient: {projectId: project.id}});
-
-    const intent = await resolveCheckoutIntent(job.id, projects as ProjectsModuleClient);
-
-    expect(intent).toEqual({
-      workspaceId: project.workspaceId,
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
       connectionId: project.sourceConnectionId,
       externalRepositoryId: project.sourceExternalRepositoryId,
-      persistCredentials: true,
-      permissions: {contents: 'read'},
     });
-  });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: 'main',
+    });
 
-  it('throws JobNotFoundError for an unknown job', async () => {
-    const act = resolveCheckoutIntent(crypto.randomUUID(), projects as ProjectsModuleClient);
-
-    await expect(act).rejects.toBeInstanceOf(JobNotFoundError);
-  });
-
-  it('resolves the checkout target while the parent job projection is still pending', async () => {
-    const project = projectFactory.build();
-    getProjectById.mockResolvedValue({project});
-    const job = await jobFactory.create(
-      {},
-      {transient: {projectId: project.id, status: 'pending'}},
-    );
-
-    const intent = await resolveCheckoutIntent(job.id, projects as ProjectsModuleClient);
-
-    expect(intent.connectionId).toBe(project.sourceConnectionId);
-  });
-
-  it('throws WorkflowRunNotFoundError when the run is missing', async () => {
-    const project = projectFactory.build();
-    getProjectById.mockResolvedValue({project});
-    const job = await jobFactory.create({}, {transient: {projectId: project.id}});
-    vi.spyOn(workflowRuns, 'getWorkflowRunByAttemptId').mockResolvedValue(undefined);
-
-    const act = resolveCheckoutIntent(job.id, projects as ProjectsModuleClient);
-
-    await expect(act).rejects.toBeInstanceOf(WorkflowRunNotFoundError);
-  });
-
-  it('throws CheckoutIntentUnresolvedError when the project is missing', async () => {
-    const project = projectFactory.build();
-    getProjectById.mockResolvedValue({project: null});
-    const job = await jobFactory.create({}, {transient: {projectId: project.id}});
-
-    const act = resolveCheckoutIntent(job.id, projects as ProjectsModuleClient);
-
-    await expect(act).rejects.toBeInstanceOf(CheckoutIntentUnresolvedError);
-  });
-});
-
-describe('createJobCheckoutSpec', () => {
-  it('passes the resolved intent without a ref to the service', async () => {
-    const project = projectFactory.build();
-    getProjectById.mockResolvedValue({project});
-    const job = await jobFactory.create({}, {transient: {projectId: project.id}});
-    const spec = {repositoryUrl: 'https://github.com/acme/repo.git', ref: 'main'};
-    const createCheckoutSpec = vi.fn().mockResolvedValue(spec);
-    const integrations = {createCheckoutSpec} as Pick<
-      IntegrationsModuleClient,
-      'createCheckoutSpec'
-    >;
-
-    const result = await createJobCheckoutSpec({
-      jobId: job.id,
+    const result = await createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
       integrations: integrations as IntegrationsModuleClient,
       projects: projects as ProjectsModuleClient,
     });
 
-    expect(result).toEqual({spec, persistCredentials: true});
+    expect(result).toEqual({
+      spec: {
+        repositoryUrl: 'https://github.com/acme/repo.git',
+        ref: 'main',
+      },
+      fetchDepth: 1,
+      persistCredentials: true,
+    });
+    expect(resolveCheckoutTarget).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      defaults: {connectionId: project.sourceConnectionId, owner: 'acme'},
+      target: {project: project.id},
+    });
     expect(createCheckoutSpec).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
       connectionId: project.sourceConnectionId,
@@ -98,28 +70,168 @@ describe('createJobCheckoutSpec', () => {
     });
   });
 
-  it('passes requested write contents permission to the service', async () => {
+  it('passes an explicit frozen target, ref, permissions, and fetch depth', async () => {
     const project = projectFactory.build();
+    const targetProjectId = crypto.randomUUID();
+    const step = checkoutStep({
+      project: targetProjectId,
+      ref: 'refs/pull/412/head',
+      fetch_depth: 0,
+      permissions: {contents: 'write'},
+      persist_credentials: false,
+    });
     getProjectById.mockResolvedValue({project});
-    const job = await jobFactory.create(
-      {},
-      {transient: {projectId: project.id, checkout: {permissions: {contents: 'write'}}}},
-    );
-    const spec = {repositoryUrl: 'https://github.com/acme/repo.git', ref: 'main'};
-    const createCheckoutSpec = vi.fn().mockResolvedValue(spec);
-    const integrations = {createCheckoutSpec} as Pick<
-      IntegrationsModuleClient,
-      'createCheckoutSpec'
-    >;
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: targetProjectId,
+      connectionId: crypto.randomUUID(),
+      externalRepositoryId: 'github:412',
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: 'refs/pull/412/head',
+    });
 
-    await createJobCheckoutSpec({
-      jobId: job.id,
+    const result = await createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
       integrations: integrations as IntegrationsModuleClient,
       projects: projects as ProjectsModuleClient,
     });
 
-    expect(createCheckoutSpec).toHaveBeenCalledWith(
-      expect.objectContaining({permissions: {contents: 'write'}}),
+    expect(result.fetchDepth).toBe(0);
+    expect(result.persistCredentials).toBe(false);
+    expect(resolveCheckoutTarget).toHaveBeenCalledWith(
+      expect.objectContaining({target: {project: targetProjectId}}),
     );
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: expect.any(String),
+      externalRepositoryId: 'github:412',
+      ref: 'refs/pull/412/head',
+      permissions: {contents: 'write'},
+    });
+  });
+
+  it('resolves a repository target using the frozen project owner as the default', async () => {
+    const project = projectFactory.build();
+    const step = checkoutStep({repository: 'repo', persist_credentials: true});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: 'main',
+    });
+
+    await createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(resolveCheckoutTarget).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      defaults: {connectionId: project.sourceConnectionId, owner: 'acme'},
+      target: {repository: 'repo'},
+    });
+  });
+
+  it.each([
+    {repository: 'octocat/repo', owner: 'octocat'},
+    {repository: 'repo', owner: 'unknown'},
+  ])('derives the repository owner fallback for $repository', async ({repository, owner}) => {
+    const project = projectFactory.build({sourceRepositoryOwner: null});
+    const step = checkoutStep({repository});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: 'main',
+    });
+
+    await createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(resolveCheckoutTarget).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      defaults: {connectionId: project.sourceConnectionId, owner},
+      target: {repository},
+    });
+  });
+
+  it.each([
+    {project: crypto.randomUUID(), connection: 'github'},
+    {project: crypto.randomUUID(), repository: 'acme/repo'},
+    {connection: 'github'},
+  ])('rejects invalid checkout target shape: %j', async (checkout) => {
+    const act = createStepCheckoutSpec({
+      step: checkoutStep(checkout),
+      workspaceId: crypto.randomUUID(),
+      projectId: crypto.randomUUID(),
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    await expect(act).rejects.toBeInstanceOf(CheckoutConfigInvalidError);
+    expect(getProjectById).not.toHaveBeenCalled();
+    expect(resolveCheckoutTarget).not.toHaveBeenCalled();
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
+  });
+
+  it('throws when the run project is missing', async () => {
+    const projectId = crypto.randomUUID();
+    getProjectById.mockResolvedValue({project: null});
+
+    const act = createStepCheckoutSpec({
+      step: checkoutStep({}),
+      workspaceId: crypto.randomUUID(),
+      projectId,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    await expect(act).rejects.toBeInstanceOf(CheckoutIntentUnresolvedError);
+    expect(resolveCheckoutTarget).not.toHaveBeenCalled();
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
   });
 });
+
+function checkoutStep(checkout: Record<string, unknown>): Step {
+  const now = new Date();
+  return {
+    id: crypto.randomUUID(),
+    jobExecutionId: crypto.randomUUID(),
+    key: null,
+    name: 'Checkout',
+    sourceLocation: null,
+    status: 'running',
+    statusReason: null,
+    evaluationTrace: null,
+    type: 'checkout',
+    config: {checkout},
+    condition: null,
+    configPlan: null,
+    authoredConfig: null,
+    error: null,
+    position: 1,
+    version: 1,
+    currentAttempt: 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+}

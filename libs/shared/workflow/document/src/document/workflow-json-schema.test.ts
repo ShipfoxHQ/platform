@@ -117,6 +117,11 @@ describe('buildWorkflowJsonSchema', () => {
         }),
       }),
     );
+    const connectionCondition = objects(stepCheckout.allOf).find(
+      (condition) => JSON.stringify(condition.if) === JSON.stringify({required: ['connection']}),
+    );
+    expect(connectionCondition).toBeDefined();
+    expect(connectionCondition?.then).toEqual({required: ['repository']});
   });
 
   it('describes every JSON Schema property', () => {

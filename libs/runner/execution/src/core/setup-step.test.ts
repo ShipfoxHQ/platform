@@ -32,6 +32,8 @@ const {CheckoutError} = await import('@shipfox/runner-workspace');
 
 const CWD = '/tmp/shipfox-test-root/job-1';
 const GIT_CONFIG_PATH = '/tmp/shipfox-test-root/.shipfox-runner-cred/job-1/git-cred.config';
+const STEP_ID = '00000000-0000-0000-0000-0000000000b0';
+const STEP_ATTEMPT = 1;
 const leaseClient = {} as never;
 const signal = new AbortController().signal;
 const jobContext = {
@@ -45,6 +47,7 @@ function checkoutResponse(auth?: unknown, gitAuthor?: unknown) {
   return {
     repository_url: 'https://github.com/acme/repo.git',
     ref: 'main',
+    fetch_depth: 1,
     auth,
     ...(gitAuthor ? {git_author: gitAuthor} : {}),
   };
@@ -56,6 +59,8 @@ function run(log?: ReturnType<typeof fakeLog>) {
     gitConfigPath: GIT_CONFIG_PATH,
     leaseClient,
     signal,
+    stepId: STEP_ID,
+    attempt: STEP_ATTEMPT,
     ...(log ? {log} : {}),
     jobContext,
   });
@@ -134,7 +139,11 @@ describe('executeSetupStep', () => {
 
     expect(assertGitAvailableMock).toHaveBeenCalledOnce();
     expect(createJobDirMock).toHaveBeenCalledWith(CWD);
-    expect(requestCheckoutTokenMock).toHaveBeenCalledWith(leaseClient, {signal});
+    expect(requestCheckoutTokenMock).toHaveBeenCalledWith(leaseClient, {
+      stepId: STEP_ID,
+      attempt: STEP_ATTEMPT,
+      signal,
+    });
     expect(checkoutRepositoryMock).toHaveBeenCalledWith(
       expect.objectContaining({
         repositoryUrl: 'https://github.com/acme/repo.git',

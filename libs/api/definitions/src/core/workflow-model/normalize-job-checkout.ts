@@ -7,7 +7,11 @@ import {
   type WorkflowModelJobCheckout,
 } from '@shipfox/api-definitions-dto';
 import type {AvailabilitySite, ExpressionTypeEnvironment} from '@shipfox/expression';
-import type {WorkflowDocumentCheckout, WorkflowDocumentJob} from '@shipfox/workflow-document';
+import {
+  checkoutTargetValidationIssues,
+  type WorkflowDocumentCheckout,
+  type WorkflowDocumentJob,
+} from '@shipfox/workflow-document';
 import type {
   WorkflowModelValidationIssue,
   WorkflowModelValidationIssuePathSegment,
@@ -100,24 +104,19 @@ function validateCheckoutTargetShape(params: {
   issues: WorkflowModelValidationIssue[];
   path: readonly WorkflowModelValidationIssuePathSegment[];
 }): void {
-  if (params.checkout.project !== undefined && params.checkout.connection !== undefined) {
+  for (const validationIssue of checkoutTargetValidationIssues(params.checkout)) {
+    const message =
+      validationIssue.kind === 'project-with-connection'
+        ? 'Checkout target "connection" cannot be combined with "project".'
+        : validationIssue.kind === 'project-with-repository'
+          ? 'Checkout target "repository" cannot be combined with "project".'
+          : 'Checkout target "connection" requires "repository".';
     params.issues.push(
       issue({
         code: 'checkout-target-invalid',
-        message: 'Checkout target "connection" cannot be combined with "project".',
-        path: [...params.path, 'connection'],
-        details: {fields: ['project', 'connection']},
-      }),
-    );
-  }
-
-  if (params.checkout.project !== undefined && params.checkout.repository !== undefined) {
-    params.issues.push(
-      issue({
-        code: 'checkout-target-invalid',
-        message: 'Checkout target "repository" cannot be combined with "project".',
-        path: [...params.path, 'repository'],
-        details: {fields: ['project', 'repository']},
+        message,
+        path: [...params.path, validationIssue.path],
+        details: {fields: validationIssue.fields},
       }),
     );
   }

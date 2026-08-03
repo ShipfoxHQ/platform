@@ -1,20 +1,23 @@
-import {requireLeasedJobContext} from '@shipfox/api-auth-context';
 import {
   type IntegrationsModuleClient,
   integrationsInterModuleContract,
 } from '@shipfox/api-integration-core-dto/inter-module';
-import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {
+  type ProjectsModuleClient,
+  projectsInterModuleContract,
+} from '@shipfox/api-projects-dto/inter-module';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
-import {checkoutTokenResponseSchema} from '@shipfox/api-workflows-dto';
+import {
+  checkoutTokenParamsSchema,
+  checkoutTokenQuerySchema,
+  checkoutTokenResponseSchema,
+} from '@shipfox/api-workflows-dto';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
-import {createJobCheckoutSpec} from '#core/checkout.js';
-import {
-  CheckoutIntentUnresolvedError,
-  JobNotFoundError,
-  WorkflowRunNotFoundError,
-} from '#core/errors.js';
+import {createStepCheckoutSpec} from '#core/checkout.js';
+import {CheckoutConfigInvalidError, CheckoutIntentUnresolvedError} from '#core/errors.js';
 import {toCheckoutTokenDto} from '#presentation/dto/checkout-token.js';
+import {loadRunningLeasedStep} from './leased-step.js';
 
 export function createCheckoutTokenRoute(clients: {
   runners: RunnersInterModuleClient;
@@ -23,10 +26,14 @@ export function createCheckoutTokenRoute(clients: {
 }) {
   return defineRoute({
     method: 'POST',
-    path: '/checkout-token',
+    path: '/steps/:stepId/checkout-token',
     description:
-      "Exchanges the runner's job lease for short-lived, read-only checkout credentials for the job's repository. The job is identified by the access token, so no job ID is needed. The checkout target is resolved server-side from the job's run and project; no credential material is stored on the job or run. Returns the repository URL, ref, and (when the provider needs auth) a short-lived credential that expires soon.",
-    schema: {response: {200: checkoutTokenResponseSchema}},
+      "Exchanges the runner's lease for short-lived checkout credentials for the currently running checkout step. The step id and attempt are checked against the lease and the server-frozen step config supplies the target, ref, permissions, and fetch depth.",
+    schema: {
+      params: checkoutTokenParamsSchema,
+      querystring: checkoutTokenQuerySchema,
+      response: {200: checkoutTokenResponseSchema},
+    },
     errorHandler: (error) => {
       const known = isInterModuleKnownError(
         integrationsInterModuleContract.methods.createCheckoutSpec,
@@ -34,12 +41,24 @@ export function createCheckoutTokenRoute(clients: {
       )
         ? error
         : undefined;
-      if (error instanceof JobNotFoundError)
-        throw new ClientError(error.message, 'job-not-found', {status: 404});
-      if (error instanceof WorkflowRunNotFoundError)
-        throw new ClientError(error.message, 'run-not-found', {status: 404});
+      const targetError = isInterModuleKnownError(
+        projectsInterModuleContract.methods.resolveCheckoutTarget,
+        error,
+      )
+        ? error
+        : undefined;
       if (error instanceof CheckoutIntentUnresolvedError)
         throw new ClientError(error.message, 'checkout-unavailable', {status: 404});
+      if (error instanceof CheckoutConfigInvalidError)
+        throw new ClientError('Checkout configuration is invalid', 'checkout-config-invalid', {
+          status: 409,
+        });
+      if (targetError?.code === 'checkout-repository-not-authorized')
+        throw new ClientError(
+          'Checkout repository is not authorized for this workspace',
+          'checkout-repository-not-authorized',
+          {status: 404},
+        );
       if (known?.code === 'connection-not-found')
         throw new ClientError(
           'Integration connection not found',
@@ -101,21 +120,31 @@ export function createCheckoutTokenRoute(clients: {
       throw error;
     },
     handler: async (request, reply) => {
-      const leasedJob = requireLeasedJobContext(request);
-      const {active: leaseIsActive} = await clients.runners.getLeaseState({
-        jobId: leasedJob.jobId,
-        jobExecutionId: leasedJob.jobExecutionId,
-        runnerSessionId: leasedJob.runnerSessionId,
+      const {stepId} = request.params;
+      const {attempt} = request.query;
+      const {step, workspaceId, projectId} = await loadRunningLeasedStep({
+        runners: clients.runners,
+        request,
+        stepId,
+        attempt,
       });
-      if (!leaseIsActive)
-        throw new ClientError('Job lease is no longer active', 'lease-not-active', {status: 404});
-      const checkout = await createJobCheckoutSpec({
-        jobId: leasedJob.jobId,
+
+      if (step.type !== 'setup' && step.type !== 'checkout') {
+        throw new ClientError('Step is not a checkout step', 'step-not-checkout', {status: 409});
+      }
+
+      const checkout = await createStepCheckoutSpec({
+        step,
+        workspaceId,
+        projectId,
         integrations: clients.integrations,
         projects: clients.projects,
       });
       reply.header('cache-control', 'no-store');
-      return toCheckoutTokenDto(checkout.spec, {persist: checkout.persistCredentials});
+      return toCheckoutTokenDto(checkout.spec, {
+        fetchDepth: checkout.fetchDepth,
+        persist: checkout.persistCredentials,
+      });
     },
   });
 }

@@ -5,8 +5,12 @@ export {
 export {type CheckoutIntentDto, checkoutIntentSchema} from './checkout.js';
 export {
   type CheckoutTokenAuthDto,
+  type CheckoutTokenParamsDto,
+  type CheckoutTokenQueryDto,
   type CheckoutTokenResponseDto,
   checkoutTokenAuthSchema,
+  checkoutTokenParamsSchema,
+  checkoutTokenQuerySchema,
   checkoutTokenResponseSchema,
 } from './checkout-token.js';
 export {

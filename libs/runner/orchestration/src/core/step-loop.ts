@@ -323,6 +323,8 @@ export async function executeStep(params: {
         gitConfigPath,
         leaseClient,
         signal,
+        stepId: step.id,
+        attempt,
         ...(setupStream ? {log: setupStream} : {}),
         jobContext,
       });

@@ -486,6 +486,7 @@ describe('workflowDocumentSchema', () => {
     for (const checkout of [
       {project: 'project-id', connection: 'github'},
       {project: 'project-id', repository: 'acme/api'},
+      {connection: 'github'},
     ]) {
       const result = workflowDocumentSchema.safeParse({
         name: 'invalid checkout target',

@@ -199,6 +199,13 @@ export class CheckoutIntentUnresolvedError extends Error {
   }
 }
 
+export class CheckoutConfigInvalidError extends Error {
+  constructor(readonly stepId: string) {
+    super(`Checkout config is invalid for step ${stepId}`);
+    this.name = 'CheckoutConfigInvalidError';
+  }
+}
+
 export class StepNotFoundError extends Error {
   constructor(stepId: string, jobId: string) {
     super(`Step ${stepId} not found in job ${jobId}`);

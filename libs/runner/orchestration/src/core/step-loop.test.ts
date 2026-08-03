@@ -274,6 +274,8 @@ describe('runJobSteps', () => {
       gitConfigPath: GIT_CONFIG_PATH,
       leaseClient,
       signal: ac.signal,
+      stepId: setup.id,
+      attempt: 1,
       log: expect.any(Object),
       jobContext: JOB_CONTEXT,
     });

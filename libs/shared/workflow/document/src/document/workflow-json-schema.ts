@@ -137,6 +137,12 @@ function projectCheckoutTargetValidation(schema: JsonSchema | undefined) {
         ],
       },
     },
+    (() => {
+      const conditional: JsonSchema = {if: {required: ['connection']}};
+      // biome-ignore lint/suspicious/noThenProperty: JSON Schema uses "then" for a conditional branch.
+      conditional.then = {required: ['repository']};
+      return conditional;
+    })(),
   ];
 }
 
