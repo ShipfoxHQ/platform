@@ -144,6 +144,7 @@ export class GiteaSourceControlProvider
   resolveTriggerReference(payload: unknown): TriggerReference | null {
     if (!isRecord(payload)) return null;
 
+    const actor = giteaEventActor(payload);
     const pullRequest = asRecord(payload.pull_request);
     if (pullRequest) {
       const head = asRecord(pullRequest.head);
@@ -164,6 +165,7 @@ export class GiteaSourceControlProvider
         externalRepositoryId: buildProviderRepositoryId(giteaProviderKind, repositoryId),
         ref,
         commit,
+        actor,
       };
     }
 
@@ -177,6 +179,7 @@ export class GiteaSourceControlProvider
       externalRepositoryId: buildProviderRepositoryId(giteaProviderKind, repositoryId),
       ref,
       commit,
+      actor,
     };
   }
 
@@ -213,6 +216,13 @@ function giteaRepositoryId(repository: Record<string, unknown> | null): string |
   const owner = separatorIndex > 0 ? fullName.slice(0, separatorIndex) : '';
   const repo = separatorIndex > 0 ? fullName.slice(separatorIndex + 1) : '';
   return owner && repo && !repo.includes('/') ? `${owner}/${repo}` : null;
+}
+
+// Gitea mirrors GitHub's webhook envelope but names the handle `username` on some events
+// and `login` on others, so both are read before giving up on an actor.
+function giteaEventActor(payload: Record<string, unknown>): string | null {
+  const sender = asRecord(payload.sender);
+  return nonEmptyString(sender?.login) ?? nonEmptyString(sender?.username);
 }
 
 function sameGiteaRepository(

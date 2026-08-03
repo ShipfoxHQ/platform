@@ -29,13 +29,14 @@ import {
   type WorkflowRunDetail,
   type WorkflowRunListItem,
   type WorkflowRunListPage,
+  type WorkflowRunRecord,
   type WorkflowRunStatus,
 } from '#core/workflow-run.js';
 import {
   toWorkflowRunAttempt,
   toWorkflowRunDetail,
-  toWorkflowRunListItem,
   toWorkflowRunListPage,
+  toWorkflowRunRecord,
 } from './workflow-run-mapper.js';
 
 export interface WorkflowRunFilters {
@@ -250,8 +251,8 @@ async function cancelWorkflowRun({
   workflowRunId,
 }: {
   workflowRunId: string;
-}): Promise<WorkflowRunListItem> {
-  return toWorkflowRunListItem(
+}): Promise<WorkflowRunRecord> {
+  return toWorkflowRunRecord(
     await checkedApiRequest(workflowRunDtoSchema, `/workflows/runs/${workflowRunId}/cancel`, {
       method: 'POST',
     }),
@@ -264,8 +265,8 @@ export async function rerunWorkflowRun({
 }: {
   workflowRunId: string;
   mode: WorkflowRunRerunModeDto;
-}): Promise<WorkflowRunListItem> {
-  return toWorkflowRunListItem(
+}): Promise<WorkflowRunRecord> {
+  return toWorkflowRunRecord(
     await checkedApiRequest(workflowRunResponseSchema, `/workflows/runs/${workflowRunId}/rerun`, {
       method: 'POST',
       body: {mode} satisfies RerunWorkflowRunBodyDto,
@@ -350,11 +351,14 @@ function buildTempRun({
     triggerPayload: {source: 'manual', event: 'fire'},
     triggerDisplayLabel: 'fire',
     triggerLabel: 'manual · fire',
+    triggerReference: null,
     inputs: null,
     sourceSnapshot: null,
     createdAt,
     updatedAt: createdAt,
     isTemporary: true,
+    // The optimistic row genuinely has no jobs yet: the server has not planned the graph.
+    jobs: {preview: [], statusCounts: [], total: 0},
     runAttempt: new WorkflowRunAttemptSummary({
       workflowRunId: id,
       attempt: 1,
@@ -569,7 +573,7 @@ export function workflowRunAttemptsQueryOptions({
 export function useCancelWorkflowRunMutation(run: WorkflowRun | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (): Promise<WorkflowRunListItem> => {
+    mutationFn: async (): Promise<WorkflowRunRecord> => {
       if (!run) throw new Error('Workflow run is not loaded');
       return await cancelWorkflowRun({workflowRunId: run.id});
     },

@@ -36,6 +36,8 @@ const DEPLOY_EXECUTION_TWO_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-000000000002';
 const SMOKE_WEB_RE = /smoke-web/u;
 const DEPLOY_WEB_RE = /deploy-web/u;
 const OLDER_RUN_RE = /older-run/u;
+const INTEGRATION_TESTS_RE = /integration-tests/u;
+const BUILD_IMAGE_RE = /build-image/u;
 const EXECUTION_ONE_MENU_ITEM = /Execution #1: deploy review #1/u;
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_OVERRIDES = {
@@ -94,6 +96,46 @@ describe('WorkflowRunPages', () => {
     });
     expect(currentSearch(router).status).toBeUndefined();
     expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
+  });
+
+  test('honors a deep link that repeats a filter key', async () => {
+    configureApiClient({fetchImpl: createMixedStatusRunsFetch()});
+
+    renderRunsPath('?status=failed&status=running');
+
+    expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
+    expect(await screen.findByRole('link', {name: INTEGRATION_TESTS_RE})).toBeInTheDocument();
+    expect(screen.queryByRole('link', {name: BUILD_IMAGE_RE})).not.toBeInTheDocument();
+  });
+
+  test('writes a multi-select as repeated keys rather than one joined value', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: createMixedStatusRunsFetch()});
+
+    const {router} = renderRunsPath('?status=failed');
+
+    await user.click(await screen.findByRole('button', {name: 'Status filter'}));
+    await user.click(await screen.findByRole('menuitemcheckbox', {name: 'Running'}));
+
+    await waitFor(() => {
+      expect(currentSearch(router).status).toEqual(['failed', 'running']);
+    });
+    expect(router.state.location.searchStr).toBe('?status=failed&status=running');
+  });
+
+  test('replaces history on a filter change so back leaves the list', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: createMixedStatusRunsFetch()});
+
+    const {router} = renderRunsPath();
+    const initialLength = router.history.length;
+
+    await user.type(await screen.findByLabelText('Search runs'), 'deploy');
+
+    await waitFor(() => {
+      expect(currentSearch(router).search).toBe('deploy');
+    });
+    expect(router.history.length).toBe(initialLength);
   });
 
   test('loads older pages before reporting that a search has no matches', async () => {
@@ -369,6 +411,36 @@ function createRunsListFetch() {
     }
     if (url.pathname === `/workflows/runs/${RUN_ID}`) {
       return Promise.resolve(jsonResponse(workflowRunDetailDto({...RUN_OVERRIDES, jobs: []})));
+    }
+
+    return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+  });
+}
+
+function createMixedStatusRunsFetch() {
+  const runs = [
+    workflowRunDto({...RUN_OVERRIDES, status: 'running'}),
+    workflowRunDto({
+      ...RUN_OVERRIDES,
+      id: SECOND_RUN_ID,
+      name: 'integration-tests',
+      workflow_name: 'integration-tests',
+      status: 'failed',
+    }),
+    workflowRunDto({
+      ...RUN_OVERRIDES,
+      id: OLDER_RUN_ID,
+      name: 'build-image',
+      workflow_name: 'build-image',
+      status: 'succeeded',
+    }),
+  ];
+
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL(requestInputUrl(input));
+
+    if (url.pathname === '/workflows/runs') {
+      return Promise.resolve(jsonResponse({runs, next_cursor: null, filtered_total_count: 3}));
     }
 
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));

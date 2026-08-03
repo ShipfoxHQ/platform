@@ -62,13 +62,40 @@ describe('GiteaSourceControlProvider', () => {
       ref: 'refs/heads/feature/review',
       after: VALID_COMMIT,
       repository: {full_name: 'shipfox/platform'},
+      sender: {login: 'noe'},
     });
 
     expect(result).toEqual({
       externalRepositoryId: 'gitea:shipfox/platform',
       ref: 'refs/heads/feature/review',
       commit: VALID_COMMIT,
+      actor: 'noe',
     });
+  });
+
+  it('falls back to the sender username when no login is present', () => {
+    const provider = new GiteaSourceControlProvider(giteaClient());
+
+    const result = provider.resolveTriggerReference({
+      ref: 'refs/heads/main',
+      after: VALID_COMMIT,
+      repository: {full_name: 'shipfox/platform'},
+      sender: {username: 'noe'},
+    });
+
+    expect(result).toMatchObject({actor: 'noe'});
+  });
+
+  it('resolves a null actor when the payload names no sender', () => {
+    const provider = new GiteaSourceControlProvider(giteaClient());
+
+    const result = provider.resolveTriggerReference({
+      ref: 'refs/heads/main',
+      after: VALID_COMMIT,
+      repository: {full_name: 'shipfox/platform'},
+    });
+
+    expect(result).toMatchObject({actor: null});
   });
 
   it('normalizes pull-request trigger references from the head repository', () => {
@@ -76,6 +103,7 @@ describe('GiteaSourceControlProvider', () => {
 
     const result = provider.resolveTriggerReference({
       repository: {full_name: 'shipfox/platform'},
+      sender: {login: 'noe'},
       pull_request: {
         number: 17,
         head: {
@@ -90,6 +118,7 @@ describe('GiteaSourceControlProvider', () => {
       externalRepositoryId: 'gitea:shipfox/platform',
       ref: 'refs/pull/17/head',
       commit: VALID_COMMIT,
+      actor: 'noe',
     });
   });
 

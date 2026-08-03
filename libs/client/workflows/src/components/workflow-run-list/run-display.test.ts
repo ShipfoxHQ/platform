@@ -1,64 +1,192 @@
 import {workflowRunListItem} from '#test/fixtures/workflow-run.js';
-import {runMatchesSearch, runMatchesStatusFilter} from './run-display.js';
+import {
+  runCalendarDate,
+  runMatchesFilters,
+  runMatchesSearch,
+  runMatchesStatusFilter,
+  workflowRunFacets,
+} from './run-display.js';
 
 describe('runMatchesSearch', () => {
   test('matches every run on a blank query', () => {
-    const matches = runMatchesSearch(workflowRunListItem(), '   ');
-
-    expect(matches).toBe(true);
+    expect(runMatchesSearch(workflowRunListItem(), '   ')).toBe(true);
   });
 
-  test('matches case-insensitively across id, name, status, trigger, and number', () => {
-    const run = workflowRunListItem({
-      id: 'ABCD1234-X',
-      number: 5184,
-      name: 'Deploy Production',
-      status: 'running',
-      trigger_provider: 'github',
-      trigger_source: 'github_acme',
-      trigger_event: 'push',
-    });
+  test('matches the run name case-insensitively', () => {
+    expect(runMatchesSearch(workflowRunListItem({name: 'Deploy Web'}), 'deploy')).toBe(true);
+  });
 
-    expect(runMatchesSearch(run, 'abcd1234-x')).toBe(true);
-    expect(runMatchesSearch(run, 'deploy production')).toBe(true);
-    expect(runMatchesSearch(run, 'RUNNING')).toBe(true);
-    expect(runMatchesSearch(run, 'github_acme · push')).toBe(true);
-    expect(runMatchesSearch(run, '5184')).toBe(true);
+  test('matches the run number, which the search box promises', () => {
+    expect(runMatchesSearch(workflowRunListItem({number: 5184}), '5184')).toBe(true);
+  });
+
+  test('matches the run id, so a pasted identifier finds its row', () => {
+    expect(runMatchesSearch(workflowRunListItem({id: 'ABCD1234-X'}), 'abcd1234-x')).toBe(true);
   });
 
   test('matches the workflow name even when the run has a different display name', () => {
-    const run = workflowRunListItem({
-      name: 'Deploy to production',
-      workflow_name: 'CI',
-    });
+    const run = workflowRunListItem({name: 'Deploy to production', workflow_name: 'CI'});
 
     expect(runMatchesSearch(run, 'CI')).toBe(true);
   });
 
-  test('returns false when nothing in the run contains the query', () => {
-    const matches = runMatchesSearch(workflowRunListItem(), 'no-such-run');
+  test('matches the trigger label', () => {
+    const run = workflowRunListItem({trigger_source: 'github_acme', trigger_event: 'push'});
 
-    expect(matches).toBe(false);
+    expect(runMatchesSearch(run, 'github_acme · push')).toBe(true);
+  });
+
+  test('matches the branch, so a ref is findable without opening its filter', () => {
+    const run = workflowRunListItem({
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/heads/release/v2',
+        commit: 'abcdef1234567890',
+        actor: null,
+      },
+    });
+
+    expect(runMatchesSearch(run, 'release/v2')).toBe(true);
+  });
+
+  test('matches the short commit, which is the form the row shows', () => {
+    const run = workflowRunListItem({
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        commit: 'abcdef1234567890',
+        actor: null,
+      },
+    });
+
+    expect(runMatchesSearch(run, 'abcdef1')).toBe(true);
+  });
+
+  test('reports no match for an unrelated query', () => {
+    expect(runMatchesSearch(workflowRunListItem(), 'no-such-run')).toBe(false);
   });
 });
 
 describe('runMatchesStatusFilter', () => {
-  test('matches every status when the filter is "all"', () => {
-    expect(runMatchesStatusFilter('succeeded', 'all')).toBe(true);
-    expect(runMatchesStatusFilter('cancelled', 'all')).toBe(true);
+  test('accepts every status when nothing is selected', () => {
+    expect(runMatchesStatusFilter('succeeded', undefined)).toBe(true);
+    expect(runMatchesStatusFilter('succeeded', [])).toBe(true);
   });
 
-  test('"failed" matches only failed runs', () => {
-    expect(runMatchesStatusFilter('failed', 'failed')).toBe(true);
-    expect(runMatchesStatusFilter('running', 'failed')).toBe(false);
-    expect(runMatchesStatusFilter('succeeded', 'failed')).toBe(false);
+  test('accepts a run matching any one of several selected statuses', () => {
+    expect(runMatchesStatusFilter('failed', ['succeeded', 'failed'])).toBe(true);
+    expect(runMatchesStatusFilter('cancelled', ['succeeded', 'failed'])).toBe(false);
   });
 
-  test('"running" reads as in-progress and also covers pending runs', () => {
-    expect(runMatchesStatusFilter('running', 'running')).toBe(true);
-    expect(runMatchesStatusFilter('pending', 'running')).toBe(true);
-    expect(runMatchesStatusFilter('succeeded', 'running')).toBe(false);
-    expect(runMatchesStatusFilter('failed', 'running')).toBe(false);
-    expect(runMatchesStatusFilter('cancelled', 'running')).toBe(false);
+  test('treats running as in-progress so a freshly queued run is not hidden', () => {
+    expect(runMatchesStatusFilter('pending', ['running'])).toBe(true);
+    expect(runMatchesStatusFilter('running', ['running'])).toBe(true);
+    expect(runMatchesStatusFilter('succeeded', ['running'])).toBe(false);
   });
 });
+
+describe('runMatchesFilters', () => {
+  const run = workflowRunListItem({
+    name: 'deploy-web',
+    status: 'failed',
+    trigger_event: 'push',
+    created_at: '2026-05-07T12:00:00.000Z',
+    trigger_reference: {
+      repository: 'acme/api',
+      ref: 'refs/heads/main',
+      commit: 'abcdef1234567890',
+      actor: 'octocat',
+    },
+  });
+
+  test('accepts a run matching every active dimension at once', () => {
+    expect(
+      runMatchesFilters(run, {
+        search: 'deploy',
+        status: ['failed'],
+        branch: ['main'],
+        actor: ['octocat'],
+        event: ['push'],
+      }),
+    ).toBe(true);
+  });
+
+  test.each([
+    ['status', {status: ['succeeded' as const]}],
+    ['branch', {branch: ['release']}],
+    ['actor', {actor: ['someone-else']}],
+    ['event', {event: ['pull_request']}],
+    ['search', {search: 'unrelated'}],
+  ])('rejects a run failing the %s dimension alone', (_dimension, criteria) => {
+    expect(runMatchesFilters(run, criteria)).toBe(false);
+  });
+
+  test('rejects a run that has no value at all for an active dimension', () => {
+    const withoutReference = workflowRunListItem({trigger_reference: null});
+
+    expect(runMatchesFilters(withoutReference, {branch: ['main']})).toBe(false);
+    expect(runMatchesFilters(withoutReference, {actor: ['octocat']})).toBe(false);
+  });
+
+  test('treats both date bounds as inclusive', () => {
+    const date = runCalendarDate(run) as string;
+
+    expect(runMatchesFilters(run, {after: date, before: date})).toBe(true);
+  });
+
+  test('excludes a run outside either bound', () => {
+    const date = runCalendarDate(run) as string;
+
+    expect(runMatchesFilters(run, {after: shiftDay(date, 1)})).toBe(false);
+    expect(runMatchesFilters(run, {before: shiftDay(date, -1)})).toBe(false);
+  });
+});
+
+describe('workflowRunFacets', () => {
+  test('collects sorted, deduplicated options from the loaded runs', () => {
+    const runs = [
+      workflowRunListItem({
+        id: '11111111-1111-4111-8111-000000000001',
+        trigger_event: 'push',
+        trigger_reference: {
+          repository: 'acme/api',
+          ref: 'refs/heads/main',
+          commit: 'aaaaaaa',
+          actor: 'octocat',
+        },
+      }),
+      workflowRunListItem({
+        id: '11111111-1111-4111-8111-000000000002',
+        trigger_event: 'pull_request',
+        trigger_reference: {
+          repository: 'acme/api',
+          ref: 'refs/heads/main',
+          commit: 'bbbbbbb',
+          actor: 'hubot',
+        },
+      }),
+    ];
+
+    expect(workflowRunFacets(runs)).toEqual({
+      branch: ['main'],
+      actor: ['hubot', 'octocat'],
+      event: ['pull_request', 'push'],
+    });
+  });
+
+  test('keeps a selected value no loaded run carries, so a shared link keeps its chip', () => {
+    const facets = workflowRunFacets([workflowRunListItem({trigger_reference: null})], {
+      branch: ['release/v2'],
+    });
+
+    expect(facets.branch).toEqual(['release/v2']);
+  });
+});
+
+function shiftDay(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  const shifted = new Date(year, month - 1, day + days);
+  const shiftedMonth = String(shifted.getMonth() + 1).padStart(2, '0');
+  const shiftedDay = String(shifted.getDate()).padStart(2, '0');
+  return `${shifted.getFullYear()}-${shiftedMonth}-${shiftedDay}`;
+}

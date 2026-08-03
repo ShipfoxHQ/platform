@@ -1,4 +1,5 @@
 import {TriggerSourceIcon} from '@shipfox/client-triggers';
+import {Icon, type IconName} from '@shipfox/react-ui/icon';
 import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Code, Text} from '@shipfox/react-ui/typography';
@@ -14,172 +15,228 @@ import {
 } from '#components/workflow-run-number-label.js';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
-import type {WorkflowRunListItem} from '#core/workflow-run.js';
+import {
+  type WorkflowRunListItem,
+  workflowRunActor,
+  workflowRunBranchLabel,
+  workflowRunCommitLabel,
+} from '#core/workflow-run.js';
 import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
+import {JobStatusStrip, jobStatusSummary} from './job-status-strip.js';
 
 export function WorkflowRunRowList({
   runs,
   workspaceSlug,
   projectSlug,
-  selectedWorkflowRunId,
 }: {
   runs: WorkflowRunListItem[];
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
-  selectedWorkflowRunId?: string | undefined;
 }) {
   return (
-    <nav aria-label="Run history">
-      <ul className="flex flex-col gap-4 p-8">
-        {runs.map((run) => (
-          <li key={run.id}>
-            <WorkflowRunRow
-              run={run}
-              workspaceSlug={workspaceSlug}
-              projectSlug={projectSlug}
-              selected={run.id === selectedWorkflowRunId}
-            />
-          </li>
-        ))}
-      </ul>
-    </nav>
+    // A container, not the viewport, drives the row's breakpoints. The list is capped at
+    // 1120px inside a wider page, so what a row can afford is its own width; keying off the
+    // viewport would keep the job strip hidden on a wide screen or crush it on a narrow one.
+    <ul className="@container divide-y divide-border-neutral-base border-t border-border-neutral-base">
+      {runs.map((run) => (
+        <li key={run.id}>
+          <WorkflowRunRow run={run} workspaceSlug={workspaceSlug} projectSlug={projectSlug} />
+        </li>
+      ))}
+    </ul>
   );
 }
 
+/**
+ * One run at full width.
+ *
+ * A single 44px line once the list is at least 976px wide, reflowing to two lines below that:
+ * the identity and the numerics keep their places on line one, and the provenance metadata
+ * drops beneath. The numeric columns are fixed-width so duration and time form real columns
+ * down the list rather than tracking each row's name length.
+ *
+ * The thresholds are the container widths the spec's viewport breakpoints produce, given a
+ * column capped at 1120px with 24px of page padding on each side: a 1280px viewport leaves
+ * the row 1072px, and a 1024px viewport leaves it 976px.
+ */
 export function WorkflowRunRow({
   run,
   workspaceSlug,
   projectSlug,
-  selected,
 }: {
   run: WorkflowRunListItem;
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
-  selected: boolean;
 }) {
   const durationLabel = useWorkflowRunDurationAccessibleLabel(run.runAttempt.displayDuration);
   const statusLabel = getWorkflowStatusVisual(run.status).label;
   const runNumberLabel = formatWorkflowRunNumberLabel(run);
+  const branch = workflowRunBranchLabel(run);
+  const commit = workflowRunCommitLabel(run);
+  const actor = workflowRunActor(run);
+
   const body = (
     <>
-      {selected ? (
-        <span
-          aria-hidden="true"
-          className="absolute inset-y-8 left-0 w-3 rounded-full bg-border-highlights-interactive"
-        />
-      ) : null}
+      <WorkflowStatusIcon status={run.status} size={14} className="shrink-0" />
 
-      <div className="flex min-w-0 items-center gap-8">
-        <WorkflowStatusIcon status={run.status} size={14} />
-        <Code variant="label" bold className="truncate text-foreground-neutral-base">
-          {run.name}
-        </Code>
-      </div>
-
-      <div className="flex min-w-0 items-center gap-8">
-        {run.number !== null ? (
-          <>
-            <WorkflowRunNumberLabel run={run} />
-            {run.triggerDisplayLabel ? <RunMetadataSeparator /> : null}
-          </>
-        ) : null}
-        {run.triggerDisplayLabel ? (
-          <TriggerLabel run={run} />
-        ) : (
-          <span className="flex min-w-0 flex-1 items-center gap-8 truncate text-foreground-neutral-muted">
-            <span aria-hidden="true" className="size-14 shrink-0" />
-            <span className="sr-only">Run updated </span>
-          </span>
-        )}
-        <span className="ml-auto flex shrink-0 items-center gap-6">
-          <WorkflowRunDurationLabel
-            duration={run.runAttempt.displayDuration}
-            className="text-foreground-neutral-disabled"
-          />
-          {durationLabel ? <RunMetadataSeparator /> : null}
-          <Code variant="label" className="shrink-0 text-foreground-neutral-disabled">
-            <RelativeTime value={run.updatedAt} />
+      <div className="flex min-w-0 flex-1 flex-col gap-2 @min-[976px]:flex-row @min-[976px]:items-center @min-[976px]:gap-12">
+        <span className="flex min-w-0 items-center gap-8 @min-[976px]:flex-1">
+          <Code variant="label" bold className="truncate text-foreground-neutral-base">
+            {run.name}
           </Code>
+          {run.number !== null ? <WorkflowRunNumberLabel run={run} /> : null}
+        </span>
+
+        <span className="flex min-w-0 items-center gap-10 text-foreground-neutral-subtle @min-[976px]:shrink-0">
+          {run.triggerDisplayLabel ? <TriggerLabel run={run} /> : null}
+          {branch ? <BranchLabel branch={branch} isPullRequest={branch.startsWith('#')} /> : null}
+          {commit ? <CommitLabel commit={commit} /> : null}
+          {actor ? <ActorLabel actor={actor} /> : null}
         </span>
       </div>
+
+      <span className="flex shrink-0 items-center gap-12">
+        {/* The column keeps its width even when a run has no jobs planned yet, so duration and
+            time stay in line down the list instead of stepping in and out. */}
+        <span className="hidden w-136 @min-[1040px]:flex">
+          <JobStatusStrip jobs={run.jobs} />
+        </span>
+        <span className="flex w-64 justify-end">
+          <WorkflowRunDurationLabel duration={run.runAttempt.displayDuration} />
+        </span>
+        <Code
+          variant="label"
+          className="w-64 shrink-0 text-right tabular-nums text-foreground-neutral-muted"
+        >
+          <RelativeTime value={run.createdAt} />
+        </Code>
+      </span>
     </>
   );
-  const rowClassName = cn(
-    'group relative flex w-full flex-col gap-4 rounded-8 border border-transparent px-10 py-8 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
-    selected && 'bg-background-components-hover',
-  );
+
+  // Rows run edge to edge inside the list's scroll container, which would clip the standard
+  // outset focus ring, so this one is inset per the design system's focus-ring rule.
+  const rowClassName =
+    'flex w-full min-w-0 items-center gap-10 px-12 py-8 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)] focus-visible:outline-none @min-[976px]:h-44 @min-[976px]:py-0';
 
   // Optimistic manual runs (temp-<uuid>) have no detail page until the canonical row
   // replaces them on the next poll, so they render non-interactively instead of as a link
   // that would navigate to a workflow run id the detail route rejects.
-  if (run.isTemporary) {
+  if (run.isTemporary || !workspaceSlug || !projectSlug) {
     return <div className={rowClassName}>{body}</div>;
   }
 
-  const runLink =
-    workspaceSlug && projectSlug ? (
-      <Link
-        to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
-        params={{workspaceSlug, projectSlug, workflowRunId: run.id}}
-        search={
-          ((previous: Record<string, unknown>) =>
-            withoutWorkflowRunSelectionSearch(previous)) as never
-        }
-        aria-current={selected ? 'page' : undefined}
-        aria-label={[run.name, runNumberLabel, statusLabel, durationLabel, run.triggerLabel]
-          .filter((part): part is string => Boolean(part))
-          .join(', ')}
-        className={rowClassName}
-      >
-        {body}
-      </Link>
-    ) : null;
-
-  return runLink ?? <div className={rowClassName}>{body}</div>;
+  return (
+    <Link
+      to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
+      params={{workspaceSlug, projectSlug, workflowRunId: run.id}}
+      search={
+        ((previous: Record<string, unknown>) =>
+          withoutWorkflowRunSelectionSearch(previous)) as never
+      }
+      // An aria-label is the link's whole accessible name, so anything inside the row that
+      // carries its own label (the status glyph, the job strip) goes unspoken unless it is
+      // curated in here. The job breakdown is the reason this list is worth its width, so it
+      // belongs in what a tabbing user hears, not only in browse mode.
+      aria-label={[
+        run.name,
+        runNumberLabel,
+        statusLabel,
+        durationLabel,
+        run.triggerLabel,
+        branch ? `branch ${branch}` : undefined,
+        actor ? `by ${actor}` : undefined,
+        run.jobs.total > 0 ? jobStatusSummary(run.jobs) : undefined,
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(', ')}
+      className={rowClassName}
+    >
+      {body}
+    </Link>
+  );
 }
 
 function TriggerLabel({run}: {run: WorkflowRunListItem}) {
   return (
-    <span className="flex min-w-0 flex-1 items-center">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="flex w-fit max-w-full min-w-0 items-center gap-8 rounded-6 outline-none">
-            <TriggerSourceIcon
-              provider={run.triggerProvider}
-              source={run.triggerSource}
-              aria-hidden
-              className="size-14 shrink-0 text-foreground-neutral-muted"
-            />
-            <Text as="span" size="xs" className="min-w-0 truncate text-foreground-neutral-subtle">
-              {run.triggerDisplayLabel}
-            </Text>
-          </span>
-        </TooltipTrigger>
-        <TriggerTooltip label={run.triggerLabel} />
-      </Tooltip>
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="flex min-w-0 max-w-[140px] items-center gap-6 outline-none">
+          <TriggerSourceIcon
+            provider={run.triggerProvider}
+            source={run.triggerSource}
+            aria-hidden="true"
+            className="size-12 shrink-0 text-foreground-neutral-muted"
+          />
+          <Text as="span" size="xs" className="min-w-0 truncate">
+            {run.triggerDisplayLabel}
+          </Text>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        <Text as="span" size="xs" className="block max-w-[360px] break-words">
+          {run.triggerLabel}
+        </Text>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
-function TriggerTooltip({label}: {label: string}) {
+function BranchLabel({branch, isPullRequest}: {branch: string; isPullRequest: boolean}) {
   return (
-    <TooltipContent>
-      <Text as="span" size="xs" className="block max-w-[360px] break-words">
-        {label}
-      </Text>
-    </TooltipContent>
-  );
-}
-
-function RunMetadataSeparator() {
-  return (
-    <Code
-      as="span"
-      variant="label"
-      aria-hidden="true"
-      className="shrink-0 text-foreground-neutral-disabled"
+    <MetadataChip
+      icon={isPullRequest ? 'gitPullRequestLine' : 'gitBranchLine'}
+      title={isPullRequest ? `Pull request ${branch}` : `Branch ${branch}`}
+      className="max-w-[180px]"
     >
-      ·
-    </Code>
+      {branch}
+    </MetadataChip>
+  );
+}
+
+function CommitLabel({commit}: {commit: string}) {
+  return (
+    <MetadataChip icon="gitCommitLine" title={`Commit ${commit}`}>
+      {commit}
+    </MetadataChip>
+  );
+}
+
+function ActorLabel({actor}: {actor: string}) {
+  return (
+    <MetadataChip
+      icon="userLine"
+      title={`Triggered by ${actor}`}
+      // Dropped once the row is two lines, where the provenance line has to stay readable on
+      // a phone.
+      className="hidden max-w-[120px] @min-[976px]:flex"
+    >
+      {actor}
+    </MetadataChip>
+  );
+}
+
+/**
+ * A ref, SHA, or handle: monospace because it is content a user copies or pattern-matches,
+ * with the icon carrying the kind so the value itself never needs a written label.
+ */
+function MetadataChip({
+  icon,
+  title,
+  className,
+  children,
+}: {
+  icon: IconName;
+  title: string;
+  className?: string | undefined;
+  children: string;
+}) {
+  return (
+    <span className={cn('flex min-w-0 shrink-0 items-center gap-4', className)} title={title}>
+      <Icon name={icon} className="size-12 shrink-0 text-foreground-neutral-muted" aria-hidden />
+      <Code as="span" variant="label" className="min-w-0 truncate">
+        {children}
+      </Code>
+    </span>
   );
 }

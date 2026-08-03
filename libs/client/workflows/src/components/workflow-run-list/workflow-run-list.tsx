@@ -8,11 +8,10 @@ export function WorkflowRunList({
   projectId,
   workspaceSlug,
   projectSlug,
-  selectedWorkflowRunId,
   className,
-  search = '',
-  statusFilter = 'all',
+  search,
   onFiltersChange,
+  onClearFilters,
   hasNextPage,
   isFetchingNextPage,
   isFetchNextPageError,
@@ -33,11 +32,10 @@ export function WorkflowRunList({
       query={query}
       workspaceSlug={workspaceSlug}
       projectSlug={projectSlug}
-      selectedWorkflowRunId={selectedWorkflowRunId}
       className={className}
-      search={search}
-      statusFilter={statusFilter}
+      {...(search ? {search} : {})}
       {...(onFiltersChange ? {onFiltersChange} : {})}
+      {...(onClearFilters ? {onClearFilters} : {})}
       hasNextPage={hasNextPage ?? query.hasNextPage}
       isFetchingNextPage={isFetchingNextPage ?? query.isFetchingNextPage}
       isFetchNextPageError={isFetchNextPageError ?? query.isFetchNextPageError}

@@ -27,6 +27,7 @@ export interface WorkflowRunTriggerReference {
   repository: string | null;
   ref: string | null;
   commit: string | null;
+  actor: string | null;
 }
 
 export interface WorkflowSourceSnapshot {

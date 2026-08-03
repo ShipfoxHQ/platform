@@ -4,24 +4,33 @@ import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
+import {Link} from '@tanstack/react-router';
 
+const SKELETON_ROW_COUNT = 8;
+
+/**
+ * Placeholder rows at the real row height, so the list does not resize under the cursor when
+ * the first page lands. Only the initial load renders these: a refetch keeps the rows it has,
+ * per the design system's rule against animating frequently-updating data.
+ */
 export function WorkflowRunListSkeleton() {
   return (
-    <div className="flex flex-col gap-4 p-8" role="status" aria-label="Loading runs">
-      {Array.from({length: 6}).map((_, index) => (
+    <div
+      className="@container divide-y divide-border-neutral-base border-t border-border-neutral-base"
+      role="status"
+      aria-label="Loading runs"
+    >
+      {Array.from({length: SKELETON_ROW_COUNT}).map((_, index) => (
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: skeleton row, stable position
           key={index}
-          className="flex flex-col gap-3 rounded-8 border border-transparent px-10 py-7"
+          className="flex items-center gap-10 px-12 py-8 @min-[976px]:h-44 @min-[976px]:py-0"
         >
-          <div className="flex h-20 items-center gap-7">
-            <Skeleton className="size-6 shrink-0 rounded-full" />
-            <Skeleton className="h-12 w-1/3" />
-          </div>
-          <div className="flex h-20 items-center gap-6 pl-13">
-            <Skeleton className="h-12 flex-1" />
-            <Skeleton className="h-12 w-40" />
-          </div>
+          <Skeleton className="size-14 shrink-0 rounded-full" />
+          <Skeleton className="h-12 w-[220px] max-w-[40%]" />
+          <Skeleton className="ml-auto hidden h-12 w-96 @min-[1040px]:block" />
+          <Skeleton className="h-12 w-48" />
+          <Skeleton className="h-12 w-48" />
         </div>
       ))}
     </div>
@@ -35,7 +44,7 @@ export function WorkflowRunListSkeleton() {
  */
 export function WorkflowRunListStaleError({query}: {query: QueryLoadErrorQuery}) {
   return (
-    <div className="border-b border-border-neutral-base p-8">
+    <div className="pb-8">
       <Callout role="alert" type="error">
         <div className="flex items-center justify-between gap-8">
           <Text size="xs">Could not refresh workflow runs.</Text>
@@ -56,18 +65,43 @@ export function WorkflowRunListStaleError({query}: {query: QueryLoadErrorQuery})
   );
 }
 
-export function WorkflowRunListEmpty() {
+export function WorkflowRunListEmpty({
+  workspaceSlug,
+  projectSlug,
+}: {
+  workspaceSlug?: string | undefined;
+  projectSlug?: string | undefined;
+}) {
   return (
-    <div className="p-16">
-      <EmptyState
-        icon="pulseLine"
-        title="No runs yet"
-        description="Runs from this project's workflows will appear here as soon as one is launched."
-      />
-    </div>
+    <EmptyState
+      icon="pulseLine"
+      title="No runs yet"
+      description="Runs from this project's workflows appear here the moment one is launched."
+      action={
+        workspaceSlug && projectSlug ? (
+          <Button asChild type="button" size="sm" variant="primary">
+            <Link
+              to="/w/$workspaceSlug/p/$projectSlug/workflows"
+              params={{workspaceSlug, projectSlug}}
+            >
+              View workflows
+            </Link>
+          </Button>
+        ) : null
+      }
+    />
   );
 }
 
+/**
+ * The filtered-empty state, deliberately distinct from the unfiltered one: someone who
+ * filtered their way to nothing needs a way back out, not an onboarding call to action.
+ *
+ * Its reset is worded as its outcome rather than repeating the toolbar's "Clear filters"
+ * verbatim, so the two controls on screen read as one action offered twice rather than two
+ * different ones. It is also the only reset within reach below `md`, where the toolbar's
+ * lives inside the filter sheet.
+ */
 export function WorkflowRunListNoMatches({
   onClear,
   hasNextPage,
@@ -82,7 +116,7 @@ export function WorkflowRunListNoMatches({
   onLoadMore?: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-8 p-16">
+    <div className="flex flex-col gap-8">
       {isFetchNextPageError ? (
         <Callout role="alert" type="error">
           Could not load more workflow runs. Try again to continue searching older runs.
@@ -93,8 +127,8 @@ export function WorkflowRunListNoMatches({
         title={hasNextPage ? 'No matches in loaded history' : 'No matching runs'}
         description={
           hasNextPage
-            ? 'No loaded runs match your current search or status filter. Load more to search older runs.'
-            : 'No runs match your current search or status filter.'
+            ? 'No loaded run matches these filters. Load more to search further back.'
+            : 'No run matches these filters.'
         }
         action={
           <div className="flex flex-wrap justify-center gap-8">
@@ -110,7 +144,7 @@ export function WorkflowRunListNoMatches({
               </Button>
             ) : null}
             <Button type="button" size="sm" variant="secondary" onClick={onClear}>
-              Clear filters
+              Show all runs
             </Button>
           </div>
         }
@@ -133,7 +167,7 @@ export function WorkflowRunListLoadMore({
   if (!hasNextPage || !onLoadMore) return null;
 
   return (
-    <div className="flex flex-col items-center gap-8 border-t border-border-neutral-base p-8">
+    <div className="flex flex-col items-center gap-8 border-t border-border-neutral-base py-12">
       {isFetchNextPageError ? (
         <Callout role="alert" type="error">
           Could not load more workflow runs. Try again.

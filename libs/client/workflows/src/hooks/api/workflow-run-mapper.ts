@@ -7,6 +7,7 @@ import type {
   WorkflowRunDetailResponseDto,
   WorkflowRunJobDetailDto,
   WorkflowRunJobExecutionDetailDto,
+  WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
   WorkflowRunResponseDto,
   WorkflowRunStepDetailDto,
@@ -25,6 +26,7 @@ import {
   type WorkflowRunDetail,
   type WorkflowRunListItem,
   type WorkflowRunListPage,
+  type WorkflowRunRecord,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
@@ -50,6 +52,7 @@ export function toWorkflowRun(dto: WorkflowRunResponseDto): WorkflowRun {
       triggerEvent: dto.trigger_event,
     }),
     triggerPayload: dto.trigger_payload,
+    triggerReference: dto.trigger_reference,
     inputs: dto.inputs ?? null,
     sourceSnapshot: dto.source_snapshot
       ? {content: dto.source_snapshot.content, format: dto.source_snapshot.format}
@@ -73,7 +76,7 @@ export function toWorkflowRunAttempt(dto: WorkflowRunAttemptDto): WorkflowRunAtt
   });
 }
 
-export function toWorkflowRunListItem(dto: WorkflowRunResponseDto): WorkflowRunListItem {
+export function toWorkflowRunRecord(dto: WorkflowRunResponseDto): WorkflowRunRecord {
   return {
     ...toWorkflowRun(dto),
     status: dto.status,
@@ -86,6 +89,26 @@ export function toWorkflowRunListItem(dto: WorkflowRunResponseDto): WorkflowRunL
       startedAt: dto.started_at ?? null,
       finishedAt: dto.finished_at ?? null,
     }),
+  };
+}
+
+export function toWorkflowRunListItem(dto: WorkflowRunListItemDto): WorkflowRunListItem {
+  const statusCounts = dto.job_status_counts.map(({status, count}) => ({status, count}));
+  return {
+    ...toWorkflowRunRecord(dto),
+    jobs: {
+      preview: dto.jobs.map((job) => ({
+        id: job.id,
+        key: job.key,
+        name: job.name,
+        status: job.status,
+        position: job.position,
+      })),
+      statusCounts,
+      // Derived rather than sent: the counts already cover every job, and a separate total
+      // would be a second source of truth that could disagree with them.
+      total: statusCounts.reduce((sum, entry) => sum + entry.count, 0),
+    },
   };
 }
 

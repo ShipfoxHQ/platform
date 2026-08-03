@@ -41,6 +41,10 @@ export type {
   WorkflowJobExecutionDepthParams,
   WorkflowRunAggregates,
   WorkflowRunFilters,
+  WorkflowRunJobStatusCount,
+  WorkflowRunJobSummary,
+  WorkflowRunJobSummaryTarget,
+  WorkflowRunJobsSummary,
 } from './workflow-runs.js';
 export {
   bulkUpdateStepStatuses,
@@ -73,6 +77,7 @@ export {
   getWorkflowRunById,
   getWorkflowRunDetail,
   listRunAttempts,
+  listWorkflowRunJobSummaries,
   listWorkflowRuns,
   listWorkflowRunsByProject,
   recordJobExecutionQueuedAt,

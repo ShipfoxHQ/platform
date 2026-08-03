@@ -1,5 +1,10 @@
 import {configureApiClient} from '@shipfox/client-api';
-import {type AuthState, authStateAtom} from '@shipfox/client-shell/runtime';
+import {
+  type AuthState,
+  authStateAtom,
+  parseAppSearch,
+  stringifyAppSearch,
+} from '@shipfox/client-shell/runtime';
 import {Toaster} from '@shipfox/react-ui/toast';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
@@ -83,6 +88,10 @@ function createTestRouter(
 
   return createRouter({
     history: createMemoryHistory({initialEntries: [path]}),
+    // Mirrors the generated app router so repeated search keys behave here as they do in
+    // production; the default encoder would JSON-encode a multi-select instead.
+    parseSearch: parseAppSearch,
+    stringifySearch: stringifyAppSearch,
     routeTree: rootRoute.addChildren([
       runsRoute,
       runDetailRoute,

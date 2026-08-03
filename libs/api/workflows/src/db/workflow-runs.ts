@@ -47,6 +47,10 @@ export type {
   WorkflowRunAggregates,
   WorkflowRunCursor,
   WorkflowRunFilters,
+  WorkflowRunJobStatusCount,
+  WorkflowRunJobSummary,
+  WorkflowRunJobSummaryTarget,
+  WorkflowRunJobsSummary,
 } from './workflow-runs/queries.js';
 export {
   buildWorkflowRunListConditions,
@@ -59,6 +63,7 @@ export {
   getWorkflowRunById,
   getWorkflowRunDetail,
   listRunAttempts,
+  listWorkflowRunJobSummaries,
   listWorkflowRuns,
   listWorkflowRunsByProject,
 } from './workflow-runs/queries.js';

@@ -153,6 +153,7 @@ export class GithubSourceControlProvider
   resolveTriggerReference(payload: unknown): TriggerReference | null {
     if (!isRecord(payload)) return null;
 
+    const actor = githubEventActor(payload);
     const pullRequest = asRecord(payload.pull_request);
     if (pullRequest) {
       const head = asRecord(pullRequest.head);
@@ -173,6 +174,7 @@ export class GithubSourceControlProvider
         externalRepositoryId: buildProviderRepositoryId(GITHUB_PROVIDER, repositoryId),
         ref,
         commit,
+        actor,
       };
     }
 
@@ -186,6 +188,7 @@ export class GithubSourceControlProvider
       externalRepositoryId: buildProviderRepositoryId(GITHUB_PROVIDER, repositoryId),
       ref,
       commit,
+      actor,
     };
   }
 
@@ -226,6 +229,12 @@ export class GithubSourceControlProvider
 
 function githubRepositoryId(repository: Record<string, unknown> | null): string | null {
   return positiveInteger(repository?.id) === null ? null : String(repository?.id);
+}
+
+// `sender` is the one actor field every GitHub webhook event carries, so it stays correct
+// for pushes, pull requests, and anything else that reaches a trigger reference.
+function githubEventActor(payload: Record<string, unknown>): string | null {
+  return nonEmptyString(asRecord(payload.sender)?.login);
 }
 
 function sameGithubRepository(

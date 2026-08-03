@@ -27,4 +27,5 @@ export * from './layout-navigation.js';
 export * from './nav-order.js';
 export * from './route-inputs.js';
 export * from './router-context.js';
+export * from './search-serialization.js';
 export * from './workspace-setup.js';

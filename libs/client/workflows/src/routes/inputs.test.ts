@@ -1,15 +1,196 @@
-import {validateWorkflowRunsSearch, workflowRouteParams} from './inputs.js';
+import {parseAppSearch, stringifyAppSearch} from '@shipfox/client-shell/runtime';
+import {
+  applyWorkflowRunFilterPatch,
+  clearWorkflowRunFilters,
+  hasWorkflowRunFilters,
+  validateWorkflowRunsSearch,
+  type WorkflowRunsSearch,
+  workflowRouteParams,
+  workflowRunSearchParams,
+} from './inputs.js';
 
-describe('workflow route inputs', () => {
-  it('normalizes malformed search values to safe defaults', () => {
-    expect(validateWorkflowRunsSearch({search: ['unexpected'], status: 'unknown'})).toEqual({});
-    expect(validateWorkflowRunsSearch({status: 'failed', runAttempt: '2'})).toEqual({
-      status: 'failed',
-      runAttempt: 2,
+/** Everything a filter change writes, then reads back, exactly as the router would. */
+function roundTrip(search: WorkflowRunsSearch): WorkflowRunsSearch {
+  const query = stringifyAppSearch(workflowRunSearchParams(search, {}));
+  return validateWorkflowRunsSearch(parseAppSearch(query));
+}
+
+describe('validateWorkflowRunsSearch', () => {
+  test('drops malformed values instead of rejecting the URL', () => {
+    expect(
+      validateWorkflowRunsSearch({
+        search: ['unexpected'],
+        status: 'unknown',
+        after: 'yesterday',
+        before: '2026-13-01',
+      }),
+    ).toEqual({});
+  });
+
+  test('ignores parameters it does not recognize', () => {
+    expect(validateWorkflowRunsSearch({search: 'deploy', page: '3', sort: 'name'})).toEqual({
+      search: 'deploy',
     });
   });
 
-  it('requires workspace and project path parameters', () => {
+  test('reads a single repeated key as a one-element list', () => {
+    expect(validateWorkflowRunsSearch({status: 'failed'})).toEqual({status: ['failed']});
+  });
+
+  test('keeps only the statuses it knows out of a mixed list', () => {
+    expect(validateWorkflowRunsSearch({status: ['failed', 'nonsense', 'running']})).toEqual({
+      status: ['failed', 'running'],
+    });
+  });
+
+  test('coerces a numeric-looking branch back to a string', () => {
+    expect(validateWorkflowRunsSearch({branch: 2024})).toEqual({branch: ['2024']});
+  });
+
+  test('deduplicates a repeated value', () => {
+    expect(validateWorkflowRunsSearch({branch: ['main', 'main', 'next']})).toEqual({
+      branch: ['main', 'next'],
+    });
+  });
+
+  test('rejects a well-shaped but impossible date', () => {
+    expect(validateWorkflowRunsSearch({after: '2026-02-31'})).toEqual({});
+    expect(validateWorkflowRunsSearch({after: '2026-02-28'})).toEqual({after: '2026-02-28'});
+  });
+
+  test('keeps the run selection parameters the detail route owns', () => {
+    expect(validateWorkflowRunsSearch({status: 'failed', runAttempt: '2', job: 'job-1'})).toEqual({
+      status: ['failed'],
+      runAttempt: 2,
+      jobId: 'job-1',
+    });
+  });
+});
+
+describe('the run list URL contract', () => {
+  test.each([
+    ['search', {search: 'deploy-web'}],
+    ['status', {status: ['failed' as const, 'running' as const]}],
+    ['branch', {branch: ['main', 'release/v2']}],
+    ['actor', {actor: ['octocat', 'hubot']}],
+    ['event', {event: ['push', 'pull_request']}],
+    ['after and before', {after: '2026-05-01', before: '2026-05-31'}],
+  ])('round-trips %s through the URL', (_param, search) => {
+    expect(roundTrip(search)).toEqual(search);
+  });
+
+  test('round-trips every parameter at once', () => {
+    const search: WorkflowRunsSearch = {
+      search: 'deploy',
+      status: ['failed', 'cancelled'],
+      branch: ['main'],
+      actor: ['octocat'],
+      event: ['push'],
+      after: '2026-05-01',
+      before: '2026-05-31',
+    };
+
+    expect(roundTrip(search)).toEqual(search);
+  });
+
+  test('repeats the key rather than comma-joining a multi-select', () => {
+    const query = stringifyAppSearch(workflowRunSearchParams({status: ['failed', 'running']}, {}));
+
+    expect(query).toBe('?status=failed&status=running');
+  });
+
+  test('survives a branch name containing a comma', () => {
+    expect(roundTrip({branch: ['release,v2', 'main']})).toEqual({branch: ['release,v2', 'main']});
+  });
+
+  // A branch named for a year, a release train called `false`: names that happen to be valid
+  // JSON have to come back as themselves, or the filter matches nothing and the shared link
+  // is broken for good.
+  test.each([
+    ['a numeric branch beside a plain one', {branch: ['2024', 'main']}],
+    ['two numeric branches', {branch: ['2024', '2025']}],
+    ['a boolean-looking branch', {branch: ['false', 'main']}],
+    ['numeric actors', {actor: ['123', '456']}],
+  ])('survives %s', (_case, search) => {
+    expect(roundTrip(search)).toEqual(search);
+  });
+
+  test('writes nothing for an unfiltered list', () => {
+    expect(stringifyAppSearch(workflowRunSearchParams({}, {}))).toBe('');
+  });
+
+  test('has no page or cursor parameter to carry', () => {
+    const query = stringifyAppSearch(workflowRunSearchParams({search: 'deploy'}, {}));
+
+    expect(query).not.toContain('page');
+    expect(query).not.toContain('cursor');
+  });
+});
+
+describe('applyWorkflowRunFilterPatch', () => {
+  test('replaces only the dimensions the patch names', () => {
+    const next = applyWorkflowRunFilterPatch(
+      {search: 'deploy', status: ['failed']},
+      {
+        branch: ['main'],
+      },
+    );
+
+    expect(next).toEqual({search: 'deploy', status: ['failed'], branch: ['main']});
+  });
+
+  test('deletes a dimension set to undefined, an empty string, or an empty list', () => {
+    const search: WorkflowRunsSearch = {search: 'deploy', status: ['failed'], after: '2026-05-01'};
+
+    expect(applyWorkflowRunFilterPatch(search, {search: '', status: [], after: undefined})).toEqual(
+      {},
+    );
+  });
+
+  test('leaves the run selection parameters alone', () => {
+    const next = applyWorkflowRunFilterPatch({runAttempt: 2, jobId: 'job-1'}, {search: 'deploy'});
+
+    expect(next).toEqual({runAttempt: 2, jobId: 'job-1', search: 'deploy'});
+  });
+});
+
+describe('clearWorkflowRunFilters', () => {
+  test('drops every filter and keeps the selection parameters', () => {
+    const cleared = clearWorkflowRunFilters({
+      search: 'deploy',
+      status: ['failed'],
+      branch: ['main'],
+      actor: ['octocat'],
+      event: ['push'],
+      after: '2026-05-01',
+      before: '2026-05-31',
+      runAttempt: 2,
+    });
+
+    expect(cleared).toEqual({runAttempt: 2});
+  });
+});
+
+describe('hasWorkflowRunFilters', () => {
+  test.each([
+    ['search', {search: 'deploy'}],
+    ['status', {status: ['failed' as const]}],
+    ['branch', {branch: ['main']}],
+    ['actor', {actor: ['octocat']}],
+    ['event', {event: ['push']}],
+    ['after', {after: '2026-05-01'}],
+    ['before', {before: '2026-05-31'}],
+  ])('reports %s as an active filter', (_dimension, search) => {
+    expect(hasWorkflowRunFilters(search)).toBe(true);
+  });
+
+  test('does not count a run selection parameter as a filter', () => {
+    expect(hasWorkflowRunFilters({runAttempt: 2, jobId: 'job-1'})).toBe(false);
+  });
+});
+
+describe('workflowRouteParams', () => {
+  test('requires workspace and project path parameters', () => {
     expect(workflowRouteParams({workspaceSlug: 'workspace-1', projectSlug: 'project-1'})).toEqual({
       workspaceSlug: 'workspace-1',
       projectSlug: 'project-1',

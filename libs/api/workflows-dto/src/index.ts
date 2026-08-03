@@ -81,6 +81,9 @@ export {
   workflowRunDtoSchema,
   workflowRunJobDetailDtoSchema,
   workflowRunJobExecutionDetailDtoSchema,
+  workflowRunJobStatusCountDtoSchema,
+  workflowRunJobSummaryDtoSchema,
+  workflowRunListItemSchema,
   workflowRunListQuerySchema,
   workflowRunListResponseSchema,
   workflowRunRerunModeSchema,
@@ -90,7 +93,13 @@ export {
 } from '#schemas/index.js';
 export {type StepSourceLocationDto, stepSourceLocationSchema} from '#schemas/step.js';
 export {
+  WORKFLOW_RUN_JOB_PREVIEW_LIMIT,
+  type WorkflowRunJobStatusCountDto,
+  type WorkflowRunJobSummaryDto,
+  type WorkflowRunListItemDto,
+  type WorkflowRunTriggerReferenceDto,
   type WorkflowSourceSnapshotDto,
+  workflowRunTriggerReferenceSchema,
   workflowSourceSnapshotSchema,
 } from '#schemas/workflow-run.js';
 export {

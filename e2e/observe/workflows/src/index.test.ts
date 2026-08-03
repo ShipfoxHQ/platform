@@ -1,6 +1,6 @@
 import type {
   WorkflowRunDetailResponseDto,
-  WorkflowRunDto,
+  WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
   WorkflowRunStatusDto,
 } from '@shipfox/api-workflows-dto';
@@ -20,7 +20,7 @@ const RUN_TERMINAL_TIMEOUT_RE =
   /Timed out waiting for workflow run terminal status: runId=33333333/u;
 const RUN_TERMINAL_OBSERVED_RE = /status=running/u;
 
-function run(params: Partial<WorkflowRunDto> = {}): WorkflowRunDto {
+function run(params: Partial<WorkflowRunListItemDto> = {}): WorkflowRunListItemDto {
   return {
     id: params.id ?? runId,
     project_id: params.project_id ?? projectId,
@@ -41,12 +41,15 @@ function run(params: Partial<WorkflowRunDto> = {}): WorkflowRunDto {
       deliveryId: 'delivery-1',
       data: {headCommitSha: 'abc123', ref: 'main'},
     },
+    trigger_reference: params.trigger_reference ?? null,
     inputs: params.inputs ?? null,
     source_snapshot: params.source_snapshot ?? null,
     created_at: params.created_at ?? '2026-07-02T08:00:00.000Z',
     updated_at: params.updated_at ?? '2026-07-02T08:00:00.000Z',
     started_at: params.started_at ?? null,
     finished_at: params.finished_at ?? null,
+    jobs: params.jobs ?? [],
+    job_status_counts: params.job_status_counts ?? [],
   };
 }
 

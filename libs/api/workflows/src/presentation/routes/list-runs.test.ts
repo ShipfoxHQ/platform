@@ -104,6 +104,62 @@ describe('GET /api/workflows/runs', () => {
     expect(body.filtered_total_count).toBe(2);
   });
 
+  test('carries the current attempt jobs in graph order so a row can draw its status strip', async () => {
+    await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId: crypto.randomUUID(),
+      name: 'Pipeline',
+      model: workflowModel({
+        name: 'Pipeline',
+        jobs: {
+          build: {steps: [{run: 'echo build'}]},
+          test: {needs: 'build', steps: [{run: 'echo test'}]},
+          deploy: {needs: 'test', steps: [{run: 'echo deploy'}]},
+        },
+      }),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs?project_id=${projectId}`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const [run] = res.json().runs;
+    expect(run.jobs.map((job: {key: string}) => job.key)).toEqual(['build', 'test', 'deploy']);
+    expect(run.jobs[0]).toMatchObject({status: 'pending', position: 0});
+  });
+
+  test('reports a null trigger reference for a run no source-control event produced', async () => {
+    await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId: crypto.randomUUID(),
+      name: 'Manual',
+      model: workflowModel({name: 'Manual'}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs?project_id=${projectId}`,
+    });
+
+    expect(res.json().runs[0].trigger_reference).toBeNull();
+  });
+
   test('returns empty array for project with no runs', async () => {
     const res = await app.inject({
       method: 'GET',
