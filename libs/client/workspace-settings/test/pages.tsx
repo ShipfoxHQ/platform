@@ -57,6 +57,11 @@ function createTestRouter(path: string, element: ReactElement) {
     path: '/w/$workspaceSlug/settings/integrations',
     component: () => element,
   });
+  const generalRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/w/$workspaceSlug/settings/general',
+    component: () => element,
+  });
 
   return createRouter({
     history: createMemoryHistory({initialEntries: [path]}),
@@ -65,6 +70,7 @@ function createTestRouter(path: string, element: ReactElement) {
       provisionersRoute,
       modelProvidersRoute,
       integrationsRoute,
+      generalRoute,
     ]),
   });
 }

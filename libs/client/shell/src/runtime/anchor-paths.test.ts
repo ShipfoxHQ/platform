@@ -5,6 +5,7 @@ describe('client route path invariants', () => {
     expect(anchorPaths).toMatchObject({
       workspaceLayout: '/w/$workspaceSlug',
       projectLayout: '/w/$workspaceSlug/p/$projectSlug',
+      projectSettings: '/w/$workspaceSlug/p/$projectSlug/settings',
     });
     expect(() =>
       validateRoutePathInvariants('/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId'),

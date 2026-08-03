@@ -1,4 +1,4 @@
-import {slugifyName} from '@shipfox/api-common-dto';
+import {slugifyName, slugSchema} from '@shipfox/api-common-dto';
 import {createProjectBodySchema} from '@shipfox/api-projects-dto';
 import {useMaybeActiveWorkspace} from '@shipfox/client-auth';
 import {
@@ -9,7 +9,7 @@ import {
   useRepositoriesInfiniteQuery,
   useSourceConnectionsQuery,
 } from '@shipfox/client-integrations';
-import {displayNameFieldError} from '@shipfox/client-ui';
+import {displayNameFieldError, SlugField} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {FormField, FormFieldInput, fieldError} from '@shipfox/react-ui/form-field';
@@ -21,8 +21,16 @@ import {Link, Navigate, useNavigate} from '@tanstack/react-router';
 import {useEffect, useRef, useState} from 'react';
 import {ModelProviderReminderBanner} from '#components/model-provider-reminder-banner.js';
 import {type CreateProjectCommand, projectNameFromRepository} from '#core/project.js';
-import {getProject, useCreateProjectMutation} from '#hooks/api/projects.js';
+import {
+  getProject,
+  useCreateProjectMutation,
+  useProjectSlugAvailability,
+} from '#hooks/api/projects.js';
 import {projectErrorCopy} from '#project-error.js';
+
+function isSlugValid(value: string): boolean {
+  return slugSchema.safeParse(value).success;
+}
 
 export function CreateProjectPage() {
   const workspace = useMaybeActiveWorkspace();
@@ -73,13 +81,18 @@ export function CreateProjectPage() {
   const defaultProjectSlug = slugifyName(defaultProjectName, {fallback: 'project'});
 
   const [formError, setFormError] = useState<string | undefined>();
-  const [slugTouched, setSlugTouched] = useState(false);
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const [slugCheckEnabled, setSlugCheckEnabled] = useState(false);
   const [slugConflict, setSlugConflict] = useState(false);
+  const workspaceId = workspace?.id;
+  const checkProjectSlugAvailability = useProjectSlugAvailability(workspaceId);
 
   const form = useForm({
     defaultValues: {name: defaultProjectName, slug: defaultProjectSlug},
     onSubmit: async ({value}) => {
-      const projectSlug = slugTouched ? value.slug : slugifyName(value.name, {fallback: 'project'});
+      const projectSlug = slugManuallyEdited
+        ? value.slug
+        : slugifyName(value.name, {fallback: 'project'});
       await createProjectFromForm(nameTouched ? value.name : defaultProjectName, projectSlug);
     },
   });
@@ -87,12 +100,12 @@ export function CreateProjectPage() {
   useEffect(() => {
     if (!nameTouched && form.state.values.name !== defaultProjectName) {
       form.setFieldValue('name', defaultProjectName);
-      if (!slugTouched) {
+      if (!slugManuallyEdited) {
         setSlugConflict(false);
         form.setFieldValue('slug', slugifyName(defaultProjectName, {fallback: 'project'}));
       }
     }
-  }, [defaultProjectName, form, nameTouched, slugTouched]);
+  }, [defaultProjectName, form, nameTouched, slugManuallyEdited]);
 
   function selectConnection(connectionId: string) {
     setSelectedConnectionId(connectionId);
@@ -323,7 +336,8 @@ export function CreateProjectPage() {
                       const nextName = event.target.value;
                       setNameTouched(true);
                       field.handleChange(nextName);
-                      if (!slugTouched) {
+                      if (!slugManuallyEdited) {
+                        setSlugCheckEnabled(true);
                         setSlugConflict(false);
                         form.setFieldValue('slug', slugifyName(nextName, {fallback: 'project'}));
                       }
@@ -343,30 +357,31 @@ export function CreateProjectPage() {
               }}
             >
               {(field) => (
-                <FormField
-                  label="Project slug"
+                <SlugField
                   id="project-slug"
+                  label="Project slug"
+                  name="slug"
+                  value={field.state.value}
+                  onChange={(value) => {
+                    setSlugManuallyEdited(true);
+                    setSlugCheckEnabled(true);
+                    setSlugConflict(false);
+                    field.handleChange(value);
+                  }}
+                  onBlur={field.handleBlur}
                   error={slugConflict ? 'This project slug is already in use.' : fieldError(field)}
                   description={
-                    <span className="font-code" aria-live="polite">
+                    <span className="font-code">
                       {`/w/${workspace.slug}/p/${field.state.value}`}
                     </span>
                   }
-                >
-                  <FormFieldInput
-                    name="slug"
-                    type="text"
-                    value={field.state.value}
-                    onChange={(event) => {
-                      setSlugTouched(true);
-                      setSlugConflict(false);
-                      field.handleChange(event.target.value);
-                    }}
-                    onBlur={field.handleBlur}
-                    placeholder="platform"
-                    className="font-code"
-                  />
-                </FormField>
+                  placeholder="platform"
+                  className="font-code"
+                  checkEnabled={slugCheckEnabled}
+                  debounceMs={0}
+                  isValid={isSlugValid}
+                  checkAvailability={checkProjectSlugAvailability}
+                />
               )}
             </form.Field>
 

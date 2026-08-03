@@ -120,6 +120,47 @@ describe('WorkspaceOnboardingPage', () => {
     expect(screen.getByText(`${window.location.origin}/w/custom-workspace`)).toBeInTheDocument();
   });
 
+  test('checks a manually edited workspace slug for availability', async () => {
+    const user = pageUserFactory.build({email: 'workspace-availability@example.com'});
+    const availabilityRequests: string[] = [];
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      const url = request.url;
+      if (url.includes('/auth/refresh')) {
+        return Promise.resolve(jsonResponse({token: 'access-token', user}));
+      }
+      if (url.includes('/workspaces/slug-availability')) {
+        availabilityRequests.push(url);
+        return Promise.resolve(jsonResponse({available: true}));
+      }
+      if (url.endsWith('/workspaces')) {
+        return Promise.resolve(jsonResponse({memberships: []}));
+      }
+      return Promise.resolve(
+        jsonResponse({code: 'not-found', message: 'Not found'}, {status: 404}),
+      );
+    });
+    configureApiClient({fetchImpl});
+
+    renderAuthPage(
+      '/',
+      <AuthGuard>
+        <WorkspaceGuard>
+          <h1>Authenticated home</h1>
+        </WorkspaceGuard>
+      </AuthGuard>,
+    );
+    fireEvent.change(await screen.findByLabelText('Workspace slug'), {
+      target: {value: 'custom-workspace'},
+    });
+
+    await waitFor(() => expect(availabilityRequests).toHaveLength(1));
+    expect(new URL(availabilityRequests[0] ?? '').searchParams.get('slug')).toBe(
+      'custom-workspace',
+    );
+    expect(await screen.findByText('Slug is available.')).toBeInTheDocument();
+  });
+
   test('shows a duplicate slug error on the slug field', async () => {
     const user = pageUserFactory.build({email: 'workspace-conflict@example.com'});
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {

@@ -85,7 +85,7 @@ test('renders the external route, provider order, navigation, settings, and conf
     [...container.querySelectorAll('[aria-label="Workspace settings"] a')]
       .map((link) => link.textContent?.trim())
       .slice(0, 3),
-  ).toEqual(['Members', 'External', 'Runners']);
+  ).toEqual(['General', 'Members', 'External']);
   expect(container.querySelector('[aria-label="External provider order"]')?.textContent).toBe(
     'outer > inner',
   );

@@ -33,6 +33,16 @@ export interface WorkspaceCreateCommand {
   slug: string;
 }
 
+type WorkspaceUpdateBody =
+  | {name: string; slug?: never}
+  | {name?: never; slug: string}
+  | {
+      name: string;
+      slug: string;
+    };
+
+export type WorkspaceUpdateCommand = {workspaceId: string} & WorkspaceUpdateBody;
+
 export interface Workspace {
   id: string;
   name: string;

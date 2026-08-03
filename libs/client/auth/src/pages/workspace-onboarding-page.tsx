@@ -1,6 +1,6 @@
-import {slugifyName} from '@shipfox/api-common-dto';
+import {slugifyName, slugSchema} from '@shipfox/api-common-dto';
 import {createWorkspaceBodySchema} from '@shipfox/api-workspaces-dto';
-import {displayNameFieldError} from '@shipfox/client-ui';
+import {displayNameFieldError, SlugField} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@shipfox/react-ui/card';
@@ -12,7 +12,7 @@ import {useForm} from '@tanstack/react-form';
 import {useNavigate} from '@tanstack/react-router';
 import {useSetAtom} from 'jotai';
 import {useState} from 'react';
-import {useCreateWorkspaceAuth} from '#hooks/api/workspace-auth.js';
+import {checkWorkspaceSlugAvailability, useCreateWorkspaceAuth} from '#hooks/api/workspace-auth.js';
 import {useAuthState} from '#hooks/use-auth-state.js';
 import {lastWorkspaceIdAtom, rememberLastWorkspaceId} from '#state/last-workspace.js';
 import {workspaceOnboardingErrorToFormError} from './form-errors.js';
@@ -33,6 +33,10 @@ const previewBars = [
   {id: 'runs-late-low', height: 44},
   {id: 'runs-late-high', height: 74},
 ];
+
+function isSlugValid(value: string): boolean {
+  return slugSchema.safeParse(value).success;
+}
 
 export function WorkspaceOnboardingPage() {
   const createWorkspace = useCreateWorkspaceAuth();
@@ -161,29 +165,27 @@ export function WorkspaceOnboardingPage() {
                   }}
                 >
                   {(field) => (
-                    <FormField
-                      label="Workspace slug"
+                    <SlugField
                       id="workspace-slug"
+                      label="Workspace slug"
+                      name="slug"
+                      value={field.state.value}
+                      onChange={(value) => {
+                        setSlugTouched(true);
+                        field.handleChange(value);
+                      }}
+                      onBlur={field.handleBlur}
+                      error={fieldError(field)}
                       description={
-                        <span className="break-all font-code" aria-live="polite">
+                        <span className="break-all font-code">
                           {`${window.location.origin}/w/${field.state.value || 'acme'}`}
                         </span>
                       }
-                      error={fieldError(field)}
-                    >
-                      <FormFieldInput
-                        autoComplete="off"
-                        name="slug"
-                        placeholder="acme"
-                        type="text"
-                        value={field.state.value}
-                        onChange={(event) => {
-                          setSlugTouched(true);
-                          field.handleChange(event.target.value);
-                        }}
-                        onBlur={field.handleBlur}
-                      />
-                    </FormField>
+                      placeholder="acme"
+                      checkEnabled={slugTouched}
+                      isValid={isSlugValid}
+                      checkAvailability={checkWorkspaceSlugAvailability}
+                    />
                   )}
                 </form.Field>
               </CardContent>

@@ -2,19 +2,42 @@ import {Button} from '@shipfox/react-ui/button';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Link, useMatchRoute} from '@tanstack/react-router';
 import type {SettingsSectionEntry} from '#contract.js';
-import {parseWorkspaceParams, useRouteParams} from '#runtime/route-inputs.js';
+import {
+  parseWorkspaceParams,
+  parseWorkspaceProjectParams,
+  useRouteParams,
+} from '#runtime/route-inputs.js';
 
-export function SettingsNav({entries}: {entries: readonly SettingsSectionEntry[]}) {
-  const params = useRouteParams(parseWorkspaceParams);
+export function SettingsNav({
+  entries,
+  scope,
+}: {
+  entries: readonly SettingsSectionEntry[];
+  scope: 'workspace' | 'project';
+}) {
+  const params = useRouteParams((input): {workspaceSlug?: string; projectSlug?: string} =>
+    scope === 'workspace' ? parseWorkspaceParams(input) : parseWorkspaceProjectParams(input),
+  );
   const matchRoute = useMatchRoute();
-  if (!params.workspaceSlug) return null;
+  if (!params.workspaceSlug || (scope === 'project' && !params.projectSlug)) return null;
+  const scopedEntries = entries.filter((entry) => (entry.scope ?? 'workspace') === scope);
+  const settingsPath =
+    scope === 'workspace'
+      ? '/w/$workspaceSlug/settings'
+      : '/w/$workspaceSlug/p/$projectSlug/settings';
+  const paramsForLink =
+    scope === 'workspace'
+      ? {workspaceSlug: params.workspaceSlug}
+      : {workspaceSlug: params.workspaceSlug, projectSlug: params.projectSlug};
+
   return (
-    <nav aria-label="Workspace settings" className="flex flex-col gap-4">
-      {entries.map((entry) => {
-        const to = `/w/$workspaceSlug/settings/${entry.pathSegment}`;
-        const active = Boolean(
-          matchRoute({to: to as never, params: {workspaceSlug: params.workspaceSlug} as never}),
-        );
+    <nav
+      aria-label={`${scope === 'workspace' ? 'Workspace' : 'Project'} settings`}
+      className="flex flex-col gap-4"
+    >
+      {scopedEntries.map((entry) => {
+        const to = `${settingsPath}/${entry.pathSegment}`;
+        const active = Boolean(matchRoute({to: to as never, params: paramsForLink as never}));
         return (
           <Button
             key={entry.id}
@@ -24,7 +47,7 @@ export function SettingsNav({entries}: {entries: readonly SettingsSectionEntry[]
           >
             <Link
               to={to as never}
-              params={{workspaceSlug: params.workspaceSlug} as never}
+              params={paramsForLink as never}
               aria-current={active ? 'page' : undefined}
             >
               <Icon name={entry.icon} className="size-16" />

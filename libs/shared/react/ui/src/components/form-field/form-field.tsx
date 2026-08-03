@@ -72,7 +72,7 @@ export function FormField({label, id, error, description, className, children}: 
         <Label htmlFor={fieldId}>{label}</Label>
         {children}
         {error ? (
-          <Text as="p" size="xs" className="text-tag-error-text" id={errorId}>
+          <Text as="p" size="xs" className="text-tag-error-text" id={errorId} aria-live="polite">
             {error}
           </Text>
         ) : description ? (

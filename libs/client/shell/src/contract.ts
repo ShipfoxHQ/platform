@@ -2,7 +2,12 @@ import type {IconName} from '@shipfox/react-ui/icon';
 import type {ComponentType, PropsWithChildren} from 'react';
 import type {z} from 'zod';
 
-export type AnchorId = 'root' | 'workspaceLayout' | 'projectLayout' | 'workspaceSettings';
+export type AnchorId =
+  | 'root'
+  | 'workspaceLayout'
+  | 'projectLayout'
+  | 'workspaceSettings'
+  | 'projectSettings';
 
 /** A fixed shell anchor or the stable id of a feature-owned layout. */
 export type RouteParentId = AnchorId | (string & {});
@@ -45,6 +50,7 @@ export interface SettingsSectionEntry {
   pathSegment: string;
   label: string;
   icon: IconName;
+  scope?: 'workspace' | 'project';
   order?: number;
 }
 
