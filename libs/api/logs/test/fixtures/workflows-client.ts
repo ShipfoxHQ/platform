@@ -9,6 +9,7 @@ export function createTestWorkflowsClient(): WorkflowsModuleClient {
   return createFakeInterModuleClients({
     workflows: defineInterModulePresentation(workflowsInterModuleContract, {
       startRunFromTrigger: vi.fn(),
+      resolveWorkflowRunTriggerReference: vi.fn(),
       deliverEventToJobListener: vi.fn(),
       getStepLogContext: () => ({harness: 'pi' as const}),
       getLeasedAgentToolContext: vi.fn(),

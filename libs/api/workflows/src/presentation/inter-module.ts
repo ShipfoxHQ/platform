@@ -14,6 +14,7 @@ import {
   type InterModulePresentation,
 } from '@shipfox/inter-module';
 import {DEFAULT_HARNESS, harnessSchema} from '@shipfox/workflow-document';
+import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
   WorkspaceDeletedError,
@@ -28,6 +29,7 @@ import {
   ProjectMismatchError,
   runWorkflow,
 } from '#core/index.js';
+import {resolveWorkflowRunTriggerReference} from '#core/resolve-trigger-reference.js';
 import {assertWorkspaceAdmitsNewJobs} from '#core/workspace-admission.js';
 import {getJobScope, getStepById, getStepByIdForJobExecution} from '#db/index.js';
 import {deliverEventToListener} from '#db/job-listener-events.js';
@@ -70,14 +72,45 @@ export function createWorkflowsInterModulePresentation(params: {
         throw toStartRunKnownError(error, input.definitionId);
       }
     },
+    resolveWorkflowRunTriggerReference: async (input) =>
+      await resolveWorkflowRunTriggerReference({
+        workspaceId: input.workspaceId,
+        triggerConnectionId: input.triggerConnectionId,
+        triggerPayload: input.triggerPayload,
+        integrations: params.integrations,
+        projects: params.projects,
+      }),
     deliverEventToJobListener: async (input) => {
       const method = workflowsInterModuleContract.methods.deliverEventToJobListener;
       try {
-        if (input.disposition === 'fire') {
-          const scope = await getJobScope(input.jobId);
-          if (scope) await assertWorkspaceAdmitsNewJobs(params.workspaces, scope.workspaceId);
+        const scope = input.disposition === 'fire' ? await getJobScope(input.jobId) : undefined;
+        if (scope) {
+          await assertWorkspaceAdmitsNewJobs(params.workspaces, scope.workspaceId);
         }
-        return await deliverEventToListener({...input, receivedAt: new Date(input.receivedAt)});
+
+        let triggerReference: WorkflowRunTriggerReference | null = null;
+        if (input.triggerReference !== undefined) {
+          triggerReference = input.triggerReference;
+        } else if (scope) {
+          triggerReference = await resolveWorkflowRunTriggerReference({
+            workspaceId: scope.workspaceId,
+            triggerConnectionId: input.triggerConnectionId,
+            triggerPayload: {
+              provider: input.provider,
+              source: input.source,
+              event: input.event,
+              deliveryId: input.deliveryId,
+              data: input.payload,
+            },
+            integrations: params.integrations,
+            projects: params.projects,
+          });
+        }
+        return await deliverEventToListener({
+          ...input,
+          triggerReference,
+          receivedAt: new Date(input.receivedAt),
+        });
       } catch (error) {
         const workspaceError = toWorkspaceAdmissionKnownError(method, error);
         if (workspaceError !== undefined) throw workspaceError;

@@ -16,6 +16,7 @@ import type {
   JobExecutionStatus,
   WorkflowExecutionEvent,
 } from '#core/entities/job-execution.js';
+import {normalizeWorkflowExecutionEvent} from '#core/entities/job-execution.js';
 import {InterpolationUnresolvableError} from '#core/errors.js';
 import {type DeriveJobSuccessResult, deriveJobSuccess} from '#core/job-transition/index.js';
 import {
@@ -563,13 +564,19 @@ async function lockBufferedFireEvents(
 function listenerTriggerEvents(
   bufferedEvents: readonly JobListenerEventDb[],
 ): WorkflowExecutionEvent[] {
-  return bufferedEvents.map((event) => ({
-    source: event.source,
-    event: event.event,
-    delivery_id: event.deliveryId,
-    received_at: event.receivedAt.toISOString(),
-    data: event.payload,
-  }));
+  return bufferedEvents.map((event) =>
+    normalizeWorkflowExecutionEvent({
+      source: event.source,
+      event: event.event,
+      delivery_id: event.deliveryId,
+      received_at: event.receivedAt.toISOString(),
+      project: event.triggerReference?.project ?? null,
+      repository: event.triggerReference?.repository ?? null,
+      ref: event.triggerReference?.ref ?? null,
+      commit: event.triggerReference?.commit ?? null,
+      data: event.payload,
+    }),
+  );
 }
 
 async function persistMaterializedListenerExecution(

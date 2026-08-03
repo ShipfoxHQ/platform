@@ -1,5 +1,6 @@
 import {WORKFLOWS_JOB_EVENT_DELIVERED} from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
+import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {db} from '#db/db.js';
 import {jobListenerEvents} from '#db/schema/job-listener-events.js';
 import {jobs} from '#db/schema/jobs.js';
@@ -13,6 +14,7 @@ interface DeliverOverrides {
   disposition?: 'fire' | 'resolve';
   eventRef?: string;
   provider?: string;
+  triggerReference?: WorkflowRunTriggerReference | null;
 }
 
 function deliver(overrides: DeliverOverrides = {}) {
@@ -24,6 +26,7 @@ function deliver(overrides: DeliverOverrides = {}) {
     source: 'github',
     event: 'pull_request_review',
     provider: overrides.provider ?? 'github',
+    triggerReference: overrides.triggerReference,
     payload: {action: 'submitted'},
     receivedAt: new Date('2026-01-01T00:00:00.000Z'),
   });
@@ -54,6 +57,21 @@ describe('deliverEventToListener', () => {
 
     const rows = await listEvents(job.id);
     expect(rows[0]?.disposition).toBe(disposition);
+  });
+
+  it('persists the normalized trigger reference with the listener event', async () => {
+    const job = await jobFactory.create({}, {transient: {status: 'pending'}});
+    const triggerReference: WorkflowRunTriggerReference = {
+      project: {id: crypto.randomUUID()},
+      repository: 'acme/api',
+      ref: 'refs/heads/main',
+      commit: 'a'.repeat(40),
+    };
+
+    await deliver({jobId: job.id, triggerReference});
+
+    const rows = await listEvents(job.id);
+    expect(rows[0]?.triggerReference).toEqual(triggerReference);
   });
 
   it('skips terminal jobs without throwing or buffering', async () => {

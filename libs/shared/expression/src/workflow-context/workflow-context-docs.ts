@@ -32,6 +32,13 @@ const executionFields = {
   'events[*].event': 'Shipfox event name.',
   'events[*].delivery_id': 'Identifier of the provider delivery.',
   'events[*].received_at': 'Time Shipfox received the event.',
+  'events[*].project':
+    'Shipfox project resolved from the event repository. Null when there is none.',
+  'events[*].project.id': 'Identifier of the resolved project.',
+  'events[*].repository':
+    'Repository the event came from, as `owner/name`. Null when there is none.',
+  'events[*].ref': 'Git ref the event carried. Null when there is none.',
+  'events[*].commit': 'Commit SHA the event carried. Null when there is none.',
   'events[*].data': 'Raw event payload. The provider owns its shape.',
   outputs: 'Outputs the execution produced, keyed by output name.',
 } as const;

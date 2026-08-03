@@ -848,6 +848,18 @@ describe('workflow context registry', () => {
     expect(eventDataExpression.check).toBe('typed');
   });
 
+  it('type-checks normalized references on execution events', () => {
+    const eventReferenceExpression = createWorkflowExpression({
+      source: 'execution.events[0].project.id',
+      check: {
+        mode: 'typed',
+        typeEnvironment: workflowContextDefinitions.execution.typeEnvironment,
+      },
+    });
+
+    expect(eventReferenceExpression.check).toBe('typed');
+  });
+
   it('rejects unknown fields from known context type environments', () => {
     const act = () =>
       createWorkflowExpression({

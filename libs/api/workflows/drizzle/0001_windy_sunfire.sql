@@ -1,0 +1,1 @@
+ALTER TABLE "workflows_job_listener_events" ADD COLUMN "trigger_reference" jsonb;

@@ -309,6 +309,57 @@ describe('Workflows inter-module presentation', () => {
     ).toBe(code);
   });
 
+  test.each([
+    ['suspended', 'workspace-suspended'],
+    ['deleted', 'workspace-deleted'],
+  ] as const)('rejects fire deliveries with a pre-resolved trigger reference for %s workspaces', async (status, code) => {
+    const jobId = '00000000-0000-4000-8000-000000000006';
+    const workspaceId = '00000000-0000-4000-8000-000000000007';
+    mocks.getJobScope.mockResolvedValue({workspaceId, projectId: input.projectId});
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.deliverEventToJobListener(
+        {
+          jobId,
+          disposition: 'fire',
+          eventRef: 'event-1',
+          deliveryId: 'delivery-1',
+          source: 'github',
+          event: 'push',
+          provider: 'github',
+          payload: {},
+          receivedAt: '2026-07-20T12:00:00.000Z',
+          triggerReference: {
+            project: {id: input.projectId},
+            repository: 'acme/api',
+            ref: 'refs/heads/main',
+            commit: 'a'.repeat(40),
+          },
+        },
+        {signal: new AbortController().signal},
+      ),
+    ).catch((caught: unknown) => caught);
+
+    expect(getWorkspaceOperatingState).toHaveBeenCalledWith({workspaceId});
+    expect(mocks.deliverEventToListener).not.toHaveBeenCalled();
+    expect(
+      isInterModuleKnownError(
+        workflowsInterModuleContract.methods.deliverEventToJobListener,
+        error,
+      ) && error.code,
+    ).toBe(code);
+  });
+
   test('allows resolve deliveries for suspended workspaces', async () => {
     const jobId = '00000000-0000-4000-8000-000000000006';
     mocks.getJobScope.mockResolvedValue({workspaceId: input.workspaceId});
@@ -342,5 +393,118 @@ describe('Workflows inter-module presentation', () => {
     expect(mocks.getJobScope).not.toHaveBeenCalled();
     expect(getWorkspaceOperatingState).not.toHaveBeenCalled();
     expect(mocks.deliverEventToListener).toHaveBeenCalled();
+  });
+
+  test('persists a null trigger reference when fire delivery has no source connection', async () => {
+    const jobId = '00000000-0000-4000-8000-000000000006';
+    const workspaceId = '00000000-0000-4000-8000-000000000007';
+    mocks.getJobScope.mockResolvedValue({workspaceId});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {
+        getWorkspaceOperatingState: vi.fn().mockResolvedValue({status: 'active'}),
+      } as never,
+    });
+
+    await presentation.handlers.deliverEventToJobListener(
+      {
+        jobId,
+        disposition: 'fire',
+        eventRef: 'event-1',
+        deliveryId: 'delivery-1',
+        source: 'github',
+        event: 'push',
+        provider: 'github',
+        payload: {},
+        receivedAt: '2026-07-20T12:00:00.000Z',
+      },
+      {signal: new AbortController().signal},
+    );
+
+    expect(mocks.deliverEventToListener).toHaveBeenCalledWith(
+      expect.objectContaining({triggerReference: null}),
+    );
+  });
+
+  test('resolves and persists the trigger reference for fire deliveries', async () => {
+    const jobId = '00000000-0000-4000-8000-000000000006';
+    const workspaceId = '00000000-0000-4000-8000-000000000007';
+    const connectionId = '00000000-0000-4000-8000-000000000008';
+    const projectId = '00000000-0000-4000-8000-000000000009';
+    const externalRepositoryId = 'github:42';
+    const integrations = {
+      resolveTriggerReference: vi.fn().mockResolvedValue({
+        externalRepositoryId,
+        ref: 'refs/heads/main',
+        commit: 'a'.repeat(40),
+      }),
+      resolveSourceRepository: vi.fn().mockResolvedValue({
+        repository: {owner: 'acme', name: 'api'},
+      }),
+    };
+    const projects = {
+      getProjectBySource: vi.fn().mockResolvedValue({project: {id: projectId}}),
+    };
+    mocks.getJobScope.mockResolvedValue({workspaceId, projectId: input.projectId});
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status: 'active'});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: integrations as never,
+      projects: projects as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+    });
+
+    await presentation.handlers.deliverEventToJobListener(
+      {
+        jobId,
+        disposition: 'fire',
+        eventRef: 'event-1',
+        deliveryId: 'delivery-1',
+        source: 'github',
+        event: 'push',
+        provider: 'github',
+        triggerConnectionId: connectionId,
+        payload: {ref: 'refs/heads/main'},
+        receivedAt: '2026-07-20T12:00:00.000Z',
+      },
+      {signal: new AbortController().signal},
+    );
+
+    expect(integrations.resolveTriggerReference).toHaveBeenCalledWith({
+      workspaceId,
+      connectionId,
+      payload: {ref: 'refs/heads/main'},
+    });
+    expect(projects.getProjectBySource).toHaveBeenCalledWith({
+      workspaceId,
+      sourceConnectionId: connectionId,
+      sourceExternalRepositoryId: externalRepositoryId,
+    });
+    expect(mocks.deliverEventToListener).toHaveBeenCalledWith({
+      jobId,
+      disposition: 'fire',
+      eventRef: 'event-1',
+      deliveryId: 'delivery-1',
+      source: 'github',
+      event: 'push',
+      provider: 'github',
+      triggerConnectionId: connectionId,
+      payload: {ref: 'refs/heads/main'},
+      receivedAt: new Date('2026-07-20T12:00:00.000Z'),
+      triggerReference: {
+        project: {id: projectId},
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        commit: 'a'.repeat(40),
+      },
+    });
   });
 });

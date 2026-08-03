@@ -8,6 +8,10 @@ export interface WorkflowExecutionEvent {
   event: string;
   deliveryId: string;
   receivedAt: string;
+  project: {id: string} | null;
+  repository: string | null;
+  ref: string | null;
+  commit: string | null;
   data: unknown;
 }
 export type JobExecutionTime =

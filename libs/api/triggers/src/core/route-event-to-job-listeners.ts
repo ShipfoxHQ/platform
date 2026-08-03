@@ -14,6 +14,7 @@ export interface RouteEventToJobListenersParams {
   history: TriggerHistoryRecorder;
   eventRef: string;
   workspaceId: string;
+  connectionId: string;
   provider: string;
   source: string;
   event: string;
@@ -66,6 +67,23 @@ export async function routeEventToJobListeners(
     }
   }
 
+  const fireDeliveryNeeded = [...effectiveMatchByJobId.values()].some(
+    (subscription) => listenerDisposition(subscription) === 'fire',
+  );
+  const triggerReference = fireDeliveryNeeded
+    ? await params.workflows.resolveWorkflowRunTriggerReference({
+        workspaceId: params.workspaceId,
+        triggerConnectionId: params.connectionId,
+        triggerPayload: {
+          provider: params.provider,
+          source: params.source,
+          event: params.event,
+          deliveryId: params.deliveryId,
+          data: params.payload,
+        },
+      })
+    : null;
+
   let acceptedJobCount = 0;
   let deliveredCount = 0;
   let sawTransientError = false;
@@ -83,6 +101,8 @@ export async function routeEventToJobListeners(
         source: params.source,
         event: params.event,
         provider: params.provider,
+        triggerConnectionId: params.connectionId,
+        triggerReference,
         payload: params.payload,
         receivedAt: params.receivedAt.toISOString(),
       });

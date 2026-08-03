@@ -8,12 +8,15 @@ import {jobListenerSubscriptionFactory, triggerSubscriptionFactory} from '#test/
 
 const runWorkflow = vi.fn();
 const deliverEventToListener = vi.fn();
+const resolveWorkflowRunTriggerReference = vi.fn();
 
 const {dispatchIntegrationEvent} = await import('./dispatch-integration-event.js');
 
 const workflows = {
   startRunFromTrigger: (...args: unknown[]) => runWorkflow(...args),
   deliverEventToJobListener: (...args: unknown[]) => deliverEventToListener(...args),
+  resolveWorkflowRunTriggerReference: (...args: unknown[]) =>
+    resolveWorkflowRunTriggerReference(...args),
   getStepLogContext: async () => ({harness: 'pi' as const}),
   getLeasedAgentToolContext: async () => ({
     workspaceId: crypto.randomUUID(),
@@ -84,8 +87,10 @@ describe('dispatchIntegrationEvent', () => {
   beforeEach(() => {
     runWorkflow.mockReset();
     deliverEventToListener.mockReset();
+    resolveWorkflowRunTriggerReference.mockReset();
     runWorkflow.mockResolvedValue({id: crypto.randomUUID(), name: 'Build and test'});
     deliverEventToListener.mockResolvedValue({buffered: true, skipped: false});
+    resolveWorkflowRunTriggerReference.mockResolvedValue(null);
   });
 
   test('fires the workflow for each matching workspace subscription, regardless of project', async () => {

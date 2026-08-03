@@ -1,3 +1,5 @@
+import type {WorkflowRunTriggerReference} from './workflow-run.js';
+
 export type JobListenerEventDisposition = 'fire' | 'resolve';
 
 export interface JobListenerEvent {
@@ -8,6 +10,7 @@ export interface JobListenerEvent {
   deliveryId: string;
   source: string;
   event: string;
+  triggerReference: WorkflowRunTriggerReference | null;
   payload: unknown;
   receivedAt: Date;
   consumedByExecutionId: string | null;

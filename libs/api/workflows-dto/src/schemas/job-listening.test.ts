@@ -31,6 +31,10 @@ describe('execution context schemas', () => {
       event: 'pull_request_review',
       delivery_id: 'delivery-1',
       received_at: '2026-06-25T00:00:00.000Z',
+      project: null,
+      repository: null,
+      ref: null,
+      commit: null,
       data: {body: 'LGTM'},
     };
 
