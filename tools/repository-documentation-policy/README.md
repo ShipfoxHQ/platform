@@ -13,7 +13,7 @@ is intentionally discoverable beside the code that owns it. Provider-managed
 agent skills remain outside this graph because they own agent-only workflow
 behavior and can contain provider-specific references.
 
-## Installation / Setup
+## Installation and setup
 
 The package is part of the workspace. Install the pinned workspace dependencies
 from the repository root:

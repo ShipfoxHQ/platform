@@ -139,7 +139,7 @@ parseWorkflowDocument({
 });
 ```
 
-## Behavior Notes
+## Behavior notes
 
 - The public contract is the Zod schema and the TypeScript types built from it.
 - Workflow and job `name` fields must be literal and reject `${{ ... }}`. Put

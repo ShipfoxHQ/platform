@@ -12,7 +12,7 @@ architecture, policy, testing, and package context after that first step.
 
 **The entrypoints have grown into parallel handbooks.** `AGENTS.md` repeats setup, testing,
 architecture, security, and visual regression guidance from `CONTRIBUTING.md` and local READMEs. It
-also tells agents to read all of `CONTRIBUTING.md`. A task in one area therefore loads unrelated
+also tells agents to read the entire `CONTRIBUTING.md`. A task in one area therefore loads unrelated
 context, while a rule copied into several files can drift.
 
 **The repository already has useful local documentation.** Architecture decision records (ADRs),

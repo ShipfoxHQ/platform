@@ -9,6 +9,6 @@
 ---
 
 Accept a `${{ }}` interpolation in an agent step's `thinking` field. The schema
-still offers the per-harness enum for editor completion, and the resolved value
-is checked against the harness levels when the step dispatches. An unsupported
+still offers the per-harness enum for editor completion, and the dispatcher
+checks the resolved value against the harness levels. An unsupported
 resolved level fails the step.

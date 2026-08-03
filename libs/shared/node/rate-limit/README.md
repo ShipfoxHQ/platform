@@ -39,7 +39,7 @@ await checkRateLimit({
 });
 ```
 
-## Behavior Notes
+## Behavior notes
 
 `checkRateLimit` uses a fixed window. A call can pass when the count is less than or equal to `limit`.
 

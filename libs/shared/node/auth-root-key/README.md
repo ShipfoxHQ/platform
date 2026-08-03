@@ -33,7 +33,7 @@ const token = await signHs256({
 | --- | --- | --- |
 | `AUTH_ROOT_KEY` | none | Canonical base64 for exactly 32 random bytes. Generate it with `openssl rand -base64 32`. |
 
-## Behavior Notes
+## Behavior notes
 
 The package uses HKDF-SHA256 with the salt `shipfox/auth-root/v1`. Each function returns 32 bytes for one fixed label.
 

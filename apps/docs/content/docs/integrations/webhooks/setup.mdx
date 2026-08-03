@@ -51,7 +51,7 @@ with the `ubuntu-latest` label.
 
 ## Verify the event
 
-Open **Settings → Events** and filter by the webhook integration connection slug. Open the
+Open **Settings → Events** and filter by the slug of the webhook integration connection. Open the
 new `received` event and confirm that its body contains the test values.
 
 ## Verify a triggered run
@@ -66,7 +66,7 @@ runner: ubuntu-latest
 
 triggers:
   on_deploy_event:
-    source: deploy_hook # Replace with your webhook integration connection slug.
+    source: deploy_hook # Replace with the slug of your webhook integration connection.
     event: received
     filter: event.body.environment == "staging"
 
@@ -83,6 +83,6 @@ the custom webhook** to sync. Send the same test request again.
 Open the new event and its linked run. Confirm that the log prints `Staging
 release: 1.4.2`.
 
-The [custom webhook events reference](/integrations/webhooks/events) describes
+The [reference for custom webhook events](/integrations/webhooks/events) describes
 the request and event fields. Read [Events and triggers](/understand/events-and-triggers)
 for the routing model.

@@ -47,7 +47,7 @@ Conductor and Ollama recovery, Changesets, and package release procedures.
 ## Prepare a change for review
 
 Use a focused feature branch. Do not commit or push directly to `main`. Name
-the branch after the change. Include the lowercase Linear issue key when the
+the branch after the change. Include the lowercase issue key from Linear when the
 work has one.
 
 Keep each commit independently reviewable. Use an imperative subject of about

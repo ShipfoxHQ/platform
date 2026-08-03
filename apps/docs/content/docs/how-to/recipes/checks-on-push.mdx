@@ -12,7 +12,7 @@ an agent to review the repository only after the test job succeeds.
 You need:
 
 - A Shipfox project [connected to GitHub](/integrations/github/setup).
-- The GitHub integration connection slug. This recipe uses `github_acme` as a placeholder.
+- The slug of the GitHub integration connection. This recipe uses `github_acme` as a placeholder.
 - An online runner with the `ubuntu-latest` label.
 - A configured model provider and workspace agent defaults.
 - A Node.js repository with a lockfile and an `npm test` command.
@@ -20,7 +20,7 @@ You need:
 ## Add the workflow
 
 Create `.shipfox/workflows/checks-on-push.yml`. Replace `github_acme` with
-your GitHub integration connection slug. This is a complete workflow:
+the slug of your GitHub integration connection. This is a complete workflow:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
@@ -29,7 +29,7 @@ runner: ubuntu-latest
 
 triggers:
   on_push:
-    source: github_acme # Replace with your GitHub integration connection slug.
+    source: github_acme # Replace with the slug of your GitHub integration connection.
     event: push
 
 jobs:

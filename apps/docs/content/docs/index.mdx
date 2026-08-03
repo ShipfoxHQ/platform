@@ -41,7 +41,7 @@ This fragment adds a Sentry trigger and a job below the top-level `name` and
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 triggers:
   on_alert:                        # Define any trigger from your integrations
-    source: sentry_prod              # Replace with your Sentry integration connection slug.
+    source: sentry_prod              # Replace with the slug of your Sentry integration connection.
     event: issue.created
 jobs:
   fix:

@@ -132,7 +132,7 @@ immediately, without recording anything: the rejected call never corrupts the
 graph, so fixing the caller and retrying that same call is always enough to
 recover.
 
-A module declares its producer presentations on `ShipfoxModule.interModulePresentations`; `registerInterModulePresentations` registers all of them in array order. `@shipfox/node-module/inter-module/testing` builds a fake client per named presentation for callers under test, without depending on Vitest:
+A module declares its producer presentations on `ShipfoxModule.interModulePresentations`; `registerInterModulePresentations` registers them all in array order. `@shipfox/node-module/inter-module/testing` builds a fake client per named presentation for callers under test, without depending on Vitest:
 
 ```ts
 import {createFakeInterModuleClients} from '@shipfox/node-module/inter-module/testing';

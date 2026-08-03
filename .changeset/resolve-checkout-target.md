@@ -3,4 +3,6 @@
 "@shipfox/api-projects": minor
 ---
 
-Add a `resolveCheckoutTarget` inter-module method to resolve a project by ID or by owner/repository within a workspace, for callers that need to authorize a checkout target.
+Add a `resolveCheckoutTarget` inter-module method. It resolves a project by ID
+or by owner and repository within a workspace for callers that authorize a
+checkout target.

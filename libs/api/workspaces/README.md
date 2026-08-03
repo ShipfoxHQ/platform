@@ -9,7 +9,7 @@ Shipfox API Workspaces manages who can use a workspace and send or accept invite
 - **Invitation helpers**: Make, view, accept, list, and revoke invites.
 - **Workspace helpers**: Read workspaces and check a signed-in user's access.
 
-## Installation / Setup
+## Installation and setup
 
 ```sh
 pnpm add @shipfox/api-workspaces
@@ -69,7 +69,7 @@ The module creates these tables:
 - `workspaces_admin_command_results`
 - `workspaces_rate_limits`
 
-## Behavior Notes
+## Behavior notes
 
 `ensureMembership` uses a unique database rule to keep one row for `user_id`
 and `workspace_id`. Calls at the same time get the same row. It saves the email

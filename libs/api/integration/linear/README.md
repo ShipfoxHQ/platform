@@ -52,7 +52,7 @@ Signed but unsupported webhook shapes are recorded and dropped with a 200
 response so Linear does not retry or disable the webhook endpoint.
 ## Agent Tool Catalog
 
-The v1 Linear agent tool catalog is a broad workspace catalog over Linear's
+The v1 catalog of Linear agent tools covers workspace operations through Linear's
 hosted MCP tool ids. It includes read tools for issues, comments, projects,
 documents, teams, users, cycles, releases, release notes, release pipelines,
 agent skills, diffs, documentation search, and attachments. It also includes

@@ -9,7 +9,7 @@ Node helpers for Shipfox loops that need retry waits and a clean stop path.
 - **`interruptibleSleep(ms, signal)`**: Sleeps until the timer ends or the abort signal fires.
 - **`createGracefulShutdownController(options)`**: Adds process signal handlers and exposes one abort signal for loop sleeps.
 
-## Installation / Setup
+## Installation and setup
 
 This is private workspace code. Add it where it is used with `workspace:*`:
 
@@ -62,7 +62,7 @@ while (running) {
 }
 ```
 
-## Behavior Notes
+## Behavior notes
 
 - `createGracefulShutdownController()` listens for `SIGINT` and `SIGTERM` by default.
 - `start()` is safe to call more than once, so repeated loop starts do not add duplicate signal handlers.
