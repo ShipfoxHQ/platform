@@ -44,7 +44,7 @@ const meta = {
   parameters: {layout: 'centered'},
   decorators: [
     (Story) => (
-      <div className="flex h-600">
+      <div className="flex h-600 w-[1120px] max-w-full">
         <Story />
       </div>
     ),
@@ -99,7 +99,7 @@ export const TestNoMatches: Story = {
 
 function StateExample({label, children}: {label: string; children: ReactNode}) {
   return (
-    <div className="flex w-304 flex-col gap-8">
+    <div className="flex min-w-0 flex-col gap-8">
       <Code variant="label" className="text-foreground-neutral-subtle">
         {label}
       </Code>

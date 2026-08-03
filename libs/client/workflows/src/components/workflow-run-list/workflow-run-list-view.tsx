@@ -39,7 +39,7 @@ export function WorkflowRunListView({
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
       <aside
         className={cn(
-          'flex w-304 shrink-0 flex-col border-r border-border-neutral-base bg-background-subtle-base',
+          'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background-subtle-base',
           className,
         )}
         aria-label="Workflow runs"
