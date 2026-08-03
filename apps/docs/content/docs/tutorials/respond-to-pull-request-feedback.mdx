@@ -37,7 +37,7 @@ yet. The opening event must arrive after the workflow has synced.
 ## Build the workflow
 
 Create `.shipfox/workflows/pull-request-feedback.yml`. Replace every
-`github_acme` value with your GitHub integration connection slug. This is the
+`github_acme` value with the slug of your GitHub integration connection. This is the
 complete workflow:
 
 ```yaml
@@ -47,7 +47,7 @@ runner: ubuntu-latest
 
 triggers:
   on_pull_request:
-    source: github_acme # Replace with your GitHub integration connection slug.
+    source: github_acme # Replace with the slug of your GitHub integration connection.
     event: pull_request.opened
 
 jobs:

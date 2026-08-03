@@ -8,9 +8,7 @@ In a self-hosted deployment, you operate the Shipfox control plane and connect
 it to PostgreSQL, Temporal, and S3-compatible object storage. You also operate
 the runners that execute repository commands and agents.
 
-This page explains the deployment boundary and the services you must plan. The
-platform-specific [AWS](/installation/aws) and
-[Kubernetes](/installation/kubernetes) deployment guides are still in progress.
+This page explains the deployment boundary and the services you must plan.
 
 ## What you run, and what talks to what
 
@@ -68,9 +66,3 @@ checkout, and permission rules.
     Look up runner environment variables, labels, and token types.
   </Card>
 </Cards>
-
-## Managed hosting
-
-[Managed cloud](/installation/cloud) moves the control plane and its stateful
-services outside your infrastructure. You still control the compute and network
-where jobs run. Managed cloud is not available yet.

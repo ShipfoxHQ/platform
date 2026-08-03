@@ -32,7 +32,7 @@ runner: ubuntu-latest
 
 triggers:
   on_pull_request:
-    source: github_acme # Replace with your GitHub integration connection slug.
+    source: github_acme # Replace with the slug of your GitHub integration connection.
     event: pull_request.opened
 
 jobs:
@@ -69,5 +69,5 @@ Open the test pull request and inspect the new Shipfox run.
 4. Confirm that the pull request state, branch, and repository contents did not
    change.
 
-If sync rejects the write selection, check the GitHub integration connection permission and
+If sync rejects the write selection, check the permission on your GitHub integration connection and
 the `allow_write` choice before sending another event.

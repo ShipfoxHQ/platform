@@ -210,6 +210,10 @@
       ]
     },
     {
+      "path": "./tools/biome/plugins/client-architecture/no-raw-spacing.grit",
+      "includes": []
+    },
+    {
       "path": "./tools/biome/plugins/database-boundaries/no-direct-table-declaration.grit",
       "includes": [
         "**/libs/api/**/src/db/**",

@@ -61,7 +61,7 @@ runner: ubuntu-latest
 
 triggers:
   on_push:
-    source: github_acme # Replace with your GitHub integration connection slug.
+    source: github_acme # Replace with the slug of your GitHub integration connection.
     event: push
 
 jobs:
@@ -80,5 +80,5 @@ Open the second push event and its linked run. Check the Git ref in the log.
 Check that the job uses the same allowed repository.
 
 The [GitHub events reference](/integrations/github/events) lists the shipped
-event names and payload behavior. The [GitHub agent tools reference](/integrations/github/tools)
+event names and payload behavior. The [reference for GitHub agent tools](/integrations/github/tools)
 lists the tools an agent can use.

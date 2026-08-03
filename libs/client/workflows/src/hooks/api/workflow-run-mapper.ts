@@ -243,6 +243,10 @@ function toWorkflowExecutionEvent(dto: WorkflowExecutionEventDto): WorkflowExecu
     event: dto.event,
     deliveryId: dto.delivery_id,
     receivedAt: dto.received_at,
+    project: dto.project,
+    repository: dto.repository,
+    ref: dto.ref,
+    commit: dto.commit,
     data: dto.data,
   };
 }

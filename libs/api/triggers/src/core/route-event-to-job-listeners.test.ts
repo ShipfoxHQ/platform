@@ -4,6 +4,7 @@ import {jobListenerSubscriptionFactory} from '#test/index.js';
 import type {TriggerHistoryRecorder} from './record-trigger-history.js';
 
 const deliverEventToListener = vi.fn();
+const resolveWorkflowRunTriggerReference = vi.fn();
 const findMatchingJobListenerSubscriptions = vi.fn();
 const listenerTriggered = vi.fn();
 const listenerFilterErrored = vi.fn();
@@ -33,11 +34,14 @@ const {routeEventToJobListeners} = await import('./route-event-to-job-listeners.
 
 const workflows = {
   deliverEventToJobListener: (...args: unknown[]) => deliverEventToListener(...args),
+  resolveWorkflowRunTriggerReference: (...args: unknown[]) =>
+    resolveWorkflowRunTriggerReference(...args),
 } as never;
 
 interface RouteOverrides {
   eventRef?: string;
   workspaceId?: string;
+  connectionId?: string;
   source?: string;
   event?: string;
   payload?: unknown;
@@ -49,6 +53,7 @@ function route(overrides: RouteOverrides = {}) {
     history: buildHistory(),
     eventRef: overrides.eventRef ?? crypto.randomUUID(),
     workspaceId: overrides.workspaceId ?? crypto.randomUUID(),
+    connectionId: overrides.connectionId ?? crypto.randomUUID(),
     provider: 'github',
     source: overrides.source ?? 'github',
     event: overrides.event ?? 'pull_request_review',
@@ -76,12 +81,14 @@ function buildHistory(): TriggerHistoryRecorder {
 describe('routeEventToJobListeners', () => {
   beforeEach(() => {
     deliverEventToListener.mockReset();
+    resolveWorkflowRunTriggerReference.mockReset();
     findMatchingJobListenerSubscriptions.mockReset();
     listenerTriggered.mockReset();
     listenerFilterErrored.mockReset();
     listenerDispatchErrored.mockReset();
     loggerWarn.mockReset();
     deliverEventToListener.mockResolvedValue({buffered: true, skipped: false});
+    resolveWorkflowRunTriggerReference.mockResolvedValue(null);
   });
 
   it('computes resolve as the effective disposition when on and until match one job', async () => {
@@ -119,6 +126,72 @@ describe('routeEventToJobListeners', () => {
       deliveredCount: 1,
       transientErrored: false,
     });
+  });
+
+  it('passes the source connection to listener delivery', async () => {
+    const workspaceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      jobId,
+      kind: 'on',
+      matcherOrdinal: 0,
+      source: 'github',
+      event: 'pull_request_review',
+    });
+
+    await route({workspaceId, connectionId});
+
+    expect(deliverEventToListener).toHaveBeenCalledWith(
+      expect.objectContaining({jobId, triggerConnectionId: connectionId}),
+    );
+  });
+
+  it('resolves one trigger reference for all fire deliveries', async () => {
+    const workspaceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    const triggerReference = {
+      project: {id: crypto.randomUUID()},
+      repository: 'acme/api',
+      ref: 'refs/heads/main',
+      commit: 'a'.repeat(40),
+    };
+    for (const jobId of [crypto.randomUUID(), crypto.randomUUID()]) {
+      await jobListenerSubscriptionFactory.create({
+        workspaceId,
+        jobId,
+        kind: 'on',
+        matcherOrdinal: 0,
+        source: 'github',
+        event: 'pull_request_review',
+      });
+    }
+    resolveWorkflowRunTriggerReference.mockResolvedValue(triggerReference);
+
+    await route({workspaceId, connectionId});
+
+    expect(resolveWorkflowRunTriggerReference).toHaveBeenCalledTimes(1);
+    expect(resolveWorkflowRunTriggerReference).toHaveBeenCalledWith({
+      workspaceId,
+      triggerConnectionId: connectionId,
+      triggerPayload: {
+        provider: 'github',
+        source: 'github',
+        event: 'pull_request_review',
+        deliveryId: expect.any(String),
+        data: {action: 'submitted'},
+      },
+    });
+    expect(deliverEventToListener).toHaveBeenCalledTimes(2);
+    expect(deliverEventToListener).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({triggerReference}),
+    );
+    expect(deliverEventToListener).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({triggerReference}),
+    );
   });
 
   it('does not deliver when no listener subscription matches', async () => {

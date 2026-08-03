@@ -3,6 +3,12 @@ import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-
 import {z} from 'zod';
 
 const idSchema = z.string().uuid();
+const workflowRunTriggerReferenceSchema = z.object({
+  project: z.object({id: idSchema}).nullable(),
+  repository: z.string().nullable(),
+  ref: z.string().nullable(),
+  commit: z.string().nullable(),
+});
 const triggerPayloadSchema = z.union([
   z.object({
     provider: z.literal('manual').optional(),
@@ -82,6 +88,14 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         'invalid-job-runner-labels': z.object({labels: z.array(z.string())}),
       },
     },
+    resolveWorkflowRunTriggerReference: {
+      input: z.object({
+        workspaceId: idSchema,
+        triggerConnectionId: idSchema,
+        triggerPayload: triggerPayloadSchema,
+      }),
+      output: workflowRunTriggerReferenceSchema.nullable(),
+    },
     deliverEventToJobListener: {
       input: z.object({
         jobId: idSchema,
@@ -91,6 +105,8 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         source: z.string().min(1),
         event: z.string().min(1),
         provider: z.string().min(1),
+        triggerConnectionId: idSchema.optional(),
+        triggerReference: workflowRunTriggerReferenceSchema.nullable().optional(),
         payload: z.unknown(),
         receivedAt: z.string().datetime(),
       }),

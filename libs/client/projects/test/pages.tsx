@@ -70,6 +70,11 @@ function createTestRouter(path: string, element: ReactElement) {
     path: '/w/$workspaceSlug/settings/agents',
     component: () => <div>Agent settings placeholder</div>,
   });
+  const projectSettingsGeneralRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/w/$workspaceSlug/p/$projectSlug/settings/general',
+    component: () => element,
+  });
   const projectDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/w/$workspaceSlug/p/$projectSlug',
@@ -106,14 +111,18 @@ function createTestRouter(path: string, element: ReactElement) {
       workspaceNewProjectRoute,
       integrationsRoute,
       modelProviderSettingsRoute,
+      projectSettingsGeneralRoute,
       projectDetailRoute,
       projectWorkflowsRoute,
     ]),
   });
 }
 
-export function renderProjectPage(path: string, element: ReactElement): RenderResult {
-  const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+export function renderProjectPage(
+  path: string,
+  element: ReactElement,
+  queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}}),
+): RenderResult {
   const router = createTestRouter(path, element);
   const store = createStore();
   store.set(authStateAtom, authState);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {rm, writeFile} from 'node:fs/promises';
+import {readFile, rm, writeFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
@@ -23,12 +23,19 @@ const browserStorageFixtureRoot = resolve(
   workspaceRoot,
   'tools/biome/plugins/client-architecture/fixtures/browser-storage',
 );
+const rawSpacingFixtureRoot = resolve(
+  workspaceRoot,
+  'tools/biome/plugins/client-architecture/fixtures/no-raw-spacing',
+);
 const rejectedLocationPattern = /rejected\.ts:3/u;
 const testFixturePattern = /ignored\.test\.ts/u;
 const storyFixturePattern = /ignored\.stories\.ts/u;
 const generatedFixturePattern = /rejected\.gen\.ts/u;
 const routeInputRulePattern = /client-architecture\/no-raw-route-inputs/u;
 const storageRulePattern = /client-architecture\/no-direct-browser-storage/u;
+const rawSpacingRulePattern = /client-architecture\/no-raw-spacing/u;
+const rawSpacingDiagnosticPattern = /client-architecture\/no-raw-spacing/g;
+const rawSpacingRejectedLocationPattern = /rejected\.tsx:/u;
 
 const fixtureRuleNames = [
   'fixture-boundary',
@@ -134,6 +141,52 @@ describe('client-architecture Biome plugins', () => {
       {cwd: workspaceRoot},
     );
     assert.doesNotMatch(`${stdout}${stderr}`, storageRulePattern);
+  });
+
+  test('rejects raw numeric and asymmetric spacing in className string literals', async () => {
+    await assert.rejects(
+      execFileAsync(
+        process.execPath,
+        [
+          biomeCheck,
+          '--config-path',
+          fixtureConfig,
+          resolve(rawSpacingFixtureRoot, 'rejected.tsx'),
+        ],
+        {cwd: workspaceRoot},
+      ),
+      (error: unknown) => {
+        const commandError = error as {stdout?: string; stderr?: string};
+        const output = `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`;
+        assert.match(output, rawSpacingRulePattern);
+        assert.match(output, rawSpacingRejectedLocationPattern);
+        assert.equal(output.match(rawSpacingDiagnosticPattern)?.length, 9);
+        return true;
+      },
+    );
+  });
+
+  test('allows semantic, zero, arbitrary, and non-literal className spacing', async () => {
+    const {stdout, stderr} = await execFileAsync(
+      process.execPath,
+      [biomeCheck, '--config-path', fixtureConfig, resolve(rawSpacingFixtureRoot, 'allowed.tsx')],
+      {cwd: workspaceRoot},
+    );
+    assert.doesNotMatch(`${stdout}${stderr}`, rawSpacingRulePattern);
+  });
+
+  test('registers no-raw-spacing with an empty rollout glob list', async () => {
+    const rootConfig = JSON.parse(await readFile(resolve(workspaceRoot, 'biome.json'), 'utf8')) as {
+      plugins: {includes: string[]; path: string}[];
+    };
+    const rawSpacingPlugin = rootConfig.plugins.find(({path}) =>
+      path.endsWith('/no-raw-spacing.grit'),
+    );
+
+    assert.deepEqual(rawSpacingPlugin, {
+      path: './tools/biome/plugins/client-architecture/no-raw-spacing.grit',
+      includes: [],
+    });
   });
 
   // The fixture config scopes each rule to its fixture directory. These tests run

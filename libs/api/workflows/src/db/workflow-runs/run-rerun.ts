@@ -193,6 +193,8 @@ function materializeRerunGraphJobs(params: {
 
   return params.sourceJobs.map((sourceJob) => {
     const carriedOver = params.mode === 'failed' && sourceJob.status === 'succeeded';
+    const modelJob = sourceModelJobByKey.get(sourceJob.key);
+    const modelCheckout = modelJob?.checkout;
 
     return {
       job: {
@@ -202,8 +204,10 @@ function materializeRerunGraphJobs(params: {
         status: carriedOver ? ('succeeded' as const) : ('pending' as const),
         statusReason: null,
         carriedOver,
-        checkoutPersistCredentials: sourceJob.checkoutPersistCredentials,
-        checkoutPermissionsContents: sourceJob.checkoutPermissionsContents,
+        checkoutPersistCredentials:
+          modelCheckout?.persistCredentials ?? sourceJob.checkoutPersistCredentials,
+        checkoutPermissionsContents:
+          modelCheckout?.permissions?.contents ?? sourceJob.checkoutPermissionsContents,
         success: sourceJob.success,
         executionTimeoutMs: sourceJob.executionTimeoutMs,
         listeningTimeoutMs: sourceJob.listeningTimeoutMs,
@@ -225,7 +229,6 @@ function materializeRerunGraphJobs(params: {
         if (job.mode === 'listening') return undefined;
 
         const sourceExecution = params.sourceJobExecutionByJobId.get(sourceJob.id);
-        const modelJob = sourceModelJobByKey.get(job.key);
         const nameOverride = sourceExecution?.name ?? null;
         const executionName = nameOverride ?? job.name ?? job.key;
         const runner =

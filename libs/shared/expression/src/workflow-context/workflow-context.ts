@@ -121,19 +121,23 @@ const runTypeEnvironment = {
   },
 } as const satisfies ExpressionTypeEnvironment;
 
+const triggerReferenceFields = {
+  project: {
+    kind: 'object',
+    fields: {id: 'string'},
+  },
+  repository: 'string',
+  ref: 'string',
+  commit: 'string',
+} as const;
+
 const triggerTypeEnvironment = {
   trigger: {
     kind: 'object',
     fields: {
       source: 'string',
       event: 'string',
-      project: {
-        kind: 'object',
-        fields: {id: 'string'},
-      },
-      repository: 'string',
-      ref: 'string',
-      commit: 'string',
+      ...triggerReferenceFields,
     },
   },
 } as const satisfies ExpressionTypeEnvironment;
@@ -155,6 +159,7 @@ const executionEventType = {
     event: 'string',
     delivery_id: 'string',
     received_at: 'timestamp',
+    ...triggerReferenceFields,
     data: {
       kind: 'object',
       fields: {},

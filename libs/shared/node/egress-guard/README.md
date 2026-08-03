@@ -9,7 +9,7 @@ A small rule for calls set by a user.
 - **`EgressDeniedError`**: Gives the reason and place for a stopped call.
 - **`parseEgressHostDenylist(value)`**: Reads a comma-separated block list.
 
-## Installation / Setup
+## Installation and setup
 
 ```sh
 pnpm add @shipfox/node-egress-guard
@@ -26,7 +26,7 @@ await assertEgressAllowed('https://models.example.test/v1', {
 });
 ```
 
-## Behavior Notes
+## Behavior notes
 
 Use this when a user can set where Shipfox will send a call. This keeps the
 call in the range the app means to allow.

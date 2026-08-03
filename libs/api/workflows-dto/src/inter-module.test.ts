@@ -24,13 +24,28 @@ describe('workflowsInterModuleContract', () => {
       source: 'github',
       event: 'push',
       provider: 'github',
+      triggerConnectionId: '00000000-0000-4000-8000-000000000005',
       payload: {ref: 'refs/heads/main'},
       receivedAt: '2026-07-20T12:00:00.000Z',
     });
+    const reference =
+      workflowsInterModuleContract.methods.resolveWorkflowRunTriggerReference.input.parse({
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        triggerConnectionId: '00000000-0000-4000-8000-000000000005',
+        triggerPayload: {
+          provider: 'github',
+          source: 'github',
+          event: 'push',
+          deliveryId: 'delivery-1',
+          data: {ref: 'refs/heads/main'},
+        },
+      });
 
     expect(start.idempotencyKey).toBe('subscription-1:event-1');
     expect(start.triggerConnectionId).toBe('00000000-0000-4000-8000-000000000005');
     expect(delivery.disposition).toBe('fire');
+    expect(reference.triggerConnectionId).toBe('00000000-0000-4000-8000-000000000005');
+    expect(delivery.triggerConnectionId).toBe('00000000-0000-4000-8000-000000000005');
   });
 
   test('accepts the minimal Logs and agent-tools query payloads', () => {

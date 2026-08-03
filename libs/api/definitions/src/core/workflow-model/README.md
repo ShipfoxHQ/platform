@@ -33,7 +33,7 @@ its work. A test can set up one case, call one thing, and check what comes back.
 That keeps the next step easy to read.
 It is small.
 
-## Installation / Setup
+## Installation and setup
 
 This code is part of `@shipfox/api-definitions`. It is not a standalone package.
 
@@ -64,7 +64,7 @@ const model = normalizeWorkflowDocument({
 console.log(model.jobs[0]?.steps[0]?.command.value);
 ```
 
-## Behavior Notes
+## Behavior notes
 
 The model does not own project ids, commit shas, refs, dates, database rows, or
 file paths. Those fields belong to `WorkflowDefinition`.

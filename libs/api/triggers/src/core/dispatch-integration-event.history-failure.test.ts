@@ -2,6 +2,7 @@ import {triggerSubscriptionFactory} from '#test/index.js';
 
 const runWorkflow = vi.fn();
 const deliverEventToListener = vi.fn();
+const resolveWorkflowRunTriggerReference = vi.fn();
 const insertReceivedEvent = vi.fn();
 
 vi.mock('#db/event-history.js', () => ({
@@ -24,6 +25,8 @@ const {dispatchIntegrationEvent} = await import('./dispatch-integration-event.js
 const workflows = {
   startRunFromTrigger: (...args: unknown[]) => runWorkflow(...args),
   deliverEventToJobListener: (...args: unknown[]) => deliverEventToListener(...args),
+  resolveWorkflowRunTriggerReference: (...args: unknown[]) =>
+    resolveWorkflowRunTriggerReference(...args),
   getStepLogContext: async () => ({harness: 'pi' as const}),
   getLeasedAgentToolContext: async () => ({
     workspaceId: crypto.randomUUID(),
@@ -35,6 +38,8 @@ describe('dispatchIntegrationEvent resilience to history-write failure', () => {
   beforeEach(() => {
     runWorkflow.mockReset();
     deliverEventToListener.mockReset();
+    resolveWorkflowRunTriggerReference.mockReset();
+    resolveWorkflowRunTriggerReference.mockResolvedValue(null);
     deliverEventToListener.mockResolvedValue({buffered: true, skipped: false});
     insertReceivedEvent.mockReset();
     insertReceivedEvent.mockRejectedValue(new Error('history db down'));

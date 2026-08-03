@@ -86,7 +86,7 @@ POSTGRES_IDLE_TIMEOUT_MS=10000
 POSTGRES_TLS_MODE=verify-full
 ```
 
-## Behavior Notes
+## Behavior notes
 
 - The environment uses split connection fields. Application and migration processes can select different hosts without parsing a connection URL.
 - Caller options still override environment settings for existing consumers.

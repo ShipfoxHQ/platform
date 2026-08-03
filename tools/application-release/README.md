@@ -74,7 +74,7 @@ Each image has a repository, digest, platform list, and attestation state. The
 image build does not publish provenance or a software bill of materials (SBOM)
 today. Both fields use `status: not-published` until those OCI artifacts exist.
 
-## Behavior Notes
+## Behavior notes
 
 The command only writes JSON. CI decides where to store the file. It uses the
 full source revision as the OCI artifact tag. Another OCI registry can store

@@ -117,6 +117,7 @@ export async function dispatchIntegrationEvent(
     history,
     eventRef: params.eventRef,
     workspaceId: params.workspaceId,
+    connectionId: params.connectionId,
     provider: params.provider,
     source: params.source,
     event: params.event,

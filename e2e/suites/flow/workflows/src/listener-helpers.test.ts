@@ -22,6 +22,10 @@ function event(overrides: Partial<WorkflowExecutionEventDto> = {}): WorkflowExec
     event: 'received',
     delivery_id: 'delivery-1',
     received_at: timestamp,
+    project: null,
+    repository: null,
+    ref: null,
+    commit: null,
     data: {body: {message: 'hello'}},
     ...overrides,
   };

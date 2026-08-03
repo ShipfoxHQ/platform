@@ -177,7 +177,10 @@ export function validateSettingsSections(
           [existingFeatureId, feature.id],
         );
       }
-      const path = `/w/$workspaceSlug/settings/${section.pathSegment}`;
+      const path =
+        section.scope === 'project'
+          ? `/w/$workspaceSlug/p/$projectSlug/settings/${section.pathSegment}`
+          : `/w/$workspaceSlug/settings/${section.pathSegment}`;
       const normalizedPath = normalizeRoutePath(path);
       const routeOwner = routes.get(normalizedPath);
       if (routeOwner === undefined && !routes.has(normalizedPath)) {

@@ -18,7 +18,13 @@ function indentedLiteral(value: unknown, indentation: number): string {
 }
 
 function isShellAnchor(parent: RouteParentId): boolean {
-  return ['root', 'workspaceLayout', 'projectLayout', 'workspaceSettings'].includes(parent);
+  return [
+    'root',
+    'workspaceLayout',
+    'projectLayout',
+    'workspaceSettings',
+    'projectSettings',
+  ].includes(parent);
 }
 
 function orderedLayouts(layouts: readonly ComposedLayout[]): ComposedLayout[] {
@@ -129,12 +135,19 @@ export function generateAppModule({
   const projectChildren = [
     routeNames(routes, 'projectLayout'),
     ...layoutTreeNames(generatedLayouts, 'projectLayout'),
+    'projectSettings',
   ]
     .filter(Boolean)
     .join(',\n  ');
   const workspaceSettingsChildren = [
     routeNames(routes, 'workspaceSettings'),
     ...layoutTreeNames(generatedLayouts, 'workspaceSettings'),
+  ]
+    .filter(Boolean)
+    .join(',\n  ');
+  const projectSettingsChildren = [
+    routeNames(routes, 'projectSettings'),
+    ...layoutTreeNames(generatedLayouts, 'projectSettings'),
   ]
     .filter(Boolean)
     .join(',\n  ');
@@ -168,6 +181,7 @@ const skeleton = buildAnchorSkeleton({
 
 ${declarations}
 
+const projectSettings = skeleton.projectSettings.addChildren([${projectSettingsChildren}]);
 const projectLayout = skeleton.projectLayout.addChildren([${projectChildren}]);
 const workspaceSettings = skeleton.workspaceSettings.addChildren([${workspaceSettingsChildren}]);
 const workspaceLayout = skeleton.workspaceLayout.addChildren([

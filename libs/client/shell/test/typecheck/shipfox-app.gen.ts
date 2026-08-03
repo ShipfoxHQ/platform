@@ -37,7 +37,8 @@ const skeleton = buildAnchorSkeleton({
       "pathSegment": "members",
       "label": "Members",
       "icon": "users",
-      "order": 100
+      "order": 100,
+      "scope": "workspace"
     }
   ],
 });
@@ -60,7 +61,9 @@ const route2 = createRoute({
   ...routeOptions(route2Module.default, "#test/named-route-impl.js", "/w/$workspaceSlug/insights"),
 });
 
-const projectLayout = skeleton.projectLayout.addChildren([route0]);
+const projectSettings = skeleton.projectSettings.addChildren([]);
+const projectLayout = skeleton.projectLayout.addChildren([route0,
+  projectSettings]);
 const workspaceSettings = skeleton.workspaceSettings.addChildren([route1]);
 const workspaceLayout = skeleton.workspaceLayout.addChildren([
   route2,

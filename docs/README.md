@@ -25,6 +25,7 @@ names it and links to it; it does not restate it.
 | Changes agent behavior or needs agent execution instructions. | [Agent instructions](../AGENTS.md) | Repository-specific agent execution, change hygiene, and conditional context loading. |
 | Adds, updates, or exempts a dependency. | [Dependency version policy](policies/dependency-versions.md) | Version ranges, exceptions, coordinated package families, and dependency checks. |
 | Changes a cross-package client composition seam. | [ADR 0001](adr/0001-client-composition-contract.md) | The public client composition contract and its decision rationale. |
+| Changes client URL identifiers, route prefixes, or slug and UUID boundaries. | [ADR 0009](adr/0009-client-urls-resource-identity.md) | Client URL prefixes, resource identity, settings scopes, and run-number display semantics. |
 | Changes server module boundaries or an inter-module call. | [ADR 0002](adr/0002-api-inter-module-architecture.md) | Producer-owned inter-module contracts and bounded-context crossings. |
 | Changes database ownership, cross-module persistence access, or namespace rules. | [ADR 0006](adr/0006-database-ownership-boundaries.md) | The decision and tradeoffs behind owner-only database access. |
 | Adds or changes a backend module, DTO, outbox event, HTTP boundary, or server package dependency. | [Backend architecture](architecture/backend-architecture.md) | The current backend module model and package-boundary rules. |
@@ -51,6 +52,7 @@ names it and links to it; it does not restate it.
 | Needs a package-local API, configuration, fixture, or operational constraint. | [Package README standard](../WRITING.md#package-readmes) | How to find and shape the owning package README; the README beside the package owns the local detail. |
 | Creates or changes a visual or interaction decision. | [Design system](../DESIGN.md) | Shared tokens, components, accessibility, motion, status taxonomy, patterns, and review anti-patterns. Code owns exact token and component values. |
 | Writes engineering prose or a runbook. | [Writing guide](../WRITING.md) | Repository prose, style, punctuation, and readability. |
+| Adds or changes a prose rule. | [ADR 0010](adr/0010-prose-standard-and-enforcement.md) | The rationale, rule sources, enforcement model, and accepted divergences behind the prose standard. |
 | Creates or updates a package README. | [Package README standard](../WRITING.md#package-readmes) | Required sections, public API, local checks, and license. |
 | Writes or reviews code comments, module exports, or non-trivial control flow. | [Code style policy](policies/code-style.md) | Shared code-comment, import and export, and control-flow rules. |
 | Writes product or self-hosting documentation. | [Docs writing guide](../apps/docs/WRITING.md) | Product documentation page types, templates, and local terminology. |

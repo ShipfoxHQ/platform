@@ -53,6 +53,27 @@ Components do not build snake_case transport payloads. Empty responses,
 redirect URLs, health checks, and opaque acknowledgements can remain transport
 values when they have no domain meaning.
 
+## Resource identity and client URLs
+
+Client route params use `workspaceSlug` and `projectSlug` for workspace and
+project navigation. The shell resolves those slugs at the workspace and project
+anchor boundaries. Feature pages receive the resolved resource context before
+they build requests.
+
+Adapters keep using `workspaceId` and `projectId` UUIDs. Query keys also use the
+UUID identity, not the URL slug. A rename therefore changes navigation without
+creating a second cache entry or changing the API authorization input. Run and
+job routes keep their UUID params below the `runs` page segment. The displayed
+run number is not a route identifier.
+
+Settings contributions declare an optional `scope` of `workspace` or `project`.
+Entries without a scope remain workspace settings; project-scoped entries render
+under the `projectSettings` anchor.
+
+This split is the client side of [ADR 0009](../adr/0009-client-urls-resource-identity.md).
+The API remains slug-free in resource identity positions, so
+`requireWorkspaceAccess` continues to authorize the UUID selected by the client.
+
 Each server-backed resource exposes a package-owned named
 `*QueryOptions` or `*InfiniteQueryOptions` factory from `hooks/api/`. The
 factory owns its key, request, mapping, cache policy, and pagination. Hooks,

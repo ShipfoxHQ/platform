@@ -25,6 +25,12 @@ export interface CreateProjectCommand {
   source: ProjectSource;
 }
 
+export interface UpdateProjectCommand {
+  projectId: string;
+  name?: string;
+  slug?: string;
+}
+
 const REPOSITORY_NAME_SPLIT_RE = /[/-]/;
 
 export function projectNameFromRepository(repositoryId: string): string {

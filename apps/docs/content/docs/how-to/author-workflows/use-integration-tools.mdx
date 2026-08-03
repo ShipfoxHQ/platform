@@ -22,7 +22,7 @@ You need:
 ## Add the workflow
 
 Create `.shipfox/workflows/read-pull-request.yml`. Replace `github_acme` with
-your GitHub integration connection slug. This is a complete workflow:
+the slug of your GitHub integration connection. This is a complete workflow:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
@@ -31,7 +31,7 @@ runner: ubuntu-latest
 
 triggers:
   on_pull_request:
-    source: github_acme # Replace with your GitHub integration connection slug.
+    source: github_acme # Replace with the slug of your GitHub integration connection.
     event: pull_request.opened
 
 jobs:

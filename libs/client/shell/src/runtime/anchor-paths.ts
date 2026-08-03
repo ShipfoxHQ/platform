@@ -6,6 +6,7 @@ const anchorPaths = {
   workspaceLayout: '/w/$workspaceSlug',
   projectLayout: '/w/$workspaceSlug/p/$projectSlug',
   workspaceSettings: '/w/$workspaceSlug/settings',
+  projectSettings: '/w/$workspaceSlug/p/$projectSlug/settings',
 } as const;
 
 const entityPrefixRegistry = {

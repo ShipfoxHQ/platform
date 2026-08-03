@@ -8,6 +8,7 @@ import type {NavTabEntry, SettingsSectionEntry} from '#contract.js';
 import {useActiveWorkspace, useMaybeActiveWorkspace} from './active-workspace.js';
 import {anchorPaths} from './anchor-paths.js';
 import {rememberLastWorkspaceId} from './last-workspace.js';
+import {parseWorkspaceParams, parseWorkspaceProjectParams, useRouteParams} from './route-inputs.js';
 import type {RouterContext} from './router-context.js';
 import type {WorkspaceSetupState} from './workspace-setup.js';
 import {
@@ -107,33 +108,72 @@ export function buildAnchorSkeleton({
     },
     component: Outlet,
   });
+  const projectSettings = createRoute({
+    getParentRoute: () => projectLayout,
+    path: '/settings',
+    component: () => (
+      <SettingsAnchorLayout
+        scope="project"
+        title="Project settings"
+        description="Configure this project."
+        settingsSections={settingsSections}
+      />
+    ),
+  });
   const workspaceSettings = createRoute({
     getParentRoute: () => workspaceLayout,
     path: '/settings',
     component: () => {
       const workspace = useActiveWorkspace();
       return (
-        <div className="flex w-full flex-col gap-24">
-          <header className="flex flex-col gap-6">
-            <Header variant="h2">Workspace settings</Header>
-            <Text size="sm" className="text-foreground-neutral-muted">
-              Configure {workspace.name}.
-            </Text>
-          </header>
-
-          <div className="grid grid-cols-[180px_minmax(0,1fr)] gap-32 max-[760px]:grid-cols-1">
-            <SettingsNav entries={settingsSections} />
-            <Outlet />
-          </div>
-        </div>
+        <SettingsAnchorLayout
+          scope="workspace"
+          title="Workspace settings"
+          description={`Configure ${workspace.name}.`}
+          settingsSections={settingsSections}
+        />
       );
     },
   });
   return {
-    anchors: {root: rootRoute, workspaceLayout, projectLayout, workspaceSettings},
+    anchors: {root: rootRoute, workspaceLayout, projectLayout, workspaceSettings, projectSettings},
     rootRoute,
     workspaceLayout,
     projectLayout,
     workspaceSettings,
+    projectSettings,
   };
+}
+
+function SettingsAnchorLayout({
+  scope,
+  title,
+  description,
+  settingsSections,
+}: {
+  scope: 'workspace' | 'project';
+  title: string;
+  description: string;
+  settingsSections: readonly SettingsSectionEntry[];
+}) {
+  const params = useRouteParams((input): {workspaceSlug?: string; projectSlug?: string} =>
+    scope === 'workspace' ? parseWorkspaceParams(input) : parseWorkspaceProjectParams(input),
+  );
+  if (!params.workspaceSlug || (scope === 'project' && !params.projectSlug)) return null;
+
+  return (
+    <div className="flex w-full flex-col gap-24">
+      <header className="flex flex-col gap-6">
+        <Header variant="h2">{title}</Header>
+        <Text size="sm" className="text-foreground-neutral-muted">
+          {description}
+        </Text>
+      </header>
+
+      <div className="grid grid-cols-[180px_minmax(0,1fr)] gap-32 max-[760px]:grid-cols-1">
+        <SettingsNav entries={settingsSections} scope={scope} />
+        <Outlet />
+      </div>
+    </div>
+  );
 }

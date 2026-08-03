@@ -433,7 +433,7 @@ unauthorized` error when the verified request context is missing, inconsistent,
 or has no refresh-session ID. It exposes neither refresh-token material nor
 storage details.
 
-## Data Model
+## Data model
 
 The module creates tables with the `auth_` prefix:
 
@@ -446,7 +446,7 @@ The module creates tables with the `auth_` prefix:
 
 Passwords use Argon2id. Password reset tokens and refresh tokens are opaque tokens stored as hashes. Email verification uses the shared email-challenges module.
 
-## Behavior Notes
+## Behavior notes
 
 - Signup sends an eight-digit verification code and returns the new user with its challenge ID.
 - Signup gating blocks account creation only. Existing users keep signing in, even when their address is not on the current allowlist.

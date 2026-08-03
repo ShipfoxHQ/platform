@@ -201,7 +201,9 @@ const coordinatorPattern = /\bcoordinator\s*:\s*['"]([^'"]+)['"]/u;
 const routeImplementationPattern = /\bimpl\s*:\s*['"](@shipfox\/client-[^/'"]+)\/routes\//gu;
 const routePathPattern = /\bpath\s*:\s*['"]([^'"]+)['"]/gu;
 const navigationTargetPattern = /\bto\s*:\s*['"]([^'"]+)['"]/gu;
-const settingsPathPattern = /\bpathSegment\s*:\s*['"]([^'"]+)['"]/gu;
+const settingsSectionPattern = /\{[^{}]*\bpathSegment\s*:\s*['"][^'"]+['"][^{}]*\}/gu;
+const settingsPathSegmentPattern = /\bpathSegment\s*:\s*['"]([^'"]+)['"]/u;
+const settingsScopePattern = /\bscope\s*:\s*['"](workspace|project)['"]/u;
 const registryDefinitionPattern = /\b(?:navigation|settingsSections)\s*(?::|=)\s*\[/u;
 const trailingSlashPattern = /\/+$/u;
 const generatedFilePattern = /\.gen\.(?:ts|tsx)$/;
@@ -270,6 +272,24 @@ function capturedMatches(source: string, pattern: RegExp): string[] {
   );
 }
 
+function capturedSettingsSections(
+  source: string,
+): Array<{segment: string; scope: 'workspace' | 'project'}> {
+  return [
+    ...source.matchAll(new RegExp(settingsSectionPattern.source, settingsSectionPattern.flags)),
+  ].flatMap((match) => {
+    const section = match[0];
+    const segment = section.match(settingsPathSegmentPattern)?.[1];
+    if (!segment) return [];
+    return [
+      {
+        segment,
+        scope: section.match(settingsScopePattern)?.[1] === 'project' ? 'project' : 'workspace',
+      },
+    ];
+  });
+}
+
 function normalizeManifestPath(value: string): string {
   return value === '/' ? value : value.replace(trailingSlashPattern, '') || '/';
 }
@@ -293,9 +313,15 @@ function featureContributionOccurrences(file: string, source: string): number {
   for (const target of capturedMatches(source, navigationTargetPattern)) {
     if (!routes.has(normalizeManifestPath(target)) && !hasExplicitCoordinator) occurrences += 1;
   }
-  for (const segment of capturedMatches(source, settingsPathPattern)) {
-    const target = normalizeManifestPath(`/w/$workspaceSlug/settings/${segment}`);
-    if (!routes.has(target) && !hasExplicitCoordinator) occurrences += 1;
+  for (const {segment, scope} of capturedSettingsSections(source)) {
+    const workspaceTarget = normalizeManifestPath(`/w/$workspaceSlug/settings/${segment}`);
+    const projectTarget = normalizeManifestPath(
+      `/w/$workspaceSlug/p/$projectSlug/settings/${segment}`,
+    );
+    const target = scope === 'project' ? projectTarget : workspaceTarget;
+    if (!routes.has(target) && !hasExplicitCoordinator) {
+      occurrences += 1;
+    }
   }
 
   return occurrences;

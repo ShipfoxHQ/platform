@@ -41,6 +41,7 @@ here, use the full [engineering documentation map](docs/README.md).
 | Adds or changes end-to-end coverage. | [E2E guide](e2e/README.md) | E2E suite structure, setup, screens, and package boundaries. |
 | Creates or changes a visual or interaction decision. | [Design system](DESIGN.md) | Shared design guidance; code owns exact token and component values. |
 | Writes engineering prose or a runbook. | [Writing guide](WRITING.md) | Repository prose, style, punctuation, and readability. |
+| Adds or changes a prose rule. | [ADR 0010](docs/adr/0010-prose-standard-and-enforcement.md) | The rationale, rule sources, enforcement model, and accepted divergences behind the prose standard. |
 | Creates or updates a package README. | [Package README standard](WRITING.md#package-readmes) | Required sections, public API, local checks, and license. |
 | Writes product or self-hosting documentation. | [Docs writing guide](apps/docs/WRITING.md) | Product-documentation page types, templates, and terminology. |
 | Writes or reviews code comments, module exports, or non-trivial control flow. | [Code style policy](docs/policies/code-style.md) | Shared code-comment, import and export, and control-flow rules. |

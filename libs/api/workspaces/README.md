@@ -9,7 +9,7 @@ Shipfox API Workspaces manages who can use a workspace and send or accept invite
 - **Invitation helpers**: Make, view, accept, list, and revoke invites.
 - **Workspace helpers**: Read workspaces and check a signed-in user's access.
 
-## Installation / Setup
+## Installation and setup
 
 ```sh
 pnpm add @shipfox/api-workspaces
@@ -60,6 +60,18 @@ summaries. Supporting count failures are represented as `unknown`. `POST
 status, correlation_id}`. Both write a redacted `administration.action.performed`
 outbox event and record their result for idempotent retries.
 
+Workspace identity fields are:
+
+| Field | Constraint | Use |
+| --- | --- | --- |
+| `id` | UUID, stable | API resource identity and foreign references |
+| `name` | Required display text | Workspace label |
+| `slug` | Required, globally unique resource slug | Client navigation and display |
+
+The API keeps `id` in resource path parameters. `slug` is accepted on create and
+update, and a duplicate returns `409 slug-conflict`. A slug change frees the old
+value immediately. No API resource route resolves a workspace from its slug.
+
 The module creates these tables:
 
 - `workspaces`
@@ -69,7 +81,7 @@ The module creates these tables:
 - `workspaces_admin_command_results`
 - `workspaces_rate_limits`
 
-## Behavior Notes
+## Behavior notes
 
 `ensureMembership` uses a unique database rule to keep one row for `user_id`
 and `workspace_id`. Calls at the same time get the same row. It saves the email

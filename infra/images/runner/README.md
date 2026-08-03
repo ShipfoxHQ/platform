@@ -38,7 +38,7 @@ With `InstanceInitiatedShutdownBehavior=terminate` and Spot `InstanceInterruptio
 
 ## Recovery drill
 
-On EC2, launch a runner with a short max lifetime, stop the provisioner, and verify the instance terminates before that bound. For Spot, request an interruption notice in a test environment and verify the runner stops claiming work, drains, and powers off before reclaim. These drills feed the EC2 provisioner deployment runbook.
+On EC2, launch a runner with a short max lifetime, stop the provisioner, and verify the instance terminates before that bound. For Spot, request an interruption notice in a test environment and verify the runner stops claiming work, drains, and powers off before reclaim. These drills feed the deployment runbook for the EC2 provisioner.
 
 ## Candidate builds
 

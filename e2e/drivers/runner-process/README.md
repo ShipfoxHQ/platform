@@ -65,7 +65,7 @@ await stopProvisioner(handle);
 
 ## Manual verification
 
-Automated coverage lands with the flow workflow E2E suite, which composes these
+Automated coverage lands with the E2E suite for the flow workflow, which composes these
 functions in its `global-setup` / `global-teardown`. There is no unit test for
 process spawning because the behavior depends on the provisioner dist, Docker,
 signals, and active-runner polling as one system. To verify this package on its own:
