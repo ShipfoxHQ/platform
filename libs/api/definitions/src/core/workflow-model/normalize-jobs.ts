@@ -209,8 +209,6 @@ function normalizeJob(params: {
   });
   const checkout = normalizeJobCheckout({
     checkout: params.job.checkout,
-    issues: params.issues,
-    path: ['jobs', params.sourceName, 'checkout'],
   });
   const jobEnv = normalizeEnv({
     env: params.job.env,

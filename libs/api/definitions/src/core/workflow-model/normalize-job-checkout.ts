@@ -21,19 +21,9 @@ const DEFAULT_CHECKOUT_FETCH_DEPTH = 1;
 
 export function normalizeJobCheckout(params: {
   checkout: WorkflowDocumentJob['checkout'];
-  issues: WorkflowModelValidationIssue[];
-  path: readonly WorkflowModelValidationIssuePathSegment[];
-}): WorkflowModelJobCheckout {
+}): WorkflowModelJobCheckout | false {
   if (params.checkout === false) {
-    params.issues.push(
-      issue({
-        code: 'unsupported-checkout',
-        message: 'checkout: false is not supported by the workflow model yet.',
-        path: params.path,
-      }),
-    );
-
-    return DEFAULT_JOB_CHECKOUT;
+    return false;
   }
 
   const checkout = params.checkout ?? {};

@@ -94,7 +94,11 @@ export async function materializeJobExecutionSteps(
           sourceLocation: step.sourceLocation ?? null,
           status: 'pending' as const,
           type: step.kind,
-          config: resolved.config,
+          config: materializedStepConfig({
+            config: resolved.config,
+            step,
+            stepPosition,
+          }),
           ...(step.if === undefined ? {} : {condition: step.if}),
           authoredConfig: resolved.authoredConfig,
           ...materializedConfigPlan(resolved.configPlan, resolved.trace),
@@ -107,6 +111,10 @@ export async function materializeJobExecutionSteps(
 }
 
 function setupStepForJob(job: WorkflowModelJob): MaterializedWorkflowStep {
+  if (job.checkout === false || job.steps[0]?.kind === 'checkout') {
+    return {...SETUP_STEP, config: {}};
+  }
+
   const checkout = job.checkout ?? DEFAULT_JOB_CHECKOUT;
 
   return {
@@ -118,6 +126,27 @@ function setupStepForJob(job: WorkflowModelJob): MaterializedWorkflowStep {
       },
     },
   };
+}
+
+function materializedStepConfig(params: {
+  readonly config: Readonly<Record<string, unknown>>;
+  readonly step: WorkflowModelStep;
+  readonly stepPosition: number;
+}): Readonly<Record<string, unknown>> {
+  if (
+    params.step.kind !== 'checkout' ||
+    params.stepPosition !== 0 ||
+    params.step.checkout.path !== undefined
+  ) {
+    return params.config;
+  }
+
+  const checkout = params.config.checkout;
+  if (checkout === null || typeof checkout !== 'object' || Array.isArray(checkout)) {
+    throw new Error('Checkout materialization config is missing an object');
+  }
+
+  return {...params.config, checkout: {...checkout, path: '.'}};
 }
 
 function materializedConfigPlan(
