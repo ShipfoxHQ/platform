@@ -1,0 +1,12 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// The optional prefix consumes only whitespace or a variant colon, so the raw
+// spacing token is checked independently of its position in the class list.
+JsxAttribute() as $attribute where {
+  $attribute <: r"className\s*=\s*(?:\x22|\x27)(?:.*(?:\s|:))?(?:-)?(?:p-(?:row|frame)|(?:p|px|py|pt|pr|pb|pl|ps|pe|m|mx|my|mt|mr|mb|ml|ms|me|gap|gap-x|gap-y|space-x|space-y)-(?:[1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]+))(?:\x22|\x27|\s|:).*",
+  register_diagnostic(
+    span=$attribute,
+    message="client-architecture/no-raw-spacing: use an approved semantic spacing role such as `gap-inline`, `p-panel`, `px-row`, or `py-row`; raw numeric utilities and `p-row`/`p-frame` are not allowed."
+  )
+}
