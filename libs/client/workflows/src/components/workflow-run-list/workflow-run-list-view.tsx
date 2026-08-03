@@ -28,7 +28,7 @@ export function WorkflowRunListView({
   });
 
   function handleClearFilters() {
-    if (onFiltersChange) onFiltersChange({});
+    if (onFiltersChange) onFiltersChange({search: '', status: 'all'});
     else {
       setLocalSearch('');
       setLocalStatusFilter('all');
@@ -47,14 +47,12 @@ export function WorkflowRunListView({
         <WorkflowRunListHeader
           query={currentSearch}
           onQueryChange={(next) => {
-            if (onFiltersChange)
-              onFiltersChange({...(next ? {search: next} : {}), status: currentStatusFilter});
+            if (onFiltersChange) onFiltersChange({search: next, status: currentStatusFilter});
             else setLocalSearch(next);
           }}
           statusFilter={currentStatusFilter}
           onStatusFilterChange={(next) => {
-            if (onFiltersChange)
-              onFiltersChange({...(currentSearch ? {search: currentSearch} : {}), status: next});
+            if (onFiltersChange) onFiltersChange({search: currentSearch, status: next});
             else setLocalStatusFilter(next);
           }}
         />

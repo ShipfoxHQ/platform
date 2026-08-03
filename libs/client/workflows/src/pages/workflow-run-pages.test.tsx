@@ -72,6 +72,23 @@ describe('WorkflowRunPages', () => {
     expect(screen.queryByLabelText('Loading workflow run')).not.toBeInTheDocument();
   });
 
+  test('clearing filters on the list route resets search and status in the URL', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: createRunsListFetch()});
+
+    const {router} = renderRunsPath('?search=no-such-run&status=failed');
+
+    expect(await screen.findByText('No matching runs')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Clear filters'}));
+
+    await waitFor(() => {
+      expect(currentSearch(router).search).toBeUndefined();
+    });
+    expect(currentSearch(router).status).toBeUndefined();
+    expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
+  });
+
   test('shows the list empty state without mounting run detail', async () => {
     configureApiClient({fetchImpl: createEmptyRunsFetch()});
 
