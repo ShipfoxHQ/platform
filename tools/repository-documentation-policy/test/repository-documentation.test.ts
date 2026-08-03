@@ -96,11 +96,14 @@ describe('repository documentation policy', () => {
     }
   });
 
-  test('keeps product docs, changelogs, and changesets outside this check', async () => {
+  test('keeps separately owned documentation outside this check', async () => {
     const root = await fixture({
       'README.md': '# Repository',
+      '.agents/skills/example/SKILL.md': '[missing](nowhere.md)',
+      '.claude/skills/example/SKILL.md': '[missing](nowhere.md)',
       'apps/docs/content/docs/page.mdx': '[missing](nowhere.mdx)',
       'apps/docs/WRITING.md': '[missing](nowhere.md)',
+      '.github/skills/example/SKILL.md': '[missing](nowhere.md)',
       'libs/example/CHANGELOG.md': '[missing](nowhere.md)',
       '.changeset/example.md': '[missing](nowhere.md)',
     });
