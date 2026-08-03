@@ -727,6 +727,44 @@ describe('materializeWorkflowModel', () => {
     });
   });
 
+  it('defers unresolved thinking templates until step dispatch', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          steps: [
+            {
+              harness: 'pi',
+              prompt: 'Review the change.',
+              thinking: template('steps.previous.outputs.thinking'),
+            },
+          ],
+        },
+      },
+    });
+
+    const rows = await materializeWorkflowModel({model, context: creationContext()});
+
+    expect(rows[0]?.steps[1]?.config).toEqual({});
+    expect(rows[0]?.steps[1]?.configPlan?.agent).toMatchObject({
+      harness: 'pi',
+      prompt: {segments: [{kind: 'literal', value: 'Review the change.'}]},
+      thinking: {
+        segments: [
+          {
+            kind: 'deferred',
+            expression: {
+              language: 'cel',
+              source: 'steps.previous.outputs.thinking',
+              check: 'syntax',
+            },
+            fillTarget: 'step-dispatch',
+            roots: ['steps'],
+          },
+        ],
+      },
+    });
+  });
+
   it('merges env before resolving and only resolves the winning values', async () => {
     const model = workflowModel({
       env: {SHARED: template('event.missing'), WORKFLOW_ONLY: template('run.id')},

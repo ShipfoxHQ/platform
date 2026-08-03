@@ -8,7 +8,7 @@ import type {
   ResolvedField,
   WorkflowExpression,
 } from '@shipfox/expression';
-import type {AgentThinking, Harness} from '@shipfox/workflow-document';
+import type {Harness} from '@shipfox/workflow-document';
 import type {InterpolationUnresolvableField} from '../errors.js';
 
 export type StepStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
@@ -80,7 +80,7 @@ export interface StepConfigDispatchPlan {
     model?: ResolvedField;
     provider?: ResolvedField;
     harness?: Harness;
-    thinking?: AgentThinking;
+    thinking?: ResolvedField;
     tools?: readonly string[];
     integrations?: readonly MaterializedAgentIntegrationConfigDto[];
     mcpServers?: readonly AgentIntegrationMcpServerConfigDto[];

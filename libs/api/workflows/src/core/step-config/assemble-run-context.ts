@@ -42,12 +42,14 @@ export function assembleWorkflowRunContext(
 ): WorkflowExpressionEvaluationContext {
   const triggerReference = params.run.triggerReference;
   return {
+    workflow: {
+      id: params.run.definitionId,
+      name: params.run.workflowName,
+    },
     run: {
       id: params.run.id,
       number: params.run.number,
       name: params.run.name,
-      workflow_name: params.run.workflowName,
-      definition_id: params.run.definitionId,
       project_id: params.run.projectId,
       workspace_id: params.run.workspaceId,
       created_at: params.run.createdAt,
@@ -255,13 +257,18 @@ export function assembleListenerSnapshotContext(params: {
   readonly dependencyJobs: readonly JobContextInput[];
 }): WorkflowExpressionEvaluationContext {
   const context: Record<string, unknown> = {};
-  if (params.plan.roots.has('run') || params.plan.roots.has('trigger')) {
+  if (
+    params.plan.roots.has('workflow') ||
+    params.plan.roots.has('run') ||
+    params.plan.roots.has('trigger')
+  ) {
     const runContext = assembleWorkflowRunContext({
       run: params.run,
       triggerPayload: params.triggerPayload,
       inputs: params.inputs,
       vars: params.vars,
     });
+    if (params.plan.roots.has('workflow')) context.workflow = runContext.workflow;
     if (params.plan.roots.has('run')) context.run = runContext.run;
     if (params.plan.roots.has('trigger')) context.trigger = runContext.trigger;
   }

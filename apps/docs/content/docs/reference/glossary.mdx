@@ -20,7 +20,7 @@ This glossary defines the core terms used in Shipfox documentation and in the pr
   </Accordion>
 
   <Accordion title="CEL">
-    Common Expression Language, a lightweight expression language used in Shipfox for trigger filters (`filter`), `if` conditionals, gate success conditions (`gate.success`), and job success conditions. CEL expressions are type-safe, side-effect-free, and sandboxed. In `gate.success`, `step.exit_code` (integer), `step.status` (string), and `step.outputs` are available. In `filter`, the variable `event` carries the event payload. See [Expressions](/reference/expressions).
+    Common Expression Language, the expression language Shipfox uses for `${{ }}` templates and for predicate fields such as `filter`, `if`, `gate.success`, and job `success`. See [Expressions](/reference/expressions) for the syntax and [Contexts](/reference/contexts) for the data each field can read.
   </Accordion>
 
   <Accordion title="Execution">

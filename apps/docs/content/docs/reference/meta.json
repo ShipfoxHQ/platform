@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "workflow-schema",
+    "contexts",
     "expressions",
     "trigger-sources",
     "secrets-variables",

@@ -42,12 +42,14 @@ describe('assembleWorkflowRunContext', () => {
     });
 
     expect(context).toEqual({
+      workflow: {
+        id: 'def-1',
+        name: 'Build',
+      },
       run: {
         id: 'run-1',
         number: 1,
         name: 'Build',
-        workflow_name: 'Build',
-        definition_id: 'def-1',
         project_id: 'proj-1',
         workspace_id: 'workspace-1',
         created_at: run.createdAt,
@@ -403,7 +405,7 @@ describe('listener filter snapshots', () => {
           source: 'github',
           event: 'pull_request',
           filter:
-            'jobs.build.outputs.pr_number == event.pull_request.number && inputs.environment == "prod" && trigger.event == "pull_request" && run.id != "" && job.key == "await" && vars.ENABLED == "true"',
+            'jobs.build.outputs.pr_number == event.pull_request.number && inputs.environment == "prod" && trigger.event == "pull_request" && workflow.name != "" && run.id != "" && job.key == "await" && vars.ENABLED == "true"',
         },
       ],
       until: null,
@@ -430,6 +432,7 @@ describe('listener filter snapshots', () => {
     const [matcher] = applyListenerFilterSnapshots(plan.on, context);
 
     expect(matcher?.filter_snapshot).toEqual({
+      workflow: {id: 'def-1', name: 'Build'},
       run: expect.objectContaining({id: 'run-1', name: 'Build'}),
       trigger: {
         source: 'github',

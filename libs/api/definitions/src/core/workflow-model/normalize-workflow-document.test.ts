@@ -213,7 +213,7 @@ describe('normalizeWorkflowDocument', () => {
   it('allows computed access to unrelated dynamic-name context fields', () => {
     const model = normalizeWorkflowDocument({
       name: 'Workflow',
-      run_name: interpolation('run["workflow_name"]'),
+      run_name: interpolation('run["id"]'),
       jobs: {
         build: {
           execution_name: interpolation('execution["status"]'),
@@ -1009,6 +1009,29 @@ describe('normalizeWorkflowDocument', () => {
         supportedLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
       },
     });
+  });
+
+  it('defers an interpolated thinking level to dispatch', () => {
+    const document: WorkflowDocument = {
+      name: 'agent build',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              harness: 'claude',
+              prompt: 'Fix it.',
+              thinking: workflowInterpolation('vars.THINKING'),
+            },
+          ],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+    const step = model.jobs[0]?.steps[0];
+
+    if (step?.kind !== 'agent') throw new Error('Expected an agent step');
+    expect(step.templates?.thinking).toMatchObject([{kind: 'deferred', roots: ['vars']}]);
   });
 
   it('normalizes job success expressions and execution timeouts', () => {

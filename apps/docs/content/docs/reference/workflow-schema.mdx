@@ -150,6 +150,20 @@ rejects unknown fields and invalid field combinations.
 
 <RunStepFields />
 
+A `${{ }}` value in `run` reaches the command as a quoted shell variable, so the
+shell reads it as text and not as part of the command.
+
+<Callout title="Keep run data out of code positions" type="warn">
+  Some programs read their argument as code again, which puts an interpolated
+  value back in a code position: `eval`, `sh -c`, `bash -c`, `source`, `let`,
+  `declare -i`, shell arithmetic, `awk`, `jq`, `sed`, and `xargs sh -c`. A value
+  that reaches one of them runs on the runner with the job's credentials and
+  workspace. Event payloads, trigger inputs, and step outputs come from outside
+  the workflow, so pass them as arguments to a fixed program instead:
+  `deploy "$TARGET"` rather than `eval "deploy $TARGET"`. A workflow sync warns
+  when it finds one of these positions.
+</Callout>
+
 ### Checkout step fields
 
 <CheckoutStepFields />
@@ -196,8 +210,11 @@ A batch must set at least one of `debounce`, `max_size`, or `max_wait`.
 ## Related pages
 
 <Cards>
-  <Card title="Expressions (CEL)" href="/reference/expressions">
-    Gate and job success predicates, and `${{ }}` interpolation.
+  <Card title="Contexts" href="/reference/contexts">
+    Every context, its properties, and the fields that can read it.
+  </Card>
+  <Card title="Expressions" href="/reference/expressions">
+    The syntax, operators, and functions available inside an expression.
   </Card>
   <Card title="Model Providers" href="/reference/model-providers">
     Every provider ID, default model, and how agent config resolves.

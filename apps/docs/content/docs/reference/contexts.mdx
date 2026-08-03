@@ -1,0 +1,51 @@
+---
+title: "Workflow contexts"
+sidebarTitle: "Contexts"
+description: "Look up every context a workflow can read, the properties it holds, and the fields that can read it."
+---
+
+import ContextAvailability from '../../generated/reference/context-availability.mdx';
+import ContextProperties from '../../generated/reference/context-properties.mdx';
+import ContextRoots from '../../generated/reference/context-roots.mdx';
+
+A **context** is a group of run data that an expression can read. See
+[Expressions](/reference/expressions) for the syntax.
+
+## Available contexts
+
+<ContextRoots />
+
+## Context availability
+
+Different contexts exist at different points in a run, so each field can read
+only some of them. A trigger `filter` runs before Shipfox creates a run, so it
+reads only `event` and `trigger`. A gate runs after its step reports, so it
+reads `step` and `vars`.
+
+<ContextAvailability />
+
+A field cannot read the value it sets. For example, `run_name` cannot read
+`run.name`.
+
+Reading a context the table does not list for the field fails the sync, with an
+error that names the context. The workflow never runs with an empty value in its
+place. See [Correct a context that is not
+available](/how-to/run-and-troubleshoot/workflow-sync#correct-a-context-that-is-not-available).
+
+## Context properties
+
+<ContextProperties />
+
+## Related pages
+
+<Cards>
+  <Card title="Expressions" href="/reference/expressions">
+    The syntax, operators, and functions available inside an expression.
+  </Card>
+  <Card title="Workflow schema" href="/reference/workflow-schema">
+    The fields that carry these expressions.
+  </Card>
+  <Card title="Secrets and variables" href="/reference/secrets-variables">
+    How `vars` and `secrets` are stored, scoped, and bound.
+  </Card>
+</Cards>

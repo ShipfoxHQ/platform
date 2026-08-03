@@ -9,6 +9,7 @@ import {
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
 import {parseWorkflowTemplate, planInterpolationField} from '@shipfox/expression';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
+import {agentThinkingSchema} from '@shipfox/workflow-document';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import type {Step} from '#core/entities/step.js';
 import {AgentConfigUnresolvableError, InterpolationUnresolvableError} from '#core/errors.js';
@@ -68,7 +69,7 @@ const resolveAgentDefaults: AgentDefaultsResolver = (params) => ({
   harness: params.harness ?? 'pi',
   provider: params.provider ?? 'openai',
   model: params.model ?? 'gpt-5.5',
-  thinking: params.thinking ?? 'off',
+  thinking: agentThinkingSchema.safeParse(params.thinking).data ?? 'off',
 });
 
 function materializedIntegration(): MaterializedAgentIntegrationConfigDto {
@@ -428,7 +429,7 @@ describe('completeStepDispatchConfig', () => {
       configPlan: {
         agent: {
           harness: 'claude',
-          thinking: 'off',
+          thinking: plannedField('off'),
           prompt: plannedField(`Review ${template('steps.build.outputs.sha')}`),
         },
       },

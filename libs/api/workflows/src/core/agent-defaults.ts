@@ -6,7 +6,8 @@ export interface AgentDefaultsInput {
   readonly harness?: Harness | undefined;
   readonly provider?: ModelProviderRef | undefined;
   readonly model?: string | undefined;
-  readonly thinking?: AgentThinking | undefined;
+  /** A resolved template can carry any string. The agent module validates it. */
+  readonly thinking?: string | undefined;
 }
 
 export interface ResolvedAgentDefaults {

@@ -9,6 +9,7 @@ import type {
   AgentInterModuleClient,
   AgentValidationCatalog,
 } from '@shipfox/api-agent-dto/inter-module';
+import {agentThinkingSchema} from '@shipfox/workflow-document';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 
 export const agentValidationCatalog: AgentValidationCatalog = {
@@ -53,6 +54,6 @@ export const resolveTestAgentDefaults: AgentDefaultsResolver = (config) => {
     harness: config.harness ?? 'pi',
     provider,
     model: config.model ?? (provider === 'openai' ? 'gpt-5.5-pro' : 'claude-opus-4-8'),
-    thinking: config.thinking ?? 'xhigh',
+    thinking: agentThinkingSchema.safeParse(config.thinking).data ?? 'xhigh',
   };
 };

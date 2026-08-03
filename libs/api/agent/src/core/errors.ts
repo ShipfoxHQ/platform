@@ -48,7 +48,7 @@ export class UnsupportedHarnessProviderError extends Error {
 export class UnsupportedHarnessThinkingError extends Error {
   constructor(
     public readonly harness: Harness,
-    public readonly thinking: AgentThinking,
+    public readonly thinking: string,
     public readonly supportedLevels: readonly AgentThinking[],
   ) {
     super(

@@ -135,6 +135,7 @@ export {
   type AvailabilitySite,
   availabilitySites,
   buildTypedRootsEnvironment,
+  contextRootsForField,
   type FillTarget,
   getWorkflowContextAvailability,
   getWorkflowContextDefinition,
@@ -146,6 +147,7 @@ export {
   getWorkflowPredicateContextRoots,
   getWorkflowPredicateFieldMinimumFillTarget,
   getWorkflowPredicateFieldTypeEnvironment,
+  isWorkflowPredicateField,
   type OpenWorkflowContextDefinition,
   projectWorkflowPredicateContext,
   type ReservedRootDefinition,
@@ -186,3 +188,7 @@ export {
   workflowPredicateFieldFailurePolicy,
   workflowPredicateFields,
 } from './workflow-context/workflow-context.js';
+export {
+  type WorkflowContextDoc,
+  workflowContextDocs,
+} from './workflow-context/workflow-context-docs.js';

@@ -10,8 +10,19 @@ import {
 import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import {sentryEventCatalog} from '@shipfox/api-integration-sentry-dto';
 import {webhookEventCatalog} from '@shipfox/api-integration-webhook-dto';
+import {
+  buildTypedRootsEnvironment,
+  contextRootsForField,
+  getWorkflowContextTypeEnvironment,
+  workflowContextDocs,
+} from '@shipfox/expression';
 import {buildWorkflowJsonSchema, thinkingLevelsForHarness} from '@shipfox/workflow-document';
 import {registeredIntegrationProviders} from '@/lib/registered-integration-providers';
+import {
+  contextFieldRows,
+  contextRootShape,
+  WORKFLOW_FIELD_YAML_KEYS,
+} from './lib/context-reference.mjs';
 import {slugForHeading} from './lib/slug.mjs';
 
 const docsRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,7 +65,61 @@ const regions = [
   ]),
   ['content/generated/integrations/catalog.json', renderIntegrationCatalogData],
   ['content/generated/reference/workflow-schema.mdx', renderWorkflowSchemaReference],
+  ['content/generated/reference/context-roots.mdx', renderContextRoots],
+  ['content/generated/reference/context-availability.mdx', renderContextAvailability],
+  ['content/generated/reference/context-properties.mdx', renderContextProperties],
 ];
+
+const contextShapeDeps = {
+  getTypeEnvironment: getWorkflowContextTypeEnvironment,
+  buildTypedRoots: buildTypedRootsEnvironment,
+};
+
+function renderContextRoots() {
+  return [
+    '| Context | Holds |',
+    '|---|---|',
+    ...workflowContextDocs.map((doc) => `| \`${doc.root}\` | ${doc.summary} |`),
+  ].join('\n');
+}
+
+function renderContextAvailability() {
+  return [
+    '| Workflow key | Available contexts |',
+    '|---|---|',
+    ...Object.entries(WORKFLOW_FIELD_YAML_KEYS).map(
+      ([field, key]) =>
+        `| \`${key}\` | ${contextRootsForField(field)
+          .map((root) => `\`${root}\``)
+          .join(', ')} |`,
+    ),
+  ].join('\n');
+}
+
+function renderContextProperties() {
+  return workflowContextDocs.flatMap((doc) => renderContextRoot(doc)).join('\n');
+}
+
+function renderContextRoot(doc) {
+  const lines = [`### \`${doc.root}\``, '', doc.summary, ''];
+  if (doc.shapeNote !== undefined) lines.push(doc.shapeNote, '');
+
+  const shape = contextRootShape(doc.root, contextShapeDeps);
+  const rows = shape === undefined ? [] : contextFieldRows(shape, '', doc.collapse ?? []);
+  if (rows.length === 0) return lines;
+
+  const prefix = doc.propertyPrefix ?? `${doc.root}.`;
+  lines.push('| Property | Type | Description |', '|---|---|---|');
+  for (const row of rows) {
+    const description = doc.fields?.[row.path];
+    if (description === undefined) {
+      throw new Error(`Context ${doc.root} property ${row.path} has no description.`);
+    }
+    lines.push(`| \`${prefix}${row.path}\` | \`${row.type}\` | ${description} |`);
+  }
+  lines.push('');
+  return lines;
+}
 
 function renderIntegrationCatalogData() {
   return JSON.stringify(

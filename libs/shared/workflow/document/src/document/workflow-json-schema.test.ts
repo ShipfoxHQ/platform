@@ -162,7 +162,9 @@ function thinkingValuesFor(conditionals: JsonSchema[], harness: string): unknown
   const conditional = conditionals.find(
     (candidate) => object(object(object(candidate.if).properties).harness).const === harness,
   );
-  return object(object(object(conditional?.then).properties).thinking).enum;
+  const thinking = object(object(object(conditional?.then).properties).thinking);
+  const branches = Array.isArray(thinking.anyOf) ? thinking.anyOf : [];
+  return branches.map(object).find((branch) => Array.isArray(branch.enum))?.enum;
 }
 
 function descriptionsMissingFrom(schema: JsonSchema, path = '#'): string[] {

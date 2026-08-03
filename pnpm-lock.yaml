@@ -722,6 +722,9 @@ importers:
       '@shipfox/biome':
         specifier: workspace:*
         version: link:../../tools/biome
+      '@shipfox/expression':
+        specifier: workspace:*
+        version: link:../../libs/shared/expression
       '@shipfox/ts-config':
         specifier: workspace:*
         version: link:../../tools/ts-config
