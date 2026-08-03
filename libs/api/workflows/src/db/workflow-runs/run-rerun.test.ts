@@ -203,7 +203,7 @@ describe('workflow run queries', () => {
       expect(rerunAttempt?.agentToolMaterialization).toEqual(snapshot);
     });
 
-    test('reruns preserve each source job checkout policy', async () => {
+    test('reruns re-materialize each job checkout policy from the model', async () => {
       const source = await createWorkflowRun({
         workspaceId,
         projectId,
@@ -227,6 +227,12 @@ describe('workflow run queries', () => {
         },
       });
       const sourceJobs = await getJobsByWorkflowRunId(source.id);
+      const sourceJob = sourceJobs[0];
+      if (!sourceJob) throw new Error('Missing source job');
+      await db()
+        .update(jobs)
+        .set({checkoutPersistCredentials: true, checkoutPermissionsContents: 'read'})
+        .where(eq(jobs.id, sourceJob.id));
       await markJob(sourceJobs, 'build', 'failed');
       await updateWorkflowRunStatus({
         workflowRunId: source.id,
