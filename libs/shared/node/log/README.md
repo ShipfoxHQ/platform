@@ -55,7 +55,7 @@ const moduleLogger = createLogger({
 moduleLogger.debug({ eventId: "evt_123" }, "Processing payment event");
 ```
 
-You can combine `LOG_PRETTY` and `LOG_STDOUT_LEVEL` during development for
+Combine `LOG_PRETTY` and `LOG_STDOUT_LEVEL` during development for
 readability. For example, `LOG_LEVEL=info` and `LOG_STDOUT_LEVEL=warn` keeps
 info records out of stdout while retaining them in the OpenTelemetry log stream.
 

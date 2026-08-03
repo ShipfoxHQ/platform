@@ -40,6 +40,7 @@ Most readers skim. Write so a skimmer still gets the point.
 - Never chain steps with "first... then...". Readers read top to bottom;
   use a list or numbered steps instead.
 
+<!-- vale off -->
 ## Words
 
 - Plain words over clever words: "uses" not "leverages", "checks" not
@@ -49,6 +50,7 @@ Most readers skim. Write so a skimmer still gets the point.
 - No marketing adjectives: "powerful", "seamless", "robust", "battle-tested".
 - Say "you" only when instructing. Everything else reads as description.
 - Define acronyms on first use.
+<!-- vale on -->
 
 ## Punctuation
 

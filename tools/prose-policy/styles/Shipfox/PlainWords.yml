@@ -1,0 +1,15 @@
+extends: substitution
+message: "Use '%s' instead of '%s'."
+level: warning
+ignorecase: true
+capitalize: true
+action:
+  name: replace
+swap:
+  leverage: use
+  # Dispatch and pipeline are technical lifecycle terms in this repository.
+  utilize: use
+  facilitate: help
+  subsequent: later
+  prior to: before
+  all of: all

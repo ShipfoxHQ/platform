@@ -1,0 +1,9 @@
+{
+  "name": "@shipfox/prose-policy",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "node verify.mjs"
+  }
+}

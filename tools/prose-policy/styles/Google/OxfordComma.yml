@@ -1,0 +1,23 @@
+extends: existence
+message: "Use the Oxford comma in '%s'."
+link: 'https://developers.google.com/style/commas'
+scope: sentence
+level: warning
+nonword: true
+# List items may be several words long, not just one. Two guards keep the
+# false-positive rate down: the item can't open with a clause-introducer
+# (', which ...', ', specifically ...'), and neither item may contain an
+# auxiliary verb, which is what separates a list from a compound predicate
+# (', it has some downsides and is officially discouraged.'). The trailing
+# lookahead allows a following relative or conditional clause without
+# consuming its punctuation, so list fragments ('Apples, pears or bananas')
+# are still caught.
+tokens:
+  - ',\s(?!(?:which|who|whom|whose|that|where|when|while|because|since|although|though|if|unless|so|but|and|or|however|therefore|thus|specifically|especially|namely|then|take|see|note|consider|make|use|either|neither)\b)(?:(?!\b(?:is|are|was|were|has|have|had|be|been|being|will|would|can|could|should|may|might|must|do|does|did)\b)\w+ ){0,4}\w+ (?:and|or) (?:(?!\b(?:is|are|was|were|has|have|had|be|been|being|will|would|can|could|should|may|might|must|do|does|did)\b)\w+ ){0,4}\w+(?=\s+(?:which|who|whom|whose|that|where|when|while|because|since|although|though|if|unless|so|but|and|or|however|therefore|thus|specifically|especially|namely|then)\b|[.?!]|$)'
+
+# Lexical-verb compound predicates are not lists. Keep representative
+# regressions here because a general POS test would also reject plural nouns.
+exceptions:
+  - 'starts, runs or crashes'
+  - 'opens, reads or writes'
+  - 'creates, updates or deletes'

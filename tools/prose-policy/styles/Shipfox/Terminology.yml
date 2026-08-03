@@ -1,0 +1,11 @@
+extends: substitution
+message: "Use '%s' instead of '%s'."
+level: warning
+ignorecase: true
+capitalize: true
+action:
+  name: replace
+swap:
+  connection: integration connection
+exceptions:
+  - integration connection

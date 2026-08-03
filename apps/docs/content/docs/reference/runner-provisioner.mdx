@@ -28,7 +28,7 @@ This page is the canonical reference for configuring the Docker runner provision
 | `SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS` | `30` | How long each demand poll waits for work before returning. `0` makes the poll non-blocking. |
 | `SHIPFOX_PROVISIONER_POLL_INTERVAL_MS` | `1000` | Wait between demand polls. Backs off toward the max after errors. |
 | `SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS` | `5000` | Largest poll backoff interval after repeated errors. |
-| `SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS` | `1000` | Provider observation and reconciliation cadence. Backs off on errors up to the larger of 5000ms and the configured cadence. |
+| `SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS` | `1000` | Provider observation and reconciliation cadence. Backs off on errors up to the larger of 5000 ms and the configured cadence. |
 | `SHIPFOX_PROVISIONER_MAX_RESERVATIONS` | `250` | Most reservations requested in one poll. Also bounded by free template capacity and the API's cap of 1000. |
 | `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | `250` | Runner instances created per request (1 to 1000). Must not exceed the API's own batch limit. |
 | `SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS` | `120000` | How long a created container may stay unstarted before the provisioner reaps it as stale. |

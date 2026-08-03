@@ -63,8 +63,8 @@ then a `gate` reruns the tests and sends the agent back until they pass.
   and runs an agent on each new batch of events (PR review comments, new issues)
   until a resolution condition is met. Asynchronous agent loops, not one-shot runs.
 - **See the agent think.** Agent steps stream structured events (messages,
-  thinking, tool calls, token usage, and cost), not just raw text.
-- **Pick the agent, not just the model.** Run an agent step on the `pi` harness
+  thinking, tool calls, token usage, and cost), rather than raw text.
+- **Pick the agent, not the model.** Run an agent step on the `pi` harness
   (any of 30+ providers) or the `claude` harness (the Claude Agent SDK on your
   Anthropic key), chosen per step.
 - **Isolated, outbound-only runs.** Each job runs isolated in a runner that polls
@@ -107,7 +107,7 @@ Full documentation is published at [shipfox.io/docs](https://www.shipfox.io/docs
 
 ## Security
 
-Please report vulnerabilities privately by emailing **security@shipfox.io** rather
+Report vulnerabilities privately by emailing **security@shipfox.io** rather
 than opening a public issue. See [SECURITY.md](SECURITY.md) for details. Shipfox's
 token and trust model is documented in the
 [auth security model](libs/api/auth/README.md).

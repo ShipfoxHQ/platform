@@ -1,0 +1,11 @@
+extends: existence
+message: "Remove filler language or state the action directly."
+level: error
+ignorecase: true
+tokens:
+  - simply
+  - just
+  - please
+  - you can
+  - you may
+  - in order to

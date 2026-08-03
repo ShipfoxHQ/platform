@@ -8,6 +8,7 @@ gh = "2.95.0"
 "npm:wrangler" = "4.29.0"
 ollama = "0.30.11"
 packer = "1.15.4"
+vale = "3.16.0"
 
 [env]
 _.path = ['{{config_root}}/node_modules/.bin']

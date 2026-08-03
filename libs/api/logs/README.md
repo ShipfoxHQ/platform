@@ -127,7 +127,7 @@ budget is stored in full, then an in-band `capped` tombstone record is injected 
 are accepted-and-dropped. The cap is a **job-level** signal: a stream can be byte-complete and
 still sit under a capped job if a sibling step exhausted the shared budget.
 
-A stream closes on one of four triggers, all converging on the same guarded, exactly-once close:
+A stream closes on one of four triggers, all converging on the same guarded, exactly once close:
 the runner declares its end in-band (an `end` record in an append), which closes the stream
 `declared` the moment those bytes commit; the step-attempt-terminated subscriber closes an attempt
 the runner never ended in-band, `declared` when the runner drained its spool or `timeout` when it

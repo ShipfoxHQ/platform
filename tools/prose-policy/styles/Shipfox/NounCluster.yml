@@ -1,0 +1,9 @@
+extends: sequence
+message: "Break up four consecutive nouns with a preposition."
+level: suggestion
+tokens:
+  - pattern: '\w+'
+    tag: NN|NNS|NNP|NNPS
+  - tag: NN|NNS|NNP|NNPS
+  - tag: NN|NNS|NNP|NNPS
+  - tag: NN|NNS|NNP|NNPS

@@ -1,0 +1,6 @@
+extends: existence
+message: "Expand non-negative contractions such as '%s'."
+level: warning
+raw:
+  - >-
+    \b(?:I|you|he|she|it|we|they|there|that|who|what|where|when|how|let)(?:'|’)(?:s|re|ve|ll|d|m)\b

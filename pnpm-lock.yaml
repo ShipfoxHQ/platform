@@ -8011,6 +8011,8 @@ importers:
         specifier: workspace:*
         version: link:../typescript
 
+  tools/prose-policy: {}
+
   tools/repository-documentation-policy:
     devDependencies:
       '@shipfox/biome':
