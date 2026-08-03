@@ -66,6 +66,7 @@ describe('deliverEventToListener', () => {
       repository: 'acme/api',
       ref: 'refs/heads/main',
       commit: 'a'.repeat(40),
+      actor: 'octocat',
     };
 
     await deliver({jobId: job.id, triggerReference});

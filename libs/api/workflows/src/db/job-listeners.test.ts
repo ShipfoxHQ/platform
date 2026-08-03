@@ -490,12 +490,14 @@ describe('drainListenerEventsIntoExecution', () => {
       repository: 'acme/one',
       ref: 'refs/heads/main',
       commit: '1'.repeat(40),
+      actor: 'octocat',
     };
     const secondReference: WorkflowRunTriggerReference = {
       project: {id: crypto.randomUUID()},
       repository: 'acme/two',
       ref: 'refs/pull/12/head',
       commit: '2'.repeat(40),
+      actor: 'octocat',
     };
 
     await bufferEvent(
