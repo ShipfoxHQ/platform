@@ -58,7 +58,7 @@ export async function createStepCheckoutSpec({
   const checkout = parseCheckoutConfig(step);
   const {project: defaultProject} = await projects.getProjectById({projectId});
   if (defaultProject === null || defaultProject === undefined) {
-    throw new CheckoutIntentUnresolvedError(projectId);
+    throw new CheckoutIntentUnresolvedError({kind: 'project', value: projectId});
   }
 
   const target = await checkoutTarget({
@@ -149,7 +149,7 @@ async function resolveConnectionId(params: {
     slug: params.slug,
   });
   if (connection === null) {
-    throw new CheckoutIntentUnresolvedError(params.defaultConnectionId);
+    throw new CheckoutIntentUnresolvedError({kind: 'connection', value: params.slug});
   }
   return connection.id;
 }

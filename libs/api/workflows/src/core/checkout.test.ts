@@ -247,6 +247,25 @@ describe('createStepCheckoutSpec', () => {
     expect(resolveCheckoutTarget).not.toHaveBeenCalled();
     expect(createCheckoutSpec).not.toHaveBeenCalled();
   });
+
+  it('identifies a missing explicit connection in the unresolved error', async () => {
+    const project = projectFactory.build();
+    const step = checkoutStep({connection: 'missing', repository: 'acme/repo'});
+    getProjectById.mockResolvedValue({project});
+    resolveConnection.mockResolvedValue(null);
+
+    const act = createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    await expect(act).rejects.toThrow('Checkout intent unresolved: connection missing not found');
+    expect(resolveCheckoutTarget).not.toHaveBeenCalled();
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
+  });
 });
 
 function checkoutStep(checkout: Record<string, unknown>): Step {
