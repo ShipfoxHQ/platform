@@ -100,6 +100,26 @@ export const projectsFeature = defineClientFeature({
     assert.deepEqual(violations, []);
   });
 
+  test('requires a settings contribution to have a route in the same scope', () => {
+    const violations = auditClientSource(
+      'libs/client/projects/src/feature.ts',
+      `import {defineClientFeature} from '@shipfox/client-shell';
+export const projectsFeature = defineClientFeature({
+  id: 'shipfox.projects',
+  routes: [{path: '/w/$workspaceSlug/p/$projectSlug/settings/general', parent: 'projectSettings'}],
+  settingsSections: [{pathSegment: 'general', scope: 'workspace'}],
+});`,
+    );
+
+    assert.deepEqual(violations, [
+      {
+        file: 'libs/client/projects/src/feature.ts',
+        occurrences: 1,
+        rule: 'non-owning-feature-contribution',
+      },
+    ]);
+  });
+
   test('requires navigation registries to be defined in a feature manifest', () => {
     const violations = auditClientSource(
       'libs/client/projects/src/navigation.ts',

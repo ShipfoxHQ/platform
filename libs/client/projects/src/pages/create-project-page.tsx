@@ -81,7 +81,8 @@ export function CreateProjectPage() {
   const defaultProjectSlug = slugifyName(defaultProjectName, {fallback: 'project'});
 
   const [formError, setFormError] = useState<string | undefined>();
-  const [slugTouched, setSlugTouched] = useState(false);
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const [slugCheckEnabled, setSlugCheckEnabled] = useState(false);
   const [slugConflict, setSlugConflict] = useState(false);
   const workspaceId = workspace?.id;
   const checkProjectSlugAvailability = useProjectSlugAvailability(workspaceId);
@@ -89,7 +90,9 @@ export function CreateProjectPage() {
   const form = useForm({
     defaultValues: {name: defaultProjectName, slug: defaultProjectSlug},
     onSubmit: async ({value}) => {
-      const projectSlug = slugTouched ? value.slug : slugifyName(value.name, {fallback: 'project'});
+      const projectSlug = slugManuallyEdited
+        ? value.slug
+        : slugifyName(value.name, {fallback: 'project'});
       await createProjectFromForm(nameTouched ? value.name : defaultProjectName, projectSlug);
     },
   });
@@ -97,12 +100,12 @@ export function CreateProjectPage() {
   useEffect(() => {
     if (!nameTouched && form.state.values.name !== defaultProjectName) {
       form.setFieldValue('name', defaultProjectName);
-      if (!slugTouched) {
+      if (!slugManuallyEdited) {
         setSlugConflict(false);
         form.setFieldValue('slug', slugifyName(defaultProjectName, {fallback: 'project'}));
       }
     }
-  }, [defaultProjectName, form, nameTouched, slugTouched]);
+  }, [defaultProjectName, form, nameTouched, slugManuallyEdited]);
 
   function selectConnection(connectionId: string) {
     setSelectedConnectionId(connectionId);
@@ -333,7 +336,8 @@ export function CreateProjectPage() {
                       const nextName = event.target.value;
                       setNameTouched(true);
                       field.handleChange(nextName);
-                      if (!slugTouched) {
+                      if (!slugManuallyEdited) {
+                        setSlugCheckEnabled(true);
                         setSlugConflict(false);
                         form.setFieldValue('slug', slugifyName(nextName, {fallback: 'project'}));
                       }
@@ -359,7 +363,8 @@ export function CreateProjectPage() {
                   name="slug"
                   value={field.state.value}
                   onChange={(value) => {
-                    setSlugTouched(true);
+                    setSlugManuallyEdited(true);
+                    setSlugCheckEnabled(true);
                     setSlugConflict(false);
                     field.handleChange(value);
                   }}
@@ -372,7 +377,7 @@ export function CreateProjectPage() {
                   }
                   placeholder="platform"
                   className="font-code"
-                  checkEnabled={slugTouched}
+                  checkEnabled={slugCheckEnabled}
                   debounceMs={0}
                   isValid={isSlugValid}
                   checkAvailability={checkProjectSlugAvailability}

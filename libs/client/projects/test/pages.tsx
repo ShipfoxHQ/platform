@@ -118,8 +118,11 @@ function createTestRouter(path: string, element: ReactElement) {
   });
 }
 
-export function renderProjectPage(path: string, element: ReactElement): RenderResult {
-  const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+export function renderProjectPage(
+  path: string,
+  element: ReactElement,
+  queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}}),
+): RenderResult {
   const router = createTestRouter(path, element);
   const store = createStore();
   store.set(authStateAtom, authState);

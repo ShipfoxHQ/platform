@@ -91,12 +91,13 @@ describe('checkWorkspaceSlugAvailability', () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({available: true}));
     configureApiClient({fetchImpl});
 
-    await expect(checkWorkspaceSlugAvailability('acme-labs')).resolves.toBe(true);
+    const slug = 'acme/labs?region=eu';
+    await expect(checkWorkspaceSlugAvailability(slug)).resolves.toBe(true);
 
     const request = fetchImpl.mock.calls[0]?.[0] as Request;
     const url = new URL(request.url);
     expect(url.pathname).toBe('/workspaces/slug-availability');
-    expect(url.searchParams.get('slug')).toBe('acme-labs');
+    expect(url.search).toBe(`?slug=${encodeURIComponent(slug)}`);
     expect(request.method).toBe('GET');
   });
 });

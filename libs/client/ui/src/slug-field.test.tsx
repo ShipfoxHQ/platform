@@ -24,6 +24,26 @@ describe('SlugField', () => {
     expect(screen.queryByText('Slug is available.')).not.toBeInTheDocument();
   });
 
+  test('does not check an invalid value when checking is enabled', async () => {
+    const checkAvailability = vi.fn().mockResolvedValue(true);
+
+    render(
+      <SlugField
+        id="slug"
+        label="Slug"
+        value="invalid value"
+        onChange={vi.fn()}
+        onBlur={vi.fn()}
+        isValid={() => false}
+        checkAvailability={checkAvailability}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(checkAvailability).not.toHaveBeenCalled();
+    expect(screen.queryByText('Checking availability…')).not.toBeInTheDocument();
+  });
+
   test('shows checking before the availability result and renders a conflict', async () => {
     let resolveAvailability!: (available: boolean) => void;
     const checkAvailability = vi.fn(
@@ -49,7 +69,9 @@ describe('SlugField', () => {
 
     resolveAvailability(false);
 
-    expect(await screen.findByText('This slug is already taken.')).toBeInTheDocument();
+    const conflict = await screen.findByText('This slug is already taken.');
+    expect(conflict).toBeInTheDocument();
+    expect(conflict).toHaveAttribute('aria-live', 'polite');
   });
 
   test('warns about all consequences of changing a slug', () => {

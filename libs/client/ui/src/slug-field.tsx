@@ -68,16 +68,18 @@ export function SlugField({
     setAvailability({value, status: 'checking'});
     let disposed = false;
     const timer = window.setTimeout(() => {
-      Promise.resolve(checkAvailability(value)).then(
-        (available) => {
-          if (disposed || requestId.current !== currentRequestId) return;
-          setAvailability({value, status: available ? 'available' : 'taken'});
-        },
-        () => {
-          if (disposed || requestId.current !== currentRequestId) return;
-          setAvailability({value, status: 'unchecked'});
-        },
-      );
+      Promise.resolve()
+        .then(() => checkAvailability(value))
+        .then(
+          (available) => {
+            if (disposed || requestId.current !== currentRequestId) return;
+            setAvailability({value, status: available ? 'available' : 'taken'});
+          },
+          () => {
+            if (disposed || requestId.current !== currentRequestId) return;
+            setAvailability({value, status: 'unchecked'});
+          },
+        );
     }, debounceMs);
 
     return () => {

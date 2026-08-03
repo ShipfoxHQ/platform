@@ -29,49 +29,52 @@ describe('GeneralSettingsPage', () => {
   test('requires confirmation before saving a slug change', async () => {
     let patchBody: unknown;
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const request = input as Request;
-      if (request.url.includes('/slug-availability')) {
-        return jsonResponse({available: true});
-      }
-      if (request.method === 'PATCH') {
-        patchBody = await request.clone().json();
-        return jsonResponse(workspaceDto({slug: 'acme-labs'}));
-      }
-      return jsonResponse({});
-    });
-    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    try {
+      const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+        const request = input as Request;
+        if (request.url.includes('/slug-availability')) {
+          return jsonResponse({available: true});
+        }
+        if (request.method === 'PATCH') {
+          patchBody = await request.clone().json();
+          return jsonResponse(workspaceDto({slug: 'acme-labs'}));
+        }
+        return jsonResponse({});
+      });
+      configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
-    renderWorkspaceSettingsPage('/w/acme/settings/general', <GeneralSettingsPage />);
-    fireEvent.change(await screen.findByLabelText('Workspace slug'), {
-      target: {value: 'acme-labs'},
-    });
-    await waitFor(() =>
+      renderWorkspaceSettingsPage('/w/acme/settings/general', <GeneralSettingsPage />);
+      fireEvent.change(await screen.findByLabelText('Workspace slug'), {
+        target: {value: 'acme-labs'},
+      });
+      await waitFor(() =>
+        expect(
+          fetchImpl.mock.calls.some(([input]) =>
+            (input as Request).url.includes('/workspaces/slug-availability'),
+          ),
+        ).toBe(true),
+      );
+      fireEvent.click(screen.getByRole('button', {name: 'Save changes'}));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent('old URL stop working');
       expect(
         fetchImpl.mock.calls.some(([input]) =>
           (input as Request).url.includes('/workspaces/slug-availability'),
         ),
-      ).toBe(true),
-    );
-    fireEvent.click(screen.getByRole('button', {name: 'Save changes'}));
+      ).toBe(true);
+      expect(patchBody).toBeUndefined();
 
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveTextContent('old URL stop working');
-    expect(
-      fetchImpl.mock.calls.some(([input]) =>
-        (input as Request).url.includes('/workspaces/slug-availability'),
-      ),
-    ).toBe(true);
-    expect(patchBody).toBeUndefined();
-
-    fireEvent.click(screen.getByRole('button', {name: 'Change slug'}));
-    await waitFor(() => expect(patchBody).toEqual({slug: 'acme-labs'}));
-    expect(
-      consoleError.mock.calls.some((args) =>
-        args.some((argument) => String(argument).includes('useActiveWorkspace called outside')),
-      ),
-    ).toBe(false);
-    consoleError.mockRestore();
+      fireEvent.click(screen.getByRole('button', {name: 'Change slug'}));
+      await waitFor(() => expect(patchBody).toEqual({slug: 'acme-labs'}));
+      expect(
+        consoleError.mock.calls.some((args) =>
+          args.some((argument) => String(argument).includes('useActiveWorkspace called outside')),
+        ),
+      ).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
 

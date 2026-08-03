@@ -1,5 +1,7 @@
 import {configureApiClient} from '@shipfox/client-api';
+import {QueryClient} from '@tanstack/react-query';
 import {fireEvent, screen, waitFor} from '@testing-library/react';
+import {projectsQueryKeys} from '#hooks/api/projects.js';
 import {
   jsonResponse,
   PROJECT_TEST_WID,
@@ -93,7 +95,7 @@ describe('CreateProjectPage', () => {
     expect(screen.getByText('/w/acme/p/launch-pad')).toBeInTheDocument();
   });
 
-  test('checks project slug availability from memory without an availability request', async () => {
+  test('checks project slug availability authoritatively after a cache miss', async () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
       if (request.url.includes('/integration-connections?')) {
@@ -101,6 +103,9 @@ describe('CreateProjectPage', () => {
       }
       if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
         return Promise.resolve(jsonResponse({repositories: [repositoryDto()], next_cursor: null}));
+      }
+      if (request.url.includes('/projects?')) {
+        return Promise.resolve(jsonResponse({projects: [], next_cursor: null}));
       }
       return Promise.resolve(jsonResponse({}));
     });
@@ -112,9 +117,55 @@ describe('CreateProjectPage', () => {
 
     expect(await screen.findByText('Slug is available.')).toBeInTheDocument();
     expect(
-      fetchImpl.mock.calls.some(([input]) =>
-        (input as Request).url.includes('/projects/slug-availability'),
+      fetchImpl.mock.calls.some(
+        ([input]) =>
+          (input as Request).url.includes('/projects?') &&
+          (input as Request).url.includes('search=custom-project'),
       ),
+    ).toBe(true);
+  });
+
+  test('reports a cached project slug conflict without another availability request', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return Promise.resolve(jsonResponse({connections: [connectionDto()]}));
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        return Promise.resolve(jsonResponse({repositories: [repositoryDto()], next_cursor: null}));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    configureApiClient({fetchImpl});
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    queryClient.setQueryData(projectsQueryKeys.list(PROJECT_TEST_WID, 'custom-project'), {
+      pages: [
+        {
+          projects: [
+            {
+              id: '55555555-5555-4555-8555-555555555555',
+              workspaceId: PROJECT_TEST_WID,
+              name: 'Custom project',
+              slug: 'custom-project',
+              source: {connectionId: CONNECTION_ID, externalRepositoryId: 'custom-project'},
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+          nextCursor: null,
+        },
+      ],
+      pageParams: [undefined],
+    });
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />, queryClient);
+    fireEvent.change(await screen.findByLabelText('Project slug'), {
+      target: {value: 'custom-project'},
+    });
+
+    expect(await screen.findByText('This slug is already taken.')).toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.some(([input]) => (input as Request).url.includes('/projects?')),
     ).toBe(false);
   });
 
@@ -424,12 +475,12 @@ function repositoryDto() {
   };
 }
 
-function projectDto({id}: {id: string}) {
+function projectDto({id, slug = 'project-detail'}: {id: string; slug?: string}) {
   return {
     id,
     workspace_id: '11111111-1111-4111-8111-111111111111',
     name: 'Project Detail',
-    slug: 'project-detail',
+    slug,
     source: {
       connection_id: CONNECTION_ID,
       external_repository_id: 'platform',

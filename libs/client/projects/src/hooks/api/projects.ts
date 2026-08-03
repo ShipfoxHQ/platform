@@ -251,13 +251,17 @@ export function isProjectSlugAvailable({
 export function useProjectSlugAvailability(
   workspaceId: string | undefined,
   currentProjectId?: string,
-): (projectSlug: string) => boolean {
+): (projectSlug: string) => Promise<boolean> {
   const queryClient = useQueryClient();
   return useCallback(
-    (projectSlug: string) =>
-      workspaceId
-        ? isProjectSlugAvailable({queryClient, workspaceId, projectSlug, currentProjectId})
-        : true,
+    async (projectSlug: string) => {
+      if (!workspaceId) return false;
+      if (!isProjectSlugAvailable({queryClient, workspaceId, projectSlug, currentProjectId})) {
+        return false;
+      }
+      const project = await findProjectBySlug({workspaceId, projectSlug});
+      return project === undefined || project.id === currentProjectId;
+    },
     [currentProjectId, queryClient, workspaceId],
   );
 }
@@ -384,6 +388,9 @@ export function useUpdateProjectMutation() {
     onSuccess: async (project) => {
       queryClient.setQueryData(projectsQueryKeys.detail(project.id), project);
       queryClient.setQueryData(projectsQueryKeys.slug(project.workspaceId, project.slug), project);
+      await queryClient.invalidateQueries({
+        queryKey: [...projectsQueryKeys.all, 'slug', project.workspaceId],
+      });
       await queryClient.invalidateQueries({queryKey: projectsQueryKeys.list(project.workspaceId)});
     },
   });

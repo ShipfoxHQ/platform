@@ -1,9 +1,16 @@
 import {slugSchema} from '@shipfox/api-common-dto';
 import {createProjectBodySchema} from '@shipfox/api-projects-dto';
+import {ApiError} from '@shipfox/client-api';
 import {useActiveWorkspace} from '@shipfox/client-auth';
-import {displayNameFieldError, SlugChangeWarning, SlugField} from '@shipfox/client-ui';
+import {
+  displayNameFieldError,
+  QueryLoadError,
+  SlugChangeWarning,
+  SlugField,
+} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
+import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {FormField, FormFieldInput, fieldError} from '@shipfox/react-ui/form-field';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {toast} from '@shipfox/react-ui/toast';
@@ -11,7 +18,8 @@ import {Header, Text} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
 import {useNavigate} from '@tanstack/react-router';
 import {useState} from 'react';
-import {useMaybeActiveProject} from '#chrome.js';
+import {useMaybeActiveProjectQuery} from '#chrome.js';
+import type {Project} from '#core/project.js';
 import {useProjectSlugAvailability, useUpdateProjectMutation} from '#hooks/api/projects.js';
 import {projectSettingsErrorToFormError} from './project-settings-form-errors.js';
 
@@ -25,18 +33,38 @@ function isSlugValid(value: string): boolean {
 }
 
 export function ProjectSettingsPage() {
-  const project = useMaybeActiveProject();
-  if (!project) return <FullPageLoader />;
+  const projectQuery = useMaybeActiveProjectQuery();
+  if (projectQuery.isPending) return <FullPageLoader />;
+  if (projectQuery.isError && projectQuery.data === undefined) {
+    if (projectQuery.error instanceof ApiError && projectQuery.error.status === 404) {
+      return (
+        <EmptyState
+          icon="errorWarningLine"
+          tone="error"
+          title="Project not found"
+          description="This project doesn't exist, or you don't have access to it."
+        />
+      );
+    }
+    return <QueryLoadError query={projectQuery} subject="project" />;
+  }
+  const project = projectQuery.data;
+  if (!project) {
+    return (
+      <EmptyState
+        icon="errorWarningLine"
+        tone="error"
+        title="Project not found"
+        description="This project doesn't exist, or you don't have access to it."
+      />
+    );
+  }
   return (
     <ProjectSettingsForm key={`${project.id}:${project.name}:${project.slug}`} project={project} />
   );
 }
 
-function ProjectSettingsForm({
-  project,
-}: {
-  project: NonNullable<ReturnType<typeof useMaybeActiveProject>>;
-}) {
+function ProjectSettingsForm({project}: {project: Project}) {
   const workspace = useActiveWorkspace();
   const navigate = useNavigate();
   const updateProject = useUpdateProjectMutation();
