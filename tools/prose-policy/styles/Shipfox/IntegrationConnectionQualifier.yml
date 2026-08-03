@@ -4,4 +4,5 @@ message: "Avoid stacking a qualifier before '%s'; use a prepositional phrase."
 level: warning
 ignorecase: true
 raw:
-  - '\b(?:the|a|an|your|our|their|this|that|each|any)\s+\w+(?:\s+\w+){0,3}\s+integration connection\b'
+  - >-
+    \b(?:the|a|an|your|our|their|this|that|each|any)\s+(?:(?:\w+(?:ly|ed|ive|al|ic|ous|able|ible|ful|less)|[\w’'-]+['’]s|[\w’'-]+-[\w’'-]+)\s+[\w’'-]+)\s+integration connection\b

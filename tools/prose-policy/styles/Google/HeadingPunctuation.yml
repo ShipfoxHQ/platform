@@ -10,4 +10,4 @@ action:
     - trim_right
     - "."
 tokens:
-  - '[a-z0-9][.]\s*$'
+  - '[A-Za-z0-9][.]\s*$'

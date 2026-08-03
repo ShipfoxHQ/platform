@@ -7,10 +7,9 @@ action:
   name: replace
 swap:
   leverage: use
-  dispatch: send
+  # Dispatch and pipeline are technical lifecycle terms in this repository.
   utilize: use
   facilitate: help
   subsequent: later
   prior to: before
   all of: all
-  pipeline: workflow

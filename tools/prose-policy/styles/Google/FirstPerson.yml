@@ -10,6 +10,9 @@ level: warning
 tokens:
   - '(?<=^|\s)I(?=[\s,])'
   - "\\bI'm\\b"
+  - "\\bI've\\b"
+  - "\\bI'll\\b"
+  - "\\bI'd\\b"
   - \bme\b
   - \bmy\b
   - \bmine\b

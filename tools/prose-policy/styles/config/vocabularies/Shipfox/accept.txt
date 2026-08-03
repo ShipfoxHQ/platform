@@ -58,8 +58,6 @@ SQLite
 Redis
 Docker
 BuildKit
-Temporal
-Ollama
 Turborepo
 lockfile
 stdout
@@ -71,23 +69,18 @@ worktree
 Changeset
 Changesets
 frontmatter
-MDX
 JSX
 TSX
 NDJSON
 JSONL
 REST
 RPC
-OAuth
 OIDC
 SSO
 SAML
 OpenID
 WebSocket
 WebSockets
-Fastify
-Zod
-Drizzle
 Fishery
 Argos
 Cloudflare Pages
@@ -166,7 +159,6 @@ credentials
 token
 tokens
 bearer
-JWT
 claim
 claims
 session
@@ -189,7 +181,6 @@ UUIDs
 DTOs
 schema
 schemas
-frontmatter
 metadata
 metadatas
 catalog
@@ -202,7 +193,6 @@ agent
 agents
 tool
 tools
-MCP
 readme
 README
 monorepo
@@ -263,6 +253,3 @@ qualifier
 qualifiers
 preposition
 prepositions
-frontmatter
-MDX
-Vale

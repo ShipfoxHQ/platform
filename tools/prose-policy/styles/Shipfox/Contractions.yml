@@ -3,4 +3,4 @@ message: "Expand non-negative contractions such as '%s'."
 level: warning
 raw:
   - >-
-    \b(?:[A-Za-z]+(?:'|’)(?:s|re|ve|ll|d|m)|let(?:'|’)s)\b
+    \b(?:I|you|he|she|it|we|they|there|that|who|what|where|when|how|let)(?:'|’)(?:s|re|ve|ll|d|m)\b

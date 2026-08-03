@@ -4,4 +4,4 @@ link: https://learn.microsoft.com/en-us/style-guide/numbers
 nonword: true
 level: error
 tokens:
-  - '\b[a-zA-z]+\spercent\b'
+  - '\b[a-zA-Z]+\spercent\b'

@@ -4,7 +4,11 @@ link: 'https://developers.google.com/style/spelling'
 ignorecase: true
 level: warning
 tokens:
-  - '(?:\w+)nised?'
+  # Enumerate the British -ise family instead of matching a misleading
+  # substring. This avoids false positives such as 'anise'; Shipfox.BritishSpelling
+  # owns the larger inflection table used by the active project rule.
+  - >-
+    \b(?:analyse|analysed|analysing|criticise|criticised|criticises|criticising|emphasise|emphasised|emphasises|emphasising|organise|organised|organises|organising|realise|realised|realises|realising|recognise|recognised|recognises|recognising|standardise|standardised|standardises|standardising)\b
   - 'colour'
   - 'labour'
   - 'centre'

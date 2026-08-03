@@ -20,7 +20,7 @@ function isGeneratedProse(file) {
   const relativeFile = path.relative(repositoryRoot, file);
   return (
     path.basename(file) === 'CHANGELOG.md' ||
-    relativeFile === '.changeset/README.md'
+    relativeFile === path.join('.changeset', 'README.md')
   );
 }
 
@@ -42,6 +42,8 @@ async function collectFiles(directory, predicate, files = []) {
 
 const files = new Set([
   'AGENTS.md',
+  'CLAUDE.md',
+  'CONTRIBUTING.md',
   'DESIGN.md',
   'README.md',
   'WRITING.md',

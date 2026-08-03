@@ -9,11 +9,11 @@
         "$TURBO_ROOT$/mise.toml",
         "$TURBO_ROOT$/tools/prose-policy/styles/**/*.yml",
         "$TURBO_ROOT$/tools/prose-policy/styles/**/*.{json,txt}",
-        "$TURBO_ROOT$/{AGENTS.md,DESIGN.md,README.md,WRITING.md}",
+        "$TURBO_ROOT$/{AGENTS.md,CLAUDE.md,CONTRIBUTING.md,DESIGN.md,README.md,WRITING.md}",
         "$TURBO_ROOT$/apps/docs/content/**/*.{md,mdx}",
-        "$TURBO_ROOT$/docs/**/*.md",
+        "$TURBO_ROOT$/docs/**/*.{md,mdx}",
         "$TURBO_ROOT$/**/README.md",
-        "$TURBO_ROOT$/.changeset/**/*.md"
+        "$TURBO_ROOT$/.changeset/**/*.{md,mdx}"
       ]
     }
   }

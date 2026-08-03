@@ -4,4 +4,4 @@ link: 'https://developers.google.com/style/abbreviations'
 level: error
 nonword: true
 tokens:
-  - '\b(?:[A-Z]\.){3,}'
+  - '\b(?:[A-Z]\.){2,}'

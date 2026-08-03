@@ -3,8 +3,7 @@ message: "Use '%s' instead of '%s'."
 link: "https://developers.google.com/style/word-list"
 level: warning
 # Case matters here: each key's own capitalization is what's being corrected,
-# so ignorecase would make these match their own replacements. The rest of the
-# word list lives in WordListCase.yml.
+# so ignorecase would make these match their own replacements.
 ignorecase: false
 action:
   name: replace
