@@ -6,6 +6,7 @@ import {JiraIntegrationProviderError} from '#core/errors.js';
 
 const JIRA_API_TIMEOUT_MS = 10_000;
 const SCOPE_SEPARATOR_RE = /[,\s]+/;
+const TRAILING_SLASHES_RE = /\/+$/;
 export const JIRA_DYNAMIC_WEBHOOK_EVENTS = jiraWebhookEventNames;
 export const JIRA_DYNAMIC_WEBHOOK_JQL = '';
 
@@ -29,6 +30,34 @@ export interface JiraIdentity {
 
 export interface JiraDynamicWebhookRegistration {
   webhookId: number;
+}
+
+export type JiraAgentToolHttpMethod = 'GET' | 'POST' | 'PUT';
+
+export type JiraAgentToolQueryValue =
+  | string
+  | number
+  | boolean
+  | readonly (string | number)[]
+  | undefined;
+
+export interface JiraAgentToolRequest {
+  accessToken: string;
+  cloudId: string;
+  method: JiraAgentToolHttpMethod;
+  path: string;
+  query?: Record<string, JiraAgentToolQueryValue> | undefined;
+  body?: unknown;
+  operation?: string | undefined;
+}
+
+export interface JiraAgentToolResponse {
+  status: number;
+  body: unknown;
+}
+
+export interface JiraAgentToolsClient {
+  request(input: JiraAgentToolRequest): Promise<JiraAgentToolResponse>;
 }
 
 export interface JiraApiClient {
@@ -168,6 +197,67 @@ export function createJiraApiClient(): JiraApiClient {
       );
     },
   };
+}
+
+export function createJiraAgentToolsClient(): JiraAgentToolsClient {
+  return {request: requestJiraRest};
+}
+
+async function requestJiraRest(input: JiraAgentToolRequest): Promise<JiraAgentToolResponse> {
+  return await mapJiraError(input.operation ?? 'agent-tool', async () => {
+    try {
+      const response = await ky(jiraRestUrl(input.cloudId, input.path), {
+        method: input.method,
+        headers: {authorization: `Bearer ${input.accessToken}`},
+        ...(input.query === undefined ? {} : {searchParams: jiraQueryParams(input.query)}),
+        ...(input.body === undefined ? {} : {json: input.body}),
+        timeout: JIRA_API_TIMEOUT_MS,
+      });
+      return {status: response.status, body: await readJiraResponseBody(response)};
+    } catch (error) {
+      if (
+        error instanceof HTTPError &&
+        (error.response.status === 400 || error.response.status === 404)
+      ) {
+        return {
+          status: error.response.status,
+          body: await readJiraResponseBody(error.response),
+        };
+      }
+      throw error;
+    }
+  });
+}
+
+function jiraRestUrl(cloudId: string, path: string): string {
+  const baseUrl = config.JIRA_API_BASE_URL.replace(TRAILING_SLASHES_RE, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${baseUrl}/ex/jira/${encodeURIComponent(cloudId)}/rest/api/3${normalizedPath}`;
+}
+
+function jiraQueryParams(
+  query: Record<string, JiraAgentToolQueryValue>,
+): URLSearchParams | undefined {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) params.append(key, String(item));
+      continue;
+    }
+    params.set(key, String(value));
+  }
+  return params.size > 0 ? params : undefined;
+}
+
+async function readJiraResponseBody(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (text.length === 0) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 function parseDynamicWebhookRegistration(
