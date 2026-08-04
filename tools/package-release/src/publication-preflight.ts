@@ -65,14 +65,14 @@ export function readPublicationClosurePackages(root: string): Promise<Publicatio
 }
 
 // The publication closure is only the application runtime graph. `changeset publish` can also
-// release public `tools/*` packages, so registry checks include every changed public manifest.
+// release public `tools/*` packages, so release checks accept the complete changed-manifest set.
 export async function readChangesetPublishablePackages(
   root: string,
+  manifestPaths: string[] = globSync(join(root, '{apps,e2e,infra,libs,tools}/**/package.json'), {
+    exclude: ['**/node_modules/**'],
+  }),
 ): Promise<PublicationPackage[]> {
   const ignored = await readChangesetIgnoreList(root);
-  const manifestPaths = globSync(join(root, '{apps,e2e,infra,libs,tools}/**/package.json'), {
-    exclude: ['**/node_modules/**'],
-  });
   const packages = await readPublicationPackages(manifestPaths);
   return packages.filter(
     ({manifest}) =>
@@ -81,14 +81,6 @@ export async function readChangesetPublishablePackages(
       manifest.private !== true &&
       !ignored.has(manifest.name),
   );
-}
-
-export function selectPublishablePackagesByManifestPaths(
-  packages: PublicationPackage[],
-  manifestPaths: Iterable<string>,
-): PublicationPackage[] {
-  const selectedPaths = new Set(manifestPaths);
-  return packages.filter(({manifestPath}) => selectedPaths.has(manifestPath));
 }
 
 export async function readChangedPublishablePackages(
@@ -105,10 +97,7 @@ export async function readChangedPublishablePackages(
     .split('\n')
     .filter((path) => path.endsWith('/package.json'))
     .map((path) => resolve(root, path));
-  return selectPublishablePackagesByManifestPaths(
-    await readChangesetPublishablePackages(root),
-    changedPaths,
-  );
+  return readChangesetPublishablePackages(root, changedPaths);
 }
 
 async function readChangesetIgnoreList(root: string): Promise<ReadonlySet<string>> {
@@ -403,6 +392,10 @@ async function main() {
   const root = getRepositoryRoot(import.meta.url);
   await preflightPublicationClosure(root);
   const baseRevision = process.env.SHIPFOX_PUBLICATION_REGISTRY_BASE;
+  if (process.env.SHIPFOX_PUBLICATION_REGISTRY_REQUIRED === 'true' && !baseRevision)
+    throw new Error(
+      'Publication registry preflight requires SHIPFOX_PUBLICATION_REGISTRY_BASE in release mode',
+    );
   if (baseRevision)
     await assertPublishableVersions(await readChangedPublishablePackages(root, baseRevision));
 }
