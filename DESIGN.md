@@ -328,10 +328,11 @@ not invent values between the steps.
 **Semantic composition roles.** Use `my-region` for a 32px block margin around a
 standalone region and `mt-page` for a 48px separation before page-level feedback
 or similar trailing content. Use `px-tight` when a compact control needs horizontal
-padding without changing its vertical size. The `-mt-inline` and `-mr-inline` roles
-are reserved for preserving a touch target's optical alignment with a containing
-surface. These roles keep composition spacing explicit without reopening raw margin
-utilities across product code.
+padding without changing its vertical size. Use `ms-inline` for inline badge
+separation. The `-mt-inline` and `-mr-inline` roles are reserved for preserving a
+touch target's optical alignment with a containing surface. These roles keep
+composition spacing explicit without reopening raw margin utilities across product
+code.
 
 **Density posture.** Default button height `h-32` with `px-10`; table rows 36 to
 44px; form row gap `gap-16`; card padding `p-24`. A surface is at the wrong density

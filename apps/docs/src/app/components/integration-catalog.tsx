@@ -143,7 +143,10 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
           Search integrations
         </label>
         <div className="flex min-h-11 items-center gap-tight rounded-md border border-fd-border bg-fd-background px-row py-row outline-none focus-within:ring-2 focus-within:ring-fd-ring">
-          <Search aria-hidden="true" className="size-4 shrink-0 text-fd-muted-foreground" />
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none size-4 shrink-0 text-fd-muted-foreground"
+          />
           <input
             id="integration-catalog-search"
             type="search"
