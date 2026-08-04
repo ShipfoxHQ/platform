@@ -1,5 +1,17 @@
 # @shipfox/client-secrets
 
+## 14.0.0
+
+### Patch Changes
+
+- Updated dependencies [baa7594]
+- Updated dependencies [f8a98cb]
+- Updated dependencies [1267eb3]
+- Updated dependencies [b2d4550]
+  - @shipfox/react-ui@0.5.0
+  - @shipfox/client-ui@14.0.0
+  - @shipfox/client-shell@14.0.0
+
 ## 13.0.0
 
 ### Major Changes

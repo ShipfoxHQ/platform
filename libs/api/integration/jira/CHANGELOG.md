@@ -1,5 +1,15 @@
 # @shipfox/api-integration-jira
 
+## 12.1.0
+
+### Minor Changes
+
+- 70e33c0: Adds the in-process Jira REST agent-tool catalog and write-selection support.
+
+### Patch Changes
+
+- af7adfc: Adds a six-hour Jira refresh-token maintenance worker that refreshes idle tokens and migrates existing installations with backfilled refresh state. Token access now fails closed for non-active connections, and rejected refresh tokens or ambiguous refresh timeouts require reconnecting Jira.
+
 ## 12.0.0
 
 ### Major Changes

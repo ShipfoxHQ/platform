@@ -1,5 +1,17 @@
 # @shipfox/react-ui
 
+## 0.5.0
+
+### Minor Changes
+
+- baa7594: Adds the `my-region`, `mt-page`, `ms-inline`, `-mt-inline`, `-mr-inline`, and `px-tight` utilities to the shared UI stylesheet.
+- 1267eb3: Adds Jira connection flows and provider icons to workspace integrations settings.
+
+### Patch Changes
+
+- f8a98cb: Publish the shared UI component artifacts and release `@shipfox/client-ui` with the updated shared UI dependency so fresh consumers and Storybook resolve component subpaths without configuration overrides.
+- b2d4550: Add URL-backed run detail tabs for Summary, Jobs, Annotations, and Source.
+
 ## 0.4.0
 
 ### Minor Changes
