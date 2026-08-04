@@ -151,6 +151,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       repository: 'acme/repo',
       ref: 'refs/heads/feature/checkout',
       commit: 'a'.repeat(40),
+      actor: null,
     } satisfies WorkflowRunTriggerReference;
     await db().update(workflowRuns).set({triggerReference}).where(eq(workflowRuns.id, run.id));
     getProjectById.mockResolvedValue({project});

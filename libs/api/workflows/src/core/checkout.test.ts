@@ -431,5 +431,6 @@ function triggerReferenceFor(projectId: string): WorkflowRunTriggerReference {
     repository: 'acme/repo',
     ref: 'refs/heads/feature/checkout',
     commit: 'a'.repeat(40),
+    actor: null,
   };
 }
