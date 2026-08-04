@@ -76,6 +76,7 @@ describe('completeIntegrationCallback', () => {
     });
 
     expect(result).toBe(connection);
+    expect(complete).toHaveBeenCalledWith({code: 'grant-code'}, 'access-token');
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: integrationsQueryKeys.connectionsByWorkspace(WORKSPACE_ID),
     });
