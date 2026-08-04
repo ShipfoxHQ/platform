@@ -1,5 +1,15 @@
 # @shipfox/api-dispatcher
 
+## 12.0.0
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+- Updated dependencies [f13e8bb]
+  - @shipfox/node-module@1.0.5
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/node-outbox@0.2.6
+
 ## 10.0.0
 
 ### Patch Changes

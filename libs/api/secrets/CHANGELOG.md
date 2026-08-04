@@ -1,5 +1,25 @@
 # @shipfox/api-secrets
 
+## 12.0.0
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+- Updated dependencies [4eb18b8]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [8cc5a36]
+- Updated dependencies [032d316]
+- Updated dependencies [cb0abfa]
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/api-projects-dto@12.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 11.0.0
 
 ### Patch Changes

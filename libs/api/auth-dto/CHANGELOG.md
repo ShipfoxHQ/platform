@@ -1,5 +1,15 @@
 # @shipfox/api-auth-dto
 
+## 12.0.0
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- Updated dependencies [f78740d]
+- Updated dependencies [34a5639]
+  - @shipfox/api-common-dto@12.0.0
+  - @shipfox/inter-module@0.2.3
+
 ## 10.2.0
 
 ### Minor Changes

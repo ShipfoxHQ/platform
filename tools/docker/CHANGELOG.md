@@ -1,5 +1,11 @@
 # @shipfox/docker
 
+## 0.1.5
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+
 ## 0.1.4
 
 ### Patch Changes

@@ -1,5 +1,31 @@
 # @shipfox/api-auth
 
+## 12.0.0
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- 9ebc5b4: Add an authenticated, rate-limited workspace slug availability endpoint.
+- Updated dependencies [f78740d]
+- Updated dependencies [94aba88]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [9ebc5b4]
+- Updated dependencies [34a5639]
+- Updated dependencies [e1efaee]
+  - @shipfox/api-auth-dto@12.0.0
+  - @shipfox/api-common-dto@12.0.0
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/api-workspaces-dto@12.0.0
+  - @shipfox/node-jwt@0.4.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/node-rate-limit@0.4.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-email-challenges@1.1.7
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 11.0.0
 
 ### Major Changes

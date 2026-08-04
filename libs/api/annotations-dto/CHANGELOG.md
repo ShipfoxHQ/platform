@@ -1,5 +1,12 @@
 # @shipfox/annotations-dto
 
+## 12.0.0
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+  - @shipfox/inter-module@0.2.3
+
 ## 9.0.2
 
 ### Patch Changes

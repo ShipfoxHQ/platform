@@ -1,5 +1,20 @@
 # @shipfox/api-workspaces-dto
 
+## 12.0.0
+
+### Minor Changes
+
+- 9ebc5b4: Add an authenticated, rate-limited workspace slug availability endpoint.
+- e1efaee: Add workspace slugs across the API and client workspace contracts.
+
+### Patch Changes
+
+- 94aba88: Reject whitespace-only workspace administration reasons and normalize surrounding whitespace before enforcing the 512-character bound.
+- Updated dependencies [f78740d]
+- Updated dependencies [34a5639]
+  - @shipfox/api-common-dto@12.0.0
+  - @shipfox/inter-module@0.2.3
+
 ## 11.0.0
 
 ### Major Changes

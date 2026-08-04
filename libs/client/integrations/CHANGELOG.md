@@ -1,5 +1,39 @@
 # @shipfox/client-integrations
 
+## 13.0.0
+
+### Major Changes
+
+- e405e92: Move client routes to slug-based `/w/$workspaceSlug` and `/p/$projectSlug` URLs, enforce the new composition contract, and support bounded project-slug resolution.
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- Updated dependencies [e405e92]
+- Updated dependencies [f78740d]
+- Updated dependencies [9969937]
+- Updated dependencies [3c73365]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+- Updated dependencies [6adc228]
+- Updated dependencies [032d316]
+- Updated dependencies [54c820e]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [e1efaee]
+  - @shipfox/client-auth@13.0.0
+  - @shipfox/client-shell@13.0.0
+  - @shipfox/api-integration-sentry-dto@12.0.0
+  - @shipfox/client-ui@13.0.0
+  - @shipfox/react-ui@0.4.0
+  - @shipfox/api-integration-core-dto@12.0.0
+  - @shipfox/api-integration-github-dto@12.0.0
+  - @shipfox/integration-icons@0.2.3
+  - @shipfox/api-integration-gitea-dto@12.0.0
+  - @shipfox/api-integration-linear-dto@12.0.0
+  - @shipfox/api-integration-slack-dto@12.0.0
+  - @shipfox/api-integration-webhook-dto@12.0.0
+
 ## 12.0.2
 
 ### Patch Changes

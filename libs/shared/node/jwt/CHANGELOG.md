@@ -1,5 +1,16 @@
 # @shipfox/node-jwt
 
+## 0.4.0
+
+### Minor Changes
+
+- f13e8bb: Add Jira dynamic webhook registration and authenticated event ingestion through
+  the shared stored-webhook workflow. Update the SPI webhook request exports and
+  serialize Jira installation replacement across API replicas. Preserve Jira
+  delivery identifiers and require lifecycle callbacks for registration. Remove
+  the unused Jira webhook signing-secret configuration and allow HS256 verification
+  at a supplied receipt time.
+
 ## 0.3.2
 
 ### Patch Changes

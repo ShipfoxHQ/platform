@@ -1,5 +1,26 @@
 # @shipfox/api-projects-dto
 
+## 12.0.0
+
+### Major Changes
+
+- 4eb18b8: Add required, workspace-scoped project slugs across the API and project creation form.
+
+### Minor Changes
+
+- 8cc5a36: Add a `resolveCheckoutTarget` inter-module method. It resolves a project by ID
+  or by owner and repository within a workspace for callers that authorize a
+  checkout target.
+- 032d316: Scope checkout credential minting to the currently running checkout step and return its fetch depth.
+- cb0abfa: Expose the normalized trigger project, repository, ref, and commit in workflow context.
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+- Updated dependencies [34a5639]
+  - @shipfox/api-common-dto@12.0.0
+  - @shipfox/inter-module@0.2.3
+
 ## 10.1.0
 
 ### Minor Changes

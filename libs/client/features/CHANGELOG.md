@@ -1,5 +1,41 @@
 # @shipfox/client-features
 
+## 13.0.0
+
+### Major Changes
+
+- e405e92: Move client routes to slug-based `/w/$workspaceSlug` and `/p/$projectSlug` URLs, enforce the new composition contract, and support bounded project-slug resolution.
+
+### Patch Changes
+
+- Updated dependencies [b5bb0c5]
+- Updated dependencies [a2d684e]
+- Updated dependencies [5d2c9cf]
+- Updated dependencies [e405e92]
+- Updated dependencies [f78740d]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [9fdd5e4]
+- Updated dependencies [3c73365]
+- Updated dependencies [4eb18b8]
+- Updated dependencies [13fa279]
+- Updated dependencies [54c820e]
+- Updated dependencies [54c820e]
+- Updated dependencies [452e0f8]
+- Updated dependencies [edb4a18]
+- Updated dependencies [e1efaee]
+  - @shipfox/client-workflows@13.0.0
+  - @shipfox/client-agent@13.0.0
+  - @shipfox/client-auth@13.0.0
+  - @shipfox/client-integrations@13.0.0
+  - @shipfox/client-invitations@13.0.0
+  - @shipfox/client-onboarding@13.0.0
+  - @shipfox/client-projects@13.0.0
+  - @shipfox/client-runners@13.0.0
+  - @shipfox/client-secrets@13.0.0
+  - @shipfox/client-shell@13.0.0
+  - @shipfox/client-triggers@13.0.0
+  - @shipfox/client-workspace-settings@13.0.0
+
 ## 12.0.2
 
 ### Patch Changes

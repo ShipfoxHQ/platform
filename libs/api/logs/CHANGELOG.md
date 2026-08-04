@@ -1,5 +1,37 @@
 # @shipfox/api-logs
 
+## 12.0.0
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- Updated dependencies [ee2ce67]
+- Updated dependencies [e95fdf4]
+- Updated dependencies [f7939c7]
+- Updated dependencies [f78740d]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [adf07e7]
+- Updated dependencies [3f781ee]
+- Updated dependencies [285fff2]
+- Updated dependencies [e44a279]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [54c820e]
+- Updated dependencies [35a42bd]
+- Updated dependencies [d77baaa]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [7f90b0c]
+  - @shipfox/workflow-document@3.0.0
+  - @shipfox/api-workflows-dto@12.0.0
+  - @shipfox/api-logs-dto@12.0.0
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 11.0.0
 
 ### Major Changes

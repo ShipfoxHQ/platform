@@ -1,5 +1,54 @@
 # @shipfox/client-projects
 
+## 13.0.0
+
+### Major Changes
+
+- e405e92: Move client routes to slug-based `/w/$workspaceSlug` and `/p/$projectSlug` URLs, enforce the new composition contract, and support bounded project-slug resolution.
+- 4eb18b8: Add required, workspace-scoped project slugs across the API and project creation form.
+
+### Minor Changes
+
+- 3c73365: Add project settings, shared slug rename warnings, and live slug availability checks.
+
+### Patch Changes
+
+- 9fdd5e4: Persist definition validation warnings from repository syncs and surface them on the workflow page without changing sync success or run creation behavior.
+- Updated dependencies [ee2ce67]
+- Updated dependencies [5d2c9cf]
+- Updated dependencies [e405e92]
+- Updated dependencies [89f2c18]
+- Updated dependencies [f78740d]
+- Updated dependencies [9e1d599]
+- Updated dependencies [adf07e7]
+- Updated dependencies [3f781ee]
+- Updated dependencies [9969937]
+- Updated dependencies [9fdd5e4]
+- Updated dependencies [3c73365]
+- Updated dependencies [4eb18b8]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+- Updated dependencies [8cc5a36]
+- Updated dependencies [35a42bd]
+- Updated dependencies [6adc228]
+- Updated dependencies [34a5639]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [54c820e]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [e1efaee]
+  - @shipfox/api-definitions-dto@12.0.0
+  - @shipfox/client-agent@13.0.0
+  - @shipfox/client-auth@13.0.0
+  - @shipfox/client-integrations@13.0.0
+  - @shipfox/client-shell@13.0.0
+  - @shipfox/api-common-dto@12.0.0
+  - @shipfox/client-ui@13.0.0
+  - @shipfox/react-ui@0.4.0
+  - @shipfox/api-projects-dto@12.0.0
+  - @shipfox/api-integration-core-dto@12.0.0
+
 ## 12.0.2
 
 ### Patch Changes

@@ -1,5 +1,29 @@
 # @shipfox/api-integration-github
 
+## 12.0.0
+
+### Minor Changes
+
+- 54c820e: Capture the actor that caused a source-control event on the normalized trigger reference. `TriggerReference` gains a required `actor`, resolved from the webhook sender by the GitHub and Gitea providers and null for payloads that name none.
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- 9dffe58: Drop pull request webhook deliveries opened from a fork before they can trigger a run.
+- 24ef475: Adds provider-normalized repository, ref, and commit extraction for source-control trigger payloads.
+- 869a792: Refresh source-backed project repository identity from GitHub repository and installation-repository events.
+- Updated dependencies [f78740d]
+- Updated dependencies [24ef475]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/api-integration-spi@1.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-integration-github-dto@12.0.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+
 ## 11.0.0
 
 ### Patch Changes

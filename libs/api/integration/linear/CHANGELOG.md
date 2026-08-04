@@ -1,5 +1,25 @@
 # @shipfox/api-integration-linear
 
+## 12.0.0
+
+### Minor Changes
+
+- a018f92: Expose the Linear and Slack agent-tool catalogs for integration documentation generation.
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+- Updated dependencies [24ef475]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/api-integration-spi@1.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-integration-linear-dto@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+
 ## 11.0.0
 
 ### Patch Changes

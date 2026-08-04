@@ -1,5 +1,23 @@
 # @shipfox/api-integration-sentry
 
+## 12.0.0
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- Updated dependencies [f78740d]
+- Updated dependencies [24ef475]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+  - @shipfox/api-integration-sentry-dto@12.0.0
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/api-integration-spi@1.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+
 ## 11.0.0
 
 ### Patch Changes

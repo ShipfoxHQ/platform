@@ -1,5 +1,11 @@
 # @shipfox/inter-module
 
+## 0.2.3
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+
 ## 0.2.2
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @shipfox/react-ui
 
+## 0.4.0
+
+### Minor Changes
+
+- 6adc228: Adds semantic spacing and density tokens to the shared React UI stylesheet.
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- 9969937: Shows one-sided date ranges in DateRangePicker values.
+
 ## 0.3.7
 
 ### Patch Changes

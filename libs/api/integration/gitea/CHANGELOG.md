@@ -1,5 +1,26 @@
 # @shipfox/api-integration-gitea
 
+## 12.0.0
+
+### Minor Changes
+
+- 54c820e: Capture the actor that caused a source-control event on the normalized trigger reference. `TriggerReference` gains a required `actor`, resolved from the webhook sender by the GitHub and Gitea providers and null for payloads that name none.
+
+### Patch Changes
+
+- 24ef475: Adds provider-normalized repository, ref, and commit extraction for source-control trigger payloads.
+- Updated dependencies [f78740d]
+- Updated dependencies [24ef475]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/api-integration-spi@1.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-integration-gitea-dto@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+
 ## 11.0.0
 
 ### Patch Changes

@@ -1,5 +1,61 @@
 # @shipfox/client-workflows
 
+## 13.0.0
+
+### Major Changes
+
+- e405e92: Move client routes to slug-based `/w/$workspaceSlug` and `/p/$projectSlug` URLs, enforce the new composition contract, and support bounded project-slug resolution.
+- 13fa279: Replaces the exported workflow-run UUID short-id with API-provided workflow names and run numbers in client workflow metadata.
+- 452e0f8: Separates workflow run list and detail into route-owned pages, removes the shared
+  `WorkflowRunPage` export, and exposes older run pages for filtering.
+
+### Minor Changes
+
+- dea1ffd: Expose normalized repository references on listening execution events.
+- 54c820e: Rebuild the run list as a full-width page: 44px rows carrying status, name, trigger, branch, commit, a per-run job status strip, duration, and time, with URL-backed search, status, branch, actor, event, and date filters.
+
+### Patch Changes
+
+- b5bb0c5: Derives one activity-aware workflow status across graph, execution, and job detail surfaces.
+- a2d684e: Displays resolved job execution names in workflow run job card titles.
+- 5d2c9cf: Carry checkout steps from workflow normalization through step materialization and surface their setup error category.
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- 9fdd5e4: Persist definition validation warnings from repository syncs and surface them on the workflow page without changing sync success or run creation behavior.
+- edb4a18: Present resolved workflow run and job execution names across workflow run surfaces.
+- Updated dependencies [ee2ce67]
+- Updated dependencies [5d2c9cf]
+- Updated dependencies [e405e92]
+- Updated dependencies [f7939c7]
+- Updated dependencies [89f2c18]
+- Updated dependencies [f78740d]
+- Updated dependencies [9e1d599]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [adf07e7]
+- Updated dependencies [3f781ee]
+- Updated dependencies [9969937]
+- Updated dependencies [9fdd5e4]
+- Updated dependencies [285fff2]
+- Updated dependencies [e44a279]
+- Updated dependencies [3c73365]
+- Updated dependencies [4eb18b8]
+- Updated dependencies [54c820e]
+- Updated dependencies [54c820e]
+- Updated dependencies [35a42bd]
+- Updated dependencies [6adc228]
+- Updated dependencies [d77baaa]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [e1efaee]
+  - @shipfox/api-definitions-dto@12.0.0
+  - @shipfox/api-workflows-dto@12.0.0
+  - @shipfox/client-projects@13.0.0
+  - @shipfox/client-shell@13.0.0
+  - @shipfox/client-triggers@13.0.0
+  - @shipfox/client-logs@13.0.0
+  - @shipfox/client-ui@13.0.0
+  - @shipfox/react-ui@0.4.0
+
 ## 12.0.2
 
 ### Patch Changes

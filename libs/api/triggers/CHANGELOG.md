@@ -1,5 +1,56 @@
 # @shipfox/api-triggers
 
+## 12.0.0
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- dea1ffd: Expose normalized repository references on listening execution events.
+- 4d246d4: Align predicate validation and runtime evaluation with field-specific context contracts.
+- cb0abfa: Expose the normalized trigger project, repository, ref, and commit in workflow context.
+- Updated dependencies [ee2ce67]
+- Updated dependencies [7c4116e]
+- Updated dependencies [5d2c9cf]
+- Updated dependencies [e95fdf4]
+- Updated dependencies [3d91d1d]
+- Updated dependencies [f7939c7]
+- Updated dependencies [89f2c18]
+- Updated dependencies [045895c]
+- Updated dependencies [f78740d]
+- Updated dependencies [9e1d599]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [adf07e7]
+- Updated dependencies [3f781ee]
+- Updated dependencies [9fdd5e4]
+- Updated dependencies [285fff2]
+- Updated dependencies [e44a279]
+- Updated dependencies [4d246d4]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [4444079]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+- Updated dependencies [35a42bd]
+- Updated dependencies [d77baaa]
+- Updated dependencies [41d558c]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [54c820e]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [ee2ce67]
+- Updated dependencies [7f90b0c]
+  - @shipfox/workflow-document@3.0.0
+  - @shipfox/api-definitions-dto@12.0.0
+  - @shipfox/api-workflows-dto@12.0.0
+  - @shipfox/expression@2.0.0
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/api-integration-core-dto@12.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 11.0.0
 
 ### Major Changes

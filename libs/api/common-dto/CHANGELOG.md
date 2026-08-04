@@ -1,5 +1,15 @@
 # @shipfox/api-common-dto
 
+## 12.0.0
+
+### Minor Changes
+
+- 34a5639: Add the shared resource slug schema and name-derived slug helpers.
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+
 ## 9.2.0
 
 ### Minor Changes

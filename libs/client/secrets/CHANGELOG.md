@@ -1,5 +1,26 @@
 # @shipfox/client-secrets
 
+## 13.0.0
+
+### Major Changes
+
+- e405e92: Move client routes to slug-based `/w/$workspaceSlug` and `/p/$projectSlug` URLs, enforce the new composition contract, and support bounded project-slug resolution.
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- Updated dependencies [e405e92]
+- Updated dependencies [f78740d]
+- Updated dependencies [9969937]
+- Updated dependencies [3c73365]
+- Updated dependencies [54c820e]
+- Updated dependencies [6adc228]
+- Updated dependencies [e1efaee]
+  - @shipfox/client-shell@13.0.0
+  - @shipfox/client-ui@13.0.0
+  - @shipfox/react-ui@0.4.0
+  - @shipfox/api-secrets-dto@12.0.0
+
 ## 12.0.2
 
 ### Patch Changes

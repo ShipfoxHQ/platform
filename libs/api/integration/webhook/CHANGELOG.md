@@ -1,5 +1,19 @@
 # @shipfox/api-integration-webhook
 
+## 12.0.0
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+- Updated dependencies [24ef475]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/api-integration-spi@1.0.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-integration-webhook-dto@12.0.0
+
 ## 11.0.0
 
 ### Patch Changes

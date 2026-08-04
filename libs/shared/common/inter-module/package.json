@@ -2,7 +2,7 @@
   "name": "@shipfox/inter-module",
   "license": "MIT",
   "private": false,
-  "version": "0.2.2",
+  "version": "0.2.3",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
