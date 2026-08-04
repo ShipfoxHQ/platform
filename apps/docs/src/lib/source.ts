@@ -44,7 +44,7 @@ export const source = loader({
           'span',
           {
             className:
-              'ms-1.5 rounded bg-fd-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-fd-primary',
+              'ms-inline inline-flex items-center rounded bg-fd-primary/10 p-tight text-[10px] font-medium uppercase tracking-wide text-fd-primary',
           },
           status === 'soon' ? 'Soon' : status,
         ),

@@ -325,6 +325,15 @@ Anyone arriving from a tutorial or another repo gets this wrong on day one; flag
 in review. Use the scale (2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64) and do
 not invent values between the steps.
 
+**Semantic composition roles.** Use `my-region` for a 32px block margin around a
+standalone region and `mt-page` for a 48px separation before page-level feedback
+or similar trailing content. Use `px-tight` when a compact control needs horizontal
+padding without changing its vertical size. Use `ms-inline` for inline badge
+separation. The `-mt-inline` and `-mr-inline` roles are reserved for preserving a
+touch target's optical alignment with a containing surface. These roles keep
+composition spacing explicit without reopening raw margin utilities across product
+code.
+
 **Density posture.** Default button height `h-32` with `px-10`; table rows 36 to
 44px; form row gap `gap-16`; card padding `p-24`. A surface is at the wrong density
 when a table needs horizontal scroll from cell padding, when an app page shows more

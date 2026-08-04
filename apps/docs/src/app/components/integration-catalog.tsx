@@ -136,16 +136,16 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
   return (
     <section
       aria-label="Integration catalog"
-      className="not-prose my-8 grid gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_240px]"
+      className="not-prose my-region grid gap-region lg:grid-cols-[minmax(0,1fr)_240px]"
     >
-      <div className="lg:col-start-1">
+      <div className="flex flex-col gap-group lg:col-start-1">
         <label htmlFor="integration-catalog-search" className="sr-only">
           Search integrations
         </label>
-        <div className="relative">
+        <div className="flex min-h-11 items-center gap-tight rounded-md border border-fd-border bg-fd-background px-row py-row outline-none focus-within:ring-2 focus-within:ring-fd-ring">
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fd-muted-foreground"
+            className="pointer-events-none size-4 shrink-0 text-fd-muted-foreground"
           />
           <input
             id="integration-catalog-search"
@@ -154,14 +154,14 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
             data-ph-no-autocapture=""
             onChange={(event) => setFilters((current) => ({...current, query: event.target.value}))}
             placeholder="Search by provider, type, or related term"
-            className="h-11 w-full rounded-md border border-fd-border bg-fd-background py-2 pr-9 pl-10 text-sm text-fd-foreground outline-none placeholder:text-fd-muted-foreground focus-visible:ring-2 focus-visible:ring-fd-ring"
+            className="min-w-0 flex-1 bg-transparent text-sm text-fd-foreground outline-none placeholder:text-fd-muted-foreground"
           />
           {filters.query.length > 0 ? (
             <button
               type="button"
               aria-label="Clear search"
               onClick={() => setFilters((current) => ({...current, query: ''}))}
-              className="absolute top-1/2 right-2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded text-fd-muted-foreground outline-none hover:text-fd-foreground focus-visible:ring-2 focus-visible:ring-fd-ring"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded text-fd-muted-foreground outline-none hover:text-fd-foreground focus-visible:ring-2 focus-visible:ring-fd-ring"
             >
               <X aria-hidden="true" className="size-4" />
             </button>
@@ -173,7 +173,7 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
           aria-controls="integration-catalog-filters"
           aria-expanded={filtersOpen}
           onClick={() => setFiltersOpen((open) => !open)}
-          className="mt-4 min-h-11 w-full rounded-md border border-fd-border px-3 text-sm font-medium text-fd-foreground outline-none hover:bg-fd-muted focus-visible:ring-2 focus-visible:ring-fd-ring lg:hidden"
+          className="min-h-11 w-full rounded-md border border-fd-border p-tight text-sm font-medium text-fd-foreground outline-none hover:bg-fd-muted focus-visible:ring-2 focus-visible:ring-fd-ring lg:hidden"
         >
           {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
         </button>
@@ -182,7 +182,7 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
       <aside
         id="integration-catalog-filters"
         aria-label="Filter integrations"
-        className={`${filtersOpen ? 'block' : 'hidden'} border-t border-fd-border pt-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:!block lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:border-t-0 lg:border-l lg:pl-8 lg:pt-0`}
+        className={`${filtersOpen ? 'block' : 'hidden'} flex flex-col gap-section border-t border-fd-border p-panel-compact lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:!flex lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:border-t-0 lg:border-l lg:pb-0 lg:pr-0 lg:pt-0 lg:px-frame`}
       >
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-fd-foreground">Filters</p>
@@ -196,7 +196,7 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
             </button>
           ) : null}
         </div>
-        <div className="mt-6 space-y-6">
+        <div className="flex flex-col gap-section">
           <FacetGroup
             label="What it does"
             values={INTEGRATION_CATALOG_CAPABILITIES}
@@ -216,50 +216,54 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
         </div>
       </aside>
 
-      <div className="lg:col-start-1">
-        <p aria-live="polite" className="text-sm text-fd-muted-foreground">
-          {filteredProviders.length}{' '}
-          {filteredProviders.length === 1 ? 'integration' : 'integrations'} found
-        </p>
-        {activeFilterCount > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {filters.capability.map((capability) => (
-              <FilterChip
-                key={capability}
-                label={catalogCapabilityLabels[capability]}
-                onRemove={() => removeCapability(capability)}
-              />
-            ))}
-            {filters.category.map((category) => (
-              <FilterChip
-                key={category}
-                label={catalogCategoryLabels[category]}
-                onRemove={() => removeCategory(category)}
-              />
-            ))}
-          </div>
-        ) : null}
+      <div className="flex flex-col gap-section lg:col-start-1">
+        <div className="flex flex-col gap-cluster">
+          <p aria-live="polite" className="text-sm text-fd-muted-foreground">
+            {filteredProviders.length}{' '}
+            {filteredProviders.length === 1 ? 'integration' : 'integrations'} found
+          </p>
+          {activeFilterCount > 0 ? (
+            <div className="flex flex-wrap gap-inline">
+              {filters.capability.map((capability) => (
+                <FilterChip
+                  key={capability}
+                  label={catalogCapabilityLabels[capability]}
+                  onRemove={() => removeCapability(capability)}
+                />
+              ))}
+              {filters.category.map((category) => (
+                <FilterChip
+                  key={category}
+                  label={catalogCategoryLabels[category]}
+                  onRemove={() => removeCategory(category)}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
 
         {filteredProviders.length === 0 ? (
-          <div className="mt-6 rounded-lg border border-dashed border-fd-border px-6 py-10 text-center">
-            <p className="text-sm font-medium text-fd-foreground">
-              No integrations match these filters
-            </p>
-            <p className="mt-2 text-sm text-fd-muted-foreground">
-              Try another term or remove a filter.
-            </p>
+          <div className="flex flex-col items-center gap-group rounded-lg border border-dashed border-fd-border p-panel text-center">
+            <div className="flex flex-col items-center gap-inline">
+              <p className="text-sm font-medium text-fd-foreground">
+                No integrations match these filters
+              </p>
+              <p className="text-sm text-fd-muted-foreground">
+                Try another term or remove a filter.
+              </p>
+            </div>
             {hasFilters ? (
               <button
                 type="button"
                 onClick={clearFilters}
-                className="mt-4 min-h-11 rounded-md px-3 text-sm font-medium text-fd-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
+                className="min-h-11 rounded-md p-tight text-sm font-medium text-fd-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
               >
                 Clear filters
               </button>
             ) : null}
           </div>
         ) : (
-          <div className="mt-6 space-y-8">
+          <div className="flex flex-col gap-region">
             {availabilitySections.map((availability) => {
               const sectionProviders = filteredProviders.filter(
                 (provider) => provider.availability === availability,
@@ -270,7 +274,7 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
                 <section
                   key={availability}
                   aria-labelledby={`${availability}-integrations`}
-                  className="space-y-3"
+                  className="flex flex-col gap-cluster"
                 >
                   <h2
                     id={`${availability}-integrations`}
@@ -278,7 +282,7 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
                   >
                     {catalogAvailabilityLabels[availability]}
                   </h2>
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-group sm:grid-cols-2">
                     {sectionProviders.map((provider) => (
                       <IntegrationCard
                         key={provider.slug}
@@ -325,8 +329,8 @@ function FacetGroup<Value extends string>({
   onToggle,
 }: FacetGroupProps<Value>) {
   return (
-    <fieldset>
-      <legend className="mb-2 text-xs font-medium uppercase tracking-wide text-fd-muted-foreground">
+    <fieldset className="flex flex-col gap-inline">
+      <legend className="text-xs font-medium uppercase tracking-wide text-fd-muted-foreground">
         {label}
       </legend>
       <div>
@@ -338,7 +342,7 @@ function FacetGroup<Value extends string>({
           return (
             <label
               key={value}
-              className={`flex cursor-pointer items-center gap-2 py-1.5 text-sm ${
+              className={`flex cursor-pointer items-center gap-inline p-tight text-sm ${
                 count === 0 ? 'text-fd-muted-foreground' : 'text-fd-foreground'
               }`}
             >
@@ -361,7 +365,7 @@ function FacetGroup<Value extends string>({
 
 function FilterChip({label, onRemove}: {label: string; onRemove: () => void}) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-fd-border bg-fd-muted px-2.5 py-1 text-xs text-fd-foreground">
+    <span className="inline-flex items-center gap-tight rounded-full border border-fd-border bg-fd-muted p-tight text-xs text-fd-foreground">
       {label}
       <button
         type="button"
@@ -383,51 +387,53 @@ function IntegrationCard({
   onNavigate: (target: 'overview' | 'setup') => void;
 }) {
   return (
-    <article className="flex min-h-56 flex-col rounded-lg border border-fd-border bg-fd-card p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+    <article className="flex min-h-56 flex-col gap-group rounded-lg border border-fd-border bg-fd-card p-panel">
+      <div className="flex items-start justify-between gap-group">
+        <div className="flex min-w-0 flex-col gap-inline">
           <Link
             href={provider.overviewHref}
             onClick={() => onNavigate('overview')}
-            className="flex items-start gap-3 font-semibold text-fd-foreground outline-none hover:text-fd-primary hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
+            className="flex items-start gap-cluster font-semibold text-fd-foreground outline-none hover:text-fd-primary hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
           >
             <ProviderIcon icon={provider.icon} />
             <span>{provider.name}</span>
           </Link>
-          <p className="mt-2 text-sm leading-6 text-fd-muted-foreground">{provider.summary}</p>
+          <p className="text-sm leading-6 text-fd-muted-foreground">{provider.summary}</p>
         </div>
         {provider.setupHref ? (
           <Link
             href={provider.setupHref}
             onClick={() => onNavigate('setup')}
-            className="-mt-2 -mr-2 inline-flex min-h-11 shrink-0 items-center rounded-md px-2 text-sm font-medium text-fd-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
+            className="-mr-inline -mt-inline inline-flex min-h-11 shrink-0 items-center rounded-md px-tight text-sm font-medium text-fd-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
           >
             Set up
           </Link>
         ) : null}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {provider.capabilities.map((capability) => (
-          <span
-            key={capability}
-            className="rounded border border-fd-border bg-fd-muted px-1 py-0 text-[9px] font-medium uppercase tracking-wide text-fd-muted-foreground"
-          >
-            {catalogCapabilityLabels[capability]}
-          </span>
-        ))}
-      </div>
+      <div className="flex flex-col gap-cluster">
+        <div className="flex flex-wrap items-center gap-inline">
+          {provider.capabilities.map((capability) => (
+            <span
+              key={capability}
+              className="rounded border border-fd-border bg-fd-muted p-tight py-0 text-[9px] font-medium uppercase tracking-wide text-fd-muted-foreground"
+            >
+              {catalogCapabilityLabels[capability]}
+            </span>
+          ))}
+        </div>
 
-      {provider.eventCount > 0 || provider.toolCount > 0 ? (
-        <p className="mt-3 text-xs text-fd-muted-foreground">
-          {[
-            provider.eventCount > 0 && `${provider.eventCount} events`,
-            provider.toolCount > 0 && `${provider.toolCount} agent tools`,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </p>
-      ) : null}
+        {provider.eventCount > 0 || provider.toolCount > 0 ? (
+          <p className="text-xs text-fd-muted-foreground">
+            {[
+              provider.eventCount > 0 && `${provider.eventCount} events`,
+              provider.toolCount > 0 && `${provider.toolCount} agent tools`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        ) : null}
+      </div>
     </article>
   );
 }
@@ -442,9 +448,7 @@ function removeFilter<Value>(values: readonly Value[], value: Value): Value[] {
 
 function ProviderIcon({icon}: {icon: CatalogIcon}) {
   if (icon === 'webhooks')
-    return (
-      <Webhook aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-fd-muted-foreground" />
-    );
+    return <Webhook aria-hidden="true" className="size-5 shrink-0 text-fd-muted-foreground" />;
 
   const brandIcon = {
     github: siGithub,
@@ -457,7 +461,7 @@ function ProviderIcon({icon}: {icon: CatalogIcon}) {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="mt-0.5 size-5 shrink-0 fill-current text-fd-muted-foreground"
+      className="size-5 shrink-0 fill-current text-fd-muted-foreground"
     >
       <path d={brandIcon.path} />
     </svg>

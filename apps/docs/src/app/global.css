@@ -27,6 +27,26 @@
   --color-fd-accent-foreground: #030303;
   --color-fd-ring: #ff4b00;
   --color-fd-overlay: rgb(3 3 3 / 20%);
+
+  /* Semantic spacing roles mirror @shipfox/react-ui for this standalone app. */
+  --space-tight: 4px;
+  --space-inline: 8px;
+  --space-cluster: 12px;
+  --space-group: 16px;
+  --space-section: 24px;
+  --space-region: 32px;
+
+  --margin-inline: 8px;
+  --margin-region: 32px;
+  --margin-page: 48px;
+
+  --pad-tight: 8px;
+  --pad-row-x: 16px;
+  --pad-row-y: 12px;
+  --pad-panel-compact: 16px;
+  --pad-panel: 24px;
+  --pad-frame-x: 24px;
+  --pad-frame-y: 32px;
 }
 
 html {
@@ -52,6 +72,83 @@ html {
   --color-fd-accent-foreground: #fafafa;
   --color-fd-ring: #ff4b00;
   --color-fd-overlay: rgb(0 0 0 / 50%);
+}
+
+/* Keep gap, margin, and padding roles explicit instead of exposing cross-role utilities. */
+@utility gap-tight {
+  gap: var(--space-tight);
+}
+
+@utility gap-inline {
+  gap: var(--space-inline);
+}
+
+@utility gap-cluster {
+  gap: var(--space-cluster);
+}
+
+@utility gap-group {
+  gap: var(--space-group);
+}
+
+@utility gap-section {
+  gap: var(--space-section);
+}
+
+@utility gap-region {
+  gap: var(--space-region);
+}
+
+@utility my-region {
+  margin-block: var(--margin-region);
+}
+
+@utility mt-page {
+  margin-top: var(--margin-page);
+}
+
+@utility ms-inline {
+  margin-inline-start: var(--margin-inline);
+}
+
+@utility -mt-inline {
+  margin-top: calc(var(--margin-inline) * -1);
+}
+
+@utility -mr-inline {
+  margin-right: calc(var(--margin-inline) * -1);
+}
+
+@utility p-tight {
+  padding: var(--pad-tight);
+}
+
+@utility p-panel-compact {
+  padding: var(--pad-panel-compact);
+}
+
+@utility p-panel {
+  padding: var(--pad-panel);
+}
+
+@utility px-tight {
+  padding-inline: var(--pad-tight);
+}
+
+@utility px-row {
+  padding-inline: var(--pad-row-x);
+}
+
+@utility py-row {
+  padding-block: var(--pad-row-y);
+}
+
+@utility px-frame {
+  padding-inline: var(--pad-frame-x);
+}
+
+@utility py-frame {
+  padding-block: var(--pad-frame-y);
 }
 
 body {
