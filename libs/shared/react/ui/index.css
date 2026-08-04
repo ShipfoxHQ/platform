@@ -343,6 +343,10 @@
   --space-section: 24px;
   --space-region: 32px;
 
+  --margin-inline: 8px;
+  --margin-region: 32px;
+  --margin-page: 48px;
+
   --pad-tight: 8px;
   --pad-row-x: 16px;
   --pad-row-y: 12px;
@@ -435,6 +439,10 @@
   --space-group: 12px;
   --space-section: 16px;
   --space-region: 24px;
+
+  --margin-inline: 4px;
+  --margin-region: 24px;
+  --margin-page: 32px;
 
   --pad-tight: 4px;
   --pad-row-x: 12px;
@@ -1002,7 +1010,7 @@
   --shadow-separator-inset: var(--shadow-separator-inset);
 }
 
-/* Semantic spacing utilities are explicit to keep gap and padding roles distinct. */
+/* Semantic spacing utilities are explicit to keep gap, margin, and padding roles distinct. */
 @utility gap-tight {
   gap: var(--space-tight);
 }
@@ -1027,6 +1035,22 @@
   gap: var(--space-region);
 }
 
+@utility my-region {
+  margin-block: var(--margin-region);
+}
+
+@utility mt-page {
+  margin-top: var(--margin-page);
+}
+
+@utility -mt-inline {
+  margin-top: calc(var(--margin-inline) * -1);
+}
+
+@utility -mr-inline {
+  margin-right: calc(var(--margin-inline) * -1);
+}
+
 @utility p-tight {
   padding: var(--pad-tight);
 }
@@ -1037,6 +1061,10 @@
 
 @utility p-panel {
   padding: var(--pad-panel);
+}
+
+@utility px-tight {
+  padding-inline: var(--pad-tight);
 }
 
 @utility px-row {

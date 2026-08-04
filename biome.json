@@ -211,7 +211,22 @@
     },
     {
       "path": "./tools/biome/plugins/client-architecture/no-raw-spacing.grit",
-      "includes": []
+      "includes": [
+        "**/apps/docs/**",
+        "!**/dist/**",
+        "!**/node_modules/**",
+        "!**/*.test.ts",
+        "!**/*.test.tsx",
+        "!**/*.stories.ts",
+        "!**/*.stories.tsx",
+        "!**/test/**",
+        "!**/tests/**",
+        "!**/__tests__/**",
+        "!**/generated/**",
+        "!**/__generated__/**",
+        "!**/*.gen.ts",
+        "!**/*.gen.tsx"
+      ]
     },
     {
       "path": "./tools/biome/plugins/database-boundaries/no-direct-table-declaration.grit",

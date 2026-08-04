@@ -175,7 +175,7 @@ describe('client-architecture Biome plugins', () => {
     assert.doesNotMatch(`${stdout}${stderr}`, rawSpacingRulePattern);
   });
 
-  test('registers no-raw-spacing with an empty rollout glob list', async () => {
+  test('registers no-raw-spacing for the migrated docs app', async () => {
     const rootConfig = JSON.parse(await readFile(resolve(workspaceRoot, 'biome.json'), 'utf8')) as {
       plugins: {includes: string[]; path: string}[];
     };
@@ -185,7 +185,22 @@ describe('client-architecture Biome plugins', () => {
 
     assert.deepEqual(rawSpacingPlugin, {
       path: './tools/biome/plugins/client-architecture/no-raw-spacing.grit',
-      includes: [],
+      includes: [
+        '**/apps/docs/**',
+        '!**/dist/**',
+        '!**/node_modules/**',
+        '!**/*.test.ts',
+        '!**/*.test.tsx',
+        '!**/*.stories.ts',
+        '!**/*.stories.tsx',
+        '!**/test/**',
+        '!**/tests/**',
+        '!**/__tests__/**',
+        '!**/generated/**',
+        '!**/__generated__/**',
+        '!**/*.gen.ts',
+        '!**/*.gen.tsx',
+      ],
     });
   });
 

@@ -124,7 +124,7 @@ export function DocsVideo({
         ref={triggerRef}
         onClick={() => setExpanded(true)}
         aria-label={label ? `${label} (click to enlarge)` : 'Enlarge the video'}
-        className="group relative my-6 block w-full cursor-zoom-in appearance-none border-0 bg-transparent p-0"
+        className="group relative block w-full cursor-zoom-in appearance-none border-0 bg-transparent p-0"
       >
         <ThemedVideo
           key={activeMedia.src}
@@ -133,7 +133,7 @@ export function DocsVideo({
           width={width}
           height={height}
         />
-        <span className="pointer-events-none absolute top-3 right-3 rounded-md border border-fd-border bg-fd-background/80 p-1.5 text-fd-muted-foreground opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
+        <span className="pointer-events-none absolute top-3 right-3 rounded-md border border-fd-border bg-fd-background/80 p-tight text-fd-muted-foreground opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
           <ExpandIcon />
         </span>
       </button>
@@ -146,7 +146,7 @@ export function DocsVideo({
             aria-label={dialogLabel}
             tabIndex={-1}
             onKeyDown={trapFocus}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 outline-none"
+            className="fixed inset-0 z-50 flex items-center justify-center p-panel-compact outline-none"
           >
             {/* Full-screen backdrop; a real button so Enter/Space close it too. */}
             <button

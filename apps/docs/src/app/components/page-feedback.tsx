@@ -14,23 +14,23 @@ export function PageFeedback({pageUrl, filePath}: {pageUrl: string; filePath: st
   };
 
   return (
-    <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t pt-6 text-sm text-fd-muted-foreground">
+    <div className="mt-page flex flex-wrap items-center justify-between gap-group border-t p-tight text-sm text-fd-muted-foreground">
       {voted ? (
         <span>Thanks for the feedback!</span>
       ) : (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-cluster">
           <span>Was this page helpful?</span>
           <button
             type="button"
             onClick={() => vote(true)}
-            className="rounded-md border px-3 py-1 transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground"
+            className="rounded-md border p-tight transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground"
           >
             Yes
           </button>
           <button
             type="button"
             onClick={() => vote(false)}
-            className="rounded-md border px-3 py-1 transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground"
+            className="rounded-md border p-tight transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground"
           >
             No
           </button>

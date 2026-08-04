@@ -12,7 +12,7 @@ export const baseOptions: BaseLayoutProps = {
   githubUrl: 'https://github.com/ShipfoxHQ/shipfox',
   nav: {
     title: (
-      <div className="flex items-center px-4">
+      <div className="flex items-center px-row">
         <picture className="dark:hidden">
           <img src={`${basePath}/logo-light.svg`} alt="Shipfox" className="max-h-6" />
         </picture>
