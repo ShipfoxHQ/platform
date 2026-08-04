@@ -39,7 +39,7 @@ export function WorkspaceSwitcher({
     <Command>
       <CommandInput placeholder="Search workspaces..." />
       <CommandList className="max-h-none overflow-visible overflow-y-visible p-0">
-        <div className="max-h-300 overflow-y-auto overflow-x-hidden p-tight scrollbar">
+        <div className="max-h-300 overflow-y-auto overflow-x-hidden p-[4px] scrollbar">
           <CommandEmpty>No workspaces found.</CommandEmpty>
           <CommandGroup heading="Workspaces">
             {workspaces.map((workspace) => (
@@ -59,7 +59,7 @@ export function WorkspaceSwitcher({
           </CommandGroup>
         </div>
         <CommandSeparator alwaysRender className="mx-0" />
-        <CommandGroup forceMount className="p-tight">
+        <CommandGroup forceMount className="p-[4px]">
           <CommandItem
             value="__create"
             onSelect={() => {
