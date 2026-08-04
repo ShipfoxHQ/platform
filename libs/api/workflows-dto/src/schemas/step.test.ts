@@ -61,6 +61,18 @@ describe('stepErrorDtoSchema', () => {
     });
   });
 
+  it.each([
+    'checkout_path_invalid',
+    'checkout_destination_occupied',
+  ] as const)('accepts the runner checkout destination reason %s', (reason) => {
+    const result = stepErrorDtoSchema.parse({
+      message: 'Checkout destination policy rejected the step.',
+      reason,
+    });
+
+    expect(result?.reason).toBe(reason);
+  });
+
   it('rejects unknown agent config issues', () => {
     const result = stepErrorDtoSchema.safeParse({
       message: 'Model provider credentials are not configured',

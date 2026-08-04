@@ -1,4 +1,10 @@
 export {
+  type CheckoutDestination,
+  type CheckoutDestinations,
+  type CheckoutStepExecution,
+  executeCheckoutStep,
+} from '#core/checkout-step.js';
+export {
   type CommandShellMetadata,
   type CommandStartMetadata,
   type CommandStartSink,

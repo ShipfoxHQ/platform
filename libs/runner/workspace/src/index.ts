@@ -11,6 +11,16 @@ export {
   writeAmbientGitCredential,
 } from '#checkout.js';
 export {
+  assertCheckoutPath,
+  CheckoutDestinationOccupiedError,
+  type CheckoutDestinationState,
+  CheckoutPathInvalidError,
+  createCheckoutDestination,
+  inspectCheckoutDestination,
+  replaceCheckoutDestination,
+  resolveCheckoutPath,
+} from '#checkout-path.js';
+export {
   resolveWorkingDirectory,
   WorkingDirectoryEscapeError,
   WorkingDirectoryNotDirectoryError,

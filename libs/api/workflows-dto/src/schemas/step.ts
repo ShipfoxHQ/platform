@@ -2,7 +2,7 @@ import {z} from 'zod';
 
 // Machine-readable cause of a step failure, for DB troubleshooting. The runner
 // reports it and the server stores it as-is. The `checkout_*`, `git_unavailable`,
-// `workspace_prep_failed`, and `setup_aborted` values cover setup-phase failures.
+// `workspace_prep_failed`, and `setup_aborted` values cover checkout/setup failures.
 // For agent steps the cause is split three ways: `agent_config_invalid` is a user-fixable
 // configuration error and carries an `agent_config_issue`; `agent_invocation_failed`
 // covers a provider/API failure once the configuration is valid; and
@@ -13,6 +13,8 @@ export const stepErrorReasonSchema = z.enum([
   'checkout_failed',
   'checkout_auth_failed',
   'checkout_unavailable',
+  'checkout_path_invalid',
+  'checkout_destination_occupied',
   'git_unavailable',
   'workspace_prep_failed',
   'setup_aborted',
