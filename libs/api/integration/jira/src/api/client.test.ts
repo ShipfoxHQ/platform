@@ -2,7 +2,7 @@ import {HTTPError} from 'ky';
 import type {JiraIntegrationProviderError} from '#core/errors.js';
 import {mapJiraError} from './client.js';
 
-const mocks = vi.hoisted(() => ({delete: vi.fn(), post: vi.fn()}));
+const mocks = vi.hoisted(() => ({delete: vi.fn(), post: vi.fn(), request: vi.fn()}));
 
 vi.mock('ky', () => {
   class MockHTTPError extends Error {
@@ -18,7 +18,7 @@ vi.mock('ky', () => {
     }
   }
   return {
-    default: {delete: mocks.delete, post: mocks.post},
+    default: Object.assign(mocks.request, {delete: mocks.delete, post: mocks.post}),
     HTTPError: MockHTTPError,
     TimeoutError: MockTimeoutError,
   };
@@ -58,6 +58,7 @@ describe('Jira dynamic webhook API', () => {
   beforeEach(() => {
     mocks.delete.mockReset();
     mocks.post.mockReset();
+    mocks.request.mockReset();
   });
 
   it('registers the six curated events with the access token', async () => {
@@ -131,5 +132,107 @@ describe('Jira dynamic webhook API', () => {
         json: {webhookIds: [123]},
       }),
     );
+  });
+});
+
+describe('Jira agent-tools REST API', () => {
+  beforeEach(() => {
+    mocks.request.mockReset();
+  });
+
+  it('sends a REST v3 request and parses a JSON response', async () => {
+    mocks.request.mockResolvedValue(
+      new Response(JSON.stringify({id: '1004', key: 'ENG-1004'}), {status: 200}),
+    );
+    const {createJiraAgentToolsClient} = await import('./client.js');
+
+    const result = await createJiraAgentToolsClient().request({
+      accessToken: 'access-token',
+      cloudId: 'cloud-1',
+      method: 'GET',
+      path: '/issue/ENG-1004',
+      query: {fields: ['summary', 'description'], updateHistory: false},
+      operation: 'get_issue',
+    });
+
+    expect(result).toEqual({status: 200, body: {id: '1004', key: 'ENG-1004'}});
+    const [url, options] = mocks.request.mock.calls[0] as [
+      string,
+      {headers: Record<string, string>; searchParams: URLSearchParams},
+    ];
+    expect(url).toBe('http://127.0.0.1:0/ex/jira/cloud-1/rest/api/3/issue/ENG-1004');
+    expect(options.headers).toEqual({authorization: 'Bearer access-token'});
+    expect([...options.searchParams.entries()]).toEqual([
+      ['fields', 'summary'],
+      ['fields', 'description'],
+      ['updateHistory', 'false'],
+    ]);
+  });
+
+  it('maps HTTP 429 Retry-After responses to a rate-limited provider error', async () => {
+    mocks.request.mockRejectedValue(
+      new HTTPError(
+        new Response(null, {status: 429, headers: {'retry-after': '19'}}),
+        new Request('https://jira.example.test'),
+        {} as never,
+      ),
+    );
+    const {createJiraAgentToolsClient} = await import('./client.js');
+
+    await expect(
+      createJiraAgentToolsClient().request({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        method: 'GET',
+        path: '/issue/ENG-1004',
+        operation: 'get_issue',
+      }),
+    ).rejects.toMatchObject({reason: 'rate-limited', retryAfterSeconds: 19});
+  });
+
+  it('preserves Jira validation details from HTTP 400 responses', async () => {
+    mocks.request.mockRejectedValue(
+      new HTTPError(
+        new Response(JSON.stringify({errorMessages: ['The JQL query is invalid']}), {status: 400}),
+        new Request('https://jira.example.test'),
+        {} as never,
+      ),
+    );
+    const {createJiraAgentToolsClient} = await import('./client.js');
+
+    await expect(
+      createJiraAgentToolsClient().request({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        method: 'POST',
+        path: '/search/jql',
+        body: {jql: 'not valid'},
+        operation: 'search_issues',
+      }),
+    ).resolves.toEqual({
+      status: 400,
+      body: {errorMessages: ['The JQL query is invalid']},
+    });
+  });
+
+  it('maps HTTP 401 responses to an access-denied provider error', async () => {
+    mocks.request.mockRejectedValue(
+      new HTTPError(
+        new Response(null, {status: 401}),
+        new Request('https://jira.example.test'),
+        {} as never,
+      ),
+    );
+    const {createJiraAgentToolsClient} = await import('./client.js');
+
+    await expect(
+      createJiraAgentToolsClient().request({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        method: 'GET',
+        path: '/issue/ENG-1004',
+        operation: 'get_issue',
+      }),
+    ).rejects.toMatchObject({reason: 'access-denied'});
   });
 });

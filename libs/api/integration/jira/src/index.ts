@@ -1,6 +1,13 @@
 import {JIRA_PROVIDER} from '@shipfox/api-integration-jira-dto';
-import {createJiraApiClient, type JiraApiClient} from '#api/client.js';
+import {
+  createJiraAgentToolsClient,
+  createJiraApiClient,
+  type JiraAgentToolsClient,
+  type JiraApiClient,
+} from '#api/client.js';
 import {config} from '#config.js';
+import {JiraAgentToolsProvider} from '#core/agent-tools-provider.js';
+import type {JiraTokenStore} from '#core/tokens.js';
 import {createJiraWebhookProcessor} from '#core/webhook-processor.js';
 import {registerJiraWebhook} from '#core/webhook-registration.js';
 import {closeDb, db} from '#db/db.js';
@@ -21,17 +28,38 @@ const TRAILING_SLASHES_RE = /\/+$/;
 export type {JiraProvider} from '@shipfox/api-integration-jira-dto';
 export type {
   JiraAccessibleResource,
+  JiraAgentToolHttpMethod,
+  JiraAgentToolQueryValue,
+  JiraAgentToolRequest,
+  JiraAgentToolResponse,
+  JiraAgentToolsClient,
   JiraApiClient,
   JiraAuthorization,
   JiraDynamicWebhookRegistration,
   JiraIdentity,
 } from '#api/client.js';
 export {
+  createJiraAgentToolsClient,
   createJiraApiClient,
   JIRA_DYNAMIC_WEBHOOK_EVENTS,
   JIRA_DYNAMIC_WEBHOOK_JQL,
   mapJiraError,
 } from '#api/client.js';
+export type {
+  JiraAgentToolCatalogEntry,
+  JiraAgentToolId,
+  JiraAgentToolRequiredScope,
+} from '#core/agent-tools.js';
+export {
+  jiraAgentToolCatalog,
+  jiraAgentToolSelectionCatalog,
+  jiraPlainTextToAdf,
+} from '#core/agent-tools.js';
+export type {
+  JiraAgentToolsProviderOptions,
+  JiraToolCallResult,
+} from '#core/agent-tools-provider.js';
+export {JiraAgentToolsProvider} from '#core/agent-tools-provider.js';
 export type {DisconnectJiraInstallationParams} from '#core/disconnect.js';
 export {disconnectJiraInstallation} from '#core/disconnect.js';
 export {
@@ -105,6 +133,12 @@ export {closeDb, config, db, migrationsPath};
 
 export interface CreateJiraIntegrationProviderOptions {
   jira?: JiraApiClient | undefined;
+  agentTools?:
+    | {
+        tokenStore: Pick<JiraTokenStore, 'getAccessToken'>;
+        jira?: JiraAgentToolsClient | undefined;
+      }
+    | undefined;
   getJiraInstallationByConnectionId?: typeof getJiraInstallationByConnectionId | undefined;
   routes?: JiraIntegrationProviderRoutesOptions | undefined;
 }
@@ -119,6 +153,14 @@ export function createJiraIntegrationProvider(options: CreateJiraIntegrationProv
   const jira = options.jira ?? createJiraApiClient();
   const getInstallationByConnectionId =
     options.getJiraInstallationByConnectionId ?? getJiraInstallationByConnectionId;
+  const adapters = options.agentTools
+    ? {
+        agent_tools: new JiraAgentToolsProvider({
+          jira: options.agentTools.jira ?? createJiraAgentToolsClient(),
+          tokenStore: options.agentTools.tokenStore,
+        }),
+      }
+    : {};
   const webhookOptions = toJiraWebhookOptions(options.routes);
   const webhookProcessor = webhookOptions ? createJiraWebhookProcessor(webhookOptions) : undefined;
   const webhookRoutes = webhookOptions
@@ -136,7 +178,7 @@ export function createJiraIntegrationProvider(options: CreateJiraIntegrationProv
     ? [
         createJiraIntegrationRoutes({
           jira,
-          connectionCapabilities: [],
+          connectionCapabilities: adapters.agent_tools ? ['agent_tools'] : [],
           ...options.routes,
           registerJiraWebhook: (input) =>
             registerJiraWebhook({
@@ -162,7 +204,7 @@ export function createJiraIntegrationProvider(options: CreateJiraIntegrationProv
   return {
     provider: JIRA_PROVIDER,
     displayName: 'Jira',
-    adapters: {},
+    adapters,
     async connectionExternalUrl(connection: {id: string}): Promise<string | undefined> {
       return (await getInstallationByConnectionId(connection.id))?.siteUrl;
     },

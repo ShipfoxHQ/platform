@@ -142,6 +142,7 @@ async function loadJiraModuleParts(
   const pendingStore = createJiraPendingSelectionStore({secrets});
 
   const integrationProvider = createJiraIntegrationProvider({
+    agentTools: {tokenStore},
     routes: {
       tokenStore,
       pendingStore,

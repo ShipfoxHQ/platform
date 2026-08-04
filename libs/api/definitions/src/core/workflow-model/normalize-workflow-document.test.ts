@@ -69,11 +69,21 @@ const integrationValidationContext = {
         ],
       },
     ],
+    [
+      'jira',
+      {
+        selectors: [
+          {token: 'get_issue', kind: 'standalone', sensitivity: 'read', sensitive: false},
+          {token: 'add_comment', kind: 'standalone', sensitivity: 'write', sensitive: false},
+        ],
+      },
+    ],
   ]),
   workspaceConnectionSnapshot: new Map([
     ['github-main', {id: 'conn_1', provider: 'github', capabilities: ['agent_tools']}],
     ['sentry-main', {id: 'conn_2', provider: 'sentry', capabilities: []}],
     ['linear-main', {id: 'conn_3', provider: 'linear', capabilities: ['agent_tools']}],
+    ['jira-main', {id: 'conn_4', provider: 'jira', capabilities: ['agent_tools']}],
   ]),
   defaultConnectionSlug: 'github-main',
 } satisfies IntegrationValidationContext;
@@ -644,6 +654,56 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.jobs[0]?.steps[0]).toMatchObject({
       kind: 'agent',
       integrations: [{connection: 'linear-main', include: ['save_comment'], allowWrite: true}],
+    });
+  });
+
+  it('requires allow_write for Jira write tools', () => {
+    const document: WorkflowDocument = {
+      name: 'jira write integrations',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              prompt: 'Comment on the issue.',
+              integrations: [{connection: 'jira-main', include: ['add_comment']}],
+            },
+          ],
+        },
+      },
+    };
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toMatchObject([
+      {
+        code: 'integration-write-not-allowed',
+        details: {tokens: ['add_comment']},
+      },
+    ]);
+  });
+
+  it('accepts Jira write tools when allow_write is true', () => {
+    const document: WorkflowDocument = {
+      name: 'jira write integrations',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              prompt: 'Comment on the issue.',
+              integrations: [
+                {connection: 'jira-main', include: ['add_comment'], allow_write: true},
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document, {integrationValidationContext});
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      integrations: [{connection: 'jira-main', include: ['add_comment'], allowWrite: true}],
     });
   });
 
