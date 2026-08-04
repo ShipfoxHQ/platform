@@ -82,8 +82,7 @@ export function DateRangePicker({
   const endDate = dateRange?.end && isValid(dateRange.end) ? dateRange.end : undefined;
   const hasSelection = Boolean(startDate || endDate);
 
-  const displayValue =
-    startDate && endDate ? `${format(startDate, dateFormat)} - ${format(endDate, dateFormat)}` : '';
+  const displayValue = formatDateRange(startDate, endDate, dateFormat);
 
   const dayPickerRange: DayPickerDateRange | undefined =
     startDate || endDate ? {from: startDate, to: endDate} : undefined;
@@ -211,4 +210,17 @@ export function DateRangePicker({
       </PopoverContent>
     </Popover>
   );
+}
+
+function formatDateRange(
+  startDate: Date | undefined,
+  endDate: Date | undefined,
+  dateFormat: string,
+): string {
+  if (startDate && endDate) {
+    return `${format(startDate, dateFormat)} - ${format(endDate, dateFormat)}`;
+  }
+  if (startDate) return `From ${format(startDate, dateFormat)}`;
+  if (endDate) return `Until ${format(endDate, dateFormat)}`;
+  return '';
 }

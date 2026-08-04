@@ -70,6 +70,25 @@ export const WithSelectedRange: Story = {
   render: (args) => <ControlledPicker {...args} initialRange={seededRange} />,
 };
 
+export const PartialRanges: Story = {
+  render: (args) => (
+    <div className="flex flex-col gap-16">
+      <div className="grid gap-8">
+        <Label htmlFor="start-only-picker">Start only</Label>
+        <ControlledPicker
+          {...args}
+          id="start-only-picker"
+          initialRange={{start: seededRange.start}}
+        />
+      </div>
+      <div className="grid gap-8">
+        <Label htmlFor="end-only-picker">End only</Label>
+        <ControlledPicker {...args} id="end-only-picker" initialRange={{end: seededRange.end}} />
+      </div>
+    </div>
+  ),
+};
+
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex flex-col gap-12">
