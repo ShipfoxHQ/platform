@@ -54,6 +54,85 @@ const runtimeDependencyFields = [
 const semverRange =
   /^(?:[~^]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|[~^]?\d+\.\d+|[~^]?\d+|\*|latest)$/u;
 
+export type PublishedVersionLookup = (name: string) => Promise<ReadonlySet<string>>;
+
+const defaultRegistry = process.env.npm_config_registry ?? 'https://registry.npmjs.org';
+const trailingSlash = /\/$/u;
+
+export function readPublicationClosurePackages(root: string): Promise<PublicationPackage[]> {
+  const config = loadPublicationClosure(root);
+  return readPublicationPackages(resolvePublicationManifests(root, config.packages));
+}
+
+// The publication closure is only the application runtime graph. `changeset publish` also releases
+// the public `tools/*` packages, so the registry check has to span everything changesets will
+// attempt rather than the closure alone.
+export async function readChangesetPublishablePackages(
+  root: string,
+): Promise<PublicationPackage[]> {
+  const ignored = await readChangesetIgnoreList(root);
+  const manifestPaths = globSync(join(root, '{apps,e2e,infra,libs,tools}/**/package.json'), {
+    exclude: ['**/node_modules/**'],
+  });
+  const packages = await readPublicationPackages(manifestPaths);
+  return packages.filter(
+    ({manifest}) =>
+      typeof manifest.name === 'string' &&
+      typeof manifest.version === 'string' &&
+      manifest.private !== true &&
+      !ignored.has(manifest.name),
+  );
+}
+
+async function readChangesetIgnoreList(root: string): Promise<ReadonlySet<string>> {
+  const configPath = join(root, '.changeset', 'config.json');
+  if (!existsSync(configPath)) return new Set();
+  const config = JSON.parse(await readFile(configPath, 'utf8')) as {ignore?: string[]};
+  return new Set(config.ignore ?? []);
+}
+
+export async function fetchPublishedVersions(
+  name: string,
+  registry: string = defaultRegistry,
+): Promise<ReadonlySet<string>> {
+  const response = await fetch(
+    `${registry.replace(trailingSlash, '')}/${name.replace('/', '%2f')}`,
+    {
+      headers: {accept: 'application/vnd.npm.install-v1+json'},
+    },
+  );
+  if (response.status === 404) return new Set();
+  if (!response.ok)
+    throw new Error(`Registry lookup for ${name} failed with status ${response.status}`);
+  const document = (await response.json()) as {versions?: Record<string, unknown>};
+  return new Set(Object.keys(document.versions ?? {}));
+}
+
+// `changeset publish` treats an already-published version as a no-op and reports success, so a
+// version that collides with an abandoned lineage never reaches the registry while consumers keep
+// resolving the old tarball for that number. Fail the release instead of shipping that mismatch.
+export async function assertPublishableVersions(
+  packages: PublicationPackage[],
+  lookup: PublishedVersionLookup = (name) => fetchPublishedVersions(name),
+): Promise<void> {
+  const results = await mapWithConcurrency(packages, 5, async (entry) => {
+    const {name, version} = entry.manifest;
+    if (typeof version !== 'string') return undefined;
+    return (await lookup(name)).has(version) ? `${name}@${version}` : undefined;
+  });
+  const collisions = results.filter((value): value is string => value !== undefined);
+  if (collisions.length > 0) {
+    throw new Error(
+      `Publication preflight found versions already on the registry: ${collisions.join(', ')}. ` +
+        'Publishing would be skipped silently and consumers would resolve the existing tarball. ' +
+        'Bump each package past its published range.',
+    );
+  }
+  process.stdout.write(
+    `Publication preflight registry check passed: ${packages.length} versions are unpublished.\n`,
+  );
+}
+
 export async function preflightPublicationClosure(root: string): Promise<void> {
   const config = loadPublicationClosure(root);
   const manifestPaths = resolvePublicationManifests(root, config.packages);
@@ -294,7 +373,9 @@ function safePackageName(name: string): string {
 }
 
 async function main() {
-  await preflightPublicationClosure(getRepositoryRoot(import.meta.url));
+  const root = getRepositoryRoot(import.meta.url);
+  await preflightPublicationClosure(root);
+  await assertPublishableVersions(await readChangesetPublishablePackages(root));
 }
 
 const entryPoint = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;

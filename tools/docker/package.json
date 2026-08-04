@@ -1,6 +1,6 @@
 {
   "name": "@shipfox/docker",
-  "version": "0.1.5",
+  "version": "1.2.1",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
