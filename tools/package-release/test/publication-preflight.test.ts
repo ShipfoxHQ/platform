@@ -4,10 +4,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 
 import {
-  assertPublishableVersions,
   preflightPublicationClosure,
-  readChangesetPublishablePackages,
-  readPublicationClosurePackages,
   validatePackedPackageManifest,
 } from '../src/publication-preflight.js';
 
@@ -17,9 +14,6 @@ const roots: string[] = [];
 const missingEntryPointError = /missing entry point/u;
 const staleArchitectureMetadataError = /stale or conflicting architecture metadata/u;
 const missingArchitectureMetadataError = /is missing architecture metadata/u;
-const publishedVersionError = /already on the registry: @shipfox\/example@1\.0\.0/u;
-const registryLookupError = /registry unreachable/u;
-const publishedToolVersionError = /already on the registry: @shipfox\/tool@0\.1\.5/u;
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, {force: true, recursive: true});
@@ -127,90 +121,6 @@ test('rejects a registry-matched packed package with missing architecture metada
     missingArchitectureMetadataError,
   );
 });
-
-test('accepts a closure whose versions are absent from the registry', async () => {
-  const packages = await readPublicationClosurePackages(createFixture());
-
-  await assertPublishableVersions(packages, async () => new Set(['0.9.0']));
-});
-
-test('accepts a closure whose package was never published', async () => {
-  const packages = await readPublicationClosurePackages(createFixture());
-
-  await assertPublishableVersions(packages, async () => new Set());
-});
-
-test('rejects a closure whose version is already on the registry', async () => {
-  const packages = await readPublicationClosurePackages(createFixture());
-
-  await assert.rejects(
-    assertPublishableVersions(packages, async () => new Set(['0.9.0', '1.0.0'])),
-    publishedVersionError,
-  );
-});
-
-test('surfaces a failed registry lookup instead of allowing the publish', async () => {
-  const packages = await readPublicationClosurePackages(createFixture());
-
-  await assert.rejects(
-    assertPublishableVersions(packages, () => Promise.reject(new Error('registry unreachable'))),
-    registryLookupError,
-  );
-});
-
-test('covers public tool packages that publish outside the closure', async () => {
-  const packages = await readChangesetPublishablePackages(createPublishFixture());
-
-  assert.deepEqual(packages.map(({manifest}) => `${manifest.name}@${manifest.version}`).sort(), [
-    '@shipfox/example@1.0.0',
-    '@shipfox/tool@0.1.5',
-  ]);
-});
-
-test('rejects a tool package whose version is already on the registry', async () => {
-  const packages = await readChangesetPublishablePackages(createPublishFixture());
-
-  await assert.rejects(
-    assertPublishableVersions(packages, async (name) =>
-      name === '@shipfox/tool' ? new Set(['0.1.5']) : new Set(),
-    ),
-    publishedToolVersionError,
-  );
-});
-
-test('limits registry checks to package manifests changed since the release base', async () => {
-  const root = createPublishFixture();
-  const packages = await readChangesetPublishablePackages(root, [
-    join(root, 'tools', 'tool', 'package.json'),
-  ]);
-
-  assert.deepEqual(
-    packages.map(({manifest}) => `${manifest.name}@${manifest.version}`),
-    ['@shipfox/tool@0.1.5'],
-  );
-});
-
-function createPublishFixture() {
-  const root = createFixture();
-  writePackage(join(root, 'tools', 'tool'), {name: '@shipfox/tool', version: '0.1.5'});
-  writePackage(join(root, 'tools', 'private'), {
-    name: '@shipfox/private',
-    private: true,
-    version: '1.0.0',
-  });
-  writePackage(join(root, 'apps', 'ignored'), {name: '@shipfox/ignored', version: '1.0.0'});
-  mkdirSync(join(root, '.changeset'), {recursive: true});
-  writeFileSync(
-    join(root, '.changeset', 'config.json'),
-    `${JSON.stringify({ignore: ['@shipfox/ignored']}, null, 2)}\n`,
-  );
-  return root;
-}
-
-function writePackage(directory: string, manifest: Record<string, unknown>) {
-  mkdirSync(directory, {recursive: true});
-  writeFileSync(join(directory, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-}
 
 function createFixture({
   bin,

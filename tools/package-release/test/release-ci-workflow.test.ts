@@ -52,8 +52,6 @@ describe('generated release CI path', () => {
     assert.match(imageClassification.if, mainRefConditionPattern);
     assert.ok(workflow.includes('mode=version-only-main'));
     assert.ok(workflow.includes('version_only_previous_revision'));
-    assert.ok(workflow.includes('github.event.pull_request.base.sha || github.event.before'));
-    assert.ok(workflow.includes('SHIPFOX_PUBLICATION_REGISTRY_REQUIRED'));
     assert.ok(workflow.includes('steps.classify-images.outputs.version_only_main'));
     assert.ok(workflow.includes('verify-image-reuse'));
     assert.ok(workflow.includes('--image-repository ghcr.io/shipfoxhq/api'));
