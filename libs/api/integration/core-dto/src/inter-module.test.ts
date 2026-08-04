@@ -6,12 +6,25 @@ describe('integrationsInterModuleContract', () => {
       externalRepositoryId: 'github:42',
       ref: 'refs/heads/main',
       commit: 'a'.repeat(40),
+      actor: 'octocat',
     });
 
     expect(result?.externalRepositoryId).toBe('github:42');
+    expect(result?.actor).toBe('octocat');
     expect(
       integrationsInterModuleContract.methods.resolveTriggerReference.output.parse(null),
     ).toBeNull();
+  });
+
+  test('accepts a reference from a payload that named no actor', () => {
+    const result = integrationsInterModuleContract.methods.resolveTriggerReference.output.parse({
+      externalRepositoryId: 'github:42',
+      ref: 'refs/heads/main',
+      commit: 'a'.repeat(40),
+      actor: null,
+    });
+
+    expect(result?.actor).toBeNull();
   });
 
   test('accepts a source repository lookup through the producer contract', () => {

@@ -1,9 +1,11 @@
+import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import {
   paginateTimestampIdRows,
   type TimestampIdCursor,
   timestampIdCursorWhere,
 } from '@shipfox/node-drizzle';
 import {and, asc, count, desc, eq, gte, lte, type SQL, sql} from 'drizzle-orm';
+import type {JobStatus} from '#core/entities/job.js';
 import type {
   JobExecutionDetail,
   StepDetail,
@@ -42,6 +44,15 @@ export interface ListWorkflowRunsResult {
   runs: WorkflowRun[];
   nextCursor: WorkflowRunCursor | null;
   filteredTotalCount: number | null;
+}
+
+/** A run-list job glyph: enough to draw and label it, none of its steps. */
+export interface WorkflowRunJobSummary {
+  id: string;
+  key: string;
+  name: string | null;
+  status: JobStatus;
+  position: number;
 }
 
 export interface WorkflowRunAggregates {
@@ -189,6 +200,132 @@ export async function listWorkflowRuns(
     nextCursor: page.nextCursor,
     filteredTotalCount: totalCount,
   };
+}
+
+/** The run whose jobs to fetch, pinned to the attempt the caller already read. */
+export interface WorkflowRunJobSummaryTarget {
+  id: string;
+  currentAttempt: number;
+}
+
+/**
+ * A page row's jobs: a bounded slice to draw, and totals describing all of them.
+ *
+ * The preview is what a row can show; `statusCounts` is what it can say. Keeping the counts
+ * server-side is what lets a row report a failure that sits past the preview.
+ */
+export interface WorkflowRunJobsSummary {
+  preview: WorkflowRunJobSummary[];
+  statusCounts: WorkflowRunJobStatusCount[];
+}
+
+export interface WorkflowRunJobStatusCount {
+  status: JobStatus;
+  count: number;
+}
+
+/**
+ * Jobs for a page of runs, keyed by run id.
+ *
+ * Issued once per page rather than once per run: the run list is the one surface that needs
+ * every run's jobs at once, and a per-row query would put 50 round trips behind it.
+ *
+ * Both reads are bounded by the page, not by workflow size. A workflow has no job limit and
+ * this list polls while runs are active, so returning every job of every row would let one
+ * large workflow decide how much the endpoint moves every four seconds. The preview is cut
+ * per run in the database, and everything past it is described by a grouped count instead.
+ *
+ * The attempt comes from the caller's own read rather than from a second look at
+ * `current_attempt`. Re-reading it here would let a re-run landing between the queries pair
+ * attempt 1's run metadata with attempt 2's jobs, and the row would report a status its strip
+ * contradicts.
+ *
+ * The two reads share one repeatable-read snapshot. They describe the same jobs at the same
+ * instant, and the strip combines them into a single glyph row, so under the default
+ * read-committed isolation a job settling between the statements would draw a pending glyph
+ * beside a summary counting it as failed. Sequential inside one transaction is the cost of
+ * that; at a four-second poll the extra round trip does not register.
+ */
+export async function listWorkflowRunJobSummaries(
+  runs: readonly WorkflowRunJobSummaryTarget[],
+): Promise<Map<string, WorkflowRunJobsSummary>> {
+  const summaries = new Map<string, WorkflowRunJobsSummary>();
+  if (runs.length === 0) return summaries;
+
+  // A row-constructor IN over (run, attempt) so each pair is one lookup on the unique index
+  // that already covers those two columns.
+  const attemptPairs = sql.join(
+    runs.map((run) => sql`(${run.id}::uuid, ${run.currentAttempt})`),
+    sql`, `,
+  );
+  const attemptFilter = sql`(${workflowRunAttempts.workflowRunId}, ${workflowRunAttempts.attempt}) in (${attemptPairs})`;
+
+  const {previewRows, countRows} = await db().transaction(
+    async (tx) => {
+      const ranked = tx
+        .select({
+          workflowRunId: workflowRunAttempts.workflowRunId,
+          id: jobs.id,
+          key: jobs.key,
+          name: jobs.name,
+          status: jobs.status,
+          position: jobs.position,
+          rank: sql<number>`row_number() over (partition by ${workflowRunAttempts.workflowRunId} order by ${jobs.position} asc, ${jobs.id} asc)`.as(
+            'rank',
+          ),
+        })
+        .from(jobs)
+        .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+        .where(attemptFilter)
+        .as('ranked');
+
+      return {
+        previewRows: await tx
+          .select({
+            workflowRunId: ranked.workflowRunId,
+            id: ranked.id,
+            key: ranked.key,
+            name: ranked.name,
+            status: ranked.status,
+            position: ranked.position,
+          })
+          .from(ranked)
+          .where(lte(ranked.rank, WORKFLOW_RUN_JOB_PREVIEW_LIMIT))
+          .orderBy(asc(ranked.workflowRunId), asc(ranked.position), asc(ranked.id)),
+        countRows: await tx
+          .select({
+            workflowRunId: workflowRunAttempts.workflowRunId,
+            status: jobs.status,
+            count: count(),
+          })
+          .from(jobs)
+          .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+          .where(attemptFilter)
+          .groupBy(workflowRunAttempts.workflowRunId, jobs.status),
+      };
+    },
+    {isolationLevel: 'repeatable read', accessMode: 'read only'},
+  );
+
+  for (const {workflowRunId, ...summary} of previewRows) {
+    summaryFor(summaries, workflowRunId).preview.push(summary);
+  }
+  for (const {workflowRunId, status, count: statusCount} of countRows) {
+    summaryFor(summaries, workflowRunId).statusCounts.push({status, count: statusCount});
+  }
+
+  return summaries;
+}
+
+function summaryFor(
+  summaries: Map<string, WorkflowRunJobsSummary>,
+  workflowRunId: string,
+): WorkflowRunJobsSummary {
+  const existing = summaries.get(workflowRunId);
+  if (existing) return existing;
+  const created: WorkflowRunJobsSummary = {preview: [], statusCounts: []};
+  summaries.set(workflowRunId, created);
+  return created;
 }
 
 export async function listWorkflowRunsByProject(projectId: string): Promise<WorkflowRun[]> {

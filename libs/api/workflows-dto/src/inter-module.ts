@@ -8,6 +8,7 @@ const workflowRunTriggerReferenceSchema = z.object({
   repository: z.string().nullable(),
   ref: z.string().nullable(),
   commit: z.string().nullable(),
+  actor: z.string().nullable(),
 });
 const triggerPayloadSchema = z.union([
   z.object({

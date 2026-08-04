@@ -102,6 +102,7 @@ function runDetail(
     trigger_source: 'manual',
     trigger_event: 'fire',
     trigger_payload: {},
+    trigger_reference: null,
     inputs: null,
     source_snapshot: null,
     created_at: timestamp,

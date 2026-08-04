@@ -135,6 +135,7 @@ describe('assembleCreationContext', () => {
           repository: 'acme/api',
           ref: 'refs/pull/42/head',
           commit: 'a'.repeat(40),
+          actor: 'octocat',
         },
       },
       triggerPayload: {

@@ -44,6 +44,7 @@ export async function resolveWorkflowRunTriggerReference(params: {
       repository: `${sourceResult.repository.owner}/${sourceResult.repository.name}`,
       ref: reference.ref,
       commit: reference.commit,
+      actor: reference.actor,
     };
   } catch {
     // Trigger metadata is best-effort and must not block run creation.

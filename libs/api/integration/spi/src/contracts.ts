@@ -117,6 +117,8 @@ export interface TriggerReference {
   externalRepositoryId: string;
   ref: string;
   commit: string;
+  /** Provider handle of whoever caused the event, when the payload names one. */
+  actor: string | null;
 }
 
 export interface SourceControlProvider<

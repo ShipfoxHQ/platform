@@ -490,12 +490,14 @@ describe('drainListenerEventsIntoExecution', () => {
       repository: 'acme/one',
       ref: 'refs/heads/main',
       commit: '1'.repeat(40),
+      actor: 'octocat',
     };
     const secondReference: WorkflowRunTriggerReference = {
       project: {id: crypto.randomUUID()},
       repository: 'acme/two',
       ref: 'refs/pull/12/head',
       commit: '2'.repeat(40),
+      actor: 'octocat',
     };
 
     await bufferEvent(
@@ -519,13 +521,18 @@ describe('drainListenerEventsIntoExecution', () => {
       .select()
       .from(jobExecutions)
       .where(and(eq(jobExecutions.jobId, job.id), eq(jobExecutions.sequence, 1)));
+    // The execution event carries the reference's location fields, not its actor:
+    // `WorkflowExecutionEvent` enumerates its own shape and the trigger actor is not part of
+    // it. Widening that is the listening-jobs contract's call, not this branch's.
+    const {actor: _firstActor, ...firstEventFields} = firstReference;
+    const {actor: _secondActor, ...secondEventFields} = secondReference;
     expect(execution?.triggerEvents).toEqual([
       {
         source: 'github',
         event: 'pull_request',
         delivery_id: expect.any(String),
         received_at: '2026-01-01T00:00:00.000Z',
-        ...firstReference,
+        ...firstEventFields,
         data: {action: 'opened'},
       },
       {
@@ -533,7 +540,7 @@ describe('drainListenerEventsIntoExecution', () => {
         event: 'pull_request',
         delivery_id: expect.any(String),
         received_at: '2026-01-01T00:01:00.000Z',
-        ...secondReference,
+        ...secondEventFields,
         data: {action: 'opened'},
       },
     ]);

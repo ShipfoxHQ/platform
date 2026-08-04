@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {jobStatusSchema} from './job.js';
 
 export const workflowRunStatusSchema = z.enum([
   'pending',
@@ -75,6 +76,18 @@ export const workflowSourceSnapshotSchema = z.object({
 
 export type WorkflowSourceSnapshotDto = z.infer<typeof workflowSourceSnapshotSchema>;
 
+// Provider-neutral trigger facts captured at run creation. Every field is nullable because
+// only source-control triggers resolve one at all, and a given payload may name a ref
+// without naming an actor.
+export const workflowRunTriggerReferenceSchema = z.object({
+  repository: z.string().nullable(),
+  ref: z.string().nullable(),
+  commit: z.string().nullable(),
+  actor: z.string().nullable(),
+});
+
+export type WorkflowRunTriggerReferenceDto = z.infer<typeof workflowRunTriggerReferenceSchema>;
+
 export const workflowRunDtoSchema = z.object({
   id: z.string().uuid(),
   project_id: z.string().uuid(),
@@ -89,6 +102,7 @@ export const workflowRunDtoSchema = z.object({
   trigger_source: z.string(),
   trigger_event: z.string(),
   trigger_payload: z.record(z.string(), z.unknown()),
+  trigger_reference: workflowRunTriggerReferenceSchema.nullable(),
   inputs: z.record(z.string(), z.unknown()).nullable(),
   source_snapshot: workflowSourceSnapshotSchema.nullable(),
   created_at: z.string(),
@@ -122,8 +136,47 @@ export const workflowRunAttemptsResponseSchema = z.object({
 
 export type WorkflowRunAttemptsResponseDto = z.infer<typeof workflowRunAttemptsResponseSchema>;
 
+// The run list renders a status glyph per job so a failing run can be read without being
+// opened, which needs the current attempt's jobs in graph order but none of their steps.
+export const workflowRunJobSummaryDtoSchema = z.object({
+  id: z.string().uuid(),
+  key: z.string(),
+  name: z.string().nullable(),
+  status: jobStatusSchema,
+  position: z.number().int().nonnegative(),
+});
+
+export type WorkflowRunJobSummaryDto = z.infer<typeof workflowRunJobSummaryDtoSchema>;
+
+/**
+ * How many jobs a run list row carries in graph order.
+ *
+ * A workflow has no job limit, and the list is polled while runs are active, so the row
+ * cannot carry every job of every run on the page. This bound is the API's, deliberately set
+ * above what any current surface draws: a client is free to show fewer without a server
+ * change, and `job_status_counts` still describes the jobs beyond it.
+ */
+export const WORKFLOW_RUN_JOB_PREVIEW_LIMIT = 16;
+
+/** One status and how many of the run's jobs hold it, counted over all of them. */
+export const workflowRunJobStatusCountDtoSchema = z.object({
+  status: jobStatusSchema,
+  count: z.number().int().positive(),
+});
+
+export type WorkflowRunJobStatusCountDto = z.infer<typeof workflowRunJobStatusCountDtoSchema>;
+
+export const workflowRunListItemSchema = workflowRunResponseSchema.extend({
+  /** Up to `WORKFLOW_RUN_JOB_PREVIEW_LIMIT` jobs in graph order, not the whole set. */
+  jobs: z.array(workflowRunJobSummaryDtoSchema).max(WORKFLOW_RUN_JOB_PREVIEW_LIMIT),
+  /** Counted over every job of the attempt, including those past the preview. */
+  job_status_counts: z.array(workflowRunJobStatusCountDtoSchema),
+});
+
+export type WorkflowRunListItemDto = z.infer<typeof workflowRunListItemSchema>;
+
 export const workflowRunListResponseSchema = z.object({
-  runs: z.array(workflowRunResponseSchema),
+  runs: z.array(workflowRunListItemSchema),
   next_cursor: z.string().nullable(),
   filtered_total_count: z.number().int().nonnegative().nullable(),
 });

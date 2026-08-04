@@ -106,6 +106,16 @@ browser history, copied links, or another tab should preserve it. Keep private
 visual state local. Do not copy query data into local state only to filter or
 format it. Do not copy route state into Jotai.
 
+The app router serializes search parameters through `parseAppSearch` and
+`stringifyAppSearch` in `@shipfox/client-shell/runtime`, not through TanStack's
+defaults. An array value becomes one repeated key per element, so a multi-select
+filter reads as `?status=failed&status=running` and a value containing a comma
+survives. The pair is symmetric: a string that happens to be valid JSON is
+quoted on the way out and unquoted on the way back in, for array elements as
+well as scalars, so a branch named `2024` stays the string `2024`. One repeated
+key parses back as a scalar rather than a one-element array, so a route
+validator that accepts a repeatable parameter normalizes a scalar into a list.
+
 Use a discriminated reducer in `core/` when several values describe one
 workflow and invalid combinations are possible. Effects perform requests,
 focus changes, and navigation outside the reducer.

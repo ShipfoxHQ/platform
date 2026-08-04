@@ -117,6 +117,7 @@ function makeDetail(
     trigger_source: 'gitea',
     trigger_event: 'push',
     trigger_payload: {data: {headCommitSha: 'abc123'}},
+    trigger_reference: null,
     inputs: null,
     source_snapshot: null,
     created_at: timestamp,

@@ -104,13 +104,27 @@ describe('GithubSourceControlProvider', () => {
       ref: 'refs/heads/feature/review',
       after: VALID_COMMIT,
       repository: {id: 42},
+      sender: {login: 'octocat'},
     });
 
     expect(result).toEqual({
       externalRepositoryId: 'github:42',
       ref: 'refs/heads/feature/review',
       commit: VALID_COMMIT,
+      actor: 'octocat',
     });
+  });
+
+  it('resolves a null actor when the payload names no sender', () => {
+    const provider = new GithubSourceControlProvider(githubClient());
+
+    const result = provider.resolveTriggerReference({
+      ref: 'refs/heads/main',
+      after: VALID_COMMIT,
+      repository: {id: 42},
+    });
+
+    expect(result).toMatchObject({actor: null});
   });
 
   it('normalizes pull-request trigger references from the head repository', () => {
@@ -118,6 +132,7 @@ describe('GithubSourceControlProvider', () => {
 
     const result = provider.resolveTriggerReference({
       repository: {id: 42},
+      sender: {login: 'octocat'},
       pull_request: {
         number: 17,
         head: {
@@ -132,6 +147,7 @@ describe('GithubSourceControlProvider', () => {
       externalRepositoryId: 'github:42',
       ref: 'refs/pull/17/head',
       commit: VALID_COMMIT,
+      actor: 'octocat',
     });
   });
 

@@ -344,6 +344,7 @@ describe('Workflows inter-module presentation', () => {
             repository: 'acme/api',
             ref: 'refs/heads/main',
             commit: 'a'.repeat(40),
+            actor: 'octocat',
           },
         },
         {signal: new AbortController().signal},

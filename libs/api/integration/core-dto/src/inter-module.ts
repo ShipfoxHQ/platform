@@ -19,6 +19,7 @@ const triggerReference = z.object({
   externalRepositoryId: z.string(),
   ref: z.string(),
   commit: z.string(),
+  actor: z.string().nullable(),
 });
 const sourceInput = z.object({workspaceId: id, connectionId: id, externalRepositoryId: z.string()});
 const providerError = z.object({

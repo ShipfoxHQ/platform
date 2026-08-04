@@ -7,6 +7,23 @@ describe('WorkflowRunNumberLabel', () => {
     expect(formatWorkflowRunNumberLabel({workflowName: 'CI', number: 5184})).toBe('CI #5184');
   });
 
+  test('shows the bare number when the run name already says the workflow name', () => {
+    render(<WorkflowRunNumberLabel run={{name: 'CI', workflowName: 'CI', number: 5184}} />);
+
+    expect(screen.getByText('#5184')).toBeInTheDocument();
+    expect(screen.queryByText('CI #5184')).not.toBeInTheDocument();
+  });
+
+  test('keeps the workflow name when the run carries a different one', () => {
+    render(
+      <WorkflowRunNumberLabel
+        run={{name: 'Deploy production', workflowName: 'CI', number: 5184}}
+      />,
+    );
+
+    expect(screen.getByText('CI #5184')).toBeInTheDocument();
+  });
+
   test('does not render before a server run number is available', () => {
     const {container} = render(<WorkflowRunNumberLabel run={{workflowName: 'CI', number: null}} />);
 

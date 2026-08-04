@@ -6,11 +6,13 @@ import type {
   WorkflowRunDetailResponseDto,
   WorkflowRunJobDetailDto,
   WorkflowRunJobExecutionDetailDto,
+  WorkflowRunJobSummaryDto,
+  WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
-  WorkflowRunResponseDto,
   WorkflowRunStatusDto,
   WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
+import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import type {
   Job,
   Step,
@@ -35,9 +37,11 @@ const DEFINITION_ID = '33333333-3333-4333-8333-333333333333';
 const JOB_ID = '44444444-4444-4444-8444-000000000001';
 const JOB_EXECUTION_ID = '77777777-7777-4777-8777-000000000001';
 const STEP_ID = '55555555-5555-4555-8555-000000000001';
+const JOB_SUMMARY_ID_PREFIX = '44444444-4444-4444-8444-1';
 
 let runSequence = 0;
 let jobSequence = 0;
+let jobSummarySequence = 0;
 let jobExecutionSequence = 0;
 let stepSequence = 0;
 let attemptSequence = 0;
@@ -49,9 +53,11 @@ export type JobDtoOverrides = Partial<Omit<WorkflowRunJobDetailDto, 'job_executi
 
 type JobDtoBase = Omit<WorkflowRunJobDetailDto, 'job_executions'>;
 
+// Built as a list item, the widest run shape, so one factory serves both the list endpoint
+// and the single-run endpoints; the narrower response schemas drop the extra key.
 export function workflowRunDto(
-  overrides: Partial<WorkflowRunResponseDto> = {},
-): WorkflowRunResponseDto {
+  overrides: Partial<WorkflowRunListItemDto> = {},
+): WorkflowRunListItemDto {
   return {
     id: RUN_ID,
     project_id: PROJECT_ID,
@@ -66,18 +72,79 @@ export function workflowRunDto(
     trigger_source: 'manual',
     trigger_event: 'fire',
     trigger_payload: {},
+    trigger_reference: null,
     inputs: null,
     source_snapshot: null,
     created_at: '2026-06-21T12:00:00.000Z',
     updated_at: '2026-06-21T12:01:00.000Z',
     started_at: null,
     finished_at: null,
+    jobs: [],
+    job_status_counts: [],
     ...overrides,
   };
 }
 
+export function workflowRunJobSummaryDto(
+  overrides: Partial<WorkflowRunJobSummaryDto> = {},
+): WorkflowRunJobSummaryDto {
+  jobSummarySequence += 1;
+  return {
+    id: `${JOB_SUMMARY_ID_PREFIX}${String(jobSummarySequence).padStart(11, '0')}`,
+    key: `job-${jobSummarySequence}`,
+    name: null,
+    status: 'succeeded',
+    position: jobSummarySequence - 1,
+    ...overrides,
+  };
+}
+
+/** A strip of `count` job glyphs, with `statuses` applied from the left. */
+export function workflowRunJobSummaryDtos(
+  count: number,
+  statuses: readonly JobStatusDto[] = [],
+): WorkflowRunJobSummaryDto[] {
+  return Array.from({length: count}, (_, index) =>
+    workflowRunJobSummaryDto({
+      key: `job-${index + 1}`,
+      position: index,
+      ...(statuses[index] ? {status: statuses[index]} : {}),
+    }),
+  );
+}
+
+/**
+ * A run's jobs as the API sends them: the preview truncated at the server's bound, and counts
+ * over every status given.
+ *
+ * Built from one list so the two can never disagree. A fixture whose counts contradicted its
+ * preview would hide exactly the bug the split exists to prevent.
+ */
+export function workflowRunJobsFixture(
+  statuses: readonly JobStatusDto[],
+): Pick<WorkflowRunListItemDto, 'jobs' | 'job_status_counts'> {
+  const counts = new Map<JobStatusDto, number>();
+  for (const status of statuses) counts.set(status, (counts.get(status) ?? 0) + 1);
+
+  return {
+    jobs: workflowRunJobSummaryDtos(
+      Math.min(statuses.length, WORKFLOW_RUN_JOB_PREVIEW_LIMIT),
+      statuses,
+    ),
+    job_status_counts: [...counts.entries()].map(([status, count]) => ({status, count})),
+  };
+}
+
+/** `count` jobs that all share one status, for density cases where the mix does not matter. */
+export function workflowRunJobsOfStatus(
+  count: number,
+  status: JobStatusDto = 'succeeded',
+): Pick<WorkflowRunListItemDto, 'jobs' | 'job_status_counts'> {
+  return workflowRunJobsFixture(Array.from({length: count}, () => status));
+}
+
 export function workflowRunListItem(
-  overrides: Partial<WorkflowRunResponseDto> = {},
+  overrides: Partial<WorkflowRunListItemDto> = {},
 ): WorkflowRunListItem {
   return toWorkflowRunListItem(workflowRunDto(overrides));
 }
@@ -278,8 +345,8 @@ export function sequencedWorkflowRunDto(
   status: WorkflowRunStatusDto,
   name: string,
   minutesAgo: number,
-  overrides: Partial<WorkflowRunResponseDto> = {},
-): WorkflowRunResponseDto {
+  overrides: Partial<WorkflowRunListItemDto> = {},
+): WorkflowRunListItemDto {
   runSequence += 1;
   return workflowRunDto({
     id: `run-${String(runSequence).padStart(8, '0')}`,
@@ -300,7 +367,7 @@ export function sequencedWorkflowRunListItem(
   status: WorkflowRunStatusDto,
   name: string,
   minutesAgo: number,
-  overrides: Partial<WorkflowRunResponseDto> = {},
+  overrides: Partial<WorkflowRunListItemDto> = {},
 ): WorkflowRunListItem {
   return toWorkflowRunListItem(sequencedWorkflowRunDto(status, name, minutesAgo, overrides));
 }

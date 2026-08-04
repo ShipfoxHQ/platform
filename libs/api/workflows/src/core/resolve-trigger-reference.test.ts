@@ -24,6 +24,7 @@ describe('resolveWorkflowRunTriggerReference', () => {
         externalRepositoryId: reference.externalRepositoryId,
         ref: reference.ref,
         commit: 'a'.repeat(40),
+        actor: 'octocat',
       }),
       resolveSourceRepository: vi.fn().mockResolvedValue({
         connection: {id: connectionId, provider: 'github', slug: 'github-main'},
@@ -63,6 +64,7 @@ describe('resolveWorkflowRunTriggerReference', () => {
       repository: 'acme/api',
       ref: reference.ref,
       commit: 'a'.repeat(40),
+      actor: 'octocat',
     });
     expect(projects.getProjectBySource).toHaveBeenCalledWith({
       workspaceId,

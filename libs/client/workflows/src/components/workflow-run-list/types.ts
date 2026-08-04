@@ -1,37 +1,32 @@
 import type {QueryLoadErrorQuery} from '@shipfox/client-ui';
 import type {WorkflowRunListItem} from '#core/workflow-run.js';
+import type {WorkflowRunFilterPatch, WorkflowRunsSearch} from '#routes/inputs.js';
 
-export type WorkflowRunListStatusFilter = 'all' | 'failed' | 'running';
+export type WorkflowRunListQuery = QueryLoadErrorQuery & {isPending: boolean};
 
-export interface WorkflowRunListProps {
-  projectId: string;
+interface WorkflowRunListCommonProps {
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
-  selectedWorkflowRunId?: string | undefined;
   className?: string | undefined;
-  search?: string;
-  statusFilter?: WorkflowRunListStatusFilter;
-  onFiltersChange?: (filters: {search?: string; status?: WorkflowRunListStatusFilter}) => void;
+  /**
+   * The parsed URL search. Pair with `onFiltersChange` to keep it in the URL; omit the
+   * handler and the view holds filter state itself, which is what stories and isolated tests
+   * mount against.
+   */
+  search?: WorkflowRunsSearch;
+  onFiltersChange?: (patch: WorkflowRunFilterPatch) => void;
+  onClearFilters?: () => void;
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   isFetchNextPageError?: boolean;
   onLoadMore?: () => void;
 }
 
-export type WorkflowRunListQuery = QueryLoadErrorQuery & {isPending: boolean};
+export interface WorkflowRunListProps extends WorkflowRunListCommonProps {
+  projectId: string;
+}
 
-export interface WorkflowRunListViewProps {
+export interface WorkflowRunListViewProps extends WorkflowRunListCommonProps {
   runs: WorkflowRunListItem[];
   query: WorkflowRunListQuery;
-  workspaceSlug?: string | undefined;
-  projectSlug?: string | undefined;
-  selectedWorkflowRunId?: string | undefined;
-  className?: string | undefined;
-  search?: string;
-  statusFilter?: WorkflowRunListStatusFilter;
-  onFiltersChange?: (filters: {search?: string; status?: WorkflowRunListStatusFilter}) => void;
-  hasNextPage?: boolean;
-  isFetchingNextPage?: boolean;
-  isFetchNextPageError?: boolean;
-  onLoadMore?: () => void;
 }

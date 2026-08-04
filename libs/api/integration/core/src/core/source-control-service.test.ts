@@ -97,6 +97,7 @@ describe('integration source-control service', () => {
       externalRepositoryId: repository.externalRepositoryId,
       ref: 'refs/heads/main',
       commit: 'a'.repeat(40),
+      actor: 'octocat',
     }));
     const service = createService({resolveTriggerReference});
 
@@ -110,6 +111,7 @@ describe('integration source-control service', () => {
       externalRepositoryId: repository.externalRepositoryId,
       ref: 'refs/heads/main',
       commit: 'a'.repeat(40),
+      actor: 'octocat',
     });
     expect(resolveTriggerReference).toHaveBeenCalledWith({ref: 'refs/heads/main'});
   });

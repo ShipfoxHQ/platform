@@ -1,3 +1,4 @@
+import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import {buildModel, createTestRun} from '#test/helpers/workflow-runs.js';
 import {
   createRerunWorkflowRun,
@@ -8,8 +9,10 @@ import {
   getWorkflowJobExecutionDepth,
   getWorkflowRunById,
   listRunAttempts,
+  listWorkflowRunJobSummaries,
   listWorkflowRunsByProject,
   updateJobExecutionStatus,
+  updateJobStatus,
   updateWorkflowRunStatus,
 } from '../workflow-runs.js';
 
@@ -136,6 +139,178 @@ describe('workflow run queries', () => {
     });
   });
 
+  describe('listWorkflowRunJobSummaries', () => {
+    test('returns jobs in graph order keyed by run, for many runs at once', async () => {
+      const model = buildModel({
+        jobs: {
+          build: {steps: [{run: 'echo build'}]},
+          test: {needs: 'build', steps: [{run: 'echo test'}]},
+        },
+      });
+      const first = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model,
+        triggerPayload: manualTrigger(),
+      });
+      const second = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model,
+        triggerPayload: manualTrigger(),
+      });
+
+      const summaries = await listWorkflowRunJobSummaries([
+        {id: first.id, currentAttempt: first.currentAttempt},
+        {id: second.id, currentAttempt: second.currentAttempt},
+      ]);
+
+      expect(summaries.get(first.id)?.preview.map((job) => job.key)).toEqual(['build', 'test']);
+      expect(summaries.get(second.id)?.preview.map((job) => job.key)).toEqual(['build', 'test']);
+    });
+
+    test('scopes jobs to the current attempt so a re-run does not stack both attempts', async () => {
+      const source = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+        triggerPayload: manualTrigger(),
+      });
+      const [firstAttemptJob] = await getJobsByWorkflowRunId(source.id);
+      await updateWorkflowRunStatus({
+        workflowRunId: source.id,
+        status: 'failed',
+        expectedVersion: 1,
+      });
+      const rerun = await createRerunWorkflowRun({
+        workflowRunId: source.id,
+        mode: 'all',
+        actorUserId: crypto.randomUUID(),
+      });
+
+      const summaries = await listWorkflowRunJobSummaries([
+        {id: source.id, currentAttempt: rerun.currentAttempt},
+      ]);
+
+      expect(rerun.currentAttempt).toBe(2);
+      expect(summaries.get(source.id)?.preview.map((job) => job.key)).toEqual(['build']);
+      expect(summaries.get(source.id)?.preview[0]?.id).not.toBe(firstAttemptJob?.id);
+    });
+
+    // The caller pins the attempt, so a re-run landing after its read still yields the jobs
+    // that belong to the metadata it is about to render, not whichever attempt is newest.
+    test('returns the caller requested attempt, not whichever is current now', async () => {
+      const source = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+        triggerPayload: manualTrigger(),
+      });
+      const [firstAttemptJob] = await getJobsByWorkflowRunId(source.id);
+      await updateWorkflowRunStatus({
+        workflowRunId: source.id,
+        status: 'failed',
+        expectedVersion: 1,
+      });
+      await createRerunWorkflowRun({
+        workflowRunId: source.id,
+        mode: 'all',
+        actorUserId: crypto.randomUUID(),
+      });
+
+      const summaries = await listWorkflowRunJobSummaries([{id: source.id, currentAttempt: 1}]);
+
+      expect(summaries.get(source.id)?.preview[0]?.id).toBe(firstAttemptJob?.id);
+    });
+
+    // The row draws a bounded strip, so the query must not hand back one row per job of a
+    // workflow that has no job limit; everything past the preview is described by counts.
+    test('caps the preview and still counts every job past it', async () => {
+      const jobCount = WORKFLOW_RUN_JOB_PREVIEW_LIMIT + 9;
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: Object.fromEntries(
+            Array.from({length: jobCount}, (_, index) => [
+              `job-${String(index).padStart(2, '0')}`,
+              {steps: [{run: `echo ${index}`}]},
+            ]),
+          ),
+        }),
+        triggerPayload: manualTrigger(),
+      });
+
+      const summary = await listWorkflowRunJobSummaries([
+        {id: run.id, currentAttempt: run.currentAttempt},
+      ]);
+
+      expect(summary.get(run.id)?.preview).toHaveLength(WORKFLOW_RUN_JOB_PREVIEW_LIMIT);
+      expect(totalOf(summary.get(run.id))).toBe(jobCount);
+    });
+
+    test('counts each status the run holds, not only the previewed ones', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {build: {steps: [{run: 'echo build'}]}, test: {steps: [{run: 'echo test'}]}},
+        }),
+        triggerPayload: manualTrigger(),
+      });
+
+      const summary = await listWorkflowRunJobSummaries([
+        {id: run.id, currentAttempt: run.currentAttempt},
+      ]);
+
+      expect(summary.get(run.id)?.statusCounts).toEqual([{status: 'pending', count: 2}]);
+    });
+
+    // Checks the invariant the snapshot exists to protect: for a run inside the preview
+    // bound, the statuses drawn and the statuses counted describe the same jobs and must
+    // agree exactly. The read races a commit to give the anomaly a chance to appear, so this
+    // samples rather than proves; the guarantee itself comes from the isolation level, which
+    // no assertion here can force an interleaving against.
+    test('agrees between preview and counts while a job settles underneath', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {build: {steps: [{run: 'echo build'}]}, test: {steps: [{run: 'echo test'}]}},
+        }),
+        triggerPayload: manualTrigger(),
+      });
+      const [firstJob] = await getJobsByWorkflowRunId(run.id);
+      if (!firstJob) throw new Error('expected the run to have jobs');
+
+      // Commits a status change while the read is in flight. A snapshot taken per statement
+      // would let one half of the answer see it and the other half miss it.
+      const settleMidRead = updateJobStatus({
+        jobId: firstJob.id,
+        status: 'failed',
+        expectedVersion: firstJob.version,
+      });
+      const [summaries] = await Promise.all([
+        listWorkflowRunJobSummaries([{id: run.id, currentAttempt: run.currentAttempt}]),
+        settleMidRead,
+      ]);
+
+      const summary = summaries.get(run.id);
+      expect(previewCounts(summary)).toEqual(statusCountMap(summary));
+    });
+
+    test('returns an empty map without querying for an empty page', async () => {
+      await expect(listWorkflowRunJobSummaries([])).resolves.toEqual(new Map());
+    });
+  });
+
   describe('listWorkflowRunsByProject', () => {
     test('returns runs ordered by creation descending', async () => {
       await createWorkflowRun({
@@ -254,3 +429,34 @@ describe('workflow run queries', () => {
     });
   });
 });
+
+function manualTrigger() {
+  return {
+    source: 'manual',
+    event: 'fire',
+    subscriptionId: crypto.randomUUID(),
+    userId: crypto.randomUUID(),
+  } as const;
+}
+
+function totalOf(summary: {statusCounts: Array<{count: number}>} | undefined): number {
+  return (summary?.statusCounts ?? []).reduce((total, entry) => total + entry.count, 0);
+}
+
+/** Statuses the preview actually drew, counted. */
+function previewCounts(
+  summary: {preview: Array<{status: string}>} | undefined,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const job of summary?.preview ?? []) counts[job.status] = (counts[job.status] ?? 0) + 1;
+  return counts;
+}
+
+/** The same shape read off the totals, so the two halves can be compared directly. */
+function statusCountMap(
+  summary: {statusCounts: Array<{status: string; count: number}>} | undefined,
+): Record<string, number> {
+  return Object.fromEntries(
+    (summary?.statusCounts ?? []).map(({status, count}) => [status, count]),
+  );
+}

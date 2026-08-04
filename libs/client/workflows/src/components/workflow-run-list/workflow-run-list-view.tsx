@@ -1,79 +1,103 @@
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
+import {Header} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
-import {useState} from 'react';
-import {runMatchesSearch, runMatchesStatusFilter} from './run-display.js';
+import {useId, useMemo, useState} from 'react';
+import {
+  applyWorkflowRunFilterPatch,
+  clearWorkflowRunFilters,
+  hasWorkflowRunFilters,
+  type WorkflowRunFilterPatch,
+  type WorkflowRunsSearch,
+} from '#routes/inputs.js';
+import {runMatchesFilters, workflowRunFacets} from './run-display.js';
 import type {WorkflowRunListViewProps} from './types.js';
+import {WorkflowRunFilters} from './workflow-run-filters.js';
 import {WorkflowRunListContent} from './workflow-run-list-content.js';
-import {WorkflowRunListHeader} from './workflow-run-list-header.js';
+
+const EMPTY_SEARCH: WorkflowRunsSearch = {};
 
 export function WorkflowRunListView({
   runs,
   query,
   workspaceSlug,
   projectSlug,
-  selectedWorkflowRunId,
   className,
-  search = '',
-  statusFilter = 'all',
+  search = EMPTY_SEARCH,
   onFiltersChange,
+  onClearFilters,
   hasNextPage = false,
   isFetchingNextPage = false,
   isFetchNextPageError = false,
   onLoadMore,
 }: WorkflowRunListViewProps) {
-  const [localSearch, setLocalSearch] = useState(search);
-  const [localStatusFilter, setLocalStatusFilter] = useState(statusFilter);
+  const headingId = useId();
+  const [localSearch, setLocalSearch] = useState<WorkflowRunsSearch>(search);
   const currentSearch = onFiltersChange ? search : localSearch;
-  const currentStatusFilter = onFiltersChange ? statusFilter : localStatusFilter;
 
-  const filteredRuns = runs.filter((run) => {
-    if (!runMatchesStatusFilter(run.status, currentStatusFilter)) return false;
-    return runMatchesSearch(run, currentSearch);
-  });
+  const filteredRuns = useMemo(
+    () => runs.filter((run) => runMatchesFilters(run, currentSearch)),
+    [runs, currentSearch],
+  );
+  const facets = useMemo(() => workflowRunFacets(runs, currentSearch), [runs, currentSearch]);
+  const hasActiveFilters = hasWorkflowRunFilters(currentSearch);
+
+  function handleFiltersChange(patch: WorkflowRunFilterPatch) {
+    if (onFiltersChange) onFiltersChange(patch);
+    else setLocalSearch((previous) => applyWorkflowRunFilterPatch(previous, patch));
+  }
 
   function handleClearFilters() {
-    if (onFiltersChange) onFiltersChange({search: '', status: 'all'});
-    else {
-      setLocalSearch('');
-      setLocalStatusFilter('all');
-    }
+    // Uncontrolled, the view owns the filters, so it clears them itself and still reports the
+    // change; a caller that passes only `onClearFilters` would otherwise see nothing happen.
+    if (!onFiltersChange) setLocalSearch(clearWorkflowRunFilters);
+    else if (!onClearFilters) onFiltersChange(CLEAR_ALL_FILTERS);
+    onClearFilters?.();
   }
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
-      <aside
-        className={cn(
-          'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background-subtle-base',
-          className,
-        )}
-        aria-label="Workflow runs"
+      <section
+        aria-labelledby={headingId}
+        className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-12', className)}
       >
-        <WorkflowRunListHeader
-          query={currentSearch}
-          onQueryChange={(next) => {
-            if (onFiltersChange) onFiltersChange({search: next, status: currentStatusFilter});
-            else setLocalSearch(next);
-          }}
-          statusFilter={currentStatusFilter}
-          onStatusFilterChange={(next) => {
-            if (onFiltersChange) onFiltersChange({search: currentSearch, status: next});
-            else setLocalStatusFilter(next);
-          }}
+        {/* The tab strip above already reads "Runs", so the page heading is for structure and
+            assistive tech rather than a second visible title competing with it. */}
+        <Header id={headingId} variant="h1" className="sr-only">
+          Workflow runs
+        </Header>
+
+        <WorkflowRunFilters
+          search={currentSearch}
+          facets={facets}
+          onChange={handleFiltersChange}
+          onClear={handleClearFilters}
+          hasActiveFilters={hasActiveFilters}
         />
+
         <WorkflowRunListContent
           query={query}
           totalRuns={runs.length}
           runs={filteredRuns}
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
-          selectedWorkflowRunId={selectedWorkflowRunId}
+          hasActiveFilters={hasActiveFilters}
           onClearFilters={handleClearFilters}
           hasNextPage={hasNextPage}
           isFetchingNextPage={isFetchingNextPage}
           isFetchNextPageError={isFetchNextPageError}
           {...(onLoadMore ? {onLoadMore} : {})}
         />
-      </aside>
+      </section>
     </TimeTickerProvider>
   );
 }
+
+const CLEAR_ALL_FILTERS: WorkflowRunFilterPatch = {
+  search: undefined,
+  status: undefined,
+  branch: undefined,
+  actor: undefined,
+  event: undefined,
+  after: undefined,
+  before: undefined,
+};

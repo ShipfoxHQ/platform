@@ -1,6 +1,12 @@
-import type {WorkflowRunAttemptDto, WorkflowRunDto} from '@shipfox/api-workflows-dto';
-import type {WorkflowRun} from '#core/entities/workflow-run.js';
+import type {
+  WorkflowRunAttemptDto,
+  WorkflowRunDto,
+  WorkflowRunListItemDto,
+  WorkflowRunTriggerReferenceDto,
+} from '@shipfox/api-workflows-dto';
+import type {WorkflowRun, WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import type {WorkflowRunAttempt} from '#core/entities/workflow-run-attempt.js';
+import type {WorkflowRunJobsSummary} from '#db/index.js';
 
 export function toRunDto(run: WorkflowRun, latestAttempt = run.currentAttempt): WorkflowRunDto {
   return {
@@ -17,12 +23,46 @@ export function toRunDto(run: WorkflowRun, latestAttempt = run.currentAttempt): 
     trigger_source: run.triggerSource,
     trigger_event: run.triggerEvent,
     trigger_payload: run.triggerPayload,
+    trigger_reference: toTriggerReferenceDto(run.triggerReference),
     inputs: run.inputs,
     source_snapshot: run.sourceSnapshot,
     created_at: run.createdAt.toISOString(),
     updated_at: run.updatedAt.toISOString(),
     started_at: run.startedAt?.toISOString() ?? null,
     finished_at: run.finishedAt?.toISOString() ?? null,
+  };
+}
+
+const EMPTY_JOBS: WorkflowRunJobsSummary = {preview: [], statusCounts: []};
+
+export function toRunListItemDto(
+  run: WorkflowRun,
+  jobs: WorkflowRunJobsSummary = EMPTY_JOBS,
+): WorkflowRunListItemDto {
+  return {
+    ...toRunDto(run),
+    jobs: jobs.preview.map((job) => ({
+      id: job.id,
+      key: job.key,
+      name: job.name,
+      status: job.status,
+      position: job.position,
+    })),
+    job_status_counts: jobs.statusCounts.map(({status, count}) => ({status, count})),
+  };
+}
+
+// The persisted reference predates `actor` and carries an internal project id the client has
+// no use for, so each field is read defensively rather than spread onto the response.
+function toTriggerReferenceDto(
+  reference: WorkflowRunTriggerReference | null | undefined,
+): WorkflowRunTriggerReferenceDto | null {
+  if (!reference) return null;
+  return {
+    repository: reference.repository ?? null,
+    ref: reference.ref ?? null,
+    commit: reference.commit ?? null,
+    actor: reference.actor ?? null,
   };
 }
 
