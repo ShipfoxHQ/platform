@@ -343,10 +343,10 @@ function DecisionRow({
 
   if (decision.decision !== 'triggered' || !decision.runId || !decision.runName) {
     return (
-      <li className="flex min-w-0 items-start gap-inline rounded-6 px-tight py-[6px]">
+      <li className="flex min-w-0 items-start gap-inline rounded-6 p-tight">
         <Icon
           name="cornerDownRightLine"
-          className="mt-[2px] size-14 shrink-0 text-foreground-neutral-disabled"
+          className="size-14 shrink-0 text-foreground-neutral-disabled"
           aria-hidden="true"
         />
         <div className="flex min-w-0 flex-col gap-tight">
@@ -371,7 +371,7 @@ function DecisionRow({
     <>
       <Icon
         name="cornerDownRightLine"
-        className="mt-[3px] size-14 shrink-0 text-foreground-neutral-muted"
+        className="size-14 shrink-0 text-foreground-neutral-muted"
         aria-hidden="true"
       />
       <span className="flex min-w-0 flex-col gap-tight">
@@ -385,7 +385,7 @@ function DecisionRow({
     </>
   );
   const rowClassName =
-    'flex min-w-0 items-start gap-inline rounded-6 px-tight py-[6px] hover:bg-background-components-hover focus-visible:outline-none focus-visible:shadow-button-neutral-focus';
+    'flex min-w-0 items-start gap-inline rounded-6 p-tight hover:bg-background-components-hover focus-visible:outline-none focus-visible:shadow-button-neutral-focus';
 
   return (
     <li>
@@ -420,7 +420,7 @@ function EventPayload({payload}: {payload: string}) {
         data={data}
         className="flex h-auto flex-col overflow-visible rounded-8 bg-background-contrast-base shadow-none"
       >
-        <CodeBlockHeader className="sticky top-0 z-10 shrink-0 border-b border-border-contrast-base bg-background-contrast-base px-tight py-[6px]">
+        <CodeBlockHeader className="sticky top-0 z-10 shrink-0 border-b border-border-contrast-base bg-background-contrast-base p-tight">
           <CodeBlockFiles>
             {(item) => <CodeBlockFilename value={item.filename}>{item.filename}</CodeBlockFilename>}
           </CodeBlockFiles>
