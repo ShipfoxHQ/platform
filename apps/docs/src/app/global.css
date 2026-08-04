@@ -41,6 +41,7 @@
   --margin-page: 48px;
 
   --pad-tight: 8px;
+  --pad-menu-surface: 4px;
   --pad-row-x: 16px;
   --pad-row-y: 12px;
   --pad-panel-compact: 16px;
@@ -123,12 +124,20 @@ html {
   padding: var(--pad-tight);
 }
 
+@utility p-menu-surface {
+  padding: var(--pad-menu-surface);
+}
+
 @utility p-panel-compact {
   padding: var(--pad-panel-compact);
 }
 
 @utility p-panel {
   padding: var(--pad-panel);
+}
+
+@utility pb-panel {
+  padding-bottom: var(--pad-panel);
 }
 
 @utility px-tight {

@@ -10,7 +10,7 @@ export function FormBody({children, className}: {children: ReactNode; className?
   return (
     <div
       className={cn(
-        'flex w-full flex-col items-start gap-group bg-background-neutral-base px-frame pt-[16px] pb-[24px]',
+        'flex w-full flex-col items-start gap-group bg-background-neutral-base px-frame pt-[16px] pb-panel',
         className,
       )}
     >

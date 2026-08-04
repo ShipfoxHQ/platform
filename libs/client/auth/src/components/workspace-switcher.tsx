@@ -45,7 +45,7 @@ export function WorkspaceSwitcher({activeWorkspaceId, onSelect}: WorkspaceSwitch
     <Command>
       <CommandInput placeholder="Search workspaces..." />
       <CommandList className="max-h-none overflow-visible overflow-y-visible p-0">
-        <div className="max-h-300 overflow-y-auto overflow-x-hidden p-[4px] scrollbar">
+        <div className="max-h-300 overflow-y-auto overflow-x-hidden p-menu-surface scrollbar">
           <CommandEmpty>No workspaces found.</CommandEmpty>
           <CommandGroup heading="Workspaces">
             {workspaces.map((workspace) => (
@@ -67,7 +67,7 @@ export function WorkspaceSwitcher({activeWorkspaceId, onSelect}: WorkspaceSwitch
           </CommandGroup>
         </div>
         <CommandSeparator alwaysRender className="mx-0" />
-        <CommandGroup forceMount className="p-[4px]">
+        <CommandGroup forceMount className="p-menu-surface">
           <CommandItem value="__create" onSelect={handleCreate} forceMount>
             <Icon name="addLine" className="size-16" />
             Create workspace
