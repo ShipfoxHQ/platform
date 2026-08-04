@@ -56,8 +56,9 @@ describe('checkout destination paths', () => {
     await mkdir(join(workspace, '.GIT', 'nested'), {recursive: true});
     await symlink(join('.GIT', 'nested'), join(workspace, 'alias'));
 
-    await expect(resolveCheckoutPath(workspace, 'alias')).rejects.toMatchObject({
-      name: 'CheckoutPathInvalidError',
+    const rejection = resolveCheckoutPath(workspace, 'alias');
+    await expect(rejection).rejects.toBeInstanceOf(CheckoutPathInvalidError);
+    await expect(rejection).rejects.toMatchObject({
       checkoutPath: 'alias',
     });
   });
