@@ -66,11 +66,11 @@ export type WorkspaceAdminLookupQueryDto = z.infer<typeof workspaceAdminLookupQu
 const CONTROL_OR_FORMAT_CHARACTER_RE = /[\p{Cc}\p{Cf}]/u;
 const workspaceAdministrationReasonSchema = z
   .string()
-  .min(1)
-  .max(512)
   .refine((value) => !CONTROL_OR_FORMAT_CHARACTER_RE.test(value), {
     message: 'must not contain control or format characters',
-  });
+  })
+  .transform((value) => value.trim())
+  .pipe(z.string().min(1).max(512));
 
 export const workspaceAdministrationMutationBodySchema = z.object({
   reason: workspaceAdministrationReasonSchema,
