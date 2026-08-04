@@ -256,6 +256,24 @@ export function withJiraRefreshLock<T>(
   return withJiraRefreshLockClient(connectionId, fn);
 }
 
+export async function withJiraRefreshLockAndWait<T>(
+  connectionId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const deadline = Date.now() + JIRA_INSTALLATION_LOCK_TIMEOUT_MS;
+  let retryDelayMs = JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS;
+
+  while (true) {
+    const attempt = await withJiraRefreshLock(connectionId, fn);
+    if (attempt.acquired) return attempt.value;
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for Jira refresh lock: ${connectionId}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    retryDelayMs = Math.min(retryDelayMs * 2, JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS);
+  }
+}
+
 export function withJiraWebhookRegistrationLock<T>(
   lockKey: string,
   fn: (tx?: unknown) => Promise<T>,

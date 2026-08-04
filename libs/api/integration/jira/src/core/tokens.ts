@@ -11,6 +11,7 @@ import {
   getJiraInstallationByConnectionId,
   updateJiraInstallationTokenExpiry,
   withJiraRefreshLock,
+  withJiraRefreshLockAndWait,
 } from '#db/installations.js';
 
 const ACCESS_TOKEN_KEY = 'ACCESS_TOKEN';
@@ -116,22 +117,24 @@ export function createJiraTokenStore(params: CreateJiraTokenStoreParams): JiraTo
     async storeTokens(input) {
       const credentialGeneration = advanceCredentialGeneration(input.connectionId);
       tokenRefreshes.delete(input.connectionId);
-      await withCredentialWrite(input.connectionId, async () => {
-        if (currentCredentialGeneration(input.connectionId) !== credentialGeneration) return;
-        const workspaceId = await resolveWorkspaceId(input.connectionId);
-        if (currentCredentialGeneration(input.connectionId) !== credentialGeneration) return;
-        const values: Record<string, string> = {[ACCESS_TOKEN_KEY]: input.accessToken};
-        if (input.refreshToken) values[REFRESH_TOKEN_KEY] = input.refreshToken;
-        await params.secrets.setSecrets({
-          workspaceId,
-          namespace: jiraSecretsNamespace(input.connectionId),
-          values,
-          editedBy: input.editedBy,
-        });
-        if (currentCredentialGeneration(input.connectionId) === credentialGeneration) {
-          refreshStateUnknownConnections.delete(input.connectionId);
-        }
-      });
+      await withJiraRefreshLockAndWait(input.connectionId, () =>
+        withCredentialWrite(input.connectionId, async () => {
+          if (currentCredentialGeneration(input.connectionId) !== credentialGeneration) return;
+          const workspaceId = await resolveWorkspaceId(input.connectionId);
+          if (currentCredentialGeneration(input.connectionId) !== credentialGeneration) return;
+          const values: Record<string, string> = {[ACCESS_TOKEN_KEY]: input.accessToken};
+          if (input.refreshToken) values[REFRESH_TOKEN_KEY] = input.refreshToken;
+          await params.secrets.setSecrets({
+            workspaceId,
+            namespace: jiraSecretsNamespace(input.connectionId),
+            values,
+            editedBy: input.editedBy,
+          });
+          if (currentCredentialGeneration(input.connectionId) === credentialGeneration) {
+            refreshStateUnknownConnections.delete(input.connectionId);
+          }
+        }),
+      );
     },
     async getAccessToken(input) {
       await waitForCredentialWrites(input.connectionId);
@@ -316,6 +319,7 @@ async function markConnectionError(params: {
   isCurrentCredentialGeneration(): boolean;
   withCredentialWrite<T>(connectionId: string, operation: () => Promise<T>): Promise<T>;
 }): Promise<void> {
+  if (!params.isCurrentCredentialGeneration()) return;
   try {
     await params.withCredentialWrite(params.connectionId, async () => {
       if (!params.isCurrentCredentialGeneration()) return;

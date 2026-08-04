@@ -1,16 +1,18 @@
-const {getInstallation, updateExpiry, withRefreshLock} = vi.hoisted(() => ({
+const {getInstallation, updateExpiry, withRefreshLock, withRefreshLockAndWait} = vi.hoisted(() => ({
   getInstallation: vi.fn(),
   updateExpiry: vi.fn(),
   withRefreshLock: vi.fn(async (_connectionId: string, fn: () => Promise<string>) => ({
     acquired: true as const,
     value: await fn(),
   })),
+  withRefreshLockAndWait: vi.fn(async (_connectionId: string, fn: () => Promise<void>) => fn()),
 }));
 
 vi.mock('#db/installations.js', () => ({
   getJiraInstallationByConnectionId: getInstallation,
   updateJiraInstallationTokenExpiry: updateExpiry,
   withJiraRefreshLock: withRefreshLock,
+  withJiraRefreshLockAndWait: withRefreshLockAndWait,
 }));
 
 import {JiraIntegrationProviderError, JiraTokenUnrefreshableError} from './errors.js';
@@ -63,6 +65,7 @@ describe('Jira token refresh', () => {
       acquired: true,
       value: await fn(),
     }));
+    withRefreshLockAndWait.mockImplementation(async (_connectionId, fn) => fn());
   });
 
   it('rotates and persists both tokens when the access token expires', async () => {
@@ -200,6 +203,37 @@ describe('Jira token refresh', () => {
     await expect(staleRefresh).rejects.toMatchObject({reason: 'access-denied'});
     await reconnect;
     expect(markConnectionError).toHaveBeenCalledOnce();
+  });
+
+  it('waits for the shared refresh lock before storing reconnect credentials', async () => {
+    const {connectionId, store, values} = createStore();
+    let releaseLock!: () => void;
+    let lockStarted!: () => void;
+    const lockCanFinish = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const lockEntered = new Promise<void>((resolve) => {
+      lockStarted = resolve;
+    });
+    withRefreshLockAndWait.mockImplementationOnce(async (_connectionId, fn) => {
+      lockStarted();
+      await lockCanFinish;
+      return fn();
+    });
+
+    const reconnect = store.storeTokens({
+      connectionId,
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+    });
+    await lockEntered;
+
+    expect(values.get('ACCESS_TOKEN')).toBeUndefined();
+    releaseLock();
+    await reconnect;
+    expect(values.get('ACCESS_TOKEN')).toBe('access-1');
+    expect(values.get('REFRESH_TOKEN')).toBe('refresh-1');
+    expect(withRefreshLockAndWait).toHaveBeenCalledWith(connectionId, expect.any(Function));
   });
 
   it('waits for reconnect credentials before starting another refresh', async () => {
