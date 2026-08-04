@@ -97,7 +97,10 @@ export async function readChangedPublishablePackages(
     .split('\n')
     .filter((path) => path.endsWith('/package.json'))
     .map((path) => resolve(root, path));
-  return readChangesetPublishablePackages(root, changedPaths);
+  return readChangesetPublishablePackages(
+    root,
+    changedPaths.filter((manifestPath) => existsSync(manifestPath)),
+  );
 }
 
 async function readChangesetIgnoreList(root: string): Promise<ReadonlySet<string>> {
