@@ -90,7 +90,7 @@ export function workflowRunJobSummaryDto(
 ): WorkflowRunJobSummaryDto {
   jobSummarySequence += 1;
   return {
-    id: `${JOB_SUMMARY_ID_PREFIX}${String(jobSummarySequence).padStart(6, '0')}`,
+    id: `${JOB_SUMMARY_ID_PREFIX}${String(jobSummarySequence).padStart(11, '0')}`,
     key: `job-${jobSummarySequence}`,
     name: null,
     status: 'succeeded',

@@ -60,7 +60,7 @@ describe('WorkflowRunListView', () => {
       ]);
 
       await selectFilterOption(user, 'Status', 'Failed');
-      await selectFilterOption(user, 'Status · 1', 'Succeeded');
+      await selectFilterOption(user, 'Status', 'Succeeded');
 
       expect(screen.getByText('integration-tests')).toBeInTheDocument();
       expect(screen.getByText('build-image')).toBeInTheDocument();
@@ -131,9 +131,10 @@ describe('WorkflowRunListView', () => {
 
       await selectFilterOption(user, 'Status', 'Failed');
 
-      expect(screen.getByRole('button', {name: 'Status filter'})).toHaveTextContent(
-        'Status: Failed',
-      );
+      const trigger = screen.getByRole('button', {name: filterTrigger('Status')});
+      expect(trigger).toHaveTextContent('Status: Failed');
+      // The value is in the accessible name too, not just the visible label.
+      expect(trigger).toHaveAccessibleName('Status: Failed filter');
     });
 
     test('restores every row after the filters are cleared', async () => {
@@ -332,7 +333,7 @@ describe('WorkflowRunListView', () => {
     test('counts the jobs it had to hide beyond the strip threshold', async () => {
       renderListView([run('running', 'deploy-web', 'run-1', {...workflowRunJobsOfStatus(40)})]);
 
-      expect(await screen.findByText('+32')).toBeInTheDocument();
+      expect(await screen.findByText('+33')).toBeInTheDocument();
       expect(screen.getByRole('img', {name: '40 jobs: 40 succeeded'})).toBeInTheDocument();
     });
 
@@ -350,7 +351,7 @@ describe('WorkflowRunListView', () => {
         name: '21 jobs: 1 failed, 20 succeeded',
       });
       expect(strip).toBeInTheDocument();
-      expect(screen.getByText('+13')).toBeInTheDocument();
+      expect(screen.getByText('+14')).toBeInTheDocument();
       expect(within(strip).getByLabelText('Failed')).toBeInTheDocument();
     });
 
@@ -452,12 +453,17 @@ function renderListView(
   );
 }
 
+/** Matches a filter trigger by its label, whatever value it currently reports. */
+function filterTrigger(label: string): RegExp {
+  return new RegExp(`^${label}\\b.*filter$`, 'u');
+}
+
 async function selectFilterOption(
   user: ReturnType<typeof userEvent.setup>,
-  trigger: string,
+  label: string,
   option: string,
 ) {
-  await user.click(await screen.findByRole('button', {name: `${trigger.split(' ·')[0]} filter`}));
+  await user.click(await screen.findByRole('button', {name: filterTrigger(label)}));
   const menu = await screen.findByRole('menu');
   await user.click(within(menu).getByRole('menuitemcheckbox', {name: option}));
   await user.keyboard('{Escape}');

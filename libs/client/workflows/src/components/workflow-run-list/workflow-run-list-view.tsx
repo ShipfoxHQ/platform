@@ -47,9 +47,11 @@ export function WorkflowRunListView({
   }
 
   function handleClearFilters() {
-    if (onClearFilters) onClearFilters();
-    else if (onFiltersChange) onFiltersChange(CLEAR_ALL_FILTERS);
-    else setLocalSearch(clearWorkflowRunFilters);
+    // Uncontrolled, the view owns the filters, so it clears them itself and still reports the
+    // change; a caller that passes only `onClearFilters` would otherwise see nothing happen.
+    if (!onFiltersChange) setLocalSearch(clearWorkflowRunFilters);
+    else if (!onClearFilters) onFiltersChange(CLEAR_ALL_FILTERS);
+    onClearFilters?.();
   }
 
   return (

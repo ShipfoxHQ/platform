@@ -39,6 +39,7 @@ export function WorkflowRunFilterMenu({
   className,
 }: WorkflowRunFilterMenuProps) {
   const active = selected.length > 0;
+  const triggerText = triggerLabel(label, options, selected);
 
   function toggle(value: string) {
     onChange(
@@ -54,10 +55,12 @@ export function WorkflowRunFilterMenu({
           variant="secondary"
           size="sm"
           iconRight="arrowDownSLine"
-          aria-label={`${label} filter`}
+          // Mirrors the visible label so the selected value is not sighted-only; an aria-label
+          // replaces the button's contents as its accessible name rather than adding to them.
+          aria-label={`${triggerText} filter`}
           className={cn('max-w-[200px]', !active && 'text-foreground-neutral-subtle', className)}
         >
-          <span className="min-w-0 truncate">{triggerLabel(label, options, selected)}</span>
+          <span className="min-w-0 truncate">{triggerText}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-[320px] w-[240px] overflow-y-auto">

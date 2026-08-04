@@ -183,7 +183,10 @@ function RunDateRangeFilter({
     <DateRangePicker
       size="small"
       aria-label="Filter runs by creation date"
-      placeholder="Any date"
+      // The shared picker renders a value only when both bounds are set, so a one-sided filter
+      // would otherwise read as unset. Naming the active bound keeps it visible without
+      // inventing the bound the user did not choose.
+      placeholder={partialDateLabel(search) ?? 'Any date'}
       dateRange={{
         ...(search.after ? {start: fromCalendarDate(search.after)} : {}),
         ...(search.before ? {end: fromCalendarDate(search.before)} : {}),
@@ -211,6 +214,14 @@ function ClearFiltersButton({onClear}: {onClear: () => void}) {
       Clear filters
     </Button>
   );
+}
+
+/** Describes a bound the picker cannot display on its own, or nothing when it can. */
+function partialDateLabel(search: WorkflowRunsSearch): string | undefined {
+  if (search.after && search.before) return undefined;
+  if (search.after) return `From ${search.after}`;
+  if (search.before) return `Until ${search.before}`;
+  return undefined;
 }
 
 function toOptions(values: readonly string[]): WorkflowRunFilterOption[] {

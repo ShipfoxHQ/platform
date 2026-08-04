@@ -64,8 +64,9 @@ function listResponse(
 }
 
 function detail(params: Partial<WorkflowRunDetailResponseDto> = {}): WorkflowRunDetailResponseDto {
+  const {job_status_counts: _listOnly, ...listItem} = run(params);
   return {
-    ...run(params),
+    ...listItem,
     run_attempt: params.run_attempt ?? {
       id: attemptId,
       workflow_run_id: params.id ?? runId,

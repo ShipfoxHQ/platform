@@ -6,11 +6,14 @@ import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-ic
 import type {JobStatus, WorkflowRunJobSummary, WorkflowRunJobs} from '#core/workflow-run.js';
 
 /**
- * How many glyphs fit the strip's column before it starts costing the run name width. This
- * sits under the API's preview bound, so narrowing or widening the strip is a change here
- * alone.
+ * How many glyphs fit the strip's column before it starts costing the run name width.
+ *
+ * Sized so the widest case still fits the row's 160px strip column: seven 12px glyphs with
+ * 3px gaps is 102px, and the overflow indicator adds a glyph plus a monospace count, up to
+ * about 56px at four digits. Overshooting does not wrap, it paints over the duration column.
+ * This sits under the API's preview bound, so resizing the strip is a change in this file.
  */
-const MAX_VISIBLE_JOBS = 8;
+const MAX_VISIBLE_JOBS = 7;
 const GLYPH_SIZE = 12;
 const MAX_TOOLTIP_JOB_NAMES = 6;
 

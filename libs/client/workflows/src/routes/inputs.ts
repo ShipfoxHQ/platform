@@ -195,10 +195,15 @@ function repeatable(value: unknown): string[] {
 function calendarDate(value: unknown): string | undefined {
   if (typeof value !== 'string' || !CALENDAR_DATE_PATTERN.test(value)) return undefined;
   // Rejects a well-shaped but impossible date such as 2026-02-31, which Date rolls forward.
+  // Parsed as UTC: whether `2026-05-01` is a real date does not depend on the reader's zone,
+  // and a local-time parse would reject a day the reader's zone skipped outright.
   const [year, month, day] = value.split('-').map(Number) as [number, number, number];
-  const parsed = new Date(year, month - 1, day);
+  const parsed = new Date(`${value}T00:00:00.000Z`);
   const isRealDate =
-    parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day;
   return isRealDate ? value : undefined;
 }
 

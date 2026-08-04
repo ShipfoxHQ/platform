@@ -23,6 +23,7 @@ function makeQuery(overrides: Partial<WorkflowRunListQuery> = {}): WorkflowRunLi
 }
 
 const JOB_STRIP_NAME = /jobs:/u;
+const STATUS_FILTER = /^Status\b.*filter$/u;
 
 let commitSequence = 0;
 
@@ -200,7 +201,7 @@ export const TestNoMatches: Story = {
 export const TestMultiSelectFilter: Story = {
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole('button', {name: 'Status filter'}));
+    await userEvent.click(canvas.getByRole('button', {name: STATUS_FILTER}));
     const menu = await within(document.body).findByRole('menu');
     await userEvent.click(within(menu).getByRole('menuitemcheckbox', {name: 'Failed'}));
     await userEvent.click(within(menu).getByRole('menuitemcheckbox', {name: 'Cancelled'}));
@@ -208,7 +209,7 @@ export const TestMultiSelectFilter: Story = {
 
     // Radix keeps the rest of the document `aria-hidden` until the menu finishes closing, so
     // the trigger is queried with a retrying matcher rather than read on the next tick.
-    await expect(await canvas.findByRole('button', {name: 'Status filter'})).toHaveTextContent(
+    await expect(await canvas.findByRole('button', {name: STATUS_FILTER})).toHaveTextContent(
       'Status · 2',
     );
     await expect(canvas.getByText('integration-tests')).toBeInTheDocument();

@@ -87,7 +87,7 @@ export function WorkflowRunRow({
           {run.number !== null ? <WorkflowRunNumberLabel run={run} /> : null}
         </span>
 
-        <span className="flex min-w-0 items-center gap-10 text-foreground-neutral-subtle @min-[976px]:shrink-0">
+        <span className="flex min-w-0 flex-wrap items-center gap-10 text-foreground-neutral-subtle @min-[976px]:flex-nowrap @min-[976px]:shrink-0">
           {run.triggerDisplayLabel ? <TriggerLabel run={run} /> : null}
           {branch ? <BranchLabel branch={branch} isPullRequest={branch.startsWith('#')} /> : null}
           {commit ? <CommitLabel commit={commit} /> : null}
@@ -96,9 +96,10 @@ export function WorkflowRunRow({
       </div>
 
       <span className="flex shrink-0 items-center gap-12">
-        {/* The column keeps its width even when a run has no jobs planned yet, so duration and
-            time stay in line down the list instead of stepping in and out. */}
-        <span className="hidden w-136 @min-[1040px]:flex">
+        {/* Fixed at the strip's worst case (see MAX_VISIBLE_JOBS) so the overflow count cannot
+            paint over the duration, and kept even when a run has no jobs planned yet, so the
+            numerics stay in line down the list instead of stepping in and out. */}
+        <span className="hidden w-160 @min-[1040px]:flex">
           <JobStatusStrip jobs={run.jobs} />
         </span>
         <span className="flex w-64 justify-end">

@@ -38,6 +38,7 @@ const DEPLOY_WEB_RE = /deploy-web/u;
 const OLDER_RUN_RE = /older-run/u;
 const INTEGRATION_TESTS_RE = /integration-tests/u;
 const BUILD_IMAGE_RE = /build-image/u;
+const STATUS_FILTER_RE = /^Status\b.*filter$/u;
 const EXECUTION_ONE_MENU_ITEM = /Execution #1: deploy review #1/u;
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_OVERRIDES = {
@@ -114,7 +115,7 @@ describe('WorkflowRunPages', () => {
 
     const {router} = renderRunsPath('?status=failed');
 
-    await user.click(await screen.findByRole('button', {name: 'Status filter'}));
+    await user.click(await screen.findByRole('button', {name: STATUS_FILTER_RE}));
     await user.click(await screen.findByRole('menuitemcheckbox', {name: 'Running'}));
 
     await waitFor(() => {
