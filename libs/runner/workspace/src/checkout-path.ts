@@ -56,6 +56,7 @@ export function assertCheckoutPath(checkoutPath: unknown): asserts checkoutPath 
 export async function normalizeCheckoutDestination(
   jobWorkspace: string,
   destination: string,
+  invalidPath: unknown = destination,
 ): Promise<string> {
   const resolvedWorkspace = await realpath(jobWorkspace);
   const resolvedCandidate = await resolveExistingPrefix(destination);
@@ -64,7 +65,7 @@ export async function normalizeCheckoutDestination(
     !isWithin(resolvedWorkspace, resolvedCandidate) ||
     containsGitSegment(resolvedWorkspace, resolvedCandidate)
   ) {
-    throw new CheckoutPathInvalidError(destination);
+    throw new CheckoutPathInvalidError(invalidPath);
   }
 
   return resolvedCandidate;
@@ -79,7 +80,7 @@ export function resolveCheckoutPath(jobWorkspace: string, checkoutPath: unknown)
   assertCheckoutPath(checkoutPath);
 
   const lexicalCandidate = resolve(jobWorkspace, checkoutPath);
-  return normalizeCheckoutDestination(jobWorkspace, lexicalCandidate);
+  return normalizeCheckoutDestination(jobWorkspace, lexicalCandidate, checkoutPath);
 }
 
 export async function inspectCheckoutDestination(

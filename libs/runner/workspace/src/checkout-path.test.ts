@@ -56,7 +56,10 @@ describe('checkout destination paths', () => {
     await mkdir(join(workspace, '.GIT', 'nested'), {recursive: true});
     await symlink(join('.GIT', 'nested'), join(workspace, 'alias'));
 
-    await expect(resolveCheckoutPath(workspace, 'alias')).rejects.toThrow(CheckoutPathInvalidError);
+    await expect(resolveCheckoutPath(workspace, 'alias')).rejects.toMatchObject({
+      name: 'CheckoutPathInvalidError',
+      checkoutPath: 'alias',
+    });
   });
 
   it('rejects a symlink that resolves outside the job workspace', async () => {
