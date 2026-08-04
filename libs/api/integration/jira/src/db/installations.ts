@@ -11,17 +11,16 @@ import {jiraInstallations, toJiraInstallation} from './schema/installations.js';
 
 export type JiraInstallationLock = <T>(lockKey: string, fn: () => Promise<T>) => Promise<T>;
 
-const JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS = 100;
-const JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS = 1_000;
-const JIRA_INSTALLATION_LOCK_TIMEOUT_MS = 30_000;
+const JIRA_ADVISORY_LOCK_RETRY_DELAY_MS = 100;
+const JIRA_ADVISORY_LOCK_MAX_RETRY_DELAY_MS = 1_000;
+const JIRA_ADVISORY_LOCK_TIMEOUT_MS = 30_000;
 
-export async function withJiraInstallationLock<T>(lockKey: string, fn: () => Promise<T>) {
+type JiraAdvisoryLockAttempt<T> = {acquired: true; value: T} | {acquired: false};
+
+export function withJiraInstallationLock<T>(lockKey: string, fn: () => Promise<T>) {
   const advisoryKey = `jira-installation:${lockKey}`;
-  const deadline = Date.now() + JIRA_INSTALLATION_LOCK_TIMEOUT_MS;
-  let retryDelayMs = JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS;
-
-  while (true) {
-    const attempt = await withPostgresSession(async (client) => {
+  return withJiraAdvisoryLockWait(`Jira installation lock: ${lockKey}`, () =>
+    withPostgresSession(async (client) => {
       const lock = await client.query<{acquired: boolean}>(
         'SELECT pg_try_advisory_lock(hashtext($1)) AS acquired',
         [advisoryKey],
@@ -33,15 +32,8 @@ export async function withJiraInstallationLock<T>(lockKey: string, fn: () => Pro
       } finally {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [advisoryKey]);
       }
-    });
-
-    if (attempt.acquired) return attempt.value;
-    if (Date.now() >= deadline) {
-      throw new Error(`Timed out waiting for Jira installation lock: ${lockKey}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    retryDelayMs = Math.min(retryDelayMs * 2, JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS);
-  }
+    }),
+  );
 }
 
 export type JiraInstallationStatus = 'installed' | 'revoked';
@@ -247,7 +239,7 @@ export async function deleteJiraInstallationByConnectionId(
   return (result.rowCount ?? 0) > 0;
 }
 
-export type JiraRefreshLockResult<T> = {acquired: true; value: T} | {acquired: false};
+export type JiraRefreshLockResult<T> = JiraAdvisoryLockAttempt<T>;
 
 export function withJiraRefreshLock<T>(
   connectionId: string,
@@ -256,22 +248,13 @@ export function withJiraRefreshLock<T>(
   return withJiraRefreshLockClient(connectionId, fn);
 }
 
-export async function withJiraRefreshLockAndWait<T>(
+export function withJiraRefreshLockAndWait<T>(
   connectionId: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const deadline = Date.now() + JIRA_INSTALLATION_LOCK_TIMEOUT_MS;
-  let retryDelayMs = JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS;
-
-  while (true) {
-    const attempt = await withJiraRefreshLock(connectionId, fn);
-    if (attempt.acquired) return attempt.value;
-    if (Date.now() >= deadline) {
-      throw new Error(`Timed out waiting for Jira refresh lock: ${connectionId}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    retryDelayMs = Math.min(retryDelayMs * 2, JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS);
-  }
+  return withJiraAdvisoryLockWait(`Jira refresh lock: ${connectionId}`, () =>
+    withJiraRefreshLock(connectionId, fn),
+  );
 }
 
 export function withJiraWebhookRegistrationLock<T>(
@@ -301,6 +284,22 @@ async function withJiraRefreshLockClient<T>(
     } finally {
       client.release();
     }
+  }
+}
+
+async function withJiraAdvisoryLockWait<T>(
+  lockDescription: string,
+  attemptLock: () => Promise<JiraAdvisoryLockAttempt<T>>,
+): Promise<T> {
+  const deadline = Date.now() + JIRA_ADVISORY_LOCK_TIMEOUT_MS;
+  let retryDelayMs = JIRA_ADVISORY_LOCK_RETRY_DELAY_MS;
+
+  while (true) {
+    const attempt = await attemptLock();
+    if (attempt.acquired) return attempt.value;
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${lockDescription}`);
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    retryDelayMs = Math.min(retryDelayMs * 2, JIRA_ADVISORY_LOCK_MAX_RETRY_DELAY_MS);
   }
 }
 
