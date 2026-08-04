@@ -272,6 +272,12 @@ export async function mapJiraError<T>(operation: string, request: () => Promise<
       if (status === 401 || status === 403) {
         throw new JiraIntegrationProviderError('access-denied', 'Jira request was rejected');
       }
+      if (status === 400 && operation === 'refresh-access-token') {
+        throw new JiraIntegrationProviderError(
+          'access-denied',
+          'Jira refresh token was rejected; reconnect is required',
+        );
+      }
       throw malformed('Jira request was rejected');
     }
     if (error instanceof TimeoutError) {

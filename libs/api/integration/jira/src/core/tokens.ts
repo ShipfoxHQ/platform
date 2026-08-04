@@ -1,3 +1,5 @@
+import type {IntegrationConnectionLifecycleStatus} from '@shipfox/api-integration-spi';
+import {logger} from '@shipfox/node-opentelemetry';
 import {createJiraApiClient, type JiraApiClient} from '#api/client.js';
 import {
   JiraAccessTokenMissingError,
@@ -14,10 +16,10 @@ import {
 const ACCESS_TOKEN_KEY = 'ACCESS_TOKEN';
 const REFRESH_TOKEN_KEY = 'REFRESH_TOKEN';
 const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
-const tokenRefreshes = new Map<string, Promise<string>>();
 
 export interface JiraConnectionResolverResult {
   workspaceId: string;
+  lifecycleStatus: IntegrationConnectionLifecycleStatus;
 }
 
 export interface JiraSecretsStore {
@@ -60,10 +62,18 @@ export function jiraSecretsNamespace(connectionId: string): string {
 
 export function createJiraTokenStore(params: CreateJiraTokenStoreParams): JiraTokenStore {
   const client = params.client ?? createJiraApiClient();
-  async function resolveWorkspaceId(connectionId: string): Promise<string> {
+  const tokenRefreshes = new Map<string, Promise<string>>();
+  const refreshStateUnknownConnections = new Set<string>();
+  async function resolveConnection(connectionId: string): Promise<JiraConnectionResolverResult> {
     const connection = await params.resolveConnection(connectionId);
     if (!connection) throw new JiraConnectionNotFoundError(connectionId);
-    return connection.workspaceId;
+    return connection;
+  }
+  async function resolveWorkspaceId(connectionId: string): Promise<string> {
+    return (await resolveConnection(connectionId)).workspaceId;
+  }
+  function clearTokenRefresh(connectionId: string, refresh: Promise<string>): void {
+    if (tokenRefreshes.get(connectionId) === refresh) tokenRefreshes.delete(connectionId);
   }
   const readSecretToken = (
     workspaceId: string,
@@ -87,9 +97,17 @@ export function createJiraTokenStore(params: CreateJiraTokenStoreParams): JiraTo
         values,
         editedBy: input.editedBy,
       });
+      refreshStateUnknownConnections.delete(input.connectionId);
     },
     async getAccessToken(input) {
-      const workspaceId = await resolveWorkspaceId(input.connectionId);
+      const connection = await resolveConnection(input.connectionId);
+      if (connection.lifecycleStatus !== 'active') {
+        throw new JiraTokenUnrefreshableError(input.connectionId);
+      }
+      if (refreshStateUnknownConnections.has(input.connectionId)) {
+        throw new JiraTokenUnrefreshableError(input.connectionId);
+      }
+      const workspaceId = connection.workspaceId;
       const accessToken = await readAccessToken(workspaceId, input.connectionId);
       if (
         !input.forceRefresh &&
@@ -114,7 +132,12 @@ export function createJiraTokenStore(params: CreateJiraTokenStoreParams): JiraTo
       tokenRefreshes.set(input.connectionId, refresh);
       void refresh.then(
         () => clearTokenRefresh(input.connectionId, refresh),
-        () => clearTokenRefresh(input.connectionId, refresh),
+        (error) => {
+          if (isTerminalRefreshFailure(error)) {
+            refreshStateUnknownConnections.add(input.connectionId);
+          }
+          clearTokenRefresh(input.connectionId, refresh);
+        },
       );
       return refresh;
     },
@@ -123,10 +146,6 @@ export function createJiraTokenStore(params: CreateJiraTokenStoreParams): JiraTo
 
 function shouldRefresh(expiresAt: Date | null): boolean {
   return expiresAt !== null && expiresAt.getTime() <= Date.now() + TOKEN_REFRESH_MARGIN_MS;
-}
-
-function clearTokenRefresh(connectionId: string, refresh: Promise<string>): void {
-  if (tokenRefreshes.get(connectionId) === refresh) tokenRefreshes.delete(connectionId);
 }
 
 async function refreshAccessTokenWithLock(params: {
@@ -206,9 +225,30 @@ async function refreshAccessTokenForConnection(params: {
     });
     return refreshed.accessToken;
   } catch (error) {
-    if (error instanceof JiraIntegrationProviderError && error.reason === 'access-denied') {
-      await params.markConnectionError?.({connectionId: params.connectionId});
+    if (isTerminalRefreshFailure(error)) {
+      await markConnectionError(params.markConnectionError, params.connectionId);
     }
     throw error;
+  }
+}
+
+function isTerminalRefreshFailure(error: unknown): boolean {
+  return (
+    error instanceof JiraIntegrationProviderError &&
+    (error.reason === 'access-denied' || error.reason === 'timeout')
+  );
+}
+
+async function markConnectionError(
+  markConnectionErrorCallback: CreateJiraTokenStoreParams['markConnectionError'],
+  connectionId: string,
+): Promise<void> {
+  try {
+    await markConnectionErrorCallback?.({connectionId});
+  } catch (error) {
+    logger().warn(
+      {err: error, connectionId},
+      'Jira connection error-state update failed after token refresh failure',
+    );
   }
 }

@@ -1,6 +1,6 @@
 import {isUniqueViolation} from '@shipfox/node-drizzle';
 import {pgClient, withPostgresSession} from '@shipfox/node-postgres';
-import {eq, sql} from 'drizzle-orm';
+import {and, asc, eq, lte, sql} from 'drizzle-orm';
 import {
   JiraConnectionAlreadyLinkedError,
   JiraInstallationAlreadyLinkedError,
@@ -58,6 +58,8 @@ export interface JiraInstallation {
   webhookExpiresAt: Date | null;
   status: JiraInstallationStatus;
   tokenExpiresAt: Date | null;
+  refreshTokenLastUsedAt: Date;
+  refreshTokenLastAttemptedAt: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -73,6 +75,8 @@ export interface UpsertJiraInstallationParams {
   webhookExpiresAt?: Date | null | undefined;
   status: JiraInstallationStatus;
   tokenExpiresAt?: Date | null | undefined;
+  refreshTokenLastUsedAt?: Date | undefined;
+  refreshTokenLastAttemptedAt?: Date | undefined;
 }
 
 export interface UpdateJiraInstallationTokenExpiryParams {
@@ -111,6 +115,8 @@ export async function upsertJiraInstallation(
         webhookExpiresAt: params.webhookExpiresAt ?? null,
         status: params.status,
         tokenExpiresAt: params.tokenExpiresAt ?? null,
+        refreshTokenLastUsedAt: params.refreshTokenLastUsedAt ?? now,
+        refreshTokenLastAttemptedAt: params.refreshTokenLastAttemptedAt ?? now,
       })
       .onConflictDoUpdate({
         target: jiraInstallations.connectionId,
@@ -127,6 +133,8 @@ export async function upsertJiraInstallation(
             : {webhookExpiresAt: params.webhookExpiresAt}),
           status: params.status,
           tokenExpiresAt: params.tokenExpiresAt ?? null,
+          refreshTokenLastUsedAt: params.refreshTokenLastUsedAt ?? now,
+          refreshTokenLastAttemptedAt: params.refreshTokenLastAttemptedAt ?? now,
           updatedAt: now,
         },
       })
@@ -164,16 +172,51 @@ export async function updateJiraInstallationTokenExpiry(
   options: {tx?: unknown} = {},
 ): Promise<JiraInstallation | undefined> {
   const executor = (options.tx ?? db()) as JiraDb | JiraTx;
+  const now = new Date();
   const [row] = await executor
     .update(jiraInstallations)
     .set({
       tokenExpiresAt: params.tokenExpiresAt,
+      refreshTokenLastUsedAt: now,
+      refreshTokenLastAttemptedAt: now,
       ...(params.scopes === undefined ? {} : {scopes: params.scopes}),
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .where(eq(jiraInstallations.connectionId, params.connectionId))
     .returning();
   return row ? toJiraInstallation(row) : undefined;
+}
+
+export async function markJiraInstallationTokenRefreshAttempt(
+  connectionId: string,
+  options: {tx?: unknown} = {},
+): Promise<JiraInstallation | undefined> {
+  const executor = (options.tx ?? db()) as JiraDb | JiraTx;
+  const [row] = await executor
+    .update(jiraInstallations)
+    .set({refreshTokenLastAttemptedAt: new Date()})
+    .where(eq(jiraInstallations.connectionId, connectionId))
+    .returning();
+  return row ? toJiraInstallation(row) : undefined;
+}
+
+export async function listJiraInstallationsDueForTokenRefresh(
+  params: {before: Date; limit?: number | undefined},
+  options: {tx?: unknown} = {},
+): Promise<JiraInstallation[]> {
+  const executor = (options.tx ?? db()) as JiraDb | JiraTx;
+  const rows = await executor
+    .select()
+    .from(jiraInstallations)
+    .where(
+      and(
+        eq(jiraInstallations.status, 'installed'),
+        lte(jiraInstallations.refreshTokenLastUsedAt, params.before),
+      ),
+    )
+    .orderBy(asc(jiraInstallations.refreshTokenLastAttemptedAt))
+    .limit(params.limit ?? 100);
+  return rows.map(toJiraInstallation);
 }
 
 export async function updateJiraInstallationWebhook(

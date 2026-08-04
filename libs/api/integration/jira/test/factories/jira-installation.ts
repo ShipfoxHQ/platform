@@ -14,6 +14,8 @@ export const jiraInstallationFactory = Factory.define<JiraInstallation>(({sequen
       webhookExpiresAt: installation.webhookExpiresAt,
       status: installation.status,
       tokenExpiresAt: installation.tokenExpiresAt,
+      refreshTokenLastUsedAt: installation.refreshTokenLastUsedAt,
+      refreshTokenLastAttemptedAt: installation.refreshTokenLastAttemptedAt,
     }),
   );
 
@@ -29,6 +31,8 @@ export const jiraInstallationFactory = Factory.define<JiraInstallation>(({sequen
     webhookExpiresAt: null,
     status: 'installed',
     tokenExpiresAt: null,
+    refreshTokenLastUsedAt: new Date(),
+    refreshTokenLastAttemptedAt: new Date(),
     createdAt: new Date(),
     updatedAt: new Date(),
   };

@@ -48,6 +48,12 @@ describe('mapJiraError', () => {
       reason,
     } satisfies Partial<JiraIntegrationProviderError>);
   });
+
+  it('treats a rejected refresh-token request as requiring reconnect', async () => {
+    const result = mapJiraError('refresh-access-token', rejectedRequest(400));
+
+    await expect(result).rejects.toMatchObject({reason: 'access-denied'});
+  });
 });
 
 function resolves(data: unknown) {

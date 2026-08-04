@@ -7,7 +7,9 @@ import {
   getJiraInstallationByCloudId,
   getJiraInstallationByConnectionId,
   getJiraInstallationByWebhookId,
+  listJiraInstallationsDueForTokenRefresh,
   markJiraInstallationRevoked,
+  markJiraInstallationTokenRefreshAttempt,
   updateJiraInstallationTokenExpiry,
   updateJiraInstallationWebhook,
   upsertJiraInstallation,
@@ -121,9 +123,18 @@ describe('jira installations', () => {
   });
 
   it('updates token metadata and deletes an installation', async () => {
-    const input = createInstallationInput();
-    await upsertJiraInstallation(input);
+    const input = createInstallationInput({
+      refreshTokenLastUsedAt: new Date('2020-01-01T00:00:00.000Z'),
+      refreshTokenLastAttemptedAt: new Date('2020-01-01T00:00:00.000Z'),
+    });
+    const initial = await upsertJiraInstallation(input);
     const tokenExpiresAt = new Date('2030-01-01T00:00:00.000Z');
+
+    const attempted = await markJiraInstallationTokenRefreshAttempt(input.connectionId);
+
+    expect(attempted?.refreshTokenLastAttemptedAt.getTime()).toBeGreaterThan(
+      initial.refreshTokenLastAttemptedAt.getTime(),
+    );
 
     const updated = await updateJiraInstallationTokenExpiry({
       connectionId: input.connectionId,
@@ -133,8 +144,79 @@ describe('jira installations', () => {
     const deleted = await deleteJiraInstallationByConnectionId(input.connectionId);
 
     expect(updated).toMatchObject({tokenExpiresAt, scopes: ['read:jira-work', 'write:jira-work']});
+    expect(updated?.refreshTokenLastUsedAt.getTime()).toBeGreaterThan(
+      initial.refreshTokenLastUsedAt.getTime(),
+    );
     expect(deleted).toBe(true);
     await expect(getJiraInstallationByConnectionId(input.connectionId)).resolves.toBeUndefined();
+  });
+
+  it('lists only installed installations whose refresh tokens are nearing idle expiry', async () => {
+    const due = createInstallationInput({
+      refreshTokenLastUsedAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const fresh = createInstallationInput({
+      refreshTokenLastUsedAt: new Date('2026-07-01T00:00:00.000Z'),
+    });
+    const boundary = createInstallationInput({
+      refreshTokenLastUsedAt: new Date('2026-06-01T00:00:00.000Z'),
+    });
+    const revoked = createInstallationInput({
+      refreshTokenLastUsedAt: new Date('2026-01-01T00:00:00.000Z'),
+      status: 'revoked',
+    });
+    await upsertJiraInstallation(due);
+    await upsertJiraInstallation(fresh);
+    await upsertJiraInstallation(boundary);
+    await upsertJiraInstallation(revoked);
+
+    const result = await listJiraInstallationsDueForTokenRefresh({
+      before: new Date('2026-06-01T00:00:00.000Z'),
+    });
+
+    expect(result.map((installation) => installation.connectionId)).toContain(due.connectionId);
+    expect(result.map((installation) => installation.connectionId)).toContain(
+      boundary.connectionId,
+    );
+    expect(result.map((installation) => installation.connectionId)).not.toContain(
+      fresh.connectionId,
+    );
+    expect(result.map((installation) => installation.connectionId)).not.toContain(
+      revoked.connectionId,
+    );
+  });
+
+  it('orders due installations by their latest refresh attempt', async () => {
+    const refreshTokenLastUsedAt = new Date('1970-01-01T00:00:00.000Z');
+    const attemptBase = Date.now();
+    const latestAttempt = createInstallationInput({
+      refreshTokenLastUsedAt,
+      refreshTokenLastAttemptedAt: new Date(attemptBase + 3_000),
+    });
+    const middleAttempt = createInstallationInput({
+      refreshTokenLastUsedAt,
+      refreshTokenLastAttemptedAt: new Date(attemptBase + 2_000),
+    });
+    const oldestAttempt = createInstallationInput({
+      refreshTokenLastUsedAt,
+      refreshTokenLastAttemptedAt: new Date(attemptBase + 1_000),
+    });
+    await upsertJiraInstallation(latestAttempt);
+    await upsertJiraInstallation(middleAttempt);
+    await upsertJiraInstallation(oldestAttempt);
+
+    const result = await listJiraInstallationsDueForTokenRefresh({
+      before: new Date('2000-01-01T00:00:00.000Z'),
+      limit: 1_000,
+    });
+    const connectionIds = result.map((installation) => installation.connectionId);
+
+    expect(connectionIds.indexOf(oldestAttempt.connectionId)).toBeLessThan(
+      connectionIds.indexOf(middleAttempt.connectionId),
+    );
+    expect(connectionIds.indexOf(middleAttempt.connectionId)).toBeLessThan(
+      connectionIds.indexOf(latestAttempt.connectionId),
+    );
   });
 
   it('returns undefined for unknown connection and webhook ids', async () => {
