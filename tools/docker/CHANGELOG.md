@@ -1,5 +1,12 @@
 # @shipfox/docker
 
+## 2.0.0
+
+### Major Changes
+
+- 5c56ba6: Moves `@shipfox/docker` to `2.0.0`, clearing versions already occupied on npm by an
+  earlier lineage. No source or exported behaviour changed.
+
 ## 0.1.5
 
 ### Patch Changes

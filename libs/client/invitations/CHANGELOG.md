@@ -1,5 +1,20 @@
 # @shipfox/client-invitations
 
+## 14.0.1
+
+### Patch Changes
+
+- 88bf8e8: Migrates the shell, auth, secrets, logs, workspace-settings, config, and invitations
+  surfaces to semantic spacing roles and brings them under the `no-raw-spacing` Biome
+  plugin. Adds shared menu-surface and edge-specific panel roles for existing spacing
+  contracts.
+- Updated dependencies [88bf8e8]
+- Updated dependencies [6aa6c7a]
+- Updated dependencies [5c56ba6]
+  - @shipfox/react-ui@1.0.0
+  - @shipfox/client-shell@14.0.1
+  - @shipfox/client-ui@14.0.1
+
 ## 14.0.0
 
 ### Patch Changes
