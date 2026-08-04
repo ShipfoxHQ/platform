@@ -5,7 +5,7 @@
     "generate": {
       "cache": true,
       "outputs": ["src/shipfox-app.gen.ts"],
-      "dependsOn": ["^type:emit"]
+      "dependsOn": ["^build", "^type:emit"]
     },
     "build": {
       "dependsOn": ["generate", "^build"],
