@@ -84,6 +84,13 @@ export const clientArchitectureExceptions = {
       test: 'libs/client/integrations/src/pages/linear-callback-page.test.tsx',
     },
     {
+      file: 'libs/client/integrations/src/pages/jira-callback-page.tsx',
+      owner: 'Jira callback coordinator',
+      reason:
+        'The OAuth callback passes the auth cache to the workspace navigation coordinator after multi-site completion.',
+      test: 'libs/client/integrations/src/pages/jira-callback-page.test.tsx',
+    },
+    {
       file: 'libs/client/integrations/src/pages/sentry-callback-page.tsx',
       owner: 'Sentry callback coordinator',
       reason:

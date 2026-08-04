@@ -19,7 +19,10 @@ export function CallbackStatusShell({
   startOver?: boolean;
   switchAccount?: boolean;
   workspaceSlug?: string | undefined;
-  installPath: '/w/$workspaceSlug/integrations/linear' | '/w/$workspaceSlug/integrations/slack';
+  installPath:
+    | '/w/$workspaceSlug/integrations/linear'
+    | '/w/$workspaceSlug/integrations/slack'
+    | '/w/$workspaceSlug/integrations/jira';
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => headingRef.current?.focus(), []);

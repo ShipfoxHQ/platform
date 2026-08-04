@@ -16,6 +16,15 @@ import {
   githubCallbackResponseSchema,
 } from '@shipfox/api-integration-github-dto';
 import type {
+  CompleteJiraSiteSelectionBodyDto,
+  CreateJiraInstallBodyDto,
+  JiraCallbackQueryDto,
+} from '@shipfox/api-integration-jira-dto';
+import {
+  createJiraInstallResponseSchema,
+  jiraCallbackResponseSchema,
+} from '@shipfox/api-integration-jira-dto';
+import type {
   CreateLinearInstallBodyDto,
   LinearCallbackQueryDto,
 } from '@shipfox/api-integration-linear-dto';
@@ -56,14 +65,17 @@ import {
   type IntegrationConnection,
   type IntegrationProvider,
   isUsableConnection,
+  type JiraSite,
   type RepositoryPage,
 } from '#core/models.js';
+import {serializeJiraCallbackQuery} from '#jira-callback.js';
 import {serializeLinearCallbackQuery} from '#linear-callback.js';
 import {serializeSlackCallbackQuery} from '#slack-callback.js';
 import {
   toInstallRedirect,
   toIntegrationConnection,
   toIntegrationProvider,
+  toJiraSite,
   toRepository,
 } from './integration-mapper.js';
 
@@ -261,6 +273,15 @@ export async function createLinearInstall(
   );
 }
 
+export async function createJiraInstall(body: CreateJiraInstallBodyDto): Promise<InstallRedirect> {
+  return toInstallRedirect(
+    await checkedApiRequest(createJiraInstallResponseSchema, '/integrations/jira/install', {
+      method: 'POST',
+      body,
+    }),
+  );
+}
+
 export async function createSlackInstall(
   body: CreateSlackInstallBodyDto,
 ): Promise<InstallRedirect> {
@@ -298,6 +319,44 @@ export async function completeSlackCallback({
     slackCallbackResponseSchema,
     `/integrations/slack/callback/api?${serializeSlackCallbackQuery(query)}`,
     {headers: {authorization: `Bearer ${token}`}},
+  );
+  return toIntegrationConnection(response);
+}
+
+export type JiraCallbackResult = IntegrationConnection | {sites: JiraSite[]};
+
+export async function completeJiraCallback({
+  query,
+  token,
+}: {
+  query: JiraCallbackQueryDto;
+  token: string;
+}): Promise<JiraCallbackResult> {
+  const response = await checkedApiRequest(
+    jiraCallbackResponseSchema,
+    `/integrations/jira/callback/api?${serializeJiraCallbackQuery(query)}`,
+    {headers: {authorization: `Bearer ${token}`}},
+  );
+  return 'sites' in response
+    ? {sites: response.sites.map(toJiraSite)}
+    : toIntegrationConnection(response);
+}
+
+export async function completeJiraSiteSelection({
+  body,
+  token,
+}: {
+  body: CompleteJiraSiteSelectionBodyDto;
+  token: string;
+}): Promise<IntegrationConnection> {
+  const response = await checkedApiRequest(
+    integrationConnectionDtoSchema,
+    '/integrations/jira/callback/site',
+    {
+      method: 'POST',
+      body,
+      headers: {authorization: `Bearer ${token}`},
+    },
   );
   return toIntegrationConnection(response);
 }
@@ -452,12 +511,24 @@ export function useCreateSlackInstallMutation() {
   return useMutation({mutationFn: createSlackInstall});
 }
 
+export function useCreateJiraInstallMutation() {
+  return useMutation({mutationFn: createJiraInstall});
+}
+
 export function useCompleteLinearCallbackMutation() {
   return useMutation({mutationFn: completeLinearCallback});
 }
 
 export function useCompleteSlackCallbackMutation() {
   return useMutation({mutationFn: completeSlackCallback});
+}
+
+export function useCompleteJiraCallbackMutation() {
+  return useMutation({mutationFn: completeJiraCallback});
+}
+
+export function useCompleteJiraSiteSelectionMutation() {
+  return useMutation({mutationFn: completeJiraSiteSelection});
 }
 
 export function useUpdateIntegrationConnectionMutation() {

@@ -3,11 +3,13 @@ import type {
   IntegrationProviderDto,
   RepositoryDto,
 } from '@shipfox/api-integration-core-dto';
+import type {JiraAccessibleResourceDto} from '@shipfox/api-integration-jira-dto';
 import type {WebhookConnectionDto} from '@shipfox/api-integration-webhook-dto';
 import type {
   InstallRedirect,
   IntegrationConnection,
   IntegrationProvider,
+  JiraSite,
   Repository,
   WebhookConnection,
 } from '#core/models.js';
@@ -18,6 +20,10 @@ export function toIntegrationProvider(dto: IntegrationProviderDto): IntegrationP
 
 export function toInstallRedirect(dto: {install_url: string}): InstallRedirect {
   return {installUrl: dto.install_url};
+}
+
+export function toJiraSite(dto: JiraAccessibleResourceDto): JiraSite {
+  return {cloudId: dto.cloud_id, name: dto.name, url: dto.url, scopes: dto.scopes};
 }
 
 export function toIntegrationConnection(dto: IntegrationConnectionDto): IntegrationConnection {

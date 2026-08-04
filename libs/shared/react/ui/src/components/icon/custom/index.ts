@@ -6,6 +6,7 @@ export * from './component-line.js';
 export * from './ellipse-mini-solid.js';
 export * from './gitea-logo.js';
 export * from './info-tooltip-fill.js';
+export * from './jira-logo.js';
 export * from './linear-logo.js';
 export * from './resize.js';
 export * from './sentry-logo.js';

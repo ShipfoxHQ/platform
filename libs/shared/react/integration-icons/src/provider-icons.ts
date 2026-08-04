@@ -7,6 +7,7 @@ export const PROVIDER_ICONS = {
   sentry: 'sentry',
   linear: 'linear',
   slack: 'slack',
+  jira: 'jira',
   gitea: 'gitea',
   webhook: 'webhookLine',
 } as const satisfies Record<string, IconName>;
