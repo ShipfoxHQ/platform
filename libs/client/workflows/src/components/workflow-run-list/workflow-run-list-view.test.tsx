@@ -355,6 +355,20 @@ describe('WorkflowRunListView', () => {
       expect(within(strip).getByLabelText('Failed')).toBeInTheDocument();
     });
 
+    // Nothing caps a workflow's job count, so an exact overflow count is unbounded in width
+    // and would eventually paint over the duration column beside it.
+    test('abbreviates an overflow count too wide to print exactly', async () => {
+      renderListView([
+        run('running', 'huge', 'run-1', {
+          ...workflowRunJobsOfStatus(12_000, 'pending'),
+        }),
+      ]);
+
+      expect(await screen.findByText('+12K')).toBeInTheDocument();
+      // The exact figure survives where a precise number is actually read.
+      expect(screen.getByRole('img', {name: '12000 jobs: 12000 pending'})).toBeInTheDocument();
+    });
+
     test('renders no strip for a run whose jobs are not planned yet', async () => {
       renderListView([run('pending', 'queued-build', 'run-1', {...workflowRunJobsFixture([])})]);
 

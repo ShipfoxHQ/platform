@@ -9,13 +9,27 @@ import type {JobStatus, WorkflowRunJobSummary, WorkflowRunJobs} from '#core/work
  * How many glyphs fit the strip's column before it starts costing the run name width.
  *
  * Sized so the widest case still fits the row's 160px strip column: seven 12px glyphs with
- * 3px gaps is 102px, and the overflow indicator adds a glyph plus a monospace count, up to
- * about 56px at four digits. Overshooting does not wrap, it paints over the duration column.
- * This sits under the API's preview bound, so resizing the strip is a change in this file.
+ * 3px gaps is 102px, and the overflow indicator adds a glyph plus a count of at most five
+ * monospace characters, about 56px. Overshooting does not wrap, it paints over the duration
+ * column. This sits under the API's preview bound, so resizing the strip is a change here.
  */
 const MAX_VISIBLE_JOBS = 7;
 const GLYPH_SIZE = 12;
 const MAX_TOOLTIP_JOB_NAMES = 6;
+
+/**
+ * Above this the overflow count is abbreviated.
+ *
+ * Nothing caps a workflow's job count, so an exact count is unbounded in width and would
+ * eventually push the strip over its column. Abbreviating keeps the label at most five
+ * characters for any magnitude, and the exact figure stays in the tooltip and the strip's
+ * accessible name, which is where a precise number is actually read.
+ */
+const MAX_EXACT_OVERFLOW_COUNT = 999;
+const COMPACT_COUNT_FORMAT = new Intl.NumberFormat('en', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
 
 // Worst-first, so the overflow glyph reports the most alarming thing it is standing in for.
 // A strip that hides a failure behind eight green discs would be worse than no strip at all.
@@ -87,7 +101,7 @@ export function JobStatusStrip({jobs, className}: JobStatusStripProps) {
                   variant="label"
                   className="tabular-nums text-foreground-neutral-muted"
                 >
-                  +{hiddenCount}
+                  +{overflowCountLabel(hiddenCount)}
                 </Code>
               </span>
             ) : null}
@@ -162,6 +176,12 @@ function worstHiddenStatus(
     if (worst === null || STATUS_SEVERITY[status] > STATUS_SEVERITY[worst]) worst = status;
   }
   return worst;
+}
+
+export function overflowCountLabel(hiddenCount: number): string {
+  return hiddenCount <= MAX_EXACT_OVERFLOW_COUNT
+    ? String(hiddenCount)
+    : COMPACT_COUNT_FORMAT.format(hiddenCount);
 }
 
 function countOf(jobs: WorkflowRunJobs, status: JobStatus): number {
