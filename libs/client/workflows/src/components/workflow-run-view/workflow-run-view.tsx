@@ -1,6 +1,8 @@
 import {ApiError} from '@shipfox/client-api';
 import {QueryLoadError} from '@shipfox/client-ui';
+import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
+import {Tabs, TabsContent, TabsContents} from '@shipfox/react-ui/tabs';
 import {toast} from '@shipfox/react-ui/toast';
 import {useNavigate} from '@tanstack/react-router';
 import {useEffect, useId, useRef, useState} from 'react';
@@ -10,6 +12,7 @@ import {
   type StepSourceLocation,
   type WorkflowRunRerunMode,
 } from '#core/workflow-run.js';
+import type {RunAnnotationSummary} from '#core/workflow-run-tabs.js';
 import {
   type WorkflowRunSelectionInput,
   withoutWorkflowRunSelectionSearch,
@@ -19,12 +22,15 @@ import {
   useRerunWorkflowRunMutation,
   useWorkflowRunAttemptQuery,
 } from '#hooks/api/workflow-runs.js';
+import {WORKFLOW_RUN_TABS, type WorkflowRunTab} from '#routes/inputs.js';
 import {JobGraph} from '../job-graph/index.js';
+import type {JobGraphSelectionSource} from '../job-graph/types.js';
 import {WorkflowRunSummary} from '../workflow-run-summary/index.js';
-import {WorkflowSourcePanel} from '../workflow-source-panel/index.js';
-import {JobCard} from './job-card.js';
+import {RunAnnotationsEmpty, RunJobsList, RunTabStrip} from '../workflow-run-tabs/index.js';
+import {WorkflowSourceContent, WorkflowSourcePanel} from '../workflow-source-panel/index.js';
 import {resolveWorkflowRunSelection} from './workflow-run-selection.js';
 import {
+  WorkflowRunContentSkeleton,
   WorkflowRunNotFound,
   WorkflowRunSkeleton,
   WorkflowRunStaleError,
@@ -42,12 +48,14 @@ export interface WorkflowRunViewProps {
   workflowRunId?: string | undefined;
   selection?: WorkflowRunSelectionInput | undefined;
   onSelectionChange?: ((selection: WorkflowRunSelectionInput) => void) | undefined;
+  tab?: WorkflowRunTab | undefined;
+  onTabChange?: ((tab: WorkflowRunTab) => void) | undefined;
+  annotationSummary?: RunAnnotationSummary | undefined;
 }
 
 /**
- * Renders the run for `workflowRunId`, or a skeleton while `workflowRunId` is still unknown (the page is
- * resolving which run to show) or the run is loading, so the page never branches on the
- * loading state itself.
+ * Renders the run for `workflowRunId`, keeping the local tab strip mounted while the run
+ * request is pending so polling never inserts navigation under the user's cursor.
  */
 export function WorkflowRunView({
   projectId,
@@ -56,6 +64,9 @@ export function WorkflowRunView({
   workflowRunId,
   selection,
   onSelectionChange,
+  tab,
+  onTabChange,
+  annotationSummary,
 }: WorkflowRunViewProps) {
   const runQuery = useWorkflowRunAttemptQuery({workflowRunId, runAttempt: selection?.runAttempt});
   const rerunMutation = useRerunWorkflowRunMutation(projectId);
@@ -70,6 +81,9 @@ export function WorkflowRunView({
           rerunMutation={rerunMutation}
           selection={selection}
           onSelectionChange={onSelectionChange}
+          tab={tab}
+          onTabChange={onTabChange}
+          annotationSummary={annotationSummary}
         />
       </div>
     </RelativeTimeProvider>
@@ -83,6 +97,9 @@ function RunViewContent({
   rerunMutation,
   selection,
   onSelectionChange,
+  tab,
+  onTabChange,
+  annotationSummary,
 }: {
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
@@ -90,18 +107,22 @@ function RunViewContent({
   rerunMutation: ReturnType<typeof useRerunWorkflowRunMutation>;
   selection: WorkflowRunSelectionInput | undefined;
   onSelectionChange: ((selection: WorkflowRunSelectionInput) => void) | undefined;
+  tab: WorkflowRunTab | undefined;
+  onTabChange: ((tab: WorkflowRunTab) => void) | undefined;
+  annotationSummary: RunAnnotationSummary | undefined;
 }) {
   const navigate = useNavigate();
   const [selectedJobId, setSelectedJobId] = useState<string | undefined>();
   const [selectedJobExecutionId, setSelectedJobExecutionId] = useState<string | undefined>();
+  const [localTab, setLocalTab] = useState<WorkflowRunTab>(tab ?? 'summary');
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourceFocus, setSourceFocus] = useState<WorkflowSourceFocus | null>(null);
   const sourcePanelId = useId();
-  const sourceButtonRef = useRef<HTMLButtonElement>(null);
-  // The button that last opened the panel (summary or a step detail), so Escape /
-  // Close returns focus to whoever opened it.
+  // The step Source button that last opened the panel, so Escape / Close returns focus to it.
   const lastSourceTriggerRef = useRef<HTMLButtonElement | null>(null);
   const selectionControlled = selection !== undefined;
+  const tabControlled = onTabChange !== undefined;
+  const activeTab = tabControlled ? (tab ?? 'summary') : localTab;
   const sourceAvailable =
     query.data?.sourceSnapshot !== null && query.data?.sourceSnapshot !== undefined;
   const cancelMutation = useCancelWorkflowRunMutation(query.data);
@@ -113,8 +134,8 @@ function RunViewContent({
     }
   }, [sourceAvailable]);
 
-  // If a refetch drops the focused step or its location, degrade to whole-workflow
-  // focus so the panel never points at an unmounted Source button.
+  // If a refetch drops the focused step or its location, close the panel so it never points at
+  // an unmounted Source button.
   useEffect(() => {
     if (!sourceFocus) return;
     const stillLocated = query.data?.jobs.some((job) =>
@@ -124,31 +145,24 @@ function RunViewContent({
     );
     if (!stillLocated) {
       setSourceFocus(null);
-      lastSourceTriggerRef.current = sourceButtonRef.current;
+      setSourcePanelOpen(false);
     }
   }, [sourceFocus, query.data]);
 
-  if (query.isPending) return <WorkflowRunSkeleton />;
-
-  // Only show the full error placeholder when nothing ever loaded. A refetch that fails after
-  // a prior success keeps the loaded run on screen (see below) instead of wiping the pane,
-  // since active-run polling can hit a transient API error.
-  if (query.isError && query.data === undefined) {
-    if (query.error instanceof ApiError && query.error.status === 404) {
-      return <WorkflowRunNotFound />;
-    }
-    return <QueryLoadError query={query} subject="workflow run" icon="pulseLine" />;
-  }
-
-  if (query.data === undefined) return <WorkflowRunSkeleton />;
-
   const runData = query.data;
-  const resolvedSelection = selectionControlled
-    ? resolveWorkflowRunSelection({run: runData, selection})
-    : undefined;
+  const resolvedSelection =
+    selectionControlled && runData
+      ? resolveWorkflowRunSelection({
+          run: runData,
+          selection: selection as WorkflowRunSelectionInput,
+        })
+      : undefined;
+  const hasExplicitJobSelection = Boolean(selection?.jobId || selection?.stepId);
   const selectedJob = selectionControlled
-    ? resolvedSelection?.job
-    : (runData.jobs.find((job) => job.id === selectedJobId) ?? runData.jobs.at(0));
+    ? hasExplicitJobSelection
+      ? resolvedSelection?.job
+      : undefined
+    : (runData?.jobs.find((job) => job.id === selectedJobId) ?? runData?.jobs.at(0));
   const selectedJobExecution = selectionControlled
     ? resolvedSelection?.jobExecution
     : selectedJob
@@ -157,13 +171,32 @@ function RunViewContent({
   const selectedAttemptId = selectionControlled
     ? (resolvedSelection?.selectedAttemptId ?? null)
     : undefined;
-  // Explicit per-step focus wins; fall back to the URL-selected step so deep links
-  // still pre-highlight when the summary opens the whole-workflow source.
+  // Explicit per-step focus wins; fall back to the URL-selected step so deep links still
+  // pre-highlight source in the Source tab.
   const highlightedLineRange =
     sourceFocus?.location ?? resolvedSelection?.step?.sourceLocation ?? null;
-  const sourceSnapshot = runData.sourceSnapshot;
+  const sourceSnapshot = runData?.sourceSnapshot ?? null;
+
+  function changeTab(nextTab: WorkflowRunTab) {
+    if (!tabControlled) {
+      setLocalTab(nextTab);
+    } else if (activeTab !== nextTab) {
+      onTabChange?.(nextTab);
+    }
+
+    if (nextTab !== 'jobs') {
+      setSourcePanelOpen(false);
+      setSourceFocus(null);
+    }
+  }
+
+  function handleTabChange(nextTab: string) {
+    if (!WORKFLOW_RUN_TABS.some((value) => value === nextTab)) return;
+    changeTab(nextTab as WorkflowRunTab);
+  }
+
   async function rerun(mode: WorkflowRunRerunMode) {
-    if (!workspaceSlug || !projectSlug) {
+    if (!runData || !workspaceSlug || !projectSlug) {
       toast.error('Could not start re-run from this route.');
       return;
     }
@@ -185,12 +218,16 @@ function RunViewContent({
     }
   }
 
-  function selectJob(jobId: string | undefined) {
+  function selectJob(jobId: string | undefined, source: JobGraphSelectionSource = 'pointer') {
+    if (source === 'pointer') changeTab('jobs');
     if (!selectionControlled) {
       setSelectedJobId(jobId);
       setSelectedJobExecutionId(undefined);
       return;
     }
+    // Keyboard roving focus is an interaction within the Summary graph. Keep that panel mounted
+    // and let JobGraphView own the visual selection so focus is not moved to a different tab.
+    if (source === 'keyboard') return;
 
     onSelectionChange?.(
       jobId ? {jobId, runAttempt: selection?.runAttempt} : {runAttempt: selection?.runAttempt},
@@ -235,20 +272,6 @@ function RunViewContent({
     });
   }
 
-  function openWholeWorkflowSource() {
-    setSourceFocus(null);
-    lastSourceTriggerRef.current = sourceButtonRef.current;
-    setSourcePanelOpen(true);
-  }
-
-  function toggleWholeWorkflowSource() {
-    if (sourcePanelOpen && sourceFocus === null) {
-      closeSourcePanel();
-      return;
-    }
-    openWholeWorkflowSource();
-  }
-
   function openStepSource(
     stepId: string,
     location: StepSourceLocation,
@@ -261,13 +284,11 @@ function RunViewContent({
 
   function closeSourcePanel() {
     const trigger = lastSourceTriggerRef.current;
-    const fallbackTrigger = sourceButtonRef.current;
     setSourcePanelOpen(false);
-    // Defer so focus lands after the panel unmounts; clear the focus only after
-    // focusing so the opener button is still expanded (force-visible) on return.
+    // Defer so focus lands after the panel unmounts; clear the focus only after focusing so the
+    // opener button is still expanded (force-visible) on return.
     window.setTimeout(() => {
-      const focusTarget = trigger?.isConnected ? trigger : fallbackTrigger;
-      focusTarget?.focus();
+      if (trigger?.isConnected) trigger.focus();
       setSourceFocus(null);
     }, 0);
   }
@@ -280,38 +301,77 @@ function RunViewContent({
     });
   }
 
+  const fatalError = query.isError && runData === undefined;
+  const tabState = fatalError ? (
+    query.error instanceof ApiError && query.error.status === 404 ? (
+      <WorkflowRunNotFound />
+    ) : (
+      <QueryLoadError query={query} subject="workflow run" icon="pulseLine" />
+    )
+  ) : query.isPending || runData === undefined ? (
+    <WorkflowRunContentSkeleton />
+  ) : null;
+
   return (
     <>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <WorkflowRunSummary
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className="flex min-w-0 flex-1 flex-col gap-0"
+      >
+        {runData ? (
+          <WorkflowRunSummary
+            workspaceSlug={workspaceSlug}
+            projectSlug={projectSlug}
+            run={runData}
+            cancelling={cancelMutation.isPending}
+            onCancel={cancelRun}
+            rerunPending={rerunMutation.isPending}
+            onRerun={(mode) => void rerun(mode)}
+            latestAttempt={runData.latestAttempt}
+          />
+        ) : (
+          <WorkflowRunSkeleton />
+        )}
+        {runData && query.isError ? <WorkflowRunStaleError query={query} /> : null}
+        <RunTabStrip
+          jobCount={runData?.jobs.length}
+          jobsFailed={runData?.jobs.filter((job) => job.status === 'failed').length}
+          annotationSummary={annotationSummary}
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
-          run={runData}
-          sourceAvailable={sourceAvailable}
-          sourceOpen={sourcePanelOpen && sourceFocus === null}
-          sourcePanelId={sourcePanelId}
-          sourceButtonRef={sourceButtonRef}
-          onSourceToggle={toggleWholeWorkflowSource}
-          cancelling={cancelMutation.isPending}
-          onCancel={cancelRun}
-          rerunPending={rerunMutation.isPending}
-          onRerun={(mode) => void rerun(mode)}
-          latestAttempt={runData.latestAttempt}
+          workflowRunId={runData?.id}
+          search={selection}
         />
-        {query.isError ? <WorkflowRunStaleError query={query} /> : null}
-        <div className="min-h-0 flex-1 overflow-auto bg-background-neutral-base p-16">
-          <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-16">
-            <JobGraph
-              run={runData}
-              selectedJobId={selectedJob?.id}
-              onSelectedJobChange={selectJob}
-            />
-            {selectedJob ? (
-              <JobCard
+        <TabsContents className="min-h-0 flex-1 overflow-auto bg-background-neutral-base p-16">
+          <TabsContent
+            value="summary"
+            tabIndex={-1}
+            className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 outline-none"
+          >
+            {runData ? (
+              <JobGraph
+                run={runData}
+                selectedJobId={selectedJob?.id}
+                onSelectedJobChange={selectJob}
+              />
+            ) : (
+              tabState
+            )}
+          </TabsContent>
+          <TabsContent
+            value="jobs"
+            tabIndex={-1}
+            className="mx-auto w-full max-w-[1120px] outline-none"
+          >
+            {runData ? (
+              <RunJobsList
+                jobs={runData.jobs}
+                selectedJobId={selectedJob?.id}
+                onSelectedJobChange={selectJob}
                 workspaceSlug={workspaceSlug}
-                job={selectedJob}
                 selectedJobExecution={selectedJobExecution}
-                selectedAttemptId={selectedJob.carriedOver ? undefined : selectedAttemptId}
+                selectedAttemptId={selectedAttemptId}
                 onSelectedJobExecutionChange={selectJobExecution}
                 onSelectedAttemptChange={selectionControlled ? selectAttempt : undefined}
                 sourcePanelId={sourcePanelId}
@@ -319,10 +379,48 @@ function RunViewContent({
                 focusedSourceStepId={sourceFocus?.stepId ?? null}
                 onOpenStepSource={openStepSource}
               />
-            ) : null}
-          </div>
-        </div>
-      </div>
+            ) : (
+              tabState
+            )}
+          </TabsContent>
+          <TabsContent
+            value="annotations"
+            tabIndex={-1}
+            className="mx-auto w-full max-w-[1120px] outline-none"
+          >
+            {runData ? <RunAnnotationsEmpty /> : tabState}
+          </TabsContent>
+          <TabsContent
+            value="source"
+            keepMounted={sourceSnapshot !== null}
+            tabIndex={-1}
+            className="mx-auto flex min-h-full w-full max-w-[1120px] outline-none"
+          >
+            {runData ? (
+              sourceSnapshot ? (
+                <WorkflowSourceContent
+                  source={sourceSnapshot}
+                  highlightedLineRange={highlightedLineRange}
+                  scrollHighlightedIntoView
+                />
+              ) : (
+                <EmptyState
+                  className="min-h-160 w-full"
+                  icon="fileDamageLine"
+                  title="Source snapshot unavailable"
+                  description={
+                    runData.isTemporary
+                      ? 'Temporary runs do not capture workflow source.'
+                      : 'This run was created before workflow source snapshots were captured.'
+                  }
+                />
+              )
+            ) : (
+              tabState
+            )}
+          </TabsContent>
+        </TabsContents>
+      </Tabs>
       <WorkflowSourcePanel
         id={sourcePanelId}
         source={sourceSnapshot}

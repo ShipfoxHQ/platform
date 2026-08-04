@@ -1,17 +1,15 @@
 'use client';
 
-import {type HTMLMotionProps, motion, type Transition} from 'framer-motion';
+import {type HTMLMotionProps, motion, type Transition, useReducedMotion} from 'framer-motion';
 import {
-  Children,
   type ComponentProps,
   createContext,
   forwardRef,
-  isValidElement,
-  type ReactElement,
   type ReactNode,
   useCallback,
   useContext,
   useEffect,
+  useId,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -22,6 +20,7 @@ import {debounce} from '#utils/debounce.js';
 
 type TabsContextType<T extends string = string> = {
   activeValue: T;
+  id: string;
   handleValueChange: (value: T) => void;
   registerTrigger: (value: string, node: HTMLElement | null) => void;
   getTriggerElement: (value: string) => HTMLElement | undefined;
@@ -65,6 +64,7 @@ function Tabs<T extends string = string>({
   ...props
 }: TabsProps<T>) {
   const [activeValue, setActiveValue] = useState<T | undefined>(defaultValue ?? undefined);
+  const id = useId();
   const triggersRef = useRef(new Map<string, HTMLElement>());
   const initialSet = useRef(false);
   const isControlled = value !== undefined;
@@ -124,6 +124,7 @@ function Tabs<T extends string = string>({
     <TabsContext.Provider
       value={{
         activeValue: resolvedActiveValue as string,
+        id,
         handleValueChange: handleValueChange as (value: string) => void,
         registerTrigger,
         getTriggerElement,
@@ -147,18 +148,20 @@ type TabsListProps = ComponentProps<'div'> & {
   transition?: Transition;
 };
 
+const defaultTabsIndicatorTransition: Transition = {
+  duration: 0.2,
+  ease: 'easeOut',
+};
+
 function TabsList({
   children,
   className,
   activeClassName,
-  transition = {
-    type: 'spring',
-    stiffness: 400,
-    damping: 30,
-  },
+  transition = defaultTabsIndicatorTransition,
   ...props
 }: TabsListProps) {
   const {activeValue, getTriggerElement} = useTabs();
+  const reducedMotion = useReducedMotion();
   const [indicatorStyle, setIndicatorStyle] = useState<{
     left: number;
     width: number;
@@ -208,7 +211,7 @@ function TabsList({
             left: indicatorStyle.left,
             width: indicatorStyle.width,
           }}
-          transition={transition}
+          transition={reducedMotion ? {duration: 0} : transition}
         />
       )}
     </div>
@@ -228,6 +231,7 @@ const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
       registerTrigger,
       getAllTriggerValues,
       getTriggerElement,
+      id,
     } = useTabs();
 
     const localRef = useRef<HTMLButtonElement | null>(null);
@@ -294,13 +298,12 @@ const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
         data-slot="tabs-trigger"
         role="tab"
         tabIndex={isActive ? 0 : -1}
-        whileTap={{scale: 0.95}}
         onClick={() => handleValueChange(value)}
         onKeyDown={handleKeyDown}
         data-state={isActive ? 'active' : 'inactive'}
         aria-selected={isActive}
-        aria-controls={`tabpanel-${value}`}
-        id={`tab-${value}`}
+        aria-controls={`${id}-tabpanel-${value}`}
+        id={`${id}-tab-${value}`}
         className={cn(
           'relative inline-flex cursor-pointer items-center justify-center whitespace-nowrap px-0 py-10 text-sm font-medium transition-colors outline-none focus-visible:shadow-border-interactive-with-active focus-visible:rounded-2 disabled:pointer-events-none disabled:opacity-50',
           isActive ? 'text-foreground-neutral-base' : 'text-foreground-neutral-muted',
@@ -321,21 +324,9 @@ type TabsContentsProps = ComponentProps<'div'> & {
 };
 
 function TabsContents({children, className, ...props}: TabsContentsProps) {
-  const {activeValue} = useTabs();
-  const childrenArray = Children.toArray(children);
-
-  const activeChild = childrenArray.find(
-    (child): child is ReactElement<{value: string}> =>
-      isValidElement(child) &&
-      typeof child.props === 'object' &&
-      child.props !== null &&
-      'value' in child.props &&
-      child.props.value === activeValue,
-  );
-
   return (
     <div data-slot="tabs-contents" className={cn(className)} {...(props as ComponentProps<'div'>)}>
-      {activeChild}
+      {children}
     </div>
   );
 }
@@ -343,13 +334,20 @@ function TabsContents({children, className, ...props}: TabsContentsProps) {
 type TabsContentProps = ComponentProps<'div'> & {
   value: string;
   children: ReactNode;
+  keepMounted?: boolean;
 };
 
-function TabsContent({children, value, className, ...props}: TabsContentProps) {
-  const {activeValue} = useTabs();
+function TabsContent({
+  children,
+  value,
+  className,
+  keepMounted = false,
+  ...props
+}: TabsContentProps) {
+  const {activeValue, id} = useTabs();
   const isActive = activeValue === value;
 
-  if (!isActive) {
+  if (!isActive && !keepMounted) {
     return null;
   }
 
@@ -357,7 +355,9 @@ function TabsContent({children, value, className, ...props}: TabsContentProps) {
     <div
       role="tabpanel"
       data-slot="tabs-content"
-      aria-labelledby={`tab-${value}`}
+      aria-labelledby={`${id}-tab-${value}`}
+      id={`${id}-tabpanel-${value}`}
+      hidden={!isActive}
       className={cn(className)}
       {...props}
     >

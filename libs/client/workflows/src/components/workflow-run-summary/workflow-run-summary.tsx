@@ -8,11 +8,12 @@ import {
   DropdownMenuTrigger,
 } from '@shipfox/react-ui/dropdown-menu';
 import {useIsTextTruncated} from '@shipfox/react-ui/hooks';
+import {Icon} from '@shipfox/react-ui/icon';
 import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Header, Text} from '@shipfox/react-ui/typography';
-import type {Ref} from 'react';
+import {Link} from '@tanstack/react-router';
 import {useId} from 'react';
 import {WorkflowRunNumberLabel} from '#components/workflow-run-number-label.js';
 import {
@@ -22,6 +23,7 @@ import {
   type WorkflowRunDetail,
   type WorkflowRunRerunMode,
 } from '#core/workflow-run.js';
+import {validateWorkflowRunsSearch, workflowRunListSearchParams} from '#routes/inputs.js';
 import {WorkflowRunDurationLabel} from '../workflow-run-duration-label.js';
 import {getWorkflowStatusVisual} from '../workflow-status/status-visuals.js';
 import {WorkflowRunAttemptSwitcher} from './workflow-run-attempt-switcher.js';
@@ -36,11 +38,6 @@ export interface WorkflowRunSummaryProps {
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
   run: WorkflowRunDetail;
-  sourceAvailable?: boolean | undefined;
-  sourceOpen?: boolean | undefined;
-  sourcePanelId?: string | undefined;
-  sourceButtonRef?: Ref<HTMLButtonElement> | undefined;
-  onSourceToggle?: (() => void) | undefined;
   cancelling?: boolean | undefined;
   onCancel?: (() => void) | undefined;
   rerunPending?: boolean | undefined;
@@ -52,11 +49,6 @@ export function WorkflowRunSummary({
   workspaceSlug,
   projectSlug,
   run,
-  sourceAvailable = false,
-  sourceOpen = false,
-  sourcePanelId,
-  sourceButtonRef,
-  onSourceToggle,
   cancelling = false,
   onCancel,
   rerunPending = false,
@@ -82,6 +74,21 @@ export function WorkflowRunSummary({
       >
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-12 gap-y-4 overflow-hidden">
           <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-8">
+            {workspaceSlug && projectSlug ? (
+              <Link
+                to="/w/$workspaceSlug/p/$projectSlug/runs"
+                params={{workspaceSlug, projectSlug}}
+                search={
+                  ((previous: Record<string, unknown>) =>
+                    workflowRunListSearchParams(validateWorkflowRunsSearch(previous))) as never
+                }
+                aria-label="Back to runs"
+                className="inline-flex shrink-0 items-center gap-4 rounded-4 text-xs font-medium text-foreground-neutral-muted outline-none hover:text-foreground-neutral-base focus-visible:shadow-border-interactive-with-active"
+              >
+                <Icon name="arrowLeftLine" className="size-14" aria-hidden="true" />
+                <span>Runs</span>
+              </Link>
+            ) : null}
             <Badge variant={status.badge} size="xs">
               <span className="text-center" style={{width: `${STATUS_BADGE_LABEL_WIDTH_CH}ch`}}>
                 {status.label}
@@ -118,19 +125,6 @@ export function WorkflowRunSummary({
               rerunPending={rerunPending}
               onRerun={onRerun}
             />
-            {sourceAvailable ? (
-              <Button
-                ref={sourceButtonRef}
-                type="button"
-                variant="secondary"
-                size="xs"
-                aria-controls={sourcePanelId}
-                aria-expanded={sourceOpen}
-                onClick={onSourceToggle}
-              >
-                View source
-              </Button>
-            ) : null}
           </div>
 
           <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-12 overflow-hidden text-foreground-neutral-muted">
@@ -300,6 +294,6 @@ function workflowRunHasJobs(run: WorkflowRunDetail): run is WorkflowRunDetail & 
   return 'jobs' in run && Array.isArray(run.jobs);
 }
 
-function MetadataSeparator() {
+export function MetadataSeparator() {
   return <span aria-hidden="true" className="h-12 w-px shrink-0 bg-border-neutral-base" />;
 }

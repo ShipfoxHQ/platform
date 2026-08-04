@@ -160,30 +160,6 @@ const ATTEMPT_SUMMARY_ARGS = {
 
 export const Playground: Story = {};
 
-export const WithSourceButton: Story = {
-  args: {
-    run: workflowRunDetail({
-      status: 'succeeded',
-      source_snapshot: {format: 'yaml', content: 'jobs:\n  build:\n    steps: []'},
-    }),
-    sourceAvailable: true,
-    sourceOpen: false,
-    sourcePanelId: 'workflow-source-panel',
-  },
-};
-
-export const SourceOpen: Story = {
-  args: {
-    run: workflowRunDetail({
-      status: 'succeeded',
-      source_snapshot: {format: 'yaml', content: 'jobs:\n  build:\n    steps: []'},
-    }),
-    sourceAvailable: true,
-    sourceOpen: true,
-    sourcePanelId: 'workflow-source-panel',
-  },
-};
-
 export const WithAttempts: Story = {
   decorators: [withAttemptApi],
   args: ATTEMPT_SUMMARY_ARGS,
@@ -323,7 +299,7 @@ const ACTION_VARIANTS = [
   >;
 }>;
 
-export const ActionVariantsWithSource: Story = {
+export const ActionVariants: Story = {
   render: () => (
     <div className="flex flex-col">
       {ACTION_VARIANTS.map(({label, run, props}, index) => (
@@ -333,9 +309,6 @@ export const ActionVariantsWithSource: Story = {
             ...run,
             id: `22222222-2222-4222-8222-${String(index + 2).padStart(12, '0')}`,
           }}
-          sourceAvailable
-          sourceOpen={label === 'Running'}
-          sourcePanelId={`workflow-source-panel-${index}`}
           {...props}
         />
       ))}

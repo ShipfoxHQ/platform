@@ -6,7 +6,9 @@ import {
   validateWorkflowRunsSearch,
   type WorkflowRunsSearch,
   workflowRouteParams,
+  workflowRunListSearchParams,
   workflowRunSearchParams,
+  workflowRunTab,
 } from './inputs.js';
 
 /** Everything a filter change writes, then reads back, exactly as the router would. */
@@ -21,6 +23,8 @@ describe('validateWorkflowRunsSearch', () => {
       validateWorkflowRunsSearch({
         search: ['unexpected'],
         status: 'unknown',
+        tab: 'unknown',
+        severity: 'critical',
         after: 'yesterday',
         before: '2026-13-01',
       }),
@@ -65,6 +69,28 @@ describe('validateWorkflowRunsSearch', () => {
       jobId: 'job-1',
     });
   });
+
+  test('accepts known tabs and annotation severities while dropping unknown values', () => {
+    expect(
+      validateWorkflowRunsSearch({tab: 'annotations', annotation: 'run-1', severity: 'error'}),
+    ).toEqual({tab: 'annotations', annotation: 'run-1', severity: 'error'});
+    expect(validateWorkflowRunsSearch({tab: 'unknown', severity: 'critical'})).toEqual({});
+    expect(workflowRunTab({})).toBe('summary');
+    expect(workflowRunTab({tab: 'source'})).toBe('source');
+  });
+
+  test.each([
+    ['job', {jobId: 'job-1'}],
+    ['job execution', {jobExecutionId: 'execution-1'}],
+    ['step', {stepId: 'step-1'}],
+    ['step attempt', {stepAttemptId: 'attempt-1'}],
+  ])('defaults a legacy %s selection URL to Jobs', (_selection, search) => {
+    expect(workflowRunTab(search)).toBe('jobs');
+  });
+
+  test('keeps an explicit Summary tab ahead of legacy selection inference', () => {
+    expect(workflowRunTab({tab: 'summary', jobId: 'job-1'})).toBe('summary');
+  });
 });
 
 describe('the run list URL contract', () => {
@@ -88,6 +114,9 @@ describe('the run list URL contract', () => {
       event: ['push'],
       after: '2026-05-01',
       before: '2026-05-31',
+      tab: 'annotations',
+      annotation: 'annotation-1',
+      severity: 'warning',
     };
 
     expect(roundTrip(search)).toEqual(search);
@@ -117,6 +146,24 @@ describe('the run list URL contract', () => {
 
   test('writes nothing for an unfiltered list', () => {
     expect(stringifyAppSearch(workflowRunSearchParams({}, {}))).toBe('');
+  });
+
+  test('omits the default Summary tab from the URL', () => {
+    expect(stringifyAppSearch(workflowRunSearchParams({tab: 'summary'}, {}))).toBe('');
+    expect(stringifyAppSearch(workflowRunSearchParams({tab: 'jobs'}, {}))).toBe('?tab=jobs');
+  });
+
+  test('serializes only list filters for the detail back link', () => {
+    expect(
+      workflowRunListSearchParams({
+        search: 'deploy',
+        status: ['running'],
+        tab: 'jobs',
+        annotation: 'annotation-1',
+        severity: 'error',
+        jobId: 'job-1',
+      }),
+    ).toEqual({search: 'deploy', status: ['running']});
   });
 
   test('has no page or cursor parameter to carry', () => {

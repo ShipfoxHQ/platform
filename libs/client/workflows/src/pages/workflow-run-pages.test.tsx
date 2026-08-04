@@ -40,6 +40,9 @@ const INTEGRATION_TESTS_RE = /integration-tests/u;
 const BUILD_IMAGE_RE = /build-image/u;
 const STATUS_FILTER_RE = /^Status\b.*filter$/u;
 const EXECUTION_ONE_MENU_ITEM = /Execution #1: deploy review #1/u;
+const JOBS_TAB_NAME = /^Jobs/u;
+const BUILD_JOB_BUTTON_NAME = 'build, Succeeded';
+const DEPLOY_JOB_BUTTON_NAME = 'deploy, Running';
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_OVERRIDES = {
   id: RUN_ID,
@@ -171,25 +174,129 @@ describe('WorkflowRunPages', () => {
   test('renders the detail route without mounting the run list', async () => {
     configureApiClient({fetchImpl: createRunDetailFetch()});
 
-    renderRunPath();
+    renderRunPath('?tab=jobs');
 
-    expect(await screen.findByRole('button', {name: 'deploy, Running'})).toBeInTheDocument();
+    expect(await screen.findByRole('button', {name: DEPLOY_JOB_BUTTON_NAME})).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'Back to runs'})).toHaveAttribute(
+      'href',
+      `/w/${PROJECT_TEST_WSLUG}/p/project/runs`,
+    );
     expect(screen.queryByLabelText('Workflow runs')).not.toBeInTheDocument();
+  });
+
+  test('back to runs preserves list filters and drops run detail state', async () => {
+    configureApiClient({fetchImpl: createRunDetailFetch()});
+
+    renderRunPath(`?search=deploy-web&status=running&tab=jobs&job=${DEPLOY_JOB_ID}`);
+
+    expect(await screen.findByRole('link', {name: 'Back to runs'})).toHaveAttribute(
+      'href',
+      `/w/${PROJECT_TEST_WSLUG}/p/project/runs?search=deploy-web&status=running`,
+    );
+  });
+
+  test('defaults the detail route to the Summary tab', async () => {
+    configureApiClient({fetchImpl: createRunDetailFetch()});
+
+    const {router} = renderRunPath();
+
+    expect(await screen.findByRole('region', {name: 'deploy-web'})).toBeInTheDocument();
+    const summaryTab = screen.getByRole('tab', {name: 'Summary'});
+    expect(summaryTab).toHaveAttribute('aria-selected', 'true');
+    expect(summaryTab).toHaveAttribute('aria-controls', screen.getByRole('tabpanel').id);
+    expect(screen.queryByRole('list', {name: 'Run jobs'})).not.toBeInTheDocument();
+    expect(currentSearch(router).tab).toBeUndefined();
+  });
+
+  test('opens legacy selection-only detail URLs on the Jobs tab', async () => {
+    configureApiClient({fetchImpl: createRunDetailFetch()});
+
+    renderRunPath(`?job=${DEPLOY_JOB_ID}`);
+
+    expect(await screen.findByRole('list', {name: 'Run jobs'})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: JOBS_TAB_NAME})).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('pushes tab changes and restores them with browser history', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: createRunDetailFetch()});
+
+    const {router} = renderRunPath();
+    const initialHistoryLength = router.history.length;
+
+    await user.click(await screen.findByRole('tab', {name: JOBS_TAB_NAME}));
+
+    await waitFor(() => expect(currentSearch(router).tab).toBe('jobs'));
+    expect(router.history.length).toBe(initialHistoryLength + 1);
+    expect(screen.getByRole('tab', {name: JOBS_TAB_NAME})).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('list', {name: 'Run jobs'})).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', {name: 'Summary'}));
+
+    await waitFor(() => expect(currentSearch(router).tab).toBeUndefined());
+    expect(router.history.length).toBe(initialHistoryLength + 2);
+
+    await act(() => {
+      router.history.back();
+    });
+    await waitFor(() => expect(currentSearch(router).tab).toBe('jobs'));
+    expect(screen.getByRole('list', {name: 'Run jobs'})).toBeInTheDocument();
+  });
+
+  test('opens the Jobs tab and selects a job from the Summary graph', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: createRunDetailFetch()});
+
+    const {router} = renderRunPath();
+    const initialHistoryLength = router.history.length;
+
+    await user.click(await screen.findByRole('button', {name: 'deploy, Running'}));
+
+    await waitFor(() => {
+      expect(currentSearch(router)).toMatchObject({tab: 'jobs', job: DEPLOY_JOB_ID});
+    });
+    expect(router.history.length).toBe(initialHistoryLength + 1);
+    expect(screen.getByRole('button', {name: 'deploy, Running'})).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByRole('button', {name: 'deploy, Running'})).toHaveAttribute(
+      'aria-controls',
+      `job-card-${DEPLOY_JOB_ID}`,
+    );
+  });
+
+  test('keeps Summary active while keyboard navigation moves graph focus', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: createRunDetailFetch()});
+
+    const {router} = renderRunPath();
+    const build = await screen.findByRole('button', {name: BUILD_JOB_BUTTON_NAME});
+    const deploy = screen.getByRole('button', {name: DEPLOY_JOB_BUTTON_NAME});
+
+    build.focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(deploy).toHaveFocus();
+    expect(deploy).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('tab', {name: 'Summary'})).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('list', {name: 'Run jobs'})).not.toBeInTheDocument();
+    expect(currentSearch(router).job).toBeUndefined();
   });
 
   test('restores a deep-linked job and exact attempt after data loads', async () => {
     configureApiClient({fetchImpl: createRunDetailFetch()});
 
     renderRunPath(
-      `?job=${BUILD_JOB_ID}&step=${DEPLOY_STEP_ID}&stepAttempt=${DEPLOY_ATTEMPT_TWO_ID}`,
+      `?tab=jobs&job=${BUILD_JOB_ID}&step=${DEPLOY_STEP_ID}&stepAttempt=${DEPLOY_ATTEMPT_TWO_ID}`,
     );
 
-    const deployJob = await screen.findByRole('button', {name: 'deploy, Running'});
+    const deployJob = await screen.findByRole('button', {name: DEPLOY_JOB_BUTTON_NAME});
     const deployAttempt = await screen.findByRole('button', {
       name: 'deploy, Running, attempt 2',
     });
 
-    expect(deployJob).toHaveAttribute('aria-pressed', 'true');
+    expect(deployJob).toHaveAttribute('aria-expanded', 'true');
     expect(deployAttempt).toHaveAttribute('aria-expanded', 'true');
     expect(await screen.findByText('attempt two log')).toBeInTheDocument();
   });
@@ -198,14 +305,17 @@ describe('WorkflowRunPages', () => {
     const user = userEvent.setup();
     configureApiClient({fetchImpl: createRunDetailFetch()});
     const {router} = renderRunPath(
-      `?step=${DEPLOY_STEP_ID}&stepAttempt=${DEPLOY_ATTEMPT_TWO_ID}&runAttempt=1`,
+      `?tab=jobs&step=${DEPLOY_STEP_ID}&stepAttempt=${DEPLOY_ATTEMPT_TWO_ID}&runAttempt=1`,
     );
+    const initialHistoryLength = router.history.length;
 
-    await user.click(await screen.findByRole('button', {name: 'build, Succeeded'}));
+    await user.click(await screen.findByRole('button', {name: BUILD_JOB_BUTTON_NAME}));
 
     await waitFor(() => {
       expect(currentSearch(router)).toMatchObject({job: BUILD_JOB_ID});
     });
+    expect(currentSearch(router).tab).toBe('jobs');
+    expect(router.history.length).toBe(initialHistoryLength);
     expect(currentSearch(router).step).toBeUndefined();
     expect(currentSearch(router).stepAttempt).toBeUndefined();
     expect(screen.getByRole('button', {name: 'checkout, Succeeded, attempt 1'})).toHaveAttribute(
@@ -217,7 +327,7 @@ describe('WorkflowRunPages', () => {
   test('selecting an attempt writes job, step, and attempt search state', async () => {
     const user = userEvent.setup();
     configureApiClient({fetchImpl: createRunDetailFetch()});
-    const {router} = renderRunPath(`?job=${DEPLOY_JOB_ID}`);
+    const {router} = renderRunPath(`?tab=jobs&job=${DEPLOY_JOB_ID}`);
 
     await user.click(await screen.findByRole('button', {name: 'deploy, Running, attempt 2'}));
 
@@ -235,7 +345,7 @@ describe('WorkflowRunPages', () => {
     configureApiClient({
       fetchImpl: createRunDetailFetch({details: {[RUN_ID]: retryRunDetailDto()}}),
     });
-    const {router} = renderRunPath(`?job=${DEPLOY_JOB_ID}`);
+    const {router} = renderRunPath(`?tab=jobs&job=${DEPLOY_JOB_ID}`);
 
     await user.click(
       await screen.findByRole('button', {
@@ -273,7 +383,9 @@ describe('WorkflowRunPages', () => {
   test('collapsing an attempt removes step and attempt while preserving job', async () => {
     const user = userEvent.setup();
     configureApiClient({fetchImpl: createRunDetailFetch()});
-    const {router} = renderRunPath(`?step=${DEPLOY_STEP_ID}&stepAttempt=${DEPLOY_ATTEMPT_TWO_ID}`);
+    const {router} = renderRunPath(
+      `?tab=jobs&step=${DEPLOY_STEP_ID}&stepAttempt=${DEPLOY_ATTEMPT_TWO_ID}`,
+    );
 
     const deployAttempt = await screen.findByRole('button', {
       name: 'deploy, Running, attempt 2',
@@ -286,41 +398,6 @@ describe('WorkflowRunPages', () => {
     expect(currentSearch(router).step).toBeUndefined();
     expect(currentSearch(router).stepAttempt).toBeUndefined();
     expect(deployAttempt).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('back and forward navigation restores prior selections', async () => {
-    const user = userEvent.setup();
-    configureApiClient({fetchImpl: createRunDetailFetch()});
-    const {router} = renderRunPath(`?job=${DEPLOY_JOB_ID}`);
-
-    await user.click(await screen.findByRole('button', {name: 'deploy, Running, attempt 2'}));
-    await waitFor(() => {
-      expect(currentSearch(router).stepAttempt).toBe(DEPLOY_ATTEMPT_TWO_ID);
-    });
-
-    await act(() => {
-      router.history.back();
-    });
-    await waitFor(() => {
-      expect(currentSearch(router)).toMatchObject({job: DEPLOY_JOB_ID});
-    });
-    expect(currentSearch(router).step).toBeUndefined();
-    expect(currentSearch(router).stepAttempt).toBeUndefined();
-    expect(screen.getByRole('button', {name: 'deploy, Running, attempt 2'})).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    );
-
-    await act(() => {
-      router.history.forward();
-    });
-    await waitFor(() => {
-      expect(currentSearch(router).stepAttempt).toBe(DEPLOY_ATTEMPT_TWO_ID);
-    });
-    expect(screen.getByRole('button', {name: 'deploy, Running, attempt 2'})).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    );
   });
 
   test('run list links navigate to detail and back restores list filters', async () => {

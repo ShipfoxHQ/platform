@@ -2,7 +2,13 @@ import {useNavigate} from '@tanstack/react-router';
 import {useCallback} from 'react';
 import {WorkflowRunView} from '#components/workflow-run-view/index.js';
 import type {WorkflowRunSelectionInput} from '#core/workflow-run-url-state.js';
-import {type WorkflowRunsSearch, workflowRunSearchParams} from '#routes/inputs.js';
+import {
+  validateWorkflowRunsSearch,
+  type WorkflowRunsSearch,
+  type WorkflowRunTab,
+  workflowRunSearchParams,
+  workflowRunTab,
+} from '#routes/inputs.js';
 
 interface WorkflowRunDetailPageProps {
   projectId: string;
@@ -24,10 +30,25 @@ export function WorkflowRunDetailPage({
   const onSelectionChange = useCallback(
     (nextSelection: WorkflowRunSelectionInput) => {
       navigate({
-        search: workflowRunSearchParams(search, nextSelection) as never,
+        search: ((previous: Record<string, unknown>) => {
+          const current = validateWorkflowRunsSearch(previous);
+          return workflowRunSearchParams(current, nextSelection);
+        }) as never,
+        replace: true,
       });
     },
-    [navigate, search],
+    [navigate],
+  );
+  const onTabChange = useCallback(
+    (nextTab: WorkflowRunTab) => {
+      navigate({
+        search: ((previous: Record<string, unknown>) => {
+          const current = validateWorkflowRunsSearch(previous);
+          return workflowRunSearchParams({...current, tab: nextTab}, current);
+        }) as never,
+      });
+    },
+    [navigate],
   );
 
   return (
@@ -39,6 +60,8 @@ export function WorkflowRunDetailPage({
         workflowRunId={workflowRunId}
         selection={selection}
         onSelectionChange={onSelectionChange}
+        tab={workflowRunTab(search)}
+        onTabChange={onTabChange}
       />
     </div>
   );

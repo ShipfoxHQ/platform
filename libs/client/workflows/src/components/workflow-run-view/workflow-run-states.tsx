@@ -31,6 +31,17 @@ export function WorkflowRunSkeleton() {
   );
 }
 
+export function WorkflowRunContentSkeleton() {
+  return (
+    <section
+      aria-label="Loading workflow run content"
+      className="min-h-160 rounded-8 border border-border-neutral-base bg-background-components-base p-16"
+    >
+      <Skeleton className="h-160 w-full rounded-6" />
+    </section>
+  );
+}
+
 export function WorkflowRunNotFound() {
   return (
     <EmptyState

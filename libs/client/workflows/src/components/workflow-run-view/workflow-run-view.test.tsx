@@ -26,6 +26,8 @@ const DEPLOY_JOB_ID = '88888888-8888-4888-8888-888888888888';
 const CHECKOUT_STEP_ID = '99999999-9999-4999-8999-999999999999';
 const CHECKOUT_ATTEMPT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const RERUN_BUTTON_NAME = /^Re-run/;
+const BUILD_JOB_BUTTON_NAME = 'build, Succeeded';
+const DEPLOY_JOB_BUTTON_NAME = 'deploy, Running';
 const ATTEMPT_2_PATTERN = /Attempt 2/;
 const COPY_RUN_BUTTON_NAME = /Copy run/;
 const EXECUTION_ONE_MENU_ITEM_PATTERN = /#1/;
@@ -34,7 +36,19 @@ const LISTENING_EXECUTION_SWITCHER_NAME =
 const JOB_TEMPLATE_NAME = ['Implement $', '{{ event.issue.identifier }}'].join('');
 
 describe('WorkflowRunView', () => {
-  test('renders the run summary, jobs graph, and selected job step attempts when a run loads', async () => {
+  test('keeps the real tab strip visible while the run is loading', async () => {
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    renderView({tab: 'summary'});
+
+    expect(await screen.findByRole('tab', {name: 'Summary'})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'Jobs'})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'Annotations'})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'Source'})).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Loading workflow run content'})).toBeInTheDocument();
+  });
+
+  test('renders the run summary, jobs list, and selected job step attempts when a run loads', async () => {
     configureApiClient({
       fetchImpl: vi.fn(() => Promise.resolve(jsonResponse(workflowRunViewDetailDto()))),
     });
@@ -50,8 +64,8 @@ describe('WorkflowRunView', () => {
       within(summary).queryByRole('button', {name: COPY_RUN_BUTTON_NAME}),
     ).not.toBeInTheDocument();
     expect(await screen.findByRole('region', {name: 'Workflow jobs'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'build, Succeeded'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'deploy, Running'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: BUILD_JOB_BUTTON_NAME})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: DEPLOY_JOB_BUTTON_NAME})).toBeInTheDocument();
     expect(screen.getByRole('region', {name: 'build'})).toBeInTheDocument();
     expect(
       screen.getByRole('button', {name: 'checkout, Succeeded, attempt 1'}),
@@ -685,8 +699,7 @@ describe('WorkflowRunView', () => {
     ).toBeInTheDocument();
   });
 
-  test('opens and closes workflow source without resetting the selected job', async () => {
-    const user = userEvent.setup();
+  test('renders the full workflow source in the Source tab', async () => {
     configureApiClient({
       fetchImpl: vi.fn(() =>
         Promise.resolve(
@@ -702,38 +715,20 @@ describe('WorkflowRunView', () => {
       ),
     });
 
-    renderView();
+    renderView({tab: 'source'});
 
-    const deployNode = await screen.findByRole('button', {name: 'deploy, Running'});
-    await user.click(deployNode);
-    expect(deployNode).toHaveAttribute('aria-pressed', 'true');
-
-    const sourceButton = within(screen.getByRole('region', {name: 'deploy-web'})).getByRole(
-      'button',
-      {name: 'View source'},
+    expect(await screen.findByRole('tab', {name: 'Source'})).toHaveAttribute(
+      'aria-selected',
+      'true',
     );
-    const panelId = sourceButton.getAttribute('aria-controls');
-    expect(panelId).toBeTruthy();
-    expect(sourceButton).toHaveAttribute('aria-expanded', 'false');
-
-    await user.click(sourceButton);
-
-    const sourcePanel = screen.getByRole('dialog', {name: 'Workflow source'});
-    expect(sourceButton).toHaveAttribute('aria-expanded', 'true');
-    expect(sourcePanel).toHaveAttribute('id', panelId);
-    expect(sourcePanel).toHaveTextContent('pnpm test');
-
-    await user.click(screen.getByRole('button', {name: 'Close source'}));
-
-    await waitFor(() => expect(sourceButton).toHaveFocus());
-    expect(sourceButton).toHaveAttribute('aria-expanded', 'false');
-    expect(deployNode).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('region', {name: 'deploy'})).toBeInTheDocument();
+    expect(await screen.findByText('pnpm test')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', {name: 'Workflow source'})).not.toBeInTheDocument();
   });
 
   test('highlights selected step source lines when the source panel opens', async () => {
     const user = userEvent.setup();
     const stepId = '99999999-9999-4999-8999-000000000003';
+    const stepAttemptId = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000003';
     configureApiClient({
       fetchImpl: vi.fn(() =>
         Promise.resolve(
@@ -749,13 +744,27 @@ describe('WorkflowRunView', () => {
                   run_attempt_id: RUN_ID,
                   name: 'deploy',
                   status: 'running',
-                  steps: [
-                    workflowStepDto({
-                      id: stepId,
-                      key: 'deploy',
+                  job_executions: [
+                    workflowJobExecutionDto({
+                      job_id: DEPLOY_JOB_ID,
                       name: 'deploy',
-                      source_location: {start_line: 2, end_line: 3},
                       status: 'running',
+                      steps: [
+                        workflowStepDto({
+                          id: stepId,
+                          key: 'deploy',
+                          name: 'deploy',
+                          source_location: {start_line: 2, end_line: 3},
+                          status: 'running',
+                          attempts: [
+                            workflowStepAttemptDto({
+                              id: stepAttemptId,
+                              step_id: stepId,
+                              status: 'running',
+                            }),
+                          ],
+                        }),
+                      ],
                     }),
                   ],
                 }),
@@ -766,29 +775,29 @@ describe('WorkflowRunView', () => {
       ),
     });
 
-    renderView({selection: {stepId}});
-    const summary = await screen.findByRole('region', {name: 'deploy-web'});
-    await user.click(within(summary).getByRole('button', {name: 'View source'}));
+    renderView({tab: 'jobs', selection: {stepId, stepAttemptId}});
+    const jobRegion = await screen.findByRole('region', {name: 'deploy'});
+    await user.click(within(jobRegion).getByRole('button', {name: 'View source'}));
 
-    await screen.findByRole('dialog', {name: 'Workflow source'});
-    const highlightedLines = document.body.querySelectorAll('.line.highlighted-line');
+    const sourceDialog = await screen.findByRole('dialog', {name: 'Workflow source'});
+    const highlightedLines = sourceDialog.querySelectorAll('.line.highlighted-line');
     expect(highlightedLines).toHaveLength(2);
     expect(highlightedLines[0]).toHaveTextContent('deploy:');
     expect(highlightedLines[1]).toHaveTextContent('steps:');
   });
 
-  test('does not render a source control when the run has no source snapshot', async () => {
+  test('explains when the run has no source snapshot', async () => {
     configureApiClient({
       fetchImpl: vi.fn(() =>
         Promise.resolve(jsonResponse(workflowRunViewDetailDto({source_snapshot: null}))),
       ),
     });
 
-    renderView();
+    renderView({tab: 'source'});
 
     await screen.findByRole('region', {name: 'deploy-web'});
 
-    expect(screen.queryByRole('button', {name: 'View source'})).not.toBeInTheDocument();
+    expect(await screen.findByText('Source snapshot unavailable')).toBeInTheDocument();
   });
 
   test('opens the source panel highlighting a step from the job header Source button', async () => {
@@ -802,25 +811,17 @@ describe('WorkflowRunView', () => {
     const jobRegion = await screen.findByRole('region', {name: 'build'});
     await user.click(screen.getByRole('button', {name: 'checkout, Succeeded, attempt 1'}));
     const jobSourceButton = within(jobRegion).getByRole('button', {name: 'View source'});
-    const summaryButton = within(screen.getByRole('region', {name: 'deploy-web'})).getByRole(
-      'button',
-      {name: 'View source'},
-    );
     expect(jobSourceButton).toHaveAttribute('aria-expanded', 'false');
-    expect(jobSourceButton).toHaveAttribute(
-      'aria-controls',
-      summaryButton.getAttribute('aria-controls'),
-    );
+    expect(jobSourceButton).toHaveAttribute('aria-controls');
 
     await user.click(jobSourceButton);
 
-    await screen.findByRole('dialog', {name: 'Workflow source'});
-    const highlighted = document.body.querySelectorAll('.line.highlighted-line');
+    const sourceDialog = await screen.findByRole('dialog', {name: 'Workflow source'});
+    const highlighted = sourceDialog.querySelectorAll('.line.highlighted-line');
     expect(highlighted).toHaveLength(2);
     expect(highlighted[0]).toHaveTextContent('build:');
     expect(highlighted[1]).toHaveTextContent('steps:');
     expect(jobSourceButton).toHaveAttribute('aria-expanded', 'true');
-    expect(summaryButton).toHaveAttribute('aria-expanded', 'false');
   });
 
   test('returns focus to the job Source button on close and preserves the selected job', async () => {
@@ -844,7 +845,7 @@ describe('WorkflowRunView', () => {
     expect(screen.getByRole('region', {name: 'build'})).toBeInTheDocument();
   });
 
-  test('falls back to the summary Source button when refetch removes the focused step source', async () => {
+  test('closes the source panel when refetch removes the focused step source', async () => {
     const user = userEvent.setup();
     let detailRequests = 0;
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
@@ -893,10 +894,6 @@ describe('WorkflowRunView', () => {
     const jobRegion = await screen.findByRole('region', {name: 'build'});
     await user.click(screen.getByRole('button', {name: 'checkout, Succeeded, attempt 1'}));
     const jobSourceButton = within(jobRegion).getByRole('button', {name: 'View source'});
-    const summaryButton = within(screen.getByRole('region', {name: 'deploy-web'})).getByRole(
-      'button',
-      {name: 'View source'},
-    );
     await user.click(jobSourceButton);
     await screen.findByRole('dialog', {name: 'Workflow source'});
 
@@ -906,10 +903,7 @@ describe('WorkflowRunView', () => {
         within(jobRegion).queryByRole('button', {name: 'View source'}),
       ).not.toBeInTheDocument(),
     );
-    await user.click(screen.getByRole('button', {name: 'Close source'}));
-
-    await waitFor(() => expect(summaryButton).toHaveFocus());
-    expect(summaryButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('dialog', {name: 'Workflow source'})).not.toBeInTheDocument();
   });
 
   test('re-runs all jobs from a succeeded run and navigates to the new run', async () => {
@@ -1127,7 +1121,7 @@ describe('WorkflowRunView', () => {
     expect(
       await screen.findByRole('button', {name: 'build, Succeeded, reused'}),
     ).toBeInTheDocument();
-    expect(screen.getAllByText('reused')).toHaveLength(2);
+    expect(screen.getAllByText('reused')).toHaveLength(1);
     await user.click(screen.getByRole('button', {name: 'checkout, Succeeded, attempt 1'}));
 
     expect(await screen.findByText('Not executed in this run.')).toBeInTheDocument();
@@ -1144,6 +1138,7 @@ function renderView(props: Partial<Parameters<typeof WorkflowRunView>[0]> = {}, 
       workspaceSlug={PROJECT_TEST_WSLUG}
       projectSlug="project"
       workflowRunId={RUN_ID}
+      tab="jobs"
       {...props}
     />
   ));
