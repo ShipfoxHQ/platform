@@ -3,6 +3,7 @@ import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module'
 import {checkoutTargetValidationIssues} from '@shipfox/workflow-document';
 import {z} from 'zod';
 import type {Step} from '#core/entities/step.js';
+import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {CheckoutConfigInvalidError, CheckoutIntentUnresolvedError} from './errors.js';
 
 const checkoutConfigSchema = z
@@ -37,12 +38,14 @@ export async function createStepCheckoutSpec({
   step,
   workspaceId,
   projectId,
+  triggerReference,
   integrations,
   projects,
 }: {
   step: Step;
   workspaceId: string;
   projectId: string;
+  triggerReference?: WorkflowRunTriggerReference | null | undefined;
   integrations: IntegrationsModuleClient;
   projects: ProjectsModuleClient;
 }): Promise<{
@@ -76,11 +79,16 @@ export async function createStepCheckoutSpec({
     },
     target,
   });
+  const ref =
+    checkout.ref ??
+    (triggerReference?.project?.id === resolvedTarget.projectId
+      ? (triggerReference.commit ?? undefined)
+      : undefined);
   const response = await integrations.createCheckoutSpec({
     workspaceId,
     connectionId: resolvedTarget.connectionId,
     externalRepositoryId: resolvedTarget.externalRepositoryId,
-    ...(checkout.ref === undefined ? {} : {ref: checkout.ref}),
+    ...(ref === undefined ? {} : {ref}),
     permissions: checkout.permissions ?? {contents: 'read'},
   });
 

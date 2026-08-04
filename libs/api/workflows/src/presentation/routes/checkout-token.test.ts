@@ -12,9 +12,11 @@ import {closeApp, createApp, type FastifyInstance} from '@shipfox/node-fastify';
 import {createCapturingLogger} from '@shipfox/node-log/test';
 import {eq} from 'drizzle-orm';
 import type {StepStatus} from '#core/entities/step.js';
+import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {db} from '#db/db.js';
 import {jobs as jobsTable} from '#db/schema/jobs.js';
 import {steps as stepsTable} from '#db/schema/steps.js';
+import {workflowRuns} from '#db/schema/workflow-runs.js';
 import {createWorkflowRun, getJobsByWorkflowRunId, getStepsByJobId} from '#db/workflow-runs.js';
 import {projectFactory} from '#test/factories/project.js';
 import {workflowModel} from '#test/factories/workflow-model.js';
@@ -138,6 +140,40 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       workspaceId: project.workspaceId,
       connectionId: project.sourceConnectionId,
       externalRepositoryId: project.sourceExternalRepositoryId,
+      permissions: {contents: 'read'},
+    });
+  });
+
+  test('defaults the checkout ref to the run trigger commit for the same project', async () => {
+    const {run, project, job, step} = await createRunningCheckoutStep();
+    const triggerReference = {
+      project: {id: project.id},
+      repository: 'acme/repo',
+      ref: 'refs/heads/feature/checkout',
+      commit: 'a'.repeat(40),
+    } satisfies WorkflowRunTriggerReference;
+    await db().update(workflowRuns).set({triggerReference}).where(eq(workflowRuns.id, run.id));
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-trigger-token'));
+    const token = await mintActiveLeaseToken({jobId: job.id});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      ref: triggerReference.commit,
       permissions: {contents: 'read'},
     });
   });

@@ -122,7 +122,7 @@ export function createCheckoutTokenRoute(clients: {
     handler: async (request, reply) => {
       const {stepId} = request.params;
       const {attempt} = request.query;
-      const {step, workspaceId, projectId} = await loadRunningLeasedStep({
+      const {step, workspaceId, projectId, triggerReference} = await loadRunningLeasedStep({
         runners: clients.runners,
         request,
         stepId,
@@ -137,6 +137,7 @@ export function createCheckoutTokenRoute(clients: {
         step,
         workspaceId,
         projectId,
+        triggerReference,
         integrations: clients.integrations,
         projects: clients.projects,
       });
