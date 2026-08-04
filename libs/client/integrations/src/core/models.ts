@@ -7,6 +7,13 @@ export interface IntegrationProvider {
   capabilities: IntegrationCapability[];
 }
 
+export interface JiraSite {
+  cloudId: string;
+  name: string;
+  url: string;
+  scopes: string[];
+}
+
 export interface IntegrationConnection {
   id: string;
   workspaceId: string;
@@ -163,6 +170,15 @@ const linearUsageEvents = [
 
 const sentryIssueActions = ['created', 'resolved', 'assigned', 'archived', 'unresolved'] as const;
 
+const jiraUsageEvents = [
+  'jira:issue_created',
+  'jira:issue_updated',
+  'jira:issue_deleted',
+  'comment_created',
+  'comment_updated',
+  'comment_deleted',
+] as const;
+
 export function usageEventsForConnection(
   connection: Pick<IntegrationConnection, 'provider' | 'capabilities'>,
 ): IntegrationUsageEvent[] {
@@ -174,6 +190,8 @@ export function usageEventsForConnection(
       value: `issue.${action}`,
       label: `issue.${action}`,
     }));
+  if (connection.provider === 'jira')
+    return jiraUsageEvents.map((value) => ({value, label: value}));
   if (connection.provider === 'linear')
     return linearUsageEvents.map((value) => ({value, label: value}));
   if (connection.capabilities.includes('source_control')) return [{value: 'push', label: 'push'}];

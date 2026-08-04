@@ -8,7 +8,8 @@ export type ProviderSetupPath =
   | '/w/$workspaceSlug/integrations/gitea'
   | '/w/$workspaceSlug/integrations/sentry'
   | '/w/$workspaceSlug/integrations/linear'
-  | '/w/$workspaceSlug/integrations/slack';
+  | '/w/$workspaceSlug/integrations/slack'
+  | '/w/$workspaceSlug/integrations/jira';
 
 interface RouteProviderCatalogEntry {
   kind: 'redirect-install' | 'direct-connect';
@@ -43,6 +44,11 @@ export const PROVIDER_CATALOG: Record<string, ProviderCatalogEntry> = {
     kind: 'redirect-install',
     iconName: PROVIDER_ICONS.slack,
     setupPath: '/w/$workspaceSlug/integrations/slack',
+  },
+  jira: {
+    kind: 'redirect-install',
+    iconName: PROVIDER_ICONS.jira,
+    setupPath: '/w/$workspaceSlug/integrations/jira',
   },
   gitea: {
     kind: 'direct-connect',

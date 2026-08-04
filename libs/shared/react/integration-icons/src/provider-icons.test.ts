@@ -7,6 +7,7 @@ describe('PROVIDER_ICONS', () => {
       sentry: 'sentry',
       linear: 'linear',
       slack: 'slack',
+      jira: 'jira',
       gitea: 'gitea',
       webhook: 'webhookLine',
     });

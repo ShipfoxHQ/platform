@@ -1,4 +1,5 @@
 import type {IntegrationConnectionDto} from '@shipfox/api-integration-core-dto';
+import {jiraWebhookEventNames} from '@shipfox/api-integration-jira-dto';
 import {linearWebhookEventNames} from '@shipfox/api-integration-linear-dto';
 import {WEBHOOK_RECEIVED_EVENT} from '@shipfox/api-integration-webhook-dto';
 import {usageEventsForConnection} from './integration-usage-events.js';
@@ -65,6 +66,18 @@ describe('usageEventsForConnection', () => {
     const events = usageEventsForConnection(connection);
 
     expect(events.map((event) => event.value)).toEqual(linearWebhookEventNames);
+  });
+
+  it('uses Jira webhook names directly', () => {
+    const connection = {
+      ...baseConnection,
+      provider: 'jira',
+      capabilities: ['agent_tools'],
+    } satisfies IntegrationConnectionDto;
+
+    const events = usageEventsForConnection(connection);
+
+    expect(events.map((event) => event.value)).toEqual(jiraWebhookEventNames);
   });
 
   it('falls back to a generic received event for uncataloged providers', () => {

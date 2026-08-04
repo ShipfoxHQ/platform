@@ -1,8 +1,11 @@
 import type {IntegrationConnectionDto} from '@shipfox/api-integration-core-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {
+  completeJiraCallback,
+  completeJiraSiteSelection,
   completeLinearCallback,
   completeSlackCallback,
+  createJiraInstall,
   createLinearInstall,
   createSlackInstall,
   listSourceConnections,
@@ -153,5 +156,91 @@ describe('Linear transport', () => {
     expect(requests[2]?.url).toBe(
       'https://api.example.test/integrations/linear/callback/api?error=access_denied&error_description=User+denied+access&state=signed+error+state',
     );
+  });
+});
+
+describe('Jira transport', () => {
+  it('posts the install workspace, maps multi-site callbacks, and completes a site selection', async () => {
+    const requests: Request[] = [];
+    const connectionBody = {
+      id: '33333333-3333-4333-8333-333333333333',
+      workspace_id: '11111111-1111-4111-8111-111111111111',
+      provider: 'jira',
+      external_account_id: 'cloud-1',
+      slug: 'jira_acme',
+      display_name: 'Jira Acme',
+      lifecycle_status: 'active',
+      capabilities: ['agent_tools'],
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    };
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn((input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        if (request.url.endsWith('/install'))
+          return Promise.resolve(jsonResponse({install_url: 'https://jira.example.test/install'}));
+        if (request.url.endsWith('/callback/site'))
+          return Promise.resolve(jsonResponse(connectionBody));
+        return Promise.resolve(
+          jsonResponse({
+            sites: [
+              {
+                cloud_id: 'cloud-1',
+                name: 'Acme',
+                url: 'https://acme.atlassian.net',
+                scopes: ['read:jira-work'],
+              },
+              {
+                cloud_id: 'cloud-2',
+                name: 'Beta',
+                url: 'https://beta.atlassian.net',
+                scopes: ['read:jira-work'],
+              },
+            ],
+          }),
+        );
+      }),
+    });
+
+    const install = await createJiraInstall({
+      workspace_id: '11111111-1111-4111-8111-111111111111',
+    });
+    const sites = await completeJiraCallback({
+      query: {code: 'grant code', state: 'signed state'},
+      token: 'session-token',
+    });
+    const connection = await completeJiraSiteSelection({
+      body: {cloud_id: 'cloud-1', state: 'signed state'},
+      token: 'session-token',
+    });
+
+    expect(install).toEqual({installUrl: 'https://jira.example.test/install'});
+    expect(sites).toEqual({
+      sites: [
+        {
+          cloudId: 'cloud-1',
+          name: 'Acme',
+          url: 'https://acme.atlassian.net',
+          scopes: ['read:jira-work'],
+        },
+        {
+          cloudId: 'cloud-2',
+          name: 'Beta',
+          url: 'https://beta.atlassian.net',
+          scopes: ['read:jira-work'],
+        },
+      ],
+    });
+    expect(connection.provider).toBe('jira');
+    expect(requests[0]?.url).toBe('https://api.example.test/integrations/jira/install');
+    expect(requests[1]?.url).toBe(
+      'https://api.example.test/integrations/jira/callback/api?code=grant+code&state=signed+state',
+    );
+    expect(requests[1]?.headers.get('authorization')).toBe('Bearer session-token');
+    expect(requests[2]?.url).toBe('https://api.example.test/integrations/jira/callback/site');
+    expect(await requests[2]?.json()).toEqual({cloud_id: 'cloud-1', state: 'signed state'});
+    expect(requests[2]?.headers.get('authorization')).toBe('Bearer session-token');
   });
 });

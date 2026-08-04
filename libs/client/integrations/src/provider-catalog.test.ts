@@ -15,6 +15,11 @@ describe('PROVIDER_CATALOG', () => {
       iconName: 'linear',
       setupPath: '/w/$workspaceSlug/integrations/linear',
     });
+    expect(PROVIDER_CATALOG.jira).toMatchObject({
+      kind: 'redirect-install',
+      iconName: 'jira',
+      setupPath: '/w/$workspaceSlug/integrations/jira',
+    });
     expect(PROVIDER_CATALOG.gitea).toMatchObject({
       kind: 'direct-connect',
       setupPath: '/w/$workspaceSlug/integrations/gitea',
@@ -25,6 +30,7 @@ describe('PROVIDER_CATALOG', () => {
     expect(PROVIDER_CATALOG.github?.kind).toBe('redirect-install');
     expect(PROVIDER_CATALOG.sentry?.kind).toBe('redirect-install');
     expect(PROVIDER_CATALOG.linear?.kind).toBe('redirect-install');
+    expect(PROVIDER_CATALOG.jira?.kind).toBe('redirect-install');
     expect(PROVIDER_CATALOG.gitea?.kind).toBe('direct-connect');
     expect(PROVIDER_CATALOG.webhook?.kind).toBe('modal-connect');
   });
