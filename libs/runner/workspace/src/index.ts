@@ -17,6 +17,7 @@ export {
   CheckoutPathInvalidError,
   createCheckoutDestination,
   inspectCheckoutDestination,
+  normalizeCheckoutDestination,
   replaceCheckoutDestination,
   resolveCheckoutPath,
 } from '#checkout-path.js';

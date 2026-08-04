@@ -2,6 +2,7 @@ import {basename, sep} from 'node:path';
 import type {StepDto} from '@shipfox/api-workflows-dto';
 import {
   assertCheckoutPath,
+  assertGitAvailable,
   CheckoutDestinationOccupiedError,
   CheckoutPathInvalidError,
   createCheckoutDestination,
@@ -14,14 +15,13 @@ import {
   type CheckoutLogSink,
   checkoutRepositoryAt,
   requestCheckoutCredentials,
+  safeRepositoryUrl,
 } from '#core/checkout-execution.js';
 import type {StepResult} from '#core/step-result.js';
 
 const URL_QUERY_RE = /[?#]/;
 const TRAILING_SLASH_RE = /\/+$/;
 const GIT_SUFFIX_RE = /\.git$/i;
-const URL_CREDENTIAL_RE = /(https?:\/\/)[^/@\s]+@/gi;
-
 export interface CheckoutDestination {
   repository: string;
   ref: string;
@@ -59,6 +59,12 @@ export async function executeCheckoutStep(params: {
     } catch (error) {
       return pathFailure(error, log);
     }
+  }
+
+  try {
+    await assertGitAvailable();
+  } catch (error) {
+    return gitUnavailableFailure(error, log);
   }
 
   log?.writeGroupStart('Checkout');
@@ -224,8 +230,26 @@ function occupiedFailure(
   };
 }
 
-function safeRepositoryUrl(repositoryUrl: string): string {
-  return repositoryUrl.replace(URL_CREDENTIAL_RE, '$1***@');
+function gitUnavailableFailure(
+  error: unknown,
+  log: CheckoutLogSink | undefined,
+): CheckoutStepExecution {
+  const message = messageOf(error);
+  log?.writeOutputLine(
+    `Checkout step failed because Git is not available on the runner. Details: ${message}`,
+    'stderr',
+  );
+  log?.writeOutputLine(
+    'Next step: Install Git in the runner image or use a runner image that includes Git.',
+    'stderr',
+  );
+  return {
+    result: {
+      success: false,
+      error: {message, reason: 'git_unavailable'},
+      exit_code: null,
+    },
+  };
 }
 
 function messageOf(error: unknown): string {

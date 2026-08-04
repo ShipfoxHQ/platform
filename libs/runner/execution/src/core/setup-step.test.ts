@@ -5,6 +5,7 @@ import {HTTPError} from 'ky';
 const requestCheckoutTokenMock = vi.fn();
 const assertGitAvailableMock = vi.fn();
 const createJobDirMock = vi.fn();
+const normalizeCheckoutDestinationMock = vi.fn();
 const checkoutRepositoryMock = vi.fn();
 const writeAmbientGitCredentialMock = vi.fn();
 
@@ -23,6 +24,7 @@ vi.mock('@shipfox/runner-workspace', async () => {
     ...actual,
     assertGitAvailable: (...args: unknown[]) => assertGitAvailableMock(...args),
     createJobDir: (...args: unknown[]) => createJobDirMock(...args),
+    normalizeCheckoutDestination: (...args: unknown[]) => normalizeCheckoutDestinationMock(...args),
     checkoutRepository: (...args: unknown[]) => checkoutRepositoryMock(...args),
     writeAmbientGitCredential: (...args: unknown[]) => writeAmbientGitCredentialMock(...args),
   };
@@ -125,6 +127,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   assertGitAvailableMock.mockResolvedValue('git version 2.51.0');
   createJobDirMock.mockResolvedValue(undefined);
+  normalizeCheckoutDestinationMock.mockResolvedValue(CWD);
   requestCheckoutTokenMock.mockResolvedValue(checkoutResponse());
   checkoutRepositoryMock.mockResolvedValue('abc123');
   writeAmbientGitCredentialMock.mockResolvedValue(undefined);
@@ -174,6 +177,7 @@ describe('executeSetupStep', () => {
 
     expect(assertGitAvailableMock).toHaveBeenCalledOnce();
     expect(createJobDirMock).toHaveBeenCalledWith(CWD);
+    expect(normalizeCheckoutDestinationMock).toHaveBeenCalledWith(CWD, CWD);
     expect(requestCheckoutTokenMock).toHaveBeenCalledWith(leaseClient, {
       stepId: STEP_ID,
       attempt: STEP_ATTEMPT,

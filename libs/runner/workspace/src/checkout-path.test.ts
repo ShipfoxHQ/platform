@@ -45,9 +45,18 @@ describe('checkout destination paths', () => {
     'C:outside',
     'C:\\outside',
     '.git',
+    '.GIT',
     'src/.git',
+    'src/.Git',
   ])('rejects unsafe checkout path syntax: %s', (checkoutPath) => {
     expect(() => assertCheckoutPath(checkoutPath)).toThrow(CheckoutPathInvalidError);
+  });
+
+  it('rejects a symlink whose resolved destination contains a case-variant Git directory', async () => {
+    await mkdir(join(workspace, '.GIT', 'nested'), {recursive: true});
+    await symlink(join('.GIT', 'nested'), join(workspace, 'alias'));
+
+    await expect(resolveCheckoutPath(workspace, 'alias')).rejects.toThrow(CheckoutPathInvalidError);
   });
 
   it('rejects a symlink that resolves outside the job workspace', async () => {

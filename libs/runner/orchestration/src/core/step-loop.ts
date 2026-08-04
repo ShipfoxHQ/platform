@@ -1,4 +1,3 @@
-import {realpath} from 'node:fs/promises';
 import {
   type MaterializedSecretBindingDto,
   materializedSecretBindingSchema,
@@ -132,7 +131,7 @@ export async function runJobSteps(params: {
       if (execution.preparedWorkspace) workspacePrepared = true;
       if (execution.ambientGitConfigPath) ambientGitConfigPath = execution.ambientGitConfigPath;
       if (execution.result.success && execution.result.checkout) {
-        await rememberCheckoutDestination(checkoutDestinations, execution.result.checkout);
+        rememberCheckoutDestination(checkoutDestinations, execution.result.checkout);
       }
 
       if (signal.aborted) return;
@@ -176,12 +175,11 @@ export async function runJobSteps(params: {
   }
 }
 
-async function rememberCheckoutDestination(
+function rememberCheckoutDestination(
   destinations: CheckoutDestinations,
   checkout: NonNullable<StepResult['checkout']>,
-): Promise<void> {
-  const destination = await realpath(checkout.path).catch(() => checkout.path);
-  destinations.set(destination, {
+): void {
+  destinations.set(checkout.path, {
     repository: checkout.repository,
     ref: checkout.ref,
     result: checkout,

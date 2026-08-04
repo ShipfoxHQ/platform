@@ -5,6 +5,7 @@ import type {StepDto} from '@shipfox/api-workflows-dto';
 import {HTTPError} from 'ky';
 
 const requestCheckoutTokenMock = vi.fn();
+const assertGitAvailableMock = vi.fn();
 const checkoutRepositoryMock = vi.fn();
 const writeAmbientGitCredentialMock = vi.fn();
 
@@ -19,6 +20,7 @@ vi.mock('@shipfox/runner-workspace', async () => {
   );
   return {
     ...actual,
+    assertGitAvailable: (...args: unknown[]) => assertGitAvailableMock(...args),
     checkoutRepository: (...args: unknown[]) => checkoutRepositoryMock(...args),
     writeAmbientGitCredential: (...args: unknown[]) => writeAmbientGitCredentialMock(...args),
   };
@@ -74,6 +76,7 @@ describe('executeCheckoutStep', () => {
   beforeEach(async () => {
     workspace = await realpath(await mkdtemp(join(tmpdir(), 'shipfox-checkout-executor-')));
     vi.clearAllMocks();
+    assertGitAvailableMock.mockResolvedValue('git version 2.51.0');
     requestCheckoutTokenMock.mockResolvedValue(checkoutResponse());
     checkoutRepositoryMock.mockResolvedValue('abc123');
     writeAmbientGitCredentialMock.mockResolvedValue(undefined);
@@ -140,6 +143,31 @@ describe('executeCheckoutStep', () => {
     expect(result.result.success).toBe(true);
     expect(checkoutRepositoryMock).toHaveBeenCalledWith(
       expect.objectContaining({cwd: destination}),
+    );
+  });
+
+  it('reports Git as unavailable before requesting checkout credentials', async () => {
+    const log = fakeLog();
+    assertGitAvailableMock.mockRejectedValue(new Error('git is not available on the runner host'));
+
+    const result = await run({}, new Map(), log);
+
+    expect(result.result).toEqual({
+      success: false,
+      error: {
+        message: 'git is not available on the runner host',
+        reason: 'git_unavailable',
+      },
+      exit_code: null,
+    });
+    expect(requestCheckoutTokenMock).not.toHaveBeenCalled();
+    expect(log.writeOutputLine).toHaveBeenCalledWith(
+      'Checkout step failed because Git is not available on the runner. Details: git is not available on the runner host',
+      'stderr',
+    );
+    expect(log.writeOutputLine).toHaveBeenCalledWith(
+      'Next step: Install Git in the runner image or use a runner image that includes Git.',
+      'stderr',
     );
   });
 
@@ -212,6 +240,27 @@ describe('executeCheckoutStep', () => {
     await expect(readFile(join(destination, 'agent-change.txt'), 'utf8')).resolves.toBe(
       'preserve me',
     );
+  });
+
+  it('redacts credentials in the repeated-checkout log', async () => {
+    const destinations = new Map();
+    const log = fakeLog();
+    requestCheckoutTokenMock.mockResolvedValue({
+      ...checkoutResponse(),
+      repository_url: 'https://user:secret@example.test/repo.git',
+    });
+
+    await run({path: 'repo'}, destinations, log);
+    log.writeGroup.mockClear();
+    await run({path: 'repo'}, destinations, log);
+
+    expect(log.writeGroup).toHaveBeenCalledWith({
+      name: 'Checkout skipped',
+      lines: [
+        `Path: ${resolve(workspace, 'repo')}`,
+        'Already checked out https://***@example.test/repo.git at main.',
+      ],
+    });
   });
 
   it('refuses a different target at an owned path without force', async () => {

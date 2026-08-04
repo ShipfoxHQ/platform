@@ -47,9 +47,27 @@ export function assertCheckoutPath(checkoutPath: unknown): asserts checkoutPath 
   }
 
   const segments = checkoutPath.split('/');
-  if (segments.some((segment) => segment === '..' || segment === '.git')) {
+  if (segments.some((segment) => segment === '..' || isGitSegment(segment))) {
     throw new CheckoutPathInvalidError(checkoutPath);
   }
+}
+
+/** Resolves an absolute checkout destination and enforces the workspace boundary. */
+export async function normalizeCheckoutDestination(
+  jobWorkspace: string,
+  destination: string,
+): Promise<string> {
+  const resolvedWorkspace = await realpath(jobWorkspace);
+  const resolvedCandidate = await resolveExistingPrefix(destination);
+
+  if (
+    !isWithin(resolvedWorkspace, resolvedCandidate) ||
+    containsGitSegment(resolvedWorkspace, resolvedCandidate)
+  ) {
+    throw new CheckoutPathInvalidError(destination);
+  }
+
+  return resolvedCandidate;
 }
 
 /**
@@ -57,24 +75,11 @@ export function assertCheckoutPath(checkoutPath: unknown): asserts checkoutPath 
  * may not exist yet, so realpath is walked up to the nearest existing ancestor. This
  * still catches a symlinked ancestor that would place a new checkout outside the job.
  */
-export async function resolveCheckoutPath(
-  jobWorkspace: string,
-  checkoutPath: unknown,
-): Promise<string> {
+export function resolveCheckoutPath(jobWorkspace: string, checkoutPath: unknown): Promise<string> {
   assertCheckoutPath(checkoutPath);
 
-  const resolvedWorkspace = await realpath(jobWorkspace);
   const lexicalCandidate = resolve(jobWorkspace, checkoutPath);
-  const resolvedCandidate = await resolveExistingPrefix(lexicalCandidate);
-
-  if (
-    !isWithin(resolvedWorkspace, resolvedCandidate) ||
-    containsGitSegment(resolvedWorkspace, resolvedCandidate)
-  ) {
-    throw new CheckoutPathInvalidError(checkoutPath);
-  }
-
-  return resolvedCandidate;
+  return normalizeCheckoutDestination(jobWorkspace, lexicalCandidate);
 }
 
 export async function inspectCheckoutDestination(
@@ -137,7 +142,11 @@ async function resolveExistingPrefix(candidate: string): Promise<string> {
 
 function containsGitSegment(parent: string, candidate: string): boolean {
   const distance = relative(parent, candidate);
-  return distance.split(sep).some((segment) => segment === '.git');
+  return distance.split(sep).some(isGitSegment);
+}
+
+function isGitSegment(segment: string): boolean {
+  return segment.toLowerCase() === '.git';
 }
 
 function isWithin(parent: string, candidate: string): boolean {

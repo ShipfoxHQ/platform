@@ -1,7 +1,11 @@
 import {arch, platform, release} from 'node:os';
 import type {StepDto, StepErrorReasonDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
-import {assertGitAvailable, createJobDir} from '@shipfox/runner-workspace';
+import {
+  assertGitAvailable,
+  createJobDir,
+  normalizeCheckoutDestination,
+} from '@shipfox/runner-workspace';
 import type {KyInstance} from 'ky';
 import {
   type CheckoutLogSink,
@@ -135,11 +139,12 @@ async function runCheckoutSetup(params: {
   const {log} = params;
   log?.writeGroupStart('Checkout');
   try {
+    const destination = await normalizeCheckoutDestination(params.cwd, params.cwd);
     const checkout = await requestCheckoutCredentials({...params, scope: 'setup'});
     if (!checkout.ok) return checkout;
 
     return await checkoutRepositoryAt({
-      destination: params.cwd,
+      destination,
       gitConfigPath: params.gitConfigPath,
       checkout: checkout.value,
       signal: params.signal,

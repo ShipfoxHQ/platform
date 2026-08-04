@@ -321,7 +321,7 @@ function writeWarning(
   logger().warn({name, lines}, scope === 'setup' ? 'Setup warning' : 'Checkout warning');
 }
 
-function safeRepositoryUrl(repositoryUrl: string): string {
+export function safeRepositoryUrl(repositoryUrl: string): string {
   return repositoryUrl.replace(URL_CREDENTIAL_RE, '$1***@');
 }
 
