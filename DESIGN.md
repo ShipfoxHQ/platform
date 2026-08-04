@@ -319,24 +319,29 @@ the marketing page.
   chrome.
 
 **The Pixel-Spacing Rule.** `index.css` sets `--spacing: 1px`, so in this Tailwind
-v4 setup **utility numbers are pixels**: `p-16` is 16px, `gap-8` is 8px, `h-32` is
-32px. This is *not* stock Tailwind, where `p-4` would be 16px. Here `p-4` is 4px.
-Anyone arriving from a tutorial or another repo gets this wrong on day one; flag it
-in review. Use the scale (2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64) and do
-not invent values between the steps.
+v4 setup **utility numbers are pixels**: `p-16` is 16px, `gap-8` is 8px, and `h-32`
+is 32px. This is *not* stock Tailwind, where `p-4` would be 16px. Here `p-4` is
+4px. The raw scale remains useful for token definitions and component internals.
+Product surfaces should use the semantic roles below.
 
-**Semantic composition roles.** Use `my-region` for a 32px block margin around a
-standalone region and `mt-page` for a 48px separation before page-level feedback
-or similar trailing content. Use `px-tight` when a compact control needs horizontal
-padding without changing its vertical size. Use `ms-inline` for inline badge
-separation. The `-mt-inline` and `-mr-inline` roles are reserved for preserving a
-touch target's optical alignment with a containing surface. These roles keep
-composition spacing explicit without reopening raw margin utilities across product
-code.
+**Semantic spacing roles.** Values are listed as `default / compact` pixels.
+Compact values apply below an ancestor with `data-density="compact"`.
 
-**Density posture.** Default button height `h-32` with `px-10`; table rows 36 to
-44px; form row gap `gap-16`; card padding `p-24`. A surface is at the wrong density
-when a table needs horizontal scroll from cell padding, when an app page shows more
+| Family | Roles |
+| --- | --- |
+| Gaps | `gap-tight` 4 / 2, `gap-inline` 8 / 4, `gap-cluster` 12 / 8, `gap-group` 16 / 12, `gap-section` 24 / 16, `gap-region` 32 / 24 |
+| Padding | `p-tight` and `px-tight` 8 / 4, `px-row` 16 / 12, `py-row` 12 / 8, `p-panel-compact` 16 / 12, `p-panel` 24 / 16, `px-frame` 24 / 16, `py-frame` 32 / 24 |
+| Margins | `ms-inline` 8 / 4, `my-region` 32 / 24, `mt-page` 48 / 32, `-mt-inline` and `-mr-inline` -8 / -4 |
+
+Use a parent `gap-*` role before adding a child margin. Use the negative inline
+roles only to preserve a touch target's optical alignment with its containing
+surface. Keep zero utilities for explicit resets. Use arbitrary spacing only for
+a fixed optical offset or reserved control space that has no semantic role.
+
+**Density posture.** The default medium button is `h-32`; component sizing owns its
+padding. Use `gap-group` for form row rhythm, `p-panel` for standard cards, and
+`px-row` or `py-row` for row controls. A surface is at the wrong density when a
+table needs horizontal scroll from cell padding, when an app page shows more
 whitespace than content above the fold, or when a marketing page feels like a
 settings panel.
 

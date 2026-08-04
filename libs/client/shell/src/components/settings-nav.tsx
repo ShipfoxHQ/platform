@@ -33,7 +33,7 @@ export function SettingsNav({
   return (
     <nav
       aria-label={`${scope === 'workspace' ? 'Workspace' : 'Project'} settings`}
-      className="flex flex-col gap-4"
+      className="flex flex-col gap-tight"
     >
       {scopedEntries.map((entry) => {
         const to = `${settingsPath}/${entry.pathSegment}`;

@@ -14,7 +14,7 @@ export function NavTabs({
   const reduced = useReducedMotion();
   const tabs = entries.filter((entry) => entry.scope === scope);
   const projectScoped = scope === 'project';
-  const tabClassName = `h-40 inline-flex shrink-0 items-center whitespace-nowrap px-4 ${projectScoped ? 'text-xs' : 'text-sm'} font-medium transition-colors ${reduced ? '' : 'transition-[border-color]'}`;
+  const tabClassName = `h-40 inline-flex shrink-0 items-center whitespace-nowrap px-tight ${projectScoped ? 'text-xs' : 'text-sm'} font-medium transition-colors ${reduced ? '' : 'transition-[border-color]'}`;
   const activeProps = {
     className: projectScoped
       ? 'border-b border-border-highlights-interactive text-foreground-neutral-base'
@@ -30,7 +30,7 @@ export function NavTabs({
     <div
       role="tablist"
       aria-label={`${scope === 'project' ? 'Project' : 'Workspace'} sections`}
-      className="sticky top-56 z-20 flex h-40 items-end gap-12 overflow-x-auto whitespace-nowrap border-b border-border-neutral-base bg-background-subtle-base px-16 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="sticky top-56 z-20 flex h-40 items-end gap-cluster overflow-x-auto whitespace-nowrap border-b border-border-neutral-base bg-background-subtle-base px-row [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {tabs.map((entry) => (
         <Link

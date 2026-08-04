@@ -74,7 +74,7 @@ export function PasswordLoginForm({children, invitationEmail}: PasswordLoginForm
 
   return (
     <form
-      className="flex flex-col gap-18"
+      className="flex flex-col gap-group"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();

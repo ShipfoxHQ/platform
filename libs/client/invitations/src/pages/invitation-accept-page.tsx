@@ -222,7 +222,7 @@ export function InvitationAcceptPage() {
     const loginHref = `/auth/login?redirect=${encodeURIComponent(redirect)}`;
     return (
       <AuthShell title={data.workspaceName} description={inviterLine}>
-        <div className="flex flex-col gap-16">
+        <div className="flex flex-col gap-group">
           <Button asChild className="w-full">
             <Link to={signupHref}>Create account</Link>
           </Button>
@@ -247,7 +247,7 @@ export function InvitationAcceptPage() {
         <Callout role="alert" type="warning">
           You're signed in as {auth.user?.email}, but this invitation is for {data.email}.
         </Callout>
-        <div className="flex flex-col gap-16">
+        <div className="flex flex-col gap-group">
           <Button asChild className="w-full">
             <Link to={logoutHref}>Log out and continue</Link>
           </Button>
@@ -315,7 +315,7 @@ export function InvitationAcceptPage() {
 
   return (
     <AuthShell title={data.workspaceName} description={inviterLine}>
-      <div className="flex flex-col items-center gap-12" aria-live="polite">
+      <div className="flex flex-col items-center gap-cluster" aria-live="polite">
         <ShipfoxLoader />
         <Text size="sm" className="text-foreground-neutral-subtle">
           Adding you to {data.workspaceName}…
@@ -327,7 +327,7 @@ export function InvitationAcceptPage() {
 
 function CenteredLoader() {
   return (
-    <div className="flex justify-center py-16" aria-busy="true">
+    <div className="flex justify-center py-row" aria-busy="true">
       <ShipfoxLoader />
     </div>
   );

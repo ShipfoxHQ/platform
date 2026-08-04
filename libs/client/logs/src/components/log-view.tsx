@@ -110,7 +110,7 @@ export function LogViewSkeleton({
       {skeletonRows.map((row) => (
         <LogRow key={row.id} lineNumber={row.lineNumber}>
           <Skeleton
-            className={`my-4 h-12 ${widths[(row.lineNumber - 1) % widths.length] ?? 'w-[48%]'}`}
+            className={`my-[4px] h-12 ${widths[(row.lineNumber - 1) % widths.length] ?? 'w-[48%]'}`}
           />
         </LogRow>
       ))}
@@ -155,7 +155,7 @@ function NoOutputRow({state}: {state: NonNullable<LogViewProps['emptyState']>}) 
   return (
     <LogRow lineNumber={null}>
       <LogContent className="text-foreground-neutral-muted">
-        <span className="inline-flex min-w-0 items-center gap-8">
+        <span className="inline-flex min-w-0 items-center gap-inline">
           <Icon name="info" className="size-14 flex-none" aria-hidden="true" />
           <span className="min-w-0">
             <span className="font-medium">{copy.title}</span>

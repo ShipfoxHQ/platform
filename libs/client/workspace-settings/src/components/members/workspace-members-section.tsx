@@ -52,7 +52,7 @@ export function WorkspaceMembersSettingsSection({
   workspaceName: string;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-32">
+    <div className="flex min-w-0 flex-col gap-region">
       <MembersSection workspaceId={workspaceId} workspaceName={workspaceName} />
       <PendingInvitationsSection workspaceId={workspaceId} workspaceName={workspaceName} />
     </div>
@@ -71,8 +71,8 @@ function MembersSection({
   const members = query.data ?? [];
 
   return (
-    <section className="flex flex-col gap-16">
-      <div className="flex flex-col gap-4">
+    <section className="flex flex-col gap-group">
+      <div className="flex flex-col gap-tight">
         <Header variant="h3">Members</Header>
         <Text size="sm" className="text-foreground-neutral-muted">
           {query.isPending
@@ -206,9 +206,9 @@ function PendingInvitationsSection({
   const [inviteOpen, setInviteOpen] = useState(false);
 
   return (
-    <section className="flex flex-col gap-16">
-      <div className="flex items-center justify-between gap-16">
-        <div className="flex flex-col gap-4">
+    <section className="flex flex-col gap-group">
+      <div className="flex items-center justify-between gap-group">
+        <div className="flex flex-col gap-tight">
           <Header variant="h3">Pending invitations</Header>
           <Text size="sm" className="text-foreground-neutral-muted">
             {query.isPending
@@ -285,7 +285,7 @@ function InvitationRow({
       </TableCell>
       <TableCell>{invitation.invitedByDisplay ?? 'N/A'}</TableCell>
       <TableCell>
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-inline">
           <Text size="sm">{formatDate(invitation.expiresAt)}</Text>
           {expiry === 'expires-soon' ? <Badge variant="warning">Soon</Badge> : null}
           {expiry === 'expired' ? <Badge variant="error">Expired</Badge> : null}
@@ -390,7 +390,7 @@ function InviteMemberModal({
         <ModalHeader>
           <Text size="lg">Invite a member</Text>
         </ModalHeader>
-        <ModalBody className="gap-16">
+        <ModalBody className="gap-group">
           {formError ? (
             <Callout role="alert" type="error">
               {formError}
@@ -398,7 +398,7 @@ function InviteMemberModal({
           ) : null}
           <form
             id="invite-member-form"
-            className="flex flex-col gap-16"
+            className="flex flex-col gap-group"
             noValidate
             onSubmit={(event) => {
               event.preventDefault();
@@ -459,10 +459,10 @@ function EmptyInvitations() {
 
 function TableSkeleton({rows, cols}: {rows: number; cols: number}) {
   return (
-    <div className="flex flex-col gap-12">
+    <div className="flex flex-col gap-cluster">
       {Array.from({length: rows}).map((_, rowIdx) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder rows
-        <div key={rowIdx} className="grid grid-cols-3 gap-16">
+        <div key={rowIdx} className="grid grid-cols-3 gap-group">
           {Array.from({length: cols}).map((__, colIdx) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder cells
             <Skeleton key={colIdx} className="h-20" />

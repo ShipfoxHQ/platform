@@ -46,7 +46,7 @@ function GroupStatus({node, terminated}: {node: GroupLogNode; terminated: boolea
   }
 
   return (
-    <span className="inline-flex items-center gap-4 text-foreground-neutral-muted">
+    <span className="inline-flex items-center gap-tight text-foreground-neutral-muted">
       <Icon name="loader4Line" className="size-12 motion-safe:animate-spin" aria-hidden="true" />
       running
     </span>

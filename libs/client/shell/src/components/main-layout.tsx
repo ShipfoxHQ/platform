@@ -39,7 +39,7 @@ export function MainLayout({
         </main>
       ) : (
         <main className={`flex-1 overflow-auto ${appContentHeight}`}>
-          <div className="max-w-[1120px] mx-auto px-24 py-32">
+          <div className="max-w-[1120px] mx-auto px-frame py-frame">
             <Outlet />
           </div>
         </main>

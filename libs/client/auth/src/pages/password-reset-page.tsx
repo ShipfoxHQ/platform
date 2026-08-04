@@ -95,7 +95,7 @@ function PasswordResetRequest() {
   return (
     <AuthShell title="Reset your password" description="Enter your email to get a reset link.">
       <form
-        className="flex flex-col gap-18"
+        className="flex flex-col gap-group"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
@@ -174,7 +174,7 @@ function PasswordResetConfirm({token}: {token: string}) {
   return (
     <AuthShell title="Set a new password" description="Choose a password for your Shipfox account.">
       <form
-        className="flex flex-col gap-18"
+        className="flex flex-col gap-group"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();

@@ -21,10 +21,10 @@ export interface ConfigErrorScreenProps {
  */
 export function ConfigErrorScreen({errors, docsUrl}: ConfigErrorScreenProps) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background-subtle-base px-24 py-32">
+    <main className="flex min-h-screen items-center justify-center bg-background-subtle-base px-frame py-frame">
       <Card className="w-full max-w-[512px]">
         <CardHeader>
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-inline">
             <Icon name="errorWarningLine" className="size-20 text-tag-error-icon" />
             <CardTitle variant="h2">Configuration error</CardTitle>
           </div>
@@ -38,7 +38,7 @@ export function ConfigErrorScreen({errors, docsUrl}: ConfigErrorScreenProps) {
           {errors.map((error) => (
             <div
               key={error.key}
-              className="flex flex-col gap-4 border-t border-border-neutral-base py-12 first:border-t-0 first:pt-0"
+              className="flex flex-col gap-tight border-t border-border-neutral-base py-row first:border-t-0 first:pt-0"
             >
               <Code variant="label" bold className="text-foreground-neutral-base">
                 {error.key}

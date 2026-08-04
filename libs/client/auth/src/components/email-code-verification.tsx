@@ -127,7 +127,7 @@ export function EmailCodeVerification({
           This verification code has expired. Use another email to try again.
         </Callout>
       ) : null}
-      <form className="flex flex-col gap-8" noValidate onSubmit={submit}>
+      <form className="flex flex-col gap-inline" noValidate onSubmit={submit}>
         <FormField label="Verification code" id="verification-code" error={codeError}>
           <FormFieldInput
             autoComplete="one-time-code"

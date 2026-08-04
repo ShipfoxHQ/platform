@@ -10,7 +10,7 @@ export function FormBody({children, className}: {children: ReactNode; className?
   return (
     <div
       className={cn(
-        'flex w-full flex-col items-start gap-16 bg-background-neutral-base px-24 pt-16 pb-24',
+        'flex w-full flex-col items-start gap-group bg-background-neutral-base p-panel',
         className,
       )}
     >
@@ -23,7 +23,7 @@ export function FormFooter({children}: {children: ReactNode}) {
   return (
     <div className="flex w-full shrink-0 flex-col">
       <div className="h-[1px] w-full bg-border-neutral-strong" />
-      <div className="flex w-full items-center justify-end gap-16 bg-background-neutral-base px-24 py-16">
+      <div className="flex w-full items-center justify-end gap-group bg-background-neutral-base px-frame py-row">
         {children}
       </div>
     </div>

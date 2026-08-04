@@ -32,8 +32,8 @@ export function WorkspaceSetupPending() {
 
 export function WorkspaceUnavailablePage({workspaceName}: {workspaceName?: string | undefined}) {
   return (
-    <main className="min-h-screen bg-background-subtle-base px-24 py-32 max-[520px]:px-16">
-      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-12">
+    <main className="min-h-screen bg-background-subtle-base px-frame py-frame max-[520px]:px-row">
+      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-cluster">
         <Header variant="h1">Workspace unavailable</Header>
         <Text size="md" className="text-foreground-neutral-muted">
           {workspaceName
@@ -59,11 +59,11 @@ export function WorkspaceLayoutErrorRoute({error, reset}: ErrorComponentProps) {
         ? error.cause.message
         : 'Try again in a moment.';
   return (
-    <main className="min-h-screen bg-background-subtle-base px-24 py-32 max-[520px]:px-16">
-      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-24">
+    <main className="min-h-screen bg-background-subtle-base px-frame py-frame max-[520px]:px-row">
+      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-section">
         <Header variant="h1">{setupError ? 'Workspace setup' : 'Workspace'}</Header>
         <Callout role="alert" type="error">
-          <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-inline">
             <Text size="sm" bold>
               {setupError ? 'Could not load workspace setup' : 'Could not load workspace'}
             </Text>

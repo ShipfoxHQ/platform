@@ -78,10 +78,10 @@ export function WorkspaceOnboardingPage() {
   });
 
   return (
-    <main className="min-h-screen bg-background-subtle-base px-24 py-32 max-[520px]:px-16">
-      <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-[1120px] flex-col gap-24">
+    <main className="min-h-screen bg-background-subtle-base px-frame py-frame max-[520px]:px-row">
+      <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-[1120px] flex-col gap-section">
         <header className="flex items-center justify-between">
-          <div className="flex items-center gap-10">
+          <div className="flex items-center gap-inline">
             <div className="flex size-36 items-center justify-center rounded-8 border border-border-neutral-base bg-background-neutral-base shadow-button-neutral">
               <Icon name="shipfox" className="size-24 text-background-highlight-interactive" />
             </div>
@@ -91,7 +91,7 @@ export function WorkspaceOnboardingPage() {
           </div>
         </header>
 
-        <section className="grid flex-1 items-center gap-32 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
+        <section className="grid flex-1 items-center gap-region lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
           <form
             className="relative z-10 w-full"
             noValidate
@@ -102,8 +102,8 @@ export function WorkspaceOnboardingPage() {
               void form.handleSubmit();
             }}
           >
-            <Card className="gap-20 p-24 shadow-button-neutral">
-              <CardHeader className="gap-8">
+            <Card className="gap-section p-panel shadow-button-neutral">
+              <CardHeader className="gap-inline">
                 <CardTitle id="workspace-onboarding-title" variant="h1">
                   Create your workspace
                 </CardTitle>
@@ -116,7 +116,7 @@ export function WorkspaceOnboardingPage() {
                 </Callout>
               ) : null}
 
-              <CardContent className="flex flex-col gap-8">
+              <CardContent className="flex flex-col gap-inline">
                 <form.Field
                   name="name"
                   validators={{
@@ -201,11 +201,11 @@ export function WorkspaceOnboardingPage() {
             </Card>
           </form>
 
-          <div className="hidden flex-col gap-18 lg:flex" aria-hidden="true">
-            <div className="grid grid-cols-4 gap-12">
+          <div className="hidden flex-col gap-group lg:flex" aria-hidden="true">
+            <div className="grid grid-cols-4 gap-cluster">
               {previewMetrics.map((metric) => (
                 <div
-                  className="rounded-8 border border-border-neutral-base bg-background-neutral-base p-14 shadow-button-neutral"
+                  className="rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact shadow-button-neutral"
                   key={metric.label}
                 >
                   <Text size="xs" className="text-foreground-neutral-muted">
@@ -217,18 +217,18 @@ export function WorkspaceOnboardingPage() {
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-18">
+            <div className="grid grid-cols-2 gap-group">
               <PreviewPanel title="Performance over time" />
               <PreviewPanel title="Duration distribution" bars />
             </div>
-            <div className="rounded-8 border border-border-neutral-base bg-background-neutral-base p-16 shadow-button-neutral">
+            <div className="flex flex-col gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact shadow-button-neutral">
               <Text size="sm" bold>
                 Jobs breakdown
               </Text>
-              <div className="mt-14 flex flex-col gap-10">
+              <div className="flex flex-col gap-inline">
                 {[0, 1, 2, 3].map((row) => (
                   <div
-                    className="grid grid-cols-[1fr_80px_80px] gap-12 border-t border-border-neutral-base pt-10"
+                    className="grid grid-cols-[1fr_80px_80px] gap-cluster border-t border-border-neutral-base pt-[10px]"
                     key={row}
                   >
                     <div className="h-12 rounded-full bg-background-neutral-disabled" />
@@ -247,11 +247,11 @@ export function WorkspaceOnboardingPage() {
 
 function PreviewPanel({title, bars = false}: {title: string; bars?: boolean}) {
   return (
-    <div className="rounded-8 border border-border-neutral-base bg-background-neutral-base p-16 shadow-button-neutral">
+    <div className="flex flex-col gap-group rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact shadow-button-neutral">
       <Text size="sm" bold>
         {title}
       </Text>
-      <div className="mt-16 flex h-[220px] items-end gap-8 border-b border-l border-border-neutral-base px-12 pb-10">
+      <div className="flex h-[220px] items-end gap-inline border-b border-l border-border-neutral-base px-row pb-[10px]">
         {previewBars.map((bar) => (
           <div
             className={

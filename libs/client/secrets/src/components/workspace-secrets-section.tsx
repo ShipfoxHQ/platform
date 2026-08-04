@@ -54,9 +54,9 @@ export function WorkspaceSecretsSection({workspaceId}: {workspaceId: string}) {
 
   return (
     <RelativeTimeProvider>
-      <section className="flex flex-col gap-16" aria-label="Secrets">
-        <div className="flex items-start justify-between gap-16">
-          <div className="flex flex-col gap-4">
+      <section className="flex flex-col gap-group" aria-label="Secrets">
+        <div className="flex items-start justify-between gap-group">
+          <div className="flex flex-col gap-tight">
             <Header variant="h3">Secrets</Header>
             <Text size="sm" className="text-foreground-neutral-muted">
               {SECRETS_DESCRIPTION}
@@ -70,13 +70,13 @@ export function WorkspaceSecretsSection({workspaceId}: {workspaceId: string}) {
         {secretsQuery.isPending ? <StoreRowsSkeleton label="Loading secrets" /> : null}
 
         {secretsQuery.isError && secretsQuery.data === undefined ? (
-          <StoreSurface className="px-16">
+          <StoreSurface className="px-row">
             <QueryLoadError query={secretsQuery} subject="secrets" />
           </StoreSurface>
         ) : null}
 
         {secretsQuery.data !== undefined && secrets.length === 0 ? (
-          <StoreSurface className="px-16">
+          <StoreSurface className="px-row">
             <EmptyState
               icon="keyLine"
               title="No secrets yet"

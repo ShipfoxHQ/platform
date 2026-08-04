@@ -10,7 +10,7 @@ export function StoreRowsSkeleton({label}: {label: string}) {
     <div role="status" aria-label={label} className={STORE_SURFACE_CLASS}>
       <ul className="divide-y divide-border-neutral-base">
         {[0, 1, 2].map((row) => (
-          <li key={row} className="flex items-center gap-12 px-16 py-12">
+          <li key={row} className="flex items-center gap-cluster px-row py-row">
             <Skeleton className="h-16 w-140" />
             <Skeleton className="h-16 w-96" />
             <Skeleton className="ml-auto h-14 w-80 shrink-0" />
