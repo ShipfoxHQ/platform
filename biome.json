@@ -213,6 +213,13 @@
       "path": "./tools/biome/plugins/client-architecture/no-raw-spacing.grit",
       "includes": [
         "**/apps/docs/**",
+        "**/libs/client/shell/**",
+        "**/libs/client/auth/**",
+        "**/libs/client/secrets/**",
+        "**/libs/client/logs/**",
+        "**/libs/client/workspace-settings/**",
+        "**/libs/client/config/**",
+        "**/libs/client/invitations/**",
         "!**/dist/**",
         "!**/node_modules/**",
         "!**/*.test.ts",

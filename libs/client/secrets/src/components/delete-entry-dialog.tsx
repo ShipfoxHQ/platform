@@ -33,7 +33,7 @@ export function DeleteEntryDialog({
             Delete <strong>{entryKey}</strong>?
           </ModalTitle>
         </ModalHeader>
-        <ModalBody className="gap-16">
+        <ModalBody className="gap-group">
           <Text size="sm">
             Workflows that reference <strong>{entryKey}</strong> will fail at their next run.
           </Text>

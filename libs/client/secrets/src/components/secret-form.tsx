@@ -76,7 +76,7 @@ export function SecretForm({
       <FormBody>
         <form
           id={SECRET_FORM_ID}
-          className="flex w-full flex-col gap-16"
+          className="flex w-full flex-col gap-group"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -125,7 +125,9 @@ export function SecretForm({
                 <div className="relative">
                   <FormFieldTextarea
                     className={
-                      showValue ? 'pr-32 font-code' : 'pr-32 font-code [-webkit-text-security:disc]'
+                      showValue
+                        ? 'pr-[32px] font-code'
+                        : 'pr-[32px] font-code [-webkit-text-security:disc]'
                     }
                     autoComplete="off"
                     spellCheck={false}

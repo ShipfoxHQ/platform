@@ -9,7 +9,7 @@ export function NavBar({hideProjectNavigation = false}: {hideProjectNavigation?:
   const workspace = useActiveWorkspace();
   const {ProjectBreadcrumb} = useChrome();
   return (
-    <header className="sticky top-0 z-30 h-56 px-16 flex items-center gap-12 bg-background-subtle-base border-b border-border-neutral-base shrink-0">
+    <header className="sticky top-0 z-30 h-56 px-row flex items-center gap-cluster bg-background-subtle-base border-b border-border-neutral-base shrink-0">
       <Link
         to="/"
         aria-label="Shipfox home"

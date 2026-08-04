@@ -206,7 +206,7 @@ export function SignupPage() {
         description="Your account was created, but we could not finish signing you in."
       >
         <Callout role="alert" type="error">
-          <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-inline">
             <Text size="sm">
               Try again to finish joining your workspace. You can safely retry this step.
             </Text>
@@ -285,7 +285,7 @@ export function SignupPage() {
   return (
     <AuthShell title={headerTitle} description={headerDescription}>
       <form
-        className="flex flex-col gap-18"
+        className="flex flex-col gap-group"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();

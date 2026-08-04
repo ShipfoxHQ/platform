@@ -65,10 +65,10 @@ function AgentSessionRowView({
           data-log-terminal-failure={row.terminalFailure ? 'true' : undefined}
         >
           <LogContent className="text-foreground-neutral-base">
-            <span className="flex min-w-0 items-start gap-8">
+            <span className="flex min-w-0 items-start gap-inline">
               <MessageIcon role={row.role} terminalFailure={row.terminalFailure} />
-              <span className="flex min-w-0 flex-1 flex-col gap-2">
-                <span className="flex min-w-0 items-center gap-8">
+              <span className="flex min-w-0 flex-1 flex-col gap-tight">
+                <span className="flex min-w-0 items-center gap-inline">
                   <MessageRoleLabel label={row.label} terminalFailure={row.terminalFailure} />
                   <RowMetadata meta={row.meta} className="ml-auto flex-none" />
                 </span>
@@ -106,7 +106,7 @@ function AgentSessionRowView({
             summary={compactPreview(row.summary ?? row.input)}
             trailing={
               awaitingResult ? (
-                <span className="inline-flex items-center gap-4">
+                <span className="inline-flex items-center gap-tight">
                   <Icon
                     name="loader4Line"
                     className="size-12 motion-safe:animate-spin"
@@ -117,7 +117,7 @@ function AgentSessionRowView({
               ) : null
             }
           >
-            <span className="inline-flex min-w-0 items-center gap-6">
+            <span className="inline-flex min-w-0 items-center gap-inline">
               <Icon name="terminalBoxLine" className="size-14 flex-none" aria-hidden="true" />
               <span className="truncate">tool {row.name}</span>
             </span>
@@ -155,7 +155,7 @@ function AgentSessionRowView({
             trailing={
               <span
                 className={cn(
-                  'inline-flex items-center gap-4',
+                  'inline-flex items-center gap-tight',
                   row.isError ? 'text-red-600 dark:text-red-400' : 'text-foreground-neutral-muted',
                 )}
               >
@@ -168,7 +168,7 @@ function AgentSessionRowView({
               </span>
             }
           >
-            <span className="inline-flex min-w-0 items-center gap-6">
+            <span className="inline-flex min-w-0 items-center gap-inline">
               <Icon name="terminalWindowLine" className="size-14 flex-none" aria-hidden="true" />
               <span className="truncate">result {toolName}</span>
             </span>
@@ -194,7 +194,7 @@ function AgentSessionRowView({
           data-log-terminal-failure={row.terminalFailure ? 'true' : undefined}
         >
           <LogContent className="text-foreground-neutral-muted">
-            <span className="inline-flex w-full items-center gap-8">
+            <span className="inline-flex w-full items-center gap-inline">
               <Icon name="informationLine" className="size-14 flex-none" aria-hidden="true" />
               <span className="min-w-0">
                 <span className="font-medium">{row.label}</span>
@@ -222,7 +222,7 @@ function AgentSessionRowView({
             summary={compactPreview(row.raw)}
             className="text-orange-600 dark:text-orange-400"
           >
-            <span className="inline-flex min-w-0 items-center gap-6">
+            <span className="inline-flex min-w-0 items-center gap-inline">
               <Icon name="errorWarningLine" className="size-14 flex-none" aria-hidden="true" />
               <span className="truncate">{row.label}</span>
             </span>
@@ -252,7 +252,7 @@ function MessageIcon({role, terminalFailure}: {role: string; terminalFailure: bo
     <Icon
       name={name}
       className={cn(
-        'mt-2 size-14 flex-none',
+        'mt-[2px] size-14 flex-none',
         terminalFailure ? 'text-red-600 dark:text-red-400' : 'text-foreground-neutral-muted',
       )}
       aria-hidden="true"
@@ -307,8 +307,8 @@ function MetadataTrigger({meta}: {meta: readonly SessionViewRowMeta[]}) {
           <Icon name="informationLine" className="size-12" aria-hidden="true" />
         </button>
       </TooltipTrigger>
-      <TooltipContent align="end" variant="inverted" className="max-w-360 px-8 py-6">
-        <span className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-8 gap-y-2 font-code text-xs">
+      <TooltipContent align="end" variant="inverted" className="max-w-360 p-tight">
+        <span className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[var(--space-inline)] gap-y-[var(--space-tight)] font-code text-xs">
           {meta.map((item) => (
             <Fragment key={`${item.label}-${item.value}`}>
               <span className="text-foreground-contrast-secondary">{item.label}</span>
@@ -335,7 +335,7 @@ function PreviewText({text}: {text: string}) {
         <button
           type="button"
           aria-expanded={expanded}
-          className="ml-8 inline-flex min-h-24 items-center rounded-4 px-6 font-display text-xs text-foreground-highlight-interactive focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)]"
+          className="ms-inline inline-flex min-h-24 items-center rounded-4 px-tight font-display text-xs text-foreground-highlight-interactive focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)]"
           onClick={() => setExpanded((value) => !value)}
         >
           {expanded ? 'show less' : 'show more'}

@@ -28,7 +28,7 @@ export function LoginPage() {
   return (
     <AuthShell title={headerTitle} description={headerDescription}>
       <PasswordLoginForm invitationEmail={invitationPending?.email}>
-        <ButtonLink asChild variant="subtle" className="-mt-8 self-end">
+        <ButtonLink asChild variant="subtle" className="-mt-inline self-end">
           <Link to="/auth/reset">Forgot password?</Link>
         </ButtonLink>
       </PasswordLoginForm>

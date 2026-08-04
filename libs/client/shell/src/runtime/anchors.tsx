@@ -162,15 +162,15 @@ function SettingsAnchorLayout({
   if (!params.workspaceSlug || (scope === 'project' && !params.projectSlug)) return null;
 
   return (
-    <div className="flex w-full flex-col gap-24">
-      <header className="flex flex-col gap-6">
+    <div className="flex w-full flex-col gap-section">
+      <header className="flex flex-col gap-inline">
         <Header variant="h2">{title}</Header>
         <Text size="sm" className="text-foreground-neutral-muted">
           {description}
         </Text>
       </header>
 
-      <div className="grid grid-cols-[180px_minmax(0,1fr)] gap-32 max-[760px]:grid-cols-1">
+      <div className="grid grid-cols-[180px_minmax(0,1fr)] gap-region max-[760px]:grid-cols-1">
         <SettingsNav entries={settingsSections} scope={scope} />
         <Outlet />
       </div>

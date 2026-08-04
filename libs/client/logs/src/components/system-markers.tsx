@@ -52,7 +52,7 @@ function LogMarkerRow({
       data-log-terminal-failure={terminalFailure ? 'true' : undefined}
     >
       <LogContent className={cn('block', toneText[tone])}>
-        <span className="inline-flex w-full items-center gap-8">
+        <span className="inline-flex w-full items-center gap-inline">
           <Icon name={icon} className="size-14 flex-none" aria-hidden="true" />
           {/* Label, detail, and figures share one text cluster joined by a literal
               " · ". Flex `gap` is visual only and would copy with no separator, so the

@@ -94,7 +94,7 @@ export function VariableForm({
       <FormBody>
         <form
           id={VARIABLE_FORM_ID}
-          className="flex w-full flex-col gap-16"
+          className="flex w-full flex-col gap-group"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();

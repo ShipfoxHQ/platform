@@ -13,12 +13,12 @@ export interface WorkspaceCrumbProps {
 export function WorkspaceCrumb({workspace, compact = false}: WorkspaceCrumbProps) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="flex items-center">
+    <div className="flex items-center gap-tight">
       <Link
         to="/w/$workspaceSlug"
         params={{workspaceSlug: workspace.slug}}
         aria-current="page"
-        className={`inline-block text-md font-medium text-foreground-neutral-base px-6 py-4 rounded-6 hover:bg-background-components-hover transition-colors truncate ${compact ? 'max-w-[120px] sm:max-w-[200px]' : 'max-w-[200px]'}`}
+        className={`inline-block text-md font-medium text-foreground-neutral-base p-tight rounded-6 hover:bg-background-components-hover transition-colors truncate ${compact ? 'max-w-[120px] sm:max-w-[200px]' : 'max-w-[200px]'}`}
       >
         {workspace.name}
       </Link>
@@ -29,7 +29,7 @@ export function WorkspaceCrumb({workspace, compact = false}: WorkspaceCrumbProps
             aria-label="Switch workspace"
             aria-haspopup="listbox"
             aria-expanded={open}
-            className="ml-2 grid place-items-center size-24 rounded-4 text-foreground-neutral-muted hover:bg-background-components-hover hover:text-foreground-neutral-base transition-colors"
+            className="grid place-items-center size-24 rounded-4 text-foreground-neutral-muted hover:bg-background-components-hover hover:text-foreground-neutral-base transition-colors"
           >
             <Icon name="arrowDownSLine" className="size-16" />
           </button>

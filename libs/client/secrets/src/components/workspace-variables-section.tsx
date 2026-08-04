@@ -54,9 +54,9 @@ export function WorkspaceVariablesSection({workspaceId}: {workspaceId: string}) 
 
   return (
     <RelativeTimeProvider>
-      <section className="flex flex-col gap-16" aria-label="Variables">
-        <div className="flex items-start justify-between gap-16">
-          <div className="flex flex-col gap-4">
+      <section className="flex flex-col gap-group" aria-label="Variables">
+        <div className="flex items-start justify-between gap-group">
+          <div className="flex flex-col gap-tight">
             <Header variant="h3">Variables</Header>
             <Text size="sm" className="text-foreground-neutral-muted">
               {VARIABLES_DESCRIPTION}
@@ -70,13 +70,13 @@ export function WorkspaceVariablesSection({workspaceId}: {workspaceId: string}) 
         {variablesQuery.isPending ? <StoreRowsSkeleton label="Loading variables" /> : null}
 
         {variablesQuery.isError && variablesQuery.data === undefined ? (
-          <StoreSurface className="px-16">
+          <StoreSurface className="px-row">
             <QueryLoadError query={variablesQuery} subject="variables" />
           </StoreSurface>
         ) : null}
 
         {variablesQuery.data !== undefined && variables.length === 0 ? (
-          <StoreSurface className="px-16">
+          <StoreSurface className="px-row">
             <EmptyState
               icon="bracesLine"
               title="No variables yet"
