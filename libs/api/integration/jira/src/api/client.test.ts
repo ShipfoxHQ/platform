@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({delete: vi.fn(), post: vi.fn()}));
 
 vi.mock('ky', () => {
   class MockHTTPError extends Error {
-    constructor(public response: {status: number; statusText?: string; headers: Headers}) {
+    data?: unknown;
+
+    constructor(public response: Response) {
       super('http');
       this.name = 'HTTPError';
     }
@@ -25,17 +27,16 @@ vi.mock('ky', () => {
 });
 
 function rejectedRequest(status: number, body?: {error: string}): () => Promise<never> {
-  return () =>
-    Promise.reject(
-      new HTTPError(
-        new Response(body ? JSON.stringify(body) : null, {
-          status,
-          ...(body ? {headers: {'content-type': 'application/json'}} : {}),
-        }),
-        new Request('https://jira.example.test'),
-        {} as never,
-      ),
-    );
+  return async () => {
+    const response = new Response(body ? JSON.stringify(body) : null, {
+      status,
+      ...(body ? {headers: {'content-type': 'application/json'}} : {}),
+    });
+    const error = new HTTPError(response, new Request('https://jira.example.test'), {} as never);
+    await response.text();
+    error.data = body;
+    throw error;
+  };
 }
 
 describe('mapJiraError', () => {

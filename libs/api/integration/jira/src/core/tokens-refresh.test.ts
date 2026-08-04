@@ -35,16 +35,24 @@ function createStore() {
   };
   const markConnectionError = vi.fn().mockResolvedValue(undefined);
   const connectionId = crypto.randomUUID();
-  const resolveConnection = vi
-    .fn()
-    .mockResolvedValue({workspaceId: crypto.randomUUID(), lifecycleStatus: 'active'});
+  const workspaceId = crypto.randomUUID();
+  const resolveConnection = vi.fn().mockResolvedValue({workspaceId, lifecycleStatus: 'active'});
   const store = createJiraTokenStore({
     resolveConnection,
     secrets,
     client,
     markConnectionError,
   });
-  return {client, connectionId, markConnectionError, resolveConnection, secrets, store, values};
+  return {
+    client,
+    connectionId,
+    markConnectionError,
+    resolveConnection,
+    secrets,
+    store,
+    values,
+    workspaceId,
+  };
 }
 
 describe('Jira token refresh', () => {
@@ -155,6 +163,99 @@ describe('Jira token refresh', () => {
     await expect(staleRefresh).rejects.toMatchObject({reason: 'timeout'});
     expect(markConnectionError).not.toHaveBeenCalled();
     await expect(store.getAccessToken({connectionId})).resolves.toBe('access-1');
+  });
+
+  it('serializes connection error updates with reconnect credential writes', async () => {
+    const {client, connectionId, markConnectionError, store} = createStore();
+    await store.storeTokens({connectionId, accessToken: 'access-0', refreshToken: 'refresh-0'});
+    let releaseError!: () => void;
+    let errorStarted!: () => void;
+    const errorCanFinish = new Promise<void>((resolve) => {
+      releaseError = resolve;
+    });
+    const errorUpdateStarted = new Promise<void>((resolve) => {
+      errorStarted = resolve;
+    });
+    markConnectionError.mockImplementation(async () => {
+      errorStarted();
+      await errorCanFinish;
+    });
+    client.refreshAccessToken.mockRejectedValue(
+      new JiraIntegrationProviderError('access-denied', 'invalid grant'),
+    );
+
+    const staleRefresh = store.getAccessToken({connectionId});
+    await errorUpdateStarted;
+
+    let reconnectFinished = false;
+    const reconnect = store
+      .storeTokens({connectionId, accessToken: 'access-1', refreshToken: 'refresh-1'})
+      .then(() => {
+        reconnectFinished = true;
+      });
+    await Promise.resolve();
+    expect(reconnectFinished).toBe(false);
+
+    releaseError();
+    await expect(staleRefresh).rejects.toMatchObject({reason: 'access-denied'});
+    await reconnect;
+    expect(markConnectionError).toHaveBeenCalledOnce();
+  });
+
+  it('waits for reconnect credentials before starting another refresh', async () => {
+    const {client, connectionId, resolveConnection, secrets, store, values, workspaceId} =
+      createStore();
+    await store.storeTokens({connectionId, accessToken: 'access-0', refreshToken: 'refresh-0'});
+    let releaseConnection!: () => void;
+    let connectionStarted!: () => void;
+    const connectionCanFinish = new Promise<void>((resolve) => {
+      releaseConnection = resolve;
+    });
+    const connectionLookupStarted = new Promise<void>((resolve) => {
+      connectionStarted = resolve;
+    });
+    resolveConnection.mockImplementationOnce(async () => {
+      connectionStarted();
+      await connectionCanFinish;
+      return {workspaceId, lifecycleStatus: 'active'};
+    });
+    let releaseReconnect!: () => void;
+    let reconnectStarted!: () => void;
+    const reconnectCanFinish = new Promise<void>((resolve) => {
+      releaseReconnect = resolve;
+    });
+    const reconnectWriteStarted = new Promise<void>((resolve) => {
+      reconnectStarted = resolve;
+    });
+    secrets.setSecrets.mockImplementation(
+      async ({values: next}: {values: Record<string, string>}) => {
+        if (next.ACCESS_TOKEN === 'access-1') {
+          reconnectStarted();
+          await reconnectCanFinish;
+        }
+        for (const [key, value] of Object.entries(next)) values.set(key, value);
+      },
+    );
+
+    const accessToken = store.getAccessToken({connectionId});
+    await connectionLookupStarted;
+    const reconnect = store.storeTokens({
+      connectionId,
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+    });
+    await reconnectWriteStarted;
+
+    releaseConnection();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.refreshAccessToken).not.toHaveBeenCalled();
+
+    getInstallation.mockResolvedValue({tokenExpiresAt: null});
+    releaseReconnect();
+    await reconnect;
+    await expect(accessToken).resolves.toBe('access-1');
+    expect(client.refreshAccessToken).not.toHaveBeenCalled();
   });
 
   it('fails closed when a connection resolver omits its lifecycle status', async () => {

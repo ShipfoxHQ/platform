@@ -275,7 +275,7 @@ export async function mapJiraError<T>(operation: string, request: () => Promise<
         throw new JiraIntegrationProviderError('access-denied', 'Jira request was rejected');
       }
       if (status === 400 && operation === 'refresh-access-token') {
-        const errorCode = await readJiraOAuthErrorCode(error.response);
+        const errorCode = readJiraOAuthErrorCode(error.data);
         if (errorCode && JIRA_REFRESH_TOKEN_TERMINAL_ERROR_CODES.has(errorCode)) {
           throw new JiraIntegrationProviderError(
             'access-denied',
@@ -301,13 +301,10 @@ function malformed(message: string): JiraIntegrationProviderError {
   return new JiraIntegrationProviderError('malformed-provider-response', message);
 }
 
-async function readJiraOAuthErrorCode(response: Response): Promise<string | undefined> {
-  try {
-    const body = (await response.clone().json()) as {error?: unknown} | null;
-    return body && typeof body.error === 'string' ? body.error : undefined;
-  } catch {
-    return undefined;
-  }
+function readJiraOAuthErrorCode(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+  const errorCode = (data as {error?: unknown}).error;
+  return typeof errorCode === 'string' ? errorCode : undefined;
 }
 
 function retryAfterSeconds(headers: Headers): number | undefined {
