@@ -1,5 +1,23 @@
 # @shipfox/workflow-document
 
+## 3.0.0
+
+### Major Changes
+
+- adf07e7: Cut over workflow and job display names to literal-only `name` fields, with runtime interpolation supported through `run_name` and `execution_name`.
+
+### Minor Changes
+
+- ee2ce67: Accept a `${{ }}` interpolation in an agent step's `thinking` field. The schema
+  still offers the per-harness enum for editor completion, and the dispatcher
+  checks the resolved value against the harness levels. An unsupported
+  resolved level fails the step.
+- e95fdf4: Add checkout target fields, checkout opt-out, and checkout steps to the workflow document schema.
+- 3f781ee: Add workflow run and job execution naming fields to the authoring, expression, and normalized definition contracts.
+- 032d316: Scope checkout credential minting to the currently running checkout step and return its fetch depth.
+- c2a8e54: Normalize checkout target fields for step-dispatch resolution, reject unsupported job-level checkout fields, and keep the workflow model and runtime checkout contracts aligned.
+- 7f90b0c: Add `working_directory` to the workflow-document schema for run and agent steps.
+
 ## 2.1.3
 
 ### Patch Changes

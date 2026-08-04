@@ -1,5 +1,17 @@
 # @shipfox/api-email-challenges
 
+## 1.1.7
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [34a5639]
+  - @shipfox/api-common-dto@12.0.0
+  - @shipfox/node-module@1.0.5
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/node-drizzle@0.3.5
+
 ## 1.1.6
 
 ### Patch Changes

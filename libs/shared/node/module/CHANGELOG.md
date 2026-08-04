@@ -1,5 +1,16 @@
 # @shipfox/node-module
 
+## 1.0.5
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- Updated dependencies [f78740d]
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 1.0.4
 
 ### Patch Changes

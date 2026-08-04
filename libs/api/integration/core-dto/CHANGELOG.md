@@ -1,5 +1,28 @@
 # @shipfox/api-integration-core-dto
 
+## 12.0.0
+
+### Major Changes
+
+- 54c820e: Capture the actor that caused a source-control event on the normalized trigger reference. `TriggerReference` gains a required `actor`, resolved from the webhook sender by the GitHub and Gitea providers and null for payloads that name none.
+
+### Minor Changes
+
+- f13e8bb: Add Jira dynamic webhook registration and authenticated event ingestion through
+  the shared stored-webhook workflow. Update the SPI webhook request exports and
+  serialize Jira installation replacement across API replicas. Preserve Jira
+  delivery identifiers and require lifecycle callbacks for registration. Remove
+  the unused Jira webhook signing-secret configuration and allow HS256 verification
+  at a supplied receipt time.
+- 869a792: Refresh source-backed project repository identity from GitHub repository and installation-repository events.
+- 032d316: Scope checkout credential minting to the currently running checkout step and return its fetch depth.
+- cb0abfa: Expose the normalized trigger project, repository, ref, and commit in workflow context.
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+  - @shipfox/inter-module@0.2.3
+
 ## 9.0.2
 
 ### Patch Changes

@@ -1,5 +1,67 @@
 # @shipfox/api-integration-core
 
+## 12.0.0
+
+### Minor Changes
+
+- 032d316: Scope checkout credential minting to the currently running checkout step and return its fetch depth.
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- 24ef475: Adds provider-normalized repository, ref, and commit extraction for source-control trigger payloads.
+- f13e8bb: Add Jira dynamic webhook registration and authenticated event ingestion through
+  the shared stored-webhook workflow. Update the SPI webhook request exports and
+  serialize Jira installation replacement across API replicas. Preserve Jira
+  delivery identifiers and require lifecycle callbacks for registration. Remove
+  the unused Jira webhook signing-secret configuration and allow HS256 verification
+  at a supplied receipt time.
+- 869a792: Refresh source-backed project repository identity from GitHub repository and installation-repository events.
+- cb0abfa: Expose the normalized trigger project, repository, ref, and commit in workflow context.
+- Updated dependencies [ee2ce67]
+- Updated dependencies [f7939c7]
+- Updated dependencies [f78740d]
+- Updated dependencies [9dffe58]
+- Updated dependencies [a018f92]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [adf07e7]
+- Updated dependencies [94aba88]
+- Updated dependencies [24ef475]
+- Updated dependencies [285fff2]
+- Updated dependencies [e44a279]
+- Updated dependencies [28daafe]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [9ebc5b4]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+- Updated dependencies [35a42bd]
+- Updated dependencies [d77baaa]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [54c820e]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [e1efaee]
+  - @shipfox/api-workflows-dto@12.0.0
+  - @shipfox/api-agent-dto@12.0.0
+  - @shipfox/api-integration-github@12.0.0
+  - @shipfox/api-integration-sentry@12.0.0
+  - @shipfox/api-integration-slack@12.0.0
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/redact@0.2.6
+  - @shipfox/api-integration-linear@12.0.0
+  - @shipfox/api-workspaces-dto@12.0.0
+  - @shipfox/api-integration-spi@1.0.0
+  - @shipfox/api-integration-gitea@12.0.0
+  - @shipfox/api-integration-core-dto@12.0.0
+  - @shipfox/api-integration-jira@12.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-integration-webhook@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 11.0.0
 
 ### Patch Changes

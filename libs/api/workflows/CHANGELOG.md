@@ -1,5 +1,105 @@
 # @shipfox/api-workflows
 
+## 12.0.0
+
+### Major Changes
+
+- adf07e7: Cut over workflow and job display names to literal-only `name` fields, with runtime interpolation supported through `run_name` and `execution_name`.
+- 032d316: Scope checkout credential minting to the currently running checkout step and return its fetch depth.
+
+### Minor Changes
+
+- ee2ce67: Accept a `${{ }}` interpolation in an agent step's `thinking` field. The schema
+  still offers the per-harness enum for editor completion, and the dispatcher
+  checks the resolved value against the harness levels. An unsupported
+  resolved level fails the step.
+- 5d2c9cf: Carry checkout steps from workflow normalization through step materialization and surface their setup error category.
+- f7939c7: Add resolved checkout details as a dedicated step-report field.
+- 9e1d599: Carry first-checkout intent through workflow normalization and step materialization for the upcoming runner checkout execution, including implicit-checkout suppression, checkout opt-out, and position-based primary checkout placement.
+- dea1ffd: Expose normalized repository references on listening execution events.
+- 285fff2: Persist resolved workflow job execution names and handle dynamic naming failures consistently.
+- e44a279: Persist nullable resolved workflow run-name overrides alongside static workflow-name snapshots.
+- 54c820e: Add the trigger reference and the current attempt's jobs to each workflow run in the run list response.
+
+  `trigger_reference` carries the repository, ref, commit, and actor a source-control trigger resolved, or null for triggers that resolve none. Jobs arrive as `jobs`, a preview bounded by the new `WORKFLOW_RUN_JOB_PREVIEW_LIMIT`, alongside `job_status_counts` covering every job of the attempt including those past the preview.
+
+- 35a42bd: Resolve run and agent step working directories against the runner job workspace.
+- d77baaa: Add per-definition sequential numbers to workflow runs and expose them in the API and expression context.
+- c2a8e54: Normalize checkout target fields for step-dispatch resolution, reject unsupported job-level checkout fields, and keep the workflow model and runtime checkout contracts aligned.
+- cb0abfa: Expose the normalized trigger project, repository, ref, and commit in workflow context.
+- ee2ce67: Split workflow definition facts out of the `run` context into a `workflow` root.
+  `run.workflow_name` becomes `workflow.name` and `run.definition_id` becomes
+  `workflow.id`, so `workflow` and `run` mirror the `job` and `execution` pair.
+  Add `contextRootsForField` to return the readable roots for a predicate or an
+  interpolation field without requiring the caller to choose a mechanism. Add
+  `workflowContextDocs` as the reader-facing description of every root and property.
+
+### Patch Changes
+
+- 7c4116e: Align predicate property types with their runtime shapes, replace `run.run_name` with `run.workflow_name`, and remove `failed` from `executions` entries.
+- 0bb880a: Transition job executions from pending to running when the runner claims them.
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- 4d246d4: Align predicate validation and runtime evaluation with field-specific context contracts.
+- 66f111e: Snapshots referenced workflow variables for predicate evaluation at run creation.
+- 53ce6b2: Materialize primary checkout credential persistence on the setup step.
+- 5d267c3: Re-materialize checkout policy from the workflow model when re-running a job.
+- 9e39069: Defaults same-project checkout steps to the workflow trigger commit while preserving explicit refs and cross-repository defaults.
+- Updated dependencies [ee2ce67]
+- Updated dependencies [7c4116e]
+- Updated dependencies [5d2c9cf]
+- Updated dependencies [e95fdf4]
+- Updated dependencies [3d91d1d]
+- Updated dependencies [f7939c7]
+- Updated dependencies [89f2c18]
+- Updated dependencies [045895c]
+- Updated dependencies [f78740d]
+- Updated dependencies [9e1d599]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [adf07e7]
+- Updated dependencies [94aba88]
+- Updated dependencies [3f781ee]
+- Updated dependencies [9fdd5e4]
+- Updated dependencies [285fff2]
+- Updated dependencies [e44a279]
+- Updated dependencies [4d246d4]
+- Updated dependencies [4eb18b8]
+- Updated dependencies [28daafe]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [9ebc5b4]
+- Updated dependencies [4444079]
+- Updated dependencies [869a792]
+- Updated dependencies [8cc5a36]
+- Updated dependencies [54c820e]
+- Updated dependencies [35a42bd]
+- Updated dependencies [d77baaa]
+- Updated dependencies [41d558c]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [54c820e]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [ee2ce67]
+- Updated dependencies [7f90b0c]
+- Updated dependencies [e1efaee]
+  - @shipfox/workflow-document@3.0.0
+  - @shipfox/api-definitions-dto@12.0.0
+  - @shipfox/api-workflows-dto@12.0.0
+  - @shipfox/api-agent-dto@12.0.0
+  - @shipfox/expression@2.0.0
+  - @shipfox/api-auth-dto@12.0.0
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/api-workspaces-dto@12.0.0
+  - @shipfox/api-projects-dto@12.0.0
+  - @shipfox/api-integration-core-dto@12.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/annotations-dto@12.0.0
+  - @shipfox/api-runners-dto@12.0.0
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 11.0.0
 
 ### Major Changes

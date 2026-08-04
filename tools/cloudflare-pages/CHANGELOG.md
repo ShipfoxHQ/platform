@@ -1,5 +1,11 @@
 # @shipfox/cloudflare-pages
 
+## 0.3.1
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+
 ## 0.3.0
 
 ### Minor Changes

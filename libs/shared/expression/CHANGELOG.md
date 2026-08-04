@@ -1,5 +1,45 @@
 # @shipfox/expression
 
+## 2.0.0
+
+### Major Changes
+
+- 7c4116e: Align predicate property types with their runtime shapes, replace `run.run_name` with `run.workflow_name`, and remove `failed` from `executions` entries.
+- 045895c: Remove the unused workflow context trust metadata and related public exports. Allow
+  external context in agent model and provider interpolations now that interpolation
+  fields no longer enforce source tiers.
+- adf07e7: Cut over workflow and job display names to literal-only `name` fields, with runtime interpolation supported through `run_name` and `execution_name`.
+- ee2ce67: Split workflow definition facts out of the `run` context into a `workflow` root.
+  `run.workflow_name` becomes `workflow.name` and `run.definition_id` becomes
+  `workflow.id`, so `workflow` and `run` mirror the `job` and `execution` pair.
+  Add `contextRootsForField` to return the readable roots for a predicate or an
+  interpolation field without requiring the caller to choose a mechanism. Add
+  `workflowContextDocs` as the reader-facing description of every root and property.
+
+### Minor Changes
+
+- dea1ffd: Expose normalized repository references on listening execution events.
+- 3f781ee: Add workflow run and job execution naming fields to the authoring, expression, and normalized definition contracts.
+- 285fff2: Persist resolved workflow job execution names and handle dynamic naming failures consistently.
+- 4d246d4: Align predicate validation and runtime evaluation with field-specific context contracts.
+- d77baaa: Add per-definition sequential numbers to workflow runs and expose them in the API and expression context.
+- 41d558c: Add a pure shell code-position classifier for detecting workflow data passed to commands that re-evaluate their arguments.
+- c2a8e54: Normalize checkout target fields for step-dispatch resolution, reject unsupported job-level checkout fields, and keep the workflow model and runtime checkout contracts aligned.
+- cb0abfa: Expose the normalized trigger project, repository, ref, and commit in workflow context.
+
+### Patch Changes
+
+- 3d91d1d: Allow workflow context roots in interpolatable fields while preserving host and availability validation. Keep model and provider selection restricted to workflow-authored context so external payloads and step outputs cannot steer agent execution.
+- 4444079: Warn when shell positions re-execute workflow-controlled values as code.
+- Updated dependencies [ee2ce67]
+- Updated dependencies [e95fdf4]
+- Updated dependencies [adf07e7]
+- Updated dependencies [3f781ee]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [7f90b0c]
+  - @shipfox/workflow-document@3.0.0
+
 ## 1.2.1
 
 ### Patch Changes

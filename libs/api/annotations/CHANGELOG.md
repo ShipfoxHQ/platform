@@ -1,5 +1,19 @@
 # @shipfox/annotations
 
+## 12.0.0
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+- Updated dependencies [f13e8bb]
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/annotations-dto@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+
 ## 11.0.0
 
 ### Major Changes

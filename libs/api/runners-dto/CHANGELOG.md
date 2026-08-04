@@ -1,5 +1,12 @@
 # @shipfox/api-runners-dto
 
+## 12.0.0
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+  - @shipfox/inter-module@0.2.3
+
 ## 10.2.0
 
 ### Minor Changes

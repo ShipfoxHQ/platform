@@ -1,5 +1,32 @@
 # Changelog
 
+## 13.0.0
+
+### Major Changes
+
+- e405e92: Move client routes to slug-based `/w/$workspaceSlug` and `/p/$projectSlug` URLs, enforce the new composition contract, and support bounded project-slug resolution.
+
+### Minor Changes
+
+- 3c73365: Add project settings, shared slug rename warnings, and live slug availability checks.
+- 54c820e: Serialize array search parameters as repeated keys instead of a JSON-encoded value, so multi-select filters read as `?status=failed&status=running` and survive values containing a comma.
+- e1efaee: Add workspace slugs across the API and client workspace contracts.
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+- Updated dependencies [94aba88]
+- Updated dependencies [9969937]
+- Updated dependencies [3c73365]
+- Updated dependencies [9ebc5b4]
+- Updated dependencies [6adc228]
+- Updated dependencies [e1efaee]
+  - @shipfox/api-auth-dto@12.0.0
+  - @shipfox/client-ui@13.0.0
+  - @shipfox/react-ui@0.4.0
+  - @shipfox/api-workspaces-dto@12.0.0
+  - @shipfox/client-config@13.0.0
+
 ## 12.0.2
 
 ### Patch Changes

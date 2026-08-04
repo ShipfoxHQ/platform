@@ -1,5 +1,16 @@
 # @shipfox/client-logs
 
+## 13.0.0
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- Updated dependencies [f78740d]
+- Updated dependencies [9969937]
+- Updated dependencies [6adc228]
+  - @shipfox/api-logs-dto@12.0.0
+  - @shipfox/react-ui@0.4.0
+
 ## 12.0.1
 
 ### Patch Changes

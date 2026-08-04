@@ -1,5 +1,39 @@
 # @shipfox/api-workflows-dto
 
+## 12.0.0
+
+### Major Changes
+
+- adf07e7: Cut over workflow and job display names to literal-only `name` fields, with runtime interpolation supported through `run_name` and `execution_name`.
+- 54c820e: Add the trigger reference and the current attempt's jobs to each workflow run in the run list response.
+
+  `trigger_reference` carries the repository, ref, commit, and actor a source-control trigger resolved, or null for triggers that resolve none. Jobs arrive as `jobs`, a preview bounded by the new `WORKFLOW_RUN_JOB_PREVIEW_LIMIT`, alongside `job_status_counts` covering every job of the attempt including those past the preview.
+
+- 032d316: Scope checkout credential minting to the currently running checkout step and return its fetch depth.
+
+### Minor Changes
+
+- ee2ce67: Accept a `${{ }}` interpolation in an agent step's `thinking` field. The schema
+  still offers the per-harness enum for editor completion, and the dispatcher
+  checks the resolved value against the harness levels. An unsupported
+  resolved level fails the step.
+- f7939c7: Add resolved checkout details as a dedicated step-report field.
+- dea1ffd: Expose normalized repository references on listening execution events.
+- 285fff2: Persist resolved workflow job execution names and handle dynamic naming failures consistently.
+- e44a279: Persist nullable resolved workflow run-name overrides alongside static workflow-name snapshots.
+- 35a42bd: Resolve run and agent step working directories against the runner job workspace.
+- d77baaa: Add per-definition sequential numbers to workflow runs and expose them in the API and expression context.
+- c2a8e54: Normalize checkout target fields for step-dispatch resolution, reject unsupported job-level checkout fields, and keep the workflow model and runtime checkout contracts aligned.
+- cb0abfa: Expose the normalized trigger project, repository, ref, and commit in workflow context.
+
+### Patch Changes
+
+- Updated dependencies [ee2ce67]
+- Updated dependencies [f78740d]
+- Updated dependencies [28daafe]
+  - @shipfox/api-agent-dto@12.0.0
+  - @shipfox/inter-module@0.2.3
+
 ## 10.0.0
 
 ### Minor Changes

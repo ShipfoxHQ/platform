@@ -1,5 +1,44 @@
 # @shipfox/api-projects
 
+## 12.0.0
+
+### Major Changes
+
+- 4eb18b8: Add required, workspace-scoped project slugs across the API and project creation form.
+
+### Minor Changes
+
+- 8cc5a36: Add a `resolveCheckoutTarget` inter-module method. It resolves a project by ID
+  or by owner and repository within a workspace for callers that authorize a
+  checkout target.
+- cb0abfa: Expose the normalized trigger project, repository, ref, and commit in workflow context.
+
+### Patch Changes
+
+- e405e92: Move client routes to slug-based `/w/$workspaceSlug` and `/p/$projectSlug` URLs, enforce the new composition contract, and support bounded project-slug resolution.
+- 869a792: Refresh source-backed project repository identity from GitHub repository and installation-repository events.
+- a0a02cc: Store normalized repository identity on source-backed projects.
+- Updated dependencies [f78740d]
+- Updated dependencies [4eb18b8]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [869a792]
+- Updated dependencies [8cc5a36]
+- Updated dependencies [34a5639]
+- Updated dependencies [032d316]
+- Updated dependencies [54c820e]
+- Updated dependencies [cb0abfa]
+  - @shipfox/api-auth-dto@12.0.0
+  - @shipfox/api-common-dto@12.0.0
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/api-projects-dto@12.0.0
+  - @shipfox/api-integration-core-dto@12.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 11.0.0
 
 ### Patch Changes

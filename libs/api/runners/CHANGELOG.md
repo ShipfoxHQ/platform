@@ -1,5 +1,41 @@
 # @shipfox/api-runners
 
+## 12.0.0
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- 9ebc5b4: Add an authenticated, rate-limited workspace slug availability endpoint.
+- d3222a9: Atomically reconcile pending and running runner state when a job execution reaches a terminal state.
+- Updated dependencies [ee2ce67]
+- Updated dependencies [f7939c7]
+- Updated dependencies [f78740d]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [adf07e7]
+- Updated dependencies [285fff2]
+- Updated dependencies [e44a279]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [9ebc5b4]
+- Updated dependencies [54c820e]
+- Updated dependencies [35a42bd]
+- Updated dependencies [d77baaa]
+- Updated dependencies [34a5639]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [cb0abfa]
+  - @shipfox/api-workflows-dto@12.0.0
+  - @shipfox/api-auth-dto@12.0.0
+  - @shipfox/api-common-dto@12.0.0
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/node-rate-limit@0.4.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-runners-dto@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 11.0.0
 
 ### Patch Changes

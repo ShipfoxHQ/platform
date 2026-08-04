@@ -1,5 +1,20 @@
 # @shipfox/client-ui
 
+## 13.0.0
+
+### Minor Changes
+
+- 3c73365: Add project settings, shared slug rename warnings, and live slug availability checks.
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+- Updated dependencies [f78740d]
+- Updated dependencies [9969937]
+- Updated dependencies [6adc228]
+  - @shipfox/react-ui@0.4.0
+  - @shipfox/annotations-dto@12.0.0
+
 ## 6.0.2
 
 ### Patch Changes

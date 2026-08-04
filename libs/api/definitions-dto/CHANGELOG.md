@@ -1,5 +1,52 @@
 # @shipfox/api-definitions-dto
 
+## 12.0.0
+
+### Major Changes
+
+- adf07e7: Cut over workflow and job display names to literal-only `name` fields, with runtime interpolation supported through `run_name` and `execution_name`.
+
+### Minor Changes
+
+- ee2ce67: Accept a `${{ }}` interpolation in an agent step's `thinking` field. The schema
+  still offers the per-harness enum for editor completion, and the dispatcher
+  checks the resolved value against the harness levels. An unsupported
+  resolved level fails the step.
+- 5d2c9cf: Carry checkout steps from workflow normalization through step materialization and surface their setup error category.
+- 89f2c18: Expose non-fatal definition validation warnings from the `/validate` response without
+  preventing workflow synchronization. Persistence and surfacing for repo-synced definitions
+  remain a follow-up.
+- 9e1d599: Carry first-checkout intent through workflow normalization and step materialization for the upcoming runner checkout execution, including implicit-checkout suppression, checkout opt-out, and position-based primary checkout placement.
+- 3f781ee: Add workflow run and job execution naming fields to the authoring, expression, and normalized definition contracts.
+- 9fdd5e4: Persist definition validation warnings from repository syncs and surface them on the workflow page without changing sync success or run creation behavior.
+- 35a42bd: Resolve run and agent step working directories against the runner job workspace.
+- c2a8e54: Normalize checkout target fields for step-dispatch resolution, reject unsupported job-level checkout fields, and keep the workflow model and runtime checkout contracts aligned.
+
+### Patch Changes
+
+- Updated dependencies [ee2ce67]
+- Updated dependencies [7c4116e]
+- Updated dependencies [e95fdf4]
+- Updated dependencies [3d91d1d]
+- Updated dependencies [045895c]
+- Updated dependencies [f78740d]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [adf07e7]
+- Updated dependencies [3f781ee]
+- Updated dependencies [285fff2]
+- Updated dependencies [4d246d4]
+- Updated dependencies [4444079]
+- Updated dependencies [d77baaa]
+- Updated dependencies [41d558c]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [ee2ce67]
+- Updated dependencies [7f90b0c]
+  - @shipfox/workflow-document@3.0.0
+  - @shipfox/expression@2.0.0
+  - @shipfox/inter-module@0.2.3
+
 ## 11.0.0
 
 ### Patch Changes

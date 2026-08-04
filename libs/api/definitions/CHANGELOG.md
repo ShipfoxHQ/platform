@@ -1,5 +1,86 @@
 # @shipfox/api-definitions
 
+## 12.0.0
+
+### Major Changes
+
+- 7c4116e: Align predicate property types with their runtime shapes, replace `run.run_name` with `run.workflow_name`, and remove `failed` from `executions` entries.
+- adf07e7: Cut over workflow and job display names to literal-only `name` fields, with runtime interpolation supported through `run_name` and `execution_name`.
+
+### Minor Changes
+
+- ee2ce67: Accept a `${{ }}` interpolation in an agent step's `thinking` field. The schema
+  still offers the per-harness enum for editor completion, and the dispatcher
+  checks the resolved value against the harness levels. An unsupported
+  resolved level fails the step.
+- 5d2c9cf: Carry checkout steps from workflow normalization through step materialization and surface their setup error category.
+- 3d91d1d: Allow workflow context roots in interpolatable fields while preserving host and availability validation. Keep model and provider selection restricted to workflow-authored context so external payloads and step outputs cannot steer agent execution.
+- 89f2c18: Expose non-fatal definition validation warnings from the `/validate` response without
+  preventing workflow synchronization. Persistence and surfacing for repo-synced definitions
+  remain a follow-up.
+- 045895c: Remove the unused workflow context trust metadata and related public exports. Allow
+  external context in agent model and provider interpolations now that interpolation
+  fields no longer enforce source tiers.
+- 9e1d599: Carry first-checkout intent through workflow normalization and step materialization for the upcoming runner checkout execution, including implicit-checkout suppression, checkout opt-out, and position-based primary checkout placement.
+- 3f781ee: Add workflow run and job execution naming fields to the authoring, expression, and normalized definition contracts.
+- 9fdd5e4: Persist definition validation warnings from repository syncs and surface them on the workflow page without changing sync success or run creation behavior.
+- 35a42bd: Resolve run and agent step working directories against the runner job workspace.
+- 032d316: Scope checkout credential minting to the currently running checkout step and return its fetch depth.
+- c2a8e54: Normalize checkout target fields for step-dispatch resolution, reject unsupported job-level checkout fields, and keep the workflow model and runtime checkout contracts aligned.
+
+### Patch Changes
+
+- 01c3dbc: Allow workflow variables in job, step, gate, and listener predicates while preserving the standard availability error for trigger filters.
+- e95fdf4: Report an explicit model validation issue for checkout opt-out and checkout steps until their normalization and runtime support lands.
+- 285fff2: Persist resolved workflow job execution names and handle dynamic naming failures consistently.
+- 4d246d4: Align predicate validation and runtime evaluation with field-specific context contracts.
+- 28daafe: Validate literal agent model and provider values during workflow authoring.
+- 4444079: Warn when shell positions re-execute workflow-controlled values as code.
+- Updated dependencies [ee2ce67]
+- Updated dependencies [7c4116e]
+- Updated dependencies [5d2c9cf]
+- Updated dependencies [e95fdf4]
+- Updated dependencies [3d91d1d]
+- Updated dependencies [89f2c18]
+- Updated dependencies [045895c]
+- Updated dependencies [f78740d]
+- Updated dependencies [9e1d599]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [adf07e7]
+- Updated dependencies [3f781ee]
+- Updated dependencies [9fdd5e4]
+- Updated dependencies [285fff2]
+- Updated dependencies [4d246d4]
+- Updated dependencies [4eb18b8]
+- Updated dependencies [28daafe]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [4444079]
+- Updated dependencies [869a792]
+- Updated dependencies [8cc5a36]
+- Updated dependencies [35a42bd]
+- Updated dependencies [d77baaa]
+- Updated dependencies [41d558c]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [54c820e]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [ee2ce67]
+- Updated dependencies [7f90b0c]
+  - @shipfox/workflow-document@3.0.0
+  - @shipfox/api-definitions-dto@12.0.0
+  - @shipfox/api-agent-dto@12.0.0
+  - @shipfox/expression@2.0.0
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/api-projects-dto@12.0.0
+  - @shipfox/api-integration-core-dto@12.0.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-outbox@0.2.6
+
 ## 11.0.0
 
 ### Patch Changes

@@ -1,5 +1,28 @@
 # @shipfox/api-agent-dto
 
+## 12.0.0
+
+### Minor Changes
+
+- ee2ce67: Accept a `${{ }}` interpolation in an agent step's `thinking` field. The schema
+  still offers the per-harness enum for editor completion, and the dispatcher
+  checks the resolved value against the harness levels. An unsupported
+  resolved level fails the step.
+- 28daafe: Validate literal agent model and provider values during workflow authoring.
+
+### Patch Changes
+
+- Updated dependencies [ee2ce67]
+- Updated dependencies [e95fdf4]
+- Updated dependencies [f78740d]
+- Updated dependencies [adf07e7]
+- Updated dependencies [3f781ee]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [7f90b0c]
+  - @shipfox/workflow-document@3.0.0
+  - @shipfox/inter-module@0.2.3
+
 ## 10.0.0
 
 ### Patch Changes

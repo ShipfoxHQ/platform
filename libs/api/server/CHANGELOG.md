@@ -1,5 +1,82 @@
 # @shipfox/api-server
 
+## 12.0.0
+
+### Patch Changes
+
+- Updated dependencies [ee2ce67]
+- Updated dependencies [7c4116e]
+- Updated dependencies [01c3dbc]
+- Updated dependencies [e95fdf4]
+- Updated dependencies [5d2c9cf]
+- Updated dependencies [0bb880a]
+- Updated dependencies [e405e92]
+- Updated dependencies [3d91d1d]
+- Updated dependencies [f7939c7]
+- Updated dependencies [89f2c18]
+- Updated dependencies [045895c]
+- Updated dependencies [f78740d]
+- Updated dependencies [9e1d599]
+- Updated dependencies [dea1ffd]
+- Updated dependencies [adf07e7]
+- Updated dependencies [94aba88]
+- Updated dependencies [3f781ee]
+- Updated dependencies [24ef475]
+- Updated dependencies [9fdd5e4]
+- Updated dependencies [285fff2]
+- Updated dependencies [e44a279]
+- Updated dependencies [4d246d4]
+- Updated dependencies [66f111e]
+- Updated dependencies [53ce6b2]
+- Updated dependencies [4eb18b8]
+- Updated dependencies [28daafe]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [9ebc5b4]
+- Updated dependencies [4444079]
+- Updated dependencies [869a792]
+- Updated dependencies [5d267c3]
+- Updated dependencies [8cc5a36]
+- Updated dependencies [54c820e]
+- Updated dependencies [35a42bd]
+- Updated dependencies [d77baaa]
+- Updated dependencies [a0a02cc]
+- Updated dependencies [032d316]
+- Updated dependencies [c2a8e54]
+- Updated dependencies [d3222a9]
+- Updated dependencies [9e39069]
+- Updated dependencies [54c820e]
+- Updated dependencies [cb0abfa]
+- Updated dependencies [ee2ce67]
+- Updated dependencies [e1efaee]
+  - @shipfox/api-definitions@12.0.0
+  - @shipfox/api-definitions-dto@12.0.0
+  - @shipfox/api-workflows@12.0.0
+  - @shipfox/api-workflows-dto@12.0.0
+  - @shipfox/api-agent@12.0.0
+  - @shipfox/api-agent-dto@12.0.0
+  - @shipfox/api-projects@12.0.0
+  - @shipfox/api-auth@12.0.0
+  - @shipfox/api-auth-dto@12.0.0
+  - @shipfox/api-integration-core@12.0.0
+  - @shipfox/api-logs@12.0.0
+  - @shipfox/api-runners@12.0.0
+  - @shipfox/api-triggers@12.0.0
+  - @shipfox/api-workspaces@12.0.0
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/api-workspaces-dto@12.0.0
+  - @shipfox/api-projects-dto@12.0.0
+  - @shipfox/api-integration-core-dto@12.0.0
+  - @shipfox/node-jwt@0.4.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-dispatcher@12.0.0
+  - @shipfox/annotations@12.0.0
+  - @shipfox/api-email-challenges@1.1.7
+  - @shipfox/annotations-dto@12.0.0
+  - @shipfox/api-runners-dto@12.0.0
+  - @shipfox/api-secrets@12.0.0
+  - @shipfox/api-secrets-dto@12.0.0
+
 ## 11.0.0
 
 ### Patch Changes

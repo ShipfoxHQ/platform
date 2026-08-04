@@ -1,5 +1,31 @@
 # @shipfox/api-integration-jira
 
+## 12.0.0
+
+### Major Changes
+
+- f13e8bb: Add Jira dynamic webhook registration and authenticated event ingestion through
+  the shared stored-webhook workflow. Update the SPI webhook request exports and
+  serialize Jira installation replacement across API replicas. Preserve Jira
+  delivery identifiers and require lifecycle callbacks for registration. Remove
+  the unused Jira webhook signing-secret configuration and allow HS256 verification
+  at a supplied receipt time.
+
+### Patch Changes
+
+- Updated dependencies [f78740d]
+- Updated dependencies [24ef475]
+- Updated dependencies [f13e8bb]
+- Updated dependencies [869a792]
+- Updated dependencies [54c820e]
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/api-integration-spi@1.0.0
+  - @shipfox/node-jwt@0.4.0
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-integration-jira-dto@12.0.0
+  - @shipfox/node-drizzle@0.3.5
+
 ## 11.0.0
 
 ### Patch Changes

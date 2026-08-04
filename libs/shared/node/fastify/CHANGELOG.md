@@ -1,5 +1,11 @@
 # @shipfox/node-fastify
 
+## 0.4.1
+
+### Patch Changes
+
+- f78740d: Remove Unicode dash punctuation from package prose and source comments.
+
 ## 0.4.0
 
 ### Minor Changes
