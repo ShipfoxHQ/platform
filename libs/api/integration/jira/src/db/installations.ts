@@ -1,6 +1,6 @@
 import {isUniqueViolation} from '@shipfox/node-drizzle';
 import {pgClient, withPostgresSession} from '@shipfox/node-postgres';
-import {eq, sql} from 'drizzle-orm';
+import {and, asc, eq, lte, sql} from 'drizzle-orm';
 import {
   JiraConnectionAlreadyLinkedError,
   JiraInstallationAlreadyLinkedError,
@@ -11,17 +11,16 @@ import {jiraInstallations, toJiraInstallation} from './schema/installations.js';
 
 export type JiraInstallationLock = <T>(lockKey: string, fn: () => Promise<T>) => Promise<T>;
 
-const JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS = 100;
-const JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS = 1_000;
-const JIRA_INSTALLATION_LOCK_TIMEOUT_MS = 30_000;
+const JIRA_ADVISORY_LOCK_RETRY_DELAY_MS = 100;
+const JIRA_ADVISORY_LOCK_MAX_RETRY_DELAY_MS = 1_000;
+const JIRA_ADVISORY_LOCK_TIMEOUT_MS = 30_000;
 
-export async function withJiraInstallationLock<T>(lockKey: string, fn: () => Promise<T>) {
+type JiraAdvisoryLockAttempt<T> = {acquired: true; value: T} | {acquired: false};
+
+export function withJiraInstallationLock<T>(lockKey: string, fn: () => Promise<T>) {
   const advisoryKey = `jira-installation:${lockKey}`;
-  const deadline = Date.now() + JIRA_INSTALLATION_LOCK_TIMEOUT_MS;
-  let retryDelayMs = JIRA_INSTALLATION_LOCK_RETRY_DELAY_MS;
-
-  while (true) {
-    const attempt = await withPostgresSession(async (client) => {
+  return withJiraAdvisoryLockWait(`Jira installation lock: ${lockKey}`, () =>
+    withPostgresSession(async (client) => {
       const lock = await client.query<{acquired: boolean}>(
         'SELECT pg_try_advisory_lock(hashtext($1)) AS acquired',
         [advisoryKey],
@@ -33,15 +32,8 @@ export async function withJiraInstallationLock<T>(lockKey: string, fn: () => Pro
       } finally {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [advisoryKey]);
       }
-    });
-
-    if (attempt.acquired) return attempt.value;
-    if (Date.now() >= deadline) {
-      throw new Error(`Timed out waiting for Jira installation lock: ${lockKey}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    retryDelayMs = Math.min(retryDelayMs * 2, JIRA_INSTALLATION_LOCK_MAX_RETRY_DELAY_MS);
-  }
+    }),
+  );
 }
 
 export type JiraInstallationStatus = 'installed' | 'revoked';
@@ -58,6 +50,8 @@ export interface JiraInstallation {
   webhookExpiresAt: Date | null;
   status: JiraInstallationStatus;
   tokenExpiresAt: Date | null;
+  refreshTokenLastUsedAt: Date;
+  refreshTokenLastAttemptedAt: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -73,6 +67,8 @@ export interface UpsertJiraInstallationParams {
   webhookExpiresAt?: Date | null | undefined;
   status: JiraInstallationStatus;
   tokenExpiresAt?: Date | null | undefined;
+  refreshTokenLastUsedAt?: Date | undefined;
+  refreshTokenLastAttemptedAt?: Date | undefined;
 }
 
 export interface UpdateJiraInstallationTokenExpiryParams {
@@ -111,6 +107,8 @@ export async function upsertJiraInstallation(
         webhookExpiresAt: params.webhookExpiresAt ?? null,
         status: params.status,
         tokenExpiresAt: params.tokenExpiresAt ?? null,
+        refreshTokenLastUsedAt: params.refreshTokenLastUsedAt ?? now,
+        refreshTokenLastAttemptedAt: params.refreshTokenLastAttemptedAt ?? now,
       })
       .onConflictDoUpdate({
         target: jiraInstallations.connectionId,
@@ -127,6 +125,8 @@ export async function upsertJiraInstallation(
             : {webhookExpiresAt: params.webhookExpiresAt}),
           status: params.status,
           tokenExpiresAt: params.tokenExpiresAt ?? null,
+          refreshTokenLastUsedAt: params.refreshTokenLastUsedAt ?? now,
+          refreshTokenLastAttemptedAt: params.refreshTokenLastAttemptedAt ?? now,
           updatedAt: now,
         },
       })
@@ -164,16 +164,51 @@ export async function updateJiraInstallationTokenExpiry(
   options: {tx?: unknown} = {},
 ): Promise<JiraInstallation | undefined> {
   const executor = (options.tx ?? db()) as JiraDb | JiraTx;
+  const now = new Date();
   const [row] = await executor
     .update(jiraInstallations)
     .set({
       tokenExpiresAt: params.tokenExpiresAt,
+      refreshTokenLastUsedAt: now,
+      refreshTokenLastAttemptedAt: now,
       ...(params.scopes === undefined ? {} : {scopes: params.scopes}),
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .where(eq(jiraInstallations.connectionId, params.connectionId))
     .returning();
   return row ? toJiraInstallation(row) : undefined;
+}
+
+export async function markJiraInstallationTokenRefreshAttempt(
+  connectionId: string,
+  options: {tx?: unknown} = {},
+): Promise<JiraInstallation | undefined> {
+  const executor = (options.tx ?? db()) as JiraDb | JiraTx;
+  const [row] = await executor
+    .update(jiraInstallations)
+    .set({refreshTokenLastAttemptedAt: new Date()})
+    .where(eq(jiraInstallations.connectionId, connectionId))
+    .returning();
+  return row ? toJiraInstallation(row) : undefined;
+}
+
+export async function listJiraInstallationsDueForTokenRefresh(
+  params: {before: Date; limit?: number | undefined},
+  options: {tx?: unknown} = {},
+): Promise<JiraInstallation[]> {
+  const executor = (options.tx ?? db()) as JiraDb | JiraTx;
+  const rows = await executor
+    .select()
+    .from(jiraInstallations)
+    .where(
+      and(
+        eq(jiraInstallations.status, 'installed'),
+        lte(jiraInstallations.refreshTokenLastUsedAt, params.before),
+      ),
+    )
+    .orderBy(asc(jiraInstallations.refreshTokenLastAttemptedAt))
+    .limit(params.limit ?? 100);
+  return rows.map(toJiraInstallation);
 }
 
 export async function updateJiraInstallationWebhook(
@@ -204,13 +239,22 @@ export async function deleteJiraInstallationByConnectionId(
   return (result.rowCount ?? 0) > 0;
 }
 
-export type JiraRefreshLockResult<T> = {acquired: true; value: T} | {acquired: false};
+export type JiraRefreshLockResult<T> = JiraAdvisoryLockAttempt<T>;
 
 export function withJiraRefreshLock<T>(
   connectionId: string,
   fn: () => Promise<T>,
 ): Promise<JiraRefreshLockResult<T>> {
   return withJiraRefreshLockClient(connectionId, fn);
+}
+
+export function withJiraRefreshLockAndWait<T>(
+  connectionId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withJiraAdvisoryLockWait(`Jira refresh lock: ${connectionId}`, () =>
+    withJiraRefreshLock(connectionId, fn),
+  );
 }
 
 export function withJiraWebhookRegistrationLock<T>(
@@ -240,6 +284,22 @@ async function withJiraRefreshLockClient<T>(
     } finally {
       client.release();
     }
+  }
+}
+
+async function withJiraAdvisoryLockWait<T>(
+  lockDescription: string,
+  attemptLock: () => Promise<JiraAdvisoryLockAttempt<T>>,
+): Promise<T> {
+  const deadline = Date.now() + JIRA_ADVISORY_LOCK_TIMEOUT_MS;
+  let retryDelayMs = JIRA_ADVISORY_LOCK_RETRY_DELAY_MS;
+
+  while (true) {
+    const attempt = await attemptLock();
+    if (attempt.acquired) return attempt.value;
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${lockDescription}`);
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    retryDelayMs = Math.min(retryDelayMs * 2, JIRA_ADVISORY_LOCK_MAX_RETRY_DELAY_MS);
   }
 }
 

@@ -26,6 +26,7 @@ async function loadJiraModuleParts(
 ): Promise<IntegrationModuleParts> {
   const {
     createJiraIntegrationProvider,
+    createJiraMaintenanceWorker,
     createJiraPendingSelectionStore,
     createJiraTokenStore,
     db: jiraDb,
@@ -179,6 +180,12 @@ async function loadJiraModuleParts(
 
   return {
     provider: integrationProvider,
+    workers: [
+      createJiraMaintenanceWorker({
+        tokenStore,
+        resolveConnection: getIntegrationConnectionById,
+      }),
+    ],
     webhookProcessors: integrationProvider.webhookProcessors,
     database: {db: jiraDb, migrationsPath, databaseNamespace: 'integrations_jira'},
   };

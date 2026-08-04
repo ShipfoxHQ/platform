@@ -1,5 +1,5 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
-import {jsonb, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
+import {index, jsonb, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
 import type {JiraInstallation} from '#db/installations.js';
 import {pgTable} from './common.js';
 
@@ -17,12 +17,30 @@ export const jiraInstallations = pgTable(
     webhookExpiresAt: timestamp('webhook_expires_at', {withTimezone: true}),
     status: text('status').notNull().$type<JiraInstallation['status']>(),
     tokenExpiresAt: timestamp('token_expires_at', {withTimezone: true}),
+    refreshTokenLastUsedAt: timestamp('refresh_token_last_used_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+    refreshTokenLastAttemptedAt: timestamp('refresh_token_last_attempted_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex('integrations_jira_installations_connection_unique').on(table.connectionId),
     uniqueIndex('integrations_jira_installations_cloud_id_unique').on(table.cloudId),
+    index('integrations_jira_installations_token_refresh_due_idx').on(
+      table.status,
+      table.refreshTokenLastUsedAt,
+    ),
+    index('integrations_jira_installations_token_refresh_attempt_idx').on(
+      table.status,
+      table.refreshTokenLastAttemptedAt,
+    ),
   ],
 );
 
@@ -42,6 +60,8 @@ export function toJiraInstallation(row: JiraInstallationDb): JiraInstallation {
     webhookExpiresAt: row.webhookExpiresAt,
     status: row.status,
     tokenExpiresAt: row.tokenExpiresAt,
+    refreshTokenLastUsedAt: row.refreshTokenLastUsedAt,
+    refreshTokenLastAttemptedAt: row.refreshTokenLastAttemptedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

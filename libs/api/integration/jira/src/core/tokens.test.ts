@@ -17,7 +17,7 @@ function createConnectionContext() {
   const connectionId = crypto.randomUUID();
   const resolveConnection = vi
     .fn<(connectionId: string) => Promise<JiraConnectionResolverResult | undefined>>()
-    .mockResolvedValue({workspaceId});
+    .mockResolvedValue({workspaceId, lifecycleStatus: 'active'});
   const store = createJiraTokenStore({resolveConnection, secrets});
 
   return {workspaceId, connectionId, resolveConnection, store};

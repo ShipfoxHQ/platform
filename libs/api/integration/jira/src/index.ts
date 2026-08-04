@@ -120,6 +120,7 @@ export {
   getJiraInstallationByCloudId,
   getJiraInstallationByConnectionId,
   getJiraInstallationByWebhookId,
+  listJiraInstallationsDueForTokenRefresh,
   markJiraInstallationRevoked,
   updateJiraInstallationTokenExpiry,
   updateJiraInstallationWebhook,
@@ -129,6 +130,7 @@ export {
 } from '#db/installations.js';
 export type {CreateJiraWebhookRoutesOptions} from '#presentation/routes/webhooks.js';
 export {createJiraWebhookRoutes} from '#presentation/routes/webhooks.js';
+export {createJiraMaintenanceWorker} from '#temporal/worker.js';
 export {closeDb, config, db, migrationsPath};
 
 export interface CreateJiraIntegrationProviderOptions {
