@@ -91,6 +91,8 @@ jobs:
     if: needs.authorize-release.outputs.authorized == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      SHIPFOX_PUBLICATION_REGISTRY_BASE: ${{ needs.authorize-release.outputs.base_sha }}
 
     steps:
       - name: Mint App installation token

@@ -232,6 +232,8 @@ jobs:
     env:
       SHIPFOX_TURBO_CONCURRENCY: "4"
       CLOUDFLARE_PAGES_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      SHIPFOX_PUBLICATION_REGISTRY_BASE: ${{ needs.release-mode.outputs.previous_revision || github.event.pull_request.base.sha || github.event.before }}
+      SHIPFOX_PUBLICATION_REGISTRY_REQUIRED: ${{ needs.release-mode.outputs.mode != 'normal' }}
 
     steps:
       - name: Check out repository
