@@ -3,6 +3,7 @@ import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module'
 import {projectFactory} from '#test/factories/project.js';
 import {createStepCheckoutSpec} from './checkout.js';
 import type {Step} from './entities/step.js';
+import type {WorkflowRunTriggerReference} from './entities/workflow-run.js';
 import {CheckoutConfigInvalidError, CheckoutIntentUnresolvedError} from './errors.js';
 
 const getProjectById = vi.fn();
@@ -98,6 +99,7 @@ describe('createStepCheckoutSpec', () => {
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
+      triggerReference: triggerReferenceFor(project.id),
       integrations: integrations as IntegrationsModuleClient,
       projects: projects as ProjectsModuleClient,
     });
@@ -113,6 +115,136 @@ describe('createStepCheckoutSpec', () => {
       externalRepositoryId: 'github:412',
       ref: 'refs/pull/412/head',
       permissions: {contents: 'write'},
+    });
+  });
+
+  it('defaults the ref to the trigger commit for the triggered repository', async () => {
+    const project = projectFactory.build();
+    const triggerReference = triggerReferenceFor(project.id);
+    const step = checkoutStep({permissions: {contents: 'read'}});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: triggerReference.commit,
+    });
+
+    await createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      triggerReference,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      ref: triggerReference.commit,
+      permissions: {contents: 'read'},
+    });
+  });
+
+  it('preserves an explicit ref when the trigger targets the same project', async () => {
+    const project = projectFactory.build();
+    const explicitRef = 'refs/pull/412/head';
+    const step = checkoutStep({ref: explicitRef, permissions: {contents: 'read'}});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: explicitRef,
+    });
+
+    await createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      triggerReference: triggerReferenceFor(project.id),
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      ref: explicitRef,
+      permissions: {contents: 'read'},
+    });
+  });
+
+  it('uses the provider default when the matching trigger reference has no commit', async () => {
+    const project = projectFactory.build();
+    const triggerReference = {...triggerReferenceFor(project.id), commit: null};
+    const step = checkoutStep({permissions: {contents: 'read'}});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: 'main',
+    });
+
+    await createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      triggerReference,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      permissions: {contents: 'read'},
+    });
+  });
+
+  it('keeps the provider default ref for a cross-repository target', async () => {
+    const project = projectFactory.build();
+    const targetProjectId = crypto.randomUUID();
+    const step = checkoutStep({project: targetProjectId});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: targetProjectId,
+      connectionId: crypto.randomUUID(),
+      externalRepositoryId: 'github:412',
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/target.git',
+      ref: 'main',
+    });
+
+    await createStepCheckoutSpec({
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      triggerReference: triggerReferenceFor(project.id),
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: expect.any(String),
+      externalRepositoryId: 'github:412',
+      permissions: {contents: 'read'},
     });
   });
 
@@ -290,5 +422,15 @@ function checkoutStep(checkout: Record<string, unknown>): Step {
     currentAttempt: 1,
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+function triggerReferenceFor(projectId: string): WorkflowRunTriggerReference {
+  return {
+    project: {id: projectId},
+    repository: 'acme/repo',
+    ref: 'refs/heads/feature/checkout',
+    commit: 'a'.repeat(40),
+    actor: null,
   };
 }

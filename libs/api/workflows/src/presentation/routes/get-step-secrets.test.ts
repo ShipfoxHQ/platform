@@ -206,7 +206,11 @@ describe('GET /runs/jobs/current/steps/:stepId/secrets', () => {
 
     const scope = await getJobScope(job.id);
 
-    expect(scope).toEqual({workspaceId: run.workspaceId, projectId: run.projectId});
+    expect(scope).toEqual({
+      workspaceId: run.workspaceId,
+      projectId: run.projectId,
+      triggerReference: null,
+    });
   });
 });
 

@@ -4,6 +4,7 @@ import {and, asc, desc, eq, inArray, notInArray, sql} from 'drizzle-orm';
 import {isJobTerminal, type Job, type JobStatus, type JobStatusReason} from '#core/entities/job.js';
 import type {JobExecution} from '#core/entities/job-execution.js';
 import type {PersistedEvaluationTraceEntry} from '#core/entities/step.js';
+import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {JobNotFoundError} from '#core/errors.js';
 import {
   type DeriveJobSuccessResult,
@@ -58,11 +59,16 @@ export async function getJobById(id: string): Promise<Job | undefined> {
 export interface JobScope {
   workspaceId: string;
   projectId: string;
+  triggerReference: WorkflowRunTriggerReference | null;
 }
 
 export async function getJobScope(jobId: string): Promise<JobScope | undefined> {
   const rows = await db()
-    .select({workspaceId: workflowRuns.workspaceId, projectId: workflowRuns.projectId})
+    .select({
+      workspaceId: workflowRuns.workspaceId,
+      projectId: workflowRuns.projectId,
+      triggerReference: workflowRuns.triggerReference,
+    })
     .from(jobs)
     .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
     .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
