@@ -31,8 +31,8 @@ export function RunAnnotationSummaryLine({
   );
 
   return (
-    <div className="flex h-32 min-h-32 shrink-0 items-center justify-end gap-8 overflow-x-auto whitespace-nowrap px-16 text-foreground-neutral-muted min-[768px]:px-0">
-      <Text as="span" size="xs" className="shrink-0 text-foreground-neutral-muted">
+    <div className="flex flex-wrap items-center gap-x-8 gap-y-4 text-foreground-neutral-subtle">
+      <Text as="span" size="xs" className="shrink-0 text-foreground-neutral-subtle">
         {summary.total} {pluralize('annotation', summary.total)}
       </Text>
       {visibleSeverities.map((severity) => (

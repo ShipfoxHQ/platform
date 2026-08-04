@@ -56,7 +56,7 @@ export function WorkflowRunDetailPage({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden bg-background-neutral-base">
+    <div className="flex min-h-0 flex-1 overflow-hidden bg-background-neutral-background">
       <WorkflowRunView
         projectId={projectId}
         workspaceSlug={workspaceSlug}

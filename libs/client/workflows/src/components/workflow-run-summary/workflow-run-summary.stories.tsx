@@ -56,10 +56,10 @@ const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({
 });
 
 const withFrame: Decorator = (Story) => (
-  <div className="min-h-screen bg-background-neutral-base">
+  <div className="min-h-screen bg-background-neutral-background">
     <div className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col overflow-hidden border-x border-border-neutral-base bg-background-subtle-base">
       <Story />
-      <div className="min-h-0 flex-1 bg-background-neutral-base p-16" />
+      <div className="min-h-0 flex-1 bg-background-neutral-background p-16" />
     </div>
   </div>
 );
@@ -381,5 +381,25 @@ export const LongTriggerMetadata: Story = {
       trigger_source: 'github-enterprise-cloud-production-organization',
       trigger_event: 'workflow_dispatch_with_release_candidate_payload',
     }),
+  },
+};
+
+export const NarrowLongContent: Story = {
+  decorators: [
+    (Story) => (
+      <div className="w-[360px] max-w-full overflow-hidden border-x border-border-neutral-base">
+        <Story />
+      </div>
+    ),
+  ],
+  args: {
+    run: workflowRunDetail({
+      status: 'running',
+      name: 'release-production-multi-region-with-canary-and-post-deploy-validation',
+      trigger_provider: 'github',
+      trigger_source: 'github-enterprise-cloud-production-organization',
+      trigger_event: 'workflow_dispatch_with_release_candidate_payload',
+    }),
+    onCancel: noop,
   },
 };

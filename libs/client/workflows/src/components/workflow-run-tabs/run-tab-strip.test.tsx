@@ -7,10 +7,9 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import {act, render, screen} from '@testing-library/react';
+import {act, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {RunAnnotationSummary} from '#core/workflow-run-tabs.js';
-import type {WorkflowRunsSearch} from '#routes/inputs.js';
 import {RunTabStrip} from './run-tab-strip.js';
 
 const ANNOTATION_SUMMARY: RunAnnotationSummary = {
@@ -22,30 +21,39 @@ const ANNOTATION_SUMMARY: RunAnnotationSummary = {
 };
 
 describe('RunTabStrip', () => {
-  test('exposes tab counts, severity links, and keyboard navigation', async () => {
+  test('exposes tab counts and keyboard navigation', async () => {
     const user = userEvent.setup();
 
-    await renderStrip({annotationSummary: ANNOTATION_SUMMARY, jobCount: 3});
+    await renderStrip({annotationSummary: ANNOTATION_SUMMARY, jobCount: 3, jobsFailed: 1});
 
-    expect(screen.getByRole('tab', {name: 'Jobs, 3 jobs'})).toBeInTheDocument();
-    expect(screen.getByRole('tab', {name: 'Annotations, 5 annotations'})).toBeInTheDocument();
-    expect(screen.getByRole('link', {name: '2 errors'})).toHaveAttribute(
-      'href',
-      '/w/acme/p/project/runs/run-1?tab=annotations&severity=error',
+    const jobsTab = screen.getByRole('tab', {name: 'Jobs, 3 jobs, 1 failed'});
+    const annotationsTab = screen.getByRole('tab', {
+      name: 'Annotations, 5 annotations, 2 errors',
+    });
+    expect(within(jobsTab).getByText('3')).toHaveClass('bg-tag-neutral-bg');
+    expect(within(jobsTab).getByText('1 failed')).toHaveClass('bg-tag-error-bg');
+    expect(within(annotationsTab).getByText('5')).toHaveClass('bg-tag-neutral-bg');
+    expect(within(annotationsTab).getByText('2 errors')).toHaveClass('bg-tag-error-bg');
+    expect(screen.queryByRole('link', {name: '2 errors'})).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'Source'})).toHaveClass(
+      'data-[state=inactive]:text-foreground-neutral-subtle',
+      'data-[state=inactive]:hover:text-foreground-neutral-base',
     );
 
     const summary = screen.getByRole('tab', {name: 'Summary'});
+    expect(screen.getByRole('tablist', {name: 'Run sections'})).toHaveClass('min-w-full', 'px-16');
+    expect(summary.parentElement?.parentElement).toHaveClass('bg-background-neutral-background');
     summary.focus();
     await user.keyboard('{ArrowRight}');
 
-    expect(screen.getByRole('tab', {name: 'Jobs, 3 jobs'})).toHaveAttribute(
+    expect(screen.getByRole('tab', {name: 'Jobs, 3 jobs, 1 failed'})).toHaveAttribute(
       'aria-selected',
       'true',
     );
     expect(screen.getByRole('tab', {name: 'Summary'})).toHaveAttribute('tabindex', '-1');
   });
 
-  test('keeps count slots stable when data is absent', async () => {
+  test('does not reserve count space when data is absent', async () => {
     await renderStrip({annotationSummary: undefined, jobCount: undefined});
 
     const jobsTab = screen.getByRole('tab', {name: 'Jobs'});
@@ -53,8 +61,8 @@ describe('RunTabStrip', () => {
 
     expect(jobsTab).toBeInTheDocument();
     expect(annotationsTab).toBeInTheDocument();
-    expect(jobsTab.querySelector('.min-w-24')).not.toBeNull();
-    expect(annotationsTab.querySelector('.min-w-24')).not.toBeNull();
+    expect(jobsTab.querySelector('[data-slot="badge"]')).toBeNull();
+    expect(annotationsTab.querySelector('[data-slot="badge"]')).toBeNull();
     expect(screen.queryByText('5 annotations')).not.toBeInTheDocument();
   });
 
@@ -62,34 +70,24 @@ describe('RunTabStrip', () => {
     await renderStrip({
       annotationSummary: {total: 1, error: 1, warning: 0, info: 0, success: 0},
       jobCount: 1,
+      jobsFailed: 1,
     });
 
-    expect(screen.getByRole('tab', {name: 'Jobs, 1 job'})).toBeInTheDocument();
-    expect(screen.getByRole('tab', {name: 'Annotations, 1 annotation'})).toBeInTheDocument();
-  });
-
-  test('clears a stale annotation when linking to a severity', async () => {
-    await renderStrip({
-      annotationSummary: ANNOTATION_SUMMARY,
-      jobCount: 3,
-      search: {annotation: 'annotation-old'},
-    });
-
-    expect(screen.getByRole('link', {name: '2 errors'})).toHaveAttribute(
-      'href',
-      '/w/acme/p/project/runs/run-1?tab=annotations&severity=error',
-    );
+    expect(screen.getByRole('tab', {name: 'Jobs, 1 job, 1 failed'})).toBeInTheDocument();
+    expect(
+      screen.getByRole('tab', {name: 'Annotations, 1 annotation, 1 error'}),
+    ).toBeInTheDocument();
   });
 });
 
 async function renderStrip({
   annotationSummary,
   jobCount,
-  search,
+  jobsFailed = 0,
 }: {
   annotationSummary?: RunAnnotationSummary | undefined;
   jobCount?: number | undefined;
-  search?: WorkflowRunsSearch | undefined;
+  jobsFailed?: number | undefined;
 } = {}) {
   const rootRoute = createRootRoute({component: Outlet});
   const runRoute = createRoute({
@@ -99,12 +97,8 @@ async function renderStrip({
       <Tabs defaultValue="summary">
         <RunTabStrip
           jobCount={jobCount}
-          jobsFailed={1}
+          jobsFailed={jobsFailed}
           annotationSummary={annotationSummary}
-          workspaceSlug="acme"
-          projectSlug="project"
-          workflowRunId="run-1"
-          search={search}
         />
       </Tabs>
     ),

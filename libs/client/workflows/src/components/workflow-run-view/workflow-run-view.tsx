@@ -26,7 +26,12 @@ import {WORKFLOW_RUN_TABS, type WorkflowRunTab} from '#routes/inputs.js';
 import {JobGraph} from '../job-graph/index.js';
 import type {JobGraphSelectionSource} from '../job-graph/types.js';
 import {WorkflowRunSummary} from '../workflow-run-summary/index.js';
-import {RunAnnotationsEmpty, RunJobsList, RunTabStrip} from '../workflow-run-tabs/index.js';
+import {
+  RunAnnotationSummaryLine,
+  RunAnnotationsEmpty,
+  RunJobsList,
+  RunTabStrip,
+} from '../workflow-run-tabs/index.js';
 import {WorkflowSourceContent, WorkflowSourcePanel} from '../workflow-source-panel/index.js';
 import {resolveWorkflowRunSelection} from './workflow-run-selection.js';
 import {
@@ -340,16 +345,12 @@ function RunViewContent({
           jobCount={runData?.jobs.length}
           jobsFailed={runData?.jobs.filter((job) => job.status === 'failed').length}
           annotationSummary={annotationSummary}
-          workspaceSlug={workspaceSlug}
-          projectSlug={projectSlug}
-          workflowRunId={runData?.id}
-          search={selection}
         />
-        <TabsContents className="min-h-0 flex-1 overflow-auto bg-background-neutral-base p-16">
+        <TabsContents className="min-h-0 flex-1 overflow-auto bg-background-neutral-background pb-24 pt-16">
           <TabsContent
             value="summary"
             tabIndex={-1}
-            className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 outline-none"
+            className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 px-24 outline-none"
           >
             {runData ? (
               <JobGraph
@@ -364,7 +365,7 @@ function RunViewContent({
           <TabsContent
             value="jobs"
             tabIndex={-1}
-            className="mx-auto w-full max-w-[1120px] outline-none"
+            className="mx-auto w-full max-w-[1120px] px-24 outline-none"
           >
             {runData ? (
               <RunJobsList
@@ -388,15 +389,28 @@ function RunViewContent({
           <TabsContent
             value="annotations"
             tabIndex={-1}
-            className="mx-auto w-full max-w-[1120px] outline-none"
+            className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 px-24 outline-none"
           >
-            {runData ? <RunAnnotationsEmpty /> : tabState}
+            {runData ? (
+              <>
+                <RunAnnotationSummaryLine
+                  summary={annotationSummary}
+                  workspaceSlug={workspaceSlug}
+                  projectSlug={projectSlug}
+                  workflowRunId={runData.id}
+                  search={selection}
+                />
+                <RunAnnotationsEmpty />
+              </>
+            ) : (
+              tabState
+            )}
           </TabsContent>
           <TabsContent
             value="source"
             keepMounted={sourceSnapshot !== null}
             tabIndex={-1}
-            className="mx-auto flex min-h-full w-full max-w-[1120px] outline-none"
+            className="mx-auto flex min-h-full w-full max-w-[1120px] px-24 outline-none"
           >
             {runData ? (
               sourceSnapshot ? (

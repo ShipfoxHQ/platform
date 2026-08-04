@@ -1,5 +1,6 @@
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {useTimeTick} from '@shipfox/react-ui/time-ticker';
+import {cn} from '@shipfox/react-ui/utils';
 import {
   defaultJobExecution,
   deriveJobDisplayStatus,
@@ -85,8 +86,18 @@ export function RunJobsList({
                 aria-controls={selected ? `job-card-${job.id}` : undefined}
                 aria-label={rowLabel}
                 onClick={() => onSelectedJobChange(selected ? undefined : job.id)}
-                className="flex min-h-44 w-full min-w-0 items-center gap-8 rounded-8 border border-border-neutral-base bg-background-components-base px-12 text-left outline-none transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active"
+                className={cn(
+                  'relative flex min-h-44 w-full min-w-0 items-center gap-8 rounded-8 bg-background-neutral-base px-12 text-left shadow-button-neutral outline-none transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus',
+                  selected &&
+                    'bg-background-components-hover hover:bg-background-components-pressed',
+                )}
               >
+                {selected ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-6 left-0 w-px rounded-full bg-border-highlights-interactive"
+                  />
+                ) : null}
                 <WorkflowStatusIcon status={status} size={14} tooltip={false} />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground-neutral-base">
                   {job.displayName}

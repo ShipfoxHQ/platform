@@ -52,7 +52,7 @@ export function WorkflowRunAttemptSwitcher({
           size="2xs"
           iconRight="arrowDownSLine"
           aria-label={`Switch attempt, currently ${run.runAttempt.attempt} of ${maxAttempt}`}
-          className="h-20 px-4 text-foreground-neutral-muted hover:text-foreground-neutral-base"
+          className="h-20 px-4 text-foreground-neutral-subtle hover:text-foreground-neutral-base"
         >
           <Text as="span" size="xs" className="text-inherit">
             Attempt {run.runAttempt.attempt} of {maxAttempt}
@@ -139,7 +139,7 @@ function AttemptItem({
         </Code>
         <RelativeTime
           value={attempt.createdAt}
-          className="shrink-0 whitespace-nowrap font-code text-xs leading-20 text-foreground-neutral-muted"
+          className="shrink-0 whitespace-nowrap font-code text-xs leading-20 text-foreground-neutral-subtle"
         />
       </Link>
     </DropdownMenuItem>

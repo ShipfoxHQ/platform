@@ -66,6 +66,11 @@ describe('WorkflowRunView', () => {
     expect(await screen.findByRole('region', {name: 'Workflow jobs'})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: BUILD_JOB_BUTTON_NAME})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: DEPLOY_JOB_BUTTON_NAME})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: BUILD_JOB_BUTTON_NAME})).toHaveClass(
+      'bg-background-components-hover',
+      'hover:bg-background-components-pressed',
+    );
+    expect(screen.getByRole('tabpanel')).toHaveClass('max-w-[1120px]', 'px-24');
     expect(screen.getByRole('region', {name: 'build'})).toBeInTheDocument();
     expect(
       screen.getByRole('button', {name: 'checkout, Succeeded, attempt 1'}),

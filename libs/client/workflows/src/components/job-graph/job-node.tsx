@@ -40,14 +40,14 @@ export function TriggerNode({
         <button
           type="button"
           aria-label={label}
-          className="flex items-center justify-center rounded-full border border-border-neutral-base bg-background-components-base transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none"
+          className="flex cursor-help items-center justify-center rounded-full bg-background-neutral-base shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
           style={{width: TRIGGER_SIZE, height: TRIGGER_SIZE}}
         >
           <TriggerSourceIcon
             provider={trigger.triggerProvider}
             source={trigger.triggerSource}
             aria-hidden
-            className="size-14 shrink-0 text-foreground-neutral-muted"
+            className="size-14 shrink-0 text-foreground-neutral-subtle"
           />
         </button>
       </TooltipTrigger>
@@ -106,15 +106,15 @@ export function JobNode({
       onPointerEnter={onHoverStart}
       onPointerLeave={onHoverEnd}
       className={cn(
-        'group relative flex h-48 w-208 items-center gap-8 rounded-8 border border-border-neutral-base bg-background-components-base px-10 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
-        selected && 'bg-background-components-hover',
+        'group relative flex h-48 w-208 cursor-pointer items-center gap-8 rounded-8 bg-background-neutral-base px-10 text-left shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none',
+        selected && 'bg-background-components-hover hover:bg-background-components-pressed',
         node.carriedOver && 'opacity-[0.55]',
       )}
     >
       {selected ? (
         <span
           aria-hidden="true"
-          className="absolute inset-y-6 left-0 w-3 rounded-full bg-border-highlights-interactive"
+          className="absolute inset-y-6 left-0 w-px rounded-full bg-border-highlights-interactive"
         />
       ) : null}
       <div className="flex min-w-0 flex-1 items-center gap-8">
@@ -136,7 +136,7 @@ function ExecutionCountText({executions}: {executions: JobExecution[]}) {
       <TooltipTrigger asChild>
         <span
           aria-hidden="true"
-          className="inline-flex h-20 min-w-28 shrink-0 items-center justify-end gap-4 text-foreground-neutral-muted"
+          className="inline-flex h-20 min-w-28 shrink-0 items-center justify-end gap-4 text-foreground-neutral-subtle"
         >
           <Icon name="loopRightLine" className="size-12" />
           <Code as="span" variant="label" className="text-current">

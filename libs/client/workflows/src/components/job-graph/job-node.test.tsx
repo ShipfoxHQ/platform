@@ -52,11 +52,14 @@ function makeNode(overrides: NodeOverrides): JobGraphNode {
   });
 }
 
-function renderNode(node: JobGraphNode, {live = false}: {live?: boolean} = {}) {
+function renderNode(
+  node: JobGraphNode,
+  {live = false, selected = false}: {live?: boolean; selected?: boolean} = {},
+) {
   const element = (
     <JobNode
       node={node}
-      selected={false}
+      selected={selected}
       onSelect={() => undefined}
       onKeyDown={() => undefined}
       onHoverStart={() => undefined}
@@ -90,6 +93,28 @@ function setMatchMedia(reduced: boolean) {
 function setVisibility(state: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', {configurable: true, value: state});
 }
+
+describe('JobNode interaction', () => {
+  test('presents the selectable node as an elevated interactive surface', () => {
+    renderNode(makeNode({name: 'build', status: 'pending'}));
+
+    expect(screen.getByRole('button', {name: 'build, Pending'})).toHaveClass(
+      'cursor-pointer',
+      'bg-background-neutral-base',
+      'shadow-button-neutral',
+      'hover:bg-background-components-hover',
+    );
+  });
+
+  test('uses a quiet neutral surface for the selected node', () => {
+    renderNode(makeNode({name: 'build', status: 'pending'}), {selected: true});
+
+    expect(screen.getByRole('button', {name: 'build, Pending'})).toHaveClass(
+      'bg-background-components-hover',
+      'hover:bg-background-components-pressed',
+    );
+  });
+});
 
 describe('JobNode duration', () => {
   beforeEach(() => {

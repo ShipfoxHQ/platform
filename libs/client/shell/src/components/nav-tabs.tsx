@@ -13,13 +13,16 @@ export function NavTabs({
   const params = useRouteParams(parseWorkspaceProjectParams);
   const reduced = useReducedMotion();
   const tabs = entries.filter((entry) => entry.scope === scope);
-  const tabClassName = `h-40 inline-flex items-center px-4 text-sm font-medium transition-colors ${reduced ? '' : 'transition-[border-color]'}`;
+  const projectScoped = scope === 'project';
+  const tabClassName = `h-40 inline-flex shrink-0 items-center whitespace-nowrap px-4 ${projectScoped ? 'text-xs' : 'text-sm'} font-medium transition-colors ${reduced ? '' : 'transition-[border-color]'}`;
   const activeProps = {
-    className: 'border-b-2 border-border-highlights-interactive text-foreground-neutral-base',
+    className: projectScoped
+      ? 'border-b border-border-highlights-interactive text-foreground-neutral-base'
+      : 'border-b-2 border-border-highlights-interactive text-foreground-neutral-base',
     'aria-selected': 'true' as const,
   };
   const inactiveProps = {
-    className: 'border-b-2 border-transparent text-foreground-neutral-muted',
+    className: `${projectScoped ? 'border-b' : 'border-b-2'} border-transparent text-foreground-neutral-subtle hover:text-foreground-neutral-base`,
     'aria-selected': 'false' as const,
   };
 
@@ -27,7 +30,7 @@ export function NavTabs({
     <div
       role="tablist"
       aria-label={`${scope === 'project' ? 'Project' : 'Workspace'} sections`}
-      className="sticky top-56 z-20 h-40 px-16 flex items-end gap-12 bg-background-subtle-base border-b border-border-neutral-base"
+      className="sticky top-56 z-20 flex h-40 items-end gap-12 overflow-x-auto whitespace-nowrap border-b border-border-neutral-base bg-background-subtle-base px-16 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {tabs.map((entry) => (
         <Link

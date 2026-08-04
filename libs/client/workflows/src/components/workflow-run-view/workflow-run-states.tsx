@@ -9,7 +9,7 @@ export function WorkflowRunSkeleton() {
   return (
     <section
       aria-label="Loading workflow run"
-      className="border-b border-border-neutral-base bg-background-subtle-base px-16 py-12"
+      className="bg-background-neutral-background px-16 py-12"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-12 gap-y-8">
         <div className="flex min-w-0 items-center gap-8">

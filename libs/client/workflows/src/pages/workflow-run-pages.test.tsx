@@ -178,7 +178,7 @@ describe('WorkflowRunPages', () => {
     renderRunPath('?tab=jobs');
 
     expect(await screen.findByRole('button', {name: DEPLOY_JOB_BUTTON_NAME})).toBeInTheDocument();
-    expect(screen.getByRole('link', {name: 'Back to runs'})).toHaveAttribute(
+    expect(screen.getByRole('link', {name: 'Runs'})).toHaveAttribute(
       'href',
       `/w/${PROJECT_TEST_WSLUG}/p/project/runs`,
     );
@@ -190,7 +190,7 @@ describe('WorkflowRunPages', () => {
 
     renderRunPath(`?search=deploy-web&status=running&tab=jobs&job=${DEPLOY_JOB_ID}`);
 
-    expect(await screen.findByRole('link', {name: 'Back to runs'})).toHaveAttribute(
+    expect(await screen.findByRole('link', {name: 'Runs'})).toHaveAttribute(
       'href',
       `/w/${PROJECT_TEST_WSLUG}/p/project/runs?search=deploy-web&status=running`,
     );
