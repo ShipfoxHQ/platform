@@ -336,7 +336,8 @@ Compact values apply below an ancestor with `data-density="compact"`.
 Use a parent `gap-*` role before adding a child margin. Use the negative inline
 roles only to preserve a touch target's optical alignment with its containing
 surface. Keep zero utilities for explicit resets. Use arbitrary spacing only for
-a fixed optical offset or reserved control space that has no semantic role.
+a fixed optical offset, reserved control space, or asymmetric component contract
+that has no semantic role.
 
 **Density posture.** The default medium button is `h-32`; component sizing owns its
 padding. Use `gap-group` for form row rhythm, `p-panel` for standard cards, and
