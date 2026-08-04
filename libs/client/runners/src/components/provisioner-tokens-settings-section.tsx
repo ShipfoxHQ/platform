@@ -46,22 +46,22 @@ export function WorkspaceProvisionerTokensSettingsSection({workspaceId}: {worksp
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-32">
-      <section className="flex flex-col gap-16">
-        <div className="flex items-center justify-between gap-16 max-[640px]:items-start">
-          <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-region">
+      <section className="flex flex-col gap-group">
+        <div className="flex items-center justify-between gap-group max-[640px]:items-start">
+          <div className="flex flex-col gap-tight">
             <Header variant="h3">Runner provisioner registration tokens</Header>
             <Text size="sm" className="text-foreground-neutral-muted">
               Register runner provisioners that connect to this workspace and create runners
               dynamically based on demand.
             </Text>
           </div>
-          <div className="flex items-center gap-12">
+          <div className="flex items-center gap-cluster">
             {(tokensQuery.isFetching && !tokensQuery.isPending) ||
             (activeProvisionersQuery.isFetching && !activeProvisionersQuery.isPending) ? (
               <Icon
                 name="loader4Line"
-                className="mt-2 size-18 text-foreground-neutral-muted"
+                className="mt-[2px] size-18 text-foreground-neutral-muted"
                 aria-label="Refreshing provisioner tokens"
               />
             ) : null}
@@ -81,7 +81,7 @@ export function WorkspaceProvisionerTokensSettingsSection({workspaceId}: {worksp
                   </Text>
                 </ModalHeader>
                 {createdToken ? (
-                  <ModalBody className="gap-16">
+                  <ModalBody className="gap-group">
                     <CreatedProvisionerTokenPanel token={createdToken} />
                   </ModalBody>
                 ) : (

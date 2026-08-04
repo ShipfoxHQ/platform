@@ -100,7 +100,7 @@ export function ProjectSwitcher({
           <CommandItem value="__all" keywords={['all projects']} onSelect={handleSelectAll}>
             <Icon
               name="check"
-              className={`size-16 mr-8 ${activeProjectId ? 'opacity-0' : 'opacity-100'}`}
+              className={`size-16 ${activeProjectId ? 'opacity-0' : 'opacity-100'}`}
             />
             All projects
           </CommandItem>
@@ -116,7 +116,7 @@ export function ProjectSwitcher({
               >
                 <Icon
                   name="check"
-                  className={`size-16 mr-8 ${
+                  className={`size-16 ${
                     activeProjectId === project.id ? 'opacity-100' : 'opacity-0'
                   }`}
                 />

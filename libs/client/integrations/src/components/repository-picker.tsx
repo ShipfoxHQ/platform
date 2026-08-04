@@ -9,7 +9,7 @@ import {Text} from '@shipfox/react-ui/typography';
 import {useId} from 'react';
 import type {Repository} from '#core/models.js';
 
-const REPOSITORY_GRID_CLASS_NAME = 'grid grid-cols-2 gap-8 max-[760px]:grid-cols-1';
+const REPOSITORY_GRID_CLASS_NAME = 'grid grid-cols-2 gap-inline max-[760px]:grid-cols-1';
 const REPOSITORY_SKELETON_WIDTHS = ['w-64', 'w-96', 'w-80', 'w-112'] as const;
 
 export function RepositoryPicker({
@@ -41,7 +41,7 @@ export function RepositoryPicker({
   const showSearch = onSearchChange !== undefined;
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-inline">
       <Label id={labelId} className="sr-only">
         Repository
       </Label>
@@ -60,7 +60,7 @@ export function RepositoryPicker({
       {isLoading ? <RepositoryLoadingState /> : null}
 
       {!isLoading && repositories.length === 0 ? (
-        <div className="rounded-8 border border-border-neutral-base bg-background-subtle-base p-14">
+        <div className="rounded-8 border border-border-neutral-base bg-background-subtle-base p-panel-compact">
           <Text size="sm">{emptyMessage}</Text>
         </div>
       ) : null}
@@ -119,10 +119,12 @@ function RepositoryLoadingState() {
         Loading repositories.
       </div>
       <div aria-hidden="true" className={REPOSITORY_GRID_CLASS_NAME}>
+        {/* The skeleton mirrors RadioGroupItem's own 14px padding contract so the
+            placeholder and the loaded card stay the same height. */}
         {REPOSITORY_SKELETON_WIDTHS.map((width) => (
           <div
             key={width}
-            className="h-50 min-w-0 rounded-8 border border-border-neutral-base bg-background-neutral-base p-14"
+            className="h-50 min-w-0 rounded-8 border border-border-neutral-base bg-background-neutral-base p-[14px]"
           >
             <Skeleton className={`h-20 ${width}`} />
           </div>

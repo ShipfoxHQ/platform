@@ -123,8 +123,8 @@ function ProjectSettingsForm({project}: {project: Project}) {
 
   return (
     <>
-      <div className="flex min-w-0 flex-col gap-24">
-        <header className="flex flex-col gap-6">
+      <div className="flex min-w-0 flex-col gap-section">
+        <header className="flex flex-col gap-inline">
           <Header variant="h1">General</Header>
           <Text size="sm" className="text-foreground-neutral-muted">
             Update the project name and the slug used in its URLs.
@@ -138,7 +138,7 @@ function ProjectSettingsForm({project}: {project: Project}) {
         ) : null}
 
         <form
-          className="flex max-w-[560px] flex-col gap-16"
+          className="flex max-w-[560px] flex-col gap-group"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();

@@ -40,12 +40,12 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
   const hasNoData = !query.data;
 
   return (
-    <div className="flex w-full flex-col gap-24">
-      <header className="flex flex-col gap-16">
-        <div className="flex items-start justify-between gap-24 max-[640px]:flex-col">
+    <div className="flex w-full flex-col gap-section">
+      <header className="flex flex-col gap-group">
+        <div className="flex items-start justify-between gap-section max-[640px]:flex-col">
           <Header variant="h2">Projects</Header>
         </div>
-        <div className="flex items-center gap-12 max-[640px]:flex-col max-[640px]:items-stretch">
+        <div className="flex items-center gap-cluster max-[640px]:flex-col max-[640px]:items-stretch">
           <Input
             type="search"
             value={search}
@@ -94,8 +94,8 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
       ) : null}
 
       {projects.length > 0 ? (
-        <section aria-label="Projects list">
-          <ul className="grid grid-cols-2 gap-12 max-[760px]:grid-cols-1">
+        <section className="flex flex-col gap-group" aria-label="Projects list">
+          <ul className="grid grid-cols-2 gap-cluster max-[760px]:grid-cols-1">
             {projects.map((project) => (
               <ProjectCard
                 project={project}
@@ -108,14 +108,14 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
             ))}
           </ul>
           {query.error && query.data ? (
-            <Callout role="alert" type="error" className="mt-16">
+            <Callout role="alert" type="error">
               <Text size="sm">
                 Could not load the next page. Existing projects are still shown.
               </Text>
             </Callout>
           ) : null}
           {query.hasNextPage ? (
-            <div className="mt-16 flex justify-center">
+            <div className="flex justify-center">
               <Button
                 variant="secondary"
                 isLoading={query.isFetchingNextPage}
@@ -136,12 +136,12 @@ function ProjectsSkeleton() {
     <ul
       role="status"
       aria-label="Loading projects"
-      className="grid grid-cols-2 gap-12 max-[760px]:grid-cols-1"
+      className="grid grid-cols-2 gap-cluster max-[760px]:grid-cols-1"
     >
       {[0, 1, 2, 3, 4, 5].map((row) => (
         <li key={row}>
-          <Card className="h-full p-16">
-            <div className="flex items-center gap-12">
+          <Card className="h-full p-panel-compact">
+            <div className="flex items-center gap-cluster">
               <Skeleton className="size-24 shrink-0" />
               <Skeleton className="h-16 w-1/2" />
             </div>
@@ -209,8 +209,8 @@ function ProjectCard({
         params={{workspaceSlug, projectSlug: project.slug}}
         className="block h-full rounded-8 focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
       >
-        <Card className="h-full p-16 transition-colors hover:bg-background-components-hover">
-          <div className="flex min-w-0 items-center gap-12">
+        <Card className="h-full p-panel-compact transition-colors hover:bg-background-components-hover">
+          <div className="flex min-w-0 items-center gap-cluster">
             {/* Settle on success or error: a failed fetch falls back to the
                 neutral provider icon rather than spinning forever. */}
             {connectionsSettled ? (
@@ -222,7 +222,7 @@ function ProjectCard({
             ) : (
               <Skeleton className="size-24 shrink-0" />
             )}
-            <div className="flex min-w-0 flex-1 items-center gap-8">
+            <div className="flex min-w-0 flex-1 items-center gap-inline">
               <Text size="md" bold className="truncate">
                 {project.name}
               </Text>

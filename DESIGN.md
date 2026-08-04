@@ -330,14 +330,17 @@ Compact values apply below an ancestor with `data-density="compact"`.
 | Family | Roles |
 | --- | --- |
 | Gaps | `gap-tight` 4 / 2, `gap-inline` 8 / 4, `gap-cluster` 12 / 8, `gap-group` 16 / 12, `gap-section` 24 / 16, `gap-region` 32 / 24 |
+| Axis gaps | `gap-x-*` and `gap-y-*` in the same six roles and the same values, for a grid whose column and row rhythm differ |
 | Padding | `p-menu-surface` 4 / 2, `p-tight` and `px-tight` 8 / 4, `px-row` 16 / 12, `py-row` 12 / 8, `p-panel-compact` 16 / 12, `p-panel` and `pb-panel` 24 / 16, `px-frame` 24 / 16, `py-frame` 32 / 24 |
-| Margins | `ms-inline` 8 / 4, `my-region` 32 / 24, `mt-page` 48 / 32, `-mt-inline` and `-mr-inline` -8 / -4 |
+| Margins | `ms-inline` 8 / 4, `my-region` 32 / 24, `mt-page` 48 / 32, `-mt-inline`, `-mr-inline`, and `-mx-inline` -8 / -4 |
 
-Use a parent `gap-*` role before adding a child margin. Use the negative inline
+Use a parent `gap-*` role before adding a child margin, and reach for `gap-x-*`
+or `gap-y-*` only when the two axes genuinely differ. Use the negative inline
 roles only to preserve a touch target's optical alignment with its containing
-surface. Keep zero utilities for explicit resets. Use arbitrary spacing only for
-a fixed optical offset, reserved control space, or asymmetric component contract
-that has no semantic role.
+surface; `-mx-inline` cancels a `px-tight` row so the bleed tracks density
+instead of freezing at one pixel value. Keep zero utilities for explicit resets.
+Use arbitrary spacing only for a fixed optical offset, reserved control space, or
+asymmetric component contract that has no semantic role.
 
 **Density posture.** The default medium button is `h-32`; component sizing owns its
 padding. Use `gap-group` for form row rhythm, `p-panel` for standard cards, and

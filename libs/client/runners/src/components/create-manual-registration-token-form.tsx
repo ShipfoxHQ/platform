@@ -47,10 +47,10 @@ export function CreateManualRegistrationTokenForm({
 
   return (
     <>
-      <ModalBody className="gap-16">
+      <ModalBody className="gap-group">
         <form
           id={CREATE_MANUAL_REGISTRATION_TOKEN_FORM_ID}
-          className="flex w-full flex-col gap-8"
+          className="flex w-full flex-col gap-inline"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -58,7 +58,7 @@ export function CreateManualRegistrationTokenForm({
             void form.handleSubmit();
           }}
         >
-          <div className="flex w-full items-end gap-16 max-[640px]:flex-col max-[640px]:items-stretch">
+          <div className="flex w-full items-end gap-group max-[640px]:flex-col max-[640px]:items-stretch">
             <form.Field
               name="name"
               validators={{
@@ -109,7 +109,7 @@ export function CreateManualRegistrationTokenForm({
         </form>
         {formError ? (
           <Callout role="alert" type="error">
-            <div className="flex flex-col gap-8">
+            <div className="flex flex-col gap-inline">
               <Text size="sm" bold>
                 Could not create token
               </Text>
@@ -156,14 +156,14 @@ export function CreatedManualRegistrationTokenPanel({
 
   return (
     <Callout type="success" variant="secondary" icon={null}>
-      <CalloutContent className="flex flex-col gap-12">
-        <div className="flex flex-col gap-2">
+      <CalloutContent className="flex flex-col gap-cluster">
+        <div className="flex flex-col gap-tight">
           <CalloutTitle className="mb-0">Token created</CalloutTitle>
           <CalloutDescription>
             Copy this registration token now. It will not be shown again.
           </CalloutDescription>
         </div>
-        <div className="flex items-center gap-8 max-[640px]:flex-col max-[640px]:items-stretch">
+        <div className="flex items-center gap-inline max-[640px]:flex-col max-[640px]:items-stretch">
           <Code variant="paragraph" className="min-w-0 flex-1 break-all">
             {token.token}
           </Code>

@@ -93,13 +93,13 @@ export function ProvisionerTokenList({
           </TableBody>
         </Table>
       </div>
-      <ul className="hidden flex-col gap-10 max-[760px]:flex" aria-label="Provisioner tokens">
+      <ul className="hidden flex-col gap-inline max-[760px]:flex" aria-label="Provisioner tokens">
         {tokens.map((token) => (
           <li
             key={token.id}
-            className="rounded-8 border border-border-neutral-base bg-background-neutral-base p-14"
+            className="flex flex-col gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact"
           >
-            <div className="flex items-start justify-between gap-12">
+            <div className="flex items-start justify-between gap-cluster">
               <div className="min-w-0 flex-1">
                 <TokenName name={provisionerTokenDisplayName(token)} />
                 <Code variant="paragraph" className="block truncate text-foreground-neutral-muted">
@@ -108,7 +108,7 @@ export function ProvisionerTokenList({
               </div>
               <RevokeProvisionerTokenButton workspaceId={workspaceId} token={token} />
             </div>
-            <dl className="mt-12 grid grid-cols-2 gap-10 text-sm">
+            <dl className="grid grid-cols-2 gap-inline text-sm">
               <div>
                 <dt className="text-foreground-neutral-muted">Status</dt>
                 <dd>
@@ -155,7 +155,7 @@ function ProvisionerStatusCell({
   const status = provisionerConnectionStatus(token, activeIds);
 
   return (
-    <span className="inline-flex items-center gap-6">
+    <span className="inline-flex items-center gap-inline">
       <Dot variant={status.dotVariant} />
       {status.kind === 'last-seen' ? (
         <span>
@@ -220,7 +220,7 @@ function RevokeProvisionerTokenButton({
         <ModalContent aria-describedby={undefined} className="max-w-[420px]">
           <ModalTitle className="sr-only">Revoke token</ModalTitle>
           <ModalHeader title="Revoke token?" />
-          <ModalBody className="gap-16">
+          <ModalBody className="gap-group">
             <Text size="sm" className="text-foreground-neutral-muted">
               {tokenName} will stop authenticating this provisioner. Runners it already provisioned
               keep running until their leases expire.
@@ -262,7 +262,7 @@ export function EmptyProvisionerTokens() {
 
 export function ProvisionerTokenTableSkeleton() {
   return (
-    <div role="status" aria-label="Loading provisioner tokens" className="flex flex-col gap-8">
+    <div role="status" aria-label="Loading provisioner tokens" className="flex flex-col gap-inline">
       {[0, 1, 2].map((row) => (
         <Skeleton key={row} className="h-44 w-full" />
       ))}

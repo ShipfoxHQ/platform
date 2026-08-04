@@ -23,7 +23,7 @@ export interface ProviderGridProps {
   onOpenProvider?: ((provider: string) => void) | undefined;
 }
 
-export const PROVIDER_GRID_CLASS = 'grid grid-cols-2 gap-12 max-[760px]:grid-cols-1';
+export const PROVIDER_GRID_CLASS = 'grid grid-cols-2 gap-cluster max-[760px]:grid-cols-1';
 
 export const PROVIDER_SURFACE_CLASS =
   'overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base';
@@ -46,7 +46,7 @@ export function ProviderGrid({
 
   if (error) {
     return (
-      <div className={cn(PROVIDER_SURFACE_CLASS, 'px-16')}>
+      <div className={cn(PROVIDER_SURFACE_CLASS, 'px-row')}>
         <QueryLoadError
           query={{
             isError: true,
@@ -63,7 +63,7 @@ export function ProviderGrid({
 
   if (installableProviders.length === 0) {
     return (
-      <div className={cn(PROVIDER_SURFACE_CLASS, 'px-16')}>
+      <div className={cn(PROVIDER_SURFACE_CLASS, 'px-row')}>
         <EmptyState
           icon="componentLine"
           title="No integrations available"
@@ -106,7 +106,7 @@ function ProviderCard({
         type="button"
         aria-label={`Add ${provider.displayName}`}
         onClick={() => onOpenProvider?.(provider.provider)}
-        className="group flex h-full w-full min-w-0 items-center justify-between gap-12 rounded-8 border border-border-neutral-base bg-background-neutral-base p-16 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
+        className="group flex h-full w-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
       >
         <ProviderCardContent provider={provider} action="Add" />
       </button>
@@ -118,7 +118,7 @@ function ProviderCard({
       to={catalog.setupPath}
       params={{workspaceSlug}}
       aria-label={`Install ${provider.displayName}`}
-      className="group flex h-full min-w-0 items-center justify-between gap-12 rounded-8 border border-border-neutral-base bg-background-neutral-base p-16 transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
+      className="group flex h-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
     >
       <ProviderCardContent provider={provider} action="Install" />
     </Link>
@@ -134,7 +134,7 @@ function ProviderCardContent({
 }) {
   return (
     <>
-      <span className="flex min-w-0 items-center gap-12">
+      <span className="flex min-w-0 items-center gap-cluster">
         <IntegrationIcon
           source={provider.provider}
           aria-hidden
@@ -144,7 +144,7 @@ function ProviderCardContent({
           {provider.displayName}
         </Text>
       </span>
-      <span className="flex shrink-0 items-center gap-4 text-foreground-neutral-muted transition-colors group-hover:text-foreground-highlight-interactive">
+      <span className="flex shrink-0 items-center gap-tight text-foreground-neutral-muted transition-colors group-hover:text-foreground-highlight-interactive">
         <Text as="span" size="sm">
           {action}
         </Text>
@@ -159,9 +159,9 @@ function ProviderGridSkeleton({label}: {label: string}) {
     <ul role="status" aria-label={label} className={PROVIDER_GRID_CLASS}>
       {[0, 1, 2, 3].map((tile) => (
         <li key={tile}>
-          <Card className="h-full p-16">
-            <div className="flex items-center justify-between gap-12">
-              <div className="flex min-w-0 items-center gap-12">
+          <Card className="h-full p-panel-compact">
+            <div className="flex items-center justify-between gap-cluster">
+              <div className="flex min-w-0 items-center gap-cluster">
                 <Skeleton className="size-24 shrink-0" />
                 <Skeleton className="h-16 w-100" />
               </div>

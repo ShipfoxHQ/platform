@@ -54,7 +54,7 @@ export function RedirectInstallPage({
 
   if (errorMessage) {
     return (
-      <div className="mx-auto flex w-full max-w-[480px] flex-col gap-16">
+      <div className="mx-auto flex w-full max-w-[480px] flex-col gap-group">
         <Callout role="alert" type="error">
           <Text size="sm">{errorMessage}</Text>
         </Callout>

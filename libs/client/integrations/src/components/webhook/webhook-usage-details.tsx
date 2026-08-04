@@ -29,8 +29,8 @@ export function WebhookUsageDetails({workspaceId, connectionId}: WebhookUsageDet
   if (!connection) return null;
 
   return (
-    <div className="flex w-full flex-col gap-16">
-      <div className="flex w-full min-w-0 flex-col gap-8">
+    <div className="flex w-full flex-col gap-group">
+      <div className="flex w-full min-w-0 flex-col gap-inline">
         <Text size="sm" bold>
           Inbound URL
         </Text>

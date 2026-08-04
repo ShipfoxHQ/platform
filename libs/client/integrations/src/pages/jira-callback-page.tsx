@@ -300,9 +300,9 @@ function JiraSiteSelectionPage({
   onSelect: (site: JiraSite) => void;
 }) {
   return (
-    <main className="flex min-h-screen bg-background-subtle-base px-16 py-32">
-      <div className="mx-auto flex w-full max-w-[480px] flex-col justify-center gap-20">
-        <header className="flex flex-col gap-8">
+    <main className="flex min-h-screen bg-background-subtle-base px-row py-frame">
+      <div className="mx-auto flex w-full max-w-[480px] flex-col justify-center gap-section">
+        <header className="flex flex-col gap-inline">
           <Header variant="h2">Choose a Jira site</Header>
           <Text size="sm" className="text-foreground-neutral-muted">
             Select the Jira site to connect to this Shipfox workspace.
@@ -315,10 +315,10 @@ function JiraSiteSelectionPage({
           </Callout>
         ) : null}
 
-        <section className="flex flex-col gap-8" aria-label="Choose a Jira site">
+        <section className="flex flex-col gap-inline" aria-label="Choose a Jira site">
           {sites.map((site) => (
-            <Card key={site.cloudId} className="p-16">
-              <div className="flex items-center justify-between gap-12">
+            <Card key={site.cloudId} className="p-panel-compact">
+              <div className="flex items-center justify-between gap-cluster">
                 <div className="min-w-0">
                   <Text size="md" bold className="truncate">
                     {site.name}
@@ -340,7 +340,7 @@ function JiraSiteSelectionPage({
           ))}
         </section>
 
-        <div className="flex flex-col gap-8 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-inline sm:flex-row sm:items-center">
           {failure?.startOver && workspaceSlug ? (
             <ButtonLink asChild variant="muted" className="min-h-44 w-full sm:w-fit">
               <Link to="/w/$workspaceSlug/integrations/jira" params={{workspaceSlug}}>

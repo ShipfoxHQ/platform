@@ -198,8 +198,8 @@ export function CreateProjectPage() {
     : 'No repositories visible to this connection.';
 
   return (
-    <div className="flex w-full flex-col gap-24">
-      <header className="flex flex-col gap-6">
+    <div className="flex w-full flex-col gap-section">
+      <header className="flex flex-col gap-inline">
         <Header id="create-project-title" variant="h1">
           Create project
         </Header>
@@ -213,7 +213,7 @@ export function CreateProjectPage() {
 
       {connectionsQuery.isError ? (
         <Callout role="alert" type="error">
-          <div className="flex w-full flex-wrap items-center justify-between gap-12">
+          <div className="flex w-full flex-wrap items-center justify-between gap-cluster">
             <Text size="sm" className="min-w-[240px] flex-1">
               Could not load source integrations. Refresh the integrations list to continue.
             </Text>
@@ -237,12 +237,12 @@ export function CreateProjectPage() {
         }}
         noValidate
         aria-labelledby="create-project-title"
-        className="grid items-start gap-32 lg:grid-cols-[minmax(0,1fr)_340px]"
+        className="grid items-start gap-region lg:grid-cols-[minmax(0,1fr)_340px]"
       >
-        <div className="flex min-w-0 flex-col gap-32">
-          <section className="flex flex-col gap-16" aria-label="Source integration">
-            <div className="flex items-start justify-between gap-16">
-              <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-region">
+          <section className="flex flex-col gap-group" aria-label="Source integration">
+            <div className="flex items-start justify-between gap-group">
+              <div className="flex flex-col gap-tight">
                 <Header variant="h3">Source integration</Header>
                 <Text size="sm" className="text-foreground-neutral-muted">
                   Choose the integration that can access the repository.
@@ -271,8 +271,8 @@ export function CreateProjectPage() {
           </section>
 
           {showRepoPicker ? (
-            <section className="flex flex-col gap-16" aria-label="Repository">
-              <div className="flex flex-col gap-4">
+            <section className="flex flex-col gap-group" aria-label="Repository">
+              <div className="flex flex-col gap-tight">
                 <Header variant="h3">Repository</Header>
                 <Text size="sm" className="text-foreground-neutral-muted">
                   Select the repository this project tracks.
@@ -296,8 +296,8 @@ export function CreateProjectPage() {
         </div>
 
         <aside className="lg:sticky lg:top-32">
-          <div className="flex flex-col gap-18 rounded-8 border border-border-neutral-base bg-background-neutral-base p-20">
-            <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-group rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel">
+            <div className="flex flex-col gap-tight">
               <Header variant="h3">Project details</Header>
               <Text size="sm" className="text-foreground-neutral-muted">
                 Confirm the source and create the project.
@@ -409,7 +409,7 @@ function ProjectSummary({
   repositoryName: string | undefined;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-10">
+    <div className="flex min-w-0 items-center gap-inline">
       {repositoryName ? (
         <IntegrationIcon
           source={connection?.provider}

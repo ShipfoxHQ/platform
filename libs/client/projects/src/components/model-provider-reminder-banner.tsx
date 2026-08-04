@@ -34,7 +34,7 @@ export function ModelProviderReminderBanner({workspaceId}: {workspaceId: string}
         }
       }}
     >
-      <AlertContent className="pr-28">
+      <AlertContent className="pr-[28px]">
         <AlertTitle>Finish setting up a model provider</AlertTitle>
         <AlertDescription>
           Add workspace credentials, or keep using the instance default.

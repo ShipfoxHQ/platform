@@ -8,8 +8,8 @@ export function SourceControlOnboardingPage() {
   const providersQuery = useIntegrationProvidersQuery({capability: 'source_control'});
 
   return (
-    <div className="mx-auto flex w-full max-w-[640px] flex-col gap-20">
-      <header className="flex flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-[640px] flex-col gap-section">
+      <header className="flex flex-col gap-inline">
         <Header variant="h1">Install source control</Header>
         <Text size="md" className="text-foreground-neutral-muted">
           Shipfox needs a source control integration to import your repositories.

@@ -44,10 +44,10 @@ export function EventsPage({
   return (
     <RelativeTimeProvider>
       <section
-        className="@container flex min-w-0 flex-col gap-16"
+        className="@container flex min-w-0 flex-col gap-group"
         aria-labelledby="trigger-events-heading"
       >
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-tight">
           <Header id="trigger-events-heading" variant="h3">
             Events
           </Header>
@@ -57,7 +57,7 @@ export function EventsPage({
           </Text>
         </div>
 
-        <div className="grid min-h-0 items-start gap-16 @min-[820px]:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
+        <div className="grid min-h-0 items-start gap-group @min-[820px]:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
           <div className={cn('min-w-0', selectedEventId && '@max-[820px]:hidden')}>
             <EventsList
               events={events}

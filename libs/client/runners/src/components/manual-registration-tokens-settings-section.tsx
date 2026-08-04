@@ -41,21 +41,21 @@ export function WorkspaceManualRegistrationTokensSettingsSection({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-32">
-      <section className="flex flex-col gap-16">
-        <div className="flex items-center justify-between gap-16 max-[640px]:items-start">
-          <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-region">
+      <section className="flex flex-col gap-group">
+        <div className="flex items-center justify-between gap-group max-[640px]:items-start">
+          <div className="flex flex-col gap-tight">
             <Header variant="h3">Runner registration tokens</Header>
             <Text size="sm" className="text-foreground-neutral-muted">
               Register individual runner agents that run jobs directly in this workspace. Tokens are
               reusable until revoked.
             </Text>
           </div>
-          <div className="flex items-center gap-12">
+          <div className="flex items-center gap-cluster">
             {tokensQuery.isFetching && !tokensQuery.isPending ? (
               <Icon
                 name="loader4Line"
-                className="mt-2 size-18 text-foreground-neutral-muted"
+                className="mt-[2px] size-18 text-foreground-neutral-muted"
                 aria-label="Refreshing tokens"
               />
             ) : null}
@@ -75,7 +75,7 @@ export function WorkspaceManualRegistrationTokensSettingsSection({
                   </Text>
                 </ModalHeader>
                 {createdToken ? (
-                  <ModalBody className="gap-16">
+                  <ModalBody className="gap-group">
                     <CreatedManualRegistrationTokenPanel token={createdToken} />
                   </ModalBody>
                 ) : (
