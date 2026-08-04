@@ -86,7 +86,7 @@ function DurationText({
       variant="label"
       aria-label={ariaLabel}
       className={cn(
-        'inline-flex shrink-0 items-center gap-4 tabular-nums text-foreground-neutral-muted',
+        'inline-flex shrink-0 items-center gap-4 tabular-nums text-foreground-neutral-subtle',
         className,
       )}
     >

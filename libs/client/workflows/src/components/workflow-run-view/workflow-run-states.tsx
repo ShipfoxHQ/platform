@@ -9,7 +9,7 @@ export function WorkflowRunSkeleton() {
   return (
     <section
       aria-label="Loading workflow run"
-      className="border-b border-border-neutral-base bg-background-subtle-base px-16 py-12"
+      className="bg-background-neutral-background px-16 py-12"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-12 gap-y-8">
         <div className="flex min-w-0 items-center gap-8">
@@ -27,6 +27,17 @@ export function WorkflowRunSkeleton() {
         <Skeleton className="h-20 w-88 rounded-4" />
         <Skeleton className="h-20 w-88 rounded-4" />
       </div>
+    </section>
+  );
+}
+
+export function WorkflowRunContentSkeleton() {
+  return (
+    <section
+      aria-label="Loading workflow run content"
+      className="min-h-160 rounded-8 border border-border-neutral-base bg-background-components-base p-16"
+    >
+      <Skeleton className="h-160 w-full rounded-6" />
     </section>
   );
 }

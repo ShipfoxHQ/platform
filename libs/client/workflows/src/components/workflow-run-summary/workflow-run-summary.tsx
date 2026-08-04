@@ -12,7 +12,7 @@ import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Header, Text} from '@shipfox/react-ui/typography';
-import type {Ref} from 'react';
+import {Link} from '@tanstack/react-router';
 import {useId} from 'react';
 import {WorkflowRunNumberLabel} from '#components/workflow-run-number-label.js';
 import {
@@ -22,6 +22,7 @@ import {
   type WorkflowRunDetail,
   type WorkflowRunRerunMode,
 } from '#core/workflow-run.js';
+import {validateWorkflowRunsSearch, workflowRunListSearchParams} from '#routes/inputs.js';
 import {WorkflowRunDurationLabel} from '../workflow-run-duration-label.js';
 import {getWorkflowStatusVisual} from '../workflow-status/status-visuals.js';
 import {WorkflowRunAttemptSwitcher} from './workflow-run-attempt-switcher.js';
@@ -36,11 +37,6 @@ export interface WorkflowRunSummaryProps {
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
   run: WorkflowRunDetail;
-  sourceAvailable?: boolean | undefined;
-  sourceOpen?: boolean | undefined;
-  sourcePanelId?: string | undefined;
-  sourceButtonRef?: Ref<HTMLButtonElement> | undefined;
-  onSourceToggle?: (() => void) | undefined;
   cancelling?: boolean | undefined;
   onCancel?: (() => void) | undefined;
   rerunPending?: boolean | undefined;
@@ -52,11 +48,6 @@ export function WorkflowRunSummary({
   workspaceSlug,
   projectSlug,
   run,
-  sourceAvailable = false,
-  sourceOpen = false,
-  sourcePanelId,
-  sourceButtonRef,
-  onSourceToggle,
   cancelling = false,
   onCancel,
   rerunPending = false,
@@ -66,6 +57,7 @@ export function WorkflowRunSummary({
   const headingId = useId();
   const status = getWorkflowStatusVisual(run.runAttempt.status);
   const action = workflowRunActionForRun(run);
+  const hasAction = canRenderWorkflowRunAction(action, onCancel, onRerun);
   const attemptSwitcher =
     latestAttempt && latestAttempt > 1 && workspaceSlug && projectSlug
       ? {workspaceSlug, projectSlug, latestAttempt}
@@ -76,64 +68,77 @@ export function WorkflowRunSummary({
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
-      <section
-        aria-labelledby={headingId}
-        className="border-b border-border-neutral-base bg-background-subtle-base px-16 py-8"
-      >
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-12 gap-y-4 overflow-hidden">
-          <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-8">
-            <Badge variant={status.badge} size="xs">
-              <span className="text-center" style={{width: `${STATUS_BADGE_LABEL_WIDTH_CH}ch`}}>
-                {status.label}
-              </span>
-            </Badge>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Header id={headingId} variant="h3" className="min-w-0 truncate">
-                  <span
-                    ref={headingTextRef}
-                    title={isHeadingTruncated ? run.name : undefined}
-                    className="block min-w-0 truncate"
+      <section aria-labelledby={headingId} className="bg-background-neutral-background px-16 py-12">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-12 gap-y-8 overflow-hidden max-[480px]:grid-cols-1">
+          <nav
+            aria-label="Breadcrumb"
+            className="col-start-1 row-start-1 min-w-0 max-[480px]:col-start-auto max-[480px]:row-start-auto"
+          >
+            <ol className="flex min-w-0 items-center gap-8">
+              {workspaceSlug && projectSlug ? (
+                <li className="shrink-0">
+                  <Link
+                    to="/w/$workspaceSlug/p/$projectSlug/runs"
+                    params={{workspaceSlug, projectSlug}}
+                    search={
+                      ((previous: Record<string, unknown>) =>
+                        workflowRunListSearchParams(validateWorkflowRunsSearch(previous))) as never
+                    }
+                    className="rounded-4 text-xs font-medium text-foreground-neutral-subtle underline decoration-border-neutral-strong underline-offset-4 outline-none hover:text-foreground-neutral-base focus-visible:shadow-border-interactive-with-active"
                   >
-                    {run.name}
-                  </span>
-                </Header>
-              </TooltipTrigger>
-              {isHeadingTruncated ? (
-                <TooltipContent>
-                  <Text as="span" size="xs" className="max-w-[360px] break-words">
-                    {run.name}
-                  </Text>
-                </TooltipContent>
+                    Runs
+                  </Link>
+                </li>
               ) : null}
-            </Tooltip>
-          </div>
+              {workspaceSlug && projectSlug ? (
+                <li aria-hidden="true" className="shrink-0 text-xs text-foreground-neutral-subtle">
+                  /
+                </li>
+              ) : null}
+              <li aria-current="page" className="flex min-w-0 items-center gap-8">
+                <Badge variant={status.badge} size="xs">
+                  <span className="text-center" style={{width: `${STATUS_BADGE_LABEL_WIDTH_CH}ch`}}>
+                    {status.label}
+                  </span>
+                </Badge>
 
-          <div className="col-start-2 row-start-1 flex min-w-max items-center gap-6 justify-self-end">
-            <WorkflowRunActionSlot
-              action={action}
-              cancelling={cancelling}
-              onCancel={onCancel}
-              rerunPending={rerunPending}
-              onRerun={onRerun}
-            />
-            {sourceAvailable ? (
-              <Button
-                ref={sourceButtonRef}
-                type="button"
-                variant="secondary"
-                size="xs"
-                aria-controls={sourcePanelId}
-                aria-expanded={sourceOpen}
-                onClick={onSourceToggle}
-              >
-                View source
-              </Button>
-            ) : null}
-          </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Header id={headingId} variant="h3" className="min-w-0 truncate">
+                      <span
+                        ref={headingTextRef}
+                        title={isHeadingTruncated ? run.name : undefined}
+                        className="block min-w-0 truncate"
+                      >
+                        {run.name}
+                      </span>
+                    </Header>
+                  </TooltipTrigger>
+                  {isHeadingTruncated ? (
+                    <TooltipContent>
+                      <Text as="span" size="xs" className="max-w-[360px] break-words">
+                        {run.name}
+                      </Text>
+                    </TooltipContent>
+                  ) : null}
+                </Tooltip>
+              </li>
+            </ol>
+          </nav>
 
-          <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-12 overflow-hidden text-foreground-neutral-muted">
+          {hasAction ? (
+            <div className="col-start-2 row-start-1 flex min-w-max items-center gap-6 justify-self-end max-[480px]:col-start-auto max-[480px]:row-start-auto max-[480px]:justify-self-start">
+              <WorkflowRunActionSlot
+                action={action}
+                cancelling={cancelling}
+                onCancel={onCancel}
+                rerunPending={rerunPending}
+                onRerun={onRerun}
+              />
+            </div>
+          ) : null}
+
+          <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-12 overflow-hidden text-foreground-neutral-subtle max-[480px]:col-span-1 max-[480px]:row-start-auto">
             {run.number !== null ? (
               <>
                 <WorkflowRunNumberLabel run={run} />
@@ -159,7 +164,7 @@ export function WorkflowRunSummary({
                       <button
                         type="button"
                         aria-label={run.triggerLabel}
-                        className="inline-flex max-w-full min-w-0 items-center gap-4 rounded-6 border-0 bg-transparent p-0 text-left text-foreground-neutral-muted outline-none focus-visible:shadow-button-neutral-focus"
+                        className="inline-flex max-w-full min-w-0 cursor-help items-center gap-4 rounded-6 border-0 bg-transparent p-0 text-left text-foreground-neutral-subtle outline-none focus-visible:shadow-button-neutral-focus"
                       >
                         <TriggerSourceIcon
                           provider={run.triggerProvider}
@@ -187,7 +192,7 @@ export function WorkflowRunSummary({
             ) : null}
             <RelativeTime
               value={run.runAttempt.createdAt}
-              className="shrink-0 whitespace-nowrap text-xs leading-20 text-foreground-neutral-muted"
+              className="shrink-0 whitespace-nowrap text-xs leading-20 text-foreground-neutral-subtle"
             />
 
             {displayDuration ? (
@@ -195,7 +200,7 @@ export function WorkflowRunSummary({
                 <MetadataSeparator />
                 <WorkflowRunDurationLabel
                   duration={displayDuration}
-                  className="text-foreground-neutral-muted"
+                  className="text-foreground-neutral-subtle"
                 />
               </>
             ) : null}
@@ -290,6 +295,16 @@ function workflowRunActionForRun(run: WorkflowRunDetail): WorkflowRunAction {
   return 'rerun-menu';
 }
 
+function canRenderWorkflowRunAction(
+  action: WorkflowRunAction,
+  onCancel: (() => void) | undefined,
+  onRerun: ((mode: WorkflowRunRerunMode) => void) | undefined,
+): boolean {
+  if (action === 'cancel') return onCancel !== undefined;
+  if (action === 'rerun-all' || action === 'rerun-menu') return onRerun !== undefined;
+  return false;
+}
+
 function hasFailedOrCancelledJobs(run: WorkflowRunDetail): boolean {
   if (!workflowRunHasJobs(run)) return false;
 
@@ -300,6 +315,6 @@ function workflowRunHasJobs(run: WorkflowRunDetail): run is WorkflowRunDetail & 
   return 'jobs' in run && Array.isArray(run.jobs);
 }
 
-function MetadataSeparator() {
+export function MetadataSeparator() {
   return <span aria-hidden="true" className="h-12 w-px shrink-0 bg-border-neutral-base" />;
 }

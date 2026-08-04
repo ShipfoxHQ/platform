@@ -32,7 +32,7 @@ export function WorkflowRunNumberLabel({run}: {run: WorkflowRunNumberLabelRun}) 
         <Code
           as="span"
           variant="label"
-          className="min-w-0 max-w-[240px] truncate text-foreground-neutral-muted"
+          className="min-w-0 max-w-[240px] truncate text-foreground-neutral-subtle"
         >
           {visibleLabel}
         </Code>

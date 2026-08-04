@@ -3,6 +3,7 @@ import {useState} from 'react';
 import type {WorkflowRunDetail} from '#core/workflow-run.js';
 import type {JobGraphModel} from './graph-model.js';
 import {JobGraphContent} from './job-graph-content.js';
+import type {JobGraphSelectionSource} from './types.js';
 
 export function JobGraphView({
   model,
@@ -19,7 +20,9 @@ export function JobGraphView({
   >;
   selectedJobId?: string | undefined;
   defaultSelectedJobId?: string | undefined;
-  onSelectedJobChange?: ((jobId: string | undefined) => void) | undefined;
+  onSelectedJobChange?:
+    | ((jobId: string | undefined, source?: JobGraphSelectionSource) => void)
+    | undefined;
   className?: string | undefined;
 }) {
   const [localSelectedJobId, setLocalSelectedJobId] = useState<string | undefined>(
@@ -27,9 +30,9 @@ export function JobGraphView({
   );
   const selected = selectedJobId ?? localSelectedJobId;
 
-  function selectJob(jobId: string | undefined) {
+  function selectJob(jobId: string | undefined, source?: JobGraphSelectionSource) {
     setLocalSelectedJobId(jobId);
-    onSelectedJobChange?.(jobId);
+    onSelectedJobChange?.(jobId, source);
   }
 
   return (

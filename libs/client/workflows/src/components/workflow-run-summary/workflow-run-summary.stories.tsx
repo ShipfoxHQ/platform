@@ -56,10 +56,10 @@ const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({
 });
 
 const withFrame: Decorator = (Story) => (
-  <div className="min-h-screen bg-background-neutral-base">
+  <div className="min-h-screen bg-background-neutral-background">
     <div className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col overflow-hidden border-x border-border-neutral-base bg-background-subtle-base">
       <Story />
-      <div className="min-h-0 flex-1 bg-background-neutral-base p-16" />
+      <div className="min-h-0 flex-1 bg-background-neutral-background p-16" />
     </div>
   </div>
 );
@@ -159,30 +159,6 @@ const ATTEMPT_SUMMARY_ARGS = {
 };
 
 export const Playground: Story = {};
-
-export const WithSourceButton: Story = {
-  args: {
-    run: workflowRunDetail({
-      status: 'succeeded',
-      source_snapshot: {format: 'yaml', content: 'jobs:\n  build:\n    steps: []'},
-    }),
-    sourceAvailable: true,
-    sourceOpen: false,
-    sourcePanelId: 'workflow-source-panel',
-  },
-};
-
-export const SourceOpen: Story = {
-  args: {
-    run: workflowRunDetail({
-      status: 'succeeded',
-      source_snapshot: {format: 'yaml', content: 'jobs:\n  build:\n    steps: []'},
-    }),
-    sourceAvailable: true,
-    sourceOpen: true,
-    sourcePanelId: 'workflow-source-panel',
-  },
-};
 
 export const WithAttempts: Story = {
   decorators: [withAttemptApi],
@@ -323,7 +299,7 @@ const ACTION_VARIANTS = [
   >;
 }>;
 
-export const ActionVariantsWithSource: Story = {
+export const ActionVariants: Story = {
   render: () => (
     <div className="flex flex-col">
       {ACTION_VARIANTS.map(({label, run, props}, index) => (
@@ -333,9 +309,6 @@ export const ActionVariantsWithSource: Story = {
             ...run,
             id: `22222222-2222-4222-8222-${String(index + 2).padStart(12, '0')}`,
           }}
-          sourceAvailable
-          sourceOpen={label === 'Running'}
-          sourcePanelId={`workflow-source-panel-${index}`}
           {...props}
         />
       ))}
@@ -408,5 +381,25 @@ export const LongTriggerMetadata: Story = {
       trigger_source: 'github-enterprise-cloud-production-organization',
       trigger_event: 'workflow_dispatch_with_release_candidate_payload',
     }),
+  },
+};
+
+export const NarrowLongContent: Story = {
+  decorators: [
+    (Story) => (
+      <div className="w-[360px] max-w-full overflow-hidden border-x border-border-neutral-base">
+        <Story />
+      </div>
+    ),
+  ],
+  args: {
+    run: workflowRunDetail({
+      status: 'running',
+      name: 'release-production-multi-region-with-canary-and-post-deploy-validation',
+      trigger_provider: 'github',
+      trigger_source: 'github-enterprise-cloud-production-organization',
+      trigger_event: 'workflow_dispatch_with_release_candidate_payload',
+    }),
+    onCancel: noop,
   },
 };

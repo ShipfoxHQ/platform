@@ -7,6 +7,7 @@ import type {WorkflowRunDetail} from '#core/workflow-run.js';
 import type {JobGraphModel, JobGraphNavigationKey} from './graph-model.js';
 import {nextJobGraphNodeId} from './graph-model.js';
 import {JobNode, TriggerNode} from './job-node.js';
+import type {JobGraphSelectionSource} from './types.js';
 
 const NODE_WIDTH = 208;
 const NODE_HEIGHT = 48;
@@ -27,7 +28,7 @@ export function JobGraphContent({
     'triggerDisplayLabel' | 'triggerLabel' | 'triggerProvider' | 'triggerSource'
   >;
   selectedJobId?: string | undefined;
-  onSelectJob: (jobId: string | undefined) => void;
+  onSelectJob: (jobId: string | undefined, source?: JobGraphSelectionSource) => void;
 }) {
   const nodeRefs = useRef(new Map<string, HTMLButtonElement>());
   const [hoveredJobId, setHoveredJobId] = useState<string | undefined>();
@@ -74,13 +75,13 @@ export function JobGraphContent({
     if (!nextNodeId) return;
 
     event.preventDefault();
-    onSelectJob(nextNodeId);
+    onSelectJob(nextNodeId, 'keyboard');
     nodeRefs.current.get(nextNodeId)?.focus();
   }
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
-      <div className="min-h-0 overflow-auto bg-background-neutral-base">
+      <div className="min-h-0 overflow-auto bg-background-neutral-background">
         <div className="relative" style={{width: contentWidth, minHeight: contentHeight}}>
           <GraphEdges model={model} hoveredJobId={hoveredJobId} />
           <div
@@ -101,7 +102,9 @@ export function JobGraphContent({
                   node={node}
                   selected={node.id === selectedJobId}
                   ref={setNodeRef(node.id)}
-                  onSelect={() => onSelectJob(node.id === selectedJobId ? undefined : node.id)}
+                  onSelect={() =>
+                    onSelectJob(node.id === selectedJobId ? undefined : node.id, 'pointer')
+                  }
                   onKeyDown={handleKeyDown}
                   onHoverStart={() => setHoveredJobId(node.id)}
                   onHoverEnd={() =>

@@ -34,6 +34,8 @@ describe('WorkflowRunSummary', () => {
 
     const summary = await screen.findByRole('region', {name: 'deploy-web'});
 
+    expect(summary).toHaveClass('bg-background-neutral-background', 'px-16');
+    expect(summary.firstElementChild).not.toHaveClass('max-w-[1120px]');
     expect(within(summary).getByRole('heading', {name: 'deploy-web'})).toBeInTheDocument();
     expect(within(summary).getAllByText('Running')).not.toHaveLength(0);
     expect(within(summary).getByText('CI #5184')).toBeInTheDocument();
@@ -128,27 +130,6 @@ describe('WorkflowRunSummary', () => {
     );
   });
 
-  test('renders source control only when source is available', async () => {
-    const user = userEvent.setup();
-    const onSourceToggle = vi.fn();
-    renderSummary(
-      {source_snapshot: {format: 'yaml', content: 'name: deploy-web'}},
-      {
-        sourceAvailable: true,
-        sourceOpen: false,
-        sourcePanelId: 'workflow-source-panel',
-        onSourceToggle,
-      },
-    );
-
-    const sourceButton = await screen.findByRole('button', {name: 'View source'});
-    await user.click(sourceButton);
-
-    expect(sourceButton).toHaveAttribute('aria-controls', 'workflow-source-panel');
-    expect(sourceButton).toHaveAttribute('aria-expanded', 'false');
-    expect(onSourceToggle).toHaveBeenCalledTimes(1);
-  });
-
   test('shows the selected attempt duration, not the top-level run duration', async () => {
     renderSummary({
       started_at: '2026-05-07T00:00:00.000Z',
@@ -193,7 +174,7 @@ describe('WorkflowRunSummary', () => {
     expect(duration).toHaveAttribute('aria-label', 'running 2m 14s');
   });
 
-  test('omits source control when source is unavailable', async () => {
+  test('does not render a whole-run source control', async () => {
     renderSummary();
 
     await screen.findByRole('region', {name: 'deploy-web'});

@@ -8,6 +8,14 @@ export const WORKFLOW_RUN_LIST_STATUSES = ['succeeded', 'failed', 'running', 'ca
 
 export type WorkflowRunListStatus = (typeof WORKFLOW_RUN_LIST_STATUSES)[number];
 
+export const WORKFLOW_RUN_TABS = ['summary', 'jobs', 'annotations', 'source'] as const;
+
+export type WorkflowRunTab = (typeof WORKFLOW_RUN_TABS)[number];
+
+export const WORKFLOW_RUN_ANNOTATION_SEVERITIES = ['error', 'warning', 'info', 'success'] as const;
+
+export type WorkflowRunAnnotationSeverity = (typeof WORKFLOW_RUN_ANNOTATION_SEVERITIES)[number];
+
 export interface WorkflowRunsSearch extends WorkflowRunSelectionInput {
   search?: string;
   status?: WorkflowRunListStatus[];
@@ -18,9 +26,14 @@ export interface WorkflowRunsSearch extends WorkflowRunSelectionInput {
   after?: string;
   /** Inclusive upper bound on the run's local calendar date, `YYYY-MM-DD`. */
   before?: string;
+  tab?: WorkflowRunTab;
+  annotation?: string;
+  severity?: WorkflowRunAnnotationSeverity;
 }
 
 const STATUS_VALUES = new Set<string>(WORKFLOW_RUN_LIST_STATUSES);
+const TAB_VALUES = new Set<string>(WORKFLOW_RUN_TABS);
+const ANNOTATION_SEVERITY_VALUES = new Set<string>(WORKFLOW_RUN_ANNOTATION_SEVERITIES);
 const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 
 /**
@@ -39,6 +52,14 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
   const after = calendarDate(input.after);
   const before = calendarDate(input.before);
   const runAttempt = positiveInteger(input.runAttempt);
+  const tabValue = string(input.tab);
+  const tab = tabValue && TAB_VALUES.has(tabValue) ? (tabValue as WorkflowRunTab) : undefined;
+  const annotation = string(input.annotation);
+  const severityValue = string(input.severity);
+  const severity =
+    severityValue && ANNOTATION_SEVERITY_VALUES.has(severityValue)
+      ? (severityValue as WorkflowRunAnnotationSeverity)
+      : undefined;
 
   return {
     ...(search ? {search} : {}),
@@ -48,6 +69,9 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
     ...(event.length > 0 ? {event} : {}),
     ...(after ? {after} : {}),
     ...(before ? {before} : {}),
+    ...(tab ? {tab} : {}),
+    ...(annotation ? {annotation} : {}),
+    ...(severity ? {severity} : {}),
     ...(string(input.job) ? {jobId: string(input.job)} : {}),
     ...(string(input.jobExecution) ? {jobExecutionId: string(input.jobExecution)} : {}),
     ...(string(input.step) ? {stepId: string(input.step)} : {}),
@@ -74,12 +98,33 @@ export function workflowRunSearchParams(
     ...(search.event?.length ? {event: search.event} : {}),
     ...(search.after ? {after: search.after} : {}),
     ...(search.before ? {before: search.before} : {}),
+    ...(search.tab && search.tab !== 'summary' ? {tab: search.tab} : {}),
+    ...(search.annotation ? {annotation: search.annotation} : {}),
+    ...(search.severity ? {severity: search.severity} : {}),
     ...(selection.jobId ? {job: selection.jobId} : {}),
     ...(selection.jobExecutionId ? {jobExecution: selection.jobExecutionId} : {}),
     ...(selection.stepId ? {step: selection.stepId} : {}),
     ...(selection.stepAttemptId ? {stepAttempt: selection.stepAttemptId} : {}),
     ...(selection.runAttempt ? {runAttempt: String(selection.runAttempt)} : {}),
   };
+}
+
+/**
+ * Resolves the detail surface for a URL. Explicit tabs win; legacy selection-only URLs belong
+ * to Jobs so their selected detail remains visible instead of silently landing on Summary.
+ */
+export function workflowRunTab(
+  search: Pick<WorkflowRunsSearch, 'tab' | 'jobId' | 'jobExecutionId' | 'stepId' | 'stepAttemptId'>,
+): WorkflowRunTab {
+  if (search.tab) return search.tab;
+  if (search.jobId || search.jobExecutionId || search.stepId || search.stepAttemptId) return 'jobs';
+  return 'summary';
+}
+
+/** Serializes only list filters when leaving a run detail page for the run list. */
+export function workflowRunListSearchParams(search: WorkflowRunsSearch) {
+  const {tab: _tab, annotation: _annotation, severity: _severity, ...listSearch} = search;
+  return workflowRunSearchParams(listSearch, {});
 }
 
 /**

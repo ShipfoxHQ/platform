@@ -22,7 +22,11 @@ function LiveDurationText({fromIso}: {fromIso: string}) {
 function DurationText({children}: {children: string}) {
   // The status icon names the state; the node aria-label carries the verb.
   return (
-    <Code as="span" variant="label" className="shrink-0 tabular-nums text-foreground-neutral-muted">
+    <Code
+      as="span"
+      variant="label"
+      className="shrink-0 tabular-nums text-foreground-neutral-subtle"
+    >
       {children}
     </Code>
   );
