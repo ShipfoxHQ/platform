@@ -44,7 +44,11 @@ export function WorkflowRunDetailPage({
       navigate({
         search: ((previous: Record<string, unknown>) => {
           const current = validateWorkflowRunsSearch(previous);
-          return workflowRunSearchParams({...current, tab: nextTab}, current);
+          const nextSearch = workflowRunSearchParams({...current, tab: nextTab}, current);
+          return nextTab === 'summary' &&
+            (current.jobId || current.jobExecutionId || current.stepId || current.stepAttemptId)
+            ? {...nextSearch, tab: nextTab}
+            : nextSearch;
         }) as never,
       });
     },

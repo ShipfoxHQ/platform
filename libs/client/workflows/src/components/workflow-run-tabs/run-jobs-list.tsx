@@ -1,5 +1,11 @@
 import {EmptyState} from '@shipfox/react-ui/empty-state';
-import {defaultJobExecution, deriveJobDisplayStatus, type Job} from '#core/workflow-run.js';
+import {useTimeTick} from '@shipfox/react-ui/time-ticker';
+import {
+  defaultJobExecution,
+  deriveJobDisplayStatus,
+  deriveJobExecutionDisplayStatus,
+  type Job,
+} from '#core/workflow-run.js';
 import {formatJobDurationAccessibleLabel} from '../job-graph/job-duration-format.js';
 import {JobDurationLabel} from '../job-graph/job-duration-label.js';
 import {JobCard} from '../workflow-run-view/job-card.js';
@@ -34,6 +40,8 @@ export function RunJobsList({
   focusedSourceStepId,
   onOpenStepSource,
 }: RunJobsListProps) {
+  useTimeTick();
+
   if (jobs.length === 0) {
     return (
       <section
@@ -58,7 +66,7 @@ export function RunJobsList({
           const execution = defaultJobExecution(job);
           const durationLabel = formatJobDurationAccessibleLabel(
             job.displayDuration,
-            execution ? execution.status : undefined,
+            execution ? deriveJobExecutionDisplayStatus(execution) : undefined,
           );
           const rowLabel = [
             job.displayName,
@@ -74,7 +82,7 @@ export function RunJobsList({
               <button
                 type="button"
                 aria-expanded={selected}
-                aria-controls={`job-card-${job.id}`}
+                aria-controls={selected ? `job-card-${job.id}` : undefined}
                 aria-label={rowLabel}
                 onClick={() => onSelectedJobChange(selected ? undefined : job.id)}
                 className="flex min-h-44 w-full min-w-0 items-center gap-8 rounded-8 border border-border-neutral-base bg-background-components-base px-12 text-left outline-none transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active"

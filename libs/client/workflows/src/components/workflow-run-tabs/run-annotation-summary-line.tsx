@@ -72,11 +72,19 @@ function SeverityLink({
     return <span className="text-foreground-highlight-interactive">{label}</span>;
   }
 
+  const searchWithoutAnnotation = {...search};
+  delete searchWithoutAnnotation.annotation;
+
   return (
     <Link
       to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
       params={{workspaceSlug, projectSlug, workflowRunId}}
-      search={workflowRunSearchParams({...search, tab: 'annotations', severity}, search) as never}
+      search={
+        workflowRunSearchParams(
+          {...searchWithoutAnnotation, tab: 'annotations', severity},
+          search,
+        ) as never
+      }
       className="text-foreground-highlight-interactive outline-none hover:underline focus-visible:shadow-border-interactive-with-active"
     >
       {label}

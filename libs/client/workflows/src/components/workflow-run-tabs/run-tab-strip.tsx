@@ -26,7 +26,7 @@ export function RunTabStrip({
   const annotationCount = annotationSummary?.total;
 
   return (
-    <div className="flex min-w-0 flex-col border-b border-border-neutral-base bg-background-subtle-base min-[768px]:h-32 min-[768px]:flex-row min-[768px]:items-center">
+    <div className="flex min-w-0 flex-col border-b border-border-neutral-base bg-background-subtle-base min-[768px]:min-h-32 min-[768px]:flex-row min-[768px]:items-center">
       <div className="order-2 min-w-0 flex-1 overflow-x-auto min-[768px]:order-1">
         <TabsList
           aria-label="Run sections"
@@ -41,7 +41,11 @@ export function RunTabStrip({
           </TabsTrigger>
           <TabsTrigger
             value="jobs"
-            aria-label={jobCount === undefined ? 'Jobs' : `Jobs, ${jobCount} jobs`}
+            aria-label={
+              jobCount === undefined
+                ? 'Jobs'
+                : `Jobs, ${jobCount} ${jobCount === 1 ? 'job' : 'jobs'}`
+            }
             className="h-32 min-h-32 gap-6 py-0 text-xs [@media(pointer:coarse)]:h-44 [@media(pointer:coarse)]:min-h-44"
           >
             <span>Jobs</span>
@@ -54,7 +58,7 @@ export function RunTabStrip({
             aria-label={
               annotationCount === undefined
                 ? 'Annotations'
-                : `Annotations, ${annotationCount} annotations`
+                : `Annotations, ${annotationCount} ${annotationCount === 1 ? 'annotation' : 'annotations'}`
             }
             className="h-32 min-h-32 gap-6 py-0 text-xs [@media(pointer:coarse)]:h-44 [@media(pointer:coarse)]:min-h-44"
           >

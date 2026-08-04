@@ -342,6 +342,7 @@ function TabsContent({
   value,
   className,
   keepMounted = false,
+  style,
   ...props
 }: TabsContentProps) {
   const {activeValue, id} = useTabs();
@@ -360,6 +361,7 @@ function TabsContent({
       hidden={!isActive}
       className={cn(className)}
       {...props}
+      style={!isActive ? {...style, display: 'none'} : style}
     >
       {children}
     </div>

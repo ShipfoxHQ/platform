@@ -157,7 +157,9 @@ function RunViewContent({
           selection: selection as WorkflowRunSelectionInput,
         })
       : undefined;
-  const hasExplicitJobSelection = Boolean(selection?.jobId || selection?.stepId);
+  const hasExplicitJobSelection = Boolean(
+    selection?.jobId || selection?.jobExecutionId || selection?.stepId || selection?.stepAttemptId,
+  );
   const selectedJob = selectionControlled
     ? hasExplicitJobSelection
       ? resolvedSelection?.job

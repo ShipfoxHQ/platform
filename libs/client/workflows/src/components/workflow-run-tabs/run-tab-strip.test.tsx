@@ -10,6 +10,7 @@ import {
 import {act, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {RunAnnotationSummary} from '#core/workflow-run-tabs.js';
+import type {WorkflowRunsSearch} from '#routes/inputs.js';
 import {RunTabStrip} from './run-tab-strip.js';
 
 const ANNOTATION_SUMMARY: RunAnnotationSummary = {
@@ -47,18 +48,48 @@ describe('RunTabStrip', () => {
   test('keeps count slots stable when data is absent', async () => {
     await renderStrip({annotationSummary: undefined, jobCount: undefined});
 
-    expect(screen.getByRole('tab', {name: 'Jobs'})).toBeInTheDocument();
-    expect(screen.getByRole('tab', {name: 'Annotations'})).toBeInTheDocument();
+    const jobsTab = screen.getByRole('tab', {name: 'Jobs'});
+    const annotationsTab = screen.getByRole('tab', {name: 'Annotations'});
+
+    expect(jobsTab).toBeInTheDocument();
+    expect(annotationsTab).toBeInTheDocument();
+    expect(jobsTab.querySelector('.min-w-24')).not.toBeNull();
+    expect(annotationsTab.querySelector('.min-w-24')).not.toBeNull();
     expect(screen.queryByText('5 annotations')).not.toBeInTheDocument();
+  });
+
+  test('singularizes accessible count labels', async () => {
+    await renderStrip({
+      annotationSummary: {total: 1, error: 1, warning: 0, info: 0, success: 0},
+      jobCount: 1,
+    });
+
+    expect(screen.getByRole('tab', {name: 'Jobs, 1 job'})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'Annotations, 1 annotation'})).toBeInTheDocument();
+  });
+
+  test('clears a stale annotation when linking to a severity', async () => {
+    await renderStrip({
+      annotationSummary: ANNOTATION_SUMMARY,
+      jobCount: 3,
+      search: {annotation: 'annotation-old'},
+    });
+
+    expect(screen.getByRole('link', {name: '2 errors'})).toHaveAttribute(
+      'href',
+      '/w/acme/p/project/runs/run-1?tab=annotations&severity=error',
+    );
   });
 });
 
 async function renderStrip({
   annotationSummary,
   jobCount,
+  search,
 }: {
   annotationSummary?: RunAnnotationSummary | undefined;
   jobCount?: number | undefined;
+  search?: WorkflowRunsSearch | undefined;
 } = {}) {
   const rootRoute = createRootRoute({component: Outlet});
   const runRoute = createRoute({
@@ -73,7 +104,7 @@ async function renderStrip({
           workspaceSlug="acme"
           projectSlug="project"
           workflowRunId="run-1"
-          search={{}}
+          search={search}
         />
       </Tabs>
     ),

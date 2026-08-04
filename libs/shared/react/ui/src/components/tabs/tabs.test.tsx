@@ -73,7 +73,7 @@ describe('Tabs', () => {
         </TabsList>
         <TabsContents>
           <TabsContent value="summary">Summary content</TabsContent>
-          <TabsContent value="source" keepMounted>
+          <TabsContent value="source" keepMounted className="flex">
             Source content
           </TabsContent>
         </TabsContents>
@@ -81,11 +81,11 @@ describe('Tabs', () => {
     );
 
     const sourcePanel = screen.getByText('Source content').closest('[role="tabpanel"]');
-    expect(sourcePanel).toBeDefined();
-    expect(sourcePanel?.getAttribute('hidden')).toBeDefined();
+    if (!(sourcePanel instanceof HTMLElement)) throw new Error('Source panel did not render.');
+    expect(sourcePanel.style.display).toBe('none');
 
     await user.click(screen.getByRole('tab', {name: 'Source'}));
 
-    expect(sourcePanel?.getAttribute('hidden')).toBeNull();
+    expect(sourcePanel.style.display).toBe('');
   });
 });

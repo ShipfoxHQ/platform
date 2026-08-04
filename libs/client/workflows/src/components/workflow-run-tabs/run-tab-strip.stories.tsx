@@ -71,7 +71,6 @@ export const NoCounts: Story = {
 
 export const NarrowLayout: Story = {
   decorators: [
-    withRouter,
     (Story) => (
       <div className="w-[360px] max-w-full overflow-hidden border">
         <Story />

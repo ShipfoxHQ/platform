@@ -82,6 +82,29 @@ describe('resolveWorkflowRunSelection', () => {
     expect(resolved.selectedAttemptId).toBeNull();
   });
 
+  test('finds a job from a legacy job execution selection', () => {
+    const execution = workflowJobExecutionDto({id: 'execution-deploy', sequence: 1});
+    const run = workflowRunDetail({
+      jobs: [
+        workflowJobDto({id: 'job-build', name: 'build'}),
+        workflowJobDto({
+          id: 'job-deploy',
+          name: 'deploy',
+          position: 1,
+          job_executions: [execution],
+        }),
+      ],
+    });
+
+    const resolved = resolveWorkflowRunSelection({
+      run,
+      selection: {jobExecutionId: 'execution-deploy'},
+    });
+
+    expect(resolved.job?.id).toBe('job-deploy');
+    expect(resolved.jobExecution?.id).toBe('execution-deploy');
+  });
+
   test('falls back from an invalid job execution id to the running execution', () => {
     const run = workflowRunDetail({
       jobs: [
@@ -154,6 +177,31 @@ describe('resolveWorkflowRunSelection', () => {
 
     expect(resolved.attempt?.id).toBe('attempt-2');
     expect(resolved.selectedAttemptId).toBe('attempt-2');
+  });
+
+  test('finds the step owner from a legacy step attempt selection', () => {
+    const attempt = workflowStepAttemptDto({id: 'attempt-deploy', step_id: 'step-deploy'});
+    const step = workflowStepDto({
+      id: 'step-deploy',
+      current_attempt: 1,
+      attempts: [attempt],
+    });
+    const run = workflowRunDetail({
+      jobs: [
+        workflowJobDto({id: 'job-build', name: 'build'}),
+        workflowJobDto({id: 'job-deploy', name: 'deploy', position: 1, steps: [step]}),
+      ],
+    });
+
+    const resolved = resolveWorkflowRunSelection({
+      run,
+      selection: {stepAttemptId: 'attempt-deploy'},
+    });
+
+    expect(resolved.job?.id).toBe('job-deploy');
+    expect(resolved.step?.id).toBe('step-deploy');
+    expect(resolved.attempt?.id).toBe('attempt-deploy');
+    expect(resolved.selectedAttemptId).toBe('attempt-deploy');
   });
 
   test('lets a valid step override a mismatched job id', () => {

@@ -43,6 +43,7 @@ const EXECUTION_ONE_MENU_ITEM = /Execution #1: deploy review #1/u;
 const JOBS_TAB_NAME = /^Jobs/u;
 const BUILD_JOB_BUTTON_NAME = 'build, Succeeded';
 const DEPLOY_JOB_BUTTON_NAME = 'deploy, Running';
+const LIVE_DEPLOY_JOB_BUTTON_NAME = /^deploy, Running, running /u;
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_OVERRIDES = {
   id: RUN_ID,
@@ -217,6 +218,49 @@ describe('WorkflowRunPages', () => {
     expect(screen.getByRole('tab', {name: JOBS_TAB_NAME})).toHaveAttribute('aria-selected', 'true');
   });
 
+  test('opens a legacy job execution URL with its owning job selected', async () => {
+    configureApiClient({
+      fetchImpl: createRunDetailFetch({details: {[RUN_ID]: retryRunDetailDto()}}),
+    });
+
+    renderRunPath(`?jobExecution=${DEPLOY_EXECUTION_TWO_ID}`);
+
+    expect(await screen.findByRole('region', {name: 'deploy review #2'})).toBeInTheDocument();
+  });
+
+  test('uses the derived execution status in a live job duration label', async () => {
+    configureApiClient({
+      fetchImpl: createRunDetailFetch({
+        details: {
+          [RUN_ID]: defaultRunDetailDto({
+            jobs: [
+              workflowJobDto({
+                id: DEPLOY_JOB_ID,
+                run_attempt_id: RUN_ID,
+                name: 'deploy',
+                status: 'running',
+                job_executions: [
+                  workflowJobExecutionDto({
+                    job_id: DEPLOY_JOB_ID,
+                    status: 'pending',
+                    started_at: '2026-08-04T00:00:00.000Z',
+                    steps: [workflowStepDto({status: 'running'})],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        },
+      }),
+    });
+
+    renderRunPath(`?tab=jobs&job=${DEPLOY_JOB_ID}`);
+
+    expect(
+      await screen.findByRole('button', {name: LIVE_DEPLOY_JOB_BUTTON_NAME}),
+    ).toBeInTheDocument();
+  });
+
   test('pushes tab changes and restores them with browser history', async () => {
     const user = userEvent.setup();
     configureApiClient({fetchImpl: createRunDetailFetch()});
@@ -264,6 +308,25 @@ describe('WorkflowRunPages', () => {
       'aria-controls',
       `job-card-${DEPLOY_JOB_ID}`,
     );
+    expect(screen.getByRole('button', {name: BUILD_JOB_BUTTON_NAME})).not.toHaveAttribute(
+      'aria-controls',
+    );
+  });
+
+  test('preserves an explicit Summary tab with a selected job', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: createRunDetailFetch()});
+
+    const {router} = renderRunPath(`?tab=jobs&job=${DEPLOY_JOB_ID}`);
+
+    await screen.findByRole('button', {name: DEPLOY_JOB_BUTTON_NAME});
+    await user.click(screen.getByRole('tab', {name: 'Summary'}));
+
+    await waitFor(() => {
+      expect(currentSearch(router)).toMatchObject({tab: 'summary', job: DEPLOY_JOB_ID});
+    });
+    expect(screen.getByRole('tab', {name: 'Summary'})).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('list', {name: 'Run jobs'})).not.toBeInTheDocument();
   });
 
   test('keeps Summary active while keyboard navigation moves graph focus', async () => {
