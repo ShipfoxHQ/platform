@@ -28,11 +28,13 @@ describe('classifyJiraCallbackError', () => {
     ['malformed-provider-response', 'Jira is temporarily unavailable', true, false],
     ['slug-conflict', 'Jira install could not be completed', true, false],
   ] as const)('maps %s without surfacing the server message', (code, title, startOver, signIn) => {
-    expect(classifyJiraCallbackError(apiError(code, 400))).toMatchObject({
+    const failure = classifyJiraCallbackError(apiError(code, 400));
+    expect(failure).toMatchObject({
       title,
       startOver,
       signIn,
     });
+    expect(failure.message).not.toContain('server message');
   });
 
   it('uses the generic recovery for unknown ApiError codes', () => {

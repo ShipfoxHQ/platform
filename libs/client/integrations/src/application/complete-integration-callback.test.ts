@@ -60,4 +60,24 @@ describe('completeIntegrationCallback', () => {
     expect(complete).toHaveBeenCalledWith({code: 'grant-code'}, 'access-token');
     expect(invalidateQueries).not.toHaveBeenCalled();
   });
+
+  test('invalidates a connection view for a result with a connection', async () => {
+    const queryClient = new QueryClient();
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+    const refreshAuth = vi.fn().mockResolvedValue({accessToken: 'access-token'});
+    const complete = vi.fn(async () => connection);
+
+    const result = await completeIntegrationCallbackResult({
+      input: {code: 'grant-code'},
+      refreshAuth,
+      complete,
+      getConnection: (value) => value,
+      queryClient,
+    });
+
+    expect(result).toBe(connection);
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: integrationsQueryKeys.connectionsByWorkspace(WORKSPACE_ID),
+    });
+  });
 });

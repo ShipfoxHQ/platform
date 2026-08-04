@@ -1,6 +1,6 @@
 import {useAuthState, useRefreshAuth} from '@shipfox/client-auth';
 import {useRouteSearch} from '@shipfox/client-shell/runtime';
-import {createSingleFlight, sessionStorageOrUndefined} from '@shipfox/client-ui';
+import {sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {Button, ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {Card} from '@shipfox/react-ui/card';
@@ -17,7 +17,6 @@ import {
 import {CallbackStatusShell} from '#components/callback-status-shell.js';
 import type {IntegrationConnection, JiraSite} from '#core/models.js';
 import {
-  type JiraCallbackResult,
   useCompleteJiraCallbackMutation,
   useCompleteJiraSiteSelectionMutation,
 } from '#hooks/api/integrations.js';
@@ -27,15 +26,15 @@ import {
   readJiraInstallWorkspace,
   serializeJiraCallbackQuery,
 } from '#jira-callback.js';
+import {
+  JIRA_CALLBACK_CACHE_SIZE,
+  jiraCallbackRequests,
+  jiraCompletedConnections,
+  jiraSiteSelectionRequests,
+  jiraToastedCallbacks,
+} from '#jira-callback-state.js';
 import {classifyJiraCallbackError, type JiraCallbackFailure} from '#jira-form-errors.js';
 import {rememberCallbackKey, resolveWorkspaceSlug} from '#workspace-navigation.js';
-
-const callbackRequests = createSingleFlight<string, JiraCallbackResult>({
-  maxTerminalResults: 32,
-});
-const siteSelectionRequests = createSingleFlight<string, IntegrationConnection>();
-const completedConnections = new Map<string, IntegrationConnection>();
-const toastedCallbacks = new Set<string>();
 
 export function JiraCallbackPage() {
   const navigate = useNavigate();
@@ -47,6 +46,7 @@ export function JiraCallbackPage() {
   const {mutateAsync: completeJiraCallback} = useCompleteJiraCallbackMutation();
   const {mutateAsync: completeJiraSiteSelection} = useCompleteJiraSiteSelectionMutation();
   const params = useRouteSearch(parseJiraCallbackQuery);
+  const callbackKey = params ? serializeJiraCallbackQuery(params) : undefined;
   const workspaceId = useMemo(() => readJiraInstallWorkspace(sessionStorageOrUndefined()), []);
   const [sites, setSites] = useState<JiraSite[] | undefined>();
   const [failure, setFailure] = useState<JiraCallbackFailure | undefined>();
@@ -55,6 +55,9 @@ export function JiraCallbackPage() {
     slug?: string | undefined;
   }>();
   const disposedRef = useRef(false);
+  const callbackKeyRef = useRef(callbackKey);
+  callbackKeyRef.current = callbackKey;
+  const [callbackStateKey, setCallbackStateKey] = useState(callbackKey);
 
   useEffect(() => {
     disposedRef.current = false;
@@ -64,16 +67,21 @@ export function JiraCallbackPage() {
   }, []);
 
   const completeConnection = useCallback(
-    async (connection: IntegrationConnection, callbackKey: string) => {
-      if (disposedRef.current) return;
-      const completedConnection = completedConnections.get(callbackKey);
+    async (
+      connection: IntegrationConnection,
+      callbackKey: string,
+      isActive: () => boolean = () => true,
+    ) => {
+      if (disposedRef.current || !isActive()) return;
+      const completedConnection = jiraCompletedConnections.get(callbackKey);
       if (completedConnection) {
         const workspaceSlug = await resolveWorkspaceSlug({
           workspaceId: completedConnection.workspaceId,
           fallbackWorkspaces: workspaces,
           queryClient,
         });
-        if (!disposedRef.current) setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
+        if (!disposedRef.current && isActive())
+          setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
         return;
       }
       rememberCompletedConnection(callbackKey, connection);
@@ -82,9 +90,9 @@ export function JiraCallbackPage() {
       } catch {
         // The successful API response remains the source of truth for navigation.
       }
-      if (disposedRef.current) return;
-      if (!toastedCallbacks.has(callbackKey)) {
-        rememberCallbackKey(toastedCallbacks, callbackKey);
+      if (disposedRef.current || !isActive()) return;
+      if (!jiraToastedCallbacks.has(callbackKey)) {
+        rememberCallbackKey(jiraToastedCallbacks, callbackKey);
         toast.success('Jira installed.');
       }
       let workspaceSlug: string | undefined;
@@ -94,7 +102,7 @@ export function JiraCallbackPage() {
           fallbackWorkspaces: workspaces,
           queryClient,
         });
-        if (disposedRef.current) return;
+        if (disposedRef.current || !isActive()) return;
         if (!workspaceSlug) {
           setCompletedWorkspace({});
           return;
@@ -106,23 +114,35 @@ export function JiraCallbackPage() {
           replace: true,
         });
       } catch {
-        if (!disposedRef.current) setCompletedWorkspace({slug: workspaceSlug});
+        if (!disposedRef.current && isActive()) setCompletedWorkspace({slug: workspaceSlug});
       }
     },
     [navigate, queryClient, workspaces],
   );
 
   useEffect(() => {
-    if (!params || isLoading) return;
+    if (callbackKey === undefined) return;
+    setCallbackStateKey(callbackKey);
+    setSites(undefined);
+    setSelectedCloudId(undefined);
+    setFailure(undefined);
+    setCompletedWorkspace(undefined);
+  }, [callbackKey]);
 
-    const key = serializeJiraCallbackQuery(params);
-    const completedConnection = completedConnections.get(key);
+  useEffect(() => {
+    if (!params || !callbackKey || isLoading) return;
+
+    let active = true;
+
+    const completedConnection = jiraCompletedConnections.get(callbackKey);
     if (completedConnection) {
-      void completeConnection(completedConnection, key);
-      return;
+      void completeConnection(completedConnection, callbackKey, () => active);
+      return () => {
+        active = false;
+      };
     }
 
-    const request = callbackRequests.run(key, async () => {
+    const request = jiraCallbackRequests.run(callbackKey, async () => {
       return await completeIntegrationCallbackResult({
         input: params,
         refreshAuth,
@@ -133,19 +153,24 @@ export function JiraCallbackPage() {
 
     request.then(
       async (result) => {
-        if (disposedRef.current) return;
+        if (disposedRef.current || !active) return;
         if ('sites' in result) {
           setFailure(undefined);
           setSites(result.sites);
           return;
         }
-        await completeConnection(result, key);
+        await completeConnection(result, callbackKey, () => active);
       },
       (error: unknown) => {
-        if (!disposedRef.current) setFailure(classifyJiraCallbackError(error));
+        if (!disposedRef.current && active) setFailure(classifyJiraCallbackError(error));
       },
     );
+
+    return () => {
+      active = false;
+    };
   }, [
+    callbackKey,
     completeIntegrationCallbackResult,
     completeJiraCallback,
     completeConnection,
@@ -155,11 +180,11 @@ export function JiraCallbackPage() {
   ]);
 
   function selectSite(site: JiraSite) {
-    if (!params || selectedCloudId) return;
+    if (!params || !callbackKey || selectedCloudId) return;
     setSelectedCloudId(site.cloudId);
     setFailure(undefined);
-    const callbackKey = serializeJiraCallbackQuery(params);
-    const request = siteSelectionRequests.run(params.state, async () => {
+    const selectionKey = callbackKey;
+    const request = jiraSiteSelectionRequests.run(params.state, async () => {
       return await completeIntegrationCallback({
         input: {cloud_id: site.cloudId, state: params.state},
         refreshAuth,
@@ -168,11 +193,16 @@ export function JiraCallbackPage() {
     });
     request.then(
       async (connection) => {
-        callbackRequests.clear(callbackKey);
-        await completeConnection(connection, callbackKey);
+        if (disposedRef.current || callbackKeyRef.current !== selectionKey) return;
+        jiraCallbackRequests.clear(selectionKey);
+        await completeConnection(
+          connection,
+          selectionKey,
+          () => callbackKeyRef.current === selectionKey,
+        );
       },
       (error: unknown) => {
-        if (disposedRef.current) return;
+        if (disposedRef.current || callbackKeyRef.current !== selectionKey) return;
         setSelectedCloudId(undefined);
         setFailure(classifyJiraCallbackError(error));
       },
@@ -190,7 +220,7 @@ export function JiraCallbackPage() {
 
   if (isLoading) return <FullPageLoader aria-label="Connecting Jira" />;
 
-  if (completedWorkspace)
+  if (callbackStateKey === callbackKey && completedWorkspace)
     return (
       <CallbackStatusShell
         title="Jira connected"
@@ -205,7 +235,7 @@ export function JiraCallbackPage() {
       />
     );
 
-  if (sites)
+  if (callbackStateKey === callbackKey && sites)
     return (
       <JiraSiteSelectionPage
         sites={sites}
@@ -216,7 +246,7 @@ export function JiraCallbackPage() {
       />
     );
 
-  if (failure)
+  if (callbackStateKey === callbackKey && failure)
     return (
       <JiraCallbackFailurePage
         failure={failure}
@@ -228,12 +258,12 @@ export function JiraCallbackPage() {
 }
 
 function rememberCompletedConnection(key: string, connection: IntegrationConnection): void {
-  completedConnections.delete(key);
-  completedConnections.set(key, connection);
-  while (completedConnections.size > 32) {
-    const oldestKey = completedConnections.keys().next().value;
+  jiraCompletedConnections.delete(key);
+  jiraCompletedConnections.set(key, connection);
+  while (jiraCompletedConnections.size > JIRA_CALLBACK_CACHE_SIZE) {
+    const oldestKey = jiraCompletedConnections.keys().next().value;
     if (oldestKey === undefined) return;
-    completedConnections.delete(oldestKey);
+    jiraCompletedConnections.delete(oldestKey);
   }
 }
 

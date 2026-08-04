@@ -24,19 +24,32 @@ export async function completeIntegrationCallback<TInput>({
   complete,
   queryClient,
 }: CompleteIntegrationCallbackOptions<TInput>): Promise<IntegrationConnection> {
-  const session = await refreshAuth();
-  const connection = await complete(input, session.accessToken);
-  try {
-    await queryClient.invalidateQueries({
-      queryKey: integrationsQueryKeys.connectionsByWorkspace(connection.workspaceId),
-    });
-  } catch {
-    // Cache refresh is best effort: the successful callback is already committed server-side.
-  }
-  return connection;
+  return await completeIntegrationCallbackResultInternal({
+    input,
+    refreshAuth,
+    complete,
+    getConnection: (result) => result,
+    queryClient,
+  });
 }
 
 export async function completeIntegrationCallbackResult<TInput, TResult>({
+  input,
+  refreshAuth,
+  complete,
+  getConnection,
+  queryClient,
+}: CompleteIntegrationCallbackResultOptions<TInput, TResult>): Promise<TResult> {
+  return await completeIntegrationCallbackResultInternal({
+    input,
+    refreshAuth,
+    complete,
+    getConnection,
+    queryClient,
+  });
+}
+
+async function completeIntegrationCallbackResultInternal<TInput, TResult>({
   input,
   refreshAuth,
   complete,

@@ -235,6 +235,9 @@ describe('Jira transport', () => {
     });
     expect(connection.provider).toBe('jira');
     expect(requests[0]?.url).toBe('https://api.example.test/integrations/jira/install');
+    expect(await requests[0]?.json()).toEqual({
+      workspace_id: '11111111-1111-4111-8111-111111111111',
+    });
     expect(requests[1]?.url).toBe(
       'https://api.example.test/integrations/jira/callback/api?code=grant+code&state=signed+state',
     );

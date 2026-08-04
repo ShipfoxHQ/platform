@@ -4,6 +4,7 @@ import {ApiError} from '@shipfox/client-api';
 import {fireEvent, screen, waitFor} from '@testing-library/react';
 import {StrictMode} from 'react';
 import {JIRA_INSTALL_WORKSPACE_KEY} from '#jira-callback.js';
+import {resetJiraCallbackState} from '#jira-callback-state.js';
 import {INTEGRATIONS_TEST_WID, renderIntegrationsPage, testWorkspace} from '#test/render.js';
 import {JiraCallbackPage} from './jira-callback-page.js';
 
@@ -31,6 +32,7 @@ vi.mock('#hooks/api/integrations.js', async (importOriginal) => {
 
 beforeEach(() => {
   window.sessionStorage.clear();
+  resetJiraCallbackState();
   completeCallbackMock.mockReset();
   completeSiteMock.mockReset();
 });
