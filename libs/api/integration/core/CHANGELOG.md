@@ -1,5 +1,16 @@
 # @shipfox/api-integration-core
 
+## 12.1.0
+
+### Patch Changes
+
+- 70e33c0: Adds the in-process Jira REST agent-tool catalog and write-selection support.
+- Updated dependencies [70e33c0]
+- Updated dependencies [312a137]
+- Updated dependencies [af7adfc]
+  - @shipfox/api-integration-jira@12.1.0
+  - @shipfox/api-workflows-dto@12.1.0
+
 ## 12.0.0
 
 ### Minor Changes

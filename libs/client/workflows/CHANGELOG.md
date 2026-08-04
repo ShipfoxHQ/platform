@@ -1,5 +1,28 @@
 # @shipfox/client-workflows
 
+## 14.0.0
+
+### Minor Changes
+
+- 312a137: Add typed step errors for invalid checkout paths and occupied checkout destinations.
+
+### Patch Changes
+
+- f8a98cb: Publish the shared UI component artifacts and release `@shipfox/client-ui` with the updated shared UI dependency so fresh consumers and Storybook resolve component subpaths without configuration overrides.
+- b2d4550: Add URL-backed run detail tabs for Summary, Jobs, Annotations, and Source.
+- Updated dependencies [baa7594]
+- Updated dependencies [f8a98cb]
+- Updated dependencies [1267eb3]
+- Updated dependencies [b2d4550]
+- Updated dependencies [312a137]
+  - @shipfox/react-ui@0.5.0
+  - @shipfox/client-ui@14.0.0
+  - @shipfox/api-workflows-dto@12.1.0
+  - @shipfox/client-logs@14.0.0
+  - @shipfox/client-projects@14.0.0
+  - @shipfox/client-shell@14.0.0
+  - @shipfox/client-triggers@14.0.0
+
 ## 13.0.0
 
 ### Major Changes

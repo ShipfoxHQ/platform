@@ -1,5 +1,11 @@
 # @shipfox/api-workflows-dto
 
+## 12.1.0
+
+### Minor Changes
+
+- 312a137: Add typed step errors for invalid checkout paths and occupied checkout destinations.
+
 ## 12.0.0
 
 ### Major Changes

@@ -1,5 +1,12 @@
 # @shipfox/api-triggers
 
+## 12.1.0
+
+### Patch Changes
+
+- Updated dependencies [312a137]
+  - @shipfox/api-workflows-dto@12.1.0
+
 ## 12.0.0
 
 ### Patch Changes

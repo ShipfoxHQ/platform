@@ -1,5 +1,19 @@
 # @shipfox/integration-icons
 
+## 0.3.0
+
+### Minor Changes
+
+- 1267eb3: Adds Jira connection flows and provider icons to workspace integrations settings.
+
+### Patch Changes
+
+- Updated dependencies [baa7594]
+- Updated dependencies [f8a98cb]
+- Updated dependencies [1267eb3]
+- Updated dependencies [b2d4550]
+  - @shipfox/react-ui@0.5.0
+
 ## 0.2.3
 
 ### Patch Changes
