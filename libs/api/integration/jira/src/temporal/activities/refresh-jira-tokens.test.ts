@@ -70,9 +70,43 @@ describe('Jira proactive token refresh activity', () => {
       forceRefresh: true,
     });
     expect(getAccessToken).toHaveBeenCalledTimes(2);
-    expect(heartbeat).toHaveBeenCalledTimes(3);
+    expect(heartbeat).toHaveBeenCalledTimes(6);
     expect(markAttempted).toHaveBeenCalledTimes(3);
     expect(result).toEqual({refreshed: 1, skipped: 1, failed: 1});
+  });
+
+  it('heartbeats while a token refresh is in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      const connectionId = crypto.randomUUID();
+      let resolveToken!: (value: string | PromiseLike<string>) => void;
+      const getAccessToken = vi.fn(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveToken = resolve;
+          }),
+      );
+      const heartbeat = vi.fn();
+      const activities = createJiraMaintenanceActivities({
+        tokenStore: {getAccessToken},
+        resolveConnection: vi.fn().mockResolvedValue({lifecycleStatus: 'active'}),
+        listInstallations: vi.fn().mockResolvedValue([installation(connectionId)]),
+        markAttempted: vi.fn().mockResolvedValue(undefined),
+        heartbeat,
+      });
+
+      const result = activities.refreshJiraTokensActivity();
+      await vi.waitFor(() => expect(getAccessToken).toHaveBeenCalledOnce());
+      const heartbeatCountBeforeRefresh = heartbeat.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(heartbeat.mock.calls.length).toBeGreaterThan(heartbeatCountBeforeRefresh);
+      resolveToken('fresh-access-token');
+      await expect(result).resolves.toEqual({refreshed: 1, skipped: 0, failed: 0});
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('counts an attempt failure and continues with the next installation', async () => {

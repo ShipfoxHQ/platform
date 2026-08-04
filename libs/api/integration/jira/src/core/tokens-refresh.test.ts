@@ -133,6 +133,30 @@ describe('Jira token refresh', () => {
     await expect(store.getAccessToken({connectionId})).resolves.toBe('access-1');
   });
 
+  it('ignores a terminal refresh result from before a reconnect', async () => {
+    const {client, connectionId, markConnectionError, store} = createStore();
+    await store.storeTokens({connectionId, accessToken: 'access-0', refreshToken: 'refresh-0'});
+    let rejectRefresh!: (error: unknown) => void;
+    client.refreshAccessToken.mockImplementation(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectRefresh = reject;
+        }),
+    );
+
+    const staleRefresh = store.getAccessToken({connectionId});
+    await vi.waitFor(() => expect(client.refreshAccessToken).toHaveBeenCalledOnce());
+
+    await store.storeTokens({connectionId, accessToken: 'access-1', refreshToken: 'refresh-1'});
+    getInstallation.mockResolvedValue({tokenExpiresAt: null});
+    await expect(store.getAccessToken({connectionId})).resolves.toBe('access-1');
+
+    rejectRefresh(new JiraIntegrationProviderError('timeout', 'refresh timed out'));
+    await expect(staleRefresh).rejects.toMatchObject({reason: 'timeout'});
+    expect(markConnectionError).not.toHaveBeenCalled();
+    await expect(store.getAccessToken({connectionId})).resolves.toBe('access-1');
+  });
+
   it('fails closed when a connection resolver omits its lifecycle status', async () => {
     const {connectionId, resolveConnection, store} = createStore();
     await store.storeTokens({connectionId, accessToken: 'access-0', refreshToken: 'refresh-0'});

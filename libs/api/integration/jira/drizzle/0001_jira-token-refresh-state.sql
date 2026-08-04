@@ -2,8 +2,8 @@ ALTER TABLE "integrations_jira_installations" ADD COLUMN "refresh_token_last_use
 ALTER TABLE "integrations_jira_installations" ADD COLUMN "refresh_token_last_attempted_at" timestamp with time zone;--> statement-breakpoint
 UPDATE "integrations_jira_installations"
 SET
-  "refresh_token_last_used_at" = COALESCE("updated_at", "created_at"),
-  "refresh_token_last_attempted_at" = COALESCE("updated_at", "created_at");--> statement-breakpoint
+  "refresh_token_last_used_at" = "created_at",
+  "refresh_token_last_attempted_at" = "created_at";--> statement-breakpoint
 ALTER TABLE "integrations_jira_installations" ALTER COLUMN "refresh_token_last_used_at" SET DEFAULT now();--> statement-breakpoint
 ALTER TABLE "integrations_jira_installations" ALTER COLUMN "refresh_token_last_used_at" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "integrations_jira_installations" ALTER COLUMN "refresh_token_last_attempted_at" SET DEFAULT now();--> statement-breakpoint

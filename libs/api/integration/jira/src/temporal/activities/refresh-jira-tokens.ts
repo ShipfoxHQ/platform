@@ -11,6 +11,8 @@ import {
   JIRA_REFRESH_TOKEN_SWEEP_BATCH_SIZE,
 } from '#temporal/constants.js';
 
+const JIRA_REFRESH_TOKEN_HEARTBEAT_INTERVAL_MS = 15_000;
+
 export interface JiraTokenRefreshActivityResult {
   refreshed: number;
   skipped: number;
@@ -46,7 +48,9 @@ export function createJiraMaintenanceActivities(options: CreateJiraMaintenanceAc
       let failed = 0;
 
       for (const installation of installations) {
+        const heartbeatInterval = setInterval(heartbeat, JIRA_REFRESH_TOKEN_HEARTBEAT_INTERVAL_MS);
         try {
+          heartbeat();
           await markAttempted(installation.connectionId);
           const connection = await options.resolveConnection(installation.connectionId);
           if (connection?.lifecycleStatus !== 'active') {
@@ -63,6 +67,7 @@ export function createJiraMaintenanceActivities(options: CreateJiraMaintenanceAc
           failed += 1;
           logRefreshFailure(installation, error);
         } finally {
+          clearInterval(heartbeatInterval);
           heartbeat();
         }
       }

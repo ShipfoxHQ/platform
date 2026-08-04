@@ -24,11 +24,14 @@ vi.mock('ky', () => {
   };
 });
 
-function rejectedRequest(status: number): () => Promise<never> {
+function rejectedRequest(status: number, body?: {error: string}): () => Promise<never> {
   return () =>
     Promise.reject(
       new HTTPError(
-        new Response(null, {status}),
+        new Response(body ? JSON.stringify(body) : null, {
+          status,
+          ...(body ? {headers: {'content-type': 'application/json'}} : {}),
+        }),
         new Request('https://jira.example.test'),
         {} as never,
       ),
@@ -49,10 +52,18 @@ describe('mapJiraError', () => {
     } satisfies Partial<JiraIntegrationProviderError>);
   });
 
-  it('treats a rejected refresh-token request as requiring reconnect', async () => {
-    const result = mapJiraError('refresh-access-token', rejectedRequest(400));
+  it.each([
+    ['invalid_grant', 'access-denied'],
+    ['unauthorized_client', 'access-denied'],
+    ['invalid_request', 'malformed-provider-response'],
+    [undefined, 'malformed-provider-response'],
+  ] as const)('maps refresh HTTP 400 with OAuth error %s to %s', async (errorCode, reason) => {
+    const result = mapJiraError(
+      'refresh-access-token',
+      rejectedRequest(400, errorCode ? {error: errorCode} : undefined),
+    );
 
-    await expect(result).rejects.toMatchObject({reason: 'access-denied'});
+    await expect(result).rejects.toMatchObject({reason});
   });
 });
 

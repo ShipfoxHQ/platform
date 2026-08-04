@@ -70,6 +70,8 @@ interface JiraDynamicWebhookRegistrationResponse {
   webhookRegistrationResult?: unknown;
 }
 
+const JIRA_REFRESH_TOKEN_TERMINAL_ERROR_CODES = new Set(['invalid_grant', 'unauthorized_client']);
+
 export function createJiraApiClient(): JiraApiClient {
   return {
     async exchangeAuthorizationCode(input) {
@@ -273,10 +275,13 @@ export async function mapJiraError<T>(operation: string, request: () => Promise<
         throw new JiraIntegrationProviderError('access-denied', 'Jira request was rejected');
       }
       if (status === 400 && operation === 'refresh-access-token') {
-        throw new JiraIntegrationProviderError(
-          'access-denied',
-          'Jira refresh token was rejected; reconnect is required',
-        );
+        const errorCode = await readJiraOAuthErrorCode(error.response);
+        if (errorCode && JIRA_REFRESH_TOKEN_TERMINAL_ERROR_CODES.has(errorCode)) {
+          throw new JiraIntegrationProviderError(
+            'access-denied',
+            'Jira refresh token was rejected; reconnect is required',
+          );
+        }
       }
       throw malformed('Jira request was rejected');
     }
@@ -294,6 +299,15 @@ export async function mapJiraError<T>(operation: string, request: () => Promise<
 
 function malformed(message: string): JiraIntegrationProviderError {
   return new JiraIntegrationProviderError('malformed-provider-response', message);
+}
+
+async function readJiraOAuthErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.clone().json()) as {error?: unknown} | null;
+    return body && typeof body.error === 'string' ? body.error : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function retryAfterSeconds(headers: Headers): number | undefined {
