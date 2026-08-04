@@ -89,7 +89,7 @@ export function TriggerEventDetailView({
       aria-label="Event details"
       className={cn(PANEL_CLASS, DETAIL_RAIL_CLASS, 'flex min-h-0 flex-col overflow-hidden')}
     >
-      <div className="flex shrink-0 flex-col gap-12 border-b border-border-neutral-base p-16">
+      <div className="flex shrink-0 flex-col gap-cluster border-b border-border-neutral-base p-panel-compact">
         <Button
           type="button"
           variant="transparentMuted"
@@ -100,14 +100,14 @@ export function TriggerEventDetailView({
         >
           Back to events
         </Button>
-        <div className="flex min-w-0 items-start justify-between gap-12">
-          <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex min-w-0 items-start justify-between gap-cluster">
+          <div className="flex min-w-0 flex-col gap-tight">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   aria-label={fullEventLabel}
-                  className="flex min-w-0 items-center gap-6 rounded-6 border-0 bg-transparent p-0 text-left outline-none focus-visible:shadow-button-neutral-focus"
+                  className="flex min-w-0 items-center gap-inline rounded-6 border-0 bg-transparent p-0 text-left outline-none focus-visible:shadow-button-neutral-focus"
                 >
                   <TriggerSourceIcon
                     provider={event.provider}
@@ -138,7 +138,7 @@ export function TriggerEventDetailView({
 
       <div
         key={event.id}
-        className="flex min-h-0 flex-1 flex-col gap-20 overflow-y-auto p-16 scrollbar"
+        className="flex min-h-0 flex-1 flex-col gap-section overflow-y-auto p-panel-compact scrollbar"
       >
         <EventRuns workspaceId={workspaceId} workspaceSlug={workspaceSlug} event={event} />
         <EventPayload payload={formattedPayload} />
@@ -161,7 +161,7 @@ function TriggerEventDetailPlaceholder() {
       aria-label="Event details"
       className={cn(
         PANEL_CLASS,
-        'hidden min-h-[240px] items-center justify-center p-24 @min-[820px]:flex',
+        'hidden min-h-[240px] items-center justify-center p-panel @min-[820px]:flex',
       )}
     >
       <EmptyState icon="pulseLine" variant="compact" title="No event selected" />
@@ -173,7 +173,11 @@ function TriggerEventDetailLoading({onBack}: {onBack: () => void}) {
   return (
     <aside
       aria-label="Event details"
-      className={cn(PANEL_CLASS, DETAIL_RAIL_CLASS, 'flex min-h-[320px] flex-col gap-16 p-16')}
+      className={cn(
+        PANEL_CLASS,
+        DETAIL_RAIL_CLASS,
+        'flex min-h-[320px] flex-col gap-group p-panel-compact',
+      )}
     >
       <Button
         type="button"
@@ -185,7 +189,7 @@ function TriggerEventDetailLoading({onBack}: {onBack: () => void}) {
       >
         Back to events
       </Button>
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-inline">
         <Skeleton className="h-16 w-160" />
         <Skeleton className="h-12 w-120" />
       </div>
@@ -199,7 +203,11 @@ function TriggerEventDetailError({onBack, onRetry}: {onBack: () => void; onRetry
   return (
     <aside
       aria-label="Event details"
-      className={cn(PANEL_CLASS, DETAIL_RAIL_CLASS, 'flex min-h-[320px] flex-col gap-16 p-16')}
+      className={cn(
+        PANEL_CLASS,
+        DETAIL_RAIL_CLASS,
+        'flex min-h-[320px] flex-col gap-group p-panel-compact',
+      )}
     >
       <Button
         type="button"
@@ -212,7 +220,7 @@ function TriggerEventDetailError({onBack, onRetry}: {onBack: () => void; onRetry
         Back to events
       </Button>
       <Callout role="alert" type="error">
-        <div className="flex items-center justify-between gap-12">
+        <div className="flex items-center justify-between gap-cluster">
           <Text size="sm">Event detail could not be loaded.</Text>
           <Button type="button" variant="secondary" size="xs" onClick={onRetry}>
             Retry
@@ -293,11 +301,11 @@ function EventRunsList({
   event: TriggerEventDetailModel;
 }) {
   return (
-    <section aria-labelledby="trigger-event-runs-heading" className="flex flex-col gap-6">
+    <section aria-labelledby="trigger-event-runs-heading" className="flex flex-col gap-inline">
       <Text id="trigger-event-runs-heading" size="sm" bold>
         Matched workflows
       </Text>
-      <ul className="-mx-8 flex flex-col gap-1">
+      <ul className="-mx-inline flex flex-col gap-tight">
         {event.decisions.map((decision) => (
           <DecisionRow
             key={decision.id}
@@ -335,13 +343,13 @@ function DecisionRow({
 
   if (decision.decision !== 'triggered' || !decision.runId || !decision.runName) {
     return (
-      <li className="flex min-w-0 items-start gap-8 rounded-6 px-8 py-6">
+      <li className="flex min-w-0 items-start gap-inline rounded-6 px-tight py-[6px]">
         <Icon
           name="cornerDownRightLine"
-          className="mt-2 size-14 shrink-0 text-foreground-neutral-disabled"
+          className="mt-[2px] size-14 shrink-0 text-foreground-neutral-disabled"
           aria-hidden="true"
         />
-        <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-tight">
           <Text size="sm" className="min-w-0 truncate text-foreground-neutral-base">
             {decision.subscriptionName}
           </Text>
@@ -363,10 +371,10 @@ function DecisionRow({
     <>
       <Icon
         name="cornerDownRightLine"
-        className="mt-3 size-14 shrink-0 text-foreground-neutral-muted"
+        className="mt-[3px] size-14 shrink-0 text-foreground-neutral-muted"
         aria-hidden="true"
       />
-      <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex min-w-0 flex-col gap-tight">
         <Text as="span" size="sm" className="min-w-0 truncate text-foreground-neutral-base">
           {decision.subscriptionName}
         </Text>
@@ -377,7 +385,7 @@ function DecisionRow({
     </>
   );
   const rowClassName =
-    'flex min-w-0 items-start gap-8 rounded-6 px-8 py-6 hover:bg-background-components-hover focus-visible:outline-none focus-visible:shadow-button-neutral-focus';
+    'flex min-w-0 items-start gap-inline rounded-6 px-tight py-[6px] hover:bg-background-components-hover focus-visible:outline-none focus-visible:shadow-button-neutral-focus';
 
   return (
     <li>
@@ -404,7 +412,7 @@ function EventPayload({payload}: {payload: string}) {
   const data = [{language: 'json', filename: 'payload.json', code: payload}];
 
   return (
-    <section aria-labelledby="trigger-event-payload-heading" className="flex flex-col gap-6">
+    <section aria-labelledby="trigger-event-payload-heading" className="flex flex-col gap-inline">
       <Text id="trigger-event-payload-heading" size="sm" bold>
         Payload
       </Text>
@@ -412,7 +420,7 @@ function EventPayload({payload}: {payload: string}) {
         data={data}
         className="flex h-auto flex-col overflow-visible rounded-8 bg-background-contrast-base shadow-none"
       >
-        <CodeBlockHeader className="sticky top-0 z-10 shrink-0 border-b border-border-contrast-base bg-background-contrast-base px-10 py-6">
+        <CodeBlockHeader className="sticky top-0 z-10 shrink-0 border-b border-border-contrast-base bg-background-contrast-base px-tight py-[6px]">
           <CodeBlockFiles>
             {(item) => <CodeBlockFilename value={item.filename}>{item.filename}</CodeBlockFilename>}
           </CodeBlockFiles>

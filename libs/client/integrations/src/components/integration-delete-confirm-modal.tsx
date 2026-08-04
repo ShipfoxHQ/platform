@@ -36,7 +36,7 @@ export function IntegrationDeleteConfirmModal({
       <ModalContent aria-describedby={undefined}>
         <ModalTitle className="sr-only">Delete integration</ModalTitle>
         <ModalHeader title="Delete integration" showClose={!isPending} />
-        <ModalBody className="gap-16">
+        <ModalBody className="gap-group">
           <Text size="sm">
             Are you sure you want to delete <strong className="font-medium">{name}</strong>? Once
             deleted, Shipfox will immediately stop processing events from this integration. This

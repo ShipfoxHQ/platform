@@ -96,7 +96,7 @@ export function EventsFilterBar({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="flex items-center justify-between gap-8 border-b border-border-neutral-base px-12 py-8">
+      <div className="flex items-center justify-between gap-inline border-b border-border-neutral-base px-row py-row">
         <CollapsibleTrigger asChild>
           <Button
             type="button"
@@ -115,7 +115,7 @@ export function EventsFilterBar({
         ) : null}
       </div>
       <CollapsibleContent>
-        <div className="grid grid-cols-1 gap-x-12 gap-y-10 border-b border-border-neutral-base px-12 py-12 min-[520px]:grid-cols-2">
+        <div className="grid grid-cols-1 gap-x-cluster gap-y-inline border-b border-border-neutral-base px-row py-row min-[520px]:grid-cols-2">
           <FilterField label="Date" className="col-span-full">
             <DateRangePicker
               size="small"
@@ -186,7 +186,7 @@ function FilterField({
   children: ReactNode;
 }) {
   return (
-    <div className={cn('flex min-w-0 flex-col gap-4', className)}>
+    <div className={cn('flex min-w-0 flex-col gap-tight', className)}>
       <Text size="xs" className="font-medium text-foreground-neutral-muted">
         {label}
       </Text>

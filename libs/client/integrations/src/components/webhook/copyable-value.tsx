@@ -40,12 +40,12 @@ export function CopyableValue({label, value, note, className}: CopyableValueProp
   }
 
   return (
-    <div className={cn('flex w-full min-w-0 flex-col gap-8', className)}>
-      <div className="flex min-w-0 items-center gap-8">
+    <div className={cn('flex w-full min-w-0 flex-col gap-inline', className)}>
+      <div className="flex min-w-0 items-center gap-inline">
         <Code
           as="span"
           variant="paragraph"
-          className="min-w-0 flex-1 break-all rounded-4 border border-border-neutral-base bg-background-components-base px-8 py-6 text-foreground-neutral-base"
+          className="min-w-0 flex-1 break-all rounded-4 border border-border-neutral-base bg-background-components-base px-tight py-[6px] text-foreground-neutral-base"
         >
           {value}
         </Code>

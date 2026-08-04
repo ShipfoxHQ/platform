@@ -43,15 +43,15 @@ export function CallbackStatusShell({
     : undefined;
 
   return (
-    <main className="flex min-h-screen bg-background-subtle-base px-16 py-32">
-      <div className="mx-auto flex w-full max-w-[480px] flex-col justify-center gap-20">
+    <main className="flex min-h-screen bg-background-subtle-base px-row py-frame">
+      <div className="mx-auto flex w-full max-w-[480px] flex-col justify-center gap-section">
         <h2 ref={headingRef} tabIndex={-1} className="text-24 font-semibold outline-none">
           {title}
         </h2>
         <Callout role={status === 'error' ? 'alert' : 'status'} type={status}>
           <Text size="sm">{message}</Text>
         </Callout>
-        <div className="flex flex-col gap-8 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-inline sm:flex-row sm:items-center">
           {switchAccount ? (
             <ButtonLink asChild className="min-h-44 w-full sm:w-fit">
               <Link

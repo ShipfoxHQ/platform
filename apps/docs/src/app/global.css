@@ -100,6 +100,54 @@ html {
   gap: var(--space-region);
 }
 
+@utility gap-x-tight {
+  column-gap: var(--space-tight);
+}
+
+@utility gap-x-inline {
+  column-gap: var(--space-inline);
+}
+
+@utility gap-x-cluster {
+  column-gap: var(--space-cluster);
+}
+
+@utility gap-x-group {
+  column-gap: var(--space-group);
+}
+
+@utility gap-x-section {
+  column-gap: var(--space-section);
+}
+
+@utility gap-x-region {
+  column-gap: var(--space-region);
+}
+
+@utility gap-y-tight {
+  row-gap: var(--space-tight);
+}
+
+@utility gap-y-inline {
+  row-gap: var(--space-inline);
+}
+
+@utility gap-y-cluster {
+  row-gap: var(--space-cluster);
+}
+
+@utility gap-y-group {
+  row-gap: var(--space-group);
+}
+
+@utility gap-y-section {
+  row-gap: var(--space-section);
+}
+
+@utility gap-y-region {
+  row-gap: var(--space-region);
+}
+
 @utility my-region {
   margin-block: var(--margin-region);
 }
@@ -118,6 +166,10 @@ html {
 
 @utility -mr-inline {
   margin-right: calc(var(--margin-inline) * -1);
+}
+
+@utility -mx-inline {
+  margin-inline: calc(var(--margin-inline) * -1);
 }
 
 @utility p-tight {

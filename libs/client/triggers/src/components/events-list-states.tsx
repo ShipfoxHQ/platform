@@ -8,12 +8,12 @@ import {Link} from '@tanstack/react-router';
 
 export function EventsListSkeleton() {
   return (
-    <div className="flex flex-col gap-8 p-8" role="status" aria-label="Loading events">
+    <div className="flex flex-col gap-inline p-tight" role="status" aria-label="Loading events">
       {Array.from({length: 8}).map((_, index) => (
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: skeleton row, stable position
           key={index}
-          className="flex h-20 items-center gap-12"
+          className="flex h-20 items-center gap-cluster"
         >
           <Skeleton className="size-6 shrink-0 rounded-full" />
           <Skeleton className="h-12 w-1/4" />
@@ -27,7 +27,7 @@ export function EventsListSkeleton() {
 
 export function EventsListEmpty({workspaceSlug}: {workspaceSlug?: string | undefined}) {
   return (
-    <div className="p-16">
+    <div className="p-panel-compact">
       <EmptyState
         icon="pulseLine"
         title="No events yet"
@@ -48,7 +48,7 @@ export function EventsListEmpty({workspaceSlug}: {workspaceSlug?: string | undef
 
 export function EventsListNoMatches({onClear}: {onClear: () => void}) {
   return (
-    <div className="p-16">
+    <div className="p-panel-compact">
       <EmptyState
         icon="filterOffLine"
         title="No matching events"
@@ -69,9 +69,9 @@ export function EventsListNoMatches({onClear}: {onClear: () => void}) {
  */
 export function EventsListStaleError({query}: {query: QueryLoadErrorQuery}) {
   return (
-    <div className="p-8">
+    <div className="p-tight">
       <Callout role="alert" type="error">
-        <div className="flex items-center justify-between gap-8">
+        <div className="flex items-center justify-between gap-inline">
           <Text size="xs">Could not refresh events.</Text>
           <Button
             type="button"

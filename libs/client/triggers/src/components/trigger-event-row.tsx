@@ -36,7 +36,7 @@ export function TriggerEventRow({event, selected, onSelect}: TriggerEventRowProp
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="flex min-w-0 items-center gap-6 rounded-6 text-left outline-none focus-visible:shadow-button-neutral-focus"
+              className="flex min-w-0 items-center gap-inline rounded-6 text-left outline-none focus-visible:shadow-button-neutral-focus"
               onClick={() => onSelect(event.id)}
               aria-label={`Open details for ${fullEventLabel}`}
             >

@@ -48,8 +48,8 @@ export function InstalledIntegrationsSection({
   providerDisplayName,
 }: InstalledIntegrationsSectionProps) {
   return (
-    <section className="flex flex-col gap-16" aria-label="Installed integrations">
-      <div className="flex flex-col gap-4">
+    <section className="flex flex-col gap-group" aria-label="Installed integrations">
+      <div className="flex flex-col gap-tight">
         <Header variant="h3">Installed integrations</Header>
         <Text size="sm" className="text-foreground-neutral-muted">
           Provider accounts installed in this workspace.
@@ -59,7 +59,7 @@ export function InstalledIntegrationsSection({
       {isPending ? <InstalledSkeleton label="Loading integrations" /> : null}
 
       {error ? (
-        <div className={cn(INSTALLED_SURFACE_CLASS, 'px-16')}>
+        <div className={cn(INSTALLED_SURFACE_CLASS, 'px-row')}>
           <QueryLoadError
             query={{isError: true, isFetching, data: undefined, error, refetch: onRetry}}
             subject="integrations"
@@ -68,7 +68,7 @@ export function InstalledIntegrationsSection({
       ) : null}
 
       {!isPending && !error && connections.length === 0 ? (
-        <div className={cn(INSTALLED_SURFACE_CLASS, 'px-16')}>
+        <div className={cn(INSTALLED_SURFACE_CLASS, 'px-row')}>
           <EmptyState
             icon="componentLine"
             title="No integrations installed yet"
@@ -120,7 +120,7 @@ function InstalledRow({
   const providerName = providerDisplayName(connection.provider);
 
   return (
-    <li className="flex items-center gap-12 px-16 py-12 transition-colors hover:bg-background-components-hover">
+    <li className="flex items-center gap-cluster px-row py-row transition-colors hover:bg-background-components-hover">
       <IntegrationIcon
         source={connection.provider}
         aria-hidden
@@ -129,8 +129,8 @@ function InstalledRow({
           muted ? 'text-foreground-neutral-disabled' : 'text-foreground-neutral-base',
         )}
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex min-w-0 items-center gap-8">
+      <div className="flex min-w-0 flex-1 flex-col gap-tight">
+        <div className="flex min-w-0 items-center gap-inline">
           <Text
             size="md"
             bold
@@ -196,9 +196,9 @@ function InstalledSkeleton({label}: {label: string}) {
       className={cn('divide-y divide-border-neutral-base', INSTALLED_SURFACE_CLASS)}
     >
       {[0, 1, 2].map((row) => (
-        <li key={row} className="flex items-center gap-12 px-16 py-12">
+        <li key={row} className="flex items-center gap-cluster px-row py-row">
           <Skeleton className="size-24 shrink-0" />
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="flex min-w-0 flex-1 flex-col gap-tight">
             <Skeleton className="h-16 w-120" />
             <Skeleton className="h-12 w-80" />
           </div>

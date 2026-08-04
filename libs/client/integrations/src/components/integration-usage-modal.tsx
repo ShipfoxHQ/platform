@@ -76,8 +76,8 @@ export function IntegrationUsageModal({
       <ModalContent aria-describedby={undefined} className="max-h-[calc(100vh-32px)] max-w-[640px]">
         <ModalTitle className="sr-only">{title}</ModalTitle>
         <ModalHeader>
-          <div className="flex min-w-0 flex-col gap-2">
-            <div className="flex min-w-0 items-center gap-8">
+          <div className="flex min-w-0 flex-col gap-tight">
+            <div className="flex min-w-0 items-center gap-inline">
               <Text size="lg" aria-hidden="true" className="truncate">
                 {title}
               </Text>
@@ -92,13 +92,13 @@ export function IntegrationUsageModal({
         </ModalHeader>
         {connection ? (
           <>
-            <ModalBody className="min-h-0 flex-1 gap-24 overflow-y-auto overflow-x-clip scrollbar">
-              <section className="flex w-full flex-col gap-12">
+            <ModalBody className="min-h-0 flex-1 gap-section overflow-y-auto overflow-x-clip scrollbar">
+              <section className="flex w-full flex-col gap-cluster">
                 <Text size="md" bold>
                   Usage
                 </Text>
                 {events.length > 1 ? (
-                  <div className="flex flex-col gap-6">
+                  <div className="flex flex-col gap-inline">
                     <label
                       htmlFor="integration-usage-event"
                       className="font-display text-sm font-medium text-foreground-neutral-base"
@@ -144,7 +144,7 @@ export function IntegrationUsageModal({
                 </CodeBlock>
               </section>
               {children ? (
-                <section className="flex w-full flex-col gap-12">
+                <section className="flex w-full flex-col gap-cluster">
                   <Text size="md" bold>
                     Details
                   </Text>

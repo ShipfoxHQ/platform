@@ -23,12 +23,12 @@ export function ProjectCrumb({
 
   if (projectSlug && projectName) {
     return (
-      <div className="flex items-center">
+      <div className="flex items-center gap-tight">
         <Link
           to="/w/$workspaceSlug/p/$projectSlug"
           params={{workspaceSlug, projectSlug}}
           aria-current="page"
-          className="text-md font-medium text-foreground-neutral-base px-6 py-4 rounded-6 hover:bg-background-components-hover transition-colors max-w-[240px] truncate"
+          className="text-md font-medium text-foreground-neutral-base p-tight rounded-6 hover:bg-background-components-hover transition-colors max-w-[240px] truncate"
         >
           {projectName}
         </Link>
@@ -39,7 +39,7 @@ export function ProjectCrumb({
               aria-label="Switch project"
               aria-haspopup="listbox"
               aria-expanded={open}
-              className="ml-2 grid place-items-center size-24 rounded-4 text-foreground-neutral-muted hover:bg-background-components-hover hover:text-foreground-neutral-base transition-colors"
+              className="grid place-items-center size-24 rounded-4 text-foreground-neutral-muted hover:bg-background-components-hover hover:text-foreground-neutral-base transition-colors"
             >
               <Icon name="arrowDownSLine" className="size-16" />
             </button>
@@ -65,7 +65,7 @@ export function ProjectCrumb({
           aria-label="Switch project"
           aria-haspopup="listbox"
           aria-expanded={open}
-          className="flex items-center gap-2 text-md font-medium text-foreground-neutral-base px-6 py-4 rounded-6 hover:bg-background-components-hover transition-colors"
+          className="flex items-center gap-tight text-md font-medium text-foreground-neutral-base p-tight rounded-6 hover:bg-background-components-hover transition-colors"
         >
           <span className="max-w-[240px] truncate">All projects</span>
           <Icon name="arrowDownSLine" className="size-16 text-foreground-neutral-muted" />

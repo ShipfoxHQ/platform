@@ -78,7 +78,7 @@ export function EventsList({
             </TableBody>
           </Table>
           {hasNextPage ? (
-            <div className="flex justify-center p-16">
+            <div className="flex justify-center p-panel-compact">
               <Button
                 type="button"
                 variant="secondary"

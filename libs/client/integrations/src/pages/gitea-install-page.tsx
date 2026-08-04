@@ -40,8 +40,8 @@ export function GiteaInstallPage() {
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-[480px] flex-col gap-20">
-      <header className="flex flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-[480px] flex-col gap-section">
+      <header className="flex flex-col gap-inline">
         <Header variant="h1">Install Gitea</Header>
         <Text size="md" className="text-foreground-neutral-muted">
           Enter the Gitea organization to install in this workspace.
@@ -49,7 +49,7 @@ export function GiteaInstallPage() {
       </header>
 
       <form
-        className="flex flex-col gap-18"
+        className="flex flex-col gap-group"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
@@ -83,7 +83,7 @@ export function GiteaInstallPage() {
             </FormField>
           )}
         </form.Field>
-        <div className="flex items-center gap-12">
+        <div className="flex items-center gap-cluster">
           <Button type="submit" isLoading={connect.isPending}>
             Install
           </Button>

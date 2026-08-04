@@ -19,7 +19,7 @@ export function ConnectionPicker({
   const labelId = useId();
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-inline">
       <Label id={labelId} className="sr-only">
         Source integration
       </Label>
@@ -27,7 +27,7 @@ export function ConnectionPicker({
         aria-labelledby={labelId}
         value={selectedConnectionId ?? ''}
         onValueChange={onSelect}
-        className="grid grid-cols-2 gap-8 max-[760px]:grid-cols-1"
+        className="grid grid-cols-2 gap-inline max-[760px]:grid-cols-1"
       >
         {connections.map((connection) => (
           <RadioGroupItem key={connection.id} value={connection.id}>
@@ -43,7 +43,7 @@ function ConnectionOption({connection}: {connection: IntegrationConnection}) {
   const {ref: nameRef, isTruncated} = useIsTextTruncated<HTMLSpanElement>(connection.displayName);
 
   return (
-    <span className="flex min-w-0 items-center gap-10">
+    <span className="flex min-w-0 items-center gap-inline">
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="shrink-0">

@@ -30,12 +30,12 @@ export function SourceStrip({
 
   return (
     <section
-      className="flex flex-col gap-8 rounded-8 border border-border-neutral-base bg-background-neutral-base px-14 py-10 sm:flex-row sm:items-center sm:justify-between"
+      className="flex flex-col gap-inline rounded-8 border border-border-neutral-base bg-background-neutral-base px-row py-row sm:flex-row sm:items-center sm:justify-between"
       aria-label="Project source"
     >
-      <div className="flex min-w-0 items-center gap-10">
+      <div className="flex min-w-0 items-center gap-inline">
         <Icon name={providerIconName(connection?.provider)} className="size-20 shrink-0" />
-        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-10">
+        <div className="flex min-w-0 flex-col gap-tight sm:flex-row sm:items-center sm:gap-inline">
           {connectionsQuery.isPending ? (
             <Skeleton className="h-16 w-160" />
           ) : (

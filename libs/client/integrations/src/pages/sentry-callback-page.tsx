@@ -170,7 +170,7 @@ export function SentryCallbackPage() {
 
   return (
     <CallbackColumn>
-      <header className="flex flex-col gap-8">
+      <header className="flex flex-col gap-inline">
         <Header variant="h2">Install Sentry</Header>
         <Text size="sm" className="text-foreground-neutral-muted">
           {params.orgSlug
@@ -181,7 +181,7 @@ export function SentryCallbackPage() {
 
       {failure ? (
         <Callout role="alert" type="error">
-          <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-inline">
             <Text size="sm">{failure.failure.message}</Text>
             {failure.failure.kind === 'retryable' ? (
               <Button
@@ -210,10 +210,10 @@ export function SentryCallbackPage() {
         </Callout>
       ) : null}
 
-      <section className="flex flex-col gap-8" aria-label="Choose a workspace">
+      <section className="flex flex-col gap-inline" aria-label="Choose a workspace">
         {orderedWorkspaces.map((workspace) => (
-          <Card key={workspace.id} className="p-16">
-            <div className="flex items-center justify-between gap-12">
+          <Card key={workspace.id} className="p-panel-compact">
+            <div className="flex items-center justify-between gap-cluster">
               <Text size="md" bold className="truncate">
                 {workspace.name}
               </Text>
@@ -246,8 +246,8 @@ export function SentryCallbackPage() {
 
 function CallbackColumn({children}: {children: React.ReactNode}) {
   return (
-    <main className="flex min-h-screen bg-background-subtle-base px-16 py-32">
-      <div className="mx-auto flex w-full max-w-[480px] flex-col justify-center gap-20">
+    <main className="flex min-h-screen bg-background-subtle-base px-row py-frame">
+      <div className="mx-auto flex w-full max-w-[480px] flex-col justify-center gap-section">
         {children}
       </div>
     </main>

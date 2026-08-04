@@ -123,7 +123,7 @@ export function IntegrationGalleryForWorkspace({
   }
 
   return (
-    <div className="flex flex-col gap-24">
+    <div className="flex flex-col gap-section">
       <InstalledIntegrationsSection
         workspaceSlug={workspaceSlug}
         connections={sortedConnections}
@@ -145,8 +145,8 @@ export function IntegrationGalleryForWorkspace({
         providerDisplayName={providerDisplayName}
       />
 
-      <section className="flex flex-col gap-16" aria-label="Available integrations">
-        <div className="flex flex-col gap-4">
+      <section className="flex flex-col gap-group" aria-label="Available integrations">
+        <div className="flex flex-col gap-tight">
           <Header variant="h3">Available integrations</Header>
           <Text size="sm" className="text-foreground-neutral-muted">
             Providers available to install in this workspace.

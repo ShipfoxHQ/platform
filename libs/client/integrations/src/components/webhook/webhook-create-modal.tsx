@@ -97,7 +97,7 @@ export function WebhookCreateModal({
             void form.handleSubmit();
           }}
         >
-          <ModalBody className="gap-16">
+          <ModalBody className="gap-group">
             <Text size="sm" className="text-foreground-neutral-muted">
               Create a named inbound webhook URL for this workspace.
             </Text>
