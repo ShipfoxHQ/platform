@@ -11,7 +11,7 @@ export interface StepResult {
   outputs?: Record<string, string>;
   // Run-step annotations posted before reporting the step result.
   annotations?: LeasedWriteAnnotationOperationDto[];
-  // Resolved checkout details reported by the setup step.
+  // Resolved checkout details reported by setup or an explicit checkout step.
   checkout?: CheckoutResult;
   // Populated when success is false. Null on success.
   error: StepErrorDto;

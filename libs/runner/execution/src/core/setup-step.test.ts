@@ -1,9 +1,11 @@
+import type {StepDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {HTTPError} from 'ky';
 
 const requestCheckoutTokenMock = vi.fn();
 const assertGitAvailableMock = vi.fn();
 const createJobDirMock = vi.fn();
+const normalizeCheckoutDestinationMock = vi.fn();
 const checkoutRepositoryMock = vi.fn();
 const writeAmbientGitCredentialMock = vi.fn();
 
@@ -22,6 +24,7 @@ vi.mock('@shipfox/runner-workspace', async () => {
     ...actual,
     assertGitAvailable: (...args: unknown[]) => assertGitAvailableMock(...args),
     createJobDir: (...args: unknown[]) => createJobDirMock(...args),
+    normalizeCheckoutDestination: (...args: unknown[]) => normalizeCheckoutDestinationMock(...args),
     checkoutRepository: (...args: unknown[]) => checkoutRepositoryMock(...args),
     writeAmbientGitCredential: (...args: unknown[]) => writeAmbientGitCredentialMock(...args),
   };
@@ -53,17 +56,35 @@ function checkoutResponse(auth?: unknown, gitAuthor?: unknown) {
   };
 }
 
-function run(log?: ReturnType<typeof fakeLog>) {
+function run(log?: ReturnType<typeof fakeLog>, step = buildSetupStep()) {
   return executeSetupStep({
     cwd: CWD,
     gitConfigPath: GIT_CONFIG_PATH,
     leaseClient,
     signal,
-    stepId: STEP_ID,
+    step,
     attempt: STEP_ATTEMPT,
     ...(log ? {log} : {}),
     jobContext,
   });
+}
+
+function buildSetupStep(config: Record<string, unknown> = {checkout: {}}): StepDto {
+  return {
+    id: STEP_ID,
+    job_execution_id: '00000000-0000-0000-0000-0000000000b1',
+    key: null,
+    name: 'Set up job',
+    source_location: null,
+    status: 'running',
+    type: 'setup',
+    config,
+    error: null,
+    position: 0,
+    current_attempt: STEP_ATTEMPT,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  };
 }
 
 function fakeLog() {
@@ -106,6 +127,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   assertGitAvailableMock.mockResolvedValue('git version 2.51.0');
   createJobDirMock.mockResolvedValue(undefined);
+  normalizeCheckoutDestinationMock.mockResolvedValue(CWD);
   requestCheckoutTokenMock.mockResolvedValue(checkoutResponse());
   checkoutRepositoryMock.mockResolvedValue('abc123');
   writeAmbientGitCredentialMock.mockResolvedValue(undefined);
@@ -117,6 +139,22 @@ afterEach(() => {
 });
 
 describe('executeSetupStep', () => {
+  it('prepares a checkout-disabled job without requiring Git or cloning', async () => {
+    const log = fakeLog();
+
+    const result = await run(log, buildSetupStep({}));
+
+    expect(assertGitAvailableMock).not.toHaveBeenCalled();
+    expect(createJobDirMock).toHaveBeenCalledWith(CWD);
+    expect(requestCheckoutTokenMock).not.toHaveBeenCalled();
+    expect(checkoutRepositoryMock).not.toHaveBeenCalled();
+    expect(result).toEqual({result: {success: true, error: null, exit_code: 0}});
+    expect(log.writeGroup).toHaveBeenCalledWith({
+      name: 'Checkout skipped',
+      lines: ['No repository checkout was requested for this job.'],
+    });
+  });
+
   it('prepares the workspace, checks out the repo, and succeeds', async () => {
     requestCheckoutTokenMock.mockResolvedValue(
       checkoutResponse(
@@ -139,6 +177,7 @@ describe('executeSetupStep', () => {
 
     expect(assertGitAvailableMock).toHaveBeenCalledOnce();
     expect(createJobDirMock).toHaveBeenCalledWith(CWD);
+    expect(normalizeCheckoutDestinationMock).toHaveBeenCalledWith(CWD, CWD);
     expect(requestCheckoutTokenMock).toHaveBeenCalledWith(leaseClient, {
       stepId: STEP_ID,
       attempt: STEP_ATTEMPT,

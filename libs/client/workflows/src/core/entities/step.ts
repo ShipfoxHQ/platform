@@ -4,6 +4,8 @@ export type StepErrorReason =
   | 'checkout_failed'
   | 'checkout_auth_failed'
   | 'checkout_unavailable'
+  | 'checkout_path_invalid'
+  | 'checkout_destination_occupied'
   | 'git_unavailable'
   | 'workspace_prep_failed'
   | 'setup_aborted'
@@ -23,6 +25,8 @@ export const STEP_ERROR_REASONS = new Set<StepErrorReason>([
   'checkout_failed',
   'checkout_auth_failed',
   'checkout_unavailable',
+  'checkout_path_invalid',
+  'checkout_destination_occupied',
   'git_unavailable',
   'workspace_prep_failed',
   'setup_aborted',

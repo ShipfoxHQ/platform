@@ -8,7 +8,9 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {redactSecrets} from '@shipfox/redact';
 import {executeAgentStep} from '@shipfox/runner-agent';
 import {
+  type CheckoutDestinations,
   type CommandStartMetadata,
+  executeCheckoutStep,
   executeRunStep,
   executeSetupStep,
   type SetupJobContext,
@@ -73,6 +75,7 @@ export async function runJobSteps(params: {
   let workspacePrepared = false;
   let logsPrepared = false;
   let ambientGitConfigPath: string | undefined;
+  const checkoutDestinations: CheckoutDestinations = new Map();
 
   // The most recent step's stream, kept until the next
   // iteration settles it (or the finally does at job end). The step loop is sequential, so
@@ -115,6 +118,7 @@ export async function runJobSteps(params: {
         ...(params.subscribeSecrets ? {subscribeSecrets: params.subscribeSecrets} : {}),
         signal,
         workspacePrepared,
+        checkoutDestinations,
         ambientGitConfigPath,
         jobId,
         stepLabel,
@@ -126,6 +130,9 @@ export async function runJobSteps(params: {
       activeStream = execution.stream;
       if (execution.preparedWorkspace) workspacePrepared = true;
       if (execution.ambientGitConfigPath) ambientGitConfigPath = execution.ambientGitConfigPath;
+      if (execution.result.success && execution.result.checkout) {
+        rememberCheckoutDestination(checkoutDestinations, execution.result.checkout);
+      }
 
       if (signal.aborted) return;
 
@@ -166,6 +173,17 @@ export async function runJobSteps(params: {
     // cuts the wait short. Whatever did not drain is timeout-closed server-side.
     await settleStream({stream: activeStream, signal});
   }
+}
+
+function rememberCheckoutDestination(
+  destinations: CheckoutDestinations,
+  checkout: NonNullable<StepResult['checkout']>,
+): void {
+  destinations.set(checkout.path, {
+    repository: checkout.repository,
+    ref: checkout.ref,
+    result: checkout,
+  });
 }
 
 export interface PulledStep {
@@ -228,6 +246,7 @@ export async function executeStep(params: {
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   signal: AbortSignal;
   workspacePrepared: boolean;
+  checkoutDestinations?: CheckoutDestinations | undefined;
   ambientGitConfigPath?: string | undefined;
   gitConfigPath: string;
   jobId: string;
@@ -246,6 +265,7 @@ export async function executeStep(params: {
     subscribeSecrets,
     signal,
     workspacePrepared,
+    checkoutDestinations = new Map(),
     ambientGitConfigPath,
     gitConfigPath,
     jobId,
@@ -323,7 +343,7 @@ export async function executeStep(params: {
         gitConfigPath,
         leaseClient,
         signal,
-        stepId: step.id,
+        step,
         attempt,
         ...(setupStream ? {log: setupStream} : {}),
         jobContext,
@@ -349,6 +369,46 @@ export async function executeStep(params: {
         },
         logOutcome: 'drained',
         preparedWorkspace: false,
+      };
+    }
+
+    if (step.type === 'checkout') {
+      let checkoutStream: StepLogStream | undefined;
+      try {
+        checkoutStream = createStepLogStream({
+          logsDir,
+          stepId: step.id,
+          attempt,
+          secrets,
+          append,
+        });
+      } catch (error) {
+        logger().error(
+          {err: error, jobId, stepId: step.id, attempt},
+          'Failed to open checkout log capture; running checkout without it',
+        );
+      }
+      stream = checkoutStream;
+      registerStreamSecrets(checkoutStream);
+
+      const checkout = await executeCheckoutStep({
+        cwd,
+        gitConfigPath,
+        leaseClient,
+        signal,
+        step,
+        attempt,
+        destinations: checkoutDestinations,
+        ...(checkoutStream ? {log: checkoutStream} : {}),
+      });
+      return {
+        result: checkout.result,
+        stream,
+        logOutcome: checkoutStream ? undefined : 'abandoned',
+        preparedWorkspace: false,
+        ...(checkout.ambientGitConfigPath
+          ? {ambientGitConfigPath: checkout.ambientGitConfigPath}
+          : {}),
       };
     }
 

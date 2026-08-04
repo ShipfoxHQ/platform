@@ -26,6 +26,9 @@ const jobStatusSchema = z.enum([
 const jobStatusReasonSchema = z.enum([
   'dependency_not_completed',
   'condition_false',
+  'default_gate_rejected',
+  'condition_rejected',
+  'condition_errored',
   'user_cancelled',
   'run_cancelled',
   'timed_out',
@@ -45,6 +48,8 @@ const stepErrorReasonSchema = z.enum([
   'checkout_failed',
   'checkout_auth_failed',
   'checkout_unavailable',
+  'checkout_path_invalid',
+  'checkout_destination_occupied',
   'git_unavailable',
   'workspace_prep_failed',
   'setup_aborted',
@@ -59,14 +64,17 @@ type AssertExact<Actual, Expected> = [Actual] extends [Expected]
     ? true
     : never
   : never;
-export type _ExpectJobStatusReasonSchemaMatchesDto = AssertExact<
+// Assigned to a value so a mismatch is a compile error: a bare `type X = AssertExact<…>`
+// alias resolves to `never` without failing the build, which lets the DTO add a reason
+// this suite silently cannot assert.
+const _expectJobStatusReasonSchemaMatchesDto: AssertExact<
   z.infer<typeof jobStatusReasonSchema>,
   JobStatusReasonDto
->;
-export type _ExpectStepErrorReasonSchemaMatchesDto = AssertExact<
+> = true;
+const _expectStepErrorReasonSchemaMatchesDto: AssertExact<
   z.infer<typeof stepErrorReasonSchema>,
   StepErrorReasonDto
->;
+> = true;
 
 const logsExpectationSchema = z
   .object({

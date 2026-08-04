@@ -45,6 +45,7 @@ const writeStepAnnotationsMock = vi.fn();
 const integrationToolsGatewayUrlMock = vi.fn();
 const executeRunStepMock = vi.fn();
 const executeSetupStepMock = vi.fn();
+const executeCheckoutStepMock = vi.fn();
 const createStepLogStreamMock = vi.fn();
 const createSessionLogStreamMock = vi.fn();
 const executeAgentStepMock = vi.fn();
@@ -66,6 +67,7 @@ vi.mock('@shipfox/runner-protocol', () => ({
 vi.mock('@shipfox/runner-execution', () => ({
   executeRunStep: (...args: unknown[]) => executeRunStepMock(...args),
   executeSetupStep: (...args: unknown[]) => executeSetupStepMock(...args),
+  executeCheckoutStep: (...args: unknown[]) => executeCheckoutStepMock(...args),
 }));
 
 vi.mock('@shipfox/runner-logs', async () => {
@@ -212,6 +214,7 @@ describe('runJobSteps', () => {
     integrationToolsGatewayUrlMock.mockReset();
     executeRunStepMock.mockReset();
     executeSetupStepMock.mockReset();
+    executeCheckoutStepMock.mockReset();
     createStepLogStreamMock.mockReset();
     createSessionLogStreamMock.mockReset();
     executeAgentStepMock.mockReset();
@@ -240,6 +243,9 @@ describe('runJobSteps', () => {
     });
     // Setup succeeds by default; tests that exercise setup failure override it.
     executeSetupStepMock.mockResolvedValue({
+      result: {success: true, error: null, exit_code: 0},
+    });
+    executeCheckoutStepMock.mockResolvedValue({
       result: {success: true, error: null, exit_code: 0},
     });
     createJobLogsDirMock.mockResolvedValue(undefined);
@@ -274,7 +280,7 @@ describe('runJobSteps', () => {
       gitConfigPath: GIT_CONFIG_PATH,
       leaseClient,
       signal: ac.signal,
-      stepId: setup.id,
+      step: setup,
       attempt: 1,
       log: expect.any(Object),
       jobContext: JOB_CONTEXT,
@@ -296,6 +302,73 @@ describe('runJobSteps', () => {
       signal: ac.signal,
     });
     expect(requestNextStepMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('dispatches an explicit checkout step through its executor and reports checkout details', async () => {
+    const setup = buildSetupStep();
+    const checkout = buildCheckoutStep({config: {checkout: {path: 'services/api'}}});
+    const checkoutResult = {
+      repository: 'https://github.com/acme/api.git',
+      ref: 'main',
+      commit: 'abc123',
+      path: '/work/services/api',
+    };
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(checkout, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeCheckoutStepMock.mockResolvedValueOnce({
+      result: {success: true, checkout: checkoutResult, error: null, exit_code: 0},
+    });
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(executeCheckoutStepMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/work',
+        step: checkout,
+        attempt: 1,
+        destinations: expect.any(Map),
+        log: expect.any(Object),
+      }),
+    );
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({stepId: checkout.id, checkout: checkoutResult}),
+    );
+  });
+
+  it('keeps checkout ownership across a repeated checkout dispatch', async () => {
+    const setup = buildSetupStep();
+    const checkout = buildCheckoutStep({config: {checkout: {path: 'repo'}}});
+    const checkoutResult = {
+      repository: 'https://github.com/acme/repo.git',
+      ref: 'main',
+      commit: 'abc123',
+      path: '/work/repo',
+    };
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(checkout, 1))
+      .mockResolvedValueOnce(stepResponse(checkout, 2))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeCheckoutStepMock.mockResolvedValue({
+      result: {success: true, checkout: checkoutResult, error: null, exit_code: 0},
+    });
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(executeCheckoutStepMock).toHaveBeenCalledTimes(2);
+    const firstDestinations = executeCheckoutStepMock.mock.calls[0]?.[0].destinations;
+    const secondDestinations = executeCheckoutStepMock.mock.calls[1]?.[0].destinations;
+    expect(secondDestinations).toBe(firstDestinations);
+    expect(secondDestinations.get('/work/repo')).toEqual({
+      repository: checkoutResult.repository,
+      ref: checkoutResult.ref,
+      result: checkoutResult,
+    });
   });
 
   it('reports run step outputs', async () => {
@@ -1775,6 +1848,17 @@ function buildAgentStep(overrides: Partial<StepDto> = {}): StepDto {
     name: 'implement',
     type: 'agent',
     config: {model: 'claude-opus-4-8', thinking: 'high', prompt: 'Fix it.'},
+    position: 1,
+    ...overrides,
+  });
+}
+
+function buildCheckoutStep(overrides: Partial<StepDto> = {}): StepDto {
+  return buildStep({
+    id: '00000000-0000-0000-0000-0000000000d0',
+    name: 'Checkout',
+    type: 'checkout',
+    config: {checkout: {path: 'repo'}},
     position: 1,
     ...overrides,
   });
