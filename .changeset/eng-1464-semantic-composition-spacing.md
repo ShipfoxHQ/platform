@@ -2,4 +2,4 @@
 "@shipfox/react-ui": minor
 ---
 
-Adds semantic composition-margin, `ms-inline` badge-separation, and horizontal-padding roles to the shared UI stylesheet.
+Adds the `my-region`, `mt-page`, `ms-inline`, `-mt-inline`, `-mr-inline`, and `px-tight` utilities to the shared UI stylesheet.
