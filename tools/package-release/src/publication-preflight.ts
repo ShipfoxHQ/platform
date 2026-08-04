@@ -64,9 +64,8 @@ export function readPublicationClosurePackages(root: string): Promise<Publicatio
   return readPublicationPackages(resolvePublicationManifests(root, config.packages));
 }
 
-// The publication closure is only the application runtime graph. `changeset publish` also releases
-// the public `tools/*` packages, so the registry check has to span everything changesets will
-// attempt rather than the closure alone.
+// The publication closure is only the application runtime graph. `changeset publish` can also
+// release public `tools/*` packages, so registry checks include every changed public manifest.
 export async function readChangesetPublishablePackages(
   root: string,
 ): Promise<PublicationPackage[]> {
@@ -81,6 +80,34 @@ export async function readChangesetPublishablePackages(
       typeof manifest.version === 'string' &&
       manifest.private !== true &&
       !ignored.has(manifest.name),
+  );
+}
+
+export function selectPublishablePackagesByManifestPaths(
+  packages: PublicationPackage[],
+  manifestPaths: Iterable<string>,
+): PublicationPackage[] {
+  const selectedPaths = new Set(manifestPaths);
+  return packages.filter(({manifestPath}) => selectedPaths.has(manifestPath));
+}
+
+export async function readChangedPublishablePackages(
+  root: string,
+  baseRevision: string,
+): Promise<PublicationPackage[]> {
+  const changedPaths = (
+    await execFileText(
+      'git',
+      ['diff', '--name-only', baseRevision, 'HEAD', '--', 'apps', 'e2e', 'infra', 'libs', 'tools'],
+      root,
+    )
+  )
+    .split('\n')
+    .filter((path) => path.endsWith('/package.json'))
+    .map((path) => resolve(root, path));
+  return selectPublishablePackagesByManifestPaths(
+    await readChangesetPublishablePackages(root),
+    changedPaths,
   );
 }
 
@@ -358,9 +385,9 @@ export function findUnsupportedProtocol(value: unknown, path = 'package.json'): 
   return undefined;
 }
 
-function execFileText(command: string, args: string[]): Promise<string> {
+function execFileText(command: string, args: string[], cwd?: string): Promise<string> {
   return new Promise((resolvePromise, reject) => {
-    execFile(command, args, (error, stdout, stderr) => {
+    execFile(command, args, {cwd}, (error, stdout, stderr) => {
       if (error)
         reject(new Error(`${command} ${args.join(' ')} failed: ${stderr || error.message}`));
       else resolvePromise(stdout);
@@ -375,7 +402,9 @@ function safePackageName(name: string): string {
 async function main() {
   const root = getRepositoryRoot(import.meta.url);
   await preflightPublicationClosure(root);
-  await assertPublishableVersions(await readChangesetPublishablePackages(root));
+  const baseRevision = process.env.SHIPFOX_PUBLICATION_REGISTRY_BASE;
+  if (baseRevision)
+    await assertPublishableVersions(await readChangedPublishablePackages(root, baseRevision));
 }
 
 const entryPoint = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;

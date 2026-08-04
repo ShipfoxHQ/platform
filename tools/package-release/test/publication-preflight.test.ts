@@ -8,6 +8,7 @@ import {
   preflightPublicationClosure,
   readChangesetPublishablePackages,
   readPublicationClosurePackages,
+  selectPublishablePackagesByManifestPaths,
   validatePackedPackageManifest,
 } from '../src/publication-preflight.js';
 
@@ -175,6 +176,18 @@ test('rejects a tool package whose version is already on the registry', async ()
       name === '@shipfox/tool' ? new Set(['0.1.5']) : new Set(),
     ),
     publishedToolVersionError,
+  );
+});
+
+test('limits registry checks to package manifests changed since the release base', async () => {
+  const root = createPublishFixture();
+  const packages = await readChangesetPublishablePackages(root);
+
+  assert.deepEqual(
+    selectPublishablePackagesByManifestPaths(packages, [
+      join(root, 'tools', 'tool', 'package.json'),
+    ]).map(({manifest}) => `${manifest.name}@${manifest.version}`),
+    ['@shipfox/tool@0.1.5'],
   );
 });
 
