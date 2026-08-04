@@ -1,5 +1,21 @@
 # @shipfox/react-ui
 
+## 1.0.0
+
+### Major Changes
+
+- 5c56ba6: Moves `@shipfox/react-ui` to `1.0.0`, clearing versions already occupied on npm by an
+  earlier lineage. No source, component, or export changed. Consumers using a version
+  range should repin to `^1.0.0`.
+
+### Patch Changes
+
+- 88bf8e8: Migrates the shell, auth, secrets, logs, workspace-settings, config, and invitations
+  surfaces to semantic spacing roles and brings them under the `no-raw-spacing` Biome
+  plugin. Adds shared menu-surface and edge-specific panel roles for existing spacing
+  contracts.
+- 6aa6c7a: Migrates the integrations, triggers, runners, and projects client surfaces to semantic spacing roles and enables `no-raw-spacing` for them. Adds the `gap-x-*` and `gap-y-*` axis roles and the `-mx-inline` bleed role so grids with differing column and row rhythm, and rows that cancel their own `px-tight`, stay on the density-aware scale.
+
 ## 0.5.0
 
 ### Minor Changes
