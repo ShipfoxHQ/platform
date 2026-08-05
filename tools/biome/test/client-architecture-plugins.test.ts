@@ -198,6 +198,7 @@ describe('client-architecture Biome plugins', () => {
         '**/libs/client/triggers/**',
         '**/libs/client/runners/**',
         '**/libs/client/projects/**',
+        '**/libs/client/agent/**',
         '!**/dist/**',
         '!**/node_modules/**',
         '!**/*.test.ts',

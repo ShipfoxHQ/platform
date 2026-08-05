@@ -151,10 +151,10 @@ export function CustomModelProviderForm({
 
   return (
     <>
-      <ModalBody className="min-h-0 flex-1 gap-0 overflow-y-auto overflow-x-clip scrollbar">
+      <ModalBody className="min-h-0 flex-1 gap-group overflow-y-auto overflow-x-clip scrollbar">
         <form
           id={CUSTOM_MODEL_PROVIDER_FORM_ID}
-          className="flex w-full flex-col gap-24"
+          className="flex w-full flex-col gap-section"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -166,7 +166,7 @@ export function CustomModelProviderForm({
             {(values) => (
               <>
                 <FormGroup title="Provider">
-                  <div className="grid grid-cols-2 gap-12 max-[640px]:grid-cols-1">
+                  <div className="grid grid-cols-2 gap-cluster max-[640px]:grid-cols-1">
                     <form.Field
                       name="display_name"
                       validators={{
@@ -234,7 +234,7 @@ export function CustomModelProviderForm({
                     </form.Field>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-12 max-[640px]:grid-cols-1">
+                  <div className="grid grid-cols-2 gap-cluster max-[640px]:grid-cols-1">
                     <form.Field name="api">
                       {(field) => (
                         <FormField label="Protocol" id="custom-provider-api">
@@ -320,7 +320,7 @@ export function CustomModelProviderForm({
                 </FormGroup>
 
                 <FormGroup title="Models">
-                  <div className="flex flex-wrap items-center justify-between gap-8">
+                  <div className="flex flex-wrap items-center justify-between gap-inline">
                     <Button
                       type="button"
                       size="sm"
@@ -417,8 +417,8 @@ export function CustomModelProviderForm({
           </form.Subscribe>
         </form>
         {formError ? (
-          <Callout role="alert" type="error" className="mt-16">
-            <div className="flex flex-col gap-8">
+          <Callout role="alert" type="error">
+            <div className="flex flex-col gap-inline">
               <Text size="sm" bold>
                 Could not save provider
               </Text>
@@ -441,7 +441,7 @@ export function CustomModelProviderForm({
 
 function FormGroup({title, children}: {title: string; children: ReactNode}) {
   return (
-    <section className="flex flex-col gap-16 border-t border-border-neutral-base pt-16 first:border-t-0 first:pt-0">
+    <section className="flex flex-col gap-group border-t border-border-neutral-base pt-[16px] first:border-t-0 first:pt-0">
       <Text size="xs" className="font-medium uppercase text-foreground-neutral-muted">
         {title}
       </Text>
@@ -460,11 +460,11 @@ function HeaderRows({
   const addButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-inline">
       {rows.map((row, index) => (
         <div
           key={row.client_id}
-          className="grid grid-cols-[1fr_1fr_auto_auto] items-end gap-x-8 gap-y-4 max-[760px]:grid-cols-1"
+          className="grid grid-cols-[1fr_1fr_auto_auto] items-end gap-x-inline gap-y-tight max-[760px]:grid-cols-1"
         >
           <FormField label="Name" id={`custom-header-name-${row.client_id}`}>
             <FormFieldInput
@@ -485,7 +485,7 @@ function HeaderRows({
               }
             />
           </FormField>
-          <div className="flex h-32 items-center gap-8 text-sm text-foreground-neutral-muted">
+          <div className="flex h-32 items-center gap-inline text-sm text-foreground-neutral-muted">
             <Switch
               size="sm"
               aria-label={`Mark header ${index + 1} as secret`}
@@ -553,10 +553,13 @@ function ModelRows({
   const addButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-inline">
       {rows.map((row, index) => (
-        <div key={row.client_id} className="rounded-8 border border-border-neutral-base p-12">
-          <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-8 max-[760px]:grid-cols-1">
+        <div
+          key={row.client_id}
+          className="flex flex-col gap-inline rounded-8 border border-border-neutral-base p-panel-compact"
+        >
+          <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-inline max-[760px]:grid-cols-1">
             <FormField label="Model id" id={`custom-model-id-${row.client_id}`}>
               <FormFieldInput
                 className="font-code"
@@ -574,7 +577,7 @@ function ModelRows({
                 }
               />
             </FormField>
-            <div className="flex items-center gap-8">
+            <div className="flex items-center gap-inline">
               {defaultModel && row.id === defaultModel ? (
                 <Badge variant="neutral">Default</Badge>
               ) : null}
@@ -596,14 +599,14 @@ function ModelRows({
               />
             </div>
           </div>
-          <Collapsible>
+          <Collapsible className="flex flex-col">
             <CollapsibleTrigger asChild>
-              <Button type="button" size="sm" variant="transparentMuted" className="mt-8">
+              <Button type="button" size="sm" variant="transparentMuted">
                 Defaults: 128k context, 16k output, text-only
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <div className="mt-8 grid grid-cols-2 gap-8 max-[640px]:grid-cols-1">
+              <div className="grid grid-cols-2 gap-inline pt-[8px] max-[640px]:grid-cols-1">
                 <FormField label="Context window" id={`custom-model-context-${row.client_id}`}>
                   <FormFieldInput
                     type="number"
@@ -631,7 +634,7 @@ function ModelRows({
                     }
                   />
                 </FormField>
-                <div className="flex h-32 items-center gap-8 text-sm text-foreground-neutral-muted">
+                <div className="flex h-32 items-center gap-inline text-sm text-foreground-neutral-muted">
                   <Switch
                     size="sm"
                     aria-label={`Enable image input for model ${index + 1}`}
@@ -642,7 +645,7 @@ function ModelRows({
                   />
                   Image input
                 </div>
-                <div className="flex h-32 items-center gap-8 text-sm text-foreground-neutral-muted">
+                <div className="flex h-32 items-center gap-inline text-sm text-foreground-neutral-muted">
                   <Switch
                     size="sm"
                     aria-label={`Enable reasoning for model ${index + 1}`}

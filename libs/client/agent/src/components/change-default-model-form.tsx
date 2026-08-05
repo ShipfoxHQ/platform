@@ -49,10 +49,10 @@ export function ChangeDefaultModelForm({
 
   return (
     <>
-      <ModalBody className="gap-16">
+      <ModalBody className="gap-group">
         <form
           id={CHANGE_DEFAULT_MODEL_FORM_ID}
-          className="flex w-full flex-col gap-14"
+          className="flex w-full flex-col gap-cluster"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -80,7 +80,7 @@ export function ChangeDefaultModelForm({
         </form>
         {formError ? (
           <Callout role="alert" type="error">
-            <div className="flex flex-col gap-8">
+            <div className="flex flex-col gap-inline">
               <Text size="sm" bold>
                 Could not save default model
               </Text>

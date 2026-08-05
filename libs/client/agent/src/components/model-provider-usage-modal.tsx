@@ -109,7 +109,7 @@ export function ModelProviderUsageModal({
           {target ? `Use ${target.label} in a workflow` : 'Use provider in a workflow'}
         </ModalTitle>
         <ModalHeader>
-          <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-tight">
             <Text size="lg" aria-hidden="true" className="truncate">
               {target ? `Use ${target.label} in a workflow` : 'Use provider in a workflow'}
             </Text>
@@ -121,10 +121,10 @@ export function ModelProviderUsageModal({
         {target && example ? (
           <>
             <ModalBody className="min-h-0 flex-1 gap-0 overflow-y-auto overflow-x-clip scrollbar">
-              <div className="flex w-full flex-col gap-20">
+              <div className="flex w-full flex-col gap-section">
                 {compatibleIds.length === 1 ? (
-                  <div className="flex flex-col gap-12">
-                    <div className="flex min-h-40 items-center justify-between gap-12 rounded-8 border border-border-neutral-base px-12 py-8">
+                  <div className="flex flex-col gap-cluster">
+                    <div className="flex min-h-40 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base px-row py-row">
                       <Text size="sm" className="text-foreground-neutral-muted">
                         Harness
                       </Text>
@@ -146,7 +146,7 @@ export function ModelProviderUsageModal({
                     />
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-12 sm:flex-row sm:gap-12">
+                  <div className="flex flex-col gap-cluster sm:flex-row sm:gap-cluster">
                     <Combobox
                       aria-label="Harness"
                       options={harnessOptions}
@@ -174,7 +174,7 @@ export function ModelProviderUsageModal({
                   </div>
                 )}
 
-                <div className="flex flex-col gap-8">
+                <div className="flex flex-col gap-inline">
                   <CodeBlock data={data} className="h-auto min-h-0 rounded-8">
                     <CodeBlockHeader>
                       <CodeBlockFiles>
@@ -210,7 +210,7 @@ export function ModelProviderUsageModal({
                   </Text>
                 </div>
 
-                <div className="flex flex-col gap-8">
+                <div className="flex flex-col gap-inline">
                   <Text size="sm" bold>
                     Available models ({target.models.length})
                   </Text>
@@ -286,7 +286,7 @@ function ModelProviderModelRow({label, id}: {label: string; id: string}) {
           <button
             type="button"
             aria-label={`Copy ${label} model id ${id}`}
-            className="flex min-h-40 w-full min-w-0 flex-col items-start gap-2 px-12 py-8 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none sm:flex-row sm:items-center sm:gap-8"
+            className="flex min-h-40 w-full min-w-0 flex-col items-start gap-tight px-row py-row text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none sm:flex-row sm:items-center sm:gap-inline"
             onClick={() => {
               void handleCopy();
             }}
