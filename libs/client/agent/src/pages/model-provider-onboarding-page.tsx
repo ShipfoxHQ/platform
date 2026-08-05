@@ -174,35 +174,39 @@ export function ModelProviderOnboardingPage({
                 : ''}
             </Text>
           </ModalHeader>
-          {onboarding.step === 'saving-default-harness' ? (
-            <div role="status" className="px-row pb-[8px]">
-              <Text size="sm" className="text-foreground-neutral-muted">
-                Saving harness default...
-              </Text>
-            </div>
-          ) : null}
-          {onboarding.step === 'saving-default-harness' && onboarding.error ? (
-            <div className="px-row pb-[8px]">
-              <Callout role="alert" type="error">
-                <div className="flex flex-col gap-inline">
-                  <Text size="sm" bold>
-                    Could not save default harness
-                  </Text>
-                  <Text size="sm">{onboarding.error}</Text>
-                </div>
-              </Callout>
-            </div>
-          ) : null}
           {onboarding.step === 'configure-provider' ||
           onboarding.step === 'saving-default-harness' ? (
-            <ModelProviderTestAndSaveForm
-              workspaceId={workspaceId}
-              entry={onboarding.provider}
-              setAsDefaultOnSave
-              onSaved={() => {
-                void handleProviderSaved();
-              }}
-            />
+            <div className="flex min-h-0 flex-1 flex-col gap-inline">
+              {onboarding.step === 'saving-default-harness' ? (
+                <div role="status" className="px-row">
+                  <Text size="sm" className="text-foreground-neutral-muted">
+                    Saving harness default...
+                  </Text>
+                </div>
+              ) : null}
+              {onboarding.step === 'saving-default-harness' && onboarding.error ? (
+                <div className="px-row">
+                  <Callout role="alert" type="error">
+                    <div className="flex flex-col gap-inline">
+                      <Text size="sm" bold>
+                        Could not save default harness
+                      </Text>
+                      <Text size="sm">{onboarding.error}</Text>
+                    </div>
+                  </Callout>
+                </div>
+              ) : null}
+              <div className="flex min-h-0 flex-1 flex-col">
+                <ModelProviderTestAndSaveForm
+                  workspaceId={workspaceId}
+                  entry={onboarding.provider}
+                  setAsDefaultOnSave
+                  onSaved={() => {
+                    void handleProviderSaved();
+                  }}
+                />
+              </div>
+            </div>
           ) : null}
         </ModalContent>
       </Modal>
