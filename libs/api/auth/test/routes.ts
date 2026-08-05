@@ -73,6 +73,7 @@ vi.mock('@shipfox/node-mailer', () => ({mailer: testConfig.mailer}));
 const CODE_RE = /\b\d{8}\b/u;
 const TOKEN_RE = /token=([\w\-_=]+)/;
 type AuthEmailEventType = typeof AUTH_PASSWORD_RESET_SEND_REQUESTED;
+type InjectResponse = Awaited<ReturnType<FastifyInstance['inject']>>;
 
 export const ROUTE_TEST_SECRET = userAccessTokenKey();
 export const acceptWorkspaceInvitationMock: ReturnType<typeof vi.fn> =
@@ -172,7 +173,7 @@ export async function createAuthTestApp(params?: {
 export async function signup(
   app: FastifyInstance,
   params: {email: string; password: string; name?: string},
-) {
+): Promise<InjectResponse> {
   const result = await app.inject({
     method: 'POST',
     url: '/auth/signup',
@@ -198,7 +199,10 @@ export async function verifyEmail(
   expect(res.statusCode).toBe(200);
 }
 
-export async function login(app: FastifyInstance, params: {email: string; password: string}) {
+export async function login(
+  app: FastifyInstance,
+  params: {email: string; password: string},
+): Promise<InjectResponse> {
   return await app.inject({
     method: 'POST',
     url: '/auth/login',
