@@ -7,6 +7,7 @@ import type {Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {type ReactNode, useState} from 'react';
 import type {Job, JobExecution, WorkflowRunDetail} from '#core/workflow-run.js';
+import {runAnnotationsQueryKeys} from '#hooks/api/run-annotations.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
 import {
   workflowJob,
@@ -170,6 +171,10 @@ function StoryQueryProvider({
       defaultOptions: {queries: {staleTime: Number.POSITIVE_INFINITY}},
     });
     if (run) {
+      client.setQueryData(runAnnotationsQueryKeys.list(run.id, run.runAttempt.attempt), {
+        pages: [{annotations: [], hasMore: false, nextCursor: null}],
+        pageParams: [undefined],
+      });
       for (const job of run.jobs) {
         for (const execution of job.jobExecutions) {
           for (const step of execution.steps) {

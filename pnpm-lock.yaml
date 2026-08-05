@@ -6110,6 +6110,9 @@ importers:
 
   libs/client/workflows:
     dependencies:
+      '@shipfox/annotations-dto':
+        specifier: workspace:*
+        version: link:../../api/annotations-dto
       '@shipfox/api-definitions-dto':
         specifier: workspace:*
         version: link:../../api/definitions-dto

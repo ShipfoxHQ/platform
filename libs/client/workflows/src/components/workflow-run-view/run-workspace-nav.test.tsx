@@ -27,6 +27,50 @@ describe('RunWorkspaceNav', () => {
     vi.useRealTimers();
   });
 
+  test('announces the annotation count with its unit and marks a truncated read', async () => {
+    const run = workflowRunDetail({
+      id: RUN_ID,
+      jobs: [workflowJobDto({id: CURRENT_JOB_ID, name: 'build', position: 0})],
+    });
+
+    renderWithRouter(
+      <RunWorkspaceNav
+        workspaceSlug="acme"
+        projectSlug="project"
+        run={run}
+        activeSection="summary"
+        annotationSummary={{
+          total: 500,
+          error: 12,
+          warning: 3,
+          info: 0,
+          success: 0,
+          truncated: true,
+        }}
+      />,
+    );
+
+    expect(await screen.findByRole('link', {name: 'Annotations, 500 or more'})).toBeVisible();
+  });
+
+  test('omits the annotation count until the read resolves', async () => {
+    const run = workflowRunDetail({
+      id: RUN_ID,
+      jobs: [workflowJobDto({id: CURRENT_JOB_ID, name: 'build', position: 0})],
+    });
+
+    renderWithRouter(
+      <RunWorkspaceNav
+        workspaceSlug="acme"
+        projectSlug="project"
+        run={run}
+        activeSection="summary"
+      />,
+    );
+
+    expect(await screen.findByRole('link', {name: 'Annotations'})).toBeVisible();
+  });
+
   test('shows the complete run hierarchy and marks the current job', async () => {
     const run = workflowRunDetail({
       id: RUN_ID,

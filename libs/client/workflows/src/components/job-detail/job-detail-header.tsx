@@ -4,6 +4,7 @@ import {Code, Text} from '@shipfox/react-ui/typography';
 import {formatTimestamp} from '@shipfox/react-ui/utils';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
+import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {
   defaultJobExecution,
   deriveJobDisplayStatus,
@@ -11,6 +12,7 @@ import {
   type Job,
   type JobExecution,
 } from '#core/workflow-run.js';
+import {RunAnnotationCountChip} from '../workflow-run-tabs/index.js';
 import {JobExecutionSwitcher} from './job-execution-switcher.js';
 import {JobExecutionTimeText} from './job-execution-time-text.js';
 
@@ -18,12 +20,23 @@ export interface JobDetailHeaderProps {
   job: Job;
   selectedJobExecution: JobExecution | undefined;
   onSelectedJobExecutionChange: (jobExecutionId: string) => void;
+  workspaceSlug: string;
+  projectSlug: string;
+  workflowRunId: string;
+  runAttempt?: number | undefined;
+  /** Counts for this job only. Renders a link into the run's Annotations section, never a body. */
+  annotationSummary?: RunAnnotationSummary | undefined;
 }
 
 export function JobDetailHeader({
   job,
   selectedJobExecution,
   onSelectedJobExecutionChange,
+  workspaceSlug,
+  projectSlug,
+  workflowRunId,
+  runAttempt,
+  annotationSummary,
 }: JobDetailHeaderProps) {
   const selectedStatus = selectedExecutionStatus(job, selectedJobExecution);
   const jobStatus = getWorkflowStatusVisual(selectedStatus);
@@ -39,7 +52,7 @@ export function JobDetailHeader({
             ariaLabel={`Job status: ${jobStatus.label}`}
           />
           <Code
-            as="h1"
+            as="h2"
             variant="paragraph"
             bold
             tabIndex={-1}
@@ -50,9 +63,9 @@ export function JobDetailHeader({
           </Code>
         </div>
 
-        {selectedJobExecution ? (
+        {selectedJobExecution || annotationSummary?.total ? (
           <div className="flex min-w-0 flex-wrap items-center gap-10 text-foreground-neutral-muted">
-            {job.executionCountVisible ? (
+            {selectedJobExecution && job.executionCountVisible ? (
               <JobExecutionSwitcher
                 job={job}
                 selectedJobExecution={selectedJobExecution.id}
@@ -60,8 +73,20 @@ export function JobDetailHeader({
                 variant="title"
               />
             ) : null}
-            <JobDurationMeta execution={selectedJobExecution} kind="queue" />
-            <JobDurationMeta execution={selectedJobExecution} kind="run" />
+            {selectedJobExecution ? (
+              <>
+                <JobDurationMeta execution={selectedJobExecution} kind="queue" />
+                <JobDurationMeta execution={selectedJobExecution} kind="run" />
+              </>
+            ) : null}
+            <RunAnnotationCountChip
+              summary={annotationSummary}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              workflowRunId={workflowRunId}
+              runAttempt={runAttempt}
+              jobId={job.id}
+            />
           </div>
         ) : null}
       </div>

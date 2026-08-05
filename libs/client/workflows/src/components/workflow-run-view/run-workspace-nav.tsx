@@ -6,13 +6,13 @@ import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
+import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {
   defaultJobExecution,
   deriveJobDisplayStatus,
   type Job,
   type WorkflowRunDetail,
 } from '#core/workflow-run.js';
-import type {RunAnnotationSummary} from '#core/workflow-run-tabs.js';
 import {
   type WorkflowJobSearch,
   type WorkflowRunTab,
@@ -224,6 +224,7 @@ function RunWorkspaceNavContent({
               section="annotations"
               current={!currentJobId && activeSection === 'annotations'}
               count={annotationSummary?.total}
+              countTruncated={annotationSummary?.truncated}
               onNavigate={onNavigate}
             />
           </li>
@@ -252,6 +253,7 @@ function RunSectionLink({
   section,
   current,
   count,
+  countTruncated = false,
   onNavigate,
 }: {
   workspaceSlug: string;
@@ -261,6 +263,8 @@ function RunSectionLink({
   section: RunWorkspaceSection;
   current: boolean;
   count?: number | undefined;
+  /** The read hit its page budget, so the count is a lower bound and renders as `N+`. */
+  countTruncated?: boolean | undefined;
   onNavigate?: (() => void) | undefined;
 }) {
   return (
@@ -275,6 +279,11 @@ function RunSectionLink({
       }
       onClick={onNavigate}
       aria-current={current ? 'page' : undefined}
+      aria-label={
+        count
+          ? `${sectionLabel(section)}, ${countTruncated ? `${count} or more` : count}`
+          : undefined
+      }
       className={cn(
         'flex min-h-32 items-center gap-8 rounded-4 px-8 text-xs font-medium text-foreground-neutral-base outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',
         current && 'bg-background-neutral-hover',
@@ -282,8 +291,12 @@ function RunSectionLink({
     >
       {sectionLabel(section)}
       {count ? (
-        <span className="ml-auto font-code text-xs text-foreground-neutral-muted tabular-nums">
+        <span
+          aria-hidden="true"
+          className="ml-auto font-code text-xs text-foreground-neutral-muted tabular-nums"
+        >
           {count}
+          {countTruncated ? '+' : ''}
         </span>
       ) : null}
     </Link>

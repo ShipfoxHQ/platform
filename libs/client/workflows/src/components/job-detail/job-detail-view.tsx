@@ -10,7 +10,9 @@ import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
 import {type RefObject, useEffect, useRef} from 'react';
+import {summarizeJobAnnotations} from '#core/run-annotation.js';
 import type {Job, JobExecution} from '#core/workflow-run.js';
+import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
 import {
   type WorkflowJobSearch,
@@ -66,6 +68,16 @@ export function JobDetailView({
   const pageScrollRef = useRef<HTMLDivElement>(null);
   const landingSelectionRef = useRef<FrozenLandingSelection | undefined>(undefined);
   const hasLoadedData = query.data !== undefined;
+  // Same query key as the run workspace, so this reads the cache instead of fetching again.
+  const annotations = useRunAnnotationsQuery({
+    workflowRunId,
+    runAttempt: query.data?.runAttempt.attempt,
+  });
+  const jobAnnotationSummary = annotations.annotations
+    ? summarizeJobAnnotations(annotations.annotations, jobId, {
+        truncated: annotations.summary?.truncated ?? false,
+      })
+    : undefined;
 
   useEffect(() => {
     if (!jobId || !hasLoadedData) return;
@@ -206,8 +218,13 @@ export function JobDetailView({
                 job={job}
                 selectedJobExecution={selectedJobExecution}
                 onSelectedJobExecutionChange={selectExecution}
+                workspaceSlug={workspaceSlug}
+                projectSlug={projectSlug}
+                workflowRunId={workflowRunId}
+                runAttempt={run.runAttempt.attempt}
+                annotationSummary={jobAnnotationSummary}
               />
-              <Text as="h2" className="sr-only">
+              <Text as="h3" className="sr-only">
                 Logs
               </Text>
               {selectedJobExecution ? (

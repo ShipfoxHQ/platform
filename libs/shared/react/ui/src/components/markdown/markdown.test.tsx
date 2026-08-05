@@ -63,7 +63,9 @@ describe('Markdown', () => {
 [docs](https://example.com/docs)
 `);
 
-    expect(getByRole('table')).not.toBeNull();
+    const table = getByRole('table');
+    expect(table.classList.contains('w-auto')).toBe(true);
+    expect(table.classList.contains('min-w-full')).toBe(false);
     expect(getByText('one')).not.toBeNull();
     const link = getByRole('link', {name: DOCS_LINK_NAME});
     expect(link.getAttribute('href')).toBe('https://example.com/docs');

@@ -1,3 +1,4 @@
+import {RUN_ANNOTATION_SEVERITIES, type RunAnnotationSeverity} from '#core/run-annotation.js';
 import type {WorkflowRunSelectionInput} from '#core/workflow-run-url-state.js';
 
 /**
@@ -12,9 +13,13 @@ export const WORKFLOW_RUN_TABS = ['summary', 'jobs', 'annotations', 'source'] as
 
 export type WorkflowRunTab = (typeof WORKFLOW_RUN_TABS)[number];
 
-export const WORKFLOW_RUN_ANNOTATION_SEVERITIES = ['error', 'warning', 'info', 'success'] as const;
+/**
+ * The `severity` parameter's vocabulary is the display severity set, not a second list: a URL
+ * that could name a severity the list cannot rank would be a filter with no matching rows.
+ */
+export const WORKFLOW_RUN_ANNOTATION_SEVERITIES = RUN_ANNOTATION_SEVERITIES;
 
-export type WorkflowRunAnnotationSeverity = (typeof WORKFLOW_RUN_ANNOTATION_SEVERITIES)[number];
+export type WorkflowRunAnnotationSeverity = RunAnnotationSeverity;
 
 export interface WorkflowRunsSearch extends WorkflowRunSelectionInput {
   search?: string;
