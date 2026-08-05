@@ -65,7 +65,7 @@ describe('onIntegrationConnectionAvailable', () => {
         taskQueue: 'definitions-sync',
         workflowId: `definition-sync:${candidate.id}:integration:${event.id}`,
         workflowIdConflictPolicy: 'USE_EXISTING',
-        workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+        workflowIdReusePolicy: 'REJECT_DUPLICATE',
         args: [
           {
             projectId: candidate.id,
@@ -78,6 +78,34 @@ describe('onIntegrationConnectionAvailable', () => {
         ],
       });
     }
+  });
+
+  it('treats an already-started event-keyed sync as successfully delivered', async () => {
+    const workspaceId = crypto.randomUUID();
+    const candidate = project('first', workspaceId);
+    const alreadyStarted = new Error('Workflow execution already started');
+    alreadyStarted.name = 'WorkflowExecutionAlreadyStartedError';
+    startMock.mockRejectedValue(alreadyStarted);
+    const handler = createOnIntegrationConnectionAvailable({
+      listProjectsByWorkspace: vi.fn(() =>
+        Promise.resolve({projects: [candidate], nextCursor: null}),
+      ),
+    } as never);
+    const payload: IntegrationConnectionAvailableEvent = {
+      provider: 'linear',
+      workspaceId,
+      connectionId: crypto.randomUUID(),
+      slug: 'linear_shipfox',
+    };
+
+    await expect(
+      handler(payload, {
+        id: crypto.randomUUID(),
+        type: 'integrations.connection.available',
+        payload,
+        createdAt: new Date(),
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it('rethrows project lookup failures so the outbox event can retry', async () => {

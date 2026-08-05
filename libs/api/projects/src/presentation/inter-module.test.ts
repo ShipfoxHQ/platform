@@ -109,9 +109,10 @@ describe('Projects checkout target inter-module presentation', () => {
     });
     expect(secondPage.projects).toHaveLength(1);
     expect(secondPage.nextCursor).toBeNull();
-    expect([...firstPage.projects, ...secondPage.projects].map((project) => project.id)).toEqual(
-      expect.arrayContaining([first.projectId, second.projectId]),
-    );
+    const projectIds = [...firstPage.projects, ...secondPage.projects]
+      .map((project) => project.id)
+      .sort();
+    expect(projectIds).toEqual([first.projectId, second.projectId].sort());
   });
 
   test('resolves a project by its workspace-scoped source repository', async () => {
