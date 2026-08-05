@@ -52,10 +52,15 @@ const withRouter: Decorator = (Story) => {
     path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: () => <Story />,
   });
+  const jobDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId/jobs/$jobId',
+    component: () => <Story />,
+  });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([runRoute]),
+    routeTree: rootRoute.addChildren([runRoute, jobDetailRoute]),
     history: createMemoryHistory({
-      initialEntries: ['/w/ws-demo/p/proj-demo/runs/run-1'],
+      initialEntries: ['/w/ws-demo/p/proj-demo/runs/run-1/jobs/job-1'],
     }),
   });
   return <RouterProvider router={router} />;

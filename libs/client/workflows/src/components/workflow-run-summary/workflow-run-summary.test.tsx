@@ -1,7 +1,11 @@
 import {render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {workflowRunDetailDto} from '#test/fixtures/workflow-run.js';
-import {workflowJobDto, workflowRunDetail} from '#test/fixtures/workflow-run.js';
+import {
+  workflowJobDto,
+  workflowJobExecutionDto,
+  workflowRunDetail,
+} from '#test/fixtures/workflow-run.js';
 import {WorkflowRunSummary} from './workflow-run-summary.js';
 
 const RUN_ID = '66666666-6666-4666-8666-666666666666';
@@ -125,9 +129,9 @@ describe('WorkflowRunSummary', () => {
     const heading = await screen.findByRole('heading', {name: runName});
 
     expect(heading).toHaveAttribute('data-slot', 'tooltip-trigger');
-    await waitFor(() =>
-      expect(within(heading).getByText(runName)).toHaveAttribute('title', runName),
-    );
+    // The Radix tooltip is the only name affordance: a native `title` beside it would fire a
+    // second, unstyled OS tooltip with the same text.
+    await waitFor(() => expect(within(heading).getByText(runName)).not.toHaveAttribute('title'));
   });
 
   test('shows the selected attempt duration, not the top-level run duration', async () => {
@@ -172,6 +176,61 @@ describe('WorkflowRunSummary', () => {
     const duration = screen.getByText('2m 14s');
     expect(duration).toBeInTheDocument();
     expect(duration).toHaveAttribute('aria-label', 'running 2m 14s');
+  });
+
+  test('reads a running run whose jobs have not started as queued', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-05-07T01:02:14.000Z'));
+    renderSummary({
+      jobs: [workflowJobDto({status: 'pending'})],
+      run_attempt: runningAttemptDto(),
+    });
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getAllByText('Queued')).not.toHaveLength(0);
+    expect(within(summary).queryByText('Running')).not.toBeInTheDocument();
+    expect(within(summary).getByText('2m 14s')).toHaveAttribute('aria-label', 'queued 2m 14s');
+  });
+
+  test('names the job a queued run is waiting on when there is more than one', async () => {
+    renderSummary({
+      jobs: [
+        workflowJobDto({
+          name: 'lint',
+          status: 'pending',
+          job_executions: [workflowJobExecutionDto({queued_at: '2026-05-07T01:00:00.000Z'})],
+        }),
+        workflowJobDto({
+          name: 'build',
+          status: 'pending',
+          job_executions: [workflowJobExecutionDto({queued_at: '2026-05-07T00:59:00.000Z'})],
+        }),
+      ],
+      run_attempt: runningAttemptDto(),
+    });
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getByText('waiting on')).toBeInTheDocument();
+    expect(within(summary).getByText('build')).toBeInTheDocument();
+  });
+
+  test('leaves the waiting job unnamed when the run has a single job', async () => {
+    renderSummary({
+      jobs: [
+        workflowJobDto({
+          name: 'build',
+          status: 'pending',
+          job_executions: [workflowJobExecutionDto({queued_at: '2026-05-07T01:00:00.000Z'})],
+        }),
+      ],
+      run_attempt: runningAttemptDto(),
+    });
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getAllByText('Queued')).not.toHaveLength(0);
+    expect(within(summary).queryByText('waiting on')).not.toBeInTheDocument();
   });
 
   test('does not render a whole-run source control', async () => {
@@ -250,7 +309,9 @@ describe('WorkflowRunSummary', () => {
     const onRerun = vi.fn();
     renderSummary({status: 'failed', jobs: [workflowJobDto({status: 'failed'})]}, {onRerun});
 
-    await user.click(await screen.findByRole('button', {name: 'Re-run jobs'}));
+    const rerunButton = await screen.findByRole('button', {name: 'Re-run jobs'});
+    expect(rerunButton).toHaveClass('bg-background-neutral-base');
+    await user.click(rerunButton);
     expect(await screen.findByRole('menuitem', {name: 'Re-run all jobs'})).toBeInTheDocument();
     await user.click(await screen.findByRole('menuitem', {name: 'Re-run failed jobs'}));
 
@@ -326,6 +387,19 @@ function renderSummary(
 
   // These cases never mount the attempt switcher links, so no router is needed.
   render(<WorkflowRunSummary run={run} {...props} />);
+}
+
+function runningAttemptDto() {
+  return {
+    id: '11111111-1111-4111-8111-000000000001',
+    workflow_run_id: RUN_ID,
+    attempt: 1,
+    status: 'running' as const,
+    created_at: '2026-05-07T01:01:00.000Z',
+    started_at: '2026-05-07T01:00:00.000Z',
+    finished_at: null,
+    rerun_mode: null,
+  };
 }
 
 function setElementWidths({scrollWidth, clientWidth}: {scrollWidth: number; clientWidth: number}) {

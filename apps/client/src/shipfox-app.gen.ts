@@ -31,16 +31,17 @@ import * as route24Module from "@shipfox/client-projects/routes/project-settings
 import * as route25Module from "@shipfox/client-workflows/routes/workflows";
 import * as route26Module from "@shipfox/client-workflows/routes/runs";
 import * as route27Module from "@shipfox/client-workflows/routes/run-detail";
-import * as route28Module from "@shipfox/client-agent/routes/model-provider";
-import * as route29Module from "@shipfox/client-agent/routes/agents-settings";
-import * as route30Module from "@shipfox/client-runners/routes/runners-settings";
-import * as route31Module from "@shipfox/client-runners/routes/provisioners-settings";
-import * as route32Module from "@shipfox/client-secrets/routes/secrets-settings";
-import * as route33Module from "@shipfox/client-secrets/routes/variables-settings";
-import * as route34Module from "@shipfox/client-triggers/routes/events-settings";
-import * as route35Module from "@shipfox/client-workspace-settings/routes/index";
-import * as route36Module from "@shipfox/client-workspace-settings/routes/members";
-import * as route37Module from "@shipfox/client-workspace-settings/routes/general";
+import * as route28Module from "@shipfox/client-workflows/routes/job-detail";
+import * as route29Module from "@shipfox/client-agent/routes/model-provider";
+import * as route30Module from "@shipfox/client-agent/routes/agents-settings";
+import * as route31Module from "@shipfox/client-runners/routes/runners-settings";
+import * as route32Module from "@shipfox/client-runners/routes/provisioners-settings";
+import * as route33Module from "@shipfox/client-secrets/routes/secrets-settings";
+import * as route34Module from "@shipfox/client-secrets/routes/variables-settings";
+import * as route35Module from "@shipfox/client-triggers/routes/events-settings";
+import * as route36Module from "@shipfox/client-workspace-settings/routes/index";
+import * as route37Module from "@shipfox/client-workspace-settings/routes/members";
+import * as route38Module from "@shipfox/client-workspace-settings/routes/general";
 
 function routeOptions<T extends RouteImpl>(routeImpl: T, impl: string, path: string): T['options'] {
   if (!isRouteImpl(routeImpl)) {
@@ -334,71 +335,77 @@ const route27 = createRoute({
 });
 
 const route28 = createRoute({
-  getParentRoute: () => skeleton.workspaceLayout,
-  path: "/model-provider",
-  ...routeOptions(route28Module.default, "@shipfox/client-agent/routes/model-provider", "/w/$workspaceSlug/model-provider"),
+  getParentRoute: () => skeleton.projectLayout,
+  path: "/runs/$workflowRunId/jobs/$jobId",
+  ...routeOptions(route28Module.default, "@shipfox/client-workflows/routes/job-detail", "/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId/jobs/$jobId"),
 });
 
 const route29 = createRoute({
-  getParentRoute: () => skeleton.workspaceSettings,
-  path: "/agents",
-  ...routeOptions(route29Module.default, "@shipfox/client-agent/routes/agents-settings", "/w/$workspaceSlug/settings/agents"),
+  getParentRoute: () => skeleton.workspaceLayout,
+  path: "/model-provider",
+  ...routeOptions(route29Module.default, "@shipfox/client-agent/routes/model-provider", "/w/$workspaceSlug/model-provider"),
 });
 
 const route30 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
-  path: "/runners",
-  ...routeOptions(route30Module.default, "@shipfox/client-runners/routes/runners-settings", "/w/$workspaceSlug/settings/runners"),
+  path: "/agents",
+  ...routeOptions(route30Module.default, "@shipfox/client-agent/routes/agents-settings", "/w/$workspaceSlug/settings/agents"),
 });
 
 const route31 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
-  path: "/provisioners",
-  ...routeOptions(route31Module.default, "@shipfox/client-runners/routes/provisioners-settings", "/w/$workspaceSlug/settings/provisioners"),
+  path: "/runners",
+  ...routeOptions(route31Module.default, "@shipfox/client-runners/routes/runners-settings", "/w/$workspaceSlug/settings/runners"),
 });
 
 const route32 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
-  path: "/secrets",
-  ...routeOptions(route32Module.default, "@shipfox/client-secrets/routes/secrets-settings", "/w/$workspaceSlug/settings/secrets"),
+  path: "/provisioners",
+  ...routeOptions(route32Module.default, "@shipfox/client-runners/routes/provisioners-settings", "/w/$workspaceSlug/settings/provisioners"),
 });
 
 const route33 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
-  path: "/variables",
-  ...routeOptions(route33Module.default, "@shipfox/client-secrets/routes/variables-settings", "/w/$workspaceSlug/settings/variables"),
+  path: "/secrets",
+  ...routeOptions(route33Module.default, "@shipfox/client-secrets/routes/secrets-settings", "/w/$workspaceSlug/settings/secrets"),
 });
 
 const route34 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
-  path: "/events",
-  ...routeOptions(route34Module.default, "@shipfox/client-triggers/routes/events-settings", "/w/$workspaceSlug/settings/events"),
+  path: "/variables",
+  ...routeOptions(route34Module.default, "@shipfox/client-secrets/routes/variables-settings", "/w/$workspaceSlug/settings/variables"),
 });
 
 const route35 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
-  path: "/",
-  ...routeOptions(route35Module.default, "@shipfox/client-workspace-settings/routes/index", "/w/$workspaceSlug/settings"),
+  path: "/events",
+  ...routeOptions(route35Module.default, "@shipfox/client-triggers/routes/events-settings", "/w/$workspaceSlug/settings/events"),
 });
 
 const route36 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
-  path: "/members",
-  ...routeOptions(route36Module.default, "@shipfox/client-workspace-settings/routes/members", "/w/$workspaceSlug/settings/members"),
+  path: "/",
+  ...routeOptions(route36Module.default, "@shipfox/client-workspace-settings/routes/index", "/w/$workspaceSlug/settings"),
 });
 
 const route37 = createRoute({
   getParentRoute: () => skeleton.workspaceSettings,
+  path: "/members",
+  ...routeOptions(route37Module.default, "@shipfox/client-workspace-settings/routes/members", "/w/$workspaceSlug/settings/members"),
+});
+
+const route38 = createRoute({
+  getParentRoute: () => skeleton.workspaceSettings,
   path: "/general",
-  ...routeOptions(route37Module.default, "@shipfox/client-workspace-settings/routes/general", "/w/$workspaceSlug/settings/general"),
+  ...routeOptions(route38Module.default, "@shipfox/client-workspace-settings/routes/general", "/w/$workspaceSlug/settings/general"),
 });
 
 const projectSettings = skeleton.projectSettings.addChildren([route23, route24]);
-const projectLayout = skeleton.projectLayout.addChildren([route22, route25, route26, route27,
+const projectLayout = skeleton.projectLayout.addChildren([route22, route25, route26, route27, route28,
   projectSettings]);
-const workspaceSettings = skeleton.workspaceSettings.addChildren([route19, route29, route30, route31, route32, route33, route34, route35, route36, route37]);
+const workspaceSettings = skeleton.workspaceSettings.addChildren([route19, route30, route31, route32, route33, route34, route35, route36, route37, route38]);
 const workspaceLayout = skeleton.workspaceLayout.addChildren([
-  route12, route13, route14, route15, route16, route17, route18, route20, route21, route28,
+  route12, route13, route14, route15, route16, route17, route18, route20, route21, route29,
   projectLayout,
   workspaceSettings,
 ]);

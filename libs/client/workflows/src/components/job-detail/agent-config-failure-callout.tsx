@@ -61,13 +61,13 @@ function agentConfigFailureCopy(
       };
     case 'provider_unsupported':
       return {
-        title: `Choose a supported model provider`,
+        title: 'Choose a supported model provider',
         description: `This step references ${provider}, which is not available to the agent runner. Update the workflow to use a supported provider, then re-run it.`,
         showProviderCta: false,
       };
     case 'model_unavailable':
       return {
-        title: `Choose an available model`,
+        title: 'Choose an available model',
         description: `This step uses ${model} with ${provider}, but that model is not available for the provider. Update the model or provider in the workflow, then re-run it.`,
         showProviderCta: false,
       };

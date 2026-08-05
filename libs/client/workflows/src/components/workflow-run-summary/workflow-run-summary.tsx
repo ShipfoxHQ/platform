@@ -11,8 +11,7 @@ import {useIsTextTruncated} from '@shipfox/react-ui/hooks';
 import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
-import {Header, Text} from '@shipfox/react-ui/typography';
-import {Link} from '@tanstack/react-router';
+import {Code, Header, Text} from '@shipfox/react-ui/typography';
 import {useId} from 'react';
 import {WorkflowRunNumberLabel} from '#components/workflow-run-number-label.js';
 import {
@@ -21,15 +20,20 @@ import {
   WORKFLOW_RUN_STATUSES,
   type WorkflowRunDetail,
   type WorkflowRunRerunMode,
+  workflowRunBlockingJob,
+  workflowRunDetailDisplay,
 } from '#core/workflow-run.js';
-import {validateWorkflowRunsSearch, workflowRunListSearchParams} from '#routes/inputs.js';
 import {WorkflowRunDurationLabel} from '../workflow-run-duration-label.js';
 import {getWorkflowStatusVisual} from '../workflow-status/status-visuals.js';
 import {WorkflowRunAttemptSwitcher} from './workflow-run-attempt-switcher.js';
 
 const STATUS_BADGE_LABEL_WIDTH_CH = Math.max(
-  ...WORKFLOW_RUN_STATUSES.map((status) => getWorkflowStatusVisual(status).label.length),
+  ...[...WORKFLOW_RUN_STATUSES, 'queued' as const].map(
+    (status) => getWorkflowStatusVisual(status).label.length,
+  ),
 );
+const RERUN_BUTTON_SURFACE_CLASS_NAME =
+  'bg-background-neutral-base hover:bg-background-neutral-hover active:bg-background-neutral-pressed';
 
 type WorkflowRunAction = 'cancel' | 'rerun-all' | 'rerun-menu' | 'none';
 
@@ -55,14 +59,19 @@ export function WorkflowRunSummary({
   latestAttempt,
 }: WorkflowRunSummaryProps) {
   const headingId = useId();
-  const status = getWorkflowStatusVisual(run.runAttempt.status);
+  const display = workflowRunDetailDisplay(run);
+  const status = getWorkflowStatusVisual(display.status);
   const action = workflowRunActionForRun(run);
   const hasAction = canRenderWorkflowRunAction(action, onCancel, onRerun);
   const attemptSwitcher =
     latestAttempt && latestAttempt > 1 && workspaceSlug && projectSlug
       ? {workspaceSlug, projectSlug, latestAttempt}
       : null;
-  const displayDuration = run.runAttempt.displayDuration;
+  const displayDuration = display.duration;
+  // Named only while the run is waiting and has more than one job: with a single job the rail
+  // and the graph already say which one it is.
+  const blockingJob =
+    display.status === 'queued' && run.jobs.length > 1 ? workflowRunBlockingJob(run.jobs) : null;
   const {ref: headingTextRef, isTruncated: isHeadingTruncated} =
     useIsTextTruncated<HTMLSpanElement>(run.name);
 
@@ -70,61 +79,32 @@ export function WorkflowRunSummary({
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
       <section aria-labelledby={headingId} className="bg-background-neutral-background px-16 py-12">
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-12 gap-y-8 overflow-hidden max-[480px]:grid-cols-1">
-          <nav
-            aria-label="Breadcrumb"
-            className="col-start-1 row-start-1 min-w-0 max-[480px]:col-start-auto max-[480px]:row-start-auto"
-          >
-            <ol className="flex min-w-0 items-center gap-8">
-              {workspaceSlug && projectSlug ? (
-                <li className="shrink-0">
-                  <Link
-                    to="/w/$workspaceSlug/p/$projectSlug/runs"
-                    params={{workspaceSlug, projectSlug}}
-                    search={
-                      ((previous: Record<string, unknown>) =>
-                        workflowRunListSearchParams(validateWorkflowRunsSearch(previous))) as never
-                    }
-                    className="rounded-4 text-xs font-medium text-foreground-neutral-subtle underline decoration-border-neutral-strong underline-offset-4 outline-none hover:text-foreground-neutral-base focus-visible:shadow-border-interactive-with-active"
-                  >
-                    Runs
-                  </Link>
-                </li>
-              ) : null}
-              {workspaceSlug && projectSlug ? (
-                <li aria-hidden="true" className="shrink-0 text-xs text-foreground-neutral-subtle">
-                  /
-                </li>
-              ) : null}
-              <li aria-current="page" className="flex min-w-0 items-center gap-8">
-                <Badge variant={status.badge} size="xs">
-                  <span className="text-center" style={{width: `${STATUS_BADGE_LABEL_WIDTH_CH}ch`}}>
-                    {status.label}
-                  </span>
-                </Badge>
+          <div className="col-start-1 row-start-1 min-w-0 max-[480px]:col-start-auto max-[480px]:row-start-auto">
+            <div className="flex min-w-0 items-center gap-8">
+              <Badge variant={status.badge} size="xs">
+                <span className="text-center" style={{width: `${STATUS_BADGE_LABEL_WIDTH_CH}ch`}}>
+                  {status.label}
+                </span>
+              </Badge>
 
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Header id={headingId} variant="h3" className="min-w-0 truncate">
-                      <span
-                        ref={headingTextRef}
-                        title={isHeadingTruncated ? run.name : undefined}
-                        className="block min-w-0 truncate"
-                      >
-                        {run.name}
-                      </span>
-                    </Header>
-                  </TooltipTrigger>
-                  {isHeadingTruncated ? (
-                    <TooltipContent>
-                      <Text as="span" size="xs" className="max-w-[360px] break-words">
-                        {run.name}
-                      </Text>
-                    </TooltipContent>
-                  ) : null}
-                </Tooltip>
-              </li>
-            </ol>
-          </nav>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Header id={headingId} variant="h3" className="min-w-0 truncate">
+                    <span ref={headingTextRef} className="block min-w-0 truncate">
+                      {run.name}
+                    </span>
+                  </Header>
+                </TooltipTrigger>
+                {isHeadingTruncated ? (
+                  <TooltipContent>
+                    <Text as="span" size="xs" className="max-w-[360px] break-words">
+                      {run.name}
+                    </Text>
+                  </TooltipContent>
+                ) : null}
+              </Tooltip>
+            </div>
+          </div>
 
           {hasAction ? (
             <div className="col-start-2 row-start-1 flex min-w-max items-center gap-6 justify-self-end max-[480px]:col-start-auto max-[480px]:row-start-auto max-[480px]:justify-self-start">
@@ -204,6 +184,20 @@ export function WorkflowRunSummary({
                 />
               </>
             ) : null}
+
+            {blockingJob ? (
+              <>
+                <MetadataSeparator />
+                <span className="flex min-w-0 items-center gap-4">
+                  <Text as="span" size="xs" className="shrink-0">
+                    waiting on
+                  </Text>
+                  <Code as="span" variant="label" className="min-w-0 truncate">
+                    {blockingJob.displayName}
+                  </Code>
+                </span>
+              </>
+            ) : null}
           </div>
         </div>
       </section>
@@ -251,6 +245,7 @@ function WorkflowRunActionSlot({
         type="button"
         variant="secondary"
         size="xs"
+        className={RERUN_BUTTON_SURFACE_CLASS_NAME}
         isLoading={rerunPending}
         disabled={rerunPending}
         onClick={() => onRerun('all')}
@@ -269,6 +264,7 @@ function WorkflowRunActionSlot({
           type="button"
           variant="secondary"
           size="xs"
+          className={RERUN_BUTTON_SURFACE_CLASS_NAME}
           iconRight="arrowDownSLine"
           isLoading={rerunPending}
           disabled={rerunPending}

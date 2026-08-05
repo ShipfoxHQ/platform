@@ -22,6 +22,11 @@ function createComponentRouter(element: ReactElement) {
     path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: () => null,
   });
+  const jobDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId/jobs/$jobId',
+    component: () => null,
+  });
   // The unfiltered empty state links here.
   const workflowsRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -31,7 +36,7 @@ function createComponentRouter(element: ReactElement) {
 
   return createRouter({
     history: createMemoryHistory({initialEntries: ['/']}),
-    routeTree: rootRoute.addChildren([indexRoute, runDetailRoute, workflowsRoute]),
+    routeTree: rootRoute.addChildren([indexRoute, runDetailRoute, jobDetailRoute, workflowsRoute]),
   });
 }
 

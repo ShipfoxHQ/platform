@@ -20,7 +20,7 @@ import {
 import {type RenderResult, render} from '@testing-library/react';
 import {createStore, Provider as JotaiProvider} from 'jotai';
 import type {ReactElement} from 'react';
-import {validateWorkflowRunsSearch} from '#routes/inputs.js';
+import {validateWorkflowJobSearch, validateWorkflowRunsSearch} from '#routes/inputs.js';
 
 // The workflow run page navigates with the router (run rows are links and the page redirects
 // to the first run), so the harness mounts the page under a memory router whose route tree
@@ -39,6 +39,10 @@ const authState: AuthState = {
   workspaces: [{id: PROJECT_TEST_WID, name: 'Acme', slug: PROJECT_TEST_WSLUG, membershipId: 'm-1'}],
 };
 
+type TestPageSearch =
+  | ReturnType<typeof validateWorkflowRunsSearch>
+  | ReturnType<typeof validateWorkflowJobSearch>;
+
 export function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -51,7 +55,8 @@ function createTestRouter(
   path: string,
   renderPage: (params: {
     workflowRunId?: string | undefined;
-    search: ReturnType<typeof validateWorkflowRunsSearch>;
+    jobId?: string | undefined;
+    search: TestPageSearch;
   }) => ReactElement,
 ) {
   const rootRoute = createRootRoute({component: Outlet});
@@ -75,6 +80,21 @@ function createTestRouter(
       });
     },
   });
+  const jobDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId/jobs/$jobId',
+    component: function JobDetailRoute() {
+      const {workflowRunId, jobId} = useParams({strict: false}) as {
+        workflowRunId?: string;
+        jobId?: string;
+      };
+      return renderPage({
+        workflowRunId,
+        jobId,
+        search: validateWorkflowJobSearch(useSearch({strict: false}) as Record<string, unknown>),
+      });
+    },
+  });
   const workflowsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/w/$workspaceSlug/p/$projectSlug/workflows',
@@ -95,6 +115,7 @@ function createTestRouter(
     routeTree: rootRoute.addChildren([
       runsRoute,
       runDetailRoute,
+      jobDetailRoute,
       workflowsRoute,
       modelProviderSettingsRoute,
     ]),
@@ -105,7 +126,8 @@ export function renderProjectPage(
   path: string,
   renderPage: (params: {
     workflowRunId?: string | undefined;
-    search: ReturnType<typeof validateWorkflowRunsSearch>;
+    jobId?: string | undefined;
+    search: TestPageSearch;
   }) => ReactElement,
 ): RenderResult & {
   queryClient: QueryClient;

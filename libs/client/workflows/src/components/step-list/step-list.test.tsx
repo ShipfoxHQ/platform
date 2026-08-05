@@ -280,6 +280,39 @@ describe('StepList', () => {
     expect(screen.getByText(`logs for ${deployAttempt.id}`)).toBeInTheDocument();
   });
 
+  test('does not replace the landing selection when a live job reports a new candidate', () => {
+    const firstAttempt = makeAttempt({status: 'running'});
+    const secondAttempt = makeAttempt({status: 'running'});
+    const firstStep = makeStep({name: 'build', status: 'running', attempts: [firstAttempt]});
+    const secondStep = makeStep({
+      name: 'deploy',
+      position: 1,
+      status: 'running',
+      attempts: [secondAttempt],
+    });
+    const job = makeJob({steps: [firstStep, secondStep]});
+    const {rerender} = render(
+      <StepList
+        job={job}
+        autoSelectActiveAttempt
+        defaultSelectedAttemptId={firstAttempt.id}
+        renderExpandedStep={({attemptId}) => <Text size="sm">logs for {attemptId}</Text>}
+      />,
+    );
+
+    rerender(
+      <StepList
+        job={job}
+        autoSelectActiveAttempt
+        defaultSelectedAttemptId={secondAttempt.id}
+        renderExpandedStep={({attemptId}) => <Text size="sm">logs for {attemptId}</Text>}
+      />,
+    );
+
+    expect(screen.getByText(`logs for ${firstAttempt.id}`)).toBeInTheDocument();
+    expect(screen.queryByText(`logs for ${secondAttempt.id}`)).not.toBeInTheDocument();
+  });
+
   test('does not auto-open when no attempt is running', () => {
     render(
       <StepList

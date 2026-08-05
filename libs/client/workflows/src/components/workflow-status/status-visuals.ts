@@ -13,12 +13,15 @@ export interface WorkflowStatusVisual {
 
 // The status -> visual mapping shared by the run-header pill (color + label) and
 // WorkflowStatusIcon (which renders the glyph per kind). The exhaustive switch turns any new
-// status the API grows into (DESIGN.md section 9) into a compile error; reserve the `warning`
-// tone for the queued/awaiting-* states when they land.
+// status the API grows into (DESIGN.md section 9) into a compile error.
 export function getWorkflowStatusVisual(status: WorkflowDisplayStatus): WorkflowStatusVisual {
   switch (status) {
     case 'pending':
       return {kind: 'pending', label: 'Pending', dot: 'neutral', badge: 'neutral'};
+    // Waiting on a runner is the awaiting-* state the warning tone was held for: the run is
+    // live but nothing is executing, which is the operator's problem to see, not ours to hide.
+    case 'queued':
+      return {kind: 'queued', label: 'Queued', dot: 'warning', badge: 'warning'};
     case 'running':
       return {kind: 'running', label: 'Running', dot: 'info', badge: 'info'};
     case 'listening':

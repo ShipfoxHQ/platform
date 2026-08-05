@@ -46,6 +46,8 @@ const PENDING_RING_MASK = 'radial-gradient(circle closest-side, transparent 0 52
 
 export interface WorkflowStatusIconProps {
   status: WorkflowDisplayStatus;
+  /** Accessible status label when the surrounding surface needs to name its scope. */
+  ariaLabel?: string | undefined;
   /** Optical diameter in px: 14 in the DAG node and run row. */
   size?: number;
   /** Pulsing halo for the running state. */
@@ -65,6 +67,7 @@ export interface WorkflowStatusIconProps {
  */
 export function WorkflowStatusIcon({
   status,
+  ariaLabel,
   size = 14,
   ripple = true,
   tooltip = true,
@@ -84,6 +87,24 @@ export function WorkflowStatusIcon({
         )}
       >
         <Icon name="pulseLine" size={Math.max(8, Math.round(size * 0.7))} className="text-white" />
+      </span>
+    );
+  } else if (visual.kind === 'queued') {
+    // An hourglass in the same filled disc the listening state uses, so waiting reads as its
+    // own shape rather than as a pending ring that happens to be a different colour.
+    glyph = (
+      <span
+        className={cn(
+          'inline-flex shrink-0 items-center justify-center rounded-full bg-current',
+          box,
+          toneByVariant.warning,
+        )}
+      >
+        <Icon
+          name="hourglassLine"
+          size={Math.max(8, Math.round(size * 0.7))}
+          className="text-white"
+        />
       </span>
     );
   } else if (visual.kind === 'running') {
@@ -112,7 +133,11 @@ export function WorkflowStatusIcon({
   }
 
   const indicator = (
-    <span role="img" aria-label={visual.label} className={cn('inline-flex shrink-0', className)}>
+    <span
+      role="img"
+      aria-label={ariaLabel ?? visual.label}
+      className={cn('inline-flex shrink-0', className)}
+    >
       {glyph}
     </span>
   );

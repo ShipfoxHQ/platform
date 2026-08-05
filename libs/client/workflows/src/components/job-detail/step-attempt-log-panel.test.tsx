@@ -2,11 +2,12 @@ import {configureApiClient} from '@shipfox/client-api';
 import {type StepLogSnapshot, stepLogsQueryKeys} from '@shipfox/client-logs';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-import type {ReactNode} from 'react';
+import {createRef, type ReactNode} from 'react';
 import {inlineLogBody, outputLine} from '#test/fixtures/logs.js';
 import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
 
 const STEP_ID = '99999999-9999-4999-8999-999999999999';
+const WAITING_FOR_OUTPUT_PATTERN = /Waiting for output ·/;
 type TestLogRecord = StepLogSnapshot['records'][number];
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -51,11 +52,20 @@ function renderPanel(
   const wrapper = ({children}: {children: ReactNode}) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
+  const pageScrollRef = createRef<HTMLDivElement>();
 
   return {
     queryClient,
     ...render(
-      <StepAttemptLogPanel stepId={STEP_ID} attempt={1} attemptStatus="running" {...props} />,
+      <div ref={pageScrollRef}>
+        <StepAttemptLogPanel
+          stepId={STEP_ID}
+          attempt={1}
+          attemptStatus="running"
+          pageScrollRef={pageScrollRef}
+          {...props}
+        />
+      </div>,
       {wrapper},
     ),
   };
@@ -84,6 +94,17 @@ describe('StepAttemptLogPanel', () => {
       'aria-hidden',
       'true',
     );
+  });
+
+  test('shows elapsed waiting-for-output time for a running attempt', async () => {
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn(async () => jsonResponse({code: 'not-found'}, {status: 404})),
+    });
+
+    renderPanel({attemptStartedAt: '2026-06-26T11:59:00.000Z'});
+
+    expect(await screen.findByText(WAITING_FOR_OUTPUT_PATTERN)).toBeInTheDocument();
   });
 
   test('waits for missing logs on a terminal attempt until the stream appears', async () => {
@@ -228,12 +249,12 @@ describe('StepAttemptLogPanel', () => {
     });
     const queryKey = stepLogsQueryKeys.detail(STEP_ID, 1);
     queryClient.setQueryData(queryKey, snapshot([outputRecord('first\n')]));
-    renderPanel({attemptStatus: 'succeeded'}, {queryClient});
-    const logRows = await screen.findByRole('log');
-    Object.defineProperty(logRows, 'scrollHeight', {configurable: true, value: 600});
-    Object.defineProperty(logRows, 'clientHeight', {configurable: true, value: 200});
-    logRows.scrollTop = 320;
-    fireEvent.scroll(logRows);
+    const {container} = renderPanel({attemptStatus: 'succeeded'}, {queryClient});
+    const pageScroll = container.firstElementChild as HTMLElement;
+    Object.defineProperty(pageScroll, 'scrollHeight', {configurable: true, value: 600});
+    Object.defineProperty(pageScroll, 'clientHeight', {configurable: true, value: 200});
+    pageScroll.scrollTop = 320;
+    fireEvent.scroll(pageScroll);
 
     act(() => {
       queryClient.setQueryData(
@@ -243,7 +264,7 @@ describe('StepAttemptLogPanel', () => {
     });
 
     await waitFor(() => expect(screen.getByText('second')).toBeInTheDocument());
-    expect(logRows.scrollTop).toBe(320);
+    expect(pageScroll.scrollTop).toBe(320);
   });
 
   test('passes failure anchoring for failed attempts', async () => {

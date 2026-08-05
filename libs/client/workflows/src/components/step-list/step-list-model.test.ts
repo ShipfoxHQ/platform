@@ -108,7 +108,7 @@ describe('buildStepListModel', () => {
     expect(result.entries.map((entry) => entry.step.label)).toEqual(['build']);
   });
 
-  test('has no active entry when no attempt is running', () => {
+  test('does not land on a failed entry when no attempt is running', () => {
     const step = makeStep({
       attempts: [
         makeAttempt({attempt: 1, status: 'failed'}),
