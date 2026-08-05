@@ -1,5 +1,36 @@
 # @shipfox/api-integration-core
 
+## 12.1.1
+
+### Patch Changes
+
+- Updated dependencies [4636839]
+  - @shipfox/api-integration-jira@12.1.1
+  - @shipfox/api-agent-dto@12.0.0
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-integration-core-dto@12.0.0
+  - @shipfox/api-integration-gitea@12.0.0
+  - @shipfox/api-integration-github@12.0.0
+  - @shipfox/api-integration-linear@12.0.0
+  - @shipfox/api-integration-sentry@12.0.0
+  - @shipfox/api-integration-slack@12.0.0
+  - @shipfox/api-integration-spi@1.0.0
+  - @shipfox/api-integration-webhook@12.0.0
+  - @shipfox/api-workflows-dto@12.1.0
+  - @shipfox/api-workspaces-dto@12.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/redact@0.2.6
+  - @shipfox/regex@0.2.4
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-module@1.0.5
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/node-outbox@0.2.6
+  - @shipfox/node-postgres@0.5.0
+  - @shipfox/node-temporal@0.4.4
+
 ## 12.1.0
 
 ### Patch Changes

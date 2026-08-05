@@ -1,5 +1,26 @@
 # @shipfox/client-workflows
 
+## 15.0.0
+
+### Minor Changes
+
+- b591a78: Add dedicated log-first job pages inside a shared run workspace, with persistent run navigation, job metadata, attempt-aware deep links, and a graph-first all-jobs Summary.
+
+### Patch Changes
+
+- b591a78: Report a run that is waiting for a runner as `Queued` rather than as running. The run header
+  and the run list now split queue time from run time, name the job a queued run is blocked on,
+  and read the same rule from the jobs each surface already carries.
+  - @shipfox/client-projects@15.0.0
+  - @shipfox/api-definitions-dto@12.0.0
+  - @shipfox/api-workflows-dto@12.1.0
+  - @shipfox/client-api@6.0.1
+  - @shipfox/client-logs@14.0.1
+  - @shipfox/client-shell@14.0.1
+  - @shipfox/client-triggers@15.0.0
+  - @shipfox/client-ui@14.0.1
+  - @shipfox/react-ui@1.0.0
+
 ## 14.0.1
 
 ### Patch Changes

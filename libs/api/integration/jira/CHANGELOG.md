@@ -1,5 +1,21 @@
 # @shipfox/api-integration-jira
 
+## 12.1.1
+
+### Patch Changes
+
+- 4636839: Logs bounded provider reasons when Jira rejects dynamic webhook registration.
+  - @shipfox/api-auth-context@12.0.0
+  - @shipfox/api-integration-jira-dto@12.0.0
+  - @shipfox/api-integration-spi@1.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-fastify@0.4.1
+  - @shipfox/node-jwt@0.4.0
+  - @shipfox/node-module@1.0.5
+  - @shipfox/node-opentelemetry@0.6.3
+  - @shipfox/node-postgres@0.5.0
+
 ## 12.1.0
 
 ### Minor Changes

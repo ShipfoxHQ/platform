@@ -1,5 +1,17 @@
 # @shipfox/client-triggers
 
+## 15.0.0
+
+### Patch Changes
+
+- @shipfox/client-projects@15.0.0
+- @shipfox/api-triggers-dto@9.0.2
+- @shipfox/client-api@6.0.1
+- @shipfox/client-shell@14.0.1
+- @shipfox/client-ui@14.0.1
+- @shipfox/integration-icons@0.3.1
+- @shipfox/react-ui@1.0.0
+
 ## 14.0.1
 
 ### Patch Changes

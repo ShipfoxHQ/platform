@@ -1,5 +1,16 @@
 # @shipfox/client-agent
 
+## 15.0.0
+
+### Patch Changes
+
+- bca115c: Migrates the agent client surfaces to semantic spacing roles.
+  - @shipfox/api-agent-dto@12.0.0
+  - @shipfox/client-api@6.0.1
+  - @shipfox/client-shell@14.0.1
+  - @shipfox/client-ui@14.0.1
+  - @shipfox/react-ui@1.0.0
+
 ## 14.0.1
 
 ### Patch Changes
