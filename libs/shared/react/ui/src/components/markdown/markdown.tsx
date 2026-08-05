@@ -79,11 +79,13 @@ const markdownComponents = {
       {...props}
     />
   ),
+  // Sized to content, not to the container: a two-column table stretched to full width puts a
+  // cell 700px from its row header. The scroll container still absorbs a table too wide to fit.
   table: ({className, node: _node, ...props}) => (
     <div className="mb-8 overflow-x-auto">
       <table
         className={cn(
-          'min-w-full border-collapse border border-border-neutral-base text-sm tabular-nums',
+          'w-auto border-collapse border border-border-neutral-base text-sm tabular-nums',
           className,
         )}
         {...props}

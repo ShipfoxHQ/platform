@@ -10,11 +10,13 @@ import {
   SelectValue,
 } from '@shipfox/react-ui/select';
 import {toast} from '@shipfox/react-ui/toast';
+import {Text} from '@shipfox/react-ui/typography';
 import {useNavigate} from '@tanstack/react-router';
-import {type ReactNode, useEffect} from 'react';
-import type {Job, WorkflowRunRerunMode} from '#core/workflow-run.js';
-import type {RunAnnotationSummary} from '#core/workflow-run-tabs.js';
+import {type ReactNode, useEffect, useMemo} from 'react';
+import {buildRunAnnotationList, type RunAnnotationSummary} from '#core/run-annotation.js';
+import {isWorkflowRunTerminal, type Job, type WorkflowRunRerunMode} from '#core/workflow-run.js';
 import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
+import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
 import {
   useCancelWorkflowRunMutation,
   useRerunWorkflowRunMutation,
@@ -30,7 +32,7 @@ import {
 import {JobGraph} from '../job-graph/index.js';
 import type {JobGraphSelectionSource} from '../job-graph/types.js';
 import {WorkflowRunSummary} from '../workflow-run-summary/index.js';
-import {RunAnnotationSummaryLine, RunAnnotationsEmpty} from '../workflow-run-tabs/index.js';
+import {RunAnnotationList, RunAnnotationSummaryLine} from '../workflow-run-tabs/index.js';
 import {WorkflowSourceContent} from '../workflow-source-panel/index.js';
 import {RunWorkspaceNav} from './run-workspace-nav.js';
 import {resolveWorkflowRunSelection} from './workflow-run-selection.js';
@@ -51,7 +53,6 @@ export interface WorkflowRunViewProps {
   runAttempt?: number | undefined;
   selection?: WorkflowRunsSearch | undefined;
   tab?: WorkflowRunTab | undefined;
-  annotationSummary?: RunAnnotationSummary | undefined;
   activeJobId?: string | undefined;
   jobSearch?: WorkflowJobSearch | undefined;
   jobContent?: ReactNode | undefined;
@@ -69,7 +70,6 @@ export function WorkflowRunView({
   runAttempt,
   selection,
   tab,
-  annotationSummary,
   activeJobId,
   jobSearch,
   jobContent,
@@ -79,6 +79,22 @@ export function WorkflowRunView({
     runAttempt: selection?.runAttempt ?? runAttempt,
   });
   const rerunMutation = useRerunWorkflowRunMutation(projectId);
+  // Annotations are read on their own cadence rather than hydrated into the run, so the two
+  // modules stay decoupled. The key is shared, so the job page's count chip costs no extra fetch.
+  //
+  // Polling is scoped to the surface that renders bodies. The read has no counts-only mode, so
+  // every poll transfers whole Markdown bodies; doing that every four seconds behind Summary,
+  // Source, and the job log spends megabytes to keep one rail number warm. Off that surface the
+  // counts still refresh on navigation and on window focus.
+  const annotationsQuery = useRunAnnotationsQuery({
+    workflowRunId,
+    runAttempt: runQuery.data?.runAttempt.attempt,
+    live:
+      runWorkspaceSection(tab) === 'annotations' &&
+      !activeJobId &&
+      Boolean(runQuery.data) &&
+      !isWorkflowRunTerminal(runQuery.data?.runAttempt.status ?? 'pending'),
+  });
 
   return (
     <RelativeTimeProvider>
@@ -87,11 +103,11 @@ export function WorkflowRunView({
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
           query={runQuery}
+          annotations={annotationsQuery}
           rerunMutation={rerunMutation}
           runAttempt={runAttempt}
           selection={selection}
           tab={tab}
-          annotationSummary={annotationSummary}
           activeJobId={activeJobId}
           jobSearch={jobSearch}
           jobContent={jobContent}
@@ -105,11 +121,11 @@ function RunViewContent({
   workspaceSlug,
   projectSlug,
   query,
+  annotations,
   rerunMutation,
   runAttempt,
   selection,
   tab,
-  annotationSummary,
   activeJobId,
   jobSearch,
   jobContent,
@@ -117,17 +133,18 @@ function RunViewContent({
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
   query: ReturnType<typeof useWorkflowRunAttemptQuery>;
+  annotations: ReturnType<typeof useRunAnnotationsQuery>;
   rerunMutation: ReturnType<typeof useRerunWorkflowRunMutation>;
   runAttempt: number | undefined;
   selection: WorkflowRunsSearch | undefined;
   tab: WorkflowRunTab | undefined;
-  annotationSummary: RunAnnotationSummary | undefined;
   activeJobId: string | undefined;
   jobSearch: WorkflowJobSearch | undefined;
   jobContent: ReactNode | undefined;
 }) {
   const navigate = useNavigate();
   const runData = query.data;
+  const annotationSummary = annotations.summary;
   const activeSection = runWorkspaceSection(tab);
   const cancelMutation = useCancelWorkflowRunMutation(runData);
   const sourceSnapshot = runData?.sourceSnapshot ?? null;
@@ -228,6 +245,21 @@ function RunViewContent({
     });
   }
 
+  function clearAnnotationFilters() {
+    if (!runData || !workspaceSlug || !projectSlug) return;
+    const nextSearch: WorkflowRunsSearch = {...selection, tab: 'annotations'};
+    delete nextSearch.jobId;
+    delete nextSearch.severity;
+    delete nextSearch.annotation;
+
+    void navigate({
+      to: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
+      params: {workspaceSlug, projectSlug, workflowRunId: runData.id},
+      search: workflowRunSearchParams(nextSearch, nextSearch) as never,
+      replace: true,
+    });
+  }
+
   function cancelRun() {
     cancelMutation.mutate(undefined, {
       onError: (error) => toast.error(cancelErrorMessage(error)),
@@ -291,6 +323,7 @@ function RunViewContent({
             <RunSectionContent
               section={activeSection}
               run={runData}
+              annotations={annotations}
               annotationSummary={annotationSummary}
               workspaceSlug={workspaceSlug}
               projectSlug={projectSlug}
@@ -298,6 +331,7 @@ function RunViewContent({
               selectedJobId={selection?.jobId}
               onSelectGraphJob={selectGraphJob}
               onSelectAnnotationJob={selectAnnotationJob}
+              onClearAnnotationFilters={clearAnnotationFilters}
               sourceSnapshot={sourceSnapshot}
               highlightedLineRange={highlightedLineRange}
             />
@@ -313,6 +347,7 @@ function RunViewContent({
 function RunSectionContent({
   section,
   run,
+  annotations,
   annotationSummary,
   workspaceSlug,
   projectSlug,
@@ -320,11 +355,13 @@ function RunSectionContent({
   selectedJobId,
   onSelectGraphJob,
   onSelectAnnotationJob,
+  onClearAnnotationFilters,
   sourceSnapshot,
   highlightedLineRange,
 }: {
   section: RunWorkspaceSection;
   run: NonNullable<ReturnType<typeof useWorkflowRunAttemptQuery>['data']>;
+  annotations: ReturnType<typeof useRunAnnotationsQuery>;
   annotationSummary: RunAnnotationSummary | undefined;
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
@@ -332,6 +369,7 @@ function RunSectionContent({
   selectedJobId: string | undefined;
   onSelectGraphJob: (jobId: string | undefined, source?: JobGraphSelectionSource) => void;
   onSelectAnnotationJob: (jobId: string | undefined) => void;
+  onClearAnnotationFilters: () => void;
   sourceSnapshot: NonNullable<
     ReturnType<typeof useWorkflowRunAttemptQuery>['data']
   >['sourceSnapshot'];
@@ -343,6 +381,9 @@ function RunSectionContent({
     return (
       <section aria-label="All jobs summary" className="min-h-0 flex-1 overflow-auto pb-24 pt-16">
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 px-24">
+          <Text as="h2" className="sr-only">
+            All jobs summary
+          </Text>
           <JobGraph
             run={run}
             selectedJobId={selectedJobId}
@@ -355,33 +396,27 @@ function RunSectionContent({
   }
 
   if (section === 'annotations') {
-    const selectedJob = run.jobs.find((job) => job.id === selectedJobId);
     return (
-      <section aria-label="Run annotations" className="min-h-0 flex-1 overflow-auto pb-24 pt-16">
-        <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 px-24">
-          <div className="flex flex-wrap items-center justify-between gap-8">
-            <RunAnnotationSummaryLine
-              summary={annotationSummary}
-              workspaceSlug={workspaceSlug}
-              projectSlug={projectSlug}
-              workflowRunId={run.id}
-              search={selection}
-            />
-            <AnnotationJobFilter
-              jobs={run.jobs}
-              selectedJobId={selectedJob?.id}
-              onSelect={onSelectAnnotationJob}
-            />
-          </div>
-          <RunAnnotationsEmpty jobName={selectedJob?.displayName} />
-        </div>
-      </section>
+      <RunAnnotationsSection
+        run={run}
+        annotations={annotations}
+        annotationSummary={annotationSummary}
+        workspaceSlug={workspaceSlug}
+        projectSlug={projectSlug}
+        selection={selection}
+        selectedJobId={selectedJobId}
+        onSelectAnnotationJob={onSelectAnnotationJob}
+        onClearAnnotationFilters={onClearAnnotationFilters}
+      />
     );
   }
 
   return (
     <section aria-label="Workflow source" className="min-h-0 flex-1 overflow-auto pb-24 pt-16">
-      <div className="mx-auto flex min-h-full w-full max-w-[1120px] px-24">
+      <div className="mx-auto flex min-h-full w-full max-w-[1120px] flex-col px-24">
+        <Text as="h2" className="sr-only">
+          Workflow source
+        </Text>
         {sourceSnapshot ? (
           <WorkflowSourceContent
             source={sourceSnapshot}
@@ -400,6 +435,86 @@ function RunSectionContent({
             }
           />
         )}
+      </div>
+    </section>
+  );
+}
+
+function RunAnnotationsSection({
+  run,
+  annotations,
+  annotationSummary,
+  workspaceSlug,
+  projectSlug,
+  selection,
+  selectedJobId,
+  onSelectAnnotationJob,
+  onClearAnnotationFilters,
+}: {
+  run: NonNullable<ReturnType<typeof useWorkflowRunAttemptQuery>['data']>;
+  annotations: ReturnType<typeof useRunAnnotationsQuery>;
+  annotationSummary: RunAnnotationSummary | undefined;
+  workspaceSlug: string | undefined;
+  projectSlug: string | undefined;
+  selection: WorkflowRunsSearch | undefined;
+  selectedJobId: string | undefined;
+  onSelectAnnotationJob: (jobId: string | undefined) => void;
+  onClearAnnotationFilters: () => void;
+}) {
+  const selectedJob = run.jobs.find((job) => job.id === selectedJobId);
+  const severity = selection?.severity;
+  const records = annotations.annotations;
+
+  const entries = useMemo(
+    () =>
+      records
+        ? buildRunAnnotationList({
+            annotations: records,
+            jobs: run.jobs,
+            severity,
+            jobId: selectedJob?.id,
+          })
+        : undefined,
+    [records, run.jobs, selectedJob?.id, severity],
+  );
+
+  return (
+    <section aria-label="Run annotations" className="min-h-0 flex-1 overflow-auto pb-24 pt-16">
+      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 px-24">
+        <Text as="h2" className="sr-only">
+          Annotations
+        </Text>
+        <div className="flex flex-wrap items-center justify-between gap-8">
+          <RunAnnotationSummaryLine
+            summary={annotationSummary}
+            workspaceSlug={workspaceSlug}
+            projectSlug={projectSlug}
+            workflowRunId={run.id}
+            search={selection}
+          />
+          <AnnotationJobFilter
+            jobs={run.jobs}
+            selectedJobId={selectedJob?.id}
+            onSelect={onSelectAnnotationJob}
+          />
+        </div>
+        <RunAnnotationList
+          // Remounting on a filter change resets the render window, so narrowing to one job
+          // never lands the reader inside a "show more" position from the previous filter.
+          key={`${severity ?? 'all'}:${selectedJob?.id ?? 'all'}`}
+          query={annotations.query}
+          entries={entries}
+          workspaceSlug={workspaceSlug}
+          projectSlug={projectSlug}
+          workflowRunId={run.id}
+          runAttempt={run.runAttempt.attempt}
+          // A run with no annotations at all offers no filter to clear, whatever the URL says.
+          filtered={Boolean((severity || selectedJob) && (annotationSummary?.total ?? 0) > 0)}
+          filteredJobName={selectedJob?.displayName}
+          filteredSeverity={severity}
+          onClearFilters={onClearAnnotationFilters}
+          selectedAnnotationId={selection?.annotation}
+        />
       </div>
     </section>
   );

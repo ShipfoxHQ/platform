@@ -23,6 +23,9 @@ describe('JobDetailHeader', () => {
         job={job}
         selectedJobExecution={execution}
         onSelectedJobExecutionChange={vi.fn()}
+        workspaceSlug="acme"
+        projectSlug="project"
+        workflowRunId="run-1"
       />,
     );
 

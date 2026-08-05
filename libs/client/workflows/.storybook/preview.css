@@ -8,3 +8,7 @@
    apps/client/src/styles.css scans every package it renders. */
 @source "../src";
 @source "../../../shared/react/ui/src";
+/* client-ui owns `AnnotationCard`, whose clamp fade and prose measure live nowhere else.
+   Without this the classes are silently dropped and every Argos snapshot of a story that
+   renders one is a picture of unstyled markup, which is worse than no snapshot. */
+@source "../../ui/src";

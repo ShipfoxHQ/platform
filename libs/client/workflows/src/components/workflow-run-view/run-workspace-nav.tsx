@@ -6,13 +6,13 @@ import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
+import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {
   defaultJobExecution,
   deriveJobDisplayStatus,
   type Job,
   type WorkflowRunDetail,
 } from '#core/workflow-run.js';
-import type {RunAnnotationSummary} from '#core/workflow-run-tabs.js';
 import {
   type WorkflowJobSearch,
   type WorkflowRunTab,
@@ -224,6 +224,7 @@ function RunWorkspaceNavContent({
               section="annotations"
               current={!currentJobId && activeSection === 'annotations'}
               count={annotationSummary?.total}
+              countTruncated={annotationSummary?.truncated}
               onNavigate={onNavigate}
             />
           </li>
@@ -252,6 +253,7 @@ function RunSectionLink({
   section,
   current,
   count,
+  countTruncated = false,
   onNavigate,
 }: {
   workspaceSlug: string;
@@ -261,6 +263,8 @@ function RunSectionLink({
   section: RunWorkspaceSection;
   current: boolean;
   count?: number | undefined;
+  /** The read hit its page budget, so the count is a lower bound and renders as `N+`. */
+  countTruncated?: boolean | undefined;
   onNavigate?: (() => void) | undefined;
 }) {
   return (
@@ -284,6 +288,9 @@ function RunSectionLink({
       {count ? (
         <span className="ml-auto font-code text-xs text-foreground-neutral-muted tabular-nums">
           {count}
+          {countTruncated ? '+' : ''}
+          {/* A bare number is not an accessible name; the unit rides along for screen readers. */}
+          <span className="sr-only"> {sectionLabel(section).toLowerCase()}</span>
         </span>
       ) : null}
     </Link>

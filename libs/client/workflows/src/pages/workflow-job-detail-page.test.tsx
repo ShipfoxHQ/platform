@@ -33,8 +33,59 @@ const BACK_TO_SUMMARY_PATTERN = /Back to run summary/;
 const RUN_MOVED_ON_PATTERN = /Run moved on to/;
 const LINT_LINK_PATTERN = /lint/;
 const RELEASE_LINK_PATTERN = /release/;
+const ANNOTATION_LINK_PATTERN = /annotation/;
 
 describe('WorkflowJobDetailPage', () => {
+  beforeEach(() => {
+    jobAnnotations.value = [];
+  });
+
+  test('links the job to its annotations without rendering one', async () => {
+    jobAnnotations.value = [
+      {
+        id: 'aaaaaaaa-1111-4aaa-8aaa-000000000001',
+        job_id: JOB_ID,
+        job_execution_id: EXECUTION_ID,
+        origin_step_id: STEP_ID,
+        origin_step_attempt: 2,
+        context: 'smoke check',
+        style: 'error',
+        sequence: 1,
+        body: 'Task nine failed.',
+      },
+      {
+        id: 'aaaaaaaa-1111-4aaa-8aaa-000000000002',
+        job_id: SIBLING_JOB_ID,
+        job_execution_id: EXECUTION_ID,
+        origin_step_id: STEP_ID,
+        origin_step_attempt: 1,
+        context: 'other job',
+        style: 'info',
+        sequence: 2,
+        body: 'Not this job.',
+      },
+    ];
+    configureApiClient({fetchImpl: vi.fn(jobDetailFetch)});
+
+    renderJobPath(`?jobExecution=${EXECUTION_ID}&runAttempt=1`);
+
+    const chip = await screen.findByRole('link', {
+      name: 'View 1 annotation, highest severity error',
+    });
+    expect(chip.getAttribute('href')).toContain(`tab=annotations`);
+    expect(chip.getAttribute('href')).toContain(`job=${JOB_ID}`);
+    expect(screen.queryByText('Task nine failed.')).not.toBeInTheDocument();
+  });
+
+  test('omits the annotation chip when the job produced none', async () => {
+    configureApiClient({fetchImpl: vi.fn(jobDetailFetch)});
+
+    renderJobPath(`?jobExecution=${EXECUTION_ID}&runAttempt=1`);
+
+    await screen.findByRole('heading', {name: 'release'});
+    expect(screen.queryByRole('link', {name: ANNOTATION_LINK_PATTERN})).not.toBeInTheDocument();
+  });
+
   test('resolves an exact job execution and step attempt from a deep link', async () => {
     configureApiClient({fetchImpl: vi.fn(jobDetailFetch)});
 
@@ -247,9 +298,20 @@ function renderJobPath(path = '', jobId = JOB_ID) {
   );
 }
 
+/** Annotations for the job page, which renders their count and never their bodies. */
+const jobAnnotations: {value: unknown[]} = {value: []};
+
+function annotationsResponse() {
+  return {annotations: jobAnnotations.value, has_more: false, next_cursor: null};
+}
+
 function jobDetailFetch(input: RequestInfo | URL) {
   const request = input as Request;
   const url = new URL(request.url);
+
+  if (url.pathname.endsWith('/annotations')) {
+    return Promise.resolve(jsonResponse(annotationsResponse()));
+  }
 
   if (url.pathname.endsWith('/attempts')) {
     return Promise.resolve(
@@ -286,6 +348,10 @@ function jobDetailFetch(input: RequestInfo | URL) {
 function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
   const request = input as Request;
   const url = new URL(request.url);
+
+  if (url.pathname.endsWith('/annotations')) {
+    return Promise.resolve(jsonResponse(annotationsResponse()));
+  }
 
   if (url.pathname.endsWith('/attempts')) {
     return Promise.resolve(
