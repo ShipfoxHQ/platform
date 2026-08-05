@@ -282,7 +282,21 @@ function parseDynamicWebhookRegistration(
     createdWebhookId?: unknown;
     errors?: unknown;
   };
-  if (errors !== undefined && (!Array.isArray(errors) || errors.length > 0)) {
+  if (errors !== undefined && !Array.isArray(errors)) {
+    throw malformed('Jira webhook registration returned errors');
+  }
+  if (Array.isArray(errors) && errors.length > 0) {
+    logger().warn(
+      {
+        operation: 'register-dynamic-webhook',
+        providerErrors: errors
+          .filter((error): error is string => typeof error === 'string')
+          .slice(0, 5)
+          .map((error) => error.slice(0, 500)),
+        providerErrorCount: errors.length,
+      },
+      'Jira dynamic webhook registration rejected',
+    );
     throw malformed('Jira webhook registration returned errors');
   }
   if (
