@@ -14,6 +14,10 @@ const workspaceProjectCountSchema = z.object({
   workspaceId: idSchema,
   count: z.number().int().nonnegative(),
 });
+const projectCursorSchema = z.object({
+  createdAt: z.string().datetime(),
+  id: idSchema,
+});
 const checkoutTargetSchema = z.union([
   z.strictObject({project: idSchema}),
   z.strictObject({
@@ -42,6 +46,17 @@ export const projectsInterModuleContract = defineInterModuleContract({
         sourceExternalRepositoryId: z.string(),
       }),
       output: z.object({project: projectSchema.nullable()}),
+    },
+    listProjectsByWorkspace: {
+      input: z.object({
+        workspaceId: idSchema,
+        limit: z.number().int().min(1).max(100),
+        cursor: projectCursorSchema.optional(),
+      }),
+      output: z.object({
+        projects: z.array(projectSchema),
+        nextCursor: projectCursorSchema.nullable(),
+      }),
     },
     requireProjectForWorkspace: {
       input: z.object({projectId: idSchema, workspaceId: idSchema}),

@@ -75,6 +75,45 @@ async function expectUnauthorized(
 }
 
 describe('Projects checkout target inter-module presentation', () => {
+  test('lists workspace projects through the paginated inter-module contract', async () => {
+    const client = createClient();
+    const workspaceId = crypto.randomUUID();
+    const first = await insertProject({
+      workspaceId,
+      connectionId: crypto.randomUUID(),
+      owner: 'acme',
+      name: 'first',
+    });
+    const second = await insertProject({
+      workspaceId,
+      connectionId: crypto.randomUUID(),
+      owner: 'acme',
+      name: 'second',
+    });
+    await insertProject({
+      workspaceId: crypto.randomUUID(),
+      connectionId: crypto.randomUUID(),
+      owner: 'other',
+      name: 'excluded',
+    });
+
+    const firstPage = await client.listProjectsByWorkspace({workspaceId, limit: 1});
+    expect(firstPage.projects).toHaveLength(1);
+    expect(firstPage.nextCursor).not.toBeNull();
+    if (!firstPage.nextCursor) expect.fail('Expected a second project page');
+
+    const secondPage = await client.listProjectsByWorkspace({
+      workspaceId,
+      limit: 1,
+      cursor: firstPage.nextCursor,
+    });
+    expect(secondPage.projects).toHaveLength(1);
+    expect(secondPage.nextCursor).toBeNull();
+    expect([...firstPage.projects, ...secondPage.projects].map((project) => project.id)).toEqual(
+      expect.arrayContaining([first.projectId, second.projectId]),
+    );
+  });
+
   test('resolves a project by its workspace-scoped source repository', async () => {
     const client = createClient();
     const workspaceId = crypto.randomUUID();

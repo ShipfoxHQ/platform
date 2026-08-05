@@ -1,12 +1,21 @@
 import {
+  INTEGRATION_CONNECTION_AVAILABLE,
   INTEGRATION_EVENT_RECEIVED,
   INTEGRATION_SOURCE_COMMIT_PUSHED,
   INTEGRATION_SOURCE_REPOSITORY_UPDATED,
+  integrationConnectionAvailableSchema,
   integrationEventReceivedSchema,
   integrationSourceCommitPushedSchema,
   integrationSourceRepositoryUpdatedSchema,
   integrationsEventSchemas,
 } from './events.js';
+
+const validConnectionAvailable = {
+  provider: 'linear',
+  workspaceId: 'ws-1',
+  connectionId: 'conn-1',
+  slug: 'linear_shipfox',
+};
 
 const validEventReceived = {
   provider: 'github',
@@ -48,6 +57,20 @@ const validRepositoryUpdated = {
     defaultBranch: 'main',
   },
 };
+
+describe('integrationConnectionAvailableSchema', () => {
+  it('parses a valid connection-available payload unchanged', () => {
+    expect(integrationConnectionAvailableSchema.parse(validConnectionAvailable)).toEqual(
+      validConnectionAvailable,
+    );
+  });
+
+  it('rejects a payload without a connection slug', () => {
+    const {slug: _slug, ...withoutSlug} = validConnectionAvailable;
+
+    expect(() => integrationConnectionAvailableSchema.parse(withoutSlug)).toThrow();
+  });
+});
 
 describe('integrationSourceCommitPushedSchema', () => {
   it('parses a valid commit-pushed payload unchanged', () => {
@@ -136,6 +159,7 @@ describe('integrationsEventSchemas', () => {
 
     expect(registeredTypes).toEqual(
       [
+        INTEGRATION_CONNECTION_AVAILABLE,
         INTEGRATION_EVENT_RECEIVED,
         INTEGRATION_SOURCE_COMMIT_PUSHED,
         INTEGRATION_SOURCE_REPOSITORY_UPDATED,

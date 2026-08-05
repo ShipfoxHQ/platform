@@ -1,5 +1,7 @@
+import {INTEGRATION_CONNECTION_AVAILABLE} from '@shipfox/api-integration-core-dto';
 import {upsertGithubInstallation} from '@shipfox/api-integration-github';
 import {ConnectionSlugConflictError} from '@shipfox/api-integration-spi';
+import {sql} from 'drizzle-orm';
 import {IntegrationConnectionAlreadyExistsError} from '#core/errors.js';
 import {
   createIntegrationConnection,
@@ -13,6 +15,16 @@ import {
   upsertIntegrationConnection,
 } from './connections.js';
 import {db} from './db.js';
+import {integrationsOutbox} from './schema/outbox.js';
+
+function connectionEvents(connectionId: string) {
+  return db()
+    .select()
+    .from(integrationsOutbox)
+    .where(
+      sql`${integrationsOutbox.eventType} = ${INTEGRATION_CONNECTION_AVAILABLE} AND ${integrationsOutbox.payload}->>'connectionId' = ${connectionId}`,
+    );
+}
 
 describe('integration connection queries', () => {
   let workspaceId: string;
@@ -41,6 +53,31 @@ describe('integration connection queries', () => {
     expect(second.id).toBe(first.id);
     expect(second.displayName).toBe('Renamed Debug');
     expect(second.slug).toBe('gitea_owner');
+    expect(await connectionEvents(first.id)).toHaveLength(1);
+  });
+
+  it('publishes availability when an upsert activates an existing connection', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'linear',
+      externalAccountId: 'linear-acme',
+      slug: 'linear_acme',
+      displayName: 'Linear Acme',
+      lifecycleStatus: 'disabled',
+    });
+
+    expect(await connectionEvents(connection.id)).toHaveLength(0);
+
+    await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'linear',
+      externalAccountId: 'linear-acme',
+      slug: 'linear_acme',
+      displayName: 'Linear Acme',
+      lifecycleStatus: 'active',
+    });
+
+    expect(await connectionEvents(connection.id)).toHaveLength(1);
   });
 
   it('allows multiple same-provider connections when external account differs', async () => {
@@ -148,6 +185,7 @@ describe('integration connection queries', () => {
     expect(connections).toHaveLength(1);
     expect(connections[0]?.id).toBe(first.id);
     expect(connections[0]?.displayName).toBe('Stripe');
+    expect(await connectionEvents(first.id)).toHaveLength(1);
   });
 
   it('reports slug collisions separately from duplicate external accounts', async () => {
@@ -252,6 +290,51 @@ describe('integration connection queries', () => {
     expect(updated?.lifecycleStatus).toBe('disabled');
     const reloaded = await getIntegrationConnectionById(connection.id);
     expect(reloaded?.lifecycleStatus).toBe('disabled');
+    expect(await connectionEvents(connection.id)).toHaveLength(1);
+  });
+
+  it('publishes availability when a disabled connection becomes active', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'linear',
+      externalAccountId: 'linear-acme',
+      slug: 'linear_acme',
+      displayName: 'Linear Acme',
+      lifecycleStatus: 'disabled',
+    });
+
+    expect(await connectionEvents(connection.id)).toHaveLength(0);
+
+    await updateIntegrationConnectionLifecycleStatus({
+      id: connection.id,
+      lifecycleStatus: 'active',
+    });
+
+    const events = await connectionEvents(connection.id);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toEqual({
+      provider: 'linear',
+      workspaceId,
+      connectionId: connection.id,
+      slug: 'linear_acme',
+    });
+  });
+
+  it('does not republish availability when an active connection stays active', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'linear',
+      externalAccountId: 'linear-acme',
+      slug: 'linear_acme',
+      displayName: 'Linear Acme',
+    });
+
+    await updateIntegrationConnectionLifecycleStatus({
+      id: connection.id,
+      lifecycleStatus: 'active',
+    });
+
+    expect(await connectionEvents(connection.id)).toHaveLength(1);
   });
 
   it('returns undefined when updating the lifecycle status of an unknown connection', async () => {
@@ -310,5 +393,12 @@ describe('integration connection queries', () => {
 
     const connections = await listIntegrationConnections({workspaceId});
     expect(connections).toHaveLength(0);
+    const events = await db()
+      .select()
+      .from(integrationsOutbox)
+      .where(
+        sql`${integrationsOutbox.eventType} = ${INTEGRATION_CONNECTION_AVAILABLE} AND ${integrationsOutbox.payload}->>'workspaceId' = ${workspaceId}`,
+      );
+    expect(events).toHaveLength(0);
   });
 });

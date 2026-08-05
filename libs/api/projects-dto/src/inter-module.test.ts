@@ -38,6 +38,22 @@ describe('projectsInterModuleContract', () => {
     ).toEqual({connection: connectionId, repository: 'acme/api'});
   });
 
+  test('accepts paginated workspace project source listings', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const cursor = {
+      createdAt: '2026-08-05T12:00:00.000Z',
+      id: '00000000-0000-4000-8000-000000000002',
+    };
+
+    expect(
+      projectsInterModuleContract.methods.listProjectsByWorkspace.input.parse({
+        workspaceId,
+        limit: 100,
+        cursor,
+      }),
+    ).toEqual({workspaceId, limit: 100, cursor});
+  });
+
   test('defines the checkout authorization failure', () => {
     const details = {};
 

@@ -8,6 +8,7 @@ export interface StartDefinitionSyncParams {
   externalRepositoryId: string;
   sourceRef?: string | undefined;
   sourceCommitSha?: string | undefined;
+  requestId?: string | undefined;
 }
 
 export async function startDefinitionSync(params: StartDefinitionSyncParams): Promise<void> {
@@ -32,7 +33,11 @@ export async function startDefinitionSync(params: StartDefinitionSyncParams): Pr
 }
 
 function buildWorkflowId(params: StartDefinitionSyncParams): string {
-  return params.sourceCommitSha
-    ? `definition-sync:${params.projectId}:${params.sourceCommitSha}`
-    : `definition-sync:${params.projectId}:bind`;
+  if (params.sourceCommitSha) {
+    return `definition-sync:${params.projectId}:${params.sourceCommitSha}`;
+  }
+  if (params.requestId) {
+    return `definition-sync:${params.projectId}:${params.requestId}`;
+  }
+  return `definition-sync:${params.projectId}:bind`;
 }
