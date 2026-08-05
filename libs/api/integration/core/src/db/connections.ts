@@ -1,5 +1,10 @@
-import {CONNECTION_SLUG_MAX_LENGTH} from '@shipfox/api-integration-core-dto';
+import {
+  CONNECTION_SLUG_MAX_LENGTH,
+  INTEGRATION_CONNECTION_AVAILABLE,
+  type IntegrationsEventMap,
+} from '@shipfox/api-integration-core-dto';
 import {ConnectionSlugConflictError} from '@shipfox/api-integration-spi';
+import {writeOutboxEvent} from '@shipfox/node-outbox';
 import {and, eq} from 'drizzle-orm';
 import type {
   IntegrationConnection,
@@ -9,6 +14,7 @@ import type {IntegrationProviderKind} from '#core/entities/provider.js';
 import {IntegrationConnectionAlreadyExistsError} from '#core/errors.js';
 import {db} from './db.js';
 import {integrationConnections, toIntegrationConnection} from './schema/connections.js';
+import {integrationsOutbox} from './schema/outbox.js';
 
 type IntegrationDb = ReturnType<typeof db>;
 type IntegrationTx = Parameters<Parameters<IntegrationDb['transaction']>[0]>[0];
@@ -26,9 +32,13 @@ export async function upsertIntegrationConnection(
   params: UpsertIntegrationConnectionParams,
   options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<IntegrationConnection> {
-  const executor = options.tx ?? db();
+  if (options.tx === undefined) {
+    return await db().transaction((tx) => upsertIntegrationConnection(params, {tx}));
+  }
+
+  const executor = options.tx;
   const now = new Date();
-  const [row] = await executor
+  let [row] = await executor
     .insert(integrationConnections)
     .values({
       workspaceId: params.workspaceId,
@@ -38,22 +48,52 @@ export async function upsertIntegrationConnection(
       displayName: params.displayName,
       lifecycleStatus: params.lifecycleStatus ?? 'active',
     })
-    .onConflictDoUpdate({
+    .onConflictDoNothing({
       target: [
         integrationConnections.workspaceId,
         integrationConnections.provider,
         integrationConnections.externalAccountId,
       ],
-      set: {
-        displayName: params.displayName,
-        lifecycleStatus: params.lifecycleStatus ?? 'active',
-        updatedAt: now,
-      },
     })
     .returning();
 
+  let becameAvailable = row?.lifecycleStatus === 'active';
+  if (!row) {
+    const [existing] = await executor
+      .select({
+        id: integrationConnections.id,
+        lifecycleStatus: integrationConnections.lifecycleStatus,
+      })
+      .from(integrationConnections)
+      .where(
+        and(
+          eq(integrationConnections.workspaceId, params.workspaceId),
+          eq(integrationConnections.provider, params.provider),
+          eq(integrationConnections.externalAccountId, params.externalAccountId),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    if (!existing) throw new Error('Integration connection upsert conflict row was not found');
+
+    [row] = await executor
+      .update(integrationConnections)
+      .set({
+        displayName: params.displayName,
+        lifecycleStatus: params.lifecycleStatus ?? 'active',
+        updatedAt: now,
+      })
+      .where(eq(integrationConnections.id, existing.id))
+      .returning();
+    becameAvailable = existing.lifecycleStatus !== 'active' && row?.lifecycleStatus === 'active';
+  }
+
   if (!row) throw new Error('Integration connection upsert returned no rows');
-  return toIntegrationConnection(row);
+  const connection = toIntegrationConnection(row);
+  if (becameAvailable) {
+    await writeConnectionAvailableEvent(executor, connection);
+  }
+  return connection;
 }
 
 export interface CreateIntegrationConnectionParams {
@@ -100,7 +140,11 @@ export async function createIntegrationConnection(
   params: CreateIntegrationConnectionParams,
   options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<IntegrationConnection> {
-  const executor = options.tx ?? db();
+  if (options.tx === undefined) {
+    return await db().transaction((tx) => createIntegrationConnection(params, {tx}));
+  }
+
+  const executor = options.tx;
   let rows: (typeof integrationConnections.$inferSelect)[];
   try {
     rows = await executor
@@ -130,7 +174,11 @@ export async function createIntegrationConnection(
 
   const row = rows[0];
   if (!row) throw new Error('Integration connection insert returned no rows');
-  return toIntegrationConnection(row);
+  const connection = toIntegrationConnection(row);
+  if (connection.lifecycleStatus === 'active') {
+    await writeConnectionAvailableEvent(executor, connection);
+  }
+  return connection;
 }
 
 export interface ResolveUniqueConnectionSlugParams {
@@ -225,18 +273,49 @@ export async function updateIntegrationConnectionLifecycleStatus(
   params: UpdateIntegrationConnectionLifecycleStatusParams,
   options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<IntegrationConnection | undefined> {
-  const executor = options.tx ?? db();
+  if (options.tx === undefined) {
+    return await db().transaction((tx) => updateIntegrationConnectionLifecycleStatus(params, {tx}));
+  }
+
+  const executor = options.tx;
+  const [existing] = await executor
+    .select({lifecycleStatus: integrationConnections.lifecycleStatus})
+    .from(integrationConnections)
+    .where(eq(integrationConnections.id, params.id))
+    .limit(1)
+    .for('update');
+  if (!existing) return undefined;
+
   const [row] = await executor
     .update(integrationConnections)
     .set({lifecycleStatus: params.lifecycleStatus, updatedAt: new Date()})
     .where(eq(integrationConnections.id, params.id))
     .returning();
   if (!row) return undefined;
-  return toIntegrationConnection(row);
+  const connection = toIntegrationConnection(row);
+  if (existing.lifecycleStatus !== 'active' && connection.lifecycleStatus === 'active') {
+    await writeConnectionAvailableEvent(executor, connection);
+  }
+  return connection;
 }
 
 export type UpdateIntegrationConnectionLifecycleStatusFn =
   typeof updateIntegrationConnectionLifecycleStatus;
+
+async function writeConnectionAvailableEvent(
+  executor: IntegrationDb | IntegrationTx,
+  connection: IntegrationConnection,
+): Promise<void> {
+  await writeOutboxEvent<IntegrationsEventMap>(executor, integrationsOutbox, {
+    type: INTEGRATION_CONNECTION_AVAILABLE,
+    payload: {
+      provider: connection.provider,
+      workspaceId: connection.workspaceId,
+      connectionId: connection.id,
+      slug: connection.slug,
+    },
+  });
+}
 
 export async function deleteIntegrationConnection(
   params: {id: string},

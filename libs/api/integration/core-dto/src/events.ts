@@ -1,6 +1,7 @@
 import {z} from 'zod';
 
 export const INTEGRATION_EVENT_RECEIVED = 'integrations.event.received' as const;
+export const INTEGRATION_CONNECTION_AVAILABLE = 'integrations.connection.available' as const;
 
 const nonEmptyStringSchema = z.string().nonempty();
 const isoDateTimeSchema = z.string().datetime();
@@ -21,6 +22,16 @@ export const integrationEventReceivedSchema = z.object({
   payload: requiredUnknownSchema,
 });
 export type IntegrationEventReceivedEvent = z.infer<typeof integrationEventReceivedSchema>;
+
+export const integrationConnectionAvailableSchema = z.object({
+  provider: nonEmptyStringSchema,
+  workspaceId: nonEmptyStringSchema,
+  connectionId: nonEmptyStringSchema,
+  slug: nonEmptyStringSchema,
+});
+export type IntegrationConnectionAvailableEvent = z.infer<
+  typeof integrationConnectionAvailableSchema
+>;
 
 // A source-control push, normalized by the producing provider and carried by
 // `INTEGRATION_SOURCE_COMMIT_PUSHED` for domain consumers.
@@ -107,12 +118,14 @@ export const SENTRY_ISSUE_ACTIONS = [
 export type SentryIssueAction = (typeof SENTRY_ISSUE_ACTIONS)[number];
 
 export interface IntegrationsEventMap {
+  [INTEGRATION_CONNECTION_AVAILABLE]: IntegrationConnectionAvailableEvent;
   [INTEGRATION_EVENT_RECEIVED]: IntegrationEventReceivedEvent;
   [INTEGRATION_SOURCE_COMMIT_PUSHED]: IntegrationSourceCommitPushedEvent;
   [INTEGRATION_SOURCE_REPOSITORY_UPDATED]: IntegrationSourceRepositoryUpdatedEvent;
 }
 
 export const integrationsEventSchemas = {
+  [INTEGRATION_CONNECTION_AVAILABLE]: integrationConnectionAvailableSchema,
   [INTEGRATION_EVENT_RECEIVED]: integrationEventReceivedSchema,
   [INTEGRATION_SOURCE_COMMIT_PUSHED]: integrationSourceCommitPushedSchema,
   [INTEGRATION_SOURCE_REPOSITORY_UPDATED]: integrationSourceRepositoryUpdatedSchema,

@@ -9,6 +9,7 @@ import {
   getProjectById,
   getProjectBySource,
   getWorkspaceProjectCounts,
+  listProjects,
   resolveCheckoutTarget,
   updateProjectSourceMetadata,
 } from '#db/projects.js';
@@ -21,6 +22,19 @@ export function createProjectsInterModulePresentation(params: {
     getProjectBySource: async (input) => ({
       project: (await getProjectBySource(input)) ?? null,
     }),
+    listProjectsByWorkspace: async ({workspaceId, limit, cursor}) => {
+      const result = await listProjects({
+        workspaceId,
+        limit,
+        ...(cursor ? {cursor: {createdAt: new Date(cursor.createdAt), id: cursor.id}} : {}),
+      });
+      return {
+        projects: result.projects,
+        nextCursor: result.nextCursor
+          ? {createdAt: result.nextCursor.createdAt.toISOString(), id: result.nextCursor.id}
+          : null,
+      };
+    },
     requireProjectForWorkspace: async ({projectId, workspaceId}) => {
       const project = await getProjectById(projectId);
       if (project === undefined) {

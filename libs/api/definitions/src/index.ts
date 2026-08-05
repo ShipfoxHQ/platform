@@ -6,6 +6,10 @@ import {
   type DefinitionsEventMap,
   definitionsEventSchemas,
 } from '@shipfox/api-definitions-dto';
+import {
+  INTEGRATION_CONNECTION_AVAILABLE,
+  type IntegrationsEventMap,
+} from '@shipfox/api-integration-core-dto';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import {
   PROJECT_SOURCE_BOUND,
@@ -20,6 +24,7 @@ import {db, definitionsOutbox, migrationsPath} from '#db/index.js';
 import {createDefinitionRoutes} from '#presentation/index.js';
 import {createDefinitionsInterModulePresentation} from '#presentation/inter-module.js';
 import {
+  createOnIntegrationConnectionAvailable,
   onProjectSourceBound,
   onProjectSourceCommitObserved,
 } from '#presentation/subscribers/index.js';
@@ -46,7 +51,9 @@ export {db, definitionsOutbox, getDefinitionById, migrationsPath} from '#db/inde
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const workflowsPath = resolve(packageRoot, 'dist/temporal/workflows/index.js');
 
-const subscriber = subscriberFactory<DefinitionsEventMap & ProjectsEventMap>();
+const subscriber = subscriberFactory<
+  DefinitionsEventMap & IntegrationsEventMap & ProjectsEventMap
+>();
 
 export interface CreateDefinitionsModuleOptions {
   projects: ProjectsModuleClient;
@@ -73,6 +80,10 @@ export function createDefinitionsModule({
         logger().info({event}, 'Definition resolved');
         return Promise.resolve();
       }),
+      subscriber(
+        INTEGRATION_CONNECTION_AVAILABLE,
+        createOnIntegrationConnectionAvailable(projects),
+      ),
       subscriber(PROJECT_SOURCE_BOUND, onProjectSourceBound),
       subscriber(PROJECT_SOURCE_COMMIT_OBSERVED, onProjectSourceCommitObserved),
     ],
