@@ -1,5 +1,6 @@
 import {Collapsible, CollapsibleTrigger} from '@shipfox/react-ui/collapsible';
 import {Icon} from '@shipfox/react-ui/icon';
+import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
@@ -18,7 +19,7 @@ import {
   workflowJobSearchParams,
   workflowRunSearchParams,
 } from '#routes/inputs.js';
-import {formatJobExecutionTime} from '../job-detail/job-execution-time-text.js';
+import {JobExecutionTimeText} from '../job-detail/job-execution-time-text.js';
 
 type RunWorkspaceSection = Exclude<WorkflowRunTab, 'jobs'>;
 
@@ -51,52 +52,56 @@ export function RunWorkspaceNav({
   const currentLabel = currentJob?.displayName ?? sectionLabel(activeSection);
 
   return (
-    <aside className="w-full shrink-0 border-b border-border-neutral-base bg-background-neutral-background min-[768px]:w-240 min-[768px]:border-b-0 min-[768px]:border-r">
-      <Collapsible open={mobileOpen} onOpenChange={setMobileOpen}>
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="flex min-h-44 w-full items-center justify-between gap-12 px-16 text-left outline-none focus-visible:shadow-border-interactive-with-active min-[768px]:hidden"
-            aria-label="Toggle run navigation"
-          >
-            <span className="min-w-0">
-              <Text as="span" size="xs" className="block text-foreground-neutral-muted">
-                Run navigation
-              </Text>
-              <span className="block truncate font-code text-xs leading-20 text-foreground-neutral-base">
-                {currentLabel}
+    <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
+      <aside className="w-full shrink-0 border-b border-border-neutral-base bg-background-neutral-background min-[768px]:w-240 min-[768px]:border-b-0 min-[768px]:border-r">
+        <Collapsible open={mobileOpen} onOpenChange={setMobileOpen}>
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex min-h-44 w-full items-center justify-between gap-12 px-16 text-left outline-none focus-visible:shadow-border-interactive-with-active min-[768px]:hidden"
+              aria-label="Toggle run navigation"
+            >
+              <span className="min-w-0">
+                <Text as="span" size="xs" className="block text-foreground-neutral-muted">
+                  Run navigation
+                </Text>
+                <span className="block truncate font-code text-xs leading-20 text-foreground-neutral-base">
+                  {currentLabel}
+                </span>
               </span>
-            </span>
-            <Icon
-              name="chevronDown"
-              size={14}
-              aria-hidden="true"
-              className={cn(
-                'shrink-0 text-foreground-neutral-muted transition-transform',
-                mobileOpen && 'rotate-180',
-              )}
+              <Icon
+                name="chevronDown"
+                size={14}
+                aria-hidden="true"
+                className={cn(
+                  'shrink-0 text-foreground-neutral-muted transition-transform',
+                  mobileOpen && 'rotate-180',
+                )}
+              />
+            </button>
+          </CollapsibleTrigger>
+          <div
+            className={cn(
+              'max-h-[50vh] overflow-y-auto p-8 min-[768px]:block min-[768px]:max-h-none min-[768px]:p-12',
+              !mobileOpen && 'hidden',
+            )}
+          >
+            <RunWorkspaceNavContent
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              run={run}
+              jobs={jobs}
+              activeSection={activeSection}
+              currentJobId={currentJobId}
+              jobSearch={jobSearch}
+              annotationSummary={annotationSummary}
+              mobileOpen={mobileOpen}
+              onNavigate={() => setMobileOpen(false)}
             />
-          </button>
-        </CollapsibleTrigger>
-        <div
-          className={cn(
-            'max-h-[50vh] overflow-y-auto p-8 min-[768px]:block min-[768px]:max-h-none min-[768px]:p-12',
-            !mobileOpen && 'hidden',
-          )}
-        >
-          <RunWorkspaceNavContent
-            workspaceSlug={workspaceSlug}
-            projectSlug={projectSlug}
-            run={run}
-            jobs={jobs}
-            activeSection={activeSection}
-            currentJobId={currentJobId}
-            jobSearch={jobSearch}
-            annotationSummary={annotationSummary}
-          />
-        </div>
-      </Collapsible>
-    </aside>
+          </div>
+        </Collapsible>
+      </aside>
+    </TimeTickerProvider>
   );
 }
 
@@ -109,7 +114,14 @@ function RunWorkspaceNavContent({
   currentJobId,
   jobSearch,
   annotationSummary,
-}: RunWorkspaceNavProps & {jobs: Job[]; jobSearch: WorkflowJobSearch}) {
+  mobileOpen,
+  onNavigate,
+}: RunWorkspaceNavProps & {
+  jobs: Job[];
+  jobSearch: WorkflowJobSearch;
+  mobileOpen: boolean;
+  onNavigate: () => void;
+}) {
   const currentRowRef = useRef<HTMLAnchorElement>(null);
   const runAttempt = jobSearch.runAttempt ?? run.runAttempt.attempt;
 
@@ -117,6 +129,11 @@ function RunWorkspaceNavContent({
     if (!currentJobId) return;
     currentRowRef.current?.scrollIntoView({block: 'nearest'});
   }, [currentJobId]);
+
+  useEffect(() => {
+    if (!currentJobId || !mobileOpen) return;
+    currentRowRef.current?.scrollIntoView({block: 'nearest'});
+  }, [currentJobId, mobileOpen]);
 
   return (
     <nav aria-label="Run workspace" className="flex min-w-0 flex-col gap-16">
@@ -129,6 +146,7 @@ function RunWorkspaceNavContent({
             runAttempt={runAttempt}
             section="summary"
             current={!currentJobId && activeSection === 'summary'}
+            onNavigate={onNavigate}
           />
         </li>
       </ul>
@@ -161,6 +179,7 @@ function RunWorkspaceNavContent({
                   to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId/jobs/$jobId"
                   params={{workspaceSlug, projectSlug, workflowRunId: run.id, jobId: job.id}}
                   search={workflowJobSearchParams({runAttempt}) as never}
+                  onClick={onNavigate}
                   aria-current={current ? 'page' : undefined}
                   className={cn(
                     'flex min-h-32 min-w-0 items-center gap-8 rounded-4 px-8 text-left outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',
@@ -176,7 +195,7 @@ function RunWorkspaceNavContent({
                     {job.displayName}
                   </span>
                   <span className="ml-auto shrink-0 font-code text-xs leading-20 text-foreground-neutral-muted tabular-nums">
-                    {duration ? formatJobExecutionTime(duration) : '—'}
+                    {duration ? <JobExecutionTimeText time={duration} /> : '—'}
                   </span>
                 </Link>
               </li>
@@ -205,6 +224,7 @@ function RunWorkspaceNavContent({
               section="annotations"
               current={!currentJobId && activeSection === 'annotations'}
               count={annotationSummary?.total}
+              onNavigate={onNavigate}
             />
           </li>
           <li>
@@ -215,6 +235,7 @@ function RunWorkspaceNavContent({
               runAttempt={runAttempt}
               section="source"
               current={!currentJobId && activeSection === 'source'}
+              onNavigate={onNavigate}
             />
           </li>
         </ul>
@@ -231,6 +252,7 @@ function RunSectionLink({
   section,
   current,
   count,
+  onNavigate,
 }: {
   workspaceSlug: string;
   projectSlug: string;
@@ -239,6 +261,7 @@ function RunSectionLink({
   section: RunWorkspaceSection;
   current: boolean;
   count?: number | undefined;
+  onNavigate?: (() => void) | undefined;
 }) {
   return (
     <Link
@@ -250,6 +273,7 @@ function RunSectionLink({
           {runAttempt},
         ) as never
       }
+      onClick={onNavigate}
       aria-current={current ? 'page' : undefined}
       className={cn(
         'flex min-h-32 items-center gap-8 rounded-4 px-8 text-xs font-medium text-foreground-neutral-base outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',

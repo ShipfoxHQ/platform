@@ -98,6 +98,36 @@ describe('WorkflowJobDetailPage', () => {
     expect(screen.getAllByText('deploy')).not.toHaveLength(0);
   });
 
+  test('shows a retarget notice when polling advances the running attempt', async () => {
+    let detailRequestCount = 0;
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname.includes('/logs')) {
+        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+      }
+      detailRequestCount += 1;
+      return Promise.resolve(
+        jsonResponse(
+          detailRequestCount === 1
+            ? liveRetriedInitialJobDetailDto()
+            : liveRetriedAdvancedJobDetailDto(),
+        ),
+      );
+    });
+    configureApiClient({fetchImpl: fetchImpl as typeof fetch});
+
+    const {queryClient} = renderJobPath('?runAttempt=1', LIVE_JOB_ID);
+    expect(
+      await screen.findByRole('region', {name: 'build output, attempt 1'}),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      await queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.detail(RUN_ID, 1)});
+    });
+
+    expect(await screen.findByText(RUN_MOVED_ON_PATTERN)).toBeInTheDocument();
+  });
+
   test('moves focus to the heading after navigating from the job rail', async () => {
     const user = userEvent.setup();
     configureApiClient({
@@ -307,12 +337,34 @@ function liveAdvancedJobDetailDto() {
   return liveJobDetailDto({buildStatus: 'succeeded', deployStatus: 'running'});
 }
 
+function liveRetriedInitialJobDetailDto() {
+  return liveJobDetailDto({
+    buildStatus: 'running',
+    deployStatus: 'pending',
+    buildAttempt: 1,
+    buildAttemptId: LIVE_BUILD_ATTEMPT_ID,
+  });
+}
+
+function liveRetriedAdvancedJobDetailDto() {
+  return liveJobDetailDto({
+    buildStatus: 'running',
+    deployStatus: 'pending',
+    buildAttempt: 2,
+    buildAttemptId: '22222222-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  });
+}
+
 function liveJobDetailDto({
   buildStatus,
   deployStatus,
+  buildAttempt = 1,
+  buildAttemptId = LIVE_BUILD_ATTEMPT_ID,
 }: {
   buildStatus: 'running' | 'succeeded';
   deployStatus: 'pending' | 'running';
+  buildAttempt?: number;
+  buildAttemptId?: string;
 }) {
   const buildStep = workflowStepDto({
     id: LIVE_BUILD_STEP_ID,
@@ -320,11 +372,12 @@ function liveJobDetailDto({
     name: 'build',
     position: 0,
     status: buildStatus,
+    current_attempt: buildAttempt,
     attempts: [
       workflowStepAttemptDto({
-        id: LIVE_BUILD_ATTEMPT_ID,
+        id: buildAttemptId,
         step_id: LIVE_BUILD_STEP_ID,
-        attempt: 1,
+        attempt: buildAttempt,
         status: buildStatus,
       }),
     ],

@@ -239,7 +239,7 @@ export function workflowRunFirstStartedAt(jobs: Job[]): string | null {
 function workflowRunHasStarted({jobStatuses, firstStartedAt}: WorkflowRunProgress): boolean {
   if (firstStartedAt != null) return true;
   if (jobStatuses.length === 0) return true;
-  return jobStatuses.some((status) => status !== 'pending');
+  return jobStatuses.some((status) => status !== 'pending' && status !== 'skipped');
 }
 
 /**
@@ -299,8 +299,8 @@ export function workflowRunBlockingJob(jobs: Job[]): Job | null {
   let queuedMs = Number.POSITIVE_INFINITY;
 
   for (const job of jobs) {
-    for (const {queuedAt, startedAt} of job.jobExecutions) {
-      if (queuedAt === null || startedAt !== null) continue;
+    for (const {queuedAt, startedAt, finishedAt} of job.jobExecutions) {
+      if (queuedAt === null || startedAt !== null || finishedAt !== null) continue;
       const candidateMs = new Date(queuedAt).getTime();
       if (!Number.isFinite(candidateMs) || candidateMs >= queuedMs) continue;
       blocking = job;

@@ -1,15 +1,29 @@
-import {screen, within} from '@testing-library/react';
-import {workflowJobDto, workflowRunDetail} from '#test/fixtures/workflow-run.js';
+import {act, screen, within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {
+  workflowJobDto,
+  workflowJobExecutionDto,
+  workflowRunDetail,
+} from '#test/fixtures/workflow-run.js';
 import {renderWithRouter} from '#test/render.js';
 import {RunWorkspaceNav} from './run-workspace-nav.js';
 
 const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const CURRENT_JOB_ID = '88888888-8888-4888-8888-888888888888';
 const BUILD_LINK_PATTERN = /build/;
+const DEPLOY_LINK_PATTERN = /deploy/;
+const NOW = Date.parse('2026-06-26T12:00:00.000Z');
 
 describe('RunWorkspaceNav', () => {
   beforeEach(() => {
-    Element.prototype.scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   test('shows the complete run hierarchy and marks the current job', async () => {
@@ -79,5 +93,104 @@ describe('RunWorkspaceNav', () => {
     expect(await screen.findByRole('heading', {name: 'Jobs'})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: BUILD_LINK_PATTERN})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Summary'})).toHaveAttribute('aria-current', 'page');
+  });
+
+  test('scrolls the current job into view when the mobile rail opens', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const run = workflowRunDetail({
+      id: RUN_ID,
+      jobs: [workflowJobDto({id: CURRENT_JOB_ID, name: 'build', status: 'running'})],
+    });
+
+    renderWithRouter(
+      <RunWorkspaceNav
+        workspaceSlug="acme"
+        projectSlug="project"
+        run={run}
+        activeSection="summary"
+        currentJobId={CURRENT_JOB_ID}
+      />,
+    );
+
+    await screen.findByRole('link', {name: BUILD_LINK_PATTERN});
+    await user.click(await screen.findByRole('button', {name: 'Toggle run navigation'}));
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+  });
+
+  test('closes the mobile rail after navigating to a job', async () => {
+    const user = userEvent.setup();
+    const run = workflowRunDetail({
+      id: RUN_ID,
+      jobs: [
+        workflowJobDto({id: CURRENT_JOB_ID, name: 'build', status: 'running'}),
+        workflowJobDto({id: 'job-deploy', name: 'deploy', position: 1, status: 'succeeded'}),
+      ],
+    });
+
+    renderWithRouter(
+      <RunWorkspaceNav
+        workspaceSlug="acme"
+        projectSlug="project"
+        run={run}
+        activeSection="summary"
+        currentJobId={CURRENT_JOB_ID}
+      />,
+    );
+
+    const trigger = await screen.findByRole('button', {name: 'Toggle run navigation'});
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('link', {name: DEPLOY_LINK_PATTERN}));
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('updates live job durations on the ticker cadence', async () => {
+    vi.useFakeTimers({shouldAdvanceTime: true});
+    vi.setSystemTime(NOW);
+    const run = workflowRunDetail({
+      id: RUN_ID,
+      jobs: [
+        workflowJobDto({
+          id: CURRENT_JOB_ID,
+          name: 'build',
+          status: 'running',
+          job_executions: [
+            workflowJobExecutionDto({
+              job_id: CURRENT_JOB_ID,
+              status: 'running',
+              queued_at: '2026-06-26T11:54:00.000Z',
+              started_at: '2026-06-26T11:57:46.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+
+    renderWithRouter(
+      <RunWorkspaceNav
+        workspaceSlug="acme"
+        projectSlug="project"
+        run={run}
+        activeSection="summary"
+        currentJobId={CURRENT_JOB_ID}
+      />,
+    );
+
+    const jobLink = await screen.findByRole('link', {name: BUILD_LINK_PATTERN});
+    expect(jobLink).toHaveTextContent('2m 14s');
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(jobLink).toHaveTextContent('2m 15s');
   });
 });

@@ -39,7 +39,12 @@ export type {
   StepErrorReason,
   StepSourceLocation,
 } from './entities/step.js';
-export {AGENT_CONFIG_ISSUES, STEP_ERROR_REASONS} from './entities/step.js';
+export {
+  AGENT_CONFIG_ISSUES,
+  compareStepAttempts,
+  resolveStepAttempt,
+  STEP_ERROR_REASONS,
+} from './entities/step.js';
 export type {
   StepAttemptDisplayDuration,
   StepGateResult,

@@ -41,8 +41,8 @@ describe('resolveWorkflowJobSelection', () => {
       jobs: [
         workflowJobDto({
           id: 'job-build',
-          steps: [workflowStepDto({id: 'step-build'})],
           job_executions: [
+            workflowJobExecutionDto({id: 'execution-old', job_id: 'job-build', sequence: 1}),
             workflowJobExecutionDto({id: 'execution-build', job_id: 'job-build', sequence: 2}),
           ],
         }),
@@ -53,7 +53,7 @@ describe('resolveWorkflowJobSelection', () => {
 
     const resolved = resolveWorkflowJobSelection({
       job,
-      selection: {stepId: 'step-other', jobExecutionId: 'execution-build'},
+      selection: {stepId: 'step-other', jobExecutionId: 'execution-old'},
     });
 
     expect(resolved.step).toBeUndefined();
@@ -141,6 +141,31 @@ describe('workflowJobLandingSelection', () => {
     expect(workflowJobLandingSelection(job)).toEqual({
       stepId: 'step-failed-first',
       attemptId: 'attempt-failed-first',
+    });
+  });
+
+  test('selects the current attempt for the first failed step', () => {
+    const job = workflowRunDetail({
+      jobs: [
+        workflowJobDto({
+          steps: [
+            workflowStepDto({
+              id: 'step-failed',
+              status: 'failed',
+              current_attempt: 2,
+              attempts: [
+                workflowStepAttemptDto({id: 'attempt-old', attempt: 1, status: 'failed'}),
+                workflowStepAttemptDto({id: 'attempt-current', attempt: 2, status: 'failed'}),
+              ],
+            }),
+          ],
+        }),
+      ],
+    }).jobs[0]?.jobExecutions[0];
+
+    expect(workflowJobLandingSelection(job)).toEqual({
+      stepId: 'step-failed',
+      attemptId: 'attempt-current',
     });
   });
 

@@ -81,3 +81,29 @@ export interface Step {
   updatedAt: string;
   attempts: StepAttempt[];
 }
+
+export function resolveStepAttempt(
+  step: Step,
+  attemptId: string | undefined,
+): StepAttempt | undefined {
+  const attemptById = attemptId
+    ? step.attempts.find((attempt) => attempt.id === attemptId)
+    : undefined;
+  if (attemptById) return attemptById;
+
+  const currentAttempt = step.attempts.find((attempt) => attempt.attempt === step.currentAttempt);
+  if (currentAttempt) return currentAttempt;
+
+  return step.attempts.reduce<StepAttempt | undefined>((latest, attempt) => {
+    if (!latest) return attempt;
+    return compareStepAttempts(attempt, latest) > 0 ? attempt : latest;
+  }, undefined);
+}
+
+export function compareStepAttempts(left: StepAttempt, right: StepAttempt): number {
+  return (
+    left.attempt - right.attempt ||
+    left.executionOrder - right.executionOrder ||
+    left.id.localeCompare(right.id)
+  );
+}

@@ -97,6 +97,7 @@ describe('StepAttemptLogPanel', () => {
   });
 
   test('shows elapsed waiting-for-output time for a running attempt', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-06-26T12:01:14.000Z'));
     configureApiClient({
       baseUrl: 'https://api.example.test',
       fetchImpl: vi.fn(async () => jsonResponse({code: 'not-found'}, {status: 404})),
@@ -105,6 +106,7 @@ describe('StepAttemptLogPanel', () => {
     renderPanel({attemptStartedAt: '2026-06-26T11:59:00.000Z'});
 
     expect(await screen.findByText(WAITING_FOR_OUTPUT_PATTERN)).toBeInTheDocument();
+    expect(screen.getByText('2m 14s')).toHaveAttribute('aria-hidden', 'true');
   });
 
   test('waits for missing logs on a terminal attempt until the stream appears', async () => {

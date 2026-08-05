@@ -53,7 +53,6 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
   const event = repeatable(input.event);
   const after = calendarDate(input.after);
   const before = calendarDate(input.before);
-  const runAttempt = positiveInteger(input.runAttempt);
   const tabValue = string(input.tab);
   const tab = tabValue && TAB_VALUES.has(tabValue) ? (tabValue as WorkflowRunTab) : undefined;
   const annotation = string(input.annotation);
@@ -74,17 +73,14 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
     ...(tab ? {tab} : {}),
     ...(annotation ? {annotation} : {}),
     ...(severity ? {severity} : {}),
-    ...(string(input.job) ? {jobId: string(input.job)} : {}),
-    ...(string(input.jobExecution) ? {jobExecutionId: string(input.jobExecution)} : {}),
-    ...(string(input.step) ? {stepId: string(input.step)} : {}),
-    ...(string(input.stepAttempt) ? {stepAttemptId: string(input.stepAttempt)} : {}),
-    ...(runAttempt ? {runAttempt} : {}),
+    ...workflowSelectionFromSearch(input, true),
   };
 }
 
 /** Reads the job-detail query string without allowing a job id to leak back into URL state. */
 export function validateWorkflowJobSearch(input: Record<string, unknown>): WorkflowJobSearch {
-  return workflowJobSelectionSearch(input);
+  const {jobId: _jobId, ...selection} = workflowSelectionFromSearch(input, false);
+  return selection;
 }
 
 /**
@@ -108,21 +104,12 @@ export function workflowRunSearchParams(
     ...(search.tab && search.tab !== 'summary' ? {tab: search.tab} : {}),
     ...(search.annotation ? {annotation: search.annotation} : {}),
     ...(search.severity ? {severity: search.severity} : {}),
-    ...(selection.jobId ? {job: selection.jobId} : {}),
-    ...(selection.jobExecutionId ? {jobExecution: selection.jobExecutionId} : {}),
-    ...(selection.stepId ? {step: selection.stepId} : {}),
-    ...(selection.stepAttemptId ? {stepAttempt: selection.stepAttemptId} : {}),
-    ...(selection.runAttempt ? {runAttempt: String(selection.runAttempt)} : {}),
+    ...workflowSelectionSearchParams(selection, true),
   };
 }
 
 export function workflowJobSearchParams(selection: WorkflowJobSearch) {
-  return {
-    ...(selection.jobExecutionId ? {jobExecution: selection.jobExecutionId} : {}),
-    ...(selection.stepId ? {step: selection.stepId} : {}),
-    ...(selection.stepAttemptId ? {stepAttempt: selection.stepAttemptId} : {}),
-    ...(selection.runAttempt ? {runAttempt: String(selection.runAttempt)} : {}),
-  };
+  return workflowSelectionSearchParams(selection, false);
 }
 
 /** Resolves the run-level surface. Removed Jobs-tab and selection-only URLs fall back to Summary. */
@@ -231,17 +218,35 @@ export function workflowJobRouteParams(input: Record<string, unknown>): {
   return {workspaceSlug, projectSlug, workflowRunId, jobId};
 }
 
-function workflowJobSelectionSearch(input: Record<string, unknown>): WorkflowJobSearch {
+function workflowSelectionFromSearch(
+  input: Record<string, unknown>,
+  includeJobId: boolean,
+): WorkflowRunSelectionInput {
+  const jobId = includeJobId ? string(input.job) : undefined;
   const jobExecutionId = string(input.jobExecution);
   const stepId = string(input.step);
   const stepAttemptId = string(input.stepAttempt);
   const runAttempt = positiveInteger(input.runAttempt);
 
   return {
+    ...(jobId ? {jobId} : {}),
     ...(jobExecutionId ? {jobExecutionId} : {}),
     ...(stepId ? {stepId} : {}),
     ...(stepAttemptId ? {stepAttemptId} : {}),
     ...(runAttempt ? {runAttempt} : {}),
+  };
+}
+
+function workflowSelectionSearchParams(
+  selection: WorkflowRunSelectionInput,
+  includeJobId: boolean,
+) {
+  return {
+    ...(includeJobId && selection.jobId ? {job: selection.jobId} : {}),
+    ...(selection.jobExecutionId ? {jobExecution: selection.jobExecutionId} : {}),
+    ...(selection.stepId ? {step: selection.stepId} : {}),
+    ...(selection.stepAttemptId ? {stepAttempt: selection.stepAttemptId} : {}),
+    ...(selection.runAttempt ? {runAttempt: String(selection.runAttempt)} : {}),
   };
 }
 

@@ -241,7 +241,7 @@ export function isAgentConfigFailure(step: Step, error: StepError | null): boole
 
 export function jobSucceededSummary(job: Job, execution: JobExecution): string | undefined {
   if (job.carriedOver || execution.status !== 'succeeded') return undefined;
-  const stepCount = execution.steps.length;
+  const stepCount = execution.steps.filter((step) => step.status === 'succeeded').length;
   if (stepCount === 0) return undefined;
   const duration = execution.displayDuration;
   return `${stepCount} step${stepCount === 1 ? '' : 's'} succeeded${duration ? ` in ${formatJobExecutionTime(duration)}` : ''}`;

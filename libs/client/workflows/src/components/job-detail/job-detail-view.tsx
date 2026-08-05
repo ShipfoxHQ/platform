@@ -130,8 +130,13 @@ export function JobDetailView({
   const selectedAttemptId = hasExplicitStep ? resolvedSelection.selectedAttemptId : undefined;
   const runningSelection = runningStepSelection(selectedJobExecution);
   const selectedStepId = resolvedSelection.step?.id ?? landingSelection?.stepId;
+  const selectedAttemptForNotice = hasExplicitStep
+    ? resolvedSelection.selectedAttemptId
+    : landingSelection?.attemptId;
   const showRetargetNotice =
-    runningSelection !== undefined && selectedStepId !== runningSelection.stepId;
+    runningSelection !== undefined &&
+    (selectedStepId !== runningSelection.stepId ||
+      selectedAttemptForNotice !== runningSelection.attemptId);
   const succeededSummary =
     !hasExplicitStep && landingSelection === undefined && selectedJobExecution
       ? jobSucceededSummary(job, selectedJobExecution)

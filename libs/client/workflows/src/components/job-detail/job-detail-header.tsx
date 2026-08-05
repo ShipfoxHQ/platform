@@ -83,7 +83,10 @@ function JobDurationMeta({execution, kind}: {execution: JobExecution; kind: 'que
   if (!time || !from) return null;
 
   const to = kind === 'queue' ? execution.startedAt : execution.finishedAt;
-  const tooltip = `${kind === 'queue' ? 'Queued' : 'Ran'} ${formatTimestamp(from)}${to ? ` – ${formatTimestamp(to)}` : ' – now'}`;
+  const live = time.state === 'live';
+  const label = kind === 'queue' ? 'queued' : live ? 'running' : 'ran';
+  const tooltipLabel = kind === 'queue' ? 'Queued' : live ? 'Running' : 'Ran';
+  const tooltip = `${tooltipLabel} ${formatTimestamp(from)}${to ? ` – ${formatTimestamp(to)}` : ' – now'}`;
 
   return (
     <Tooltip>
@@ -94,7 +97,7 @@ function JobDurationMeta({execution, kind}: {execution: JobExecution; kind: 'que
             size={12}
             aria-hidden="true"
           />
-          <span>{kind === 'queue' ? 'queued' : 'ran'} </span>
+          <span>{label} </span>
           <JobExecutionTimeText time={time} />
         </span>
       </TooltipTrigger>

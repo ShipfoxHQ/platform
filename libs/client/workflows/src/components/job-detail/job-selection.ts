@@ -1,7 +1,9 @@
 import {
+  compareStepAttempts,
   type Job,
   type JobExecution,
   resolveJobExecution,
+  resolveStepAttempt,
   type Step,
   type StepAttempt,
 } from '#core/workflow-run.js';
@@ -63,7 +65,12 @@ export function workflowJobLandingSelection(
 
   const entries = orderedStepAttempts(jobExecution);
   const running = [...entries].reverse().find((entry) => entry.attempt.status === 'running');
-  const failed = entries.find((entry) => entry.attempt.status === 'failed');
+  const failedStep = [...jobExecution.steps]
+    .sort(compareSteps)
+    .find((step) => step.status === 'failed');
+  const failedAttempt = failedStep ? resolveStepAttempt(failedStep, undefined) : undefined;
+  const failed =
+    failedStep && failedAttempt ? {step: failedStep, attempt: failedAttempt} : undefined;
   const selected = running ?? failed;
   return selected ? {stepId: selected.step.id, attemptId: selected.attempt.id} : undefined;
 }
@@ -76,31 +83,14 @@ function findStep(job: Job, stepId: string): Step | undefined {
   return undefined;
 }
 
-function resolveStepAttempt(step: Step, attemptId: string | undefined): StepAttempt | undefined {
-  const exact = attemptId ? step.attempts.find((attempt) => attempt.id === attemptId) : undefined;
-  if (exact) return exact;
-
-  const current = step.attempts.find((attempt) => attempt.attempt === step.currentAttempt);
-  if (current) return current;
-
-  return step.attempts.reduce<StepAttempt | undefined>((latest, attempt) => {
-    if (!latest) return attempt;
-    return compareAttempts(attempt, latest) > 0 ? attempt : latest;
-  }, undefined);
-}
-
 function orderedStepAttempts(jobExecution: JobExecution) {
   return [...jobExecution.steps]
     .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id))
     .flatMap((step) =>
-      [...step.attempts].sort(compareAttempts).map((attempt) => ({step, attempt})),
+      [...step.attempts].sort(compareStepAttempts).map((attempt) => ({step, attempt})),
     );
 }
 
-function compareAttempts(left: StepAttempt, right: StepAttempt): number {
-  return (
-    left.attempt - right.attempt ||
-    left.executionOrder - right.executionOrder ||
-    left.id.localeCompare(right.id)
-  );
+function compareSteps(left: Step, right: Step): number {
+  return left.position - right.position || left.id.localeCompare(right.id);
 }
