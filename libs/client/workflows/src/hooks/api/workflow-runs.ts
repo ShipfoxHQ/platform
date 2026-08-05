@@ -507,19 +507,23 @@ export function useWorkflowRunQuery(workflowRunId: string | undefined) {
 export function useWorkflowRunAttemptQuery({
   workflowRunId,
   runAttempt,
+  enabled = true,
 }: {
   workflowRunId: string | undefined;
   runAttempt?: number | undefined;
+  enabled?: boolean | undefined;
 }) {
-  return useQuery(workflowRunQueryOptions({workflowRunId, runAttempt}));
+  return useQuery(workflowRunQueryOptions({workflowRunId, runAttempt, enabled}));
 }
 
 export function workflowRunQueryOptions({
   workflowRunId,
   runAttempt,
+  enabled = true,
 }: {
   workflowRunId: string | undefined;
   runAttempt?: number | undefined;
+  enabled?: boolean | undefined;
 }): WorkflowRunDetailQueryOptions {
   // Poll a non-terminal run so the open run detail stays live (same cadence as the run
   // list); stop once the run is terminal.
@@ -527,7 +531,7 @@ export function workflowRunQueryOptions({
     queryKey: workflowRunId
       ? workflowRunsQueryKeys.detail(workflowRunId, runAttempt)
       : ([...workflowRunsQueryKeys.all, 'detail'] as const),
-    enabled: Boolean(workflowRunId),
+    enabled: Boolean(workflowRunId) && enabled,
     queryFn: ({signal}) => getWorkflowRun({workflowRunId: workflowRunId ?? '', runAttempt, signal}),
     staleTime: 2_000,
     refetchOnWindowFocus: true,

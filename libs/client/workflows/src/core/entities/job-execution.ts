@@ -113,9 +113,24 @@ export function jobExecutionRunTimeFromTimestamps({
   finishedAt: string | null;
 }): JobExecutionTime | null {
   if (startedAt === null) return null;
-  if (finishedAt === null) return {state: 'live', fromIso: startedAt};
+  return elapsedTimeFromTimestamps({from: startedAt, to: finishedAt});
+}
 
-  const elapsed = durationBetween(startedAt, finishedAt);
+/**
+ * The elapsed span between two marks, still accruing while the closing mark is missing. Every
+ * duration this app shows is one of these, so queue time and run time measure the same way and
+ * only differ in which marks they read.
+ */
+export function elapsedTimeFromTimestamps({
+  from,
+  to,
+}: {
+  from: string;
+  to: string | null;
+}): JobExecutionTime | null {
+  if (to === null) return {state: 'live', fromIso: from};
+
+  const elapsed = durationBetween(from, to);
   return elapsed === null ? null : {state: 'fixed', elapsed};
 }
 

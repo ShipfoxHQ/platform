@@ -7,17 +7,23 @@ import {
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {Text} from '@shipfox/react-ui/typography';
-import {type UIEvent, useEffect, useRef} from 'react';
+import {type RefObject, useEffect, useRef} from 'react';
+import {JobExecutionTimeText} from './job-execution-time-text.js';
 
 const TAIL_FOLLOW_THRESHOLD_PX = 24;
 const INITIAL_LOG_ERROR_RETRY_COUNT = 5;
 const INITIAL_LOG_ERROR_RETRY_DELAY_MS = 1_500;
-const logSurfaceClasses = 'max-h-[40vh] rounded-8 md:max-h-[280px]';
+const defaultLogSurfaceClasses = 'rounded-8';
 
 export interface StepAttemptLogPanelProps {
   stepId: string;
   attempt: number;
   attemptStatus: string;
+  /** The start time used by the page's quiet waiting-for-output state. */
+  attemptStartedAt?: string | undefined;
+  /** The page scroll column used by the uncapped job-detail log surface. */
+  pageScrollRef: RefObject<HTMLElement | null>;
+  surfaceClassName?: string | undefined;
   initialErrorRetryCount?: number | undefined;
   initialErrorRetryDelayMs?: number | undefined;
 }
@@ -26,10 +32,12 @@ export function StepAttemptLogPanel({
   stepId,
   attempt,
   attemptStatus,
+  attemptStartedAt,
+  pageScrollRef,
+  surfaceClassName = defaultLogSurfaceClasses,
   initialErrorRetryCount = INITIAL_LOG_ERROR_RETRY_COUNT,
   initialErrorRetryDelayMs = INITIAL_LOG_ERROR_RETRY_DELAY_MS,
 }: StepAttemptLogPanelProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const shouldFollowTailRef = useRef(true);
   const missingStreamRetryCount = attemptStatus === 'running' ? undefined : initialErrorRetryCount;
   const retryMissingStream = attemptStatus === 'running' || isTerminalAttemptStatus(attemptStatus);
@@ -49,12 +57,24 @@ export function StepAttemptLogPanel({
   const staleError = query.isError && query.data !== undefined;
 
   useEffect(() => {
+    const scrollElement = pageScrollRef.current;
+    if (!scrollElement) return undefined;
+
+    const onScroll = () => {
+      shouldFollowTailRef.current = isNearPageBottom(scrollElement);
+    };
+    scrollElement.addEventListener('scroll', onScroll, {passive: true});
+    onScroll();
+    return () => scrollElement.removeEventListener('scroll', onScroll);
+  }, [pageScrollRef]);
+
+  useEffect(() => {
     if (recordCount === 0) return undefined;
     if (anchorToFailure) return undefined;
     if (!shouldFollowTailRef.current) return undefined;
 
     const frame = scheduleAnimationFrame(() => {
-      const scrollElement = panelRef.current?.querySelector<HTMLElement>('[data-slot="log-rows"]');
+      const scrollElement = pageScrollRef.current;
       if (!scrollElement) return;
       scrollElement.scrollTop = scrollElement.scrollHeight;
     });
@@ -62,20 +82,17 @@ export function StepAttemptLogPanel({
     return () => {
       cancelScheduledFrame(frame);
     };
-  }, [anchorToFailure, recordCount]);
-
-  function handleLogScroll(event: UIEvent<HTMLDivElement>) {
-    const element = event.currentTarget;
-    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-    shouldFollowTailRef.current = distanceFromBottom <= TAIL_FOLLOW_THRESHOLD_PX;
-  }
+  }, [anchorToFailure, pageScrollRef, recordCount]);
 
   if (query.isPending) {
-    return <StepLogsLoadingSurface label="Loading logs" />;
+    return <StepLogsLoadingSurface label="Loading logs" className={surfaceClassName} />;
   }
 
   if (missingActiveStream) {
-    return <StepLogsLoadingSurface label="Waiting for logs" />;
+    if (attemptStatus === 'running' && attemptStartedAt) {
+      return <StepLogsWaitingSurface startedAt={attemptStartedAt} className={surfaceClassName} />;
+    }
+    return <StepLogsLoadingSurface label="Waiting for logs" className={surfaceClassName} />;
   }
 
   if (initialError) {
@@ -83,7 +100,7 @@ export function StepAttemptLogPanel({
   }
 
   return (
-    <div ref={panelRef} className="flex min-w-0 flex-col gap-8">
+    <div className="flex min-w-0 flex-col gap-8">
       {staleError ? (
         <Callout role="alert" type="warning" className="px-10 py-8">
           <div className="flex min-w-0 flex-1 items-center justify-between gap-8">
@@ -104,17 +121,29 @@ export function StepAttemptLogPanel({
         records={records}
         emptyState={query.data?.complete ? 'complete' : 'pending'}
         anchorToFailure={anchorToFailure}
-        className={logSurfaceClasses}
-        onScroll={handleLogScroll}
+        className={surfaceClassName}
       />
     </div>
   );
 }
 
-function StepLogsLoadingSurface({label}: {label: string}) {
+function StepLogsLoadingSurface({label, className}: {label: string; className: string}) {
   return (
     <div role="status" aria-label={label}>
-      <LogViewSkeleton className={logSurfaceClasses} />
+      <LogViewSkeleton className={className} />
+    </div>
+  );
+}
+
+function StepLogsWaitingSurface({startedAt, className}: {startedAt: string; className: string}) {
+  return (
+    <div role="status" aria-label="Waiting for logs" className={className}>
+      <Text size="xs" className="px-10 py-12 text-foreground-neutral-muted">
+        Waiting for output ·{' '}
+        <span className="font-code tabular-nums" aria-hidden="true">
+          <JobExecutionTimeText time={{state: 'live', fromIso: startedAt}} />
+        </span>
+      </Text>
     </div>
   );
 }
@@ -132,6 +161,11 @@ function cancelScheduledFrame(frame: number) {
     return;
   }
   window.clearTimeout(frame);
+}
+
+function isNearPageBottom(element: HTMLElement): boolean {
+  const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+  return distanceFromBottom <= TAIL_FOLLOW_THRESHOLD_PX;
 }
 
 function isTerminalAttemptStatus(status: string): boolean {

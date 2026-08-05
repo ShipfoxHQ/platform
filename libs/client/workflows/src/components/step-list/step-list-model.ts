@@ -60,7 +60,7 @@ export function buildStepListModel({
     jobName: job.name ?? job.key,
     jobExecutionId: selectedJobExecution.id,
     stepCount: steps.length,
-    activeEntryId: latestRunningEntryId(entries),
+    activeEntryId: landingEntryId(entries),
     entries,
   };
 }
@@ -192,7 +192,7 @@ function compareEntries(left: StepListEntryModel, right: StepListEntryModel): nu
   );
 }
 
-function latestRunningEntryId(entries: readonly StepListEntryModel[]): string | undefined {
+function landingEntryId(entries: readonly StepListEntryModel[]): string | undefined {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry?.statusVisual.kind === 'running') return entry.id;

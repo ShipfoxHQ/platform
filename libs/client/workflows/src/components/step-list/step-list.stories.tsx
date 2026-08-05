@@ -18,7 +18,7 @@ import {
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
-import {AgentConfigFailureCallout as AgentConfigFailureCalloutView} from '../workflow-run-view/agent-config-failure-callout.js';
+import {AgentConfigFailureCallout as AgentConfigFailureCalloutView} from '../job-detail/agent-config-failure-callout.js';
 import {StepList} from './step-list.js';
 
 const AGENTS_LINK_NAME = 'Configure Agents';

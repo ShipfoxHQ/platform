@@ -40,6 +40,7 @@ export interface StepExpandedContext {
   sourceLocation: StepSourceLocation | null;
   attempt: number;
   attemptId: string;
+  attemptStartedAt: string;
   attemptError: Record<string, unknown> | null;
   attemptStatus: string;
   carriedOver: boolean;
@@ -119,15 +120,15 @@ function StepListContent({
   );
   const [userSelectedAttempt, setUserSelectedAttempt] = useState(false);
   const lastNotifiedSelectedAttemptId = useRef<string | null>(null);
+  const autoSelectedAttemptIdRef = useRef<string | undefined>(undefined);
+  const previousSelectedAttemptIdRef = useRef<string | null | undefined>(selectedAttemptId);
   const shouldUseControlledCollapsedState =
     selectedAttemptId === null && lastNotifiedSelectedAttemptId.current === null;
-  const autoSelectedAttemptIds =
-    selectedAttemptId === undefined &&
-    autoSelectActiveAttempt &&
-    !userSelectedAttempt &&
-    model.activeEntryId
-      ? [model.activeEntryId]
-      : [];
+  const autoSelectedAttemptId =
+    selectedAttemptId === undefined && autoSelectActiveAttempt && !userSelectedAttempt
+      ? (autoSelectedAttemptIdRef.current ?? model.activeEntryId)
+      : undefined;
+  const autoSelectedAttemptIds = autoSelectedAttemptId ? [autoSelectedAttemptId] : [];
   const selectedAttemptIds = shouldUseControlledCollapsedState
     ? []
     : localSelectedAttemptIds.length > 0
@@ -136,11 +137,40 @@ function StepListContent({
   const hasExpandedContent = renderExpandedStep !== undefined;
 
   useEffect(() => {
-    if (selectedAttemptId !== undefined) return;
+    if (selectedAttemptId !== undefined) {
+      previousSelectedAttemptIdRef.current = selectedAttemptId;
+      return;
+    }
+
+    // A changing landing candidate is normal while a live job polls. Only reset the local
+    // accordion when the parent has just cleared a previously controlled URL selection.
+    const wasControlled = previousSelectedAttemptIdRef.current !== undefined;
+    previousSelectedAttemptIdRef.current = undefined;
+    if (!wasControlled) return;
 
     setLocalSelectedAttemptIds(defaultSelectedAttemptId ? [defaultSelectedAttemptId] : []);
     setUserSelectedAttempt(false);
+    autoSelectedAttemptIdRef.current = undefined;
   }, [defaultSelectedAttemptId, selectedAttemptId]);
+
+  useEffect(() => {
+    if (
+      selectedAttemptId !== undefined ||
+      !autoSelectActiveAttempt ||
+      userSelectedAttempt ||
+      localSelectedAttemptIds.length > 0 ||
+      autoSelectedAttemptIdRef.current !== undefined
+    ) {
+      return;
+    }
+    if (model.activeEntryId) autoSelectedAttemptIdRef.current = model.activeEntryId;
+  }, [
+    autoSelectActiveAttempt,
+    localSelectedAttemptIds.length,
+    model.activeEntryId,
+    selectedAttemptId,
+    userSelectedAttempt,
+  ]);
 
   useEffect(() => {
     if (selectedAttemptId === undefined) return;
@@ -216,6 +246,7 @@ function StepListContent({
                             sourceLocation: entry.step.sourceLocation,
                             attempt: entry.attempt,
                             attemptId: entry.id,
+                            attemptStartedAt: entry.startedAt,
                             attemptError: entry.error,
                             attemptStatus: entry.statusVisual.kind,
                             carriedOver: entry.carriedOver,
@@ -454,7 +485,7 @@ function StepAttemptChip({attempt}: {attempt: StepAttemptModel}) {
     <div className="flex shrink-0 items-center gap-4" aria-hidden="true">
       <span
         className={cn(
-          'inline-flex h-18 min-w-24 items-center justify-center rounded-4 border px-5 font-code text-xs leading-16 text-foreground-neutral-base',
+          'inline-flex h-18 min-w-24 items-center justify-center rounded-4 border px-6 font-code text-xs leading-16 text-foreground-neutral-base',
           attemptChipClasses[attempt.statusVisual.badge ?? 'neutral'],
         )}
       >

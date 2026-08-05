@@ -6,6 +6,7 @@ import {WorkflowStatusIcon} from './workflow-status-icon.js';
 
 const statuses: WorkflowDisplayStatus[] = [
   'pending',
+  'queued',
   'running',
   'listening',
   'succeeded',

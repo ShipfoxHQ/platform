@@ -21,7 +21,7 @@ const config: AgentStepConfig = {
 };
 
 const meta = {
-  title: 'Workflows/RunView/AgentConfigFailureCallout',
+  title: 'Workflows/JobDetail/AgentConfigFailureCallout',
   component: AgentConfigFailureCallout,
   parameters: {
     layout: 'centered',

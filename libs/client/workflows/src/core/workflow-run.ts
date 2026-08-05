@@ -26,6 +26,7 @@ export type {
 } from './entities/job-execution.js';
 export {
   deriveJobExecutionDisplayStatus,
+  elapsedTimeFromTimestamps,
   isTerminalJobExecutionStatus,
   JobExecution,
 } from './entities/job-execution.js';
@@ -38,7 +39,12 @@ export type {
   StepErrorReason,
   StepSourceLocation,
 } from './entities/step.js';
-export {AGENT_CONFIG_ISSUES, STEP_ERROR_REASONS} from './entities/step.js';
+export {
+  AGENT_CONFIG_ISSUES,
+  compareStepAttempts,
+  resolveStepAttempt,
+  STEP_ERROR_REASONS,
+} from './entities/step.js';
 export type {
   StepAttemptDisplayDuration,
   StepGateResult,
@@ -49,11 +55,14 @@ export type {
   WorkflowDisplayStatus,
   WorkflowRun,
   WorkflowRunDetail,
+  WorkflowRunDisplay,
+  WorkflowRunDisplayDuration,
   WorkflowRunJobStatusCount,
   WorkflowRunJobSummary,
   WorkflowRunJobs,
   WorkflowRunListItem,
   WorkflowRunListPage,
+  WorkflowRunProgress,
   WorkflowRunRecord,
   WorkflowRunRerunMode,
   WorkflowRunStatus,
@@ -62,13 +71,19 @@ export type {
   WorkflowStatus,
 } from './entities/workflow-run.js';
 export {
+  deriveWorkflowRunDisplay,
   isWorkflowRunTerminal,
   isWorkflowStatus,
   TERMINAL_WORKFLOW_RUN_STATUSES,
+  WORKFLOW_DISPLAY_STATUSES,
   WORKFLOW_RUN_STATUSES,
   workflowRunActor,
+  workflowRunBlockingJob,
   workflowRunBranchLabel,
   workflowRunCommitLabel,
+  workflowRunDetailDisplay,
+  workflowRunFirstStartedAt,
+  workflowRunListItemDisplay,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from './entities/workflow-run.js';

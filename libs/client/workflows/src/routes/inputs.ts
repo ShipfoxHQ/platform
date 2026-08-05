@@ -31,6 +31,8 @@ export interface WorkflowRunsSearch extends WorkflowRunSelectionInput {
   severity?: WorkflowRunAnnotationSeverity;
 }
 
+export type WorkflowJobSearch = Omit<WorkflowRunSelectionInput, 'jobId'>;
+
 const STATUS_VALUES = new Set<string>(WORKFLOW_RUN_LIST_STATUSES);
 const TAB_VALUES = new Set<string>(WORKFLOW_RUN_TABS);
 const ANNOTATION_SEVERITY_VALUES = new Set<string>(WORKFLOW_RUN_ANNOTATION_SEVERITIES);
@@ -51,7 +53,6 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
   const event = repeatable(input.event);
   const after = calendarDate(input.after);
   const before = calendarDate(input.before);
-  const runAttempt = positiveInteger(input.runAttempt);
   const tabValue = string(input.tab);
   const tab = tabValue && TAB_VALUES.has(tabValue) ? (tabValue as WorkflowRunTab) : undefined;
   const annotation = string(input.annotation);
@@ -72,12 +73,14 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
     ...(tab ? {tab} : {}),
     ...(annotation ? {annotation} : {}),
     ...(severity ? {severity} : {}),
-    ...(string(input.job) ? {jobId: string(input.job)} : {}),
-    ...(string(input.jobExecution) ? {jobExecutionId: string(input.jobExecution)} : {}),
-    ...(string(input.step) ? {stepId: string(input.step)} : {}),
-    ...(string(input.stepAttempt) ? {stepAttemptId: string(input.stepAttempt)} : {}),
-    ...(runAttempt ? {runAttempt} : {}),
+    ...workflowSelectionFromSearch(input, true),
   };
+}
+
+/** Reads the job-detail query string without allowing a job id to leak back into URL state. */
+export function validateWorkflowJobSearch(input: Record<string, unknown>): WorkflowJobSearch {
+  const {jobId: _jobId, ...selection} = workflowSelectionFromSearch(input, false);
+  return selection;
 }
 
 /**
@@ -101,23 +104,19 @@ export function workflowRunSearchParams(
     ...(search.tab && search.tab !== 'summary' ? {tab: search.tab} : {}),
     ...(search.annotation ? {annotation: search.annotation} : {}),
     ...(search.severity ? {severity: search.severity} : {}),
-    ...(selection.jobId ? {job: selection.jobId} : {}),
-    ...(selection.jobExecutionId ? {jobExecution: selection.jobExecutionId} : {}),
-    ...(selection.stepId ? {step: selection.stepId} : {}),
-    ...(selection.stepAttemptId ? {stepAttempt: selection.stepAttemptId} : {}),
-    ...(selection.runAttempt ? {runAttempt: String(selection.runAttempt)} : {}),
+    ...workflowSelectionSearchParams(selection, true),
   };
 }
 
-/**
- * Resolves the detail surface for a URL. Explicit tabs win; legacy selection-only URLs belong
- * to Jobs so their selected detail remains visible instead of silently landing on Summary.
- */
+export function workflowJobSearchParams(selection: WorkflowJobSearch) {
+  return workflowSelectionSearchParams(selection, false);
+}
+
+/** Resolves the run-level surface. Removed Jobs-tab and selection-only URLs fall back to Summary. */
 export function workflowRunTab(
   search: Pick<WorkflowRunsSearch, 'tab' | 'jobId' | 'jobExecutionId' | 'stepId' | 'stepAttemptId'>,
 ): WorkflowRunTab {
-  if (search.tab) return search.tab;
-  if (search.jobId || search.jobExecutionId || search.stepId || search.stepAttemptId) return 'jobs';
+  if (search.tab === 'annotations' || search.tab === 'source') return search.tab;
   return 'summary';
 }
 
@@ -201,6 +200,54 @@ export function workflowRouteParams(input: Record<string, unknown>): {
     throw new Error('Workflow route is missing required path parameters.');
   const workflowRunId = string(input.workflowRunId);
   return workflowRunId ? {workspaceSlug, projectSlug, workflowRunId} : {workspaceSlug, projectSlug};
+}
+
+export function workflowJobRouteParams(input: Record<string, unknown>): {
+  workspaceSlug: string;
+  projectSlug: string;
+  workflowRunId: string;
+  jobId: string;
+} {
+  const workspaceSlug = string(input.workspaceSlug);
+  const projectSlug = string(input.projectSlug);
+  const workflowRunId = string(input.workflowRunId);
+  const jobId = string(input.jobId);
+  if (!workspaceSlug || !projectSlug || !workflowRunId || !jobId) {
+    throw new Error('Workflow job route is missing required path parameters.');
+  }
+  return {workspaceSlug, projectSlug, workflowRunId, jobId};
+}
+
+function workflowSelectionFromSearch(
+  input: Record<string, unknown>,
+  includeJobId: boolean,
+): WorkflowRunSelectionInput {
+  const jobId = includeJobId ? string(input.job) : undefined;
+  const jobExecutionId = string(input.jobExecution);
+  const stepId = string(input.step);
+  const stepAttemptId = string(input.stepAttempt);
+  const runAttempt = positiveInteger(input.runAttempt);
+
+  return {
+    ...(jobId ? {jobId} : {}),
+    ...(jobExecutionId ? {jobExecutionId} : {}),
+    ...(stepId ? {stepId} : {}),
+    ...(stepAttemptId ? {stepAttemptId} : {}),
+    ...(runAttempt ? {runAttempt} : {}),
+  };
+}
+
+function workflowSelectionSearchParams(
+  selection: WorkflowRunSelectionInput,
+  includeJobId: boolean,
+) {
+  return {
+    ...(includeJobId && selection.jobId ? {job: selection.jobId} : {}),
+    ...(selection.jobExecutionId ? {jobExecution: selection.jobExecutionId} : {}),
+    ...(selection.stepId ? {step: selection.stepId} : {}),
+    ...(selection.stepAttemptId ? {stepAttempt: selection.stepAttemptId} : {}),
+    ...(selection.runAttempt ? {runAttempt: String(selection.runAttempt)} : {}),
+  };
 }
 
 function setOrDelete<TKey extends keyof WorkflowRunsSearch>(

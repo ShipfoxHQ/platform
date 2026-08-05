@@ -3,8 +3,12 @@ import {
   applyWorkflowRunFilterPatch,
   clearWorkflowRunFilters,
   hasWorkflowRunFilters,
+  validateWorkflowJobSearch,
   validateWorkflowRunsSearch,
+  type WorkflowJobSearch,
   type WorkflowRunsSearch,
+  workflowJobRouteParams,
+  workflowJobSearchParams,
   workflowRouteParams,
   workflowRunListSearchParams,
   workflowRunSearchParams,
@@ -62,12 +66,58 @@ describe('validateWorkflowRunsSearch', () => {
     expect(validateWorkflowRunsSearch({after: '2026-02-28'})).toEqual({after: '2026-02-28'});
   });
 
-  test('keeps the run selection parameters the detail route owns', () => {
+  test('keeps legacy job selection on the run route', () => {
     expect(validateWorkflowRunsSearch({status: 'failed', runAttempt: '2', job: 'job-1'})).toEqual({
       status: ['failed'],
+      jobId: 'job-1',
       runAttempt: 2,
+    });
+  });
+});
+
+describe('the job detail URL contract', () => {
+  test('reads and writes job-scoped selection parameters', () => {
+    const search: WorkflowJobSearch = {
+      jobExecutionId: 'execution-1',
+      stepId: 'step-1',
+      stepAttemptId: 'attempt-2',
+      runAttempt: 3,
+    };
+    const query = stringifyAppSearch(workflowJobSearchParams(search));
+
+    expect(query).toBe(
+      '?jobExecution=execution-1&step=step-1&stepAttempt=attempt-2&runAttempt=%223%22',
+    );
+    expect(validateWorkflowJobSearch(parseAppSearch(query))).toEqual(search);
+  });
+
+  test('drops malformed job selection values', () => {
+    expect(
+      validateWorkflowJobSearch({
+        tab: 'annotations',
+        jobExecution: ['unexpected'],
+        step: '',
+        stepAttempt: 4,
+        runAttempt: '0',
+      }),
+    ).toEqual({});
+  });
+
+  test('requires all job route path parameters', () => {
+    expect(
+      workflowJobRouteParams({
+        workspaceSlug: 'workspace-1',
+        projectSlug: 'project-1',
+        workflowRunId: 'run-1',
+        jobId: 'job-1',
+      }),
+    ).toEqual({
+      workspaceSlug: 'workspace-1',
+      projectSlug: 'project-1',
+      workflowRunId: 'run-1',
       jobId: 'job-1',
     });
+    expect(() => workflowJobRouteParams({workspaceSlug: 'workspace-1'})).toThrow();
   });
 
   test('accepts known tabs and annotation severities while dropping unknown values', () => {
@@ -84,8 +134,8 @@ describe('validateWorkflowRunsSearch', () => {
     ['job execution', {jobExecutionId: 'execution-1'}],
     ['step', {stepId: 'step-1'}],
     ['step attempt', {stepAttemptId: 'attempt-1'}],
-  ])('defaults a legacy %s selection URL to Jobs', (_selection, search) => {
-    expect(workflowRunTab(search)).toBe('jobs');
+  ])('defaults a legacy %s selection URL to Summary', (_selection, search) => {
+    expect(workflowRunTab(search)).toBe('summary');
   });
 
   test('keeps an explicit Summary tab ahead of legacy selection inference', () => {
@@ -195,9 +245,9 @@ describe('applyWorkflowRunFilterPatch', () => {
   });
 
   test('leaves the run selection parameters alone', () => {
-    const next = applyWorkflowRunFilterPatch({runAttempt: 2, jobId: 'job-1'}, {search: 'deploy'});
+    const next = applyWorkflowRunFilterPatch({runAttempt: 2}, {search: 'deploy'});
 
-    expect(next).toEqual({runAttempt: 2, jobId: 'job-1', search: 'deploy'});
+    expect(next).toEqual({runAttempt: 2, search: 'deploy'});
   });
 });
 
@@ -232,7 +282,7 @@ describe('hasWorkflowRunFilters', () => {
   });
 
   test('does not count a run selection parameter as a filter', () => {
-    expect(hasWorkflowRunFilters({runAttempt: 2, jobId: 'job-1'})).toBe(false);
+    expect(hasWorkflowRunFilters({runAttempt: 2})).toBe(false);
   });
 });
 
