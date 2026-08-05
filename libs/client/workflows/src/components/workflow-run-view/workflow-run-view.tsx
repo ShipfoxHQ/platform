@@ -249,6 +249,9 @@ function RunViewContent({
     if (!runData || !workspaceSlug || !projectSlug) return;
     const nextSearch: WorkflowRunsSearch = {...selection, tab: 'annotations'};
     delete nextSearch.jobId;
+    delete nextSearch.jobExecutionId;
+    delete nextSearch.stepId;
+    delete nextSearch.stepAttemptId;
     delete nextSearch.severity;
     delete nextSearch.annotation;
 
@@ -499,9 +502,9 @@ function RunAnnotationsSection({
           />
         </div>
         <RunAnnotationList
-          // Remounting on a filter change resets the render window, so narrowing to one job
-          // never lands the reader inside a "show more" position from the previous filter.
-          key={`${severity ?? 'all'}:${selectedJob?.id ?? 'all'}`}
+          // Remounting on a filter or run-attempt change resets the render window, so the next
+          // list never inherits a "show more" position from different data.
+          key={`${run.id}:${run.runAttempt.attempt}:${severity ?? 'all'}:${selectedJob?.id ?? 'all'}`}
           query={annotations.query}
           entries={entries}
           workspaceSlug={workspaceSlug}

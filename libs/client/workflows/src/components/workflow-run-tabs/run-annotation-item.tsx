@@ -2,6 +2,7 @@ import {AnnotationCard} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Text} from '@shipfox/react-ui/typography';
+import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
 import {useEffect, useRef} from 'react';
 import type {RunAnnotationEntry} from '#core/run-annotation.js';
@@ -51,7 +52,15 @@ export function RunAnnotationItem({
   }, [selected]);
 
   return (
-    <li ref={itemRef} tabIndex={-1} className="outline-none">
+    <li
+      ref={itemRef}
+      tabIndex={-1}
+      aria-current={selected ? 'true' : undefined}
+      className={cn(
+        'rounded-8 outline-none focus-visible:shadow-border-interactive-with-active',
+        selected && 'shadow-border-interactive-with-active',
+      )}
+    >
       <AnnotationCard
         id={annotationElementId(annotation.id)}
         style={annotation.style}

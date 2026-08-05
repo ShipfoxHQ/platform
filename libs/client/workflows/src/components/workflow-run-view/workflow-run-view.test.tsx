@@ -207,7 +207,10 @@ describe('WorkflowRunView', () => {
     renderView({tab: 'annotations', selection: {annotation: deepLinkedId}});
 
     const target = await screen.findByRole('heading', {level: 3, name: 'context-29'});
-    await waitFor(() => expect(target.closest('li')).toHaveFocus());
+    const selected = target.closest('li');
+    await waitFor(() => expect(selected).toHaveFocus());
+    expect(selected).toHaveAttribute('aria-current', 'true');
+    expect(selected).toHaveClass('shadow-border-interactive-with-active');
   });
 
   test('separates a filtered miss from a run with no annotations', async () => {
@@ -220,6 +223,46 @@ describe('WorkflowRunView', () => {
       screen.getByText('This run has annotations, but none at error severity.'),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Clear filters'})).toBeInTheDocument();
+  });
+
+  test('does not claim a filtered miss beyond the loaded annotation budget', async () => {
+    configureRunFetch(
+      [annotationDto({id: ANNOTATION_ID_ONE, context: 'coverage', style: 'info'})],
+      {},
+      {has_more: true, next_cursor: 'next-page'},
+    );
+
+    renderView({tab: 'annotations', selection: {severity: 'error'}});
+
+    expect(await screen.findByText('No matches in loaded annotations')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'None of the loaded annotations are at error severity. Load more annotations to continue searching.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Load more annotations'})).toBeInTheDocument();
+    expect(screen.queryByText('No matching annotations')).not.toBeInTheDocument();
+  });
+
+  test('clears annotation filters and legacy step selection together', async () => {
+    const user = userEvent.setup();
+    configureRunFetch([annotationDto({id: ANNOTATION_ID_ONE, context: 'coverage', style: 'info'})]);
+
+    const {router} = renderView({
+      tab: 'annotations',
+      selection: {
+        jobId: DEPLOY_JOB_ID,
+        jobExecutionId: BUILD_EXECUTION_ID,
+        stepId: BUILD_STEP_ID,
+        stepAttemptId: BUILD_ATTEMPT_ID,
+        severity: 'error',
+        annotation: ANNOTATION_ID_ONE,
+      },
+    });
+
+    await user.click(await screen.findByRole('button', {name: 'Clear filters'}));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({tab: 'annotations'}));
   });
 
   test('blames only the filters that are actually active', async () => {
@@ -294,12 +337,18 @@ function requestUrl(input: RequestInfo | URL): string {
 function configureRunFetch(
   annotations: AnnotationDto[] = [],
   runOverrides: Partial<WorkflowRunDetailResponseDto> = {},
+  annotationPageOverrides: Partial<{has_more: boolean; next_cursor: string | null}> = {},
 ) {
   configureApiClient({
     fetchImpl: vi.fn((input: RequestInfo | URL) =>
       Promise.resolve(
         requestUrl(input).includes('/annotations')
-          ? jsonResponse({annotations, has_more: false, next_cursor: null})
+          ? jsonResponse({
+              annotations,
+              has_more: false,
+              next_cursor: null,
+              ...annotationPageOverrides,
+            })
           : jsonResponse(workflowRunViewDetailDto(runOverrides)),
       ),
     ),

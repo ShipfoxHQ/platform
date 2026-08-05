@@ -90,6 +90,7 @@ export function RunAnnotationList({
           <RunAnnotationsFilteredEmpty
             jobName={filteredJobName}
             severity={filteredSeverity}
+            incomplete={query.hasNextPage}
             onClearFilters={onClearFilters}
           />
         ) : (
@@ -148,10 +149,24 @@ export function RunAnnotationList({
 function filteredEmptyDescription({
   jobName,
   severity,
+  incomplete,
 }: {
   jobName: string | undefined;
   severity: string | undefined;
+  incomplete: boolean;
 }): string {
+  if (incomplete) {
+    if (jobName && severity) {
+      return `None of the loaded annotations are from ${jobName} at ${severity} severity. Load more annotations to continue searching.`;
+    }
+    if (jobName) {
+      return `None of the loaded annotations are from ${jobName}. Load more annotations to continue searching.`;
+    }
+    if (severity) {
+      return `None of the loaded annotations are at ${severity} severity. Load more annotations to continue searching.`;
+    }
+    return 'None of the loaded annotations match the current filters. Load more annotations to continue searching.';
+  }
   if (jobName && severity) {
     return `This run has annotations, but none from ${jobName} at ${severity} severity.`;
   }
@@ -163,18 +178,20 @@ function filteredEmptyDescription({
 function RunAnnotationsFilteredEmpty({
   jobName,
   severity,
+  incomplete,
   onClearFilters,
 }: {
   jobName: string | undefined;
   severity: string | undefined;
+  incomplete: boolean;
   onClearFilters: (() => void) | undefined;
 }) {
   return (
     <div className="flex flex-col items-center gap-12">
       <EmptyState
         icon="fileDamageLine"
-        title="No matching annotations"
-        description={filteredEmptyDescription({jobName, severity})}
+        title={incomplete ? 'No matches in loaded annotations' : 'No matching annotations'}
+        description={filteredEmptyDescription({jobName, severity, incomplete})}
       />
       {onClearFilters ? (
         <Button

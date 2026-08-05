@@ -50,7 +50,7 @@ describe('RunWorkspaceNav', () => {
       />,
     );
 
-    expect(await screen.findByRole('link', {name: 'Annotations 500+ annotations'})).toBeVisible();
+    expect(await screen.findByRole('link', {name: 'Annotations, 500 or more'})).toBeVisible();
   });
 
   test('omits the annotation count until the read resolves', async () => {

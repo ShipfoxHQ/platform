@@ -9,6 +9,8 @@ const stylesWithDefaultGlyph = ['info', 'success', 'warning', 'error'] as const;
 /** Markdown link syntax that reached the DOM as text, which means the source was cut mid-link. */
 const UNPARSED_LINK_PATTERN = /^\[documentation\]/u;
 const OPEN_DOCUMENTATION_PATTERN = /Open documentation/;
+const PREFIX_PATTERN = /prefix/u;
+const DOCUMENTATION_PATTERN = /documentation/u;
 
 describe('AnnotationCard', () => {
   afterEach(() => {
@@ -131,6 +133,23 @@ describe('AnnotationCard', () => {
       expect(link).toHaveAttribute('href', expect.stringContaining('example.com'));
     }
     expect(screen.queryByText(UNPARSED_LINK_PATTERN)).not.toBeInTheDocument();
+  });
+
+  test('does not parse a partial first line in an oversized single-line body', async () => {
+    const user = userEvent.setup();
+    stubRenderedBodyHeight(5_000);
+    const body = `${'prefix '.repeat(570)}[documentation](https://example.com/${'path/'.repeat(300)})`;
+    renderAnnotationCard({style: 'info', body, maxBodyHeight: 320});
+
+    expect(screen.queryByText(PREFIX_PATTERN)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', {name: 'documentation'})).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Show more'}));
+
+    expect(screen.getByRole('link', {name: DOCUMENTATION_PATTERN})).toHaveAttribute(
+      'href',
+      expect.stringContaining('example.com'),
+    );
   });
 
   test('discloses a body that arrives after the card mounted empty', async () => {

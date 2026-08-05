@@ -25,8 +25,6 @@ const OVERFLOW_TOLERANCE = 8;
  */
 const MAX_COLLAPSED_BODY_CHARS = 4_000;
 
-const TRAILING_PARTIAL_LINE = /\n[^\n]*$/u;
-
 /**
  * Cuts Markdown source at a line boundary.
  *
@@ -36,7 +34,9 @@ const TRAILING_PARTIAL_LINE = /\n[^\n]*$/u;
  * code block either way.
  */
 function collapsedPreview(body: string): string {
-  return body.slice(0, MAX_COLLAPSED_BODY_CHARS).replace(TRAILING_PARTIAL_LINE, '');
+  const preview = body.slice(0, MAX_COLLAPSED_BODY_CHARS);
+  const lastLineBreak = preview.lastIndexOf('\n');
+  return lastLineBreak === -1 ? '' : preview.slice(0, lastLineBreak);
 }
 
 /**

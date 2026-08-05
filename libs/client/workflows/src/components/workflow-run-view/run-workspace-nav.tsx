@@ -279,6 +279,11 @@ function RunSectionLink({
       }
       onClick={onNavigate}
       aria-current={current ? 'page' : undefined}
+      aria-label={
+        count
+          ? `${sectionLabel(section)}, ${countTruncated ? `${count} or more` : count}`
+          : undefined
+      }
       className={cn(
         'flex min-h-32 items-center gap-8 rounded-4 px-8 text-xs font-medium text-foreground-neutral-base outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',
         current && 'bg-background-neutral-hover',
@@ -286,11 +291,12 @@ function RunSectionLink({
     >
       {sectionLabel(section)}
       {count ? (
-        <span className="ml-auto font-code text-xs text-foreground-neutral-muted tabular-nums">
+        <span
+          aria-hidden="true"
+          className="ml-auto font-code text-xs text-foreground-neutral-muted tabular-nums"
+        >
           {count}
           {countTruncated ? '+' : ''}
-          {/* A bare number is not an accessible name; the unit rides along for screen readers. */}
-          <span className="sr-only"> {sectionLabel(section).toLowerCase()}</span>
         </span>
       ) : null}
     </Link>
