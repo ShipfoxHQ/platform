@@ -2,7 +2,18 @@ import {HTTPError} from 'ky';
 import type {JiraIntegrationProviderError} from '#core/errors.js';
 import {mapJiraError} from './client.js';
 
-const mocks = vi.hoisted(() => ({delete: vi.fn(), post: vi.fn(), request: vi.fn()}));
+const mocks = vi.hoisted(() => ({
+  delete: vi.fn(),
+  post: vi.fn(),
+  request: vi.fn(),
+  warn: vi.fn(),
+}));
+
+vi.mock('@shipfox/node-opentelemetry', () => ({
+  logger: () => ({
+    warn: mocks.warn,
+  }),
+}));
 
 vi.mock('ky', () => {
   class MockHTTPError extends Error {
@@ -77,6 +88,7 @@ describe('Jira dynamic webhook API', () => {
     mocks.delete.mockReset();
     mocks.post.mockReset();
     mocks.request.mockReset();
+    mocks.warn.mockReset();
   });
 
   it('registers the six curated events with the access token', async () => {
@@ -122,6 +134,165 @@ describe('Jira dynamic webhook API', () => {
     {webhookRegistrationResult: [{errors: []}]},
   ])('rejects malformed or errored registration responses', async (response) => {
     mocks.post.mockReturnValue(resolves(response));
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().registerDynamicWebhook({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        url: 'https://shipfox.example.com/webhooks/integrations/jira/connection-1',
+      }),
+    ).rejects.toMatchObject({reason: 'malformed-provider-response'});
+  });
+
+  it('logs provider validation errors before rejecting registration', async () => {
+    mocks.post.mockReturnValue(
+      resolves({
+        webhookRegistrationResult: [
+          {createdWebhookId: 123, errors: ['Webhook URL is not approved', 'Invalid JQL filter']},
+        ],
+      }),
+    );
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().registerDynamicWebhook({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        url: 'https://shipfox.example.com/webhooks/integrations/jira/connection-1',
+      }),
+    ).rejects.toMatchObject({reason: 'malformed-provider-response'});
+
+    expect(mocks.warn).toHaveBeenCalledTimes(1);
+    expect(mocks.warn).toHaveBeenCalledWith(
+      {
+        operation: 'register-dynamic-webhook',
+        providerErrors: ['Webhook URL is not approved', 'Invalid JQL filter'],
+        providerErrorCount: 2,
+      },
+      'Jira dynamic webhook registration rejected',
+    );
+  });
+
+  it('limits logged provider errors to five values', async () => {
+    mocks.post.mockReturnValue(
+      resolves({
+        webhookRegistrationResult: [
+          {
+            errors: ['one', 'two', 'three', 'four', 'five', 'six'],
+          },
+        ],
+      }),
+    );
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().registerDynamicWebhook({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        url: 'https://shipfox.example.com/webhooks/integrations/jira/connection-1',
+      }),
+    ).rejects.toMatchObject({reason: 'malformed-provider-response'});
+
+    expect(mocks.warn).toHaveBeenCalledWith(
+      {
+        operation: 'register-dynamic-webhook',
+        providerErrors: ['one', 'two', 'three', 'four', 'five'],
+        providerErrorCount: 6,
+      },
+      'Jira dynamic webhook registration rejected',
+    );
+  });
+
+  it('limits each logged provider error to 500 characters', async () => {
+    const longError = 'x'.repeat(501);
+    mocks.post.mockReturnValue(resolves({webhookRegistrationResult: [{errors: [longError]}]}));
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().registerDynamicWebhook({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        url: 'https://shipfox.example.com/webhooks/integrations/jira/connection-1',
+      }),
+    ).rejects.toMatchObject({reason: 'malformed-provider-response'});
+
+    expect(mocks.warn).toHaveBeenCalledWith(
+      {
+        operation: 'register-dynamic-webhook',
+        providerErrors: ['x'.repeat(500)],
+        providerErrorCount: 1,
+      },
+      'Jira dynamic webhook registration rejected',
+    );
+  });
+
+  it('omits non-string provider errors from the warning', async () => {
+    mocks.post.mockReturnValue(
+      resolves({
+        webhookRegistrationResult: [
+          {errors: ['valid message', 42, null, {message: 'raw response'}, true]},
+        ],
+      }),
+    );
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().registerDynamicWebhook({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        url: 'https://shipfox.example.com/webhooks/integrations/jira/connection-1',
+      }),
+    ).rejects.toMatchObject({reason: 'malformed-provider-response'});
+
+    expect(mocks.warn).toHaveBeenCalledWith(
+      {
+        operation: 'register-dynamic-webhook',
+        providerErrors: ['valid message'],
+        providerErrorCount: 5,
+      },
+      'Jira dynamic webhook registration rejected',
+    );
+  });
+
+  it('accepts an empty provider errors array without logging a rejection', async () => {
+    mocks.post.mockReturnValue(
+      resolves({webhookRegistrationResult: [{createdWebhookId: 123, errors: []}]}),
+    );
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().registerDynamicWebhook({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        url: 'https://shipfox.example.com/webhooks/integrations/jira/connection-1',
+      }),
+    ).resolves.toEqual({webhookId: 123});
+    expect(mocks.warn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-array provider errors value without logging it', async () => {
+    mocks.post.mockReturnValue(
+      resolves({
+        webhookRegistrationResult: [{createdWebhookId: 123, errors: {message: 'do not log me'}}],
+      }),
+    );
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().registerDynamicWebhook({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        url: 'https://shipfox.example.com/webhooks/integrations/jira/connection-1',
+      }),
+    ).rejects.toMatchObject({reason: 'malformed-provider-response'});
+    expect(mocks.warn).not.toHaveBeenCalled();
+  });
+
+  it('keeps the malformed provider response reason for a Jira rejection', async () => {
+    mocks.post.mockReturnValue(
+      resolves({webhookRegistrationResult: [{errors: ['Provider rejected the webhook']}]}),
+    );
     const {createJiraApiClient} = await import('./client.js');
 
     await expect(
