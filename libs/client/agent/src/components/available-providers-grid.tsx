@@ -8,7 +8,7 @@ import type {SupportedProvider} from '#core/models.js';
 import {providerMatchesSearch} from '#core/provider-policy.js';
 import {AvailableProviderCard} from './available-provider-card.js';
 
-export const PROVIDER_GRID_CLASS = 'grid grid-cols-2 gap-12 max-[760px]:grid-cols-1';
+export const PROVIDER_GRID_CLASS = 'grid grid-cols-2 gap-cluster max-[760px]:grid-cols-1';
 
 const SEARCH_VISIBILITY_THRESHOLD = 8;
 const MAX_ECHOED_QUERY_LENGTH = 40;
@@ -45,7 +45,7 @@ export function AvailableProvidersGrid<TEntry extends SupportedProvider>({
   }
 
   return (
-    <div className="flex flex-col gap-12">
+    <div className="flex flex-col gap-cluster">
       {showSearch ? (
         <Input
           ref={inputRef}

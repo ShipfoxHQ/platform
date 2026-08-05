@@ -113,14 +113,14 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
   }, [configs, modal, providerById]);
 
   return (
-    <div className="flex min-w-0 flex-col gap-32">
+    <div className="flex min-w-0 flex-col gap-region">
       <section
         ref={configuredProvidersRegionRef}
-        className="flex flex-col gap-16 outline-none"
+        className="flex flex-col gap-group outline-none"
         aria-label="Configured providers"
         tabIndex={-1}
       >
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-tight">
           <Header variant="h3">Configured providers</Header>
           <Text size="sm" className="text-foreground-neutral-muted">
             Workspace credentials available to agent steps.
@@ -132,13 +132,13 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         ) : null}
 
         {configsQuery.isError && configsQuery.data === undefined ? (
-          <div className={cn(SURFACE_CLASS, 'px-16')}>
+          <div className={cn(SURFACE_CLASS, 'px-row')}>
             <QueryLoadError query={configsQuery} subject="model provider configs" />
           </div>
         ) : null}
 
         {configsQuery.data !== undefined && configs.length === 0 ? (
-          <div className={cn(SURFACE_CLASS, 'px-16')}>
+          <div className={cn(SURFACE_CLASS, 'px-row')}>
             <EmptyState
               icon="key2Line"
               title="No providers configured"
@@ -203,8 +203,8 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         ) : null}
       </section>
 
-      <section className="flex flex-col gap-16" aria-label="Available providers">
-        <div className="flex flex-col gap-4">
+      <section className="flex flex-col gap-group" aria-label="Available providers">
+        <div className="flex flex-col gap-tight">
           <Header variant="h3">Available providers</Header>
           <Text size="sm" className="text-foreground-neutral-muted">
             Providers that can be configured for agent steps in this workspace.
@@ -214,7 +214,7 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         {catalogQuery.isPending || configsQuery.isPending ? <ModelProviderGridSkeleton /> : null}
 
         {catalogQuery.isError && catalogQuery.data === undefined ? (
-          <div className={cn(SURFACE_CLASS, 'px-16')}>
+          <div className={cn(SURFACE_CLASS, 'px-row')}>
             <QueryLoadError query={catalogQuery} subject="model provider catalog" />
           </div>
         ) : null}
@@ -231,8 +231,8 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         ) : null}
       </section>
 
-      <section className="flex flex-col gap-16" aria-label="Unsupported providers">
-        <div className="flex flex-col gap-4">
+      <section className="flex flex-col gap-group" aria-label="Unsupported providers">
+        <div className="flex flex-col gap-tight">
           <Header variant="h3">Unsupported providers</Header>
           <Text size="sm" className="text-foreground-neutral-muted">
             Providers that cannot be configured in this workspace yet.
@@ -246,13 +246,13 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         {unsupportedProviders.length > 0 ? (
           <ul className={cn('divide-y divide-border-neutral-base', SURFACE_CLASS)}>
             {unsupportedProviders.map((entry) => (
-              <li key={entry.id} className="flex items-start gap-12 px-16 py-12 opacity-70">
+              <li key={entry.id} className="flex items-start gap-cluster px-row py-row opacity-70">
                 <Icon
                   name="forbid2Line"
-                  className="mt-2 size-18 shrink-0 text-foreground-neutral-muted"
+                  className="mt-[2px] size-18 shrink-0 text-foreground-neutral-muted"
                   aria-hidden
                 />
-                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <div className="flex min-w-0 flex-1 flex-col gap-tight">
                   <Text size="md" bold className="truncate">
                     {entry.label}
                   </Text>
@@ -357,7 +357,7 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         >
           <ModalTitle className="sr-only">{customModelProviderFormTitle(modal)}</ModalTitle>
           <ModalHeader>
-            <div className="flex min-w-0 flex-col gap-2">
+            <div className="flex min-w-0 flex-col gap-tight">
               <Text size="lg" aria-hidden="true" className="truncate">
                 {customModelProviderFormTitle(modal)}
               </Text>
@@ -468,9 +468,9 @@ function ConfiguredProviderRow({
   }
 
   return (
-    <li className="flex flex-col gap-10 px-16 py-12 transition-colors hover:bg-background-components-hover">
-      <div className="flex items-center justify-between gap-12">
-        <div className="flex min-w-0 items-center gap-8">
+    <li className="flex flex-col gap-inline px-row py-row transition-colors hover:bg-background-components-hover">
+      <div className="flex items-center justify-between gap-cluster">
+        <div className="flex min-w-0 items-center gap-inline">
           {isDefault ? (
             <>
               <Tooltip>
@@ -576,7 +576,7 @@ function DeleteModelProviderDialog({
       <ModalContent aria-describedby={undefined} className="max-w-[420px]">
         <ModalTitle className="sr-only">Delete model provider</ModalTitle>
         <ModalHeader title="Delete model provider" />
-        <ModalBody className="gap-16">
+        <ModalBody className="gap-group">
           <Text size="sm" className="text-foreground-neutral-muted">
             Delete {label} credentials from this workspace? Agent jobs cannot use this provider
             until it is configured again.
@@ -608,9 +608,9 @@ function ModelProviderRowsSkeleton({label}: {label: string}) {
       className={cn('divide-y divide-border-neutral-base', SURFACE_CLASS)}
     >
       {[0, 1, 2].map((row) => (
-        <li key={row} className="flex items-center gap-12 px-16 py-12">
+        <li key={row} className="flex items-center gap-cluster px-row py-row">
           <Skeleton className="size-32 shrink-0" />
-          <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <div className="flex min-w-0 flex-1 flex-col gap-inline">
             <Skeleton className="h-16 w-120" />
             <Skeleton className="h-14 w-180" />
           </div>

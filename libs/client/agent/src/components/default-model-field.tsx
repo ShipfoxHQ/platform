@@ -73,7 +73,7 @@ export function FormFieldSelect({className, ...props}: ComponentProps<'select'>)
   return (
     <select
       className={cn(
-        'w-full min-w-0 rounded-6 bg-background-field-base px-8 py-6 text-sm leading-20 text-foreground-neutral-base shadow-button-neutral outline-none transition-[color,box-shadow]',
+        'w-full min-w-0 rounded-6 bg-background-field-base px-tight py-[6px] text-sm leading-20 text-foreground-neutral-base shadow-button-neutral outline-none transition-[color,box-shadow]',
         'hover:bg-background-field-hover focus-visible:shadow-border-interactive-with-active disabled:cursor-not-allowed disabled:bg-background-neutral-disabled disabled:text-foreground-neutral-disabled',
         'aria-invalid:shadow-border-error',
         className,

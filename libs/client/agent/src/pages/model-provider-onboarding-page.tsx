@@ -104,9 +104,9 @@ export function ModelProviderOnboardingPage({
       : 'model-provider-provider-step';
 
   return (
-    <div className="mx-auto flex w-full max-w-[640px] flex-col gap-20">
-      <header className="flex flex-col gap-12">
-        <div className="flex items-start justify-between gap-16 max-[520px]:flex-col max-[520px]:gap-8">
+    <div className="mx-auto flex w-full max-w-[640px] flex-col gap-section">
+      <header className="flex flex-col gap-cluster">
+        <div className="flex items-start justify-between gap-group max-[520px]:flex-col max-[520px]:gap-inline">
           <Header id={headingId} variant="h1" tabIndex={-1} className="outline-none">
             {selectedHarnessDescriptor
               ? `Configure ${selectedHarnessDescriptor.label}`
@@ -123,7 +123,7 @@ export function ModelProviderOnboardingPage({
         </Text>
       </header>
 
-      <section aria-labelledby={headingId} className="flex flex-col gap-16">
+      <section aria-labelledby={headingId} className="flex flex-col gap-group">
         {onboarding.step === 'choose-harness' ? (
           <HarnessPicker
             onSelect={(harnessId) => dispatch({type: 'harness-selected', harnessId})}
@@ -175,16 +175,16 @@ export function ModelProviderOnboardingPage({
             </Text>
           </ModalHeader>
           {onboarding.step === 'saving-default-harness' ? (
-            <div role="status" className="px-20 pb-8">
+            <div role="status" className="px-row pb-[8px]">
               <Text size="sm" className="text-foreground-neutral-muted">
                 Saving harness default...
               </Text>
             </div>
           ) : null}
           {onboarding.step === 'saving-default-harness' && onboarding.error ? (
-            <div className="px-20 pb-8">
+            <div className="px-row pb-[8px]">
               <Callout role="alert" type="error">
-                <div className="flex flex-col gap-8">
+                <div className="flex flex-col gap-inline">
                   <Text size="sm" bold>
                     Could not save default harness
                   </Text>
@@ -226,14 +226,14 @@ function HarnessCard({harness, onChoose}: {harness: HarnessDescriptor; onChoose:
       <button
         type="button"
         className={cn(
-          'group block w-full cursor-pointer p-16 text-left outline-none transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus',
+          'group block w-full cursor-pointer p-panel-compact text-left outline-none transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus',
           SURFACE_CLASS,
         )}
         aria-label={`Choose ${harness.label}`}
         onClick={onChoose}
       >
-        <div className="flex min-w-0 items-center justify-between gap-12">
-          <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex min-w-0 items-center justify-between gap-cluster">
+          <div className="flex min-w-0 flex-col gap-tight">
             <Text size="md" bold className="min-w-0 truncate">
               {harness.label}
             </Text>
@@ -241,7 +241,7 @@ function HarnessCard({harness, onChoose}: {harness: HarnessDescriptor; onChoose:
               {harness.description}
             </Text>
           </div>
-          <div className="flex shrink-0 items-center gap-4 text-foreground-neutral-muted transition-colors group-hover:text-foreground-highlight-interactive">
+          <div className="flex shrink-0 items-center gap-tight text-foreground-neutral-muted transition-colors group-hover:text-foreground-highlight-interactive">
             <Text size="sm">Choose</Text>
             <Icon name="chevronRight" className="size-16" />
           </div>

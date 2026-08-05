@@ -5,7 +5,7 @@ export default defineRoute({
   component: () => {
     const workspace = useActiveWorkspace();
     return (
-      <div className="flex flex-col gap-32">
+      <div className="flex flex-col gap-region">
         <WorkspaceHarnessesSection workspaceId={workspace.id} />
         <WorkspaceModelProvidersSection workspaceId={workspace.id} />
       </div>

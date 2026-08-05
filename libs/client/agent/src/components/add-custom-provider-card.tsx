@@ -11,17 +11,17 @@ export function AddCustomProviderCard({onConfigure}: {onConfigure: () => void}) 
       <button
         type="button"
         className={cn(
-          'group block h-full w-full cursor-pointer p-16 text-left outline-none transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus',
+          'group block h-full w-full cursor-pointer p-panel-compact text-left outline-none transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus',
           SURFACE_CLASS,
         )}
         aria-label="Configure custom provider"
         onClick={onConfigure}
       >
-        <div className="flex min-w-0 items-center justify-between gap-12">
+        <div className="flex min-w-0 items-center justify-between gap-cluster">
           <Text size="md" bold className="min-w-0 truncate">
             Custom
           </Text>
-          <div className="flex shrink-0 items-center gap-4 text-foreground-neutral-muted transition-colors group-hover:text-foreground-highlight-interactive">
+          <div className="flex shrink-0 items-center gap-tight text-foreground-neutral-muted transition-colors group-hover:text-foreground-highlight-interactive">
             <Text size="sm">Configure</Text>
             <Icon name="chevronRight" className="size-16" />
           </div>

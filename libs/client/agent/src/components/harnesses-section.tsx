@@ -84,8 +84,8 @@ export function WorkspaceHarnessesSection({workspaceId}: {workspaceId: string}) 
   }
 
   return (
-    <section className="flex flex-col gap-16" aria-label="Harnesses">
-      <div className="flex flex-col gap-4">
+    <section className="flex flex-col gap-group" aria-label="Harnesses">
+      <div className="flex flex-col gap-tight">
         <Header variant="h3">Harnesses</Header>
         <Text size="sm" className="text-foreground-neutral-muted">
           Harnesses available to run agent steps in this workspace.
@@ -95,7 +95,7 @@ export function WorkspaceHarnessesSection({workspaceId}: {workspaceId: string}) 
       {configsQuery.isPending ? <HarnessRowsSkeleton /> : null}
 
       {configsQuery.isError && configsQuery.data === undefined ? (
-        <div className={cn(SURFACE_CLASS, 'px-16')}>
+        <div className={cn(SURFACE_CLASS, 'px-row')}>
           <QueryLoadError query={configsQuery} subject="harnesses" />
         </div>
       ) : null}
@@ -141,9 +141,9 @@ function HarnessRow({
   const unavailableCopy = harnessUnavailableCopy(isDefault);
 
   return (
-    <li className="flex flex-col gap-10 px-16 py-12 transition-colors hover:bg-background-components-hover">
-      <div className="flex items-center justify-between gap-12">
-        <div className="flex min-w-0 items-center gap-8">
+    <li className="flex flex-col gap-inline px-row py-row transition-colors hover:bg-background-components-hover">
+      <div className="flex items-center justify-between gap-cluster">
+        <div className="flex min-w-0 items-center gap-inline">
           {isDefault ? (
             <>
               <Tooltip>
@@ -230,7 +230,7 @@ function HarnessRowsSkeleton() {
       className={cn('divide-y divide-border-neutral-base', SURFACE_CLASS)}
     >
       {[0, 1].map((row) => (
-        <li key={row} className="flex items-center gap-12 px-16 py-12">
+        <li key={row} className="flex items-center gap-cluster px-row py-row">
           <Skeleton className="size-16 shrink-0" />
           <Skeleton className="h-16 w-120" />
           <Skeleton className="ml-auto size-28 shrink-0" />
