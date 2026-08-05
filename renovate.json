@@ -54,6 +54,14 @@
       "matchPackageNames": ["@shipfox/**"]
     },
     {
+      "description": "Keep the dependency-cruiser compatibility catalog on TypeScript 6 until dependency-cruiser supports the repository TypeScript version (dependency-cruiser#1069).",
+      "allowedVersions": "<7",
+      "matchCurrentValue": "/^\\^6\\./",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["typescript"],
+      "rangeStrategy": "bump"
+    },
+    {
       "description": "Argos CI packages share a review surface, but do not require a complete release before one available package can update.",
       "groupName": "argos-ci",
       "groupSlug": "argos-ci",
