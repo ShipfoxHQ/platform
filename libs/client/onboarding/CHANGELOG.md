@@ -1,5 +1,15 @@
 # @shipfox/client-onboarding
 
+## 15.0.0
+
+### Patch Changes
+
+- Updated dependencies [bca115c]
+  - @shipfox/client-agent@15.0.0
+  - @shipfox/client-projects@15.0.0
+  - @shipfox/client-integrations@14.0.1
+  - @shipfox/client-shell@14.0.1
+
 ## 14.0.1
 
 ### Patch Changes

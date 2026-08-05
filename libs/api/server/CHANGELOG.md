@@ -1,5 +1,41 @@
 # @shipfox/api-server
 
+## 12.1.1
+
+### Patch Changes
+
+- @shipfox/api-agent@12.0.0
+- @shipfox/api-agent-dto@12.0.0
+- @shipfox/annotations@12.0.0
+- @shipfox/annotations-dto@12.0.0
+- @shipfox/api-auth@12.0.0
+- @shipfox/api-auth-dto@12.0.0
+- @shipfox/api-definitions@12.0.0
+- @shipfox/api-definitions-dto@12.0.0
+- @shipfox/api-dispatcher@12.0.0
+- @shipfox/api-email-challenges@1.1.7
+- @shipfox/api-integration-core@12.1.1
+- @shipfox/api-integration-core-dto@12.0.0
+- @shipfox/api-logs@12.1.0
+- @shipfox/api-projects@12.0.0
+- @shipfox/api-projects-dto@12.0.0
+- @shipfox/api-runners@12.1.0
+- @shipfox/api-runners-dto@12.0.0
+- @shipfox/api-secrets@12.0.0
+- @shipfox/api-secrets-dto@12.0.0
+- @shipfox/api-triggers@12.1.0
+- @shipfox/api-workflows@12.1.0
+- @shipfox/api-workflows-dto@12.1.0
+- @shipfox/api-workspaces@12.0.0
+- @shipfox/api-workspaces-dto@12.0.0
+- @shipfox/config@1.2.4
+- @shipfox/node-error-monitoring@0.3.0
+- @shipfox/node-fastify@0.4.1
+- @shipfox/node-jwt@0.4.0
+- @shipfox/node-module@1.0.5
+- @shipfox/node-opentelemetry@0.6.3
+- @shipfox/node-postgres@0.5.0
+
 ## 12.1.0
 
 ### Patch Changes

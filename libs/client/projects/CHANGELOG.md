@@ -1,5 +1,22 @@
 # @shipfox/client-projects
 
+## 15.0.0
+
+### Patch Changes
+
+- Updated dependencies [bca115c]
+  - @shipfox/client-agent@15.0.0
+  - @shipfox/api-common-dto@12.0.0
+  - @shipfox/api-definitions-dto@12.0.0
+  - @shipfox/api-integration-core-dto@12.0.0
+  - @shipfox/api-projects-dto@12.0.0
+  - @shipfox/client-api@6.0.1
+  - @shipfox/client-auth@14.0.1
+  - @shipfox/client-integrations@14.0.1
+  - @shipfox/client-shell@14.0.1
+  - @shipfox/client-ui@14.0.1
+  - @shipfox/react-ui@1.0.0
+
 ## 14.0.1
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shipfox/depcruise
 
+## 1.0.5
+
+### Patch Changes
+
+- 5d61380: Keep dependency analysis working with TypeScript 7 workspaces by using a compatible TypeScript 6 parser.
+
 ## 1.0.4
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shipfox/typescript
 
+## 1.1.10
+
+### Patch Changes
+
+- 5d61380: Support TypeScript 7 config parsing.
+
 ## 1.1.9
 
 ### Patch Changes
