@@ -1,5 +1,6 @@
 import {act, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import {useState} from 'react';
 import {
   workflowJobDto,
   workflowJobExecutionDto,
@@ -152,6 +153,32 @@ describe('RunWorkspaceNav', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 
+  test('scrolls once when the active job changes while the rail is open', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const firstJob = workflowJobDto({id: CURRENT_JOB_ID, name: 'build', status: 'running'});
+    const secondJob = workflowJobDto({
+      id: 'job-deploy',
+      name: 'deploy',
+      position: 1,
+      status: 'running',
+    });
+    const initialRun = workflowRunDetail({id: RUN_ID, jobs: [firstJob, secondJob]});
+    renderWithRouter(<ActiveJobHarness run={initialRun} />);
+
+    await screen.findByRole('link', {name: BUILD_LINK_PATTERN});
+    await user.click(await screen.findByRole('button', {name: 'Toggle run navigation'}));
+    const callsBeforeJobChange = scrollIntoView.mock.calls.length;
+
+    await user.click(screen.getByRole('button', {name: 'Activate deploy'}));
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(callsBeforeJobChange + 1);
+  });
+
   test('updates live job durations on the ticker cadence', async () => {
     vi.useFakeTimers({shouldAdvanceTime: true});
     vi.setSystemTime(NOW);
@@ -194,3 +221,22 @@ describe('RunWorkspaceNav', () => {
     expect(jobLink).toHaveTextContent('2m 15s');
   });
 });
+
+function ActiveJobHarness({run}: {run: ReturnType<typeof workflowRunDetail>}) {
+  const [currentJobId, setCurrentJobId] = useState(CURRENT_JOB_ID);
+
+  return (
+    <>
+      <RunWorkspaceNav
+        workspaceSlug="acme"
+        projectSlug="project"
+        run={run}
+        activeSection="summary"
+        currentJobId={currentJobId}
+      />
+      <button type="button" onClick={() => setCurrentJobId('job-deploy')}>
+        Activate deploy
+      </button>
+    </>
+  );
+}

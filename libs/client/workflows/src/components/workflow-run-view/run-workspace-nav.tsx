@@ -126,9 +126,9 @@ function RunWorkspaceNavContent({
   const runAttempt = jobSearch.runAttempt ?? run.runAttempt.attempt;
 
   useEffect(() => {
-    if (!currentJobId) return;
+    if (!currentJobId || mobileOpen) return;
     currentRowRef.current?.scrollIntoView({block: 'nearest'});
-  }, [currentJobId]);
+  }, [currentJobId, mobileOpen]);
 
   useEffect(() => {
     if (!currentJobId || !mobileOpen) return;
