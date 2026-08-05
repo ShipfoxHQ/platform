@@ -260,6 +260,7 @@ specification. The baseline commit is `08fc93b9b`. The audit checks
 | `ajv` | `8.20.0`, `^8.20.0` | Unintended drift to align. | Use the `^8.20.0` caret entry. |
 | `fastify-plugin` | `^5.1.0`, `^6.0.0` | Deliberate multi-major migration. | Keep the v5 use narrow. The webhook package must pass its route and packed-package checks on v6. Use a separate pull request for the major migration. Remove the legacy entry there. |
 | `@testing-library/react` | `^16.3.0`, `^16.3.2` | Unintended drift to align. | Use one caret range with `16.3.2` as the reviewed minimum. |
+| `typescript` | default `^7.0.2`, dependency-cruiser compatibility `^6.0.3` | Temporary tool compatibility exception owned by Developer Experience. | Keep TypeScript 6 available only to `@shipfox/depcruise` while dependency-cruiser cannot use the TypeScript 7 public API ([dependency-cruiser#1069](https://github.com/sverweij/dependency-cruiser/issues/1069)). Remove the named catalog, package extension, Syncpack exception, and Renovate rule when dependency-cruiser supports the repository TypeScript version. |
 
 The catalog migration must apply these dispositions without changing unrelated
 dependency versions. A later mismatch needs a policy update. An approved

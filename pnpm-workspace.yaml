@@ -174,8 +174,17 @@ catalog:
   "yaml": "^2.8.3"
   "zod": "^4.4.3"
 
+catalogs:
+  dependency-cruiser-compatibility:
+    typescript: "^6.0.3"
+
 overrides:
   "@types/pg": "catalog:"
+
+packageExtensions:
+  "dependency-cruiser@*":
+    peerDependencies:
+      typescript: ">=2 <7"
 
 strictPeerDependencies: true
 dedupePeerDependents: true

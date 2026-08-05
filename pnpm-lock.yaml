@@ -510,9 +510,15 @@ catalogs:
     zod:
       specifier: ^4.4.3
       version: 4.4.3
+  dependency-cruiser-compatibility:
+    typescript:
+      specifier: ^6.0.3
+      version: 6.0.3
 
 overrides:
   '@types/pg': ^8.15.5
+
+packageExtensionsChecksum: sha256-Ie/5S1HhK5kj0qf0lN/bweqmE3eGPxPYbewx9kiOM4A=
 
 importers:
 
@@ -7894,7 +7900,10 @@ importers:
         version: link:../utils
       dependency-cruiser:
         specifier: 'catalog:'
-        version: 17.4.3
+        version: 17.4.3(typescript@6.0.3)
+      typescript:
+        specifier: catalog:dependency-cruiser-compatibility
+        version: 6.0.3
     devDependencies:
       '@shipfox/swc':
         specifier: workspace:*
@@ -13881,6 +13890,8 @@ packages:
     resolution: {integrity: sha512-L4GLuAvmXevWnPCIaFfOz6eD92c+yY+pDgVqgufrLDnW3xYA799CSZQlly2r2N13nhAlnZY6VzY7Rx5pHNvk2w==}
     engines: {node: ^20.12||^22||>=24}
     hasBin: true
+    peerDependencies:
+      typescript: '>=2 <7'
 
   dequal@2.0.3:
     resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
@@ -17426,6 +17437,11 @@ packages:
 
   typebox@1.1.38:
     resolution: {integrity: sha512-pZ0aQPmMmXoUvSbeuWf/Hzsc+avNw/Zd6VeE8CFgkVGWyuHPJvqeJJDeJqLve+K70LvjYIoleGcoJHPT17cWoA==}
+
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
 
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
@@ -23807,7 +23823,7 @@ snapshots:
 
   depd@2.0.0: {}
 
-  dependency-cruiser@17.4.3:
+  dependency-cruiser@17.4.3(typescript@6.0.3):
     dependencies:
       acorn: 8.16.0
       acorn-jsx: 5.3.2(acorn@8.16.0)
@@ -23826,6 +23842,7 @@ snapshots:
       safe-regex: 2.1.1
       semver: 7.8.1
       tsconfig-paths-webpack-plugin: 4.2.0
+      typescript: 6.0.3
       watskeburt: 5.0.3
 
   dequal@2.0.3: {}
@@ -28183,6 +28200,8 @@ snapshots:
       mime-types: 3.0.2
 
   typebox@1.1.38: {}
+
+  typescript@6.0.3: {}
 
   typescript@7.0.2:
     optionalDependencies:

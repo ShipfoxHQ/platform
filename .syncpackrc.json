@@ -8,6 +8,13 @@
   },
   "versionGroups": [
     {
+      "dependencies": ["typescript"],
+      "dependencyTypes": ["prod"],
+      "isIgnored": true,
+      "label": "Dependency-cruiser TypeScript compatibility",
+      "packages": ["@shipfox/depcruise"]
+    },
+    {
       "dependencies": ["fastify-plugin"],
       "dependencyTypes": ["prod"],
       "isIgnored": true,

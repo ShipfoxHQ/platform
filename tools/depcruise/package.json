@@ -19,8 +19,9 @@
     "build": "shipfox-swc"
   },
   "dependencies": {
+    "@shipfox/tool-utils": "workspace:*",
     "dependency-cruiser": "catalog:",
-    "@shipfox/tool-utils": "workspace:*"
+    "typescript": "catalog:dependency-cruiser-compatibility"
   },
   "devDependencies": {
     "@shipfox/swc": "workspace:*",
