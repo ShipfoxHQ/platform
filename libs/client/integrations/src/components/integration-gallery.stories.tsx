@@ -15,6 +15,8 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
+import {screen, within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {createStore, Provider as JotaiProvider} from 'jotai';
 import {useMemo} from 'react';
 import {IntegrationGallery} from './integration-gallery.js';
@@ -146,6 +148,25 @@ export const NoProvidersAvailable: Story = {
 
 export const LongNames: Story = {
   args: {scenario: 'long-names'},
+};
+
+export const UsageModalCloseRestoresInteraction: Story = {
+  play: async ({canvasElement}) => {
+    const user = userEvent.setup();
+    const canvas = within(canvasElement);
+    const actionsButton = await canvas.findByRole('button', {
+      name: 'Open acme-corp integration actions',
+    });
+
+    await user.click(actionsButton);
+    await user.click(await screen.findByRole('menuitem', {name: 'Use this integration'}));
+    await screen.findByRole('dialog', {name: 'Use acme-corp'});
+    await user.click(await screen.findByRole('button', {name: 'Done'}));
+    expect(screen.queryByRole('dialog', {name: 'Use acme-corp'})).not.toBeInTheDocument();
+    expect(document.body.style.pointerEvents).not.toBe('none');
+    await user.click(actionsButton);
+    await screen.findByRole('menuitem', {name: 'Use this integration'});
+  },
 };
 
 function fetchForScenario(scenario: Scenario): typeof fetch {

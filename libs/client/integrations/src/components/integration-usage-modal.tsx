@@ -71,8 +71,10 @@ export function IntegrationUsageModal({
   );
   const title = connection ? `Use ${connection.displayName}` : 'Use integration';
 
+  if (!open || connection === null) return null;
+
   return (
-    <Modal open={open && connection !== null} onOpenChange={onOpenChange}>
+    <Modal open={open} onOpenChange={onOpenChange}>
       <ModalContent aria-describedby={undefined} className="max-h-[calc(100vh-32px)] max-w-[640px]">
         <ModalTitle className="sr-only">{title}</ModalTitle>
         <ModalHeader>
