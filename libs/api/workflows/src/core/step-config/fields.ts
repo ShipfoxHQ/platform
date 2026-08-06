@@ -35,13 +35,35 @@ export interface ResolveStepFieldParams {
 }
 
 export function resolveStepField(params: ResolveStepFieldParams): SiteResolvedField {
+  return resolveStepFieldAtSite(params, false);
+}
+
+function resolveStepFieldWithType(params: ResolveStepFieldParams): SiteResolvedField<unknown> {
+  return resolveStepFieldAtSite(params, true);
+}
+
+function resolveStepFieldAtSite(
+  params: ResolveStepFieldParams,
+  preserveSingleExpressionType: true,
+): SiteResolvedField<unknown>;
+function resolveStepFieldAtSite(
+  params: ResolveStepFieldParams,
+  preserveSingleExpressionType: false,
+): SiteResolvedField;
+function resolveStepFieldAtSite(
+  params: ResolveStepFieldParams,
+  preserveSingleExpressionType: boolean,
+): SiteResolvedField<unknown> {
   try {
-    return resolveFieldAtSite({
+    const resolveParams = {
       field: params.template,
       context: params.context.values,
       site: params.context.site,
       failurePolicy: getWorkflowInterpolationFieldFailurePolicy(params.field),
-    });
+    };
+    return preserveSingleExpressionType
+      ? resolveFieldAtSite({...resolveParams, preserveSingleExpressionType: true})
+      : resolveFieldAtSite(resolveParams);
   } catch (error) {
     if (error instanceof WorkflowTemplateResolutionError) {
       throw stepConfigInterpolationError(params, error);
@@ -74,11 +96,28 @@ export function completeStepField(params: ResolveStepFieldParams): string {
   return completeStepFieldWithTrace(params).value;
 }
 
+export function completeStepFieldWithType(params: ResolveStepFieldParams): unknown {
+  return completeStepFieldWithTypeAndTrace(params).value;
+}
+
 export function completeStepFieldWithTrace(params: ResolveStepFieldParams): {
   readonly value: string;
   readonly trace: SiteResolvedField['trace'];
 } {
-  const resolved = resolveStepField(params);
+  return completeResolvedStepField(params, resolveStepField(params));
+}
+
+export function completeStepFieldWithTypeAndTrace(params: ResolveStepFieldParams): {
+  readonly value: unknown;
+  readonly trace: SiteResolvedField<unknown>['trace'];
+} {
+  return completeResolvedStepField(params, resolveStepFieldWithType(params));
+}
+
+function completeResolvedStepField<Value>(
+  params: ResolveStepFieldParams,
+  resolved: SiteResolvedField<Value>,
+): {readonly value: Value; readonly trace: SiteResolvedField<Value>['trace']} {
   if (resolved.kind === 'frozen') return {value: resolved.value, trace: resolved.trace};
 
   const source = resolved.field.segments.find((segment) => segment.kind === 'deferred')?.expression

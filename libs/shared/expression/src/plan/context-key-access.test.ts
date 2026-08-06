@@ -68,6 +68,17 @@ describe('analyzeContextRootKeyAccess', () => {
     });
   });
 
+  it('allows computed nested access after a literal root key', () => {
+    const result = analyzeContextRootKeyAccess('jobs.review.outputs.findings[0].severity', [
+      'jobs',
+    ]);
+
+    expect(result).toEqual({
+      references: [{root: 'jobs', key: 'review'}],
+      violations: [],
+    });
+  });
+
   it.each([
     'jobs',
     'jobs[event.name]',

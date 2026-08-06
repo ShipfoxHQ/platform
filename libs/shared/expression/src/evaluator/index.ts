@@ -14,3 +14,7 @@ export {
   type WorkflowExpressionEvaluationValue,
 } from './evaluate-workflow-expression.js';
 export {createRangeEnvironment, MAX_RANGE_ELEMENTS} from './range.js';
+export {
+  rehydrateJsonExpressionRecord,
+  rehydrateJsonExpressionValue,
+} from './rehydrate-json-expression.js';

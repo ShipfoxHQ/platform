@@ -7,10 +7,23 @@ import {
 import {parseWorkflowTemplate, planInterpolationField} from '@shipfox/expression';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
-import {AgentConfigUnresolvableError, InterpolationUnresolvableError} from '#core/errors.js';
+import {
+  AgentConfigUnresolvableError,
+  InterpolationUnresolvableError,
+  JobOutputNotJsonSafeError,
+  JobOutputTooLargeError,
+  JobOutputTooManyEntriesError,
+} from '#core/errors.js';
 import {resolveTestAgentDefaults} from '#test/fixtures/agent-inter-module.js';
 import {workflowModel} from '#test/index.js';
 import {
+  MAX_JOB_OUTPUT_ENTRIES,
+  MAX_JOB_OUTPUT_VALUE_BYTES,
+  MAX_JOB_OUTPUTS_TOTAL_BYTES,
+  normalizeJobOutputValue,
+} from './job-output-limits.js';
+import {
+  materializeJobOutputs,
   materializeJobRunner,
   materializeWorkflowModel as materializeWorkflowModelImpl,
   modelHasAgentStep,
@@ -69,6 +82,38 @@ function creationContext(
   values: Record<string, unknown> = runContext(),
 ): WorkflowEvaluationContext {
   return {site: 'run-creation', values};
+}
+
+function outputJob(
+  outputs: Readonly<Record<string, string>>,
+  outputTypes?: WorkflowModel['jobs'][number]['outputTypes'],
+): WorkflowModel['jobs'][number] {
+  const model = workflowModel({
+    jobs: {
+      build: {
+        steps: [{key: 'collect', run: 'echo collect'}],
+        outputs,
+        ...(outputTypes === undefined ? {} : {outputTypes}),
+      },
+    },
+  });
+  const job = model.jobs[0];
+  if (!job) throw new Error('Test model created no jobs');
+  return job;
+}
+
+function outputContext(outputs: Record<string, unknown>): WorkflowEvaluationContext {
+  return {
+    site: 'execution-resolution',
+    values: {
+      steps: {
+        collect: {
+          status: 'succeeded',
+          outputs,
+        },
+      },
+    },
+  };
 }
 
 describe('materializeWorkflowModel', () => {
@@ -1427,5 +1472,231 @@ describe('materializeJobRunner', () => {
       });
 
     expect(act).toThrow('Job runner labels are invalid: not valid');
+  });
+});
+
+describe('materializeJobOutputs', () => {
+  it('preserves structured values from typed single-expression mappings', () => {
+    const value = [{severity: 'high'}, {severity: 'medium'}];
+    const job = outputJob(
+      {findings: template('steps.collect.outputs.findings')},
+      {
+        findings: {
+          kind: 'list',
+          element: {kind: 'object', fields: {severity: 'string'}},
+        },
+      },
+    );
+
+    const result = materializeJobOutputs({
+      job,
+      context: outputContext({findings: value}),
+      definitionId: 'definition-1',
+    });
+
+    expect(result).toEqual({findings: value});
+  });
+
+  it('preserves number and boolean values from typed mappings', () => {
+    const job = outputJob(
+      {
+        count: template('steps.collect.outputs.count'),
+        ready: template('steps.collect.outputs.ready'),
+      },
+      {count: 'double', ready: 'bool'},
+    );
+
+    const result = materializeJobOutputs({
+      job,
+      context: outputContext({count: 42, ready: true}),
+      definitionId: 'definition-1',
+    });
+
+    expect(result).toEqual({count: 42, ready: true});
+  });
+
+  it('normalizes typed integer values into JSON-safe values', () => {
+    const job = outputJob(
+      {
+        count: template('steps.collect.outputs.count'),
+        preciseCount: template('steps.collect.outputs.preciseCount'),
+      },
+      {count: 'int', preciseCount: 'int'},
+    );
+
+    const result = materializeJobOutputs({
+      job,
+      context: outputContext({count: 42n, preciseCount: 9007199254740993n}),
+      definitionId: 'definition-1',
+    });
+
+    expect(result).toEqual({count: 42, preciseCount: '9007199254740993'});
+    expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+  });
+
+  it('normalizes typed timestamps into JSON-safe ISO strings', () => {
+    const job = outputJob(
+      {createdAt: template('steps.collect.outputs.createdAt')},
+      {createdAt: 'timestamp'},
+    );
+
+    const result = materializeJobOutputs({
+      job,
+      context: outputContext({createdAt: new Date('2026-08-06T12:34:56.000Z')}),
+      definitionId: 'definition-1',
+    });
+
+    expect(result).toEqual({createdAt: '2026-08-06T12:34:56.000Z'});
+    expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+  });
+
+  it('stringifies mixed templates', () => {
+    const job = outputJob({value: `prefix-${template('steps.collect.outputs.value')}`});
+
+    const result = materializeJobOutputs({
+      job,
+      context: outputContext({value: 42}),
+      definitionId: 'definition-1',
+    });
+
+    expect(result).toEqual({value: 'prefix-42'});
+  });
+
+  it('stringifies outputs whose inferred type is string', () => {
+    const job = outputJob({value: template('steps.collect.outputs.value')}, {value: 'string'});
+
+    const result = materializeJobOutputs({
+      job,
+      context: outputContext({value: 42}),
+      definitionId: 'definition-1',
+    });
+
+    expect(result).toEqual({value: '42'});
+  });
+
+  it('stringifies exact mappings without an inferred type', () => {
+    const job = outputJob({value: template('steps.collect.outputs.value')});
+
+    const result = materializeJobOutputs({
+      job,
+      context: outputContext({value: {severity: 'high'}}),
+      definitionId: 'definition-1',
+    });
+
+    expect(result).toEqual({value: '{"severity":"high"}'});
+  });
+
+  it('measures structured values as JSON bytes for the per-value cap', () => {
+    const job = outputJob(
+      {payload: template('steps.collect.outputs.payload')},
+      {payload: {kind: 'list', element: 'string'}},
+    );
+    const payload = ['x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES - 1)];
+
+    const materialize = () =>
+      materializeJobOutputs({
+        job,
+        context: outputContext({payload}),
+        definitionId: 'definition-1',
+      });
+
+    expect(materialize).toThrow(JobOutputTooLargeError);
+    expect(materialize).toThrow(`Job output "payload" exceeds the ${MAX_JOB_OUTPUT_VALUE_BYTES}`);
+  });
+
+  it('measures string values as UTF-8 bytes for the per-value cap', () => {
+    const job = outputJob({payload: template('steps.collect.outputs.payload')});
+    const payload = 'é'.repeat(Math.ceil(MAX_JOB_OUTPUT_VALUE_BYTES / 2) + 1);
+
+    const materialize = () =>
+      materializeJobOutputs({
+        job,
+        context: outputContext({payload}),
+        definitionId: 'definition-1',
+      });
+
+    expect(materialize).toThrow(JobOutputTooLargeError);
+  });
+
+  it('rejects the total materialized job output cap', () => {
+    const keys = ['one', 'two', 'three', 'four', 'five'];
+    const outputs = Object.fromEntries(
+      keys.map((key) => [key, template(`steps.collect.outputs.${key}`)]),
+    );
+    const values = Object.fromEntries(
+      keys.map((key) => [key, 'x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES)]),
+    );
+    const job = outputJob(outputs);
+
+    const materialize = () =>
+      materializeJobOutputs({job, context: outputContext(values), definitionId: 'definition-1'});
+
+    expect(materialize).toThrow(JobOutputTooLargeError);
+    expect(materialize).toThrow(
+      `Job outputs exceed the ${MAX_JOB_OUTPUTS_TOTAL_BYTES}-byte total limit (at "four")`,
+    );
+  });
+
+  it('counts output keys and JSON encoding overhead against the total cap', () => {
+    const keys = ['a', 'b', 'c', 'd'].map((suffix) => `output${suffix}${'x'.repeat(256)}`);
+    const outputs = Object.fromEntries(
+      keys.map((key) => [key, template(`steps.collect.outputs.${key}`)]),
+    );
+    const values = Object.fromEntries(
+      keys.map((key) => [key, 'x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES - 16)]),
+    );
+    const job = outputJob(outputs);
+
+    const materialize = () =>
+      materializeJobOutputs({job, context: outputContext(values), definitionId: 'definition-1'});
+
+    expect(materialize).toThrow(JobOutputTooLargeError);
+    expect(materialize).toThrow(
+      `Job outputs exceed the ${MAX_JOB_OUTPUTS_TOTAL_BYTES}-byte total limit`,
+    );
+  });
+
+  it('rejects job output maps with too many entries', () => {
+    const outputs = Object.fromEntries(
+      Array.from({length: MAX_JOB_OUTPUT_ENTRIES + 1}, (_, index) => {
+        const key = `output${index}`;
+        return [key, template(`steps.collect.outputs.${key}`)];
+      }),
+    );
+    const job = outputJob(outputs);
+
+    const materialize = () =>
+      materializeJobOutputs({job, context: outputContext({}), definitionId: 'definition-1'});
+
+    expect(materialize).toThrow(JobOutputTooManyEntriesError);
+    expect(materialize).toThrow(
+      `Job outputs cannot define more than ${MAX_JOB_OUTPUT_ENTRIES} entries`,
+    );
+  });
+
+  it('rejects unsupported values with a JSON persistence error', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    expect(() => normalizeJobOutputValue(circular, 'payload')).toThrow(JobOutputNotJsonSafeError);
+    expect(() => normalizeJobOutputValue(circular, 'payload')).toThrow(
+      'Job output "payload" cannot be persisted as JSON',
+    );
+  });
+
+  it('fails when a typed output path is missing', () => {
+    const job = outputJob(
+      {findings: template('steps.collect.outputs.findings')},
+      {findings: {kind: 'list', element: 'string'}},
+    );
+
+    const materialize = () =>
+      materializeJobOutputs({
+        job,
+        context: outputContext({}),
+        definitionId: 'definition-1',
+      });
+
+    expect(materialize).toThrow(InterpolationUnresolvableError);
   });
 });

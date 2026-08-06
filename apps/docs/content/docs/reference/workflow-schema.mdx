@@ -143,6 +143,12 @@ jobs:
 
 <JobFields />
 
+Job `outputs` values are templates. A value that contains exactly one expression
+preserves its inferred non-string type, including arrays and objects. An
+expression without an inferred type resolves to a string. Mixed literal and
+expression templates also resolve to strings. A downstream job must declare a
+direct `needs` edge before it reads the output.
+
 ### Job checkout fields
 
 The job-level `checkout` block supports repository permissions and credential

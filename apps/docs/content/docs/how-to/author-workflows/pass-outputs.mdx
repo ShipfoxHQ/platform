@@ -47,6 +47,42 @@ The `read_version` step declares and writes `version`. The `package` job
 publishes it. The `preview` job declares the dependency, reads the job output,
 and places it in the command.
 
+A job output mapped from one expression preserves an inferred non-string source
+type. This lets a later job read a field from a structured JSON output:
+
+```yaml
+# yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
+jobs:
+  review:
+    outputs:
+      findings: ${{ steps.inspect.outputs.findings }}
+    steps:
+      - key: inspect
+        run: printf 'findings=%s\n' '[{"severity":"high"}]' >> "$SHIPFOX_OUTPUT"
+        outputs:
+          findings:
+            type: json
+            schema:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - severity
+                properties:
+                  severity:
+                    type: string
+
+  summarize:
+    needs: review
+    steps:
+      - run: printf 'Severity: %s\n' "${{ jobs.review.outputs.findings[0].severity }}"
+```
+
+Mixed templates such as `Finding: ${{ steps.inspect.outputs.findings }}`
+remain strings. Sources without an inferred type also resolve to strings. See
+[Job outputs](/reference/limits#job-outputs) for size limits.
+
 Commit and push the file to the project's default branch. Wait for **Preview a
 release version** to sync.
 
@@ -60,7 +96,7 @@ Start the workflow from the **Workflows** tab.
 3. Confirm that `preview` ran in a separate job execution and did not rely on
    files from `package`.
 
-Use [Step outputs](/reference/workflow-schema#step-outputs) for output types,
-limits, and encoding. Use [structured agent
+Use [Step outputs](/reference/workflow-schema#step-outputs) for declaration
+types and encoding. Use [structured agent
 outputs](/how-to/author-workflows/use-structured-agent-outputs) when an agent,
 rather than a command, must produce the value.

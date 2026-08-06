@@ -26,7 +26,6 @@ export type WorkflowModelValidationIssueCode =
   | 'invalid-listener-filter'
   | 'invalid-model'
   | 'invalid-job-if'
-  | 'invalid-job-output'
   | 'invalid-job-success'
   | 'invalid-output-schema'
   | 'invalid-runner-label'

@@ -123,6 +123,7 @@ describe('job listener subscriptions', () => {
 
   it('persists listener filter snapshots verbatim in matcher config', async () => {
     const filterSnapshot = {jobs: {build: {outputs: {pr_number: 42}}}};
+    const filterOutputTypes = {build: {pr_number: 'int' as const}};
     const payload = buildActivatedPayload({
       on: [
         {
@@ -130,6 +131,7 @@ describe('job listener subscriptions', () => {
           event: 'pull_request_review',
           filter: 'jobs.build.outputs.pr_number == event.pull_request.number',
           filter_snapshot: filterSnapshot,
+          filter_output_types: filterOutputTypes,
         },
       ],
       until: null,
@@ -142,6 +144,7 @@ describe('job listener subscriptions', () => {
     expect(rows[0]?.config).toEqual({
       filter: 'jobs.build.outputs.pr_number == event.pull_request.number',
       filter_snapshot: filterSnapshot,
+      filter_output_types: filterOutputTypes,
     });
   });
 

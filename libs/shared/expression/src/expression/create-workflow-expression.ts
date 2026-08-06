@@ -4,6 +4,7 @@ import type {
   CreateWorkflowExpressionParams,
   ExpressionScalarType,
   ExpressionType,
+  ExpressionTypeEnvironment,
   ValidCelExpression,
   WorkflowExpression,
 } from './workflow-expression.js';
@@ -20,6 +21,8 @@ const scalarTypeToCelType = {
 type CelSchema = {
   [field: string]: string | CelSchema;
 };
+
+const directPathPattern = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/;
 
 export function createWorkflowExpression(
   params: CreateWorkflowExpressionParams,
@@ -69,7 +72,9 @@ export function createWorkflowExpression(
         reason: `Expression source must return ${scalarTypeToCelType[params.check.expectedResultType]}; got ${typeCheckResult.type ?? 'unknown'}.`,
       });
     }
-    resultType = fromCelType(typeCheckResult.type);
+    resultType =
+      resolveKnownPathType(source, params.check.typeEnvironment) ??
+      fromCelType(typeCheckResult.type);
   }
 
   return {
@@ -78,6 +83,28 @@ export function createWorkflowExpression(
     check: params.check.mode,
     ...(resultType === undefined ? {} : {resultType}),
   };
+}
+
+function resolveKnownPathType(
+  source: string,
+  typeEnvironment: ExpressionTypeEnvironment | undefined,
+): ExpressionType | undefined {
+  // cel-js erases list element detail from custom result type strings, so recover
+  // known direct paths before falling back to its lossy result type conversion.
+  if (typeEnvironment === undefined || !directPathPattern.test(source)) {
+    return undefined;
+  }
+
+  const [root, ...path] = source.split('.');
+  let current = root === undefined ? undefined : typeEnvironment[root];
+  for (const segment of path) {
+    if (current === undefined || typeof current === 'string' || current.kind !== 'object') {
+      return undefined;
+    }
+    current = current.fields[segment];
+  }
+
+  return current;
 }
 
 function createTypeCheckingEnvironment(): Environment {

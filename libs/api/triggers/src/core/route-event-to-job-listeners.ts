@@ -1,4 +1,8 @@
-import {projectWorkflowPredicateContext} from '@shipfox/expression';
+import {
+  type ListenerFilterOutputTypes,
+  listenerFilterOutputTypesSchema,
+} from '@shipfox/api-workflows-dto';
+import {projectWorkflowPredicateContext, rehydrateJsonExpressionRecord} from '@shipfox/expression';
 import {logger} from '@shipfox/node-opentelemetry';
 import {findMatchingJobListenerSubscriptions} from '#db/job-listener-subscriptions.js';
 import {evaluateStoredFilter, type StoredFilterEvaluation} from './config.js';
@@ -158,7 +162,10 @@ function evaluateListenerFilter(params: EvaluateListenerFilterParams): StoredFil
     value: filter,
     context: projectWorkflowPredicateContext(
       params.subscription.kind === 'on' ? 'listener.on' : 'listener.until',
-      {...snapshot.value, event: params.payload},
+      {
+        ...rehydrateListenerFilterSnapshot(snapshot.value, snapshot.outputTypes),
+        event: params.payload,
+      },
     ),
     invalidReason: 'Listener subscription filter must be a non-empty string when set',
     evaluationFailedReason: 'Listener filter evaluation failed',
@@ -168,20 +175,85 @@ function evaluateListenerFilter(params: EvaluateListenerFilterParams): StoredFil
 function readFilterSnapshot(
   subscription: JobListenerSubscription,
 ):
-  | {kind: 'valid'; value: Record<string, unknown>}
+  | {kind: 'valid'; value: Record<string, unknown>; outputTypes?: ListenerFilterOutputTypes}
   | {kind: 'invalid'; result: Extract<StoredFilterEvaluation, {kind: 'filter-error'}>} {
   const value = subscription.config.filter_snapshot;
-  if (value === undefined) return {kind: 'valid', value: {}};
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    return {kind: 'valid', value: value as Record<string, unknown>};
+  if (
+    value !== undefined &&
+    (value === null || typeof value !== 'object' || Array.isArray(value))
+  ) {
+    return {
+      kind: 'invalid',
+      result: {
+        kind: 'filter-error',
+        reason: 'Listener filter snapshot must be an object when set',
+      },
+    };
   }
-  return {
-    kind: 'invalid',
-    result: {
-      kind: 'filter-error',
-      reason: 'Listener filter snapshot must be an object when set',
-    },
-  };
+
+  const outputTypesValue = subscription.config.filter_output_types;
+  if (outputTypesValue !== undefined) {
+    const parsedOutputTypes = listenerFilterOutputTypesSchema.safeParse(outputTypesValue);
+    if (!parsedOutputTypes.success) {
+      return {
+        kind: 'invalid',
+        result: {
+          kind: 'filter-error',
+          reason: 'Listener filter output types must be valid when set',
+        },
+      };
+    }
+    return {
+      kind: 'valid',
+      value: (value ?? {}) as Record<string, unknown>,
+      outputTypes: parsedOutputTypes.data,
+    };
+  }
+
+  return {kind: 'valid', value: (value ?? {}) as Record<string, unknown>};
+}
+
+function rehydrateListenerFilterSnapshot(
+  snapshot: Record<string, unknown>,
+  outputTypes: ListenerFilterOutputTypes | undefined,
+): Record<string, unknown> {
+  if (outputTypes === undefined || !isRecord(snapshot.jobs)) return snapshot;
+
+  const jobs = Object.fromEntries(
+    Object.entries(snapshot.jobs).map(([jobKey, jobContext]) => {
+      const jobOutputTypes = outputTypes[jobKey];
+      if (jobOutputTypes === undefined || !isRecord(jobContext)) {
+        return [jobKey, jobContext];
+      }
+
+      const outputs = isRecord(jobContext.outputs)
+        ? rehydrateJsonExpressionRecord(jobContext.outputs, jobOutputTypes)
+        : jobContext.outputs;
+      const executions = Array.isArray(jobContext.executions)
+        ? jobContext.executions.map((execution) => {
+            if (!isRecord(execution) || !isRecord(execution.outputs)) return execution;
+            return {
+              ...execution,
+              outputs: rehydrateJsonExpressionRecord(execution.outputs, jobOutputTypes),
+            };
+          })
+        : jobContext.executions;
+
+      return [
+        jobKey,
+        {
+          ...jobContext,
+          outputs,
+          executions,
+        },
+      ];
+    }),
+  );
+  return {...snapshot, jobs};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function listenerDisposition(subscription: JobListenerSubscription): 'fire' | 'resolve' {

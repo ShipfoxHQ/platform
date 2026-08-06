@@ -2618,9 +2618,9 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
-  it('reports non-scalar typed job output mappings', () => {
+  it('infers structured typed job output mappings', () => {
     const document: WorkflowDocument = {
-      name: 'bad job output type',
+      name: 'structured job output type',
       jobs: {
         build: {
           steps: [
@@ -2631,10 +2631,13 @@ describe('normalizeWorkflowDocument', () => {
                 metadata: {
                   type: 'json',
                   schema: {
-                    type: 'object',
-                    additionalProperties: false,
-                    required: ['digest'],
-                    properties: {digest: {type: 'string'}},
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      required: ['severity'],
+                      properties: {severity: {type: 'string'}},
+                    },
                   },
                 },
               },
@@ -2647,14 +2650,78 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const model = normalizeWorkflowDocument(document);
 
-    expect(error.issues).toEqual([
-      expect.objectContaining({
-        code: 'invalid-job-output',
-        path: ['jobs', 'build', 'outputs', 'metadata'],
-      }),
-    ]);
+    expect(model.jobs[0]?.outputTypes).toEqual({
+      metadata: {
+        kind: 'list',
+        element: {
+          kind: 'object',
+          fields: {severity: 'string'},
+        },
+      },
+    });
+  });
+
+  it('authorizes indexed reads from structured job outputs', () => {
+    const document: WorkflowDocument = {
+      name: 'indexed structured job output',
+      jobs: {
+        review: {
+          steps: [
+            {
+              key: 'inspect',
+              run: 'npm run inspect',
+              outputs: {
+                findings: {
+                  type: 'json',
+                  schema: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      required: ['severity'],
+                      properties: {severity: {type: 'string'}},
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          outputs: {
+            findings: interpolation('steps.inspect.outputs.findings'),
+          },
+        },
+        summarize: {
+          needs: ['review'],
+          steps: [
+            {
+              run: `printf '%s\\n' ${interpolation('jobs.review.outputs.findings[0].severity')}`,
+            },
+          ],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+    const summarize = model.jobs.find((job) => job.key === 'summarize');
+
+    expect(summarize?.steps[0]).toMatchObject({
+      kind: 'run',
+      templates: {
+        command: [
+          {kind: 'literal', value: "printf '%s\\n' "},
+          {
+            kind: 'deferred',
+            expression: {
+              source: 'jobs.review.outputs.findings[0].severity',
+              check: 'typed',
+            },
+            roots: ['jobs'],
+          },
+        ],
+      },
+    });
   });
 
   it('rejects job output references without a direct needs edge', () => {

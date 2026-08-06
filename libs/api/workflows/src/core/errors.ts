@@ -140,6 +140,41 @@ export class InvalidJobRunnerLabelsError extends Error {
   }
 }
 
+export class JobOutputTooLargeError extends Error {
+  constructor(
+    readonly outputKey: string,
+    readonly limitBytes: number,
+    readonly scope: 'value' | 'total',
+  ) {
+    super(
+      scope === 'total'
+        ? `Job outputs exceed the ${limitBytes}-byte total limit (at "${outputKey}")`
+        : `Job output "${outputKey}" exceeds the ${limitBytes}-byte size limit`,
+    );
+    this.name = 'JobOutputTooLargeError';
+  }
+}
+
+export class JobOutputTooManyEntriesError extends Error {
+  constructor(
+    readonly entryCount: number,
+    readonly limitEntries: number,
+  ) {
+    super(`Job outputs cannot define more than ${limitEntries} entries (found ${entryCount})`);
+    this.name = 'JobOutputTooManyEntriesError';
+  }
+}
+
+export class JobOutputNotJsonSafeError extends Error {
+  constructor(
+    readonly outputKey: string,
+    readonly reason: string,
+  ) {
+    super(`Job output "${outputKey}" cannot be persisted as JSON: ${reason}`);
+    this.name = 'JobOutputNotJsonSafeError';
+  }
+}
+
 // The job named by a lease is terminal, so it must not exchange its lease for
 // fresh checkout credentials. Server state is the final gate, not the token.
 export class JobNotActiveError extends Error {

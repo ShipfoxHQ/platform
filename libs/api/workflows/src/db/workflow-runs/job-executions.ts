@@ -4,7 +4,13 @@ import {WORKFLOWS_JOB_EXECUTION_TIMED_OUT} from '@shipfox/api-workflows-dto';
 import {and, asc, desc, eq, isNull, notInArray, sql} from 'drizzle-orm';
 import type {JobStatusReason} from '#core/entities/job.js';
 import type {JobExecution, JobExecutionStatus} from '#core/entities/job-execution.js';
-import {InterpolationUnresolvableError, JobNotFoundError} from '#core/errors.js';
+import {
+  InterpolationUnresolvableError,
+  JobNotFoundError,
+  JobOutputNotJsonSafeError,
+  JobOutputTooLargeError,
+  JobOutputTooManyEntriesError,
+} from '#core/errors.js';
 import {deriveJobExecutionOutputs} from '#core/job-transition/index.js';
 import {deriveCompletion, isTerminal} from '#core/step-transition/decide-step-transition.js';
 import type {RuntimeCompletionStatus} from '#core/workflow-scheduling/runtime-dag.js';
@@ -207,7 +213,14 @@ async function updateJobExecutionStatusAtVersion(
         secrets: params.secrets,
       });
     } catch (error) {
-      if (!(error instanceof InterpolationUnresolvableError)) throw error;
+      if (
+        !(error instanceof InterpolationUnresolvableError) &&
+        !(error instanceof JobOutputNotJsonSafeError) &&
+        !(error instanceof JobOutputTooLargeError) &&
+        !(error instanceof JobOutputTooManyEntriesError)
+      ) {
+        throw error;
+      }
       status = 'failed';
       statusReason = 'unknown';
       outputs = null;

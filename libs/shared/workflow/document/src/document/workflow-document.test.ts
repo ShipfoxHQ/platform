@@ -2,6 +2,7 @@ import type {WorkflowDocumentJobCheckout} from './workflow-document.js';
 import {
   WORKFLOW_DOCUMENT_ENV_MAX_ENTRIES,
   WORKFLOW_DOCUMENT_ENV_MAX_SERIALIZED_BYTES,
+  WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES,
   WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_DEPTH,
   WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_SERIALIZED_BYTES,
   WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES,
@@ -139,6 +140,32 @@ describe('workflowDocumentSchema', () => {
     const result = workflowDocumentSchema.safeParse(workflowDocument);
 
     expect(result.success).toBe(true);
+  });
+
+  it('rejects too many job output declarations', () => {
+    const outputs = Object.fromEntries(
+      Array.from({length: WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES + 1}, (_, index) => [
+        `output_${index}`,
+        'value',
+      ]),
+    );
+
+    const result = workflowDocumentSchema.safeParse({
+      name: 'job outputs',
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+          outputs,
+        },
+      },
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find((candidate) => candidate.path.join('.') === 'jobs.build.outputs');
+    expect(issue?.message).toBe(
+      `Job outputs cannot define more than ${WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES} entries.`,
+    );
   });
 
   it('accepts and desugars step output declarations', () => {

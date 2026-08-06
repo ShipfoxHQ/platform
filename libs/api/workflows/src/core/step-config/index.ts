@@ -14,8 +14,10 @@ export {
   assembleStepDispatchContext,
   assembleWorkflowRunContext,
   type JobContextInput,
+  type ListenerFilterOutputTypes,
   type ListenerSnapshotPlan,
   type ListenerTriggerWithSnapshot,
+  listenerFilterOutputTypesForJobs,
   type MatcherSnapshotPlan,
   planListenerFilterSnapshots,
 } from './assemble-run-context.js';

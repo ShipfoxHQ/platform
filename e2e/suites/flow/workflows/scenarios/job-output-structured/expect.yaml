@@ -1,0 +1,18 @@
+trigger: push
+run:
+  status: succeeded
+jobs:
+  review:
+    status: succeeded
+    steps:
+      inspect:
+        status: succeeded
+        exit_code: 0
+  summarize:
+    status: succeeded
+    steps:
+      consume:
+        status: succeeded
+        exit_code: 0
+        logs:
+          include: ["structured severity=high"]

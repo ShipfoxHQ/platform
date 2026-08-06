@@ -5,8 +5,21 @@ import type {
   AgentToolMaterializationContext,
   AgentToolMaterializationSnapshot,
 } from '#core/agent-tools.js';
-import {InvalidJobRunnerLabelsError} from '#core/errors.js';
-import {completeStepField} from './fields.js';
+import {
+  InvalidJobRunnerLabelsError,
+  JobOutputTooLargeError,
+  JobOutputTooManyEntriesError,
+} from '#core/errors.js';
+import {completeStepField, completeStepFieldWithType} from './fields.js';
+import {
+  type JsonSafeJobOutputValue,
+  jobOutputRecordEntryByteLength,
+  jobOutputValueByteLength,
+  MAX_JOB_OUTPUT_ENTRIES,
+  MAX_JOB_OUTPUT_VALUE_BYTES,
+  MAX_JOB_OUTPUTS_TOTAL_BYTES,
+  normalizeJobOutputValue,
+} from './job-output-limits.js';
 import {
   type MaterializedWorkflowStep,
   materializeJobExecutionSteps,
@@ -111,22 +124,47 @@ export function materializeJobOutputs(params: {
   readonly job: WorkflowModelJob;
   readonly context: WorkflowEvaluationContext;
   readonly definitionId: string;
-}): Record<string, string> | null {
+}): Record<string, unknown> | null {
   const outputs = params.job.outputs;
   if (outputs === undefined) return null;
 
-  return Object.fromEntries(
-    Object.entries(outputs).map(([key, template]) => [
-      key,
-      completeStepField({
-        field: 'job.outputs',
-        errorField: 'job.outputs',
-        template: {segments: template},
-        context: params.context,
-        definitionId: params.definitionId,
-      }),
-    ]),
-  );
+  const outputEntries = Object.entries(outputs);
+  if (outputEntries.length > MAX_JOB_OUTPUT_ENTRIES) {
+    throw new JobOutputTooManyEntriesError(outputEntries.length, MAX_JOB_OUTPUT_ENTRIES);
+  }
+
+  const materialized: Record<string, JsonSafeJobOutputValue> = {};
+  // This is exactly JSON.stringify(materialized): start with "{}", then add each
+  // key/value pair and its comma (except for the first entry).
+  let recordBytes = 2;
+
+  for (const [index, [key, template]] of outputEntries.entries()) {
+    const outputType = params.job.outputTypes?.[key];
+    const completionParams = {
+      field: 'job.outputs' as const,
+      errorField: 'job.outputs' as const,
+      template: {segments: template},
+      context: params.context,
+      definitionId: params.definitionId,
+    };
+    const value =
+      outputType === undefined || outputType === 'string'
+        ? completeStepField(completionParams)
+        : completeStepFieldWithType(completionParams);
+    const normalizedValue = normalizeJobOutputValue(value, key);
+    const valueBytes = jobOutputValueByteLength(normalizedValue);
+    if (valueBytes > MAX_JOB_OUTPUT_VALUE_BYTES) {
+      throw new JobOutputTooLargeError(key, MAX_JOB_OUTPUT_VALUE_BYTES, 'value');
+    }
+
+    recordBytes += (index === 0 ? 0 : 1) + jobOutputRecordEntryByteLength(key, normalizedValue);
+    materialized[key] = normalizedValue;
+    if (recordBytes > MAX_JOB_OUTPUTS_TOTAL_BYTES) {
+      throw new JobOutputTooLargeError(key, MAX_JOB_OUTPUTS_TOTAL_BYTES, 'total');
+    }
+  }
+
+  return materialized;
 }
 
 export function modelHasAgentStep(model: WorkflowModel): boolean {

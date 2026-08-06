@@ -226,6 +226,7 @@ describe('workflowsJobActivatedSchema', () => {
           event: 'pull_request_review',
           filter: 'jobs.build.outputs.pr_number == event.pull_request.number',
           filter_snapshot: {jobs: {build: {outputs: {pr_number: 42}}}},
+          filter_output_types: {build: {pr_number: 'int'}},
         },
       ],
       until: [
@@ -234,6 +235,7 @@ describe('workflowsJobActivatedSchema', () => {
           event: 'pull_request',
           filter: 'jobs.build.outputs.pr_number == event.pull_request.number',
           filter_snapshot: {jobs: {build: {outputs: {pr_number: 42}}}},
+          filter_output_types: {build: {pr_number: 'int'}},
         },
       ],
     };

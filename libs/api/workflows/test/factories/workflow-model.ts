@@ -55,6 +55,7 @@ interface TestWorkflowJob {
   readonly if?: string | undefined;
   readonly success?: string | undefined;
   readonly outputs?: Readonly<Record<string, string>> | undefined;
+  readonly outputTypes?: WorkflowModel['jobs'][number]['outputTypes'] | undefined;
   readonly env?: WorkflowModel['env'] | undefined;
   readonly listening?: WorkflowModel['jobs'][number]['listening'] | undefined;
   readonly steps: readonly TestWorkflowStep[];
@@ -92,6 +93,7 @@ export function workflowModel(input: TestWorkflowModelInput = {}): WorkflowModel
       ...(job.if === undefined ? {} : {if: workflowExpression(job.if)}),
       ...(job.success === undefined ? {} : {success: job.success}),
       ...(job.outputs === undefined ? {} : {outputs: outputTemplates(job.outputs)}),
+      ...(job.outputTypes === undefined ? {} : {outputTypes: job.outputTypes}),
       ...(job.name === undefined ? {} : {name: job.name}),
       ...(job.executionName === undefined
         ? {}
