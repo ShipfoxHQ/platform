@@ -73,6 +73,7 @@ interface Ec2LifecycleContext {
   readonly renderUserData?: (launch: ProviderRunnerLaunch<Ec2TemplateSpec>) => string;
   readonly locallyLaunched: Map<string, LocallyLaunchedRunner>;
   readonly pendingReports: RunnerInstanceReportEventDto[];
+  readonly releasedReservationRunnerIds: Map<string, Set<string>>;
   lastReconciledAt?: Date;
 }
 
@@ -95,6 +96,7 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     ...(options.renderUserData ? {renderUserData: options.renderUserData} : {}),
     locallyLaunched: new Map(),
     pendingReports: [],
+    releasedReservationRunnerIds: new Map(),
   };
 
   return {
@@ -232,11 +234,13 @@ async function applyObservedInstances(
   const events: RunnerInstanceReportEventDto[] = [];
   const assignmentCandidates: AssignmentCandidate[] = [];
   const observedIds = new Set<string>();
+  const observedRunnerInstanceIds = new Set<string>();
   const reapInstances: Ec2InstanceView[] = [];
   const terminateIntentInstances: Ec2InstanceView[] = [];
 
   for (const instance of instances) {
     const identity = parseInstanceIdentity(instance);
+    if (identity.runnerInstanceId) observedRunnerInstanceIds.add(identity.runnerInstanceId);
     if (!identity.providerRunnerId) continue;
     observedIds.add(identity.providerRunnerId);
     context.locallyLaunched.delete(identity.providerRunnerId);
@@ -293,7 +297,7 @@ async function applyObservedInstances(
 
   synthesizeAbsentLaunchedRunners(context, observedIds, trackerRunners, events);
   context.tracker.replaceAll(trackerRunners);
-  await assignEnrolledReservations(context, assignmentCandidates);
+  await assignEnrolledReservations(context, assignmentCandidates, observedRunnerInstanceIds);
   if (events.length > 0) await reportEvents(context, events);
   await terminateInstances(context, terminateIntentInstances, 'backend-terminate');
   await terminateInstances(context, reapInstances, 'registration-deadline');
@@ -302,9 +306,13 @@ async function applyObservedInstances(
 async function assignEnrolledReservations(
   context: Ec2LifecycleContext,
   candidates: readonly AssignmentCandidate[],
+  observedRunnerInstanceIds: ReadonlySet<string>,
 ): Promise<void> {
+  pruneReleasedReservationRunners(context, observedRunnerInstanceIds);
+
   const assignments = new Map<string, string[]>();
   for (const {reservationId, runnerInstanceId} of candidates) {
+    if (context.releasedReservationRunnerIds.has(reservationId)) continue;
     const runnerInstanceIds = assignments.get(reservationId) ?? [];
     runnerInstanceIds.push(runnerInstanceId);
     assignments.set(reservationId, runnerInstanceIds);
@@ -313,11 +321,35 @@ async function assignEnrolledReservations(
     try {
       await context.client.assignRunnerInstances(reservationId, runnerInstanceIds);
     } catch (error) {
+      const status = responseStatus(error);
+      const reservationWasReleased = status === 404;
+      if (reservationWasReleased) {
+        const releasedRunnerInstanceIds =
+          context.releasedReservationRunnerIds.get(reservationId) ?? new Set<string>();
+        for (const runnerInstanceId of runnerInstanceIds)
+          releasedRunnerInstanceIds.add(runnerInstanceId);
+        context.releasedReservationRunnerIds.set(reservationId, releasedRunnerInstanceIds);
+      }
       logger().warn(
-        {reservationId, runnerInstanceIds, err: error},
-        'Reservation assignment rejected',
+        {reservationId, runnerInstanceIds, err: error, status, retryable: !reservationWasReleased},
+        reservationWasReleased
+          ? 'Reservation assignment stopped because reservation was released'
+          : 'Reservation assignment rejected; will retry',
       );
     }
+  }
+}
+
+function pruneReleasedReservationRunners(
+  context: Ec2LifecycleContext,
+  observedRunnerInstanceIds: ReadonlySet<string>,
+): void {
+  for (const [reservationId, runnerInstanceIds] of context.releasedReservationRunnerIds) {
+    for (const runnerInstanceId of runnerInstanceIds) {
+      if (!observedRunnerInstanceIds.has(runnerInstanceId))
+        runnerInstanceIds.delete(runnerInstanceId);
+    }
+    if (runnerInstanceIds.size === 0) context.releasedReservationRunnerIds.delete(reservationId);
   }
 }
 
