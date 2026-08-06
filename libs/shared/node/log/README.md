@@ -12,7 +12,8 @@ Typed logging for Shipfox Node services. It wraps `pino` with shared defaults, e
 Defaults include:
 
 - ISO timestamps.
-- Standard serializers for `err`, `error`, `errors`, `req`, and `res`.
+- Standard serializers for `err`, `errors`, `req`, and `res`, preserving `cause` chains.
+- An `error` field holding an `Error` is normalized to `err` so it reaches the same serializer.
 - Output control through environment variables.
 
 Environment variables (via `@shipfox/config`):

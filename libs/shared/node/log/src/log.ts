@@ -53,27 +53,96 @@ function createTransportStream() {
   );
 }
 
+function isErrorLike(value: unknown): value is Error {
+  return (
+    value instanceof Error ||
+    (typeof value === 'object' &&
+      value !== null &&
+      'message' in value &&
+      typeof value.message === 'string' &&
+      'stack' in value &&
+      typeof value.stack === 'string')
+  );
+}
+
+function normalizeErrorKey(object: Record<string, unknown>): Record<string, unknown> {
+  if (object.err !== undefined || !isErrorLike(object.error)) return object;
+
+  const {error, ...rest} = object;
+  return {...rest, err: error};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeErrorArguments(args: Parameters<LogFn>): Parameters<LogFn> {
+  const [object, ...rest] = args;
+  if (!isRecord(object)) return args;
+
+  const normalizedObject = normalizeErrorKey(object);
+  if (normalizedObject === object) return args;
+
+  return [normalizedObject, ...rest] as Parameters<LogFn>;
+}
+
 export const settings: LoggerOptions = {
   level: config.LOG_LEVEL,
   transport: {targets: transports},
+  hooks: {
+    logMethod(args, method) {
+      Reflect.apply(method, this, normalizeErrorArguments(args));
+    },
+  },
   get timestamp() {
     return getPino().stdTimeFunctions.isoTime;
   },
   get serializers() {
     const {stdSerializers} = getPino();
+    const serializeError = (error: unknown): unknown => {
+      const structured = stdSerializers.errWithCause(error as Error);
+      const chained = stdSerializers.err(error as Error);
+      if (!isRecord(structured) || !isRecord(chained)) return structured;
+
+      return {
+        ...structured,
+        ...(typeof chained.message === 'string' ? {message: chained.message} : {}),
+        ...(typeof chained.stack === 'string' ? {stack: chained.stack} : {}),
+      };
+    };
+
     return {
-      error: stdSerializers.errWithCause,
+      error: serializeError,
       errors: (errors: unknown) => {
-        if (Array.isArray(errors))
-          return errors.map((error) => stdSerializers.errWithCause(error as Error));
-        return stdSerializers.errWithCause(errors as Error);
+        if (Array.isArray(errors)) return errors.map(serializeError);
+        return serializeError(errors);
       },
-      err: stdSerializers.errWithCause,
+      err: serializeError,
       req: stdSerializers.req,
       res: stdSerializers.res,
     };
   },
 };
+
+function withSharedSettings(options: LoggerOptions): LoggerOptions {
+  const customLogMethod = options.hooks?.logMethod;
+  return {
+    ...settings,
+    ...options,
+    hooks: {
+      ...settings.hooks,
+      ...options.hooks,
+      logMethod(args, method, level) {
+        const normalizedArgs = normalizeErrorArguments(args);
+        if (customLogMethod) {
+          Reflect.apply(customLogMethod, this, [normalizedArgs, method, level]);
+        } else {
+          Reflect.apply(method, this, normalizedArgs);
+        }
+      },
+    },
+  };
+}
 
 type PinoLogger = Pick<ReturnType<PinoModule>, Level | 'flush'>;
 let logger: PinoLogger | undefined;
@@ -85,9 +154,10 @@ function getLogger(): PinoLogger {
 
 export function createLogger(options: LoggerOptions) {
   const pino = getPino();
-  if (options.transport) return pino({...settings, ...options});
+  const configuredOptions = withSharedSettings(options);
+  if (options.transport) return pino(configuredOptions);
 
-  const {transport: _transport, ...loggerOptions} = {...settings, ...options};
+  const {transport: _transport, ...loggerOptions} = configuredOptions;
   return pino(loggerOptions, createTransportStream());
 }
 

@@ -48,11 +48,18 @@ describe('Pino log export', () => {
         isRemote: false,
       }),
     } as unknown as Span);
+    const cause = Object.assign(new Error('permission denied'), {
+      name: 'UnauthorizedOperation',
+    });
 
     context.with(activeContext, () => {
       logger.info({organizationId: 'org-123'}, 'info message');
       logger.warn('warn message');
-      logger.error({err: new Error('boom'), operation: 'sync'}, 'error message');
+      logger.error({err: new Error('boom', {cause}), operation: 'sync'}, 'error message');
+      logger.error(
+        {error: new Error('alias boom', {cause}), operation: 'sync-alias'},
+        'aliased error message',
+      );
     });
 
     await new Promise<void>((resolve, reject) =>
@@ -62,11 +69,13 @@ describe('Pino log export', () => {
     const records = [...exporter.getFinishedLogRecords()];
     const firstRecord = records[0];
     const errorRecord = records[2];
-    expect(records).toHaveLength(3);
+    const aliasedErrorRecord = records[3];
+    expect(records).toHaveLength(4);
     expect(records.map((record) => record.body)).toEqual([
       'info message',
       'warn message',
       'error message',
+      'aliased error message',
     ]);
     expect(firstRecord).toMatchObject({
       attributes: {organizationId: 'org-123'},
@@ -78,12 +87,27 @@ describe('Pino log export', () => {
     expect(firstRecord?.attributes).not.toHaveProperty('span_id');
     expect(errorRecord).toMatchObject({
       attributes: {
-        'exception.message': 'boom',
+        'exception.message': 'boom: permission denied',
         'exception.type': 'Error',
         operation: 'sync',
       },
       severityText: 'error',
     });
+    expect(errorRecord?.attributes['exception.stacktrace']).toContain(
+      'caused by: UnauthorizedOperation: permission denied',
+    );
+    expect(aliasedErrorRecord).toMatchObject({
+      attributes: {
+        'exception.message': 'alias boom: permission denied',
+        'exception.type': 'Error',
+        operation: 'sync-alias',
+      },
+      severityText: 'error',
+    });
+    expect(aliasedErrorRecord?.attributes['exception.stacktrace']).toContain(
+      'caused by: UnauthorizedOperation: permission denied',
+    );
+    expect(aliasedErrorRecord?.attributes).not.toHaveProperty('error');
     expect(errorRecord?.hrTime).toBeDefined();
 
     const configuredLogger = context.with(activeContext, () =>
@@ -100,7 +124,7 @@ describe('Pino log export', () => {
       configuredLogger.flush((error?: Error) => (error ? reject(error) : resolve())),
     );
 
-    const contextRecord = exporter.getFinishedLogRecords()[3];
+    const contextRecord = exporter.getFinishedLogRecords()[4];
     expect(contextRecord).toMatchObject({
       attributes: {component: 'context-aware', requestId: 'req-123'},
       spanContext: {traceId},
