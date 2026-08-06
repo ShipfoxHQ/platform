@@ -11,6 +11,55 @@ afterEach(() => {
 });
 
 describe('log destination thresholds', () => {
+  it('preserves cause chains and accepts both error field names', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'shipfox-node-log-'));
+    const file = join(directory, 'application.log');
+
+    try {
+      vi.stubEnv('LOG_LEVEL', 'info');
+      vi.stubEnv('LOG_STDOUT', 'false');
+      vi.stubEnv('LOG_FILE', file);
+      vi.stubEnv('LOG_PRETTY', 'false');
+      vi.resetModules();
+
+      const {createLogger} = await import('./log.js');
+      const logger = createLogger({});
+      const cause = Object.assign(new Error('permission denied'), {
+        name: 'UnauthorizedOperation',
+        requestId: 'request-123',
+      });
+      const error = new Error('Cannot launch runner', {cause});
+
+      logger.error({err: error}, 'err field');
+      logger.error({error}, 'error field');
+      await new Promise<void>((resolve, reject) =>
+        logger.flush((flushError?: Error) => (flushError ? reject(flushError) : resolve())),
+      );
+
+      await vi.waitFor(async () => {
+        const records = (await readFile(file, 'utf8'))
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line));
+        expect(records).toHaveLength(2);
+        for (const record of records) {
+          expect(record).not.toHaveProperty('error');
+          expect(record.err).toMatchObject({
+            message: 'Cannot launch runner: permission denied',
+            cause: {
+              name: 'UnauthorizedOperation',
+              message: 'permission denied',
+              requestId: 'request-123',
+            },
+          });
+          expect(record.err.stack).toContain('caused by: UnauthorizedOperation: permission denied');
+        }
+      });
+    } finally {
+      await rm(directory, {recursive: true, force: true});
+    }
+  });
+
   it('applies the configured file threshold through the shared logger transport', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'shipfox-node-log-'));
     const file = join(directory, 'application.log');
