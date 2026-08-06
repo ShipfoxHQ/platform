@@ -8,6 +8,13 @@
       "when": 1777467600000,
       "tag": "0000_initial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786020534190,
+      "tag": "0001_durable_secret_cleanup",
+      "breakpoints": true
     }
   ]
 }

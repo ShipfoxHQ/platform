@@ -2747,6 +2747,9 @@ importers:
       '@shipfox/regex':
         specifier: workspace:*
         version: link:../../../shared/common/regex
+      '@temporalio/activity':
+        specifier: 'catalog:'
+        version: 1.18.1
       '@temporalio/workflow':
         specifier: 'catalog:'
         version: 1.18.1
@@ -2778,9 +2781,6 @@ importers:
       '@shipfox/vitest':
         specifier: workspace:*
         version: link:../../../../tools/vitest
-      '@temporalio/activity':
-        specifier: 'catalog:'
-        version: 1.18.1
       '@temporalio/client':
         specifier: 'catalog:'
         version: 1.18.1
