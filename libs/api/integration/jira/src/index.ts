@@ -142,6 +142,15 @@ export interface CreateJiraIntegrationProviderOptions {
       }
     | undefined;
   getJiraInstallationByConnectionId?: typeof getJiraInstallationByConnectionId | undefined;
+  cleanup?:
+    | {
+        deleteConnectionRecords?: (
+          connection: {id: string},
+          options: {tx: unknown},
+        ) => Promise<void>;
+        deleteConnectionSecrets?: (connection: {id: string; workspaceId: string}) => Promise<void>;
+      }
+    | undefined;
   routes?: JiraIntegrationProviderRoutesOptions | undefined;
 }
 
@@ -210,6 +219,7 @@ export function createJiraIntegrationProvider(options: CreateJiraIntegrationProv
     async connectionExternalUrl(connection: {id: string}): Promise<string | undefined> {
       return (await getInstallationByConnectionId(connection.id))?.siteUrl;
     },
+    ...options.cleanup,
     routes,
     webhookProcessors: webhookProcessor
       ? [{routeIds: ['jira'] as const, processor: webhookProcessor}]

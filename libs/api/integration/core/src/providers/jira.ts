@@ -30,8 +30,10 @@ async function loadJiraModuleParts(
     createJiraPendingSelectionStore,
     createJiraTokenStore,
     db: jiraDb,
+    deleteJiraInstallationByConnectionId,
     disconnectJiraInstallation: disconnectJiraInstallationRecords,
     getJiraInstallationByCloudId,
+    jiraSecretsNamespace,
     migrationsPath,
     upsertJiraInstallation,
   } = await import('@shipfox/api-integration-jira');
@@ -144,6 +146,18 @@ async function loadJiraModuleParts(
 
   const integrationProvider = createJiraIntegrationProvider({
     agentTools: {tokenStore},
+    cleanup: {
+      deleteConnectionRecords: async (connection, {tx}) => {
+        await deleteJiraInstallationByConnectionId(connection.id, {tx});
+      },
+      deleteConnectionSecrets: async (connection) => {
+        // Scoped secrets accept the provider-local suffix, after this helper validates its prefix.
+        await (options.secrets?.jira?.deleteSecrets({
+          workspaceId: connection.workspaceId,
+          namespace: jiraNamespaceSuffix(jiraSecretsNamespace(connection.id)),
+        }) ?? Promise.resolve());
+      },
+    },
     routes: {
       tokenStore,
       pendingStore,
