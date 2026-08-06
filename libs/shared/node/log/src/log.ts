@@ -76,16 +76,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function normalizeErrorArguments(args: Parameters<LogFn>): Parameters<LogFn> {
+  const [object, ...rest] = args;
+  if (!isRecord(object)) return args;
+
+  const normalizedObject = normalizeErrorKey(object);
+  if (normalizedObject === object) return args;
+
+  return [normalizedObject, ...rest] as Parameters<LogFn>;
+}
+
 export const settings: LoggerOptions = {
   level: config.LOG_LEVEL,
   transport: {targets: transports},
   hooks: {
     logMethod(args, method) {
-      const [object, ...rest] = args;
-      const normalizedArgs = isRecord(object)
-        ? ([normalizeErrorKey(object), ...rest] as Parameters<LogFn>)
-        : args;
-      Reflect.apply(method, this, normalizedArgs);
+      Reflect.apply(method, this, normalizeErrorArguments(args));
     },
   },
   get timestamp() {
@@ -118,6 +124,26 @@ export const settings: LoggerOptions = {
   },
 };
 
+function withSharedSettings(options: LoggerOptions): LoggerOptions {
+  const customLogMethod = options.hooks?.logMethod;
+  return {
+    ...settings,
+    ...options,
+    hooks: {
+      ...settings.hooks,
+      ...options.hooks,
+      logMethod(args, method, level) {
+        const normalizedArgs = normalizeErrorArguments(args);
+        if (customLogMethod) {
+          Reflect.apply(customLogMethod, this, [normalizedArgs, method, level]);
+        } else {
+          Reflect.apply(method, this, normalizedArgs);
+        }
+      },
+    },
+  };
+}
+
 type PinoLogger = Pick<ReturnType<PinoModule>, Level | 'flush'>;
 let logger: PinoLogger | undefined;
 
@@ -128,9 +154,10 @@ function getLogger(): PinoLogger {
 
 export function createLogger(options: LoggerOptions) {
   const pino = getPino();
-  if (options.transport) return pino({...settings, ...options});
+  const configuredOptions = withSharedSettings(options);
+  if (options.transport) return pino(configuredOptions);
 
-  const {transport: _transport, ...loggerOptions} = {...settings, ...options};
+  const {transport: _transport, ...loggerOptions} = configuredOptions;
   return pino(loggerOptions, createTransportStream());
 }
 

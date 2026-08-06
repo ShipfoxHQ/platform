@@ -69,6 +69,47 @@ describe('log destination thresholds', () => {
     }
   });
 
+  it('composes error normalization with a custom log method hook', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'shipfox-node-log-'));
+    const file = join(directory, 'application.log');
+
+    try {
+      vi.stubEnv('LOG_LEVEL', 'info');
+      vi.stubEnv('LOG_STDOUT', 'false');
+      vi.stubEnv('LOG_FILE', file);
+      vi.stubEnv('LOG_PRETTY', 'false');
+      vi.resetModules();
+
+      const {createLogger} = await import('./log.js');
+      let hookCalled = false;
+      const logger = createLogger({
+        hooks: {
+          logMethod(args, method) {
+            hookCalled = true;
+            Reflect.apply(method, this, args);
+          },
+        },
+      });
+
+      logger.error({error: new Error('Cannot launch runner')});
+      await new Promise<void>((resolve, reject) =>
+        logger.flush((flushError?: Error) => (flushError ? reject(flushError) : resolve())),
+      );
+
+      await vi.waitFor(async () => {
+        const record = JSON.parse((await readFile(file, 'utf8')).trim());
+        expect(hookCalled).toBe(true);
+        expect(record).toMatchObject({
+          msg: 'Cannot launch runner',
+          err: {message: 'Cannot launch runner'},
+        });
+        expect(record).not.toHaveProperty('error');
+      });
+    } finally {
+      await rm(directory, {recursive: true, force: true});
+    }
+  });
+
   it('applies the configured file threshold through the shared logger transport', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'shipfox-node-log-'));
     const file = join(directory, 'application.log');
