@@ -1,5 +1,15 @@
 # @shipfox/api-workflows-dto
 
+## 12.2.0
+
+### Minor Changes
+
+- ce0984d: Preserve structured values when jobs map typed step outputs, normalize them for JSON persistence, and bound materialized job output sizes and entry counts.
+
+### Patch Changes
+
+- @shipfox/api-agent-dto@12.2.0
+
 ## 12.1.0
 
 ### Minor Changes

@@ -1,5 +1,26 @@
 # @shipfox/client-workflows
 
+## 16.0.0
+
+### Minor Changes
+
+- 80cde6b: Render run annotations in the run workspace. `AnnotationCard` gains an optional context title, provenance, and action, and bounds a long body behind a disclosure. The run's Annotations section is now the only surface that renders an annotation body, ranked by severity and then emission order, with the job page linking to it through a bounded count chip.
+
+  `Markdown` tables now size to their content instead of stretching to the container, so a two-column table no longer puts a cell the width of the page away from its row header.
+
+### Patch Changes
+
+- Updated dependencies [80cde6b]
+- Updated dependencies [ce0984d]
+  - @shipfox/react-ui@1.1.0
+  - @shipfox/client-ui@16.0.0
+  - @shipfox/api-workflows-dto@12.2.0
+  - @shipfox/client-projects@16.0.0
+  - @shipfox/client-logs@16.0.0
+  - @shipfox/client-shell@16.0.0
+  - @shipfox/client-triggers@16.0.0
+  - @shipfox/api-definitions-dto@12.2.0
+
 ## 15.0.0
 
 ### Minor Changes

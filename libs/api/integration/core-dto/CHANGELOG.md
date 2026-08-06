@@ -1,5 +1,11 @@
 # @shipfox/api-integration-core-dto
 
+## 12.2.0
+
+### Minor Changes
+
+- 7901a60: Retry workspace workflow definition syncs when an integration connection becomes available.
+
 ## 12.0.0
 
 ### Major Changes

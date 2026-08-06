@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/runner-execution",
   "license": "MIT",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

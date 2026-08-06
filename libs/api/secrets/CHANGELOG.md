@@ -1,5 +1,16 @@
 # @shipfox/api-secrets
 
+## 12.2.0
+
+### Patch Changes
+
+- Updated dependencies [7901a60]
+  - @shipfox/api-projects-dto@12.2.0
+  - @shipfox/node-opentelemetry@0.6.4
+  - @shipfox/node-fastify@0.4.2
+  - @shipfox/node-module@1.0.6
+  - @shipfox/api-auth-context@12.2.0
+
 ## 12.0.0
 
 ### Patch Changes

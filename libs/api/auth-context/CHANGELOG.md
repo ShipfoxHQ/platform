@@ -1,5 +1,11 @@
 # @shipfox/api-auth-context
 
+## 12.2.0
+
+### Patch Changes
+
+- @shipfox/node-fastify@0.4.2
+
 ## 12.0.0
 
 ### Patch Changes

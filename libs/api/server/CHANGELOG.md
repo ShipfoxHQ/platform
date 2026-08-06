@@ -1,5 +1,41 @@
 # @shipfox/api-server
 
+## 12.2.0
+
+### Patch Changes
+
+- Updated dependencies [214b8f2]
+- Updated dependencies [9695359]
+- Updated dependencies [947a5bc]
+- Updated dependencies [d7af255]
+- Updated dependencies [78b771c]
+- Updated dependencies [9e1d2e9]
+- Updated dependencies [7901a60]
+- Updated dependencies [ce0984d]
+  - @shipfox/api-workflows@12.2.0
+  - @shipfox/api-triggers@12.2.0
+  - @shipfox/api-integration-core@12.2.0
+  - @shipfox/api-runners@12.2.0
+  - @shipfox/api-runners-dto@12.2.0
+  - @shipfox/api-definitions@12.2.0
+  - @shipfox/api-integration-core-dto@12.2.0
+  - @shipfox/api-projects@12.2.0
+  - @shipfox/api-projects-dto@12.2.0
+  - @shipfox/api-workflows-dto@12.2.0
+  - @shipfox/api-workspaces@12.2.0
+  - @shipfox/api-secrets@12.2.0
+  - @shipfox/node-opentelemetry@0.6.4
+  - @shipfox/api-definitions-dto@12.2.0
+  - @shipfox/api-logs@12.2.0
+  - @shipfox/api-agent-dto@12.2.0
+  - @shipfox/api-agent@12.2.0
+  - @shipfox/api-auth@12.2.0
+  - @shipfox/api-dispatcher@12.2.0
+  - @shipfox/api-email-challenges@1.1.8
+  - @shipfox/node-fastify@0.4.2
+  - @shipfox/node-module@1.0.6
+  - @shipfox/annotations@12.2.0
+
 ## 12.1.1
 
 ### Patch Changes

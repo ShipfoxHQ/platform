@@ -1,5 +1,11 @@
 # @shipfox/node-mailer
 
+## 0.2.5
+
+### Patch Changes
+
+- @shipfox/node-opentelemetry@0.6.4
+
 ## 0.2.4
 
 ### Patch Changes

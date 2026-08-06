@@ -1,5 +1,12 @@
 # @shipfox/api-integration-webhook-dto
 
+## 12.2.0
+
+### Patch Changes
+
+- Updated dependencies [7901a60]
+  - @shipfox/api-integration-core-dto@12.2.0
+
 ## 12.0.0
 
 ### Patch Changes

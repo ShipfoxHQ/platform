@@ -1,5 +1,18 @@
 # @shipfox/runner-protocol
 
+## 0.2.12
+
+### Patch Changes
+
+- Updated dependencies [78b771c]
+- Updated dependencies [df2ed79]
+- Updated dependencies [ce0984d]
+  - @shipfox/api-runners-dto@12.2.0
+  - @shipfox/runner-labels@0.2.0
+  - @shipfox/api-workflows-dto@12.2.0
+  - @shipfox/node-opentelemetry@0.6.4
+  - @shipfox/api-agent-dto@12.2.0
+
 ## 0.2.11
 
 ### Patch Changes

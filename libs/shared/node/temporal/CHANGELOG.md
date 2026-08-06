@@ -1,5 +1,11 @@
 # @shipfox/node-temporal
 
+## 0.4.5
+
+### Patch Changes
+
+- @shipfox/node-opentelemetry@0.6.4
+
 ## 0.4.4
 
 ### Patch Changes

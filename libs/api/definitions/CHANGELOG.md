@@ -1,5 +1,30 @@
 # @shipfox/api-definitions
 
+## 12.2.0
+
+### Minor Changes
+
+- ce0984d: Preserve structured values when jobs map typed step outputs, normalize them for JSON persistence, and bound materialized job output sizes and entry counts.
+
+### Patch Changes
+
+- 7901a60: Retry workspace workflow definition syncs when an integration connection becomes available.
+- Updated dependencies [7901a60]
+- Updated dependencies [df2ed79]
+- Updated dependencies [ce0984d]
+  - @shipfox/api-integration-core-dto@12.2.0
+  - @shipfox/api-projects-dto@12.2.0
+  - @shipfox/runner-labels@0.2.0
+  - @shipfox/expression@2.1.0
+  - @shipfox/workflow-document@3.0.1
+  - @shipfox/node-opentelemetry@0.6.4
+  - @shipfox/api-definitions-dto@12.2.0
+  - @shipfox/api-agent-dto@12.2.0
+  - @shipfox/node-fastify@0.4.2
+  - @shipfox/node-module@1.0.6
+  - @shipfox/node-temporal@0.4.5
+  - @shipfox/api-auth-context@12.2.0
+
 ## 12.0.0
 
 ### Major Changes

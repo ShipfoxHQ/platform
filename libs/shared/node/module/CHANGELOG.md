@@ -1,5 +1,13 @@
 # @shipfox/node-module
 
+## 1.0.6
+
+### Patch Changes
+
+- @shipfox/node-opentelemetry@0.6.4
+- @shipfox/node-fastify@0.4.2
+- @shipfox/node-temporal@0.4.5
+
 ## 1.0.5
 
 ### Patch Changes
