@@ -461,6 +461,64 @@ describe('pollDemandAndReserve', () => {
     expect(storedToken?.revokedAt).toBeInstanceOf(Date);
   });
 
+  it('preserves activation tokens for active runners with an intended reservation', async () => {
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Expected reservation');
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        workspaceId,
+        provisionerId,
+        providerRunnerId: crypto.randomUUID(),
+        reservationId: reservation.id,
+        intendedReservationId: reservation.id,
+        runnerSessionId: crypto.randomUUID(),
+        labels: ['linux'],
+        state: 'running',
+        reportedAt: new Date(),
+      })
+      .returning();
+    if (!runner) throw new Error('Expected runner instance');
+    const [activationToken] = await db()
+      .insert(runnerActivationTokens)
+      .values({
+        runnerInstanceId: runner.id,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!activationToken) throw new Error('Expected activation token');
+
+    const deleted = await deleteReservationsByIds([reservation.id]);
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    const [storedToken] = await db()
+      .select()
+      .from(runnerActivationTokens)
+      .where(eq(runnerActivationTokens.id, activationToken.id));
+    expect(deleted).toBe(1);
+    expect(storedRunner).toMatchObject({
+      reservationId: reservation.id,
+      intendedReservationId: null,
+      runnerSessionId: expect.any(String),
+      reservationReleasedAt: null,
+    });
+    expect(storedToken?.revokedAt).toBeNull();
+  });
+
   it('unbinds prewarmed runners and revokes activation tokens when deleting expired reservations', async () => {
     const runner = await createIdleRunner({labels: ['linux']});
     await createPendingJobs(1, ['linux']);

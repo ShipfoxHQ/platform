@@ -438,6 +438,8 @@ async function deleteReservationsWithCleanupTx(
       id: providerRunners.id,
       reservationId: providerRunners.reservationId,
       intendedReservationId: providerRunners.intendedReservationId,
+      runnerSessionId: providerRunners.runnerSessionId,
+      reservationReleasedAt: providerRunners.reservationReleasedAt,
     })
     .from(providerRunners)
     .where(
@@ -467,7 +469,13 @@ async function deleteReservationsWithCleanupTx(
   if (reservationIds.length === 0) return 0;
 
   const assignedRunnerIds = affectedRunners
-    .filter((runner) => runner.reservationId && reservationIds.includes(runner.reservationId))
+    .filter(
+      (runner) =>
+        runner.reservationId &&
+        reservationIds.includes(runner.reservationId) &&
+        !runner.runnerSessionId &&
+        !runner.reservationReleasedAt,
+    )
     .map((runner) => runner.id);
   const intendedRunnerIds = affectedRunners
     .filter(
