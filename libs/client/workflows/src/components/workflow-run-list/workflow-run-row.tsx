@@ -164,7 +164,7 @@ function TriggerLabel({run}: {run: WorkflowRunListItem}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="flex min-w-0 max-w-[140px] items-center gap-inline outline-none">
+        <span className="flex min-w-0 max-w-[140px] items-center gap-tight outline-none">
           <TriggerSourceIcon
             provider={run.triggerProvider}
             source={run.triggerSource}

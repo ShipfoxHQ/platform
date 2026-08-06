@@ -82,7 +82,7 @@ export function RunWorkspaceNav({
           </CollapsibleTrigger>
           <div
             className={cn(
-              'max-h-[50vh] overflow-y-auto p-tight min-[768px]:block min-[768px]:max-h-none min-[768px]:p-panel-compact',
+              'max-h-[50vh] overflow-y-auto p-tight min-[768px]:block min-[768px]:max-h-none min-[768px]:p-[12px]',
               !mobileOpen && 'hidden',
             )}
           >

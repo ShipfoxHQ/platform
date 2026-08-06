@@ -93,7 +93,7 @@ export function JobGraphContent({
           {model.columns.map((column, columnIndex) => (
             <div
               key={column.map((node) => node.id).join(':')}
-              className="absolute flex flex-col gap-section"
+              className="absolute flex flex-col gap-[20px]"
               style={{left: jobLeft(columnIndex), top: PADDING}}
             >
               {column.map((node) => (

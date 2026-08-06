@@ -112,7 +112,7 @@ export function Identifier({
             onClick={() => {
               void handleCopy();
             }}
-            className="inline-flex h-20 min-w-0 shrink-0 items-center gap-tight rounded-4 px-[2px] text-foreground-neutral-muted outline-none transition-colors hover:bg-background-components-hover hover:text-foreground-neutral-base focus-visible:shadow-border-interactive-with-active"
+            className="inline-flex h-20 min-w-0 shrink-0 items-center gap-tight rounded-4 px-[var(--pad-menu-surface)] text-foreground-neutral-muted outline-none transition-colors hover:bg-background-components-hover hover:text-foreground-neutral-base focus-visible:shadow-border-interactive-with-active"
           >
             <Icon name="copy" aria-hidden="true" className="size-12 shrink-0" />
             <Code as="span" variant="label" className="truncate">

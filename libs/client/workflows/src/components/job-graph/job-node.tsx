@@ -106,7 +106,7 @@ export function JobNode({
       onPointerEnter={onHoverStart}
       onPointerLeave={onHoverEnd}
       className={cn(
-        'group relative flex h-48 w-208 cursor-pointer items-center gap-inline rounded-8 bg-background-neutral-base px-tight text-left shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none',
+        'group relative flex h-48 w-208 cursor-pointer items-center gap-inline rounded-8 bg-background-neutral-base px-[10px] text-left shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none',
         selected && 'bg-background-components-hover hover:bg-background-components-pressed',
         node.carriedOver && 'opacity-[0.55]',
       )}
