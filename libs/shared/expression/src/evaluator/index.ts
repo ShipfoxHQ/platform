@@ -1,3 +1,4 @@
+export {MAX_JSON_OUTPUT_BYTES, MAX_RANGE_FANOUT_BYTES} from '../workflow-function-registry.js';
 export {
   WorkflowExpressionEvaluationError,
   type WorkflowExpressionEvaluationFailureReason,
@@ -18,3 +19,4 @@ export {
   rehydrateJsonExpressionRecord,
   rehydrateJsonExpressionValue,
 } from './rehydrate-json-expression.js';
+export {createWorkflowEnvironment} from './workflow-environment.js';

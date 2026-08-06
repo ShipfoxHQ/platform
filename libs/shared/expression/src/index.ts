@@ -18,6 +18,7 @@ export {
   rehydrateJsonExpressionRecord,
   rehydrateJsonExpressionValue,
 } from './evaluator/rehydrate-json-expression.js';
+export {createWorkflowEnvironment} from './evaluator/workflow-environment.js';
 export {
   createWorkflowExpression,
   unsafeWorkflowExpressionFromSource,
@@ -196,3 +197,7 @@ export {
   type WorkflowContextDoc,
   workflowContextDocs,
 } from './workflow-context/workflow-context-docs.js';
+export {
+  MAX_JSON_OUTPUT_BYTES,
+  MAX_RANGE_FANOUT_BYTES,
+} from './workflow-function-registry.js';

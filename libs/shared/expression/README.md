@@ -9,14 +9,20 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
 - **`WorkflowExpression`**: Stores the CEL tag, source, and check level.
 - **`ExpressionTypeEnvironment`**: Lists names and field types for typed checks.
 - **`evaluateWorkflowExpression`**: Runs a checked value against caller data.
+- **`createWorkflowEnvironment`**: Creates an isolated evaluator with the shared
+  `range()`, `toJson()`, and `fromJson()` functions.
 - **`evaluateWorkflowExpressionWithEnvironment`**: Runs a checked value against
   a caller-owned CEL environment for explicitly scoped custom functions.
 - **`WorkflowExpressionEnvironment`**: The evaluate-only environment shape
   accepted by the scoped evaluator.
-- **`createRangeEnvironment`**: Creates an opt-in evaluator with the bounded,
-  inclusive `range(start, stop, step)` config-templating function.
+- **`createRangeEnvironment`**: Compatibility alias for
+  `createWorkflowEnvironment`.
 - **`MAX_RANGE_ELEMENTS`**: The per-evaluation range materialization limit,
   currently 1,000 values.
+- **`MAX_RANGE_FANOUT_BYTES`**: The per-evaluation context-sized range fan-out
+  limit, currently 1,000,000 bytes.
+- **`MAX_JSON_OUTPUT_BYTES`**: The per-evaluation `toJson()` output limit,
+  currently 1,000,000 UTF-8 bytes.
 - **`evaluateWorkflowPredicate`**: Returns `true` only for the boolean `true`.
 - **`classifyShellCodePosition`**: Finds named workflow bindings passed directly
   to shell positions that re-evaluate their arguments.
@@ -86,12 +92,18 @@ const passed = evaluateWorkflowPredicate(expression, {
 - Context values can include external data. Interpolatable fields rely on their
   structural sink guarantees, while host and availability checks remain enforced.
 - Evaluation is deterministic and has no side effects.
-- Workflow evaluation does not include config-templating functions. Use a
-  caller-owned environment when a custom function is intentionally needed.
-- The config-templating range evaluator accepts CEL integers and safe integer
-  values from JavaScript contexts. It creates a fresh CEL environment and one
-  materialization budget for each evaluation, shared by nested range calls;
-  each evaluation can materialize at most 1,000 values.
+- Workflow evaluation includes the shared `range()`, `toJson()`, and `fromJson()`
+  functions. Use a caller-owned environment when a custom function is intentionally
+  needed outside that registry.
+- `range()` accepts CEL integers and safe integer values from JavaScript
+  contexts. An environment is built once and reused, and each evaluation gets
+  its own materialization budget, shared by nested range calls and restored when
+  a context accessor re-enters the evaluator; each evaluation can materialize at
+  most 1,000 values and 1,000,000 context-byte fan-out units.
+- `toJson()` writes integers outside the safe-integer range as quoted strings, so
+  a round trip through `fromJson()` returns them as strings rather than numbers.
+  Safe JSON numbers parsed by `fromJson()` become CEL integers, and all
+  `toJson()` output shares a 1,000,000-byte budget per evaluation.
 - Field resolution remains string-based by default. Callers rendering config
   objects may opt into raw values for an exact single expression with
   `preserveSingleExpressionType: true`; mixed literal and expression fields

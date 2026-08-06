@@ -1,4 +1,5 @@
-import {Environment, parse as parseCel} from '@marcbachmann/cel-js';
+import {type ASTNode, Environment, parse as parseCel} from '@marcbachmann/cel-js';
+import {registerWorkflowFunctions} from '../workflow-function-registry.js';
 import {InvalidWorkflowExpressionError} from './errors.js';
 import type {
   CreateWorkflowExpressionParams,
@@ -36,14 +37,7 @@ export function createWorkflowExpression(
     });
   }
 
-  try {
-    parseCel(source);
-  } catch (error) {
-    throw new InvalidWorkflowExpressionError({
-      source,
-      reason: error instanceof Error ? error.message : 'Expression source could not be parsed.',
-    });
-  }
+  const ast = parseWorkflowExpression(source);
 
   if (params.check.mode === 'typed') {
     const environment = createTypeCheckingEnvironment();
@@ -65,7 +59,8 @@ export function createWorkflowExpression(
     }
     if (
       params.check.expectedResultType !== undefined &&
-      typeCheckResult.type !== scalarTypeToCelType[params.check.expectedResultType]
+      typeCheckResult.type !== scalarTypeToCelType[params.check.expectedResultType] &&
+      !(typeCheckResult.type === 'dyn' && containsFromJsonCall(ast))
     ) {
       throw new InvalidWorkflowExpressionError({
         source,
@@ -74,7 +69,7 @@ export function createWorkflowExpression(
     }
     resultType =
       resolveKnownPathType(source, params.check.typeEnvironment) ??
-      fromCelType(typeCheckResult.type);
+      fromCelType(typeCheckResult.type, ast);
   }
 
   return {
@@ -109,6 +104,7 @@ function resolveKnownPathType(
 
 function createTypeCheckingEnvironment(): Environment {
   const environment = new Environment({unlistedVariablesAreDyn: false});
+  registerWorkflowFunctions(environment);
 
   // CEL evaluates numeric equality across types, but its static checker normally
   // rejects the same expression. Match validation to the runtime contract.
@@ -191,7 +187,7 @@ function toCelListElementType(
   return 'dyn';
 }
 
-function fromCelType(type: string | undefined): ExpressionType | undefined {
+function fromCelType(type: string | undefined, ast: ASTNode): ExpressionType | undefined {
   if (type === undefined) return undefined;
 
   switch (type) {
@@ -210,7 +206,8 @@ function fromCelType(type: string | undefined): ExpressionType | undefined {
     case 'map':
       return {kind: 'map'};
     case 'dyn':
-      return 'string';
+      // Preserve legacy string fallback for open-map lookups; JSON values stay unknown.
+      return containsFromJsonCall(ast) ? undefined : 'string';
     default:
       // cel-js currently exposes custom/list element result types as opaque strings.
       // Keep the outer list shape when present, but erase element detail rather than
@@ -218,4 +215,33 @@ function fromCelType(type: string | undefined): ExpressionType | undefined {
       if (type.startsWith('list<')) return {kind: 'list', element: {kind: 'map'}};
       return {kind: 'map'};
   }
+}
+
+function parseWorkflowExpression(source: string): ASTNode {
+  try {
+    return parseCel(source).ast;
+  } catch (error) {
+    throw new InvalidWorkflowExpressionError({
+      source,
+      reason: error instanceof Error ? error.message : 'Expression source could not be parsed.',
+    });
+  }
+}
+
+function containsFromJsonCall(node: ASTNode): boolean {
+  if ((node.op === 'call' || node.op === 'rcall') && node.args[0] === 'fromJson') {
+    return true;
+  }
+
+  return containsFromJsonValue(node.args);
+}
+
+function containsFromJsonValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsFromJsonValue);
+  if (typeof value !== 'object' || value === null) return false;
+
+  const candidate = value as {readonly args?: unknown; readonly op?: unknown};
+  if (candidate.args === undefined || candidate.op === undefined) return false;
+
+  return containsFromJsonCall(candidate as ASTNode);
 }
