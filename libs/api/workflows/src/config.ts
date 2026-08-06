@@ -41,7 +41,7 @@ export function loadRunnerCatalog(filePath: string): RunnerCatalog {
     );
   }
 
-  if (raw === undefined || raw === null) return {};
+  if (raw === undefined) return {};
 
   let catalog: RunnerCatalog;
   try {

@@ -25,12 +25,19 @@ describe('loadRunnerCatalog', () => {
     expect(loadRunnerCatalog('')).toEqual({});
   });
 
+  it('treats an empty YAML document as empty', () => {
+    expect(loadRunnerCatalog(writeCatalog(''))).toEqual({});
+  });
+
   it.each([
-    '',
     '# just a comment',
     '---\n',
-  ])('treats an empty YAML document as empty', (contents) => {
-    expect(loadRunnerCatalog(writeCatalog(contents))).toEqual({});
+    'null\n',
+    '~\n',
+  ])('rejects a null YAML document (%j)', (contents) => {
+    const path = writeCatalog(contents);
+
+    expect(() => loadRunnerCatalog(path)).toThrow(`Invalid runner catalog config at ${path}`);
   });
 
   it('loads and validates a YAML catalog', () => {
