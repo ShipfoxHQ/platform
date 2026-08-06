@@ -1,4 +1,5 @@
 import type {Environment, RegisteredFunctionHandler} from '@marcbachmann/cel-js';
+import {stringifyBigint} from './json.js';
 
 /** Maximum number of values one evaluation's range calls may materialize. */
 export const MAX_RANGE_ELEMENTS = 1_000;
@@ -189,11 +190,4 @@ function serializeJson(budget: WorkflowFunctionBudget, value: unknown): string {
 
 function reviveJsonNumber(_key: string, value: unknown): unknown {
   return typeof value === 'number' && Number.isSafeInteger(value) ? BigInt(value) : value;
-}
-
-function stringifyBigint(_key: string, value: unknown): unknown {
-  if (typeof value !== 'bigint') return value;
-
-  const numberValue = Number(value);
-  return Number.isSafeInteger(numberValue) ? numberValue : value.toString();
 }
