@@ -16,17 +16,46 @@ afterEach(async () => {
 describe('processIntegrationSecretCleanups', () => {
   it('retries rows for providers that are not loaded', async () => {
     const connection = await createCleanupConnection();
+    const now = cleanupNow();
 
     await expect(
       processIntegrationSecretCleanups({
         registry: createIntegrationProviderRegistry([]),
-        now: cleanupNow(),
+        now,
       }),
     ).resolves.toEqual({claimed: 1, completed: 0, failed: 0, unavailable: 1, unacknowledged: 0});
 
+    const [pending] = await listIntegrationSecretCleanups({connectionId: connection.id});
+    expect(pending).toMatchObject({
+      attemptCount: 1,
+      leaseToken: null,
+      leaseExpiresAt: null,
+    });
+    if (!pending) throw new Error('Expected the cleanup to remain pending');
+    expect(pending.nextAttemptAt.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it('counts a retry whose lease is lost before acknowledgement', async () => {
+    const connection = await createCleanupConnection();
+    const provider = {
+      provider: 'slack',
+      displayName: 'Slack',
+      deleteConnectionSecrets: vi.fn(async () => {
+        await db().execute(sql`
+          UPDATE integrations_secret_cleanups
+          SET lease_expires_at = now() - interval '1 second'
+          WHERE connection_id = ${connection.id}
+        `);
+        throw new Error('transient failure');
+      }),
+    };
+
     await expect(
-      listIntegrationSecretCleanups({connectionId: connection.id}),
-    ).resolves.toHaveLength(1);
+      processIntegrationSecretCleanups({
+        registry: createIntegrationProviderRegistry([provider]),
+        now: cleanupNow(),
+      }),
+    ).resolves.toEqual({claimed: 1, completed: 0, failed: 1, unavailable: 0, unacknowledged: 1});
   });
 
   it('acknowledges a cleanup when a loaded provider has no secret hook', async () => {

@@ -395,6 +395,21 @@
           "method": "btree",
           "with": {}
         },
+        "integrations_secret_cleanups_connection_id_idx": {
+          "name": "integrations_secret_cleanups_connection_id_idx",
+          "columns": [
+            {
+              "expression": "connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "integrations_secret_cleanups_pending_idx": {
           "name": "integrations_secret_cleanups_pending_idx",
           "columns": [

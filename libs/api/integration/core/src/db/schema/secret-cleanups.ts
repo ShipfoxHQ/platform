@@ -30,6 +30,7 @@ export const integrationSecretCleanups = pgTable(
       table.provider,
       table.connectionId,
     ),
+    index('integrations_secret_cleanups_connection_id_idx').on(table.connectionId),
     index('integrations_secret_cleanups_pending_idx').on(
       table.nextAttemptAt,
       table.createdAt,

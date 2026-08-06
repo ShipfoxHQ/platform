@@ -18,4 +18,5 @@ CREATE TABLE "integrations_secret_cleanups" (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "integrations_secret_cleanups_provider_connection_unique" ON "integrations_secret_cleanups" USING btree ("provider","connection_id");--> statement-breakpoint
+CREATE INDEX "integrations_secret_cleanups_connection_id_idx" ON "integrations_secret_cleanups" USING btree ("connection_id");--> statement-breakpoint
 CREATE INDEX "integrations_secret_cleanups_pending_idx" ON "integrations_secret_cleanups" USING btree ("next_attempt_at","created_at","id");
