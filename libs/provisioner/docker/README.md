@@ -114,7 +114,7 @@ variables:
 | `SHIPFOX_PROVISIONER_DOCKER_LOG_OPTIONS` | no | - | JSON object of string-valued driver options. Requires `SHIPFOX_PROVISIONER_DOCKER_LOG_DRIVER`; option values are never logged. |
 | `SHIPFOX_PROVISIONER_DOCKER_FAILED_CONTAINER_RETENTION_MS` | no | `3600000` | Retention time for failed runner containers, in milliseconds. Set `0` to disable retention. |
 | `SHIPFOX_PROVISIONER_DOCKER_MAX_RETAINED_FAILED_CONTAINERS` | no | `20` | Maximum retained failed runner containers. Set `0` to disable retention. |
-| `SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS` | no | `120000` | Maximum time a `created` container may linger before being reaped as stale. |
+| `SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS` | no | `120000` | Maximum time a `created` container may linger before being reaped as stale. Also the reservation lifetime the provisioner requests on each demand poll, rounded up to whole seconds; the control plane clamps it to its own `RESERVATION_TTL_MAX_SECONDS`. |
 
 The core `SHIPFOX_RUNNER_API_URL` variable is injected into runner containers as
 `SHIPFOX_API_URL` and defaults to `SHIPFOX_API_URL`. Set it when containers reach the

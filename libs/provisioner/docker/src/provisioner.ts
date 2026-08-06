@@ -29,6 +29,7 @@ export function startDockerProvisioner(): Promise<void> {
   return startProvisioner<DockerTemplateSpec>({
     adapter: {
       loadTemplates: () => Promise.resolve(templates),
+      reservationTtlSeconds: Math.ceil(config.SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS / 1000),
       async onConfigure() {
         if (!dockerLogDriver) {
           try {
