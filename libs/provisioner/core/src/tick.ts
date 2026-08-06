@@ -36,6 +36,8 @@ export interface ProvisionerTickDeps<Spec> {
   readonly launch: LaunchRunner<Spec>;
   readonly terminate?: TerminateRunners;
   readonly buildRunnerEnv: RunnerEnvFactory<Spec>;
+  /** Optional reservation lifetime requested for the demand poll, in seconds. */
+  readonly reservationTtlSeconds?: number;
   readonly reservationLimit: number;
   readonly launchBudget: number | (() => number);
   readonly waitSeconds: number;
@@ -106,6 +108,9 @@ export async function runProvisionerTick<Spec>(
   const response = await deps.client.pollDemand(
     {
       wait_seconds: deps.waitSeconds,
+      ...(deps.reservationTtlSeconds !== undefined
+        ? {reservation_ttl_seconds: deps.reservationTtlSeconds}
+        : {}),
       max_reservations: pollReservationLimit,
       templates: advertisements,
     },

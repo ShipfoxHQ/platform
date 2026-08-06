@@ -103,6 +103,15 @@ export async function startProvisioner<Spec>(
       `Provisioner has ${templates.length} templates; the demand poll accepts at most ${MAX_TEMPLATES_PER_POLL}. Reduce the configured templates.`,
     );
   }
+  if (
+    options.adapter.reservationTtlSeconds !== undefined &&
+    (!Number.isInteger(options.adapter.reservationTtlSeconds) ||
+      options.adapter.reservationTtlSeconds < 1)
+  ) {
+    throw new Error(
+      `Provisioner adapter reservationTtlSeconds is ${options.adapter.reservationTtlSeconds}; the demand poll accepts a whole number of seconds of at least 1. Set a positive integer.`,
+    );
+  }
 
   const providerConfiguration = (await options.adapter.onConfigure?.({templates})) ?? {};
   logger().info(
@@ -318,6 +327,9 @@ export async function runDemandIteration<Spec>(
         : deps.adapter.terminate
           ? {terminate: deps.adapter.terminate}
           : {}),
+      ...(deps.adapter.reservationTtlSeconds !== undefined
+        ? {reservationTtlSeconds: deps.adapter.reservationTtlSeconds}
+        : {}),
       buildRunnerEnv,
       reservationLimit,
       launchBudget,
