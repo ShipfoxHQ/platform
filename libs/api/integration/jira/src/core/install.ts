@@ -58,7 +58,10 @@ export interface HandleJiraCallbackParams {
   withJiraInstallationLock?: JiraInstallationLock;
   markConnectionActive(input: {connectionId: string; tx?: unknown}): Promise<void>;
   markConnectionError(input: {connectionId: string; tx?: unknown}): Promise<void>;
-  disconnectJiraInstallation(input: {connectionId: string}): Promise<void>;
+  disconnectJiraInstallation(input: {
+    connectionId: string;
+    lockAlreadyHeld?: boolean | undefined;
+  }): Promise<void>;
 }
 
 export async function handleJiraCallback(
@@ -226,7 +229,7 @@ async function bestEffortDisconnect(
   connectionId: string,
 ): Promise<void> {
   try {
-    await params.disconnectJiraInstallation({connectionId});
+    await params.disconnectJiraInstallation({connectionId, lockAlreadyHeld: true});
   } catch (error) {
     logger().warn(
       {err: error, connectionId},

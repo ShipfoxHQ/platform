@@ -34,11 +34,17 @@ describe('createJiraIntegrationProvider', () => {
 
   it('exposes explicit connection cleanup without requiring routes', () => {
     const deleteConnectionRecords = vi.fn(() => Promise.resolve());
+    const deleteConnectionRemoteResources = vi.fn(() => Promise.resolve(undefined));
     const deleteConnectionSecrets = vi.fn(() => Promise.resolve());
     const provider = createJiraIntegrationProvider({
-      cleanup: {deleteConnectionRecords, deleteConnectionSecrets},
+      cleanup: {
+        deleteConnectionRemoteResources,
+        deleteConnectionRecords,
+        deleteConnectionSecrets,
+      },
     });
 
+    expect(provider.deleteConnectionRemoteResources).toBe(deleteConnectionRemoteResources);
     expect(provider.deleteConnectionRecords).toBe(deleteConnectionRecords);
     expect(provider.deleteConnectionSecrets).toBe(deleteConnectionSecrets);
   });
@@ -48,6 +54,12 @@ describe('createJiraMaintenanceWorker', () => {
   it('describes the Jira proactive token refresh worker', () => {
     const worker = createJiraMaintenanceWorker({
       tokenStore: {getAccessToken: vi.fn()},
+      jira: {
+        refreshDynamicWebhooks: vi.fn(),
+        registerDynamicWebhook: vi.fn(),
+        deleteDynamicWebhook: vi.fn(),
+      },
+      webhookUrlForConnection: (connectionId) => `https://example.test/${connectionId}`,
       resolveConnection: vi.fn(),
     });
 
@@ -56,10 +68,18 @@ describe('createJiraMaintenanceWorker', () => {
     expect(Object.keys(worker.activities({outboxRegistry: createOutboxRegistry()}))).toContain(
       'refreshJiraTokensActivity',
     );
+    expect(Object.keys(worker.activities({outboxRegistry: createOutboxRegistry()}))).toContain(
+      'renewJiraWebhooksActivity',
+    );
     expect(worker.workflows).toEqual([
       {
         name: 'refreshJiraTokensCron',
         id: 'jira-refresh-tokens',
+        cronSchedule: '0 */6 * * *',
+      },
+      {
+        name: 'renewJiraWebhooksCron',
+        id: 'jira-renew-webhooks',
         cronSchedule: '0 */6 * * *',
       },
     ]);

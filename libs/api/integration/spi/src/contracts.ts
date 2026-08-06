@@ -226,6 +226,12 @@ export interface IntegrationProvider<
   adapters?: IntegrationProviderAdapters<Connection> | undefined;
   routes?: Route[] | undefined;
   connectionExternalUrl?(connection: Connection): Promise<string | undefined>;
+  /** Prepares provider-owned remote cleanup and returns a callback for after local deletion commits. */
+  deleteConnectionRemoteResources?(
+    connection: Connection,
+  ): Promise<(() => Promise<void>) | undefined>;
+  /** Serializes connection deletion with provider operations that can recreate remote resources. */
+  withConnectionDeletionLock?(connection: Connection, fn: () => Promise<void>): Promise<void>;
   deleteConnectionRecords?(connection: Connection, options: {tx: unknown}): Promise<void>;
   deleteConnectionSecrets?(connection: Connection): Promise<void>;
 }

@@ -75,6 +75,7 @@ export function createDeleteIntegrationConnectionRoute(registry: IntegrationProv
         .list()
         .find((candidate) => candidate.provider === connection.provider);
       const hasCleanupHooks =
+        provider?.deleteConnectionRemoteResources !== undefined ||
         provider?.deleteConnectionRecords !== undefined ||
         provider?.deleteConnectionSecrets !== undefined;
       if (!hasCleanupHooks) {
@@ -83,17 +84,41 @@ export function createDeleteIntegrationConnectionRoute(registry: IntegrationProv
           'Deleting integration connection without provider cleanup',
         );
       }
-      await db().transaction(async (tx) => {
-        await provider?.deleteConnectionRecords?.(connection, {tx});
-        await deleteIntegrationConnection({id: connection.id}, {tx});
-      });
-      try {
-        await provider?.deleteConnectionSecrets?.(connection);
-      } catch (error) {
-        request.log.error(
-          {connectionId: connection.id, provider: connection.provider, err: error},
-          'Integration connection secret cleanup failed after connection deletion',
-        );
+      const deleteConnection = async (): Promise<void> => {
+        let deleteRemoteResources: (() => Promise<void>) | undefined;
+        try {
+          deleteRemoteResources = await provider?.deleteConnectionRemoteResources?.(connection);
+        } catch (error) {
+          request.log.error(
+            {connectionId: connection.id, provider: connection.provider, err: error},
+            'Integration connection remote cleanup preparation failed',
+          );
+        }
+        await db().transaction(async (tx) => {
+          await provider?.deleteConnectionRecords?.(connection, {tx});
+          await deleteIntegrationConnection({id: connection.id}, {tx});
+        });
+        try {
+          await deleteRemoteResources?.();
+        } catch (error) {
+          request.log.error(
+            {connectionId: connection.id, provider: connection.provider, err: error},
+            'Integration connection remote cleanup failed after deletion',
+          );
+        }
+        try {
+          await provider?.deleteConnectionSecrets?.(connection);
+        } catch (error) {
+          request.log.error(
+            {connectionId: connection.id, provider: connection.provider, err: error},
+            'Integration connection secret cleanup failed after connection deletion',
+          );
+        }
+      };
+      if (provider?.withConnectionDeletionLock) {
+        await provider.withConnectionDeletionLock(connection, deleteConnection);
+      } else {
+        await deleteConnection();
       }
       reply.status(204);
     },

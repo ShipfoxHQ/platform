@@ -6,7 +6,7 @@ Jira OAuth, site links, token storage, webhooks, and token upkeep for Shipfox.
 
 - **`createJiraIntegrationProvider`** builds Jira OAuth and webhook routes.
 - **`createJiraTokenStore`** stores Jira access and refresh tokens.
-- **`createJiraMaintenanceWorker`** runs the token refresh workflow.
+- **`createJiraMaintenanceWorker`** runs token refresh and webhook renewal workflows.
 - **Installation functions** store Jira sites, webhooks, and token dates.
 
 ## Token upkeep
@@ -16,6 +16,10 @@ The worker runs every six hours.
 It checks active sites in small batches. It refreshes a token after 76 idle days. Jira refresh tokens expire after about 90 idle days. The 14-day lead gives time for recovery.
 
 A rejected refresh token or timeout marks the link as `error`. The user must connect Jira again. A new OAuth flow clears this state.
+
+The worker renews dynamic webhooks seven days before expiry. If Jira no longer recognizes the stored webhook ids, it registers a replacement.
+
+Disconnecting a link or deleting its connection deregisters the stored webhooks at Jira. Deregistration is best effort and never blocks the removal.
 
 ## Installation and setup
 

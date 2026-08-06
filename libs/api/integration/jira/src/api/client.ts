@@ -70,6 +70,16 @@ export interface JiraApiClient {
     cloudId: string;
     url: string;
   }): Promise<JiraDynamicWebhookRegistration>;
+  refreshDynamicWebhooks(input: {
+    accessToken: string;
+    cloudId: string;
+    webhookIds: number[];
+  }): Promise<Date | undefined>;
+  deleteDynamicWebhooks(input: {
+    accessToken: string;
+    cloudId: string;
+    webhookIds: number[];
+  }): Promise<void>;
   deleteDynamicWebhook(input: {
     accessToken: string;
     cloudId: string;
@@ -102,6 +112,16 @@ interface JiraDynamicWebhookRegistrationResponse {
 const JIRA_REFRESH_TOKEN_TERMINAL_ERROR_CODES = new Set(['invalid_grant', 'unauthorized_client']);
 
 export function createJiraApiClient(): JiraApiClient {
+  const deleteDynamicWebhooks: JiraApiClient['deleteDynamicWebhooks'] = async (input) => {
+    await mapJiraError('delete-dynamic-webhooks', () =>
+      ky.delete(`${config.JIRA_API_BASE_URL}/ex/jira/${input.cloudId}/rest/api/3/webhook`, {
+        headers: {authorization: `Bearer ${input.accessToken}`},
+        json: {webhookIds: input.webhookIds},
+        timeout: JIRA_API_TIMEOUT_MS,
+      }),
+    );
+  };
+
   return {
     async exchangeAuthorizationCode(input) {
       const body = await mapJiraError('exchange-authorization-code', () =>
@@ -189,14 +209,38 @@ export function createJiraApiClient(): JiraApiClient {
       return parseDynamicWebhookRegistration(body);
     },
 
+    async refreshDynamicWebhooks(input) {
+      const response = await mapJiraError('refresh-dynamic-webhooks', async () => {
+        try {
+          return await ky.put(
+            `${config.JIRA_API_BASE_URL}/ex/jira/${input.cloudId}/rest/api/3/webhook/refresh`,
+            {
+              headers: {authorization: `Bearer ${input.accessToken}`},
+              json: {webhookIds: input.webhookIds},
+              timeout: JIRA_API_TIMEOUT_MS,
+            },
+          );
+        } catch (error) {
+          if (
+            error instanceof HTTPError &&
+            (error.response.status === 400 || error.response.status === 404)
+          )
+            return undefined;
+          throw error;
+        }
+      });
+      if (!response) return undefined;
+      return parseDynamicWebhookExpiration(await readJiraResponseBody(response));
+    },
+
+    deleteDynamicWebhooks,
+
     async deleteDynamicWebhook(input) {
-      await mapJiraError('delete-dynamic-webhook', () =>
-        ky.delete(`${config.JIRA_API_BASE_URL}/ex/jira/${input.cloudId}/rest/api/3/webhook`, {
-          headers: {authorization: `Bearer ${input.accessToken}`},
-          json: {webhookIds: [input.webhookId]},
-          timeout: JIRA_API_TIMEOUT_MS,
-        }),
-      );
+      await deleteDynamicWebhooks({
+        accessToken: input.accessToken,
+        cloudId: input.cloudId,
+        webhookIds: [input.webhookId],
+      });
     },
   };
 }
@@ -307,6 +351,23 @@ function parseDynamicWebhookRegistration(
     throw malformed('Jira webhook registration did not return a created webhook id');
   }
   return {webhookId: createdWebhookId};
+}
+
+function parseDynamicWebhookExpiration(body: unknown): Date | undefined {
+  if (body === undefined || body === null) return undefined;
+  if (typeof body !== 'object' || Array.isArray(body)) {
+    throw malformed('Jira webhook refresh response was malformed');
+  }
+  const expirationDate = (body as {expirationDate?: unknown}).expirationDate;
+  if (expirationDate === undefined) return undefined;
+  if (typeof expirationDate !== 'string') {
+    throw malformed('Jira webhook refresh response included a malformed expiration date');
+  }
+  const parsed = new Date(expirationDate);
+  if (Number.isNaN(parsed.getTime())) {
+    throw malformed('Jira webhook refresh response included a malformed expiration date');
+  }
+  return parsed;
 }
 
 function parseAuthorization(body: JiraTokenResponse): JiraAuthorization {

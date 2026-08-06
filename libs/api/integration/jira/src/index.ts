@@ -10,6 +10,7 @@ import {JiraAgentToolsProvider} from '#core/agent-tools-provider.js';
 import type {JiraTokenStore} from '#core/tokens.js';
 import {createJiraWebhookProcessor} from '#core/webhook-processor.js';
 import {registerJiraWebhook} from '#core/webhook-registration.js';
+import {jiraWebhookUrl} from '#core/webhook-url.js';
 import {closeDb, db} from '#db/db.js';
 import {getJiraInstallationByConnectionId} from '#db/installations.js';
 import {migrationsPath} from '#db/migrations.js';
@@ -20,10 +21,7 @@ import {
 import {
   type CreateJiraWebhookRoutesOptions,
   createJiraWebhookRoutes,
-  JIRA_WEBHOOK_ROUTE_PREFIX,
 } from '#presentation/routes/webhooks.js';
-
-const TRAILING_SLASHES_RE = /\/+$/;
 
 export type {JiraProvider} from '@shipfox/api-integration-jira-dto';
 export type {
@@ -60,8 +58,15 @@ export type {
   JiraToolCallResult,
 } from '#core/agent-tools-provider.js';
 export {JiraAgentToolsProvider} from '#core/agent-tools-provider.js';
-export type {DisconnectJiraInstallationParams} from '#core/disconnect.js';
-export {disconnectJiraInstallation} from '#core/disconnect.js';
+export type {
+  DeregisterJiraWebhooksParams,
+  DisconnectJiraInstallationParams,
+} from '#core/disconnect.js';
+export {
+  deregisterJiraWebhooks,
+  disconnectJiraInstallation,
+  prepareJiraWebhookDeregistration,
+} from '#core/disconnect.js';
 export {
   JiraAccessTokenMissingError,
   JiraAuthorizationScopeMismatchError,
@@ -108,10 +113,12 @@ export type {
 export {createJiraWebhookProcessor} from '#core/webhook-processor.js';
 export type {RegisterJiraWebhookParams} from '#core/webhook-registration.js';
 export {JIRA_WEBHOOK_TTL_MS, registerJiraWebhook} from '#core/webhook-registration.js';
+export {JIRA_WEBHOOK_ROUTE_PREFIX, jiraWebhookUrl} from '#core/webhook-url.js';
 export type {
   JiraInstallation,
   JiraInstallationLock,
   JiraInstallationStatus,
+  UpdateJiraInstallationWebhookIfUnchangedParams,
   UpdateJiraInstallationWebhookParams,
   UpsertJiraInstallationParams,
 } from '#db/installations.js';
@@ -121,9 +128,11 @@ export {
   getJiraInstallationByConnectionId,
   getJiraInstallationByWebhookId,
   listJiraInstallationsDueForTokenRefresh,
+  listJiraInstallationsDueForWebhookRenewal,
   markJiraInstallationRevoked,
   updateJiraInstallationTokenExpiry,
   updateJiraInstallationWebhook,
+  updateJiraInstallationWebhookIfUnchanged,
   upsertJiraInstallation,
   withJiraRefreshLock,
   withJiraRefreshLockAndWait,
@@ -145,6 +154,13 @@ export interface CreateJiraIntegrationProviderOptions {
   getJiraInstallationByConnectionId?: typeof getJiraInstallationByConnectionId | undefined;
   cleanup?:
     | {
+        deleteConnectionRemoteResources?: (connection: {
+          id: string;
+        }) => Promise<(() => Promise<void>) | undefined>;
+        withConnectionDeletionLock?: (
+          connection: {id: string},
+          fn: () => Promise<void>,
+        ) => Promise<void>;
         deleteConnectionRecords?: (
           connection: {id: string},
           options: {tx: unknown},
@@ -226,10 +242,6 @@ export function createJiraIntegrationProvider(options: CreateJiraIntegrationProv
       ? [{routeIds: ['jira'] as const, processor: webhookProcessor}]
       : undefined,
   };
-}
-
-function jiraWebhookUrl(connectionId: string): string {
-  return `${config.JIRA_WEBHOOK_BASE_URL.replace(TRAILING_SLASHES_RE, '')}${JIRA_WEBHOOK_ROUTE_PREFIX}/${connectionId}`;
 }
 
 function toJiraWebhookOptions(

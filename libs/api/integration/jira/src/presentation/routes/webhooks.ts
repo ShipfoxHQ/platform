@@ -14,9 +14,11 @@ import {
   createJiraWebhookProcessor,
   type JiraWebhookProcessor,
 } from '#core/webhook-processor.js';
+import {JIRA_WEBHOOK_ROUTE_PREFIX} from '#core/webhook-url.js';
 
 const jiraWebhookParamsSchema = z.object({connectionId: z.string().uuid()});
-export const JIRA_WEBHOOK_ROUTE_PREFIX = '/webhooks/integrations/jira';
+
+export {JIRA_WEBHOOK_ROUTE_PREFIX};
 
 export interface CreateJiraWebhookRoutesOptions
   extends Omit<CreateJiraWebhookProcessorOptions, 'getJiraInstallationByConnectionId'> {

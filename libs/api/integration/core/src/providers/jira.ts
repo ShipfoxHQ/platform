@@ -25,19 +25,26 @@ async function loadJiraModuleParts(
   options: Parameters<IntegrationProviderModule['load']>[0] = {},
 ): Promise<IntegrationModuleParts> {
   const {
+    createJiraApiClient,
     createJiraIntegrationProvider,
     createJiraMaintenanceWorker,
     createJiraPendingSelectionStore,
     createJiraTokenStore,
     db: jiraDb,
+    deregisterJiraWebhooks,
     deleteJiraInstallationByConnectionId,
     disconnectJiraInstallation: disconnectJiraInstallationRecords,
     getJiraInstallationByCloudId,
+    getJiraInstallationByConnectionId,
     jiraSecretsNamespace,
+    jiraWebhookUrl,
     migrationsPath,
+    prepareJiraWebhookDeregistration,
     upsertJiraInstallation,
     withJiraRefreshLockAndWait,
+    withJiraWebhookRegistrationLock,
   } = await import('@shipfox/api-integration-jira');
+  const jira = createJiraApiClient();
 
   async function getExistingJiraConnection(input: {
     cloudId: string;
@@ -94,19 +101,40 @@ async function loadJiraModuleParts(
     );
   }
 
-  async function disconnectJiraInstallation(input: {connectionId: string}): Promise<void> {
-    await disconnectJiraInstallationRecords<IntegrationTx>({
-      connectionId: input.connectionId,
-      getConnection: getIntegrationConnectionById,
-      deleteSecrets: (params) =>
-        options.secrets?.jira?.deleteSecrets({
-          ...params,
-          namespace: jiraNamespaceSuffix(params.namespace),
-        }) ?? Promise.resolve(0),
-      transaction: (fn) => db().transaction((tx) => fn(tx)),
-      deleteConnection: (params, transactionOptions) =>
-        deleteIntegrationConnection({id: params.connectionId}, transactionOptions),
-    });
+  async function disconnectJiraInstallation(input: {
+    connectionId: string;
+    lockAlreadyHeld?: boolean | undefined;
+  }): Promise<void> {
+    const disconnect = () =>
+      disconnectJiraInstallationRecords<IntegrationTx>({
+        connectionId: input.connectionId,
+        getConnection: getIntegrationConnectionById,
+        deleteSecrets: (params) =>
+          options.secrets?.jira?.deleteSecrets({
+            ...params,
+            namespace: jiraNamespaceSuffix(params.namespace),
+          }) ?? Promise.resolve(0),
+        deregisterWebhooks: () =>
+          deregisterJiraWebhooks({
+            connectionId: input.connectionId,
+            getInstallation: getJiraInstallationByConnectionId,
+            tokenStore,
+            jira,
+          }),
+        transaction: (fn) => db().transaction((tx) => fn(tx)),
+        deleteConnection: (params, transactionOptions) =>
+          deleteIntegrationConnection({id: params.connectionId}, transactionOptions),
+      });
+    if (input.lockAlreadyHeld) {
+      await disconnect();
+      return;
+    }
+    const installation = await getJiraInstallationByConnectionId(input.connectionId);
+    if (!installation) {
+      await disconnect();
+      return;
+    }
+    await withJiraWebhookRegistrationLock(installation.cloudId, disconnect);
   }
 
   const fallbackSecrets: JiraSecretsStore & JiraPendingSelectionSecretsStore = {
@@ -134,6 +162,7 @@ async function loadJiraModuleParts(
       }
     : fallbackSecrets;
   const tokenStore = createJiraTokenStore({
+    client: jira,
     resolveConnection: getIntegrationConnectionById,
     secrets,
     markConnectionError: async ({connectionId}) => {
@@ -146,8 +175,25 @@ async function loadJiraModuleParts(
   const pendingStore = createJiraPendingSelectionStore({secrets});
 
   const integrationProvider = createJiraIntegrationProvider({
+    jira,
     agentTools: {tokenStore},
     cleanup: {
+      deleteConnectionRemoteResources: async (connection) => {
+        return await prepareJiraWebhookDeregistration({
+          connectionId: connection.id,
+          getInstallation: getJiraInstallationByConnectionId,
+          tokenStore,
+          jira,
+        });
+      },
+      withConnectionDeletionLock: async (connection, fn) => {
+        const installation = await getJiraInstallationByConnectionId(connection.id);
+        if (!installation) {
+          await fn();
+          return;
+        }
+        await withJiraWebhookRegistrationLock(installation.cloudId, fn);
+      },
       deleteConnectionRecords: async (connection, {tx}) => {
         await deleteJiraInstallationByConnectionId(connection.id, {tx});
       },
@@ -199,8 +245,10 @@ async function loadJiraModuleParts(
     provider: integrationProvider,
     workers: [
       createJiraMaintenanceWorker({
+        jira,
         tokenStore,
         resolveConnection: getIntegrationConnectionById,
+        webhookUrlForConnection: jiraWebhookUrl,
       }),
     ],
     webhookProcessors: integrationProvider.webhookProcessors,

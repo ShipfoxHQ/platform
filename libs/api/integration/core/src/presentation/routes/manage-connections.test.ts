@@ -111,6 +111,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
   });
 
   it('runs provider cleanup hooks while retaining ownership of the core row', async () => {
+    const deleteConnectionRemoteResources = vi.fn(() => Promise.resolve(undefined));
     const deleteConnectionRecords = vi.fn(() => Promise.resolve());
     const deleteConnectionSecrets = vi.fn(() => Promise.resolve());
     const app = await createTestApp([
@@ -118,6 +119,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
         provider: 'slack',
         displayName: 'Slack',
         adapters: {},
+        deleteConnectionRemoteResources,
         deleteConnectionRecords,
         deleteConnectionSecrets,
       }),
@@ -137,11 +139,109 @@ describe('DELETE /integration-connections/:connectionId', () => {
     });
 
     expect(res.statusCode).toBe(204);
+    expect(deleteConnectionRemoteResources).toHaveBeenCalledWith(connection);
     expect(deleteConnectionRecords).toHaveBeenCalledWith(connection, {
       tx: expect.anything(),
     });
     expect(deleteConnectionSecrets).toHaveBeenCalledWith(connection);
     await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
+  });
+
+  it('runs prepared remote cleanup after the local deletion commits', async () => {
+    const events: string[] = [];
+    const deleteConnectionRemoteResources = vi.fn(() => {
+      events.push('prepare');
+      return Promise.resolve(async () => {
+        events.push('remote');
+        await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
+      });
+    });
+    const deleteConnectionRecords = vi.fn(() => {
+      events.push('records');
+      return Promise.resolve();
+    });
+    const deleteConnectionSecrets = vi.fn(() => {
+      events.push('secrets');
+      return Promise.resolve();
+    });
+    const app = await createTestApp([
+      sourceProvider({
+        provider: 'slack',
+        displayName: 'Slack',
+        adapters: {},
+        deleteConnectionRemoteResources,
+        deleteConnectionRecords,
+        deleteConnectionSecrets,
+      }),
+    ]);
+    const connection = await upsertIntegrationConnection({
+      workspaceId: context.workspaceId,
+      provider: 'slack',
+      externalAccountId: 'T123',
+      slug: 'slack_acme',
+      displayName: 'Slack Acme',
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(events).toEqual(['prepare', 'records', 'remote', 'secrets']);
+    await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
+  });
+
+  it('holds the provider deletion lock across local and remote cleanup', async () => {
+    const events: string[] = [];
+    const withConnectionDeletionLock = vi.fn(
+      async (_connection: unknown, fn: () => Promise<void>) => {
+        events.push('lock-enter');
+        await fn();
+        events.push('lock-exit');
+      },
+    );
+    const app = await createTestApp([
+      sourceProvider({
+        provider: 'slack',
+        displayName: 'Slack',
+        adapters: {},
+        withConnectionDeletionLock,
+        deleteConnectionRemoteResources: vi.fn(() => {
+          events.push('prepare');
+          return Promise.resolve(() => {
+            events.push('remote');
+            return Promise.resolve();
+          });
+        }),
+        deleteConnectionRecords: vi.fn(() => {
+          events.push('records');
+          return Promise.resolve();
+        }),
+        deleteConnectionSecrets: vi.fn(() => {
+          events.push('secrets');
+          return Promise.resolve();
+        }),
+      }),
+    ]);
+    const connection = await upsertIntegrationConnection({
+      workspaceId: context.workspaceId,
+      provider: 'slack',
+      externalAccountId: 'T123',
+      slug: 'slack_acme',
+      displayName: 'Slack Acme',
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(events).toEqual(['lock-enter', 'prepare', 'records', 'remote', 'secrets', 'lock-exit']);
+    expect(withConnectionDeletionLock).toHaveBeenCalledWith(connection, expect.any(Function));
   });
 
   it('keeps the connection when provider record cleanup fails', async () => {
@@ -174,6 +274,68 @@ describe('DELETE /integration-connections/:connectionId', () => {
       id: connection.id,
     });
     expect(deleteConnectionSecrets).not.toHaveBeenCalled();
+  });
+
+  it('continues connection deletion when remote cleanup preparation fails', async () => {
+    const deleteConnectionRemoteResources = vi.fn(() =>
+      Promise.reject(new Error('remote cleanup failed')),
+    );
+    const app = await createTestApp([
+      sourceProvider({
+        provider: 'slack',
+        displayName: 'Slack',
+        adapters: {},
+        deleteConnectionRemoteResources,
+      }),
+    ]);
+    const connection = await upsertIntegrationConnection({
+      workspaceId: context.workspaceId,
+      provider: 'slack',
+      externalAccountId: 'T123',
+      slug: 'slack_acme',
+      displayName: 'Slack Acme',
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(deleteConnectionRemoteResources).toHaveBeenCalledWith(connection);
+    await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
+  });
+
+  it('continues connection deletion when post-commit remote cleanup fails', async () => {
+    const deleteConnectionRemoteResources = vi.fn(() =>
+      Promise.resolve(() => Promise.reject(new Error('remote cleanup failed'))),
+    );
+    const app = await createTestApp([
+      sourceProvider({
+        provider: 'slack',
+        displayName: 'Slack',
+        adapters: {},
+        deleteConnectionRemoteResources,
+      }),
+    ]);
+    const connection = await upsertIntegrationConnection({
+      workspaceId: context.workspaceId,
+      provider: 'slack',
+      externalAccountId: 'T123',
+      slug: 'slack_acme',
+      displayName: 'Slack Acme',
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(deleteConnectionRemoteResources).toHaveBeenCalledWith(connection);
+    await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
   });
 
   it('deletes the connection when provider secret cleanup fails after commit', async () => {

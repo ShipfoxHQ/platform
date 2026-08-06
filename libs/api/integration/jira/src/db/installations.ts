@@ -1,6 +1,6 @@
 import {isUniqueViolation} from '@shipfox/node-drizzle';
 import {pgClient, withPostgresSession} from '@shipfox/node-postgres';
-import {and, asc, eq, lte, sql} from 'drizzle-orm';
+import {and, asc, eq, isNotNull, isNull, lte, sql} from 'drizzle-orm';
 import {
   JiraConnectionAlreadyLinkedError,
   JiraInstallationAlreadyLinkedError,
@@ -81,6 +81,12 @@ export interface UpdateJiraInstallationWebhookParams {
   connectionId: string;
   webhookIds: number[];
   webhookExpiresAt: Date | null;
+}
+
+export interface UpdateJiraInstallationWebhookIfUnchangedParams
+  extends UpdateJiraInstallationWebhookParams {
+  expectedWebhookIds: number[];
+  expectedWebhookExpiresAt: Date | null;
 }
 
 type JiraDb = ReturnType<typeof db>;
@@ -211,6 +217,26 @@ export async function listJiraInstallationsDueForTokenRefresh(
   return rows.map(toJiraInstallation);
 }
 
+export async function listJiraInstallationsDueForWebhookRenewal(
+  params: {before: Date; limit?: number | undefined},
+  options: {tx?: unknown} = {},
+): Promise<JiraInstallation[]> {
+  const executor = (options.tx ?? db()) as JiraDb | JiraTx;
+  const rows = await executor
+    .select()
+    .from(jiraInstallations)
+    .where(
+      and(
+        eq(jiraInstallations.status, 'installed'),
+        isNotNull(jiraInstallations.webhookExpiresAt),
+        lte(jiraInstallations.webhookExpiresAt, params.before),
+      ),
+    )
+    .orderBy(asc(jiraInstallations.webhookExpiresAt))
+    .limit(params.limit ?? 100);
+  return rows.map(toJiraInstallation);
+}
+
 export async function updateJiraInstallationWebhook(
   params: UpdateJiraInstallationWebhookParams,
   options: {tx?: unknown} = {},
@@ -224,6 +250,33 @@ export async function updateJiraInstallationWebhook(
       updatedAt: new Date(),
     })
     .where(eq(jiraInstallations.connectionId, params.connectionId))
+    .returning();
+  return row ? toJiraInstallation(row) : undefined;
+}
+
+export async function updateJiraInstallationWebhookIfUnchanged(
+  params: UpdateJiraInstallationWebhookIfUnchangedParams,
+  options: {tx?: unknown} = {},
+): Promise<JiraInstallation | undefined> {
+  const executor = (options.tx ?? db()) as JiraDb | JiraTx;
+  const expectedWebhookIds = JSON.stringify([...new Set(params.expectedWebhookIds)]);
+  const [row] = await executor
+    .update(jiraInstallations)
+    .set({
+      webhookIds: params.webhookIds,
+      webhookExpiresAt: params.webhookExpiresAt,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(jiraInstallations.connectionId, params.connectionId),
+        sql`${jiraInstallations.webhookIds} @> ${expectedWebhookIds}::jsonb`,
+        sql`${jiraInstallations.webhookIds} <@ ${expectedWebhookIds}::jsonb`,
+        params.expectedWebhookExpiresAt === null
+          ? isNull(jiraInstallations.webhookExpiresAt)
+          : eq(jiraInstallations.webhookExpiresAt, params.expectedWebhookExpiresAt),
+      ),
+    )
     .returning();
   return row ? toJiraInstallation(row) : undefined;
 }
