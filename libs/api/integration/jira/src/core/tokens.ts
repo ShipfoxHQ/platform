@@ -151,7 +151,6 @@ export function createJiraTokenStore(params: CreateJiraTokenStoreParams): JiraTo
       const credentialGeneration = currentCredentialGeneration(input.connectionId);
       const workspaceId = connection.workspaceId;
       const accessToken = await readAccessToken(workspaceId, input.connectionId);
-      if (input.allowInactive) return accessToken;
       if (
         !input.forceRefresh &&
         !shouldRefresh(

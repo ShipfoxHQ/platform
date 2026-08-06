@@ -76,7 +76,6 @@ export function createDeleteIntegrationConnectionRoute(registry: IntegrationProv
         .find((candidate) => candidate.provider === connection.provider);
       const hasCleanupHooks =
         provider?.deleteConnectionRemoteResources !== undefined ||
-        provider?.withConnectionDeletionLock !== undefined ||
         provider?.deleteConnectionRecords !== undefined ||
         provider?.deleteConnectionSecrets !== undefined;
       if (!hasCleanupHooks) {

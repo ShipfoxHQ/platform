@@ -101,7 +101,10 @@ async function loadJiraModuleParts(
     );
   }
 
-  async function disconnectJiraInstallation(input: {connectionId: string}): Promise<void> {
+  async function disconnectJiraInstallation(input: {
+    connectionId: string;
+    lockAlreadyHeld?: boolean | undefined;
+  }): Promise<void> {
     const disconnect = () =>
       disconnectJiraInstallationRecords<IntegrationTx>({
         connectionId: input.connectionId,
@@ -122,6 +125,10 @@ async function loadJiraModuleParts(
         deleteConnection: (params, transactionOptions) =>
           deleteIntegrationConnection({id: params.connectionId}, transactionOptions),
       });
+    if (input.lockAlreadyHeld) {
+      await disconnect();
+      return;
+    }
     const installation = await getJiraInstallationByConnectionId(input.connectionId);
     if (!installation) {
       await disconnect();

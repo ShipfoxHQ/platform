@@ -192,6 +192,27 @@ describe('Jira OAuth installation', () => {
     expect(params.disconnectJiraInstallation).not.toHaveBeenCalled();
   });
 
+  it('compensates a new connection without reacquiring the installation lock', async () => {
+    const params = createParams();
+    params.jira.getAccessibleResources.mockResolvedValue([
+      {
+        cloudId: 'cloud-1',
+        name: 'Acme',
+        url: 'https://acme.atlassian.net',
+        scopes: ['read:jira-work'],
+      },
+    ]);
+    const storageError = new Error('secret storage unavailable');
+    params.tokenStore.storeTokens.mockRejectedValue(storageError);
+
+    await expect(handleJiraCallback(params)).rejects.toBe(storageError);
+
+    expect(params.disconnectJiraInstallation).toHaveBeenCalledWith({
+      connectionId: 'connection-1',
+      lockAlreadyHeld: true,
+    });
+  });
+
   it('falls back to a second error-state write when the registration callback cannot persist it', async () => {
     const params = createParams();
     params.jira.getAccessibleResources.mockResolvedValue([

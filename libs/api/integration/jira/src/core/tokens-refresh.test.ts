@@ -313,6 +313,7 @@ describe('Jira token refresh', () => {
       workspaceId: crypto.randomUUID(),
       lifecycleStatus: 'error',
     });
+    getInstallation.mockResolvedValue({tokenExpiresAt: null});
 
     await expect(store.getAccessToken({connectionId})).rejects.toBeInstanceOf(
       JiraTokenUnrefreshableError,
@@ -320,6 +321,26 @@ describe('Jira token refresh', () => {
     await expect(store.getAccessToken({connectionId, allowInactive: true})).resolves.toBe(
       'access-0',
     );
+  });
+
+  it('refreshes an expired token for inactive cleanup', async () => {
+    const {client, connectionId, resolveConnection, store} = createStore();
+    await store.storeTokens({connectionId, accessToken: 'access-0', refreshToken: 'refresh-0'});
+    resolveConnection.mockResolvedValue({
+      workspaceId: crypto.randomUUID(),
+      lifecycleStatus: 'error',
+    });
+    client.refreshAccessToken.mockResolvedValue({
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+      expiresAt: new Date('2030-01-01'),
+      scopes: [],
+    });
+
+    await expect(store.getAccessToken({connectionId, allowInactive: true})).resolves.toBe(
+      'access-1',
+    );
+    expect(client.refreshAccessToken).toHaveBeenCalledWith({refreshToken: 'refresh-0'});
   });
 
   it('requires a refresh token once the access token expires', async () => {
