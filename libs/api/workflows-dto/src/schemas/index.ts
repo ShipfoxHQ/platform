@@ -14,6 +14,12 @@ export {
   checkoutTokenResponseSchema,
 } from './checkout-token.js';
 export {
+  type EvaluationTraceDto,
+  type EvaluationTraceEntryDto,
+  evaluationTraceEntrySchema,
+  evaluationTraceSchema,
+} from './evaluation-trace.js';
+export {
   type JobDto,
   type JobStatusDto,
   type JobStatusReasonDto,
@@ -56,18 +62,23 @@ export {
   type AgentConfigIssueDto,
   agentConfigIssueSchema,
   STEP_ERROR_MESSAGE_MAX_LENGTH,
+  STEP_STATUS_REASONS,
+  type StepAttemptDetailDto,
   type StepAttemptDto,
   type StepDto,
   type StepErrorCategoryDto,
   type StepErrorDto,
   type StepErrorReasonDto,
   type StepGateResultDto,
+  type StepStatusReasonDto,
+  stepAttemptDetailDtoSchema,
   stepAttemptDtoSchema,
   stepDtoSchema,
   stepErrorCategorySchema,
   stepErrorDtoSchema,
   stepErrorReasonSchema,
   stepGateResultDtoSchema,
+  stepStatusReasonSchema,
 } from './step.js';
 export {
   type RerunWorkflowRunBodyDto,
@@ -108,6 +119,8 @@ export {
   type JobExecutionDto,
   jobExecutionDtoSchema,
   jobExecutionStatusSchema,
+  type StepAttemptDetailResponseDto,
+  stepAttemptDetailResponseSchema,
   type WorkflowRunDetailResponseDto,
   type WorkflowRunJobDetailDto,
   type WorkflowRunJobExecutionDetailDto,

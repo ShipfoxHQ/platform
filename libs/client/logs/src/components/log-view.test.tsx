@@ -85,6 +85,12 @@ describe('LogView', () => {
     expect(screen.queryByText('No output yet')).toBeNull();
   });
 
+  test('allows terminal logs to opt out of live announcements', () => {
+    render(<LogView records={[output('hello\n')]} ariaLive="off" />);
+
+    expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'off');
+  });
+
   test('renders assistant session text and collapsed thinking', () => {
     render(
       <LogView

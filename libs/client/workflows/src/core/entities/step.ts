@@ -1,4 +1,4 @@
-import type {StepAttempt} from './step-attempt.js';
+import type {EvaluationTraceEntry, StepAttempt} from './step-attempt.js';
 
 export type StepErrorReason =
   | 'checkout_failed'
@@ -71,8 +71,10 @@ export interface Step {
   name: string;
   sourceLocation: StepSourceLocation | null;
   status: string;
+  statusReason: string | null;
   type: string;
   config: Record<string, unknown>;
+  evaluationTrace: EvaluationTraceEntry[] | null;
   agentConfig: AgentStepConfig | null;
   error: StepError | null;
   position: number;

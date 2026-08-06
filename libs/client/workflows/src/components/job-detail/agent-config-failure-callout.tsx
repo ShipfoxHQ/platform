@@ -21,7 +21,11 @@ export function AgentConfigFailureCallout({
   const copy = agentConfigFailureCopy(config, error);
 
   return (
-    <Alert variant="warning" animated={false} className="px-10 py-8">
+    <Alert
+      variant="warning"
+      animated={false}
+      className="rounded-none border-x-0 border-t-0 border-b border-tag-warning-border bg-transparent px-0 py-8"
+    >
       <AlertContent>
         <AlertTitle>{copy.title}</AlertTitle>
         <AlertDescription>{copy.description}</AlertDescription>

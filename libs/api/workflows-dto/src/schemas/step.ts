@@ -1,4 +1,15 @@
 import {z} from 'zod';
+import {evaluationTraceSchema} from './evaluation-trace.js';
+
+export const STEP_STATUS_REASONS = [
+  'default_gate_rejected',
+  'condition_rejected',
+  'condition_errored',
+] as const;
+
+export const stepStatusReasonSchema = z.enum(STEP_STATUS_REASONS);
+
+export type StepStatusReasonDto = z.infer<typeof stepStatusReasonSchema>;
 
 // Machine-readable cause of a step failure, for DB troubleshooting. The runner
 // reports it and the server stores it as-is. The `checkout_*`, `git_unavailable`,
@@ -86,8 +97,10 @@ export const stepDtoSchema = z.object({
   name: z.string(),
   source_location: stepSourceLocationSchema.nullable(),
   status: z.string(),
+  status_reason: stepStatusReasonSchema.nullable(),
   type: z.string(),
   config: z.record(z.string(), z.unknown()),
+  evaluation_trace: evaluationTraceSchema.nullable(),
   error: stepErrorDtoSchema,
   position: z.number(),
   // Execution-attempt identity of the current projection (>1 after a restart).
@@ -165,3 +178,10 @@ export const stepAttemptDtoSchema = z.object({
 });
 
 export type StepAttemptDto = z.infer<typeof stepAttemptDtoSchema>;
+
+export const stepAttemptDetailDtoSchema = stepAttemptDtoSchema.extend({
+  config: z.record(z.string(), z.unknown()).nullable(),
+  evaluation_trace: evaluationTraceSchema.nullable(),
+});
+
+export type StepAttemptDetailDto = z.infer<typeof stepAttemptDetailDtoSchema>;

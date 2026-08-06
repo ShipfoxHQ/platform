@@ -13,6 +13,27 @@ export type StepAttemptDisplayDuration =
   | {state: 'fixed'; elapsed: Duration}
   | {state: 'live'; fromIso: string};
 
+export interface EvaluationTraceValueEntry {
+  expression: string;
+  roots: string[];
+  fillTarget: string;
+  evaluatedAt: string;
+  field: string;
+  value?: string;
+  truncated?: boolean;
+  exprTruncated?: boolean;
+  reference?: boolean;
+  degraded?: boolean;
+  envKey?: string;
+}
+
+export interface EvaluationTraceLimitEntry {
+  truncated: true;
+  dropped: number;
+}
+
+export type EvaluationTraceEntry = EvaluationTraceValueEntry | EvaluationTraceLimitEntry;
+
 interface StepAttemptFields {
   id: string;
   stepId: string;
@@ -22,6 +43,8 @@ interface StepAttemptFields {
   status: string;
   exitCode: number | null;
   output: Record<string, unknown> | null;
+  outputs: Record<string, unknown> | null;
+  response: string | null;
   error: Record<string, unknown> | null;
   gateResult: StepGateResult;
   restartFeedback: string | null;
@@ -38,6 +61,8 @@ export class StepAttempt {
   status!: string;
   exitCode!: number | null;
   output!: Record<string, unknown> | null;
+  outputs!: Record<string, unknown> | null;
+  response!: string | null;
   error!: Record<string, unknown> | null;
   gateResult!: StepGateResult;
   restartFeedback!: string | null;
@@ -51,6 +76,14 @@ export class StepAttempt {
   get displayDuration(): StepAttemptDisplayDuration | null {
     return stepAttemptDisplayDurationFromTimestamps(this);
   }
+}
+
+export interface StepAttemptDetail {
+  stepId: string;
+  attempt: number;
+  authoredConfig: Record<string, unknown> | null;
+  config: Record<string, unknown> | null;
+  evaluationTrace: EvaluationTraceEntry[] | null;
 }
 
 export function stepAttemptDisplayDurationFromTimestamps({

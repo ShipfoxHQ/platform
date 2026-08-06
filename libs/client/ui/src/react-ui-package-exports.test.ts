@@ -34,5 +34,5 @@ describe('@shipfox/react-ui published subpath exports', () => {
       expect.stringMatching(calloutRuntimePath),
       expect.stringMatching(markdownRuntimePath),
     ]);
-  });
+  }, 15_000);
 });

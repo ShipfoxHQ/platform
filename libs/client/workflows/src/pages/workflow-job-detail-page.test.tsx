@@ -1,5 +1,5 @@
 import {configureApiClient} from '@shipfox/client-api';
-import {act, screen} from '@testing-library/react';
+import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {workflowRunsQueryKeys} from '#hooks/api/workflow-runs.js';
 import type {WorkflowJobSearch, WorkflowRunsSearch} from '#routes/inputs.js';
@@ -34,6 +34,7 @@ const RUN_MOVED_ON_PATTERN = /Run moved on to/;
 const LINT_LINK_PATTERN = /lint/;
 const RELEASE_LINK_PATTERN = /release/;
 const ANNOTATION_LINK_PATTERN = /annotation/;
+const ANNOTATIONS_LINK_PATTERN = /Annotations/;
 
 describe('WorkflowJobDetailPage', () => {
   beforeEach(() => {
@@ -226,6 +227,56 @@ describe('WorkflowJobDetailPage', () => {
     expect(router.state.location.search).toEqual({runAttempt: 1, tab: 'annotations'});
     expect(screen.getByRole('region', {name: 'release logs'})).toBeInTheDocument();
     expect(screen.queryByText('This job has no annotations to show.')).not.toBeInTheDocument();
+  });
+
+  test('keeps the job navigation count run-scoped', async () => {
+    jobAnnotations.value = Array.from({length: 5}, (_unused, index) => ({
+      id: `aaaaaaaa-1111-4aaa-8aaa-${String(index + 1).padStart(12, '0')}`,
+      job_id: JOB_ID,
+      job_execution_id: EXECUTION_ID,
+      origin_step_id: STEP_ID,
+      origin_step_attempt: 1,
+      context: `annotation-${index + 1}`,
+      style: 'error',
+      sequence: index + 1,
+      body: 'Body',
+    }));
+    const annotationRequests: URL[] = [];
+    const summaryRequests: URL[] = [];
+    configureApiClient({
+      fetchImpl: vi.fn((input: RequestInfo | URL) => {
+        const request = input as Request;
+        const url = new URL(request.url);
+        if (url.pathname.endsWith('/annotations')) {
+          annotationRequests.push(url);
+          return jobDetailFetch(input);
+        }
+        if (url.pathname.endsWith('/annotations/summary')) {
+          summaryRequests.push(url);
+          const executionScoped = url.searchParams.has('job_execution_id');
+          return Promise.resolve(
+            jsonResponse({
+              total: executionScoped ? 2 : 5,
+              error: executionScoped ? 2 : 5,
+              warning: 0,
+              info: 0,
+              success: 0,
+              step_counts: [],
+            }),
+          );
+        }
+        return jobDetailFetch(input);
+      }),
+    });
+
+    renderJobPath('?runAttempt=1');
+
+    const annotationsLink = await screen.findByRole('link', {name: ANNOTATIONS_LINK_PATTERN});
+    await waitFor(() => expect(annotationsLink).toHaveTextContent('5'));
+    expect(annotationRequests.some((url) => !url.searchParams.has('job_execution_id'))).toBe(true);
+    expect(
+      summaryRequests.some((url) => url.searchParams.get('job_execution_id') === EXECUTION_ID),
+    ).toBe(true);
   });
 
   test('explains a failure that happened before the first step started', async () => {

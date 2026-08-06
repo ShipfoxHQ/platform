@@ -1,3 +1,4 @@
+import type {StepAttemptDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {type InfiniteData, QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react';
@@ -11,7 +12,8 @@ import {
   workflowRunDto,
   workflowRunListResponseDto,
 } from '#test/fixtures/workflow-run.js';
-import {toWorkflowRun, toWorkflowRunListPage} from './workflow-run-mapper.js';
+import {useStepAttemptDetailQuery} from './step-attempt-detail.js';
+import {toStepAttemptDetail, toWorkflowRun, toWorkflowRunListPage} from './workflow-run-mapper.js';
 import {
   fireManualWorkflow,
   useCancelWorkflowRunMutation,
@@ -131,6 +133,64 @@ describe('workflow run API hooks', () => {
       jobs: [{name: 'build', runAttemptId: RUN_ID}],
     });
     expect(cached).toHaveProperty('triggerSource', 'manual');
+  });
+
+  test('maps lazy step attempt details to authored and resolved troubleshooting data', () => {
+    const dto: StepAttemptDetailResponseDto = {
+      step_id: '88888888-8888-4888-8888-888888888888',
+      attempt: 2,
+      authored_config: {run: 'echo $' + '{{ inputs.message }}'},
+      config: {run: 'echo hello'},
+      evaluation_trace: [
+        {
+          expression: 'inputs.message',
+          roots: ['inputs.message'],
+          fill_target: 'run',
+          evaluated_at: '2026-08-05T12:00:00.000Z',
+          field: 'run',
+          value: 'hello',
+          degraded: false,
+        },
+      ],
+    };
+
+    expect(toStepAttemptDetail(dto)).toEqual({
+      stepId: dto.step_id,
+      attempt: 2,
+      authoredConfig: dto.authored_config,
+      config: dto.config,
+      evaluationTrace: [
+        {
+          expression: 'inputs.message',
+          roots: ['inputs.message'],
+          fillTarget: 'run',
+          evaluatedAt: '2026-08-05T12:00:00.000Z',
+          field: 'run',
+          value: 'hello',
+          degraded: false,
+        },
+      ],
+    });
+  });
+
+  test('does not fetch step attempt details while the inspector is closed', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        step_id: '88888888-8888-4888-8888-888888888888',
+        attempt: 1,
+        authored_config: null,
+        config: {},
+        evaluation_trace: null,
+      }),
+    );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    renderWithQueryClient(() =>
+      useStepAttemptDetailQuery('88888888-8888-4888-8888-888888888888', 1, {enabled: false}),
+    );
+
+    await Promise.resolve();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   test('rejects malformed detail responses before they reach the query cache', async () => {

@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {evaluationTraceSchema} from './evaluation-trace.js';
 import {
   jobListeningSchema,
   jobModeSchema,
@@ -38,6 +39,9 @@ export const jobDtoSchema = z.object({
   status: jobStatusSchema,
   status_reason: jobStatusReasonSchema.nullable(),
   carried_over: z.boolean(),
+  success: z.string().nullable(),
+  runner: z.array(z.string()).nullable(),
+  evaluation_trace: evaluationTraceSchema.nullable(),
   listening: jobListeningSchema.nullable(),
   listener_status: listenerStatusSchema,
   resolution_reason: resolutionReasonSchema.nullable(),

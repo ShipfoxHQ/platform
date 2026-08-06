@@ -1,5 +1,6 @@
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
+import {annotationStyleSchema} from './schemas/annotation.js';
 
 const idSchema = z.string().uuid();
 
@@ -23,7 +24,7 @@ export const annotationsInterModuleContract = defineInterModuleContract({
         ...annotationTargetSchema.shape,
         context: z.string().trim().min(1).max(255),
         annotation: z.union([
-          z.object({op: z.literal('replace'), style: z.literal('warning'), body: z.string()}),
+          z.object({op: z.literal('replace'), style: annotationStyleSchema, body: z.string()}),
           z.object({op: z.literal('remove')}),
         ]),
       }),

@@ -17,6 +17,8 @@ import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-modu
 import {
   WORKFLOWS_JOB_EVENT_DELIVERED,
   WORKFLOWS_JOB_STEPS_SETTLED,
+  WORKFLOWS_JOB_TERMINATED,
+  WORKFLOWS_STEP_ATTEMPT_TERMINATED,
   WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
   WORKFLOWS_WORKFLOW_RUN_CANCELLED,
   type WorkflowsEventMapDto,
@@ -30,9 +32,11 @@ import {
   createWorkflowRoutes,
   onJobEventDelivered,
   onJobStepsSettled,
+  onJobTerminatedFailureAnnotation,
   onRunnerJobClaimed,
   onRunnerJobLeaseExpired,
   onRunnerJobQueued,
+  onStepAttemptTerminatedFailureAnnotation,
   onWorkflowRunAttemptCreated,
   onWorkflowRunCancelled,
 } from '#presentation/index.js';
@@ -118,6 +122,11 @@ export function createWorkflowsModule({
       subscriber(WORKFLOWS_WORKFLOW_RUN_CANCELLED, onWorkflowRunCancelled),
       subscriber(WORKFLOWS_JOB_EVENT_DELIVERED, onJobEventDelivered),
       subscriber(WORKFLOWS_JOB_STEPS_SETTLED, onJobStepsSettled),
+      subscriber(
+        WORKFLOWS_STEP_ATTEMPT_TERMINATED,
+        onStepAttemptTerminatedFailureAnnotation(annotations),
+      ),
+      subscriber(WORKFLOWS_JOB_TERMINATED, onJobTerminatedFailureAnnotation(annotations)),
       subscriber(RUNNER_JOB_LEASE_EXPIRED, onRunnerJobLeaseExpired),
       subscriber(RUNNER_JOB_QUEUED, onRunnerJobQueued),
       subscriber(RUNNER_JOB_CLAIMED, onRunnerJobClaimed),

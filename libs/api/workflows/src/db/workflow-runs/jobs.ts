@@ -347,11 +347,18 @@ export async function updateJobStatusAtVersion(
   // version match lets a single caller win. Emitting here, in the same transaction,
   // makes the terminal fact fire exactly once across all paths.
   if (isJobTerminal(job.status)) {
+    const [currentExecution] = await tx
+      .select({id: jobExecutions.id})
+      .from(jobExecutions)
+      .where(eq(jobExecutions.jobId, job.id))
+      .orderBy(desc(jobExecutions.sequence), desc(jobExecutions.id))
+      .limit(1);
     const identity = await getWorkflowContextForJob(job.id, tx);
     await writeWorkflowsOutboxEvent(tx, {
       type: WORKFLOWS_JOB_TERMINATED,
       payload: {
         jobId: job.id,
+        jobExecutionId: currentExecution?.id ?? null,
         workflowRunId: identity.workflowRunId,
         workflowRunAttemptId: identity.workflowRunAttemptId,
         status: job.status,

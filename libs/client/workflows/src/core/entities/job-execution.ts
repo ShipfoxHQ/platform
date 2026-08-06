@@ -1,5 +1,6 @@
 import {type Duration, intervalToDuration} from 'date-fns';
 import type {Step} from './step.js';
+import type {EvaluationTraceEntry} from './step-attempt.js';
 
 export type JobExecutionStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type JobExecutionDisplayStatus = JobExecutionStatus;
@@ -28,11 +29,14 @@ interface JobExecutionFields {
   name: string;
   status: JobExecutionStatus;
   statusReason: string | null;
+  runner: string[] | null;
+  outputs: Record<string, unknown> | null;
   triggerEvents: WorkflowExecutionEvent[];
   queuedAt: string | null;
   startedAt: string | null;
   finishedAt: string | null;
   timedOutAt: string | null;
+  evaluationTrace: EvaluationTraceEntry[] | null;
   createdAt: string;
   updatedAt: string;
   steps: Step[];
@@ -45,11 +49,14 @@ export class JobExecution {
   name!: string;
   status!: JobExecutionStatus;
   statusReason!: string | null;
+  runner!: string[] | null;
+  outputs!: Record<string, unknown> | null;
   triggerEvents!: WorkflowExecutionEvent[];
   queuedAt!: string | null;
   startedAt!: string | null;
   finishedAt!: string | null;
   timedOutAt!: string | null;
+  evaluationTrace!: EvaluationTraceEntry[] | null;
   createdAt!: string;
   updatedAt!: string;
   steps!: Step[];

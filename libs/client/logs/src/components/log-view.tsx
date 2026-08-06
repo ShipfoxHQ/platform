@@ -25,6 +25,7 @@ export interface LogViewProps {
   emptyState?: 'complete' | 'pending';
   defaultGroupsOpen?: boolean;
   anchorToFailure?: boolean;
+  ariaLive?: 'off' | 'polite' | 'assertive';
   className?: string | undefined;
   onScroll?: UIEventHandler<HTMLDivElement> | undefined;
 }
@@ -42,6 +43,7 @@ export function LogView({
   emptyState = 'complete',
   defaultGroupsOpen = false,
   anchorToFailure = false,
+  ariaLive = 'polite',
   className,
   onScroll,
 }: LogViewProps) {
@@ -77,6 +79,7 @@ export function LogView({
       timestamps={timestamps}
       wrap={wrap}
       showLineNumbers={showLineNumbers}
+      aria-live={ariaLive}
       className={className}
       onScroll={onScroll}
       {...(tree.originTs != null ? {timestampOrigin: new Date(tree.originTs)} : {})}

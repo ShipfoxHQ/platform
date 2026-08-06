@@ -92,6 +92,35 @@ describe('StepList', () => {
     ).toBeInTheDocument();
   });
 
+  test('opens the inspector without expanding the step log', async () => {
+    const user = userEvent.setup();
+    const attempt = makeAttempt({status: 'succeeded'});
+    const step = makeStep({name: 'deploy', attempts: [attempt]});
+
+    function InspectableStepList() {
+      const [inspectorOpenAttemptId, setInspectorOpenAttemptId] = useState<string | null>(null);
+
+      return (
+        <StepList
+          job={makeJob({steps: [step]})}
+          inspectorOpenAttemptId={inspectorOpenAttemptId}
+          onInspectorOpenChange={setInspectorOpenAttemptId}
+          renderExpandedStep={({attemptId}) => <Text size="sm">logs for {attemptId}</Text>}
+          renderInspector={(entry) => <Text size="sm">inspector for {entry.id}</Text>}
+        />
+      );
+    }
+
+    render(<InspectableStepList />);
+
+    const deploy = screen.getByRole('button', {name: 'deploy, Succeeded, attempt 1'});
+    await user.click(screen.getByRole('button', {name: 'Inspect deploy, attempt 1'}));
+
+    expect(deploy).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(`logs for ${attempt.id}`)).not.toBeInTheDocument();
+    expect(screen.getByText(`inspector for ${attempt.id}`)).toBeInTheDocument();
+  });
+
   test('keeps multiple expanded rows open', async () => {
     const user = userEvent.setup();
     const buildAttempt = makeAttempt({status: 'succeeded'});
@@ -180,8 +209,8 @@ describe('StepList', () => {
     await user.click(buildRow);
     await user.click(deployRow);
 
-    expect(buildRow).not.toHaveClass('bg-background-components-hover');
-    expect(deployRow).toHaveClass('bg-background-components-hover');
+    expect(buildRow.parentElement?.parentElement).not.toHaveClass('bg-background-components-hover');
+    expect(deployRow.parentElement?.parentElement).toHaveClass('bg-background-components-hover');
   });
 
   test('opens a default selected attempt', () => {
@@ -278,6 +307,50 @@ describe('StepList', () => {
       'true',
     );
     expect(screen.getByText(`logs for ${deployAttempt.id}`)).toBeInTheDocument();
+  });
+
+  test('does not auto-open inspectors for failed landing attempts', async () => {
+    const user = userEvent.setup();
+    const firstAttempt = makeAttempt({id: 'failed-attempt-first', status: 'failed'});
+    const secondAttempt = makeAttempt({id: 'failed-attempt-second', status: 'failed'});
+    const firstJob = makeJob({
+      id: 'job-first',
+      steps: [makeStep({name: 'build', status: 'failed', attempts: [firstAttempt]})],
+    });
+    const secondJob = makeJob({
+      id: 'job-second',
+      steps: [makeStep({name: 'deploy', status: 'failed', attempts: [secondAttempt]})],
+    });
+
+    function InspectableStepList({job, defaultAttemptId}: {job: Job; defaultAttemptId: string}) {
+      const [inspectorOpenAttemptId, setInspectorOpenAttemptId] = useState<string | null>(null);
+
+      return (
+        <StepList
+          job={job}
+          defaultSelectedAttemptId={defaultAttemptId}
+          inspectorOpenAttemptId={inspectorOpenAttemptId}
+          onInspectorOpenChange={setInspectorOpenAttemptId}
+          renderExpandedStep={({attemptId}) => <Text size="sm">logs for {attemptId}</Text>}
+          renderInspector={(entry) => <Text size="sm">inspector open {entry.id}</Text>}
+        />
+      );
+    }
+
+    const {rerender} = render(
+      <InspectableStepList job={firstJob} defaultAttemptId={firstAttempt.id} />,
+    );
+
+    expect(screen.queryByText(`inspector open ${firstAttempt.id}`)).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('button', {name: `Inspect build, attempt ${firstAttempt.attempt}`}),
+    );
+    expect(screen.getByText(`inspector open ${firstAttempt.id}`)).toBeInTheDocument();
+
+    rerender(<InspectableStepList job={secondJob} defaultAttemptId={secondAttempt.id} />);
+
+    expect(screen.queryByText(`inspector open ${secondAttempt.id}`)).not.toBeInTheDocument();
   });
 
   test('does not replace the landing selection when a live job reports a new candidate', () => {

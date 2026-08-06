@@ -14,7 +14,12 @@ import {Text} from '@shipfox/react-ui/typography';
 import {useNavigate} from '@tanstack/react-router';
 import {type ReactNode, useEffect, useMemo} from 'react';
 import {buildRunAnnotationList, type RunAnnotationSummary} from '#core/run-annotation.js';
-import {isWorkflowRunTerminal, type Job, type WorkflowRunRerunMode} from '#core/workflow-run.js';
+import {
+  type EvaluationTraceEntry,
+  isWorkflowRunTerminal,
+  type Job,
+  type WorkflowRunRerunMode,
+} from '#core/workflow-run.js';
 import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
 import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
 import {
@@ -32,7 +37,11 @@ import {
 import {JobGraph} from '../job-graph/index.js';
 import type {JobGraphSelectionSource} from '../job-graph/types.js';
 import {WorkflowRunSummary} from '../workflow-run-summary/index.js';
-import {RunAnnotationList, RunAnnotationSummaryLine} from '../workflow-run-tabs/index.js';
+import {
+  type DerivedRunAnnotation,
+  RunAnnotationList,
+  RunAnnotationSummaryLine,
+} from '../workflow-run-tabs/index.js';
 import {WorkflowSourceContent} from '../workflow-source-panel/index.js';
 import {RunWorkspaceNav} from './run-workspace-nav.js';
 import {resolveWorkflowRunSelection} from './workflow-run-selection.js';
@@ -480,6 +489,31 @@ function RunAnnotationsSection({
         : undefined,
     [records, run.jobs, selectedJob?.id, severity],
   );
+  const derivedAnnotations = useMemo<readonly DerivedRunAnnotation[] | undefined>(() => {
+    if (!records) return undefined;
+    const jobsWithAnnotations = new Set(records.map((annotation) => annotation.jobId));
+
+    return run.jobs
+      .filter((job) => {
+        const style = job.status === 'failed' ? 'error' : 'warning';
+        return (
+          (!selectedJob || selectedJob.id === job.id) &&
+          !jobsWithAnnotations.has(job.id) &&
+          (job.status === 'failed' || job.status === 'skipped') &&
+          job.jobExecutions.length === 0 &&
+          matchesDerivedAnnotationFilters(style, selection)
+        );
+      })
+      .map((job) => ({
+        id: `derived-${job.id}`,
+        style: job.status === 'failed' ? 'error' : 'warning',
+        body: derivedJobAnnotation(job),
+      }));
+  }, [records, run.jobs, selectedJob, selection]);
+  const hasSynthesizedJobAnnotations = run.jobs.some(
+    (job) =>
+      (job.status === 'failed' || job.status === 'skipped') && job.jobExecutions.length === 0,
+  );
 
   return (
     <section aria-label="Run annotations" className="min-h-0 flex-1 overflow-auto pb-24 pt-16">
@@ -507,12 +541,16 @@ function RunAnnotationsSection({
           key={`${run.id}:${run.runAttempt.attempt}:${severity ?? 'all'}:${selectedJob?.id ?? 'all'}`}
           query={annotations.query}
           entries={entries}
+          derivedAnnotations={derivedAnnotations}
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
           workflowRunId={run.id}
           runAttempt={run.runAttempt.attempt}
           // A run with no annotations at all offers no filter to clear, whatever the URL says.
-          filtered={Boolean((severity || selectedJob) && (annotationSummary?.total ?? 0) > 0)}
+          filtered={Boolean(
+            (severity || selectedJob || selection?.annotation) &&
+              ((annotationSummary?.total ?? 0) > 0 || hasSynthesizedJobAnnotations),
+          )}
           filteredJobName={selectedJob?.displayName}
           filteredSeverity={severity}
           onClearFilters={onClearAnnotationFilters}
@@ -521,6 +559,59 @@ function RunAnnotationsSection({
       </div>
     </section>
   );
+}
+
+function matchesDerivedAnnotationFilters(
+  style: 'warning' | 'error',
+  selection: WorkflowRunsSearch | undefined,
+): boolean {
+  if (selection?.severity && style !== selection.severity) return false;
+  // A selected annotation is a deep-link to a real annotation record. Synthetic diagnostics
+  // have no id or context, so they must not remain visible behind that selection.
+  return !selection?.annotation;
+}
+
+function derivedJobAnnotation(job: Job): string {
+  const reason = job.statusReason ? `Reason: \`${job.statusReason}\`` : null;
+  const traceSummary = formatConditionEvaluation(job.evaluationTrace);
+  const details = [reason, traceSummary].filter(Boolean).join('\n');
+
+  if (job.status === 'skipped') {
+    return [
+      `**${job.displayName}** was skipped before an execution was created.`,
+      '',
+      'Review its dependencies or condition before re-running.',
+      details,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+  return [
+    `**${job.displayName}** failed before an execution was created.`,
+    '',
+    'Check runner availability and workflow configuration before re-running.',
+    details,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function formatConditionEvaluation(
+  trace: readonly EvaluationTraceEntry[] | null | undefined,
+): string | null {
+  if (!trace?.length) return null;
+
+  return [
+    'Condition evaluation:',
+    ...trace.map((entry) => {
+      if ('dropped' in entry) {
+        return `- ${entry.dropped} additional evaluation${entry.dropped === 1 ? '' : 's'} not recorded`;
+      }
+      const value =
+        entry.value === undefined || entry.value === '' ? '(empty)' : `\`${entry.value}\``;
+      return `- \`${entry.field}\` evaluated \`${entry.expression}\` to ${value}${entry.degraded ? ' (degraded)' : ''}`;
+    }),
+  ].join('\n');
 }
 
 const ALL_ANNOTATION_JOBS = 'all-jobs';

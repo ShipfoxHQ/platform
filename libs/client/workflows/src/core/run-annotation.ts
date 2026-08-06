@@ -44,6 +44,12 @@ export interface RunAnnotationSummary {
   success: number;
   /** True when the read hit its page budget, so every count is a lower bound. */
   truncated: boolean;
+  /** Optional per-step counts used by the step inspector without loading annotation bodies. */
+  stepCounts?: readonly {
+    stepId: string;
+    attempt: number;
+    total: number;
+  }[];
 }
 
 /** Everything the annotations list needs to route back to the step that emitted an annotation. */

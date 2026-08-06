@@ -203,6 +203,7 @@ describe('StepAttemptLogPanel', () => {
     renderPanel({attemptStatus: 'succeeded'});
 
     expect(await screen.findByText('hello')).toBeInTheDocument();
+    expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'off');
   });
 
   test('renders a terminal closed empty stream as no output', async () => {

@@ -473,7 +473,8 @@ describe('workflow run queries', () => {
     async function seedPendingJob() {
       const run = await createTestRun({workspaceId, projectId, definitionId});
       const jobId = (await getJobsByWorkflowRunId(run.id))[0]?.id as string;
-      return {run, jobId};
+      const execution = await getFirstJobExecutionByJobId(jobId);
+      return {run, jobId, jobExecutionId: execution?.id};
     }
 
     test.each([
@@ -482,13 +483,19 @@ describe('workflow run queries', () => {
       'cancelled',
       'skipped',
     ] as const)('writes one terminated event when a job becomes %s', async (status) => {
-      const {run, jobId} = await seedPendingJob();
+      const {run, jobId, jobExecutionId} = await seedPendingJob();
 
       await updateJobStatus({jobId, status, expectedVersion: 1});
 
       const events = await jobTerminatedEvents(jobId);
       expect(events).toHaveLength(1);
-      expect(events[0]).toMatchObject({jobId, workflowRunId: run.id, status, statusReason: null});
+      expect(events[0]).toMatchObject({
+        jobId,
+        jobExecutionId,
+        workflowRunId: run.id,
+        status,
+        statusReason: null,
+      });
     });
 
     test('writes status reason on the terminated event', async () => {

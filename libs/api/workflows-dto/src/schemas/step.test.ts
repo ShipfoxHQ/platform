@@ -1,4 +1,10 @@
-import {STEP_ERROR_MESSAGE_MAX_LENGTH, stepAttemptDtoSchema, stepErrorDtoSchema} from './step.js';
+import {
+  STEP_ERROR_MESSAGE_MAX_LENGTH,
+  STEP_STATUS_REASONS,
+  stepAttemptDtoSchema,
+  stepErrorDtoSchema,
+  stepStatusReasonSchema,
+} from './step.js';
 
 const baseAttempt = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -108,6 +114,16 @@ describe('stepErrorDtoSchema', () => {
       message: 'Pi extension setup failed: Unknown option: --mcp-config',
       reason: 'agent_harness_unavailable',
     });
+  });
+});
+
+describe('stepStatusReasonSchema', () => {
+  it.each(STEP_STATUS_REASONS)('accepts the domain reason %s', (reason) => {
+    expect(stepStatusReasonSchema.parse(reason)).toBe(reason);
+  });
+
+  it('rejects an unknown step status reason', () => {
+    expect(stepStatusReasonSchema.safeParse('runner_lost').success).toBe(false);
   });
 });
 

@@ -35,7 +35,12 @@ export async function writeJobStepsSettledOutbox(
 
 export async function writeStepAttemptTerminatedOutbox(
   tx: Tx,
-  params: {stepId: string; attempt: number; logOutcome: LogOutcomeDto},
+  params: {
+    stepId: string;
+    attempt: number;
+    status: 'succeeded' | 'failed' | 'cancelled';
+    logOutcome: LogOutcomeDto;
+  },
 ): Promise<void> {
   const identity = await getStepAttemptTerminatedOutboxIdentity(tx, params.stepId);
 
@@ -49,6 +54,7 @@ export async function writeStepAttemptTerminatedOutbox(
       projectId: identity.projectId,
       stepId: params.stepId,
       attempt: params.attempt,
+      status: params.status,
       logOutcome: params.logOutcome,
     },
   });
