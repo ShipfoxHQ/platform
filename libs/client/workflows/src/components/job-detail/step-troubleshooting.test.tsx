@@ -110,7 +110,7 @@ describe('StepInspectorSheet', () => {
     expect(await screen.findByText('Details unavailable')).toBeInTheDocument();
     await user.click(screen.getByRole('button', {name: 'Retry'}));
     expect(await screen.findByRole('region', {name: 'Inputs'})).toBeInTheDocument();
-    expect(screen.getAllByText('Resolved configuration')).not.toHaveLength(0);
+    expect(screen.getByText('Resolved configuration')).toBeInTheDocument();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 

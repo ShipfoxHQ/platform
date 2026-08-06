@@ -14,6 +14,30 @@ describe('annotation query polling', () => {
     expect(refetchIntervalForPages(list, 1)).toBe(5_000);
   });
 
+  it('polls when enabled explicitly for both query builders', () => {
+    const summary = workflowRunAnnotationSummaryQueryOptions(WORKFLOW_RUN_ID, 1, undefined, {
+      polling: true,
+    });
+    const list = workflowRunAnnotationsQueryOptions(WORKFLOW_RUN_ID, 1, undefined, {
+      polling: true,
+    });
+
+    expect(summary.refetchInterval).toBe(5_000);
+    expect(refetchIntervalForPages(list, 1)).toBe(5_000);
+  });
+
+  it('does not poll disabled query builders', () => {
+    const summary = workflowRunAnnotationSummaryQueryOptions(WORKFLOW_RUN_ID, 1, undefined, {
+      enabled: false,
+    });
+    const list = workflowRunAnnotationsQueryOptions(WORKFLOW_RUN_ID, 1, undefined, {
+      enabled: false,
+    });
+
+    expect(summary.refetchInterval).toBe(false);
+    expect(list.refetchInterval).toBe(false);
+  });
+
   it('stops summary polling when the owning run is terminal', () => {
     const options = workflowRunAnnotationSummaryQueryOptions(WORKFLOW_RUN_ID, 1, undefined, {
       polling: false,
