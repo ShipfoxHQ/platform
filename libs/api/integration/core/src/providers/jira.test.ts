@@ -127,11 +127,16 @@ describe('jiraProviderModule', () => {
       headers: {authorization: 'Bearer user'},
     });
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(deleteSecrets).not.toHaveBeenCalled();
-
-    releaseRefreshLock();
-    await expect(refreshLock).resolves.toMatchObject({acquired: true});
+    await vi.waitFor(async () => {
+      await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
+    });
+    try {
+      expect(deleteSecrets).not.toHaveBeenCalled();
+    } finally {
+      releaseRefreshLock();
+      await expect(refreshLock).resolves.toMatchObject({acquired: true});
+      await deletion;
+    }
     const res = await deletion;
 
     expect(res.statusCode).toBe(204);
