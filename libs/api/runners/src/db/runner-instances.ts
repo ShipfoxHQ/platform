@@ -259,7 +259,7 @@ export async function countStaleEnrolledRunnerInstances(params: {
         eq(providerRunners.state, 'running'),
         isNull(providerRunners.workspaceId),
         isNull(providerRunners.runnerSessionId),
-        lt(providerRunners.updatedAt, staleRunnerInstanceCutoff(params.graceSeconds)),
+        lt(providerRunners.reportedAt, staleRunnerInstanceCutoff(params.graceSeconds)),
         exists(
           db()
             .select({id: runnerControlSessions.id})

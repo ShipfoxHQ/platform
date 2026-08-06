@@ -20,14 +20,14 @@ summing the same shared value from every pod.
 
 The runners service exposes `runners_enrolled_without_recent_report` on port
 9474. It counts running runners with a live control session, no workspace, no
-runner session, and an `updated_at` older than the stale-runner grace window.
+runner session, and a `reported_at` older than the stale-runner grace window.
 
 The gauge uses `RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS` as its grace
 window. The default is five minutes. Alert when the value is greater than zero.
 Healthy warm-pool runners stay below the threshold because their provisioner
-refreshes `updated_at` with each running report. A warm-pool runner that remains
-stale after five minutes indicates a reporting or provisioner failure and is
-intentionally included in the alert.
+refreshes `reported_at` with each running report. A warm-pool runner that
+remains stale after five minutes indicates a reporting or provisioner failure
+and is intentionally included in the alert.
 
 ## Initialize in the required order
 

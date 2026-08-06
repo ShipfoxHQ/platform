@@ -1,10 +1,19 @@
 const mocks = vi.hoisted(() => {
-  const gauge = {};
+  const gauges = {
+    enrolledRunnersWithoutRecentReport: {},
+    pendingJobExecutions: {},
+    runningJobExecutions: {},
+  };
+  const gaugeByName = {
+    runners_enrolled_without_recent_report: gauges.enrolledRunnersWithoutRecentReport,
+    runners_pending_job_executions: gauges.pendingJobExecutions,
+    runners_running_job_executions: gauges.runningJobExecutions,
+  };
   return {
     addBatchObservableCallback: vi.fn(),
     countStaleEnrolledRunnerInstances: vi.fn(),
-    createObservableGauge: vi.fn(() => gauge),
-    gauge,
+    createObservableGauge: vi.fn((name: string) => gaugeByName[name as keyof typeof gaugeByName]),
+    gauges,
     getMeter: vi.fn(),
     getJobExecutionQueueDepth: vi.fn(),
     getServiceMetricsProvider: vi.fn(),
@@ -63,7 +72,10 @@ describe('registerRunnersServiceMetrics', () => {
       },
     );
     expect(mocks.countStaleEnrolledRunnerInstances).toHaveBeenCalledWith({graceSeconds: 300});
-    expect(observer.observe).toHaveBeenCalledWith(mocks.gauge, 2);
+    expect(observer.observe).toHaveBeenCalledWith(
+      mocks.gauges.enrolledRunnersWithoutRecentReport,
+      2,
+    );
   });
 
   it('keeps queue gauges observable when the enrolled-runner query fails', async () => {
@@ -80,8 +92,8 @@ describe('registerRunnersServiceMetrics', () => {
 
     await callback(observer);
 
-    expect(observer.observe).toHaveBeenCalledWith(mocks.gauge, 3);
-    expect(observer.observe).toHaveBeenCalledWith(mocks.gauge, 4);
+    expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.pendingJobExecutions, 3);
+    expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.runningJobExecutions, 4);
     expect(observer.observe).toHaveBeenCalledTimes(2);
   });
 });

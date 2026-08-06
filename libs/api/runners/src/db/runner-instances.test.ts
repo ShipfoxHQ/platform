@@ -2130,13 +2130,19 @@ describe('countStaleEnrolledRunnerInstances', () => {
     return new Date(Date.now() - 120_000);
   }
 
-  it('counts only stale running runners with a live control session and no assignment', async () => {
+  it('counts only stale reported runners with a live control session and no assignment', async () => {
     const baseline = await countStaleEnrolledRunnerInstances({graceSeconds: 60});
     const stale = await createRunner({updatedAt: staleAt()});
     await createControlSession(stale);
 
     const fresh = await createRunner({updatedAt: new Date()});
     await createControlSession(fresh);
+
+    const recentlyMutated = await createRunner({reportedAt: staleAt(), updatedAt: new Date()});
+    await createControlSession(recentlyMutated);
+
+    const freshReport = await createRunner({reportedAt: new Date(), updatedAt: staleAt()});
+    await createControlSession(freshReport);
 
     const assigned = await createRunner({workspaceId: crypto.randomUUID(), updatedAt: staleAt()});
     await createControlSession(assigned);
@@ -2161,15 +2167,17 @@ describe('countStaleEnrolledRunnerInstances', () => {
 
     const count = await countStaleEnrolledRunnerInstances({graceSeconds: 60});
 
-    expect(count - baseline).toBe(1);
+    expect(count - baseline).toBe(2);
   });
 
   async function createRunner(params: {
     state?: 'running' | 'stopped';
     workspaceId?: string | null;
     runnerSessionId?: string | null;
-    updatedAt: Date;
+    reportedAt?: Date;
+    updatedAt?: Date;
   }) {
+    const reportedAt = params.reportedAt ?? params.updatedAt ?? new Date();
     const [runner] = await db()
       .insert(providerRunners)
       .values({
@@ -2181,8 +2189,8 @@ describe('countStaleEnrolledRunnerInstances', () => {
         state: params.state ?? 'running',
         runnerSessionId: params.runnerSessionId ?? null,
         providerKind: 'docker',
-        reportedAt: params.updatedAt,
-        updatedAt: params.updatedAt,
+        reportedAt,
+        updatedAt: params.updatedAt ?? reportedAt,
       })
       .returning({id: providerRunners.id});
     if (!runner) throw new Error('Expected runner instance');
