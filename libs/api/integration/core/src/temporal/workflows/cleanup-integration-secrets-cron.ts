@@ -1,10 +1,11 @@
 import {log, proxyActivities} from '@temporalio/workflow';
 import type {createIntegrationsMaintenanceActivities} from '../activities/index.js';
+import {CLEANUP_SECRETS_ACTIVITY_TIMEOUT_MS} from '../constants.js';
 
 const {cleanupIntegrationSecretsActivity} = proxyActivities<
   ReturnType<typeof createIntegrationsMaintenanceActivities>
 >({
-  startToCloseTimeout: '5 minutes',
+  startToCloseTimeout: CLEANUP_SECRETS_ACTIVITY_TIMEOUT_MS,
   heartbeatTimeout: '1 minute',
   // The activity records a per-row retry schedule. A later cron run retries the
   // row without replaying the whole sweep in Temporal.

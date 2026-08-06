@@ -1,3 +1,5 @@
 export const INTEGRATIONS_MAINTENANCE_TASK_QUEUE = 'integrations-maintenance';
 
 export const WEBHOOK_DELIVERY_RETENTION_DAYS = 30;
+
+export const CLEANUP_SECRETS_ACTIVITY_TIMEOUT_MS = 5 * 60 * 1_000;

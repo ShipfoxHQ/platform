@@ -1,5 +1,6 @@
 import {afterEach} from '@shipfox/vitest/vi';
 import {sql} from 'drizzle-orm';
+import {CLEANUP_SECRETS_ACTIVITY_TIMEOUT_MS} from '#temporal/constants.js';
 import {upsertIntegrationConnection} from './connections.js';
 import {db} from './db.js';
 import {
@@ -22,7 +23,9 @@ describe('integration secret cleanup persistence', () => {
     const [claimed] = await claimIntegrationSecretCleanups({limit: 1, now});
 
     if (!claimed?.leaseExpiresAt) throw new Error('Expected the cleanup to have a lease');
-    expect(claimed.leaseExpiresAt.getTime() - now.getTime()).toBeGreaterThan(5 * 60 * 1_000);
+    expect(claimed.leaseExpiresAt.getTime() - now.getTime()).toBeGreaterThan(
+      CLEANUP_SECRETS_ACTIVITY_TIMEOUT_MS,
+    );
   });
 
   it('claims a due row once and reclaims it after its lease expires', async () => {
