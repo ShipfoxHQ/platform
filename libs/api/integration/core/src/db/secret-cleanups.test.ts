@@ -16,6 +16,15 @@ afterEach(async () => {
 });
 
 describe('integration secret cleanup persistence', () => {
+  it('keeps the default lease longer than the cleanup activity timeout', async () => {
+    await createCleanupConnection();
+
+    const [claimed] = await claimIntegrationSecretCleanups({limit: 1, now});
+
+    if (!claimed?.leaseExpiresAt) throw new Error('Expected the cleanup to have a lease');
+    expect(claimed.leaseExpiresAt.getTime() - now.getTime()).toBeGreaterThan(5 * 60 * 1_000);
+  });
+
   it('claims a due row once and reclaims it after its lease expires', async () => {
     const connection = await createCleanupConnection();
     const [queued] = await claimIntegrationSecretCleanups({limit: 1, now, leaseDurationMs: 1_000});

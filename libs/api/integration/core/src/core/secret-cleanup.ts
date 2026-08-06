@@ -12,6 +12,9 @@ import {
 const RETRY_BASE_DELAY_MS = 60 * 1_000;
 const RETRY_MAX_DELAY_MS = 60 * 60 * 1_000;
 const DEFAULT_BATCH_SIZE = 100;
+const HEARTBEAT_INTERVAL_MS = 15_000;
+// Attempts, not hours: the backoff caps at RETRY_MAX_DELAY_MS, so a stuck row is retried
+// hourly and this threshold lands about a week out. Revisit it alongside that cap.
 const STUCK_CLEANUP_ATTEMPT_COUNT = 7 * 24;
 
 export interface ProcessIntegrationSecretCleanupsOptions {
@@ -51,6 +54,9 @@ export async function processIntegrationSecretCleanups(
   };
 
   for (const cleanup of cleanups) {
+    // Keep heartbeating through the provider call itself. Beating only between rows would
+    // let one slow deletion trip the activity's heartbeat timeout and kill the whole sweep.
+    const heartbeatInterval = setInterval(() => options.heartbeat?.(), HEARTBEAT_INTERVAL_MS);
     options.heartbeat?.();
     // A single row must never strand the rest of the claimed batch under its lease.
     try {
@@ -80,6 +86,7 @@ export async function processIntegrationSecretCleanups(
       result.failed += 1;
       await scheduleRetry(cleanup, 'cleanup-failed', error);
     } finally {
+      clearInterval(heartbeatInterval);
       options.heartbeat?.();
     }
   }

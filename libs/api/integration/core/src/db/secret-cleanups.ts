@@ -6,7 +6,9 @@ import {
   integrationSecretCleanups,
 } from './schema/secret-cleanups.js';
 
-const DEFAULT_LEASE_DURATION_MS = 5 * 60 * 1_000;
+// Keep the lease longer than cleanupIntegrationSecretsCron's 5-minute activity timeout so
+// a timed-out sweep cannot have its claimed rows reclaimed while it is still running.
+const DEFAULT_LEASE_DURATION_MS = 10 * 60 * 1_000;
 
 export interface EnqueueIntegrationSecretCleanupParams {
   connection: IntegrationConnection;
