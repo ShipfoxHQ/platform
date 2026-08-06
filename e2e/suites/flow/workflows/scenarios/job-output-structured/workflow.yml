@@ -30,6 +30,5 @@ jobs:
     steps:
       - key: consume
         run: |
-          severity="$(printf '%s' "${{ jobs.review.outputs.findings[0].severity }}" | tr -d '"')"
-          test "$severity" = high
-          echo "structured severity=$severity"
+          test "${{ jobs.review.outputs.findings[0].severity }}" = high
+          echo "structured severity=${{ jobs.review.outputs.findings[0].severity }}"

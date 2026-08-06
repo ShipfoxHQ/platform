@@ -578,6 +578,62 @@ describe('workflow run queries', () => {
       });
     });
 
+    test('creates a run with indexed structured dependency output config', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {
+            review: {
+              steps: [{key: 'inspect', run: 'echo inspect'}],
+              outputs: {findings: template('steps.inspect.outputs.findings')},
+              outputTypes: {
+                findings: {
+                  kind: 'list',
+                  element: {kind: 'object', fields: {severity: 'string'}},
+                },
+              },
+            },
+            summarize: {
+              needs: 'review',
+              steps: [
+                {
+                  key: 'consume',
+                  run: `test "${template('jobs.review.outputs.findings[0].severity')}" = high\necho "structured severity=${template('jobs.review.outputs.findings[0].severity')}"`,
+                },
+              ],
+            },
+          },
+        }),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+        resolveAgentDefaults: resolveTestAgentDefaults,
+      });
+
+      const summarize = (await getJobsByWorkflowRunId(run.id)).find(
+        (job) => job.key === 'summarize',
+      );
+      if (!summarize) throw new Error('Expected summarize job');
+      const [, consume] = await getStepsByJobId(summarize.id);
+      expect(consume?.configPlan).toMatchObject({
+        env: {
+          __sf_0: {
+            segments: [
+              {
+                kind: 'deferred',
+                expression: {source: 'jobs.review.outputs.findings[0].severity'},
+              },
+            ],
+          },
+        },
+      });
+    });
+
     test('persists the parsed model on the run attempt', async () => {
       const model = buildModel({
         env: {RUN_ID: template('run.id')},
