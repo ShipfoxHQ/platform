@@ -15,10 +15,9 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import {screen, within} from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import {createStore, Provider as JotaiProvider} from 'jotai';
 import {useMemo} from 'react';
+import {expect, screen, userEvent, within} from 'storybook/test';
 import {IntegrationGallery} from './integration-gallery.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
