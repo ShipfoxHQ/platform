@@ -249,6 +249,7 @@ describe('reportRunnerInstances', () => {
     });
 
     const runningReport = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -260,6 +261,7 @@ describe('reportRunnerInstances', () => {
       ],
     });
     const terminalReport = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
