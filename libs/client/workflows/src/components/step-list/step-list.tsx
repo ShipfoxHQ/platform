@@ -427,10 +427,7 @@ function StepRow({
         className={cn(
           'group flex min-w-0 items-center transition-colors hover:bg-background-components-hover active:bg-background-components-pressed',
           selected && 'bg-background-components-hover',
-          !hasExpandedContent && [
-            'border-b border-border-neutral-base',
-            isLast && 'border-b-0',
-          ],
+          !hasExpandedContent && ['border-b border-border-neutral-base', isLast && 'border-b-0'],
         )}
       >
         <div className="min-w-0 flex-1">{triggerNode}</div>

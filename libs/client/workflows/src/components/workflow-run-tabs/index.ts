@@ -1,8 +1,8 @@
 export {RunAnnotationCountChip} from './run-annotation-count-chip.js';
 export {annotationElementId, RunAnnotationItem} from './run-annotation-item.js';
 export {
-  RunAnnotationList,
   type DerivedRunAnnotation,
+  RunAnnotationList,
   type RunAnnotationListQuery,
 } from './run-annotation-list.js';
 export {RunAnnotationSummaryLine} from './run-annotation-summary-line.js';

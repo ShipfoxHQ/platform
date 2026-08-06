@@ -38,9 +38,9 @@ import {JobGraph} from '../job-graph/index.js';
 import type {JobGraphSelectionSource} from '../job-graph/types.js';
 import {WorkflowRunSummary} from '../workflow-run-summary/index.js';
 import {
+  type DerivedRunAnnotation,
   RunAnnotationList,
   RunAnnotationSummaryLine,
-  type DerivedRunAnnotation,
 } from '../workflow-run-tabs/index.js';
 import {WorkflowSourceContent} from '../workflow-source-panel/index.js';
 import {RunWorkspaceNav} from './run-workspace-nav.js';
@@ -509,7 +509,7 @@ function RunAnnotationsSection({
         style: job.status === 'failed' ? 'error' : 'warning',
         body: derivedJobAnnotation(job),
       }));
-  }, [records, run.jobs, selectedJob?.id, selection]);
+  }, [records, run.jobs, selectedJob, selection]);
   const hasSynthesizedJobAnnotations = run.jobs.some(
     (job) =>
       (job.status === 'failed' || job.status === 'skipped') && job.jobExecutions.length === 0,

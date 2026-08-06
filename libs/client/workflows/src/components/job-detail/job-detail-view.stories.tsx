@@ -14,8 +14,8 @@ import {
 } from '@tanstack/react-router';
 import {type ReactNode, useState} from 'react';
 import {userEvent, within} from 'storybook/test';
-import type {Job, JobExecution, StepAttemptDetail, WorkflowRunDetail} from '#core/workflow-run.js';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
+import type {Job, JobExecution, StepAttemptDetail, WorkflowRunDetail} from '#core/workflow-run.js';
 import {workflowRunAnnotationsQueryKeys} from '#hooks/api/annotations.js';
 import {stepAttemptDetailQueryKeys} from '#hooks/api/step-attempt-detail.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';

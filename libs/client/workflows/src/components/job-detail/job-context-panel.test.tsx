@@ -66,9 +66,7 @@ describe('JobContextPanel', () => {
     await user.click(screen.getByRole('button', {name: 'Inspect job details'}));
 
     const dialog = await screen.findByRole('dialog', {name: 'build'});
-    expect(
-      within(dialog).getByText('Execution name evaluation (1)'),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByText('Execution name evaluation (1)')).toBeInTheDocument();
     expect(within(dialog).getByText('Condition evaluation (1)')).toBeInTheDocument();
   });
 });

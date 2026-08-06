@@ -13,9 +13,9 @@ import {
   type Job,
   type JobExecution,
 } from '#core/workflow-run.js';
+import {RunAnnotationCountChip} from '../workflow-run-tabs/index.js';
 import {JobExecutionSwitcher} from './job-execution-switcher.js';
 import {JobExecutionTimeText} from './job-execution-time-text.js';
-import {RunAnnotationCountChip} from '../workflow-run-tabs/index.js';
 
 export interface JobDetailHeaderProps {
   job: Job;

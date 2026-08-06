@@ -1,4 +1,5 @@
 import {configureApiClient} from '@shipfox/client-api';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
   createMemoryHistory,
   createRootRoute,
@@ -7,7 +8,6 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
@@ -175,7 +175,10 @@ describe('StepInspectorSheet', () => {
 async function renderPanel({
   annotationCount,
   entry,
-}: {annotationCount?: number; entry?: StepListEntryModel} = {}) {
+}: {
+  annotationCount?: number;
+  entry?: StepListEntryModel;
+} = {}) {
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
   const rootRoute = createRootRoute({component: Outlet});
   const panelRoute = createRoute({
