@@ -132,7 +132,7 @@ describe('assembleWorkflowRunContext', () => {
       },
       run: {
         id: 'run-1',
-        number: 1,
+        number: 1n,
         name: 'Build',
         project_id: 'proj-1',
         workspace_id: 'workspace-1',
@@ -308,16 +308,16 @@ describe('assembleExecutionCreationContext', () => {
         }),
         executions: [
           {
-            index: 0,
+            index: 0n,
             name: 'Build #1',
             status: 'failed',
             started_at: date,
             finished_at: date,
-            events: prior.triggerEvents,
+            events: prior.triggerEvents.map((event) => ({...event, received_at: date})),
             outputs: {},
           },
           {
-            index: 1,
+            index: 1n,
             name: 'Build #2',
             status: 'pending',
             started_at: null,
@@ -327,7 +327,7 @@ describe('assembleExecutionCreationContext', () => {
                 source: 'github',
                 event: 'deployment',
                 delivery_id: 'delivery-2',
-                received_at: '2026-06-30T12:01:00.000Z',
+                received_at: new Date('2026-06-30T12:01:00.000Z'),
                 project: null,
                 repository: null,
                 ref: null,
@@ -340,7 +340,7 @@ describe('assembleExecutionCreationContext', () => {
         ],
         job: {key: 'build', name: 'Build'},
         execution: {
-          index: 1,
+          index: 1n,
           name: 'Build #2',
           status: 'pending',
           started_at: null,
@@ -350,7 +350,7 @@ describe('assembleExecutionCreationContext', () => {
               source: 'github',
               event: 'deployment',
               delivery_id: 'delivery-2',
-              received_at: '2026-06-30T12:01:00.000Z',
+              received_at: new Date('2026-06-30T12:01:00.000Z'),
               project: null,
               repository: null,
               ref: null,
@@ -430,12 +430,15 @@ describe('assembleJobActivationContext', () => {
             outputs: {image: 'app:123'},
             executions: [
               {
-                index: 0,
+                index: 0n,
                 name: 'Build #1',
                 status: 'succeeded',
                 started_at: date,
                 finished_at: null,
-                events: buildExecution.triggerEvents,
+                events: buildExecution.triggerEvents.map((event) => ({
+                  ...event,
+                  received_at: date,
+                })),
                 outputs: {sha: 'abc123'},
               },
             ],
@@ -454,12 +457,15 @@ describe('assembleJobActivationContext', () => {
             outputs: {image: 'app:123'},
             executions: [
               {
-                index: 0,
+                index: 0n,
                 name: 'Build #1',
                 status: 'succeeded',
                 started_at: date,
                 finished_at: null,
-                events: buildExecution.triggerEvents,
+                events: buildExecution.triggerEvents.map((event) => ({
+                  ...event,
+                  received_at: date,
+                })),
                 outputs: {sha: 'abc123'},
               },
             ],
@@ -743,6 +749,39 @@ describe('listener filter snapshots', () => {
       },
     });
   });
+
+  it('keeps snapshots JSON-serializable so they survive the outbox payload', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter: 'jobs.build.executions[0].index == 0 && run.number == 1',
+        },
+      ],
+      until: null,
+    });
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs: [
+        {
+          job: {key: 'build', status: 'succeeded', outputs: {}},
+          executions: [jobExecution({id: 'exec-build', jobId: 'job-build'})],
+        },
+      ],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+    const jobs = matcher?.filter_snapshot?.jobs as Record<string, {executions: {index: unknown}[]}>;
+    const snapshotRun = matcher?.filter_snapshot?.run as {number: unknown};
+
+    expect(typeof jobs.build?.executions[0]?.index).toBe('number');
+    expect(typeof snapshotRun.number).toBe('number');
+    expect(() => JSON.stringify(matcher?.filter_snapshot)).not.toThrow();
+  });
 });
 
 describe('assembleStepDispatchContext', () => {
@@ -779,7 +818,7 @@ describe('assembleStepDispatchContext', () => {
       site: 'step-dispatch',
       values: {
         execution: {
-          index: 2,
+          index: 1n,
           name: 'Deploy',
           status: 'running',
           failed: false,
@@ -790,7 +829,7 @@ describe('assembleStepDispatchContext', () => {
               source: 'github',
               event: 'push',
               delivery_id: 'delivery-1',
-              received_at: '2026-06-30T12:00:00.000Z',
+              received_at: date,
               project: null,
               repository: null,
               ref: null,
@@ -1117,7 +1156,7 @@ describe('assembleJobResolutionContext', () => {
         vars: {},
         executions: [
           {
-            index: 0,
+            index: 0n,
             name: 'First',
             status: 'failed',
             started_at: date,
@@ -1127,7 +1166,7 @@ describe('assembleJobResolutionContext', () => {
                 source: 'github',
                 event: 'push',
                 delivery_id: 'delivery-1',
-                received_at: '2026-06-30T12:00:00.000Z',
+                received_at: date,
                 project: null,
                 repository: null,
                 ref: null,
@@ -1138,7 +1177,7 @@ describe('assembleJobResolutionContext', () => {
             outputs: {},
           },
           {
-            index: 1,
+            index: 1n,
             name: 'Second',
             status: 'succeeded',
             started_at: date,
@@ -1148,7 +1187,7 @@ describe('assembleJobResolutionContext', () => {
                 source: 'github',
                 event: 'push',
                 delivery_id: 'delivery-1',
-                received_at: '2026-06-30T12:00:00.000Z',
+                received_at: date,
                 project: null,
                 repository: null,
                 ref: null,
@@ -1206,14 +1245,50 @@ describe('assembleExecutionResolutionContext', () => {
     });
 
     expect(context.values.execution).toEqual({
-      index: 0,
+      index: 0n,
       name: 'Build #2',
       status: 'running',
       started_at: date,
       finished_at: null,
-      events: targetExecution.triggerEvents,
+      events: targetExecution.triggerEvents.map((event) => ({...event, received_at: date})),
       outputs: {sha: 'target'},
     });
+  });
+
+  it('exposes execution indices and event timestamps as CEL-native values', () => {
+    const targetExecution = jobExecution({
+      id: 'exec-2',
+      sequence: 2,
+      outputs: {sha: 'target'},
+    });
+
+    const context = assembleExecutionResolutionContext({
+      run,
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: 'sub-1',
+        userId: 'user-1',
+      },
+      job: {key: 'build'},
+      jobExecution: targetExecution,
+      executions: [targetExecution],
+      steps: [],
+      attempts: [],
+    });
+
+    const expressions = [
+      'executions[0].index + 1 == 1',
+      'execution.index + 1 == 1',
+      'run.number + 1 == 2',
+      'executions[0].events[0].received_at < timestamp("2026-07-01T00:00:00Z")',
+    ];
+
+    for (const source of expressions) {
+      const expression = createWorkflowExpression({source, check: {mode: 'syntax'}});
+
+      expect(evaluateWorkflowExpression(expression, context.values)).toBe(true);
+    }
   });
 });
 

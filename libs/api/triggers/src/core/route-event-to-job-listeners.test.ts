@@ -374,6 +374,45 @@ describe('routeEventToJobListeners', () => {
     const result = await route({workspaceId});
 
     expect(deliverEventToListener).toHaveBeenCalledTimes(1);
+    expect(listenerFilterErrored).not.toHaveBeenCalled();
+    expect(result).toMatchObject({engagedCount: 1, matchedJobCount: 1, acceptedJobCount: 1});
+  });
+
+  it.each([
+    'on',
+    'until',
+  ] as const)('rehydrates CEL scalar values in %s listener filter snapshots', async (kind) => {
+    const workspaceId = crypto.randomUUID();
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      kind,
+      source: 'github',
+      event: 'pull_request_review',
+      config: {
+        filter:
+          'run.number + 1 == 2 && run.created_at < timestamp("2026-07-01T00:00:00Z") && jobs.build.executions[0].index + 1 == 1 && jobs.build.executions[0].started_at < timestamp("2026-07-01T00:00:00Z") && jobs.build.executions[0].events[0].received_at < timestamp("2026-07-01T00:00:00Z")',
+        filter_snapshot: {
+          run: {number: 1, created_at: '2026-06-30T12:00:00.000Z'},
+          jobs: {
+            build: {
+              executions: [
+                {
+                  index: 0,
+                  started_at: '2026-06-30T12:00:00.000Z',
+                  finished_at: null,
+                  events: [{received_at: '2026-06-30T12:00:00.000Z'}],
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    const result = await route({workspaceId});
+
+    expect(deliverEventToListener).toHaveBeenCalledTimes(1);
+    expect(listenerFilterErrored).not.toHaveBeenCalled();
     expect(result).toMatchObject({engagedCount: 1, matchedJobCount: 1, acceptedJobCount: 1});
   });
 
