@@ -40,6 +40,15 @@ export class EmptyRunnerLabelsError extends Error {
   }
 }
 
+export class RunnerLabelsReservedError extends Error {
+  constructor(public readonly labels: string[]) {
+    super(
+      `All supplied runner labels are reserved for installation-scope provisioners: ${labels.join(', ')}`,
+    );
+    this.name = 'RunnerLabelsReservedError';
+  }
+}
+
 export class EmptyRequiredLabelsError extends Error {
   constructor() {
     super('Required labels cannot be empty');

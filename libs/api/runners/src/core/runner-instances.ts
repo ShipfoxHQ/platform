@@ -23,6 +23,7 @@ import {
 import {config} from '../config.js';
 
 export interface ReportRunnerInstancesParams {
+  scope: 'installation' | 'workspace';
   workspaceId: string | null;
   provisionerId: string;
   events: RunnerInstanceReportEvent[];

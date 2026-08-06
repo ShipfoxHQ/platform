@@ -4,6 +4,7 @@ import type {EphemeralRegistrationToken} from '#core/entities/ephemeral-registra
 import {
   ActiveEphemeralRegistrationTokenExistsError,
   ActiveEphemeralRegistrationTokensExistError,
+  EmptyRunnerLabelsError,
   RegistrationTokenBatchExceedsReservationError,
   RegistrationTokenConsumedError,
   RegistrationTokenExpiredError,
@@ -11,11 +12,13 @@ import {
   ReservationExpiredError,
   ReservationNotFoundError,
 } from '#core/errors.js';
+import {sanitizeRunnerLabelsOrThrow} from '#core/runner-labels.js';
 import {db} from './db.js';
 import {
   ephemeralRegistrationTokens,
   toEphemeralRegistrationToken,
 } from './schema/ephemeral-registration-tokens.js';
+import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
 import {providerRunners} from './schema/runner-instances.js';
 import {runnerSessions, toRunnerSession} from './schema/runner-sessions.js';
@@ -307,6 +310,17 @@ export async function createRunnerSessionConsumingEphemeralToken(params: {
       );
     }
 
+    const [provisioner] = await tx
+      .select({scope: provisionerTokens.scope})
+      .from(provisionerTokens)
+      .where(eq(provisionerTokens.id, consumed[0].provisionerId))
+      .limit(1);
+    const labels = sanitizeRunnerLabelsOrThrow(params.labels, {
+      scope: provisioner?.scope ?? 'workspace',
+      source: 'ephemeral runner registration',
+    });
+    if (labels.length === 0) throw new EmptyRunnerLabelsError();
+
     const [session] = await tx
       .insert(runnerSessions)
       .values({
@@ -316,7 +330,7 @@ export async function createRunnerSessionConsumingEphemeralToken(params: {
         registrationTokenKind: 'ephemeral',
         provisionerId: consumed[0].provisionerId,
         providerRunnerId: consumed[0].providerRunnerId,
-        labels: params.labels,
+        labels,
         toolCapabilities: params.toolCapabilities ?? null,
         toolCapabilitiesReportedAt: params.toolCapabilities ? sql`now()` : null,
         maxClaims: params.maxClaims,

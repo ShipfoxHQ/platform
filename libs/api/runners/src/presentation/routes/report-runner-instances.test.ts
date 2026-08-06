@@ -113,6 +113,39 @@ describe('POST /provisioners/runner-instances/report', () => {
     expect(rows[0]?.reportedAt.toISOString()).toBe(reportedAt);
   });
 
+  it('strips reserved labels from workspace runner reports', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/report',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {
+        events: [
+          {
+            provider_runner_id: 'provisioned-runner-reserved-label',
+            labels: ['linux', 'shipfox-managed'],
+            state: 'starting',
+            reported_at: new Date('2025-01-01T00:00:00.000Z').toISOString(),
+            provider_kind: 'docker',
+          },
+        ],
+      },
+    });
+
+    const [row] = await db()
+      .select()
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.workspaceId, workspaceId),
+          eq(providerRunners.provisionerId, provisionerTokenId),
+          eq(providerRunners.providerRunnerId, 'provisioned-runner-reserved-label'),
+        ),
+      );
+
+    expect(res.statusCode).toBe(200);
+    expect(row?.labels).toEqual(['linux']);
+  });
+
   it('returns 400 when the batch exceeds the DTO limit', async () => {
     const event = {
       provider_runner_id: 'provisioned-runner-1',

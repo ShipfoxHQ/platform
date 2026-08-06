@@ -5,6 +5,7 @@ import {
   EmptyRunnerLabelsError,
   RegistrationTokenConsumedError,
   RegistrationTokenExpiredError,
+  RunnerLabelsReservedError,
 } from '#core/errors.js';
 import {registerRunnerSession} from '#core/runner-sessions.js';
 import {getRunnerContext} from '#presentation/auth/index.js';
@@ -23,6 +24,12 @@ export function createRegisterRoute(auth: AuthInterModuleClient) {
     },
     preHandler: createEphemeralRegisterRateLimitPreHandler(),
     errorHandler: (error, request) => {
+      if (error instanceof RunnerLabelsReservedError) {
+        throw new ClientError(error.message, 'runner-labels-reserved', {
+          details: {labels: error.labels},
+          status: 400,
+        });
+      }
       if (error instanceof EmptyRunnerLabelsError) {
         throw new ClientError(error.message, 'empty-runner-labels', {status: 400});
       }

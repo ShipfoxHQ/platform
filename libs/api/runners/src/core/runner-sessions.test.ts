@@ -9,12 +9,14 @@ import {
   getRunnerSessionTokenClaims,
   manualRegistrationTokenFactory,
   providerRunnerFactory,
+  provisionerTokenFactory,
   runnersTestAuthClient,
 } from '#test/index.js';
 import {
   EmptyRunnerLabelsError,
   RegistrationTokenConsumedError,
   RegistrationTokenWorkspaceMismatchError,
+  RunnerLabelsReservedError,
 } from './errors.js';
 import {issueRunnerActivationToken} from './runner-activation.js';
 import {registerRunnerSession} from './runner-sessions.js';
@@ -64,6 +66,15 @@ describe('registerRunnerSession', () => {
         labels: [' ', '\t'],
       }),
     ).rejects.toBeInstanceOf(EmptyRunnerLabelsError);
+  });
+
+  it('names labels removed by the reserved-label policy', () => {
+    const error = new RunnerLabelsReservedError(['shipfox-managed']);
+
+    expect(error.message).toBe(
+      'All supplied runner labels are reserved for installation-scope provisioners: shipfox-managed',
+    );
+    expect(error.labels).toEqual(['shipfox-managed']);
   });
 
   it('consumes an ephemeral token and creates a one-claim session', async () => {
@@ -223,7 +234,8 @@ describe('activation runner sessions', () => {
 
   beforeEach(async () => {
     workspaceId = crypto.randomUUID();
-    provisionerId = crypto.randomUUID();
+    const provisioner = await provisionerTokenFactory.create({workspaceId});
+    provisionerId = provisioner.id;
     const runner = await providerRunnerFactory.create({workspaceId, provisionerId});
     runnerInstanceId = runner.id;
   });
@@ -295,5 +307,26 @@ describe('activation runner sessions', () => {
     );
     expect(storedToken?.consumedAt).toBeInstanceOf(Date);
     expect(sessions).toHaveLength(1);
+  });
+
+  it('strips reserved labels from workspace activation registration', async () => {
+    const rawToken = await issueRunnerActivationToken({
+      runnerInstanceId,
+      provisionerId,
+      ttlSeconds: 60,
+    });
+    const [activationToken] = await db()
+      .select()
+      .from(runnerActivationTokens)
+      .where(eq(runnerActivationTokens.runnerInstanceId, runnerInstanceId));
+    if (!rawToken || !activationToken) throw new Error('Activation token was not created');
+
+    const result = await registerRunnerSession({
+      auth: runnersTestAuthClient,
+      credential: {kind: 'activation', activationTokenId: activationToken.id, workspaceId},
+      labels: ['linux', 'shipfox-managed'],
+    });
+
+    expect(result.session.labels).toEqual(['linux']);
   });
 });

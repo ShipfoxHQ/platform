@@ -1,5 +1,6 @@
 import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
-import {bool, createConfig, num} from '@shipfox/config';
+import {bool, createConfig, num, str} from '@shipfox/config';
+import {parseLabelList} from '@shipfox/runner-labels';
 import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
 
 const EPHEMERAL_REGISTRATION_TOKEN_TTL_HARD_MAX_SECONDS = 3600;
@@ -26,6 +27,10 @@ export const config = createConfig({
   RUNNER_ASSIGNMENT_POLL_INTERVAL_MS: num({
     desc: 'Delay between durable assignment reads while a runner-control session waits for an assignment, in milliseconds.',
     default: 250,
+  }),
+  RUNNER_RESERVED_LABELS: str({
+    desc: 'Comma-separated labels that only installation-scope provisioners may advertise. Any other provisioner or runner has them removed.',
+    default: '',
   }),
   EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS: num({
     desc: `Lifetime of a provisioner-minted runner registration token, in seconds. The token can be exchanged once by a runner before this time passes. Set this between 1 and ${EPHEMERAL_REGISTRATION_TOKEN_TTL_HARD_MAX_SECONDS}.`,
@@ -132,6 +137,8 @@ export const config = createConfig({
     default: false,
   }),
 });
+
+export const runnerReservedLabels = parseLabelList(config.RUNNER_RESERVED_LABELS);
 
 if (
   !Number.isInteger(config.EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS) ||
