@@ -37,6 +37,7 @@ describe('runner enrollment control plane', () => {
   let app: FastifyInstance;
   let provisionerId: string;
   let workspaceProvisionerId: string;
+  let workspaceProvisionerWorkspaceId: string;
   const provisionerAuth: AuthMethod = {
     name: AUTH_PROVISIONER_TOKEN,
     authenticate: (request: FastifyRequest) => {
@@ -44,7 +45,7 @@ describe('runner enrollment control plane', () => {
       if (rawToken === workspaceToken) {
         setProvisionerContext(request, {
           scope: 'workspace',
-          workspaceId: crypto.randomUUID(),
+          workspaceId: workspaceProvisionerWorkspaceId,
           provisionerTokenId: workspaceProvisionerId,
         });
         return Promise.resolve();
@@ -81,8 +82,12 @@ describe('runner enrollment control plane', () => {
     const workspaceProvisioner = await provisionerTokenFactory.create({
       scope: 'workspace',
     });
+    if (workspaceProvisioner.scope !== 'workspace') {
+      throw new Error('Expected a workspace provisioner token');
+    }
     provisionerId = provisioner.id;
     workspaceProvisionerId = workspaceProvisioner.id;
+    workspaceProvisionerWorkspaceId = workspaceProvisioner.workspaceId;
   });
 
   it('uses the requested assignment wait below the server cap and caps larger requests', () => {

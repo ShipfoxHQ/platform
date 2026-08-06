@@ -26,6 +26,15 @@ describe('RUNNER_RESERVED_LABELS', () => {
     expect(config.RUNNER_RESERVED_LABELS).toBe(' ShipFox-Managed, Linux,shipfox-managed ');
     expect(runnerReservedLabels).toEqual(['linux', 'shipfox-managed']);
   });
+
+  it('rejects invalid runner labels', async () => {
+    vi.stubEnv('RUNNER_RESERVED_LABELS', 'linux,has space');
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow(
+      'RUNNER_RESERVED_LABELS contains invalid runner label(s): has space',
+    );
+  });
 });
 
 describe('EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS validation', () => {

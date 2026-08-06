@@ -1,6 +1,6 @@
 import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
 import {bool, createConfig, num, str} from '@shipfox/config';
-import {parseLabelList} from '@shipfox/runner-labels';
+import {findInvalidLabels, parseLabelList} from '@shipfox/runner-labels';
 import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
 
 const EPHEMERAL_REGISTRATION_TOKEN_TTL_HARD_MAX_SECONDS = 3600;
@@ -138,7 +138,16 @@ export const config = createConfig({
   }),
 });
 
-export const runnerReservedLabels = parseLabelList(config.RUNNER_RESERVED_LABELS);
+const parsedRunnerReservedLabels = parseLabelList(config.RUNNER_RESERVED_LABELS);
+const invalidRunnerReservedLabels = findInvalidLabels(parsedRunnerReservedLabels);
+
+if (invalidRunnerReservedLabels.length > 0) {
+  throw new Error(
+    `RUNNER_RESERVED_LABELS contains invalid runner label(s): ${invalidRunnerReservedLabels.join(', ')}`,
+  );
+}
+
+export const runnerReservedLabels = parsedRunnerReservedLabels;
 
 if (
   !Number.isInteger(config.EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS) ||

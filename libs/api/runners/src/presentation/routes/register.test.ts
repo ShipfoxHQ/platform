@@ -202,7 +202,10 @@ describe('POST /runners/register', () => {
 
   it('strips reserved labels from ephemeral registration', async () => {
     const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
-    const provisioner = await provisionerTokenFactory.create({workspaceId});
+    const provisioner = await provisionerTokenFactory.create({
+      scope: 'workspace',
+      workspaceId,
+    });
     const token = await ephemeralRegistrationTokenFactory.create(
       {workspaceId, provisionerId: provisioner.id},
       {transient: {rawToken: ephemeralRawToken}},
@@ -225,6 +228,34 @@ describe('POST /runners/register', () => {
       id: res.json().session_id,
       provisionerId: token.provisionerId,
       labels: ['linux'],
+    });
+  });
+
+  it('preserves reserved labels for installation-scope ephemeral registration', async () => {
+    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
+    const provisioner = await provisionerTokenFactory.create({scope: 'installation'});
+    const token = await ephemeralRegistrationTokenFactory.create(
+      {workspaceId, provisionerId: provisioner.id},
+      {transient: {rawToken: ephemeralRawToken}},
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/runners/register',
+      headers: {authorization: `Bearer ${ephemeralRawToken}`},
+      payload: {labels: ['linux', 'shipfox-managed']},
+    });
+
+    const [session] = await db()
+      .select()
+      .from(runnerSessions)
+      .where(eq(runnerSessions.id, res.json().session_id));
+
+    expect(res.statusCode).toBe(200);
+    expect(session).toMatchObject({
+      id: res.json().session_id,
+      provisionerId: token.provisionerId,
+      labels: ['linux', 'shipfox-managed'],
     });
   });
 
