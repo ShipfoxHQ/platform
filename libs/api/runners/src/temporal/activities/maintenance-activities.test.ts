@@ -1,18 +1,3 @@
-import {
-  deleteExpiredEphemeralRegistrationTokens,
-  deleteExpiredRunnerReservations,
-  deleteExpiredRunnerSessions,
-  detectAndExpireStuckJobs,
-  reapStaleRunnerInstances,
-} from '#core/maintenance.js';
-import {
-  deleteExpiredEphemeralRegistrationTokensActivity,
-  deleteExpiredReservationsActivity,
-  deleteExpiredRunnerSessionsActivity,
-  detectAndExpireStuckJobsActivity,
-  reapStaleRunnerInstancesActivity,
-} from './maintenance-activities.js';
-
 vi.mock('#core/maintenance.js', () => ({
   deleteExpiredEphemeralRegistrationTokens: vi.fn(),
   deleteExpiredRunnerReservations: vi.fn(),
@@ -21,46 +6,52 @@ vi.mock('#core/maintenance.js', () => ({
   reapStaleRunnerInstances: vi.fn(),
 }));
 
-beforeEach(() => {
+let maintenance: typeof import('#core/maintenance.js');
+let activities: typeof import('./maintenance-activities.js');
+
+beforeEach(async () => {
+  vi.resetModules();
+  maintenance = await import('#core/maintenance.js');
+  activities = await import('./maintenance-activities.js');
   vi.clearAllMocks();
 });
 
 describe('detectAndExpireStuckJobsActivity', () => {
   it('delegates to core maintenance', async () => {
-    vi.mocked(detectAndExpireStuckJobs).mockResolvedValueOnce({expired: 2});
+    vi.mocked(maintenance.detectAndExpireStuckJobs).mockResolvedValueOnce({expired: 2});
 
-    const result = await detectAndExpireStuckJobsActivity({thresholdSeconds: 180});
+    const result = await activities.detectAndExpireStuckJobsActivity({thresholdSeconds: 180});
 
     expect(result).toEqual({expired: 2});
-    expect(detectAndExpireStuckJobs).toHaveBeenCalledWith({thresholdSeconds: 180});
+    expect(maintenance.detectAndExpireStuckJobs).toHaveBeenCalledWith({thresholdSeconds: 180});
   });
 });
 
 describe('deleteExpiredReservationsActivity', () => {
   it('delegates to core maintenance', async () => {
-    vi.mocked(deleteExpiredRunnerReservations).mockResolvedValueOnce({deleted: 3});
+    vi.mocked(maintenance.deleteExpiredRunnerReservations).mockResolvedValueOnce({deleted: 3});
 
-    const result = await deleteExpiredReservationsActivity({limit: 50});
+    const result = await activities.deleteExpiredReservationsActivity({limit: 50});
 
     expect(result).toEqual({deleted: 3});
-    expect(deleteExpiredRunnerReservations).toHaveBeenCalledWith({limit: 50});
+    expect(maintenance.deleteExpiredRunnerReservations).toHaveBeenCalledWith({limit: 50});
   });
 });
 
 describe('reapStaleRunnerInstancesActivity', () => {
   it('delegates to core maintenance', async () => {
-    vi.mocked(reapStaleRunnerInstances).mockResolvedValueOnce({
+    vi.mocked(maintenance.reapStaleRunnerInstances).mockResolvedValueOnce({
       reaped: 4,
       reservationsReleased: 2,
     });
 
-    const result = await reapStaleRunnerInstancesActivity({
+    const result = await activities.reapStaleRunnerInstancesActivity({
       thresholdSeconds: 300,
       limit: 100,
     });
 
     expect(result).toEqual({reaped: 4, reservationsReleased: 2});
-    expect(reapStaleRunnerInstances).toHaveBeenCalledWith({
+    expect(maintenance.reapStaleRunnerInstances).toHaveBeenCalledWith({
       thresholdSeconds: 300,
       limit: 100,
     });
@@ -69,16 +60,16 @@ describe('reapStaleRunnerInstancesActivity', () => {
 
 describe('deleteExpiredRunnerSessionsActivity', () => {
   it('delegates to core maintenance', async () => {
-    vi.mocked(deleteExpiredRunnerSessions).mockResolvedValueOnce({deleted: 4});
+    vi.mocked(maintenance.deleteExpiredRunnerSessions).mockResolvedValueOnce({deleted: 4});
 
-    const result = await deleteExpiredRunnerSessionsActivity({
+    const result = await activities.deleteExpiredRunnerSessionsActivity({
       manualRetentionDays: 30,
       ephemeralRetentionDays: 7,
       limit: 25,
     });
 
     expect(result).toEqual({deleted: 4});
-    expect(deleteExpiredRunnerSessions).toHaveBeenCalledWith({
+    expect(maintenance.deleteExpiredRunnerSessions).toHaveBeenCalledWith({
       manualRetentionDays: 30,
       ephemeralRetentionDays: 7,
       limit: 25,
@@ -88,15 +79,17 @@ describe('deleteExpiredRunnerSessionsActivity', () => {
 
 describe('deleteExpiredEphemeralRegistrationTokensActivity', () => {
   it('delegates to core maintenance', async () => {
-    vi.mocked(deleteExpiredEphemeralRegistrationTokens).mockResolvedValueOnce({deleted: 6});
+    vi.mocked(maintenance.deleteExpiredEphemeralRegistrationTokens).mockResolvedValueOnce({
+      deleted: 6,
+    });
 
-    const result = await deleteExpiredEphemeralRegistrationTokensActivity({
+    const result = await activities.deleteExpiredEphemeralRegistrationTokensActivity({
       retentionDays: 7,
       limit: 25,
     });
 
     expect(result).toEqual({deleted: 6});
-    expect(deleteExpiredEphemeralRegistrationTokens).toHaveBeenCalledWith({
+    expect(maintenance.deleteExpiredEphemeralRegistrationTokens).toHaveBeenCalledWith({
       retentionDays: 7,
       limit: 25,
     });

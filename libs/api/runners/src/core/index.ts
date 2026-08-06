@@ -25,6 +25,7 @@ export {
   ProvisionerTokenNotFoundError,
   RegistrationTokenConsumedError,
   RegistrationTokenExpiredError,
+  RunnerLabelsReservedError,
   RunnerSessionExhaustedError,
   RunningJobExecutionNotFoundError,
 } from './errors.js';

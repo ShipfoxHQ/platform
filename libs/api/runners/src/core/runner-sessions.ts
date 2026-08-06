@@ -8,6 +8,7 @@ import {
 } from '#db/runner-sessions.js';
 import type {RunnerSession} from './entities/runner-session.js';
 import {EmptyRunnerLabelsError} from './errors.js';
+import {sanitizeRunnerLabelsOrThrow} from './runner-labels.js';
 
 export interface RegisterRunnerSessionResult {
   session: RunnerSession;
@@ -38,7 +39,13 @@ export async function registerRunnerSession(params: {
   labels: string[];
   toolCapabilities?: RunnerToolCapabilitiesDto | null;
 }): Promise<RegisterRunnerSessionResult> {
-  const labels = [...canonicalizeLabels(params.labels)];
+  const labels =
+    params.credential.kind === 'manual'
+      ? sanitizeRunnerLabelsOrThrow(params.labels, {
+          scope: 'manual',
+          source: 'manual runner registration',
+        })
+      : [...canonicalizeLabels(params.labels)];
   if (labels.length === 0) throw new EmptyRunnerLabelsError();
 
   const mode = params.credential.kind;

@@ -211,6 +211,39 @@ describe('POST /provisioners/demand/poll', () => {
     expect(clearedSnapshots).toEqual([]);
   });
 
+  it('strips reserved labels from workspace template advertisements', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/demand/poll',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {
+        wait_seconds: 0,
+        max_reservations: 0,
+        templates: [
+          {
+            template_key: 'linux',
+            labels: ['linux', 'shipfox-managed'],
+            available_slots: 1,
+            starting: 0,
+            running: 0,
+          },
+        ],
+      },
+    });
+
+    const snapshots = await db()
+      .select()
+      .from(provisionerCapabilitySnapshots)
+      .where(eq(provisionerCapabilitySnapshots.provisionerId, provisionerTokenId));
+
+    expect(res.statusCode).toBe(200);
+    expect(snapshots).toEqual([
+      expect.objectContaining({
+        labels: ['linux'],
+      }),
+    ]);
+  });
+
   it('returns terminate intent ids for active provisioned runners with cancelled latest jobs', async () => {
     await providerRunnerFactory.create({
       workspaceId,

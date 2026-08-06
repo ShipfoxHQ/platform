@@ -1,7 +1,10 @@
 import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
 import {and, asc, eq, gt, inArray, isNull, lt, notExists, or, sql} from 'drizzle-orm';
 import type {RunnerSession} from '#core/entities/runner-session.js';
+import {EmptyRunnerLabelsError} from '#core/errors.js';
+import {sanitizeRunnerLabelsOrThrow} from '#core/runner-labels.js';
 import {db} from './db.js';
+import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
 import {providerRunners} from './schema/runner-instances.js';
@@ -79,6 +82,16 @@ export async function createRunnerSessionConsumingActivationToken(params: {
       .for('update');
     if (!token?.workspaceId || !token.providerRunnerId)
       throw new Error('Runner activation token is invalid, expired, or has already been used');
+    const [provisioner] = await tx
+      .select({scope: provisionerTokens.scope})
+      .from(provisionerTokens)
+      .where(eq(provisionerTokens.id, token.provisionerId))
+      .limit(1);
+    const labels = sanitizeRunnerLabelsOrThrow(params.labels, {
+      scope: provisioner?.scope ?? 'workspace',
+      source: 'activation runner registration',
+    });
+    if (labels.length === 0) throw new EmptyRunnerLabelsError();
     const [session] = await tx
       .insert(runnerSessions)
       .values({
@@ -89,7 +102,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
         runnerInstanceId: token.runnerInstanceId,
         provisionerId: token.provisionerId,
         providerRunnerId: token.providerRunnerId,
-        labels: params.labels,
+        labels,
         toolCapabilities: params.toolCapabilities ?? null,
         toolCapabilitiesReportedAt: params.toolCapabilities ? sql`now()` : null,
         maxClaims: 1,

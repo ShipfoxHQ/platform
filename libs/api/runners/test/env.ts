@@ -4,6 +4,7 @@ process.env.POSTGRES_USERNAME ??= 'shipfox';
 process.env.POSTGRES_PASSWORD ??= 'password';
 process.env.POSTGRES_DATABASE = 'api_test';
 process.env.POSTGRES_MAX_CONNECTIONS ??= '5';
+process.env.RUNNER_RESERVED_LABELS ??= 'shipfox-managed';
 process.env.WORKSPACE_JWT_SECRET = 'test-secret';
 process.env.AUTH_ROOT_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
 process.env.TZ = 'UTC';

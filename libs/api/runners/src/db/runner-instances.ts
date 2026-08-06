@@ -1,5 +1,4 @@
 import {logger} from '@shipfox/node-opentelemetry';
-import {canonicalizeLabels} from '@shipfox/runner-labels';
 import {
   and,
   asc,
@@ -19,6 +18,7 @@ import {
 } from 'drizzle-orm';
 import {alias} from 'drizzle-orm/pg-core';
 import type {RunnerInstance, RunnerInstanceState} from '#core/entities/runner-instance.js';
+import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {
@@ -74,6 +74,7 @@ export interface RunnerInstanceReportEvent {
 }
 
 export interface ReportRunnerInstancesParams {
+  scope: 'installation' | 'workspace';
   workspaceId: string | null;
   provisionerId: string;
   events: RunnerInstanceReportEvent[];
@@ -165,7 +166,11 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
       providerRunnerId: event.providerRunnerId,
       reservationId: event.reservationId,
       templateKey: event.templateKey,
-      labels: [...canonicalizeLabels(event.labels)],
+      labels: sanitizeRunnerLabels(event.labels, {
+        scope: params.scope,
+        logLevel: 'debug',
+        source: 'runner instance report',
+      }),
       state: event.state,
       reason: event.reason,
       runnerSessionId: event.runnerSessionId,

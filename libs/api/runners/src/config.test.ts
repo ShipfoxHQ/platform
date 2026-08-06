@@ -1,6 +1,42 @@
 import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
 import {vi} from '@shipfox/vitest/vi';
 
+describe('RUNNER_RESERVED_LABELS', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('defaults to no reserved labels', async () => {
+    vi.stubEnv('RUNNER_RESERVED_LABELS', undefined);
+    vi.resetModules();
+
+    const {config, runnerReservedLabels} = await import('#config.js');
+
+    expect(config.RUNNER_RESERVED_LABELS).toBe('');
+    expect(runnerReservedLabels).toEqual([]);
+  });
+
+  it('parses comma-separated labels for case-insensitive matching', async () => {
+    vi.stubEnv('RUNNER_RESERVED_LABELS', ' ShipFox-Managed, Linux,shipfox-managed ');
+    vi.resetModules();
+
+    const {config, runnerReservedLabels} = await import('#config.js');
+
+    expect(config.RUNNER_RESERVED_LABELS).toBe(' ShipFox-Managed, Linux,shipfox-managed ');
+    expect(runnerReservedLabels).toEqual(['linux', 'shipfox-managed']);
+  });
+
+  it('rejects invalid runner labels', async () => {
+    vi.stubEnv('RUNNER_RESERVED_LABELS', 'linux,has space');
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow(
+      'RUNNER_RESERVED_LABELS contains invalid runner label(s): has space',
+    );
+  });
+});
+
 describe('EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS validation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

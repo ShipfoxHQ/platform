@@ -2,7 +2,6 @@ import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
 import type {NodePgDatabase} from '@shipfox/node-drizzle';
 import {logger} from '@shipfox/node-opentelemetry';
 import {extractDisplayPrefix, generateOpaqueToken, hashOpaqueToken} from '@shipfox/node-tokens';
-import {canonicalizeLabels} from '@shipfox/runner-labels';
 import {and, eq, gt, isNull, notInArray, or, sql} from 'drizzle-orm';
 import {config} from '#config.js';
 import {
@@ -11,6 +10,7 @@ import {
   RunnerInstanceAlreadyAssignedError,
   RunnerInstanceNotAssignableError,
 } from '#core/errors.js';
+import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {db, type schema, type Tx} from '#db/db.js';
 import {assignRunnerInstancesTx} from '#db/runner-assignments.js';
 import {terminalStates} from '#db/runner-instances.js';
@@ -141,8 +141,12 @@ export async function enrollRunnerControlSession(params: {
 }): Promise<string | null> {
   return await db().transaction(async (tx) => {
     const [current] = await tx
-      .select({intendedReservationId: providerRunners.intendedReservationId})
+      .select({
+        intendedReservationId: providerRunners.intendedReservationId,
+        provisionerScope: provisionerTokens.scope,
+      })
       .from(providerRunners)
+      .innerJoin(provisionerTokens, eq(provisionerTokens.id, providerRunners.provisionerId))
       .where(
         and(
           eq(providerRunners.id, params.runnerInstanceId),
@@ -158,7 +162,10 @@ export async function enrollRunnerControlSession(params: {
     const [updated] = await tx
       .update(providerRunners)
       .set({
-        labels: [...canonicalizeLabels(params.labels)],
+        labels: sanitizeRunnerLabels(params.labels, {
+          scope: current.provisionerScope,
+          source: 'runner control enrollment',
+        }),
         providerKind: params.providerKind,
         protocolVersion: params.protocolVersion,
         capabilities: params.capabilities ?? null,

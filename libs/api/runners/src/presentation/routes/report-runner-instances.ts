@@ -20,6 +20,7 @@ export const reportRunnerInstancesRoute = defineRoute({
   handler: async (request) => {
     const context = requireProvisionerContext(request);
     const result = await reportRunnerInstances({
+      scope: context.scope,
       workspaceId: context.scope === 'workspace' ? context.workspaceId : null,
       provisionerId: context.provisionerTokenId,
       events: request.body.events.map((event) => ({

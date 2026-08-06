@@ -20,6 +20,7 @@ import {
 import {
   fakeLeaseTokenAuthMethod,
   fakeRunnerSessionAuthMethod,
+  provisionerTokenFactory,
   runnersTestAuthClient,
 } from '#test/index.js';
 import {createRunnerRoutes} from './index.js';
@@ -29,15 +30,27 @@ import {
 } from './runner-enrollment.js';
 
 const token = 'provisioner-test-token';
+const workspaceToken = 'workspace-provisioner-test-token';
 const fakeUserAuth: AuthMethod = {name: AUTH_USER, authenticate: () => Promise.resolve()};
 
 describe('runner enrollment control plane', () => {
   let app: FastifyInstance;
   let provisionerId: string;
+  let workspaceProvisionerId: string;
+  let workspaceProvisionerWorkspaceId: string;
   const provisionerAuth: AuthMethod = {
     name: AUTH_PROVISIONER_TOKEN,
     authenticate: (request: FastifyRequest) => {
-      if (extractBearerToken(request.headers.authorization) !== token)
+      const rawToken = extractBearerToken(request.headers.authorization);
+      if (rawToken === workspaceToken) {
+        setProvisionerContext(request, {
+          scope: 'workspace',
+          workspaceId: workspaceProvisionerWorkspaceId,
+          provisionerTokenId: workspaceProvisionerId,
+        });
+        return Promise.resolve();
+      }
+      if (rawToken !== token)
         throw new ClientError('Invalid provisioner token', 'unauthorized', {status: 401});
       setProvisionerContext(request, {scope: 'installation', provisionerTokenId: provisionerId});
       return Promise.resolve();
@@ -64,8 +77,17 @@ describe('runner enrollment control plane', () => {
     await closeApp();
   });
 
-  beforeEach(() => {
-    provisionerId = crypto.randomUUID();
+  beforeEach(async () => {
+    const provisioner = await provisionerTokenFactory.create({scope: 'installation'});
+    const workspaceProvisioner = await provisionerTokenFactory.create({
+      scope: 'workspace',
+    });
+    if (workspaceProvisioner.scope !== 'workspace') {
+      throw new Error('Expected a workspace provisioner token');
+    }
+    provisionerId = provisioner.id;
+    workspaceProvisionerId = workspaceProvisioner.id;
+    workspaceProvisionerWorkspaceId = workspaceProvisioner.workspaceId;
   });
 
   it('uses the requested assignment wait below the server cap and caps larger requests', () => {
@@ -112,7 +134,11 @@ describe('runner enrollment control plane', () => {
       method: 'POST',
       url: '/runner-control/enrollment',
       headers: {authorization: `Bearer ${controlToken}`},
-      payload: {labels: ['Linux', 'linux'], provider_kind: 'docker', protocol_version: '1'},
+      payload: {
+        labels: ['Linux', 'linux', 'shipfox-managed'],
+        provider_kind: 'docker',
+        protocol_version: '1',
+      },
     });
     expect(enrolled.statusCode).toBe(200);
     expect(enrolled.json()).toEqual({activation_token: null});
@@ -131,7 +157,7 @@ describe('runner enrollment control plane', () => {
       .where(eq(providerRunners.id, runner.runner_instance_id));
     expect(instance).toMatchObject({
       provisionerId,
-      labels: ['linux'],
+      labels: ['linux', 'shipfox-managed'],
       providerRunnerId: 'container-1',
       state: 'running',
       protocolVersion: '1',
@@ -148,6 +174,40 @@ describe('runner enrollment control plane', () => {
       headers: {authorization: `Bearer ${controlToken}`},
     });
     expect(jobs.statusCode).toBe(401);
+  });
+
+  it('strips reserved labels when a workspace provisioner enrolls a runner', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${workspaceToken}`},
+      payload: {runner_instances: [{}]},
+    });
+    const runner = created.json().runner_instances[0];
+    const exchanged = await app.inject({
+      method: 'POST',
+      url: '/runner-enrollment/exchange',
+      payload: {bootstrap_token: runner.bootstrap_token},
+    });
+
+    const enrolled = await app.inject({
+      method: 'POST',
+      url: '/runner-control/enrollment',
+      headers: {authorization: `Bearer ${exchanged.json().control_session_token}`},
+      payload: {
+        labels: ['linux', 'shipfox-managed'],
+        provider_kind: 'docker',
+        protocol_version: '1',
+      },
+    });
+
+    const [instance] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.runner_instance_id));
+
+    expect(enrolled.statusCode).toBe(200);
+    expect(instance?.labels).toEqual(['linux']);
   });
 
   it('promotes an intended reservation during enrollment and returns its activation token', async () => {

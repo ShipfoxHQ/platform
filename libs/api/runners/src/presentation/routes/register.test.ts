@@ -1,11 +1,12 @@
 import {AUTH_PROVISIONER_TOKEN, AUTH_USER} from '@shipfox/api-auth-context';
 import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
 import type {AuthMethod} from '@shipfox/node-fastify';
-import {closeApp, createApp} from '@shipfox/node-fastify';
+import {ClientError, closeApp, createApp} from '@shipfox/node-fastify';
 import {generateOpaqueToken} from '@shipfox/node-tokens';
 import {eq, sql} from 'drizzle-orm';
-import type {FastifyInstance} from 'fastify';
+import type {FastifyInstance, FastifyReply, FastifyRequest} from 'fastify';
 import {config} from '#config.js';
+import {RunnerLabelsReservedError} from '#core/errors.js';
 import {hashRunnersRateLimitIdentifier} from '#core/rate-limit.js';
 import {db} from '#db/db.js';
 import {revokeManualRegistrationToken} from '#db/manual-registration-tokens.js';
@@ -19,9 +20,11 @@ import {
   fakeRunnerSessionAuthMethod,
   getRunnerSessionTokenClaims,
   manualRegistrationTokenFactory,
+  provisionerTokenFactory,
   runnersTestAuthClient,
 } from '#test/index.js';
 import {createRunnerRoutes} from './index.js';
+import {createRegisterRoute} from './register.js';
 
 const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
@@ -123,6 +126,38 @@ describe('POST /runners/register', () => {
     expect(session?.toolCapabilitiesReportedAt).toBeInstanceOf(Date);
   });
 
+  it('strips reserved labels from manual registration', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/runners/register',
+      headers: {authorization: `Bearer ${rawToken}`},
+      payload: {labels: ['linux', 'shipfox-managed', 'x64']},
+    });
+
+    const [session] = await db()
+      .select()
+      .from(runnerSessions)
+      .where(eq(runnerSessions.id, res.json().session_id));
+
+    expect(res.statusCode).toBe(200);
+    expect(session?.labels).toEqual(['linux', 'x64']);
+  });
+
+  it('returns a distinct error when all manual registration labels are reserved', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/runners/register',
+      headers: {authorization: `Bearer ${rawToken}`},
+      payload: {labels: ['shipfox-managed']},
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      code: 'runner-labels-reserved',
+      details: {labels: ['shipfox-managed']},
+    });
+  });
+
   it('exchanges an ephemeral registration token for a one-claim runner session', async () => {
     const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
     const token = await ephemeralRegistrationTokenFactory.create(
@@ -163,6 +198,65 @@ describe('POST /runners/register', () => {
       .where(eq(ephemeralRegistrationTokens.id, token.id));
     expect(consumed?.consumedAt).toBeInstanceOf(Date);
     expect(consumed?.consumedSessionId).toBe(body.session_id);
+  });
+
+  it('strips reserved labels from ephemeral registration', async () => {
+    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
+    const provisioner = await provisionerTokenFactory.create({
+      scope: 'workspace',
+      workspaceId,
+    });
+    const token = await ephemeralRegistrationTokenFactory.create(
+      {workspaceId, provisionerId: provisioner.id},
+      {transient: {rawToken: ephemeralRawToken}},
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/runners/register',
+      headers: {authorization: `Bearer ${ephemeralRawToken}`},
+      payload: {labels: ['linux', 'shipfox-managed']},
+    });
+
+    const [session] = await db()
+      .select()
+      .from(runnerSessions)
+      .where(eq(runnerSessions.id, res.json().session_id));
+
+    expect(res.statusCode).toBe(200);
+    expect(session).toMatchObject({
+      id: res.json().session_id,
+      provisionerId: token.provisionerId,
+      labels: ['linux'],
+    });
+  });
+
+  it('preserves reserved labels for installation-scope ephemeral registration', async () => {
+    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
+    const provisioner = await provisionerTokenFactory.create({scope: 'installation'});
+    const token = await ephemeralRegistrationTokenFactory.create(
+      {workspaceId, provisionerId: provisioner.id},
+      {transient: {rawToken: ephemeralRawToken}},
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/runners/register',
+      headers: {authorization: `Bearer ${ephemeralRawToken}`},
+      payload: {labels: ['linux', 'shipfox-managed']},
+    });
+
+    const [session] = await db()
+      .select()
+      .from(runnerSessions)
+      .where(eq(runnerSessions.id, res.json().session_id));
+
+    expect(res.statusCode).toBe(200);
+    expect(session).toMatchObject({
+      id: res.json().session_id,
+      provisionerId: token.provisionerId,
+      labels: ['linux', 'shipfox-managed'],
+    });
   });
 
   it('rejects malformed capability reports without creating a runner session', async () => {
@@ -416,6 +510,26 @@ describe('POST /runners/register', () => {
     });
 
     expect(res.statusCode).toBe(200);
+  });
+
+  it('maps reserved-label-only registration failures to a public error code', () => {
+    const route = createRegisterRoute(runnersTestAuthClient);
+
+    try {
+      route.errorHandler?.(
+        new RunnerLabelsReservedError(['shipfox-managed']),
+        {} as FastifyRequest,
+        {} as FastifyReply,
+      );
+      throw new Error('Expected register route error handler to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ClientError);
+      expect(error).toMatchObject({
+        code: 'runner-labels-reserved',
+        details: {labels: ['shipfox-managed']},
+        status: 400,
+      });
+    }
   });
 
   async function seedEphemeralRegisterRateLimit(

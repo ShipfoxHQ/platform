@@ -10,7 +10,7 @@ import {
   listProvisionerTerminateIntents,
   reapStaleRunnerInstances,
   reconcileRunnerInstances,
-  reportRunnerInstances,
+  reportRunnerInstances as reportRunnerInstancesDb,
 } from '#db/runner-instances.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {reservations} from '#db/schema/reservations.js';
@@ -24,6 +24,12 @@ import {
   reservationFactory,
   runnerSessionFactory,
 } from '#test/index.js';
+
+type ReportRunnerInstancesTestParams = Parameters<typeof reportRunnerInstancesDb>[0];
+
+function reportRunnerInstances(params: ReportRunnerInstancesTestParams) {
+  return reportRunnerInstancesDb(params);
+}
 
 function providerRunnerRowsFor(params: {workspaceId: string; provisionerId: string}) {
   return db()
@@ -93,6 +99,7 @@ describe('reportRunnerInstances', () => {
     const reportedAt = new Date();
 
     const report = await reportRunnerInstances({
+      scope: 'installation',
       workspaceId: null,
       provisionerId,
       events: [event({providerRunnerId: 'installation-runner', reportedAt})],
@@ -118,6 +125,7 @@ describe('reportRunnerInstances', () => {
     const reportedAt = new Date();
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -140,6 +148,7 @@ describe('reportRunnerInstances', () => {
     const reportedAt = new Date();
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -160,6 +169,7 @@ describe('reportRunnerInstances', () => {
   it('accepts delayed events that move the lifecycle forward', async () => {
     const newest = new Date();
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -168,6 +178,7 @@ describe('reportRunnerInstances', () => {
     });
 
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -188,6 +199,7 @@ describe('reportRunnerInstances', () => {
   it('rejects older out-of-order events in the same lifecycle state', async () => {
     const newest = new Date();
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -201,6 +213,7 @@ describe('reportRunnerInstances', () => {
     });
 
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -222,6 +235,7 @@ describe('reportRunnerInstances', () => {
     const reservationId = await createReservation(1);
     const reportedAt = new Date('2025-01-01T00:00:00.000Z');
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -235,6 +249,7 @@ describe('reportRunnerInstances', () => {
     });
 
     const terminal = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -247,6 +262,7 @@ describe('reportRunnerInstances', () => {
       ],
     });
     const revived = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -270,6 +286,7 @@ describe('reportRunnerInstances', () => {
 
   it('clamps future reported times so they do not pin provisioned runner state', async () => {
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -282,6 +299,7 @@ describe('reportRunnerInstances', () => {
     });
 
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -305,6 +323,7 @@ describe('reportRunnerInstances', () => {
     const terminatedAt = new Date('2025-01-01T00:03:00.000Z');
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -346,6 +365,7 @@ describe('reportRunnerInstances', () => {
     const terminatedAt = new Date('2025-01-01T00:03:00.000Z');
     const startedAt = new Date('2025-01-01T00:00:00.000Z');
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -358,6 +378,7 @@ describe('reportRunnerInstances', () => {
     });
 
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -378,6 +399,7 @@ describe('reportRunnerInstances', () => {
 
   it('uses server update time for active provisioned runner windows', async () => {
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -401,6 +423,7 @@ describe('reportRunnerInstances', () => {
     const reservationId = await createReservation(2);
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [event({providerRunnerId: 'provisioned-runner-1', reservationId, state: 'failed'})],
@@ -429,6 +452,7 @@ describe('reportRunnerInstances', () => {
     if (!runner.providerRunnerId) throw new Error('Runner instance provider id missing');
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [event({providerRunnerId: runner.providerRunnerId, state: 'failed'})],
@@ -479,6 +503,7 @@ describe('reportRunnerInstances', () => {
     });
 
     const result = await reportRunnerInstances({
+      scope: 'installation',
       workspaceId: null,
       provisionerId: installationProvisioner.id,
       events: [event({providerRunnerId: 'installation-pre-enrollment-runner', state: 'failed'})],
@@ -521,6 +546,7 @@ describe('reportRunnerInstances', () => {
     });
 
     const result = await reportRunnerInstances({
+      scope: 'installation',
       workspaceId: null,
       provisionerId: installationProvisioner.id,
       events: [
@@ -552,6 +578,7 @@ describe('reportRunnerInstances', () => {
     });
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -581,11 +608,13 @@ describe('reportRunnerInstances', () => {
     const reservationId = await createReservation(2);
 
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [event({providerRunnerId: 'provisioned-runner-1', reservationId, state: 'failed'})],
     });
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [event({providerRunnerId: 'provisioned-runner-1', reservationId, state: 'failed'})],
@@ -600,6 +629,7 @@ describe('reportRunnerInstances', () => {
     const reservationId = await createReservation(2);
     const failedAt = new Date();
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -613,6 +643,7 @@ describe('reportRunnerInstances', () => {
     });
 
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -636,6 +667,7 @@ describe('reportRunnerInstances', () => {
     const reservationId = await createReservation(2);
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -656,6 +688,7 @@ describe('reportRunnerInstances', () => {
     const reservationId = await createReservation(3);
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -673,6 +706,7 @@ describe('reportRunnerInstances', () => {
     const reservationId = await createReservation(1);
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [event({providerRunnerId: 'provisioned-runner-1', reservationId, state: 'failed'})],
@@ -695,6 +729,7 @@ describe('reportRunnerInstances', () => {
     if (!reservation) throw new Error('Expected reservation');
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -715,6 +750,7 @@ describe('reportRunnerInstances', () => {
     const reservationId = await createReservation(1);
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -750,6 +786,7 @@ describe('reportRunnerInstances', () => {
     });
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -776,6 +813,7 @@ describe('reportRunnerInstances', () => {
     const reportedAt = new Date('2025-01-01T00:00:00.000Z');
 
     const result = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -819,11 +857,13 @@ describe('reportRunnerInstances', () => {
     });
 
     const first = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [event({providerRunnerId: 'provisioned-runner-1', state: 'terminated'})],
     });
     const second = await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [event({providerRunnerId: 'provisioned-runner-1', state: 'terminated'})],
@@ -1365,6 +1405,7 @@ describe('reapStaleRunnerInstances', () => {
 
     await lockHolderReady.promise;
     const report = reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -1845,6 +1886,7 @@ describe('reconcileRunnerInstances', () => {
     });
 
     await reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -1877,6 +1919,7 @@ describe('reconcileRunnerInstances', () => {
 
     await lockHolderReady.promise;
     const report = reportRunnerInstances({
+      scope: 'workspace',
       workspaceId,
       provisionerId,
       events: [
@@ -2026,6 +2069,7 @@ describe('runner instance provider attachment', () => {
       providerRunnerId,
     });
     await reportRunnerInstances({
+      scope: 'installation',
       workspaceId: null,
       provisionerId,
       events: [

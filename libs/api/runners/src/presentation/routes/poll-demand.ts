@@ -9,6 +9,7 @@ import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
 import {pollDemand, releaseReservationGrants} from '#core/demand.js';
+import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {publishWorkspaceProvisionerCapabilitySnapshot} from '#db/provisioner-capability-snapshots.js';
 import {
   listQueuedDemandWorkspaceIds,
@@ -21,10 +22,17 @@ import {toPollDemandResponseDto} from '#presentation/dto/index.js';
 
 const TERMINATE_INTENT_LIMIT = 1000;
 
-function toReservationTemplates(templates: PollDemandTemplateDto[]): ReservationTemplate[] {
+function toReservationTemplates(
+  templates: PollDemandTemplateDto[],
+  scope: 'installation' | 'workspace',
+): ReservationTemplate[] {
   return templates.map((template) => ({
     templateKey: template.template_key,
-    labels: template.labels,
+    labels: sanitizeRunnerLabels(template.labels, {
+      scope,
+      logLevel: 'debug',
+      source: 'provisioner template advertisement',
+    }),
     availableSlots: template.available_slots,
     starting: template.starting,
     running: template.running,
@@ -85,7 +93,7 @@ export function createPollDemandRoute(options: CreateRunnersModuleOptions = {}) 
           await options.installationProvisioning.policy.filterEligibleWorkspaceIds(
             candidateWorkspaceIds,
           );
-        const templates = toReservationTemplates(request.body.templates);
+        const templates = toReservationTemplates(request.body.templates, 'installation');
         const result = await pollInstallationDemandAndReserve({
           provisionerId: provisionerContext.provisionerTokenId,
           maxReservations: request.body.max_reservations,
@@ -105,7 +113,7 @@ export function createPollDemandRoute(options: CreateRunnersModuleOptions = {}) 
       }
       const {provisionerTokenId, workspaceId} = requireWorkspaceProvisionerContext(request);
 
-      const templates = toReservationTemplates(request.body.templates);
+      const templates = toReservationTemplates(request.body.templates, 'workspace');
       await publishWorkspaceProvisionerCapabilitySnapshot({
         workspaceId,
         provisionerId: provisionerTokenId,
