@@ -1,6 +1,8 @@
-import {vi} from '@shipfox/vitest/vi';
+import {afterEach, vi} from '@shipfox/vitest/vi';
+import {inArray} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {reservations} from '#db/schema/reservations.js';
+import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
 import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {
@@ -8,6 +10,29 @@ import {
   runnerReservationPromotionFailureCount,
 } from '#metrics/instance.js';
 import {enrollRunnerControlSession} from './runner-control-sessions.js';
+
+const createdReservationIds = new Set<string>();
+const createdRunnerInstanceIds = new Set<string>();
+
+afterEach(async () => {
+  const runnerInstanceIds = [...createdRunnerInstanceIds];
+  const reservationIds = [...createdReservationIds];
+
+  if (runnerInstanceIds.length > 0) {
+    await db()
+      .delete(runnerActivationTokens)
+      .where(inArray(runnerActivationTokens.runnerInstanceId, runnerInstanceIds));
+    await db()
+      .delete(runnerControlSessions)
+      .where(inArray(runnerControlSessions.runnerInstanceId, runnerInstanceIds));
+    await db().delete(providerRunners).where(inArray(providerRunners.id, runnerInstanceIds));
+  }
+  if (reservationIds.length > 0)
+    await db().delete(reservations).where(inArray(reservations.id, reservationIds));
+
+  createdRunnerInstanceIds.clear();
+  createdReservationIds.clear();
+});
 
 describe('enrollRunnerControlSession', () => {
   it('counts expired reservation promotion failures', async () => {
@@ -176,6 +201,7 @@ async function createReservation(params: {
     })
     .returning();
   if (!reservation) throw new Error('Expected reservation');
+  createdReservationIds.add(reservation.id);
   return reservation;
 }
 
@@ -198,6 +224,7 @@ async function createRunner(params: {
     })
     .returning({id: providerRunners.id});
   if (!runner) throw new Error('Expected runner instance');
+  createdRunnerInstanceIds.add(runner.id);
 
   await db()
     .insert(runnerControlSessions)
