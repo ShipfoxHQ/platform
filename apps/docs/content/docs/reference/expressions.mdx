@@ -96,6 +96,15 @@ passes.
 | `has(field)` | `has(event.pull_request)` | True when the field is present |
 | `string(value)`, `int(value)`, `double(value)` | `"run-" + string(run.number)` | The value converted to that type |
 | `timestamp(string)` | `timestamp("2026-01-01T00:00:00Z")` | A timestamp from an RFC 3339 string |
+| `range(start, stop, step)` | `range(1, 3, 1)` | An inclusive list of integers |
+| `toJson(value)` | `toJson(event.pull_request.labels)` | The value serialized as compact JSON text |
+| `fromJson(string)` | `fromJson(event.payload)` | The JSON text parsed into a CEL value |
+
+`range()` accepts a positive step and can materialize at most 1,000 values and
+1,000,000 context-byte fan-out units in one evaluation. `toJson()` can produce
+at most 1,000,000 UTF-8 bytes in one evaluation. `fromJson()` expects a valid
+JSON string and converts safe integer numbers to CEL integers. `toJson()` writes
+integers outside the range JSON numbers represent exactly as quoted strings.
 
 The [CEL language
 definition](https://github.com/google/cel-spec/blob/master/doc/langdef.md#standard-definitions)

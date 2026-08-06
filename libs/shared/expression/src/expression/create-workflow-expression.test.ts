@@ -38,6 +38,70 @@ describe('createWorkflowExpression', () => {
     });
   });
 
+  it('type-checks the shared workflow function registry', () => {
+    const jsonExpression = createWorkflowExpression({
+      source: 'toJson(event)',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'map'},
+        },
+      },
+    });
+    const parsedExpression = createWorkflowExpression({
+      source: 'fromJson(event.payload).ready',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'object', fields: {payload: 'string'}},
+        },
+      },
+    });
+    const parsedPredicateExpression = createWorkflowExpression({
+      source: 'fromJson(event.payload).ready',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'object', fields: {payload: 'string'}},
+        },
+        expectedResultType: 'bool',
+      },
+    });
+    const dynamicJsonExpression = createWorkflowExpression({
+      source: 'fromJson(event.payload).items',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'object', fields: {payload: 'string'}},
+        },
+      },
+    });
+    const rangeExpression = createWorkflowExpression({
+      source: 'range(1, 3, 1).size() == 3',
+      check: {mode: 'typed'},
+    });
+
+    expect(jsonExpression.resultType).toBe('string');
+    expect(parsedExpression.check).toBe('typed');
+    expect(parsedPredicateExpression.check).toBe('typed');
+    expect(dynamicJsonExpression.resultType).toBeUndefined();
+    expect(rangeExpression.resultType).toBe('bool');
+  });
+
+  it('does not treat fromJson text in a dynamic expression as a function call', () => {
+    const act = () =>
+      createWorkflowExpression({
+        source: 'event["fromJson("]',
+        check: {
+          mode: 'typed',
+          typeEnvironment: {event: {kind: 'map'}},
+          expectedResultType: 'bool',
+        },
+      });
+
+    expect(act).toThrow(InvalidWorkflowExpressionError);
+  });
+
   it('rejects misspelled fields from the typed environment', () => {
     const act = () =>
       createWorkflowExpression({

@@ -1,4 +1,6 @@
+import {evaluate as evaluateCel} from '@marcbachmann/cel-js';
 import {createWorkflowExpression} from '../expression/create-workflow-expression.js';
+import {MAX_JSON_OUTPUT_BYTES, MAX_RANGE_FANOUT_BYTES} from '../workflow-function-registry.js';
 import {WorkflowExpressionEvaluationError} from './errors.js';
 import {
   evaluateWorkflowExpression,
@@ -49,17 +51,153 @@ describe('evaluateWorkflowExpression', () => {
     expect(result).toBe(expected);
   });
 
-  it('does not add caller-supplied functions to the global evaluator', () => {
+  it('does not add workflow functions to the vendor-global evaluator', () => {
     const expression = createWorkflowExpression({
       source: 'range(2, 32, 2)',
       check: {mode: 'syntax'},
     });
-    // Creating the opt-in evaluator must not register range in the global evaluator.
+    // Creating the workflow evaluator must not register functions in the vendor-global evaluator.
     createRangeEnvironment();
 
-    const evaluateGlobally = () => evaluateWorkflowExpression(expression, {});
+    const evaluateGlobally = () => evaluateCel(expression.source, {});
 
-    expect(evaluateGlobally).toThrow(WorkflowExpressionEvaluationError);
+    expect(evaluateGlobally).toThrow('found no matching overload');
+  });
+
+  it('evaluates the shared JSON functions through the default workflow environment', () => {
+    const expression = createWorkflowExpression({
+      source: 'toJson(fromJson(event.payload))',
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {payload: '{"ready":true,"count":2}'},
+    });
+
+    expect(result).toBe('{"ready":true,"count":2}');
+  });
+
+  it('serializes CEL integers as JSON numbers', () => {
+    const expression = createWorkflowExpression({
+      source: 'toJson([1, 2])',
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {});
+
+    expect(result).toBe('[1,2]');
+  });
+
+  it('evaluates range through the default workflow environment', () => {
+    const expression = createWorkflowExpression({
+      source: 'range(2, 6, 2)',
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {});
+
+    expect(result).toEqual([2n, 4n, 6n]);
+  });
+
+  it('gives each default-environment evaluation a full range budget', () => {
+    const expression = createWorkflowExpression({
+      source: 'range(1, 1000, 1).size()',
+      check: {mode: 'syntax'},
+    });
+
+    const first = evaluateWorkflowExpression(expression, {});
+    const second = evaluateWorkflowExpression(expression, {});
+
+    expect(first).toBe(1000n);
+    expect(second).toBe(1000n);
+  });
+
+  it('enforces the range budget through the default workflow environment', () => {
+    const expression = createWorkflowExpression({
+      source: 'range(1, 1001, 1)',
+      check: {mode: 'syntax'},
+    });
+
+    const evaluateTooLarge = () => evaluateWorkflowExpression(expression, {});
+
+    expect(evaluateTooLarge).toThrow(WorkflowExpressionEvaluationError);
+  });
+
+  it('reports invalid JSON passed to fromJson as an evaluation failure', () => {
+    const expression = createWorkflowExpression({
+      source: 'fromJson(event.payload)',
+      check: {mode: 'syntax'},
+    });
+
+    const evaluateInvalid = () =>
+      evaluateWorkflowExpression(expression, {event: {payload: 'not json'}});
+
+    expect(evaluateInvalid).toThrow(WorkflowExpressionEvaluationError);
+  });
+
+  it('serializes integers beyond the safe range as JSON strings', () => {
+    const expression = createWorkflowExpression({
+      source: 'toJson(9223372036854775807)',
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {});
+
+    expect(result).toBe('"9223372036854775807"');
+  });
+
+  it('parses safe JSON numbers as CEL integers', () => {
+    const expression = createWorkflowExpression({
+      source: 'fromJson(event.payload).count + 1',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'object', fields: {payload: 'string'}},
+        },
+      },
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {payload: '{"count":2}'},
+    });
+
+    expect(result).toBe(3n);
+  });
+
+  it('enforces a shared JSON output budget across range-generated values', () => {
+    const expression = createWorkflowExpression({
+      source: 'range(1, 2, 1).map(index, toJson(event)).size() == 2',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {event: {kind: 'map'}},
+        expectedResultType: 'bool',
+      },
+    });
+    const payload = 'x'.repeat(MAX_JSON_OUTPUT_BYTES / 2);
+
+    const result = evaluateWorkflowPredicateFailClosed(expression, {event: {payload}});
+
+    expect(result).toEqual({value: false, evaluationFailed: true});
+  });
+
+  it('enforces a context-sized range fan-out budget', () => {
+    const expression = createWorkflowExpression({
+      source: 'range(1, 1000, 1).map(index, event.payload.upperAscii()).size() == 1000',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'object', fields: {payload: 'string'}},
+        },
+        expectedResultType: 'bool',
+      },
+    });
+    const payload = 'x'.repeat(MAX_RANGE_FANOUT_BYTES / 2);
+
+    const result = evaluateWorkflowPredicateFailClosed(expression, {
+      event: {payload},
+    });
+
+    expect(result).toEqual({value: false, evaluationFailed: true});
   });
 
   it('evaluates against a caller-supplied environment', () => {

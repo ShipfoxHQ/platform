@@ -1,17 +1,20 @@
-import {type Environment, evaluate} from '@marcbachmann/cel-js';
+import type {Environment} from '@marcbachmann/cel-js';
 import type {WorkflowExpression} from '../expression/workflow-expression.js';
 import {WorkflowExpressionEvaluationError} from './errors.js';
+import {createWorkflowEnvironment} from './workflow-environment.js';
 
 export type WorkflowExpressionEvaluationContext = Readonly<Record<string, unknown>>;
 export type WorkflowExpressionEvaluationValue = unknown;
 export type WorkflowExpressionEnvironment = Pick<Environment, 'evaluate'>;
+
+const workflowEnvironment = createWorkflowEnvironment();
 
 export function evaluateWorkflowExpression(
   expression: WorkflowExpression,
   context: WorkflowExpressionEvaluationContext,
 ): WorkflowExpressionEvaluationValue {
   try {
-    return evaluate(expression.source, context);
+    return workflowEnvironment.evaluate(expression.source, context);
   } catch (error) {
     throw new WorkflowExpressionEvaluationError(error);
   }
@@ -20,9 +23,8 @@ export function evaluateWorkflowExpression(
 /**
  * Evaluate an expression against a caller-owned CEL environment.
  *
- * Workflow expressions deliberately continue to use the global CEL evaluator.
- * Callers that need custom functions, such as config templating, must opt in
- * by creating and passing their own environment.
+ * The caller-owned environment can provide a narrower or broader function set
+ * when the shared workflow registry is not the right boundary.
  */
 export function evaluateWorkflowExpressionWithEnvironment(
   expression: WorkflowExpression,
