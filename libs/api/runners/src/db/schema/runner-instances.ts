@@ -60,6 +60,9 @@ export const providerRunners = pgTable(
       .where(
         sql`${table.intendedReservationId} is not null and ${table.reservationReleasedAt} is null`,
       ),
+    index('runners_runner_instances_intended_reservation_idx')
+      .on(table.intendedReservationId)
+      .where(sql`${table.intendedReservationId} is not null`),
     index('runners_runner_instances_provisioner_reservation_idx')
       .on(table.provisionerId, table.reservationId)
       .where(sql`${table.reservationId} is not null`),

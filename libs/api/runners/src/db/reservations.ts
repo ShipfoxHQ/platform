@@ -10,6 +10,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  or,
   sql,
 } from 'drizzle-orm';
 import type {Tx} from './db.js';
@@ -432,21 +433,24 @@ async function deleteReservationsWithCleanupTx(
 ): Promise<number> {
   if (ids.length === 0) return 0;
 
-  const assignedRunners = await tx
-    .select({id: providerRunners.id, reservationId: providerRunners.reservationId})
+  const affectedRunners = await tx
+    .select({
+      id: providerRunners.id,
+      reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
+    })
     .from(providerRunners)
     .where(
-      and(
-        inArray(providerRunners.reservationId, ids),
-        isNull(providerRunners.runnerSessionId),
-        isNull(providerRunners.reservationReleasedAt),
+      or(
+        and(
+          inArray(providerRunners.reservationId, ids),
+          isNull(providerRunners.runnerSessionId),
+          isNull(providerRunners.reservationReleasedAt),
+        ),
+        inArray(providerRunners.intendedReservationId, ids),
       ),
     )
-    .for('update');
-  const intendedRunners = await tx
-    .select({id: providerRunners.id, intendedReservationId: providerRunners.intendedReservationId})
-    .from(providerRunners)
-    .where(inArray(providerRunners.intendedReservationId, ids))
+    .orderBy(asc(providerRunners.id))
     .for('update');
   const reservationRows = await tx
     .select({id: reservations.id})
@@ -462,10 +466,10 @@ async function deleteReservationsWithCleanupTx(
 
   if (reservationIds.length === 0) return 0;
 
-  const assignedRunnerIds = assignedRunners
+  const assignedRunnerIds = affectedRunners
     .filter((runner) => runner.reservationId && reservationIds.includes(runner.reservationId))
     .map((runner) => runner.id);
-  const intendedRunnerIds = intendedRunners
+  const intendedRunnerIds = affectedRunners
     .filter(
       (runner) =>
         runner.intendedReservationId && reservationIds.includes(runner.intendedReservationId),
