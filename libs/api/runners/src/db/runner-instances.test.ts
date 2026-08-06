@@ -238,14 +238,15 @@ describe('reportRunnerInstances', () => {
       .set({expiresAt: new Date(Date.now() - 60_000)})
       .where(eq(reservations.id, staleReservationId));
     const reboundReservationId = await createReservation(2);
-    const reportedAt = new Date('2026-01-01T00:00:00.000Z');
+    const initialReportedAt = new Date(Date.now() - 120_000);
+    const runningReportedAt = new Date(Date.now() - 60_000);
     await providerRunnerFactory.create({
       workspaceId,
       provisionerId,
       providerRunnerId: 'rebound-runner',
       reservationId: reboundReservationId,
       state: 'running',
-      reportedAt,
+      reportedAt: initialReportedAt,
     });
 
     const runningReport = await reportRunnerInstances({
@@ -256,7 +257,7 @@ describe('reportRunnerInstances', () => {
         event({
           providerRunnerId: 'rebound-runner',
           reservationId: staleReservationId,
-          reportedAt,
+          reportedAt: runningReportedAt,
         }),
       ],
     });
@@ -269,7 +270,7 @@ describe('reportRunnerInstances', () => {
           providerRunnerId: 'rebound-runner',
           reservationId: staleReservationId,
           state: 'failed',
-          reportedAt: new Date(reportedAt.getTime() + 1_000),
+          reportedAt: new Date(runningReportedAt.getTime() + 1_000),
         }),
       ],
     });
