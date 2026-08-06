@@ -3,6 +3,8 @@ import {
   findInvalidLabels,
   MAX_RUNNER_LABEL_LENGTH,
   parseLabelList,
+  parseRunnerCatalog,
+  resolveRunnerLabels,
 } from './index.js';
 
 describe('canonicalizeLabels', () => {
@@ -58,5 +60,128 @@ describe('findInvalidLabels', () => {
     const invalid = findInvalidLabels(['ci,gpu', 'has space', 'has\nnewline', overLength]);
 
     expect(invalid).toEqual(['ci,gpu', 'has space', 'has\nnewline', overLength]);
+  });
+});
+
+describe('parseRunnerCatalog', () => {
+  it('canonicalizes names and labels', () => {
+    const catalog = parseRunnerCatalog({
+      ' ShipFox-4CPU ': [' OS.Ubuntu-Latest ', 'CPU.4'],
+    });
+
+    expect(catalog).toEqual({
+      'shipfox-4cpu': ['cpu.4', 'os.ubuntu-latest'],
+    });
+  });
+
+  it('accepts an empty catalog', () => {
+    const catalog = parseRunnerCatalog({});
+
+    expect(catalog).toEqual({});
+  });
+
+  it('rejects an invalid name', () => {
+    const parse = () => parseRunnerCatalog({'not a name': ['label']});
+
+    expect(parse).toThrow('invalid name');
+  });
+
+  it('rejects a name that canonicalizes to nothing', () => {
+    const parse = () => parseRunnerCatalog({'   ': ['label']});
+
+    expect(parse).toThrow('must not be empty');
+  });
+
+  it('rejects a name over the length limit', () => {
+    const overLength = 'a'.repeat(MAX_RUNNER_LABEL_LENGTH + 1);
+    const parse = () => parseRunnerCatalog({[overLength]: ['label']});
+
+    expect(parse).toThrow('invalid name');
+  });
+
+  it('rejects two names that canonicalize to the same value', () => {
+    const parse = () => parseRunnerCatalog({'ShipFox-4CPU': ['cpu.4'], 'shipfox-4cpu': ['cpu.8']});
+
+    expect(parse).toThrow('duplicate name');
+  });
+
+  it('rejects an invalid label', () => {
+    const parse = () => parseRunnerCatalog({name: ['not a label']});
+
+    expect(parse).toThrow('invalid label');
+  });
+
+  it('rejects a label over the length limit', () => {
+    const overLength = 'a'.repeat(MAX_RUNNER_LABEL_LENGTH + 1);
+    const parse = () => parseRunnerCatalog({name: [overLength]});
+
+    expect(parse).toThrow('invalid label');
+  });
+
+  it('rejects an entry with no labels', () => {
+    const parse = () => parseRunnerCatalog({name: []});
+
+    expect(parse).toThrow('at least one label');
+  });
+
+  it('rejects non-object input', () => {
+    const parse = () => parseRunnerCatalog(null);
+
+    expect(parse).toThrow('must be an object');
+  });
+
+  it('rejects an entry whose labels are not strings', () => {
+    const parse = () => parseRunnerCatalog({name: ['label', 1]});
+
+    expect(parse).toThrow('list of labels');
+  });
+});
+
+describe('resolveRunnerLabels', () => {
+  const catalog = parseRunnerCatalog({
+    'shipfox-4cpu': ['os.ubuntu-latest', 'cpu.4'],
+    'shipfox-arm64-4cpu': ['arch.arm64', 'cpu.4'],
+  });
+
+  it('resolves a known catalog name', () => {
+    const labels = resolveRunnerLabels(['SHIPFOX-4CPU'], catalog);
+
+    expect(labels).toEqual(['cpu.4', 'os.ubuntu-latest']);
+  });
+
+  it('passes an unknown name through as a label', () => {
+    const labels = resolveRunnerLabels(['custom-runner'], catalog);
+
+    expect(labels).toEqual(['custom-runner']);
+  });
+
+  it('keeps a free-form label alongside a catalog name', () => {
+    const labels = resolveRunnerLabels(['shipfox-4cpu', 'internal-network'], catalog);
+
+    expect(labels).toEqual(['cpu.4', 'internal-network', 'os.ubuntu-latest']);
+  });
+
+  it('unions labels from two catalog names', () => {
+    const labels = resolveRunnerLabels(['shipfox-4cpu', 'shipfox-arm64-4cpu'], catalog);
+
+    expect(labels).toEqual(['arch.arm64', 'cpu.4', 'os.ubuntu-latest']);
+  });
+
+  it('passes labels through with an empty catalog', () => {
+    const labels = resolveRunnerLabels(['constructor'], {});
+
+    expect(labels).toEqual(['constructor']);
+  });
+
+  it('returns no labels for an empty request', () => {
+    const labels = resolveRunnerLabels([], catalog);
+
+    expect(labels).toEqual([]);
+  });
+
+  it('resolves catalog entries once without recursion', () => {
+    const labels = resolveRunnerLabels(['outer'], {outer: ['inner'], inner: ['label']});
+
+    expect(labels).toEqual(['inner']);
   });
 });
