@@ -119,3 +119,12 @@ The provider reads the shared provisioner variables plus these EC2-specific vari
 The API clamps the requested reservation lifetime to its own `RESERVATION_TTL_MAX_SECONDS`
 ceiling and does not report the clamp. Raising the registration deadline past that ceiling
 therefore shortens the reservation relative to the deadline: raise both together.
+
+## Behavior notes
+
+The provider deduplicates terminal observations by AWS instance ID while AWS keeps
+the instance in the managed listing.
+It reports pending, running, stopping, and shutting-down states on each observation.
+Stopped instances remain eligible for termination. Shutting-down and terminated
+instances do not trigger another AWS termination call.
+The in-memory marker resets when the provider restarts.

@@ -145,11 +145,46 @@ describe('createEc2Lifecycle', () => {
     });
 
     await lifecycle.observe();
+    await lifecycle.observe();
 
     expect(tracker.countsByTemplate()).toEqual(
       new Map([['spot-small', {starting: 0, running: 1}]]),
     );
-    expect(client.reportBodies[0]?.events[0]).toMatchObject({state: 'running'});
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({state: 'running'}),
+      expect.objectContaining({state: 'running'}),
+    ]);
+  });
+
+  it('reports a terminal instance once across observation passes', async () => {
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'terminated'})]}),
+      client,
+    });
+
+    await lifecycle.observe();
+    await lifecycle.observe();
+
+    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(1);
+    expect(observability.logger.info).toHaveBeenCalledTimes(1);
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a terminal instance again after it leaves and re-enters the listing', async () => {
+    const instances = [instance({state: 'terminated'})];
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine: fakeEngine({instances}), client});
+
+    await lifecycle.observe();
+    instances.length = 0;
+    await lifecycle.observe();
+    instances.push(instance({state: 'terminated'}));
+    await lifecycle.observe();
+
+    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(2);
+    expect(observability.logger.info).toHaveBeenCalledTimes(2);
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(2);
   });
 
   it('assigns an enrolled observed runner through its EC2 identity', async () => {
@@ -275,7 +310,7 @@ describe('createEc2Lifecycle', () => {
     expect(client.assignmentBodies).toHaveLength(2);
   });
 
-  it('reports a Spot-reclaimed terminated instance as failed', async () => {
+  it('reports a Spot-reclaimed terminated instance as failed once', async () => {
     const client = fakeClient();
     const lifecycle = makeLifecycle({
       engine: fakeEngine({
@@ -290,12 +325,13 @@ describe('createEc2Lifecycle', () => {
     });
 
     await lifecycle.observe();
+    await lifecycle.observe();
 
-    expect(client.reportBodies[0]?.events[0]).toMatchObject({
-      state: 'failed',
-      reason: 'spot-interruption',
-    });
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({state: 'failed', reason: 'spot-interruption'}),
+    ]);
     expect(observability.recordEc2Termination).toHaveBeenCalledWith('spot-interruption');
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
   it('propagates observation failures so the core loop degrades capacity to zero', async () => {
@@ -488,8 +524,86 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.reconcile();
 
     expect(engine.terminated).toEqual(['i-123']);
-    expect(client.reportBodies.flatMap((body) => body.events)).toMatchObject([
-      {provider_runner_id: 'runner-1', state: 'terminated', reason: 'backend-terminate'},
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({provider_runner_id: 'runner-1', state: 'running'}),
+        expect.objectContaining({
+          provider_runner_id: 'runner-1',
+          state: 'terminated',
+          reason: 'backend-terminate',
+        }),
+      ]),
+    );
+  });
+
+  it('reports the first terminal observation before handling backend terminate intent', async () => {
+    const engine = fakeEngine({instances: [instance({state: 'terminated'})]});
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(engine.terminated).toEqual([]);
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({provider_runner_id: 'runner-1', state: 'terminated'}),
+    ]);
+  });
+
+  it('does not terminate or re-report an already-terminated instance with backend intent', async () => {
+    const engine = fakeEngine({instances: [instance({state: 'terminated'})]});
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+    await lifecycle.reconcile();
+
+    expect(engine.terminated).toEqual([]);
+    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(1);
+  });
+
+  it('reports a stopped instance once and still terminates it under backend intent', async () => {
+    const engine = fakeEngine({instances: [instance({state: 'stopped'})]});
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(engine.terminated).toEqual(['i-123']);
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({provider_runner_id: 'runner-1', state: 'terminated'}),
+    ]);
+  });
+
+  it('reports shutting-down instances without calling terminate again', async () => {
+    const engine = fakeEngine({instances: [instance({state: 'shutting-down'})]});
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(engine.terminated).toEqual([]);
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({provider_runner_id: 'runner-1', state: 'stopping'}),
     ]);
   });
 
@@ -539,10 +653,12 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.observe();
 
     expect(engine.terminated).toEqual(['i-123']);
-    expect(client.reportBodies[0]?.events[0]).toMatchObject({
-      state: 'terminated',
-      reason: 'registration-deadline',
-    });
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({state: 'starting'}),
+        expect.objectContaining({state: 'terminated', reason: 'registration-deadline'}),
+      ]),
+    );
   });
 
   it('periodically reconciles and otherwise observes', async () => {
