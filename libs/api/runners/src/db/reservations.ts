@@ -68,6 +68,12 @@ export interface InstallationPollDemandAndReserveParams {
   onReservations?: (reservations: ReservationGrant[]) => void;
 }
 
+type DemandScope = 'installation' | 'workspace';
+
+type PollDemandAndReserveLockedParams = PollDemandAndReserveParams & {
+  scope: DemandScope;
+};
+
 interface NormalizedTemplate {
   templateKey: string;
   labels: string[];
@@ -93,7 +99,7 @@ export async function pollDemandAndReserveTx(
   params: PollDemandAndReserveParams,
 ): Promise<{stats: DemandStat[]; reservations: ReservationGrant[]}> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${params.workspaceId}))`);
-  return await pollDemandAndReserveLockedTx(tx, params);
+  return await pollDemandAndReserveLockedTx(tx, {...params, scope: 'workspace'});
 }
 
 export async function pollInstallationDemandAndReserve(
@@ -127,6 +133,7 @@ export async function pollInstallationDemandAndReserve(
           availableSlots: template.remainingSlots,
         })),
         capabilityWindowSeconds: params.capabilityWindowSeconds,
+        scope: 'installation',
       });
     });
     results.push(result);
@@ -159,7 +166,7 @@ function consumeInstallationTemplateSlots(
 
 async function pollDemandAndReserveLockedTx(
   tx: Tx,
-  params: PollDemandAndReserveParams,
+  params: PollDemandAndReserveLockedParams,
 ): Promise<{stats: DemandStat[]; reservations: ReservationGrant[]}> {
   let demandRows = (
     await tx
@@ -266,6 +273,7 @@ async function pollDemandAndReserveLockedTx(
         requiredLabels: demand.requiredLabels,
         count: grant,
         workspaceId: params.workspaceId,
+        scope: params.scope,
       });
       reservedAfterGrant += grant;
       grants.push({
@@ -297,14 +305,23 @@ async function bindIdleRunnerInstancesTx(
     workspaceId: string;
     requiredLabels: string[];
     count: number;
+    scope: DemandScope;
   },
 ): Promise<void> {
+  // Reservation expiry is the activation grace deadline. A live reservation
+  // protects a runner that is still booting; an expired or missing row is stale.
   const canBindRunner = () =>
     and(
       or(
         and(isNull(providerRunners.workspaceId), isNull(providerRunners.reservationId)),
         and(
           isNotNull(providerRunners.reservationId),
+          params.scope === 'installation'
+            ? undefined
+            : or(
+                isNull(providerRunners.workspaceId),
+                eq(providerRunners.workspaceId, params.workspaceId),
+              ),
           notExists(
             tx
               .select({id: reservations.id})
@@ -332,6 +349,7 @@ async function bindIdleRunnerInstancesTx(
             ),
         ),
       ),
+      isNull(providerRunners.reservationReleasedAt),
       isNull(providerRunners.runnerSessionId),
     );
 

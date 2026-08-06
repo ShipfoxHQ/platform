@@ -86,7 +86,7 @@ describe('pollDemandAndReserve', () => {
     });
   });
 
-  it('binds a runner whose intended reservation has expired', async () => {
+  it('binds a runner whose intended reservation has passed its activation grace period', async () => {
     const intendedReservation = await createIntendedReservation({
       workspaceId,
       expiresAt: new Date(Date.now() - 60_000),
@@ -117,7 +117,7 @@ describe('pollDemandAndReserve', () => {
     });
   });
 
-  it('binds a runner whose intended reservation was deleted', async () => {
+  it('binds a runner whose intended reservation was deleted after its grace period', async () => {
     const intendedReservation = await createIntendedReservation({
       workspaceId,
       expiresAt: new Date(Date.now() + 60_000),
@@ -149,7 +149,7 @@ describe('pollDemandAndReserve', () => {
     });
   });
 
-  it('binds a runner whose assigned reservation has expired', async () => {
+  it('binds an assigned runner after its reservation grace period expires', async () => {
     const staleReservation = await createIntendedReservation({
       workspaceId,
       expiresAt: new Date(Date.now() - 60_000),
@@ -197,7 +197,7 @@ describe('pollDemandAndReserve', () => {
     expect(storedToken?.revokedAt).toBeInstanceOf(Date);
   });
 
-  it('binds a runner whose assigned reservation was deleted', async () => {
+  it('binds an assigned runner whose reservation was deleted', async () => {
     const staleReservation = await createIntendedReservation({
       workspaceId,
       expiresAt: new Date(Date.now() + 60_000),
@@ -231,9 +231,9 @@ describe('pollDemandAndReserve', () => {
     });
   });
 
-  it('does not bind a runner whose assigned reservation is still live', async () => {
+  it('does not bind an assigned runner within its activation grace period', async () => {
     const liveReservation = await createIntendedReservation({
-      workspaceId: crypto.randomUUID(),
+      workspaceId,
       expiresAt: new Date(Date.now() + 60_000),
     });
     const runner = await createIdleRunner({
@@ -241,14 +241,14 @@ describe('pollDemandAndReserve', () => {
       workspaceId,
       reservationId: liveReservation.id,
     });
-    await createPendingJobs(1, ['linux']);
+    await createPendingJobs(2, ['linux']);
 
     const result = await pollDemandAndReserve({
       workspaceId,
       provisionerId,
-      maxReservations: 1,
+      maxReservations: 2,
       ttlSeconds: 60,
-      templates: [template('linux', ['linux'], 1)],
+      templates: [template('linux', ['linux'], 2)],
     });
 
     const [storedRunner] = await db()
@@ -264,7 +264,7 @@ describe('pollDemandAndReserve', () => {
     });
   });
 
-  it('does not bind a runner whose intended reservation is still live', async () => {
+  it('does not bind a runner whose intended reservation is within its activation grace period', async () => {
     const intendedReservation = await createIntendedReservation({
       workspaceId: crypto.randomUUID(),
       expiresAt: new Date(Date.now() + 60_000),
@@ -293,6 +293,140 @@ describe('pollDemandAndReserve', () => {
       reservationId: null,
       intendedReservationId: intendedReservation.id,
       assignedAt: null,
+    });
+  });
+
+  it('does not rebind a stale runner from another workspace in a workspace-scoped poll', async () => {
+    const previousWorkspaceId = crypto.randomUUID();
+    const staleReservation = await createIntendedReservation({
+      workspaceId: previousWorkspaceId,
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    const runner = await createIdleRunner({
+      labels: ['linux'],
+      workspaceId: previousWorkspaceId,
+      reservationId: staleReservation.id,
+      intendedReservationId: staleReservation.id,
+    });
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations[0]?.count).toBe(1);
+    expect(storedRunner).toMatchObject({
+      workspaceId: previousWorkspaceId,
+      reservationId: staleReservation.id,
+      intendedReservationId: staleReservation.id,
+    });
+  });
+
+  it('rebinds an unowned runner whose reservation was deleted', async () => {
+    const runner = await createIdleRunner({
+      labels: ['linux'],
+      reservationId: crypto.randomUUID(),
+    });
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(storedRunner).toMatchObject({
+      workspaceId,
+      reservationId: result.reservations[0]?.reservationId,
+      intendedReservationId: null,
+      assignedAt: expect.any(Date),
+    });
+  });
+
+  it('rebinds a stale runner across workspaces for an installation-scoped poll', async () => {
+    const previousWorkspaceId = crypto.randomUUID();
+    const targetWorkspaceId = crypto.randomUUID();
+    const staleReservation = await createIntendedReservation({
+      workspaceId: previousWorkspaceId,
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    const runner = await createIdleRunner({
+      labels: ['linux'],
+      workspaceId: previousWorkspaceId,
+      reservationId: staleReservation.id,
+      intendedReservationId: staleReservation.id,
+    });
+    await pendingJobFactory.create({workspaceId: targetWorkspaceId, requiredLabels: ['linux']});
+
+    const result = await pollInstallationDemandAndReserve({
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+      capabilityWindowSeconds: 60,
+      eligibleWorkspaceIds: new Set([targetWorkspaceId]),
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations[0]).toMatchObject({workspaceId: targetWorkspaceId, count: 1});
+    expect(storedRunner).toMatchObject({
+      workspaceId: targetWorkspaceId,
+      reservationId: result.reservations[0]?.reservationId,
+      intendedReservationId: null,
+      assignedAt: expect.any(Date),
+    });
+  });
+
+  it('does not rebind a released runner after its reservation expires', async () => {
+    const staleReservation = await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    const releasedAt = new Date(Date.now() - 30_000);
+    const runner = await createIdleRunner({
+      labels: ['linux'],
+      workspaceId,
+      reservationId: staleReservation.id,
+      intendedReservationId: staleReservation.id,
+      reservationReleasedAt: releasedAt,
+    });
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations[0]?.count).toBe(1);
+    expect(storedRunner).toMatchObject({
+      workspaceId,
+      reservationId: staleReservation.id,
+      intendedReservationId: staleReservation.id,
+      reservationReleasedAt: releasedAt,
     });
   });
 
@@ -1042,7 +1176,8 @@ describe('pollDemandAndReserve', () => {
     controlSessionExpiresAt?: Date;
     workspaceId?: string | null;
     reservationId?: string | null;
-    intendedReservationId?: string;
+    intendedReservationId?: string | null;
+    reservationReleasedAt?: Date | null;
   }) {
     const createdAt = params.createdAt ?? new Date();
     const [runner] = await db()
@@ -1051,8 +1186,9 @@ describe('pollDemandAndReserve', () => {
         provisionerId,
         workspaceId: params.workspaceId,
         reservationId: params.reservationId,
-        intendedReservationId: params.intendedReservationId,
         providerRunnerId: crypto.randomUUID(),
+        intendedReservationId: params.intendedReservationId,
+        reservationReleasedAt: params.reservationReleasedAt,
         labels: params.labels,
         state: 'running',
         reportedAt: createdAt,

@@ -302,6 +302,68 @@ describe('reportRunnerInstances', () => {
     ).toBe(1);
   });
 
+  it('keeps the stored reservation when a report carries a stale reservation id', async () => {
+    const staleReservationId = await createReservation(1);
+    const boundReservationId = await createReservation(1);
+    await db()
+      .insert(providerRunners)
+      .values({
+        workspaceId,
+        provisionerId,
+        reservationId: boundReservationId,
+        providerRunnerId: 'provisioned-runner-1',
+        state: 'running',
+        reportedAt: new Date('2025-01-01T00:00:00.000Z'),
+      });
+
+    await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: 'provisioned-runner-1',
+          reservationId: staleReservationId,
+          state: 'running',
+          reportedAt: new Date('2025-01-01T00:01:00.000Z'),
+        }),
+      ],
+    });
+
+    const rows = await providerRunnerRowsFor({workspaceId, provisionerId});
+    expect(rows[0]?.reservationId).toBe(boundReservationId);
+  });
+
+  it('adopts a reported reservation id when the runner carries none', async () => {
+    const reservationId = await createReservation(1);
+    await db()
+      .insert(providerRunners)
+      .values({
+        workspaceId,
+        provisionerId,
+        providerRunnerId: 'provisioned-runner-1',
+        state: 'starting',
+        reportedAt: new Date('2025-01-01T00:00:00.000Z'),
+      });
+
+    await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: 'provisioned-runner-1',
+          reservationId,
+          state: 'running',
+          reportedAt: new Date('2025-01-01T00:01:00.000Z'),
+        }),
+      ],
+    });
+
+    const rows = await providerRunnerRowsFor({workspaceId, provisionerId});
+    expect(rows[0]?.reservationId).toBe(reservationId);
+  });
+
   it('does not let equal-timestamp lower-priority reports flip terminal state', async () => {
     const reservationId = await createReservation(1);
     const reportedAt = new Date('2025-01-01T00:00:00.000Z');
