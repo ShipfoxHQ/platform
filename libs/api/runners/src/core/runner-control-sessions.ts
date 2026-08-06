@@ -17,6 +17,10 @@ import {terminalStates} from '#db/runner-instances.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
+import {
+  type RunnerReservationPromotionFailureReason,
+  recordRunnerReservationPromotionFailure,
+} from '#metrics/index.js';
 import {issueRunnerActivationTokenTx} from './runner-activation.js';
 
 export class RunnerBootstrapTokenInvalidError extends Error {
@@ -205,27 +209,35 @@ export async function enrollRunnerControlSession(params: {
         });
       });
     } catch (error) {
-      const expectedFailure =
-        error instanceof ReservationExpiredError ||
-        error instanceof ReservationNotFoundError ||
-        error instanceof RunnerInstanceAlreadyAssignedError ||
-        error instanceof RunnerInstanceNotAssignableError;
+      const expectedFailureReason = getRunnerReservationPromotionFailureReason(error);
       const details = {
         err: error,
         runnerInstanceId: params.runnerInstanceId,
         provisionerId: params.provisionerId,
         reservationId: intendedReservationId,
       };
-      if (expectedFailure)
+      if (expectedFailureReason) {
+        recordRunnerReservationPromotionFailure(expectedFailureReason);
         logger().debug(details, 'Runner reservation could not be promoted during enrollment');
-      else
+      } else {
         logger().error(
           details,
           'Unexpected failure promoting runner reservation during enrollment',
         );
+      }
       return null;
     }
   });
+}
+
+function getRunnerReservationPromotionFailureReason(
+  error: unknown,
+): RunnerReservationPromotionFailureReason | null {
+  if (error instanceof ReservationExpiredError) return 'reservation-expired';
+  if (error instanceof ReservationNotFoundError) return 'reservation-not-found';
+  if (error instanceof RunnerInstanceAlreadyAssignedError) return 'already-assigned';
+  if (error instanceof RunnerInstanceNotAssignableError) return 'not-assignable';
+  return null;
 }
 
 export async function attachRunnerControlProviderId(params: {
