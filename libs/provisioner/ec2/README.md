@@ -124,8 +124,9 @@ therefore shortens the reservation relative to the deadline: raise both together
 Search for `Observed EC2 runner instance termination` to find one terminal log per AWS
 instance ID. The provider keeps the deduplication marker while the instance is listed
 and for one hour after a listing gap.
-Non-terminal states are reported on ordinary observations. An actionable termination
-reports its terminal reason instead.
+Non-terminal states are reported on ordinary observations.
+When the provider terminates an instance, it reports `terminated` with either
+`backend-terminate` or `registration-deadline`.
 Stopped instances remain eligible for termination. Shutting-down and terminated
 instances do not trigger another AWS termination call.
 The in-memory marker resets when the provider restarts.

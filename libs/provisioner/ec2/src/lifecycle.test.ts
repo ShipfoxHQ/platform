@@ -583,6 +583,8 @@ describe('createEc2Lifecycle', () => {
         reason: 'backend-terminate',
       }),
     ]);
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith('backend-terminate');
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
   it('reports the first terminal observation before handling backend terminate intent', async () => {
@@ -710,6 +712,8 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
       expect.objectContaining({state: 'terminated', reason: 'registration-deadline'}),
     ]);
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith('registration-deadline');
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
   it('periodically reconciles and otherwise observes', async () => {

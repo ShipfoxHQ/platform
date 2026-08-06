@@ -13,11 +13,17 @@ import type {
 import {ProvisionerAuthenticationError} from '@shipfox/provisioner-core';
 import {type Ec2Engine, Ec2EngineError, type Ec2InstanceView} from '#ec2-engine.js';
 import {buildInstanceTags, parseInstanceIdentity} from '#instance-identity.js';
-import {recordEc2Launch, recordEc2Termination} from '#metrics/instance.js';
+import {
+  type Ec2TerminationReason,
+  recordEc2Launch,
+  recordEc2Termination,
+} from '#metrics/instance.js';
 import type {Ec2TemplateSpec} from '#templates.js';
 
 const MAX_REPORT_BATCH = 1000;
 const MAX_REASON_LENGTH = 500;
+// DescribeInstances can retain terminated instances for about an hour. Keep the marker
+// for that long across a listing gap to cover eventual-consistency blips.
 const TERMINAL_REPORT_ABSENCE_GRACE_MS = 60 * 60 * 1000;
 const SPOT_INTERRUPTION_REASON =
   /spot|instance-terminated-by-price|instance-terminated-no-capacity/i;
@@ -77,7 +83,7 @@ interface Ec2LifecycleContext {
   readonly locallyLaunched: Map<string, LocallyLaunchedRunner>;
   readonly terminalReportedInstanceIds: Map<string, number>;
   readonly pendingTerminalReportedInstanceIds: Set<string>;
-  readonly terminalReportInstanceIdsByEvent: Map<RunnerInstanceReportEventDto, string>;
+  readonly terminalReportInstanceIdsByEvent: WeakMap<RunnerInstanceReportEventDto, string>;
   readonly pendingReports: RunnerInstanceReportEventDto[];
   readonly releasedReservationRunnerIds: Map<string, Set<string>>;
   lastReconciledAt?: Date;
@@ -103,7 +109,7 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     locallyLaunched: new Map(),
     terminalReportedInstanceIds: new Map(),
     pendingTerminalReportedInstanceIds: new Set(),
-    terminalReportInstanceIdsByEvent: new Map(),
+    terminalReportInstanceIdsByEvent: new WeakMap(),
     pendingReports: [],
     releasedReservationRunnerIds: new Map(),
   };
@@ -273,6 +279,11 @@ async function applyObservedInstances(
       reapInstances.push(instance);
     }
 
+    if (shouldTerminate) {
+      // terminateInstances reports the provider-initiated reason: backend-terminate or registration-deadline.
+      continue;
+    }
+
     const template = identity.templateKey
       ? context.templatesByKey.get(identity.templateKey)
       : undefined;
@@ -283,49 +294,46 @@ async function applyObservedInstances(
     const terminalObservation = mapped.state === 'failed' || mapped.state === 'terminated';
     const alreadyReportedTerminal =
       terminalObservation && hasTerminalReport(context, instance.instanceId);
-    // Actionable termination paths report their terminal reason from terminateInstances below.
-    if (!shouldTerminate) {
-      if (!alreadyReportedTerminal) {
-        if (terminalObservation) {
-          const terminationReason =
-            mapped.reason === 'spot-interruption' ? 'spot-interruption' : 'observed-terminated';
-          recordEc2Termination(terminationReason);
-          logger().info(
-            {
-              provisioned_runner_id: identity.providerRunnerId,
-              ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
-              aws_instance_id: instance.instanceId,
-              reason: terminationReason,
-            },
-            'Observed EC2 runner instance termination',
-          );
-        }
-        const event = eventForInstance(context, instance, mapped.state, labels, mapped.reason);
-        events.push(event);
-        if (terminalObservation) terminalReportInstanceIds.set(event, instance.instanceId);
+    if (!alreadyReportedTerminal) {
+      if (terminalObservation) {
+        const terminationReason =
+          mapped.reason === 'spot-interruption' ? 'spot-interruption' : 'observed-terminated';
+        recordEc2Termination(terminationReason);
+        logger().info(
+          {
+            provisioned_runner_id: identity.providerRunnerId,
+            ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
+            aws_instance_id: instance.instanceId,
+            reason: terminationReason,
+          },
+          'Observed EC2 runner instance termination',
+        );
       }
-      if (
-        !terminationRequested &&
-        (mapped.state === 'starting' || mapped.state === 'running') &&
-        identity.runnerInstanceId &&
-        identity.reservationId
-      ) {
-        assignmentCandidates.push({
-          runnerInstanceId: identity.runnerInstanceId,
-          reservationId: identity.reservationId,
-        });
-      }
-      if (
-        !terminationRequested &&
-        (mapped.state === 'starting' || mapped.state === 'running') &&
-        identity.templateKey
-      ) {
-        trackerRunners.push({
-          providerRunnerId: identity.providerRunnerId,
-          templateKey: identity.templateKey,
-          state: mapped.state,
-        });
-      }
+      const event = eventForInstance(context, instance, mapped.state, labels, mapped.reason);
+      events.push(event);
+      if (terminalObservation) terminalReportInstanceIds.set(event, instance.instanceId);
+    }
+    if (
+      !terminationRequested &&
+      (mapped.state === 'starting' || mapped.state === 'running') &&
+      identity.runnerInstanceId &&
+      identity.reservationId
+    ) {
+      assignmentCandidates.push({
+        runnerInstanceId: identity.runnerInstanceId,
+        reservationId: identity.reservationId,
+      });
+    }
+    if (
+      !terminationRequested &&
+      (mapped.state === 'starting' || mapped.state === 'running') &&
+      identity.templateKey
+    ) {
+      trackerRunners.push({
+        providerRunnerId: identity.providerRunnerId,
+        templateKey: identity.templateKey,
+        state: mapped.state,
+      });
     }
   }
 
@@ -447,7 +455,7 @@ function isPastRegistrationDeadline(
 async function terminateInstances(
   context: Ec2LifecycleContext,
   instances: readonly Ec2InstanceView[],
-  reason: string,
+  reason: Ec2TerminationReason,
 ): Promise<void> {
   if (instances.length === 0) return;
 
@@ -464,6 +472,7 @@ async function terminateInstances(
     const labels = identity.labels.length > 0 ? identity.labels : (template?.labels ?? []);
     if (!identity.providerRunnerId || labels.length === 0) return [];
     if (hasTerminalReport(context, instance.instanceId)) return [];
+    recordEc2Termination(reason);
     const event = eventForInstance(context, instance, 'terminated', labels, reason);
     terminalReportInstanceIds.set(event, instance.instanceId);
     return [event];
@@ -517,6 +526,8 @@ async function reportEvents(
   events: readonly RunnerInstanceReportEventDto[],
   terminalReportInstanceIds: TerminalReportInstanceIds = new Map(),
 ): Promise<void> {
+  // Pending IDs suppress duplicates without marking delivery. The DTO omits the AWS ID, so
+  // object identity keeps each retry correlated with the instance that produced it.
   for (const [event, instanceId] of terminalReportInstanceIds) {
     context.terminalReportInstanceIdsByEvent.set(event, instanceId);
     context.pendingTerminalReportedInstanceIds.add(instanceId);
