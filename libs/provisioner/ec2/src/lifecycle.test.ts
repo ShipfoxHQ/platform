@@ -391,7 +391,7 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies).toHaveLength(1);
   });
 
-  it('does not deduplicate a terminal report that the API rejects as invalid', async () => {
+  it('deduplicates a terminal report after the API rejects it as invalid', async () => {
     const client = fakeClient({reportErrors: [httpError(400)]});
     const lifecycle = makeLifecycle({
       engine: fakeEngine({instances: [instance({state: 'terminated'})]}),
@@ -401,9 +401,9 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.observe();
     await lifecycle.observe();
 
-    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(2);
-    expect(observability.logger.info).toHaveBeenCalledTimes(2);
-    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(2);
+    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(1);
+    expect(observability.logger.info).toHaveBeenCalledTimes(1);
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
   it('keeps authentication report failures fatal', async () => {
@@ -426,6 +426,21 @@ describe('createEc2Lifecycle', () => {
     await expect(lifecycle.observe()).rejects.toThrow(ProvisionerAuthenticationError);
 
     expect(engine.terminated).toEqual(['i-123']);
+  });
+
+  it('reaps an overdue instance before a failed reconcile request from tick', async () => {
+    const engine = fakeEngine({
+      instances: [instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')})],
+    });
+    const reconcileError = new ProvisionerAuthenticationError(401);
+    const client = fakeClient({reconcileErrors: [reconcileError, reconcileError]});
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await expect(lifecycle.tick()).rejects.toThrow(ProvisionerAuthenticationError);
+    await expect(lifecycle.tick()).rejects.toThrow(ProvisionerAuthenticationError);
+
+    expect(engine.terminated).toEqual(['i-123']);
+    expect(client.reconcileBodies).toHaveLength(2);
   });
 
   it('reports a failed launch and does not launch when provider identity attachment is rejected', async () => {
@@ -671,8 +686,11 @@ describe('createEc2Lifecycle', () => {
     const lifecycle = makeLifecycle({engine, client});
 
     await lifecycle.reconcile();
+    await lifecycle.reconcile();
 
     expect(engine.terminated).toEqual(['i-123']);
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith('backend-terminate');
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
   it('reaps a pending instance past its registration deadline even when its labels are unresolvable', async () => {
@@ -690,8 +708,11 @@ describe('createEc2Lifecycle', () => {
     const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
 
     await lifecycle.observe();
+    await lifecycle.observe();
 
     expect(engine.terminated).toEqual(['i-123']);
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith('registration-deadline');
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
   it('reaps a pending instance past its registration deadline', async () => {
@@ -845,6 +866,7 @@ function fakeClient(
   options: {
     reportErrors?: Error[];
     assignmentErrors?: Error[];
+    reconcileErrors?: Error[];
     attachResult?: {attached: boolean};
     reconcileResponse?: Awaited<ReturnType<ProvisionerClient['reconcileRunnerInstances']>>;
   } = {},
@@ -860,6 +882,7 @@ function fakeClient(
   const attachments: Array<{runnerInstanceId: string; providerRunnerId: string}> = [];
   const reportErrors = [...(options.reportErrors ?? [])];
   const assignmentErrors = [...(options.assignmentErrors ?? [])];
+  const reconcileErrors = [...(options.reconcileErrors ?? [])];
   return {
     reportBodies,
     reconcileBodies,
@@ -872,6 +895,8 @@ function fakeClient(
     createRunnerInstances: () => Promise.resolve({runner_instances: []}),
     reconcileRunnerInstances: (body) => {
       reconcileBodies.push(body);
+      const error = reconcileErrors.shift();
+      if (error) return Promise.reject(error);
       return Promise.resolve(
         options.reconcileResponse ?? {
           runners: [],

@@ -82,6 +82,9 @@ interface Ec2LifecycleContext {
   readonly renderUserData?: (launch: ProviderRunnerLaunch<Ec2TemplateSpec>) => string;
   readonly locallyLaunched: Map<string, LocallyLaunchedRunner>;
   readonly terminalReportedInstanceIds: Map<string, number>;
+  // Keep successful actions across short listing gaps so eventual-consistency reads do not
+  // repeat AWS calls or metrics.
+  readonly terminationActionedInstanceIds: Map<string, number>;
   readonly pendingTerminalReportedInstanceIds: Set<string>;
   readonly terminalReportInstanceIdsByEvent: WeakMap<RunnerInstanceReportEventDto, string>;
   readonly pendingReports: RunnerInstanceReportEventDto[];
@@ -108,6 +111,7 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     ...(options.renderUserData ? {renderUserData: options.renderUserData} : {}),
     locallyLaunched: new Map(),
     terminalReportedInstanceIds: new Map(),
+    terminationActionedInstanceIds: new Map(),
     pendingTerminalReportedInstanceIds: new Set(),
     terminalReportInstanceIdsByEvent: new WeakMap(),
     pendingReports: [],
@@ -185,6 +189,7 @@ async function observe(context: Ec2LifecycleContext): Promise<void> {
 
 async function reconcile(context: Ec2LifecycleContext): Promise<void> {
   const instances = await context.engine.listManaged(context.identity.id);
+  await reapRegistrationDeadlineInstances(context, instances);
   const observedProviderRunnerIds = observedRunnerIds(instances);
   if (observedProviderRunnerIds.length > MAX_RECONCILE_OBSERVED_RUNNERS) {
     logger().error(
@@ -217,6 +222,16 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
   await applyObservedInstances(context, instances, terminateIntentIds);
   await reportEvents(context, []);
   context.lastReconciledAt = new Date(context.now());
+}
+
+async function reapRegistrationDeadlineInstances(
+  context: Ec2LifecycleContext,
+  instances: readonly Ec2InstanceView[],
+): Promise<void> {
+  const instancesToReap = instances.filter(
+    (instance) => isPastRegistrationDeadline(instance, context) && canTerminateInstance(instance),
+  );
+  await terminateInstances(context, instancesToReap, 'registration-deadline');
 }
 
 function tick(context: Ec2LifecycleContext): Promise<void> {
@@ -262,6 +277,9 @@ async function applyObservedInstances(
     observedInstanceIds.add(instance.instanceId);
     if (context.terminalReportedInstanceIds.has(instance.instanceId)) {
       context.terminalReportedInstanceIds.set(instance.instanceId, observedAt);
+    }
+    if (context.terminationActionedInstanceIds.has(instance.instanceId)) {
+      context.terminationActionedInstanceIds.set(instance.instanceId, observedAt);
     }
     if (identity.runnerInstanceId) observedRunnerInstanceIds.add(identity.runnerInstanceId);
     if (!identity.providerRunnerId) continue;
@@ -338,6 +356,7 @@ async function applyObservedInstances(
   }
 
   pruneTerminalReportedInstances(context, observedInstanceIds, context.now().getTime());
+  pruneTerminationActionedInstances(context, observedInstanceIds, context.now().getTime());
   synthesizeAbsentLaunchedRunners(context, observedIds, trackerRunners, events);
   context.tracker.replaceAll(trackerRunners);
   await assignEnrolledReservations(context, assignmentCandidates, observedRunnerInstanceIds);
@@ -413,6 +432,21 @@ function pruneTerminalReportedInstances(
   }
 }
 
+function pruneTerminationActionedInstances(
+  context: Ec2LifecycleContext,
+  observedInstanceIds: ReadonlySet<string>,
+  nowMs: number,
+): void {
+  for (const [instanceId, actionedAt] of context.terminationActionedInstanceIds) {
+    if (
+      !observedInstanceIds.has(instanceId) &&
+      nowMs - actionedAt >= TERMINAL_REPORT_ABSENCE_GRACE_MS
+    ) {
+      context.terminationActionedInstanceIds.delete(instanceId);
+    }
+  }
+}
+
 function synthesizeAbsentLaunchedRunners(
   context: Ec2LifecycleContext,
   observedIds: ReadonlySet<string>,
@@ -460,8 +494,16 @@ async function terminateInstances(
   if (instances.length === 0) return;
 
   const terminableInstances = instances.filter(canTerminateInstance);
-  if (terminableInstances.length > 0) {
-    await context.engine.terminate(terminableInstances.map((instance) => instance.instanceId));
+  const instancesToTerminate = terminableInstances.filter(
+    (instance) => !context.terminationActionedInstanceIds.has(instance.instanceId),
+  );
+  if (instancesToTerminate.length > 0) {
+    await context.engine.terminate(instancesToTerminate.map((instance) => instance.instanceId));
+    const actionedAt = context.now().getTime();
+    for (const instance of instancesToTerminate) {
+      context.terminationActionedInstanceIds.set(instance.instanceId, actionedAt);
+      recordEc2Termination(reason);
+    }
   }
   const terminalReportInstanceIds = new Map<RunnerInstanceReportEventDto, string>();
   const events = terminableInstances.flatMap((instance) => {
@@ -472,7 +514,6 @@ async function terminateInstances(
     const labels = identity.labels.length > 0 ? identity.labels : (template?.labels ?? []);
     if (!identity.providerRunnerId || labels.length === 0) return [];
     if (hasTerminalReport(context, instance.instanceId)) return [];
-    recordEc2Termination(reason);
     const event = eventForInstance(context, instance, 'terminated', labels, reason);
     terminalReportInstanceIds.set(event, instance.instanceId);
     return [event];
@@ -537,14 +578,15 @@ async function reportEvents(
     const batch = reports.slice(index, index + MAX_REPORT_BATCH);
     try {
       await context.client.reportRunnerInstances({events: batch});
-      rememberDeliveredTerminalReports(context, batch);
+      rememberTerminalReports(context, batch);
     } catch (error) {
       if (error instanceof ProvisionerAuthenticationError) {
         context.pendingReports.push(...reports.slice(index));
         throw error;
       }
       if (responseStatus(error) === 400) {
-        forgetTerminalReports(context, batch);
+        // A permanent rejection must not reopen the terminal observation loop.
+        rememberTerminalReports(context, batch);
         continue;
       }
       context.pendingReports.push(...reports.slice(index));
@@ -553,7 +595,7 @@ async function reportEvents(
   }
 }
 
-function rememberDeliveredTerminalReports(
+function rememberTerminalReports(
   context: Ec2LifecycleContext,
   reports: readonly RunnerInstanceReportEventDto[],
 ): void {
@@ -561,18 +603,6 @@ function rememberDeliveredTerminalReports(
     const instanceId = context.terminalReportInstanceIdsByEvent.get(report);
     if (!instanceId) continue;
     context.terminalReportedInstanceIds.set(instanceId, context.now().getTime());
-    context.pendingTerminalReportedInstanceIds.delete(instanceId);
-    context.terminalReportInstanceIdsByEvent.delete(report);
-  }
-}
-
-function forgetTerminalReports(
-  context: Ec2LifecycleContext,
-  reports: readonly RunnerInstanceReportEventDto[],
-): void {
-  for (const report of reports) {
-    const instanceId = context.terminalReportInstanceIdsByEvent.get(report);
-    if (!instanceId) continue;
     context.pendingTerminalReportedInstanceIds.delete(instanceId);
     context.terminalReportInstanceIdsByEvent.delete(report);
   }
