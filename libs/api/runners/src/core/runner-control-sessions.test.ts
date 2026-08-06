@@ -1,6 +1,8 @@
+import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
 import {afterEach, vi} from '@shipfox/vitest/vi';
-import {inArray} from 'drizzle-orm';
+import {eq, inArray} from 'drizzle-orm';
 import {db} from '#db/db.js';
+import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {reservations} from '#db/schema/reservations.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
 import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
@@ -12,6 +14,7 @@ import {
 import {enrollRunnerControlSession} from './runner-control-sessions.js';
 
 const createdReservationIds = new Set<string>();
+const createdProvisionerTokenIds = new Set<string>();
 const createdRunnerInstanceIds = new Set<string>();
 
 afterEach(async () => {
@@ -29,9 +32,14 @@ afterEach(async () => {
   }
   if (reservationIds.length > 0)
     await db().delete(reservations).where(inArray(reservations.id, reservationIds));
+  if (createdProvisionerTokenIds.size > 0)
+    await db()
+      .delete(provisionerTokens)
+      .where(inArray(provisionerTokens.id, [...createdProvisionerTokenIds]));
 
   createdRunnerInstanceIds.clear();
   createdReservationIds.clear();
+  createdProvisionerTokenIds.clear();
 });
 
 describe('enrollRunnerControlSession', () => {
@@ -108,6 +116,139 @@ describe('enrollRunnerControlSession', () => {
     } finally {
       addSpy.mockRestore();
     }
+  });
+
+  it('preserves committed assignment metadata during a later enrollment', async () => {
+    const provisionerId = crypto.randomUUID();
+    const reservation = await createReservation({provisionerId});
+    const committedCapabilities: RunnerToolCapabilitiesDto = {
+      harnesses: {pi: {tools: ['read']}},
+    };
+    const runnerInstanceId = await createRunner({
+      provisionerId,
+      intendedReservationId: reservation.id,
+      reservationId: reservation.id,
+      workspaceId: reservation.workspaceId,
+      assignedAt: new Date(),
+      labels: ['linux'],
+      providerKind: 'ec2',
+      protocolVersion: '1',
+      capabilities: committedCapabilities,
+    });
+
+    const activationToken = await enrollRunnerControlSession({
+      runnerInstanceId,
+      provisionerId,
+      labels: ['gpu'],
+      capabilities: {harnesses: {claude: {tools: ['bash']}}},
+      providerKind: 'docker',
+      protocolVersion: '2',
+    });
+    const [runner] = await db()
+      .select({
+        reservationId: providerRunners.reservationId,
+        labels: providerRunners.labels,
+        providerKind: providerRunners.providerKind,
+        protocolVersion: providerRunners.protocolVersion,
+        capabilities: providerRunners.capabilities,
+        state: providerRunners.state,
+      })
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runnerInstanceId));
+
+    expect(activationToken).toEqual(expect.any(String));
+    expect(runner).toEqual({
+      reservationId: reservation.id,
+      labels: ['linux'],
+      providerKind: 'ec2',
+      protocolVersion: '1',
+      capabilities: committedCapabilities,
+      state: 'running',
+    });
+  });
+
+  it('updates metadata when a provider report precedes assignment commit', async () => {
+    const provisionerId = crypto.randomUUID();
+    const reservation = await createReservation({provisionerId});
+    const capabilities: RunnerToolCapabilitiesDto = {
+      harnesses: {pi: {tools: ['read']}},
+    };
+    const runnerInstanceId = await createRunner({
+      provisionerId,
+      intendedReservationId: reservation.id,
+      reservationId: reservation.id,
+      assignedAt: null,
+    });
+
+    const activationToken = await enrollRunnerControlSession({
+      runnerInstanceId,
+      provisionerId,
+      labels: ['linux'],
+      capabilities,
+      providerKind: 'ec2',
+      protocolVersion: '1',
+    });
+    const [runner] = await db()
+      .select({
+        reservationId: providerRunners.reservationId,
+        assignedAt: providerRunners.assignedAt,
+        labels: providerRunners.labels,
+        providerKind: providerRunners.providerKind,
+        protocolVersion: providerRunners.protocolVersion,
+        capabilities: providerRunners.capabilities,
+        state: providerRunners.state,
+      })
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runnerInstanceId));
+
+    expect(activationToken).toBeNull();
+    expect(runner).toEqual({
+      reservationId: reservation.id,
+      assignedAt: null,
+      labels: ['linux'],
+      providerKind: 'ec2',
+      protocolVersion: '1',
+      capabilities,
+      state: 'running',
+    });
+  });
+
+  it('updates metadata during enrollment for an unassigned runner', async () => {
+    const provisionerId = crypto.randomUUID();
+    const capabilities: RunnerToolCapabilitiesDto = {
+      harnesses: {pi: {tools: ['read']}},
+    };
+    const runnerInstanceId = await createRunner({provisionerId});
+
+    const activationToken = await enrollRunnerControlSession({
+      runnerInstanceId,
+      provisionerId,
+      labels: ['linux'],
+      capabilities,
+      providerKind: 'docker',
+      protocolVersion: '1',
+    });
+    const [runner] = await db()
+      .select({
+        reservationId: providerRunners.reservationId,
+        labels: providerRunners.labels,
+        providerKind: providerRunners.providerKind,
+        protocolVersion: providerRunners.protocolVersion,
+        capabilities: providerRunners.capabilities,
+        state: providerRunners.state,
+      })
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runnerInstanceId));
+
+    expect(activationToken).toBeNull();
+    expect(runner).toEqual({
+      reservationId: null,
+      labels: ['linux'],
+      providerKind: 'docker',
+      protocolVersion: '1',
+      capabilities,
+      state: 'running',
+    });
   });
 
   it('keeps unexpected promotion failures on the error-log path', async () => {
@@ -207,18 +348,42 @@ async function createReservation(params: {
 
 async function createRunner(params: {
   provisionerId: string;
-  intendedReservationId: string;
-  reservationId?: string;
+  intendedReservationId?: string | null;
+  reservationId?: string | null;
+  workspaceId?: string | null;
   labels?: string[];
+  providerKind?: string | null;
+  protocolVersion?: string | null;
+  capabilities?: RunnerToolCapabilitiesDto | null;
+  assignedAt?: Date | null;
 }): Promise<string> {
+  const defaultAssignedAt = params.reservationId ? new Date() : null;
+
+  if (!createdProvisionerTokenIds.has(params.provisionerId)) {
+    await db().insert(provisionerTokens).values({
+      id: params.provisionerId,
+      scope: 'installation',
+      workspaceId: null,
+      hashedToken: crypto.randomUUID(),
+      prefix: 'test',
+      createdByUserId: crypto.randomUUID(),
+    });
+    createdProvisionerTokenIds.add(params.provisionerId);
+  }
+
   const [runner] = await db()
     .insert(providerRunners)
     .values({
       provisionerId: params.provisionerId,
-      intendedReservationId: params.intendedReservationId,
+      intendedReservationId: params.intendedReservationId ?? null,
       reservationId: params.reservationId ?? null,
+      workspaceId: params.workspaceId ?? null,
       providerRunnerId: crypto.randomUUID(),
       labels: params.labels ?? [],
+      providerKind: params.providerKind ?? null,
+      protocolVersion: params.protocolVersion ?? null,
+      capabilities: params.capabilities ?? null,
+      assignedAt: params.assignedAt === undefined ? defaultAssignedAt : params.assignedAt,
       state: 'starting',
       reportedAt: new Date(),
     })

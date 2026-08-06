@@ -163,7 +163,9 @@ export async function enrollRunnerControlSession(params: {
         sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${params.provisionerId}:${current.intendedReservationId}`}))`,
       );
 
-    const [updated] = await tx
+    // Provider reports may populate reservationId before the assignment commits. assignedAt is
+    // written by the assignment transaction, so keep the guard on that write boundary.
+    const [metadataUpdated] = await tx
       .update(providerRunners)
       .set({
         labels: sanitizeRunnerLabels(params.labels, {
@@ -173,6 +175,25 @@ export async function enrollRunnerControlSession(params: {
         providerKind: params.providerKind,
         protocolVersion: params.protocolVersion,
         capabilities: params.capabilities ?? null,
+      })
+      .where(
+        and(
+          eq(providerRunners.id, params.runnerInstanceId),
+          eq(providerRunners.provisionerId, params.provisionerId),
+          isNull(providerRunners.assignedAt),
+          notInArray(providerRunners.state, [...terminalStates]),
+        ),
+      )
+      .returning({id: providerRunners.id});
+    if (!metadataUpdated)
+      logger().debug(
+        {runnerInstanceId: params.runnerInstanceId, provisionerId: params.provisionerId},
+        'Runner enrollment metadata update skipped for assigned or terminal runner',
+      );
+
+    const [updated] = await tx
+      .update(providerRunners)
+      .set({
         state: 'running',
         reportedAt: sql`now()`,
         updatedAt: sql`now()`,
