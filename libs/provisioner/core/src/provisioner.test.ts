@@ -36,6 +36,43 @@ describe('runProvisionerIteration', () => {
     vi.clearAllMocks();
   });
 
+  it('forwards the adapter reservation TTL to demand polling', async () => {
+    const {client, pollBodies} = harness({response: {stats: [], reservations: []}});
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      reservationTtlSeconds: 300,
+      launch: () => Promise.resolve(),
+    };
+
+    await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+    });
+
+    expect(pollBodies[0]).toMatchObject({reservation_ttl_seconds: 300});
+  });
+
+  it('omits the reservation TTL when the adapter does not declare one', async () => {
+    const {client, pollBodies} = harness({response: {stats: [], reservations: []}});
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+    };
+
+    await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+    });
+
+    expect(pollBodies[0]).not.toHaveProperty('reservation_ttl_seconds');
+  });
+
   it('runs onTick before polling demand', async () => {
     const events: string[] = [];
     const {client} = harness({
@@ -462,6 +499,29 @@ describe('split demand and converge loops', () => {
 });
 
 describe('startProvisioner', () => {
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects an invalid adapter reservation TTL of %s', async (reservationTtlSeconds) => {
+    const onConfigure = vi.fn();
+
+    await expect(
+      startProvisioner({
+        adapter: {
+          loadTemplates: () => Promise.resolve([template]),
+          reservationTtlSeconds,
+          launch: () => Promise.resolve(),
+          onConfigure,
+        },
+      }),
+    ).rejects.toThrow('reservationTtlSeconds');
+
+    expect(onConfigure).not.toHaveBeenCalled();
+  });
+
   it('rejects more than 1000 templates with a clear error', async () => {
     const templates = Array.from({length: 1001}, (_, index) => ({
       ...template,

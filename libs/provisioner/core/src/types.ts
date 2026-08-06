@@ -80,6 +80,8 @@ export interface ProvisionerRuntime {
  */
 export interface ProvisionerAdapter<Spec = unknown> {
   loadTemplates(): Promise<readonly ProvisionerTemplate<Spec>[]>;
+  /** Optional reservation lifetime requested for each demand poll, in seconds. */
+  readonly reservationTtlSeconds?: number;
   /** Optional provider details added to the startup configuration record. */
   onConfigure?(args: {
     templates: readonly ProvisionerTemplate<Spec>[];
