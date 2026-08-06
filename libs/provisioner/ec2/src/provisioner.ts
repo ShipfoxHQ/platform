@@ -29,6 +29,9 @@ export function createEc2ProvisionerAdapter(
 
   return {
     loadTemplates: () => Promise.resolve(options.templates),
+    reservationTtlSeconds: reservationTtlSecondsFromRegistrationDeadline(
+      options.registrationDeadlineMs,
+    ),
     launch: (launch) => requireLifecycle(lifecycle).launch(launch),
     terminate: (ids) => requireLifecycle(lifecycle).terminate(ids),
     async onStart(runtime) {
@@ -53,6 +56,10 @@ export function startEc2Provisioner(): Promise<void> {
       reconcileIntervalMs: config.SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS,
     }),
   });
+}
+
+function reservationTtlSecondsFromRegistrationDeadline(registrationDeadlineMs: number): number {
+  return Math.ceil(registrationDeadlineMs / 1000);
 }
 
 function createLifecycle(

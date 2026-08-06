@@ -15,7 +15,7 @@ export const config = createConfig({
     desc: 'AWS region the runner instances launch in, such as us-east-1. Required. Read by the AWS SDK and by the provider.',
   }),
   SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS: num({
-    desc: 'How long a launched instance may run without a runner registering before the provisioner terminates it as stale, in milliseconds.',
+    desc: 'How long a launched instance may run without a runner registering before the provisioner terminates it as stale, in milliseconds. The EC2 provisioner derives the reservation lifetime sent with each demand poll from this setting, so changing it changes both deadlines. The API caps the requested lifetime at RESERVATION_TTL_MAX_SECONDS and does not report the clamp, so raise that ceiling alongside any increase here.',
     default: 300_000,
   }),
   SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS: num({
