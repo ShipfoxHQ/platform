@@ -1,6 +1,7 @@
 import {
   getJiraInstallationByConnectionId,
   upsertJiraInstallation,
+  withJiraRefreshLock,
 } from '@shipfox/api-integration-jira';
 import {runMigrations} from '@shipfox/node-drizzle';
 import {getIntegrationConnectionById, upsertIntegrationConnection} from '#db/connections.js';
@@ -64,7 +65,7 @@ describe('jiraProviderModule', () => {
     });
   });
 
-  it('deletes the installation and tokens through the generic route before allowing a reinstall', async () => {
+  it('waits for refresh before deleting tokens and allowing a reinstall', async () => {
     vi.stubEnv('INTEGRATIONS_ENABLE_JIRA_PROVIDER', 'true');
     vi.resetModules();
     const deleteSecrets = vi.fn(() => Promise.resolve(2));
@@ -106,11 +107,32 @@ describe('jiraProviderModule', () => {
       status: 'installed',
     });
 
-    const res = await app.inject({
+    let releaseRefreshLock!: () => void;
+    let refreshLockEntered!: () => void;
+    const refreshLockReady = new Promise<void>((resolve) => {
+      refreshLockEntered = resolve;
+    });
+    const refreshLockReleased = new Promise<void>((resolve) => {
+      releaseRefreshLock = resolve;
+    });
+    const refreshLock = withJiraRefreshLock(connection.id, async () => {
+      refreshLockEntered();
+      await refreshLockReleased;
+    });
+    await refreshLockReady;
+
+    const deletion = app.inject({
       method: 'DELETE',
       url: `/integration-connections/${connection.id}`,
       headers: {authorization: 'Bearer user'},
     });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(deleteSecrets).not.toHaveBeenCalled();
+
+    releaseRefreshLock();
+    await expect(refreshLock).resolves.toMatchObject({acquired: true});
+    const res = await deletion;
 
     expect(res.statusCode).toBe(204);
     await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
