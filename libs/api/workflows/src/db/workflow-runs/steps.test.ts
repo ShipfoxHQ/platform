@@ -168,6 +168,43 @@ describe('workflow run queries', () => {
         attemptStatus: null,
       });
     });
+
+    test('selects a condition-errored step before an earlier pending step', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {build: {steps: [{run: 'echo first'}, {run: 'echo second'}]}},
+        }),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected a workflow job');
+      await stripSetupStep(job.id);
+      const execution = await getFirstJobExecutionByJobId(job.id);
+      if (!execution) throw new Error('Expected a job execution');
+
+      const steps = await getStepsByJobId(job.id);
+      const firstStep = steps[0];
+      const conditionErroredStep = steps[1];
+      if (!firstStep || !conditionErroredStep) throw new Error('Expected two workflow steps');
+      await db()
+        .update(stepsTable)
+        .set({status: 'skipped', statusReason: 'condition_errored'})
+        .where(eq(stepsTable.id, conditionErroredStep.id));
+
+      await expect(getJobExecutionFailureOrigin(execution.id)).resolves.toMatchObject({
+        stepId: conditionErroredStep.id,
+        stepStatus: 'skipped',
+      });
+      expect(firstStep.position).toBeLessThan(conditionErroredStep.position);
+    });
   });
 
   describe('bulkUpdateStepStatuses', () => {

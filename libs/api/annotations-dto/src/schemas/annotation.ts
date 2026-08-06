@@ -124,15 +124,13 @@ export const annotationSummaryResponseSchema = z.object({
   warning: z.number().int().min(0),
   info: z.number().int().min(0),
   success: z.number().int().min(0),
-  step_counts: z
-    .array(
-      z.object({
-        origin_step_id: z.string().uuid(),
-        origin_step_attempt: z.number().int().min(1),
-        total: z.number().int().min(0),
-      }),
-    )
-    .default([]),
+  step_counts: z.array(
+    z.object({
+      origin_step_id: z.string().uuid(),
+      origin_step_attempt: z.number().int().min(1),
+      total: z.number().int().min(0),
+    }),
+  ),
 });
 
 export type AnnotationSummaryResponseDto = z.infer<typeof annotationSummaryResponseSchema>;

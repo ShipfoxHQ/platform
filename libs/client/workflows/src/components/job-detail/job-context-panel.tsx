@@ -10,7 +10,7 @@ import {
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {useState} from 'react';
-import type {Job, JobExecution} from '#core/workflow-run.js';
+import type {EvaluationTraceEntry, Job, JobExecution} from '#core/workflow-run.js';
 import {formatJobExecutionTime} from './job-execution-time-text.js';
 import {JsonCode} from './json-code.js';
 import {EvaluationTrace} from './step-troubleshooting.js';
@@ -18,7 +18,7 @@ import {EvaluationTrace} from './step-troubleshooting.js';
 export function JobContextPanel({job, execution}: {job: Job; execution: JobExecution}) {
   const runner = execution.runner?.length ? execution.runner : job.runner;
   const outputs = execution.outputs ?? job.outputs;
-  const trace = execution.evaluationTrace?.length ? execution.evaluationTrace : job.evaluationTrace;
+  const trace = [...(job.evaluationTrace ?? []), ...(execution.evaluationTrace ?? [])];
   const statusReason = execution.statusReason ?? job.statusReason;
   const hasTiming = Boolean(execution.queueTime || execution.runTime);
   const hasContext = Boolean(
@@ -57,10 +57,11 @@ function JobContextSheet({
   execution: JobExecution;
   runner: string[] | null;
   outputs: Record<string, unknown> | null;
-  trace: JobExecution['evaluationTrace'];
+  trace: EvaluationTraceEntry[];
   statusReason: JobExecution['statusReason'];
 }) {
   const [open, setOpen] = useState(false);
+  const {conditionTrace, executionNameTrace} = splitJobEvaluationTrace(trace);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -119,18 +120,39 @@ function JobContextSheet({
                 value={execution.triggerEvents}
               />
             ) : null}
-            {trace?.length ? (
-              <div className="flex min-w-0 flex-col gap-tight">
-                <Text size="xs" bold className="text-foreground-neutral-base">
-                  Condition evaluation ({trace.length})
-                </Text>
-                <EvaluationTrace trace={trace} />
-              </div>
+            {executionNameTrace.length ? (
+              <EvaluationTraceSection
+                title={`Execution name evaluation (${executionNameTrace.length})`}
+                trace={executionNameTrace}
+              />
+            ) : null}
+            {conditionTrace.length ? (
+              <EvaluationTraceSection
+                title={`Condition evaluation (${conditionTrace.length})`}
+                trace={conditionTrace}
+              />
             ) : null}
           </div>
         </SheetBody>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function EvaluationTraceSection({
+  title,
+  trace,
+}: {
+  title: string;
+  trace: readonly EvaluationTraceEntry[];
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-tight">
+      <Text size="xs" bold className="text-foreground-neutral-base">
+        {title}
+      </Text>
+      <EvaluationTrace trace={trace} />
+    </div>
   );
 }
 
@@ -194,4 +216,22 @@ function ContextList({
 
 function humanize(value: string): string {
   return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function splitJobEvaluationTrace(trace: readonly EvaluationTraceEntry[]): {
+  conditionTrace: EvaluationTraceEntry[];
+  executionNameTrace: EvaluationTraceEntry[];
+} {
+  const conditionTrace: EvaluationTraceEntry[] = [];
+  const executionNameTrace: EvaluationTraceEntry[] = [];
+
+  for (const entry of trace) {
+    if (!('dropped' in entry) && entry.field === 'job.execution_name') {
+      executionNameTrace.push(entry);
+    } else {
+      conditionTrace.push(entry);
+    }
+  }
+
+  return {conditionTrace, executionNameTrace};
 }

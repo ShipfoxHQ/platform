@@ -77,7 +77,7 @@ function failedStepEntry(): StepListEntryModel {
                 expression: 'inputs["branch"]',
                 roots: ['inputs'],
                 fill_target: 'step-dispatch',
-                evaluated_at: 'step-dispatch',
+                evaluated_at: '2026-06-21T12:04:00.000Z',
                 field: 'branch',
                 value: 'main',
               },

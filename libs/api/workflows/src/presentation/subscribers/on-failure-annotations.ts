@@ -89,8 +89,10 @@ export function onJobTerminatedFailureAnnotation(annotations: AnnotationsInterMo
   return async (payload: WorkflowsJobTerminatedEventDto): Promise<void> => {
     // Step failures already have a step-scoped annotation. Job-scoped annotations
     // are reserved for terminal causes where no step-level failure card exists.
+    const isConditionEvaluationFailure =
+      payload.status === 'skipped' && payload.statusReason === 'condition_errored';
     if (
-      payload.status !== 'failed' ||
+      (payload.status !== 'failed' && !isConditionEvaluationFailure) ||
       !JOB_FAILURE_ANNOTATION_REASONS.has(payload.statusReason ?? '')
     ) {
       return;

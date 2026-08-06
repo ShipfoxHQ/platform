@@ -266,6 +266,36 @@ describe('failure annotations', () => {
     );
   });
 
+  it('projects a condition evaluation error from a skipped job', async () => {
+    const payload = jobTerminatedPayload({status: 'skipped', statusReason: 'condition_errored'});
+    dbMocks.getJobScope.mockResolvedValue({
+      workspaceId: '44444444-4444-4444-8444-444444444444',
+      projectId: '55555555-5555-4555-8555-555555555555',
+      triggerReference: null,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 3});
+    dbMocks.getJobExecutionFailureOrigin.mockResolvedValue({
+      jobExecutionId: payload.jobExecutionId,
+      stepId: '77777777-7777-4777-8777-777777777777',
+      stepName: 'Run tests',
+      stepStatus: 'skipped',
+      stepAttempt: 1,
+      stepError: null,
+      attemptStatus: null,
+      attemptError: null,
+      attemptExitCode: null,
+    });
+
+    await onJobTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: `failure:job:${payload.jobId}`,
+        annotation: expect.objectContaining({op: 'replace', style: 'error'}),
+      }),
+    );
+  });
+
   it('uses the first step as the origin when a job fails before any attempt starts', async () => {
     const payload = jobTerminatedPayload({status: 'failed'});
     dbMocks.getJobScope.mockResolvedValue({

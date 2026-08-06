@@ -91,7 +91,7 @@ export async function getJobExecutionFailureOrigin(
     .where(eq(jobExecutions.id, jobExecutionId))
     .orderBy(
       desc(
-        sql<number>`case when ${steps.status} = 'failed' or ${stepAttempts.status} = 'failed' then 1 else 0 end`,
+        sql<number>`case when ${steps.status} = 'failed' or ${stepAttempts.status} = 'failed' or ${steps.statusReason} = 'condition_errored' then 1 else 0 end`,
       ),
       asc(steps.position),
       asc(steps.id),

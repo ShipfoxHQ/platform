@@ -309,7 +309,8 @@ describe('StepList', () => {
     expect(screen.getByText(`logs for ${deployAttempt.id}`)).toBeInTheDocument();
   });
 
-  test('does not auto-open inspectors for failed landing attempts', () => {
+  test('does not auto-open inspectors for failed landing attempts', async () => {
+    const user = userEvent.setup();
     const firstAttempt = makeAttempt({id: 'failed-attempt-first', status: 'failed'});
     const secondAttempt = makeAttempt({id: 'failed-attempt-second', status: 'failed'});
     const firstJob = makeJob({
@@ -322,10 +323,14 @@ describe('StepList', () => {
     });
 
     function InspectableStepList({job, defaultAttemptId}: {job: Job; defaultAttemptId: string}) {
+      const [inspectorOpenAttemptId, setInspectorOpenAttemptId] = useState<string | null>(null);
+
       return (
         <StepList
           job={job}
           defaultSelectedAttemptId={defaultAttemptId}
+          inspectorOpenAttemptId={inspectorOpenAttemptId}
+          onInspectorOpenChange={setInspectorOpenAttemptId}
           renderExpandedStep={({attemptId}) => <Text size="sm">logs for {attemptId}</Text>}
           renderInspector={(entry) => <Text size="sm">inspector open {entry.id}</Text>}
         />
@@ -337,6 +342,11 @@ describe('StepList', () => {
     );
 
     expect(screen.queryByText(`inspector open ${firstAttempt.id}`)).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('button', {name: `Inspect build, attempt ${firstAttempt.attempt}`}),
+    );
+    expect(screen.getByText(`inspector open ${firstAttempt.id}`)).toBeInTheDocument();
 
     rerender(<InspectableStepList job={secondJob} defaultAttemptId={secondAttempt.id} />);
 

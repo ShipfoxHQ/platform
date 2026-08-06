@@ -1,8 +1,16 @@
 import {configureApiClient} from '@shipfox/client-api';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {render, screen} from '@testing-library/react';
+import {act, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {type ReactNode, useState} from 'react';
+import {useState} from 'react';
 import {
   workflowJob,
   workflowJobExecutionDto,
@@ -28,7 +36,7 @@ describe('StepInspectorSheet', () => {
       fetchImpl: vi.fn(() => new Promise<Response>(() => undefined)),
     });
 
-    renderPanel();
+    await renderPanel();
 
     expect(screen.queryByRole('status', {name: 'Loading troubleshooting details'})).toBeNull();
     await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
@@ -43,7 +51,7 @@ describe('StepInspectorSheet', () => {
       fetchImpl: vi.fn(() => new Promise<Response>(() => undefined)),
     });
 
-    renderPanel();
+    await renderPanel();
 
     expect(screen.queryByRole('alert')).toBeNull();
     await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
@@ -73,7 +81,7 @@ describe('StepInspectorSheet', () => {
       ),
     });
 
-    renderPanel();
+    await renderPanel();
 
     expect(screen.queryByText('Evaluation')).toBeNull();
     await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
@@ -96,7 +104,7 @@ describe('StepInspectorSheet', () => {
       );
     configureApiClient({fetchImpl});
 
-    renderPanel();
+    await renderPanel();
     await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
 
     expect(await screen.findByText('Details unavailable')).toBeInTheDocument();
@@ -104,6 +112,40 @@ describe('StepInspectorSheet', () => {
     expect(await screen.findByRole('region', {name: 'Inputs'})).toBeInTheDocument();
     expect(screen.getAllByText('Resolved configuration')).not.toHaveLength(0);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the annotation link available when the detail request fails', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(() => Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}))),
+    });
+
+    await renderPanel({annotationCount: 2});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Details unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'View 2 annotations'})).toBeInTheDocument();
+  });
+
+  it('does not replace an annotation link with an empty inspector state', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse({
+          step_id: STEP_ID,
+          attempt: 1,
+          authored_config: null,
+          config: null,
+          evaluation_trace: null,
+        }),
+      ),
+    });
+
+    await renderPanel({annotationCount: 2, entry: emptyStepEntry()});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByRole('link', {name: 'View 2 annotations'})).toBeInTheDocument();
+    expect(screen.queryByText('No additional troubleshooting details were recorded.')).toBeNull();
   });
 
   it('does not show current step configuration or evaluation for a historical attempt', async () => {
@@ -120,7 +162,7 @@ describe('StepInspectorSheet', () => {
       ),
     });
 
-    renderPanel();
+    await renderPanel();
     await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
     expect(await screen.findByRole('region', {name: 'Outputs'})).toBeInTheDocument();
 
@@ -130,17 +172,43 @@ describe('StepInspectorSheet', () => {
   });
 });
 
-function renderPanel() {
+async function renderPanel({
+  annotationCount,
+  entry,
+}: {annotationCount?: number; entry?: StepListEntryModel} = {}) {
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
-  const wrapper = ({children}: {children: ReactNode}) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
-  return render(<PanelHarness />, {wrapper});
+  const rootRoute = createRootRoute({component: Outlet});
+  const panelRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
+    component: () => (
+      <QueryClientProvider client={queryClient}>
+        <PanelHarness annotationCount={annotationCount} entry={entry} />
+      </QueryClientProvider>
+    ),
+  });
+  const router = createRouter({
+    history: createMemoryHistory({initialEntries: ['/w/acme/p/platform/runs/run-1']}),
+    routeTree: rootRoute.addChildren([panelRoute]),
+  });
+  await router.load();
+  let result: ReturnType<typeof render> | undefined;
+  await act(() => {
+    result = render(<RouterProvider router={router} />);
+  });
+  if (!result) throw new Error('Step inspector did not render.');
+  return result;
 }
 
-function PanelHarness() {
+function PanelHarness({
+  annotationCount,
+  entry: providedEntry,
+}: {
+  annotationCount?: number | undefined;
+  entry?: StepListEntryModel | undefined;
+}) {
   const [inspectorOpen, setInspectorOpen] = useState(false);
-  const entry = stepEntry();
+  const entry = providedEntry ?? stepEntry();
   return (
     <>
       <button type="button" onClick={() => setInspectorOpen(true)}>
@@ -155,6 +223,7 @@ function PanelHarness() {
         workflowRunId="11111111-1111-4111-8111-111111111111"
         runAttempt={1}
         jobId="44444444-4444-4444-8444-444444444444"
+        annotationCount={annotationCount}
       />
     </>
   );
@@ -195,6 +264,51 @@ function stepEntry(): StepListEntryModel {
                 step_id: STEP_ID,
                 status: 'failed',
                 output: {result: 'failed'},
+                finished_at: '2026-08-05T12:01:00.000Z',
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+  const execution = job.jobExecutions[0];
+  if (!execution) throw new Error('Test fixture is missing an execution.');
+  const entry = buildStepListModel({job, jobExecution: execution}).entries[0];
+  if (!entry) throw new Error('Test fixture is missing a step attempt.');
+
+  return entry;
+}
+
+function emptyStepEntry(): StepListEntryModel {
+  const jobId = '44444444-4444-4444-8444-444444444444';
+  const job = workflowJob({
+    id: jobId,
+    name: 'verification',
+    key: 'verification',
+    status: 'succeeded',
+    job_executions: [
+      workflowJobExecutionDto({
+        id: EXECUTION_ID,
+        job_id: jobId,
+        status: 'succeeded',
+        steps: [
+          workflowStepDto({
+            id: STEP_ID,
+            job_execution_id: EXECUTION_ID,
+            name: 'Run verification',
+            status: 'succeeded',
+            config: {},
+            attempts: [
+              workflowStepAttemptDto({
+                id: ATTEMPT_ID,
+                step_id: STEP_ID,
+                status: 'succeeded',
+                output: null,
+                outputs: null,
+                response: null,
+                error: null,
+                exit_code: 0,
                 finished_at: '2026-08-05T12:01:00.000Z',
               }),
             ],

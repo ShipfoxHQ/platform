@@ -66,7 +66,7 @@ export function emptyStateForJob(
       title: 'Job failed before its first step started',
       description: preStepFailureDescription(
         jobExecution.statusReason ?? job.statusReason,
-        jobExecution.runner ?? job.runner,
+        runner,
       ),
       status: displayStatus,
     };

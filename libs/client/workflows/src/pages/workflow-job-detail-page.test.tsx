@@ -261,6 +261,7 @@ describe('WorkflowJobDetailPage', () => {
               warning: 0,
               info: 0,
               success: 0,
+              step_counts: [],
             }),
           );
         }

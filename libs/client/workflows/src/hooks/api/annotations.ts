@@ -157,7 +157,13 @@ export function workflowRunAnnotationsQueryOptions(
       }),
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     staleTime: 2_000,
-    refetchInterval: enabled && polling ? ANNOTATIONS_REFRESH_INTERVAL_MS : false,
+    refetchInterval:
+      enabled && polling
+        ? (query) => {
+            const pages = query.state.data?.pages;
+            return pages && pages.length > 1 ? false : ANNOTATIONS_REFRESH_INTERVAL_MS;
+          }
+        : false,
   });
 }
 

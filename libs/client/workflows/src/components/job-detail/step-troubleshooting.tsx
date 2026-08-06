@@ -191,6 +191,7 @@ function StepInspector({
   const hasOutputs =
     attempt.outputs !== null || attempt.output !== null || attempt.response !== null;
   const hasTrace = trace !== null && trace.length > 0;
+  const hasAnnotations = annotationCount !== undefined && annotationCount > 0;
   const detailCount = Number(hasInputs) + Number(hasOutputs) + Number(hasTrace);
 
   return (
@@ -262,20 +263,22 @@ function StepInspector({
               <EvaluationTrace trace={trace ?? []} />
             </InspectorSection>
           ) : null}
-          {annotationCount !== undefined && annotationCount > 0 ? (
-            <Link
-              to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
-              params={{workspaceSlug, projectSlug, workflowRunId}}
-              search={workflowRunSearchParams({tab: 'annotations'}, {jobId, runAttempt}) as never}
-              className="inline-flex w-fit rounded-4 text-xs text-foreground-highlight-interactive underline-offset-2 hover:underline focus-visible:shadow-button-neutral-focus"
-            >
-              View {annotationCount} annotation{annotationCount === 1 ? '' : 's'}
-            </Link>
-          ) : null}
-          {detailCount === 0 && !showFailure ? <EmptyInspector /> : null}
+          {detailCount === 0 && !showFailure && !hasAnnotations ? <EmptyInspector /> : null}
         </div>
       ) : null}
-      {!query.isPending && !query.isError && !detail && !showFailure ? <EmptyInspector /> : null}
+      {hasAnnotations ? (
+        <Link
+          to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
+          params={{workspaceSlug, projectSlug, workflowRunId}}
+          search={workflowRunSearchParams({tab: 'annotations'}, {jobId, runAttempt}) as never}
+          className="inline-flex w-fit rounded-4 text-xs text-foreground-highlight-interactive underline-offset-2 hover:underline focus-visible:shadow-button-neutral-focus"
+        >
+          View {annotationCount} annotation{annotationCount === 1 ? '' : 's'}
+        </Link>
+      ) : null}
+      {!query.isPending && !query.isError && !detail && !showFailure && !hasAnnotations ? (
+        <EmptyInspector />
+      ) : null}
     </div>
   );
 }

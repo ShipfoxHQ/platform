@@ -1,6 +1,16 @@
 import {z} from 'zod';
 import {evaluationTraceSchema} from './evaluation-trace.js';
 
+export const STEP_STATUS_REASONS = [
+  'default_gate_rejected',
+  'condition_rejected',
+  'condition_errored',
+] as const;
+
+export const stepStatusReasonSchema = z.enum(STEP_STATUS_REASONS);
+
+export type StepStatusReasonDto = z.infer<typeof stepStatusReasonSchema>;
+
 // Machine-readable cause of a step failure, for DB troubleshooting. The runner
 // reports it and the server stores it as-is. The `checkout_*`, `git_unavailable`,
 // `workspace_prep_failed`, and `setup_aborted` values cover checkout/setup failures.
@@ -87,7 +97,7 @@ export const stepDtoSchema = z.object({
   name: z.string(),
   source_location: stepSourceLocationSchema.nullable(),
   status: z.string(),
-  status_reason: z.string().nullable(),
+  status_reason: stepStatusReasonSchema.nullable(),
   type: z.string(),
   config: z.record(z.string(), z.unknown()),
   evaluation_trace: evaluationTraceSchema.nullable(),

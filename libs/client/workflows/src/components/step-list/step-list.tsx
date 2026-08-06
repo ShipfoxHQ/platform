@@ -245,7 +245,7 @@ function StepListContent({
             asChild
           >
             <ol>
-              {model.entries.map((entry) => {
+              {model.entries.map((entry, index) => {
                 const selected = selectedAttemptIds.includes(entry.id);
                 return (
                   <StepRow
@@ -253,6 +253,7 @@ function StepListContent({
                     entry={entry}
                     selected={selected}
                     hasExpandedContent={hasExpandedContent}
+                    isLast={index === model.entries.length - 1}
                     onSelect={() => {
                       selectAttempt(
                         hasExpandedContent
@@ -350,6 +351,7 @@ function StepRow({
   entry,
   selected,
   hasExpandedContent,
+  isLast,
   onSelect,
   onInspect,
   expandedContent,
@@ -357,6 +359,7 @@ function StepRow({
   entry: StepListEntryModel;
   selected: boolean;
   hasExpandedContent: boolean;
+  isLast: boolean;
   onSelect: () => void;
   onInspect?: (() => void) | undefined;
   expandedContent: ReactNode;
@@ -424,7 +427,10 @@ function StepRow({
         className={cn(
           'group flex min-w-0 items-center transition-colors hover:bg-background-components-hover active:bg-background-components-pressed',
           selected && 'bg-background-components-hover',
-          !hasExpandedContent && 'border-b border-border-neutral-base',
+          !hasExpandedContent && [
+            'border-b border-border-neutral-base',
+            isLast && 'border-b-0',
+          ],
         )}
       >
         <div className="min-w-0 flex-1">{triggerNode}</div>
@@ -460,7 +466,7 @@ function StepRow({
     );
   }
 
-  return <li className="last:border-b-0">{row}</li>;
+  return <li>{row}</li>;
 }
 
 function CarriedOverBadge() {

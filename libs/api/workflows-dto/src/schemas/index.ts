@@ -62,6 +62,7 @@ export {
   type AgentConfigIssueDto,
   agentConfigIssueSchema,
   STEP_ERROR_MESSAGE_MAX_LENGTH,
+  STEP_STATUS_REASONS,
   type StepAttemptDetailDto,
   type StepAttemptDto,
   type StepDto,
@@ -69,6 +70,7 @@ export {
   type StepErrorDto,
   type StepErrorReasonDto,
   type StepGateResultDto,
+  type StepStatusReasonDto,
   stepAttemptDetailDtoSchema,
   stepAttemptDtoSchema,
   stepDtoSchema,
@@ -76,6 +78,7 @@ export {
   stepErrorDtoSchema,
   stepErrorReasonSchema,
   stepGateResultDtoSchema,
+  stepStatusReasonSchema,
 } from './step.js';
 export {
   type RerunWorkflowRunBodyDto,
