@@ -134,8 +134,15 @@ export class JobNotFoundError extends Error {
 }
 
 export class InvalidJobRunnerLabelsError extends Error {
-  constructor(readonly labels: readonly string[]) {
-    super(`Job runner labels are invalid: ${labels.join(', ')}`);
+  constructor(
+    readonly labels: readonly string[],
+    readonly requestedLabels: readonly string[] = labels,
+  ) {
+    const requestedSuffix =
+      requestedLabels.join(', ') === labels.join(', ')
+        ? ''
+        : ` (requested: ${requestedLabels.join(', ')})`;
+    super(`Job runner labels are invalid: ${labels.join(', ')}${requestedSuffix}`);
     this.name = 'InvalidJobRunnerLabelsError';
   }
 }

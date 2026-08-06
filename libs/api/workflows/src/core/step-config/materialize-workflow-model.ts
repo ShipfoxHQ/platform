@@ -1,5 +1,6 @@
 import {DEFAULT_JOB_CHECKOUT, type WorkflowModel} from '@shipfox/api-definitions-dto';
-import {canonicalizeLabels, findInvalidLabels, MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
+import {findInvalidLabels, MAX_RUNNER_LABELS, resolveRunnerLabels} from '@shipfox/runner-labels';
+import {runnerCatalog} from '#config.js';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import type {
   AgentToolMaterializationContext,
@@ -112,10 +113,11 @@ export function materializeJobRunner(params: {
       definitionId: params.definitionId,
     }),
   );
-  const labels = canonicalizeLabels([...params.job.runner, ...resolvedLabels]);
+  const requestedLabels = [...params.job.runner, ...resolvedLabels];
+  const labels = resolveRunnerLabels(requestedLabels, runnerCatalog);
   const invalidLabels = findInvalidLabels(labels);
   if (labels.length === 0 || labels.length > MAX_RUNNER_LABELS || invalidLabels.length > 0) {
-    throw new InvalidJobRunnerLabelsError(labels);
+    throw new InvalidJobRunnerLabelsError(labels, requestedLabels);
   }
   return labels;
 }
