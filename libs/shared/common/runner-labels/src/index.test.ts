@@ -130,8 +130,21 @@ describe('parseRunnerCatalog', () => {
     expect(parse).toThrow('must be an object');
   });
 
+  it.each([new Map(), new Date()])('rejects non-plain object input', (value) => {
+    const parse = () => parseRunnerCatalog(value);
+
+    expect(parse).toThrow('must be an object');
+  });
+
   it('rejects an entry whose labels are not strings', () => {
     const parse = () => parseRunnerCatalog({name: ['label', 1]});
+
+    expect(parse).toThrow('list of labels');
+  });
+
+  it('rejects sparse label arrays', () => {
+    const sparseLabels = new Array<string>(1);
+    const parse = () => parseRunnerCatalog({name: sparseLabels});
 
     expect(parse).toThrow('list of labels');
   });
