@@ -15,6 +15,7 @@ export interface CreateEc2ProvisionerAdapterOptions {
   readonly engine: Ec2Engine;
   readonly templates: readonly ProvisionerTemplate<Ec2TemplateSpec>[];
   readonly registrationDeadlineMs: number;
+  readonly launchHeadroomMs: number;
   readonly reconcileIntervalMs: number;
 }
 
@@ -29,8 +30,9 @@ export function createEc2ProvisionerAdapter(
 
   return {
     loadTemplates: () => Promise.resolve(options.templates),
-    reservationTtlSeconds: reservationTtlSecondsFromRegistrationDeadline(
+    reservationTtlSeconds: reservationTtlSecondsFromLaunchBudget(
       options.registrationDeadlineMs,
+      options.launchHeadroomMs,
     ),
     launch: (launch) => requireLifecycle(lifecycle).launch(launch),
     terminate: (ids) => requireLifecycle(lifecycle).terminate(ids),
@@ -53,13 +55,17 @@ export function startEc2Provisioner(): Promise<void> {
       engine,
       templates,
       registrationDeadlineMs: config.SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS,
+      launchHeadroomMs: config.SHIPFOX_PROVISIONER_EC2_LAUNCH_HEADROOM_MS,
       reconcileIntervalMs: config.SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS,
     }),
   });
 }
 
-function reservationTtlSecondsFromRegistrationDeadline(registrationDeadlineMs: number): number {
-  return Math.ceil(registrationDeadlineMs / 1000);
+function reservationTtlSecondsFromLaunchBudget(
+  registrationDeadlineMs: number,
+  launchHeadroomMs: number,
+): number {
+  return Math.ceil((registrationDeadlineMs + launchHeadroomMs) / 1000);
 }
 
 function createLifecycle(

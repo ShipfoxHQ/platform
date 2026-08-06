@@ -29,14 +29,16 @@ const engine: Ec2Engine = {
 
 describe('createEc2ProvisionerAdapter', () => {
   it.each([
-    [300_000, 300],
-    [300_001, 301],
-    [1, 1],
-  ])('derives a reservation TTL from a %d ms registration deadline', (registrationDeadlineMs, reservationTtlSeconds) => {
+    [300_000, 330],
+    [600_000, 630],
+    [300_001, 331],
+    [1, 31],
+  ])('derives a reservation TTL with launch headroom from a %d ms registration deadline', (registrationDeadlineMs, reservationTtlSeconds) => {
     const adapter = createEc2ProvisionerAdapter({
       engine,
       templates: [template],
       registrationDeadlineMs,
+      launchHeadroomMs: 30_000,
       reconcileIntervalMs: 60_000,
     });
 
