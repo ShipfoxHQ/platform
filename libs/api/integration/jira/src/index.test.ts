@@ -31,6 +31,17 @@ describe('createJiraIntegrationProvider', () => {
       }),
     ).toThrow('requires all webhook receiver dependencies');
   });
+
+  it('exposes explicit connection cleanup without requiring routes', () => {
+    const deleteConnectionRecords = vi.fn(() => Promise.resolve());
+    const deleteConnectionSecrets = vi.fn(() => Promise.resolve());
+    const provider = createJiraIntegrationProvider({
+      cleanup: {deleteConnectionRecords, deleteConnectionSecrets},
+    });
+
+    expect(provider.deleteConnectionRecords).toBe(deleteConnectionRecords);
+    expect(provider.deleteConnectionSecrets).toBe(deleteConnectionSecrets);
+  });
 });
 
 describe('createJiraMaintenanceWorker', () => {

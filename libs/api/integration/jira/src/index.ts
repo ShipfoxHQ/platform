@@ -126,6 +126,7 @@ export {
   updateJiraInstallationWebhook,
   upsertJiraInstallation,
   withJiraRefreshLock,
+  withJiraRefreshLockAndWait,
   withJiraWebhookRegistrationLock,
 } from '#db/installations.js';
 export type {CreateJiraWebhookRoutesOptions} from '#presentation/routes/webhooks.js';

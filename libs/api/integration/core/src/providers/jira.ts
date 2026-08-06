@@ -36,6 +36,7 @@ async function loadJiraModuleParts(
     jiraSecretsNamespace,
     migrationsPath,
     upsertJiraInstallation,
+    withJiraRefreshLockAndWait,
   } = await import('@shipfox/api-integration-jira');
 
   async function getExistingJiraConnection(input: {
@@ -151,11 +152,13 @@ async function loadJiraModuleParts(
         await deleteJiraInstallationByConnectionId(connection.id, {tx});
       },
       deleteConnectionSecrets: async (connection) => {
-        // Scoped secrets accept the provider-local suffix, after this helper validates its prefix.
-        await (options.secrets?.jira?.deleteSecrets({
-          workspaceId: connection.workspaceId,
-          namespace: jiraNamespaceSuffix(jiraSecretsNamespace(connection.id)),
-        }) ?? Promise.resolve());
+        await withJiraRefreshLockAndWait(connection.id, async () => {
+          // Scoped secrets accept the provider-local suffix, after this helper validates its prefix.
+          await (options.secrets?.jira?.deleteSecrets({
+            workspaceId: connection.workspaceId,
+            namespace: jiraNamespaceSuffix(jiraSecretsNamespace(connection.id)),
+          }) ?? Promise.resolve());
+        });
       },
     },
     routes: {
