@@ -5,6 +5,7 @@ import {mapJiraError} from './client.js';
 const mocks = vi.hoisted(() => ({
   delete: vi.fn(),
   post: vi.fn(),
+  put: vi.fn(),
   request: vi.fn(),
   warn: vi.fn(),
 }));
@@ -31,7 +32,11 @@ vi.mock('ky', () => {
     }
   }
   return {
-    default: Object.assign(mocks.request, {delete: mocks.delete, post: mocks.post}),
+    default: Object.assign(mocks.request, {
+      delete: mocks.delete,
+      post: mocks.post,
+      put: mocks.put,
+    }),
     HTTPError: MockHTTPError,
     TimeoutError: MockTimeoutError,
   };
@@ -80,13 +85,17 @@ describe('mapJiraError', () => {
 });
 
 function resolves(data: unknown) {
-  return {json: () => Promise.resolve(data)};
+  return {
+    json: () => Promise.resolve(data),
+    text: () => Promise.resolve(data === undefined ? '' : JSON.stringify(data)),
+  };
 }
 
 describe('Jira dynamic webhook API', () => {
   beforeEach(() => {
     mocks.delete.mockReset();
     mocks.post.mockReset();
+    mocks.put.mockReset();
     mocks.request.mockReset();
     mocks.warn.mockReset();
   });
@@ -321,6 +330,57 @@ describe('Jira dynamic webhook API', () => {
         json: {webhookIds: [123]},
       }),
     );
+  });
+
+  it('refreshes dynamic webhooks and returns the provider expiration date', async () => {
+    const expirationDate = '2030-01-31T00:00:00.000Z';
+    mocks.put.mockReturnValue(resolves({expirationDate}));
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().refreshDynamicWebhooks({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        webhookIds: [123, 456],
+      }),
+    ).resolves.toEqual(new Date(expirationDate));
+
+    expect(mocks.put).toHaveBeenCalledWith(
+      'http://127.0.0.1:0/ex/jira/cloud-1/rest/api/3/webhook/refresh',
+      expect.objectContaining({
+        headers: {authorization: 'Bearer access-token'},
+        json: {webhookIds: [123, 456]},
+      }),
+    );
+  });
+
+  it.each([
+    {},
+    undefined,
+  ])('returns undefined for an empty refresh response: %j', async (response) => {
+    mocks.put.mockReturnValue(resolves(response));
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().refreshDynamicWebhooks({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        webhookIds: [123],
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it.each([400, 404])('treats refresh HTTP %i as a signal to re-register', async (status) => {
+    mocks.put.mockImplementation(rejectedRequest(status));
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().refreshDynamicWebhooks({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        webhookIds: [123],
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 

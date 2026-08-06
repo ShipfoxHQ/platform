@@ -19,6 +19,7 @@ export interface RegisterJiraWebhookParams {
   getInstallation?: typeof getJiraInstallationByConnectionId;
   updateInstallation?: typeof updateJiraInstallationWebhook;
   withRegistrationLock?: JiraInstallationLock;
+  replaceExistingWebhooks?: boolean | undefined;
   onRegistrationSuccess?: (input: {tx?: unknown}) => Promise<void>;
   onRegistrationFailure?: (input: {tx?: unknown}) => Promise<void>;
 }
@@ -51,7 +52,9 @@ export async function registerJiraWebhook(
         const updateInstallation = params.updateInstallation ?? updateJiraInstallationWebhook;
         const updateInput = {
           connectionId: params.connectionId,
-          webhookIds: [...new Set([registration.webhookId, ...(previous?.webhookIds ?? [])])],
+          webhookIds: params.replaceExistingWebhooks
+            ? [registration.webhookId]
+            : [...new Set([registration.webhookId, ...(previous?.webhookIds ?? [])])],
           webhookExpiresAt,
         };
         const installation = await updateInstallation(updateInput);
@@ -66,6 +69,7 @@ export async function registerJiraWebhook(
             previous,
             registration.webhookId,
             webhookExpiresAt,
+            params.replaceExistingWebhooks === true,
           );
         return {webhookId: registration.webhookId, webhookExpiresAt};
       } catch (error) {
@@ -127,6 +131,7 @@ async function finishSupersededWebhookCleanup(
   previous: Awaited<ReturnType<typeof getJiraInstallationByConnectionId>>,
   registeredWebhookId: number,
   webhookExpiresAt: Date,
+  replaceExistingWebhooks: boolean,
 ): Promise<void> {
   const supersededWebhookIds = (previous?.webhookIds ?? []).filter(
     (webhookId) => webhookId !== registeredWebhookId,
@@ -150,7 +155,9 @@ async function finishSupersededWebhookCleanup(
     }
   }
 
-  const retainedWebhookIds = [registeredWebhookId, ...failedCleanupIds];
+  const retainedWebhookIds = replaceExistingWebhooks
+    ? [registeredWebhookId]
+    : [registeredWebhookId, ...failedCleanupIds];
   const updateInstallation = params.updateInstallation ?? updateJiraInstallationWebhook;
   const cleanupMetadata = await updateInstallation({
     connectionId: params.connectionId,

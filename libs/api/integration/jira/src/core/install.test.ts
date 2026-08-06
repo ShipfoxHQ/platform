@@ -21,6 +21,8 @@ function createParams() {
     getMyself: vi.fn().mockResolvedValue({accountId: 'account-1'}),
     refreshAccessToken: vi.fn(),
     registerDynamicWebhook: vi.fn(),
+    refreshDynamicWebhooks: vi.fn(),
+    deleteDynamicWebhooks: vi.fn(),
     deleteDynamicWebhook: vi.fn(),
   };
   const tokenStore = {storeTokens: vi.fn().mockResolvedValue(undefined)};

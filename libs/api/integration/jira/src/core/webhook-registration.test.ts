@@ -275,6 +275,38 @@ describe('registerJiraWebhook', () => {
     expect(deleteDynamicWebhook).toHaveBeenCalledTimes(2);
   });
 
+  it('replaces stale webhook metadata when requested by renewal', async () => {
+    const updateInstallation = vi
+      .fn()
+      .mockResolvedValueOnce({id: 'installation-1'})
+      .mockResolvedValueOnce({id: 'installation-1'});
+    const deleteDynamicWebhook = vi.fn().mockRejectedValue(new Error('webhook is gone'));
+
+    await registerJiraWebhook({
+      jira: {
+        registerDynamicWebhook: vi.fn().mockResolvedValue({webhookId: 456}),
+        deleteDynamicWebhook,
+      },
+      connectionId: 'connection-1',
+      cloudId: 'cloud-1',
+      accessToken: 'access-token',
+      webhookUrl: 'https://shipfox.example.com/webhooks/integrations/jira/connection-1',
+      getInstallation: vi.fn().mockResolvedValue({webhookIds: [123]}),
+      updateInstallation,
+      withRegistrationLock: runInlineRegistrationLock,
+      replaceExistingWebhooks: true,
+    });
+
+    expect(updateInstallation).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({webhookIds: [456]}),
+    );
+    expect(updateInstallation).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({webhookIds: [456]}),
+    );
+  });
+
   it('keeps conservative metadata when failed cleanup cannot be persisted', async () => {
     const updateInstallation = vi
       .fn()

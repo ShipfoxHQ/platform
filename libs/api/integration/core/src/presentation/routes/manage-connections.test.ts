@@ -111,6 +111,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
   });
 
   it('runs provider cleanup hooks while retaining ownership of the core row', async () => {
+    const deleteConnectionRemoteResources = vi.fn(() => Promise.resolve(undefined));
     const deleteConnectionRecords = vi.fn(() => Promise.resolve());
     const deleteConnectionSecrets = vi.fn(() => Promise.resolve());
     const app = await createTestApp([
@@ -118,6 +119,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
         provider: 'slack',
         displayName: 'Slack',
         adapters: {},
+        deleteConnectionRemoteResources,
         deleteConnectionRecords,
         deleteConnectionSecrets,
       }),
@@ -137,10 +139,57 @@ describe('DELETE /integration-connections/:connectionId', () => {
     });
 
     expect(res.statusCode).toBe(204);
+    expect(deleteConnectionRemoteResources).toHaveBeenCalledWith(connection);
     expect(deleteConnectionRecords).toHaveBeenCalledWith(connection, {
       tx: expect.anything(),
     });
     expect(deleteConnectionSecrets).toHaveBeenCalledWith(connection);
+    await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
+  });
+
+  it('runs prepared remote cleanup after the local deletion commits', async () => {
+    const events: string[] = [];
+    const deleteConnectionRemoteResources = vi.fn(() => {
+      events.push('prepare');
+      return Promise.resolve(async () => {
+        events.push('remote');
+        await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
+      });
+    });
+    const deleteConnectionRecords = vi.fn(() => {
+      events.push('records');
+      return Promise.resolve();
+    });
+    const deleteConnectionSecrets = vi.fn(() => {
+      events.push('secrets');
+      return Promise.resolve();
+    });
+    const app = await createTestApp([
+      sourceProvider({
+        provider: 'slack',
+        displayName: 'Slack',
+        adapters: {},
+        deleteConnectionRemoteResources,
+        deleteConnectionRecords,
+        deleteConnectionSecrets,
+      }),
+    ]);
+    const connection = await upsertIntegrationConnection({
+      workspaceId: context.workspaceId,
+      provider: 'slack',
+      externalAccountId: 'T123',
+      slug: 'slack_acme',
+      displayName: 'Slack Acme',
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(events).toEqual(['prepare', 'records', 'remote', 'secrets']);
     await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
   });
 
@@ -174,6 +223,37 @@ describe('DELETE /integration-connections/:connectionId', () => {
       id: connection.id,
     });
     expect(deleteConnectionSecrets).not.toHaveBeenCalled();
+  });
+
+  it('continues connection deletion when remote cleanup fails', async () => {
+    const deleteConnectionRemoteResources = vi.fn(() =>
+      Promise.reject(new Error('remote cleanup failed')),
+    );
+    const app = await createTestApp([
+      sourceProvider({
+        provider: 'slack',
+        displayName: 'Slack',
+        adapters: {},
+        deleteConnectionRemoteResources,
+      }),
+    ]);
+    const connection = await upsertIntegrationConnection({
+      workspaceId: context.workspaceId,
+      provider: 'slack',
+      externalAccountId: 'T123',
+      slug: 'slack_acme',
+      displayName: 'Slack Acme',
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(deleteConnectionRemoteResources).toHaveBeenCalledWith(connection);
+    await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
   });
 
   it('deletes the connection when provider secret cleanup fails after commit', async () => {

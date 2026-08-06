@@ -25,19 +25,25 @@ async function loadJiraModuleParts(
   options: Parameters<IntegrationProviderModule['load']>[0] = {},
 ): Promise<IntegrationModuleParts> {
   const {
+    createJiraApiClient,
     createJiraIntegrationProvider,
     createJiraMaintenanceWorker,
     createJiraPendingSelectionStore,
     createJiraTokenStore,
     db: jiraDb,
+    deregisterJiraWebhooks,
     deleteJiraInstallationByConnectionId,
     disconnectJiraInstallation: disconnectJiraInstallationRecords,
     getJiraInstallationByCloudId,
+    getJiraInstallationByConnectionId,
     jiraSecretsNamespace,
+    jiraWebhookUrl,
     migrationsPath,
+    prepareJiraWebhookDeregistration,
     upsertJiraInstallation,
     withJiraRefreshLockAndWait,
   } = await import('@shipfox/api-integration-jira');
+  const jira = createJiraApiClient();
 
   async function getExistingJiraConnection(input: {
     cloudId: string;
@@ -103,6 +109,13 @@ async function loadJiraModuleParts(
           ...params,
           namespace: jiraNamespaceSuffix(params.namespace),
         }) ?? Promise.resolve(0),
+      deregisterWebhooks: () =>
+        deregisterJiraWebhooks({
+          connectionId: input.connectionId,
+          getInstallation: getJiraInstallationByConnectionId,
+          tokenStore,
+          jira,
+        }),
       transaction: (fn) => db().transaction((tx) => fn(tx)),
       deleteConnection: (params, transactionOptions) =>
         deleteIntegrationConnection({id: params.connectionId}, transactionOptions),
@@ -134,6 +147,7 @@ async function loadJiraModuleParts(
       }
     : fallbackSecrets;
   const tokenStore = createJiraTokenStore({
+    client: jira,
     resolveConnection: getIntegrationConnectionById,
     secrets,
     markConnectionError: async ({connectionId}) => {
@@ -146,8 +160,17 @@ async function loadJiraModuleParts(
   const pendingStore = createJiraPendingSelectionStore({secrets});
 
   const integrationProvider = createJiraIntegrationProvider({
+    jira,
     agentTools: {tokenStore},
     cleanup: {
+      deleteConnectionRemoteResources: async (connection) => {
+        return await prepareJiraWebhookDeregistration({
+          connectionId: connection.id,
+          getInstallation: getJiraInstallationByConnectionId,
+          tokenStore,
+          jira,
+        });
+      },
       deleteConnectionRecords: async (connection, {tx}) => {
         await deleteJiraInstallationByConnectionId(connection.id, {tx});
       },
@@ -199,8 +222,10 @@ async function loadJiraModuleParts(
     provider: integrationProvider,
     workers: [
       createJiraMaintenanceWorker({
+        jira,
         tokenStore,
         resolveConnection: getIntegrationConnectionById,
+        webhookUrlForConnection: jiraWebhookUrl,
       }),
     ],
     webhookProcessors: integrationProvider.webhookProcessors,

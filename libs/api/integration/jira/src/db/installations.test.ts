@@ -8,10 +8,12 @@ import {
   getJiraInstallationByConnectionId,
   getJiraInstallationByWebhookId,
   listJiraInstallationsDueForTokenRefresh,
+  listJiraInstallationsDueForWebhookRenewal,
   markJiraInstallationRevoked,
   markJiraInstallationTokenRefreshAttempt,
   updateJiraInstallationTokenExpiry,
   updateJiraInstallationWebhook,
+  updateJiraInstallationWebhookIfUnchanged,
   upsertJiraInstallation,
   withJiraWebhookRegistrationLock,
 } from './installations.js';
@@ -94,6 +96,32 @@ describe('jira installations', () => {
     });
 
     expect(result).toMatchObject({webhookIds: [654], webhookExpiresAt});
+  });
+
+  it('only updates webhook metadata when the refreshed ids are still current', async () => {
+    const input = createInstallationInput({webhookIds: [123], webhookExpiresAt: new Date()});
+    await upsertJiraInstallation(input);
+
+    await expect(
+      updateJiraInstallationWebhookIfUnchanged({
+        connectionId: input.connectionId,
+        expectedWebhookIds: [456],
+        webhookIds: [789],
+        webhookExpiresAt: new Date('2026-08-31T00:00:00.000Z'),
+      }),
+    ).resolves.toBeUndefined();
+    await expect(getJiraInstallationByConnectionId(input.connectionId)).resolves.toMatchObject({
+      webhookIds: [123],
+    });
+
+    await expect(
+      updateJiraInstallationWebhookIfUnchanged({
+        connectionId: input.connectionId,
+        expectedWebhookIds: [123],
+        webhookIds: [789],
+        webhookExpiresAt: new Date('2026-08-31T00:00:00.000Z'),
+      }),
+    ).resolves.toMatchObject({webhookIds: [789]});
   });
 
   it('refuses to repoint a connection to a different Jira site', async () => {
@@ -180,6 +208,39 @@ describe('jira installations', () => {
     );
     expect(result.map((installation) => installation.connectionId)).not.toContain(
       fresh.connectionId,
+    );
+    expect(result.map((installation) => installation.connectionId)).not.toContain(
+      revoked.connectionId,
+    );
+  });
+
+  it('lists only installed installations whose webhooks are nearing expiry', async () => {
+    const due = createInstallationInput({
+      webhookExpiresAt: new Date('2026-08-05T00:00:00.000Z'),
+    });
+    const fresh = createInstallationInput({
+      webhookExpiresAt: new Date('2026-08-20T00:00:00.000Z'),
+    });
+    const missingExpiry = createInstallationInput({webhookExpiresAt: null});
+    const revoked = createInstallationInput({
+      webhookExpiresAt: new Date('2026-08-05T00:00:00.000Z'),
+      status: 'revoked',
+    });
+    await upsertJiraInstallation(due);
+    await upsertJiraInstallation(fresh);
+    await upsertJiraInstallation(missingExpiry);
+    await upsertJiraInstallation(revoked);
+
+    const result = await listJiraInstallationsDueForWebhookRenewal({
+      before: new Date('2026-08-07T00:00:00.000Z'),
+    });
+
+    expect(result.map((installation) => installation.connectionId)).toContain(due.connectionId);
+    expect(result.map((installation) => installation.connectionId)).not.toContain(
+      fresh.connectionId,
+    );
+    expect(result.map((installation) => installation.connectionId)).not.toContain(
+      missingExpiry.connectionId,
     );
     expect(result.map((installation) => installation.connectionId)).not.toContain(
       revoked.connectionId,

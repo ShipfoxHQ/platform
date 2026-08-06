@@ -33,6 +33,8 @@ function createStore() {
     getAccessibleResources: vi.fn(),
     getMyself: vi.fn(),
     registerDynamicWebhook: vi.fn(),
+    refreshDynamicWebhooks: vi.fn(),
+    deleteDynamicWebhooks: vi.fn(),
     deleteDynamicWebhook: vi.fn(),
   };
   const markConnectionError = vi.fn().mockResolvedValue(undefined);
