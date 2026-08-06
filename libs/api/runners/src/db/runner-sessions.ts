@@ -59,33 +59,44 @@ export async function createRunnerSessionConsumingActivationToken(params: {
   toolCapabilities?: RunnerToolCapabilitiesDto | null;
 }) {
   return await db().transaction(async (tx) => {
-    const [token] = await tx
+    const [runner] = await tx
       .select({
-        id: runnerActivationTokens.id,
-        runnerInstanceId: runnerActivationTokens.runnerInstanceId,
+        activationTokenId: runnerActivationTokens.id,
+        runnerInstanceId: providerRunners.id,
         workspaceId: providerRunners.workspaceId,
         provisionerId: providerRunners.provisionerId,
         providerRunnerId: providerRunners.providerRunnerId,
+        runnerSessionId: providerRunners.runnerSessionId,
       })
       .from(runnerActivationTokens)
       .innerJoin(providerRunners, eq(providerRunners.id, runnerActivationTokens.runnerInstanceId))
+      .where(eq(runnerActivationTokens.id, params.activationTokenId))
+      .limit(1)
+      .for('update', {of: providerRunners});
+    if (!runner?.workspaceId || !runner.providerRunnerId || runner.runnerSessionId)
+      throw new Error('Runner activation token is invalid, expired, or has already been used');
+
+    const [activationToken] = await tx
+      .select({id: runnerActivationTokens.id})
+      .from(runnerActivationTokens)
       .where(
         and(
-          eq(runnerActivationTokens.id, params.activationTokenId),
+          eq(runnerActivationTokens.id, runner.activationTokenId),
+          eq(runnerActivationTokens.runnerInstanceId, runner.runnerInstanceId),
           isNull(runnerActivationTokens.consumedAt),
           isNull(runnerActivationTokens.revokedAt),
           gt(runnerActivationTokens.expiresAt, sql`now()`),
-          isNull(providerRunners.runnerSessionId),
         ),
       )
       .limit(1)
       .for('update');
-    if (!token?.workspaceId || !token.providerRunnerId)
+    if (!activationToken)
       throw new Error('Runner activation token is invalid, expired, or has already been used');
+
     const [provisioner] = await tx
       .select({scope: provisionerTokens.scope})
       .from(provisionerTokens)
-      .where(eq(provisionerTokens.id, token.provisionerId))
+      .where(eq(provisionerTokens.id, runner.provisionerId))
       .limit(1);
     const labels = sanitizeRunnerLabelsOrThrow(params.labels, {
       scope: provisioner?.scope ?? 'workspace',
@@ -95,13 +106,13 @@ export async function createRunnerSessionConsumingActivationToken(params: {
     const [session] = await tx
       .insert(runnerSessions)
       .values({
-        workspaceId: token.workspaceId,
+        workspaceId: runner.workspaceId,
         scope: 'workspace',
-        registrationTokenId: token.id,
+        registrationTokenId: activationToken.id,
         registrationTokenKind: 'activation',
-        runnerInstanceId: token.runnerInstanceId,
-        provisionerId: token.provisionerId,
-        providerRunnerId: token.providerRunnerId,
+        runnerInstanceId: runner.runnerInstanceId,
+        provisionerId: runner.provisionerId,
+        providerRunnerId: runner.providerRunnerId,
         labels,
         toolCapabilities: params.toolCapabilities ?? null,
         toolCapabilitiesReportedAt: params.toolCapabilities ? sql`now()` : null,
@@ -113,13 +124,13 @@ export async function createRunnerSessionConsumingActivationToken(params: {
     await tx
       .update(runnerActivationTokens)
       .set({consumedAt: sql`now()`, consumedSessionId: session.id})
-      .where(eq(runnerActivationTokens.id, token.id));
+      .where(eq(runnerActivationTokens.id, activationToken.id));
     await tx
       .update(providerRunners)
       .set({runnerSessionId: session.id, updatedAt: sql`now()`})
       .where(
         and(
-          eq(providerRunners.id, token.runnerInstanceId),
+          eq(providerRunners.id, runner.runnerInstanceId),
           isNull(providerRunners.runnerSessionId),
         ),
       );
@@ -128,7 +139,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
       .set({closedAt: sql`now()`, closeReason: 'activated'})
       .where(
         and(
-          eq(runnerControlSessions.runnerInstanceId, token.runnerInstanceId),
+          eq(runnerControlSessions.runnerInstanceId, runner.runnerInstanceId),
           isNull(runnerControlSessions.closedAt),
         ),
       );

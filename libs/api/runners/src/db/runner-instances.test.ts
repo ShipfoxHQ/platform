@@ -231,6 +231,77 @@ describe('reportRunnerInstances', () => {
     expect(rows[0]?.reason).toBe('fresh');
   });
 
+  it('preserves a rebound reservation through stale reports and releases it on termination', async () => {
+    const staleReservationId = await createReservation(1);
+    await db()
+      .update(reservations)
+      .set({expiresAt: new Date(Date.now() - 60_000)})
+      .where(eq(reservations.id, staleReservationId));
+    const reboundReservationId = await createReservation(2);
+    const initialReportedAt = new Date(Date.now() - 120_000);
+    const runningReportedAt = new Date(Date.now() - 60_000);
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'rebound-runner',
+      reservationId: reboundReservationId,
+      state: 'running',
+      reportedAt: initialReportedAt,
+    });
+
+    const runningReport = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: 'rebound-runner',
+          reservationId: staleReservationId,
+          reportedAt: runningReportedAt,
+        }),
+      ],
+    });
+    const terminalReport = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: 'rebound-runner',
+          reservationId: staleReservationId,
+          state: 'failed',
+          reportedAt: new Date(runningReportedAt.getTime() + 1_000),
+        }),
+      ],
+    });
+
+    const [runner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, 'rebound-runner'));
+    const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
+    expect(runningReport).toEqual({
+      accepted: 1,
+      reservationsReleased: 0,
+      terminateIntentsHonored: [],
+    });
+    expect(terminalReport).toEqual({
+      accepted: 1,
+      reservationsReleased: 1,
+      terminateIntentsHonored: [],
+    });
+    expect(runner).toMatchObject({
+      reservationId: reboundReservationId,
+      reservationReleasedAt: expect.any(Date),
+    });
+    expect(
+      reservationRows.find((reservation) => reservation.id === reboundReservationId)?.count,
+    ).toBe(1);
+    expect(
+      reservationRows.find((reservation) => reservation.id === staleReservationId)?.count,
+    ).toBe(1);
+  });
+
   it('does not let equal-timestamp lower-priority reports flip terminal state', async () => {
     const reservationId = await createReservation(1);
     const reportedAt = new Date('2025-01-01T00:00:00.000Z');
