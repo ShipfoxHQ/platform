@@ -1,5 +1,5 @@
 import {type AnnotationStyleDto, READ_ANNOTATIONS_MAX_LIMIT} from '@shipfox/annotations-dto';
-import {and, asc, eq, gt, inArray, or, type SQL, sql} from 'drizzle-orm';
+import {and, asc, count, eq, gt, inArray, or, type SQL, sql} from 'drizzle-orm';
 import type {Annotation} from '#core/entities/annotation.js';
 import {db} from './db.js';
 import {annotations, toAnnotation} from './schema/annotations.js';
@@ -59,6 +59,89 @@ export async function listAnnotationsForRunAttempt(
     hasMore: rows.length > limit,
     nextCursor: rows.length > limit && last ? {sequence: last.sequence, id: last.id} : null,
   };
+}
+
+export interface AnnotationSummary {
+  total: number;
+  error: number;
+  warning: number;
+  info: number;
+  success: number;
+  stepCounts: Array<{
+    originStepId: string;
+    originStepAttempt: number;
+    total: number;
+  }>;
+}
+
+export interface SummarizeAnnotationsForRunAttemptParams {
+  workflowRunId: string;
+  workflowRunAttempt: number;
+  workspaceIds: readonly string[];
+  jobExecutionId?: string | undefined;
+}
+
+/** Count annotation styles without reading any annotation bodies. */
+export async function summarizeAnnotationsForRunAttempt(
+  params: SummarizeAnnotationsForRunAttemptParams,
+): Promise<AnnotationSummary> {
+  const summary: AnnotationSummary = {
+    total: 0,
+    error: 0,
+    warning: 0,
+    info: 0,
+    success: 0,
+    stepCounts: [],
+  };
+  if (params.workspaceIds.length === 0) return summary;
+
+  const conditions: SQL[] = [
+    eq(annotations.workflowRunId, params.workflowRunId),
+    eq(annotations.workflowRunAttempt, params.workflowRunAttempt),
+    inArray(annotations.workspaceId, [...params.workspaceIds]),
+  ];
+  if (params.jobExecutionId) {
+    conditions.push(eq(annotations.jobExecutionId, params.jobExecutionId));
+  }
+
+  const {rows, stepRows} = await db().transaction(async (tx) => {
+    // Both aggregates must observe the same committed state. READ COMMITTED would allow a
+    // concurrent annotation write between these selects, producing contradictory totals.
+    await tx.execute(sql`set transaction isolation level repeatable read, read only`);
+
+    const rows = await tx
+      .select({style: annotations.style, count: count()})
+      .from(annotations)
+      .where(and(...conditions))
+      .groupBy(annotations.style);
+
+    const stepRows = await tx
+      .select({
+        originStepId: annotations.originStepId,
+        originStepAttempt: annotations.originStepAttempt,
+        total: count(),
+      })
+      .from(annotations)
+      .where(and(...conditions))
+      .groupBy(annotations.originStepId, annotations.originStepAttempt)
+      .orderBy(asc(annotations.originStepId), asc(annotations.originStepAttempt));
+
+    return {rows, stepRows};
+  });
+
+  for (const row of rows) {
+    const value = Number(row.count);
+    summary.total += value;
+    if (row.style !== 'default') summary[row.style] += value;
+  }
+
+  summary.stepCounts = stepRows.map((row) => ({
+    originStepId: row.originStepId,
+    originStepAttempt: row.originStepAttempt,
+    total: Number(row.total),
+  }));
+
+  return summary;
 }
 
 export interface StoredAnnotation {

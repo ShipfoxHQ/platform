@@ -1,5 +1,5 @@
 import type {LogOutcomeDto} from '@shipfox/api-workflows-dto';
-import {and, asc, count, eq, gte, inArray, sql} from 'drizzle-orm';
+import {and, asc, count, desc, eq, gte, inArray, sql} from 'drizzle-orm';
 import type {
   PersistedEvaluationTraceEntry,
   Step,
@@ -11,8 +11,11 @@ import type {
 import {deriveCompletion, isTerminal} from '#core/step-transition/decide-step-transition.js';
 import {db, type Tx} from '../db.js';
 import {jobExecutions} from '../schema/job-executions.js';
+import {jobs} from '../schema/jobs.js';
 import {stepAttempts, toStepAttempt} from '../schema/step-attempts.js';
 import {steps, toStep} from '../schema/steps.js';
+import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
+import {workflowRuns} from '../schema/workflow-runs.js';
 import {writeJobStepsSettledOutbox, writeStepAttemptTerminatedOutbox} from './outbox.js';
 import {NON_TERMINAL_STEP_STATUS_FILTER} from './shared.js';
 
@@ -37,6 +40,105 @@ export async function getStepById(stepId: string): Promise<Step | undefined> {
   const row = rows[0];
   if (!row) return undefined;
   return toStep(row);
+}
+
+export interface StepAttemptDetail {
+  workflowRunId: string;
+  workflowRunAttemptId: string;
+  step: Step;
+  attempt: StepAttempt;
+}
+
+export interface JobExecutionFailureOrigin {
+  jobExecutionId: string;
+  stepId: string;
+  stepName: string;
+  stepStatus: StepStatus;
+  stepAttempt: number;
+  stepError: Record<string, unknown> | null;
+  attemptStatus: StepAttemptStatus | null;
+  attemptError: Record<string, unknown> | null;
+  attemptExitCode: number | null;
+}
+
+/**
+ * Read only the current attempt for the most relevant step. The terminal job event identifies
+ * the execution, so this intentionally avoids hydrating the execution's complete attempt
+ * history. If no attempt was dispatched, the first step still gives the projection a stable
+ * troubleshooting origin for failures that happened before step work started.
+ */
+export async function getJobExecutionFailureOrigin(
+  jobExecutionId: string,
+): Promise<JobExecutionFailureOrigin | undefined> {
+  const rows = await db()
+    .select({
+      jobExecutionId: jobExecutions.id,
+      stepId: steps.id,
+      stepName: steps.name,
+      stepStatus: steps.status,
+      stepAttempt: steps.currentAttempt,
+      stepError: steps.error,
+      attemptStatus: stepAttempts.status,
+      attemptError: stepAttempts.error,
+      attemptExitCode: stepAttempts.exitCode,
+    })
+    .from(jobExecutions)
+    .innerJoin(steps, eq(steps.jobExecutionId, jobExecutions.id))
+    .leftJoin(
+      stepAttempts,
+      and(eq(stepAttempts.stepId, steps.id), eq(stepAttempts.attempt, steps.currentAttempt)),
+    )
+    .where(eq(jobExecutions.id, jobExecutionId))
+    .orderBy(
+      desc(
+        sql<number>`case when ${steps.status} = 'failed' or ${stepAttempts.status} = 'failed' then 1 else 0 end`,
+      ),
+      asc(steps.position),
+      asc(steps.id),
+    )
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return undefined;
+
+  return {
+    ...row,
+    stepError: (row.stepError as Record<string, unknown> | null) ?? null,
+    attemptError: (row.attemptError as Record<string, unknown> | null) ?? null,
+    attemptStatus: row.attemptStatus === null ? null : (row.attemptStatus as StepAttemptStatus),
+    attemptExitCode: row.attemptExitCode ?? null,
+  };
+}
+
+export async function getStepAttemptDetail(params: {
+  stepId: string;
+  attempt: number;
+}): Promise<StepAttemptDetail | undefined> {
+  const rows = await db()
+    .select({
+      workflowRunId: workflowRuns.id,
+      workflowRunAttemptId: workflowRunAttempts.id,
+      step: steps,
+      stepAttempt: stepAttempts,
+    })
+    .from(stepAttempts)
+    .innerJoin(steps, eq(stepAttempts.stepId, steps.id))
+    .innerJoin(jobExecutions, eq(steps.jobExecutionId, jobExecutions.id))
+    .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+    .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+    .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+    .where(and(eq(stepAttempts.stepId, params.stepId), eq(stepAttempts.attempt, params.attempt)))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return undefined;
+
+  return {
+    workflowRunId: row.workflowRunId,
+    workflowRunAttemptId: row.workflowRunAttemptId,
+    step: toStep(row.step),
+    attempt: toStepAttempt(row.stepAttempt),
+  };
 }
 
 export async function getStepsByJobId(jobId: string): Promise<Step[]> {
@@ -105,6 +207,7 @@ export async function bulkUpdateStepStatuses(
       await writeStepAttemptTerminatedOutbox(tx, {
         stepId: attempt.stepId,
         attempt: attempt.attempt,
+        status: params.status,
         logOutcome: attempt.logOutcome ?? 'abandoned',
       });
     }
@@ -367,6 +470,7 @@ export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx)
   await writeStepAttemptTerminatedOutbox(tx, {
     stepId: row.stepId,
     attempt: row.attempt,
+    status: params.status,
     logOutcome: row.logOutcome ?? params.logOutcome,
   });
 }

@@ -46,6 +46,10 @@ export {
   STEP_ERROR_REASONS,
 } from './entities/step.js';
 export type {
+  EvaluationTraceEntry,
+  EvaluationTraceLimitEntry,
+  EvaluationTraceValueEntry,
+  StepAttemptDetail,
   StepAttemptDisplayDuration,
   StepGateResult,
 } from './entities/step-attempt.js';

@@ -139,6 +139,10 @@ export type WorkflowsJobEventDeliveredEventDto = z.infer<typeof workflowsJobEven
 
 export const workflowsJobTerminatedSchema = z.object({
   jobId: nonEmptyStringSchema,
+  // Optional for compatibility with terminal events written before the current execution
+  // identity became part of the event contract. New events always include the value, or null
+  // when the job was terminated before an execution was created.
+  jobExecutionId: nonEmptyStringSchema.nullable().optional(),
   workflowRunId: nonEmptyStringSchema,
   workflowRunAttemptId: nonEmptyStringSchema,
   status: jobTerminalStatusSchema,
@@ -178,6 +182,9 @@ export const workflowsStepAttemptTerminatedSchema = z.object({
   projectId: nonEmptyStringSchema,
   stepId: nonEmptyStringSchema,
   attempt: z.number().int().positive(),
+  // Optional so the subscriber can continue to consume terminal events written
+  // before the status field was added. New outbox events always include it.
+  status: terminalStatusSchema.optional(),
   logOutcome: logOutcomeSchema,
 });
 export type WorkflowsStepAttemptTerminatedEventDto = z.infer<

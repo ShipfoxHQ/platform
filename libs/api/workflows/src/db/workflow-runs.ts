@@ -90,9 +90,11 @@ export type {
   DispatchStepWithCompletedConfigParams,
   FinishStepAttemptParams,
   InsertRunningStepAttemptParams,
+  JobExecutionFailureOrigin,
   MarkStepRunningParams,
   MarkStepSkippedParams,
   RewindStepsToPendingParams,
+  StepAttemptDetail,
 } from './workflow-runs/steps.js';
 export {
   applyStepResult,
@@ -101,6 +103,8 @@ export {
   countStepAttempts,
   dispatchStepWithCompletedConfig,
   finishStepAttempt,
+  getJobExecutionFailureOrigin,
+  getStepAttemptDetail,
   getStepAttempts,
   getStepAttemptsByJobExecutionId,
   getStepAttemptsByJobIds,

@@ -1,4 +1,5 @@
 import {TriggerSourceIcon} from '@shipfox/client-triggers';
+import {MetadataSeparator} from '@shipfox/client-ui';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {
@@ -309,8 +310,4 @@ function hasFailedOrCancelledJobs(run: WorkflowRunDetail): boolean {
 
 function workflowRunHasJobs(run: WorkflowRunDetail): run is WorkflowRunDetail & {jobs: Job[]} {
   return 'jobs' in run && Array.isArray(run.jobs);
-}
-
-export function MetadataSeparator() {
-  return <span aria-hidden="true" className="h-12 w-px shrink-0 bg-border-neutral-base" />;
 }

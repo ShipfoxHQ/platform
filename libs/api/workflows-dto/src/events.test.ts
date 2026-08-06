@@ -100,6 +100,7 @@ const validStepAttemptTerminated = {
   projectId: 'proj-1',
   stepId: 'step-1',
   attempt: 1,
+  status: 'failed',
   logOutcome: 'drained',
 };
 

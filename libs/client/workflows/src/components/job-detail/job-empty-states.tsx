@@ -25,11 +25,14 @@ export function emptyStateForJob(
     job.mode === 'listening'
       ? deriveJobExecutionDisplayStatus(jobExecution)
       : deriveJobDisplayStatus(job);
+  const runner = jobExecution.runner?.length ? jobExecution.runner : job.runner;
 
   if (jobExecution.status === 'running' && displayStatus === 'pending') {
     return {
-      title: 'Runner preparing job',
-      description: 'A runner is assigned. Steps will appear here when work begins.',
+      title: runner?.length ? 'Runner preparing job' : 'Waiting for a runner',
+      description: runner?.length
+        ? `Runner ${runner.join(', ')} is preparing the job. Steps will appear here when work begins.`
+        : 'No runner has claimed this job yet. Steps will appear here when a runner starts work.',
       status: displayStatus,
     };
   }
@@ -61,7 +64,10 @@ export function emptyStateForJob(
   if (displayStatus === 'failed') {
     return {
       title: 'Job failed before its first step started',
-      description: preStepFailureDescription(jobExecution.statusReason ?? job.statusReason),
+      description: preStepFailureDescription(
+        jobExecution.statusReason ?? job.statusReason,
+        jobExecution.runner ?? job.runner,
+      ),
       status: displayStatus,
     };
   }
@@ -126,6 +132,14 @@ export function emptyStateForMissingExecution(job: Job): StepListEmptyState {
     };
   }
 
+  if (job.status === 'failed') {
+    return {
+      title: 'Job failed before an execution was created',
+      description: preStepFailureDescription(job.statusReason, job.runner),
+      status: 'failed',
+    };
+  }
+
   return {
     title: 'Execution details unavailable',
     description: 'This job finished, but no job execution record is available.',
@@ -155,17 +169,19 @@ export function skippedJobDescription(reason: Job['statusReason']): string {
   }
 }
 
-function preStepFailureDescription(reason: string | null): string {
+function preStepFailureDescription(reason: string | null, runner: string[] | null = null): string {
+  const runnerCopy = runner?.length ? ` Required runner labels: ${runner.join(', ')}.` : '';
+
   switch (reason) {
     case 'runner_lost':
-      return 'The runner stopped responding before work began. Check runner availability before re-running the workflow.';
+      return `The runner stopped responding before work began.${runnerCopy} Check runner availability before re-running the workflow.`;
     case 'timed_out':
-      return 'The job timed out before work began. Check runner capacity and timeout configuration before re-running the workflow.';
+      return `The job timed out before work began.${runnerCopy} Check runner capacity and timeout configuration before re-running the workflow.`;
     case 'user_cancelled':
     case 'run_cancelled':
       return 'The execution ended while the run was being cancelled.';
     case 'step_failed':
-      return 'The execution failed before step details were recorded. Review run annotations before re-running the workflow.';
+      return `The execution failed before step details were recorded.${runnerCopy} Review run annotations before re-running the workflow.`;
     case 'condition_errored':
       return 'The job condition could not be evaluated. Review run annotations before re-running the workflow.';
     case 'dependency_not_completed':
@@ -176,9 +192,9 @@ function preStepFailureDescription(reason: string | null): string {
       return 'The job condition did not match, so no work started.';
     case 'unknown':
     case null:
-      return 'Shipfox did not record a failure reason. Re-run only after checking the runner and workflow configuration.';
+      return `Shipfox did not record a failure reason.${runnerCopy} Re-run only after checking the runner and workflow configuration.`;
     default:
-      return `The execution ended because ${humanizeFailureReason(reason)}. Resolve that condition before re-running the workflow.`;
+      return `The execution ended because ${humanizeFailureReason(reason)}.${runnerCopy} Resolve that condition before re-running the workflow.`;
   }
 }
 

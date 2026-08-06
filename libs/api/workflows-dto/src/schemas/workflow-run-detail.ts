@@ -1,7 +1,8 @@
 import {z} from 'zod';
+import {evaluationTraceSchema} from './evaluation-trace.js';
 import {jobDtoSchema} from './job.js';
 import {workflowExecutionEventSchema} from './job-listening.js';
-import {stepAttemptDtoSchema, stepDtoSchema} from './step.js';
+import {stepAttemptDetailDtoSchema, stepAttemptDtoSchema, stepDtoSchema} from './step.js';
 import {workflowRunAttemptDtoSchema, workflowRunResponseSchema} from './workflow-run.js';
 
 export const jobExecutionStatusSchema = z.enum([
@@ -19,8 +20,10 @@ export const jobExecutionDtoSchema = z.object({
   name: z.string(),
   status: jobExecutionStatusSchema,
   status_reason: z.string().nullable(),
+  runner: z.array(z.string()).nullable(),
   trigger_events: z.array(workflowExecutionEventSchema).default([]),
   outputs: z.record(z.string(), z.unknown()).nullable(),
+  evaluation_trace: evaluationTraceSchema.nullable(),
   queued_at: z.string().nullable(),
   started_at: z.string().nullable(),
   finished_at: z.string().nullable(),
@@ -42,6 +45,16 @@ export const workflowRunStepDetailDtoSchema = stepDtoSchema.extend({
 });
 
 export type WorkflowRunStepDetailDto = z.infer<typeof workflowRunStepDetailDtoSchema>;
+
+export const stepAttemptDetailResponseSchema = z.object({
+  step_id: z.string().uuid(),
+  attempt: stepAttemptDetailDtoSchema.shape.attempt,
+  authored_config: z.record(z.string(), z.unknown()).nullable(),
+  config: stepAttemptDetailDtoSchema.shape.config,
+  evaluation_trace: stepAttemptDetailDtoSchema.shape.evaluation_trace,
+});
+
+export type StepAttemptDetailResponseDto = z.infer<typeof stepAttemptDetailResponseSchema>;
 
 export const workflowRunJobExecutionDetailDtoSchema = jobExecutionDtoSchema.extend({
   steps: z.array(workflowRunStepDetailDtoSchema),

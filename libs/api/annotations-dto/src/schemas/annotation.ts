@@ -117,3 +117,22 @@ export const readAnnotationsResponseSchema = z.object({
 });
 
 export type ReadAnnotationsResponseDto = z.infer<typeof readAnnotationsResponseSchema>;
+
+export const annotationSummaryResponseSchema = z.object({
+  total: z.number().int().min(0),
+  error: z.number().int().min(0),
+  warning: z.number().int().min(0),
+  info: z.number().int().min(0),
+  success: z.number().int().min(0),
+  step_counts: z
+    .array(
+      z.object({
+        origin_step_id: z.string().uuid(),
+        origin_step_attempt: z.number().int().min(1),
+        total: z.number().int().min(0),
+      }),
+    )
+    .default([]),
+});
+
+export type AnnotationSummaryResponseDto = z.infer<typeof annotationSummaryResponseSchema>;

@@ -3,6 +3,7 @@ import {
   type JobExecution,
   type JobExecutionDisplayDuration,
 } from './job-execution.js';
+import type {EvaluationTraceEntry} from './step-attempt.js';
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
 export type JobDisplayStatus = JobStatus | 'listening';
@@ -75,6 +76,10 @@ interface JobFields {
   status: JobStatus;
   statusReason: JobStatusReason | null;
   carriedOver: boolean;
+  outputs: Record<string, unknown> | null;
+  success: string | null;
+  runner: string[] | null;
+  evaluationTrace: EvaluationTraceEntry[] | null;
   listening: JobListening | null;
   listenerStatus: ListenerStatus;
   resolutionReason: ResolutionReason | null;
@@ -94,6 +99,10 @@ export class Job {
   status!: JobStatus;
   statusReason!: JobStatusReason | null;
   carriedOver!: boolean;
+  outputs!: Record<string, unknown> | null;
+  success!: string | null;
+  runner!: string[] | null;
+  evaluationTrace!: EvaluationTraceEntry[] | null;
   listening!: JobListening | null;
   listenerStatus!: ListenerStatus;
   resolutionReason!: ResolutionReason | null;

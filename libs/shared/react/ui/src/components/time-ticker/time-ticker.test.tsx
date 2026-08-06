@@ -77,6 +77,26 @@ describe('TimeTickerProvider', () => {
     expect(screen.getByText('1')).toBeTruthy();
   });
 
+  test('shares the fastest interval with nested providers', () => {
+    render(
+      <TimeTickerProvider intervalMs={1000}>
+        <TimeTickerProvider intervalMs={100}>
+          <TickValue />
+        </TimeTickerProvider>
+      </TimeTickerProvider>,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(screen.getByText('1')).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
+    expect(screen.getByText('10')).toBeTruthy();
+  });
+
   test('does not tick while the tab is hidden', () => {
     setVisibility('hidden');
 

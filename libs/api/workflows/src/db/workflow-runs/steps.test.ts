@@ -11,7 +11,10 @@ import {stepAttempts as stepAttemptsTable} from '../schema/step-attempts.js';
 import {steps as stepsTable} from '../schema/steps.js';
 import {
   createWorkflowRun,
+  getFirstJobExecutionByJobId,
+  getJobExecutionFailureOrigin,
   getJobsByWorkflowRunId,
+  getStepAttemptDetail,
   getStepAttempts,
   getStepsByJobId,
 } from '../workflow-runs.js';
@@ -57,6 +60,113 @@ describe('workflow run queries', () => {
       expect(jobSteps[1]?.position).toBe(1);
       expect(jobSteps[2]?.position).toBe(2);
       expect(jobSteps[3]?.position).toBe(3);
+    });
+  });
+
+  describe('getStepAttemptDetail', () => {
+    test('joins a step attempt to its run for lazy troubleshooting reads', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo hello'}]}}}),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected a workflow job');
+      await stripSetupStep(job.id);
+      await nextStepForJob(job.id);
+
+      const [attempt] = await getStepAttempts(job.id);
+      if (!attempt) throw new Error('Expected a dispatched step attempt');
+
+      const detail = await getStepAttemptDetail({stepId: attempt.stepId, attempt: attempt.attempt});
+
+      expect(detail).toMatchObject({
+        workflowRunId: run.id,
+        workflowRunAttemptId: job.workflowRunAttemptId,
+        step: {id: attempt.stepId},
+        attempt: {id: attempt.id, attempt: attempt.attempt},
+      });
+    });
+  });
+
+  describe('getJobExecutionFailureOrigin', () => {
+    test('selects the current failed attempt instead of loading attempt history', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {build: {steps: [{run: 'echo hello'}, {run: 'echo goodbye'}]}},
+        }),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected a workflow job');
+      await stripSetupStep(job.id);
+      const execution = await getFirstJobExecutionByJobId(job.id);
+      if (!execution) throw new Error('Expected a job execution');
+      await nextStepForJob(job.id);
+
+      const [step] = await getStepsByJobId(job.id);
+      const [attempt] = await getStepAttempts(job.id);
+      if (!step || !attempt) throw new Error('Expected a current step attempt');
+      await db()
+        .update(stepsTable)
+        .set({status: 'failed', error: {reason: 'command_failed', message: 'current failure'}})
+        .where(eq(stepsTable.id, step.id));
+      await db()
+        .update(stepAttemptsTable)
+        .set({
+          status: 'failed',
+          error: {reason: 'command_failed', message: 'current failure'},
+          finishedAt: new Date(),
+        })
+        .where(eq(stepAttemptsTable.id, attempt.id));
+
+      await expect(getJobExecutionFailureOrigin(execution.id)).resolves.toMatchObject({
+        jobExecutionId: execution.id,
+        stepId: step.id,
+        stepAttempt: attempt.attempt,
+        attemptStatus: 'failed',
+        attemptError: {message: 'current failure'},
+      });
+    });
+
+    test('returns the first step when the execution fails before any attempt starts', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo hello'}]}}}),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected a workflow job');
+      const execution = await getFirstJobExecutionByJobId(job.id);
+      if (!execution) throw new Error('Expected a job execution');
+
+      await expect(getJobExecutionFailureOrigin(execution.id)).resolves.toMatchObject({
+        jobExecutionId: execution.id,
+        stepAttempt: 1,
+        attemptStatus: null,
+      });
     });
   });
 
@@ -183,6 +293,7 @@ describe('workflow run queries', () => {
           projectId,
           stepId: attempt?.stepId,
           attempt: 1,
+          status: 'cancelled',
           logOutcome: 'abandoned',
         },
       ]);

@@ -1,5 +1,10 @@
 import type {Step, StepAttempt} from '#core/entities/step.js';
-import {fromStepErrorDto, toStepAttemptDto, toStepDto} from './step.js';
+import {
+  fromStepErrorDto,
+  toStepAttemptDetailResponseDto,
+  toStepAttemptDto,
+  toStepDto,
+} from './step.js';
 
 function step(overrides: Partial<Step> & {type: string}): Step {
   return {
@@ -102,6 +107,37 @@ describe('fromStepErrorDto', () => {
 });
 
 describe('toStepDto error category', () => {
+  it('surfaces status reasons and evaluation traces', () => {
+    const dto = toStepDto(
+      step({
+        type: 'run',
+        statusReason: 'condition_errored',
+        evaluationTrace: [
+          {
+            expression: 'inputs.environment',
+            roots: ['inputs.environment'],
+            fillTarget: 'step-dispatch',
+            evaluatedAt: 'step-dispatch',
+            field: 'condition',
+            value: 'production',
+          },
+        ],
+      }),
+    );
+
+    expect(dto.status_reason).toBe('condition_errored');
+    expect(dto.evaluation_trace).toEqual([
+      {
+        expression: 'inputs.environment',
+        roots: ['inputs.environment'],
+        fill_target: 'step-dispatch',
+        evaluated_at: 'step-dispatch',
+        field: 'condition',
+        value: 'production',
+      },
+    ]);
+  });
+
   it("derives category 'setup' for a setup step error and surfaces the reason", () => {
     const dto = toStepDto(
       step({type: 'setup', error: {message: 'mkdir denied', reason: 'workspace_prep_failed'}}),
@@ -222,6 +258,24 @@ const baseAttempt: StepAttempt = {
 };
 
 describe('toStepAttemptDto', () => {
+  it('keeps evaluation traces on the lazy detail response instead of run polling', () => {
+    const result = toStepAttemptDto({
+      ...baseAttempt,
+      evaluationTrace: [
+        {
+          expression: 'inputs.message',
+          roots: ['inputs.message'],
+          fillTarget: 'step-dispatch',
+          evaluatedAt: 'step-dispatch',
+          field: 'run',
+          value: 'hello',
+        },
+      ],
+    });
+
+    expect(result).not.toHaveProperty('evaluation_trace');
+  });
+
   it('maps passed gate payloads to typed gate results', () => {
     const attempt: StepAttempt = {
       ...baseAttempt,
@@ -334,6 +388,47 @@ describe('toStepAttemptDto', () => {
     expect(result.gate_result).toEqual({
       kind: 'unknown',
       data: {passed: 'yes'},
+    });
+  });
+});
+
+describe('toStepAttemptDetailResponseDto', () => {
+  it('returns authored config, resolved config, and attempt trace', () => {
+    const stepData = step({
+      type: 'run',
+      authoredConfig: {run: 'echo $' + '{{ inputs.message }}'},
+      config: {run: 'echo hello'},
+    });
+    const attempt: StepAttempt = {
+      ...baseAttempt,
+      config: {run: 'echo hello'},
+      evaluationTrace: [
+        {
+          expression: 'inputs.message',
+          roots: ['inputs.message'],
+          fillTarget: 'step-dispatch',
+          evaluatedAt: 'step-dispatch',
+          field: 'run',
+          value: 'hello',
+        },
+      ],
+    };
+
+    expect(toStepAttemptDetailResponseDto(stepData, attempt)).toEqual({
+      step_id: stepData.id,
+      attempt: 1,
+      authored_config: {run: 'echo $' + '{{ inputs.message }}'},
+      config: {run: 'echo hello'},
+      evaluation_trace: [
+        {
+          expression: 'inputs.message',
+          roots: ['inputs.message'],
+          fill_target: 'step-dispatch',
+          evaluated_at: 'step-dispatch',
+          field: 'run',
+          value: 'hello',
+        },
+      ],
     });
   });
 });

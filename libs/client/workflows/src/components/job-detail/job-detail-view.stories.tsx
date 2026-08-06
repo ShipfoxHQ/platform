@@ -2,13 +2,25 @@
 // biome-ignore-all lint/a11y/noNoninteractiveTabindex: the story mirrors the focusable log surface.
 
 import {type StepLogSnapshot, stepLogsQueryKeys} from '@shipfox/client-logs';
-import {Text} from '@shipfox/react-ui/typography';
 import type {Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
 import {type ReactNode, useState} from 'react';
-import type {Job, JobExecution, WorkflowRunDetail} from '#core/workflow-run.js';
-import {runAnnotationsQueryKeys} from '#hooks/api/run-annotations.js';
+import {userEvent, within} from 'storybook/test';
+import type {Job, JobExecution, StepAttemptDetail, WorkflowRunDetail} from '#core/workflow-run.js';
+import type {RunAnnotationSummary} from '#core/run-annotation.js';
+import {workflowRunAnnotationsQueryKeys} from '#hooks/api/annotations.js';
+import {stepAttemptDetailQueryKeys} from '#hooks/api/step-attempt-detail.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
+import {workflowRunsQueryKeys} from '#hooks/api/workflow-runs.js';
+import {WorkflowJobDetailPage} from '#pages/workflow-job-detail-page.js';
 import {
   workflowJob,
   workflowJobExecutionDto,
@@ -22,6 +34,7 @@ import {JobDetailView} from './job-detail-view.js';
 const WORKSPACE_SLUG = 'acme';
 const PROJECT_SLUG = 'platform';
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
+const INSPECTOR_TRIGGER_NAME = /Inspect Run tests/;
 const LOG_RECORDS: StepLogSnapshot['records'] = [
   {
     v: 1,
@@ -43,6 +56,8 @@ interface JobDetailStoryArgs {
   run: WorkflowRunDetail;
   jobId: string;
   selectedExecutionId?: string | undefined;
+  search?: Parameters<typeof JobDetailView>[0]['search'];
+  stepDetails?: readonly StepAttemptDetail[];
 }
 
 type JobDetailQuery = ReturnType<typeof useWorkflowRunAttemptQuery>;
@@ -73,52 +88,132 @@ export const Executions: Story = {
   },
 };
 
-export const DataStates: Story = {
+export const Loading: Story = {
   render: () => {
-    const partialRun = partialJobRun();
-    const emptyRun = emptyJobRun();
-    const loadedRun = playgroundRun();
+    const run = playgroundRun();
     return (
-      <div className="grid max-w-[1120px] gap-16 p-16 md:grid-cols-2">
-        <StateExample label="Loading">
-          <JobDetailStoryState
-            query={makeQuery(undefined, {isPending: true})}
-            jobId={loadedRun.jobs[0]?.id ?? ''}
-          />
-        </StateExample>
-        <StateExample label="Empty">
-          <JobDetailStoryState query={makeQuery(emptyRun)} jobId={emptyRun.jobs[0]?.id ?? ''} />
-        </StateExample>
-        <StateExample label="Error">
-          <JobDetailStoryState
-            query={makeQuery(undefined, {isError: true, error: new Error('Storybook error')})}
-            jobId="missing-job"
-          />
-        </StateExample>
-        <StateExample label="Partial">
-          <JobDetailStoryState query={makeQuery(partialRun)} jobId={partialRun.jobs[0]?.id ?? ''} />
-        </StateExample>
-        <StateExample label="Job not found">
-          <JobDetailStoryState query={makeQuery(loadedRun)} jobId="missing-job" />
-        </StateExample>
-      </div>
+      <JobDetailStoryViewport>
+        <JobDetailStoryState
+          query={makeQuery(undefined, {isPending: true})}
+          jobId={run.jobs[0]?.id ?? ''}
+        />
+      </JobDetailStoryViewport>
     );
   },
 };
 
-function JobDetailStoryFrame({run, jobId, selectedExecutionId}: JobDetailStoryArgs) {
+export const Empty: Story = {
+  render: () => {
+    const run = emptyJobRun();
+    return <JobDetailStoryFrame run={run} jobId={run.jobs[0]?.id ?? ''} />;
+  },
+};
+
+export const ErrorState: Story = {
+  render: () => (
+    <JobDetailStoryViewport>
+      <JobDetailStoryState
+        query={makeQuery(undefined, {isError: true, error: new Error('Storybook error')})}
+        jobId="missing-job"
+      />
+    </JobDetailStoryViewport>
+  ),
+};
+
+export const Partial: Story = {
+  render: () => {
+    const run = partialJobRun();
+    return <JobDetailStoryFrame run={run} jobId={run.jobs[0]?.id ?? ''} />;
+  },
+};
+
+export const JobNotFound: Story = {
+  render: () => {
+    const run = playgroundRun();
+    return <JobDetailStoryFrame run={run} jobId="missing-job" />;
+  },
+};
+
+export const StepFailure: Story = {
+  render: () => {
+    const {run, commandJobId, stepDetails} = failureRun();
+    return <JobDetailStoryFrame run={run} jobId={commandJobId} stepDetails={stepDetails} />;
+  },
+};
+
+export const TimedOutBeforeStep: Story = {
+  render: () => {
+    const {run, timeoutJobId} = failureRun();
+    return <JobDetailStoryFrame run={run} jobId={timeoutJobId} />;
+  },
+};
+
+export const ConditionRejected: Story = {
+  render: () => {
+    const {run, conditionJobId} = failureRun();
+    return <JobDetailStoryFrame run={run} jobId={conditionJobId} />;
+  },
+};
+
+export const FailureStates: Story = {
+  render: () => <FailureCompositionStory />,
+};
+
+export const InspectionData: Story = {
+  render: () => {
+    const {run, jobId, executionId, stepId, attemptId, stepDetails} = inspectionRun();
+    return (
+      <JobDetailStoryFrame
+        run={run}
+        jobId={jobId}
+        selectedExecutionId={executionId}
+        search={{jobExecutionId: executionId, stepId, stepAttemptId: attemptId}}
+        stepDetails={stepDetails}
+      />
+    );
+  },
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    const inspectorTrigger = await canvas.findByRole('button', {
+      name: INSPECTOR_TRIGGER_NAME,
+    });
+    await userEvent.click(inspectorTrigger);
+    const documentBody = within(canvasElement.ownerDocument.body);
+    await documentBody.findByRole('region', {name: 'Inputs'});
+    await documentBody.findByRole('region', {name: 'Evaluation'});
+  },
+};
+
+export const RunComposition: Story = {
+  render: () => <RunCompositionStory />,
+};
+
+function JobDetailStoryFrame({
+  run,
+  jobId,
+  selectedExecutionId,
+  search,
+  stepDetails,
+}: JobDetailStoryArgs) {
   const job = run.jobs.find((candidate) => candidate.id === jobId) ?? run.jobs[0];
   const selectedExecution = job?.jobExecutions.find(
     (execution) => execution.id === selectedExecutionId,
   );
   return (
-    <div className="flex min-h-screen min-w-0 bg-background-neutral-base">
+    <JobDetailStoryViewport>
       <JobDetailStoryState
         query={makeQuery(run)}
         jobId={jobId}
-        search={selectedExecution ? {jobExecutionId: selectedExecution.id} : {}}
+        search={search ?? (selectedExecution ? {jobExecutionId: selectedExecution.id} : {})}
+        stepDetails={stepDetails}
       />
-    </div>
+    </JobDetailStoryViewport>
+  );
+}
+
+function JobDetailStoryViewport({children}: {children: ReactNode}) {
+  return (
+    <div className="flex min-h-screen min-w-0 w-full bg-background-neutral-base">{children}</div>
   );
 }
 
@@ -126,14 +221,16 @@ function JobDetailStoryState({
   query,
   jobId,
   search = {},
+  stepDetails = [],
 }: {
   query: JobDetailQuery;
   jobId: string;
   search?: Parameters<typeof JobDetailView>[0]['search'];
+  stepDetails?: readonly StepAttemptDetail[];
 }) {
   const run = query.data;
   return (
-    <StoryQueryProvider run={run}>
+    <StoryQueryProvider run={run} stepDetails={stepDetails}>
       <JobDetailView
         workspaceSlug={WORKSPACE_SLUG}
         projectSlug={PROJECT_SLUG}
@@ -161,9 +258,11 @@ function makeQuery(data: WorkflowRunDetail | undefined, overrides: Partial<JobDe
 
 function StoryQueryProvider({
   run,
+  stepDetails = [],
   children,
 }: {
   run: WorkflowRunDetail | undefined;
+  stepDetails?: readonly StepAttemptDetail[];
   children: ReactNode;
 }) {
   const [queryClient] = useState(() => {
@@ -171,10 +270,6 @@ function StoryQueryProvider({
       defaultOptions: {queries: {staleTime: Number.POSITIVE_INFINITY}},
     });
     if (run) {
-      client.setQueryData(runAnnotationsQueryKeys.list(run.id, run.runAttempt.attempt), {
-        pages: [{annotations: [], hasMore: false, nextCursor: null}],
-        pageParams: [undefined],
-      });
       for (const job of run.jobs) {
         for (const execution of job.jobExecutions) {
           for (const step of execution.steps) {
@@ -187,6 +282,34 @@ function StoryQueryProvider({
           }
         }
       }
+      client.setQueryData(workflowRunsQueryKeys.detail(run.id), run);
+      for (const detail of stepDetails) {
+        client.setQueryData(
+          stepAttemptDetailQueryKeys.detail(detail.stepId, detail.attempt),
+          detail,
+        );
+      }
+      const summary: RunAnnotationSummary = {
+        total: 0,
+        error: 0,
+        warning: 0,
+        info: 0,
+        success: 0,
+        truncated: false,
+        stepCounts: [],
+      };
+      for (const job of run.jobs) {
+        for (const execution of job.jobExecutions) {
+          client.setQueryData(
+            workflowRunAnnotationsQueryKeys.summary(run.id, run.runAttempt.attempt, execution.id),
+            summary,
+          );
+        }
+      }
+      client.setQueryData(
+        workflowRunAnnotationsQueryKeys.summary(run.id, run.runAttempt.attempt),
+        summary,
+      );
     }
     return client;
   });
@@ -249,6 +372,135 @@ function playgroundRun(): WorkflowRunDetail {
   });
 }
 
+function compositionRun() {
+  const setupId = '12121212-1212-4212-8212-121212121212';
+  const buildId = '13131313-1313-4313-8313-131313131313';
+  const buildExecutionId = '14141414-1414-4414-8414-141414141414';
+  const installStepId = '15151515-1515-4515-8515-151515151515';
+  const installAttemptId = '16161616-1616-4616-8616-161616161616';
+  const testStepId = '17171717-1717-4717-8717-171717171717';
+  const testAttemptId = '18181818-1818-4818-8818-181818181818';
+  const packageStepId = '19191919-1919-4919-8919-191919191919';
+  const deployId = '20202020-2020-4020-8020-202020202020';
+
+  const installStep = workflowStepDto({
+    id: installStepId,
+    job_execution_id: buildExecutionId,
+    key: 'install',
+    name: 'Install dependencies',
+    status: 'succeeded',
+    position: 0,
+    attempts: [
+      workflowStepAttemptDto({
+        id: installAttemptId,
+        step_id: installStepId,
+        status: 'succeeded',
+        finished_at: '2026-08-06T09:02:00.000Z',
+      }),
+    ],
+  });
+  const testStep = workflowStepDto({
+    id: testStepId,
+    job_execution_id: buildExecutionId,
+    key: 'test',
+    name: 'Run tests',
+    status: 'failed',
+    status_reason: 'agent_invocation_failed',
+    position: 1,
+    config: {run: 'pnpm test --filter=@shipfox/client-workflows'},
+    error: {
+      message: 'The test command exited with code 1.',
+      reason: 'agent_invocation_failed',
+      category: 'user',
+      exit_code: 1,
+    },
+    attempts: [
+      workflowStepAttemptDto({
+        id: testAttemptId,
+        step_id: testStepId,
+        status: 'failed',
+        exit_code: 1,
+        output: {summary: '4 tests failed in the workflow package.'},
+        outputs: {failed_tests: 4},
+        error: {
+          message: 'The test command exited with code 1.',
+          reason: 'agent_invocation_failed',
+          category: 'user',
+          exit_code: 1,
+        },
+        finished_at: '2026-08-06T09:05:00.000Z',
+      }),
+    ],
+  });
+  const packageStep = workflowStepDto({
+    id: packageStepId,
+    job_execution_id: buildExecutionId,
+    key: 'package',
+    name: 'Package artifacts',
+    status: 'skipped',
+    status_reason: 'upstream_failed',
+    position: 2,
+    attempts: [],
+  });
+  const buildExecution = workflowJobExecutionDto({
+    id: buildExecutionId,
+    job_id: buildId,
+    status: 'failed',
+    status_reason: 'step_failed',
+    runner: ['runner-linux-x64'],
+    outputs: {failed_tests: 4},
+    steps: [installStep, testStep, packageStep],
+  });
+  const buildJob = workflowJob({
+    id: buildId,
+    key: 'build',
+    name: 'build',
+    status: 'failed',
+    status_reason: 'step_failed',
+    runner: ['runner-linux-x64'],
+    outputs: {failed_tests: 4},
+    position: 1,
+    job_executions: [buildExecution],
+  });
+  const run = storyRun({
+    status: 'failed',
+    jobs: [
+      makeJob({
+        id: setupId,
+        key: 'setup',
+        name: 'setup',
+        status: 'succeeded',
+        position: 0,
+        executions: [
+          makeExecution('21212121-2121-4212-8212-212121212121', setupId, 1, 'succeeded'),
+        ],
+      }),
+      buildJob,
+      makeJob({
+        id: deployId,
+        key: 'deploy',
+        name: 'deploy',
+        status: 'pending',
+        position: 2,
+        dependencies: [buildId],
+        executions: [],
+      }),
+    ],
+  });
+
+  return {
+    run,
+    stepDetails: [
+      stepAttemptDetail({
+        stepId: testStepId,
+        attempt: 1,
+        authoredConfig: {run: String.raw`pnpm test --filter=\${{ inputs.package }}`},
+        config: {run: 'pnpm test --filter=@shipfox/client-workflows'},
+      }),
+    ],
+  };
+}
+
 function emptyJobRun(): WorkflowRunDetail {
   return storyRun({
     status: 'succeeded',
@@ -282,6 +534,250 @@ function partialJobRun(): WorkflowRunDetail {
       }),
     ],
   });
+}
+
+function failureRun() {
+  const commandJobId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1';
+  const commandExecutionId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2';
+  const commandStepId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3';
+  const commandAttemptId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee4';
+  const timeoutJobId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5';
+  const timeoutExecutionId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee6';
+  const conditionJobId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee7';
+  const commandStep = workflowStepDto({
+    id: commandStepId,
+    job_execution_id: commandExecutionId,
+    key: 'run-tests',
+    name: 'Run tests',
+    status: 'failed',
+    status_reason: 'agent_invocation_failed',
+    config: {run: 'pnpm test --filter=@shipfox/client-workflows'},
+    evaluation_trace: [
+      {
+        expression: 'inputs["package"]',
+        roots: ['inputs.package'],
+        fill_target: 'step-dispatch',
+        evaluated_at: '2026-08-05T12:00:00.000Z',
+        field: 'run',
+        value: '@shipfox/client-workflows',
+      },
+    ],
+    error: {
+      message: 'The test command exited with code 1.',
+      reason: 'agent_invocation_failed',
+      category: 'user',
+      exit_code: 1,
+    },
+    attempts: [
+      workflowStepAttemptDto({
+        id: commandAttemptId,
+        step_id: commandStepId,
+        status: 'failed',
+        exit_code: 1,
+        output: {summary: '4 tests failed in the workflow package.'},
+        outputs: {failed_tests: 4},
+        error: {
+          message: 'The test command exited with code 1.',
+          reason: 'agent_invocation_failed',
+          category: 'user',
+          exit_code: 1,
+        },
+        finished_at: '2026-08-05T12:04:00.000Z',
+      }),
+    ],
+  });
+  const commandExecution = workflowJobExecutionDto({
+    id: commandExecutionId,
+    job_id: commandJobId,
+    status: 'failed',
+    status_reason: 'step_failed',
+    runner: ['runner-linux-x64'],
+    outputs: {test_count: 370, failed_tests: 4},
+    evaluation_trace: [
+      {
+        expression: 'inputs["package"]',
+        roots: ['inputs.package'],
+        fill_target: 'job-dispatch',
+        evaluated_at: '2026-08-05T12:00:00.000Z',
+        field: 'condition',
+        value: '@shipfox/client-workflows',
+      },
+    ],
+    steps: [commandStep],
+  });
+  const commandJob = workflowJob({
+    id: commandJobId,
+    key: 'test',
+    name: 'test',
+    status: 'failed',
+    status_reason: 'step_failed',
+    runner: ['runner-linux-x64'],
+    outputs: {test_count: 370, failed_tests: 4},
+    position: 0,
+    job_executions: [commandExecution],
+  });
+  const timeoutJob = workflowJob({
+    id: timeoutJobId,
+    key: 'deploy',
+    name: 'deploy',
+    status: 'failed',
+    status_reason: 'timed_out',
+    position: 1,
+    job_executions: [
+      workflowJobExecutionDto({
+        id: timeoutExecutionId,
+        job_id: timeoutJobId,
+        status: 'failed',
+        status_reason: 'timed_out',
+        steps: [],
+      }),
+    ],
+  });
+  const conditionJob = workflowJob({
+    id: conditionJobId,
+    key: 'publish',
+    name: 'publish',
+    status: 'skipped',
+    status_reason: 'condition_rejected',
+    position: 2,
+    job_executions: [],
+  });
+  const run = storyRun({status: 'failed', jobs: [commandJob, timeoutJob, conditionJob]});
+  const stepDetails = [
+    stepAttemptDetail({
+      stepId: commandStepId,
+      attempt: 1,
+      authoredConfig: {run: String.raw`pnpm test --filter=\${{ inputs.package }}`},
+      config: {run: 'pnpm test --filter=@shipfox/client-workflows'},
+    }),
+  ];
+
+  return {
+    run,
+    commandJobId,
+    timeoutJobId,
+    conditionJobId,
+    commandExecutionId,
+    commandStepId,
+    commandAttemptId,
+    stepDetails,
+  };
+}
+
+function inspectionRun() {
+  const story = failureRun();
+  return {
+    run: story.run,
+    jobId: story.commandJobId,
+    executionId: story.commandExecutionId,
+    stepId: story.commandStepId,
+    attemptId: story.commandAttemptId,
+    stepDetails: story.stepDetails,
+  };
+}
+
+function stepAttemptDetail({
+  stepId,
+  attempt,
+  authoredConfig,
+  config,
+}: {
+  stepId: string;
+  attempt: number;
+  authoredConfig: Record<string, unknown>;
+  config: Record<string, unknown>;
+}): StepAttemptDetail {
+  return {
+    stepId,
+    attempt,
+    authoredConfig,
+    config,
+    evaluationTrace: [
+      {
+        expression: 'inputs.package',
+        roots: ['inputs.package'],
+        fillTarget: 'run',
+        evaluatedAt: '2026-08-05T12:00:00.000Z',
+        field: 'run',
+        value: '@shipfox/client-workflows',
+      },
+      {
+        expression: 'inputs.branch',
+        roots: ['inputs.branch'],
+        fillTarget: 'run',
+        evaluatedAt: '2026-08-05T12:00:00.000Z',
+        field: 'run',
+        value: 'main',
+      },
+    ],
+  };
+}
+
+function RunCompositionStory() {
+  const {run, stepDetails} = compositionRun();
+  const job = run.jobs[1] ?? run.jobs[0];
+  if (!job) return null;
+
+  return (
+    <StoryQueryProvider run={run} stepDetails={stepDetails}>
+      <StoryRouter>
+        <WorkflowJobDetailPage
+          projectId="project-id"
+          workspaceSlug={WORKSPACE_SLUG}
+          projectSlug={PROJECT_SLUG}
+          workflowRunId={run.id}
+          jobId={job.id}
+          search={{}}
+        />
+      </StoryRouter>
+    </StoryQueryProvider>
+  );
+}
+
+function FailureCompositionStory() {
+  const {run, commandJobId, stepDetails} = failureRun();
+
+  return (
+    <StoryQueryProvider run={run} stepDetails={stepDetails}>
+      <StoryRouter>
+        <WorkflowJobDetailPage
+          projectId="project-id"
+          workspaceSlug={WORKSPACE_SLUG}
+          projectSlug={PROJECT_SLUG}
+          workflowRunId={run.id}
+          jobId={commandJobId}
+          search={{}}
+        />
+      </StoryRouter>
+    </StoryQueryProvider>
+  );
+}
+
+function StoryRouter({children}: {children: ReactNode}) {
+  const [router] = useState(() => {
+    const rootRoute = createRootRoute({component: Outlet});
+    const storyRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/',
+      component: () => children,
+    });
+    const runRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
+      component: () => null,
+    });
+    const jobRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId/jobs/$jobId',
+      component: () => null,
+    });
+    return createRouter({
+      history: createMemoryHistory({initialEntries: ['/']}),
+      routeTree: rootRoute.addChildren([storyRoute, runRoute, jobRoute]),
+    });
+  });
+
+  return <RouterProvider router={router} />;
 }
 
 function executionStory() {
@@ -335,6 +831,9 @@ function storyRun({
       status: job.status,
       status_reason: job.statusReason,
       carried_over: job.carriedOver,
+      success: job.success,
+      runner: job.runner,
+      evaluation_trace: job.evaluationTrace,
       listening: job.listening,
       listener_status: job.listenerStatus,
       dependencies: job.dependencies,
@@ -349,8 +848,10 @@ function storyRun({
         name: execution.name,
         status: execution.status,
         status_reason: execution.statusReason,
+        runner: execution.runner,
         trigger_events: [],
-        outputs: null,
+        outputs: execution.outputs,
+        evaluation_trace: execution.evaluationTrace,
         queued_at: execution.queuedAt,
         started_at: execution.startedAt,
         finished_at: execution.finishedAt,
@@ -366,7 +867,19 @@ function storyRun({
           status: step.status,
           type: step.type,
           config: step.config,
-          error: null,
+          evaluation_trace: step.evaluationTrace,
+          error: step.error
+            ? {
+                message: step.error.message,
+                ...(step.error.exitCode !== null ? {exit_code: step.error.exitCode} : {}),
+                ...(step.error.signal ? {signal: step.error.signal} : {}),
+                ...(step.error.reason ? {reason: step.error.reason} : {}),
+                ...(step.error.agentConfigIssue
+                  ? {agent_config_issue: step.error.agentConfigIssue}
+                  : {}),
+                ...(step.error.category ? {category: step.error.category} : {}),
+              }
+            : null,
           position: step.position,
           current_attempt: step.currentAttempt,
           exit_code: null,
@@ -393,7 +906,7 @@ function storyRun({
           })),
         })),
       })),
-      outputs: job.jobExecutions[0]?.outputs ?? null,
+      outputs: job.outputs ?? job.jobExecutions[0]?.outputs ?? null,
       resolution_reason: job.resolutionReason,
     })),
   });
@@ -517,15 +1030,4 @@ function executionDto(execution: JobExecution) {
       }),
     ),
   });
-}
-
-function StateExample({label, children}: {label: string; children: ReactNode}) {
-  return (
-    <section className="min-w-0 rounded-8 border border-border-neutral-base bg-background-neutral-base p-12">
-      <Text as="h3" size="xs" bold className="mb-8 text-foreground-neutral-muted">
-        {label}
-      </Text>
-      {children}
-    </section>
-  );
 }

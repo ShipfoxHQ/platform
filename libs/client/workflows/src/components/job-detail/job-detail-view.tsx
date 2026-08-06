@@ -9,9 +9,11 @@ import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
-import {type RefObject, useEffect, useRef} from 'react';
+import {type RefObject, useEffect, useRef, useState} from 'react';
 import {summarizeJobAnnotations} from '#core/run-annotation.js';
-import type {Job, JobExecution} from '#core/workflow-run.js';
+import {isWorkflowRunTerminal, type Job, type JobExecution} from '#core/workflow-run.js';
+import type {RunAnnotationSummary} from '#core/run-annotation.js';
+import {useWorkflowRunAnnotationSummaryQuery} from '#hooks/api/annotations.js';
 import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
 import {
@@ -24,15 +26,13 @@ import {
   WorkflowRunNotFound,
   WorkflowRunStaleError,
 } from '../workflow-run-view/workflow-run-states.js';
-import {AgentConfigFailureCallout} from './agent-config-failure-callout.js';
+import {JobContextPanel} from './job-context-panel.js';
 import {JobDetailHeader} from './job-detail-header.js';
 import {
   CarriedOverStepPanel,
   emptyStateForJob,
   emptyStateForMissingExecution,
-  isAgentConfigFailure,
   jobSucceededSummary,
-  toSelectedAttemptError,
 } from './job-empty-states.js';
 import {
   resolveWorkflowJobSelection,
@@ -40,6 +40,9 @@ import {
   workflowJobLandingSelection,
 } from './job-selection.js';
 import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
+import {StepInspectorSheet} from './step-troubleshooting.js';
+
+type InspectorState = {key: string; attemptId: string | null};
 
 export interface JobDetailViewProps {
   workspaceSlug: string;
@@ -68,7 +71,8 @@ export function JobDetailView({
   const pageScrollRef = useRef<HTMLDivElement>(null);
   const landingSelectionRef = useRef<FrozenLandingSelection | undefined>(undefined);
   const hasLoadedData = query.data !== undefined;
-  // Same query key as the run workspace, so this reads the cache instead of fetching again.
+  // Reuse the run workspace's bounded annotation read for the job header chip. The separate
+  // summary query below stays counts-only and is scoped to the inspector's selected execution.
   const annotations = useRunAnnotationsQuery({
     workflowRunId,
     runAttempt: query.data?.runAttempt.attempt,
@@ -78,6 +82,26 @@ export function JobDetailView({
         truncated: annotations.summary?.truncated ?? false,
       })
     : undefined;
+  const inspectorResetKey = `${jobId}:${search.jobExecutionId ?? ''}`;
+  const [inspectorState, setInspectorState] = useState<InspectorState>(() => ({
+    key: inspectorResetKey,
+    attemptId: null,
+  }));
+  const inspectorOpenAttemptId =
+    inspectorState.key === inspectorResetKey ? inspectorState.attemptId : null;
+  const annotationJob = query.data?.jobs.find((candidate) => candidate.id === jobId);
+  const annotationExecutionId = annotationJob
+    ? resolveWorkflowJobSelection({job: annotationJob, selection: search}).jobExecution?.id
+    : search.jobExecutionId;
+  const annotationPolling = query.data
+    ? !isWorkflowRunTerminal(query.data.runAttempt.status)
+    : true;
+  const annotationSummaryQuery = useWorkflowRunAnnotationSummaryQuery(
+    query.data?.id,
+    query.data?.runAttempt.attempt,
+    annotationExecutionId,
+    {polling: annotationPolling},
+  );
 
   useEffect(() => {
     if (!jobId || !hasLoadedData) return;
@@ -185,6 +209,10 @@ export function JobDetailView({
     });
   }
 
+  function onInspectorOpenChange(attemptId: string | null) {
+    setInspectorState({key: inspectorResetKey, attemptId});
+  }
+
   function retargetToRunningStep() {
     if (!runningSelection || !selectedJobExecution) return;
     onSelectionChange({
@@ -209,10 +237,7 @@ export function JobDetailView({
           />
         ) : null}
         <div ref={pageScrollRef} className="@container min-h-0 flex-1 overflow-auto pb-24">
-          <section
-            aria-label={`${job.displayName} logs`}
-            className="mx-auto flex w-full max-w-[1120px] flex-col gap-8 px-24"
-          >
+          <section aria-label={`${job.displayName} logs`} className="flex w-full flex-col">
             <section className="min-w-0 overflow-hidden">
               <JobDetailHeader
                 job={job}
@@ -220,11 +245,16 @@ export function JobDetailView({
                 onSelectedJobExecutionChange={selectExecution}
                 workspaceSlug={workspaceSlug}
                 projectSlug={projectSlug}
-                workflowRunId={workflowRunId}
+                workflowRunId={run.id}
                 runAttempt={run.runAttempt.attempt}
                 annotationSummary={jobAnnotationSummary}
+                jobContext={
+                  selectedJobExecution ? (
+                    <JobContextPanel job={job} execution={selectedJobExecution} />
+                  ) : undefined
+                }
               />
-              <Text as="h3" className="sr-only">
+              <Text as="h2" className="sr-only">
                 Logs
               </Text>
               {selectedJobExecution ? (
@@ -234,15 +264,30 @@ export function JobDetailView({
                   selectedAttemptId={selectedAttemptId}
                   defaultSelectedAttemptId={landingSelection?.attemptId}
                   onSelectedAttemptChange={selectAttempt}
+                  inspectorOpenAttemptId={inspectorOpenAttemptId}
+                  onInspectorOpenChange={onInspectorOpenChange}
                   autoSelectActiveAttempt
                   emptyState={emptyStateForJob(job, selectedJobExecution)}
                   showHeader={false}
-                  className="rounded-none border-0"
+                  className="rounded-none border-0 bg-transparent"
                   renderExpandedStep={(context) => (
-                    <ExpandedStep
-                      context={context}
+                    <ExpandedStep context={context} pageScrollRef={pageScrollRef} />
+                  )}
+                  renderInspector={(entry) => (
+                    <StepInspectorSheet
+                      entry={entry}
+                      open
+                      onOpenChange={(open) => onInspectorOpenChange(open ? entry.id : null)}
                       workspaceSlug={workspaceSlug}
-                      pageScrollRef={pageScrollRef}
+                      projectSlug={projectSlug}
+                      workflowRunId={run.id}
+                      runAttempt={run.runAttempt.attempt}
+                      jobId={job.id}
+                      annotationCount={annotationCountForStep(
+                        annotationSummaryQuery.data,
+                        entry.step.id,
+                        entry.attempt,
+                      )}
                     />
                   )}
                 />
@@ -254,7 +299,7 @@ export function JobDetailView({
               <div
                 role="status"
                 aria-live="polite"
-                className="flex min-w-0 items-center justify-between gap-8 rounded-8 border border-border-neutral-base bg-background-components-base px-10 py-8"
+                className="flex min-w-0 items-center justify-between gap-8 border-t border-border-neutral-base px-16 py-8"
               >
                 <Text size="xs" className="min-w-0 text-foreground-neutral-muted">
                   Run moved on to{' '}
@@ -273,7 +318,7 @@ export function JobDetailView({
               </div>
             ) : null}
             {succeededSummary ? (
-              <Text size="xs" className="px-8 text-foreground-neutral-muted">
+              <Text size="xs" className="px-16 py-8 text-foreground-neutral-muted">
                 {succeededSummary}
               </Text>
             ) : null}
@@ -286,39 +331,27 @@ export function JobDetailView({
 
 function ExpandedStep({
   context,
-  workspaceSlug,
   pageScrollRef,
 }: {
   context: StepExpandedContext;
-  workspaceSlug: string;
   pageScrollRef: RefObject<HTMLDivElement | null>;
 }) {
   if (context.carriedOver) return <CarriedOverStepPanel />;
-
-  const selectedAttemptError =
-    toSelectedAttemptError(context.step, context.attemptError) ?? context.step.error;
 
   return (
     <section
       role="region"
       tabIndex={0}
       aria-label={`${context.stepLabel} output, attempt ${context.attempt}`}
-      className="flex min-w-0 flex-col gap-10 border-t border-border-neutral-base bg-background-neutral-subtle px-16 py-12 outline-none focus-visible:shadow-border-interactive-with-active"
+      className="flex min-w-0 flex-col border-t border-border-neutral-base bg-background-neutral-base outline-none focus-visible:shadow-border-interactive-with-active dark:bg-background-contrast-subtle"
     >
-      {isAgentConfigFailure(context.step, selectedAttemptError) ? (
-        <AgentConfigFailureCallout
-          workspaceSlug={workspaceSlug}
-          config={context.step.agentConfig}
-          error={selectedAttemptError}
-        />
-      ) : null}
       <StepAttemptLogPanel
         stepId={context.stepId}
         attempt={context.attempt}
         attemptStatus={context.attemptStatus}
         attemptStartedAt={context.attemptStartedAt}
         pageScrollRef={pageScrollRef}
-        surfaceClassName="rounded-8"
+        surfaceClassName="rounded-none border-0 bg-transparent shadow-none"
       />
     </section>
   );
@@ -388,7 +421,7 @@ function NewerAttemptNotice({
 }) {
   return (
     <div role="status" className="border-b border-border-neutral-base px-16 py-8">
-      <div className="mx-auto flex max-w-[1120px] items-center justify-between gap-8 rounded-8 border border-border-neutral-base bg-background-components-base px-10 py-8">
+      <div className="flex items-center justify-between gap-8">
         <Text size="xs" className="text-foreground-neutral-muted">
           A newer run attempt is available.
         </Text>
@@ -431,10 +464,19 @@ function findAttempt(jobExecution: JobExecution, attemptId: string) {
   return undefined;
 }
 
+function annotationCountForStep(
+  summary: RunAnnotationSummary | undefined,
+  stepId: string,
+  attempt: number,
+): number | undefined {
+  return summary?.stepCounts?.find((entry) => entry.stepId === stepId && entry.attempt === attempt)
+    ?.total;
+}
+
 function JobDetailSkeleton() {
   return (
-    <div className="min-h-0 min-w-0 flex-1 overflow-auto px-24 pb-24">
-      <div className="mx-auto max-w-[1120px] overflow-hidden">
+    <div className="min-h-0 min-w-0 flex-1 overflow-auto pb-24">
+      <div className="w-full">
         <header className="flex items-center gap-12 border-b border-border-neutral-base px-16 py-12">
           <Skeleton className="size-20 rounded-full" />
           <Skeleton className="h-20 w-160 rounded-4" />

@@ -1,5 +1,7 @@
 import type {
+  EvaluationTraceDto,
   JobListeningDto,
+  StepAttemptDetailResponseDto,
   StepAttemptDto,
   StepGateResultDto,
   WorkflowExecutionEventDto,
@@ -13,6 +15,7 @@ import type {
   WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
 import {
+  type EvaluationTraceEntry,
   Job,
   JobExecution,
   type JobListening,
@@ -139,6 +142,10 @@ export function toJob(dto: WorkflowRunJobDetailDto): Job {
     status: dto.status,
     statusReason: dto.status_reason,
     carriedOver: dto.carried_over,
+    outputs: dto.outputs ?? null,
+    success: dto.success ?? null,
+    runner: dto.runner ?? null,
+    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
     listening: dto.listening ? toJobListening(dto.listening) : null,
     listenerStatus: dto.listener_status,
     resolutionReason: dto.resolution_reason,
@@ -158,11 +165,14 @@ export function toJobExecution(dto: WorkflowRunJobExecutionDetailDto): JobExecut
     name: dto.name,
     status: dto.status,
     statusReason: dto.status_reason,
+    runner: dto.runner ?? null,
+    outputs: dto.outputs ?? null,
     triggerEvents: (dto.trigger_events ?? []).map(toWorkflowExecutionEvent),
     queuedAt: dto.queued_at ?? null,
     startedAt: dto.started_at ?? null,
     finishedAt: dto.finished_at ?? null,
     timedOutAt: dto.timed_out_at ?? null,
+    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
     steps: dto.steps.map(toStep),
@@ -179,8 +189,10 @@ export function toStep(dto: WorkflowRunStepDetailDto): Step {
       ? {startLine: dto.source_location.start_line, endLine: dto.source_location.end_line}
       : null,
     status: dto.status,
+    statusReason: dto.status_reason,
     type: dto.type,
     config: dto.config,
+    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
     agentConfig: toAgentStepConfig(dto),
     error: dto.error
       ? {
@@ -210,12 +222,24 @@ export function toStepAttempt(dto: StepAttemptDto, jobExecutionId: string): Step
     status: dto.status,
     exitCode: dto.exit_code ?? null,
     output: dto.output ?? null,
+    outputs: dto.outputs ?? dto.output ?? null,
+    response: dto.response ?? null,
     error: dto.error ?? null,
     gateResult: toStepGateResult(dto.gate_result),
     restartFeedback: dto.restart_feedback ?? null,
     startedAt: dto.started_at,
     finishedAt: dto.finished_at ?? null,
   });
+}
+
+export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {
+  return {
+    stepId: dto.step_id,
+    attempt: dto.attempt,
+    authoredConfig: dto.authored_config,
+    config: dto.config,
+    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
+  };
 }
 
 function toJobListening(dto: JobListeningDto): JobListening {
@@ -257,6 +281,28 @@ function toStepGateResult(dto: StepGateResultDto): StepGateResult {
   if (dto.kind === 'uncheckable' || dto.kind === 'evaluation_error')
     return {...dto, exitCode: dto.exit_code};
   return dto;
+}
+
+function toEvaluationTrace(trace: EvaluationTraceDto | null): EvaluationTraceEntry[] | null {
+  return (
+    trace?.map((entry) =>
+      'dropped' in entry
+        ? entry
+        : {
+            expression: entry.expression,
+            roots: entry.roots,
+            fillTarget: entry.fill_target,
+            evaluatedAt: entry.evaluated_at,
+            field: entry.field,
+            ...(entry.value === undefined ? {} : {value: entry.value}),
+            ...(entry.truncated === undefined ? {} : {truncated: entry.truncated}),
+            ...(entry.expr_truncated === undefined ? {} : {exprTruncated: entry.expr_truncated}),
+            ...(entry.reference === undefined ? {} : {reference: entry.reference}),
+            ...(entry.degraded === undefined ? {} : {degraded: entry.degraded}),
+            ...(entry.env_key === undefined ? {} : {envKey: entry.env_key}),
+          },
+    ) ?? null
+  );
 }
 
 function toAgentStepConfig(dto: WorkflowRunStepDetailDto): Step['agentConfig'] {

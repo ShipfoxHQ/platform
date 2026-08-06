@@ -1,11 +1,11 @@
-import {QueryLoadError, type QueryLoadErrorQuery} from '@shipfox/client-ui';
+import {AnnotationCard, QueryLoadError, type QueryLoadErrorQuery} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
 import {useState} from 'react';
-import type {RunAnnotationEntry} from '#core/run-annotation.js';
+import type {RunAnnotationEntry, RunAnnotationStyle} from '#core/run-annotation.js';
 import {RunAnnotationItem} from './run-annotation-item.js';
 import {RunAnnotationsEmpty} from './run-annotations-empty.js';
 
@@ -19,6 +19,8 @@ export interface RunAnnotationListQuery extends QueryLoadErrorQuery {
 export interface RunAnnotationListProps {
   query: RunAnnotationListQuery;
   entries: RunAnnotationEntry[] | undefined;
+  /** Synthetic terminal-job diagnostics for jobs that never created an execution record. */
+  derivedAnnotations?: readonly DerivedRunAnnotation[] | undefined;
   workflowRunId: string;
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
@@ -31,6 +33,12 @@ export interface RunAnnotationListProps {
   onClearFilters?: (() => void) | undefined;
   /** Annotation id from `?annotation=`, which the matching card scrolls to and focuses. */
   selectedAnnotationId?: string | undefined;
+}
+
+export interface DerivedRunAnnotation {
+  id: string;
+  style: RunAnnotationStyle;
+  body: string;
 }
 
 /**
@@ -51,6 +59,7 @@ const RENDER_WINDOW = 25;
 export function RunAnnotationList({
   query,
   entries,
+  derivedAnnotations = [],
   workflowRunId,
   workspaceSlug,
   projectSlug,
@@ -80,12 +89,13 @@ export function RunAnnotationList({
 
   const visible = entries.slice(0, renderCount);
   const hiddenCount = entries.length - visible.length;
+  const hasContent = entries.length > 0 || derivedAnnotations.length > 0;
 
   return (
     <div className="flex min-w-0 flex-col gap-12">
       {query.isError ? <RunAnnotationStaleError query={query} /> : null}
 
-      {entries.length === 0 ? (
+      {!hasContent ? (
         filtered ? (
           <RunAnnotationsFilteredEmpty
             jobName={filteredJobName}
@@ -108,6 +118,11 @@ export function RunAnnotationList({
               runAttempt={runAttempt}
               selected={entry.annotation.id === selectedAnnotationId}
             />
+          ))}
+          {derivedAnnotations.map((annotation) => (
+            <li key={annotation.id}>
+              <AnnotationCard style={annotation.style} body={annotation.body} />
+            </li>
           ))}
         </ol>
       )}

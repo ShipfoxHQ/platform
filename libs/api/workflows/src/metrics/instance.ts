@@ -91,6 +91,12 @@ const agentToolWarningFailedCount = meter.createCounter<{
   description: 'Agent tool capability warning failures by bounded reason',
 });
 
+const failureAnnotationFailedCount = meter.createCounter<{
+  reason: 'lookup' | 'budget' | 'write';
+}>('workflows_failure_annotation_failed', {
+  description: 'Failure annotation projection failures by bounded reason',
+});
+
 const listenerEventsCoalesced = meter.createHistogram<Record<string, never>>(
   'workflows_listener_events_coalesced',
   {
@@ -171,4 +177,8 @@ export function recordListenerEventsCoalesced(batchSize: number): void {
 
 export function recordWorkflowAgentToolWarningFailed(reason: 'budget' | 'lookup' | 'write'): void {
   agentToolWarningFailedCount.add(1, {reason});
+}
+
+export function recordWorkflowFailureAnnotationFailed(reason: 'lookup' | 'budget' | 'write'): void {
+  failureAnnotationFailedCount.add(1, {reason});
 }

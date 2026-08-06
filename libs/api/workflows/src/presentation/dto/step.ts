@@ -1,5 +1,6 @@
 import {
   agentConfigIssueSchema,
+  type StepAttemptDetailResponseDto,
   type StepAttemptDto,
   type StepDto,
   type StepErrorCategoryDto,
@@ -9,6 +10,7 @@ import {
 } from '@shipfox/api-workflows-dto';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {GATE_EVALUATION_ERROR_REASON} from '#core/step-transition/evaluate-gate.js';
+import {toEvaluationTraceDto} from './evaluation-trace.js';
 
 // Domain `error` is loosely typed (jsonb), so narrow it to the fixed runner
 // contract rather than trusting whatever shape the row happens to hold. `category`
@@ -105,8 +107,10 @@ export function toStepDto(step: Step): StepDto {
     name: step.name,
     source_location: toStepSourceLocationDto(step.sourceLocation),
     status: step.status,
+    status_reason: step.statusReason,
     type: step.type,
     config: step.config,
+    evaluation_trace: toEvaluationTraceDto(step.evaluationTrace),
     error: toStepErrorDto(
       step.error,
       step.type === 'setup' || step.type === 'checkout' ? 'setup' : 'user',
@@ -144,5 +148,18 @@ export function toStepAttemptDto(attempt: StepAttempt): StepAttemptDto {
     restart_feedback: attempt.restartFeedback,
     started_at: attempt.startedAt.toISOString(),
     finished_at: attempt.finishedAt ? attempt.finishedAt.toISOString() : null,
+  };
+}
+
+export function toStepAttemptDetailResponseDto(
+  step: Step,
+  attempt: StepAttempt,
+): StepAttemptDetailResponseDto {
+  return {
+    step_id: step.id,
+    attempt: attempt.attempt,
+    authored_config: step.authoredConfig,
+    config: attempt.config,
+    evaluation_trace: toEvaluationTraceDto(attempt.evaluationTrace),
   };
 }

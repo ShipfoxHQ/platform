@@ -1,6 +1,7 @@
 import type {JobDto, JobExecutionDto} from '@shipfox/api-workflows-dto';
 import type {Job} from '#core/entities/job.js';
 import type {JobExecution} from '#core/entities/job-execution.js';
+import {toEvaluationTraceDto} from './evaluation-trace.js';
 
 export function toJobDto(job: Job): JobDto {
   return {
@@ -12,6 +13,9 @@ export function toJobDto(job: Job): JobDto {
     status: job.status,
     status_reason: job.statusReason,
     carried_over: job.carriedOver,
+    success: job.success ?? null,
+    runner: job.runner,
+    evaluation_trace: toEvaluationTraceDto(job.evaluationTrace),
     listening:
       job.listeningOn === null
         ? null
@@ -52,8 +56,10 @@ export function toJobExecutionDto(jobExecution: JobExecution): JobExecutionDto {
     name: jobExecution.name,
     status: jobExecution.status,
     status_reason: jobExecution.statusReason,
+    runner: jobExecution.runner,
     trigger_events: jobExecution.triggerEvents,
     outputs: jobExecution.outputs,
+    evaluation_trace: toEvaluationTraceDto(jobExecution.evaluationTrace),
     queued_at: jobExecution.queuedAt?.toISOString() ?? null,
     started_at: jobExecution.startedAt?.toISOString() ?? null,
     finished_at: jobExecution.finishedAt?.toISOString() ?? null,

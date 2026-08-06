@@ -2,6 +2,7 @@ import {AUTH_USER, buildUserContext, setUserContext} from '@shipfox/api-auth-con
 import {type AuthMethod, ClientError, closeApp, createApp} from '@shipfox/node-fastify';
 import type {FastifyRequest} from 'fastify';
 import {annotationFactory} from '#test/index.js';
+import {readAnnotationSummaryRoute} from './read-annotation-summary.js';
 import {readAnnotationsRoute} from './read-annotations.js';
 
 const fakeUserAuth: AuthMethod = {
@@ -42,7 +43,13 @@ describe('GET /annotations', () => {
   beforeAll(async () => {
     app = await createApp({
       auth: [fakeUserAuth],
-      routes: [{prefix: '/annotations', auth: AUTH_USER, routes: [readAnnotationsRoute]}],
+      routes: [
+        {
+          prefix: '/annotations',
+          auth: AUTH_USER,
+          routes: [readAnnotationSummaryRoute, readAnnotationsRoute],
+        },
+      ],
       swagger: false,
     });
     await app.ready();
@@ -134,6 +141,54 @@ describe('GET /annotations', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({annotations: [], has_more: false, next_cursor: null});
+  });
+
+  it('returns complete style counts without loading annotation bodies', async () => {
+    const workspaceId = crypto.randomUUID();
+    const workflowRunId = crypto.randomUUID();
+    const firstStepId = '11111111-1111-4111-8111-111111111111';
+    const secondStepId = '22222222-2222-4222-8222-222222222222';
+    await annotationFactory.create({
+      workspaceId,
+      workflowRunId,
+      originStepId: firstStepId,
+      context: 'default',
+      style: 'default',
+    });
+    await annotationFactory.create({
+      workspaceId,
+      workflowRunId,
+      originStepId: firstStepId,
+      context: 'error',
+      style: 'error',
+    });
+    await annotationFactory.create({
+      workspaceId,
+      workflowRunId,
+      originStepId: secondStepId,
+      originStepAttempt: 2,
+      context: 'warning',
+      style: 'warning',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/annotations/summary?workflow_run_id=${workflowRunId}&attempt=1`,
+      headers: {authorization: 'Bearer user', 'x-test-workspaces': workspaceId},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      total: 3,
+      error: 1,
+      warning: 1,
+      info: 0,
+      success: 0,
+      step_counts: [
+        {origin_step_id: firstStepId, origin_step_attempt: 1, total: 2},
+        {origin_step_id: secondStepId, origin_step_attempt: 2, total: 1},
+      ],
+    });
   });
 
   it('returns an empty list for annotations outside the user workspaces', async () => {

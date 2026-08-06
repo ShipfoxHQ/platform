@@ -58,9 +58,12 @@ export interface StepListProps {
   selectedAttemptId?: string | null | undefined;
   defaultSelectedAttemptId?: string | undefined;
   onSelectedAttemptChange?: ((attemptId: string | undefined) => void) | undefined;
+  inspectorOpenAttemptId?: string | null | undefined;
+  onInspectorOpenChange?: ((attemptId: string | null) => void) | undefined;
   autoSelectActiveAttempt?: boolean | undefined;
   emptyState?: StepListEmptyState | undefined;
   renderExpandedStep?: ((context: StepExpandedContext) => ReactNode) | undefined;
+  renderInspector?: ((entry: StepListEntryModel) => ReactNode) | undefined;
   showHeader?: boolean | undefined;
   className?: string | undefined;
 }
@@ -71,9 +74,12 @@ export function StepList({
   selectedAttemptId,
   defaultSelectedAttemptId,
   onSelectedAttemptChange,
+  inspectorOpenAttemptId = null,
+  onInspectorOpenChange,
   autoSelectActiveAttempt = false,
   emptyState,
   renderExpandedStep,
+  renderInspector,
   showHeader = true,
   className,
 }: StepListProps) {
@@ -90,9 +96,12 @@ export function StepList({
       selectedAttemptId={selectedAttemptId}
       defaultSelectedAttemptId={defaultSelectedAttemptId}
       onSelectedAttemptChange={onSelectedAttemptChange}
+      inspectorOpenAttemptId={inspectorOpenAttemptId}
+      onInspectorOpenChange={onInspectorOpenChange}
       autoSelectActiveAttempt={autoSelectActiveAttempt}
       emptyState={emptyState}
       renderExpandedStep={renderExpandedStep}
+      renderInspector={renderInspector}
       showHeader={showHeader}
       className={className}
     />
@@ -104,9 +113,12 @@ function StepListContent({
   selectedAttemptId,
   defaultSelectedAttemptId,
   onSelectedAttemptChange,
+  inspectorOpenAttemptId = null,
+  onInspectorOpenChange,
   autoSelectActiveAttempt,
   emptyState,
   renderExpandedStep,
+  renderInspector,
   showHeader,
   className,
 }: Omit<StepListProps, 'job' | 'jobExecution'> & {model: StepListModel}) {
@@ -185,6 +197,15 @@ function StepListContent({
     setUserSelectedAttempt(true);
   }, [selectedAttemptId]);
 
+  useEffect(() => {
+    if (
+      inspectorOpenAttemptId !== null &&
+      !model.entries.some((entry) => entry.id === inspectorOpenAttemptId && !entry.carriedOver)
+    ) {
+      onInspectorOpenChange?.(null);
+    }
+  }, [inspectorOpenAttemptId, model.entries, onInspectorOpenChange]);
+
   function selectAttempt(nextAttemptIds: string[]) {
     const nextAttemptId = nextSelectedAttemptId(selectedAttemptIds, nextAttemptIds);
     setUserSelectedAttempt(true);
@@ -192,6 +213,10 @@ function StepListContent({
     lastNotifiedSelectedAttemptId.current = nextAttemptId ?? null;
     onSelectedAttemptChange?.(nextAttemptId);
   }
+
+  const inspectorEntry = model.entries.find(
+    (entry) => entry.id === inspectorOpenAttemptId && !entry.carriedOver,
+  );
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
@@ -237,6 +262,11 @@ function StepListContent({
                             : [entry.id],
                       );
                     }}
+                    onInspect={
+                      onInspectorOpenChange && !entry.carriedOver
+                        ? () => onInspectorOpenChange(entry.id)
+                        : undefined
+                    }
                     expandedContent={
                       selected
                         ? renderExpandedStep?.({
@@ -260,6 +290,7 @@ function StepListContent({
           </Accordion>
         )}
       </section>
+      {inspectorEntry ? renderInspector?.(inspectorEntry) : null}
     </TimeTickerProvider>
   );
 }
@@ -320,12 +351,14 @@ function StepRow({
   selected,
   hasExpandedContent,
   onSelect,
+  onInspect,
   expandedContent,
 }: {
   entry: StepListEntryModel;
   selected: boolean;
   hasExpandedContent: boolean;
   onSelect: () => void;
+  onInspect?: (() => void) | undefined;
   expandedContent: ReactNode;
 }) {
   const shouldShowLabelTooltip = entry.step.label.length > 32;
@@ -353,8 +386,7 @@ function StepRow({
     </>
   );
   const rowClasses = cn(
-    'group grid min-h-44 w-full grid-cols-[14px_14px_minmax(0,1fr)_auto] items-center gap-x-8 px-12 py-6 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
-    selected && 'bg-background-components-hover',
+    'group flex min-h-44 min-w-0 flex-1 items-center gap-x-8 bg-transparent px-12 py-6 text-left transition-colors hover:bg-transparent active:bg-transparent focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
     entry.carriedOver && 'opacity-[0.55]',
   );
   const button = hasExpandedContent ? (
@@ -388,15 +420,33 @@ function StepRow({
   );
   const row = (
     <>
-      {triggerNode}
+      <div
+        className={cn(
+          'group flex min-w-0 items-center transition-colors hover:bg-background-components-hover active:bg-background-components-pressed',
+          selected && 'bg-background-components-hover',
+          !hasExpandedContent && 'border-b border-border-neutral-base',
+        )}
+      >
+        <div className="min-w-0 flex-1">{triggerNode}</div>
+        {onInspect ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Inspect ${entry.step.label}, attempt ${entry.attempt}`}
+                onClick={onInspect}
+                className="mr-8 flex size-28 shrink-0 items-center justify-center rounded-4 bg-transparent text-foreground-neutral-muted outline-none transition-colors hover:bg-transparent hover:text-foreground-neutral-base active:bg-transparent focus-visible:shadow-button-neutral-focus"
+              >
+                <Icon name="informationLine" size={14} aria-hidden="true" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Inspect step details</TooltipContent>
+          </Tooltip>
+        ) : null}
+      </div>
       {selected && expandedContent ? (
-        <AccordionContent className="border-t border-border-neutral-base bg-background-neutral-base px-12 py-12">
-          <div className="grid grid-cols-[14px_14px_minmax(0,1fr)_auto] gap-x-8">
-            <span aria-hidden="true" />
-            <span aria-hidden="true" />
-            <div className="min-w-0">{expandedContent}</div>
-            <span aria-hidden="true" />
-          </div>
+        <AccordionContent className="border-t border-border-neutral-base bg-transparent px-0 py-0">
+          <div className="min-w-0">{expandedContent}</div>
         </AccordionContent>
       ) : null}
     </>
@@ -410,7 +460,7 @@ function StepRow({
     );
   }
 
-  return <li className="border-b border-border-neutral-base last:border-b-0">{row}</li>;
+  return <li className="last:border-b-0">{row}</li>;
 }
 
 function CarriedOverBadge() {

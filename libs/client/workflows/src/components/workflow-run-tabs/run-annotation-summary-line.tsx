@@ -1,3 +1,4 @@
+import {MetadataSeparator} from '@shipfox/client-ui';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
@@ -8,7 +9,6 @@ import {
   type WorkflowRunsSearch,
   workflowRunSearchParams,
 } from '#routes/inputs.js';
-import {MetadataSeparator} from '../workflow-run-summary/workflow-run-summary.js';
 import {SEVERITY_ICON, SEVERITY_ICON_TONE} from './severity-visuals.js';
 
 /**
