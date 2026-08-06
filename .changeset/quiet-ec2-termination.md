@@ -2,4 +2,4 @@
 "@shipfox/provisioner-ec2-provider": patch
 ---
 
-Reports each EC2 runner termination once per AWS instance ID.
+EC2 terminal observations now use AWS instance IDs with a one-hour listing-gap grace period.

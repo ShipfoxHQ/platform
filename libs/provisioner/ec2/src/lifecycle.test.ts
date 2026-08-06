@@ -24,6 +24,7 @@ vi.mock('#metrics/instance.js', () => ({
 
 const NOW = new Date('2026-01-01T00:10:00.000Z');
 const RECONCILE_INTERVAL_MS = 60_000;
+const TERMINAL_REPORT_ABSENCE_GRACE_MS = 60 * 60 * 1000;
 const RUNNER_INSTANCE_ID = '00000000-0000-4000-8000-000000000004';
 
 const template: ProvisionerTemplate<Ec2TemplateSpec> = {
@@ -171,13 +172,35 @@ describe('createEc2Lifecycle', () => {
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
-  it('reports a terminal instance again after it leaves and re-enters the listing', async () => {
+  it('keeps terminal deduplication through a transient listing gap', async () => {
     const instances = [instance({state: 'terminated'})];
     const client = fakeClient();
     const lifecycle = makeLifecycle({engine: fakeEngine({instances}), client});
 
     await lifecycle.observe();
     instances.length = 0;
+    await lifecycle.observe();
+    instances.push(instance({state: 'terminated'}));
+    await lifecycle.observe();
+
+    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(1);
+    expect(observability.logger.info).toHaveBeenCalledTimes(1);
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a terminal instance again after the listing-gap grace period', async () => {
+    const now = new Date(NOW);
+    const instances = [instance({state: 'terminated'})];
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances}),
+      client,
+      now: () => now,
+    });
+
+    await lifecycle.observe();
+    instances.length = 0;
+    now.setTime(now.getTime() + TERMINAL_REPORT_ABSENCE_GRACE_MS + 1);
     await lifecycle.observe();
     instances.push(instance({state: 'terminated'}));
     await lifecycle.observe();
@@ -368,12 +391,41 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies).toHaveLength(1);
   });
 
+  it('does not deduplicate a terminal report that the API rejects as invalid', async () => {
+    const client = fakeClient({reportErrors: [httpError(400)]});
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'terminated'})]}),
+      client,
+    });
+
+    await lifecycle.observe();
+    await lifecycle.observe();
+
+    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(2);
+    expect(observability.logger.info).toHaveBeenCalledTimes(2);
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps authentication report failures fatal', async () => {
     const lifecycle = makeLifecycle({
       client: fakeClient({reportErrors: [new ProvisionerAuthenticationError(401)]}),
     });
 
     await expect(lifecycle.launch(launch())).rejects.toThrow(ProvisionerAuthenticationError);
+  });
+
+  it('terminates an overdue instance before authentication failures can block reporting', async () => {
+    const engine = fakeEngine({
+      instances: [instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')})],
+    });
+    const client = fakeClient({
+      reportErrors: [new ProvisionerAuthenticationError(401)],
+    });
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await expect(lifecycle.observe()).rejects.toThrow(ProvisionerAuthenticationError);
+
+    expect(engine.terminated).toEqual(['i-123']);
   });
 
   it('reports a failed launch and does not launch when provider identity attachment is rejected', async () => {
@@ -524,16 +576,13 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.reconcile();
 
     expect(engine.terminated).toEqual(['i-123']);
-    expect(client.reportBodies.flatMap((body) => body.events)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({provider_runner_id: 'runner-1', state: 'running'}),
-        expect.objectContaining({
-          provider_runner_id: 'runner-1',
-          state: 'terminated',
-          reason: 'backend-terminate',
-        }),
-      ]),
-    );
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({
+        provider_runner_id: 'runner-1',
+        state: 'terminated',
+        reason: 'backend-terminate',
+      }),
+    ]);
   });
 
   it('reports the first terminal observation before handling backend terminate intent', async () => {
@@ -644,21 +693,23 @@ describe('createEc2Lifecycle', () => {
   });
 
   it('reaps a pending instance past its registration deadline', async () => {
+    const instances = [
+      instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')}),
+    ];
     const engine = fakeEngine({
-      instances: [instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')})],
+      instances,
     });
     const client = fakeClient();
     const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
 
     await lifecycle.observe();
+    instances[0] = instance({state: 'terminated'});
+    await lifecycle.observe();
 
     expect(engine.terminated).toEqual(['i-123']);
-    expect(client.reportBodies.flatMap((body) => body.events)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({state: 'starting'}),
-        expect.objectContaining({state: 'terminated', reason: 'registration-deadline'}),
-      ]),
-    );
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({state: 'terminated', reason: 'registration-deadline'}),
+    ]);
   });
 
   it('periodically reconciles and otherwise observes', async () => {

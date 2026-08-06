@@ -1,9 +1,8 @@
 # @shipfox/provisioner-ec2-provider
 
-The EC2 provider scaffold for the Shipfox provisioner. It currently loads and validates
-EC2 template configuration for the provider-agnostic
-[`@shipfox/provisioner-core`](../core) control loop. The EC2 engine, lifecycle, and app
-wiring land in later issues.
+The EC2 provider loads and validates template configuration, runs the EC2 lifecycle, and
+reports capacity through the provider-agnostic [`@shipfox/provisioner-core`](../core)
+control loop.
 
 ## Public API
 
@@ -122,9 +121,11 @@ therefore shortens the reservation relative to the deadline: raise both together
 
 ## Behavior notes
 
-The provider deduplicates terminal observations by AWS instance ID while AWS keeps
-the instance in the managed listing.
-It reports pending, running, stopping, and shutting-down states on each observation.
+Search for `Observed EC2 runner instance termination` to find one terminal log per AWS
+instance ID. The provider keeps the deduplication marker while the instance is listed
+and for one hour after a listing gap.
+Non-terminal states are reported on ordinary observations. An actionable termination
+reports its terminal reason instead.
 Stopped instances remain eligible for termination. Shutting-down and terminated
 instances do not trigger another AWS termination call.
 The in-memory marker resets when the provider restarts.

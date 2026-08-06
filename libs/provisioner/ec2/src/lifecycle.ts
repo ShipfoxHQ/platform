@@ -18,6 +18,7 @@ import type {Ec2TemplateSpec} from '#templates.js';
 
 const MAX_REPORT_BATCH = 1000;
 const MAX_REASON_LENGTH = 500;
+const TERMINAL_REPORT_ABSENCE_GRACE_MS = 60 * 60 * 1000;
 const SPOT_INTERRUPTION_REASON =
   /spot|instance-terminated-by-price|instance-terminated-no-capacity/i;
 
@@ -37,6 +38,8 @@ type AssignmentCandidate = {
   reservationId: string;
   runnerInstanceId: string;
 };
+
+type TerminalReportInstanceIds = ReadonlyMap<RunnerInstanceReportEventDto, string>;
 
 export interface Ec2Lifecycle {
   launch(launch: ProviderRunnerLaunch<Ec2TemplateSpec>): Promise<void>;
@@ -72,7 +75,9 @@ interface Ec2LifecycleContext {
   readonly now: () => Date;
   readonly renderUserData?: (launch: ProviderRunnerLaunch<Ec2TemplateSpec>) => string;
   readonly locallyLaunched: Map<string, LocallyLaunchedRunner>;
-  readonly terminalReportedInstanceIds: Set<string>;
+  readonly terminalReportedInstanceIds: Map<string, number>;
+  readonly pendingTerminalReportedInstanceIds: Set<string>;
+  readonly terminalReportInstanceIdsByEvent: Map<RunnerInstanceReportEventDto, string>;
   readonly pendingReports: RunnerInstanceReportEventDto[];
   readonly releasedReservationRunnerIds: Map<string, Set<string>>;
   lastReconciledAt?: Date;
@@ -96,7 +101,9 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     now: options.now ?? (() => new Date()),
     ...(options.renderUserData ? {renderUserData: options.renderUserData} : {}),
     locallyLaunched: new Map(),
-    terminalReportedInstanceIds: new Set(),
+    terminalReportedInstanceIds: new Map(),
+    pendingTerminalReportedInstanceIds: new Set(),
+    terminalReportInstanceIdsByEvent: new Map(),
     pendingReports: [],
     releasedReservationRunnerIds: new Map(),
   };
@@ -165,13 +172,12 @@ async function launchRunner(
 }
 
 async function observe(context: Ec2LifecycleContext): Promise<void> {
-  await reportEvents(context, []);
   const instances = await context.engine.listManaged(context.identity.id);
   await applyObservedInstances(context, instances, new Set());
+  await reportEvents(context, []);
 }
 
 async function reconcile(context: Ec2LifecycleContext): Promise<void> {
-  await reportEvents(context, []);
   const instances = await context.engine.listManaged(context.identity.id);
   const observedProviderRunnerIds = observedRunnerIds(instances);
   if (observedProviderRunnerIds.length > MAX_RECONCILE_OBSERVED_RUNNERS) {
@@ -183,6 +189,7 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
       'Skipping backend reconcile because observed EC2 runner count exceeds the API limit',
     );
     await applyObservedInstances(context, instances, new Set());
+    await reportEvents(context, []);
     return;
   }
 
@@ -202,6 +209,7 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
   }
 
   await applyObservedInstances(context, instances, terminateIntentIds);
+  await reportEvents(context, []);
   context.lastReconciledAt = new Date(context.now());
 }
 
@@ -234,16 +242,21 @@ async function applyObservedInstances(
 ): Promise<void> {
   const trackerRunners: TrackerSeed[] = [];
   const events: RunnerInstanceReportEventDto[] = [];
+  const terminalReportInstanceIds = new Map<RunnerInstanceReportEventDto, string>();
   const assignmentCandidates: AssignmentCandidate[] = [];
   const observedIds = new Set<string>();
   const observedInstanceIds = new Set<string>();
   const observedRunnerInstanceIds = new Set<string>();
   const reapInstances: Ec2InstanceView[] = [];
   const terminateIntentInstances: Ec2InstanceView[] = [];
+  const observedAt = context.now().getTime();
 
   for (const instance of instances) {
     const identity = parseInstanceIdentity(instance);
     observedInstanceIds.add(instance.instanceId);
+    if (context.terminalReportedInstanceIds.has(instance.instanceId)) {
+      context.terminalReportedInstanceIds.set(instance.instanceId, observedAt);
+    }
     if (identity.runnerInstanceId) observedRunnerInstanceIds.add(identity.runnerInstanceId);
     if (!identity.providerRunnerId) continue;
     observedIds.add(identity.providerRunnerId);
@@ -252,9 +265,11 @@ async function applyObservedInstances(
     const hasTerminateIntent = terminateIntentIds.has(identity.providerRunnerId);
     const pastRegistrationDeadline = isPastRegistrationDeadline(instance, context);
     const terminationRequested = hasTerminateIntent || pastRegistrationDeadline;
-    if (hasTerminateIntent && canTerminateInstance(instance)) {
+    const canTerminate = canTerminateInstance(instance);
+    const shouldTerminate = terminationRequested && canTerminate;
+    if (hasTerminateIntent && canTerminate) {
       terminateIntentInstances.push(instance);
-    } else if (pastRegistrationDeadline && canTerminateInstance(instance)) {
+    } else if (pastRegistrationDeadline && canTerminate) {
       reapInstances.push(instance);
     }
 
@@ -266,55 +281,63 @@ async function applyObservedInstances(
 
     const mapped = mapInstanceState(instance);
     const terminalObservation = mapped.state === 'failed' || mapped.state === 'terminated';
-    if (!terminalObservation || !context.terminalReportedInstanceIds.has(instance.instanceId)) {
-      if (terminalObservation) {
-        const terminationReason =
-          mapped.reason === 'spot-interruption' ? 'spot-interruption' : 'observed-terminated';
-        recordEc2Termination(terminationReason);
-        logger().info(
-          {
-            provisioned_runner_id: identity.providerRunnerId,
-            ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
-            aws_instance_id: instance.instanceId,
-            reason: terminationReason,
-          },
-          'Observed EC2 runner instance termination',
-        );
+    const alreadyReportedTerminal =
+      terminalObservation && hasTerminalReport(context, instance.instanceId);
+    // Actionable termination paths report their terminal reason from terminateInstances below.
+    if (!shouldTerminate) {
+      if (!alreadyReportedTerminal) {
+        if (terminalObservation) {
+          const terminationReason =
+            mapped.reason === 'spot-interruption' ? 'spot-interruption' : 'observed-terminated';
+          recordEc2Termination(terminationReason);
+          logger().info(
+            {
+              provisioned_runner_id: identity.providerRunnerId,
+              ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
+              aws_instance_id: instance.instanceId,
+              reason: terminationReason,
+            },
+            'Observed EC2 runner instance termination',
+          );
+        }
+        const event = eventForInstance(context, instance, mapped.state, labels, mapped.reason);
+        events.push(event);
+        if (terminalObservation) terminalReportInstanceIds.set(event, instance.instanceId);
       }
-      events.push(eventForInstance(context, instance, mapped.state, labels, mapped.reason));
-      if (terminalObservation) context.terminalReportedInstanceIds.add(instance.instanceId);
-    }
-    if (
-      !terminationRequested &&
-      (mapped.state === 'starting' || mapped.state === 'running') &&
-      identity.runnerInstanceId &&
-      identity.reservationId
-    ) {
-      assignmentCandidates.push({
-        runnerInstanceId: identity.runnerInstanceId,
-        reservationId: identity.reservationId,
-      });
-    }
-    if (
-      !terminationRequested &&
-      (mapped.state === 'starting' || mapped.state === 'running') &&
-      identity.templateKey
-    ) {
-      trackerRunners.push({
-        providerRunnerId: identity.providerRunnerId,
-        templateKey: identity.templateKey,
-        state: mapped.state,
-      });
+      if (
+        !terminationRequested &&
+        (mapped.state === 'starting' || mapped.state === 'running') &&
+        identity.runnerInstanceId &&
+        identity.reservationId
+      ) {
+        assignmentCandidates.push({
+          runnerInstanceId: identity.runnerInstanceId,
+          reservationId: identity.reservationId,
+        });
+      }
+      if (
+        !terminationRequested &&
+        (mapped.state === 'starting' || mapped.state === 'running') &&
+        identity.templateKey
+      ) {
+        trackerRunners.push({
+          providerRunnerId: identity.providerRunnerId,
+          templateKey: identity.templateKey,
+          state: mapped.state,
+        });
+      }
     }
   }
 
-  pruneTerminalReportedInstances(context, observedInstanceIds);
+  pruneTerminalReportedInstances(context, observedInstanceIds, context.now().getTime());
   synthesizeAbsentLaunchedRunners(context, observedIds, trackerRunners, events);
   context.tracker.replaceAll(trackerRunners);
   await assignEnrolledReservations(context, assignmentCandidates, observedRunnerInstanceIds);
-  if (events.length > 0) await reportEvents(context, events);
   await terminateInstances(context, terminateIntentInstances, 'backend-terminate');
   await terminateInstances(context, reapInstances, 'registration-deadline');
+  if (events.length > 0) {
+    await reportEvents(context, events, terminalReportInstanceIds);
+  }
 }
 
 async function assignEnrolledReservations(
@@ -370,10 +393,15 @@ function pruneReleasedReservationRunners(
 function pruneTerminalReportedInstances(
   context: Ec2LifecycleContext,
   observedInstanceIds: ReadonlySet<string>,
+  nowMs: number,
 ): void {
-  for (const instanceId of context.terminalReportedInstanceIds) {
-    if (!observedInstanceIds.has(instanceId))
+  for (const [instanceId, lastObservedAt] of context.terminalReportedInstanceIds) {
+    if (
+      !observedInstanceIds.has(instanceId) &&
+      nowMs - lastObservedAt >= TERMINAL_REPORT_ABSENCE_GRACE_MS
+    ) {
       context.terminalReportedInstanceIds.delete(instanceId);
+    }
   }
 }
 
@@ -427,6 +455,7 @@ async function terminateInstances(
   if (terminableInstances.length > 0) {
     await context.engine.terminate(terminableInstances.map((instance) => instance.instanceId));
   }
+  const terminalReportInstanceIds = new Map<RunnerInstanceReportEventDto, string>();
   const events = terminableInstances.flatMap((instance) => {
     const identity = parseInstanceIdentity(instance);
     const template = identity.templateKey
@@ -434,11 +463,14 @@ async function terminateInstances(
       : undefined;
     const labels = identity.labels.length > 0 ? identity.labels : (template?.labels ?? []);
     if (!identity.providerRunnerId || labels.length === 0) return [];
-    if (context.terminalReportedInstanceIds.has(instance.instanceId)) return [];
-    context.terminalReportedInstanceIds.add(instance.instanceId);
-    return [eventForInstance(context, instance, 'terminated', labels, reason)];
+    if (hasTerminalReport(context, instance.instanceId)) return [];
+    const event = eventForInstance(context, instance, 'terminated', labels, reason);
+    terminalReportInstanceIds.set(event, instance.instanceId);
+    return [event];
   });
-  if (events.length > 0) await reportEvents(context, events);
+  if (events.length > 0) {
+    await reportEvents(context, events, terminalReportInstanceIds);
+  }
   for (const instance of instances) {
     const identity = parseInstanceIdentity(instance);
     context.locallyLaunched.delete(identity.providerRunnerId);
@@ -448,6 +480,13 @@ async function terminateInstances(
 
 function canTerminateInstance(instance: Ec2InstanceView): boolean {
   return instance.state !== 'shutting-down' && instance.state !== 'terminated';
+}
+
+function hasTerminalReport(context: Ec2LifecycleContext, instanceId: string): boolean {
+  return (
+    context.terminalReportedInstanceIds.has(instanceId) ||
+    context.pendingTerminalReportedInstanceIds.has(instanceId)
+  );
 }
 
 function observedRunnerIds(instances: readonly Ec2InstanceView[]): string[] {
@@ -476,21 +515,55 @@ async function attachProviderIdentity(
 async function reportEvents(
   context: Ec2LifecycleContext,
   events: readonly RunnerInstanceReportEventDto[],
+  terminalReportInstanceIds: TerminalReportInstanceIds = new Map(),
 ): Promise<void> {
+  for (const [event, instanceId] of terminalReportInstanceIds) {
+    context.terminalReportInstanceIdsByEvent.set(event, instanceId);
+    context.pendingTerminalReportedInstanceIds.add(instanceId);
+  }
   const reports = [...context.pendingReports.splice(0), ...events];
   for (let index = 0; index < reports.length; index += MAX_REPORT_BATCH) {
     const batch = reports.slice(index, index + MAX_REPORT_BATCH);
     try {
       await context.client.reportRunnerInstances({events: batch});
+      rememberDeliveredTerminalReports(context, batch);
     } catch (error) {
       if (error instanceof ProvisionerAuthenticationError) {
         context.pendingReports.push(...reports.slice(index));
         throw error;
       }
-      if (responseStatus(error) === 400) continue;
+      if (responseStatus(error) === 400) {
+        forgetTerminalReports(context, batch);
+        continue;
+      }
       context.pendingReports.push(...reports.slice(index));
       return;
     }
+  }
+}
+
+function rememberDeliveredTerminalReports(
+  context: Ec2LifecycleContext,
+  reports: readonly RunnerInstanceReportEventDto[],
+): void {
+  for (const report of reports) {
+    const instanceId = context.terminalReportInstanceIdsByEvent.get(report);
+    if (!instanceId) continue;
+    context.terminalReportedInstanceIds.set(instanceId, context.now().getTime());
+    context.pendingTerminalReportedInstanceIds.delete(instanceId);
+    context.terminalReportInstanceIdsByEvent.delete(report);
+  }
+}
+
+function forgetTerminalReports(
+  context: Ec2LifecycleContext,
+  reports: readonly RunnerInstanceReportEventDto[],
+): void {
+  for (const report of reports) {
+    const instanceId = context.terminalReportInstanceIdsByEvent.get(report);
+    if (!instanceId) continue;
+    context.pendingTerminalReportedInstanceIds.delete(instanceId);
+    context.terminalReportInstanceIdsByEvent.delete(report);
   }
 }
 
