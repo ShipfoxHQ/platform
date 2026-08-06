@@ -66,6 +66,10 @@ export function createPollDemandRoute(options: CreateRunnersModuleOptions = {}) 
         }
       });
       const provisionerContext = requireProvisionerContext(request);
+      const ttlSeconds = Math.min(
+        request.body.reservation_ttl_seconds ?? config.RESERVATION_TTL_SECONDS,
+        config.RESERVATION_TTL_MAX_SECONDS,
+      );
       if (provisionerContext.scope === 'installation') {
         if (!options.installationProvisioning) {
           throw new ClientError(
@@ -85,7 +89,7 @@ export function createPollDemandRoute(options: CreateRunnersModuleOptions = {}) 
         const result = await pollInstallationDemandAndReserve({
           provisionerId: provisionerContext.provisionerTokenId,
           maxReservations: request.body.max_reservations,
-          ttlSeconds: config.RESERVATION_TTL_SECONDS,
+          ttlSeconds,
           templates,
           capabilityWindowSeconds: config.PROVISIONER_ACTIVE_WINDOW_SECONDS,
           eligibleWorkspaceIds,
@@ -113,7 +117,7 @@ export function createPollDemandRoute(options: CreateRunnersModuleOptions = {}) 
         provisionerId: provisionerTokenId,
         maxReservations: request.body.max_reservations,
         waitSeconds: request.body.wait_seconds,
-        ttlSeconds: config.RESERVATION_TTL_SECONDS,
+        ttlSeconds,
         terminateIntentLimit: TERMINATE_INTENT_LIMIT,
         templates,
         signal: abortController.signal,

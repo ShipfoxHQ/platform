@@ -26,6 +26,26 @@ describe('pollDemandBodySchema', () => {
 
     expect(result.success).toBe(false);
   });
+
+  it('accepts an optional positive reservation TTL', () => {
+    const result = pollDemandBodySchema.safeParse({
+      max_reservations: 0,
+      reservation_ttl_seconds: 300,
+      templates: [],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it.each([0, -1, 1.5])('rejects an invalid reservation TTL of %s', (value) => {
+    const result = pollDemandBodySchema.safeParse({
+      max_reservations: 0,
+      reservation_ttl_seconds: value,
+      templates: [],
+    });
+
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('pollDemandResponseSchema', () => {

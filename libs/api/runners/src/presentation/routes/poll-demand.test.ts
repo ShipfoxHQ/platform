@@ -87,6 +87,7 @@ describe('POST /provisioners/demand/poll', () => {
   it('returns demand stats and reservations when matching demand exists', async () => {
     await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
 
+    const requestStartedAt = Date.now();
     const res = await app.inject({
       method: 'POST',
       url: '/provisioners/demand/poll',
@@ -102,6 +103,43 @@ describe('POST /provisioners/demand/poll', () => {
     });
     expect(res.json().reservations[0].reservation_id).toEqual(expect.any(String));
     expect(res.json().reservations[0].expires_at).toEqual(expect.any(String));
+    const expiresAt = Date.parse(res.json().reservations[0].expires_at);
+    expect(expiresAt).toBeGreaterThanOrEqual(requestStartedAt + 55_000);
+    expect(expiresAt).toBeLessThan(requestStartedAt + 65_000);
+  });
+
+  it('clamps a requested reservation TTL for workspace provisioners', async () => {
+    await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
+
+    const requestStartedAt = Date.now();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/demand/poll',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: body({max_reservations: 1, reservation_ttl_seconds: 600}),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const expiresAt = Date.parse(res.json().reservations[0].expires_at);
+    expect(expiresAt).toBeGreaterThanOrEqual(requestStartedAt + 295_000);
+    expect(expiresAt).toBeLessThan(requestStartedAt + 305_000);
+  });
+
+  it('applies a requested reservation TTL below the ceiling', async () => {
+    await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
+
+    const requestStartedAt = Date.now();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/demand/poll',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: body({max_reservations: 1, reservation_ttl_seconds: 120}),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const expiresAt = Date.parse(res.json().reservations[0].expires_at);
+    expect(expiresAt).toBeGreaterThanOrEqual(requestStartedAt + 115_000);
+    expect(expiresAt).toBeLessThan(requestStartedAt + 125_000);
   });
 
   it('rejects installation provisioner credentials from workspace demand polling', async () => {
@@ -330,10 +368,13 @@ describe('POST /provisioners/demand/poll', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  function body(params: {max_reservations: number}) {
+  function body(params: {max_reservations: number; reservation_ttl_seconds?: number}) {
     return {
       wait_seconds: 0,
       max_reservations: params.max_reservations,
+      ...(params.reservation_ttl_seconds === undefined
+        ? {}
+        : {reservation_ttl_seconds: params.reservation_ttl_seconds}),
       templates: [
         {
           template_key: 'linux',
@@ -377,6 +418,7 @@ describe('POST /provisioners/demand/poll with installation provisioning configur
   let app: FastifyInstance;
   let workspaceId: string;
   let provisionerTokenId: string;
+  const filterEligibleWorkspaceIds = vi.fn().mockResolvedValue(new Set<string>());
 
   const fakeProvisionerAuth: AuthMethod = {
     name: AUTH_PROVISIONER_TOKEN,
@@ -402,7 +444,7 @@ describe('POST /provisioners/demand/poll with installation provisioning configur
       ],
       routes: createRunnerRoutes(runnersTestAuthClient, {
         installationProvisioning: {
-          policy: {filterEligibleWorkspaceIds: vi.fn().mockResolvedValue(new Set())},
+          policy: {filterEligibleWorkspaceIds},
         },
       }),
       swagger: false,
@@ -444,10 +486,31 @@ describe('POST /provisioners/demand/poll with installation provisioning configur
     expect(res.statusCode).toBe(200);
   });
 
-  function body(params: {max_reservations: number}) {
+  it('clamps a requested reservation TTL for installation provisioners', async () => {
+    await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
+    filterEligibleWorkspaceIds.mockResolvedValueOnce(new Set([workspaceId]));
+
+    const requestStartedAt = Date.now();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/demand/poll',
+      headers: {authorization: `Bearer ${INSTALLATION_PROVISIONER_TOKEN}`},
+      payload: body({max_reservations: 1, reservation_ttl_seconds: 600}),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const expiresAt = Date.parse(res.json().reservations[0].expires_at);
+    expect(expiresAt).toBeGreaterThanOrEqual(requestStartedAt + 295_000);
+    expect(expiresAt).toBeLessThan(requestStartedAt + 305_000);
+  });
+
+  function body(params: {max_reservations: number; reservation_ttl_seconds?: number}) {
     return {
       wait_seconds: 0,
       max_reservations: params.max_reservations,
+      ...(params.reservation_ttl_seconds === undefined
+        ? {}
+        : {reservation_ttl_seconds: params.reservation_ttl_seconds}),
       templates: [
         {
           template_key: 'linux',
