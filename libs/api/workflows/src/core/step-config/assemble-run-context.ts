@@ -8,7 +8,7 @@ import {
   type WorkflowPredicateContextRoot,
 } from '@shipfox/expression';
 import type {Job, JobListeningTrigger} from '#core/entities/job.js';
-import type {JobExecution} from '#core/entities/job-execution.js';
+import type {JobExecution, WorkflowExecutionEvent} from '#core/entities/job-execution.js';
 import type {Step, StepAttempt, StepStatus} from '#core/entities/step.js';
 import type {
   TriggerPayload,
@@ -25,6 +25,7 @@ export interface JobContextInput {
 
 export interface AssembleJobsContextOptions {
   readonly skipTypedOutputRehydration?: boolean;
+  readonly skipCelNativeRehydration?: boolean;
 }
 
 export interface AssembleWorkflowRunContextParams {
@@ -44,8 +45,11 @@ export interface AssembleWorkflowRunContextParams {
   readonly vars?: Record<string, string> | undefined;
 }
 
+interface AssembleContextOptions extends AssembleJobsContextOptions {}
+
 export function assembleWorkflowRunContext(
   params: AssembleWorkflowRunContextParams,
+  options: AssembleContextOptions = {},
 ): WorkflowExpressionEvaluationContext {
   const triggerReference = params.run.triggerReference;
   return {
@@ -55,7 +59,8 @@ export function assembleWorkflowRunContext(
     },
     run: {
       id: params.run.id,
-      number: params.run.number,
+      number:
+        options.skipCelNativeRehydration === true ? params.run.number : BigInt(params.run.number),
       name: params.run.name,
       project_id: params.run.projectId,
       workspace_id: params.run.workspaceId,
@@ -136,10 +141,11 @@ export function assembleExecutionCreationContext(
 export function assembleExecutionsContext(
   executions: readonly JobExecution[],
   outputTypes?: Readonly<Record<string, ExpressionType>>,
+  options: AssembleContextOptions = {},
 ): WorkflowExpressionEvaluationContext {
   return {
     executions: executions.map((execution, index) =>
-      assembleExecutionContext(execution, index, outputTypes),
+      assembleExecutionContext(execution, index, outputTypes, options),
     ),
   };
 }
@@ -148,15 +154,37 @@ function assembleExecutionContext(
   execution: JobExecution,
   index: number,
   outputTypes?: Readonly<Record<string, ExpressionType>>,
+  options: AssembleContextOptions = {},
 ): Record<string, unknown> {
+  const skipCelNativeRehydration = options.skipCelNativeRehydration === true;
   return {
-    index,
+    index: skipCelNativeRehydration ? index : BigInt(index),
     name: execution.name,
     status: execution.status,
     started_at: execution.startedAt,
     finished_at: execution.finishedAt,
-    events: execution.triggerEvents,
-    outputs: rehydrateJsonExpressionRecord(execution.outputs, outputTypes),
+    events: skipCelNativeRehydration
+      ? execution.triggerEvents
+      : execution.triggerEvents.map(assembleExecutionEventContext),
+    outputs:
+      options.skipTypedOutputRehydration === true
+        ? (execution.outputs ?? {})
+        : rehydrateJsonExpressionRecord(execution.outputs, outputTypes),
+  };
+}
+
+function assembleExecutionEventContext(event: WorkflowExecutionEvent): Record<string, unknown> {
+  const receivedAt = new Date(event.received_at);
+  /**
+   * An unparseable stored timestamp would become an `Invalid Date`, which compares
+   * false against every CEL `timestamp` and throws on `toISOString` during template
+   * resolution. Keeping the raw value fails loudly as a type mismatch instead.
+   */
+  if (Number.isNaN(receivedAt.getTime())) return {...event};
+
+  return {
+    ...event,
+    received_at: receivedAt,
   };
 }
 
@@ -281,12 +309,15 @@ export function assembleListenerSnapshotContext(params: {
     params.plan.roots.has('run') ||
     params.plan.roots.has('trigger')
   ) {
-    const runContext = assembleWorkflowRunContext({
-      run: params.run,
-      triggerPayload: params.triggerPayload,
-      inputs: params.inputs,
-      vars: params.vars,
-    });
+    const runContext = assembleWorkflowRunContext(
+      {
+        run: params.run,
+        triggerPayload: params.triggerPayload,
+        inputs: params.inputs,
+        vars: params.vars,
+      },
+      {skipCelNativeRehydration: true},
+    );
     if (params.plan.roots.has('workflow')) context.workflow = runContext.workflow;
     if (params.plan.roots.has('run')) context.run = runContext.run;
     if (params.plan.roots.has('trigger')) context.trigger = runContext.trigger;
@@ -316,13 +347,17 @@ function requestedJobsContext(
   jobKeys: ReadonlySet<string>,
 ): Record<string, unknown> {
   // Listener snapshots cross a JSON outbox boundary; their type metadata is persisted separately.
+  const options: AssembleJobsContextOptions = {
+    skipCelNativeRehydration: true,
+    skipTypedOutputRehydration: true,
+  };
   if (jobKeys.size === 0) {
-    return assembleJobsContext(dependencyJobs, {skipTypedOutputRehydration: true}).jobs;
+    return assembleJobsContext(dependencyJobs, options).jobs;
   }
 
   const filtered = dependencyJobs.filter(({job}) => jobKeys.has(job.key));
 
-  return assembleJobsContext(filtered, {skipTypedOutputRehydration: true}).jobs;
+  return assembleJobsContext(filtered, options).jobs;
 }
 
 export type ListenerTriggerWithSnapshot = JobListeningTrigger & {
@@ -429,6 +464,7 @@ function assembleJobContext(
     executions: assembleExecutionsContext(
       executions,
       options.skipTypedOutputRehydration === true ? undefined : outputTypes,
+      options,
     ).executions,
   };
 }
@@ -516,14 +552,8 @@ export function assembleStepDispatchContext(params: {
         ? {}
         : {
             execution: {
-              index: params.jobExecution.sequence,
-              name: params.jobExecution.name,
-              status: params.jobExecution.status,
+              ...assembleExecutionContext(params.jobExecution, params.jobExecution.sequence - 1),
               failed: stepAttemptContext.stepsFailed,
-              started_at: params.jobExecution.startedAt,
-              finished_at: params.jobExecution.finishedAt,
-              events: params.jobExecution.triggerEvents,
-              outputs: params.jobExecution.outputs ?? {},
             },
           }),
       ...(targetStep === undefined

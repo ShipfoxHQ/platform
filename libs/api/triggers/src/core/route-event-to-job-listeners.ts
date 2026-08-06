@@ -13,6 +13,8 @@ import {
   type WorkflowsModuleClient,
 } from './workflows-client.js';
 
+const LISTENER_INTEGER_PATTERN = /^-?\d+$/;
+
 export interface RouteEventToJobListenersParams {
   workflows: WorkflowsModuleClient;
   history: TriggerHistoryRecorder;
@@ -217,43 +219,115 @@ function rehydrateListenerFilterSnapshot(
   snapshot: Record<string, unknown>,
   outputTypes: ListenerFilterOutputTypes | undefined,
 ): Record<string, unknown> {
-  if (outputTypes === undefined || !isRecord(snapshot.jobs)) return snapshot;
+  let result = snapshot;
+  if (outputTypes !== undefined && isRecord(snapshot.jobs)) {
+    const jobs = Object.fromEntries(
+      Object.entries(snapshot.jobs).map(([jobKey, jobContext]) => {
+        const jobOutputTypes = Object.hasOwn(outputTypes, jobKey) ? outputTypes[jobKey] : undefined;
+        if (jobOutputTypes === undefined || !isRecord(jobContext)) {
+          return [jobKey, jobContext];
+        }
 
-  const jobs = Object.fromEntries(
-    Object.entries(snapshot.jobs).map(([jobKey, jobContext]) => {
-      const jobOutputTypes = Object.hasOwn(outputTypes, jobKey) ? outputTypes[jobKey] : undefined;
-      if (jobOutputTypes === undefined || !isRecord(jobContext)) {
-        return [jobKey, jobContext];
-      }
+        const outputs = isRecord(jobContext.outputs)
+          ? rehydrateJsonExpressionRecord(jobContext.outputs, jobOutputTypes)
+          : jobContext.outputs;
+        const executions = Array.isArray(jobContext.executions)
+          ? jobContext.executions.map((execution) => {
+              if (!isRecord(execution) || !isRecord(execution.outputs)) return execution;
+              return {
+                ...execution,
+                outputs: rehydrateJsonExpressionRecord(execution.outputs, jobOutputTypes),
+              };
+            })
+          : jobContext.executions;
 
-      const outputs = isRecord(jobContext.outputs)
-        ? rehydrateJsonExpressionRecord(jobContext.outputs, jobOutputTypes)
-        : jobContext.outputs;
-      const executions = Array.isArray(jobContext.executions)
-        ? jobContext.executions.map((execution) => {
-            if (!isRecord(execution) || !isRecord(execution.outputs)) return execution;
-            return {
-              ...execution,
-              outputs: rehydrateJsonExpressionRecord(execution.outputs, jobOutputTypes),
-            };
-          })
-        : jobContext.executions;
+        return [
+          jobKey,
+          {
+            ...jobContext,
+            outputs,
+            executions,
+          },
+        ];
+      }),
+    );
+    result = {...snapshot, jobs};
+  }
 
-      return [
-        jobKey,
-        {
-          ...jobContext,
-          outputs,
-          executions,
-        },
-      ];
-    }),
-  );
-  return {...snapshot, jobs};
+  const rehydrated = {...result};
+  if (isRecord(result.run)) rehydrated.run = rehydrateRunSnapshot(result.run);
+  if (isRecord(result.jobs)) rehydrated.jobs = rehydrateJobsSnapshot(result.jobs);
+  return rehydrated;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function rehydrateRunSnapshot(run: Record<string, unknown>): Record<string, unknown> {
+  const result = {...run};
+  if ('number' in run) result.number = rehydrateListenerInt(run.number);
+  if ('created_at' in run) result.created_at = rehydrateListenerTimestamp(run.created_at);
+  return result;
+}
+
+function rehydrateJobsSnapshot(jobs: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(jobs).map(([jobKey, value]) => [
+      jobKey,
+      isRecord(value) ? rehydrateJobSnapshot(value) : value,
+    ]),
+  );
+}
+
+function rehydrateJobSnapshot(job: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(job.executions)) return job;
+
+  return {
+    ...job,
+    executions: job.executions.map((value) =>
+      isRecord(value) ? rehydrateExecutionSnapshot(value) : value,
+    ),
+  };
+}
+
+function rehydrateExecutionSnapshot(execution: Record<string, unknown>): Record<string, unknown> {
+  const result = {...execution};
+  if ('index' in execution) result.index = rehydrateListenerInt(execution.index);
+  if ('started_at' in execution) {
+    result.started_at = rehydrateListenerTimestamp(execution.started_at);
+  }
+  if ('finished_at' in execution) {
+    result.finished_at = rehydrateListenerTimestamp(execution.finished_at);
+  }
+  if (Array.isArray(execution.events)) {
+    result.events = execution.events.map((value) =>
+      isRecord(value) ? rehydrateExecutionEventSnapshot(value) : value,
+    );
+  }
+  return result;
+}
+
+function rehydrateExecutionEventSnapshot(event: Record<string, unknown>): Record<string, unknown> {
+  if (!('received_at' in event)) return event;
+  return {...event, received_at: rehydrateListenerTimestamp(event.received_at)};
+}
+
+function rehydrateListenerInt(value: unknown): unknown {
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return BigInt(value);
+  if (typeof value !== 'string' || !LISTENER_INTEGER_PATTERN.test(value)) return value;
+
+  try {
+    return BigInt(value);
+  } catch {
+    return value;
+  }
+}
+
+function rehydrateListenerTimestamp(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date;
 }
 
 function listenerDisposition(subscription: JobListenerSubscription): 'fire' | 'resolve' {
