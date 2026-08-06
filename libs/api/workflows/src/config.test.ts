@@ -25,8 +25,8 @@ describe('loadRunnerCatalog', () => {
     expect(loadRunnerCatalog('')).toEqual({});
   });
 
-  it('treats an empty YAML document as empty', () => {
-    expect(loadRunnerCatalog(writeCatalog(''))).toEqual({});
+  it.each(['', ' \n\t'])('treats an empty YAML document as empty', (contents) => {
+    expect(loadRunnerCatalog(writeCatalog(contents))).toEqual({});
   });
 
   it.each([

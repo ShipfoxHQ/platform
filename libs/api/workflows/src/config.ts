@@ -31,6 +31,8 @@ export function loadRunnerCatalog(filePath: string): RunnerCatalog {
     );
   }
 
+  if (contents.trim() === '') return {};
+
   let raw: unknown;
   try {
     raw = yaml.load(contents);
@@ -40,8 +42,6 @@ export function loadRunnerCatalog(filePath: string): RunnerCatalog {
       {cause: error},
     );
   }
-
-  if (raw === undefined) return {};
 
   let catalog: RunnerCatalog;
   try {
