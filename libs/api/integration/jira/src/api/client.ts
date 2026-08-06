@@ -354,7 +354,10 @@ function parseDynamicWebhookRegistration(
 }
 
 function parseDynamicWebhookExpiration(body: unknown): Date | undefined {
-  if (!body || typeof body !== 'object') return undefined;
+  if (body === undefined || body === null) return undefined;
+  if (typeof body !== 'object' || Array.isArray(body)) {
+    throw malformed('Jira webhook refresh response was malformed');
+  }
   const expirationDate = (body as {expirationDate?: unknown}).expirationDate;
   if (expirationDate === undefined) return undefined;
   if (typeof expirationDate !== 'string') {

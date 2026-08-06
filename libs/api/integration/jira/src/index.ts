@@ -157,6 +157,10 @@ export interface CreateJiraIntegrationProviderOptions {
         deleteConnectionRemoteResources?: (connection: {
           id: string;
         }) => Promise<(() => Promise<void>) | undefined>;
+        withConnectionDeletionLock?: (
+          connection: {id: string},
+          fn: () => Promise<void>,
+        ) => Promise<void>;
         deleteConnectionRecords?: (
           connection: {id: string},
           options: {tx: unknown},

@@ -230,6 +230,8 @@ export interface IntegrationProvider<
   deleteConnectionRemoteResources?(
     connection: Connection,
   ): Promise<(() => Promise<void>) | undefined>;
+  /** Serializes connection deletion with provider operations that can recreate remote resources. */
+  withConnectionDeletionLock?(connection: Connection, fn: () => Promise<void>): Promise<void>;
   deleteConnectionRecords?(connection: Connection, options: {tx: unknown}): Promise<void>;
   deleteConnectionSecrets?(connection: Connection): Promise<void>;
 }

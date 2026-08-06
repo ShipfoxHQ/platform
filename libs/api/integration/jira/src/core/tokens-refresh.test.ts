@@ -306,6 +306,22 @@ describe('Jira token refresh', () => {
     );
   });
 
+  it('allows cleanup to use the stored token for an inactive connection', async () => {
+    const {connectionId, resolveConnection, store} = createStore();
+    await store.storeTokens({connectionId, accessToken: 'access-0', refreshToken: 'refresh-0'});
+    resolveConnection.mockResolvedValue({
+      workspaceId: crypto.randomUUID(),
+      lifecycleStatus: 'error',
+    });
+
+    await expect(store.getAccessToken({connectionId})).rejects.toBeInstanceOf(
+      JiraTokenUnrefreshableError,
+    );
+    await expect(store.getAccessToken({connectionId, allowInactive: true})).resolves.toBe(
+      'access-0',
+    );
+  });
+
   it('requires a refresh token once the access token expires', async () => {
     const {connectionId, store} = createStore();
     await store.storeTokens({connectionId, accessToken: 'access-0'});

@@ -25,6 +25,7 @@ export async function prepareJiraWebhookDeregistration(
 
     const accessToken = await params.tokenStore.getAccessToken({
       connectionId: params.connectionId,
+      allowInactive: true,
     });
     return async () => {
       try {

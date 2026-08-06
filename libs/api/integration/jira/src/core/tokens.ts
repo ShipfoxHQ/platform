@@ -50,6 +50,8 @@ export interface StoreJiraTokensParams {
 export interface GetJiraAccessTokenParams {
   connectionId: string;
   forceRefresh?: boolean | undefined;
+  /** Allows cleanup to use the stored token after a connection leaves the active state. */
+  allowInactive?: boolean | undefined;
 }
 
 export interface JiraTokenStore {
@@ -139,16 +141,17 @@ export function createJiraTokenStore(params: CreateJiraTokenStoreParams): JiraTo
     async getAccessToken(input) {
       await waitForCredentialWrites(input.connectionId);
       const connection = await resolveConnection(input.connectionId);
-      if (connection.lifecycleStatus !== 'active') {
+      if (!input.allowInactive && connection.lifecycleStatus !== 'active') {
         throw new JiraTokenUnrefreshableError(input.connectionId);
       }
       await waitForCredentialWrites(input.connectionId);
-      if (refreshStateUnknownConnections.has(input.connectionId)) {
+      if (!input.allowInactive && refreshStateUnknownConnections.has(input.connectionId)) {
         throw new JiraTokenUnrefreshableError(input.connectionId);
       }
       const credentialGeneration = currentCredentialGeneration(input.connectionId);
       const workspaceId = connection.workspaceId;
       const accessToken = await readAccessToken(workspaceId, input.connectionId);
+      if (input.allowInactive) return accessToken;
       if (
         !input.forceRefresh &&
         !shouldRefresh(

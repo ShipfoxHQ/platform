@@ -356,6 +356,7 @@ describe('Jira dynamic webhook API', () => {
 
   it.each([
     {},
+    null,
     undefined,
   ])('returns undefined for an empty refresh response: %j', async (response) => {
     mocks.put.mockReturnValue(resolves(response));
@@ -368,6 +369,24 @@ describe('Jira dynamic webhook API', () => {
         webhookIds: [123],
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it.each([
+    [],
+    'malformed',
+    42,
+    false,
+  ])('rejects a non-object refresh response: %j', async (response) => {
+    mocks.put.mockReturnValue(resolves(response));
+    const {createJiraApiClient} = await import('./client.js');
+
+    await expect(
+      createJiraApiClient().refreshDynamicWebhooks({
+        accessToken: 'access-token',
+        cloudId: 'cloud-1',
+        webhookIds: [123],
+      }),
+    ).rejects.toMatchObject({reason: 'malformed-provider-response'});
   });
 
   it.each([400, 404])('treats refresh HTTP %i as a signal to re-register', async (status) => {

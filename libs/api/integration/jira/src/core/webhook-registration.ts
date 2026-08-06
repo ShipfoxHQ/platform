@@ -69,7 +69,6 @@ export async function registerJiraWebhook(
             previous,
             registration.webhookId,
             webhookExpiresAt,
-            params.replaceExistingWebhooks === true,
           );
         return {webhookId: registration.webhookId, webhookExpiresAt};
       } catch (error) {
@@ -131,7 +130,6 @@ async function finishSupersededWebhookCleanup(
   previous: Awaited<ReturnType<typeof getJiraInstallationByConnectionId>>,
   registeredWebhookId: number,
   webhookExpiresAt: Date,
-  replaceExistingWebhooks: boolean,
 ): Promise<void> {
   const supersededWebhookIds = (previous?.webhookIds ?? []).filter(
     (webhookId) => webhookId !== registeredWebhookId,
@@ -155,9 +153,7 @@ async function finishSupersededWebhookCleanup(
     }
   }
 
-  const retainedWebhookIds = replaceExistingWebhooks
-    ? [registeredWebhookId]
-    : [registeredWebhookId, ...failedCleanupIds];
+  const retainedWebhookIds = [registeredWebhookId, ...failedCleanupIds];
   const updateInstallation = params.updateInstallation ?? updateJiraInstallationWebhook;
   const cleanupMetadata = await updateInstallation({
     connectionId: params.connectionId,

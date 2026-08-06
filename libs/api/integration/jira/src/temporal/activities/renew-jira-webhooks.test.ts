@@ -82,6 +82,7 @@ describe('Jira webhook renewal activity', () => {
       webhookIds: due.webhookIds,
       webhookExpiresAt: expirationDate,
       expectedWebhookIds: due.webhookIds,
+      expectedWebhookExpiresAt: due.webhookExpiresAt,
     });
     expect(result).toEqual({renewed: 1, reregistered: 0, skipped: 2, failed: 0});
   });
@@ -208,6 +209,7 @@ describe('Jira webhook renewal activity', () => {
       webhookIds: due.webhookIds,
       webhookExpiresAt: new Date('2026-08-31T00:00:00.000Z'),
       expectedWebhookIds: due.webhookIds,
+      expectedWebhookExpiresAt: due.webhookExpiresAt,
     });
   });
 });

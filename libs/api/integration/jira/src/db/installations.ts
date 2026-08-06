@@ -1,6 +1,6 @@
 import {isUniqueViolation} from '@shipfox/node-drizzle';
 import {pgClient, withPostgresSession} from '@shipfox/node-postgres';
-import {and, asc, eq, isNotNull, lte, sql} from 'drizzle-orm';
+import {and, asc, eq, isNotNull, isNull, lte, sql} from 'drizzle-orm';
 import {
   JiraConnectionAlreadyLinkedError,
   JiraInstallationAlreadyLinkedError,
@@ -86,6 +86,7 @@ export interface UpdateJiraInstallationWebhookParams {
 export interface UpdateJiraInstallationWebhookIfUnchangedParams
   extends UpdateJiraInstallationWebhookParams {
   expectedWebhookIds: number[];
+  expectedWebhookExpiresAt: Date | null;
 }
 
 type JiraDb = ReturnType<typeof db>;
@@ -271,6 +272,9 @@ export async function updateJiraInstallationWebhookIfUnchanged(
         eq(jiraInstallations.connectionId, params.connectionId),
         sql`${jiraInstallations.webhookIds} @> ${expectedWebhookIds}::jsonb`,
         sql`${jiraInstallations.webhookIds} <@ ${expectedWebhookIds}::jsonb`,
+        params.expectedWebhookExpiresAt === null
+          ? isNull(jiraInstallations.webhookExpiresAt)
+          : eq(jiraInstallations.webhookExpiresAt, params.expectedWebhookExpiresAt),
       ),
     )
     .returning();

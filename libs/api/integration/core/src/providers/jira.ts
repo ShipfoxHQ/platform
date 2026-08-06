@@ -42,6 +42,7 @@ async function loadJiraModuleParts(
     prepareJiraWebhookDeregistration,
     upsertJiraInstallation,
     withJiraRefreshLockAndWait,
+    withJiraWebhookRegistrationLock,
   } = await import('@shipfox/api-integration-jira');
   const jira = createJiraApiClient();
 
@@ -101,25 +102,32 @@ async function loadJiraModuleParts(
   }
 
   async function disconnectJiraInstallation(input: {connectionId: string}): Promise<void> {
-    await disconnectJiraInstallationRecords<IntegrationTx>({
-      connectionId: input.connectionId,
-      getConnection: getIntegrationConnectionById,
-      deleteSecrets: (params) =>
-        options.secrets?.jira?.deleteSecrets({
-          ...params,
-          namespace: jiraNamespaceSuffix(params.namespace),
-        }) ?? Promise.resolve(0),
-      deregisterWebhooks: () =>
-        deregisterJiraWebhooks({
-          connectionId: input.connectionId,
-          getInstallation: getJiraInstallationByConnectionId,
-          tokenStore,
-          jira,
-        }),
-      transaction: (fn) => db().transaction((tx) => fn(tx)),
-      deleteConnection: (params, transactionOptions) =>
-        deleteIntegrationConnection({id: params.connectionId}, transactionOptions),
-    });
+    const disconnect = () =>
+      disconnectJiraInstallationRecords<IntegrationTx>({
+        connectionId: input.connectionId,
+        getConnection: getIntegrationConnectionById,
+        deleteSecrets: (params) =>
+          options.secrets?.jira?.deleteSecrets({
+            ...params,
+            namespace: jiraNamespaceSuffix(params.namespace),
+          }) ?? Promise.resolve(0),
+        deregisterWebhooks: () =>
+          deregisterJiraWebhooks({
+            connectionId: input.connectionId,
+            getInstallation: getJiraInstallationByConnectionId,
+            tokenStore,
+            jira,
+          }),
+        transaction: (fn) => db().transaction((tx) => fn(tx)),
+        deleteConnection: (params, transactionOptions) =>
+          deleteIntegrationConnection({id: params.connectionId}, transactionOptions),
+      });
+    const installation = await getJiraInstallationByConnectionId(input.connectionId);
+    if (!installation) {
+      await disconnect();
+      return;
+    }
+    await withJiraWebhookRegistrationLock(installation.cloudId, disconnect);
   }
 
   const fallbackSecrets: JiraSecretsStore & JiraPendingSelectionSecretsStore = {
@@ -170,6 +178,14 @@ async function loadJiraModuleParts(
           tokenStore,
           jira,
         });
+      },
+      withConnectionDeletionLock: async (connection, fn) => {
+        const installation = await getJiraInstallationByConnectionId(connection.id);
+        if (!installation) {
+          await fn();
+          return;
+        }
+        await withJiraWebhookRegistrationLock(installation.cloudId, fn);
       },
       deleteConnectionRecords: async (connection, {tx}) => {
         await deleteJiraInstallationByConnectionId(connection.id, {tx});

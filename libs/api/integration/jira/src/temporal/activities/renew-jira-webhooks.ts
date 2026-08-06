@@ -110,6 +110,7 @@ export function createJiraWebhookRenewalActivities(
               webhookIds: installation.webhookIds,
               webhookExpiresAt,
               expectedWebhookIds: installation.webhookIds,
+              expectedWebhookExpiresAt: installation.webhookExpiresAt,
             });
             if (!updated) {
               skipped += 1;

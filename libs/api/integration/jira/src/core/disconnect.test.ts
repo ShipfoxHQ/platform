@@ -1,5 +1,8 @@
+const {getInstallation} = vi.hoisted(() => ({getInstallation: vi.fn()}));
+
 vi.mock('#db/installations.js', () => ({
   deleteJiraInstallationByConnectionId: vi.fn().mockResolvedValue(true),
+  getJiraInstallationByConnectionId: getInstallation,
 }));
 
 import type {JiraInstallation} from '#db/installations.js';
@@ -58,11 +61,34 @@ describe('disconnectJiraInstallation', () => {
       } as JiraInstallation),
     });
 
-    expect(getAccessToken).toHaveBeenCalledWith({connectionId});
+    expect(getAccessToken).toHaveBeenCalledWith({connectionId, allowInactive: true});
     expect(deleteDynamicWebhooks).toHaveBeenCalledWith({
       accessToken: 'fresh-access-token',
       cloudId: 'cloud-1',
       webhookIds: [123, 456],
+    });
+  });
+
+  it('uses the database installation lookup by default', async () => {
+    const connectionId = crypto.randomUUID();
+    const getAccessToken = vi.fn().mockResolvedValue('fresh-access-token');
+    const deleteDynamicWebhooks = vi.fn().mockResolvedValue(undefined);
+    getInstallation.mockResolvedValue({
+      cloudId: 'cloud-1',
+      webhookIds: [123],
+    } as JiraInstallation);
+
+    await deregisterJiraWebhooks({
+      connectionId,
+      tokenStore: {getAccessToken},
+      jira: {deleteDynamicWebhooks},
+    });
+
+    expect(getInstallation).toHaveBeenCalledWith(connectionId);
+    expect(deleteDynamicWebhooks).toHaveBeenCalledWith({
+      accessToken: 'fresh-access-token',
+      cloudId: 'cloud-1',
+      webhookIds: [123],
     });
   });
 

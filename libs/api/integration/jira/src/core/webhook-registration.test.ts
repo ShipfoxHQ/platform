@@ -275,7 +275,7 @@ describe('registerJiraWebhook', () => {
     expect(deleteDynamicWebhook).toHaveBeenCalledTimes(2);
   });
 
-  it('replaces stale webhook metadata when requested by renewal', async () => {
+  it('retains a failed superseded webhook id when renewal replaces stale metadata', async () => {
     const updateInstallation = vi
       .fn()
       .mockResolvedValueOnce({id: 'installation-1'})
@@ -303,7 +303,7 @@ describe('registerJiraWebhook', () => {
     );
     expect(updateInstallation).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({webhookIds: [456]}),
+      expect.objectContaining({webhookIds: [456, 123]}),
     );
   });
 

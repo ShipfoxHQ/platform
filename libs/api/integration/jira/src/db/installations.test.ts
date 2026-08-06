@@ -99,25 +99,46 @@ describe('jira installations', () => {
   });
 
   it('only updates webhook metadata when the refreshed ids are still current', async () => {
-    const input = createInstallationInput({webhookIds: [123], webhookExpiresAt: new Date()});
+    const currentWebhookExpiresAt = new Date('2026-08-05T00:00:00.000Z');
+    const input = createInstallationInput({
+      webhookIds: [123],
+      webhookExpiresAt: currentWebhookExpiresAt,
+    });
     await upsertJiraInstallation(input);
 
     await expect(
       updateJiraInstallationWebhookIfUnchanged({
         connectionId: input.connectionId,
         expectedWebhookIds: [456],
+        expectedWebhookExpiresAt: currentWebhookExpiresAt,
         webhookIds: [789],
         webhookExpiresAt: new Date('2026-08-31T00:00:00.000Z'),
       }),
     ).resolves.toBeUndefined();
     await expect(getJiraInstallationByConnectionId(input.connectionId)).resolves.toMatchObject({
       webhookIds: [123],
+      webhookExpiresAt: currentWebhookExpiresAt,
     });
 
     await expect(
       updateJiraInstallationWebhookIfUnchanged({
         connectionId: input.connectionId,
         expectedWebhookIds: [123],
+        expectedWebhookExpiresAt: new Date('2026-08-04T00:00:00.000Z'),
+        webhookIds: [789],
+        webhookExpiresAt: new Date('2026-08-31T00:00:00.000Z'),
+      }),
+    ).resolves.toBeUndefined();
+    await expect(getJiraInstallationByConnectionId(input.connectionId)).resolves.toMatchObject({
+      webhookIds: [123],
+      webhookExpiresAt: currentWebhookExpiresAt,
+    });
+
+    await expect(
+      updateJiraInstallationWebhookIfUnchanged({
+        connectionId: input.connectionId,
+        expectedWebhookIds: [123],
+        expectedWebhookExpiresAt: currentWebhookExpiresAt,
         webhookIds: [789],
         webhookExpiresAt: new Date('2026-08-31T00:00:00.000Z'),
       }),
