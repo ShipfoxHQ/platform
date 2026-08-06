@@ -234,6 +234,20 @@ describe('createEc2Lifecycle', () => {
     );
   });
 
+  it('keeps released reservation suppression while its runner remains observed', async () => {
+    const instances = [instance({state: 'running'})];
+    const client = fakeClient({assignmentErrors: [httpError(404)]});
+    const lifecycle = makeLifecycle({engine: fakeEngine({instances}), client});
+
+    await lifecycle.observe();
+    instances[0] = instance({state: 'stopped'});
+    await lifecycle.observe();
+    instances[0] = instance({state: 'running'});
+    await lifecycle.observe();
+
+    expect(client.assignmentBodies).toHaveLength(1);
+  });
+
   it('forgets a released reservation after its runner leaves the observed fleet', async () => {
     const instances = [instance({state: 'running'})];
     const client = fakeClient({assignmentErrors: [httpError(404)]});
