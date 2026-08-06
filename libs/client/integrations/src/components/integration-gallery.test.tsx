@@ -367,6 +367,27 @@ describe('IntegrationGallery — installed section', () => {
     expect(screen.getByText(webhookConnectionDto.inbound_url)).toBeVisible();
   });
 
+  test('restores page interactivity after closing the usage modal', async () => {
+    renderGallery({}, {connections: [webhookConnection]});
+
+    await openActions('Open Stripe production integration actions');
+    expect(document.body.style.pointerEvents).toBe('none');
+    fireEvent.click(screen.getByRole('menuitem', {name: 'Use this integration'}));
+    expect(await screen.findByRole('dialog', {name: 'Use Stripe production'})).toBeVisible();
+    expect(document.body.style.pointerEvents).toBe('none');
+
+    const usageDialog = screen.getByRole('dialog', {name: 'Use Stripe production'});
+    fireEvent.click(within(usageDialog).getByRole('button', {name: 'Done'}));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', {name: 'Use Stripe production'})).not.toBeInTheDocument();
+      expect(document.body).not.toHaveStyle({pointerEvents: 'none'});
+    });
+
+    await openActions('Open Stripe production integration actions');
+    expect(screen.getByRole('menuitem', {name: 'Use this integration'})).toBeVisible();
+  });
+
   test('opens the usage modal with a GitHub event selector', async () => {
     renderGallery({}, {connections: [githubConnection]});
 
