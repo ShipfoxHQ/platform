@@ -32,3 +32,6 @@ process.env.GITEA_BASE_URL = 'https://gitea.example.com';
 process.env.GITEA_SERVICE_USERNAME = 'shipfox-bot';
 process.env.GITEA_SERVICE_TOKEN = 'test-service-token';
 process.env.GITEA_WEBHOOK_SECRET = 'test-webhook-secret';
+process.env.SENTRY_APP_CLIENT_ID = 'test-client-id';
+process.env.SENTRY_APP_CLIENT_SECRET = 'test-client-secret';
+process.env.SENTRY_APP_SLUG = 'shipfox-test';
