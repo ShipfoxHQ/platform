@@ -1,5 +1,11 @@
 # @shipfox/node-log
 
+## 0.3.8
+
+### Patch Changes
+
+- e23f70c: Preserves nested error cause details in local and OpenTelemetry logs for both `err` and `error` fields.
+
 ## 0.3.7
 
 ### Patch Changes

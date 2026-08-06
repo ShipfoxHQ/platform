@@ -1,5 +1,11 @@
 # @shipfox/workflow-document
 
+## 3.0.1
+
+### Patch Changes
+
+- ce0984d: Preserve structured values when jobs map typed step outputs, normalize them for JSON persistence, and bound materialized job output sizes and entry counts.
+
 ## 3.0.0
 
 ### Major Changes

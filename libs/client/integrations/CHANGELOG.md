@@ -1,5 +1,26 @@
 # @shipfox/client-integrations
 
+## 16.0.0
+
+### Patch Changes
+
+- 654da7f: Restores page interaction immediately after closing the integration usage modal.
+- Updated dependencies [7901a60]
+- Updated dependencies [80cde6b]
+  - @shipfox/api-integration-core-dto@12.2.0
+  - @shipfox/react-ui@1.1.0
+  - @shipfox/client-ui@16.0.0
+  - @shipfox/api-integration-gitea-dto@12.2.0
+  - @shipfox/api-integration-github-dto@12.2.0
+  - @shipfox/api-integration-jira-dto@12.2.0
+  - @shipfox/api-integration-linear-dto@12.2.0
+  - @shipfox/api-integration-sentry-dto@12.2.0
+  - @shipfox/api-integration-slack-dto@12.2.0
+  - @shipfox/api-integration-webhook-dto@12.2.0
+  - @shipfox/client-auth@16.0.0
+  - @shipfox/client-shell@16.0.0
+  - @shipfox/integration-icons@0.3.2
+
 ## 14.0.1
 
 ### Patch Changes

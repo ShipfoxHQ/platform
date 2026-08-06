@@ -1,5 +1,15 @@
 # @shipfox/api-integration-gitea
 
+## 12.2.0
+
+### Patch Changes
+
+- @shipfox/api-integration-gitea-dto@12.2.0
+- @shipfox/api-integration-spi@1.0.1
+- @shipfox/node-opentelemetry@0.6.4
+- @shipfox/node-fastify@0.4.2
+- @shipfox/api-auth-context@12.2.0
+
 ## 12.0.0
 
 ### Minor Changes

@@ -1,5 +1,13 @@
 # @shipfox/api-runners-dto
 
+## 12.2.0
+
+### Patch Changes
+
+- 78b771c: Accept provider-specific reservation TTLs in runner demand polling and enforce a server-side ceiling.
+- Updated dependencies [df2ed79]
+  - @shipfox/runner-labels@0.2.0
+
 ## 12.0.0
 
 ### Patch Changes

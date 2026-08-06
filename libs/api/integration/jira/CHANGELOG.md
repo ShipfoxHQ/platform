@@ -1,5 +1,20 @@
 # @shipfox/api-integration-jira
 
+## 12.2.0
+
+### Minor Changes
+
+- 9695359: Cleans up Jira installation records and tokens when a workspace deletes an integration so the site can be reinstalled.
+
+### Patch Changes
+
+- @shipfox/api-integration-jira-dto@12.2.0
+- @shipfox/api-integration-spi@1.0.1
+- @shipfox/node-opentelemetry@0.6.4
+- @shipfox/node-fastify@0.4.2
+- @shipfox/node-module@1.0.6
+- @shipfox/api-auth-context@12.2.0
+
 ## 12.1.1
 
 ### Patch Changes

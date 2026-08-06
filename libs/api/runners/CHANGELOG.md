@@ -1,5 +1,28 @@
 # @shipfox/api-runners
 
+## 12.2.0
+
+### Minor Changes
+
+- d7af255: Count bounded runner reservation promotion failures during enrollment.
+
+### Patch Changes
+
+- 947a5bc: Clear stale intended runner reservations when reservation rows are deleted.
+- 78b771c: Accept provider-specific reservation TTLs in runner demand polling and enforce a server-side ceiling.
+- 9e1d2e9: Reserve configured runner labels for installation-scope provisioners.
+- Updated dependencies [78b771c]
+- Updated dependencies [df2ed79]
+- Updated dependencies [ce0984d]
+  - @shipfox/api-runners-dto@12.2.0
+  - @shipfox/runner-labels@0.2.0
+  - @shipfox/api-workflows-dto@12.2.0
+  - @shipfox/node-opentelemetry@0.6.4
+  - @shipfox/node-fastify@0.4.2
+  - @shipfox/node-module@1.0.6
+  - @shipfox/node-temporal@0.4.5
+  - @shipfox/api-auth-context@12.2.0
+
 ## 12.1.0
 
 ### Patch Changes
