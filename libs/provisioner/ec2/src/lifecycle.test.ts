@@ -181,7 +181,7 @@ describe('createEc2Lifecycle', () => {
       ],
     });
     const client = fakeClient({
-      assignmentErrors: [httpError(404)],
+      assignmentErrors: [httpError(503)],
       reconcileResponse: {
         runners: [reconciledRunner('runner-terminate', 'terminate')],
         terminated_absent_provider_runner_ids: [],
@@ -203,9 +203,62 @@ describe('createEc2Lifecycle', () => {
     );
     expect(engine.terminated).toEqual(['i-terminate']);
     expect(observability.logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({reservationId: '00000000-0000-4000-8000-000000000003'}),
-      'Reservation assignment rejected',
+      expect.objectContaining({
+        reservationId: '00000000-0000-4000-8000-000000000003',
+        status: 503,
+        retryable: true,
+      }),
+      'Reservation assignment rejected; will retry',
     );
+  });
+
+  it('stops retrying assignment after the reservation is released', async () => {
+    const client = fakeClient({assignmentErrors: [httpError(404)]});
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.observe();
+    await lifecycle.observe();
+
+    expect(client.assignmentBodies).toHaveLength(1);
+    expect(observability.logger.warn).toHaveBeenCalledTimes(1);
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservationId: '00000000-0000-4000-8000-000000000003',
+        status: 404,
+        retryable: false,
+      }),
+      'Reservation assignment stopped because reservation was released',
+    );
+  });
+
+  it('forgets a released reservation after its runner leaves the observed fleet', async () => {
+    const instances = [instance({state: 'running'})];
+    const client = fakeClient({assignmentErrors: [httpError(404)]});
+    const lifecycle = makeLifecycle({engine: fakeEngine({instances}), client});
+
+    await lifecycle.observe();
+    instances.length = 0;
+    await lifecycle.observe();
+    instances.push(instance({state: 'running'}));
+    await lifecycle.observe();
+
+    expect(client.assignmentBodies).toHaveLength(2);
+  });
+
+  it('retries a transient assignment failure on a later observation', async () => {
+    const client = fakeClient({assignmentErrors: [httpError(503)]});
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.observe();
+    await lifecycle.observe();
+
+    expect(client.assignmentBodies).toHaveLength(2);
   });
 
   it('reports a Spot-reclaimed terminated instance as failed', async () => {

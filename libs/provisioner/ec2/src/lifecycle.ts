@@ -73,6 +73,7 @@ interface Ec2LifecycleContext {
   readonly renderUserData?: (launch: ProviderRunnerLaunch<Ec2TemplateSpec>) => string;
   readonly locallyLaunched: Map<string, LocallyLaunchedRunner>;
   readonly pendingReports: RunnerInstanceReportEventDto[];
+  readonly releasedReservationIds: Set<string>;
   lastReconciledAt?: Date;
 }
 
@@ -95,6 +96,7 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     ...(options.renderUserData ? {renderUserData: options.renderUserData} : {}),
     locallyLaunched: new Map(),
     pendingReports: [],
+    releasedReservationIds: new Set(),
   };
 
   return {
@@ -303,8 +305,15 @@ async function assignEnrolledReservations(
   context: Ec2LifecycleContext,
   candidates: readonly AssignmentCandidate[],
 ): Promise<void> {
+  const candidateReservationIds = new Set(candidates.map(({reservationId}) => reservationId));
+  for (const reservationId of context.releasedReservationIds) {
+    if (!candidateReservationIds.has(reservationId))
+      context.releasedReservationIds.delete(reservationId);
+  }
+
   const assignments = new Map<string, string[]>();
   for (const {reservationId, runnerInstanceId} of candidates) {
+    if (context.releasedReservationIds.has(reservationId)) continue;
     const runnerInstanceIds = assignments.get(reservationId) ?? [];
     runnerInstanceIds.push(runnerInstanceId);
     assignments.set(reservationId, runnerInstanceIds);
@@ -313,9 +322,14 @@ async function assignEnrolledReservations(
     try {
       await context.client.assignRunnerInstances(reservationId, runnerInstanceIds);
     } catch (error) {
+      const status = responseStatus(error);
+      const reservationWasReleased = status === 404;
+      if (reservationWasReleased) context.releasedReservationIds.add(reservationId);
       logger().warn(
-        {reservationId, runnerInstanceIds, err: error},
-        'Reservation assignment rejected',
+        {reservationId, runnerInstanceIds, err: error, status, retryable: !reservationWasReleased},
+        reservationWasReleased
+          ? 'Reservation assignment stopped because reservation was released'
+          : 'Reservation assignment rejected; will retry',
       );
     }
   }
