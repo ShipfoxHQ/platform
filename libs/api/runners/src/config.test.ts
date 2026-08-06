@@ -49,6 +49,51 @@ describe('runner assignment polling defaults', () => {
     await expect(import('#config.js')).rejects.toThrow('RUNNER_ASSIGNMENT_POLL_MAX_WAIT_SECONDS');
   });
 });
+
+describe('reservation TTL ceiling validation', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it.each([
+    '0',
+    '-5',
+    '1.5',
+    '3601',
+  ])('fails startup when RESERVATION_TTL_MAX_SECONDS is %s', async (value) => {
+    vi.stubEnv('RESERVATION_TTL_MAX_SECONDS', value);
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('RESERVATION_TTL_MAX_SECONDS');
+  });
+
+  it('defaults high enough for the EC2 registration deadline', async () => {
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.RESERVATION_TTL_MAX_SECONDS).toBe(300);
+  });
+
+  it('accepts a whole-second ceiling inside the hard maximum', async () => {
+    vi.stubEnv('RESERVATION_TTL_MAX_SECONDS', '600');
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.RESERVATION_TTL_MAX_SECONDS).toBe(600);
+  });
+
+  it('fails startup when the default reservation TTL is above the ceiling', async () => {
+    vi.stubEnv('RESERVATION_TTL_SECONDS', '600');
+    vi.stubEnv('RESERVATION_TTL_MAX_SECONDS', '300');
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('RESERVATION_TTL_SECONDS');
+  });
+});
+
 describe('REGISTRATION_TOKEN_BATCH_MAX validation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

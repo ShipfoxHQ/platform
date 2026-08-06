@@ -5,6 +5,7 @@ import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
 const EPHEMERAL_REGISTRATION_TOKEN_TTL_HARD_MAX_SECONDS = 3600;
 const REGISTRATION_TOKEN_BATCH_HARD_MAX = 1000;
 const RUNNER_CONTROL_PLANE_TOKEN_TTL_HARD_MAX_SECONDS = 3600;
+const RESERVATION_TTL_HARD_MAX_SECONDS = 3600;
 
 export const config = createConfig({
   RUNNER_BOOTSTRAP_TOKEN_TTL_SECONDS: num({
@@ -56,8 +57,12 @@ export const config = createConfig({
     default: 250,
   }),
   RESERVATION_TTL_SECONDS: num({
-    desc: 'Lifetime of a count-based runner reservation, in seconds. Expired reservations stop counting against queued demand.',
+    desc: 'Default lifetime of a count-based runner reservation, in seconds. Used when a provisioner does not request a provider-specific value. Expired reservations stop counting against queued demand.',
     default: 60,
+  }),
+  RESERVATION_TTL_MAX_SECONDS: num({
+    desc: `Server-side ceiling for a count-based runner reservation lifetime, in seconds. Set it at least as high as every provider registration deadline so provider-specific values can cover boot and enrollment. Set this between 1 and ${RESERVATION_TTL_HARD_MAX_SECONDS}.`,
+    default: 300,
   }),
   RESERVATION_LONG_POLL_MAX_WAIT_SECONDS: num({
     desc: 'Maximum time the provisioner demand poll endpoint waits for reservable demand before returning, in seconds.',
@@ -206,6 +211,22 @@ for (const [name, value] of [
 if (!Number.isInteger(config.RESERVATION_TTL_SECONDS) || config.RESERVATION_TTL_SECONDS < 1) {
   throw new Error(
     `RESERVATION_TTL_SECONDS (${config.RESERVATION_TTL_SECONDS}) must be a whole number of seconds >= 1.`,
+  );
+}
+
+if (
+  !Number.isInteger(config.RESERVATION_TTL_MAX_SECONDS) ||
+  config.RESERVATION_TTL_MAX_SECONDS < 1 ||
+  config.RESERVATION_TTL_MAX_SECONDS > RESERVATION_TTL_HARD_MAX_SECONDS
+) {
+  throw new Error(
+    `RESERVATION_TTL_MAX_SECONDS (${config.RESERVATION_TTL_MAX_SECONDS}) must be a whole number of seconds between 1 and ${RESERVATION_TTL_HARD_MAX_SECONDS}.`,
+  );
+}
+
+if (config.RESERVATION_TTL_SECONDS > config.RESERVATION_TTL_MAX_SECONDS) {
+  throw new Error(
+    `RESERVATION_TTL_SECONDS (${config.RESERVATION_TTL_SECONDS}) must not be greater than RESERVATION_TTL_MAX_SECONDS (${config.RESERVATION_TTL_MAX_SECONDS}).`,
   );
 }
 

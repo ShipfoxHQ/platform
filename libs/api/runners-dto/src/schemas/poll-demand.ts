@@ -12,6 +12,7 @@ export const pollDemandTemplateSchema = z.object({
 
 export const pollDemandBodySchema = z.object({
   wait_seconds: z.number().int().min(0).optional(),
+  reservation_ttl_seconds: z.number().int().min(1).optional(),
   max_reservations: z.number().int().min(0).max(1000),
   templates: z.array(pollDemandTemplateSchema).max(1000),
 });
