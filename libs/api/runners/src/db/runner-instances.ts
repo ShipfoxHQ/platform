@@ -190,7 +190,7 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
         target: [providerRunners.provisionerId, providerRunners.providerRunnerId],
         targetWhere: isNotNull(providerRunners.providerRunnerId),
         set: {
-          reservationId: sql`CASE WHEN ${providerRunnerProjectionUpdateCondition()} THEN coalesce(excluded.reservation_id, ${providerRunners.reservationId}) ELSE ${providerRunners.reservationId} END`,
+          reservationId: sql`CASE WHEN ${providerRunnerProjectionUpdateCondition()} THEN coalesce(${providerRunners.reservationId}, excluded.reservation_id) ELSE ${providerRunners.reservationId} END`,
           templateKey: sql`CASE WHEN ${providerRunnerProjectionUpdateCondition()} THEN coalesce(excluded.template_key, ${providerRunners.templateKey}) ELSE ${providerRunners.templateKey} END`,
           labels: sql`CASE WHEN ${providerRunnerProjectionUpdateCondition()} THEN excluded.labels ELSE ${providerRunners.labels} END`,
           state: sql`CASE WHEN ${providerRunnerProjectionUpdateCondition()} THEN excluded.state ELSE ${providerRunners.state} END`,

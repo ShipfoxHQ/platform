@@ -10,6 +10,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  notExists,
   or,
   sql,
 } from 'drizzle-orm';
@@ -298,16 +299,49 @@ async function bindIdleRunnerInstancesTx(
     count: number;
   },
 ): Promise<void> {
+  const canBindRunner = () =>
+    and(
+      or(
+        and(isNull(providerRunners.workspaceId), isNull(providerRunners.reservationId)),
+        and(
+          isNotNull(providerRunners.reservationId),
+          notExists(
+            tx
+              .select({id: reservations.id})
+              .from(reservations)
+              .where(
+                and(
+                  eq(reservations.id, providerRunners.reservationId),
+                  gt(reservations.expiresAt, sql`now()`),
+                ),
+              ),
+          ),
+        ),
+      ),
+      or(
+        isNull(providerRunners.intendedReservationId),
+        notExists(
+          tx
+            .select({id: reservations.id})
+            .from(reservations)
+            .where(
+              and(
+                eq(reservations.id, providerRunners.intendedReservationId),
+                gt(reservations.expiresAt, sql`now()`),
+              ),
+            ),
+        ),
+      ),
+      isNull(providerRunners.runnerSessionId),
+    );
+
   const idleRunners = await tx
     .select({id: providerRunners.id})
     .from(providerRunners)
     .where(
       and(
         eq(providerRunners.provisionerId, params.provisionerId),
-        isNull(providerRunners.workspaceId),
-        isNull(providerRunners.reservationId),
-        isNull(providerRunners.intendedReservationId),
-        isNull(providerRunners.runnerSessionId),
+        canBindRunner(),
         isNotNull(providerRunners.providerRunnerId),
         eq(providerRunners.state, 'running'),
         arrayContains(providerRunners.labels, params.requiredLabels),
@@ -333,10 +367,25 @@ async function bindIdleRunnerInstancesTx(
   if (idleRunners.length === 0) return;
 
   await tx
+    .update(runnerActivationTokens)
+    .set({revokedAt: sql`now()`})
+    .where(
+      and(
+        inArray(
+          runnerActivationTokens.runnerInstanceId,
+          idleRunners.map((runner) => runner.id),
+        ),
+        isNull(runnerActivationTokens.consumedAt),
+        isNull(runnerActivationTokens.revokedAt),
+      ),
+    );
+
+  await tx
     .update(providerRunners)
     .set({
       workspaceId: params.workspaceId,
       reservationId: params.reservationId,
+      intendedReservationId: null,
       assignedAt: sql`now()`,
       updatedAt: sql`now()`,
     })
@@ -346,9 +395,7 @@ async function bindIdleRunnerInstancesTx(
           providerRunners.id,
           idleRunners.map((runner) => runner.id),
         ),
-        isNull(providerRunners.workspaceId),
-        isNull(providerRunners.reservationId),
-        isNull(providerRunners.runnerSessionId),
+        canBindRunner(),
       ),
     );
 }
