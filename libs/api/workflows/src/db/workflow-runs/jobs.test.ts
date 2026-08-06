@@ -186,7 +186,7 @@ describe('evaluateJobActivations', () => {
     });
     await db()
       .update(jobs)
-      .set({outputs: {count: 42, createdAt: '2026-06-30T12:00:00.000Z'}})
+      .set({outputs: {count: '42', createdAt: '2026-06-30T12:00:00.000Z'}})
       .where(eq(jobs.id, build.id));
 
     const result = await evaluateJobActivations({

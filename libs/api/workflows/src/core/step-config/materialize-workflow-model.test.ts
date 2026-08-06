@@ -18,6 +18,7 @@ import {resolveTestAgentDefaults} from '#test/fixtures/agent-inter-module.js';
 import {workflowModel} from '#test/index.js';
 import {
   MAX_JOB_OUTPUT_ENTRIES,
+  MAX_JOB_OUTPUT_NESTING_DEPTH,
   MAX_JOB_OUTPUT_VALUE_BYTES,
   MAX_JOB_OUTPUTS_TOTAL_BYTES,
   normalizeJobOutputValue,
@@ -1586,6 +1587,27 @@ describe('materializeJobOutputs', () => {
     expect(result).toEqual({value: '{"severity":"high"}'});
   });
 
+  it('keeps prototype-named untyped outputs as JSON strings', () => {
+    const outputs = Object.fromEntries([
+      ['toString', template('steps.collect.outputs.value')],
+      ['__proto__', template('steps.collect.outputs.value')],
+    ]);
+
+    const result = materializeJobOutputs({
+      job: outputJob(outputs),
+      context: outputContext({value: {value: 'structured'}}),
+      definitionId: 'definition-1',
+    });
+
+    expect(Object.keys(result ?? {})).toEqual(['toString', '__proto__']);
+    expect(Object.getOwnPropertyDescriptor(result ?? {}, 'toString')?.value).toBe(
+      '{"value":"structured"}',
+    );
+    expect(Object.getOwnPropertyDescriptor(result ?? {}, '__proto__')?.value).toBe(
+      '{"value":"structured"}',
+    );
+  });
+
   it('measures structured values as JSON bytes for the per-value cap', () => {
     const job = outputJob(
       {payload: template('steps.collect.outputs.payload')},
@@ -1681,6 +1703,18 @@ describe('materializeJobOutputs', () => {
     expect(() => normalizeJobOutputValue(circular, 'payload')).toThrow(JobOutputNotJsonSafeError);
     expect(() => normalizeJobOutputValue(circular, 'payload')).toThrow(
       'Job output "payload" cannot be persisted as JSON',
+    );
+  });
+
+  it('rejects deeply nested values with a JSON persistence error', () => {
+    let value: unknown = 'leaf';
+    for (let index = 0; index <= MAX_JOB_OUTPUT_NESTING_DEPTH; index += 1) {
+      value = {value};
+    }
+
+    expect(() => normalizeJobOutputValue(value, 'payload')).toThrow(JobOutputNotJsonSafeError);
+    expect(() => normalizeJobOutputValue(value, 'payload')).toThrow(
+      `values cannot be nested deeper than ${MAX_JOB_OUTPUT_NESTING_DEPTH} levels`,
     );
   });
 

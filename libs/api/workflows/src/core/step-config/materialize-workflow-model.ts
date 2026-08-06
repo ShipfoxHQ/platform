@@ -139,7 +139,9 @@ export function materializeJobOutputs(params: {
   let recordBytes = 2;
 
   for (const [index, [key, template]] of outputEntries.entries()) {
-    const outputType = params.job.outputTypes?.[key];
+    const outputTypes = params.job.outputTypes;
+    const outputType =
+      outputTypes !== undefined && Object.hasOwn(outputTypes, key) ? outputTypes[key] : undefined;
     const completionParams = {
       field: 'job.outputs' as const,
       errorField: 'job.outputs' as const,
@@ -158,7 +160,12 @@ export function materializeJobOutputs(params: {
     }
 
     recordBytes += (index === 0 ? 0 : 1) + jobOutputRecordEntryByteLength(key, normalizedValue);
-    materialized[key] = normalizedValue;
+    Object.defineProperty(materialized, key, {
+      configurable: true,
+      enumerable: true,
+      value: normalizedValue,
+      writable: true,
+    });
     if (recordBytes > MAX_JOB_OUTPUTS_TOTAL_BYTES) {
       throw new JobOutputTooLargeError(key, MAX_JOB_OUTPUTS_TOTAL_BYTES, 'total');
     }

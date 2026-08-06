@@ -3,7 +3,7 @@
 '@shipfox/api-definitions': minor
 '@shipfox/api-workflows': minor
 '@shipfox/api-workflows-dto': minor
-'@shipfox/api-triggers': patch
+'@shipfox/api-triggers': minor
 '@shipfox/workflow-document': patch
 ---
 

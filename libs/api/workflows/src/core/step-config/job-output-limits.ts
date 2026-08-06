@@ -1,7 +1,11 @@
-import {WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES} from '@shipfox/workflow-document';
+import {
+  WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES,
+  WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_DEPTH,
+} from '@shipfox/workflow-document';
 import {JobOutputNotJsonSafeError} from '#core/errors.js';
 
 export const MAX_JOB_OUTPUT_ENTRIES = WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES;
+export const MAX_JOB_OUTPUT_NESTING_DEPTH = WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_DEPTH;
 export const MAX_JOB_OUTPUTS_TOTAL_BYTES = 64 * 1024;
 export const MAX_JOB_OUTPUT_VALUE_BYTES = 16 * 1024;
 
@@ -16,7 +20,7 @@ export type JsonSafeJobOutputValue =
   | {[key: string]: JsonSafeJobOutputValue};
 
 export function normalizeJobOutputValue(value: unknown, outputKey: string): JsonSafeJobOutputValue {
-  return normalize(value, outputKey, new WeakSet<object>());
+  return normalize(value, outputKey, new WeakSet<object>(), 0);
 }
 
 export function jobOutputValueByteLength(value: unknown): number {
@@ -38,6 +42,7 @@ function normalize(
   value: unknown,
   outputKey: string,
   ancestors: WeakSet<object>,
+  depth: number,
 ): JsonSafeJobOutputValue {
   if (value === null) return null;
 
@@ -63,7 +68,7 @@ function normalize(
         `values of type ${typeof value} are not JSON values`,
       );
     case 'object':
-      return normalizeObject(value, outputKey, ancestors);
+      return normalizeObject(value, outputKey, ancestors, depth);
   }
 
   throw new JobOutputNotJsonSafeError(outputKey, 'the value has an unsupported type');
@@ -73,6 +78,7 @@ function normalizeObject(
   value: object,
   outputKey: string,
   ancestors: WeakSet<object>,
+  depth: number,
 ): JsonSafeJobOutputValue {
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) {
@@ -85,12 +91,19 @@ function normalizeObject(
     throw new JobOutputNotJsonSafeError(outputKey, 'the value contains a circular reference');
   }
 
+  if (depth >= MAX_JOB_OUTPUT_NESTING_DEPTH) {
+    throw new JobOutputNotJsonSafeError(
+      outputKey,
+      `values cannot be nested deeper than ${MAX_JOB_OUTPUT_NESTING_DEPTH} levels`,
+    );
+  }
+
   if (Array.isArray(value)) {
     ancestors.add(value);
     try {
       const normalized: JsonSafeJobOutputValue[] = [];
       for (const item of value) {
-        normalized.push(normalize(item, outputKey, ancestors));
+        normalized.push(normalize(item, outputKey, ancestors, depth + 1));
       }
       return normalized;
     } finally {
@@ -108,7 +121,7 @@ function normalizeObject(
     return Object.fromEntries(
       Object.keys(value).map((key) => [
         key,
-        normalize((value as Record<string, unknown>)[key], outputKey, ancestors),
+        normalize((value as Record<string, unknown>)[key], outputKey, ancestors, depth + 1),
       ]),
     ) as {[key: string]: JsonSafeJobOutputValue};
   } finally {

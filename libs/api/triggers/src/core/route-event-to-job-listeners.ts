@@ -221,7 +221,7 @@ function rehydrateListenerFilterSnapshot(
 
   const jobs = Object.fromEntries(
     Object.entries(snapshot.jobs).map(([jobKey, jobContext]) => {
-      const jobOutputTypes = outputTypes[jobKey];
+      const jobOutputTypes = Object.hasOwn(outputTypes, jobKey) ? outputTypes[jobKey] : undefined;
       if (jobOutputTypes === undefined || !isRecord(jobContext)) {
         return [jobKey, jobContext];
       }

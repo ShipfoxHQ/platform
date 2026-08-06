@@ -22,7 +22,7 @@ type CelSchema = {
   [field: string]: string | CelSchema;
 };
 
-const directPathPattern = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/;
+const directPathPattern = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
 
 export function createWorkflowExpression(
   params: CreateWorkflowExpressionParams,
