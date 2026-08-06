@@ -112,7 +112,7 @@ export function Identifier({
             onClick={() => {
               void handleCopy();
             }}
-            className="inline-flex h-20 min-w-0 shrink-0 items-center gap-4 rounded-4 px-2 text-foreground-neutral-muted outline-none transition-colors hover:bg-background-components-hover hover:text-foreground-neutral-base focus-visible:shadow-border-interactive-with-active"
+            className="inline-flex h-20 min-w-0 shrink-0 items-center gap-tight rounded-4 px-[2px] text-foreground-neutral-muted outline-none transition-colors hover:bg-background-components-hover hover:text-foreground-neutral-base focus-visible:shadow-border-interactive-with-active"
           >
             <Icon name="copy" aria-hidden="true" className="size-12 shrink-0" />
             <Code as="span" variant="label" className="truncate">
@@ -167,7 +167,7 @@ function CopyFeedbackPortal({
             : `translate(-50%, ${COPY_FEEDBACK_OFFSET_PX}px)`,
       }}
       className={cn(
-        'pointer-events-none fixed z-50 whitespace-nowrap rounded-8 bg-background-components-base px-8 py-4 text-xs font-display font-medium leading-20 shadow-tooltip',
+        'pointer-events-none fixed z-50 whitespace-nowrap rounded-8 bg-background-components-base px-tight py-[4px] text-xs font-display font-medium leading-20 shadow-tooltip',
         kind === 'failed' ? 'text-foreground-highlight-error' : 'text-foreground-neutral-base',
       )}
     >

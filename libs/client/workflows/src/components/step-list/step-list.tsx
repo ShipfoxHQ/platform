@@ -228,7 +228,7 @@ function StepListContent({
         )}
       >
         {showHeader ? (
-          <div className="flex min-h-40 items-center border-b border-border-neutral-base px-16 py-8">
+          <div className="flex min-h-40 items-center border-b border-border-neutral-base px-row py-row">
             <Text as="h2" id={titleId} size="sm" bold className="text-foreground-neutral-base">
               {model.jobName}
             </Text>
@@ -307,7 +307,7 @@ function StepListEmptyStateView({
   if (!emptyState.status) {
     return (
       <EmptyState
-        className="min-h-120 px-16 py-20"
+        className="min-h-120 p-panel"
         icon="componentLine"
         title={emptyState.title}
         description={emptyState.description}
@@ -317,7 +317,7 @@ function StepListEmptyStateView({
   }
 
   return (
-    <div className="flex min-h-120 flex-col items-center justify-center gap-10 px-16 py-20">
+    <div className="flex min-h-120 flex-col items-center justify-center gap-inline p-panel">
       <StepListEmptyStateIcon status={emptyState.status} />
       <div className="text-center">
         <Text size="sm" className="text-foreground-neutral-subtle">
@@ -334,14 +334,14 @@ function StepListEmptyStateView({
 function StepListEmptyStateIcon({status}: {status: JobDisplayStatus}) {
   if (status !== 'running') {
     return (
-      <div className="flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong bg-background-neutral-base p-8">
+      <div className="flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong bg-background-neutral-base p-tight">
         <WorkflowStatusIcon status={status} size={20} tooltip={false} />
       </div>
     );
   }
 
   return (
-    <div className="flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong bg-background-neutral-base p-8 text-foreground-neutral-muted">
+    <div className="flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong bg-background-neutral-base p-tight text-foreground-neutral-muted">
       <Icon name="timerLine" size={18} aria-hidden="true" />
     </div>
   );
@@ -377,7 +377,7 @@ function StepRow({
       />
       <StepStatusIcon entry={entry} />
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-8">
+        <div className="flex min-w-0 items-center gap-inline">
           <Text size="sm" bold className="truncate text-foreground-neutral-base">
             {entry.step.label}
           </Text>
@@ -389,7 +389,7 @@ function StepRow({
     </>
   );
   const rowClasses = cn(
-    'group flex min-h-44 min-w-0 flex-1 items-center gap-x-8 bg-transparent px-12 py-6 text-left transition-colors hover:bg-transparent active:bg-transparent focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
+    'group flex min-h-44 min-w-0 flex-1 items-center gap-x-inline bg-transparent px-row py-row text-left transition-colors hover:bg-transparent active:bg-transparent focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
     entry.carriedOver && 'opacity-[0.55]',
   );
   const button = hasExpandedContent ? (
@@ -425,7 +425,7 @@ function StepRow({
     <>
       <div
         className={cn(
-          'group flex min-w-0 items-center transition-colors hover:bg-background-components-hover active:bg-background-components-pressed',
+          'group flex min-w-0 items-center gap-inline pr-[8px] transition-colors hover:bg-background-components-hover active:bg-background-components-pressed',
           selected && 'bg-background-components-hover',
           !hasExpandedContent && ['border-b border-border-neutral-base', isLast && 'border-b-0'],
         )}
@@ -438,7 +438,7 @@ function StepRow({
                 type="button"
                 aria-label={`Inspect ${entry.step.label}, attempt ${entry.attempt}`}
                 onClick={onInspect}
-                className="mr-8 flex size-28 shrink-0 items-center justify-center rounded-4 bg-transparent text-foreground-neutral-muted outline-none transition-colors hover:bg-transparent hover:text-foreground-neutral-base active:bg-transparent focus-visible:shadow-button-neutral-focus"
+                className="flex size-28 shrink-0 items-center justify-center rounded-4 bg-transparent text-foreground-neutral-muted outline-none transition-colors hover:bg-transparent hover:text-foreground-neutral-base active:bg-transparent focus-visible:shadow-button-neutral-focus"
               >
                 <Icon name="informationLine" size={14} aria-hidden="true" />
               </button>
@@ -535,10 +535,10 @@ const attemptChipClasses: Record<NonNullable<BadgeVariant>, string> = {
 
 function StepAttemptChip({attempt}: {attempt: StepAttemptModel}) {
   return (
-    <div className="flex shrink-0 items-center gap-4" aria-hidden="true">
+    <div className="flex shrink-0 items-center gap-tight" aria-hidden="true">
       <span
         className={cn(
-          'inline-flex h-18 min-w-24 items-center justify-center rounded-4 border px-6 font-code text-xs leading-16 text-foreground-neutral-base',
+          'inline-flex h-18 min-w-24 items-center justify-center rounded-4 border px-tight font-code text-xs leading-16 text-foreground-neutral-base',
           attemptChipClasses[attempt.statusVisual.badge ?? 'neutral'],
         )}
       >

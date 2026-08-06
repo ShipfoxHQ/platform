@@ -202,7 +202,7 @@ function humanizeFailureReason(reason: string): string {
 export function CarriedOverStepPanel() {
   return (
     <EmptyState
-      className="min-h-120 rounded-8 border border-border-neutral-base bg-background-components-base px-16 py-20"
+      className="min-h-120 rounded-8 border border-border-neutral-base bg-background-components-base p-panel"
       icon="componentLine"
       title="Carried over from a previous attempt"
       description="Not executed in this run."

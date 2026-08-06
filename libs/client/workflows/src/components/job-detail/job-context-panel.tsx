@@ -85,7 +85,7 @@ function JobContextSheet({
             Execution #{execution.sequence} · {execution.displayName}
           </SheetDescription>
         </SheetHeader>
-        <SheetBody className="gap-20">
+        <SheetBody className="gap-section">
           <div className="grid w-full min-w-0 gap-group min-[640px]:grid-cols-2">
             {runner?.length ? <ContextList label="Runner" values={runner} mono /> : null}
             {execution.queueTime || execution.runTime ? (

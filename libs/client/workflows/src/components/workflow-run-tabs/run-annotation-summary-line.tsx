@@ -48,7 +48,7 @@ export function RunAnnotationSummaryLine({
   const totalLabel = countLabel(summary.total, 'annotation', summary.truncated);
 
   return (
-    <div className="flex flex-wrap items-center gap-x-8 gap-y-4 text-foreground-neutral-subtle">
+    <div className="flex flex-wrap items-center gap-x-inline gap-y-tight text-foreground-neutral-subtle">
       {search.severity && workspaceSlug && projectSlug && workflowRunId ? (
         // The severity filter has no control of its own, so while one is active the total is
         // the way back out. Unfiltered it stays plain text: a link to where you already are
@@ -77,7 +77,7 @@ export function RunAnnotationSummaryLine({
         </Text>
       )}
       {visibleSeverities.map((severity) => (
-        <span key={severity} className="inline-flex shrink-0 items-center gap-8">
+        <span key={severity} className="inline-flex shrink-0 items-center gap-inline">
           <MetadataSeparator />
           <SeverityLink
             count={summary[severity]}
@@ -127,7 +127,7 @@ function SeverityLink({
   );
 
   if (!workspaceSlug || !projectSlug || !workflowRunId) {
-    return <span className="inline-flex items-center gap-4">{content}</span>;
+    return <span className="inline-flex items-center gap-tight">{content}</span>;
   }
 
   const searchWithoutAnnotation = withoutAnnotation(search);
@@ -142,7 +142,7 @@ function SeverityLink({
           search,
         ) as never
       }
-      className="inline-flex items-center gap-4 rounded-4 outline-none hover:underline focus-visible:shadow-border-interactive-with-active"
+      className="inline-flex items-center gap-tight rounded-4 outline-none hover:underline focus-visible:shadow-border-interactive-with-active"
     >
       {content}
     </Link>

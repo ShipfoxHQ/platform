@@ -78,10 +78,13 @@ export function WorkflowRunSummary({
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
-      <section aria-labelledby={headingId} className="bg-background-neutral-background px-16 py-12">
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-12 gap-y-8 overflow-hidden max-[480px]:grid-cols-1">
+      <section
+        aria-labelledby={headingId}
+        className="bg-background-neutral-background px-row py-row"
+      >
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-cluster gap-y-inline overflow-hidden max-[480px]:grid-cols-1">
           <div className="col-start-1 row-start-1 min-w-0 max-[480px]:col-start-auto max-[480px]:row-start-auto">
-            <div className="flex min-w-0 items-center gap-8">
+            <div className="flex min-w-0 items-center gap-inline">
               <Badge variant={status.badge} size="xs">
                 <span className="text-center" style={{width: `${STATUS_BADGE_LABEL_WIDTH_CH}ch`}}>
                   {status.label}
@@ -108,7 +111,7 @@ export function WorkflowRunSummary({
           </div>
 
           {hasAction ? (
-            <div className="col-start-2 row-start-1 flex min-w-max items-center gap-6 justify-self-end max-[480px]:col-start-auto max-[480px]:row-start-auto max-[480px]:justify-self-start">
+            <div className="col-start-2 row-start-1 flex min-w-max items-center gap-inline justify-self-end max-[480px]:col-start-auto max-[480px]:row-start-auto max-[480px]:justify-self-start">
               <WorkflowRunActionSlot
                 action={action}
                 cancelling={cancelling}
@@ -119,7 +122,7 @@ export function WorkflowRunSummary({
             </div>
           ) : null}
 
-          <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-12 overflow-hidden text-foreground-neutral-subtle max-[480px]:col-span-1 max-[480px]:row-start-auto">
+          <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-cluster overflow-hidden text-foreground-neutral-subtle max-[480px]:col-span-1 max-[480px]:row-start-auto">
             {run.number !== null ? (
               <>
                 <WorkflowRunNumberLabel run={run} />
@@ -145,7 +148,7 @@ export function WorkflowRunSummary({
                       <button
                         type="button"
                         aria-label={run.triggerLabel}
-                        className="inline-flex max-w-full min-w-0 cursor-help items-center gap-4 rounded-6 border-0 bg-transparent p-0 text-left text-foreground-neutral-subtle outline-none focus-visible:shadow-button-neutral-focus"
+                        className="inline-flex max-w-full min-w-0 cursor-help items-center gap-tight rounded-6 border-0 bg-transparent p-0 text-left text-foreground-neutral-subtle outline-none focus-visible:shadow-button-neutral-focus"
                       >
                         <TriggerSourceIcon
                           provider={run.triggerProvider}
@@ -189,7 +192,7 @@ export function WorkflowRunSummary({
             {blockingJob ? (
               <>
                 <MetadataSeparator />
-                <span className="flex min-w-0 items-center gap-4">
+                <span className="flex min-w-0 items-center gap-tight">
                   <Text as="span" size="xs" className="shrink-0">
                     waiting on
                   </Text>

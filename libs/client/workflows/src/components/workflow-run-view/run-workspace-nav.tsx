@@ -58,7 +58,7 @@ export function RunWorkspaceNav({
           <CollapsibleTrigger asChild>
             <button
               type="button"
-              className="flex min-h-44 w-full items-center justify-between gap-12 px-16 text-left outline-none focus-visible:shadow-border-interactive-with-active min-[768px]:hidden"
+              className="flex min-h-44 w-full items-center justify-between gap-cluster px-row text-left outline-none focus-visible:shadow-border-interactive-with-active min-[768px]:hidden"
               aria-label="Toggle run navigation"
             >
               <span className="min-w-0">
@@ -82,7 +82,7 @@ export function RunWorkspaceNav({
           </CollapsibleTrigger>
           <div
             className={cn(
-              'max-h-[50vh] overflow-y-auto p-8 min-[768px]:block min-[768px]:max-h-none min-[768px]:p-12',
+              'max-h-[50vh] overflow-y-auto p-tight min-[768px]:block min-[768px]:max-h-none min-[768px]:p-panel-compact',
               !mobileOpen && 'hidden',
             )}
           >
@@ -136,7 +136,7 @@ function RunWorkspaceNavContent({
   }, [currentJobId, mobileOpen]);
 
   return (
-    <nav aria-label="Run workspace" className="flex min-w-0 flex-col gap-16">
+    <nav aria-label="Run workspace" className="flex min-w-0 flex-col gap-group">
       <ul>
         <li>
           <RunSectionLink
@@ -152,7 +152,7 @@ function RunWorkspaceNavContent({
       </ul>
 
       <section aria-labelledby="run-workspace-jobs-heading" className="min-w-0">
-        <div className="flex items-center justify-between gap-8 px-8 pb-6">
+        <div className="flex items-center justify-between gap-inline px-tight pb-[6px]">
           <Text
             as="h2"
             id="run-workspace-jobs-heading"
@@ -182,7 +182,7 @@ function RunWorkspaceNavContent({
                   onClick={onNavigate}
                   aria-current={current ? 'page' : undefined}
                   className={cn(
-                    'flex min-h-32 min-w-0 items-center gap-8 rounded-4 px-8 text-left outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',
+                    'flex min-h-32 min-w-0 items-center gap-inline rounded-4 px-tight text-left outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',
                     current && 'bg-background-neutral-hover',
                   )}
                 >
@@ -210,7 +210,7 @@ function RunWorkspaceNavContent({
           id="run-workspace-details-heading"
           size="xs"
           bold
-          className="px-8 pb-6 text-foreground-neutral-muted"
+          className="px-tight pb-[6px] text-foreground-neutral-muted"
         >
           Run details
         </Text>
@@ -285,7 +285,7 @@ function RunSectionLink({
           : undefined
       }
       className={cn(
-        'flex min-h-32 items-center gap-8 rounded-4 px-8 text-xs font-medium text-foreground-neutral-base outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',
+        'flex min-h-32 items-center gap-inline rounded-4 px-tight text-xs font-medium text-foreground-neutral-base outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',
         current && 'bg-background-neutral-hover',
       )}
     >

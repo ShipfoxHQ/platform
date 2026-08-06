@@ -92,7 +92,7 @@ export function RunAnnotationList({
   const hasContent = entries.length > 0 || derivedAnnotations.length > 0;
 
   return (
-    <div className="flex min-w-0 flex-col gap-12">
+    <div className="flex min-w-0 flex-col gap-cluster">
       {query.isError ? <RunAnnotationStaleError query={query} /> : null}
 
       {!hasContent ? (
@@ -107,7 +107,7 @@ export function RunAnnotationList({
           <RunAnnotationsEmpty />
         )
       ) : (
-        <ol className="flex min-w-0 flex-col gap-12">
+        <ol className="flex min-w-0 flex-col gap-cluster">
           {visible.map((entry) => (
             <RunAnnotationItem
               key={entry.annotation.id}
@@ -202,7 +202,7 @@ function RunAnnotationsFilteredEmpty({
   onClearFilters: (() => void) | undefined;
 }) {
   return (
-    <div className="flex flex-col items-center gap-12">
+    <div className="flex flex-col items-center gap-cluster">
       <EmptyState
         icon="fileDamageLine"
         title={incomplete ? 'No matches in loaded annotations' : 'No matching annotations'}
@@ -231,7 +231,7 @@ function RunAnnotationsFilteredEmpty({
 function RunAnnotationStaleError({query}: {query: QueryLoadErrorQuery}) {
   return (
     <Callout role="status" aria-live="polite" type="error">
-      <div className="flex w-full items-center justify-between gap-8">
+      <div className="flex w-full items-center justify-between gap-inline">
         <Text size="xs">Could not refresh annotations.</Text>
         <Button
           type="button"
@@ -254,14 +254,14 @@ const ANNOTATION_SKELETON_ROWS = ['first', 'second', 'third'];
 
 function RunAnnotationListSkeleton() {
   return (
-    <section aria-label="Loading annotations" className="flex flex-col gap-12">
+    <section aria-label="Loading annotations" className="flex flex-col gap-cluster">
       {ANNOTATION_SKELETON_ROWS.map((row) => (
         <div
           key={row}
-          className="flex gap-12 rounded-8 border border-border-neutral-base bg-background-components-base px-12 py-8"
+          className="flex gap-cluster rounded-8 border border-border-neutral-base bg-background-components-base px-[12px] py-[8px]"
         >
           <Skeleton className="h-40 w-4 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <div className="flex min-w-0 flex-1 flex-col gap-inline">
             <Skeleton className="h-20 w-160 rounded-4" />
             <Skeleton className="h-16 w-240 rounded-4" />
             <Skeleton className="h-40 w-full rounded-4" />

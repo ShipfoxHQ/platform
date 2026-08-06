@@ -66,9 +66,9 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
   }
 
   return (
-    <div className="flex w-full flex-col gap-24">
+    <div className="flex w-full flex-col gap-section">
       {projectQuery.isPending ? (
-        <div className="flex flex-col gap-12">
+        <div className="flex flex-col gap-cluster">
           <Skeleton className="h-28 w-1/3" />
           <Skeleton className="h-18 w-1/2" />
         </div>
@@ -88,7 +88,7 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
 
       {projectQuery.data ? (
         <>
-          <header className="flex flex-col gap-4">
+          <header className="flex flex-col gap-tight">
             <Header variant="h2">Workflows</Header>
             <Text size="sm" className="text-foreground-neutral-muted">
               Synced workflow definitions for this project source.
@@ -170,7 +170,7 @@ function WorkflowDefinitionsList({
 }) {
   if (isPending) {
     return (
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-inline">
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-40 w-full" />
@@ -228,11 +228,11 @@ function WorkflowDefinitionsList({
                     />
                   </TableCell>
                   <TableCell className="max-w-260">
-                    <div className="flex min-w-0 flex-col gap-2">
+                    <div className="flex min-w-0 flex-col gap-tight">
                       <button
                         type="button"
                         onClick={() => onOpenDefinition(definition)}
-                        className="flex min-w-0 flex-col gap-2 text-left outline-none focus-visible:shadow-border-interactive-with-active rounded-4"
+                        className="flex min-w-0 flex-col gap-tight text-left outline-none focus-visible:shadow-border-interactive-with-active rounded-4"
                       >
                         <Text size="sm" bold className="truncate">
                           {definition.name}
@@ -276,11 +276,11 @@ function WorkflowDefinitionsList({
           return (
             <div
               key={definition.id}
-              className="flex flex-col gap-10 border-b border-border-neutral-base p-12 last:border-b-0"
+              className="flex flex-col gap-inline border-b border-border-neutral-base p-panel-compact last:border-b-0"
             >
               <button
                 type="button"
-                className="flex min-w-0 items-start gap-10 text-left"
+                className="flex min-w-0 items-start gap-inline text-left"
                 onClick={() => onOpenDefinition(definition)}
               >
                 <Icon
@@ -288,7 +288,7 @@ function WorkflowDefinitionsList({
                   className="size-16 shrink-0 text-foreground-neutral-muted"
                   aria-hidden="true"
                 />
-                <div className="flex min-w-0 flex-col gap-4">
+                <div className="flex min-w-0 flex-col gap-tight">
                   <Text size="sm" bold className="break-words">
                     {definition.name}
                   </Text>
@@ -297,7 +297,7 @@ function WorkflowDefinitionsList({
                   </Code>
                 </div>
               </button>
-              <div className="flex items-center justify-between gap-8">
+              <div className="flex items-center justify-between gap-inline">
                 <Text size="xs" className="text-foreground-neutral-muted">
                   Updated <RelativeTime value={definition.updatedAt} />
                 </Text>
@@ -319,7 +319,7 @@ function WorkflowDefinitionsList({
 
       {isFetchNextPageError ? (
         <Callout role="alert" type="error">
-          <div className="flex items-center justify-between gap-12">
+          <div className="flex items-center justify-between gap-cluster">
             <Text size="sm">Could not load more workflows.</Text>
             <Button size="sm" variant="secondary" onClick={onLoadMore}>
               Retry
@@ -363,7 +363,7 @@ function WorkflowSyncAlert({sync}: {sync: DefinitionSyncSummary | null | undefin
 
   return (
     <Callout role="alert" type="error">
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-tight">
         <Text size="sm" bold>
           Workflow sync failed
         </Text>
@@ -388,11 +388,11 @@ function WorkflowSyncWarnings({sync}: {sync: DefinitionSyncSummary | null | unde
 
   return (
     <Callout role="status" type="warning">
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-inline">
         <Text size="sm" bold>
           Workflow definition warnings
         </Text>
-        <ul className="flex flex-col gap-4">
+        <ul className="flex flex-col gap-tight">
           {warningItems.map(({key, warning}) => (
             <li key={key}>
               <Text size="sm">{warning.message}</Text>
@@ -436,18 +436,18 @@ function DefinitionSheet({
                 {definition.configPath ?? 'Manual workflow definition'}
               </SheetDescription>
             </SheetHeader>
-            <SheetBody className="gap-18">
-              <div className="grid w-full gap-10">
+            <SheetBody className="gap-group">
+              <div className="grid w-full gap-inline">
                 <Metadata label="Definition id" value={definition.id} />
                 <Metadata label="Source" value={definition.source} />
                 <Metadata label="Ref" value={definition.ref ?? 'Not set'} />
                 <Metadata label="SHA" value={definition.sha ?? 'Not set'} />
               </div>
-              <div className="flex w-full flex-col gap-8">
+              <div className="flex w-full flex-col gap-inline">
                 <Text size="sm" bold>
                   Normalized definition
                 </Text>
-                <pre className="max-h-[52vh] w-full overflow-auto rounded-8 border border-border-neutral-base bg-background-neutral-subtle p-12 scrollbar">
+                <pre className="max-h-[52vh] w-full overflow-auto rounded-8 border border-border-neutral-base bg-background-neutral-subtle p-panel-compact scrollbar">
                   <Code as="code" className="whitespace-pre text-foreground-neutral-base">
                     {normalizedJson}
                   </Code>
@@ -463,7 +463,7 @@ function DefinitionSheet({
 
 function Metadata({label, value}: {label: string; value: string}) {
   return (
-    <div className="min-w-0 py-12 first:pt-0 last:pb-0">
+    <div className="min-w-0 py-row first:pt-0 last:pb-0">
       <Text size="xs" className="text-foreground-neutral-muted">
         {label}
       </Text>

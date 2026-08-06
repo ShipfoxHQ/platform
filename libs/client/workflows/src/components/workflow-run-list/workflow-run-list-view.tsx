@@ -58,7 +58,7 @@ export function WorkflowRunListView({
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
       <section
         aria-labelledby={headingId}
-        className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-12', className)}
+        className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-cluster', className)}
       >
         {/* The tab strip above already reads "Runs", so the page heading is for structure and
             assistive tech rather than a second visible title competing with it. */}

@@ -64,7 +64,7 @@ export function StepInspectorSheet({
             Attempt #{entry.attempt} · {humanizeStatus(entry.statusVisual.kind)}
           </SheetDescription>
         </SheetHeader>
-        <SheetBody className="gap-20">
+        <SheetBody className="gap-section">
           <StepInspector
             step={entry.step}
             attempt={entry}
@@ -120,7 +120,7 @@ function StepFailureCallout({
       role="alert"
       type="error"
       variant="secondary"
-      className="rounded-8 border border-tag-error-border px-12 py-10 shadow-none"
+      className="rounded-8 border border-tag-error-border p-panel-compact shadow-none"
     >
       <CalloutContent>
         <CalloutTitle>{title}</CalloutTitle>
@@ -195,7 +195,7 @@ function StepInspector({
   const detailCount = Number(hasInputs) + Number(hasOutputs) + Number(hasTrace);
 
   return (
-    <div className="flex min-w-0 flex-col gap-20">
+    <div className="flex min-w-0 flex-col gap-section">
       {showFailure ? (
         <StepFailureCallout
           step={step}
@@ -213,7 +213,7 @@ function StepInspector({
           role="alert"
           type="warning"
           variant="secondary"
-          className="rounded-8 border border-tag-warning-border px-12 py-10 shadow-none"
+          className="rounded-8 border border-tag-warning-border p-panel-compact shadow-none"
         >
           <CalloutContent>
             <CalloutTitle>Details unavailable</CalloutTitle>

@@ -53,7 +53,7 @@ export function WorkflowRunFilters({
   const [sheetOpen, setSheetOpen] = useState(false);
 
   return (
-    <div className="flex flex-wrap items-center gap-8">
+    <div className="flex flex-wrap items-center gap-inline">
       <Input
         value={search.search ?? ''}
         onChange={(event) => onChange({search: event.target.value})}
@@ -64,7 +64,7 @@ export function WorkflowRunFilters({
         iconLeft={<Icon name="searchLine" className="size-14 text-foreground-neutral-muted" />}
       />
 
-      <div className="hidden flex-wrap items-center gap-8 md:flex">
+      <div className="hidden flex-wrap items-center gap-inline md:flex">
         <WorkflowRunFilterControls search={search} facets={facets} onChange={onChange} />
         {hasActiveFilters ? <ClearFiltersButton onClear={onClear} /> : null}
       </div>
@@ -85,7 +85,7 @@ export function WorkflowRunFilters({
           <SheetHeader>
             <SheetTitle>Filter runs</SheetTitle>
           </SheetHeader>
-          <SheetBody className="flex flex-col gap-12">
+          <SheetBody className="flex flex-col gap-cluster">
             <WorkflowRunFilterControls
               search={search}
               facets={facets}
@@ -161,7 +161,7 @@ function WorkflowRunFilterControls({
         className={controlClassName}
       />
       {stacked ? (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-inline">
           <Label>Created between</Label>
           <RunDateRangeFilter search={search} onChange={onChange} />
         </div>
