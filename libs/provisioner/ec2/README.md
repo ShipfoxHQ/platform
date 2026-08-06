@@ -113,5 +113,9 @@ The provider reads the shared provisioner variables plus these EC2-specific vari
 | --- | --- | --- | --- |
 | `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | yes | - | YAML template file with EC2 launch and capacity configuration. |
 | `AWS_REGION` | yes | - | AWS region where runner instances launch. |
-| `SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS` | no | `300000` | Maximum time a launched instance may wait for runner registration. |
+| `SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS` | no | `300000` | Maximum time a launched instance may wait for runner registration. Also sets the reservation lifetime the provider requests on each demand poll. |
 | `SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS` | no | `60000` | Interval for a full backend reconcile using EC2 instance tags. |
+
+The API clamps the requested reservation lifetime to its own `RESERVATION_TTL_MAX_SECONDS`
+ceiling and does not report the clamp. Raising the registration deadline past that ceiling
+therefore shortens the reservation relative to the deadline: raise both together.
