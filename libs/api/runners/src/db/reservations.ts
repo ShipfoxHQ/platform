@@ -443,6 +443,11 @@ async function deleteReservationsWithCleanupTx(
       ),
     )
     .for('update');
+  const intendedRunners = await tx
+    .select({id: providerRunners.id, intendedReservationId: providerRunners.intendedReservationId})
+    .from(providerRunners)
+    .where(inArray(providerRunners.intendedReservationId, ids))
+    .for('update');
   const reservationRows = await tx
     .select({id: reservations.id})
     .from(reservations)
@@ -459,6 +464,12 @@ async function deleteReservationsWithCleanupTx(
 
   const assignedRunnerIds = assignedRunners
     .filter((runner) => runner.reservationId && reservationIds.includes(runner.reservationId))
+    .map((runner) => runner.id);
+  const intendedRunnerIds = intendedRunners
+    .filter(
+      (runner) =>
+        runner.intendedReservationId && reservationIds.includes(runner.intendedReservationId),
+    )
     .map((runner) => runner.id);
   if (assignedRunnerIds.length > 0) {
     await tx
@@ -484,6 +495,17 @@ async function deleteReservationsWithCleanupTx(
           inArray(providerRunners.id, assignedRunnerIds),
           isNull(providerRunners.runnerSessionId),
           isNull(providerRunners.reservationReleasedAt),
+        ),
+      );
+  }
+  if (intendedRunnerIds.length > 0) {
+    await tx
+      .update(providerRunners)
+      .set({intendedReservationId: null, updatedAt: sql`now()`})
+      .where(
+        and(
+          inArray(providerRunners.id, intendedRunnerIds),
+          inArray(providerRunners.intendedReservationId, reservationIds),
         ),
       );
   }

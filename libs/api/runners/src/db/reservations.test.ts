@@ -509,6 +509,115 @@ describe('pollDemandAndReserve', () => {
     expect(storedToken?.revokedAt).toBeInstanceOf(Date);
   });
 
+  it('clears intended reservations and rebinds runners when deleting a reservation by id', async () => {
+    const [reservation, survivingReservation] = await db()
+      .insert(reservations)
+      .values([
+        {
+          workspaceId,
+          provisionerId,
+          requiredLabels: ['linux'],
+          count: 1,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+        {
+          workspaceId: crypto.randomUUID(),
+          provisionerId,
+          requiredLabels: ['linux'],
+          count: 1,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      ])
+      .returning();
+    if (!reservation || !survivingReservation) throw new Error('Expected reservations');
+    const runner = await createIdleRunner({
+      labels: ['linux'],
+      intendedReservationId: reservation.id,
+    });
+    const survivingRunner = await createIdleRunner({
+      labels: ['linux'],
+      intendedReservationId: survivingReservation.id,
+    });
+
+    const deleted = await deleteReservationsByIds([reservation.id]);
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(deleted).toBe(1);
+    expect(storedRunner).toMatchObject({
+      intendedReservationId: null,
+      workspaceId: null,
+      reservationId: null,
+      assignedAt: null,
+      state: 'running',
+      reservationReleasedAt: null,
+    });
+    const [storedSurvivingRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, survivingRunner.id));
+    expect(storedSurvivingRunner?.intendedReservationId).toBe(survivingReservation.id);
+
+    await createPendingJobs(1, ['linux']);
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+    const reboundReservationId = result.reservations[0]?.reservationId;
+    const [reboundRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(reboundReservationId).toEqual(expect.any(String));
+    expect(reboundRunner).toMatchObject({
+      intendedReservationId: null,
+      workspaceId,
+      reservationId: reboundReservationId,
+      assignedAt: expect.any(Date),
+      state: 'running',
+      reservationReleasedAt: null,
+    });
+  });
+
+  it('clears intended reservations when deleting expired reservations', async () => {
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() - 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Expected reservation');
+    const runner = await createIdleRunner({
+      labels: ['linux'],
+      intendedReservationId: reservation.id,
+    });
+
+    const deleted = await deleteExpiredReservations();
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(deleted).toBeGreaterThanOrEqual(1);
+    expect(storedRunner).toMatchObject({
+      intendedReservationId: null,
+      workspaceId: null,
+      reservationId: null,
+      assignedAt: null,
+      state: 'running',
+      reservationReleasedAt: null,
+    });
+  });
+
   it('decrements reservation units inside a caller transaction', async () => {
     await reservationFactory.create({
       workspaceId,
@@ -645,6 +754,7 @@ describe('pollDemandAndReserve', () => {
     labels: string[];
     createdAt?: Date;
     controlSessionExpiresAt?: Date;
+    intendedReservationId?: string;
   }) {
     const createdAt = params.createdAt ?? new Date();
     const [runner] = await db()
@@ -652,6 +762,7 @@ describe('pollDemandAndReserve', () => {
       .values({
         provisionerId,
         providerRunnerId: crypto.randomUUID(),
+        intendedReservationId: params.intendedReservationId,
         labels: params.labels,
         state: 'running',
         reportedAt: createdAt,
