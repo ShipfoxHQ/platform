@@ -25,6 +25,20 @@ can change the values marked configurable.
 | Declared outputs per step | 128 entries | No | The `outputs:` map on one step. |
 | Agent output re-prompts | 2 | No | An agent step missing a declared output is re-prompted this many times before the step fails. |
 
+## Job outputs
+
+| Limit | Default | Configurable | Details |
+| --- | --- | --- | --- |
+| Output bytes per job | 64 KiB total, 16 KiB per value | No | A job fails with an unknown status reason when materialized outputs exceed the cap. See [Job fields](/reference/workflow-schema#job-fields). |
+| Declared outputs per job | 128 entries | No | The `outputs:` map on one job. See [Job fields](/reference/workflow-schema#job-fields). |
+| Structured output nesting | 64 levels | No | Structured values deeper than this fail as non-JSON-safe outputs. |
+
+Persisted typed job outputs use JSON-safe values. CEL integers become JSON
+numbers when they are safe integers and decimal strings otherwise. Timestamps
+become ISO 8601 strings. Unsupported or cyclic values fail the execution with
+an unknown status reason. The total is measured as UTF-8 bytes of the complete
+serialized outputs object, including output keys and JSON syntax.
+
 ## Workflow document
 
 | Limit | Default | Configurable | Details |

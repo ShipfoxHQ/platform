@@ -404,57 +404,21 @@ function normalizeJobOutputs(params: {
       typeOverlay,
     }) ?? [{kind: 'literal' as const, value: source}];
     templates[key] = template;
-    types[key] = inferJobOutputType({
-      sourceName: params.sourceName,
-      key,
-      source,
-      template,
-      issues: params.issues,
-    });
+    types[key] = inferJobOutputType(template);
   }
 
   return {templates, types};
 }
 
-function inferJobOutputType(params: {
-  sourceName: string;
-  key: string;
-  source: string;
-  template: WorkflowFieldTemplate;
-  issues: WorkflowModelValidationIssue[];
-}): ExpressionType {
-  if (params.template.length !== 1) return 'string';
+function inferJobOutputType(template: WorkflowFieldTemplate): ExpressionType {
+  if (template.length !== 1) return 'string';
 
-  const [segment] = params.template;
+  const [segment] = template;
   if (segment?.kind !== 'deferred') return 'string';
 
   const resultType = segment.expression.resultType;
   if (resultType === undefined) return 'string';
-  if (isScalarExpressionType(resultType)) return resultType;
-
-  params.issues.push(
-    issue({
-      code: 'invalid-job-output',
-      message: `Job output "${params.key}" must resolve to a scalar value.`,
-      path: ['jobs', params.sourceName, 'outputs', params.key],
-      details: {
-        output: params.key,
-        source: params.source,
-      },
-    }),
-  );
-  return 'string';
-}
-
-function isScalarExpressionType(type: ExpressionType): boolean {
-  return (
-    type === 'string' ||
-    type === 'int' ||
-    type === 'double' ||
-    type === 'bool' ||
-    type === 'null' ||
-    type === 'timestamp'
-  );
+  return resultType;
 }
 
 function normalizeJobSteps(params: {

@@ -3,6 +3,7 @@ import {
   buildModel,
   conditionTrace,
   jobByKey,
+  template,
   workflowRunAttemptId,
 } from '#test/helpers/workflow-runs.js';
 import {db} from '../db.js';
@@ -139,6 +140,54 @@ describe('evaluateJobActivations', () => {
       status: 'succeeded',
       expectedVersion: lint.version,
     });
+
+    const result = await evaluateJobActivations({
+      runAttemptId: await workflowRunAttemptId(run.id),
+      jobs: [{jobId: notify.id, expectedVersion: notify.version}],
+    });
+
+    expect(result).toEqual([{kind: 'start-job', jobId: notify.id}]);
+  });
+
+  it('rehydrates typed dependency outputs before activation evaluation', async () => {
+    const run = await createWorkflowRun({
+      ...scope,
+      name: 'typed dependency outputs',
+      model: buildModel({
+        jobs: {
+          build: {
+            steps: [{key: 'collect', run: 'npm run build'}],
+            outputs: {
+              count: template('steps.collect.outputs.count'),
+              createdAt: template('run.created_at'),
+            },
+            outputTypes: {count: 'int', createdAt: 'timestamp'},
+          },
+          notify: {
+            needs: 'build',
+            if: 'jobs.build.outputs.count + 1 == 43 && jobs.build.outputs.createdAt < timestamp("2026-07-01T00:00:00Z")',
+            steps: [{run: './notify.sh'}],
+          },
+        },
+      }),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const build = await jobByKey(run.id, 'build');
+    const notify = await jobByKey(run.id, 'notify');
+    await updateJobStatus({
+      jobId: build.id,
+      status: 'succeeded',
+      expectedVersion: build.version,
+    });
+    await db()
+      .update(jobs)
+      .set({outputs: {count: '42', createdAt: '2026-06-30T12:00:00.000Z'}})
+      .where(eq(jobs.id, build.id));
 
     const result = await evaluateJobActivations({
       runAttemptId: await workflowRunAttemptId(run.id),

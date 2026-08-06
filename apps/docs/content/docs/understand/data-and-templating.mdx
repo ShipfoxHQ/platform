@@ -82,9 +82,15 @@ jobs:
 The step creates `version`. The `package` job publishes it. The `publish`
 job declares the dependency and places the value in its command.
 
+When a step declares a JSON array or object, an exact single-expression job
+mapping keeps that structure available to downstream jobs. A downstream
+expression such as `jobs.review.outputs.findings[0].severity` can therefore
+read a nested field. Mixed templates still produce strings.
+
 Outputs suit small facts. Files and build products belong in external artifact
-storage, with an output carrying their location. Exact output types and limits
-live in [Step outputs](/reference/workflow-schema#step-outputs).
+storage, with an output carrying their location. [Step outputs](/reference/workflow-schema#step-outputs)
+defines declaration types and encoding. [Job outputs](/reference/limits#job-outputs)
+defines job output limits.
 
 ## Templates carry untrusted data
 

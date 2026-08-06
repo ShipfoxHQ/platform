@@ -51,6 +51,7 @@ const envStringValueSchema = z.string().refine((value) => !value.includes('\u000
 export const WORKFLOW_DOCUMENT_ENV_MAX_ENTRIES = 128;
 export const WORKFLOW_DOCUMENT_ENV_MAX_SERIALIZED_BYTES = 32 * 1024;
 export const workflowDocumentStepOutputTypes = ['string', 'number', 'boolean', 'json'] as const;
+export const WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES = WORKFLOW_DOCUMENT_ENV_MAX_ENTRIES;
 export const WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES = WORKFLOW_DOCUMENT_ENV_MAX_ENTRIES;
 export const WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_SERIALIZED_BYTES =
   WORKFLOW_DOCUMENT_ENV_MAX_SERIALIZED_BYTES;
@@ -561,6 +562,18 @@ export const workflowDocumentStepSchema = z
     }
   });
 
+const workflowDocumentJobOutputsSchema = nonEmptyRecordSchema(z.string().min(1)).superRefine(
+  (outputs, ctx) => {
+    const entries = Object.keys(outputs).length;
+    if (entries > WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Job outputs cannot define more than ${WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES} entries.`,
+      });
+    }
+  },
+);
+
 export const workflowDocumentJobSchema = z.strictObject({
   needs: stringOrStringArraySchema.optional().meta({
     description: 'Job key or keys that must complete before this job starts.',
@@ -582,8 +595,8 @@ export const workflowDocumentJobSchema = z.strictObject({
     description:
       'CEL expression that determines whether the job succeeds. See [Expressions](/reference/expressions#functions-and-macros) and [Contexts](/reference/contexts#context-availability).',
   }),
-  outputs: nonEmptyRecordSchema(z.string().min(1)).optional().meta({
-    description: 'Named job outputs mapped from step values.',
+  outputs: workflowDocumentJobOutputsSchema.optional().meta({
+    description: `Named job outputs mapped from step values. A mapping with exactly one expression preserves an inferred non-string source type. Each job allows up to ${WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES} declarations.`,
   }),
   execution_timeout: z.string().min(1).optional().meta({
     description: 'Maximum duration for one job execution.',

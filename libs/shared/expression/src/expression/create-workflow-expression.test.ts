@@ -259,6 +259,63 @@ describe('createWorkflowExpression', () => {
     });
   });
 
+  it('preserves known direct path result types for structured fields', () => {
+    const expression = createWorkflowExpression({
+      source: 'event.findings',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {
+            kind: 'object',
+            fields: {
+              findings: {
+                kind: 'list',
+                element: {
+                  kind: 'object',
+                  fields: {severity: 'string'},
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(expression.resultType).toEqual({
+      kind: 'list',
+      element: {
+        kind: 'object',
+        fields: {severity: 'string'},
+      },
+    });
+  });
+
+  it('preserves known direct root result types for structured values', () => {
+    const expression = createWorkflowExpression({
+      source: 'event',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {
+            kind: 'list',
+            element: {
+              kind: 'object',
+              fields: {severity: 'string'},
+            },
+          },
+        },
+      },
+    });
+
+    expect(expression.resultType).toEqual({
+      kind: 'list',
+      element: {
+        kind: 'object',
+        fields: {severity: 'string'},
+      },
+    });
+  });
+
   it('type-checks open map fields and rejects the same path on empty object schemas', () => {
     const expression = createWorkflowExpression({
       source: 'step.outputs.pass == true',

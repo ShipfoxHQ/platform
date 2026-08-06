@@ -108,6 +108,9 @@ export {
 } from '#schemas/workflow-run.js';
 export {
   jobTerminalStatusSchema,
+  type ListenerFilterExpressionType,
+  type ListenerFilterOutputTypes,
+  listenerFilterOutputTypesSchema,
   terminalStatusSchema,
   WORKFLOWS_JOB_ACTIVATED,
   WORKFLOWS_JOB_EVENT_DELIVERED,

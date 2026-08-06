@@ -27,6 +27,7 @@ import {
   applyListenerFilterSnapshots,
   assembleListenerSnapshotContext,
   type ListenerTriggerWithSnapshot,
+  listenerFilterOutputTypesForJobs,
   planListenerFilterSnapshots,
 } from '#core/step-config/assemble-run-context.js';
 import {
@@ -73,8 +74,9 @@ type JobActivatedListenerMatcher = Extract<
 function applyActivatedListenerFilterSnapshots(
   plans: Parameters<typeof applyListenerFilterSnapshots>[0],
   context: Parameters<typeof applyListenerFilterSnapshots>[1],
+  outputTypes: Parameters<typeof applyListenerFilterSnapshots>[2],
 ): JobActivatedListenerMatcher[] {
-  return applyListenerFilterSnapshots(plans, context);
+  return applyListenerFilterSnapshots(plans, context, outputTypes);
 }
 
 export async function activateJobListener(
@@ -150,6 +152,7 @@ export async function activateJobListener(
         plan: snapshotPlan,
         dependencyJobs,
       });
+      const listenerOutputTypes = listenerFilterOutputTypesForJobs(dependencyJobs);
 
       await writeWorkflowsOutboxEvent(tx, {
         type: WORKFLOWS_JOB_ACTIVATED,
@@ -158,11 +161,19 @@ export async function activateJobListener(
           workflowRunId: target.run.id,
           workspaceId: target.run.workspaceId,
           mode: 'listening',
-          on: applyActivatedListenerFilterSnapshots(snapshotPlan.on, snapshotContext),
+          on: applyActivatedListenerFilterSnapshots(
+            snapshotPlan.on,
+            snapshotContext,
+            listenerOutputTypes,
+          ),
           until:
             matchers.until === null
               ? null
-              : applyActivatedListenerFilterSnapshots(snapshotPlan.until, snapshotContext),
+              : applyActivatedListenerFilterSnapshots(
+                  snapshotPlan.until,
+                  snapshotContext,
+                  listenerOutputTypes,
+                ),
         },
       });
     }

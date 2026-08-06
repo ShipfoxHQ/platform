@@ -1,5 +1,6 @@
 import {readPersistedWorkflowModel} from '@shipfox/api-definitions-dto';
 import {WORKFLOWS_JOB_TERMINATED} from '@shipfox/api-workflows-dto';
+import type {ExpressionType} from '@shipfox/expression';
 import {and, asc, desc, eq, inArray, notInArray, sql} from 'drizzle-orm';
 import {isJobTerminal, type Job, type JobStatus, type JobStatusReason} from '#core/entities/job.js';
 import type {JobExecution} from '#core/entities/job-execution.js';
@@ -23,6 +24,16 @@ import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
 import {getWorkflowRunById} from './queries.js';
 import {getWorkflowContextForJob, optimisticLockRetry, TERMINAL_JOB_STATUSES} from './shared.js';
+
+function outputTypesByJobKey(
+  model: ReturnType<typeof readPersistedWorkflowModel> | null,
+): ReadonlyMap<string, Readonly<Record<string, ExpressionType>>> {
+  return new Map(
+    (model?.jobs ?? []).flatMap((job) =>
+      job.outputTypes === undefined ? [] : [[job.key, job.outputTypes] as const],
+    ),
+  );
+}
 
 export async function getJobsByWorkflowRunAttemptId(workflowRunAttemptId: string): Promise<Job[]> {
   const rows = await db()
@@ -81,9 +92,17 @@ export async function getDirectDependencyJobContexts(
   jobId: string,
   tx?: Tx,
 ): Promise<JobContextInput[]> {
-  const targetRows = await (tx ?? db()).select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+  const targetRows = await (tx ?? db())
+    .select({job: jobs, attempt: workflowRunAttempts})
+    .from(jobs)
+    .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+    .where(eq(jobs.id, jobId))
+    .limit(1);
   const target = targetRows[0];
-  if (!target || target.dependencies.length === 0) return [];
+  if (!target || target.job.dependencies.length === 0) return [];
+  const model =
+    target.attempt.model === null ? null : readPersistedWorkflowModel(target.attempt.model);
+  const outputTypes = outputTypesByJobKey(model);
 
   const rows = await (tx ?? db())
     .select({job: jobs, execution: jobExecutions})
@@ -91,8 +110,8 @@ export async function getDirectDependencyJobContexts(
     .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
     .where(
       and(
-        eq(jobs.workflowRunAttemptId, target.workflowRunAttemptId),
-        inArray(jobs.key, target.dependencies),
+        eq(jobs.workflowRunAttemptId, target.job.workflowRunAttemptId),
+        inArray(jobs.key, target.job.dependencies),
       ),
     )
     .orderBy(asc(jobs.position), asc(jobs.id), asc(jobExecutions.sequence), asc(jobExecutions.id));
@@ -101,7 +120,12 @@ export async function getDirectDependencyJobContexts(
   for (const row of rows) {
     let context = contextsByJobId.get(row.job.id);
     if (!context) {
-      context = {job: toJob(row.job), executions: []};
+      const jobOutputTypes = outputTypes.get(row.job.key);
+      context = {
+        job: toJob(row.job),
+        ...(jobOutputTypes === undefined ? {} : {outputTypes: jobOutputTypes}),
+        executions: [],
+      };
       contextsByJobId.set(row.job.id, context);
     }
     if (row.execution)
@@ -243,6 +267,17 @@ async function directDependencyContextsByJobKey(
   const dependencyKeys = new Set(targetJobs.flatMap((job) => job.dependencies));
   if (dependencyKeys.size === 0) return new Map();
 
+  const [attempt] = await tx
+    .select({model: workflowRunAttempts.model})
+    .from(workflowRunAttempts)
+    .where(eq(workflowRunAttempts.id, runAttemptId))
+    .limit(1);
+  const model =
+    attempt === undefined || attempt.model === null
+      ? null
+      : readPersistedWorkflowModel(attempt.model);
+  const outputTypes = outputTypesByJobKey(model);
+
   const rows = await tx
     .select({job: jobs, execution: jobExecutions})
     .from(jobs)
@@ -254,7 +289,12 @@ async function directDependencyContextsByJobKey(
   for (const row of rows) {
     let context = contextsByJobKey.get(row.job.key);
     if (!context) {
-      context = {job: toJob(row.job), executions: []};
+      const jobOutputTypes = outputTypes.get(row.job.key);
+      context = {
+        job: toJob(row.job),
+        ...(jobOutputTypes === undefined ? {} : {outputTypes: jobOutputTypes}),
+        executions: [],
+      };
       contextsByJobKey.set(row.job.key, context);
     }
     if (row.execution)

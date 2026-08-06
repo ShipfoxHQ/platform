@@ -1,4 +1,8 @@
-import {getWorkflowPredicateContextRoots} from '@shipfox/expression';
+import {
+  createWorkflowExpression,
+  evaluateWorkflowExpression,
+  getWorkflowPredicateContextRoots,
+} from '@shipfox/expression';
 import type {JobExecution} from '#core/entities/job-execution.js';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {
@@ -9,13 +13,93 @@ import {
   assembleGateContext,
   assembleJobActivationContext,
   assembleJobResolutionContext,
+  assembleJobsContext,
   assembleListenerSnapshotContext,
   assembleStepDispatchContext,
   assembleWorkflowRunContext,
+  listenerFilterOutputTypesForJobs,
   planListenerFilterSnapshots,
 } from './assemble-run-context.js';
 
 const date = new Date('2026-06-30T12:00:00.000Z');
+
+describe('assembleJobsContext', () => {
+  it.each([
+    {persistedValue: 42, expectedValue: 43n},
+    {persistedValue: '9007199254740993', expectedValue: 9007199254740994n},
+  ])('rehydrates persisted int outputs for CEL arithmetic', ({persistedValue, expectedValue}) => {
+    const context = assembleJobsContext([
+      {
+        job: {key: 'review', status: 'succeeded', outputs: {count: persistedValue}},
+        outputTypes: {count: 'int'},
+        executions: [],
+      },
+    ]);
+    const expression = createWorkflowExpression({
+      source: `jobs.review.outputs.count + 1 == ${expectedValue.toString()}`,
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, context);
+
+    expect(result).toBe(true);
+  });
+
+  it('rehydrates persisted timestamp outputs for CEL comparison', () => {
+    const persistedValue = '2026-06-30T12:00:00.000Z';
+    const context = assembleJobsContext([
+      {
+        job: {key: 'review', status: 'succeeded', outputs: {createdAt: persistedValue}},
+        outputTypes: {createdAt: 'timestamp'},
+        executions: [],
+      },
+    ]);
+    const expression = createWorkflowExpression({
+      source: 'jobs.review.outputs.createdAt < timestamp("2026-07-01T00:00:00Z")',
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, context);
+
+    expect(result).toBe(true);
+  });
+
+  it('rehydrates persisted execution int outputs for CEL arithmetic', () => {
+    const context = assembleJobsContext([
+      {
+        job: {key: 'review', status: 'succeeded', outputs: {}},
+        outputTypes: {count: 'int'},
+        executions: [jobExecution({outputs: {count: 42}})],
+      },
+    ]);
+    const expression = createWorkflowExpression({
+      source: 'jobs.review.executions[0].outputs.count + 1 == 43',
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, context);
+
+    expect(result).toBe(true);
+  });
+
+  it('rehydrates persisted execution timestamp outputs for CEL comparison', () => {
+    const context = assembleJobsContext([
+      {
+        job: {key: 'review', status: 'succeeded', outputs: {}},
+        outputTypes: {createdAt: 'timestamp'},
+        executions: [jobExecution({outputs: {createdAt: '2026-06-30T12:00:00.000Z'}})],
+      },
+    ]);
+    const expression = createWorkflowExpression({
+      source: 'jobs.review.executions[0].outputs.createdAt < timestamp("2026-07-01T00:00:00Z")',
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, context);
+
+    expect(result).toBe(true);
+  });
+});
 
 describe('assembleWorkflowRunContext', () => {
   const run = {
@@ -499,6 +583,59 @@ describe('listener filter snapshots', () => {
     const [matcher] = applyListenerFilterSnapshots(plan.on, context);
 
     expect(matcher?.filter_snapshot).toEqual({vars: {ENABLED: 'true'}});
+  });
+
+  it('persists output types beside JSON-safe listener snapshots', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter: 'jobs.build.outputs.details.count + 1 == 43',
+        },
+      ],
+      until: null,
+    });
+    const dependencyJobs = [
+      {
+        job: {
+          key: 'build',
+          status: 'succeeded' as const,
+          outputs: {details: {count: 42}},
+        },
+        outputTypes: {
+          details: {kind: 'object' as const, fields: {count: 'int' as const}},
+        },
+        executions: [],
+      },
+    ];
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs,
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(
+      plan.on,
+      context,
+      listenerFilterOutputTypesForJobs(dependencyJobs),
+    );
+
+    expect(matcher).toEqual({
+      source: 'github',
+      event: 'pull_request',
+      filter: 'jobs.build.outputs.details.count + 1 == 43',
+      filter_snapshot: {
+        jobs: {
+          build: expect.objectContaining({outputs: {details: {count: 42}}}),
+        },
+      },
+      filter_output_types: {
+        build: {details: {kind: 'object', fields: {count: 'int'}}},
+      },
+    });
   });
 
   it('omits snapshots for event-only filters and malformed filters', () => {

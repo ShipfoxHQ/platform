@@ -1,7 +1,9 @@
 import {
   analyzeContextRootKeyAccess,
+  type ExpressionType,
   extractExactContextRoots,
   getWorkflowPredicateContextRoots,
+  rehydrateJsonExpressionRecord,
   type WorkflowExpressionEvaluationContext,
   type WorkflowPredicateContextRoot,
 } from '@shipfox/expression';
@@ -17,7 +19,12 @@ import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
 
 export interface JobContextInput {
   readonly job: Pick<Job, 'key' | 'status' | 'outputs'>;
+  readonly outputTypes?: Readonly<Record<string, ExpressionType>>;
   readonly executions: readonly JobExecution[];
+}
+
+export interface AssembleJobsContextOptions {
+  readonly skipTypedOutputRehydration?: boolean;
 }
 
 export interface AssembleWorkflowRunContextParams {
@@ -128,13 +135,20 @@ export function assembleExecutionCreationContext(
  */
 export function assembleExecutionsContext(
   executions: readonly JobExecution[],
+  outputTypes?: Readonly<Record<string, ExpressionType>>,
 ): WorkflowExpressionEvaluationContext {
   return {
-    executions: executions.map((execution, index) => assembleExecutionContext(execution, index)),
+    executions: executions.map((execution, index) =>
+      assembleExecutionContext(execution, index, outputTypes),
+    ),
   };
 }
 
-function assembleExecutionContext(execution: JobExecution, index: number): Record<string, unknown> {
+function assembleExecutionContext(
+  execution: JobExecution,
+  index: number,
+  outputTypes?: Readonly<Record<string, ExpressionType>>,
+): Record<string, unknown> {
   return {
     index,
     name: execution.name,
@@ -142,15 +156,18 @@ function assembleExecutionContext(execution: JobExecution, index: number): Recor
     started_at: execution.startedAt,
     finished_at: execution.finishedAt,
     events: execution.triggerEvents,
-    outputs: execution.outputs ?? {},
+    outputs: rehydrateJsonExpressionRecord(execution.outputs, outputTypes),
   };
 }
 
 export function assembleJobsContext(
   jobs: readonly JobContextInput[],
+  options: AssembleJobsContextOptions = {},
 ): WorkflowExpressionEvaluationContext & {readonly jobs: Record<string, unknown>} {
   return {
-    jobs: Object.fromEntries(jobs.map((input) => [input.job.key, assembleJobContext(input)])),
+    jobs: Object.fromEntries(
+      jobs.map((input) => [input.job.key, assembleJobContext(input, options)]),
+    ),
   };
 }
 
@@ -166,7 +183,7 @@ export function assembleJobActivationContext(
     values: {
       ...assembleWorkflowRunContext(params),
       ...assembleJobsContext(params.jobs),
-      needs: params.jobs.map(assembleJobContext),
+      needs: params.jobs.map((input) => assembleJobContext(input, {})),
       vars: params.vars ?? {},
     },
   };
@@ -187,6 +204,8 @@ export interface ListenerSnapshotPlan {
   readonly roots: ReadonlySet<ListenerSnapshotRoot>;
   readonly jobKeys: ReadonlySet<string>;
 }
+
+export type ListenerFilterOutputTypes = Record<string, Record<string, ExpressionType>>;
 
 export function planListenerFilterSnapshots(params: {
   readonly on: readonly JobListeningTrigger[];
@@ -296,27 +315,65 @@ function requestedJobsContext(
   dependencyJobs: readonly JobContextInput[],
   jobKeys: ReadonlySet<string>,
 ): Record<string, unknown> {
-  if (jobKeys.size === 0) return assembleJobsContext(dependencyJobs).jobs;
+  // Listener snapshots cross a JSON outbox boundary; their type metadata is persisted separately.
+  if (jobKeys.size === 0) {
+    return assembleJobsContext(dependencyJobs, {skipTypedOutputRehydration: true}).jobs;
+  }
 
   const filtered = dependencyJobs.filter(({job}) => jobKeys.has(job.key));
 
-  return assembleJobsContext(filtered).jobs;
+  return assembleJobsContext(filtered, {skipTypedOutputRehydration: true}).jobs;
 }
 
 export type ListenerTriggerWithSnapshot = JobListeningTrigger & {
   readonly filter_snapshot?: Record<string, unknown>;
+  readonly filter_output_types?: ListenerFilterOutputTypes;
 };
 
 export function applyListenerFilterSnapshots(
   plans: readonly MatcherSnapshotPlan[],
   context: WorkflowExpressionEvaluationContext,
+  outputTypes?: ListenerFilterOutputTypes,
 ): ListenerTriggerWithSnapshot[] {
   return plans.map((plan) => {
     const filterSnapshot = filterSnapshotForPlan(plan, context);
     if (filterSnapshot === undefined) return plan.matcher;
 
-    return {...plan.matcher, filter_snapshot: filterSnapshot};
+    const filterOutputTypes = filterOutputTypesForPlan(plan, context, outputTypes);
+
+    return {
+      ...plan.matcher,
+      filter_snapshot: filterSnapshot,
+      ...(filterOutputTypes === undefined ? {} : {filter_output_types: filterOutputTypes}),
+    };
   });
+}
+
+export function listenerFilterOutputTypesForJobs(
+  jobs: readonly JobContextInput[],
+): ListenerFilterOutputTypes {
+  return Object.fromEntries(
+    jobs.flatMap(({job, outputTypes}) =>
+      outputTypes === undefined ? [] : [[job.key, {...outputTypes}] as const],
+    ),
+  );
+}
+
+function filterOutputTypesForPlan(
+  plan: MatcherSnapshotPlan,
+  context: WorkflowExpressionEvaluationContext,
+  outputTypes: ListenerFilterOutputTypes | undefined,
+): ListenerFilterOutputTypes | undefined {
+  if (outputTypes === undefined || !plan.roots.has('jobs')) return undefined;
+
+  const jobsSnapshot = jobsSnapshotForPlan(plan, context);
+  if (jobsSnapshot === undefined) return undefined;
+
+  const entries = Object.keys(jobsSnapshot).flatMap((jobKey) => {
+    const types = outputTypes[jobKey];
+    return types === undefined ? [] : [[jobKey, {...types}] as const];
+  });
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
 function filterSnapshotForPlan(
@@ -356,12 +413,23 @@ function jobsSnapshotForPlan(
   return snapshot;
 }
 
-function assembleJobContext({job, executions}: JobContextInput): Record<string, unknown> {
+function assembleJobContext(
+  {job, outputTypes, executions}: JobContextInput,
+  options: AssembleJobsContextOptions,
+): Record<string, unknown> {
+  const outputs =
+    options.skipTypedOutputRehydration === true
+      ? (job.outputs ?? {})
+      : rehydrateJsonExpressionRecord(job.outputs, outputTypes);
+
   return {
     key: job.key,
     status: job.status,
-    outputs: job.outputs ?? {},
-    executions: assembleExecutionsContext(executions).executions,
+    outputs,
+    executions: assembleExecutionsContext(
+      executions,
+      options.skipTypedOutputRehydration === true ? undefined : outputTypes,
+    ).executions,
   };
 }
 

@@ -80,8 +80,39 @@ const workflowsJobActivatedBaseSchema = z.object({
   workspaceId: nonEmptyStringSchema,
 });
 
+// Keep this passive DTO schema local so the transport package does not depend on expression runtime code.
+export type ListenerFilterExpressionType =
+  | 'string'
+  | 'int'
+  | 'double'
+  | 'bool'
+  | 'null'
+  | 'timestamp'
+  | {kind: 'object'; fields: Record<string, ListenerFilterExpressionType>}
+  | {kind: 'map'}
+  | {kind: 'list'; element: ListenerFilterExpressionType};
+
+const listenerFilterExpressionTypeSchema: z.ZodType<ListenerFilterExpressionType> = z.lazy(() =>
+  z.union([
+    z.enum(['string', 'int', 'double', 'bool', 'null', 'timestamp']),
+    z.object({
+      kind: z.literal('object'),
+      fields: z.record(z.string(), listenerFilterExpressionTypeSchema),
+    }),
+    z.object({kind: z.literal('map')}),
+    z.object({kind: z.literal('list'), element: listenerFilterExpressionTypeSchema}),
+  ]),
+);
+
+export const listenerFilterOutputTypesSchema = z.record(
+  z.string(),
+  z.record(z.string(), listenerFilterExpressionTypeSchema),
+);
+export type ListenerFilterOutputTypes = z.infer<typeof listenerFilterOutputTypesSchema>;
+
 const resolvedListeningTriggerSchema = listeningTriggerSchema.extend({
   filter_snapshot: z.record(z.string(), z.unknown()).optional(),
+  filter_output_types: listenerFilterOutputTypesSchema.optional(),
 });
 
 export const workflowsJobActivatedSchema = z.discriminatedUnion('mode', [

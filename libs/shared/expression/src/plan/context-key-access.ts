@@ -51,6 +51,7 @@ interface AccessChain {
   readonly root: string;
   readonly segments: readonly string[];
   readonly computed: boolean;
+  readonly rootKeyComputed: boolean;
 }
 
 interface ContextAccessVisitor {
@@ -222,7 +223,7 @@ function recordContextRootKeyAccess(
   violations: ContextKeyAccessViolation[],
 ): void {
   const [key] = chain.segments;
-  if (chain.computed || key === undefined) {
+  if (chain.rootKeyComputed || key === undefined) {
     violations.push({root: chain.root, ...(key === undefined ? {} : {key}), source});
     return;
   }
@@ -238,7 +239,7 @@ function accessChain(
     case 'id':
       return scopedIdentifiers.has(node.args)
         ? undefined
-        : {root: node.args, segments: [], computed: false};
+        : {root: node.args, segments: [], computed: false, rootKeyComputed: false};
     case '.': {
       const target = accessChain(node.args[0], scopedIdentifiers);
       if (target === undefined) return undefined;
@@ -247,7 +248,12 @@ function accessChain(
     case '.?': {
       const target = accessChain(node.args[0], scopedIdentifiers);
       if (target === undefined) return undefined;
-      return {...target, segments: [...target.segments, node.args[1]], computed: true};
+      return {
+        ...target,
+        segments: [...target.segments, node.args[1]],
+        computed: true,
+        rootKeyComputed: target.segments.length === 0 || target.rootKeyComputed,
+      };
     }
     case '[]':
     case '[?]': {
@@ -259,6 +265,7 @@ function accessChain(
         segments:
           literalSegment === undefined ? target.segments : [...target.segments, literalSegment],
         computed: true,
+        rootKeyComputed: target.segments.length === 0 || target.rootKeyComputed,
       };
     }
     default:

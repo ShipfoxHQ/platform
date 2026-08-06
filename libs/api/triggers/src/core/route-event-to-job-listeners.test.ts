@@ -319,6 +319,64 @@ describe('routeEventToJobListeners', () => {
     expect(result).toMatchObject({engagedCount: 1, matchedJobCount: 1, acceptedJobCount: 1});
   });
 
+  it.each([
+    {
+      name: 'integer output',
+      filter: 'jobs.build.outputs.count + 1 == 43',
+      filterSnapshot: {jobs: {build: {outputs: {count: 42}}}},
+      filterOutputTypes: {build: {count: 'int'}},
+    },
+    {
+      name: 'timestamp output',
+      filter: 'jobs.build.outputs.createdAt < timestamp("2026-07-01T00:00:00Z")',
+      filterSnapshot: {jobs: {build: {outputs: {createdAt: '2026-06-30T12:00:00.000Z'}}}},
+      filterOutputTypes: {build: {createdAt: 'timestamp'}},
+    },
+    {
+      name: 'integer execution output',
+      filter: 'jobs.build.executions[0].outputs.count + 1 == 43',
+      filterSnapshot: {jobs: {build: {executions: [{outputs: {count: 42}}]}}},
+      filterOutputTypes: {build: {count: 'int'}},
+    },
+    {
+      name: 'timestamp execution output',
+      filter: 'jobs.build.executions[0].outputs.createdAt < timestamp("2026-07-01T00:00:00Z")',
+      filterSnapshot: {
+        jobs: {build: {executions: [{outputs: {createdAt: '2026-06-30T12:00:00.000Z'}}]}},
+      },
+      filterOutputTypes: {build: {createdAt: 'timestamp'}},
+    },
+    {
+      name: 'nested output',
+      filter: 'jobs.build.outputs.details.count + 1 == 43',
+      filterSnapshot: {jobs: {build: {outputs: {details: {count: 42}}}}},
+      filterOutputTypes: {
+        build: {details: {kind: 'object', fields: {count: 'int'}}},
+      },
+    },
+  ])('rehydrates a $name in listener filters', async ({
+    filter,
+    filterSnapshot,
+    filterOutputTypes,
+  }) => {
+    const workspaceId = crypto.randomUUID();
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'pull_request_review',
+      config: {
+        filter,
+        filter_snapshot: filterSnapshot,
+        filter_output_types: filterOutputTypes,
+      },
+    });
+
+    const result = await route({workspaceId});
+
+    expect(deliverEventToListener).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({engagedCount: 1, matchedJobCount: 1, acceptedJobCount: 1});
+  });
+
   it('does not deliver or record a decision when a listener filter returns false', async () => {
     const workspaceId = crypto.randomUUID();
     await jobListenerSubscriptionFactory.create({
