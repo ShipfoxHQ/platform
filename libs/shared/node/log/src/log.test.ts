@@ -30,8 +30,10 @@ describe('log destination thresholds', () => {
       });
       const error = new Error('Cannot launch runner', {cause});
 
-      logger.error({err: error}, 'err field');
-      logger.error({error}, 'error field');
+      logger.error({err: error});
+      logger.error({error});
+      logger.error({error}, 'explicit message');
+      logger.child({component: 'child'}).error({error});
       await new Promise<void>((resolve, reject) =>
         logger.flush((flushError?: Error) => (flushError ? reject(flushError) : resolve())),
       );
@@ -41,7 +43,14 @@ describe('log destination thresholds', () => {
           .trim()
           .split('\n')
           .map((line) => JSON.parse(line));
-        expect(records).toHaveLength(2);
+        expect(records).toHaveLength(4);
+        expect(records.map((record) => record.msg)).toEqual([
+          'Cannot launch runner',
+          'Cannot launch runner',
+          'explicit message',
+          'Cannot launch runner',
+        ]);
+        expect(records[3]).toMatchObject({component: 'child'});
         for (const record of records) {
           expect(record).not.toHaveProperty('error');
           expect(record.err).toMatchObject({

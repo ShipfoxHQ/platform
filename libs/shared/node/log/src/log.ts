@@ -79,7 +79,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export const settings: LoggerOptions = {
   level: config.LOG_LEVEL,
   transport: {targets: transports},
-  formatters: {log: normalizeErrorKey},
+  hooks: {
+    logMethod(args, method) {
+      const [object, ...rest] = args;
+      const normalizedArgs = isRecord(object)
+        ? ([normalizeErrorKey(object), ...rest] as Parameters<LogFn>)
+        : args;
+      Reflect.apply(method, this, normalizedArgs);
+    },
+  },
   get timestamp() {
     return getPino().stdTimeFunctions.isoTime;
   },
