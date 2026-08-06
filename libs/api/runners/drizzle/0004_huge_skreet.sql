@@ -1,0 +1,1 @@
+CREATE INDEX "runners_runner_instances_intended_reservation_idx" ON "runners_runner_instances" USING btree ("intended_reservation_id") WHERE "runners_runner_instances"."intended_reservation_id" is not null;

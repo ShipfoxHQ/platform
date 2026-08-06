@@ -10,6 +10,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  or,
   sql,
 } from 'drizzle-orm';
 import type {Tx} from './db.js';
@@ -432,16 +433,26 @@ async function deleteReservationsWithCleanupTx(
 ): Promise<number> {
   if (ids.length === 0) return 0;
 
-  const assignedRunners = await tx
-    .select({id: providerRunners.id, reservationId: providerRunners.reservationId})
+  const affectedRunners = await tx
+    .select({
+      id: providerRunners.id,
+      reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
+      runnerSessionId: providerRunners.runnerSessionId,
+      reservationReleasedAt: providerRunners.reservationReleasedAt,
+    })
     .from(providerRunners)
     .where(
-      and(
-        inArray(providerRunners.reservationId, ids),
-        isNull(providerRunners.runnerSessionId),
-        isNull(providerRunners.reservationReleasedAt),
+      or(
+        and(
+          inArray(providerRunners.reservationId, ids),
+          isNull(providerRunners.runnerSessionId),
+          isNull(providerRunners.reservationReleasedAt),
+        ),
+        inArray(providerRunners.intendedReservationId, ids),
       ),
     )
+    .orderBy(asc(providerRunners.id))
     .for('update');
   const reservationRows = await tx
     .select({id: reservations.id})
@@ -457,8 +468,20 @@ async function deleteReservationsWithCleanupTx(
 
   if (reservationIds.length === 0) return 0;
 
-  const assignedRunnerIds = assignedRunners
-    .filter((runner) => runner.reservationId && reservationIds.includes(runner.reservationId))
+  const assignedRunnerIds = affectedRunners
+    .filter(
+      (runner) =>
+        runner.reservationId &&
+        reservationIds.includes(runner.reservationId) &&
+        !runner.runnerSessionId &&
+        !runner.reservationReleasedAt,
+    )
+    .map((runner) => runner.id);
+  const intendedRunnerIds = affectedRunners
+    .filter(
+      (runner) =>
+        runner.intendedReservationId && reservationIds.includes(runner.intendedReservationId),
+    )
     .map((runner) => runner.id);
   if (assignedRunnerIds.length > 0) {
     await tx
@@ -484,6 +507,17 @@ async function deleteReservationsWithCleanupTx(
           inArray(providerRunners.id, assignedRunnerIds),
           isNull(providerRunners.runnerSessionId),
           isNull(providerRunners.reservationReleasedAt),
+        ),
+      );
+  }
+  if (intendedRunnerIds.length > 0) {
+    await tx
+      .update(providerRunners)
+      .set({intendedReservationId: null, updatedAt: sql`now()`})
+      .where(
+        and(
+          inArray(providerRunners.id, intendedRunnerIds),
+          inArray(providerRunners.intendedReservationId, reservationIds),
         ),
       );
   }
