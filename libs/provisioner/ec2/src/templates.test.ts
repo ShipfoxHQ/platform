@@ -6,10 +6,14 @@ import {fileURLToPath} from 'node:url';
 import {MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import {Ec2TemplateConfigError, loadEc2Templates} from '#templates.js';
 
+const observability = vi.hoisted(() => ({logger: {warn: vi.fn()}}));
+vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logger}));
+
 let dir: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'provisioner-ec2-'));
+  observability.logger.warn.mockReset();
 });
 
 afterEach(() => {
@@ -154,6 +158,30 @@ describe('loadEc2Templates', () => {
         },
       },
     ]);
+  });
+
+  it('warns when a template has no IAM instance profile', () => {
+    const path = writeTemplates(template());
+
+    loadEc2Templates(path);
+
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      {
+        event: 'provisioner.ec2_template_missing_iam_instance_profile',
+        filePath: path,
+        templateKey: 't',
+        capability: 'host_debugging_over_aws_systems_manager',
+      },
+      'EC2 template "t" has no IAM instance profile; host debugging over AWS Systems Manager is unavailable',
+    );
+  });
+
+  it('does not warn when a template has an IAM instance profile', () => {
+    const path = writeTemplates(template({}, '    iam_instance_profile: shipfox-runner\n'));
+
+    loadEc2Templates(path);
+
+    expect(observability.logger.warn).not.toHaveBeenCalled();
   });
 
   it('accepts a null spot price', () => {

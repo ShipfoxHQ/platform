@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import {logger} from '@shipfox/node-opentelemetry';
 import {
   type ProvisionerTemplate,
   ProvisionerTemplateFileError,
@@ -125,6 +126,18 @@ function toTemplate(
   if (invalid.length > 0) {
     throw new Ec2TemplateConfigError(
       `Template "${key}" in ${filePath} has invalid labels: ${invalid.join(', ')}.`,
+    );
+  }
+
+  if (spec.iam_instance_profile === undefined) {
+    logger().warn(
+      {
+        event: 'provisioner.ec2_template_missing_iam_instance_profile',
+        filePath,
+        templateKey: key,
+        capability: 'host_debugging_over_aws_systems_manager',
+      },
+      `EC2 template "${key}" has no IAM instance profile; host debugging over AWS Systems Manager is unavailable`,
     );
   }
 
