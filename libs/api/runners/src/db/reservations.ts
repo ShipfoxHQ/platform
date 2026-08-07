@@ -23,7 +23,7 @@ import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
 import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
-import {providerRunners} from './schema/runner-instances.js';
+import {type providerRunnerLaunchKindEnum, providerRunners} from './schema/runner-instances.js';
 
 export interface ReservationTemplate {
   templateKey: string;
@@ -74,6 +74,11 @@ export interface InstallationPollDemandAndReserveParams {
 }
 
 type DemandScope = 'installation' | 'workspace';
+
+interface IdleRunnerCandidate {
+  id: string;
+  launchKind: (typeof providerRunnerLaunchKindEnum.enumValues)[number];
+}
 
 type PollDemandAndReserveLockedParams = PollDemandAndReserveParams & {
   scope: DemandScope;
@@ -288,37 +293,38 @@ async function pollDemandAndReserveLockedTx(
     let reservedAfterGrant = reserved;
 
     if (grant > 0 && params.maxReservations > 0) {
-      const [boundReservation] = await tx
-        .insert(reservations)
-        .values({
-          workspaceId: params.workspaceId,
-          provisionerId: params.provisionerId,
-          requiredLabels: demand.requiredLabels,
-          count: grant,
-          kind: 'bound',
-          expiresAt: sql`now() + (${params.activationGraceSeconds ?? params.ttlSeconds} || ' seconds')::interval`,
-        })
-        .returning({id: reservations.id});
-
-      if (!boundReservation) throw new Error('Insert returned no rows');
-
-      remainingMaxReservations -= grant;
-      const boundCount = await bindIdleRunnerInstancesTx(tx, {
+      const idleRunners = await listIdleRunnerInstancesTx(tx, {
         provisionerId: params.provisionerId,
-        reservationId: boundReservation.id,
         requiredLabels: demand.requiredLabels,
         count: grant,
         workspaceId: params.workspaceId,
         scope: params.scope,
       });
 
-      if (boundCount === 0) {
-        await tx.delete(reservations).where(eq(reservations.id, boundReservation.id));
-      } else if (boundCount < grant) {
-        await tx
-          .update(reservations)
-          .set({count: boundCount})
-          .where(eq(reservations.id, boundReservation.id));
+      remainingMaxReservations -= grant;
+
+      const boundCount = idleRunners.length;
+      if (boundCount > 0) {
+        const [boundReservation] = await tx
+          .insert(reservations)
+          .values({
+            workspaceId: params.workspaceId,
+            provisionerId: params.provisionerId,
+            requiredLabels: demand.requiredLabels,
+            count: boundCount,
+            kind: 'bound',
+            expiresAt: sql`now() + (${params.activationGraceSeconds ?? params.ttlSeconds} || ' seconds')::interval`,
+          })
+          .returning({id: reservations.id});
+
+        if (!boundReservation) throw new Error('Insert returned no rows');
+
+        await bindIdleRunnerInstancesTx(tx, {
+          provisionerId: params.provisionerId,
+          reservationId: boundReservation.id,
+          workspaceId: params.workspaceId,
+          idleRunners,
+        });
       }
 
       const launchCount = grant - boundCount;
@@ -366,17 +372,40 @@ async function pollDemandAndReserveLockedTx(
   return {stats, reservations: grants, newlyReservedUnits};
 }
 
-async function bindIdleRunnerInstancesTx(
+async function listIdleRunnerInstancesTx(
   tx: Tx,
   params: {
     provisionerId: string;
-    reservationId: string;
     workspaceId: string;
     requiredLabels: string[];
     count: number;
     scope: DemandScope;
   },
-): Promise<number> {
+): Promise<IdleRunnerCandidate[]> {
+  const lockedRunners = await selectIdleRunnerInstancesTx(tx, params);
+  if (lockedRunners.length === 0) return lockedRunners;
+
+  // A SELECT ... FOR UPDATE can wake with a fresh target row but the original
+  // statement snapshot for reservation subqueries. Re-check the full predicate
+  // in a new statement while retaining the row locks from the first query.
+  return await selectIdleRunnerInstancesTx(tx, {
+    ...params,
+    runnerIds: lockedRunners.map((runner) => runner.id),
+    count: lockedRunners.length,
+  });
+}
+
+async function selectIdleRunnerInstancesTx(
+  tx: Tx,
+  params: {
+    provisionerId: string;
+    workspaceId: string;
+    requiredLabels: string[];
+    count: number;
+    scope: DemandScope;
+    runnerIds?: string[];
+  },
+): Promise<IdleRunnerCandidate[]> {
   // An expired or missing reservation is stale. A live reservation protects a
   // runner that is still booting or waiting for its activation grace period.
   const canBindRunner = () =>
@@ -428,6 +457,7 @@ async function bindIdleRunnerInstancesTx(
     .where(
       and(
         eq(providerRunners.provisionerId, params.provisionerId),
+        params.runnerIds ? inArray(providerRunners.id, params.runnerIds) : undefined,
         canBindRunner(),
         isNotNull(providerRunners.providerRunnerId),
         eq(providerRunners.state, 'running'),
@@ -451,22 +481,34 @@ async function bindIdleRunnerInstancesTx(
     .limit(params.count)
     .for('update');
 
-  if (idleRunners.length === 0) return 0;
+  return idleRunners;
+}
+
+async function bindIdleRunnerInstancesTx(
+  tx: Tx,
+  params: {
+    provisionerId: string;
+    reservationId: string;
+    workspaceId: string;
+    idleRunners: IdleRunnerCandidate[];
+  },
+): Promise<void> {
+  const idleRunnerIds = params.idleRunners.map((runner) => runner.id);
 
   await tx
     .update(runnerActivationTokens)
     .set({revokedAt: sql`now()`})
     .where(
       and(
-        inArray(
-          runnerActivationTokens.runnerInstanceId,
-          idleRunners.map((runner) => runner.id),
-        ),
+        inArray(runnerActivationTokens.runnerInstanceId, idleRunnerIds),
         isNull(runnerActivationTokens.consumedAt),
         isNull(runnerActivationTokens.revokedAt),
       ),
     );
 
+  // listIdleRunnerInstancesTx re-checks the full eligibility predicate in a fresh statement
+  // after acquiring row locks. Those locks prevent the validated set from changing before this
+  // update runs.
   const boundRunners = await tx
     .update(providerRunners)
     .set({
@@ -478,20 +520,18 @@ async function bindIdleRunnerInstancesTx(
     })
     .where(
       and(
-        inArray(
-          providerRunners.id,
-          idleRunners.map((runner) => runner.id),
-        ),
-        canBindRunner(),
+        inArray(providerRunners.id, idleRunnerIds),
+        eq(providerRunners.provisionerId, params.provisionerId),
       ),
     )
     .returning({id: providerRunners.id, launchKind: providerRunners.launchKind});
 
+  if (boundRunners.length !== params.idleRunners.length)
+    throw new Error('Locked idle runner set changed before binding');
+
   const reboundCount = boundRunners.filter((runner) => runner.launchKind === 'demand').length;
   if (reboundCount > 0)
     recordProviderRunnerActivationOutcome({outcome: 'rebound', count: reboundCount});
-
-  return boundRunners.length;
 }
 
 async function listInstallationDemandWorkspaceIds(eligibleWorkspaceIds: ReadonlySet<string>) {
