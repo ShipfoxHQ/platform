@@ -158,6 +158,9 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
 }
 
 export async function releaseReservationGrants(reservations: ReservationGrant[]): Promise<void> {
+  // Fully adopted reservations are intentionally absent from this list: deleting
+  // one on disconnect would orphan the runner bound to that reservation. They
+  // remain protected until terminal cleanup or expiry.
   await deleteReservationsByIds(reservations.map((reservation) => reservation.reservationId));
 }
 

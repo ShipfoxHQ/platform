@@ -116,6 +116,17 @@ export const runnerReservationPromotionFailureCount = meter.createCounter<{
   description: 'Runner reservation promotion failures during enrollment by reason',
 });
 
+export type RunnerReservationCapacityFailureReason =
+  | 'reservation-not-found'
+  | 'reservation-expired'
+  | 'capacity-exhausted';
+
+export const runnerReservationCapacityFailureCount = meter.createCounter<{
+  reason: RunnerReservationCapacityFailureReason;
+}>('runners_reservation_capacity_failures', {
+  description: 'Runner reservation admission shortfalls by reason',
+});
+
 export type RunnersRateLimitAction = 'provisioner-mint' | 'ephemeral-register';
 export type RunnersRateLimitScope = 'provisioner' | 'ephemeral-token';
 export type RunnersRateLimitOutcome = 'allowed' | 'blocked' | 'unavailable';
@@ -151,6 +162,14 @@ export function recordRunnerActivationTokenNotIssued(params: {
   surface: RunnerActivationTokenNotIssuedSurface;
 }): void {
   recordMetric(() => runnerActivationTokenNotIssuedCount.add(1, params));
+}
+
+export function recordRunnerReservationCapacityFailure(
+  reason: RunnerReservationCapacityFailureReason,
+  count: number,
+): void {
+  if (count <= 0) return;
+  recordMetric(() => runnerReservationCapacityFailureCount.add(count, {reason}));
 }
 
 export function recordRunnersRateLimitCheck(params: {

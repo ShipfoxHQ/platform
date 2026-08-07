@@ -30,9 +30,10 @@ export async function assignRunnerInstancesTx(
   },
 ): Promise<string[]> {
   const runnerInstanceIds = [...params.runnerInstanceIds].sort();
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${params.provisionerId}:${params.reservationId}`}))`,
-  );
+  await lockRunnerReservationAdvisoryKeysTx(tx, {
+    provisionerId: params.provisionerId,
+    reservationIds: [params.reservationId],
+  });
   const runnerRows = await tx
     .select({
       id: providerRunners.id,
@@ -172,4 +173,151 @@ export async function assignRunnerInstancesTx(
       );
   }
   return params.runnerInstanceIds;
+}
+
+export type RunnerReservationCapacityFailureReason =
+  | 'reservation-not-found'
+  | 'reservation-expired'
+  | 'capacity-exhausted';
+
+export interface RunnerReservationCapacityValidation {
+  acceptedByReservation: Map<string, number>;
+  unavailableByReservation: Map<
+    string,
+    {reason: RunnerReservationCapacityFailureReason; count: number}
+  >;
+}
+
+export async function lockRunnerReservationAdvisoryKeysTx(
+  tx: Tx,
+  params: {provisionerId: string; reservationIds: readonly string[]},
+): Promise<void> {
+  for (const reservationId of [...new Set(params.reservationIds)].sort()) {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${params.provisionerId}:${reservationId}`}))`,
+    );
+  }
+}
+
+export async function validateRunnerReservationCapacityTx(
+  tx: Tx,
+  params: {
+    provisionerId: string;
+    requests: readonly {reservationId: string; count: number}[];
+  },
+  options: {advisoryLocksHeld?: boolean} = {},
+): Promise<RunnerReservationCapacityValidation> {
+  const requestedByReservation = new Map<string, number>();
+  for (const request of params.requests) {
+    if (request.count <= 0) continue;
+    requestedByReservation.set(
+      request.reservationId,
+      (requestedByReservation.get(request.reservationId) ?? 0) + request.count,
+    );
+  }
+  const reservationIds = [...requestedByReservation.keys()].sort();
+  if (reservationIds.length === 0)
+    return {acceptedByReservation: new Map(), unavailableByReservation: new Map()};
+
+  if (!options.advisoryLocksHeld)
+    await lockRunnerReservationAdvisoryKeysTx(tx, {
+      provisionerId: params.provisionerId,
+      reservationIds,
+    });
+
+  const reservationRows = await tx
+    .select({
+      id: reservations.id,
+      count: reservations.count,
+      expiresAt: reservations.expiresAt,
+      isExpired: sql<boolean>`${reservations.expiresAt} <= now()`,
+    })
+    .from(reservations)
+    .where(
+      and(
+        eq(reservations.provisionerId, params.provisionerId),
+        inArray(reservations.id, reservationIds),
+      ),
+    )
+    .for('update');
+  const reservationsById = new Map(
+    reservationRows.map((reservation) => [reservation.id, reservation]),
+  );
+  const requestedReservationIds = new Set(reservationIds);
+  const usedRunnerIdsByReservation = new Map<string, Set<string>>();
+  const usedRunnerRows = await tx
+    .select({
+      id: providerRunners.id,
+      reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
+      state: providerRunners.state,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        isNull(providerRunners.reservationReleasedAt),
+        or(
+          inArray(providerRunners.reservationId, reservationIds),
+          and(
+            inArray(providerRunners.intendedReservationId, reservationIds),
+            notInArray(providerRunners.state, [...terminalStates]),
+          ),
+        ),
+      ),
+    );
+  for (const runner of usedRunnerRows) {
+    if (runner.reservationId && requestedReservationIds.has(runner.reservationId)) {
+      const usedRunnerIds =
+        usedRunnerIdsByReservation.get(runner.reservationId) ?? new Set<string>();
+      usedRunnerIds.add(runner.id);
+      usedRunnerIdsByReservation.set(runner.reservationId, usedRunnerIds);
+    }
+    if (
+      runner.intendedReservationId &&
+      requestedReservationIds.has(runner.intendedReservationId) &&
+      !terminalStates.includes(runner.state as (typeof terminalStates)[number])
+    ) {
+      const usedRunnerIds =
+        usedRunnerIdsByReservation.get(runner.intendedReservationId) ?? new Set<string>();
+      usedRunnerIds.add(runner.id);
+      usedRunnerIdsByReservation.set(runner.intendedReservationId, usedRunnerIds);
+    }
+  }
+
+  const acceptedByReservation = new Map<string, number>();
+  const unavailableByReservation = new Map<
+    string,
+    {reason: RunnerReservationCapacityFailureReason; count: number}
+  >();
+  for (const reservationId of reservationIds) {
+    const requested = requestedByReservation.get(reservationId) ?? 0;
+    const reservation = reservationsById.get(reservationId);
+    if (!reservation) {
+      unavailableByReservation.set(reservationId, {
+        reason: 'reservation-not-found',
+        count: requested,
+      });
+      continue;
+    }
+    if (reservation.isExpired) {
+      unavailableByReservation.set(reservationId, {
+        reason: 'reservation-expired',
+        count: requested,
+      });
+      continue;
+    }
+
+    const used = usedRunnerIdsByReservation.get(reservationId)?.size ?? 0;
+    const accepted = Math.min(requested, Math.max(0, reservation.count - used));
+    acceptedByReservation.set(reservationId, accepted);
+    if (accepted < requested) {
+      unavailableByReservation.set(reservationId, {
+        reason: 'capacity-exhausted',
+        count: requested - accepted,
+      });
+    }
+  }
+
+  return {acceptedByReservation, unavailableByReservation};
 }

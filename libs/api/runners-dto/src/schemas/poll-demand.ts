@@ -42,6 +42,14 @@ export const reservationGrantSchema = z.object({
 export const pollDemandResponseSchema = z.object({
   stats: z.array(demandStatSchema),
   reservations: z.array(reservationGrantSchema),
+  newly_reserved_count: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe(
+      'Reservation units created by this poll, including units satisfied by adopted runners.',
+    ),
   terminate_provider_runner_ids: z.array(z.string()),
 });
 

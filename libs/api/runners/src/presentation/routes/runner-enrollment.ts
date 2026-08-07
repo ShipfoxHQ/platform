@@ -42,7 +42,7 @@ export const createRunnerInstancesRoute = defineRoute({
   },
   handler: async (request) => {
     const {provisionerTokenId} = requireProvisionerContext(request);
-    const results = await createRunnerInstancesWithBootstrapTokens({
+    const result = await createRunnerInstancesWithBootstrapTokens({
       provisionerId: provisionerTokenId,
       ...(request.body.provider_kind ? {providerKind: request.body.provider_kind} : {}),
       runnerInstances: request.body.runner_instances.map((runner) => ({
@@ -52,10 +52,12 @@ export const createRunnerInstancesRoute = defineRoute({
       ttlSeconds: config.RUNNER_BOOTSTRAP_TOKEN_TTL_SECONDS,
     });
     return {
-      runner_instances: results.map((result) => ({
-        runner_instance_id: result.runnerInstanceId,
-        bootstrap_token: result.bootstrapToken,
+      runner_instances: result.runnerInstances.map((runnerInstance) => ({
+        runner_instance_id: runnerInstance.runnerInstanceId,
+        bootstrap_token: runnerInstance.bootstrapToken,
+        request_index: runnerInstance.requestIndex,
       })),
+      ...(result.reservationUnavailable ? {reservation_unavailable: true as const} : {}),
     };
   },
 });

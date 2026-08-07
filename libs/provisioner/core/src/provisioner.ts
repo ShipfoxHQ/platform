@@ -396,6 +396,16 @@ export async function runDemandIteration<Spec>(
     applyHealthEvent(health, {type: 'facet_recovered', facet: 'runner_capacity', at: new Date()});
   }
 
+  if (result.reservationConsumedOrStaleCount > 0) {
+    logger().info(
+      {
+        event: 'runner.reservation_consumed_or_stale',
+        skipped: result.reservationConsumedOrStaleCount,
+      },
+      'Runner reservation was consumed or stale; skipping unavailable launches',
+    );
+  }
+
   if (result.launchedCount > 0) {
     applyHealthEvent(health, {type: 'ready_confirmed', at: new Date()});
   }

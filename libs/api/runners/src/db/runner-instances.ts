@@ -20,6 +20,7 @@ import {alias} from 'drizzle-orm/pg-core';
 import {config} from '#config.js';
 import type {RunnerInstance, RunnerInstanceState} from '#core/entities/runner-instance.js';
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
+import {recordRunnerReservationCapacityFailure} from '#metrics/index.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {
@@ -27,6 +28,10 @@ import {
   type RunnerInstanceBoundJobExecution,
 } from './job-executions.js';
 import {releaseReservationUnits} from './reservations.js';
+import {
+  lockRunnerReservationAdvisoryKeysTx,
+  validateRunnerReservationCapacityTx,
+} from './runner-assignments.js';
 import {ephemeralRegistrationTokens} from './schema/ephemeral-registration-tokens.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
@@ -157,13 +162,14 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
     }
 
     const events = await hydrateRunnerSessionIdsFromConsumedTokens(tx, params, aggregatedEvents);
+    const reservationSafeEvents = await guardReportedReservationIdsTx(tx, params, events);
     const terminateIntentsHonored = await listTerminateIntentsHonoredByTerminatedReportsTx(
       tx,
       params,
-      events,
+      reservationSafeEvents,
     );
 
-    const values = events.map((event) => ({
+    const values = reservationSafeEvents.map((event) => ({
       workspaceId: params.workspaceId,
       provisionerId: params.provisionerId,
       providerRunnerId: event.providerRunnerId,
@@ -215,10 +221,105 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
       });
 
     const reservationsReleased = hasTerminalEvent
-      ? await releaseTerminalRunnerInstanceReservations(tx, params, events)
+      ? await releaseTerminalRunnerInstanceReservations(tx, params, reservationSafeEvents)
       : 0;
 
-    return {accepted: events.length, reservationsReleased, terminateIntentsHonored};
+    return {
+      accepted: reservationSafeEvents.length,
+      reservationsReleased,
+      terminateIntentsHonored,
+    };
+  });
+}
+
+async function guardReportedReservationIdsTx(
+  tx: Tx,
+  params: ReportRunnerInstancesParams,
+  events: RunnerInstanceReportRow[],
+): Promise<RunnerInstanceReportRow[]> {
+  const reservationIds = [
+    ...new Set(events.flatMap((event) => (event.reservationId ? [event.reservationId] : []))),
+  ].sort();
+  if (reservationIds.length === 0) return events;
+
+  await lockRunnerReservationAdvisoryKeysTx(tx, {
+    provisionerId: params.provisionerId,
+    reservationIds,
+  });
+  const providerRunnerIds = events.map((event) => event.providerRunnerId);
+  const existingRows = await tx
+    .select({
+      providerRunnerId: providerRunners.providerRunnerId,
+      reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
+      reservationReleasedAt: providerRunners.reservationReleasedAt,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        inArray(providerRunners.providerRunnerId, providerRunnerIds),
+      ),
+    )
+    .for('update');
+  const existingByProviderRunnerId = new Map(
+    existingRows.flatMap((row) =>
+      row.providerRunnerId ? [[row.providerRunnerId, row] as const] : [],
+    ),
+  );
+  const candidateReservationByProviderRunnerId = new Map<string, string>();
+  for (const event of events) {
+    if (!event.reservationId) continue;
+    if (isTerminalState(event.state)) continue;
+    const existing = existingByProviderRunnerId.get(event.providerRunnerId);
+    if (existing?.reservationId || existing?.intendedReservationId === event.reservationId)
+      continue;
+    if (existing?.intendedReservationId || existing?.reservationReleasedAt) continue;
+    candidateReservationByProviderRunnerId.set(event.providerRunnerId, event.reservationId);
+  }
+
+  const validation = await validateRunnerReservationCapacityTx(
+    tx,
+    {
+      provisionerId: params.provisionerId,
+      requests: [...candidateReservationByProviderRunnerId.values()].map((reservationId) => ({
+        reservationId,
+        count: 1,
+      })),
+    },
+    {advisoryLocksHeld: true},
+  );
+  for (const {reason, count} of validation.unavailableByReservation.values())
+    recordRunnerReservationCapacityFailure(reason, count);
+
+  const remainingAcceptedByReservation = new Map(validation.acceptedByReservation);
+  return events.map((event) => {
+    const existing = existingByProviderRunnerId.get(event.providerRunnerId);
+    const reservationId = candidateReservationByProviderRunnerId.get(event.providerRunnerId);
+    if (!reservationId) {
+      if (event.reservationId && isTerminalState(event.state)) {
+        // Terminal cleanup releases the IDs stored on the projection row. An arbitrary
+        // terminal report must not consume reservation capacity during that cleanup.
+        const matchesExistingReservation =
+          existing !== undefined &&
+          (existing.reservationId === event.reservationId ||
+            existing.intendedReservationId === event.reservationId);
+        if (!matchesExistingReservation) return {...event, reservationId: null};
+      }
+      if (
+        event.reservationId &&
+        existing?.intendedReservationId &&
+        existing.intendedReservationId !== event.reservationId
+      )
+        return {...event, reservationId: null};
+      if (event.reservationId && existing?.reservationReleasedAt)
+        return {...event, reservationId: null};
+      return event;
+    }
+    const remaining = remainingAcceptedByReservation.get(reservationId) ?? 0;
+    if (remaining === 0) return {...event, reservationId: null};
+    remainingAcceptedByReservation.set(reservationId, remaining - 1);
+    return event;
   });
 }
 

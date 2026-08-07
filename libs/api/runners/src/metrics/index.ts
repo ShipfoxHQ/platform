@@ -1,6 +1,7 @@
 export type {
   RunnerActivationTokenNotIssuedReason,
   RunnerActivationTokenNotIssuedSurface,
+  RunnerReservationCapacityFailureReason,
   RunnerReservationPromotionFailureReason,
 } from './instance.js';
 export {
@@ -15,6 +16,7 @@ export {
   providerRunnerTerminateIntentIssuedCount,
   recordProviderRunnerActivationOutcome,
   recordRunnerActivationTokenNotIssued,
+  recordRunnerReservationCapacityFailure,
   recordRunnerReservationPromotionFailure,
   recordRunnersRateLimitCheck,
   recordRunnersRateLimitPruneFailure,

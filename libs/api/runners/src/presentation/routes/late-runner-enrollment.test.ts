@@ -163,13 +163,27 @@ describe('late runner enrollment recovery', () => {
 
     expect(demand.statusCode).toBe(200);
     expect(demand.json().reservations).toEqual([]);
+    const reboundReservations = await db()
+      .select()
+      .from(reservations)
+      .where(
+        and(
+          eq(reservations.workspaceId, workspaceId),
+          eq(reservations.provisionerId, provisionerId),
+          eq(reservations.kind, 'bound'),
+        ),
+      );
+    const reboundReservation = reboundReservations.find(
+      (reservation) => reservation.id !== arrangement.reservationId,
+    );
+    const reboundReservationId = reboundReservation?.id;
+    if (!reboundReservationId) throw new Error('Expected rebound reservation');
+    expect(reboundReservationId).toEqual(expect.any(String));
 
     const [reboundRunner] = await db()
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, arrangement.runnerInstanceId));
-    const reboundReservationId = reboundRunner?.reservationId;
-    expect(reboundReservationId).toEqual(expect.any(String));
     expect(reboundRunner).toMatchObject({
       workspaceId,
       reservationId: reboundReservationId,
@@ -309,6 +323,23 @@ describe('late runner enrollment recovery', () => {
 
     expect(demand.statusCode).toBe(200);
     expect(demand.json().reservations).toEqual([]);
+    const reboundReservations = await db()
+      .select()
+      .from(reservations)
+      .where(
+        and(
+          eq(reservations.workspaceId, workspaceId),
+          eq(reservations.provisionerId, provisionerId),
+          eq(reservations.kind, 'bound'),
+        ),
+      );
+    const reboundReservation = reboundReservations.find(
+      (reservation) => reservation.id !== staleReservation.id,
+    );
+    const reboundReservationId = reboundReservation?.id;
+    if (!reboundReservationId) throw new Error('Expected rebound reservation');
+    expect(reboundReservationId).toEqual(expect.any(String));
+    expect(reboundReservationId).not.toBe(staleReservation.id);
 
     const staleReport = await app.inject({
       method: 'POST',
@@ -336,10 +367,6 @@ describe('late runner enrollment recovery', () => {
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, reportedRunner.id));
-    const reboundReservationId = reboundRunner?.reservationId;
-    expect(reboundReservationId).toEqual(expect.any(String));
-    if (!reboundReservationId) throw new Error('Expected rebound reservation');
-    expect(reboundReservationId).not.toBe(staleReservation.id);
     expect(reboundRunner).toMatchObject({
       workspaceId,
       reservationId: reboundReservationId,
