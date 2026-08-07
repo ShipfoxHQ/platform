@@ -368,7 +368,7 @@ describe('POST /provisioners/demand/poll', () => {
     expect(intentCalls).toHaveLength(1);
   });
 
-  it('returns stale demand-backed runners and records the reap outcome', async () => {
+  it('counts activation-timeout reaps once across terminate-intent retries', async () => {
     const intentSpy = vi.spyOn(providerRunnerTerminateIntentIssuedCount, 'add');
     const outcomeSpy = vi.spyOn(providerRunnerActivationOutcomeCount, 'add');
     await providerRunnerFactory.create({
@@ -383,28 +383,35 @@ describe('POST /provisioners/demand/poll', () => {
     const intentCallsBefore = intentSpy.mock.calls.length;
     const outcomeCallsBefore = outcomeSpy.mock.calls.length;
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/provisioners/demand/poll',
-      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
-      payload: body({max_reservations: 0}),
-    });
+    const poll = () =>
+      app.inject({
+        method: 'POST',
+        url: '/provisioners/demand/poll',
+        headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+        payload: body({max_reservations: 0}),
+      });
+    const firstResponse = await poll();
+    const retryResponse = await poll();
 
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({
+    expect(firstResponse.statusCode).toBe(200);
+    expect(retryResponse.statusCode).toBe(200);
+    expect(firstResponse.json()).toMatchObject({
       reservations: [],
       terminate_provider_runner_ids: ['stale-demand-runner'],
     });
-    expect(
-      intentSpy.mock.calls
-        .slice(intentCallsBefore)
-        .filter(
-          ([value, attributes]) =>
-            value === 1 &&
-            JSON.stringify(attributes) ===
-              JSON.stringify({surface: 'poll-demand', reason: 'activation-timeout'}),
-        ),
-    ).toHaveLength(1);
+    expect(retryResponse.json()).toMatchObject({
+      reservations: [],
+      terminate_provider_runner_ids: ['stale-demand-runner'],
+    });
+    const intentCalls = intentSpy.mock.calls
+      .slice(intentCallsBefore)
+      .filter(
+        ([value, attributes]) =>
+          value === 1 &&
+          JSON.stringify(attributes) ===
+            JSON.stringify({surface: 'poll-demand', reason: 'activation-timeout'}),
+      );
+    expect(intentCalls).toHaveLength(2);
     expect(
       outcomeSpy.mock.calls
         .slice(outcomeCallsBefore)
