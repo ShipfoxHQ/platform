@@ -1,5 +1,11 @@
 # @shipfox/expression
 
+## 2.2.0
+
+### Minor Changes
+
+- 3e7fe76: Adds shared `range()`, `toJson()`, and `fromJson()` functions to workflow expressions.
+
 ## 2.1.0
 
 ### Minor Changes

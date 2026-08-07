@@ -1,5 +1,13 @@
 # @shipfox/api-definitions
 
+## 12.3.0
+
+### Patch Changes
+
+- Updated dependencies [3e7fe76]
+  - @shipfox/expression@2.2.0
+  - @shipfox/api-definitions-dto@12.3.0
+
 ## 12.2.0
 
 ### Minor Changes

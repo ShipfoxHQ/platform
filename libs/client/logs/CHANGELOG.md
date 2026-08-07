@@ -1,5 +1,16 @@
 # @shipfox/client-logs
 
+## 17.0.0
+
+### Minor Changes
+
+- 4b0731e: Adds workflow troubleshooting details, evaluation traces, failure annotations, runner context, step output metadata, and lazy paginated annotation summaries.
+
+### Patch Changes
+
+- Updated dependencies [4b0731e]
+  - @shipfox/react-ui@1.2.0
+
 ## 16.0.0
 
 ### Patch Changes

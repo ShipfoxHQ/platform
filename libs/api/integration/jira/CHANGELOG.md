@@ -1,5 +1,16 @@
 # @shipfox/api-integration-jira
 
+## 12.3.0
+
+### Minor Changes
+
+- e0110fe: Adds Jira webhook renewal and disconnect deregistration support.
+
+### Patch Changes
+
+- Updated dependencies [e0110fe]
+  - @shipfox/api-integration-spi@1.1.0
+
 ## 12.2.0
 
 ### Minor Changes

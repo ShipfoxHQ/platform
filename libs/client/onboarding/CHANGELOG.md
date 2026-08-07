@@ -1,5 +1,14 @@
 # @shipfox/client-onboarding
 
+## 17.0.0
+
+### Patch Changes
+
+- @shipfox/client-agent@17.0.0
+- @shipfox/client-integrations@17.0.0
+- @shipfox/client-projects@17.0.0
+- @shipfox/client-shell@17.0.0
+
 ## 16.0.0
 
 ### Patch Changes

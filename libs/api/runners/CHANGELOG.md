@@ -1,5 +1,17 @@
 # @shipfox/api-runners
 
+## 12.3.0
+
+### Patch Changes
+
+- ed3ea25: Raise the default runner reservation TTL ceiling to 600 seconds so longer EC2 launch budgets are accepted while the cap still limits unreleased-reservation demand.
+- 72fb19d: Allow idle runners with expired or deleted intended or assigned reservations to be rebound on the next demand poll.
+- 32bc717: Preserves committed runner assignment metadata during enrollment.
+- 4bd55e8: Adds a service gauge for enrolled runners without a recent provisioner report after the stale-runner grace window.
+- 4a5e847: Uses provider reservation expiry as the activation grace period before stale runner assignments are rebound.
+- Updated dependencies [4b0731e]
+  - @shipfox/api-workflows-dto@12.3.0
+
 ## 12.2.0
 
 ### Minor Changes
