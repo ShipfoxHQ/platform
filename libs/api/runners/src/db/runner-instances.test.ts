@@ -388,6 +388,28 @@ describe('reportRunnerInstances', () => {
     expect(rows[0]?.reservationId).toBe(reservationId);
   });
 
+  it('does not let reports exceed reservation capacity when creating projection rows', async () => {
+    const reservationId = await createReservation(1);
+
+    await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({providerRunnerId: 'provisioned-runner-1', reservationId}),
+        event({providerRunnerId: 'provisioned-runner-2', reservationId}),
+      ],
+    });
+
+    const rows = await providerRunnerRowsFor({workspaceId, provisionerId});
+    expect(rows.find((row) => row.providerRunnerId === 'provisioned-runner-1')?.reservationId).toBe(
+      reservationId,
+    );
+    expect(
+      rows.find((row) => row.providerRunnerId === 'provisioned-runner-2')?.reservationId,
+    ).toBeNull();
+  });
+
   it('does not let equal-timestamp lower-priority reports flip terminal state', async () => {
     const reservationId = await createReservation(1);
     const reportedAt = new Date('2025-01-01T00:00:00.000Z');

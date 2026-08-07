@@ -43,6 +43,12 @@ describe('shouldReturn', () => {
     expect(result).toBe(true);
   });
 
+  it('returns true when demand was fully adopted by idle runners', () => {
+    const result = shouldReturn({...emptyResult, newlyReservedCount: 3}, 1, 3, false);
+
+    expect(result).toBe(true);
+  });
+
   it('returns true when terminate intents exist', () => {
     const result = shouldReturn(
       {...emptyResult, terminateRunnerInstanceIds: ['provisioned-runner-1']},
@@ -251,6 +257,59 @@ describe('pollDemand', () => {
       vi.doUnmock('#db/reservations.js');
       vi.doUnmock('#db/runner-instances.js');
       vi.doUnmock('#metrics/instance.js');
+      vi.resetModules();
+    }
+  });
+
+  it('returns immediately when demand is fully adopted by idle runners', async () => {
+    vi.resetModules();
+    const pollDemandAndReserveTx = vi.fn().mockResolvedValue({
+      stats: [],
+      reservations: [],
+      newlyReservedUnits: [{labels: ['linux'], count: 3}],
+    });
+    const listProvisionerTerminateIntentRowsTx = vi.fn().mockResolvedValue([]);
+    const listActiveRunnerInstanceCountsByTemplateTx = vi.fn().mockResolvedValue([]);
+    vi.doMock('#db/db.js', () => ({
+      db: () => ({transaction: (callback: (tx: unknown) => Promise<unknown>) => callback({})}),
+    }));
+    vi.doMock('#db/reservations.js', () => ({
+      deleteReservationsByIds: vi.fn(),
+      pollDemandAndReserveTx,
+    }));
+    vi.doMock('#db/runner-instances.js', () => ({
+      listActiveRunnerInstanceCountsByTemplateTx,
+      listProvisionerTerminateIntentRowsTx,
+    }));
+
+    try {
+      const {pollDemand: mockedPollDemand} = await import('#core/demand.js');
+
+      const result = await mockedPollDemand({
+        workspaceId: crypto.randomUUID(),
+        provisionerId: crypto.randomUUID(),
+        maxReservations: 3,
+        waitSeconds: 60,
+        ttlSeconds: 60,
+        terminateIntentLimit: 1000,
+        templates: [
+          {templateKey: 'linux', labels: ['linux'], availableSlots: 3, starting: 0, running: 3},
+        ],
+        signal: new AbortController().signal,
+      });
+
+      expect(result).toEqual({
+        stats: [],
+        reservations: [],
+        newlyReservedCount: 3,
+        terminateRunnerInstanceIds: [],
+      });
+      expect(pollDemandAndReserveTx).toHaveBeenCalledOnce();
+      expect(listActiveRunnerInstanceCountsByTemplateTx).toHaveBeenCalledOnce();
+    } finally {
+      vi.doUnmock('#db/db.js');
+      vi.doUnmock('#db/reservations.js');
+      vi.doUnmock('#db/runner-instances.js');
       vi.resetModules();
     }
   });

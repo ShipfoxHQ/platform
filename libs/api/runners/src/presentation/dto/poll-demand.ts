@@ -17,6 +17,9 @@ export function toPollDemandResponseDto(result: PollDemandResult): PollDemandRes
       count: reservation.count,
       expires_at: reservation.expiresAt.toISOString(),
     })),
+    ...(result.newlyReservedCount !== undefined
+      ? {newly_reserved_count: result.newlyReservedCount}
+      : {}),
     terminate_provider_runner_ids: result.terminateRunnerInstanceIds,
   };
 }

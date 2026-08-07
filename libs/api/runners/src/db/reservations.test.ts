@@ -41,7 +41,7 @@ describe('pollDemandAndReserve', () => {
     expect(result.stats[0]).toMatchObject({labels: ['linux'], queued: 50, reserved: 20});
   });
 
-  it('binds the oldest matching enrolled runners to a new reservation', async () => {
+  it('binds the oldest matching enrolled runners and returns only the launch remainder', async () => {
     const olderRunner = await createIdleRunner({
       labels: ['linux'],
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -54,14 +54,14 @@ describe('pollDemandAndReserve', () => {
       labels: ['macos'],
       createdAt: new Date('2026-01-03T00:00:00.000Z'),
     });
-    await createPendingJobs(2, ['linux']);
+    await createPendingJobs(3, ['linux']);
 
     const result = await pollDemandAndReserve({
       workspaceId,
       provisionerId,
-      maxReservations: 2,
+      maxReservations: 3,
       ttlSeconds: 60,
-      templates: [template('linux', ['linux'], 2)],
+      templates: [template('linux', ['linux'], 3)],
     });
 
     const rows = await db()
@@ -69,14 +69,20 @@ describe('pollDemandAndReserve', () => {
       .from(providerRunners)
       .where(inArray(providerRunners.id, [olderRunner.id, newerRunner.id, unmatchedRunner.id]));
     const rowsById = new Map(rows.map((row) => [row.id, row]));
-    expect(result.reservations).toEqual([]);
-    const reservationId = rowsById.get(olderRunner.id)?.reservationId;
-
-    expect(reservationId).toEqual(expect.any(String));
     const [boundReservation] = await db()
       .select()
       .from(reservations)
-      .where(eq(reservations.id, reservationId as string));
+      .where(and(eq(reservations.workspaceId, workspaceId), eq(reservations.kind, 'bound')));
+    const [launchReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(and(eq(reservations.workspaceId, workspaceId), eq(reservations.kind, 'launch')));
+    const reservationId = boundReservation?.id;
+
+    expect(reservationId).toEqual(expect.any(String));
+    expect(result.reservations).toEqual([
+      expect.objectContaining({reservationId: launchReservation?.id, count: 1}),
+    ]);
     expect(boundReservation).toMatchObject({kind: 'bound', count: 2});
     expect(rowsById.get(olderRunner.id)).toMatchObject({
       workspaceId,
@@ -129,7 +135,6 @@ describe('pollDemandAndReserve', () => {
       launchReservation?.expiresAt.getTime() ?? 0,
     );
     expect(launchReservation?.id).toBe(result.reservations[0]?.reservationId);
-
     const [storedRunner] = await db()
       .select()
       .from(providerRunners)
@@ -159,6 +164,42 @@ describe('pollDemandAndReserve', () => {
             value === 1 && JSON.stringify(attributes) === JSON.stringify({outcome: 'rebound'}),
         ),
     ).toHaveLength(1);
+  });
+
+  it('does not charge adopted runners against later launch capacity', async () => {
+    const adoptedRunner = await createIdleRunner({labels: ['linux', 'gpu']});
+    await createPendingJobs(1, ['linux', 'gpu']);
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 2,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
+    });
+
+    const storedReservations = await reservationsForTest();
+    const boundReservation = storedReservations.find(
+      (reservation) => reservation.requiredLabels.includes('gpu') && reservation.kind === 'bound',
+    );
+    const launchReservation = storedReservations.find(
+      (reservation) => !reservation.requiredLabels.includes('gpu') && reservation.kind === 'launch',
+    );
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, adoptedRunner.id));
+
+    expect(result.reservations).toEqual([
+      expect.objectContaining({
+        reservationId: launchReservation?.id,
+        labels: ['linux'],
+        count: 1,
+      }),
+    ]);
+    expect(boundReservation).toMatchObject({kind: 'bound', count: 1});
+    expect(storedRunner?.reservationId).toBe(boundReservation?.id);
   });
 
   it('binds a runner whose intended reservation has passed its activation grace period', async () => {
@@ -465,10 +506,21 @@ describe('pollDemandAndReserve', () => {
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.id));
+    const [storedReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(
+        and(
+          eq(reservations.workspaceId, targetWorkspaceId),
+          eq(reservations.provisionerId, provisionerId),
+          eq(reservations.kind, 'bound'),
+        ),
+      );
     expect(result.reservations).toEqual([]);
+    expect(storedReservation).toMatchObject({workspaceId: targetWorkspaceId, count: 1});
     expect(storedRunner).toMatchObject({
       workspaceId: targetWorkspaceId,
-      reservationId: expect.any(String),
+      reservationId: storedReservation?.id,
       intendedReservationId: null,
       assignedAt: expect.any(Date),
     });
@@ -701,6 +753,53 @@ describe('pollDemandAndReserve', () => {
     expect(result.reservations).toEqual([
       expect.objectContaining({workspaceId: olderWorkspaceId, labels: ['linux'], count: 1}),
     ]);
+  });
+
+  it('does not charge adopted installation runners against later launch capacity', async () => {
+    const olderWorkspaceId = crypto.randomUUID();
+    const newerWorkspaceId = crypto.randomUUID();
+    const runner = await createIdleRunner({labels: ['linux', 'gpu']});
+    await pendingJobFactory.create({
+      workspaceId: olderWorkspaceId,
+      requiredLabels: ['linux', 'gpu'],
+    });
+    await pendingJobFactory.create({workspaceId: newerWorkspaceId, requiredLabels: ['linux']});
+
+    const result = await pollInstallationDemandAndReserve({
+      provisionerId,
+      maxReservations: 2,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
+      capabilityWindowSeconds: 60,
+      eligibleWorkspaceIds: new Set([olderWorkspaceId, newerWorkspaceId]),
+    });
+
+    const storedReservations = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.provisionerId, provisionerId));
+    const boundReservation = storedReservations.find(
+      (reservation) => reservation.workspaceId === olderWorkspaceId,
+    );
+    const launchReservation = storedReservations.find(
+      (reservation) => reservation.workspaceId === newerWorkspaceId,
+    );
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+
+    expect(result.reservations).toEqual([
+      expect.objectContaining({
+        reservationId: launchReservation?.id,
+        workspaceId: newerWorkspaceId,
+        labels: ['linux'],
+        count: 1,
+      }),
+    ]);
+    expect(boundReservation?.count).toBe(1);
+    expect(storedRunner?.workspaceId).toBe(olderWorkspaceId);
+    expect(storedRunner?.reservationId).toBe(boundReservation?.id);
   });
 
   it('reports committed installation grants before an aborted poll stops allocating', async () => {

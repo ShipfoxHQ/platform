@@ -24,8 +24,16 @@ export const createRunnerInstancesBodySchema = z
   .strict();
 export const createRunnerInstancesResponseSchema = z.object({
   runner_instances: z.array(
-    z.object({runner_instance_id: z.string().uuid(), bootstrap_token: z.string().min(1)}),
+    z.object({
+      runner_instance_id: z.string().uuid(),
+      bootstrap_token: z.string().min(1),
+      // Accepted instances retain their request position for short responses.
+      request_index: z.number().int().nonnegative().optional(),
+    }),
   ),
+  // A demand reservation can be consumed or stale between demand polling and launch.
+  // The field is omitted for the normal and warm-launch paths.
+  reservation_unavailable: z.literal(true).optional(),
 });
 export const runnerBootstrapExchangeResponseSchema = z.object({
   runner_instance_id: z.string().uuid(),

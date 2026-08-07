@@ -19,6 +19,7 @@ describe('runProvisionerTick', () => {
             expires_at: '2026-07-21T12:00:00.000Z',
           },
         ],
+        newly_reserved_count: 2,
         terminate_provider_runner_ids: [],
       }),
       createRunnerInstances: (body) => {
@@ -65,7 +66,11 @@ describe('runProvisionerTick', () => {
 
     expect(calls).toEqual(['create', 'launch']);
     expect(launches).toEqual(['sf_rbt_test']);
-    expect(result).toMatchObject({launchedCount: 1, providerLaunchFailureCount: 0});
+    expect(result).toMatchObject({
+      launchedCount: 1,
+      providerLaunchFailureCount: 0,
+      reservedRunnerCount: 2,
+    });
     expect(result.launchLifecycleIncompleteCount).toBe(1);
     expect(createBodies).toEqual([
       {
@@ -76,19 +81,12 @@ describe('runProvisionerTick', () => {
     ]);
   });
 
-  it('counts partial runner-instance creation as failed capacity work', async () => {
+  it('counts partial warm runner-instance creation as failed capacity work', async () => {
     const client: ProvisionerClient = {
       getIdentity: async () => ({id: 'provisioner', scope: 'workspace', workspace_id: 'workspace'}),
       pollDemand: async () => ({
         stats: [],
-        reservations: [
-          {
-            reservation_id: '018f0d4c-5f42-7b7e-9d9b-4a7d8e6f0001',
-            labels: ['linux'],
-            count: 1,
-            expires_at: '2026-07-21T12:00:00.000Z',
-          },
-        ],
+        reservations: [],
         terminate_provider_runner_ids: [],
       }),
       createRunnerInstances: async () => ({runner_instances: []}),
@@ -105,7 +103,16 @@ describe('runProvisionerTick', () => {
 
     const result = await runProvisionerTick({
       client,
-      templates: [{key: 'linux', labels: ['linux'], maxConcurrency: 1, cost: 1, spec: null}],
+      templates: [
+        {
+          key: 'linux',
+          labels: ['linux'],
+          maxConcurrency: 1,
+          targetConcurrency: 1,
+          cost: 1,
+          spec: null,
+        },
+      ],
       tracker: createInMemoryTracker(),
       launch: () => Promise.resolve(),
       buildRunnerEnv: ({bootstrapToken}) => ({
@@ -123,6 +130,61 @@ describe('runProvisionerTick', () => {
       launchedCount: 0,
       runnerInstanceCreationFailureCount: 1,
     });
+  });
+
+  it('keeps a consumed or stale reservation shortfall out of capacity failures for old responses', async () => {
+    let createCalls = 0;
+    const client: ProvisionerClient = {
+      getIdentity: async () => ({id: 'provisioner', scope: 'workspace', workspace_id: 'workspace'}),
+      pollDemand: async () => ({
+        stats: [],
+        reservations: [
+          {
+            reservation_id: '018f0d4c-5f42-7b7e-9d9b-4a7d8e6f0001',
+            labels: ['linux'],
+            count: 3,
+            expires_at: '2026-07-21T12:00:00.000Z',
+          },
+        ],
+        terminate_provider_runner_ids: [],
+      }),
+      createRunnerInstances: () => {
+        createCalls += 1;
+        return Promise.resolve({runner_instances: []});
+      },
+      attachRunnerInstanceProviderId: async () => ({attached: true}),
+      assignRunnerInstances: async (_reservationId, runnerInstanceIds) => ({
+        runner_instance_ids: runnerInstanceIds,
+      }),
+      reportRunnerInstances: async () => ({accepted: 0, reservations_released: 0}),
+      reconcileRunnerInstances: async () => ({
+        runners: [],
+        terminated_absent_provider_runner_ids: [],
+      }),
+    };
+
+    const result = await runProvisionerTick({
+      client,
+      templates: [{key: 'linux', labels: ['linux'], maxConcurrency: 3, cost: 1, spec: null}],
+      tracker: createInMemoryTracker(),
+      launch: () => Promise.resolve(),
+      buildRunnerEnv: ({bootstrapToken}) => ({
+        SHIPFOX_RUNNER_BOOTSTRAP_TOKEN: bootstrapToken,
+      }),
+      reservationLimit: 3,
+      launchBudget: 3,
+      waitSeconds: 0,
+      runnerInstanceBatchSize: 1,
+    });
+
+    expect(result).toMatchObject({
+      plannedCount: 3,
+      launchAttemptedCount: 0,
+      launchedCount: 0,
+      runnerInstanceCreationFailureCount: 0,
+      reservationConsumedOrStaleCount: 3,
+    });
+    expect(createCalls).toBe(1);
   });
 
   it('propagates an aborted runner-instance creation without counting capacity failure', async () => {

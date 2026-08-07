@@ -64,6 +64,7 @@ export interface ProvisionerTickResult {
   readonly launchedCount: number;
   readonly runnerInstanceCreationFailureCount: number;
   readonly runnerInstanceCreationFailureReason?: string;
+  readonly reservationConsumedOrStaleCount: number;
   readonly providerLaunchFailureCount: number;
   readonly providerLaunchFailureReason?: string;
   readonly launchLifecycleIncompleteCount: number;
@@ -170,15 +171,15 @@ async function completeProvisionerTick<Spec>(
   });
 
   let plannedCount = planned.reduce((sum, group) => sum + group.count, 0);
-  const reservedRunnerCount = response.reservations.reduce(
-    (sum, reservation) => sum + reservation.count,
-    0,
-  );
+  const reservedRunnerCount =
+    response.newly_reserved_count ??
+    response.reservations.reduce((sum, reservation) => sum + reservation.count, 0);
 
   let launchAttemptedCount = 0;
   let launchedCount = 0;
   let runnerInstanceCreationFailureCount = 0;
   let runnerInstanceCreationFailureReason: string | undefined;
+  let reservationConsumedOrStaleCount = 0;
   let providerLaunchFailureCount = 0;
   let providerLaunchFailureReason: string | undefined;
   let launchLifecycleIncompleteCount = 0;
@@ -217,6 +218,7 @@ async function completeProvisionerTick<Spec>(
     launchedCount += result.launched;
     runnerInstanceCreationFailureCount += result.runnerInstanceCreationFailureCount;
     runnerInstanceCreationFailureReason ??= result.runnerInstanceCreationFailureReason;
+    reservationConsumedOrStaleCount += result.reservationConsumedOrStaleCount;
     providerLaunchFailureCount += result.providerLaunchFailureCount;
     providerLaunchFailureReason ??= result.providerLaunchFailureReason;
     launchLifecycleIncompleteCount += result.launchLifecycleIncompleteCount;
@@ -229,6 +231,7 @@ async function completeProvisionerTick<Spec>(
     launchedCount += result.launched;
     runnerInstanceCreationFailureCount += result.runnerInstanceCreationFailureCount;
     runnerInstanceCreationFailureReason ??= result.runnerInstanceCreationFailureReason;
+    reservationConsumedOrStaleCount += result.reservationConsumedOrStaleCount;
     providerLaunchFailureCount += result.providerLaunchFailureCount;
     providerLaunchFailureReason ??= result.providerLaunchFailureReason;
     launchLifecycleIncompleteCount += result.launchLifecycleIncompleteCount;
@@ -245,6 +248,7 @@ async function completeProvisionerTick<Spec>(
     launchedCount,
     runnerInstanceCreationFailureCount,
     ...(runnerInstanceCreationFailureReason ? {runnerInstanceCreationFailureReason} : {}),
+    reservationConsumedOrStaleCount,
     providerLaunchFailureCount,
     ...(providerLaunchFailureReason ? {providerLaunchFailureReason} : {}),
     launchLifecycleIncompleteCount,
@@ -264,6 +268,7 @@ async function launchReservation<Spec>(
   launched: number;
   runnerInstanceCreationFailureCount: number;
   runnerInstanceCreationFailureReason?: string;
+  reservationConsumedOrStaleCount: number;
   providerLaunchFailureCount: number;
   providerLaunchFailureReason?: string;
   launchLifecycleIncompleteCount: number;
@@ -286,11 +291,14 @@ async function launchReservation<Spec>(
   let launched = 0;
   let runnerInstanceCreationFailureCount = 0;
   let runnerInstanceCreationFailureReason: string | undefined;
+  let reservationConsumedOrStaleCount = 0;
   let providerLaunchFailureCount = 0;
   let providerLaunchFailureReason: string | undefined;
   let launchLifecycleIncompleteCount = 0;
   let launchLifecycleIncompleteReason: string | undefined;
-  for (const batch of chunk(plannedRunners, deps.runnerInstanceBatchSize)) {
+  const batches = chunk(plannedRunners, deps.runnerInstanceBatchSize);
+  let batchStartIndex = 0;
+  for (const batch of batches) {
     if (deps.signal?.aborted) break;
     let created: CreateRunnerInstancesResponseDto;
     try {
@@ -311,19 +319,28 @@ async function launchReservation<Spec>(
       attempted += batch.length;
       runnerInstanceCreationFailureCount += batch.length;
       runnerInstanceCreationFailureReason ??= instanceCreationFailureReason(error);
+      batchStartIndex += batch.length;
       continue;
     }
 
     const missingCount = Math.max(0, batch.length - created.runner_instances.length);
-    if (missingCount > 0) {
+    // Reservation shortfalls are expected control-plane races. The reservation id
+    // fallback keeps a new provisioner compatible with an older API that returns an
+    // empty runner list without reservation_unavailable when capacity is consumed.
+    const reservationShortfall =
+      missingCount > 0 && (reservationId !== undefined || created.reservation_unavailable === true);
+    if (missingCount > 0 && !reservationShortfall) {
       attempted += missingCount;
       runnerInstanceCreationFailureCount += missingCount;
       runnerInstanceCreationFailureReason ??= `Runner instance creation returned ${created.runner_instances.length} of ${batch.length} requested instances.`;
     }
 
-    for (const [index, createdRunner] of created.runner_instances.entries()) {
+    for (const [responseIndex, createdRunner] of created.runner_instances.entries()) {
       if (deps.signal?.aborted) break;
-      const plannedRunner = batch[index];
+      // New API responses carry the request index. Older responses are accepted
+      // prefixes, so the response position remains a safe compatibility fallback.
+      const requestedIndex = createdRunner.request_index ?? responseIndex;
+      const plannedRunner = batch[requestedIndex];
       if (!plannedRunner) continue;
       const template = templateById.get(plannedRunner.providerRunnerId);
       if (!template) continue;
@@ -366,6 +383,15 @@ async function launchReservation<Spec>(
         providerLaunchFailureReason ??= launchFailureReason(error);
       }
     }
+
+    if (reservationShortfall) {
+      reservationConsumedOrStaleCount +=
+        plannedRunners.length -
+        batchStartIndex -
+        Math.min(created.runner_instances.length, batch.length);
+      break;
+    }
+    batchStartIndex += batch.length;
   }
 
   return {
@@ -373,6 +399,7 @@ async function launchReservation<Spec>(
     launched,
     runnerInstanceCreationFailureCount,
     ...(runnerInstanceCreationFailureReason ? {runnerInstanceCreationFailureReason} : {}),
+    reservationConsumedOrStaleCount,
     providerLaunchFailureCount,
     ...(providerLaunchFailureReason ? {providerLaunchFailureReason} : {}),
     launchLifecycleIncompleteCount,

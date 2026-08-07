@@ -308,6 +308,218 @@ describe('runner enrollment control plane', () => {
     });
   });
 
+  it('does not create a duplicate row or bootstrap token after a reservation is consumed', async () => {
+    const workspaceId = crypto.randomUUID();
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Reservation insert returned no row');
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {runner_instances: [{reservation_id: reservation.id}]},
+    });
+    const firstRunner = first.json().runner_instances[0];
+    expect(first.statusCode).toBe(200);
+    expect(first.json().reservation_unavailable).toBeUndefined();
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {runner_instances: [{reservation_id: reservation.id}]},
+    });
+
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({
+      runner_instances: [],
+      reservation_unavailable: true,
+    });
+    const runners = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.intendedReservationId, reservation.id));
+    const bootstrapTokens = await db()
+      .select()
+      .from(runnerBootstrapTokens)
+      .where(eq(runnerBootstrapTokens.runnerInstanceId, firstRunner.runner_instance_id));
+    expect(runners).toHaveLength(1);
+    expect(bootstrapTokens).toHaveLength(1);
+  });
+
+  it('returns a classified shortfall for expired and foreign reservations', async () => {
+    const otherProvisioner = await provisionerTokenFactory.create({scope: 'installation'});
+    const runnersBefore = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.provisionerId, provisionerId));
+    const bootstrapTokensBefore = await db()
+      .select()
+      .from(runnerBootstrapTokens)
+      .where(eq(runnerBootstrapTokens.provisionerId, provisionerId));
+    const expiredReservation = await db()
+      .insert(reservations)
+      .values({
+        workspaceId: crypto.randomUUID(),
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() - 1_000),
+      })
+      .returning({id: reservations.id});
+    const foreignReservation = await db()
+      .insert(reservations)
+      .values({
+        workspaceId: crypto.randomUUID(),
+        provisionerId: otherProvisioner.id,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    const reservationIds = [expiredReservation[0]?.id, foreignReservation[0]?.id];
+    if (reservationIds.some((reservationId) => !reservationId))
+      throw new Error('Reservation insert returned no row');
+
+    for (const reservationId of reservationIds) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/provisioners/runner-instances/batch',
+        headers: {authorization: `Bearer ${token}`},
+        payload: {runner_instances: [{reservation_id: reservationId}]},
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        runner_instances: [],
+        reservation_unavailable: true,
+      });
+    }
+
+    const runners = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.provisionerId, provisionerId));
+    const bootstrapTokens = await db()
+      .select()
+      .from(runnerBootstrapTokens)
+      .where(eq(runnerBootstrapTokens.provisionerId, provisionerId));
+    expect(runners).toHaveLength(runnersBefore.length);
+    expect(bootstrapTokens).toHaveLength(bootstrapTokensBefore.length);
+  });
+
+  it('returns the remaining reservation capacity with request indexes', async () => {
+    const workspaceId = crypto.randomUUID();
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 2,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Reservation insert returned no row');
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {runner_instances: [{reservation_id: reservation.id}]},
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {
+        runner_instances: [
+          {template_key: 'linux', reservation_id: reservation.id},
+          {template_key: 'linux', reservation_id: reservation.id},
+        ],
+      },
+    });
+
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({
+      runner_instances: [
+        {
+          request_index: 0,
+          runner_instance_id: expect.any(String),
+          bootstrap_token: expect.any(String),
+        },
+      ],
+      reservation_unavailable: true,
+    });
+  });
+
+  it('preserves request indexes when a mixed reservation batch has a shortfall', async () => {
+    const [exhaustedReservation, availableReservation] = await db()
+      .insert(reservations)
+      .values([
+        {
+          workspaceId: crypto.randomUUID(),
+          provisionerId,
+          requiredLabels: ['linux'],
+          count: 1,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+        {
+          workspaceId: crypto.randomUUID(),
+          provisionerId,
+          requiredLabels: ['linux'],
+          count: 1,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      ])
+      .returning();
+    if (!exhaustedReservation || !availableReservation)
+      throw new Error('Reservation insert returned no rows');
+
+    const consumed = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {runner_instances: [{reservation_id: exhaustedReservation.id}]},
+    });
+    expect(consumed.statusCode).toBe(200);
+
+    const mixed = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/batch',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {
+        runner_instances: [
+          {template_key: 'linux', reservation_id: exhaustedReservation.id},
+          {template_key: 'linux', reservation_id: availableReservation.id},
+        ],
+      },
+    });
+
+    expect(mixed.statusCode).toBe(200);
+    expect(mixed.json()).toMatchObject({
+      runner_instances: [
+        {
+          request_index: 1,
+          runner_instance_id: expect.any(String),
+          bootstrap_token: expect.any(String),
+        },
+      ],
+      reservation_unavailable: true,
+    });
+  });
+
   it('rejects assignment for a provider-reported runner before enrollment', async () => {
     const workspaceId = crypto.randomUUID();
     const [reservation] = await db()

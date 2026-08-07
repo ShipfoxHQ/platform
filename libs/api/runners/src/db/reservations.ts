@@ -123,7 +123,11 @@ export async function pollDemandAndReserveTx(
 
 export async function pollInstallationDemandAndReserve(
   params: InstallationPollDemandAndReserveParams,
-): Promise<{stats: DemandStat[]; reservations: ReservationGrant[]}> {
+): Promise<{
+  stats: DemandStat[];
+  reservations: ReservationGrant[];
+  newlyReservedCount?: number;
+}> {
   const candidateWorkspaceIds = await listInstallationDemandWorkspaceIds(
     params.eligibleWorkspaceIds,
   );
@@ -159,24 +163,31 @@ export async function pollInstallationDemandAndReserve(
       });
     });
     results.push(result);
-    consumeInstallationTemplateSlots(remainingTemplates, result.newlyReservedUnits);
+    consumeInstallationTemplateSlots(remainingTemplates, result.reservations);
     params.onReservations?.(result.reservations);
     remainingMaxReservations -= result.newlyReservedUnits.reduce(
       (total, reservation) => total + reservation.count,
       0,
     );
   }
+  const newlyReservedCount = results.reduce(
+    (total, result) =>
+      total +
+      result.newlyReservedUnits.reduce((subtotal, reservation) => subtotal + reservation.count, 0),
+    0,
+  );
   return {
     stats: results.flatMap((result) => result.stats),
     reservations: results.flatMap((result) => result.reservations),
+    ...(newlyReservedCount > 0 ? {newlyReservedCount} : {}),
   };
 }
 
 function consumeInstallationTemplateSlots(
   templates: NormalizedTemplate[],
-  reservations: NewReservationUnits[],
+  launchGrants: ReservationGrant[],
 ): void {
-  for (const reservation of reservations) {
+  for (const reservation of launchGrants) {
     const satisfyingTemplates = templates
       .filter((template) => isSubset(reservation.labels, template.labels))
       .sort(
@@ -290,7 +301,6 @@ async function pollDemandAndReserveLockedTx(
       if (!boundReservation) throw new Error('Insert returned no rows');
 
       remainingMaxReservations -= grant;
-      drawSlots(satisfyingTemplates, grant);
       const boundCount = await bindIdleRunnerInstancesTx(tx, {
         provisionerId: params.provisionerId,
         reservationId: boundReservation.id,
@@ -310,6 +320,7 @@ async function pollDemandAndReserveLockedTx(
       }
 
       const launchCount = grant - boundCount;
+      drawSlots(satisfyingTemplates, launchCount);
       let launchReservation: {id: string; expiresAt: Date} | undefined;
       if (launchCount > 0) {
         const [inserted] = await tx

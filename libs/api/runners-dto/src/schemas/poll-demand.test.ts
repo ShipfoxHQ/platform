@@ -67,6 +67,7 @@ describe('pollDemandResponseSchema', () => {
           expires_at: 'not-a-date',
         },
       ],
+      newly_reserved_count: 1,
       terminate_provider_runner_ids: [],
     });
 

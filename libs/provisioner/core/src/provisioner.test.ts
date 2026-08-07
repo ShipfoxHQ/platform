@@ -205,6 +205,31 @@ describe('runProvisionerIteration', () => {
     expect(result).toEqual({nextInterval: 1500, degraded: true});
   });
 
+  it('logs but does not degrade when a reservation is consumed or stale', async () => {
+    const {client} = harness({response: {stats: [], reservations: [reservation(1)]}});
+    client.createRunnerInstances = () =>
+      Promise.resolve({runner_instances: [], reservation_unavailable: true});
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      onTick: () => Promise.resolve(),
+    };
+
+    const result = await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+    });
+
+    expect(result).toEqual({nextInterval: 1000, degraded: false});
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({event: 'runner.reservation_consumed_or_stale', skipped: 1}),
+      'Runner reservation was consumed or stale; skipping unavailable launches',
+    );
+  });
+
   it('uses the next degraded poll as a launch probe and recovers after it succeeds', async () => {
     const {client, pollBodies} = harness({response: {stats: [], reservations: [reservation(1)]}});
     const health = createHealthState();

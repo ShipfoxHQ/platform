@@ -12,13 +12,17 @@ import {
 } from '#core/errors.js';
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {db, type schema, type Tx} from '#db/db.js';
-import {assignRunnerInstancesTx} from '#db/runner-assignments.js';
+import {
+  assignRunnerInstancesTx,
+  validateRunnerReservationCapacityTx,
+} from '#db/runner-assignments.js';
 import {terminalStates} from '#db/runner-instances.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {
   type RunnerReservationPromotionFailureReason,
+  recordRunnerReservationCapacityFailure,
   recordRunnerReservationPromotionFailure,
 } from '#metrics/index.js';
 import {issueRunnerActivationTokenTx} from './runner-activation.js';
@@ -45,13 +49,52 @@ export async function createRunnerInstancesWithBootstrapTokens(params: {
     reservationId?: string | null;
   }>;
   ttlSeconds: number;
-}): Promise<Array<{runnerInstanceId: string; bootstrapToken: string}>> {
+}): Promise<{
+  runnerInstances: Array<{
+    runnerInstanceId: string;
+    bootstrapToken: string;
+    requestIndex: number;
+  }>;
+  reservationUnavailable: boolean;
+}> {
   const expiresAt = new Date(Date.now() + params.ttlSeconds * 1000);
   return await db().transaction(async (tx) => {
+    const reservationValidation = await validateRunnerReservationCapacityTx(tx, {
+      provisionerId: params.provisionerId,
+      requests: params.runnerInstances.reduce(
+        (requests, runner) => {
+          if (!runner.reservationId) return requests;
+          const request = requests.find(
+            (candidate) => candidate.reservationId === runner.reservationId,
+          );
+          if (request) request.count += 1;
+          else requests.push({reservationId: runner.reservationId, count: 1});
+          return requests;
+        },
+        [] as Array<{reservationId: string; count: number}>,
+      ),
+    });
+    for (const {reason, count} of reservationValidation.unavailableByReservation.values())
+      recordRunnerReservationCapacityFailure(reason, count);
+    const remainingAcceptedByReservation = new Map(reservationValidation.acceptedByReservation);
+    const runnerInstances = params.runnerInstances.flatMap((runner, requestIndex) => {
+      if (!runner.reservationId) return [{...runner, requestIndex}];
+      const remaining = remainingAcceptedByReservation.get(runner.reservationId) ?? 0;
+      if (remaining === 0) return [];
+      remainingAcceptedByReservation.set(runner.reservationId, remaining - 1);
+      return [{...runner, requestIndex}];
+    });
+
+    if (runnerInstances.length === 0)
+      return {
+        runnerInstances: [],
+        reservationUnavailable: reservationValidation.unavailableByReservation.size > 0,
+      };
+
     const instances = await tx
       .insert(providerRunners)
       .values(
-        params.runnerInstances.map((runner) => ({
+        runnerInstances.map((runner) => ({
           provisionerId: params.provisionerId,
           providerKind: params.providerKind ?? null,
           templateKey: runner.templateKey ?? null,
@@ -63,10 +106,15 @@ export async function createRunnerInstancesWithBootstrapTokens(params: {
         })),
       )
       .returning({id: providerRunners.id});
-    const results = instances.map((instance) => ({
-      runnerInstanceId: instance.id,
-      bootstrapToken: generateOpaqueToken('runnerBootstrapToken'),
-    }));
+    const results = instances.map((instance, index) => {
+      const runner = runnerInstances[index];
+      if (!runner) throw new Error('Runner instance insert returned an unexpected row count');
+      return {
+        runnerInstanceId: instance.id,
+        bootstrapToken: generateOpaqueToken('runnerBootstrapToken'),
+        requestIndex: runner.requestIndex,
+      };
+    });
     await tx.insert(runnerBootstrapTokens).values(
       results.map((result) => ({
         runnerInstanceId: result.runnerInstanceId,
@@ -76,7 +124,10 @@ export async function createRunnerInstancesWithBootstrapTokens(params: {
         expiresAt,
       })),
     );
-    return results;
+    return {
+      runnerInstances: results,
+      reservationUnavailable: reservationValidation.unavailableByReservation.size > 0,
+    };
   });
 }
 

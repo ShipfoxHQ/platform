@@ -100,6 +100,7 @@ describe('POST /provisioners/demand/poll', () => {
     expect(res.json()).toMatchObject({
       stats: [{labels: ['linux'], queued: 1, reserved: 1}],
       reservations: [{labels: ['linux'], count: 1}],
+      newly_reserved_count: 1,
       terminate_provider_runner_ids: [],
     });
     expect(res.json().reservations[0].reservation_id).toEqual(expect.any(String));
