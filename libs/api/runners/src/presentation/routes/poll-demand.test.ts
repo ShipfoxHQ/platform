@@ -20,6 +20,7 @@ import {db} from '#db/db.js';
 import {provisionerCapabilitySnapshots} from '#db/schema/provisioner-capability-snapshots.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
 import {
+  providerRunnerActivationOutcomeCount,
   providerRunnerCountDivergenceCount,
   providerRunnerTerminateIntentIssuedCount,
 } from '#metrics/instance.js';
@@ -365,6 +366,53 @@ describe('POST /provisioners/demand/poll', () => {
       );
     expect(divergenceCalls).toHaveLength(1);
     expect(intentCalls).toHaveLength(1);
+  });
+
+  it('returns stale demand-backed runners and records the reap outcome', async () => {
+    const intentSpy = vi.spyOn(providerRunnerTerminateIntentIssuedCount, 'add');
+    const outcomeSpy = vi.spyOn(providerRunnerActivationOutcomeCount, 'add');
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId: provisionerTokenId,
+      providerRunnerId: 'stale-demand-runner',
+      launchKind: 'demand',
+      createdAt: new Date(Date.now() - 301_000),
+      templateKey: 'linux',
+      state: 'running',
+    });
+    const intentCallsBefore = intentSpy.mock.calls.length;
+    const outcomeCallsBefore = outcomeSpy.mock.calls.length;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/demand/poll',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: body({max_reservations: 0}),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      reservations: [],
+      terminate_provider_runner_ids: ['stale-demand-runner'],
+    });
+    expect(
+      intentSpy.mock.calls
+        .slice(intentCallsBefore)
+        .filter(
+          ([value, attributes]) =>
+            value === 1 &&
+            JSON.stringify(attributes) ===
+              JSON.stringify({surface: 'poll-demand', reason: 'activation-timeout'}),
+        ),
+    ).toHaveLength(1);
+    expect(
+      outcomeSpy.mock.calls
+        .slice(outcomeCallsBefore)
+        .filter(
+          ([value, attributes]) =>
+            value === 1 && JSON.stringify(attributes) === JSON.stringify({outcome: 'reaped'}),
+        ),
+    ).toHaveLength(1);
   });
 
   it('returns 400 for max reservations above the request bound', async () => {

@@ -14,6 +14,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
+import {recordProviderRunnerActivationOutcome} from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
@@ -409,7 +410,7 @@ async function bindIdleRunnerInstancesTx(
     );
 
   const idleRunners = await tx
-    .select({id: providerRunners.id})
+    .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
     .from(providerRunners)
     .where(
       and(
@@ -453,7 +454,7 @@ async function bindIdleRunnerInstancesTx(
       ),
     );
 
-  const reboundRunners = await tx
+  const boundRunners = await tx
     .update(providerRunners)
     .set({
       workspaceId: params.workspaceId,
@@ -471,9 +472,13 @@ async function bindIdleRunnerInstancesTx(
         canBindRunner(),
       ),
     )
-    .returning({id: providerRunners.id});
+    .returning({id: providerRunners.id, launchKind: providerRunners.launchKind});
 
-  return reboundRunners.length;
+  const reboundCount = boundRunners.filter((runner) => runner.launchKind === 'demand').length;
+  if (reboundCount > 0)
+    recordProviderRunnerActivationOutcome({outcome: 'rebound', count: reboundCount});
+
+  return boundRunners.length;
 }
 
 async function listInstallationDemandWorkspaceIds(eligibleWorkspaceIds: ReadonlySet<string>) {

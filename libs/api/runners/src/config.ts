@@ -85,6 +85,10 @@ export const config = createConfig({
     desc: 'Time window, in seconds, used to list active runners from recent heartbeats and provisioned runner reports.',
     default: 60,
   }),
+  RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS: num({
+    desc: 'Minimum time, in seconds, before a demand-backed runner without a runner session can be reclaimed when neither its current nor intended reservation is live. Set this above the provider registration deadline when startup reservations remain live during boot.',
+    default: 300,
+  }),
   RUNNER_TOOL_CAPABILITIES_STALE_AFTER_SECONDS: num({
     desc: 'Time window, in seconds, after which a runner tool capability report is treated as stale. Set this higher than the runner heartbeat interval so active runners keep their advertised tools fresh.',
     default: 60,
@@ -279,6 +283,15 @@ if (
 ) {
   throw new Error(
     `RUNNER_ACTIVE_WINDOW_SECONDS (${config.RUNNER_ACTIVE_WINDOW_SECONDS}) must be a whole number of seconds >= 1.`,
+  );
+}
+
+if (
+  !Number.isInteger(config.RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS) ||
+  config.RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS < 1
+) {
+  throw new Error(
+    `RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS (${config.RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS}) must be a whole number of seconds >= 1.`,
   );
 }
 

@@ -18,6 +18,7 @@ import {
 import {
   providerRunnerCountDivergenceCount,
   providerRunnerTerminateIntentIssuedCount,
+  recordProviderRunnerActivationOutcome,
 } from '#metrics/instance.js';
 
 export interface PollDemandParams {
@@ -99,7 +100,15 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         terminateRunnerInstanceIds: terminateIntents.map((intent) => intent.providerRunnerId),
       };
 
-      if (!shouldReturn(result, params.maxReservations, totalCapacity, deadlinePassed)) {
+      if (
+        !shouldReturn(
+          result,
+          params.maxReservations,
+          totalCapacity,
+          deadlinePassed,
+          terminateIntents,
+        )
+      ) {
         return {result, terminateIntents, divergences: []};
       }
 
@@ -122,7 +131,15 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
 
     lastSnapshot = snapshot;
 
-    if (shouldReturn(lastSnapshot.result, params.maxReservations, totalCapacity, deadlinePassed)) {
+    if (
+      shouldReturn(
+        lastSnapshot.result,
+        params.maxReservations,
+        totalCapacity,
+        deadlinePassed,
+        lastSnapshot.terminateIntents,
+      )
+    ) {
       recordPollDemandMetrics(params, lastSnapshot);
       return lastSnapshot.result;
     }
@@ -149,13 +166,19 @@ export function shouldReturn(
   maxReservations: number,
   totalCapacity: number,
   deadlinePassed: boolean,
+  terminateIntents?: readonly RunnerInstanceTerminateIntent[],
 ): boolean {
+  const hasImmediateTerminateIntent =
+    terminateIntents?.some(
+      (intent) => intent.reason !== 'activation-timeout' || !intent.activationTimeoutRetry,
+    ) ?? result.terminateRunnerInstanceIds.length > 0;
+
   return (
     maxReservations === 0 ||
     totalCapacity === 0 ||
     result.reservations.length > 0 ||
     (result.newlyReservedCount ?? 0) > 0 ||
-    result.terminateRunnerInstanceIds.length > 0 ||
+    hasImmediateTerminateIntent ||
     deadlinePassed
   );
 }
@@ -229,6 +252,10 @@ function recordPollDemandMetrics(params: PollDemandParams, snapshot: PollDemandS
       surface: 'poll-demand',
       reason: intent.reason,
     });
+    // Retries redeliver an intent already counted on its first emission.
+    if (intent.reason === 'activation-timeout' && !intent.activationTimeoutRetry) {
+      recordProviderRunnerActivationOutcome({outcome: 'reaped'});
+    }
   }
 }
 

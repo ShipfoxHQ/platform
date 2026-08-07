@@ -146,6 +146,28 @@ describe('reportRunnerInstances', () => {
     expect(rows[0]?.state).toBe('running');
   });
 
+  it('preserves launch kind when a provider report updates the runner row', async () => {
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'demand-runner',
+      launchKind: 'demand',
+    });
+
+    await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [event({providerRunnerId: 'demand-runner', state: 'running'})],
+    });
+
+    const [row] = await db()
+      .select({launchKind: providerRunners.launchKind})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, 'demand-runner'));
+    expect(row?.launchKind).toBe('demand');
+  });
+
   it('uses state progression to dedupe equal-timestamp provisioned runner reports', async () => {
     const reportedAt = new Date();
 
@@ -1157,6 +1179,106 @@ describe('listProvisionerTerminateIntents', () => {
     expect(result).toEqual([{providerRunnerId: 'provisioned-runner-1', reason: 'job-cancelled'}]);
   });
 
+  it('returns an activation-timeout intent for a stale demand-backed runner', async () => {
+    await createRunnerInstance({
+      providerRunnerId: 'stale-demand-runner',
+      launchKind: 'demand',
+      createdAt: new Date(Date.now() - 301_000),
+    });
+
+    const result = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
+    );
+    const [runner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+
+    expect(result).toEqual([
+      {providerRunnerId: 'stale-demand-runner', reason: 'activation-timeout'},
+    ]);
+    expect(runner?.reservationReleasedAt).toBeInstanceOf(Date);
+  });
+
+  it('does not reclaim warm, manual, active, or already-activated runners', async () => {
+    const [liveReservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!liveReservation) throw new Error('Expected live reservation');
+
+    const staleCreatedAt = new Date(Date.now() - 301_000);
+    await createRunnerInstance({
+      providerRunnerId: 'stale-warm-runner',
+      launchKind: 'warm',
+      createdAt: staleCreatedAt,
+    });
+    await createRunnerInstance({
+      providerRunnerId: 'stale-manual-runner',
+      launchKind: 'manual',
+      createdAt: staleCreatedAt,
+    });
+    await createRunnerInstance({
+      providerRunnerId: 'live-demand-runner',
+      launchKind: 'demand',
+      reservationId: liveReservation.id,
+      createdAt: staleCreatedAt,
+    });
+    await db()
+      .insert(providerRunners)
+      .values({
+        workspaceId,
+        provisionerId,
+        intendedReservationId: liveReservation.id,
+        providerRunnerId: 'live-intended-demand-runner',
+        launchKind: 'demand',
+        state: 'running',
+        labels: ['linux'],
+        reportedAt: staleCreatedAt,
+        createdAt: staleCreatedAt,
+        updatedAt: staleCreatedAt,
+      });
+    await createRunnerInstance({
+      providerRunnerId: 'activated-demand-runner',
+      launchKind: 'demand',
+      runnerSessionId: crypto.randomUUID(),
+      createdAt: staleCreatedAt,
+    });
+
+    const result = await listProvisionerTerminateIntents({workspaceId, provisionerId, limit: 1000});
+
+    expect(result).toEqual([]);
+  });
+
+  it('marks activation-timeout retries after releasing the runner reservation', async () => {
+    await createRunnerInstance({
+      providerRunnerId: 'retryable-demand-runner',
+      launchKind: 'demand',
+      createdAt: new Date(Date.now() - 301_000),
+    });
+
+    const first = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
+    );
+    const second = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
+    );
+
+    expect(first).toEqual([
+      {providerRunnerId: 'retryable-demand-runner', reason: 'activation-timeout'},
+    ]);
+    expect(second).toEqual([
+      {
+        providerRunnerId: 'retryable-demand-runner',
+        reason: 'activation-timeout',
+        activationTimeoutRetry: true,
+      },
+    ]);
+  });
+
   it('excludes active provisioned runners whose latest bound job is healthy', async () => {
     await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
     await insertRunningJobRow({
@@ -1272,12 +1394,20 @@ describe('listProvisionerTerminateIntents', () => {
     providerRunnerId: string;
     provisionerId?: string;
     state?: 'starting' | 'running' | 'stopping' | 'stopped' | 'failed' | 'terminated';
+    launchKind?: 'demand' | 'warm' | 'manual';
+    createdAt?: Date;
+    reservationId?: string | null;
+    runnerSessionId?: string | null;
   }) {
     return await providerRunnerFactory.create({
       workspaceId,
       provisionerId: params.provisionerId ?? provisionerId,
       providerRunnerId: params.providerRunnerId,
       state: params.state ?? 'running',
+      launchKind: params.launchKind ?? 'manual',
+      createdAt: params.createdAt ?? new Date(),
+      reservationId: params.reservationId ?? null,
+      runnerSessionId: params.runnerSessionId ?? null,
     });
   }
 });

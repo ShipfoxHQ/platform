@@ -82,15 +82,21 @@ export const providerRunnerAbsentTerminatedCount = meter.createCounter<Record<st
 
 export const providerRunnerTerminateIntentIssuedCount = meter.createCounter<{
   surface: 'poll-demand' | 'reconcile';
-  reason: 'job-cancelled' | 'terminal-state';
+  reason: 'activation-timeout' | 'job-cancelled' | 'terminal-state';
 }>('runners_provider_runner_terminate_intent_issued', {
   description: 'Provisioned runner terminate intents returned to provisioners',
 });
 
 export const providerRunnerTerminateIntentHonoredCount = meter.createCounter<{
-  reason: 'job-cancelled';
+  reason: 'activation-timeout' | 'job-cancelled';
 }>('runners_provider_runner_terminate_intent_honored', {
   description: 'Provisioned runner terminate intents honored by first transition to terminated',
+});
+
+export const providerRunnerActivationOutcomeCount = meter.createCounter<{
+  outcome: 'reaped' | 'rebound';
+}>('runners_provider_runner_activation_outcome', {
+  description: 'Demand-backed runner activation outcomes by recovery action',
 });
 
 export const reservationReleasedCount = meter.createCounter<Record<string, never>>(
@@ -163,4 +169,13 @@ export function recordRunnersRateLimitCheck(params: {
 
 export function recordRunnersRateLimitPruneFailure(): void {
   recordMetric(() => rateLimitPruneFailureCount.add(1));
+}
+
+export function recordProviderRunnerActivationOutcome(params: {
+  outcome: 'reaped' | 'rebound';
+  count?: number;
+}): void {
+  recordMetric(() =>
+    providerRunnerActivationOutcomeCount.add(params.count ?? 1, {outcome: params.outcome}),
+  );
 }

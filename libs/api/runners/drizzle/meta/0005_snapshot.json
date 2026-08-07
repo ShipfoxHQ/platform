@@ -1436,6 +1436,14 @@
           "primaryKey": false,
           "notNull": false
         },
+        "launch_kind": {
+          "name": "launch_kind",
+          "type": "runners_provider_runner_launch_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'manual'"
+        },
         "assigned_at": {
           "name": "assigned_at",
           "type": "timestamp with time zone",
@@ -2177,6 +2185,11 @@
       "name": "runners_reservation_kind",
       "schema": "public",
       "values": ["bound", "launch"]
+    },
+    "public.runners_provider_runner_launch_kind": {
+      "name": "runners_provider_runner_launch_kind",
+      "schema": "public",
+      "values": ["demand", "warm", "manual"]
     },
     "public.runners_provider_runner_state": {
       "name": "runners_provider_runner_state",

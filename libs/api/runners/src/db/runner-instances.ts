@@ -17,6 +17,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import {alias} from 'drizzle-orm/pg-core';
+import {config} from '#config.js';
 import type {RunnerInstance, RunnerInstanceState} from '#core/entities/runner-instance.js';
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import type {Tx} from './db.js';
@@ -49,11 +50,12 @@ export const divergenceCountStates = ['starting', 'running'] as const satisfies 
   'starting' | 'running'
 >[];
 
-export type RunnerInstanceTerminateIntentReason = 'job-cancelled';
+export type RunnerInstanceTerminateIntentReason = 'activation-timeout' | 'job-cancelled';
 
 export interface RunnerInstanceTerminateIntent {
   providerRunnerId: string;
   reason: RunnerInstanceTerminateIntentReason;
+  activationTimeoutRetry?: boolean;
 }
 
 export interface ActiveRunnerInstanceTemplateCount {
@@ -336,9 +338,42 @@ export async function listProvisionerTerminateIntentRowsTx(
     );
   }
 
-  return returnedRows.flatMap((row) =>
-    row.providerRunnerId ? [{...row, providerRunnerId: row.providerRunnerId}] : [],
+  const activationTimeoutRunnerIds = returnedRows.flatMap((row) =>
+    row.reason === 'activation-timeout' && row.providerRunnerId ? [row.providerRunnerId] : [],
   );
+  if (activationTimeoutRunnerIds.length > 0) {
+    await tx
+      .update(providerRunners)
+      .set({reservationReleasedAt: sql`now()`, updatedAt: sql`now()`})
+      .where(
+        and(
+          eq(providerRunners.workspaceId, params.workspaceId),
+          eq(providerRunners.provisionerId, params.provisionerId),
+          inArray(providerRunners.providerRunnerId, activationTimeoutRunnerIds),
+          isNull(providerRunners.reservationReleasedAt),
+        ),
+      );
+  }
+
+  return returnedRows.flatMap((row) => toRunnerInstanceTerminateIntent(row));
+}
+
+function toRunnerInstanceTerminateIntent(row: {
+  providerRunnerId: string | null;
+  reason: RunnerInstanceTerminateIntentReason;
+  activationTimeoutRetry: boolean;
+}): RunnerInstanceTerminateIntent[] {
+  if (!row.providerRunnerId) return [];
+
+  return [
+    {
+      providerRunnerId: row.providerRunnerId,
+      reason: row.reason,
+      ...(row.reason === 'activation-timeout' && row.activationTimeoutRetry
+        ? {activationTimeoutRetry: true}
+        : {}),
+    },
+  ];
 }
 
 function provisionerTerminateIntentsQuery(
@@ -346,59 +381,91 @@ function provisionerTerminateIntentsQuery(
   params: {workspaceId: string; provisionerId: string; providerRunnerIds?: string[]},
 ) {
   const newerRunningJobExecutions = alias(runningJobExecutions, 'newer_running_jobs');
-
-  return tx
-    .select({
-      providerRunnerId: providerRunners.providerRunnerId,
-      reason: sql<RunnerInstanceTerminateIntentReason>`'job-cancelled'`,
-    })
-    .from(runningJobExecutions)
-    .innerJoin(
-      providerRunners,
-      and(
-        eq(providerRunners.workspaceId, runningJobExecutions.workspaceId),
-        eq(providerRunners.provisionerId, runningJobExecutions.provisionerId),
-        eq(providerRunners.providerRunnerId, runningJobExecutions.providerRunnerId),
-      ),
-    )
-    .where(
-      and(
-        eq(runningJobExecutions.workspaceId, params.workspaceId),
-        eq(runningJobExecutions.provisionerId, params.provisionerId),
-        isNotNull(providerRunners.providerRunnerId),
-        isNotNull(runningJobExecutions.cancellationRequestedAt),
-        inArray(providerRunners.state, activeStates),
-        params.providerRunnerIds && params.providerRunnerIds.length > 0
-          ? inArray(providerRunners.providerRunnerId, params.providerRunnerIds)
-          : undefined,
-        notExists(
-          tx
-            .select({id: newerRunningJobExecutions.id})
-            .from(newerRunningJobExecutions)
-            .where(
-              and(
-                eq(newerRunningJobExecutions.workspaceId, runningJobExecutions.workspaceId),
-                eq(newerRunningJobExecutions.provisionerId, runningJobExecutions.provisionerId),
-                eq(
-                  newerRunningJobExecutions.providerRunnerId,
-                  runningJobExecutions.providerRunnerId,
-                ),
-                or(
-                  gt(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
-                  and(
-                    eq(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
-                    gt(
-                      newerRunningJobExecutions.jobExecutionId,
-                      runningJobExecutions.jobExecutionId,
+  const latestCancelledJob = exists(
+    tx
+      .select({id: runningJobExecutions.id})
+      .from(runningJobExecutions)
+      .where(
+        and(
+          eq(runningJobExecutions.workspaceId, params.workspaceId),
+          eq(runningJobExecutions.provisionerId, params.provisionerId),
+          eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
+          isNotNull(runningJobExecutions.cancellationRequestedAt),
+          notExists(
+            tx
+              .select({id: newerRunningJobExecutions.id})
+              .from(newerRunningJobExecutions)
+              .where(
+                and(
+                  eq(newerRunningJobExecutions.workspaceId, runningJobExecutions.workspaceId),
+                  eq(newerRunningJobExecutions.provisionerId, runningJobExecutions.provisionerId),
+                  eq(
+                    newerRunningJobExecutions.providerRunnerId,
+                    runningJobExecutions.providerRunnerId,
+                  ),
+                  or(
+                    gt(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
+                    and(
+                      eq(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
+                      gt(
+                        newerRunningJobExecutions.jobExecutionId,
+                        runningJobExecutions.jobExecutionId,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+          ),
         ),
       ),
-    )
-    .groupBy(providerRunners.providerRunnerId);
+  );
+  const activationTimeout = and(
+    eq(providerRunners.launchKind, 'demand'),
+    isNull(providerRunners.runnerSessionId),
+    lt(
+      providerRunners.createdAt,
+      sql`now() - (${config.RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS} || ' seconds')::interval`,
+    ),
+    notExists(
+      tx
+        .select({id: reservations.id})
+        .from(reservations)
+        .where(
+          and(
+            or(
+              eq(reservations.id, providerRunners.reservationId),
+              eq(reservations.id, providerRunners.intendedReservationId),
+            ),
+            eq(reservations.workspaceId, params.workspaceId),
+            eq(reservations.provisionerId, params.provisionerId),
+            gt(reservations.expiresAt, sql`now()`),
+          ),
+        ),
+    ),
+  );
+
+  return tx
+    .select({
+      providerRunnerId: providerRunners.providerRunnerId,
+      activationTimeoutRetry: sql<boolean>`${providerRunners.reservationReleasedAt} is not null`,
+      reason: sql<RunnerInstanceTerminateIntentReason>`case
+        when ${activationTimeout} then 'activation-timeout'
+        else 'job-cancelled'
+      end`,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.workspaceId, params.workspaceId),
+        eq(providerRunners.provisionerId, params.provisionerId),
+        isNotNull(providerRunners.providerRunnerId),
+        inArray(providerRunners.state, activeStates),
+        params.providerRunnerIds && params.providerRunnerIds.length > 0
+          ? inArray(providerRunners.providerRunnerId, params.providerRunnerIds)
+          : undefined,
+        or(latestCancelledJob, activationTimeout),
+      ),
+    );
 }
 
 async function listTerminateIntentsHonoredByTerminatedReportsTx(
@@ -419,9 +486,7 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
     provisionerId: params.provisionerId,
     providerRunnerIds: terminatedRunnerInstanceIds,
   }).orderBy(asc(providerRunners.providerRunnerId));
-  return rows.flatMap((row) =>
-    row.providerRunnerId ? [{...row, providerRunnerId: row.providerRunnerId}] : [],
-  );
+  return rows.flatMap((row) => toRunnerInstanceTerminateIntent(row));
 }
 
 export async function reconcileRunnerInstances(
