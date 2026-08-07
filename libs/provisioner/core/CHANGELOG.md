@@ -1,5 +1,16 @@
 # @shipfox/provisioner-core
 
+## 1.1.0
+
+### Minor Changes
+
+- a9bbce4: Let provisioner adapters request provider-specific reservation TTLs during demand polling. `startProvisioner` rejects an adapter whose `reservationTtlSeconds` is not a positive integer.
+
+### Patch Changes
+
+- Updated dependencies [3e7fe76]
+  - @shipfox/expression@2.2.0
+
 ## 1.0.10
 
 ### Patch Changes

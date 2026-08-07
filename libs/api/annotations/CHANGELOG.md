@@ -1,5 +1,16 @@
 # @shipfox/annotations
 
+## 12.3.0
+
+### Minor Changes
+
+- 4b0731e: Adds workflow troubleshooting details, evaluation traces, failure annotations, runner context, step output metadata, and lazy paginated annotation summaries.
+
+### Patch Changes
+
+- Updated dependencies [4b0731e]
+  - @shipfox/annotations-dto@12.3.0
+
 ## 12.2.0
 
 ### Patch Changes

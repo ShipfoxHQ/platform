@@ -1,5 +1,11 @@
 # @shipfox/react-ui
 
+## 1.2.0
+
+### Minor Changes
+
+- 4b0731e: Adds workflow troubleshooting details, evaluation traces, failure annotations, runner context, step output metadata, and lazy paginated annotation summaries.
+
 ## 1.1.0
 
 ### Minor Changes

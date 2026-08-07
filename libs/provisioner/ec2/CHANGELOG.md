@@ -1,5 +1,13 @@
 # @shipfox/provisioner-ec2-provider
 
+## 1.0.11
+
+### Patch Changes
+
+- 03625c8: Reports each EC2 runner termination once instead of on every observation, using AWS instance IDs and a one-hour listing-gap grace period.
+- Updated dependencies [a9bbce4]
+  - @shipfox/provisioner-core@1.1.0
+
 ## 1.0.10
 
 ### Patch Changes

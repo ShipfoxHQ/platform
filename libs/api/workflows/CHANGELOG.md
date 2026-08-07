@@ -1,5 +1,21 @@
 # @shipfox/api-workflows
 
+## 12.3.0
+
+### Minor Changes
+
+- 4b0731e: Adds workflow troubleshooting details, evaluation traces, failure annotations, runner context, step output metadata, and lazy paginated annotation summaries.
+- a830294: Loads configured runner catalog names when materializing workflow runner labels.
+
+### Patch Changes
+
+- Updated dependencies [4b0731e]
+- Updated dependencies [3e7fe76]
+  - @shipfox/api-workflows-dto@12.3.0
+  - @shipfox/annotations-dto@12.3.0
+  - @shipfox/expression@2.2.0
+  - @shipfox/api-definitions-dto@12.3.0
+
 ## 12.2.0
 
 ### Minor Changes

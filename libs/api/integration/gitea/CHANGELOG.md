@@ -1,5 +1,12 @@
 # @shipfox/api-integration-gitea
 
+## 12.3.0
+
+### Patch Changes
+
+- Updated dependencies [e0110fe]
+  - @shipfox/api-integration-spi@1.1.0
+
 ## 12.2.0
 
 ### Patch Changes

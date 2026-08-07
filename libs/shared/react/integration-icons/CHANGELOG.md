@@ -1,5 +1,12 @@
 # @shipfox/integration-icons
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [4b0731e]
+  - @shipfox/react-ui@1.2.0
+
 ## 0.3.2
 
 ### Patch Changes

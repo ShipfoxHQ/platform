@@ -1,5 +1,13 @@
 # @shipfox/provisioner-docker-provider
 
+## 2.0.5
+
+### Patch Changes
+
+- 4148f32: Derive the requested reservation TTL from `SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS`, rounded up to whole seconds.
+- Updated dependencies [a9bbce4]
+  - @shipfox/provisioner-core@1.1.0
+
 ## 2.0.4
 
 ### Patch Changes

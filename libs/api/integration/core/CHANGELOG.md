@@ -1,5 +1,23 @@
 # @shipfox/api-integration-core
 
+## 12.3.0
+
+### Patch Changes
+
+- e972eb3: Makes integration secret cleanup retryable after connection deletion.
+- e0110fe: Adds Jira webhook renewal and disconnect deregistration support.
+- Updated dependencies [4b0731e]
+- Updated dependencies [e0110fe]
+  - @shipfox/api-workflows-dto@12.3.0
+  - @shipfox/api-integration-jira@12.3.0
+  - @shipfox/api-integration-spi@1.1.0
+  - @shipfox/api-integration-gitea@12.3.0
+  - @shipfox/api-integration-github@12.3.0
+  - @shipfox/api-integration-linear@12.3.0
+  - @shipfox/api-integration-sentry@12.3.0
+  - @shipfox/api-integration-slack@12.3.0
+  - @shipfox/api-integration-webhook@12.3.0
+
 ## 12.2.0
 
 ### Patch Changes
