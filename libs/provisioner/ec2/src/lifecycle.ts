@@ -497,13 +497,11 @@ async function terminateInstances(
   const instancesToTerminate = terminableInstances.filter(
     (instance) => !context.terminationActionedInstanceIds.has(instance.instanceId),
   );
-  if (instancesToTerminate.length > 0) {
-    await context.engine.terminate(instancesToTerminate.map((instance) => instance.instanceId));
+  for (const instance of instancesToTerminate) {
+    await context.engine.terminate([instance.instanceId]);
     const actionedAt = context.now().getTime();
-    for (const instance of instancesToTerminate) {
-      context.terminationActionedInstanceIds.set(instance.instanceId, actionedAt);
-      recordEc2Termination(reason);
-    }
+    context.terminationActionedInstanceIds.set(instance.instanceId, actionedAt);
+    recordEc2Termination(reason);
   }
   const terminalReportInstanceIds = new Map<RunnerInstanceReportEventDto, string>();
   const events = terminableInstances.flatMap((instance) => {
@@ -578,15 +576,14 @@ async function reportEvents(
     const batch = reports.slice(index, index + MAX_REPORT_BATCH);
     try {
       await context.client.reportRunnerInstances({events: batch});
-      rememberTerminalReports(context, batch);
+      rememberDeliveredTerminalReports(context, batch);
     } catch (error) {
       if (error instanceof ProvisionerAuthenticationError) {
         context.pendingReports.push(...reports.slice(index));
         throw error;
       }
       if (responseStatus(error) === 400) {
-        // A permanent rejection must not reopen the terminal observation loop.
-        rememberTerminalReports(context, batch);
+        forgetTerminalReports(context, batch);
         continue;
       }
       context.pendingReports.push(...reports.slice(index));
@@ -595,7 +592,7 @@ async function reportEvents(
   }
 }
 
-function rememberTerminalReports(
+function rememberDeliveredTerminalReports(
   context: Ec2LifecycleContext,
   reports: readonly RunnerInstanceReportEventDto[],
 ): void {
@@ -603,6 +600,18 @@ function rememberTerminalReports(
     const instanceId = context.terminalReportInstanceIdsByEvent.get(report);
     if (!instanceId) continue;
     context.terminalReportedInstanceIds.set(instanceId, context.now().getTime());
+    context.pendingTerminalReportedInstanceIds.delete(instanceId);
+    context.terminalReportInstanceIdsByEvent.delete(report);
+  }
+}
+
+function forgetTerminalReports(
+  context: Ec2LifecycleContext,
+  reports: readonly RunnerInstanceReportEventDto[],
+): void {
+  for (const report of reports) {
+    const instanceId = context.terminalReportInstanceIdsByEvent.get(report);
+    if (!instanceId) continue;
     context.pendingTerminalReportedInstanceIds.delete(instanceId);
     context.terminalReportInstanceIdsByEvent.delete(report);
   }

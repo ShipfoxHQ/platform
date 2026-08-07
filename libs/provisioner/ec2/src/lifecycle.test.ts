@@ -391,7 +391,7 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies).toHaveLength(1);
   });
 
-  it('deduplicates a terminal report after the API rejects it as invalid', async () => {
+  it('does not deduplicate a terminal report that the API rejects as invalid', async () => {
     const client = fakeClient({reportErrors: [httpError(400)]});
     const lifecycle = makeLifecycle({
       engine: fakeEngine({instances: [instance({state: 'terminated'})]}),
@@ -401,9 +401,9 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.observe();
     await lifecycle.observe();
 
-    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(1);
-    expect(observability.logger.info).toHaveBeenCalledTimes(1);
-    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
+    expect(client.reportBodies.flatMap((body) => body.events)).toHaveLength(2);
+    expect(observability.logger.info).toHaveBeenCalledTimes(2);
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(2);
   });
 
   it('keeps authentication report failures fatal', async () => {
@@ -600,6 +600,32 @@ describe('createEc2Lifecycle', () => {
     ]);
     expect(observability.recordEc2Termination).toHaveBeenCalledWith('backend-terminate');
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps successful termination actions when a later instance fails', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({state: 'running'}),
+        instance({state: 'running', instanceId: 'i-456', providerRunnerId: 'runner-2'}),
+      ],
+      terminateErrors: [undefined, new Error('EC2 unavailable')],
+    });
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [
+          reconciledRunner('runner-1', 'terminate'),
+          reconciledRunner('runner-2', 'terminate'),
+        ],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client});
+
+    await expect(lifecycle.reconcile()).rejects.toThrow('EC2 unavailable');
+    await lifecycle.reconcile();
+
+    expect(engine.terminated).toEqual(['i-123', 'i-456']);
+    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(2);
   });
 
   it('reports the first terminal observation before handling backend terminate intent', async () => {
@@ -838,10 +864,16 @@ function instance(args: {
 }
 
 function fakeEngine(
-  options: {instances?: Ec2InstanceView[]; runError?: Error; listError?: Error} = {},
+  options: {
+    instances?: Ec2InstanceView[];
+    runError?: Error;
+    listError?: Error;
+    terminateErrors?: Array<Error | undefined>;
+  } = {},
 ): Ec2Engine & {runArgs: Parameters<Ec2Engine['runInstance']>[0][]; terminated: string[]} {
   const runArgs: Parameters<Ec2Engine['runInstance']>[0][] = [];
   const terminated: string[] = [];
+  const terminateErrors = [...(options.terminateErrors ?? [])];
   return {
     runArgs,
     terminated,
@@ -856,6 +888,8 @@ function fakeEngine(
         ? Promise.reject(options.listError)
         : Promise.resolve(options.instances ?? []),
     terminate: (instanceIds) => {
+      const error = terminateErrors.shift();
+      if (error) return Promise.reject(error);
       terminated.push(...instanceIds);
       return Promise.resolve();
     },
