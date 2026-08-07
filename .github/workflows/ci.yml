@@ -10,16 +10,17 @@ permissions:
   contents: read
   pull-requests: read
 
-# Give every main push one FIFO slot before checks start. Pull requests use
-# independent groups, while the preview workflow owns its own stale-run
-# cancellation.
+# Keep the current main run and the newest pending run. A newer main push
+# replaces an older pending run without canceling the run already in progress.
+# Pull requests use independent groups, while the preview workflow owns its
+# own stale-run cancellation.
 concurrency:
   group: >-
     ${{ github.ref == 'refs/heads/main' &&
     format('{0}-main', github.workflow) ||
     format('{0}-pr-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: false
-  queue: max
+  queue: single
 
 env:
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
