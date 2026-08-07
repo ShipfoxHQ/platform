@@ -11,12 +11,15 @@ import {
   isNull,
   lt,
   notExists,
+  notInArray,
   or,
   sql,
 } from 'drizzle-orm';
 import {recordProviderRunnerActivationOutcome} from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
+import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
+import {terminalStates} from './runner-states.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
 import {provisionerCapabilitySnapshots} from './schema/provisioner-capability-snapshots.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
@@ -246,20 +249,10 @@ async function pollDemandAndReserveLockedTx(
   const reservedByLabels = new Map(
     activeReservationRows.map((row) => [labelKey(row.requiredLabels), row.reserved]),
   );
-  const activeProvisionerReservationRows = await tx
-    .select({
-      requiredLabels: reservations.requiredLabels,
-      reserved: sql<number>`coalesce(sum(${reservations.count}), 0)::int`,
-    })
-    .from(reservations)
-    .where(
-      and(
-        eq(reservations.workspaceId, params.workspaceId),
-        eq(reservations.provisionerId, params.provisionerId),
-        gt(reservations.expiresAt, sql`now()`),
-      ),
-    )
-    .groupBy(reservations.requiredLabels);
+  const activeProvisionerReservationRows = await listActiveProvisionerReservationRowsTx(tx, {
+    workspaceId: params.workspaceId,
+    provisionerId: params.provisionerId,
+  });
 
   const templates = params.templates.map((template) => ({
     templateKey: template.templateKey,
@@ -370,6 +363,102 @@ async function pollDemandAndReserveLockedTx(
   }
 
   return {stats, reservations: grants, newlyReservedUnits};
+}
+
+async function listActiveProvisionerReservationRowsTx(
+  tx: Tx,
+  params: {workspaceId: string; provisionerId: string},
+): Promise<Array<{requiredLabels: string[]; reserved: number}>> {
+  const candidateRows = await tx
+    .select({id: reservations.id})
+    .from(reservations)
+    .where(
+      and(
+        eq(reservations.workspaceId, params.workspaceId),
+        eq(reservations.provisionerId, params.provisionerId),
+        gt(reservations.expiresAt, sql`now()`),
+      ),
+    );
+  const candidateIds = candidateRows.map((row) => row.id);
+  if (candidateIds.length === 0) return [];
+
+  // Assignment and provider-report transactions use this key before changing runner
+  // links. Lock it before counting so an in-flight assignment cannot expose its unit twice.
+  await lockRunnerReservationAdvisoryKeysTx(tx, {
+    provisionerId: params.provisionerId,
+    reservationIds: candidateIds,
+  });
+
+  const activeRows = await tx
+    .select({
+      id: reservations.id,
+      requiredLabels: reservations.requiredLabels,
+      count: reservations.count,
+    })
+    .from(reservations)
+    .where(
+      and(
+        eq(reservations.workspaceId, params.workspaceId),
+        eq(reservations.provisionerId, params.provisionerId),
+        gt(reservations.expiresAt, sql`now()`),
+      ),
+    )
+    .orderBy(asc(reservations.id))
+    .for('update');
+  if (activeRows.length === 0) return [];
+
+  const activeIds = activeRows.map((row) => row.id);
+  const activeIdSet = new Set(activeIds);
+  const usedRunnerRows = await tx
+    .select({
+      id: providerRunners.id,
+      reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
+      state: providerRunners.state,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        isNull(providerRunners.reservationReleasedAt),
+        or(
+          inArray(providerRunners.reservationId, activeIds),
+          and(
+            inArray(providerRunners.intendedReservationId, activeIds),
+            notInArray(providerRunners.state, [...terminalStates]),
+          ),
+        ),
+      ),
+    );
+  const usedByReservation = new Map<string, Set<string>>();
+  for (const runner of usedRunnerRows) {
+    if (runner.reservationId && activeIdSet.has(runner.reservationId)) {
+      addUsedRunner(usedByReservation, runner.reservationId, runner.id);
+    }
+    if (
+      runner.intendedReservationId &&
+      activeIdSet.has(runner.intendedReservationId) &&
+      !terminalStates.includes(runner.state as (typeof terminalStates)[number])
+    ) {
+      addUsedRunner(usedByReservation, runner.intendedReservationId, runner.id);
+    }
+  }
+
+  return activeRows.flatMap((reservation) => {
+    const used = usedByReservation.get(reservation.id)?.size ?? 0;
+    const pending = Math.max(0, reservation.count - used);
+    return pending > 0 ? [{requiredLabels: reservation.requiredLabels, reserved: pending}] : [];
+  });
+}
+
+function addUsedRunner(
+  usedByReservation: Map<string, Set<string>>,
+  reservationId: string,
+  runnerId: string,
+): void {
+  const runnerIds = usedByReservation.get(reservationId);
+  if (runnerIds) runnerIds.add(runnerId);
+  else usedByReservation.set(reservationId, new Set([runnerId]));
 }
 
 async function listIdleRunnerInstancesTx(

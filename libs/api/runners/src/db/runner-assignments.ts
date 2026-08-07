@@ -7,6 +7,7 @@ import {
 } from '#core/errors.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
+import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
 import {terminalStates} from './runner-instances.js';
 import {reservations} from './schema/reservations.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
@@ -186,17 +187,6 @@ export interface RunnerReservationCapacityValidation {
     string,
     {reason: RunnerReservationCapacityFailureReason; count: number}
   >;
-}
-
-export async function lockRunnerReservationAdvisoryKeysTx(
-  tx: Tx,
-  params: {provisionerId: string; reservationIds: readonly string[]},
-): Promise<void> {
-  for (const reservationId of [...new Set(params.reservationIds)].sort()) {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${params.provisionerId}:${reservationId}`}))`,
-    );
-  }
 }
 
 export async function validateRunnerReservationCapacityTx(

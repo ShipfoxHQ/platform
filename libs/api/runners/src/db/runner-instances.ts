@@ -27,11 +27,10 @@ import {
   listRunningJobExecutionsByRunnerInstanceTx,
   type RunnerInstanceBoundJobExecution,
 } from './job-executions.js';
+import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
 import {releaseReservationUnits} from './reservations.js';
-import {
-  lockRunnerReservationAdvisoryKeysTx,
-  validateRunnerReservationCapacityTx,
-} from './runner-assignments.js';
+import {validateRunnerReservationCapacityTx} from './runner-assignments.js';
+import {terminalStates} from './runner-states.js';
 import {ephemeralRegistrationTokens} from './schema/ephemeral-registration-tokens.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
@@ -40,11 +39,7 @@ import {providerRunners, toRunnerInstance} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
 
-export const terminalStates = [
-  'stopped',
-  'failed',
-  'terminated',
-] as const satisfies readonly RunnerInstanceState[];
+export {terminalStates};
 export const activeStates = [
   'starting',
   'running',
