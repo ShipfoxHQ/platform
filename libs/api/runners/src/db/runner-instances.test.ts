@@ -4,6 +4,7 @@ import {db} from '#db/db.js';
 import {createRunnerSessionConsumingEphemeralToken} from '#db/ephemeral-registration-tokens.js';
 import {
   attachRunnerInstanceProviderId,
+  countStaleEnrolledRunnerInstances,
   listActiveRunnerInstanceCountsByTemplateTx,
   listActiveRunnerInstances,
   listProvisionerTerminateIntentRowsTx,
@@ -14,6 +15,7 @@ import {
 } from '#db/runner-instances.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {reservations} from '#db/schema/reservations.js';
+import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
@@ -2176,6 +2178,102 @@ describe('reconcileRunnerInstances', () => {
       providerKind: 'docker',
       reportedAt: params.reportedAt ?? new Date(),
     };
+  }
+});
+
+describe('countStaleEnrolledRunnerInstances', () => {
+  let provisionerId: string;
+
+  beforeEach(() => {
+    provisionerId = crypto.randomUUID();
+  });
+
+  function staleAt(): Date {
+    return new Date(Date.now() - 120_000);
+  }
+
+  it('counts only stale reported runners with a live control session and no assignment', async () => {
+    const baseline = await countStaleEnrolledRunnerInstances({graceSeconds: 60});
+    const stale = await createRunner({updatedAt: staleAt()});
+    await createControlSession(stale);
+
+    const fresh = await createRunner({updatedAt: new Date()});
+    await createControlSession(fresh);
+
+    const recentlyMutated = await createRunner({reportedAt: staleAt(), updatedAt: new Date()});
+    await createControlSession(recentlyMutated);
+
+    const freshReport = await createRunner({reportedAt: new Date(), updatedAt: staleAt()});
+    await createControlSession(freshReport);
+
+    const assigned = await createRunner({workspaceId: crypto.randomUUID(), updatedAt: staleAt()});
+    await createControlSession(assigned);
+
+    const activated = await createRunner({
+      runnerSessionId: crypto.randomUUID(),
+      updatedAt: staleAt(),
+    });
+    await createControlSession(activated);
+
+    await createRunner({updatedAt: staleAt()});
+    const expiredControlSession = await createRunner({updatedAt: staleAt()});
+    await createControlSession(expiredControlSession, {
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+    const closedControlSession = await createRunner({updatedAt: staleAt()});
+    await createControlSession(closedControlSession, {
+      closedAt: new Date(),
+    });
+    const stopped = await createRunner({state: 'stopped', updatedAt: staleAt()});
+    await createControlSession(stopped);
+
+    const count = await countStaleEnrolledRunnerInstances({graceSeconds: 60});
+
+    expect(count - baseline).toBe(2);
+  });
+
+  async function createRunner(params: {
+    state?: 'running' | 'stopped';
+    workspaceId?: string | null;
+    runnerSessionId?: string | null;
+    reportedAt?: Date;
+    updatedAt?: Date;
+  }) {
+    const reportedAt = params.reportedAt ?? params.updatedAt ?? new Date();
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        workspaceId: params.workspaceId ?? null,
+        provisionerId,
+        providerRunnerId: crypto.randomUUID(),
+        templateKey: 'linux',
+        labels: ['linux'],
+        state: params.state ?? 'running',
+        runnerSessionId: params.runnerSessionId ?? null,
+        providerKind: 'docker',
+        reportedAt,
+        updatedAt: params.updatedAt ?? reportedAt,
+      })
+      .returning({id: providerRunners.id});
+    if (!runner) throw new Error('Expected runner instance');
+    return runner.id;
+  }
+
+  async function createControlSession(
+    runnerInstanceId: string,
+    params: {expiresAt?: Date; closedAt?: Date} = {},
+  ) {
+    await db()
+      .insert(runnerControlSessions)
+      .values({
+        runnerInstanceId,
+        provisionerId,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: params.expiresAt ?? new Date(Date.now() + 60_000),
+        closedAt: params.closedAt,
+        closeReason: params.closedAt ? 'test' : null,
+      });
   }
 });
 

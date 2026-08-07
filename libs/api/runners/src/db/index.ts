@@ -90,6 +90,7 @@ export type {
 } from './runner-instances.js';
 export {
   attachRunnerInstanceProviderId,
+  countStaleEnrolledRunnerInstances,
   isTerminalState,
   listActiveRunnerInstanceCountsByTemplateTx,
   listActiveRunnerInstances,

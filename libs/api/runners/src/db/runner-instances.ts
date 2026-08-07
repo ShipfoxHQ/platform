@@ -29,6 +29,7 @@ import {releaseReservationUnits} from './reservations.js';
 import {ephemeralRegistrationTokens} from './schema/ephemeral-registration-tokens.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
+import {runnerControlSessions} from './schema/runner-control-sessions.js';
 import {providerRunners, toRunnerInstance} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
@@ -245,6 +246,36 @@ export async function listActiveRunnerInstanceCountsByTemplateTx(
       ? [{templateKey: row.templateKey, state: row.state, count: row.count}]
       : [],
   );
+}
+
+export async function countStaleEnrolledRunnerInstances(params: {
+  graceSeconds: number;
+}): Promise<number> {
+  const [row] = await db()
+    .select({count: sql<number>`count(*)::int`})
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.state, 'running'),
+        isNull(providerRunners.workspaceId),
+        isNull(providerRunners.runnerSessionId),
+        lt(providerRunners.reportedAt, staleRunnerInstanceCutoff(params.graceSeconds)),
+        exists(
+          db()
+            .select({id: runnerControlSessions.id})
+            .from(runnerControlSessions)
+            .where(
+              and(
+                eq(runnerControlSessions.runnerInstanceId, providerRunners.id),
+                isNull(runnerControlSessions.closedAt),
+                gt(runnerControlSessions.expiresAt, sql`now()`),
+              ),
+            ),
+        ),
+      ),
+    );
+
+  return row?.count ?? 0;
 }
 
 export async function listActiveRunnerInstances(params: {
