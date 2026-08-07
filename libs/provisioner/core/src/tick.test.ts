@@ -81,7 +81,7 @@ describe('runProvisionerTick', () => {
     ]);
   });
 
-  it('counts partial warm runner-instance creation as failed capacity work', async () => {
+  it('counts a warm reservation shortfall without a capacity failure', async () => {
     const client: ProvisionerClient = {
       getIdentity: async () => ({id: 'provisioner', scope: 'workspace', workspace_id: 'workspace'}),
       pollDemand: async () => ({
@@ -89,7 +89,7 @@ describe('runProvisionerTick', () => {
         reservations: [],
         terminate_provider_runner_ids: [],
       }),
-      createRunnerInstances: async () => ({runner_instances: []}),
+      createRunnerInstances: async () => ({runner_instances: [], reservation_unavailable: true}),
       attachRunnerInstanceProviderId: async () => ({attached: true}),
       assignRunnerInstances: async (_reservationId, runnerInstanceIds) => ({
         runner_instance_ids: runnerInstanceIds,
@@ -126,9 +126,10 @@ describe('runProvisionerTick', () => {
 
     expect(result).toMatchObject({
       plannedCount: 1,
-      launchAttemptedCount: 1,
+      launchAttemptedCount: 0,
       launchedCount: 0,
-      runnerInstanceCreationFailureCount: 1,
+      runnerInstanceCreationFailureCount: 0,
+      reservationConsumedOrStaleCount: 1,
     });
   });
 

@@ -598,8 +598,15 @@ describe('reportRunnerInstances', () => {
     expect(active).toEqual([]);
   });
 
-  it('releases one reservation unit for a terminal unclaimed provisioned runner', async () => {
+  it('releases one reservation unit for a terminal runner with an intended reservation', async () => {
     const reservationId = await createReservation(2);
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      intendedReservationId: reservationId,
+      state: 'running',
+    });
 
     const result = await reportRunnerInstances({
       scope: 'workspace',
@@ -613,6 +620,30 @@ describe('reportRunnerInstances', () => {
     expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
     expect(reservationRows[0]?.count).toBe(1);
     expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
+  });
+
+  it('does not let an unrecognized terminal report consume reservation capacity', async () => {
+    const reservationId = await createReservation(1);
+
+    const result = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [event({providerRunnerId: 'unrecognized-runner', reservationId, state: 'failed'})],
+    });
+
+    const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
+    const providerRunnerRows = await providerRunnerRowsFor({workspaceId, provisionerId});
+    expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
+    expect(reservationRows[0]?.count).toBe(1);
+    expect(providerRunnerRows).toHaveLength(1);
+    expect(providerRunnerRows[0]).toMatchObject({
+      providerRunnerId: 'unrecognized-runner',
+      reservationId: null,
+      intendedReservationId: null,
+      reservationReleasedAt: null,
+      state: 'failed',
+    });
   });
 
   it('releases an intended reservation for a runner that dies before enrollment', async () => {
@@ -785,6 +816,13 @@ describe('reportRunnerInstances', () => {
 
   it('releases a reservation only once across repeated terminal reports', async () => {
     const reservationId = await createReservation(2);
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      intendedReservationId: reservationId,
+      state: 'running',
+    });
 
     await reportRunnerInstances({
       scope: 'workspace',
@@ -806,6 +844,13 @@ describe('reportRunnerInstances', () => {
 
   it('does not let a newer running report revive a terminal provisioned runner', async () => {
     const reservationId = await createReservation(2);
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      intendedReservationId: reservationId,
+      state: 'running',
+    });
     const failedAt = new Date();
     await reportRunnerInstances({
       scope: 'workspace',
@@ -844,6 +889,13 @@ describe('reportRunnerInstances', () => {
 
   it('tracks provider cleanup as terminated', async () => {
     const reservationId = await createReservation(2);
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      intendedReservationId: reservationId,
+      state: 'running',
+    });
 
     const result = await reportRunnerInstances({
       scope: 'workspace',
@@ -865,6 +917,20 @@ describe('reportRunnerInstances', () => {
 
   it('releases multiple units from the same reservation in one batch', async () => {
     const reservationId = await createReservation(3);
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      intendedReservationId: reservationId,
+      state: 'running',
+    });
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-2',
+      intendedReservationId: reservationId,
+      state: 'running',
+    });
 
     const result = await reportRunnerInstances({
       scope: 'workspace',
@@ -883,6 +949,13 @@ describe('reportRunnerInstances', () => {
 
   it('deletes a one-unit reservation instead of violating the positive count check', async () => {
     const reservationId = await createReservation(1);
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      intendedReservationId: reservationId,
+      state: 'running',
+    });
 
     const result = await reportRunnerInstances({
       scope: 'workspace',
@@ -906,6 +979,13 @@ describe('reportRunnerInstances', () => {
     });
     const [reservation] = await reservationRowsFor({workspaceId, provisionerId});
     if (!reservation) throw new Error('Expected reservation');
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      intendedReservationId: reservation.id,
+      state: 'running',
+    });
 
     const result = await reportRunnerInstances({
       scope: 'workspace',

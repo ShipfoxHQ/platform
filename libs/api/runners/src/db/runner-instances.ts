@@ -294,20 +294,25 @@ async function guardReportedReservationIdsTx(
 
   const remainingAcceptedByReservation = new Map(validation.acceptedByReservation);
   return events.map((event) => {
+    const existing = existingByProviderRunnerId.get(event.providerRunnerId);
     const reservationId = candidateReservationByProviderRunnerId.get(event.providerRunnerId);
     if (!reservationId) {
-      if (isTerminalState(event.state)) return event;
+      if (event.reservationId && isTerminalState(event.state)) {
+        // Terminal cleanup releases the IDs stored on the projection row. An arbitrary
+        // terminal report must not consume reservation capacity during that cleanup.
+        const matchesExistingReservation =
+          existing !== undefined &&
+          (existing.reservationId === event.reservationId ||
+            existing.intendedReservationId === event.reservationId);
+        if (!matchesExistingReservation) return {...event, reservationId: null};
+      }
       if (
         event.reservationId &&
-        existingByProviderRunnerId.get(event.providerRunnerId)?.intendedReservationId &&
-        existingByProviderRunnerId.get(event.providerRunnerId)?.intendedReservationId !==
-          event.reservationId
+        existing?.intendedReservationId &&
+        existing.intendedReservationId !== event.reservationId
       )
         return {...event, reservationId: null};
-      if (
-        event.reservationId &&
-        existingByProviderRunnerId.get(event.providerRunnerId)?.reservationReleasedAt
-      )
+      if (event.reservationId && existing?.reservationReleasedAt)
         return {...event, reservationId: null};
       return event;
     }

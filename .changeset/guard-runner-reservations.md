@@ -3,4 +3,4 @@
 "@shipfox/api-runners-dto": minor
 ---
 
-Validates reservation capacity before creating or adopting runner rows, reports capacity shortfalls and full reservation units separately from launch grants, and preserves request positions for partial enrollment.
+Runners are enrolled only when the reservation still has capacity, and partial-enrollment errors now report reservation shortfalls separately from launch grants.

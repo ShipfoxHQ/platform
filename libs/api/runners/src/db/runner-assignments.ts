@@ -230,6 +230,7 @@ export async function validateRunnerReservationCapacityTx(
       id: reservations.id,
       count: reservations.count,
       expiresAt: reservations.expiresAt,
+      isExpired: sql<boolean>`${reservations.expiresAt} <= now()`,
     })
     .from(reservations)
     .where(
@@ -289,7 +290,6 @@ export async function validateRunnerReservationCapacityTx(
     string,
     {reason: RunnerReservationCapacityFailureReason; count: number}
   >();
-  const now = new Date();
   for (const reservationId of reservationIds) {
     const requested = requestedByReservation.get(reservationId) ?? 0;
     const reservation = reservationsById.get(reservationId);
@@ -300,7 +300,7 @@ export async function validateRunnerReservationCapacityTx(
       });
       continue;
     }
-    if (reservation.expiresAt <= now) {
+    if (reservation.isExpired) {
       unavailableByReservation.set(reservationId, {
         reason: 'reservation-expired',
         count: requested,

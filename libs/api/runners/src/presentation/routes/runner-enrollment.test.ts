@@ -6,6 +6,7 @@ import {
   createApp,
   extractBearerToken,
 } from '@shipfox/node-fastify';
+import {vi} from '@shipfox/vitest/vi';
 import {eq} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {db} from '#db/db.js';
@@ -13,6 +14,7 @@ import {reservations} from '#db/schema/reservations.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
 import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
+import {runnerReservationCapacityFailureCount} from '#metrics/instance.js';
 import {
   createRunnerControlSessionAuthMethod,
   createRunnerRegistrationTokenAuthMethod,
@@ -390,19 +392,27 @@ describe('runner enrollment control plane', () => {
     if (reservationIds.some((reservationId) => !reservationId))
       throw new Error('Reservation insert returned no row');
 
-    for (const reservationId of reservationIds) {
-      const response = await app.inject({
-        method: 'POST',
-        url: '/provisioners/runner-instances/batch',
-        headers: {authorization: `Bearer ${token}`},
-        payload: {runner_instances: [{reservation_id: reservationId}]},
-      });
+    const failureSpy = vi.spyOn(runnerReservationCapacityFailureCount, 'add');
+    try {
+      for (const reservationId of reservationIds) {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/provisioners/runner-instances/batch',
+          headers: {authorization: `Bearer ${token}`},
+          payload: {runner_instances: [{reservation_id: reservationId}]},
+        });
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({
-        runner_instances: [],
-        reservation_unavailable: true,
-      });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          runner_instances: [],
+          reservation_unavailable: true,
+        });
+      }
+
+      expect(failureSpy).toHaveBeenCalledWith(1, {reason: 'reservation-expired'});
+      expect(failureSpy).toHaveBeenCalledWith(1, {reason: 'reservation-not-found'});
+    } finally {
+      failureSpy.mockRestore();
     }
 
     const runners = await db()
