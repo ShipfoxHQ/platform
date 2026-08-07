@@ -39,7 +39,6 @@ import {providerRunners, toRunnerInstance} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
 
-export {terminalStates};
 export const activeStates = [
   'starting',
   'running',

@@ -8,7 +8,7 @@ import {
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
-import {terminalStates} from './runner-instances.js';
+import {terminalStates} from './runner-states.js';
 import {reservations} from './schema/reservations.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
 import {providerRunners} from './schema/runner-instances.js';

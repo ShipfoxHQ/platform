@@ -16,7 +16,7 @@ import {
   assignRunnerInstancesTx,
   validateRunnerReservationCapacityTx,
 } from '#db/runner-assignments.js';
-import {terminalStates} from '#db/runner-instances.js';
+import {terminalStates} from '#db/runner-states.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
