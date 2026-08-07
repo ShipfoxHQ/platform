@@ -458,6 +458,8 @@ function syncCanonicalReservationIds(
 ): void {
   context.canonicalReservationIdsByRunner.clear();
   for (const runner of runners) {
+    // Absence means a legacy response; explicit null means current canonical state is
+    // unassigned, so only the former may fall back to the launch tag.
     if (!Object.hasOwn(runner, 'intended_reservation_id') && runner.reservation_id === null)
       continue;
     context.canonicalReservationIdsByRunner.set(

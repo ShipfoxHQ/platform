@@ -60,8 +60,8 @@ describe('reconcileRunnerInstancesBodySchema', () => {
 });
 
 describe('reconcileRunnerInstancesResponseSchema', () => {
-  it('accepts responses from servers before intended reservation support', () => {
-    const result = reconcileRunnerInstancesResponseSchema.safeParse({
+  it('keeps the optional field absent for responses from older servers', () => {
+    const result = reconcileRunnerInstancesResponseSchema.parse({
       runners: [
         {
           provider_runner_id: 'provisioned-runner-1',
@@ -75,11 +75,13 @@ describe('reconcileRunnerInstancesResponseSchema', () => {
       terminated_absent_provider_runner_ids: [],
     });
 
-    expect(result.success).toBe(true);
+    const runner = result.runners[0];
+    if (!runner) throw new Error('Expected one parsed runner');
+    expect(Object.hasOwn(runner, 'intended_reservation_id')).toBe(false);
   });
 
-  it('parses reconciled provisioned runner responses', () => {
-    const result = reconcileRunnerInstancesResponseSchema.safeParse({
+  it('keeps an explicit null field present for current responses', () => {
+    const result = reconcileRunnerInstancesResponseSchema.parse({
       runners: [
         {
           provider_runner_id: 'provisioned-runner-1',
@@ -99,6 +101,9 @@ describe('reconcileRunnerInstancesResponseSchema', () => {
       terminated_absent_provider_runner_ids: ['provisioned-runner-2'],
     });
 
-    expect(result.success).toBe(true);
+    const runner = result.runners[0];
+    if (!runner) throw new Error('Expected one parsed runner');
+    expect(Object.hasOwn(runner, 'intended_reservation_id')).toBe(true);
+    expect(runner.intended_reservation_id).toBeNull();
   });
 });
