@@ -1,6 +1,7 @@
 import {pgClient} from '@shipfox/node-postgres';
 import {vi} from '@shipfox/vitest/vi';
 import {and, eq, inArray, or, sql, sum} from 'drizzle-orm';
+import type {RunnerInstanceState} from '#core/entities/runner-instance.js';
 import {db} from '#db/db.js';
 import {
   deleteExpiredReservations,
@@ -184,15 +185,24 @@ describe('pollDemandAndReserve', () => {
     ).toHaveLength(1);
   });
 
-  it('does not charge adopted runners against later launch capacity', async () => {
+  it('does not charge adopted runners against later overlapping demand', async () => {
     const adoptedRunner = await createIdleRunner({labels: ['linux', 'gpu']});
     await createPendingJobs(1, ['linux', 'gpu']);
-    await createPendingJobs(1, ['linux']);
 
+    const firstPoll = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
+    });
+    expect(firstPoll.reservations).toEqual([]);
+
+    await createPendingJobs(1, ['linux']);
     const result = await pollDemandAndReserve({
       workspaceId,
       provisionerId,
-      maxReservations: 2,
+      maxReservations: 1,
       ttlSeconds: 60,
       templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
     });
@@ -218,6 +228,128 @@ describe('pollDemandAndReserve', () => {
     ]);
     expect(boundReservation).toMatchObject({kind: 'bound', count: 1});
     expect(storedRunner?.reservationId).toBe(boundReservation?.id);
+  });
+
+  it('deducts only pending launch units from a partially adopted reservation', async () => {
+    await createIdleRunner({labels: ['linux', 'gpu']});
+    await createIdleRunner({labels: ['linux', 'gpu']});
+    await createPendingJobs(3, ['linux', 'gpu']);
+
+    const firstPoll = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 3,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 3)],
+    });
+    expect(firstPoll.reservations).toEqual([expect.objectContaining({count: 1})]);
+
+    await createPendingJobs(1, ['linux']);
+    const secondPoll = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 2)],
+    });
+
+    expect(secondPoll.reservations).toEqual([
+      expect.objectContaining({labels: ['linux'], count: 1}),
+    ]);
+  });
+
+  it('deducts a launch reservation with no adopted units in full', async () => {
+    await createPendingJobs(1, ['linux', 'gpu']);
+
+    const firstPoll = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
+    });
+    expect(firstPoll.reservations).toEqual([expect.objectContaining({count: 1})]);
+
+    await createPendingJobs(1, ['linux']);
+    const secondPoll = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
+    });
+
+    expect(secondPoll.reservations).toEqual([]);
+  });
+
+  it('counts an intended runner while its reservation assignment is in flight', async () => {
+    const intendedReservation = await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux', 'gpu'],
+      intendedReservationId: intendedReservation.id,
+    });
+    await createPendingJobs(1, ['linux', 'gpu']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
+    });
+
+    expect(result.reservations).toEqual([
+      expect.objectContaining({labels: ['gpu', 'linux'], count: 1}),
+    ]);
+  });
+
+  it('deducts a released runner reservation unit as pending', async () => {
+    const reservation = await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: reservation.id,
+      reservationReleasedAt: new Date(Date.now() - 1_000),
+    });
+    await createPendingJobs(1, ['linux', 'gpu']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
+    });
+
+    expect(result.reservations).toEqual([]);
+  });
+
+  it('deducts a terminal intended runner reservation unit as pending', async () => {
+    const reservation = await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      intendedReservationId: reservation.id,
+      state: 'terminated',
+    });
+    await createPendingJobs(1, ['linux', 'gpu']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
+    });
+
+    expect(result.reservations).toEqual([]);
   });
 
   it('binds a runner whose intended reservation has passed its activation grace period', async () => {
@@ -1536,6 +1668,7 @@ describe('pollDemandAndReserve', () => {
     reservationId?: string | null;
     intendedReservationId?: string | null;
     reservationReleasedAt?: Date | null;
+    state?: RunnerInstanceState;
   }) {
     const createdAt = params.createdAt ?? new Date();
     const [runner] = await db()
@@ -1549,7 +1682,7 @@ describe('pollDemandAndReserve', () => {
         intendedReservationId: params.intendedReservationId,
         reservationReleasedAt: params.reservationReleasedAt,
         labels: params.labels,
-        state: 'running',
+        state: params.state ?? 'running',
         reportedAt: createdAt,
         createdAt,
         updatedAt: createdAt,
