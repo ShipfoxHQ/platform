@@ -6,12 +6,14 @@ import {
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
+import {processIntegrationSecretCleanups} from '#core/secret-cleanup.js';
 import {
   deleteIntegrationConnection,
   getIntegrationConnectionById,
   updateIntegrationConnectionLifecycleStatus,
 } from '#db/connections.js';
 import {db} from '#db/db.js';
+import {enqueueIntegrationSecretCleanup} from '#db/secret-cleanups.js';
 import {toIntegrationConnectionDto} from '#presentation/dto/integrations.js';
 
 const connectionParamsSchema = z.object({
@@ -96,6 +98,7 @@ export function createDeleteIntegrationConnectionRoute(registry: IntegrationProv
         }
         await db().transaction(async (tx) => {
           await provider?.deleteConnectionRecords?.(connection, {tx});
+          await enqueueIntegrationSecretCleanup({connection}, {tx});
           await deleteIntegrationConnection({id: connection.id}, {tx});
         });
         try {
@@ -107,8 +110,14 @@ export function createDeleteIntegrationConnectionRoute(registry: IntegrationProv
           );
         }
         try {
-          await provider?.deleteConnectionSecrets?.(connection);
+          await processIntegrationSecretCleanups({
+            registry,
+            connectionId: connection.id,
+            connection,
+            limit: 1,
+          });
         } catch (error) {
+          // The durable cleanup row survives, so a later sweep retries this connection.
           request.log.error(
             {connectionId: connection.id, provider: connection.provider, err: error},
             'Integration connection secret cleanup failed after connection deletion',

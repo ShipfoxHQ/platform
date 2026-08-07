@@ -1,4 +1,7 @@
+import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
+import {processIntegrationSecretCleanups} from '#core/secret-cleanup.js';
 import {getIntegrationConnectionById, upsertIntegrationConnection} from '#db/connections.js';
+import {listIntegrationSecretCleanups} from '#db/secret-cleanups.js';
 import {createTestApp, sourceProvider, useIntegrationRouteTest} from '#test/route-utils.js';
 
 describe('PATCH /integration-connections/:connectionId', () => {
@@ -363,6 +366,73 @@ describe('DELETE /integration-connections/:connectionId', () => {
 
     expect(res.statusCode).toBe(204);
     await expect(getIntegrationConnectionById(connection.id)).resolves.toBeUndefined();
+    await expect(
+      listIntegrationSecretCleanups({connectionId: connection.id}),
+    ).resolves.toMatchObject([
+      {
+        provider: 'slack',
+        connectionId: connection.id,
+        attemptCount: 1,
+        leaseToken: null,
+      },
+    ]);
+  });
+
+  it('retries provider secret cleanup from a durable post-commit record', async () => {
+    const deleteConnectionSecrets = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error('transient cleanup failure'))
+      .mockResolvedValue(undefined);
+    const provider = sourceProvider({
+      provider: 'slack',
+      displayName: 'Slack',
+      adapters: {},
+      deleteConnectionSecrets,
+    });
+    const app = await createTestApp([provider]);
+    const connection = await upsertIntegrationConnection({
+      workspaceId: context.workspaceId,
+      provider: 'slack',
+      externalAccountId: 'T123',
+      slug: 'slack_acme',
+      displayName: 'Slack Acme',
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    const pending = await listIntegrationSecretCleanups({connectionId: connection.id});
+    expect(res.statusCode).toBe(204);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      workspaceId: context.workspaceId,
+      provider: 'slack',
+      connectionId: connection.id,
+      attemptCount: 1,
+      leaseToken: null,
+    });
+
+    const result = await processIntegrationSecretCleanups({
+      registry: createIntegrationProviderRegistry([provider]),
+      connectionId: connection.id,
+      now: new Date(Date.now() + 5 * 60 * 1_000),
+      limit: 1,
+    });
+
+    expect(result).toEqual({
+      claimed: 1,
+      completed: 1,
+      failed: 0,
+      unavailable: 0,
+      unacknowledged: 0,
+    });
+    await expect(listIntegrationSecretCleanups({connectionId: connection.id})).resolves.toEqual([]);
+    expect(deleteConnectionSecrets).toHaveBeenCalledTimes(2);
+    expect(deleteConnectionSecrets).toHaveBeenNthCalledWith(1, connection);
+    expect(deleteConnectionSecrets).toHaveBeenNthCalledWith(2, connection);
   });
 
   it('deletes an unregistered provider connection without provider cleanup', async () => {

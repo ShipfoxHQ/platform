@@ -6,7 +6,9 @@ import {
 } from '@shipfox/api-auth-context';
 import {type AuthMethod, ClientError, closeApp, createApp} from '@shipfox/node-fastify';
 import {afterEach, beforeEach} from '@shipfox/vitest/vi';
+import {sql} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
+import {db} from '#db/db.js';
 import {createIntegrationsModule, type IntegrationProvider} from '#index.js';
 
 let authenticatedMemberships: UserContextMembership[] = [];
@@ -95,6 +97,7 @@ export function useIntegrationRouteTest() {
 
   afterEach(async () => {
     await closeApp();
+    await db().execute(sql`TRUNCATE integrations_secret_cleanups CASCADE`);
   });
 
   return {

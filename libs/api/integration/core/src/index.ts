@@ -267,12 +267,17 @@ export async function createIntegrationsContext(
       {
         taskQueue: INTEGRATIONS_MAINTENANCE_TASK_QUEUE,
         workflowsPath: maintenanceWorkflowsPath,
-        activities: createIntegrationsMaintenanceActivities,
+        activities: () => createIntegrationsMaintenanceActivities({registry}),
         workflows: [
           {
             name: 'pruneWebhookDeliveriesCron',
             id: 'integrations-prune-webhook-deliveries',
             cronSchedule: '0 3 * * *',
+          },
+          {
+            name: 'cleanupIntegrationSecretsCron',
+            id: 'integrations-cleanup-secret-namespaces',
+            cronSchedule: '*/5 * * * *',
           },
         ],
       },
