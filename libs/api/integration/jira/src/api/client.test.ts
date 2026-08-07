@@ -100,7 +100,7 @@ describe('Jira dynamic webhook API', () => {
     mocks.warn.mockReset();
   });
 
-  it('registers the six curated events with the access token', async () => {
+  it('sends the six curated events with the configured JQL filter', async () => {
     mocks.post.mockReturnValue(
       resolves({webhookRegistrationResult: [{createdWebhookId: 123, errors: []}]}),
     );
@@ -130,7 +130,7 @@ describe('Jira dynamic webhook API', () => {
             'comment_updated',
             'comment_deleted',
           ],
-          jqlFilter: '',
+          jqlFilter: 'project != null',
         },
       ],
     });

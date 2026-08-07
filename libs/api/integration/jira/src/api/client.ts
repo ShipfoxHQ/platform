@@ -8,7 +8,8 @@ const JIRA_API_TIMEOUT_MS = 10_000;
 const SCOPE_SEPARATOR_RE = /[,\s]+/;
 const TRAILING_SLASHES_RE = /\/+$/;
 export const JIRA_DYNAMIC_WEBHOOK_EVENTS = jiraWebhookEventNames;
-export const JIRA_DYNAMIC_WEBHOOK_JQL = '';
+// Jira rejects an empty dynamic-webhook filter; every issue belongs to a project.
+export const JIRA_DYNAMIC_WEBHOOK_JQL = 'project != null';
 
 export interface JiraAuthorization {
   accessToken: string;
