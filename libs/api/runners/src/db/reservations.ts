@@ -187,6 +187,8 @@ function consumeInstallationTemplateSlots(
   templates: NormalizedTemplate[],
   launchGrants: ReservationGrant[],
 ): void {
+  // Adopted runners are already included in the running count behind availableSlots.
+  // Only units that still need a launch consume advertised template capacity.
   for (const reservation of launchGrants) {
     const satisfyingTemplates = templates
       .filter((template) => isSubset(reservation.labels, template.labels))

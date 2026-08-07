@@ -527,9 +527,9 @@ describe('pollDemandAndReserve', () => {
   });
 
   it.each([
-    ['template capacity', 5, 2],
-    ['global reservation budget', 2, 5],
-  ])('counts rebound installation capacity against the %s', async (_case, maxReservations, availableSlots) => {
+    ['template capacity', 5, 2, 2],
+    ['global reservation budget', 2, 5, 1],
+  ])('does not overcount rebound units for the %s case', async (_case, maxReservations, availableSlots, expectedLaunchCount) => {
     const reboundWorkspaceId = crypto.randomUUID();
     const launchWorkspaceId = crypto.randomUUID();
     await pendingJobFactory.create({
@@ -568,12 +568,16 @@ describe('pollDemandAndReserve', () => {
       .from(reservations)
       .where(eq(reservations.provisionerId, provisionerId));
     expect(result.reservations).toEqual([
-      expect.objectContaining({workspaceId: launchWorkspaceId, count: 1}),
+      expect.objectContaining({workspaceId: launchWorkspaceId, count: expectedLaunchCount}),
     ]);
     expect(storedReservations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({workspaceId: reboundWorkspaceId, kind: 'bound', count: 1}),
-        expect.objectContaining({workspaceId: launchWorkspaceId, kind: 'launch', count: 1}),
+        expect.objectContaining({
+          workspaceId: launchWorkspaceId,
+          kind: 'launch',
+          count: expectedLaunchCount,
+        }),
       ]),
     );
   });
