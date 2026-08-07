@@ -1,9 +1,8 @@
 # @shipfox/provisioner-ec2-provider
 
-The EC2 provider scaffold for the Shipfox provisioner. It currently loads and validates
-EC2 template configuration for the provider-agnostic
-[`@shipfox/provisioner-core`](../core) control loop. The EC2 engine, lifecycle, and app
-wiring land in later issues.
+The EC2 provider loads and validates template configuration, runs the EC2 lifecycle, and
+reports capacity through the provider-agnostic [`@shipfox/provisioner-core`](../core)
+control loop.
 
 ## Public API
 
@@ -119,3 +118,15 @@ The provider reads the shared provisioner variables plus these EC2-specific vari
 The API clamps the requested reservation lifetime to its own `RESERVATION_TTL_MAX_SECONDS`
 ceiling and does not report the clamp. Raising the registration deadline past that ceiling
 therefore shortens the reservation relative to the deadline: raise both together.
+
+## Behavior notes
+
+Search for `Observed EC2 runner instance termination` to find one terminal log per AWS
+instance ID. The provider keeps the marker while AWS lists the instance, and for one
+hour after a listing gap.
+The provider reports non-terminal states on every observation.
+When the provider terminates an instance, it reports `terminated` with either
+`backend-terminate` or `registration-deadline`.
+Stopped instances remain eligible for termination. Shutting-down and terminated
+instances do not trigger another AWS termination call.
+The in-memory marker resets when the provider restarts.
