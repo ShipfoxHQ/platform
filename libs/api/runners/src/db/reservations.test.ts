@@ -1920,13 +1920,23 @@ async function waitForLockWait(params: {blockingPid: number; minWaiters?: number
   while (Date.now() < deadline) {
     const result = await pgClient().query<{count: number}>(
       `
-        SELECT count(*)::int AS count
-        FROM pg_stat_activity
-        WHERE datname = current_database()
-          AND pid <> pg_backend_pid()
-          AND state = 'active'
-          AND wait_event_type = 'Lock'
-          AND $1::int = ANY(pg_blocking_pids(pid))
+        WITH RECURSIVE lock_waiters(waiter_pid, blocker_pid, path) AS (
+          SELECT activity.pid, blockers.blocker_pid, ARRAY[activity.pid, blockers.blocker_pid]
+          FROM pg_stat_activity AS activity
+          CROSS JOIN LATERAL unnest(pg_blocking_pids(activity.pid)) AS blockers(blocker_pid)
+          WHERE activity.datname = current_database()
+            AND activity.pid <> pg_backend_pid()
+            AND activity.state = 'active'
+            AND activity.wait_event_type = 'Lock'
+          UNION ALL
+          SELECT waiters.waiter_pid, blockers.blocker_pid, waiters.path || blockers.blocker_pid
+          FROM lock_waiters AS waiters
+          CROSS JOIN LATERAL unnest(pg_blocking_pids(waiters.blocker_pid)) AS blockers(blocker_pid)
+          WHERE NOT (blockers.blocker_pid = ANY(waiters.path))
+        )
+        SELECT count(DISTINCT waiter_pid)::int AS count
+        FROM lock_waiters
+        WHERE blocker_pid = $1::int
       `,
       [params.blockingPid],
     );

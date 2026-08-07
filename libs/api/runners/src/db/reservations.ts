@@ -570,12 +570,7 @@ async function selectIdleRunnerInstancesTx(
     return await tx
       .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
       .from(providerRunners)
-      .where(
-        and(
-          inArray(providerRunners.id, params.runnerIds),
-          isBindableRunner(tx, params),
-        ),
-      )
+      .where(and(inArray(providerRunners.id, params.runnerIds), isBindableRunner(tx, params)))
       .orderBy(asc(providerRunners.createdAt), asc(providerRunners.id))
       .limit(params.count);
   }
@@ -605,12 +600,7 @@ async function selectIdleRunnerInstancesTx(
             const [runner] = await lockTx
               .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
               .from(providerRunners)
-              .where(
-                and(
-                  eq(providerRunners.id, candidate.id),
-                  isBindableRunner(lockTx, params),
-                ),
-              )
+              .where(and(eq(providerRunners.id, candidate.id), isBindableRunner(lockTx, params)))
               .for('update');
             if (runner) lockedRunners.push(runner);
           }
@@ -663,12 +653,7 @@ async function bindIdleRunnerInstancesTx(
       assignedAt: sql`now()`,
       updatedAt: sql`now()`,
     })
-    .where(
-      and(
-        inArray(providerRunners.id, idleRunnerIds),
-        isBindableRunner(tx, params),
-      ),
-    )
+    .where(and(inArray(providerRunners.id, idleRunnerIds), isBindableRunner(tx, params)))
     .returning({id: providerRunners.id, launchKind: providerRunners.launchKind});
 
   if (boundRunners.length !== params.idleRunners.length)
