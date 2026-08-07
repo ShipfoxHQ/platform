@@ -74,9 +74,9 @@ export function JobStatusStrip({jobs, className}: JobStatusStripProps) {
         <span
           role="img"
           aria-label={summary}
-          className={cn('inline-flex items-center gap-3', className)}
+          className={cn('inline-flex items-center gap-[3px]', className)}
         >
-          <span aria-hidden="true" className="inline-flex items-center gap-3">
+          <span aria-hidden="true" className="inline-flex items-center gap-[3px]">
             {visible.map((job) => (
               <WorkflowStatusIcon
                 key={job.id}
@@ -89,7 +89,7 @@ export function JobStatusStrip({jobs, className}: JobStatusStripProps) {
               />
             ))}
             {hiddenCount > 0 && overflowStatus ? (
-              <span className="inline-flex items-center gap-2">
+              <span className="inline-flex items-center gap-[2px]">
                 <WorkflowStatusIcon
                   status={overflowStatus}
                   size={GLYPH_SIZE}
@@ -127,17 +127,17 @@ function JobStatusStripTooltip({jobs, summary}: {jobs: WorkflowRunJobs; summary:
   const remaining = notableTotal - named.length;
 
   return (
-    <span className="block max-w-[280px]">
+    <span className="flex max-w-[280px] flex-col gap-tight">
       <Text as="span" size="xs" className="block">
         {summary}
       </Text>
       {named.map((job) => (
-        <Code as="span" variant="label" key={job.id} className="mt-2 block truncate">
+        <Code as="span" variant="label" key={job.id} className="block truncate">
           {getWorkflowStatusVisual(job.status).label.toLowerCase()} · {job.name ?? job.key}
         </Code>
       ))}
       {remaining > 0 ? (
-        <Text as="span" size="xs" className="mt-2 block text-foreground-neutral-muted">
+        <Text as="span" size="xs" className="block text-foreground-neutral-muted">
           and {remaining} more
         </Text>
       ) : null}

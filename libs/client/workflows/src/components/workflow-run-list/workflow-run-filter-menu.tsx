@@ -65,7 +65,7 @@ export function WorkflowRunFilterMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-[320px] w-[240px] overflow-y-auto">
         {options.length === 0 ? (
-          <Text as="p" size="xs" className="px-8 py-6 text-foreground-neutral-muted">
+          <Text as="p" size="xs" className="px-tight py-[6px] text-foreground-neutral-muted">
             {emptyMessage}
           </Text>
         ) : (

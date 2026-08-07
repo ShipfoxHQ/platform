@@ -106,7 +106,7 @@ export function JobNode({
       onPointerEnter={onHoverStart}
       onPointerLeave={onHoverEnd}
       className={cn(
-        'group relative flex h-48 w-208 cursor-pointer items-center gap-8 rounded-8 bg-background-neutral-base px-10 text-left shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none',
+        'group relative flex h-48 w-208 cursor-pointer items-center gap-inline rounded-8 bg-background-neutral-base px-[10px] text-left shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none',
         selected && 'bg-background-components-hover hover:bg-background-components-pressed',
         node.carriedOver && 'opacity-[0.55]',
       )}
@@ -117,7 +117,7 @@ export function JobNode({
           className="absolute inset-y-6 left-0 w-px rounded-full bg-border-highlights-interactive"
         />
       ) : null}
-      <div className="flex min-w-0 flex-1 items-center gap-8">
+      <div className="flex min-w-0 flex-1 items-center gap-inline">
         <WorkflowStatusIcon status={status} size={14} />
         <JobLabel label={node.displayName} />
       </div>
@@ -136,7 +136,7 @@ function ExecutionCountText({executions}: {executions: JobExecution[]}) {
       <TooltipTrigger asChild>
         <span
           aria-hidden="true"
-          className="inline-flex h-20 min-w-28 shrink-0 items-center justify-end gap-4 text-foreground-neutral-subtle"
+          className="inline-flex h-20 min-w-28 shrink-0 items-center justify-end gap-tight text-foreground-neutral-subtle"
         >
           <Icon name="loopRightLine" className="size-12" />
           <Code as="span" variant="label" className="text-current">

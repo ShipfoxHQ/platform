@@ -199,6 +199,7 @@ describe('client-architecture Biome plugins', () => {
         '**/libs/client/runners/**',
         '**/libs/client/projects/**',
         '**/libs/client/agent/**',
+        '**/libs/client/workflows/**',
         '!**/dist/**',
         '!**/node_modules/**',
         '!**/*.test.ts',

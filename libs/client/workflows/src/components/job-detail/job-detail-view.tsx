@@ -236,7 +236,7 @@ export function JobDetailView({
             attempt={newerAttempt}
           />
         ) : null}
-        <div ref={pageScrollRef} className="@container min-h-0 flex-1 overflow-auto pb-24">
+        <div ref={pageScrollRef} className="@container min-h-0 flex-1 overflow-auto pb-panel">
           <section aria-label={`${job.displayName} logs`} className="flex w-full flex-col">
             <section className="min-w-0 overflow-hidden">
               <JobDetailHeader
@@ -299,7 +299,7 @@ export function JobDetailView({
               <div
                 role="status"
                 aria-live="polite"
-                className="flex min-w-0 items-center justify-between gap-8 border-t border-border-neutral-base px-16 py-8"
+                className="flex min-w-0 items-center justify-between gap-inline border-t border-border-neutral-base px-row py-row"
               >
                 <Text size="xs" className="min-w-0 text-foreground-neutral-muted">
                   Run moved on to{' '}
@@ -310,7 +310,7 @@ export function JobDetailView({
                 </Text>
                 <button
                   type="button"
-                  className="shrink-0 rounded-4 px-6 py-4 text-xs font-medium text-foreground-highlight-interactive outline-none focus-visible:shadow-border-interactive-with-active"
+                  className="shrink-0 rounded-4 px-tight py-[4px] text-xs font-medium text-foreground-highlight-interactive outline-none focus-visible:shadow-border-interactive-with-active"
                   onClick={retargetToRunningStep}
                 >
                   Jump to it
@@ -318,7 +318,7 @@ export function JobDetailView({
               </div>
             ) : null}
             {succeededSummary ? (
-              <Text size="xs" className="px-16 py-8 text-foreground-neutral-muted">
+              <Text size="xs" className="px-row py-row text-foreground-neutral-muted">
                 {succeededSummary}
               </Text>
             ) : null}
@@ -361,7 +361,7 @@ function EmptyStateForMissingExecution({job}: {job: Job}) {
   const emptyState = emptyStateForMissingExecution(job);
   return (
     <EmptyState
-      className="min-h-120 px-16 py-20"
+      className="min-h-120 p-panel"
       icon="componentLine"
       title={emptyState.title}
       description={emptyState.description}
@@ -382,7 +382,7 @@ function JobNotFoundState({
   search: WorkflowJobSearch;
 }) {
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-12 p-24">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-cluster p-panel">
       <EmptyState
         icon="componentLine"
         title="Job not found"
@@ -397,7 +397,7 @@ function JobNotFoundState({
             {runAttempt: search.runAttempt},
           ) as never
         }
-        className="inline-flex items-center gap-6 rounded-6 px-8 py-6 text-sm text-foreground-highlight-interactive outline-none focus-visible:shadow-border-interactive-with-active"
+        className="inline-flex items-center gap-inline rounded-6 px-tight py-[6px] text-sm text-foreground-highlight-interactive outline-none focus-visible:shadow-border-interactive-with-active"
       >
         <Icon name="arrowLeftLine" size={14} aria-hidden="true" />
         Back to run summary
@@ -420,8 +420,8 @@ function NewerAttemptNotice({
   attempt: number;
 }) {
   return (
-    <div role="status" className="border-b border-border-neutral-base px-16 py-8">
-      <div className="flex items-center justify-between gap-8">
+    <div role="status" className="border-b border-border-neutral-base px-row py-row">
+      <div className="flex items-center justify-between gap-inline">
         <Text size="xs" className="text-foreground-neutral-muted">
           A newer run attempt is available.
         </Text>
@@ -429,7 +429,7 @@ function NewerAttemptNotice({
           to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId/jobs/$jobId"
           params={{workspaceSlug, projectSlug, workflowRunId: runId, jobId}}
           search={workflowJobSearchParams({runAttempt: attempt}) as never}
-          className="shrink-0 rounded-4 px-6 py-4 text-xs font-medium text-foreground-highlight-interactive outline-none focus-visible:shadow-border-interactive-with-active"
+          className="shrink-0 rounded-4 px-tight py-[4px] text-xs font-medium text-foreground-highlight-interactive outline-none focus-visible:shadow-border-interactive-with-active"
         >
           View attempt #{attempt}
         </Link>
@@ -475,19 +475,19 @@ function annotationCountForStep(
 
 function JobDetailSkeleton() {
   return (
-    <div className="min-h-0 min-w-0 flex-1 overflow-auto pb-24">
+    <div className="min-h-0 min-w-0 flex-1 overflow-auto pb-panel">
       <div className="w-full">
-        <header className="flex items-center gap-12 border-b border-border-neutral-base px-16 py-12">
+        <header className="flex items-center gap-cluster border-b border-border-neutral-base px-row py-row">
           <Skeleton className="size-20 rounded-full" />
           <Skeleton className="h-20 w-160 rounded-4" />
           <Skeleton className="h-24 w-72 rounded-6" />
           <Skeleton className="h-24 w-180 rounded-4" />
         </header>
-        <div className="p-16">
+        <div className="p-panel-compact">
           {JOB_DETAIL_SKELETON_ROWS.map((row) => (
             <div
               key={row}
-              className="flex min-h-44 items-center gap-8 border-b border-border-neutral-base last:border-b-0"
+              className="flex min-h-44 items-center gap-inline border-b border-border-neutral-base last:border-b-0"
             >
               <Skeleton className="size-14 rounded-full" />
               <Skeleton className="h-16 w-180 rounded-4" />

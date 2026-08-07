@@ -9,10 +9,10 @@ export function WorkflowRunSkeleton() {
   return (
     <section
       aria-label="Loading workflow run"
-      className="bg-background-neutral-background px-16 py-12"
+      className="bg-background-neutral-background px-row py-row"
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-x-12 gap-y-8">
-        <div className="flex min-w-0 items-center gap-8">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-cluster gap-y-inline">
+        <div className="flex min-w-0 items-center gap-inline">
           <Skeleton className="size-8 rounded-full" />
           <Skeleton className="h-24 w-180 rounded-6" />
         </div>
@@ -35,7 +35,7 @@ export function WorkflowRunContentSkeleton() {
   return (
     <section
       aria-label="Loading workflow run content"
-      className="min-h-160 rounded-8 border border-border-neutral-base bg-background-components-base p-16"
+      className="min-h-160 rounded-8 border border-border-neutral-base bg-background-components-base p-panel-compact"
     >
       <Skeleton className="h-160 w-full rounded-6" />
     </section>
@@ -59,9 +59,9 @@ export function WorkflowRunNotFound() {
  */
 export function WorkflowRunStaleError({query}: {query: QueryLoadErrorQuery}) {
   return (
-    <div className="border-b border-border-neutral-base p-8">
+    <div className="border-b border-border-neutral-base p-tight">
       <Callout role="alert" type="error">
-        <div className="flex items-center justify-between gap-8">
+        <div className="flex items-center justify-between gap-inline">
           <Text size="xs">Could not refresh this run.</Text>
           <Button
             type="button"

@@ -12,6 +12,7 @@ import type {JobGraphSelectionSource} from './types.js';
 const NODE_WIDTH = 208;
 const NODE_HEIGHT = 48;
 const COLUMN_GAP = 64;
+/** Fixed graph spacing shared by the DOM rows and the edge geometry below. */
 const ROW_GAP = 20;
 const TRIGGER_WIDTH = 36;
 const PADDING = 16;
@@ -36,7 +37,7 @@ export function JobGraphContent({
   if (model.nodes.length === 0) {
     return (
       <EmptyState
-        className="min-h-160 px-16 py-24"
+        className="min-h-160 p-panel"
         icon="componentLine"
         title="No jobs yet"
         description="This run has not materialized jobs."
@@ -93,8 +94,8 @@ export function JobGraphContent({
           {model.columns.map((column, columnIndex) => (
             <div
               key={column.map((node) => node.id).join(':')}
-              className="absolute flex flex-col gap-20"
-              style={{left: jobLeft(columnIndex), top: PADDING}}
+              className="absolute flex flex-col"
+              style={{left: jobLeft(columnIndex), top: PADDING, rowGap: ROW_GAP}}
             >
               {column.map((node) => (
                 <JobNode

@@ -24,7 +24,7 @@ export function AgentConfigFailureCallout({
     <Alert
       variant="warning"
       animated={false}
-      className="rounded-none border-x-0 border-t-0 border-b border-tag-warning-border bg-transparent px-0 py-8"
+      className="rounded-none border-x-0 border-t-0 border-b border-tag-warning-border bg-transparent px-0 py-row"
     >
       <AlertContent>
         <AlertTitle>{copy.title}</AlertTitle>

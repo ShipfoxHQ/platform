@@ -45,10 +45,10 @@ export function JobDetailHeader({
   const jobStatus = getWorkflowStatusVisual(selectedStatus);
 
   return (
-    <header className="border-b border-border-neutral-base px-16 py-12">
-      <div className="flex min-w-0 items-start justify-between gap-12">
-        <div className="flex min-w-0 flex-col gap-8">
-          <div className="flex min-w-0 items-center gap-8">
+    <header className="border-b border-border-neutral-base px-row py-row">
+      <div className="flex min-w-0 items-start justify-between gap-cluster">
+        <div className="flex min-w-0 flex-col gap-inline">
+          <div className="flex min-w-0 items-center gap-inline">
             <WorkflowStatusIcon
               status={selectedStatus}
               size={14}
@@ -68,7 +68,7 @@ export function JobDetailHeader({
           </div>
 
           {selectedJobExecution || annotationSummary?.total ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-10 text-foreground-neutral-muted">
+            <div className="flex min-w-0 flex-wrap items-center gap-inline text-foreground-neutral-muted">
               {selectedJobExecution && job.executionCountVisible ? (
                 <JobExecutionSwitcher
                   job={job}
@@ -122,7 +122,7 @@ function JobDurationMeta({execution, kind}: {execution: JobExecution; kind: 'que
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="inline-flex items-center gap-4 whitespace-nowrap font-code text-xs leading-20 tabular-nums">
+        <span className="inline-flex items-center gap-tight whitespace-nowrap font-code text-xs leading-20 tabular-nums">
           <Icon
             name={kind === 'queue' ? 'hourglassLine' : 'timerLine'}
             size={12}

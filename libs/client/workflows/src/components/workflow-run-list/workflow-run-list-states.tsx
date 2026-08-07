@@ -24,7 +24,7 @@ export function WorkflowRunListSkeleton() {
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: skeleton row, stable position
           key={index}
-          className="flex items-center gap-10 px-12 py-8 @min-[976px]:h-44 @min-[976px]:py-0"
+          className="flex items-center gap-inline px-row py-row @min-[976px]:h-44 @min-[976px]:py-0"
         >
           <Skeleton className="size-14 shrink-0 rounded-full" />
           <Skeleton className="h-12 w-[220px] max-w-[40%]" />
@@ -44,9 +44,9 @@ export function WorkflowRunListSkeleton() {
  */
 export function WorkflowRunListStaleError({query}: {query: QueryLoadErrorQuery}) {
   return (
-    <div className="pb-8">
+    <div className="pb-[8px]">
       <Callout role="alert" type="error">
-        <div className="flex items-center justify-between gap-8">
+        <div className="flex items-center justify-between gap-inline">
           <Text size="xs">Could not refresh workflow runs.</Text>
           <Button
             type="button"
@@ -116,7 +116,7 @@ export function WorkflowRunListNoMatches({
   onLoadMore?: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-inline">
       {isFetchNextPageError ? (
         <Callout role="alert" type="error">
           Could not load more workflow runs. Try again to continue searching older runs.
@@ -131,7 +131,7 @@ export function WorkflowRunListNoMatches({
             : 'No run matches these filters.'
         }
         action={
-          <div className="flex flex-wrap justify-center gap-8">
+          <div className="flex flex-wrap justify-center gap-inline">
             {hasNextPage && onLoadMore ? (
               <Button
                 type="button"
@@ -167,7 +167,7 @@ export function WorkflowRunListLoadMore({
   if (!hasNextPage || !onLoadMore) return null;
 
   return (
-    <div className="flex flex-col items-center gap-8 border-t border-border-neutral-base py-12">
+    <div className="flex flex-col items-center gap-inline border-t border-border-neutral-base py-row">
       {isFetchNextPageError ? (
         <Callout role="alert" type="error">
           Could not load more workflow runs. Try again.

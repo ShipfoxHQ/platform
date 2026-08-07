@@ -44,7 +44,7 @@ export function JobExecutionSwitcher({
     return (
       <div
         className={cn(
-          'flex min-w-0 items-center gap-6 text-sm leading-20 text-foreground-neutral-subtle',
+          'flex min-w-0 items-center gap-inline text-sm leading-20 text-foreground-neutral-subtle',
           className,
         )}
       >
@@ -59,8 +59,8 @@ export function JobExecutionSwitcher({
         className={cn(
           'inline-flex min-w-0 max-w-full items-center rounded-6 text-left transition-colors focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
           variant === 'title'
-            ? '-mx-6 -my-4 gap-8 px-6 py-4 hover:bg-background-components-hover'
-            : 'min-h-28 gap-6 px-8 py-4 text-sm leading-20 text-foreground-neutral-subtle hover:bg-background-components-hover',
+            ? '-mx-inline -my-[4px] gap-inline px-tight py-[4px] hover:bg-background-components-hover'
+            : 'min-h-28 gap-inline px-tight py-[4px] text-sm leading-20 text-foreground-neutral-subtle hover:bg-background-components-hover',
           className,
         )}
         aria-label={`Switch job execution, currently execution ${selected.sequence}: ${selected.displayName}`}
@@ -141,7 +141,7 @@ function executionAccessibleLabel(execution: JobExecution): string {
 
 function TitleExecutionSummary({execution}: {execution: JobExecution}) {
   return (
-    <span className="flex min-w-0 items-center gap-8">
+    <span className="flex min-w-0 items-center gap-inline">
       <Text as="span" size="sm" bold className="shrink-0 text-foreground-neutral-base">
         #{execution.sequence}
       </Text>
@@ -156,7 +156,7 @@ function ExecutionSummary({execution}: {execution: JobExecution}) {
   const displayStatus = deriveJobExecutionDisplayStatus(execution);
 
   return (
-    <span className="flex min-w-0 items-center gap-6">
+    <span className="flex min-w-0 items-center gap-inline">
       <WorkflowStatusIcon status={displayStatus} size={14} tooltip={false} />
       <span className="shrink-0 font-code text-xs leading-20 text-foreground-neutral-base tabular-nums">
         Execution #{execution.sequence}

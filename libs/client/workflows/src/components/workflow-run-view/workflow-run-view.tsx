@@ -348,7 +348,7 @@ function RunViewContent({
               highlightedLineRange={highlightedLineRange}
             />
           ) : (
-            <div className="min-h-0 flex-1 overflow-auto p-24">{loadingOrError}</div>
+            <div className="min-h-0 flex-1 overflow-auto p-panel">{loadingOrError}</div>
           )}
         </div>
       </div>
@@ -391,8 +391,11 @@ function RunSectionContent({
 }) {
   if (section === 'summary') {
     return (
-      <section aria-label="All jobs summary" className="min-h-0 flex-1 overflow-auto pb-24 pt-16">
-        <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 px-24">
+      <section
+        aria-label="All jobs summary"
+        className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
+      >
+        <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-group px-frame">
           <Text as="h2" className="sr-only">
             All jobs summary
           </Text>
@@ -424,8 +427,11 @@ function RunSectionContent({
   }
 
   return (
-    <section aria-label="Workflow source" className="min-h-0 flex-1 overflow-auto pb-24 pt-16">
-      <div className="mx-auto flex min-h-full w-full max-w-[1120px] flex-col px-24">
+    <section
+      aria-label="Workflow source"
+      className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
+    >
+      <div className="mx-auto flex min-h-full w-full max-w-[1120px] flex-col px-frame">
         <Text as="h2" className="sr-only">
           Workflow source
         </Text>
@@ -516,12 +522,15 @@ function RunAnnotationsSection({
   );
 
   return (
-    <section aria-label="Run annotations" className="min-h-0 flex-1 overflow-auto pb-24 pt-16">
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 px-24">
+    <section
+      aria-label="Run annotations"
+      className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
+    >
+      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-group px-frame">
         <Text as="h2" className="sr-only">
           Annotations
         </Text>
-        <div className="flex flex-wrap items-center justify-between gap-8">
+        <div className="flex flex-wrap items-center justify-between gap-inline">
           <RunAnnotationSummaryLine
             summary={annotationSummary}
             workspaceSlug={workspaceSlug}
@@ -657,11 +666,11 @@ function RunWorkspaceNavSkeleton() {
   return (
     <aside
       aria-label="Loading run navigation"
-      className="hidden w-240 shrink-0 border-r border-border-neutral-base bg-background-neutral-background p-12 min-[768px]:block"
+      className="hidden w-240 shrink-0 border-r border-border-neutral-base bg-background-neutral-background p-panel-compact min-[768px]:block"
     >
-      <div className="flex flex-col gap-16">
+      <div className="flex flex-col gap-group">
         <div className="h-32 rounded-4 bg-background-components-subtle" />
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-inline">
           <div className="h-16 w-64 rounded-4 bg-background-components-subtle" />
           <div className="h-32 rounded-4 bg-background-components-subtle" />
           <div className="h-32 rounded-4 bg-background-components-subtle" />

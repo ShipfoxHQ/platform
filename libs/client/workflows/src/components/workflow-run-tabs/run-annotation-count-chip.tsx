@@ -45,10 +45,10 @@ export function RunAnnotationCountChip({
       search={workflowRunSearchParams(search, search) as never}
       aria-label={accessibleLabel}
       className={cn(
-        'inline-flex h-20 shrink-0 items-center gap-4 rounded-4 border px-6 font-code text-xs leading-16 tabular-nums outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active',
+        'inline-flex h-20 shrink-0 items-center gap-tight rounded-4 border px-tight font-code text-xs leading-16 tabular-nums outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active',
         // The chip stays 20px optically so it sits level with the duration metadata beside it;
         // the hit area grows to the 44px minimum only where the pointer is coarse.
-        '[@media(pointer:coarse)]:h-44 [@media(pointer:coarse)]:px-10',
+        '[@media(pointer:coarse)]:h-44 [@media(pointer:coarse)]:px-[10px]',
         severity ? SEVERITY_CHIP_TONE[severity] : 'border-border-neutral-base',
       )}
     >

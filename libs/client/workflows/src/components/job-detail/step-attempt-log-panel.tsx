@@ -100,15 +100,15 @@ export function StepAttemptLogPanel({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-8">
+    <div className="flex min-w-0 flex-col gap-inline">
       {staleError ? (
         <Callout
           role="alert"
           type="warning"
           variant="secondary"
-          className="rounded-none border-b border-border-neutral-base px-0 py-8 shadow-none"
+          className="rounded-none border-b border-border-neutral-base px-0 py-row shadow-none"
         >
-          <div className="flex min-w-0 flex-1 items-center justify-between gap-8">
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-inline">
             <Text size="xs">Could not refresh logs.</Text>
             <Button
               type="button"
@@ -144,7 +144,7 @@ function StepLogsLoadingSurface({label, className}: {label: string; className: s
 function StepLogsWaitingSurface({startedAt, className}: {startedAt: string; className: string}) {
   return (
     <div role="status" aria-label="Waiting for logs" className={className}>
-      <Text size="xs" className="px-10 py-12 text-foreground-neutral-muted">
+      <Text size="xs" className="px-tight py-row text-foreground-neutral-muted">
         Waiting for output ·{' '}
         <span className="font-code tabular-nums" aria-hidden="true">
           <JobExecutionTimeText time={{state: 'live', fromIso: startedAt}} />
@@ -184,9 +184,9 @@ function StepLogsError({retrying, onRetry}: {retrying: boolean; onRetry: () => v
       role="alert"
       type="error"
       variant="secondary"
-      className="rounded-none border-b border-border-neutral-base px-0 py-8 shadow-none"
+      className="rounded-none border-b border-border-neutral-base px-0 py-row shadow-none"
     >
-      <div className="flex min-w-0 flex-1 items-center justify-between gap-8">
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-inline">
         <Text size="xs">Could not load logs.</Text>
         <Button type="button" size="2xs" variant="secondary" isLoading={retrying} onClick={onRetry}>
           Retry

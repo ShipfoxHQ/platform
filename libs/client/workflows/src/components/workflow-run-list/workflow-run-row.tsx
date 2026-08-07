@@ -81,15 +81,15 @@ export function WorkflowRunRow({
     <>
       <WorkflowStatusIcon status={display.status} size={14} className="shrink-0" />
 
-      <div className="flex min-w-0 flex-1 flex-col gap-2 @min-[976px]:flex-row @min-[976px]:items-center @min-[976px]:gap-12">
-        <span className="flex min-w-0 items-center gap-8 @min-[976px]:flex-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-tight @min-[976px]:flex-row @min-[976px]:items-center @min-[976px]:gap-cluster">
+        <span className="flex min-w-0 items-center gap-inline @min-[976px]:flex-1">
           <Code variant="label" bold className="truncate text-foreground-neutral-base">
             {run.name}
           </Code>
           {run.number !== null ? <WorkflowRunNumberLabel run={run} /> : null}
         </span>
 
-        <span className="flex min-w-0 flex-wrap items-center gap-10 text-foreground-neutral-subtle @min-[976px]:flex-nowrap @min-[976px]:shrink-0">
+        <span className="flex min-w-0 flex-wrap items-center gap-inline text-foreground-neutral-subtle @min-[976px]:flex-nowrap @min-[976px]:shrink-0">
           {run.triggerDisplayLabel ? <TriggerLabel run={run} /> : null}
           {branch ? <BranchLabel branch={branch} isPullRequest={branch.startsWith('#')} /> : null}
           {commit ? <CommitLabel commit={commit} /> : null}
@@ -97,7 +97,7 @@ export function WorkflowRunRow({
         </span>
       </div>
 
-      <span className="flex shrink-0 items-center gap-12">
+      <span className="flex shrink-0 items-center gap-cluster">
         {/* Fixed at the strip's worst case (see MAX_VISIBLE_JOBS) so the overflow count cannot
             paint over the duration, and kept even when a run has no jobs planned yet, so the
             numerics stay in line down the list instead of stepping in and out. */}
@@ -120,7 +120,7 @@ export function WorkflowRunRow({
   // Rows run edge to edge inside the list's scroll container, which would clip the standard
   // outset focus ring, so this one is inset per the design system's focus-ring rule.
   const rowClassName =
-    'flex w-full min-w-0 items-center gap-10 px-12 py-8 text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)] focus-visible:outline-none @min-[976px]:h-44 @min-[976px]:py-0';
+    'flex w-full min-w-0 items-center gap-inline px-row py-row text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)] focus-visible:outline-none @min-[976px]:h-44 @min-[976px]:py-0';
 
   // Optimistic manual runs (temp-<uuid>) have no detail page until the canonical row
   // replaces them on the next poll, so they render non-interactively instead of as a link
@@ -164,7 +164,7 @@ function TriggerLabel({run}: {run: WorkflowRunListItem}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="flex min-w-0 max-w-[140px] items-center gap-6 outline-none">
+        <span className="flex min-w-0 max-w-[140px] items-center gap-tight outline-none">
           <TriggerSourceIcon
             provider={run.triggerProvider}
             source={run.triggerSource}
@@ -235,7 +235,7 @@ function MetadataChip({
   children: string;
 }) {
   return (
-    <span className={cn('flex min-w-0 shrink-0 items-center gap-4', className)} title={title}>
+    <span className={cn('flex min-w-0 shrink-0 items-center gap-tight', className)} title={title}>
       <Icon name={icon} className="size-12 shrink-0 text-foreground-neutral-muted" aria-hidden />
       <Code as="span" variant="label" className="min-w-0 truncate">
         {children}

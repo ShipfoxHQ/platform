@@ -38,7 +38,7 @@ describe('WorkflowRunSummary', () => {
 
     const summary = await screen.findByRole('region', {name: 'deploy-web'});
 
-    expect(summary).toHaveClass('bg-background-neutral-background', 'px-16');
+    expect(summary).toHaveClass('bg-background-neutral-background', 'px-row', 'py-row');
     expect(summary.firstElementChild).not.toHaveClass('max-w-[1120px]');
     expect(within(summary).getByRole('heading', {name: 'deploy-web'})).toBeInTheDocument();
     expect(within(summary).getAllByText('Running')).not.toHaveLength(0);
