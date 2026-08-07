@@ -72,6 +72,37 @@ describe('shouldReturn', () => {
     expect(result).toBe(false);
   });
 
+  it('returns true for a first-delivery activation-timeout intent', () => {
+    const result = shouldReturn(
+      {...emptyResult, terminateRunnerInstanceIds: ['stale-demand-runner']},
+      1,
+      1,
+      false,
+      [{providerRunnerId: 'stale-demand-runner', reason: 'activation-timeout'}],
+    );
+
+    expect(result).toBe(true);
+  });
+
+  it('returns true for a job-cancelled intent alongside a retried activation timeout', () => {
+    const result = shouldReturn(
+      {...emptyResult, terminateRunnerInstanceIds: ['stale-demand-runner', 'cancelled-runner']},
+      1,
+      1,
+      false,
+      [
+        {
+          providerRunnerId: 'stale-demand-runner',
+          reason: 'activation-timeout',
+          activationTimeoutRetry: true,
+        },
+        {providerRunnerId: 'cancelled-runner', reason: 'job-cancelled'},
+      ],
+    );
+
+    expect(result).toBe(true);
+  });
+
   it('returns true when the deadline passed', () => {
     const result = shouldReturn(emptyResult, 1, 1, true);
 

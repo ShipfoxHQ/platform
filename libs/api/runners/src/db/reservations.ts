@@ -14,7 +14,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
-import {providerRunnerActivationOutcomeCount} from '#metrics/instance.js';
+import {recordProviderRunnerActivationOutcome} from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
@@ -476,7 +476,7 @@ async function bindIdleRunnerInstancesTx(
 
   const reboundCount = boundRunners.filter((runner) => runner.launchKind === 'demand').length;
   if (reboundCount > 0)
-    providerRunnerActivationOutcomeCount.add(reboundCount, {outcome: 'rebound'});
+    recordProviderRunnerActivationOutcome({outcome: 'rebound', count: reboundCount});
 
   return boundRunners.length;
 }

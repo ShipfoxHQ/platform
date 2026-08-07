@@ -13,6 +13,7 @@ export {
   providerRunnerReconcileCallCount,
   providerRunnerTerminateIntentHonoredCount,
   providerRunnerTerminateIntentIssuedCount,
+  recordProviderRunnerActivationOutcome,
   recordRunnerActivationTokenNotIssued,
   recordRunnerReservationPromotionFailure,
   recordRunnersRateLimitCheck,

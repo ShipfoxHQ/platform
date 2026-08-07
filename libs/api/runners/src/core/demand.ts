@@ -16,9 +16,9 @@ import {
   type RunnerInstanceTerminateIntent,
 } from '#db/runner-instances.js';
 import {
-  providerRunnerActivationOutcomeCount,
   providerRunnerCountDivergenceCount,
   providerRunnerTerminateIntentIssuedCount,
+  recordProviderRunnerActivationOutcome,
 } from '#metrics/instance.js';
 
 export interface PollDemandParams {
@@ -252,8 +252,9 @@ function recordPollDemandMetrics(params: PollDemandParams, snapshot: PollDemandS
       surface: 'poll-demand',
       reason: intent.reason,
     });
-    if (intent.reason === 'activation-timeout') {
-      providerRunnerActivationOutcomeCount.add(1, {outcome: 'reaped'});
+    // Retries redeliver an intent already counted on its first emission.
+    if (intent.reason === 'activation-timeout' && !intent.activationTimeoutRetry) {
+      recordProviderRunnerActivationOutcome({outcome: 'reaped'});
     }
   }
 }

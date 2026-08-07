@@ -170,3 +170,12 @@ export function recordRunnersRateLimitCheck(params: {
 export function recordRunnersRateLimitPruneFailure(): void {
   recordMetric(() => rateLimitPruneFailureCount.add(1));
 }
+
+export function recordProviderRunnerActivationOutcome(params: {
+  outcome: 'reaped' | 'rebound';
+  count?: number;
+}): void {
+  recordMetric(() =>
+    providerRunnerActivationOutcomeCount.add(params.count ?? 1, {outcome: params.outcome}),
+  );
+}
