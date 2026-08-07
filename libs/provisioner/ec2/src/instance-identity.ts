@@ -6,6 +6,7 @@ export const SHIPFOX_TAGS = {
   runnerInstanceId: 'shipfox.runner_instance_id',
   providerRunnerId: 'shipfox.provider_runner_id',
   provisionerId: 'shipfox.provisioner_id',
+  // Immutable launch origin; the backend assignment can change when it rebinds a runner.
   reservationId: 'shipfox.reservation_id',
   templateKey: 'shipfox.template_key',
   workspaceId: 'shipfox.workspace_id',

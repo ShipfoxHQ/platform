@@ -1,5 +1,8 @@
 import {z} from 'zod';
 
+export const RESERVATION_EXPIRED_ERROR_CODE = 'reservation-expired';
+export const RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE = 'runner-instance-not-assignable';
+
 export const assignRunnerInstancesBodySchema = z
   .object({
     reservation_id: z.string().uuid(),

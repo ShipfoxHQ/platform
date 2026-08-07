@@ -82,6 +82,7 @@ export function toRunnerInstance(row: RunnerInstanceDb): RunnerInstance {
     workspaceId: row.workspaceId,
     provisionerId: row.provisionerId,
     providerRunnerId: row.providerRunnerId,
+    intendedReservationId: row.intendedReservationId,
     reservationId: row.reservationId,
     assignedAt: row.assignedAt,
     templateKey: row.templateKey,

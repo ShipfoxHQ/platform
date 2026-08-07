@@ -54,17 +54,35 @@ describe('reconcileRunnerInstancesFromDbResult', () => {
 
     expect(result[0]?.desiredIntent).toBe('terminate');
   });
+
+  it('returns the intended reservation when a runner is not assigned yet', () => {
+    const intendedReservationId = crypto.randomUUID();
+    const result = reconcileRunnerInstancesFromDbResult({
+      observedRunnerInstanceIds: ['provisioned-runner-1'],
+      observedRows: [
+        providerRunner({providerRunnerId: 'provisioned-runner-1', intendedReservationId}),
+      ],
+      boundJobExecutionsByRunnerInstanceId: new Map(),
+    });
+
+    expect(result[0]).toMatchObject({
+      reservationId: null,
+      intendedReservationId,
+    });
+  });
 });
 
 function providerRunner(params: {
   providerRunnerId: string;
   state?: 'starting' | 'running' | 'stopping' | 'stopped' | 'failed' | 'terminated';
+  intendedReservationId?: string | null;
 }) {
   return {
     id: crypto.randomUUID(),
     workspaceId: crypto.randomUUID(),
     provisionerId: crypto.randomUUID(),
     providerRunnerId: params.providerRunnerId,
+    intendedReservationId: params.intendedReservationId ?? null,
     reservationId: null,
     templateKey: 'linux',
     labels: ['linux'],

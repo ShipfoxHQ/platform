@@ -1,9 +1,13 @@
 import {
   MAX_RECONCILE_OBSERVED_RUNNERS,
+  RESERVATION_EXPIRED_ERROR_CODE,
+  type ReconcileRunnerInstancesResponseDto,
+  RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE,
   type RunnerInstanceReportEventDto,
 } from '@shipfox/api-runners-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {
+  HTTPError,
   ProviderRunnerLaunch,
   ProviderRunnerTracker,
   ProvisionerClient,
@@ -43,6 +47,8 @@ type LocallyLaunchedRunner = {
 type AssignmentCandidate = {
   reservationId: string;
   runnerInstanceId: string;
+  observedReservationId?: string;
+  canonicalReservationId?: string;
 };
 
 type TerminalReportInstanceIds = ReadonlyMap<RunnerInstanceReportEventDto, string>;
@@ -88,7 +94,8 @@ interface Ec2LifecycleContext {
   readonly pendingTerminalReportedInstanceIds: Set<string>;
   readonly terminalReportInstanceIdsByEvent: WeakMap<RunnerInstanceReportEventDto, string>;
   readonly pendingReports: RunnerInstanceReportEventDto[];
-  readonly releasedReservationRunnerIds: Map<string, Set<string>>;
+  readonly suppressedReservationRunnerIds: Map<string, Set<string>>;
+  readonly canonicalReservationIdsByRunner: Map<string, string | null>;
   lastReconciledAt?: Date;
 }
 
@@ -115,7 +122,8 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     pendingTerminalReportedInstanceIds: new Set(),
     terminalReportInstanceIdsByEvent: new WeakMap(),
     pendingReports: [],
-    releasedReservationRunnerIds: new Map(),
+    suppressedReservationRunnerIds: new Map(),
+    canonicalReservationIdsByRunner: new Map(),
   };
 
   return {
@@ -199,6 +207,7 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
       },
       'Skipping backend reconcile because observed EC2 runner count exceeds the API limit',
     );
+    context.canonicalReservationIdsByRunner.clear();
     await applyObservedInstances(context, instances, new Set());
     await reportEvents(context, []);
     return;
@@ -207,6 +216,7 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
   const response = await context.client.reconcileRunnerInstances({
     observed_provider_runner_ids: observedProviderRunnerIds,
   });
+  syncCanonicalReservationIds(context, response.runners);
   const terminateIntentIds = new Set(
     response.runners
       .filter((runner) => runner.desired_intent === 'terminate')
@@ -309,6 +319,8 @@ async function applyObservedInstances(
     if (labels.length === 0) continue;
 
     const mapped = mapInstanceState(instance);
+    const liveState =
+      mapped.state === 'starting' || mapped.state === 'running' ? mapped.state : undefined;
     const terminalObservation = mapped.state === 'failed' || mapped.state === 'terminated';
     const alreadyReportedTerminal =
       terminalObservation && hasTerminalReport(context, instance.instanceId);
@@ -331,26 +343,30 @@ async function applyObservedInstances(
       events.push(event);
       if (terminalObservation) terminalReportInstanceIds.set(event, instance.instanceId);
     }
-    if (
-      !terminationRequested &&
-      (mapped.state === 'starting' || mapped.state === 'running') &&
-      identity.runnerInstanceId &&
-      identity.reservationId
-    ) {
-      assignmentCandidates.push({
-        runnerInstanceId: identity.runnerInstanceId,
-        reservationId: identity.reservationId,
-      });
+    if (!terminationRequested && liveState && identity.runnerInstanceId) {
+      const hasCanonicalAssignment = context.canonicalReservationIdsByRunner.has(
+        identity.providerRunnerId,
+      );
+      const canonicalReservationId = context.canonicalReservationIdsByRunner.get(
+        identity.providerRunnerId,
+      );
+      const reservationId = hasCanonicalAssignment
+        ? canonicalReservationId
+        : identity.reservationId;
+      if (reservationId) {
+        assignmentCandidates.push({
+          runnerInstanceId: identity.runnerInstanceId,
+          reservationId,
+          ...(identity.reservationId ? {observedReservationId: identity.reservationId} : {}),
+          ...(canonicalReservationId ? {canonicalReservationId} : {}),
+        });
+      }
     }
-    if (
-      !terminationRequested &&
-      (mapped.state === 'starting' || mapped.state === 'running') &&
-      identity.templateKey
-    ) {
+    if (!terminationRequested && liveState && identity.templateKey) {
       trackerRunners.push({
         providerRunnerId: identity.providerRunnerId,
         templateKey: identity.templateKey,
-        state: mapped.state,
+        state: liveState,
       });
     }
   }
@@ -372,49 +388,124 @@ async function assignEnrolledReservations(
   candidates: readonly AssignmentCandidate[],
   observedRunnerInstanceIds: ReadonlySet<string>,
 ): Promise<void> {
-  pruneReleasedReservationRunners(context, observedRunnerInstanceIds);
+  pruneSuppressedReservationRunners(context, observedRunnerInstanceIds);
 
-  const assignments = new Map<string, string[]>();
-  for (const {reservationId, runnerInstanceId} of candidates) {
-    if (context.releasedReservationRunnerIds.has(reservationId)) continue;
-    const runnerInstanceIds = assignments.get(reservationId) ?? [];
-    runnerInstanceIds.push(runnerInstanceId);
-    assignments.set(reservationId, runnerInstanceIds);
+  const assignments = new Map<string, AssignmentCandidate[]>();
+  for (const candidate of candidates) {
+    const {reservationId} = candidate;
+    if (context.suppressedReservationRunnerIds.has(reservationId)) continue;
+    const assignmentCandidates = assignments.get(reservationId) ?? [];
+    assignmentCandidates.push(candidate);
+    assignments.set(reservationId, assignmentCandidates);
   }
-  for (const [reservationId, runnerInstanceIds] of assignments) {
+  for (const [reservationId, assignmentCandidates] of assignments) {
+    const runnerInstanceIds = assignmentCandidates.map((candidate) => candidate.runnerInstanceId);
     try {
       await context.client.assignRunnerInstances(reservationId, runnerInstanceIds);
     } catch (error) {
       const status = responseStatus(error);
-      const reservationWasReleased = status === 404;
-      if (reservationWasReleased) {
-        const releasedRunnerInstanceIds =
-          context.releasedReservationRunnerIds.get(reservationId) ?? new Set<string>();
-        for (const runnerInstanceId of runnerInstanceIds)
-          releasedRunnerInstanceIds.add(runnerInstanceId);
-        context.releasedReservationRunnerIds.set(reservationId, releasedRunnerInstanceIds);
+      const code = status === 409 ? responseCode(error) : undefined;
+      const disposition = assignmentFailureDisposition({status, code});
+      if (disposition.permanent) {
+        const suppressedRunnerInstanceIds =
+          context.suppressedReservationRunnerIds.get(reservationId) ?? new Set<string>();
+        for (const runnerInstanceId of runnerInstanceIds) {
+          suppressedRunnerInstanceIds.add(runnerInstanceId);
+        }
+        context.suppressedReservationRunnerIds.set(reservationId, suppressedRunnerInstanceIds);
       }
+      const observedReservationIds = uniqueReservationIds({
+        candidates: assignmentCandidates,
+        select: (candidate) => candidate.observedReservationId,
+      });
+      const canonicalReservationIds = uniqueReservationIds({
+        candidates: assignmentCandidates,
+        select: (candidate) => candidate.canonicalReservationId,
+      });
       logger().warn(
-        {reservationId, runnerInstanceIds, err: error, status, retryable: !reservationWasReleased},
-        reservationWasReleased
-          ? 'Reservation assignment stopped because reservation was released'
-          : 'Reservation assignment rejected; will retry',
+        {
+          reservationId,
+          runnerInstanceIds,
+          observedReservationIds,
+          canonicalReservationIds,
+          err: error,
+          status,
+          ...(code ? {code} : {}),
+          retryable: !disposition.permanent,
+        },
+        disposition.message,
       );
     }
   }
 }
 
-function pruneReleasedReservationRunners(
+function uniqueReservationIds(params: {
+  candidates: readonly AssignmentCandidate[];
+  select: (candidate: AssignmentCandidate) => string | undefined;
+}): string[] {
+  return [
+    ...new Set(
+      params.candidates
+        .map(params.select)
+        .filter((reservationId): reservationId is string => reservationId !== undefined),
+    ),
+  ];
+}
+
+function syncCanonicalReservationIds(
+  context: Ec2LifecycleContext,
+  runners: ReconcileRunnerInstancesResponseDto['runners'],
+): void {
+  context.canonicalReservationIdsByRunner.clear();
+  for (const runner of runners) {
+    if (!Object.hasOwn(runner, 'intended_reservation_id') && runner.reservation_id === null)
+      continue;
+    context.canonicalReservationIdsByRunner.set(
+      runner.provider_runner_id,
+      runner.reservation_id ?? runner.intended_reservation_id ?? null,
+    );
+  }
+}
+
+function pruneSuppressedReservationRunners(
   context: Ec2LifecycleContext,
   observedRunnerInstanceIds: ReadonlySet<string>,
 ): void {
-  for (const [reservationId, runnerInstanceIds] of context.releasedReservationRunnerIds) {
+  for (const [reservationId, runnerInstanceIds] of context.suppressedReservationRunnerIds) {
     for (const runnerInstanceId of runnerInstanceIds) {
       if (!observedRunnerInstanceIds.has(runnerInstanceId))
         runnerInstanceIds.delete(runnerInstanceId);
     }
-    if (runnerInstanceIds.size === 0) context.releasedReservationRunnerIds.delete(reservationId);
+    if (runnerInstanceIds.size === 0) context.suppressedReservationRunnerIds.delete(reservationId);
   }
+}
+
+function assignmentFailureDisposition(params: {
+  status: number | undefined;
+  code: string | undefined;
+}): {permanent: boolean; message: string} {
+  if (params.status === 404) {
+    return {
+      permanent: true,
+      message: 'Reservation assignment stopped because reservation was released',
+    };
+  }
+  if (params.status === 409 && params.code === RESERVATION_EXPIRED_ERROR_CODE) {
+    return {
+      permanent: true,
+      message: 'Reservation assignment stopped because reservation expired',
+    };
+  }
+  if (params.status === 409 && params.code === RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE) {
+    return {
+      permanent: false,
+      message: 'Reservation assignment rejected; will retry',
+    };
+  }
+  return {
+    permanent: false,
+    message: 'Reservation assignment rejected; will retry',
+  };
 }
 
 function pruneTerminalReportedInstances(
@@ -722,6 +813,13 @@ function responseStatus(error: unknown): number | undefined {
   if (!(error instanceof Error)) return undefined;
   const response = (error as Error & {response?: {status?: unknown}}).response;
   return typeof response?.status === 'number' ? response.status : undefined;
+}
+
+function responseCode(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const body = (error as HTTPError).data;
+  if (typeof body !== 'object' || body === null || !('code' in body)) return undefined;
+  return typeof body.code === 'string' ? body.code : undefined;
 }
 
 function truncateReason(reason: string): string {

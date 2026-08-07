@@ -60,12 +60,31 @@ describe('reconcileRunnerInstancesBodySchema', () => {
 });
 
 describe('reconcileRunnerInstancesResponseSchema', () => {
+  it('accepts responses from servers before intended reservation support', () => {
+    const result = reconcileRunnerInstancesResponseSchema.safeParse({
+      runners: [
+        {
+          provider_runner_id: 'provisioned-runner-1',
+          state: 'running',
+          reservation_id: null,
+          runner_session_id: null,
+          bound_job: null,
+          desired_intent: 'keep',
+        },
+      ],
+      terminated_absent_provider_runner_ids: [],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('parses reconciled provisioned runner responses', () => {
     const result = reconcileRunnerInstancesResponseSchema.safeParse({
       runners: [
         {
           provider_runner_id: 'provisioned-runner-1',
           state: 'running',
+          intended_reservation_id: null,
           reservation_id: crypto.randomUUID(),
           runner_session_id: crypto.randomUUID(),
           bound_job: {

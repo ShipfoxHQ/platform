@@ -2,6 +2,8 @@ import {requireProvisionerContext} from '@shipfox/api-auth-context';
 import {
   assignRunnerInstancesBodySchema,
   assignRunnerInstancesResponseSchema,
+  RESERVATION_EXPIRED_ERROR_CODE,
+  RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE,
 } from '@shipfox/api-runners-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {
@@ -24,14 +26,16 @@ export const assignRunnerInstancesRoute = defineRoute({
     if (error instanceof ReservationNotFoundError)
       throw new ClientError('Reservation not found', 'reservation-not-found', {status: 404});
     if (error instanceof ReservationExpiredError)
-      throw new ClientError('Reservation has expired', 'reservation-expired', {status: 409});
+      throw new ClientError('Reservation has expired', RESERVATION_EXPIRED_ERROR_CODE, {
+        status: 409,
+      });
     if (
       error instanceof RunnerInstanceAlreadyAssignedError ||
       error instanceof RunnerInstanceNotAssignableError
     )
       throw new ClientError(
         'Runner instance cannot be assigned',
-        'runner-instance-not-assignable',
+        RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE,
         {status: 409},
       );
     throw error;

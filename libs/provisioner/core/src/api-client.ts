@@ -7,6 +7,8 @@ import {
   type ProvisionerIdentityResponseDto,
   pollDemandResponseSchema,
   provisionerIdentityResponseSchema,
+  RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER,
+  RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE,
   type ReconcileRunnerInstancesBodyDto,
   type ReconcileRunnerInstancesResponseDto,
   type ReportRunnerInstancesBodyDto,
@@ -136,6 +138,10 @@ export function createProvisionerClient(params: {
       return withAuthMapping('reconcile runner instances', async () => {
         const response = await api.post('provisioners/runner-instances/reconcile', {
           json: body,
+          headers: {
+            [RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER]:
+              RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE,
+          },
           ...(options.signal ? {signal: options.signal} : {}),
         });
         return reconcileRunnerInstancesResponseSchema.parse(await response.json());

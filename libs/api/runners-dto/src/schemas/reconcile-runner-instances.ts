@@ -3,6 +3,9 @@ import {providerRunnerStateSchema} from './report-runner-instances.js';
 
 export const MAX_RECONCILE_OBSERVED_RUNNERS = 5000;
 export const MAX_OBSERVED_PROVIDER_RUNNER_ID_LENGTH = 255;
+export const RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER =
+  'x-shipfox-reconcile-intended-reservation';
+export const RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE = '1';
 
 export const reconcileRunnerInstancesBodySchema = z
   .object({
@@ -35,6 +38,7 @@ export const reconciledRunnerInstanceSchema = z
   .object({
     provider_runner_id: z.string(),
     state: providerRunnerStateSchema.nullable(),
+    intended_reservation_id: z.string().uuid().nullable().optional(),
     reservation_id: z.string().uuid().nullable(),
     runner_session_id: z.string().uuid().nullable(),
     bound_job: reconciledBoundJobSchema.nullable(),
