@@ -1,4 +1,3 @@
-import {stableScreenshot} from '@shipfox/e2e-kit/ui';
 import {expect, test} from './test.js';
 import {ONBOARDING_URL_RE, workspaceUrlRe} from './workspace-urls.js';
 
@@ -79,6 +78,5 @@ test.describe('workspace switching', () => {
         ONBOARDING_URL_RE,
       );
     }
-    await stableScreenshot(page, 'workspaces/returning-user-home');
   });
 });
