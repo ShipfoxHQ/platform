@@ -20,6 +20,7 @@ documentation model and other engineering sources, start with the
 | [0008: Administration controls](0008-administration-controls.md) | Accepted | Fixed instance-administrator roles, module-owned administration behavior, and suspension semantics. |
 | [0009: Client URLs and resource identity](0009-client-urls-resource-identity.md) | Accepted; amends ADR 0001 | Slug-based client URL prefixes, UUID API identities, scoped settings anchors, run-number display semantics, and composition-time route-path validation. |
 | [0010: Prose standard and enforcement](0010-prose-standard-and-enforcement.md) | Accepted | The repository prose standard, its sources, accepted divergences, and enforcement model. |
+| [0011: Semantic spacing layer](0011-semantic-spacing-layer.md) | Accepted | Semantic spacing roles, the component boundary, the sizing exclusion, and density posture. |
 
 When a decision changes, add a new ADR that supersedes or amends the earlier
 record. Keep the original record intact so readers can understand why the
