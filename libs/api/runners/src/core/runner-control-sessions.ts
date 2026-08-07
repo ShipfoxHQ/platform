@@ -56,6 +56,7 @@ export async function createRunnerInstancesWithBootstrapTokens(params: {
           providerKind: params.providerKind ?? null,
           templateKey: runner.templateKey ?? null,
           intendedReservationId: runner.reservationId ?? null,
+          launchKind: runner.reservationId ? ('demand' as const) : ('warm' as const),
           state: 'starting' as const,
           labels: [],
           reportedAt: new Date(),

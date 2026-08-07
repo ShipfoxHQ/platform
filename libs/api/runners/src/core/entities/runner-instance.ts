@@ -6,6 +6,8 @@ export type RunnerInstanceState =
   | 'failed'
   | 'terminated';
 
+export type RunnerInstanceLaunchKind = 'demand' | 'warm' | 'manual';
+
 export interface RunnerInstance {
   id: string;
   workspaceId: string | null;
@@ -13,6 +15,7 @@ export interface RunnerInstance {
   providerRunnerId: string;
   intendedReservationId: string | null;
   reservationId: string | null;
+  launchKind: RunnerInstanceLaunchKind;
   assignedAt?: Date | null;
   templateKey: string | null;
   labels: string[];

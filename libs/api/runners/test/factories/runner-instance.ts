@@ -13,6 +13,7 @@ export const providerRunnerFactory = Factory.define<RunnerInstance>(({onCreate})
         providerRunnerId: providerRunner.providerRunnerId,
         intendedReservationId: providerRunner.intendedReservationId,
         reservationId: providerRunner.reservationId,
+        launchKind: providerRunner.launchKind,
         templateKey: providerRunner.templateKey,
         labels: providerRunner.labels,
         state: providerRunner.state,
@@ -26,6 +27,8 @@ export const providerRunnerFactory = Factory.define<RunnerInstance>(({onCreate})
         failedAt: providerRunner.failedAt,
         terminatedAt: providerRunner.terminatedAt,
         reservationReleasedAt: providerRunner.reservationReleasedAt,
+        createdAt: providerRunner.createdAt,
+        updatedAt: providerRunner.updatedAt,
       })
       .returning();
 
@@ -40,6 +43,7 @@ export const providerRunnerFactory = Factory.define<RunnerInstance>(({onCreate})
     providerRunnerId: crypto.randomUUID(),
     intendedReservationId: null,
     reservationId: null,
+    launchKind: 'manual',
     templateKey: 'linux',
     labels: ['linux'],
     state: 'running',

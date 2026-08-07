@@ -8,6 +8,7 @@ export {
   jobExecutionEnqueuedCount,
   jobExecutionLeaseExpiredCount,
   providerRunnerAbsentTerminatedCount,
+  providerRunnerActivationOutcomeCount,
   providerRunnerCountDivergenceCount,
   providerRunnerReconcileCallCount,
   providerRunnerTerminateIntentHonoredCount,

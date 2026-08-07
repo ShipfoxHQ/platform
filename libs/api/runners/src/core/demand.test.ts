@@ -54,6 +54,24 @@ describe('shouldReturn', () => {
     expect(result).toBe(true);
   });
 
+  it('continues waiting for a retry-only activation-timeout intent', () => {
+    const result = shouldReturn(
+      {...emptyResult, terminateRunnerInstanceIds: ['stale-demand-runner']},
+      1,
+      1,
+      false,
+      [
+        {
+          providerRunnerId: 'stale-demand-runner',
+          reason: 'activation-timeout',
+          activationTimeoutRetry: true,
+        },
+      ],
+    );
+
+    expect(result).toBe(false);
+  });
+
   it('returns true when the deadline passed', () => {
     const result = shouldReturn(emptyResult, 1, 1, true);
 
@@ -133,6 +151,75 @@ describe('pollDemand', () => {
       vi.doUnmock('#db/db.js');
       vi.doUnmock('#db/reservations.js');
       vi.doUnmock('#db/runner-instances.js');
+      vi.resetModules();
+    }
+  });
+
+  it('does not return immediately for retry-only activation-timeout intents', async () => {
+    vi.resetModules();
+    const abortController = new AbortController();
+    let listCalls = 0;
+    const pollDemandAndReserveTx = vi
+      .fn()
+      .mockResolvedValue({stats: [], reservations: [], newlyReservedUnits: []});
+    const listProvisionerTerminateIntentRowsTx = vi.fn().mockImplementation(() => {
+      listCalls += 1;
+      if (listCalls === 2) abortController.abort();
+      return [
+        {
+          providerRunnerId: 'stale-demand-runner',
+          reason: 'activation-timeout',
+          activationTimeoutRetry: true,
+        },
+      ];
+    });
+    const listActiveRunnerInstanceCountsByTemplateTx = vi.fn().mockResolvedValue([]);
+    vi.doMock('#db/db.js', () => ({
+      db: () => ({transaction: (callback: (tx: unknown) => Promise<unknown>) => callback({})}),
+    }));
+    vi.doMock('#db/reservations.js', () => ({
+      deleteReservationsByIds: vi.fn(),
+      pollDemandAndReserveTx,
+    }));
+    vi.doMock('#db/runner-instances.js', () => ({
+      listActiveRunnerInstanceCountsByTemplateTx,
+      listProvisionerTerminateIntentRowsTx,
+    }));
+    vi.doMock('#metrics/instance.js', () => ({
+      providerRunnerActivationOutcomeCount: {add: vi.fn()},
+      providerRunnerCountDivergenceCount: {add: vi.fn()},
+      providerRunnerTerminateIntentIssuedCount: {add: vi.fn()},
+    }));
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    try {
+      const {pollDemand: mockedPollDemand} = await import('#core/demand.js');
+
+      const result = await mockedPollDemand({
+        workspaceId: crypto.randomUUID(),
+        provisionerId: crypto.randomUUID(),
+        maxReservations: 1,
+        waitSeconds: 60,
+        ttlSeconds: 60,
+        terminateIntentLimit: 1000,
+        templates: [
+          {templateKey: 'linux', labels: ['linux'], availableSlots: 1, starting: 0, running: 0},
+        ],
+        signal: abortController.signal,
+      });
+
+      expect(result).toEqual({
+        stats: [],
+        reservations: [],
+        terminateRunnerInstanceIds: ['stale-demand-runner'],
+      });
+      expect(listProvisionerTerminateIntentRowsTx).toHaveBeenCalledTimes(2);
+    } finally {
+      random.mockRestore();
+      vi.doUnmock('#db/db.js');
+      vi.doUnmock('#db/reservations.js');
+      vi.doUnmock('#db/runner-instances.js');
+      vi.doUnmock('#metrics/instance.js');
       vi.resetModules();
     }
   });

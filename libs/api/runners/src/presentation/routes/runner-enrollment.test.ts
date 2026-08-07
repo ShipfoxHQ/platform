@@ -159,6 +159,7 @@ describe('runner enrollment control plane', () => {
       provisionerId,
       labels: ['linux', 'shipfox-managed'],
       providerRunnerId: 'container-1',
+      launchKind: 'warm',
       state: 'running',
       protocolVersion: '1',
     });
@@ -299,6 +300,7 @@ describe('runner enrollment control plane', () => {
     expect(instance).toMatchObject({
       workspaceId,
       reservationId: reservation.id,
+      launchKind: 'demand',
       intendedReservationId: null,
       state: 'running',
       providerRunnerId,

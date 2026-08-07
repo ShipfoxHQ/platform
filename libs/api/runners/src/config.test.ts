@@ -86,6 +86,28 @@ describe('runner assignment polling defaults', () => {
   });
 });
 
+describe('RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS validation', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('defaults to a five-minute recovery window', async () => {
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS).toBe(300);
+  });
+
+  it.each(['0', '-5', '1.5'])('fails startup when the value is %s', async (value) => {
+    vi.stubEnv('RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS', value);
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS');
+  });
+});
+
 describe('reservation TTL ceiling validation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

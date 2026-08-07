@@ -14,6 +14,12 @@ export const providerRunnerStateEnum = pgEnum('runners_provider_runner_state', [
   'terminated',
 ]);
 
+export const providerRunnerLaunchKindEnum = pgEnum('runners_provider_runner_launch_kind', [
+  'demand',
+  'warm',
+  'manual',
+]);
+
 export const providerRunners = pgTable(
   'runner_instances',
   {
@@ -25,6 +31,7 @@ export const providerRunners = pgTable(
     providerRunnerId: text('provider_runner_id'),
     intendedReservationId: uuid('intended_reservation_id'),
     reservationId: uuid('reservation_id'),
+    launchKind: providerRunnerLaunchKindEnum('launch_kind').notNull().default('manual'),
     assignedAt: timestamp('assigned_at', {withTimezone: true}),
     templateKey: text('template_key'),
     labels: text('labels').array().notNull().default([]),
@@ -84,6 +91,7 @@ export function toRunnerInstance(row: RunnerInstanceDb): RunnerInstance {
     providerRunnerId: row.providerRunnerId,
     intendedReservationId: row.intendedReservationId,
     reservationId: row.reservationId,
+    launchKind: row.launchKind,
     assignedAt: row.assignedAt,
     templateKey: row.templateKey,
     labels: row.labels,

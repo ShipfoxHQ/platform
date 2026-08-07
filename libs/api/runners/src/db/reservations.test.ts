@@ -1,3 +1,4 @@
+import {vi} from '@shipfox/vitest/vi';
 import {and, eq, inArray, or, sql, sum} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {
@@ -12,6 +13,7 @@ import {reservations} from '#db/schema/reservations.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
 import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
+import {providerRunnerActivationOutcomeCount} from '#metrics/instance.js';
 import {pendingJobFactory, reservationFactory} from '#test/index.js';
 
 describe('pollDemandAndReserve', () => {
@@ -133,6 +135,30 @@ describe('pollDemandAndReserve', () => {
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.id));
     expect(storedRunner?.reservationId).toBe(boundReservation?.id);
+  });
+
+  it('records a rebound outcome for a demand-backed idle runner', async () => {
+    const outcomeSpy = vi.spyOn(providerRunnerActivationOutcomeCount, 'add');
+    await createIdleRunner({labels: ['linux'], launchKind: 'demand'});
+    await createPendingJobs(1, ['linux']);
+    const callsBefore = outcomeSpy.mock.calls.length;
+
+    await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    expect(
+      outcomeSpy.mock.calls
+        .slice(callsBefore)
+        .filter(
+          ([value, attributes]) =>
+            value === 1 && JSON.stringify(attributes) === JSON.stringify({outcome: 'rebound'}),
+        ),
+    ).toHaveLength(1);
   });
 
   it('binds a runner whose intended reservation has passed its activation grace period', async () => {
@@ -502,6 +528,7 @@ describe('pollDemandAndReserve', () => {
     const releasedAt = new Date(Date.now() - 30_000);
     const runner = await createIdleRunner({
       labels: ['linux'],
+      launchKind: 'demand',
       workspaceId,
       reservationId: staleReservation.id,
       intendedReservationId: staleReservation.id,
@@ -1295,6 +1322,7 @@ describe('pollDemandAndReserve', () => {
     labels: string[];
     createdAt?: Date;
     controlSessionExpiresAt?: Date;
+    launchKind?: 'demand' | 'warm' | 'manual';
     workspaceId?: string | null;
     reservationId?: string | null;
     intendedReservationId?: string | null;
@@ -1308,6 +1336,7 @@ describe('pollDemandAndReserve', () => {
         workspaceId: params.workspaceId,
         reservationId: params.reservationId,
         providerRunnerId: crypto.randomUUID(),
+        launchKind: params.launchKind ?? 'manual',
         intendedReservationId: params.intendedReservationId,
         reservationReleasedAt: params.reservationReleasedAt,
         labels: params.labels,

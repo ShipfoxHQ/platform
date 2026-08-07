@@ -84,6 +84,7 @@ function providerRunner(params: {
     providerRunnerId: params.providerRunnerId,
     intendedReservationId: params.intendedReservationId ?? null,
     reservationId: null,
+    launchKind: 'manual' as const,
     templateKey: 'linux',
     labels: ['linux'],
     state: params.state ?? 'running',
