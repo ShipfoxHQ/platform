@@ -39,6 +39,7 @@ export async function assignRunnerInstancesTx(
       reservationId: providerRunners.reservationId,
       intendedReservationId: providerRunners.intendedReservationId,
       workspaceId: providerRunners.workspaceId,
+      assignedAt: providerRunners.assignedAt,
       providerRunnerId: providerRunners.providerRunnerId,
       labels: providerRunners.labels,
       state: providerRunners.state,
@@ -53,11 +54,16 @@ export async function assignRunnerInstancesTx(
     .for('update');
 
   // The assignment outlives its short reservation row. A retry after maintenance
-  // cleanup is complete when every owned runner already carries the requested assignment.
+  // cleanup is complete when every owned runner already carries the committed assignment.
   if (
     runnerInstanceIds.length > 0 &&
     runnerRows.length === runnerInstanceIds.length &&
-    runnerRows.every((runner) => runner.reservationId === params.reservationId)
+    runnerRows.every(
+      (runner) =>
+        runner.reservationId === params.reservationId &&
+        runner.assignedAt !== null &&
+        runner.workspaceId !== null,
+    )
   ) {
     await tx
       .update(providerRunners)
@@ -110,13 +116,20 @@ export async function assignRunnerInstancesTx(
   const alreadyAssigned = runners.filter((runner) => runner.reservationId !== null);
   if (alreadyAssigned.some((runner) => runner.reservationId !== reservation.id))
     throw new RunnerInstanceAlreadyAssignedError(alreadyAssigned[0]?.id ?? '');
-  const newRunners = runners.filter((runner) => runner.reservationId === null);
+  const newRunners = runners.filter(
+    (runner) =>
+      runner.reservationId === null ||
+      (runner.reservationId === reservation.id &&
+        (runner.assignedAt === null || runner.workspaceId === null)),
+  );
+  const newRunnerIds = newRunners.map((runner) => runner.id);
   const assignedCount = await tx
     .select({count: sql<number>`count(*)::int`})
     .from(providerRunners)
     .where(
       and(
         eq(providerRunners.provisionerId, params.provisionerId),
+        notInArray(providerRunners.id, newRunnerIds),
         or(
           and(
             eq(providerRunners.reservationId, reservation.id),
@@ -124,7 +137,6 @@ export async function assignRunnerInstancesTx(
           ),
           and(
             eq(providerRunners.intendedReservationId, reservation.id),
-            notInArray(providerRunners.id, runnerInstanceIds),
             isNull(providerRunners.reservationReleasedAt),
             notInArray(providerRunners.state, [...terminalStates]),
           ),

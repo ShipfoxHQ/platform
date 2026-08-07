@@ -210,7 +210,7 @@ describe('runner enrollment control plane', () => {
     expect(instance?.labels).toEqual(['linux']);
   });
 
-  it('promotes an intended reservation during enrollment and returns its activation token', async () => {
+  it('repairs an intended reservation after a provider report and returns its activation token', async () => {
     const workspaceId = crypto.randomUUID();
     const [reservation] = await db()
       .insert(reservations)
@@ -240,13 +240,48 @@ describe('runner enrollment control plane', () => {
     });
     const controlToken = exchanged.json().control_session_token;
 
+    const providerRunnerId = 'container-intended-assignment';
     const attached = await app.inject({
       method: 'POST',
       url: `/provisioners/runner-instances/${runner.runner_instance_id}/provider-runner`,
       headers: {authorization: `Bearer ${token}`},
-      payload: {provider_runner_id: 'container-intended-assignment'},
+      payload: {provider_runner_id: providerRunnerId},
     });
     expect(attached.json()).toEqual({attached: true});
+
+    const reported = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/report',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {
+        events: [
+          {
+            provider_runner_id: providerRunnerId,
+            reservation_id: reservation.id,
+            template_key: 'linux',
+            labels: ['linux'],
+            state: 'starting',
+            reported_at: new Date().toISOString(),
+            provider_kind: 'docker',
+          },
+        ],
+      },
+    });
+    expect(reported.statusCode).toBe(200);
+    expect(reported.json()).toEqual({accepted: 1, reservations_released: 0});
+
+    const [reportedInstance] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.runner_instance_id));
+    expect(reportedInstance).toMatchObject({
+      workspaceId: null,
+      reservationId: reservation.id,
+      intendedReservationId: reservation.id,
+      assignedAt: null,
+      state: 'starting',
+      providerRunnerId,
+    });
 
     const enrolled = await app.inject({
       method: 'POST',
@@ -266,9 +301,47 @@ describe('runner enrollment control plane', () => {
       reservationId: reservation.id,
       intendedReservationId: null,
       state: 'running',
-      providerRunnerId: 'container-intended-assignment',
+      providerRunnerId,
       assignedAt: expect.any(Date),
     });
+  });
+
+  it('rejects assignment for a provider-reported runner before enrollment', async () => {
+    const workspaceId = crypto.randomUUID();
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Reservation insert returned no row');
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        provisionerId,
+        intendedReservationId: reservation.id,
+        reservationId: reservation.id,
+        providerRunnerId: crypto.randomUUID(),
+        labels: ['linux'],
+        state: 'starting',
+        reportedAt: new Date(),
+      })
+      .returning({id: providerRunners.id});
+    if (!runner) throw new Error('Runner instance insert returned no row');
+
+    const assigned = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/assignments',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {reservation_id: reservation.id, runner_instance_ids: [runner.id]},
+    });
+
+    expect(assigned.statusCode).toBe(409);
+    expect(assigned.json()).toMatchObject({code: 'runner-instance-not-assignable'});
   });
 
   it('keeps enrollment successful when an intended reservation cannot be promoted', async () => {
