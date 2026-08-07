@@ -474,11 +474,18 @@ describe('pollDemandAndReserve', () => {
     });
   });
 
-  it('counts rebound installation capacity against the remaining grant budget', async () => {
+  it.each([
+    ['template capacity', 5, 2],
+    ['global reservation budget', 2, 5],
+  ])('counts rebound installation capacity against the %s', async (_case, maxReservations, availableSlots) => {
     const reboundWorkspaceId = crypto.randomUUID();
     const launchWorkspaceId = crypto.randomUUID();
     await pendingJobFactory.create({
       workspaceId: reboundWorkspaceId,
+      requiredLabels: ['linux'],
+    });
+    await pendingJobFactory.create({
+      workspaceId: launchWorkspaceId,
       requiredLabels: ['linux'],
     });
     await pendingJobFactory.create({
@@ -497,9 +504,9 @@ describe('pollDemandAndReserve', () => {
 
     const result = await pollInstallationDemandAndReserve({
       provisionerId,
-      maxReservations: 1,
+      maxReservations,
       ttlSeconds: 60,
-      templates: [template('linux', ['linux'], 1)],
+      templates: [template('linux', ['linux'], availableSlots)],
       capabilityWindowSeconds: 60,
       eligibleWorkspaceIds: new Set([reboundWorkspaceId, launchWorkspaceId]),
     });
@@ -508,16 +515,15 @@ describe('pollDemandAndReserve', () => {
       .select()
       .from(reservations)
       .where(eq(reservations.provisionerId, provisionerId));
-    expect(result.reservations).toEqual([]);
-    expect(storedReservations).toHaveLength(1);
-    expect(storedReservations[0]).toMatchObject({
-      workspaceId: reboundWorkspaceId,
-      kind: 'bound',
-      count: 1,
-    });
-    expect(
-      storedReservations.some((reservation) => reservation.workspaceId === launchWorkspaceId),
-    ).toBe(false);
+    expect(result.reservations).toEqual([
+      expect.objectContaining({workspaceId: launchWorkspaceId, count: 1}),
+    ]);
+    expect(storedReservations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({workspaceId: reboundWorkspaceId, kind: 'bound', count: 1}),
+        expect.objectContaining({workspaceId: launchWorkspaceId, kind: 'launch', count: 1}),
+      ]),
+    );
   });
 
   it('does not rebind a released runner after its reservation expires', async () => {
