@@ -1,3 +1,4 @@
+import {pgClient} from '@shipfox/node-postgres';
 import {vi} from '@shipfox/vitest/vi';
 import {and, eq, inArray, or, sql, sum} from 'drizzle-orm';
 import {db} from '#db/db.js';
@@ -39,6 +40,23 @@ describe('pollDemandAndReserve', () => {
     expect(result.reservations).toHaveLength(1);
     expect(result.reservations[0]?.count).toBe(20);
     expect(result.stats[0]).toMatchObject({labels: ['linux'], queued: 50, reserved: 20});
+  });
+
+  it('does not create a bound reservation when no idle runner can be rebound', async () => {
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    const storedReservations = await reservationsForTest();
+    expect(result.reservations).toHaveLength(1);
+    expect(storedReservations).toHaveLength(1);
+    expect(storedReservations[0]).toMatchObject({kind: 'launch', count: 1});
   });
 
   it('binds the oldest matching enrolled runners and returns only the launch remainder', async () => {
@@ -524,6 +542,88 @@ describe('pollDemandAndReserve', () => {
       intendedReservationId: null,
       assignedAt: expect.any(Date),
     });
+  });
+
+  it('does not rebind a runner reserved by a concurrent installation poll', async () => {
+    const previousWorkspaceId = crypto.randomUUID();
+    const targetWorkspaceId = crypto.randomUUID();
+    const runner = await createIdleRunner({labels: ['linux']});
+    await pendingJobFactory.create({workspaceId: targetWorkspaceId, requiredLabels: ['linux']});
+
+    const lockClient = await pgClient().connect();
+    let transactionOpen = false;
+    let pollPromise: ReturnType<typeof pollInstallationDemandAndReserve> | undefined;
+    try {
+      await lockClient.query('BEGIN');
+      transactionOpen = true;
+      const lockPidResult = await lockClient.query<{pid: number}>('SELECT pg_backend_pid() AS pid');
+      const lockPid = lockPidResult.rows[0]?.pid;
+      if (lockPid === undefined) throw new Error('Expected lock holder backend pid');
+      await lockClient.query('SELECT id FROM runners_runner_instances WHERE id = $1 FOR UPDATE', [
+        runner.id,
+      ]);
+
+      const reservationId = crypto.randomUUID();
+      await lockClient.query(
+        `INSERT INTO runners_reservations
+          (id, workspace_id, provisioner_id, required_labels, count, kind, expires_at)
+         VALUES ($1, $2, $3, $4, $5, 'bound', $6)`,
+        [
+          reservationId,
+          previousWorkspaceId,
+          provisionerId,
+          ['linux'],
+          1,
+          new Date(Date.now() + 60_000),
+        ],
+      );
+      await lockClient.query(
+        `UPDATE runners_runner_instances
+         SET workspace_id = $1, reservation_id = $2, updated_at = now()
+         WHERE id = $3`,
+        [previousWorkspaceId, reservationId, runner.id],
+      );
+
+      pollPromise = pollInstallationDemandAndReserve({
+        provisionerId,
+        maxReservations: 1,
+        ttlSeconds: 60,
+        templates: [template('linux', ['linux'], 1)],
+        capabilityWindowSeconds: 60,
+        eligibleWorkspaceIds: new Set([targetWorkspaceId]),
+      });
+      // waitForLockWait yields to the macrotask queue, so an early poll rejection would
+      // surface as an unhandled rejection before the finally block attaches its handler.
+      pollPromise.catch(() => undefined);
+      await waitForLockWait({blockingPid: lockPid});
+
+      await lockClient.query('COMMIT');
+      transactionOpen = false;
+      const result = await pollPromise;
+      const [storedRunner] = await db()
+        .select()
+        .from(providerRunners)
+        .where(eq(providerRunners.id, runner.id));
+      const storedReservations = await db()
+        .select()
+        .from(reservations)
+        .where(eq(reservations.provisionerId, provisionerId));
+
+      expect(result.reservations).toHaveLength(1);
+      expect(result.reservations[0]).toMatchObject({workspaceId: targetWorkspaceId, count: 1});
+      expect(storedRunner).toMatchObject({
+        workspaceId: previousWorkspaceId,
+        reservationId,
+      });
+      expect(storedReservations).toHaveLength(2);
+      expect(
+        storedReservations.find((reservation) => reservation.workspaceId === targetWorkspaceId),
+      ).toMatchObject({kind: 'launch', count: 1});
+    } finally {
+      if (transactionOpen) await lockClient.query('ROLLBACK');
+      if (pollPromise) await pollPromise.catch(() => undefined);
+      lockClient.release();
+    }
   });
 
   it.each([
@@ -1495,3 +1595,24 @@ describe('pollDemandAndReserve', () => {
     return {templateKey, labels, availableSlots, starting: 0, running: 0};
   }
 });
+
+async function waitForLockWait(params: {blockingPid: number}) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const result = await pgClient().query<{count: number}>(
+      `
+        SELECT count(*)::int AS count
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND state = 'active'
+          AND wait_event_type = 'Lock'
+          AND $1::int = ANY(pg_blocking_pids(pid))
+      `,
+      [params.blockingPid],
+    );
+    if ((result.rows[0]?.count ?? 0) > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for a backend blocked by pid ${params.blockingPid}`);
+}
