@@ -581,27 +581,48 @@ async function selectIdleRunnerInstancesTx(
   }
 
   // Select the oldest candidates first, but leave row locking to a second pass. The cleanup
-  // path locks runner rows by id, so the locking pass must use that same order.
-  const candidateRunners = await tx
-    .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
-    .from(providerRunners)
-    .where(isBindableRunner(tx, params))
-    .orderBy(asc(providerRunners.createdAt), asc(providerRunners.id))
-    .limit(params.count);
+  // path locks runner rows by id, so the locking pass must use that same order. A skipped row
+  // rolls back only this nested savepoint and retries the bounded candidate scan, allowing the
+  // next-oldest eligible runner to refill the grant without retaining a partial lock set.
+  const retrySelection = Symbol('retry bindable runner selection');
+  const idleRunners = await (async () => {
+    while (true) {
+      try {
+        return await tx.transaction(async (lockTx) => {
+          const candidateRunners = await lockTx
+            .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
+            .from(providerRunners)
+            .where(isBindableRunner(lockTx, params))
+            .orderBy(asc(providerRunners.createdAt), asc(providerRunners.id))
+            .limit(params.count);
 
-  if (candidateRunners.length === 0) return [];
+          if (candidateRunners.length === 0) return candidateRunners;
 
-  // PostgreSQL can acquire row locks before sorting a multi-row FOR UPDATE result. Lock each
-  // selected candidate individually so both polling and cleanup use id order for acquisition.
-  const idleRunners: typeof candidateRunners = [];
-  for (const candidate of [...candidateRunners].sort(compareRunnerIds)) {
-    const [runner] = await tx
-      .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
-      .from(providerRunners)
-      .where(and(eq(providerRunners.id, candidate.id), isBindableRunner(tx, params)))
-      .for('update');
-    if (runner) idleRunners.push(runner);
-  }
+          // PostgreSQL can acquire row locks before sorting a multi-row FOR UPDATE result. Lock
+          // each selected candidate individually so both polling and cleanup use id order.
+          const lockedRunners: typeof candidateRunners = [];
+          for (const candidate of [...candidateRunners].sort(compareRunnerIds)) {
+            const [runner] = await lockTx
+              .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
+              .from(providerRunners)
+              .where(
+                and(
+                  eq(providerRunners.id, candidate.id),
+                  isBindableRunner(lockTx, params),
+                ),
+              )
+              .for('update');
+            if (runner) lockedRunners.push(runner);
+          }
+
+          if (lockedRunners.length !== candidateRunners.length) throw retrySelection;
+          return lockedRunners;
+        });
+      } catch (error) {
+        if (error !== retrySelection) throw error;
+      }
+    }
+  })();
 
   return idleRunners;
 }

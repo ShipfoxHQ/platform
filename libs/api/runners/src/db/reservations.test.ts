@@ -203,8 +203,15 @@ describe('pollDemandAndReserve', () => {
     }
   }, 10_000);
 
-  it('does not bind a runner that becomes ineligible while waiting for its row lock', async () => {
-    const runner = await createIdleRunner({labels: ['linux']});
+  it('refills with the next eligible runner when the oldest becomes ineligible', async () => {
+    const runner = await createIdleRunner({
+      labels: ['linux'],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const replacementRunner = await createIdleRunner({
+      labels: ['linux'],
+      createdAt: new Date('2026-01-02T00:00:00.000Z'),
+    });
     await createPendingJobs(1, ['linux']);
 
     const lockClient = await pgClient().connect();
@@ -265,12 +272,27 @@ describe('pollDemandAndReserve', () => {
       if (!pollPromise) throw new Error('Expected concurrent poll');
       const result = await pollPromise;
 
-      expect(result.reservations).toEqual([expect.objectContaining({count: 1})]);
-      const [storedRunner] = await db()
-        .select({state: providerRunners.state, reservationId: providerRunners.reservationId})
+      expect(result.reservations).toEqual([]);
+      const rows = await db()
+        .select({
+          id: providerRunners.id,
+          state: providerRunners.state,
+          workspaceId: providerRunners.workspaceId,
+          reservationId: providerRunners.reservationId,
+        })
         .from(providerRunners)
-        .where(eq(providerRunners.id, runner.id));
-      expect(storedRunner).toEqual({state: 'terminated', reservationId: null});
+        .where(inArray(providerRunners.id, [runner.id, replacementRunner.id]));
+      const rowsById = new Map(rows.map((row) => [row.id, row]));
+      expect(rowsById.get(runner.id)).toMatchObject({
+        state: 'terminated',
+        workspaceId: null,
+        reservationId: null,
+      });
+      expect(rowsById.get(replacementRunner.id)).toMatchObject({
+        state: 'running',
+        workspaceId,
+        reservationId: expect.any(String),
+      });
     } finally {
       if (lockTransactionOpen) await lockClient.query('ROLLBACK');
       if (eligibilityTransactionOpen) await eligibilityClient.query('ROLLBACK');
