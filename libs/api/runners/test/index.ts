@@ -23,3 +23,8 @@ export {
   mintRunnerSessionToken,
 } from './fixtures/auth.js';
 export {runnersTestAuthClient} from './fixtures/auth-inter-module.js';
+export {
+  arrangeDeletedRunnerEnrollment,
+  arrangeExpiredRunnerEnrollment,
+  type LateRunnerEnrollmentArrangement,
+} from './fixtures/late-runner-enrollment.js';
