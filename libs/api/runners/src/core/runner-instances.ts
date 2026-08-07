@@ -62,6 +62,7 @@ export interface ReconciledBoundJobExecution {
 export interface ReconciledRunnerInstance {
   providerRunnerId: string;
   state: RunnerInstanceState | null;
+  intendedReservationId: string | null;
   reservationId: string | null;
   runnerSessionId: string | null;
   boundJobExecution: ReconciledBoundJobExecution | null;
@@ -157,6 +158,7 @@ export function reconcileRunnerInstancesFromDbResult(params: {
     return {
       providerRunnerId,
       state: row?.state ?? null,
+      intendedReservationId: row?.intendedReservationId ?? null,
       reservationId: row?.reservationId ?? null,
       runnerSessionId: row?.runnerSessionId ?? null,
       boundJobExecution: boundJobExecution

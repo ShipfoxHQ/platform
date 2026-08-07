@@ -33,6 +33,8 @@ export {
   type AssignRunnerInstancesResponseDto,
   assignRunnerInstancesBodySchema,
   assignRunnerInstancesResponseSchema,
+  RESERVATION_EXPIRED_ERROR_CODE,
+  RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE,
 } from './assign-runner-instances.js';
 export {
   type ClaimedJobResponseDto,
@@ -94,6 +96,8 @@ export {
 export {
   MAX_OBSERVED_PROVIDER_RUNNER_ID_LENGTH,
   MAX_RECONCILE_OBSERVED_RUNNERS,
+  RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER,
+  RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE,
   type ReconcileDesiredIntentDto,
   type ReconciledBoundJobDto,
   type ReconciledRunnerInstanceDto,

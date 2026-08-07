@@ -227,6 +227,182 @@ describe('createEc2Lifecycle', () => {
     ]);
   });
 
+  it('prefers the canonical backend assignment over the EC2 launch tag', async () => {
+    const canonicalReservationId = '00000000-0000-4000-8000-000000000005';
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'keep', canonicalReservationId)],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.reconcile();
+
+    expect(client.assignmentBodies).toEqual([
+      {
+        reservationId: canonicalReservationId,
+        runnerInstanceIds: [RUNNER_INSTANCE_ID],
+      },
+    ]);
+  });
+
+  it('uses the intended reservation when the canonical assignment is not committed yet', async () => {
+    const intendedReservationId = '00000000-0000-4000-8000-000000000006';
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'keep', null, intendedReservationId)],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.reconcile();
+
+    expect(client.assignmentBodies).toEqual([
+      {
+        reservationId: intendedReservationId,
+        runnerInstanceIds: [RUNNER_INSTANCE_ID],
+      },
+    ]);
+  });
+
+  it('does not fall back to the launch tag when the backend has no reservation intent', async () => {
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'keep', null)],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.reconcile();
+
+    expect(client.assignmentBodies).toEqual([]);
+  });
+
+  it('falls back to the launch tag while the server lacks intended reservation support', async () => {
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'keep', null, null, false)],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.reconcile();
+
+    expect(client.assignmentBodies).toEqual([
+      {
+        reservationId: '00000000-0000-4000-8000-000000000003',
+        runnerInstanceIds: [RUNNER_INSTANCE_ID],
+      },
+    ]);
+  });
+
+  it('logs the launch-origin and canonical reservations separately', async () => {
+    const canonicalReservationId = '00000000-0000-4000-8000-000000000005';
+    const client = fakeClient({
+      assignmentErrors: [httpError(503)],
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'keep', canonicalReservationId)],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.reconcile();
+
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservationId: canonicalReservationId,
+        observedReservationIds: ['00000000-0000-4000-8000-000000000003'],
+        canonicalReservationIds: [canonicalReservationId],
+      }),
+      'Reservation assignment rejected; will retry',
+    );
+  });
+
+  it('groups runners with the same canonical reservation into one assignment', async () => {
+    const canonicalReservationId = '00000000-0000-4000-8000-000000000005';
+    const secondRunnerInstanceId = '00000000-0000-4000-8000-000000000006';
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [
+          reconciledRunner('runner-1', 'keep', canonicalReservationId),
+          reconciledRunner('runner-2', 'keep', canonicalReservationId),
+        ],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({
+        instances: [
+          instance({state: 'running'}),
+          instance({
+            state: 'running',
+            instanceId: 'i-456',
+            providerRunnerId: 'runner-2',
+            runnerInstanceId: secondRunnerInstanceId,
+          }),
+        ],
+      }),
+      client,
+    });
+
+    await lifecycle.reconcile();
+
+    expect(client.assignmentBodies).toEqual([
+      {
+        reservationId: canonicalReservationId,
+        runnerInstanceIds: [RUNNER_INSTANCE_ID, secondRunnerInstanceId],
+      },
+    ]);
+  });
+
+  it('continues assigning an intended reservation after it becomes committed', async () => {
+    const intendedReservationId = '00000000-0000-4000-8000-000000000006';
+    const client = fakeClient({
+      reconcileResponses: [
+        {
+          runners: [reconciledRunner('runner-1', 'keep', null, intendedReservationId)],
+          terminated_absent_provider_runner_ids: [],
+        },
+        {
+          runners: [reconciledRunner('runner-1', 'keep', intendedReservationId)],
+          terminated_absent_provider_runner_ids: [],
+        },
+      ],
+    });
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.reconcile();
+    await lifecycle.reconcile();
+
+    expect(client.assignmentBodies).toEqual([
+      {reservationId: intendedReservationId, runnerInstanceIds: [RUNNER_INSTANCE_ID]},
+      {reservationId: intendedReservationId, runnerInstanceIds: [RUNNER_INSTANCE_ID]},
+    ]);
+  });
+
   it('continues reporting and terminating runners when assignment is rejected', async () => {
     const engine = fakeEngine({
       instances: [
@@ -271,9 +447,10 @@ describe('createEc2Lifecycle', () => {
   });
 
   it('stops retrying assignment after the reservation is released', async () => {
+    const engine = fakeEngine({instances: [instance({state: 'running'})]});
     const client = fakeClient({assignmentErrors: [httpError(404)]});
     const lifecycle = makeLifecycle({
-      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      engine,
       client,
     });
 
@@ -289,6 +466,33 @@ describe('createEc2Lifecycle', () => {
         retryable: false,
       }),
       'Reservation assignment stopped because reservation was released',
+    );
+    expect(engine.terminated).toEqual([]);
+  });
+
+  it('stops retrying assignment for a reservation-expired 409', async () => {
+    const client = fakeClient({
+      assignmentErrors: [httpError(409, 'reservation-expired')],
+    });
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.observe();
+    await lifecycle.observe();
+
+    expect(client.assignmentBodies).toHaveLength(1);
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservationId: '00000000-0000-4000-8000-000000000003',
+        observedReservationIds: ['00000000-0000-4000-8000-000000000003'],
+        canonicalReservationIds: [],
+        status: 409,
+        code: 'reservation-expired',
+        retryable: false,
+      }),
+      'Reservation assignment stopped because reservation expired',
     );
   });
 
@@ -331,6 +535,29 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.observe();
 
     expect(client.assignmentBodies).toHaveLength(2);
+  });
+
+  it('keeps retrying a runner-instance-not-assignable 409', async () => {
+    const client = fakeClient({
+      assignmentErrors: [httpError(409, 'runner-instance-not-assignable')],
+    });
+    const lifecycle = makeLifecycle({
+      engine: fakeEngine({instances: [instance({state: 'running'})]}),
+      client,
+    });
+
+    await lifecycle.observe();
+    await lifecycle.observe();
+
+    expect(client.assignmentBodies).toHaveLength(2);
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 409,
+        code: 'runner-instance-not-assignable',
+        retryable: true,
+      }),
+      'Reservation assignment rejected; will retry',
+    );
   });
 
   it('reports a Spot-reclaimed terminated instance as failed once', async () => {
@@ -844,6 +1071,7 @@ function instance(args: {
   launchTime?: Date;
   instanceId?: string;
   providerRunnerId?: string;
+  runnerInstanceId?: string;
   templateKey?: string;
   labels?: string;
 }): Ec2InstanceView {
@@ -851,7 +1079,7 @@ function instance(args: {
     instanceId: args.instanceId ?? 'i-123',
     state: args.state,
     tags: {
-      'shipfox.runner_instance_id': RUNNER_INSTANCE_ID,
+      'shipfox.runner_instance_id': args.runnerInstanceId ?? RUNNER_INSTANCE_ID,
       'shipfox.provider_runner_id': args.providerRunnerId ?? 'runner-1',
       'shipfox.provisioner_id': '00000000-0000-4000-8000-000000000001',
       'shipfox.reservation_id': '00000000-0000-4000-8000-000000000003',
@@ -903,6 +1131,7 @@ function fakeClient(
     reconcileErrors?: Error[];
     attachResult?: {attached: boolean};
     reconcileResponse?: Awaited<ReturnType<ProvisionerClient['reconcileRunnerInstances']>>;
+    reconcileResponses?: Array<Awaited<ReturnType<ProvisionerClient['reconcileRunnerInstances']>>>;
   } = {},
 ): ProvisionerClient & {
   reportBodies: ReportRunnerInstancesBodyDto[];
@@ -917,6 +1146,7 @@ function fakeClient(
   const reportErrors = [...(options.reportErrors ?? [])];
   const assignmentErrors = [...(options.assignmentErrors ?? [])];
   const reconcileErrors = [...(options.reconcileErrors ?? [])];
+  const reconcileResponses = [...(options.reconcileResponses ?? [])];
   return {
     reportBodies,
     reconcileBodies,
@@ -932,10 +1162,11 @@ function fakeClient(
       const error = reconcileErrors.shift();
       if (error) return Promise.reject(error);
       return Promise.resolve(
-        options.reconcileResponse ?? {
-          runners: [],
-          terminated_absent_provider_runner_ids: [],
-        },
+        reconcileResponses.shift() ??
+          options.reconcileResponse ?? {
+            runners: [],
+            terminated_absent_provider_runner_ids: [],
+          },
       );
     },
     attachRunnerInstanceProviderId: (runnerInstanceId, providerRunnerId) => {
@@ -958,11 +1189,18 @@ function fakeClient(
   };
 }
 
-function reconciledRunner(providerRunnerId: string, desiredIntent: 'keep' | 'terminate') {
+function reconciledRunner(
+  providerRunnerId: string,
+  desiredIntent: 'keep' | 'terminate',
+  reservationId: string | null = '00000000-0000-4000-8000-000000000003',
+  intendedReservationId: string | null = null,
+  includeIntendedReservationId = true,
+) {
   return {
     provider_runner_id: providerRunnerId,
     state: 'running' as const,
-    reservation_id: '00000000-0000-4000-8000-000000000003',
+    ...(includeIntendedReservationId ? {intended_reservation_id: intendedReservationId} : {}),
+    reservation_id: reservationId,
     runner_session_id: null,
     bound_job: null,
     desired_intent: desiredIntent,
@@ -995,6 +1233,14 @@ function testTracker(): ProviderRunnerTracker {
   };
 }
 
-function httpError(status: number): Error {
-  return Object.assign(new Error(`HTTP ${status}`), {response: {status}});
+function httpError(status: number, code?: string): Error {
+  return Object.assign(new Error(`HTTP ${status}`), {
+    response: {
+      status,
+      clone: () => {
+        throw new Error('HTTP response body already consumed');
+      },
+    },
+    data: code ? {code} : undefined,
+  });
 }

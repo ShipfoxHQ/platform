@@ -1542,6 +1542,7 @@ function reconciledRunner(
   return {
     provider_runner_id: providerRunnerId,
     state: 'running',
+    intended_reservation_id: null,
     reservation_id: RESERVATION_ID,
     runner_session_id: null,
     bound_job: null,

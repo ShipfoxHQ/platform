@@ -11,6 +11,7 @@ export interface RunnerInstance {
   workspaceId: string | null;
   provisionerId: string;
   providerRunnerId: string;
+  intendedReservationId: string | null;
   reservationId: string | null;
   assignedAt?: Date | null;
   templateKey: string | null;

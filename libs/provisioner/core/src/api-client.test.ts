@@ -1,3 +1,7 @@
+import {
+  RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER,
+  RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE,
+} from '@shipfox/api-runners-dto';
 import {createProvisionerClient, ProvisionerAuthenticationError} from '#api-client.js';
 
 const BASE_URL = 'https://api.test';
@@ -6,7 +10,7 @@ const RUNNER_INSTANCE_ID = '00000000-0000-4000-8000-000000000001';
 const RESERVATION_ID = '00000000-0000-4000-8000-000000000002';
 
 let originalFetch: typeof globalThis.fetch;
-let calls: Array<{url: string; method: string; body: string}>;
+let calls: Array<{url: string; method: string; body: string; headers: Headers}>;
 
 beforeAll(() => {
   originalFetch = globalThis.fetch;
@@ -66,11 +70,37 @@ describe('createProvisionerClient', () => {
     });
   });
 
+  it('preserves parsed error data on rejected assignments', async () => {
+    stubFetch(() => jsonResponse({code: 'reservation-expired'}, 409));
+
+    const assignment = client().assignRunnerInstances(RESERVATION_ID, [RUNNER_INSTANCE_ID]);
+
+    await expect(assignment).rejects.toMatchObject({
+      response: expect.objectContaining({status: 409}),
+      data: {code: 'reservation-expired'},
+    });
+  });
+
   it('maps rejected provisioner credentials consistently', async () => {
     stubFetch(() => new Response(null, {status: 401}));
 
     await expect(client().createRunnerInstances({runner_instances: [{}]})).rejects.toThrow(
       ProvisionerAuthenticationError,
+    );
+  });
+
+  it('requests the intended reservation field during reconciliation', async () => {
+    stubFetch(() =>
+      jsonResponse({
+        runners: [],
+        terminated_absent_provider_runner_ids: [],
+      }),
+    );
+
+    await client().reconcileRunnerInstances({observed_provider_runner_ids: []});
+
+    expect(calls[0]?.headers.get(RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER)).toBe(
+      RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE,
     );
   });
 });
@@ -79,14 +109,22 @@ function client() {
   return createProvisionerClient({baseUrl: BASE_URL, token: TOKEN});
 }
 
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), {headers: {'content-type': 'application/json'}});
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {'content-type': 'application/json'},
+  });
 }
 
 function stubFetch(handler: (url: string) => Response): void {
   globalThis.fetch = vi.fn(async (input: Request | string | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(String(input), init);
-    calls.push({url: request.url, method: request.method, body: await request.clone().text()});
+    calls.push({
+      url: request.url,
+      method: request.method,
+      body: await request.clone().text(),
+      headers: request.headers,
+    });
     return handler(request.url);
   }) as unknown as typeof globalThis.fetch;
 }

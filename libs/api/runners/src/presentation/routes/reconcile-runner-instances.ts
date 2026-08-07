@@ -1,5 +1,7 @@
 import {requireProvisionerContext} from '@shipfox/api-auth-context';
 import {
+  RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER,
+  RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE,
   reconcileRunnerInstancesBodySchema,
   reconcileRunnerInstancesResponseSchema,
 } from '@shipfox/api-runners-dto';
@@ -25,6 +27,10 @@ export const reconcileRunnerInstancesRoute = defineRoute({
       observedRunnerInstanceIds: request.body.observed_provider_runner_ids,
     });
 
-    return toReconcileRunnerInstancesResponseDto(result);
+    return toReconcileRunnerInstancesResponseDto(result, {
+      includeIntendedReservationId:
+        request.headers[RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER] ===
+        RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE,
+    });
   },
 });

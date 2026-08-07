@@ -14,10 +14,14 @@ export function toReportRunnerInstancesResponseDto(result: ReportRunnerInstances
   };
 }
 
-export function toReconcileRunnerInstancesResponseDto(result: ReconcileRunnerInstancesResult): {
+export function toReconcileRunnerInstancesResponseDto(
+  result: ReconcileRunnerInstancesResult,
+  options: {includeIntendedReservationId: boolean},
+): {
   runners: Array<{
     provider_runner_id: string;
     state: ReconcileRunnerInstancesResult['runners'][number]['state'];
+    intended_reservation_id?: string | null;
     reservation_id: string | null;
     runner_session_id: string | null;
     bound_job: {
@@ -34,6 +38,9 @@ export function toReconcileRunnerInstancesResponseDto(result: ReconcileRunnerIns
     runners: result.runners.map((runner) => ({
       provider_runner_id: runner.providerRunnerId,
       state: runner.state,
+      ...(options.includeIntendedReservationId
+        ? {intended_reservation_id: runner.intendedReservationId}
+        : {}),
       reservation_id: runner.reservationId,
       runner_session_id: runner.runnerSessionId,
       bound_job: runner.boundJobExecution

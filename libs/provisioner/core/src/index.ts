@@ -1,5 +1,5 @@
 export type {ProvisionerClient} from '#api-client.js';
-export {ProvisionerAuthenticationError} from '#api-client.js';
+export {HTTPError, ProvisionerAuthenticationError} from '#api-client.js';
 export {
   createHealthState,
   deriveHealth,
