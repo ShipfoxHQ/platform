@@ -70,6 +70,17 @@ describe('createProvisionerClient', () => {
     });
   });
 
+  it('preserves parsed error data on rejected assignments', async () => {
+    stubFetch(() => jsonResponse({code: 'reservation-expired'}, 409));
+
+    const assignment = client().assignRunnerInstances(RESERVATION_ID, [RUNNER_INSTANCE_ID]);
+
+    await expect(assignment).rejects.toMatchObject({
+      response: expect.objectContaining({status: 409}),
+      data: {code: 'reservation-expired'},
+    });
+  });
+
   it('maps rejected provisioner credentials consistently', async () => {
     stubFetch(() => new Response(null, {status: 401}));
 
@@ -98,8 +109,11 @@ function client() {
   return createProvisionerClient({baseUrl: BASE_URL, token: TOKEN});
 }
 
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), {headers: {'content-type': 'application/json'}});
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {'content-type': 'application/json'},
+  });
 }
 
 function stubFetch(handler: (url: string) => Response): void {
