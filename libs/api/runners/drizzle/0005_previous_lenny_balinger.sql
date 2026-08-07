@@ -1,0 +1,2 @@
+CREATE TYPE "public"."runners_reservation_kind" AS ENUM('bound', 'launch');--> statement-breakpoint
+ALTER TABLE "runners_reservations" ADD COLUMN "kind" "runners_reservation_kind" DEFAULT 'launch' NOT NULL;

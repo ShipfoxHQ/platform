@@ -35,6 +35,8 @@ export interface PollDemandResult {
   stats: DemandStat[];
   reservations: ReservationGrant[];
   terminateRunnerInstanceIds: string[];
+  /** Units reserved this poll. A bound-only allocation carries no launch grant, so this is what ends the long poll. */
+  newlyReservedCount?: number;
 }
 
 export interface RunnerInstanceCountDivergence {
@@ -78,6 +80,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         provisionerId: params.provisionerId,
         maxReservations: params.maxReservations,
         ttlSeconds: params.ttlSeconds,
+        activationGraceSeconds: config.RESERVATION_TTL_SECONDS,
         templates: params.templates,
       });
       const terminateIntents = await listProvisionerTerminateIntentRowsTx(tx, {
@@ -85,8 +88,14 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         provisionerId: params.provisionerId,
         limit: params.terminateIntentLimit,
       });
+      const newlyReservedCount = demand.newlyReservedUnits.reduce(
+        (total, reservation) => total + reservation.count,
+        0,
+      );
       const result: PollDemandResult = {
-        ...demand,
+        stats: demand.stats,
+        reservations: demand.reservations,
+        ...(newlyReservedCount > 0 ? {newlyReservedCount} : {}),
         terminateRunnerInstanceIds: terminateIntents.map((intent) => intent.providerRunnerId),
       };
 
@@ -145,6 +154,7 @@ export function shouldReturn(
     maxReservations === 0 ||
     totalCapacity === 0 ||
     result.reservations.length > 0 ||
+    (result.newlyReservedCount ?? 0) > 0 ||
     result.terminateRunnerInstanceIds.length > 0 ||
     deadlinePassed
   );

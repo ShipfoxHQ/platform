@@ -62,11 +62,11 @@ export const config = createConfig({
     default: 250,
   }),
   RESERVATION_TTL_SECONDS: num({
-    desc: 'Default lifetime and activation grace period of a count-based runner reservation, in seconds. A runner without a session can be rebound only after this deadline. Used when a provisioner does not request a provider-specific value. Expired reservations stop counting against queued demand.',
+    desc: 'Activation grace period for a rebound runner reservation, in seconds. A runner without a session can be rebound again only after this deadline. It is also the default lifetime for launch reservations when a provisioner does not request a provider-specific value.',
     default: 60,
   }),
   RESERVATION_TTL_MAX_SECONDS: num({
-    desc: `Server-side ceiling for a count-based runner reservation lifetime and activation grace period, in seconds. Set it at least as high as every provider registration deadline plus its launch headroom so provider-specific values can cover the launch gap, boot, and enrollment. Set this between 1 and ${RESERVATION_TTL_HARD_MAX_SECONDS}.`,
+    desc: `Server-side ceiling for a launch reservation lifetime, in seconds. Set it at least as high as every provider registration deadline plus its launch headroom so provider-specific values can cover the launch gap, boot, and enrollment. Set this between 1 and ${RESERVATION_TTL_HARD_MAX_SECONDS}.`,
     default: 600,
   }),
   RESERVATION_LONG_POLL_MAX_WAIT_SECONDS: num({

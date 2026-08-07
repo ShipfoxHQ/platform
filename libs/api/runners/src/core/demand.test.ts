@@ -37,6 +37,12 @@ describe('shouldReturn', () => {
     expect(result).toBe(true);
   });
 
+  it('returns true when only a rebound reservation was created', () => {
+    const result = shouldReturn({...emptyResult, newlyReservedCount: 1}, 1, 1, false);
+
+    expect(result).toBe(true);
+  });
+
   it('returns true when terminate intents exist', () => {
     const result = shouldReturn(
       {...emptyResult, terminateRunnerInstanceIds: ['provisioned-runner-1']},
@@ -81,7 +87,9 @@ describe('pollDemand', () => {
 
   it('returns immediately when terminate intents exist without reservation demand', async () => {
     vi.resetModules();
-    const pollDemandAndReserveTx = vi.fn().mockResolvedValue({stats: [], reservations: []});
+    const pollDemandAndReserveTx = vi
+      .fn()
+      .mockResolvedValue({stats: [], reservations: [], newlyReservedUnits: []});
     const listProvisionerTerminateIntentRowsTx = vi
       .fn()
       .mockResolvedValue([{providerRunnerId: 'provisioned-runner-1', reason: 'job-cancelled'}]);
@@ -132,7 +140,9 @@ describe('pollDemand', () => {
   it('does not calculate divergence for a non-returned long-poll retry', async () => {
     vi.resetModules();
     const abortController = new AbortController();
-    const pollDemandAndReserveTx = vi.fn().mockResolvedValue({stats: [], reservations: []});
+    const pollDemandAndReserveTx = vi
+      .fn()
+      .mockResolvedValue({stats: [], reservations: [], newlyReservedUnits: []});
     const listProvisionerTerminateIntentRowsTx = vi.fn().mockImplementation(() => {
       abortController.abort();
       return [];
@@ -180,7 +190,9 @@ describe('pollDemand', () => {
     vi.resetModules();
     vi.stubEnv('PROVISIONED_RUNNER_COUNT_DIVERGENCE_TEMPLATE_KEY_LABEL_ENABLED', 'true');
     const divergenceAdd = vi.fn();
-    const pollDemandAndReserveTx = vi.fn().mockResolvedValue({stats: [], reservations: []});
+    const pollDemandAndReserveTx = vi
+      .fn()
+      .mockResolvedValue({stats: [], reservations: [], newlyReservedUnits: []});
     const listProvisionerTerminateIntentRowsTx = vi.fn().mockResolvedValue([]);
     const listActiveRunnerInstanceCountsByTemplateTx = vi
       .fn()
