@@ -120,6 +120,167 @@ describe('pollDemandAndReserve', () => {
     });
   });
 
+  it('does not deadlock polling with expired-reservation cleanup', async () => {
+    const oldestRunnerId = `ffffffff-${crypto.randomUUID().slice(9)}`;
+    const lowestIdRunnerId = `00000000-${crypto.randomUUID().slice(9)}`;
+    const [expiredReservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 2,
+        expiresAt: new Date('2000-01-01T00:00:00.000Z'),
+      })
+      .returning({id: reservations.id});
+    if (!expiredReservation) throw new Error('Expected expired reservation');
+
+    const oldestRunner = await createIdleRunner({
+      id: oldestRunnerId,
+      labels: ['linux'],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      workspaceId,
+      reservationId: expiredReservation.id,
+    });
+    const lowestIdRunner = await createIdleRunner({
+      id: lowestIdRunnerId,
+      labels: ['linux'],
+      createdAt: new Date('2026-01-02T00:00:00.000Z'),
+      workspaceId,
+      reservationId: expiredReservation.id,
+    });
+    await createPendingJobs(2, ['linux']);
+
+    const lockClient = await pgClient().connect();
+    let transactionOpen = false;
+    let cleanupPromise: Promise<number> | undefined;
+    let pollPromise: ReturnType<typeof pollDemandAndReserve> | undefined;
+    try {
+      await lockClient.query('BEGIN');
+      transactionOpen = true;
+      const lockPidResult = await lockClient.query<{pid: number}>('SELECT pg_backend_pid() AS pid');
+      const lockPid = lockPidResult.rows[0]?.pid;
+      if (lockPid === undefined) throw new Error('Expected lock holder backend pid');
+      await lockClient.query('SELECT id FROM runners_runner_instances WHERE id = $1 FOR UPDATE', [
+        lowestIdRunner.id,
+      ]);
+
+      cleanupPromise = deleteExpiredReservations({limit: 1});
+      // Attach a handler before waiting for the second transaction so a deadlock loser cannot
+      // become an unhandled rejection while the test is coordinating the lock holders.
+      cleanupPromise.catch(() => undefined);
+      await waitForLockWait({blockingPid: lockPid});
+
+      pollPromise = pollDemandAndReserve({
+        workspaceId,
+        provisionerId,
+        maxReservations: 2,
+        ttlSeconds: 60,
+        templates: [template('linux', ['linux'], 2)],
+      });
+      pollPromise.catch(() => undefined);
+      await waitForLockWait({blockingPid: lockPid, minWaiters: 2});
+
+      await lockClient.query('COMMIT');
+      transactionOpen = false;
+
+      if (!cleanupPromise || !pollPromise) throw new Error('Expected concurrent operations');
+      const [deleted, result] = await Promise.all([cleanupPromise, pollPromise]);
+
+      expect(deleted).toBe(1);
+      expect(result.reservations).toEqual([]);
+      const rows = await db()
+        .select({id: providerRunners.id, reservationId: providerRunners.reservationId})
+        .from(providerRunners)
+        .where(inArray(providerRunners.id, [oldestRunner.id, lowestIdRunner.id]));
+      expect(rows).toHaveLength(2);
+      expect(rows.every((row) => row.reservationId !== expiredReservation.id)).toBe(true);
+    } finally {
+      if (transactionOpen) await lockClient.query('ROLLBACK');
+      if (cleanupPromise) await cleanupPromise.catch(() => undefined);
+      if (pollPromise) await pollPromise.catch(() => undefined);
+      lockClient.release();
+    }
+  }, 10_000);
+
+  it('does not bind a runner that becomes ineligible while waiting for its row lock', async () => {
+    const runner = await createIdleRunner({labels: ['linux']});
+    await createPendingJobs(1, ['linux']);
+
+    const lockClient = await pgClient().connect();
+    const eligibilityClient = await pgClient().connect();
+    let lockTransactionOpen = false;
+    let eligibilityTransactionOpen = false;
+    let eligibilityLockPromise: Promise<unknown> | undefined;
+    let pollPromise: ReturnType<typeof pollDemandAndReserve> | undefined;
+    try {
+      await lockClient.query('BEGIN');
+      lockTransactionOpen = true;
+      const lockPidResult = await lockClient.query<{pid: number}>('SELECT pg_backend_pid() AS pid');
+      const lockPid = lockPidResult.rows[0]?.pid;
+      if (lockPid === undefined) throw new Error('Expected lock holder backend pid');
+      await lockClient.query('SELECT id FROM runners_runner_instances WHERE id = $1 FOR UPDATE', [
+        runner.id,
+      ]);
+
+      await eligibilityClient.query('BEGIN');
+      eligibilityTransactionOpen = true;
+      const eligibilityPidResult = await eligibilityClient.query<{pid: number}>(
+        'SELECT pg_backend_pid() AS pid',
+      );
+      const eligibilityPid = eligibilityPidResult.rows[0]?.pid;
+      if (eligibilityPid === undefined) throw new Error('Expected eligibility backend pid');
+      eligibilityLockPromise = eligibilityClient.query(
+        'SELECT id FROM runners_runner_instances WHERE id = $1 FOR UPDATE',
+        [runner.id],
+      );
+      // Attach a handler before starting the poll so cleanup can safely await a failed lock query.
+      eligibilityLockPromise.catch(() => undefined);
+      await waitForLockWait({blockingPid: lockPid});
+
+      pollPromise = pollDemandAndReserve({
+        workspaceId,
+        provisionerId,
+        maxReservations: 1,
+        ttlSeconds: 60,
+        templates: [template('linux', ['linux'], 1)],
+      });
+      pollPromise.catch(() => undefined);
+      await waitForLockWait({blockingPid: eligibilityPid});
+
+      await lockClient.query('COMMIT');
+      lockTransactionOpen = false;
+      await eligibilityLockPromise;
+      await eligibilityClient.query(
+        "UPDATE runners_runner_instances SET state = 'terminated', terminated_at = now(), updated_at = now() WHERE id = $1",
+        [runner.id],
+      );
+      await eligibilityClient.query(
+        "UPDATE runners_runner_control_sessions SET closed_at = now(), close_reason = 'test' WHERE runner_instance_id = $1 AND closed_at IS NULL",
+        [runner.id],
+      );
+      await eligibilityClient.query('COMMIT');
+      eligibilityTransactionOpen = false;
+
+      if (!pollPromise) throw new Error('Expected concurrent poll');
+      const result = await pollPromise;
+
+      expect(result.reservations).toEqual([expect.objectContaining({count: 1})]);
+      const [storedRunner] = await db()
+        .select({state: providerRunners.state, reservationId: providerRunners.reservationId})
+        .from(providerRunners)
+        .where(eq(providerRunners.id, runner.id));
+      expect(storedRunner).toEqual({state: 'terminated', reservationId: null});
+    } finally {
+      if (lockTransactionOpen) await lockClient.query('ROLLBACK');
+      if (eligibilityTransactionOpen) await eligibilityClient.query('ROLLBACK');
+      if (eligibilityLockPromise) await eligibilityLockPromise.catch(() => undefined);
+      if (pollPromise) await pollPromise.catch(() => undefined);
+      lockClient.release();
+      eligibilityClient.release();
+    }
+  }, 10_000);
+
   it('splits rebound and launch capacity with separate reservation lifetimes', async () => {
     const runner = await createIdleRunner({labels: ['linux']});
     await createPendingJobs(2, ['linux']);
@@ -1660,6 +1821,7 @@ describe('pollDemandAndReserve', () => {
   }
 
   async function createIdleRunner(params: {
+    id?: string;
     labels: string[];
     createdAt?: Date;
     controlSessionExpiresAt?: Date;
@@ -1674,6 +1836,7 @@ describe('pollDemandAndReserve', () => {
     const [runner] = await db()
       .insert(providerRunners)
       .values({
+        ...(params.id ? {id: params.id} : {}),
         provisionerId,
         workspaceId: params.workspaceId,
         reservationId: params.reservationId,
@@ -1729,8 +1892,9 @@ describe('pollDemandAndReserve', () => {
   }
 });
 
-async function waitForLockWait(params: {blockingPid: number}) {
-  const deadline = Date.now() + 2_000;
+async function waitForLockWait(params: {blockingPid: number; minWaiters?: number}) {
+  const minWaiters = params.minWaiters ?? 1;
+  const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     const result = await pgClient().query<{count: number}>(
       `
@@ -1744,8 +1908,10 @@ async function waitForLockWait(params: {blockingPid: number}) {
       `,
       [params.blockingPid],
     );
-    if ((result.rows[0]?.count ?? 0) > 0) return;
+    if ((result.rows[0]?.count ?? 0) >= minWaiters) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`Timed out waiting for a backend blocked by pid ${params.blockingPid}`);
+  throw new Error(
+    `Timed out waiting for ${minWaiters} backend(s) blocked by pid ${params.blockingPid}`,
+  );
 }
