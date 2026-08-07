@@ -9,6 +9,7 @@ import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {
   type RunnerReservationPromotionFailureReason,
+  runnerActivationTokenNotIssuedCount,
   runnerReservationPromotionFailureCount,
 } from '#metrics/instance.js';
 import {enrollRunnerControlSession} from './runner-control-sessions.js';
@@ -215,6 +216,62 @@ describe('enrollRunnerControlSession', () => {
       capabilities,
       state: 'running',
     });
+  });
+
+  it('records an activation-token reason when enrollment sees an existing runner session', async () => {
+    const provisionerId = crypto.randomUUID();
+    const reservation = await createReservation({provisionerId});
+    const runnerInstanceId = await createRunner({
+      provisionerId,
+      intendedReservationId: reservation.id,
+    });
+    await db()
+      .update(providerRunners)
+      .set({runnerSessionId: crypto.randomUUID()})
+      .where(eq(providerRunners.id, runnerInstanceId));
+    const addSpy = vi.spyOn(runnerActivationTokenNotIssuedCount, 'add');
+
+    try {
+      const activationToken = await enrollRunnerControlSession({
+        runnerInstanceId,
+        provisionerId,
+        labels: ['linux'],
+        providerKind: 'docker',
+        protocolVersion: '1',
+      });
+      const [runner] = await db()
+        .select({
+          workspaceId: providerRunners.workspaceId,
+          reservationId: providerRunners.reservationId,
+          assignedAt: providerRunners.assignedAt,
+          intendedReservationId: providerRunners.intendedReservationId,
+          runnerSessionId: providerRunners.runnerSessionId,
+          state: providerRunners.state,
+        })
+        .from(providerRunners)
+        .where(eq(providerRunners.id, runnerInstanceId));
+
+      expect(activationToken).toBeNull();
+      expect(runner).toEqual({
+        workspaceId: reservation.workspaceId,
+        reservationId: reservation.id,
+        assignedAt: expect.any(Date),
+        intendedReservationId: null,
+        runnerSessionId: expect.any(String),
+        state: 'running',
+      });
+      // The test setup uses a shared NoopMeter counter; count only this metric's label shape.
+      const activationTokenCalls = addSpy.mock.calls.filter(
+        ([value, attributes]) =>
+          value === 1 &&
+          (attributes as {reason?: string; surface?: string} | undefined)?.reason ===
+            'existing-session' &&
+          (attributes as {reason?: string; surface?: string} | undefined)?.surface === 'enrollment',
+      );
+      expect(activationTokenCalls).toHaveLength(1);
+    } finally {
+      addSpy.mockRestore();
+    }
   });
 
   it('updates metadata during enrollment for an unassigned runner', async () => {

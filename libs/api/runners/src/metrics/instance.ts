@@ -31,6 +31,21 @@ export const runnerBootstrapExchangeCount = meter.createCounter<{
   description: 'Runner bootstrap-token exchanges by outcome',
 });
 
+export type RunnerActivationTokenNotIssuedReason =
+  | 'runner-not-found'
+  | 'missing-workspace'
+  | 'existing-session'
+  | 'not-running';
+
+export type RunnerActivationTokenNotIssuedSurface = 'enrollment' | 'poll';
+
+export const runnerActivationTokenNotIssuedCount = meter.createCounter<{
+  reason: RunnerActivationTokenNotIssuedReason;
+  surface: RunnerActivationTokenNotIssuedSurface;
+}>('runners_runner_activation_token_not_issued', {
+  description: 'Runner activation token issuance skips by reason and surface',
+});
+
 export const runnerControlHeartbeatCount = meter.createCounter<Record<string, never>>(
   'runners_runner_control_heartbeat',
   {description: 'Pre-workspace runner-control heartbeats accepted'},
@@ -123,6 +138,13 @@ export function recordRunnerReservationPromotionFailure(
   reason: RunnerReservationPromotionFailureReason,
 ): void {
   recordMetric(() => runnerReservationPromotionFailureCount.add(1, {reason}));
+}
+
+export function recordRunnerActivationTokenNotIssued(params: {
+  reason: RunnerActivationTokenNotIssuedReason;
+  surface: RunnerActivationTokenNotIssuedSurface;
+}): void {
+  recordMetric(() => runnerActivationTokenNotIssuedCount.add(1, params));
 }
 
 export function recordRunnersRateLimitCheck(params: {

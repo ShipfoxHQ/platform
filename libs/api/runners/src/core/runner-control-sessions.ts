@@ -227,6 +227,7 @@ export async function enrollRunnerControlSession(params: {
           runnerInstanceId: params.runnerInstanceId,
           provisionerId: params.provisionerId,
           ttlSeconds: config.RUNNER_ACTIVATION_TOKEN_TTL_SECONDS,
+          surface: 'enrollment',
         });
       });
     } catch (error) {
