@@ -1,8 +1,10 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {sql} from 'drizzle-orm';
-import {check, index, integer, text, timestamp, uuid} from 'drizzle-orm/pg-core';
+import {check, index, integer, pgEnum, text, timestamp, uuid} from 'drizzle-orm/pg-core';
 import type {Reservation} from '#core/entities/reservation.js';
 import {pgTable} from './common.js';
+
+export const reservationKindEnum = pgEnum('runners_reservation_kind', ['bound', 'launch']);
 
 export const reservations = pgTable(
   'reservations',
@@ -12,6 +14,7 @@ export const reservations = pgTable(
     provisionerId: uuid('provisioner_id').notNull(),
     requiredLabels: text('required_labels').array().notNull(),
     count: integer('count').notNull(),
+    kind: reservationKindEnum('kind').notNull().default('launch'),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', {withTimezone: true}).notNull(),
   },
@@ -32,6 +35,7 @@ export function toReservation(row: ReservationDb): Reservation {
     provisionerId: row.provisionerId,
     requiredLabels: row.requiredLabels,
     count: row.count,
+    kind: row.kind,
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
   };

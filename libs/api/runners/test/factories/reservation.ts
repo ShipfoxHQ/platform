@@ -7,6 +7,7 @@ interface ReservationAttrs {
   provisionerId: string;
   requiredLabels: string[];
   count: number;
+  kind?: 'bound' | 'launch';
   expiresAt: Date;
 }
 
@@ -19,6 +20,7 @@ export const reservationFactory = Factory.define<ReservationAttrs>(({onCreate}) 
       provisionerId: row.provisionerId,
       requiredLabels: row.requiredLabels,
       count: row.count,
+      kind: row.kind,
       expiresAt: row.expiresAt,
     };
   });

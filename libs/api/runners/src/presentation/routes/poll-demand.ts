@@ -98,6 +98,7 @@ export function createPollDemandRoute(options: CreateRunnersModuleOptions = {}) 
           provisionerId: provisionerContext.provisionerTokenId,
           maxReservations: request.body.max_reservations,
           ttlSeconds,
+          activationGraceSeconds: config.RESERVATION_TTL_SECONDS,
           templates,
           capabilityWindowSeconds: config.PROVISIONER_ACTIVE_WINDOW_SECONDS,
           eligibleWorkspaceIds,

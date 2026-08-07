@@ -53,6 +53,8 @@ export interface PollDemandAndReserveParams {
   provisionerId: string;
   maxReservations: number;
   ttlSeconds: number;
+  /** Lifetime of the short reservation that gives rebound runners time to activate. */
+  activationGraceSeconds?: number;
   templates: ReservationTemplate[];
   capabilityWindowSeconds?: number;
 }
@@ -61,6 +63,8 @@ export interface InstallationPollDemandAndReserveParams {
   provisionerId: string;
   maxReservations: number;
   ttlSeconds: number;
+  /** Lifetime of the short reservation that gives rebound runners time to activate. */
+  activationGraceSeconds?: number;
   templates: ReservationTemplate[];
   capabilityWindowSeconds: number;
   eligibleWorkspaceIds: ReadonlySet<string>;
@@ -86,18 +90,32 @@ interface DemandRow {
   oldestQueuedAt: Date;
 }
 
+interface NewReservationUnits {
+  labels: string[];
+  count: number;
+}
+
+interface PollDemandAndReserveResult {
+  stats: DemandStat[];
+  /** Only launch reservations are exposed to the provisioner. */
+  reservations: ReservationGrant[];
+  /** Internal allocation accounting for bound and launch rows together. */
+  newlyReservedUnits: NewReservationUnits[];
+}
+
 export async function pollDemandAndReserve(
   params: PollDemandAndReserveParams,
 ): Promise<{stats: DemandStat[]; reservations: ReservationGrant[]}> {
-  return await db().transaction(async (tx) => {
+  const result = await db().transaction(async (tx) => {
     return await pollDemandAndReserveTx(tx, params);
   });
+  return {stats: result.stats, reservations: result.reservations};
 }
 
 export async function pollDemandAndReserveTx(
   tx: Tx,
   params: PollDemandAndReserveParams,
-): Promise<{stats: DemandStat[]; reservations: ReservationGrant[]}> {
+): Promise<PollDemandAndReserveResult> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${params.workspaceId}))`);
   return await pollDemandAndReserveLockedTx(tx, {...params, scope: 'workspace'});
 }
@@ -108,7 +126,7 @@ export async function pollInstallationDemandAndReserve(
   const candidateWorkspaceIds = await listInstallationDemandWorkspaceIds(
     params.eligibleWorkspaceIds,
   );
-  const results: Array<{stats: DemandStat[]; reservations: ReservationGrant[]}> = [];
+  const results: PollDemandAndReserveResult[] = [];
   let remainingMaxReservations = params.maxReservations;
   const remainingTemplates = params.templates.map((template) => ({
     ...template,
@@ -122,12 +140,15 @@ export async function pollInstallationDemandAndReserve(
         sql`select pg_try_advisory_xact_lock(hashtext(${workspaceId})) as locked`,
       );
       const locked = lockResult.rows[0];
-      if (!locked?.locked) return {stats: [], reservations: []};
+      if (!locked?.locked) return {stats: [], reservations: [], newlyReservedUnits: []};
       return await pollDemandAndReserveLockedTx(tx, {
         workspaceId,
         provisionerId: params.provisionerId,
         maxReservations: remainingMaxReservations,
         ttlSeconds: params.ttlSeconds,
+        ...(params.activationGraceSeconds !== undefined
+          ? {activationGraceSeconds: params.activationGraceSeconds}
+          : {}),
         templates: remainingTemplates.map((template) => ({
           ...template,
           availableSlots: template.remainingSlots,
@@ -137,9 +158,9 @@ export async function pollInstallationDemandAndReserve(
       });
     });
     results.push(result);
-    consumeInstallationTemplateSlots(remainingTemplates, result.reservations);
+    consumeInstallationTemplateSlots(remainingTemplates, result.newlyReservedUnits);
     params.onReservations?.(result.reservations);
-    remainingMaxReservations -= result.reservations.reduce(
+    remainingMaxReservations -= result.newlyReservedUnits.reduce(
       (total, reservation) => total + reservation.count,
       0,
     );
@@ -152,7 +173,7 @@ export async function pollInstallationDemandAndReserve(
 
 function consumeInstallationTemplateSlots(
   templates: NormalizedTemplate[],
-  reservations: ReservationGrant[],
+  reservations: NewReservationUnits[],
 ): void {
   for (const reservation of reservations) {
     const satisfyingTemplates = templates
@@ -167,7 +188,7 @@ function consumeInstallationTemplateSlots(
 async function pollDemandAndReserveLockedTx(
   tx: Tx,
   params: PollDemandAndReserveLockedParams,
-): Promise<{stats: DemandStat[]; reservations: ReservationGrant[]}> {
+): Promise<PollDemandAndReserveResult> {
   let demandRows = (
     await tx
       .select({
@@ -229,6 +250,7 @@ async function pollDemandAndReserveLockedTx(
   deductProvisionerReservations(templates, activeProvisionerReservationRows);
   const stats: DemandStat[] = [];
   const grants: ReservationGrant[] = [];
+  const newlyReservedUnits: NewReservationUnits[] = [];
   let remainingMaxReservations = params.maxReservations;
   const workspaceIdField =
     params.capabilityWindowSeconds === undefined ? {} : {workspaceId: params.workspaceId};
@@ -252,37 +274,70 @@ async function pollDemandAndReserveLockedTx(
     let reservedAfterGrant = reserved;
 
     if (grant > 0 && params.maxReservations > 0) {
-      const [inserted] = await tx
+      const [boundReservation] = await tx
         .insert(reservations)
         .values({
           workspaceId: params.workspaceId,
           provisionerId: params.provisionerId,
           requiredLabels: demand.requiredLabels,
           count: grant,
-          expiresAt: sql`now() + (${params.ttlSeconds} || ' seconds')::interval`,
+          kind: 'bound',
+          expiresAt: sql`now() + (${params.activationGraceSeconds ?? params.ttlSeconds} || ' seconds')::interval`,
         })
-        .returning({id: reservations.id, expiresAt: reservations.expiresAt});
+        .returning({id: reservations.id});
 
-      if (!inserted) throw new Error('Insert returned no rows');
+      if (!boundReservation) throw new Error('Insert returned no rows');
 
       remainingMaxReservations -= grant;
       drawSlots(satisfyingTemplates, grant);
-      await bindIdleRunnerInstancesTx(tx, {
+      const boundCount = await bindIdleRunnerInstancesTx(tx, {
         provisionerId: params.provisionerId,
-        reservationId: inserted.id,
+        reservationId: boundReservation.id,
         requiredLabels: demand.requiredLabels,
         count: grant,
         workspaceId: params.workspaceId,
         scope: params.scope,
       });
+
+      if (boundCount === 0) {
+        await tx.delete(reservations).where(eq(reservations.id, boundReservation.id));
+      } else if (boundCount < grant) {
+        await tx
+          .update(reservations)
+          .set({count: boundCount})
+          .where(eq(reservations.id, boundReservation.id));
+      }
+
+      const launchCount = grant - boundCount;
+      let launchReservation: {id: string; expiresAt: Date} | undefined;
+      if (launchCount > 0) {
+        const [inserted] = await tx
+          .insert(reservations)
+          .values({
+            workspaceId: params.workspaceId,
+            provisionerId: params.provisionerId,
+            requiredLabels: demand.requiredLabels,
+            count: launchCount,
+            kind: 'launch',
+            expiresAt: sql`now() + (${params.ttlSeconds} || ' seconds')::interval`,
+          })
+          .returning({id: reservations.id, expiresAt: reservations.expiresAt});
+
+        if (!inserted) throw new Error('Insert returned no rows');
+        launchReservation = inserted;
+      }
+
+      newlyReservedUnits.push({labels: demand.requiredLabels, count: grant});
       reservedAfterGrant += grant;
-      grants.push({
-        reservationId: inserted.id,
-        ...workspaceIdField,
-        labels: demand.requiredLabels,
-        count: grant,
-        expiresAt: inserted.expiresAt,
-      });
+      if (launchReservation) {
+        grants.push({
+          reservationId: launchReservation.id,
+          ...workspaceIdField,
+          labels: demand.requiredLabels,
+          count: launchCount,
+          expiresAt: launchReservation.expiresAt,
+        });
+      }
     }
 
     stats.push({
@@ -294,7 +349,7 @@ async function pollDemandAndReserveLockedTx(
     });
   }
 
-  return {stats, reservations: grants};
+  return {stats, reservations: grants, newlyReservedUnits};
 }
 
 async function bindIdleRunnerInstancesTx(
@@ -307,9 +362,9 @@ async function bindIdleRunnerInstancesTx(
     count: number;
     scope: DemandScope;
   },
-): Promise<void> {
-  // Reservation expiry is the activation grace deadline. A live reservation
-  // protects a runner that is still booting; an expired or missing row is stale.
+): Promise<number> {
+  // An expired or missing reservation is stale. A live reservation protects a
+  // runner that is still booting or waiting for its activation grace period.
   const canBindRunner = () =>
     and(
       or(
@@ -382,7 +437,7 @@ async function bindIdleRunnerInstancesTx(
     .limit(params.count)
     .for('update');
 
-  if (idleRunners.length === 0) return;
+  if (idleRunners.length === 0) return 0;
 
   await tx
     .update(runnerActivationTokens)
@@ -398,7 +453,7 @@ async function bindIdleRunnerInstancesTx(
       ),
     );
 
-  await tx
+  const reboundRunners = await tx
     .update(providerRunners)
     .set({
       workspaceId: params.workspaceId,
@@ -415,7 +470,10 @@ async function bindIdleRunnerInstancesTx(
         ),
         canBindRunner(),
       ),
-    );
+    )
+    .returning({id: providerRunners.id});
+
+  return reboundRunners.length;
 }
 
 async function listInstallationDemandWorkspaceIds(eligibleWorkspaceIds: ReadonlySet<string>) {

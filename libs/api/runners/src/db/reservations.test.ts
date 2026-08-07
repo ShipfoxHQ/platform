@@ -7,6 +7,7 @@ import {
   pollInstallationDemandAndReserve,
   releaseReservationUnits,
 } from '#db/reservations.js';
+import {pendingJobExecutions} from '#db/schema/pending-job-executions.js';
 import {reservations} from '#db/schema/reservations.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
 import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
@@ -66,9 +67,15 @@ describe('pollDemandAndReserve', () => {
       .from(providerRunners)
       .where(inArray(providerRunners.id, [olderRunner.id, newerRunner.id, unmatchedRunner.id]));
     const rowsById = new Map(rows.map((row) => [row.id, row]));
-    const reservationId = result.reservations[0]?.reservationId;
+    expect(result.reservations).toEqual([]);
+    const reservationId = rowsById.get(olderRunner.id)?.reservationId;
 
     expect(reservationId).toEqual(expect.any(String));
+    const [boundReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, reservationId as string));
+    expect(boundReservation).toMatchObject({kind: 'bound', count: 2});
     expect(rowsById.get(olderRunner.id)).toMatchObject({
       workspaceId,
       reservationId,
@@ -84,6 +91,48 @@ describe('pollDemandAndReserve', () => {
       reservationId: null,
       assignedAt: null,
     });
+  });
+
+  it('splits rebound and launch capacity with separate reservation lifetimes', async () => {
+    const runner = await createIdleRunner({labels: ['linux']});
+    await createPendingJobs(2, ['linux']);
+
+    const before = Date.now();
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 2,
+      ttlSeconds: 120,
+      activationGraceSeconds: 5,
+      templates: [template('linux', ['linux'], 2)],
+    });
+
+    expect(result.reservations).toHaveLength(1);
+    expect(result.reservations[0]).toMatchObject({count: 1});
+    const rows = await db()
+      .select()
+      .from(reservations)
+      .where(
+        and(
+          eq(reservations.workspaceId, workspaceId),
+          eq(reservations.provisionerId, provisionerId),
+        ),
+      );
+    const boundReservation = rows.find((row) => row.kind === 'bound');
+    const launchReservation = rows.find((row) => row.kind === 'launch');
+    expect(boundReservation).toMatchObject({count: 1});
+    expect(launchReservation).toMatchObject({count: 1});
+    expect(boundReservation?.expiresAt.getTime()).toBeGreaterThan(before + 4_000);
+    expect(boundReservation?.expiresAt.getTime()).toBeLessThan(
+      launchReservation?.expiresAt.getTime() ?? 0,
+    );
+    expect(launchReservation?.id).toBe(result.reservations[0]?.reservationId);
+
+    const [storedRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(storedRunner?.reservationId).toBe(boundReservation?.id);
   });
 
   it('binds a runner whose intended reservation has passed its activation grace period', async () => {
@@ -109,9 +158,10 @@ describe('pollDemandAndReserve', () => {
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations).toEqual([]);
     expect(storedRunner).toMatchObject({
       workspaceId,
-      reservationId: result.reservations[0]?.reservationId,
+      reservationId: expect.any(String),
       intendedReservationId: null,
       assignedAt: expect.any(Date),
     });
@@ -141,9 +191,10 @@ describe('pollDemandAndReserve', () => {
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations).toEqual([]);
     expect(storedRunner).toMatchObject({
       workspaceId,
-      reservationId: result.reservations[0]?.reservationId,
+      reservationId: expect.any(String),
       intendedReservationId: null,
       assignedAt: expect.any(Date),
     });
@@ -188,9 +239,10 @@ describe('pollDemandAndReserve', () => {
       .select()
       .from(runnerActivationTokens)
       .where(eq(runnerActivationTokens.id, activationToken.id));
+    expect(result.reservations).toEqual([]);
     expect(storedRunner).toMatchObject({
       workspaceId,
-      reservationId: result.reservations[0]?.reservationId,
+      reservationId: expect.any(String),
       intendedReservationId: null,
       assignedAt: expect.any(Date),
     });
@@ -223,9 +275,10 @@ describe('pollDemandAndReserve', () => {
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations).toEqual([]);
     expect(storedRunner).toMatchObject({
       workspaceId,
-      reservationId: result.reservations[0]?.reservationId,
+      reservationId: expect.any(String),
       intendedReservationId: null,
       assignedAt: expect.any(Date),
     });
@@ -349,9 +402,10 @@ describe('pollDemandAndReserve', () => {
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.id));
+    expect(result.reservations).toEqual([]);
     expect(storedRunner).toMatchObject({
       workspaceId,
-      reservationId: result.reservations[0]?.reservationId,
+      reservationId: expect.any(String),
       intendedReservationId: null,
       assignedAt: expect.any(Date),
     });
@@ -385,13 +439,59 @@ describe('pollDemandAndReserve', () => {
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.id));
-    expect(result.reservations[0]).toMatchObject({workspaceId: targetWorkspaceId, count: 1});
+    expect(result.reservations).toEqual([]);
     expect(storedRunner).toMatchObject({
       workspaceId: targetWorkspaceId,
-      reservationId: result.reservations[0]?.reservationId,
+      reservationId: expect.any(String),
       intendedReservationId: null,
       assignedAt: expect.any(Date),
     });
+  });
+
+  it('counts rebound installation capacity against the remaining grant budget', async () => {
+    const reboundWorkspaceId = crypto.randomUUID();
+    const launchWorkspaceId = crypto.randomUUID();
+    await pendingJobFactory.create({
+      workspaceId: reboundWorkspaceId,
+      requiredLabels: ['linux'],
+    });
+    await pendingJobFactory.create({
+      workspaceId: launchWorkspaceId,
+      requiredLabels: ['linux'],
+    });
+    await db()
+      .update(pendingJobExecutions)
+      .set({createdAt: new Date('2026-01-01T00:00:00.000Z')})
+      .where(eq(pendingJobExecutions.workspaceId, reboundWorkspaceId));
+    await db()
+      .update(pendingJobExecutions)
+      .set({createdAt: new Date('2026-01-02T00:00:00.000Z')})
+      .where(eq(pendingJobExecutions.workspaceId, launchWorkspaceId));
+    await createIdleRunner({labels: ['linux']});
+
+    const result = await pollInstallationDemandAndReserve({
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+      capabilityWindowSeconds: 60,
+      eligibleWorkspaceIds: new Set([reboundWorkspaceId, launchWorkspaceId]),
+    });
+
+    const storedReservations = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.provisionerId, provisionerId));
+    expect(result.reservations).toEqual([]);
+    expect(storedReservations).toHaveLength(1);
+    expect(storedReservations[0]).toMatchObject({
+      workspaceId: reboundWorkspaceId,
+      kind: 'bound',
+      count: 1,
+    });
+    expect(
+      storedReservations.some((reservation) => reservation.workspaceId === launchWorkspaceId),
+    ).toBe(false);
   });
 
   it('does not rebind a released runner after its reservation expires', async () => {
@@ -502,9 +602,10 @@ describe('pollDemandAndReserve', () => {
       templates: [template('linux', ['linux'], 1)],
     });
 
-    expect(firstResult.reservations).toHaveLength(1);
+    expect(firstResult.reservations).toEqual([]);
     expect(secondResult.reservations).toEqual([]);
     expect(secondResult.stats[0]).toMatchObject({queued: 1, reserved: 1});
+    expect(await activeReservedCount()).toBe(1);
   });
 
   it('allocates overlapping label sets most-specific-first', async () => {
@@ -765,15 +866,25 @@ describe('pollDemandAndReserve', () => {
     const runner = await createIdleRunner({labels: ['linux']});
     await createPendingJobs(1, ['linux']);
 
-    const result = await pollDemandAndReserve({
+    await pollDemandAndReserve({
       workspaceId,
       provisionerId,
       maxReservations: 1,
       ttlSeconds: 60,
       templates: [template('linux', ['linux'], 1)],
     });
-    const reservationId = result.reservations[0]?.reservationId;
-    if (!reservationId) throw new Error('Expected reservation');
+    const [boundReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(
+        and(
+          eq(reservations.workspaceId, workspaceId),
+          eq(reservations.provisionerId, provisionerId),
+          eq(reservations.kind, 'bound'),
+        ),
+      );
+    const reservationId = boundReservation?.id;
+    if (!reservationId) throw new Error('Expected bound reservation');
 
     const [activationToken] = await db()
       .insert(runnerActivationTokens)
@@ -867,15 +978,25 @@ describe('pollDemandAndReserve', () => {
     const runner = await createIdleRunner({labels: ['linux']});
     await createPendingJobs(1, ['linux']);
 
-    const result = await pollDemandAndReserve({
+    await pollDemandAndReserve({
       workspaceId,
       provisionerId,
       maxReservations: 1,
       ttlSeconds: 60,
       templates: [template('linux', ['linux'], 1)],
     });
-    const reservationId = result.reservations[0]?.reservationId;
-    if (!reservationId) throw new Error('Expected reservation');
+    const [boundReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(
+        and(
+          eq(reservations.workspaceId, workspaceId),
+          eq(reservations.provisionerId, provisionerId),
+          eq(reservations.kind, 'bound'),
+        ),
+      );
+    const reservationId = boundReservation?.id;
+    if (!reservationId) throw new Error('Expected bound reservation');
 
     await db()
       .update(reservations)
@@ -963,18 +1084,18 @@ describe('pollDemandAndReserve', () => {
     expect(storedSurvivingRunner?.intendedReservationId).toBe(survivingReservation.id);
 
     await createPendingJobs(1, ['linux']);
-    const result = await pollDemandAndReserve({
+    await pollDemandAndReserve({
       workspaceId,
       provisionerId,
       maxReservations: 1,
       ttlSeconds: 60,
       templates: [template('linux', ['linux'], 1)],
     });
-    const reboundReservationId = result.reservations[0]?.reservationId;
     const [reboundRunner] = await db()
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.id));
+    const reboundReservationId = reboundRunner?.reservationId;
     expect(reboundReservationId).toEqual(expect.any(String));
     expect(reboundRunner).toMatchObject({
       intendedReservationId: null,

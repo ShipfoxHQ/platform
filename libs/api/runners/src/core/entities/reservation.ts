@@ -4,6 +4,7 @@ export interface Reservation {
   provisionerId: string;
   requiredLabels: string[];
   count: number;
+  kind: 'bound' | 'launch';
   createdAt: Date;
   expiresAt: Date;
 }
