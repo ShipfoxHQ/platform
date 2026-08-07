@@ -33,7 +33,14 @@ vi.mock('#db/runner-instances.js', () => ({
   countStaleEnrolledRunnerInstances: mocks.countStaleEnrolledRunnerInstances,
 }));
 
-import {registerRunnersServiceMetrics} from './service.js';
+let registerRunnersServiceMetrics: typeof import('./service.js').registerRunnersServiceMetrics;
+
+beforeAll(async () => {
+  // This package intentionally runs with isolate: false. Reset the shared module cache before
+  // importing the service so a previous file's real OpenTelemetry module cannot bypass this mock.
+  vi.resetModules();
+  ({registerRunnersServiceMetrics} = await import('./service.js'));
+});
 
 describe('registerRunnersServiceMetrics', () => {
   beforeEach(() => {
