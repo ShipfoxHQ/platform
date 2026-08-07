@@ -41,6 +41,50 @@ describe('assignRunnerInstances', () => {
     });
   });
 
+  it('repairs a provider-reported reservation before assignment commit', async () => {
+    const reservation = await createReservation();
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        provisionerId,
+        intendedReservationId: reservation.id,
+        reservationId: reservation.id,
+        providerRunnerId: crypto.randomUUID(),
+        labels: ['linux'],
+        state: 'running',
+        reportedAt: new Date(),
+      })
+      .returning();
+    if (!runner) throw new Error('Runner instance insert returned no row');
+    await db()
+      .insert(runnerControlSessions)
+      .values({
+        runnerInstanceId: runner.id,
+        provisionerId,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+    const assigned = await assignRunnerInstances({
+      provisionerId,
+      reservationId: reservation.id,
+      runnerInstanceIds: [runner.id],
+    });
+
+    expect(assigned).toEqual([runner.id]);
+    const [stored] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(stored).toMatchObject({
+      workspaceId,
+      reservationId: reservation.id,
+      intendedReservationId: null,
+      assignedAt: expect.any(Date),
+    });
+  });
+
   it('is idempotent for concurrent retries of the same assignment', async () => {
     const reservation = await createReservation();
     const runner = await createEnrolledRunner();
@@ -129,6 +173,25 @@ describe('assignRunnerInstances', () => {
     const reservation = await createReservation();
     const firstRunner = await createEnrolledRunner();
     const secondRunner = await createEnrolledRunner();
+
+    const assignment = assignRunnerInstances({
+      provisionerId,
+      reservationId: reservation.id,
+      runnerInstanceIds: [firstRunner.id, secondRunner.id],
+    });
+
+    await expect(assignment).rejects.toThrow(RunnerInstanceNotAssignableError);
+  });
+
+  it('charges capacity for a committed runner replayed alongside a new one', async () => {
+    const reservation = await createReservation();
+    const firstRunner = await createEnrolledRunner();
+    const secondRunner = await createEnrolledRunner();
+    await assignRunnerInstances({
+      provisionerId,
+      reservationId: reservation.id,
+      runnerInstanceIds: [firstRunner.id],
+    });
 
     const assignment = assignRunnerInstances({
       provisionerId,

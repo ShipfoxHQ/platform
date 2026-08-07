@@ -167,7 +167,7 @@ describe('enrollRunnerControlSession', () => {
     });
   });
 
-  it('updates metadata when a provider report precedes assignment commit', async () => {
+  it('repairs assignment metadata when a provider report precedes assignment commit', async () => {
     const provisionerId = crypto.randomUUID();
     const reservation = await createReservation({provisionerId});
     const capabilities: RunnerToolCapabilitiesDto = {
@@ -190,8 +190,10 @@ describe('enrollRunnerControlSession', () => {
     });
     const [runner] = await db()
       .select({
+        workspaceId: providerRunners.workspaceId,
         reservationId: providerRunners.reservationId,
         assignedAt: providerRunners.assignedAt,
+        intendedReservationId: providerRunners.intendedReservationId,
         labels: providerRunners.labels,
         providerKind: providerRunners.providerKind,
         protocolVersion: providerRunners.protocolVersion,
@@ -201,10 +203,12 @@ describe('enrollRunnerControlSession', () => {
       .from(providerRunners)
       .where(eq(providerRunners.id, runnerInstanceId));
 
-    expect(activationToken).toBeNull();
+    expect(activationToken).toEqual(expect.any(String));
     expect(runner).toEqual({
+      workspaceId: reservation.workspaceId,
       reservationId: reservation.id,
-      assignedAt: null,
+      assignedAt: expect.any(Date),
+      intendedReservationId: null,
       labels: ['linux'],
       providerKind: 'ec2',
       protocolVersion: '1',
