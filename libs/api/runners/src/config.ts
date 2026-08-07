@@ -66,8 +66,8 @@ export const config = createConfig({
     default: 60,
   }),
   RESERVATION_TTL_MAX_SECONDS: num({
-    desc: `Server-side ceiling for a count-based runner reservation lifetime and activation grace period, in seconds. Set it at least as high as every provider registration deadline so provider-specific values can cover boot and enrollment. Set this between 1 and ${RESERVATION_TTL_HARD_MAX_SECONDS}.`,
-    default: 300,
+    desc: `Server-side ceiling for a count-based runner reservation lifetime and activation grace period, in seconds. Set it at least as high as every provider registration deadline plus its launch headroom so provider-specific values can cover the launch gap, boot, and enrollment. Set this between 1 and ${RESERVATION_TTL_HARD_MAX_SECONDS}.`,
+    default: 600,
   }),
   RESERVATION_LONG_POLL_MAX_WAIT_SECONDS: num({
     desc: 'Maximum time the provisioner demand poll endpoint waits for reservable demand before returning, in seconds.',

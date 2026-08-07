@@ -116,13 +116,30 @@ describe('POST /provisioners/demand/poll', () => {
       method: 'POST',
       url: '/provisioners/demand/poll',
       headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
-      payload: body({max_reservations: 1, reservation_ttl_seconds: 600}),
+      payload: body({max_reservations: 1, reservation_ttl_seconds: 601}),
     });
 
     expect(res.statusCode).toBe(200);
     const expiresAt = Date.parse(res.json().reservations[0].expires_at);
-    expect(expiresAt).toBeGreaterThanOrEqual(requestStartedAt + 295_000);
-    expect(expiresAt).toBeLessThan(requestStartedAt + 305_000);
+    expect(expiresAt).toBeGreaterThanOrEqual(requestStartedAt + 595_000);
+    expect(expiresAt).toBeLessThan(requestStartedAt + 605_000);
+  });
+
+  it('accepts a slow-boot reservation TTL below the raised ceiling', async () => {
+    await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
+
+    const requestStartedAt = Date.now();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/demand/poll',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: body({max_reservations: 1, reservation_ttl_seconds: 540}),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const expiresAt = Date.parse(res.json().reservations[0].expires_at);
+    expect(expiresAt).toBeGreaterThanOrEqual(requestStartedAt + 535_000);
+    expect(expiresAt).toBeLessThan(requestStartedAt + 545_000);
   });
 
   it('applies a requested reservation TTL below the ceiling', async () => {
@@ -528,13 +545,13 @@ describe('POST /provisioners/demand/poll with installation provisioning configur
       method: 'POST',
       url: '/provisioners/demand/poll',
       headers: {authorization: `Bearer ${INSTALLATION_PROVISIONER_TOKEN}`},
-      payload: body({max_reservations: 1, reservation_ttl_seconds: 600}),
+      payload: body({max_reservations: 1, reservation_ttl_seconds: 601}),
     });
 
     expect(res.statusCode).toBe(200);
     const expiresAt = Date.parse(res.json().reservations[0].expires_at);
-    expect(expiresAt).toBeGreaterThanOrEqual(requestStartedAt + 295_000);
-    expect(expiresAt).toBeLessThan(requestStartedAt + 305_000);
+    expect(expiresAt).toBeGreaterThanOrEqual(requestStartedAt + 595_000);
+    expect(expiresAt).toBeLessThan(requestStartedAt + 605_000);
   });
 
   function body(params: {max_reservations: number; reservation_ttl_seconds?: number}) {

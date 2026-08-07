@@ -104,12 +104,12 @@ describe('reservation TTL ceiling validation', () => {
     await expect(import('#config.js')).rejects.toThrow('RESERVATION_TTL_MAX_SECONDS');
   });
 
-  it('defaults high enough for the EC2 registration deadline', async () => {
+  it('defaults high enough for provider registration deadlines and launch headroom', async () => {
     vi.resetModules();
 
     const {config} = await import('#config.js');
 
-    expect(config.RESERVATION_TTL_MAX_SECONDS).toBe(300);
+    expect(config.RESERVATION_TTL_MAX_SECONDS).toBe(600);
   });
 
   it('accepts a whole-second ceiling inside the hard maximum', async () => {

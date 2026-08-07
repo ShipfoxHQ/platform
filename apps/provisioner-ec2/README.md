@@ -41,6 +41,7 @@ overlap across families; lower `cost` wins when more than one template matches.
 | `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | yes | N/A | Path to the EC2 template YAML file. |
 | `AWS_REGION` | yes | N/A | AWS region where the provider launches instances. |
 | `SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS` | no | `300000` | Maximum time an EC2 instance may remain pending without runner enrollment. |
+| `SHIPFOX_PROVISIONER_EC2_LAUNCH_HEADROOM_MS` | no | `30000` | Extra time for the API response and EC2 launch call before EC2 records the instance launch time. Added to the registration deadline to derive the requested reservation lifetime. |
 | `SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS` | no | `60000` | Interval between full EC2/backend reconciliation passes. |
 | `SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS` | no | `30` | Demand long-poll duration. |
 | `SHIPFOX_PROVISIONER_POLL_INTERVAL_MS` | no | `1000` | Delay between healthy demand polls. |

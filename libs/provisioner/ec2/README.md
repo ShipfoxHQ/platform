@@ -112,12 +112,18 @@ The provider reads the shared provisioner variables plus these EC2-specific vari
 | --- | --- | --- | --- |
 | `SHIPFOX_PROVISIONER_TEMPLATES_FILE` | yes | - | YAML template file with EC2 launch and capacity configuration. |
 | `AWS_REGION` | yes | - | AWS region where runner instances launch. |
-| `SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS` | no | `300000` | Maximum time a launched instance may wait for runner registration. Also sets the reservation lifetime the provider requests on each demand poll. |
+| `SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS` | no | `300000` | Maximum time a launched instance may wait for runner registration. The provider adds the launch headroom and uses the sum to derive the reservation lifetime it requests on each demand poll. |
+| `SHIPFOX_PROVISIONER_EC2_LAUNCH_HEADROOM_MS` | no | `30000` | Extra time for the API response and EC2 launch call before EC2 records the instance launch time. The provider adds this to the registration deadline before deriving the reservation lifetime. |
 | `SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS` | no | `60000` | Interval for a full backend reconcile using EC2 instance tags. |
 
+The reservation clock starts when the API grants demand. The EC2 registration clock starts
+when EC2 records the instance launch time. The provider requests
+`ceil((registration deadline + launch headroom) / 1000)` seconds, so the reservation covers
+the launch gap as well as boot and enrollment.
+
 The API clamps the requested reservation lifetime to its own `RESERVATION_TTL_MAX_SECONDS`
-ceiling and does not report the clamp. Raising the registration deadline past that ceiling
-therefore shortens the reservation relative to the deadline: raise both together.
+ceiling and does not report the clamp. Keep that ceiling at least as high as the derived
+value when changing either EC2 setting.
 
 ## Behavior notes
 
