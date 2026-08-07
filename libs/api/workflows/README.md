@@ -37,6 +37,26 @@ const run = await runWorkflow(definitions, {
 });
 ```
 
+## Environment
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `RUNNER_CATALOG_PATH` | empty | Optional path to a YAML file mapping runner catalog names to complete runner label sets. |
+
+The catalog is loaded and validated once when the Workflows module is imported;
+restart the API after changing the file. An empty YAML document behaves like an
+unset path; a `null` or comment-only document is invalid. Catalog names and
+labels are canonicalized to lowercase.
+Values that do not match a catalog name remain literal labels, so a misspelled
+catalog name can leave a job waiting for a runner that never advertises it.
+
+```yaml
+# runner-catalog.yaml
+shipfox-4cpu:
+  - arch.amd64
+  - cpu.4
+```
+
 ## Routes / API / Data Model
 
 Workflow routes keep UUIDs in path and query parameters. The run response

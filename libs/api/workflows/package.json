@@ -52,6 +52,7 @@
     "@shipfox/api-secrets-dto": "workspace:*",
     "@shipfox/api-workflows-dto": "workspace:*",
     "@shipfox/api-workspaces-dto": "workspace:*",
+    "@shipfox/config": "workspace:*",
     "@shipfox/inter-module": "workspace:*",
     "@shipfox/expression": "workspace:*",
     "@shipfox/node-drizzle": "workspace:*",
@@ -67,6 +68,7 @@
     "@temporalio/common": "catalog:",
     "@temporalio/workflow": "catalog:",
     "drizzle-orm": "catalog:",
+    "js-yaml": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
@@ -81,6 +83,7 @@
     "@temporalio/client": "catalog:",
     "@temporalio/testing": "catalog:",
     "@temporalio/worker": "catalog:",
+    "@types/js-yaml": "catalog:",
     "@types/pg": "catalog:",
     "drizzle-kit": "catalog:",
     "fastify": "catalog:",
