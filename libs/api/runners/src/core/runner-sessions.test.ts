@@ -1,9 +1,15 @@
+import {vi} from '@shipfox/vitest/vi';
 import {and, eq} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {ephemeralRegistrationTokens} from '#db/schema/ephemeral-registration-tokens.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
+import type {RunnerInstanceInsertDb} from '#db/schema/runner-instances.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
+import {
+  type RunnerActivationTokenNotIssuedReason,
+  runnerActivationTokenNotIssuedCount,
+} from '#metrics/instance.js';
 import {
   ephemeralRegistrationTokenFactory,
   getRunnerSessionTokenClaims,
@@ -18,8 +24,33 @@ import {
   RegistrationTokenWorkspaceMismatchError,
   RunnerLabelsReservedError,
 } from './errors.js';
-import {issueRunnerActivationToken} from './runner-activation.js';
+import {getRunnerAssignment, issueRunnerActivationToken} from './runner-activation.js';
 import {registerRunnerSession} from './runner-sessions.js';
+
+const activationTokenNotIssuedCases: Array<{
+  reason: RunnerActivationTokenNotIssuedReason;
+  update: Partial<RunnerInstanceInsertDb>;
+  provisionerId?: string;
+}> = [
+  {reason: 'runner-not-found', update: {}, provisionerId: crypto.randomUUID()},
+  {reason: 'missing-workspace', update: {workspaceId: null}},
+  {reason: 'existing-session', update: {runnerSessionId: crypto.randomUUID()}},
+  {reason: 'not-running', update: {state: 'starting'}},
+];
+
+function activationTokenMetricCalls(spy: {mock: {calls: unknown[][]}}): unknown[][] {
+  // The test setup uses a shared NoopMeter counter, so filter calls to this metric before counting.
+  return spy.mock.calls.filter(([, attributes]) => {
+    if (typeof attributes !== 'object' || attributes === null) return false;
+    const reason = (attributes as {reason?: unknown}).reason;
+    const surface = (attributes as {surface?: unknown}).surface;
+    return (
+      ['runner-not-found', 'missing-workspace', 'existing-session', 'not-running'].includes(
+        String(reason),
+      ) && ['enrollment', 'poll'].includes(String(surface))
+    );
+  });
+}
 
 describe('registerRunnerSession', () => {
   let workspaceId: string;
@@ -245,11 +276,13 @@ describe('activation runner sessions', () => {
       runnerInstanceId,
       provisionerId,
       ttlSeconds: 60,
+      surface: 'poll',
     });
     const replacementToken = await issueRunnerActivationToken({
       runnerInstanceId,
       provisionerId,
       ttlSeconds: 60,
+      surface: 'poll',
     });
 
     const tokens = await db()
@@ -265,11 +298,97 @@ describe('activation runner sessions', () => {
     expect(tokens.filter((token) => token.revokedAt !== null)).toHaveLength(1);
   });
 
+  it.each(
+    activationTokenNotIssuedCases,
+  )('records $reason when direct activation-token issuance is skipped', async ({
+    reason,
+    update,
+    provisionerId: caseProvisionerId,
+  }) => {
+    const addSpy = vi.spyOn(runnerActivationTokenNotIssuedCount, 'add');
+
+    try {
+      if (Object.keys(update).length > 0) {
+        await db()
+          .update(providerRunners)
+          .set(update)
+          .where(eq(providerRunners.id, runnerInstanceId));
+      }
+
+      const activationToken = await issueRunnerActivationToken({
+        runnerInstanceId,
+        provisionerId: caseProvisionerId ?? provisionerId,
+        ttlSeconds: 60,
+        surface: 'poll',
+      });
+
+      expect(activationToken).toBeNull();
+      expect(activationTokenMetricCalls(addSpy)).toEqual([[1, {reason, surface: 'poll'}]]);
+    } finally {
+      addSpy.mockRestore();
+    }
+  });
+
+  it('does not record a metric when assignment polling finds no assignment', async () => {
+    const addSpy = vi.spyOn(runnerActivationTokenNotIssuedCount, 'add');
+
+    try {
+      await db()
+        .update(providerRunners)
+        .set({workspaceId: null})
+        .where(eq(providerRunners.id, runnerInstanceId));
+
+      const assignment = await getRunnerAssignment({runnerInstanceId, provisionerId});
+
+      expect(assignment).toBeNull();
+      expect(activationTokenMetricCalls(addSpy)).toHaveLength(0);
+    } finally {
+      addSpy.mockRestore();
+    }
+  });
+
+  it('does not poll for an assignment while the runner is not running', async () => {
+    const addSpy = vi.spyOn(runnerActivationTokenNotIssuedCount, 'add');
+
+    try {
+      await db()
+        .update(providerRunners)
+        .set({state: 'starting'})
+        .where(eq(providerRunners.id, runnerInstanceId));
+
+      const assignment = await getRunnerAssignment({runnerInstanceId, provisionerId});
+
+      expect(assignment).toBeNull();
+      expect(activationTokenMetricCalls(addSpy)).toHaveLength(0);
+    } finally {
+      addSpy.mockRestore();
+    }
+  });
+
+  it('does not record a metric when activation-token issuance succeeds', async () => {
+    const addSpy = vi.spyOn(runnerActivationTokenNotIssuedCount, 'add');
+
+    try {
+      const activationToken = await issueRunnerActivationToken({
+        runnerInstanceId,
+        provisionerId,
+        ttlSeconds: 60,
+        surface: 'poll',
+      });
+
+      expect(activationToken).toEqual(expect.any(String));
+      expect(activationTokenMetricCalls(addSpy)).toHaveLength(0);
+    } finally {
+      addSpy.mockRestore();
+    }
+  });
+
   it('allows only one concurrent registration to consume an activation token', async () => {
     const rawToken = await issueRunnerActivationToken({
       runnerInstanceId,
       provisionerId,
       ttlSeconds: 60,
+      surface: 'poll',
     });
     const [activationToken] = await db()
       .select()
@@ -314,6 +433,7 @@ describe('activation runner sessions', () => {
       runnerInstanceId,
       provisionerId,
       ttlSeconds: 60,
+      surface: 'poll',
     });
     const [activationToken] = await db()
       .select()

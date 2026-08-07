@@ -173,7 +173,7 @@ type RunnerAssignmentPollParams = {
   deadline: number;
   intervalMs: number;
   signal: AbortSignal;
-  getAssignment: () => Promise<unknown | null>;
+  getAssignment: () => Promise<{workspaceId: string | null; runnerSessionId: string | null} | null>;
   issueActivationToken: () => Promise<string | null>;
 };
 
@@ -229,6 +229,7 @@ export const runnerAssignmentPollRoute = defineRoute({
         issueRunnerActivationToken({
           ...session,
           ttlSeconds: config.RUNNER_ACTIVATION_TOKEN_TTL_SECONDS,
+          surface: 'poll',
         }),
     });
     return {activation_token: activationToken};

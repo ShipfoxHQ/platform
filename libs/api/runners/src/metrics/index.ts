@@ -1,4 +1,8 @@
-export type {RunnerReservationPromotionFailureReason} from './instance.js';
+export type {
+  RunnerActivationTokenNotIssuedReason,
+  RunnerActivationTokenNotIssuedSurface,
+  RunnerReservationPromotionFailureReason,
+} from './instance.js';
 export {
   jobExecutionClaimedCount,
   jobExecutionEnqueuedCount,
@@ -8,6 +12,7 @@ export {
   providerRunnerReconcileCallCount,
   providerRunnerTerminateIntentHonoredCount,
   providerRunnerTerminateIntentIssuedCount,
+  recordRunnerActivationTokenNotIssued,
   recordRunnerReservationPromotionFailure,
   recordRunnersRateLimitCheck,
   recordRunnersRateLimitPruneFailure,
