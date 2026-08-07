@@ -388,7 +388,22 @@ describe('runner enrollment control plane', () => {
         expiresAt: new Date(Date.now() + 60_000),
       })
       .returning({id: reservations.id});
-    const reservationIds = [expiredReservation[0]?.id, foreignReservation[0]?.id];
+    const boundReservation = await db()
+      .insert(reservations)
+      .values({
+        workspaceId: crypto.randomUUID(),
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        kind: 'bound',
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    const reservationIds = [
+      expiredReservation[0]?.id,
+      foreignReservation[0]?.id,
+      boundReservation[0]?.id,
+    ];
     if (reservationIds.some((reservationId) => !reservationId))
       throw new Error('Reservation insert returned no row');
 
@@ -411,6 +426,7 @@ describe('runner enrollment control plane', () => {
 
       expect(failureSpy).toHaveBeenCalledWith(1, {reason: 'reservation-expired'});
       expect(failureSpy).toHaveBeenCalledWith(1, {reason: 'reservation-not-found'});
+      expect(failureSpy).toHaveBeenCalledWith(1, {reason: 'reservation-kind-mismatch'});
     } finally {
       failureSpy.mockRestore();
     }

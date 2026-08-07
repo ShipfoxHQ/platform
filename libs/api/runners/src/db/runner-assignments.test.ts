@@ -1,6 +1,7 @@
 import {eq} from 'drizzle-orm';
 import {
   ReservationExpiredError,
+  ReservationNotFoundError,
   RunnerInstanceAlreadyAssignedError,
   RunnerInstanceNotAssignableError,
 } from '#core/errors.js';
@@ -124,6 +125,32 @@ describe('assignRunnerInstances', () => {
     expect(assigned).toEqual([runner.id]);
   });
 
+  it('is idempotent for a committed bound reservation assignment', async () => {
+    const reservation = await createReservation({kind: 'bound'});
+    const runner = await createEnrolledRunner();
+    await db()
+      .update(providerRunners)
+      .set({
+        workspaceId,
+        reservationId: reservation.id,
+        assignedAt: new Date(),
+      })
+      .where(eq(providerRunners.id, runner.id));
+
+    const assigned = await assignRunnerInstances({
+      provisionerId,
+      reservationId: reservation.id,
+      runnerInstanceIds: [runner.id],
+    });
+
+    expect(assigned).toEqual([runner.id]);
+    const [stored] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(stored?.intendedReservationId).toBeNull();
+  });
+
   it('rejects expired reservations', async () => {
     const reservation = await createReservation({expiresAt: new Date(Date.now() - 1_000)});
     const runner = await createEnrolledRunner();
@@ -135,6 +162,19 @@ describe('assignRunnerInstances', () => {
     });
 
     await expect(assignment).rejects.toThrow(ReservationExpiredError);
+  });
+
+  it('rejects bound reservations', async () => {
+    const reservation = await createReservation({kind: 'bound'});
+    const runner = await createEnrolledRunner();
+
+    const assignment = assignRunnerInstances({
+      provisionerId,
+      reservationId: reservation.id,
+      runnerInstanceIds: [runner.id],
+    });
+
+    await expect(assignment).rejects.toThrow(ReservationNotFoundError);
   });
 
   it('rejects unenrolled or incompatible runners', async () => {
@@ -265,7 +305,7 @@ describe('assignRunnerInstances', () => {
   });
 
   async function createReservation(
-    overrides: Partial<{expiresAt: Date; requiredLabels: string[]}> = {},
+    overrides: Partial<{expiresAt: Date; requiredLabels: string[]; kind: 'bound' | 'launch'}> = {},
   ) {
     const [reservation] = await db()
       .insert(reservations)
@@ -274,6 +314,7 @@ describe('assignRunnerInstances', () => {
         provisionerId,
         requiredLabels: overrides.requiredLabels ?? ['linux'],
         count: 1,
+        kind: overrides.kind ?? 'launch',
         expiresAt: overrides.expiresAt ?? new Date(Date.now() + 60_000),
       })
       .returning();

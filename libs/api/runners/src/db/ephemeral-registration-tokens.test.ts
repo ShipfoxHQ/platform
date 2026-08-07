@@ -3,6 +3,7 @@ import {and, eq, inArray} from 'drizzle-orm';
 import {
   ActiveEphemeralRegistrationTokensExistError,
   type RegistrationTokenBatchExceedsReservationError,
+  ReservationNotFoundError,
 } from '#core/errors.js';
 import {db} from '#db/db.js';
 import {
@@ -54,6 +55,20 @@ describe('createEphemeralRegistrationTokensBatch', () => {
     expect(
       await resolveEphemeralRegistrationTokenByHash(hashOpaqueToken(rawTokens[0] ?? '')),
     ).toEqual(expect.objectContaining({providerRunnerId: 'provisioned-runner-a'}));
+  });
+
+  it('rejects bound reservations', async () => {
+    const boundReservationId = await createReservation({count: 1, kind: 'bound'});
+
+    await expect(
+      createEphemeralRegistrationTokensBatch({
+        workspaceId,
+        provisionerId,
+        reservationId: boundReservationId,
+        expiresAt: new Date(Date.now() + 300_000),
+        rows: [row('bound-runner', generateOpaqueToken('ephemeralRegistrationToken'))],
+      }),
+    ).rejects.toBeInstanceOf(ReservationNotFoundError);
   });
 
   it('rejects the batch and inserts no rows when any provisioned runner already has an active token', async () => {
@@ -186,7 +201,10 @@ describe('createEphemeralRegistrationTokensBatch', () => {
     } satisfies Partial<RegistrationTokenBatchExceedsReservationError>);
   });
 
-  async function createReservation(params: {count: number}): Promise<string> {
+  async function createReservation(params: {
+    count: number;
+    kind?: 'bound' | 'launch';
+  }): Promise<string> {
     const [reservation] = await db()
       .insert(reservations)
       .values({
@@ -194,6 +212,7 @@ describe('createEphemeralRegistrationTokensBatch', () => {
         provisionerId,
         requiredLabels: ['linux'],
         count: params.count,
+        kind: params.kind ?? 'launch',
         expiresAt: new Date(Date.now() + 60_000),
       })
       .returning({id: reservations.id});

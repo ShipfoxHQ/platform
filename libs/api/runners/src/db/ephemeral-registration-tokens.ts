@@ -133,6 +133,7 @@ export async function createEphemeralRegistrationTokensBatch(
           eq(reservations.id, params.reservationId),
           eq(reservations.workspaceId, params.workspaceId),
           eq(reservations.provisionerId, params.provisionerId),
+          eq(reservations.kind, 'launch'),
         ),
       )
       .limit(1);

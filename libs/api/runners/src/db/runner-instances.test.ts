@@ -388,6 +388,36 @@ describe('reportRunnerInstances', () => {
     expect(rows[0]?.reservationId).toBe(reservationId);
   });
 
+  it('does not adopt a bound reservation id from an unclaimed report', async () => {
+    const reservationId = await createReservation(1, {kind: 'bound'});
+    await db()
+      .insert(providerRunners)
+      .values({
+        workspaceId,
+        provisionerId,
+        providerRunnerId: 'bound-reservation-runner',
+        state: 'starting',
+        reportedAt: new Date('2025-01-01T00:00:00.000Z'),
+      });
+
+    await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: 'bound-reservation-runner',
+          reservationId,
+          state: 'running',
+          reportedAt: new Date('2025-01-01T00:01:00.000Z'),
+        }),
+      ],
+    });
+
+    const rows = await providerRunnerRowsFor({workspaceId, provisionerId});
+    expect(rows[0]?.reservationId).toBeNull();
+  });
+
   it('does not let reports exceed reservation capacity when creating projection rows', async () => {
     const reservationId = await createReservation(1);
 
@@ -1136,13 +1166,14 @@ describe('reportRunnerInstances', () => {
 
   async function createReservation(
     count: number,
-    overrides?: {workspaceId?: string; provisionerId?: string},
+    overrides?: {kind?: 'bound' | 'launch'; workspaceId?: string; provisionerId?: string},
   ): Promise<string> {
     await reservationFactory.create({
       workspaceId: overrides?.workspaceId ?? workspaceId,
       provisionerId: overrides?.provisionerId ?? provisionerId,
       requiredLabels: ['linux'],
       count,
+      kind: overrides?.kind ?? 'launch',
       expiresAt: new Date(Date.now() + 60_000),
     });
     const [reservation] = await db()
