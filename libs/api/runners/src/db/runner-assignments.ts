@@ -1,4 +1,4 @@
-import {and, eq, inArray, isNull, notInArray, or, sql} from 'drizzle-orm';
+import {and, eq, inArray, isNull, ne, notInArray, or, sql} from 'drizzle-orm';
 import {
   ReservationExpiredError,
   ReservationNotFoundError,
@@ -85,6 +85,7 @@ export async function assignRunnerInstancesTx(
       and(
         eq(reservations.id, params.reservationId),
         eq(reservations.provisionerId, params.provisionerId),
+        eq(reservations.kind, 'launch'),
       ),
     )
     .limit(1)
@@ -177,6 +178,7 @@ export async function assignRunnerInstancesTx(
 
 export type RunnerReservationCapacityFailureReason =
   | 'reservation-not-found'
+  | 'reservation-kind-mismatch'
   | 'reservation-expired'
   | 'capacity-exhausted';
 
@@ -237,11 +239,26 @@ export async function validateRunnerReservationCapacityTx(
       and(
         eq(reservations.provisionerId, params.provisionerId),
         inArray(reservations.id, reservationIds),
+        eq(reservations.kind, 'launch'),
+      ),
+    )
+    .for('update');
+  const nonLaunchReservationRows = await tx
+    .select({id: reservations.id})
+    .from(reservations)
+    .where(
+      and(
+        eq(reservations.provisionerId, params.provisionerId),
+        inArray(reservations.id, reservationIds),
+        ne(reservations.kind, 'launch'),
       ),
     )
     .for('update');
   const reservationsById = new Map(
     reservationRows.map((reservation) => [reservation.id, reservation]),
+  );
+  const nonLaunchReservationIds = new Set(
+    nonLaunchReservationRows.map((reservation) => reservation.id),
   );
   const requestedReservationIds = new Set(reservationIds);
   const usedRunnerIdsByReservation = new Map<string, Set<string>>();
@@ -295,7 +312,9 @@ export async function validateRunnerReservationCapacityTx(
     const reservation = reservationsById.get(reservationId);
     if (!reservation) {
       unavailableByReservation.set(reservationId, {
-        reason: 'reservation-not-found',
+        reason: nonLaunchReservationIds.has(reservationId)
+          ? 'reservation-kind-mismatch'
+          : 'reservation-not-found',
         count: requested,
       });
       continue;

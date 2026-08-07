@@ -118,6 +118,7 @@ export const runnerReservationPromotionFailureCount = meter.createCounter<{
 
 export type RunnerReservationCapacityFailureReason =
   | 'reservation-not-found'
+  | 'reservation-kind-mismatch'
   | 'reservation-expired'
   | 'capacity-exhausted';
 
