@@ -7,6 +7,7 @@ import {
   TerminateInstancesCommand,
 } from '@aws-sdk/client-ec2';
 import {SHIPFOX_TAGS} from '#instance-identity.js';
+import {type Ec2Architecture, recordEc2LaunchDuration} from '#metrics/instance.js';
 import type {Ec2Market} from '#templates.js';
 
 const TRANSIENT_REASONS = new Set<Ec2EngineErrorReason>([
@@ -53,6 +54,8 @@ export interface Ec2InstanceView {
   readonly instanceId: string;
   readonly tags: Readonly<Record<string, string>>;
   readonly state: Ec2InstanceState;
+  readonly architecture?: Ec2Architecture;
+  readonly availabilityZone?: string;
   readonly stateTransitionReason?: string;
   readonly stateReasonCode?: string;
   readonly stateReasonMessage?: string;
@@ -84,13 +87,16 @@ export interface Ec2Engine {
 export interface CreateEc2EngineOptions {
   readonly region: string;
   readonly client?: EC2Client;
+  readonly now?: () => number;
 }
 
 export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
   const client = options.client ?? new EC2Client({region: options.region});
+  const now = options.now ?? (() => Date.now());
 
   return {
     async runInstance(args) {
+      const startedAt = now();
       try {
         const output = await client.send(
           new RunInstancesCommand({
@@ -143,11 +149,27 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
             ...(args.userData ? {UserData: Buffer.from(args.userData).toString('base64')} : {}),
           }),
         );
+        const completedAt = now();
         const instance = output.Instances?.[0];
         if (!instance)
           throw new Ec2EngineError('unknown', 'EC2 did not return a launched instance.');
-        return toInstanceView(instance);
+        const view = toInstanceView(instance);
+        recordEc2LaunchDuration({
+          durationMs: completedAt - startedAt,
+          templateKey: args.tags[SHIPFOX_TAGS.templateKey] ?? 'unknown',
+          market: args.market,
+          architecture: view.architecture ?? 'unknown',
+          availabilityZone: view.availabilityZone ?? 'unknown',
+        });
+        return view;
       } catch (error) {
+        recordEc2LaunchDuration({
+          durationMs: now() - startedAt,
+          templateKey: args.tags[SHIPFOX_TAGS.templateKey] ?? 'unknown',
+          market: args.market,
+          architecture: 'unknown',
+          availabilityZone: 'unknown',
+        });
         throw mapEc2Error(error, 'Cannot launch EC2 runner instance.');
       }
     },
@@ -203,6 +225,10 @@ function toInstanceView(instance: Instance): Ec2InstanceView {
       ),
     ),
     state: normalizeState(instance.State?.Name),
+    ...(instance.Architecture ? {architecture: normalizeArchitecture(instance.Architecture)} : {}),
+    ...(instance.Placement?.AvailabilityZone
+      ? {availabilityZone: instance.Placement.AvailabilityZone}
+      : {}),
     ...(instance.StateTransitionReason
       ? {stateTransitionReason: instance.StateTransitionReason}
       : {}),
@@ -210,6 +236,17 @@ function toInstanceView(instance: Instance): Ec2InstanceView {
     ...(instance.StateReason?.Message ? {stateReasonMessage: instance.StateReason.Message} : {}),
     ...(instance.LaunchTime ? {launchTime: instance.LaunchTime} : {}),
   };
+}
+
+function normalizeArchitecture(architecture: string | undefined): Ec2Architecture {
+  switch (architecture) {
+    case 'i386':
+    case 'x86_64':
+    case 'arm64':
+      return architecture;
+    default:
+      return 'unknown';
+  }
 }
 
 function normalizeState(state: string | undefined): Ec2InstanceState {

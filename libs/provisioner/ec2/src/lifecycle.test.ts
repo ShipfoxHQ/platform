@@ -14,6 +14,7 @@ const observability = vi.hoisted(() => ({
   logger: {debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn()},
   recordEc2Launch: vi.fn(),
   recordEc2ReconcileAbsent: vi.fn(),
+  recordEc2PendingDuration: vi.fn(),
   recordEc2Termination: vi.fn(),
 }));
 
@@ -21,6 +22,7 @@ vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logge
 vi.mock('#metrics/instance.js', () => ({
   recordEc2Launch: observability.recordEc2Launch,
   recordEc2ReconcileAbsent: observability.recordEc2ReconcileAbsent,
+  recordEc2PendingDuration: observability.recordEc2PendingDuration,
   recordEc2Termination: observability.recordEc2Termination,
 }));
 
@@ -119,6 +121,79 @@ describe('createEc2Lifecycle', () => {
     expect(tracker.countsByTemplate()).toEqual(
       new Map([['spot-small', {starting: 1, running: 0}]]),
     );
+  });
+
+  it('records pending duration once when a locally launched instance first becomes running', async () => {
+    const now = new Date(NOW);
+    const instances = [
+      instance({
+        state: 'pending',
+        architecture: 'x86_64',
+        availabilityZone: 'eu-west-3a',
+      }),
+    ];
+    const lifecycle = makeLifecycle({engine: fakeEngine({instances}), now: () => now});
+
+    await lifecycle.launch(launch());
+    await lifecycle.observe();
+    now.setTime(now.getTime() + 18_000);
+    instances[0] = instance({
+      state: 'running',
+      architecture: 'x86_64',
+      availabilityZone: 'eu-west-3a',
+    });
+    await lifecycle.observe();
+    await lifecycle.observe();
+
+    expect(observability.recordEc2PendingDuration).toHaveBeenCalledTimes(1);
+    expect(observability.recordEc2PendingDuration).toHaveBeenCalledWith({
+      durationMs: 18_000,
+      templateKey: 'spot-small',
+      market: 'spot',
+      architecture: 'x86_64',
+      availabilityZone: 'eu-west-3a',
+    });
+  });
+
+  it('retains a pending duration candidate across an EC2 listing gap', async () => {
+    const now = new Date(NOW);
+    const instances = [
+      instance({
+        state: 'pending',
+        architecture: 'x86_64',
+        availabilityZone: 'eu-west-3a',
+      }),
+    ];
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine: fakeEngine({instances}), client, now: () => now});
+
+    await lifecycle.launch(launch());
+    await lifecycle.observe();
+    instances.length = 0;
+    now.setTime(now.getTime() + RECONCILE_INTERVAL_MS + 18_000);
+    await lifecycle.observe();
+
+    expect(client.reportBodies.flatMap((body) => body.events)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({state: 'terminated'})]),
+    );
+
+    instances.push(
+      instance({
+        state: 'running',
+        architecture: 'x86_64',
+        availabilityZone: 'eu-west-3a',
+      }),
+    );
+    await lifecycle.observe();
+
+    expect(observability.recordEc2PendingDuration).toHaveBeenCalledTimes(1);
+    expect(observability.recordEc2PendingDuration).toHaveBeenCalledWith({
+      durationMs: RECONCILE_INTERVAL_MS + 18_000,
+      templateKey: 'spot-small',
+      market: 'spot',
+      architecture: 'x86_64',
+      availabilityZone: 'eu-west-3a',
+    });
   });
 
   it('reports a locally launched runner as terminated after the DescribeInstances grace window', async () => {
@@ -1085,6 +1160,8 @@ function launch(): ProviderRunnerLaunch<Ec2TemplateSpec> {
 
 function instance(args: {
   state: Ec2InstanceView['state'];
+  architecture?: Ec2InstanceView['architecture'];
+  availabilityZone?: string;
   stateTransitionReason?: string;
   launchTime?: Date;
   instanceId?: string;
@@ -1096,6 +1173,8 @@ function instance(args: {
   return {
     instanceId: args.instanceId ?? 'i-123',
     state: args.state,
+    ...(args.architecture ? {architecture: args.architecture} : {}),
+    ...(args.availabilityZone ? {availabilityZone: args.availabilityZone} : {}),
     tags: {
       'shipfox.runner_instance_id': args.runnerInstanceId ?? RUNNER_INSTANCE_ID,
       'shipfox.provider_runner_id': args.providerRunnerId ?? 'runner-1',
