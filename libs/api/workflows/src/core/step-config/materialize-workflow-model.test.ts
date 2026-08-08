@@ -1641,7 +1641,8 @@ describe('materializeJobOutputs', () => {
   });
 
   it('accepts a 64 KiB value and rejects one byte over', () => {
-    const maxValueBytes = 64 * 1024;
+    const maxValueBytes = MAX_JOB_OUTPUT_VALUE_BYTES;
+    expect(maxValueBytes).toBe(64 * 1024);
     const job = outputJob({payload: template('steps.collect.outputs.payload')});
     const materialize = (payload: string) =>
       materializeJobOutputs({
@@ -1657,16 +1658,19 @@ describe('materializeJobOutputs', () => {
   });
 
   it('accepts a serialized total at 256 KiB and rejects one byte over', () => {
-    const maxTotalBytes = 256 * 1024;
+    const maxValueBytes = MAX_JOB_OUTPUT_VALUE_BYTES;
+    const maxTotalBytes = MAX_JOB_OUTPUTS_TOTAL_BYTES;
+    expect(maxValueBytes).toBe(64 * 1024);
+    expect(maxTotalBytes).toBe(256 * 1024);
     const keys = ['one', 'two', 'three', 'four'];
     const outputs = Object.fromEntries(
       keys.map((key) => [key, template(`steps.collect.outputs.${key}`)]),
     );
     const values = {
-      one: 'x'.repeat(64 * 1024),
-      two: 'x'.repeat(64 * 1024),
-      three: 'x'.repeat(64 * 1024),
-      four: 'x'.repeat(64 * 1024 - 40),
+      one: 'x'.repeat(maxValueBytes),
+      two: 'x'.repeat(maxValueBytes),
+      three: 'x'.repeat(maxValueBytes),
+      four: 'x'.repeat(maxValueBytes - 40),
     };
     const job = outputJob(outputs);
     const materialize = (contextValues: Record<string, unknown>) =>

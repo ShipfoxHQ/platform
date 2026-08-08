@@ -150,7 +150,9 @@ describe('workflow run job executions', () => {
 
   test('persists job outputs in the raised size band when execution succeeds', async () => {
     const outputKeys = ['one', 'two', 'three'];
-    const outputValues = Object.fromEntries(outputKeys.map((key) => [key, 'x'.repeat(64 * 1024)]));
+    const outputValues = Object.fromEntries(
+      outputKeys.map((key) => [key, 'x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES)]),
+    );
     const outputTemplates = Object.fromEntries(
       outputKeys.map((key) => [key, template(`steps.collect.outputs.${key}`)]),
     );
