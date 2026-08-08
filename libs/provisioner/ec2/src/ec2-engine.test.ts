@@ -6,6 +6,12 @@ import {
 import {createEc2Engine, type RunInstanceArgs} from '#ec2-engine.js';
 import {SHIPFOX_TAGS} from '#instance-identity.js';
 
+const observability = vi.hoisted(() => ({recordEc2LaunchDuration: vi.fn()}));
+
+vi.mock('#metrics/instance.js', () => ({
+  recordEc2LaunchDuration: observability.recordEc2LaunchDuration,
+}));
+
 const runArgs: RunInstanceArgs = {
   clientToken: 'runner-1',
   tags: {
@@ -26,6 +32,10 @@ const runArgs: RunInstanceArgs = {
 };
 
 describe('createEc2Engine', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('runs one atomically tagged instance with launch settings', async () => {
     const ec2 = fakeEc2();
     const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
@@ -141,6 +151,34 @@ describe('createEc2Engine', () => {
       tags: {Name: 'runner-1'},
       state: 'pending',
       launchTime: new Date('2026-07-18T12:00:00.000Z'),
+    });
+  });
+
+  it('records the RunInstances duration with returned instance labels', async () => {
+    const ec2 = fakeEc2({
+      runOutput: {
+        Instances: [
+          instance({
+            Architecture: 'arm64',
+            Placement: {AvailabilityZone: 'eu-west-3b'},
+          }),
+        ],
+      },
+    });
+    const now = vi.fn().mockReturnValueOnce(1_000).mockReturnValueOnce(1_750);
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never, now});
+
+    await engine.runInstance({
+      ...runArgs,
+      tags: {...runArgs.tags, [SHIPFOX_TAGS.templateKey]: 'arm-small'},
+    });
+
+    expect(observability.recordEc2LaunchDuration).toHaveBeenCalledWith({
+      durationMs: 750,
+      templateKey: 'arm-small',
+      market: 'on-demand',
+      architecture: 'arm64',
+      availabilityZone: 'eu-west-3b',
     });
   });
 

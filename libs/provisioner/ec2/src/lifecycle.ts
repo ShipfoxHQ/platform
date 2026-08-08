@@ -20,6 +20,7 @@ import {buildInstanceTags, parseInstanceIdentity} from '#instance-identity.js';
 import {
   type Ec2TerminationReason,
   recordEc2Launch,
+  recordEc2PendingDuration,
   recordEc2ReconcileAbsent,
   recordEc2Termination,
 } from '#metrics/instance.js';
@@ -87,7 +88,11 @@ interface Ec2LifecycleContext {
   readonly reconcileIntervalMs: number;
   readonly now: () => Date;
   readonly renderUserData?: (launch: ProviderRunnerLaunch<Ec2TemplateSpec>) => string;
+  // Newly launched runners that have not appeared in an EC2 listing yet. These entries
+  // retain the existing absence-synthesis grace behavior.
   readonly locallyLaunched: Map<string, LocallyLaunchedRunner>;
+  // Launch timestamps retained after a first pending observation until running or terminal.
+  readonly pendingLaunches: Map<string, LocallyLaunchedRunner>;
   readonly terminalReportedInstanceIds: Map<string, number>;
   // Keep successful actions across short listing gaps so eventual-consistency reads do not
   // repeat AWS calls or metrics.
@@ -118,6 +123,7 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     now: options.now ?? (() => new Date()),
     ...(options.renderUserData ? {renderUserData: options.renderUserData} : {}),
     locallyLaunched: new Map(),
+    pendingLaunches: new Map(),
     terminalReportedInstanceIds: new Map(),
     terminationActionedInstanceIds: new Map(),
     pendingTerminalReportedInstanceIds: new Set(),
@@ -161,11 +167,13 @@ async function launchRunner(
       rootDeviceName: launch.template.spec.rootDeviceName,
       ...(context.renderUserData ? {userData: context.renderUserData(launch)} : {}),
     });
-    context.locallyLaunched.set(launch.providerRunnerId, {
+    const locallyLaunched = {
       runnerInstanceId: launch.runnerInstanceId,
       templateKey: launch.template.key,
       launchedAt: new Date(context.now()),
-    });
+    };
+    context.locallyLaunched.set(launch.providerRunnerId, locallyLaunched);
+    context.pendingLaunches.set(launch.providerRunnerId, locallyLaunched);
     recordEc2Launch(launch.template.spec.market, 'launched');
     logger().info(
       {
@@ -296,7 +304,26 @@ async function applyObservedInstances(
     if (identity.runnerInstanceId) observedRunnerInstanceIds.add(identity.runnerInstanceId);
     if (!identity.providerRunnerId) continue;
     observedIds.add(identity.providerRunnerId);
+    const pendingLaunch = context.pendingLaunches.get(identity.providerRunnerId);
+    // An observed instance is no longer eligible for absent-launch synthesis. Keep the
+    // separate pending metric candidate through listing gaps after this point.
     context.locallyLaunched.delete(identity.providerRunnerId);
+    if (instance.state === 'running' && pendingLaunch) {
+      const templateKey = identity.templateKey ?? pendingLaunch.templateKey;
+      const template = context.templatesByKey.get(templateKey);
+      context.pendingLaunches.delete(identity.providerRunnerId);
+      if (template) {
+        recordEc2PendingDuration({
+          durationMs: context.now().getTime() - pendingLaunch.launchedAt.getTime(),
+          templateKey,
+          market: template.spec.market,
+          architecture: instance.architecture ?? 'unknown',
+          availabilityZone: instance.availabilityZone ?? 'unknown',
+        });
+      }
+    } else if (pendingLaunch && isTerminalPendingState(instance.state)) {
+      context.pendingLaunches.delete(identity.providerRunnerId);
+    }
 
     const hasTerminateIntent = terminateIntentIds.has(identity.providerRunnerId);
     const pastRegistrationDeadline = isPastRegistrationDeadline(instance, context);
@@ -559,6 +586,7 @@ function synthesizeAbsentLaunchedRunners(
       continue;
     }
     context.locallyLaunched.delete(providerRunnerId);
+    context.pendingLaunches.delete(providerRunnerId);
     const template = context.templatesByKey.get(launched.templateKey);
     if (!template) continue;
     events.push({
@@ -620,8 +648,18 @@ async function terminateInstances(
   for (const instance of instances) {
     const identity = parseInstanceIdentity(instance);
     context.locallyLaunched.delete(identity.providerRunnerId);
+    context.pendingLaunches.delete(identity.providerRunnerId);
     context.tracker.remove(identity.providerRunnerId);
   }
+}
+
+function isTerminalPendingState(state: Ec2InstanceView['state']): boolean {
+  return (
+    state === 'shutting-down' ||
+    state === 'stopping' ||
+    state === 'stopped' ||
+    state === 'terminated'
+  );
 }
 
 function canTerminateInstance(instance: Ec2InstanceView): boolean {
