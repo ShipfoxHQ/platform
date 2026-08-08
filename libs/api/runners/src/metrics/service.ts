@@ -4,7 +4,14 @@ import {getJobExecutionQueueDepth} from '#db/job-executions.js';
 import {
   countStaleEnrolledRunnerInstances,
   listProvisionedRunnerPendingMetrics,
+  type ProvisionedRunnerPendingMetric,
 } from '#db/runner-instances.js';
+
+type PendingProvisionedRunnerLabels = {
+  phase: ProvisionedRunnerPendingMetric['phase'];
+  provider: string;
+  launch_kind: ProvisionedRunnerPendingMetric['launchKind'];
+};
 
 export function registerRunnersServiceMetrics(): void {
   const meter = getServiceMetricsProvider().getMeter('runners');
@@ -22,20 +29,21 @@ export function registerRunnersServiceMetrics(): void {
         'Running enrolled runners with a live control session, no workspace or runner session, and no recent provisioner report after the stale-runner grace window',
     },
   );
-  const pendingProvisionedRunners = meter.createObservableGauge(
+  const pendingProvisionedRunners = meter.createObservableGauge<PendingProvisionedRunnerLabels>(
     'runners_provider_runners_pending',
     {
       description:
         'Provisioned runners waiting for control-session creation, enrollment, reservation assignment, or activation',
     },
   );
-  const pendingProvisionedRunnersOldestAge = meter.createObservableGauge(
-    'runners_provider_runners_pending_oldest_age',
-    {
-      description: 'Oldest provisioned runner backlog age by lifecycle phase',
-      unit: 's',
-    },
-  );
+  const pendingProvisionedRunnersOldestAge =
+    meter.createObservableGauge<PendingProvisionedRunnerLabels>(
+      'runners_provider_runners_pending_oldest_age',
+      {
+        description: 'Oldest provisioned runner backlog age by lifecycle phase',
+        unit: 's',
+      },
+    );
 
   meter.addBatchObservableCallback(
     async (observer) => {
@@ -57,7 +65,7 @@ export function registerRunnersServiceMetrics(): void {
       }
       if (pendingProvisionedRunnersResult.status === 'fulfilled') {
         for (const pending of pendingProvisionedRunnersResult.value) {
-          const attributes = {
+          const attributes: PendingProvisionedRunnerLabels = {
             phase: pending.phase,
             provider: pending.provider,
             launch_kind: pending.launchKind,
