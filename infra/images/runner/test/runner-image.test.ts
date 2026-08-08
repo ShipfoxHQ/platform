@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process';
-import {readdir, readFile} from 'node:fs/promises';
+import {readFile} from 'node:fs/promises';
 import {findProducedAmiId, parsePackerAmiArtifact} from '#aws.js';
 import {parseBuildRunnerImageArgs} from '#build-runner-image.js';
 import {buildRunnerImageCandidate, parseRunnerImageCandidateArgs} from '#candidate.js';
@@ -842,30 +842,94 @@ describe('spot watchdog runtime script', () => {
   });
 });
 
+function systemdSection(unit: string, section: string): string | undefined {
+  return unit.match(new RegExp(`\\[${section}\\]\\n([\\s\\S]*?)(?=\\n\\[[^\\n]+\\]|$)`))?.[1];
+}
+
+function systemdDirective(unit: string, section: string, name: string): string | undefined {
+  const sectionBody = systemdSection(unit, section);
+  if (!sectionBody) return undefined;
+  const line = sectionBody.split('\n').find((candidate) => candidate.startsWith(`${name}=`));
+  return line?.slice(name.length + 1);
+}
+
 describe('systemd boot activation', () => {
-  it('activates every installable Shipfox service after network readiness', async () => {
-    const assets = new URL('../assets/', import.meta.url);
-    const unitNames = (await readdir(assets)).filter((name) => name.endsWith('.service'));
+  const assets = new URL('../assets/', import.meta.url);
 
-    for (const unitName of unitNames) {
-      const unit = await readFile(new URL(unitName, assets), 'utf8');
-      if (!unit.includes('[Install]')) continue;
+  function readUnit(name: string): Promise<string> {
+    return readFile(new URL(name, assets), 'utf8');
+  }
 
-      expect(unit, unitName).toContain('After=network-online.target');
-      expect(unit, unitName).toContain('Wants=network-online.target');
-      expect(unit, unitName).toContain('WantedBy=multi-user.target');
-      expect(unit, unitName).not.toContain('cloud-final.service');
+  it('starts the lifecycle target when the complete environment file appears', async () => {
+    const pathUnit = await readUnit('shipfox-runner-env.path');
+    const targetUnit = await readUnit('shipfox-runner.target');
+
+    expect(systemdDirective(pathUnit, 'Unit', 'After')).toBe('network-online.target');
+    expect(systemdDirective(pathUnit, 'Unit', 'Wants')).toBe('network-online.target');
+    expect(systemdDirective(pathUnit, 'Path', 'PathExists')).toBe('/etc/shipfox/runner.env');
+    expect(systemdDirective(pathUnit, 'Path', 'Unit')).toBe('shipfox-runner.target');
+    expect(systemdDirective(pathUnit, 'Install', 'WantedBy')).toBe('multi-user.target');
+    expect(pathUnit).not.toContain('cloud-config.service');
+    expect(pathUnit).not.toContain('cloud-final.service');
+
+    expect(systemdDirective(targetUnit, 'Unit', 'After')).toBe(
+      'network-online.target shipfox-runner-env.service',
+    );
+    expect(systemdDirective(targetUnit, 'Unit', 'Wants')).toBe(
+      'network-online.target shipfox-runner.service shipfox-max-lifetime.service',
+    );
+    expect(systemdDirective(targetUnit, 'Unit', 'Requires')).toBe('shipfox-runner-env.service');
+  });
+
+  it('keeps lifecycle units behind the fail-closed environment gate', async () => {
+    const expectations = [
+      {
+        name: 'shipfox-runner.service',
+        after: 'network-online.target time-sync.target shipfox-runner-env.service',
+        wantedBy: undefined,
+      },
+      {
+        name: 'shipfox-max-lifetime.service',
+        after: 'network-online.target shipfox-runner-env.service',
+        wantedBy: undefined,
+      },
+      {
+        name: 'shipfox-spot-watchdog.service',
+        after: 'network-online.target shipfox-runner.service shipfox-runner-env.service',
+        wantedBy: 'shipfox-runner.target',
+      },
+    ] as const;
+
+    for (const expectation of expectations) {
+      const unit = await readUnit(expectation.name);
+
+      expect(systemdDirective(unit, 'Unit', 'After'), expectation.name).toBe(expectation.after);
+      expect(systemdDirective(unit, 'Unit', 'Wants'), expectation.name).toBe(
+        'network-online.target',
+      );
+      expect(systemdDirective(unit, 'Unit', 'Requires'), expectation.name).toBe(
+        'shipfox-runner-env.service',
+      );
+      expect(systemdDirective(unit, 'Install', 'WantedBy'), expectation.name).toBe(
+        expectation.wantedBy,
+      );
+      expect(unit, expectation.name).not.toContain('cloud-config.service');
+      expect(unit, expectation.name).not.toContain('cloud-final.service');
     }
   });
 
-  it('validates runner environment after cloud-config without waiting for cloud-final', async () => {
-    const unit = await readFile(
-      new URL('../assets/shipfox-runner-env.service', import.meta.url),
-      'utf8',
-    );
+  it('keeps the environment gate as a persistent non-empty-file check', async () => {
+    const unit = await readUnit('shipfox-runner-env.service');
 
-    expect(unit).toContain('After=network-online.target cloud-config.service');
-    expect(unit).toContain('Wants=network-online.target cloud-config.service');
+    expect(systemdDirective(unit, 'Unit', 'After')).toBe('network-online.target');
+    expect(systemdDirective(unit, 'Unit', 'Wants')).toBe('network-online.target');
+    expect(systemdDirective(unit, 'Service', 'Type')).toBe('oneshot');
+    expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
+      '/usr/bin/test -s /etc/shipfox/runner.env',
+    );
+    expect(systemdDirective(unit, 'Service', 'RemainAfterExit')).toBe('yes');
+    expect(systemdDirective(unit, 'Install', 'WantedBy')).toBeUndefined();
+    expect(unit).not.toContain('cloud-config.service');
     expect(unit).not.toContain('cloud-final.service');
   });
 });

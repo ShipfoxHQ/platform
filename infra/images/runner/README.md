@@ -17,7 +17,15 @@ Packer is pinned in `mise.toml`. Install QEMU and `xorriso` through the host ope
 
 ## Environment contract
 
-Cloud-init writes `/etc/shipfox/runner.env`. The provider owns the values and must never bake them into the image:
+The provider owns the values and must never bake them into the image. It must publish
+`/etc/shipfox/runner.env` atomically: stage the complete file at
+`/etc/shipfox/runner.env.tmp`, then rename it into place on the same filesystem. The
+image watches the final path and starts the lifecycle target when it appears, so this
+contract does not depend on cloud-init's systemd units or stage ordering. Cloud-init
+uses `write_files` for the temporary file and a final-stage `runcmd` rename; an off-cloud
+provisioner must provide the same temp-plus-rename behavior.
+
+The provider-rendered environment contains:
 
 - `SHIPFOX_API_URL`: API base URL.
 - `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`: one-use managed-runner bootstrap token.
@@ -32,7 +40,7 @@ The image derives its tool capabilities from its baked runner runtime and sends 
 enrollment. Providers do not inject capabilities, workspace IDs, workspace registration tokens,
 or activation tokens into user data.
 
-`shipfox-runner.service` powers off immediately when the runner exits. Its SIGTERM drain budget is 90 seconds, after which systemd can force-kill the process and the backend re-reserves the job. `shipfox-max-lifetime.service` schedules a forced poweroff and falls back to a baked 3600-second limit when the configured value is missing or malformed. AWS builds also enable a Spot IMDSv2 watcher that stops the runner, allows it to drain briefly, then powers off.
+`shipfox-runner.service` powers off immediately when the runner exits. Its SIGTERM drain budget is 90 seconds, after which systemd can force-kill the process and the backend re-reserves the job. Once the environment file is published, `shipfox-max-lifetime.service` schedules a forced poweroff and falls back to a baked 3600-second limit when the configured value is missing or malformed. The configured lifetime therefore includes boot and enrollment skew and must remain comfortably above one job's maximum duration. AWS builds also enable a Spot IMDSv2 watcher that stops the runner, allows it to drain briefly, then powers off.
 
 With `InstanceInitiatedShutdownBehavior=terminate` and Spot `InstanceInterruptionBehavior=terminate`, provider-side settings convert these poweroffs into EC2 termination. The in-guest watchdog is the fast path. The durable backstop remains tagged-instance reconciliation, the backend staleness reaper, and terminate-on-shutdown because privileged job steps or a wedged kernel can defeat an in-guest timer.
 

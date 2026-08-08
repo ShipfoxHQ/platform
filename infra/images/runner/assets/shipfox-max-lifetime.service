@@ -7,6 +7,3 @@ Requires=shipfox-runner-env.service
 [Service]
 Type=oneshot
 ExecStart=/opt/shipfox-runner/scripts/runtime/start-max-lifetime.sh
-
-[Install]
-WantedBy=multi-user.target

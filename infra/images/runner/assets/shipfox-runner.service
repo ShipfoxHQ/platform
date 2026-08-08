@@ -1,6 +1,6 @@
 [Unit]
 Description=Shipfox platform runner
-After=network-online.target shipfox-runner-env.service
+After=network-online.target time-sync.target shipfox-runner-env.service
 Wants=network-online.target
 Requires=shipfox-runner-env.service
 SuccessAction=poweroff-immediate
@@ -20,6 +20,3 @@ TimeoutStopSec=90s
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=shipfox-runner
-
-[Install]
-WantedBy=multi-user.target

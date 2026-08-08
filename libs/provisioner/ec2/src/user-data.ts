@@ -1,5 +1,6 @@
 const CLOUD_INIT_HEADER = '#cloud-config';
 const RUNNER_ENV_PATH = '/etc/shipfox/runner.env';
+const RUNNER_ENV_TEMP_PATH = '/etc/shipfox/runner.env.tmp';
 
 /** Values written into the runner image environment file at EC2 boot. */
 export interface RunnerBootstrapUserDataOptions {
@@ -34,8 +35,9 @@ interface RunnerBootstrapEnvironment {
 
 /**
  * Renders the cloud-init configuration consumed by the prebaked Shipfox runner image.
- * The image's environment gate waits for cloud-config to write this file before lifecycle
- * units start from the network-ready multi-user target. No workspace-scoped credential is included.
+ * Cloud-init stages the file under a temporary path and atomically renames it into place;
+ * the image's path unit starts the lifecycle target when the final path appears. No
+ * workspace-scoped credential is included.
  */
 export function renderRunnerBootstrapUserData(options: RunnerBootstrapUserDataOptions): string {
   const environment = runnerBootstrapEnvironment(options);
@@ -45,11 +47,13 @@ export function renderRunnerBootstrapUserData(options: RunnerBootstrapUserDataOp
 
   return `${CLOUD_INIT_HEADER}
 write_files:
-  - path: ${RUNNER_ENV_PATH}
+  - path: ${RUNNER_ENV_TEMP_PATH}
     owner: root:root
     permissions: '0600'
     content: |
 ${indent(envFile, 6)}
+runcmd:
+  - ['/usr/bin/mv', '--', ${RUNNER_ENV_TEMP_PATH}, ${RUNNER_ENV_PATH}]
 `;
 }
 
