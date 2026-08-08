@@ -73,6 +73,34 @@ describe('runProvisionerIteration', () => {
     expect(pollBodies[0]).not.toHaveProperty('reservation_ttl_seconds');
   });
 
+  it('forwards the latest demand stats to the adapter', async () => {
+    const stats = [
+      {
+        labels: ['ubuntu22'],
+        queued: 3,
+        reserved: 1,
+        oldest_queued_at: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+    const {client} = harness({response: {stats, reservations: []}});
+    const onDemandStats = vi.fn();
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      onDemandStats,
+    };
+
+    await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+    });
+
+    expect(onDemandStats).toHaveBeenCalledWith(stats);
+  });
+
   it('runs onTick before polling demand', async () => {
     const events: string[] = [];
     const {client} = harness({

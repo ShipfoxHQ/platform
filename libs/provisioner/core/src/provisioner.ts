@@ -354,6 +354,7 @@ export async function runDemandIteration<Spec>(
     });
     throw error;
   }
+  deps.adapter.onDemandStats?.(result.stats);
 
   if (!deps.deferTermination) {
     if (result.providerTermination.status === 'failed') {

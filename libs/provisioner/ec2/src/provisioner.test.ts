@@ -85,9 +85,15 @@ describe('createEc2ProvisionerAdapter', () => {
       } as unknown as ProviderRunnerTracker,
     });
 
-    expect(observability.registerEc2ServiceMetrics).toHaveBeenCalledWith({
-      engine,
-      provisionerId: 'provisioner-1',
-    });
+    expect(observability.registerEc2ServiceMetrics).toHaveBeenCalledWith(
+      expect.objectContaining({
+        engine,
+        provisionerId: 'provisioner-1',
+        templates: [template],
+      }),
+    );
+    expect(observability.registerEc2ServiceMetrics.mock.calls[0]?.[0].getDemandStats).toEqual(
+      expect.any(Function),
+    );
   });
 });

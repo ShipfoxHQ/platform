@@ -142,6 +142,29 @@ The API clamps the requested reservation lifetime to its own `RESERVATION_TTL_MA
 ceiling and does not report the clamp. Keep that ceiling at least as high as the derived
 value when changing either EC2 setting.
 
+## Service metrics
+
+The provider exposes per-template saturation gauges on the service metrics endpoint.
+The `template_key` label is the rendered template key, not a raw demand label set.
+
+| Metric | Value |
+| --- | --- |
+| `ec2_provisioner_template_runners{state}` | EC2 instances charged against the template cap. `pending` instances report as `starting`. |
+| `ec2_provisioner_template_max_concurrency` | Configured ceiling for the template. |
+| `ec2_provisioner_template_target_concurrency` | Configured warm-pool floor for the template. |
+| `ec2_provisioner_template_queued_demand` | Queued jobs whose labels match the template. |
+| `ec2_provisioner_template_oldest_queued_age` | Age of the oldest matching queued job in milliseconds. |
+
+The runner count reads `shipfox.template_key` from AWS `DescribeInstances` results.
+The production ECS module keeps one provisioner task, so this fleet count matches the
+per-process `max_concurrency` cap. AWS listings are eventually consistent and can briefly
+undercount a new launch. Queue gauges use the latest demand poll and map each label set to
+every ranked matching template.
+
+Each rendered template creates six time series: two runner states and four single-series
+gauges. Matrix families multiply their axis sizes, so keep the rendered template count
+bounded when adding an axis.
+
 ## Behavior notes
 
 Search for `Observed EC2 runner instance termination` to find one terminal log per AWS

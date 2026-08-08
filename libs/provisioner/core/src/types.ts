@@ -1,3 +1,4 @@
+import type {DemandStatDto} from '@shipfox/api-runners-dto';
 import type {ProvisionerClient} from '#api-client.js';
 import type {ProviderRunnerTracker} from '#tracker.js';
 
@@ -89,6 +90,8 @@ export interface ProvisionerAdapter<Spec = unknown> {
   readonly launch: LaunchRunner<Spec>;
   readonly terminate?: TerminateRunners;
   onStart?(runtime: ProvisionerRuntime): Promise<void>;
+  /** Receives the latest demand snapshot for provider-specific observation. */
+  onDemandStats?(stats: readonly DemandStatDto[]): void;
   onTick?(): Promise<void>;
   onStop?(): Promise<void>;
 }
