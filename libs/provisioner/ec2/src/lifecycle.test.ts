@@ -1010,14 +1010,29 @@ describe('createEc2Lifecycle', () => {
 
   it('logs backend absent ids while reconciling an empty observed set', async () => {
     const client = fakeClient({
-      reconcileResponse: {runners: [], terminated_absent_provider_runner_ids: ['vanished-runner']},
+      reconcileResponse: {
+        runners: [],
+        terminated_absent_provider_runner_ids: ['vanished-runner-1', 'vanished-runner-2'],
+      },
     });
     const lifecycle = makeLifecycle({client});
 
     await lifecycle.reconcile();
 
     expect(client.reconcileBodies).toEqual([{observed_provider_runner_ids: []}]);
-    expect(observability.recordEc2ReconcileAbsent).toHaveBeenCalledOnce();
+    expect(observability.recordEc2ReconcileAbsent).toHaveBeenCalledWith(2);
+    expect(observability.recordEc2ReconcileAbsent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not record reconcile absence when the backend reports no absent ids', async () => {
+    const client = fakeClient({
+      reconcileResponse: {runners: [], terminated_absent_provider_runner_ids: []},
+    });
+    const lifecycle = makeLifecycle({client});
+
+    await lifecycle.reconcile();
+
+    expect(observability.recordEc2ReconcileAbsent).not.toHaveBeenCalled();
   });
 
   it('terminates only managed instances matching requested ids', async () => {

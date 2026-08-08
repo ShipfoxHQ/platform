@@ -45,9 +45,9 @@ describe('EC2 provisioner metrics', () => {
     });
   });
 
-  it('records reconcile absence without labels', () => {
-    metrics.recordEc2ReconcileAbsent();
+  it('records the reconcile absence count without labels', () => {
+    metrics.recordEc2ReconcileAbsent(2);
 
-    expect(counterAdd('ec2_provisioner_reconcile_absent')).toHaveBeenCalledWith(1);
+    expect(counterAdd('ec2_provisioner_reconcile_absent')).toHaveBeenCalledWith(2);
   });
 });

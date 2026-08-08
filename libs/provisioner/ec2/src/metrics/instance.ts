@@ -39,6 +39,6 @@ export function recordEc2Termination(reason: Ec2TerminationReason): void {
   terminateCount.add(1, {reason});
 }
 
-export function recordEc2ReconcileAbsent(): void {
-  reconcileAbsentCount.add(1);
+export function recordEc2ReconcileAbsent(count: number): void {
+  reconcileAbsentCount.add(count);
 }
