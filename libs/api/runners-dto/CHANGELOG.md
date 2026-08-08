@@ -1,5 +1,12 @@
 # @shipfox/api-runners-dto
 
+## 12.4.0
+
+### Minor Changes
+
+- 9e16946: Runners are enrolled only when the reservation still has capacity, and partial-enrollment errors now report reservation shortfalls separately from launch grants.
+- 4fa8526: Adds opt-in reconciliation data so provisioners can retry intended reservation assignments.
+
 ## 12.2.0
 
 ### Patch Changes
