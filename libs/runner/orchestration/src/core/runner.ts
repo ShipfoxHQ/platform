@@ -87,8 +87,9 @@ export async function startRunner(): Promise<void> {
   if (startupMode === 'managed') {
     runnerSession = await initializeManagedRunnerSession();
     if (!runnerSession) return;
+  } else {
+    await interruptableSleep(withJitter(config.SHIPFOX_POLL_INTERVAL_MS));
   }
-  await interruptableSleep(withJitter(config.SHIPFOX_POLL_INTERVAL_MS));
   let pollDeadline = nextPollDeadline();
 
   while (running) {
@@ -98,7 +99,7 @@ export async function startRunner(): Promise<void> {
         logger().info({runnerSessionId: runnerSession.session_id}, 'Runner session registered');
       }
 
-      const job = await requestJob(runnerSession.session_token);
+      const job = await requestJob(runnerSession.session_token, shutdownController.signal);
 
       if (!job) {
         if (hasPollDeadlinePassed(pollDeadline)) {
@@ -110,6 +111,8 @@ export async function startRunner(): Promise<void> {
         await interruptableSleep(withJitter(currentInterval));
         continue;
       }
+
+      if (!running) return;
 
       logger().info(
         {
@@ -125,6 +128,8 @@ export async function startRunner(): Promise<void> {
       currentInterval = config.SHIPFOX_POLL_INTERVAL_MS;
       pollDeadline = nextPollDeadline();
     } catch (pollError) {
+      if (!running) return;
+
       if (isUnauthorized(pollError)) {
         if (startupMode === 'managed') {
           logger().info('Activated runner session rejected; runner exiting');
