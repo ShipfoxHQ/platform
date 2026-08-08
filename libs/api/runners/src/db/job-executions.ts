@@ -30,6 +30,7 @@ import {
   RunningJobExecutionNotFoundError,
 } from '#core/errors.js';
 import {
+  type JobExecutionQueueTimeObservation,
   jobExecutionEnqueuedCount,
   jobExecutionLeaseExpiredCount,
   type ProviderRunnerLifecycleObservation,
@@ -199,7 +200,7 @@ export async function claimPendingJobExecution(params: {
   if (params.sessionLabels.length === 0) return null;
 
   let activationToFirstClaimObservation: ProviderRunnerLifecycleObservation | null = null;
-  let queueTimeObservation: {durationSeconds: number} | null = null;
+  let queueTimeObservation: JobExecutionQueueTimeObservation | null = null;
   const result = await db().transaction(async (tx) => {
     let provisionerId: string | null = null;
     let providerRunnerId: string | null = null;
@@ -297,7 +298,9 @@ export async function claimPendingJobExecution(params: {
     if (!claimed) return null;
 
     queueTimeObservation = {
-      durationSeconds: (claimed.claimedAt.getTime() - row.createdAt.getTime()) / 1_000,
+      durationMilliseconds: claimed.claimedAt.getTime() - row.createdAt.getTime(),
+      provider: null,
+      launchKind: params.maxClaims === null ? 'manual' : 'unknown',
     };
 
     const runnerInstanceCondition = runnerInstanceId
@@ -328,6 +331,10 @@ export async function claimPendingJobExecution(params: {
             where ${runnerSessions.id} = ${params.runnerSessionId}
           )`,
         });
+      if (claimedRunner && queueTimeObservation) {
+        queueTimeObservation.provider = claimedRunner.provider;
+        queueTimeObservation.launchKind = claimedRunner.launchKind;
+      }
       if (
         claimedRunner?.isFirstClaim &&
         claimedRunner.firstClaimedAt !== null &&
