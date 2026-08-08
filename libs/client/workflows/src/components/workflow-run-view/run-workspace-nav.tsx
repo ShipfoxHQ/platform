@@ -53,8 +53,12 @@ export function RunWorkspaceNav({
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
-      <aside className="w-full shrink-0 border-b border-border-neutral-base bg-background-neutral-background min-[768px]:w-240 min-[768px]:border-b-0 min-[768px]:border-r">
-        <Collapsible open={mobileOpen} onOpenChange={setMobileOpen}>
+      <aside className="flex min-h-0 w-full shrink-0 flex-col border-b border-border-neutral-base bg-background-neutral-background min-[768px]:w-240 min-[768px]:border-b-0 min-[768px]:border-r">
+        <Collapsible
+          open={mobileOpen}
+          onOpenChange={setMobileOpen}
+          className="flex min-h-0 flex-col min-[768px]:flex-1"
+        >
           <CollapsibleTrigger asChild>
             <button
               type="button"
@@ -82,7 +86,7 @@ export function RunWorkspaceNav({
           </CollapsibleTrigger>
           <div
             className={cn(
-              'max-h-[50vh] overflow-y-auto p-tight min-[768px]:block min-[768px]:max-h-none min-[768px]:p-[12px]',
+              'flex min-h-0 max-h-[50vh] flex-col overflow-y-auto p-tight scrollbar min-[768px]:min-h-0 min-[768px]:max-h-none min-[768px]:flex-1 min-[768px]:flex min-[768px]:overflow-hidden min-[768px]:p-[12px]',
               !mobileOpen && 'hidden',
             )}
           >
@@ -136,7 +140,7 @@ function RunWorkspaceNavContent({
   }, [currentJobId, mobileOpen]);
 
   return (
-    <nav aria-label="Run workspace" className="flex min-w-0 flex-col gap-group">
+    <nav aria-label="Run workspace" className="flex min-h-0 min-w-0 flex-1 flex-col gap-group">
       <ul>
         <li>
           <RunSectionLink
@@ -151,7 +155,10 @@ function RunWorkspaceNavContent({
         </li>
       </ul>
 
-      <section aria-labelledby="run-workspace-jobs-heading" className="min-w-0">
+      <section
+        aria-labelledby="run-workspace-jobs-heading"
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
+      >
         <div className="flex items-center justify-between gap-inline px-tight pb-[6px]">
           <Text
             as="h2"
@@ -166,7 +173,7 @@ function RunWorkspaceNavContent({
             {jobs.length}
           </Text>
         </div>
-        <ol className="max-h-[320px] overflow-y-auto">
+        <ol className="min-h-0 flex-1 overflow-y-auto scrollbar">
           {jobs.map((job) => {
             const current = job.id === currentJobId;
             const execution = defaultJobExecution(job);
