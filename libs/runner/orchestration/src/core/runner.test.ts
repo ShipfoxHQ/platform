@@ -401,6 +401,7 @@ describe('startRunner', () => {
 
     expect(mockRegisterRunnerSession).toHaveBeenCalledTimes(1);
     expect(mockRequestJob).toHaveBeenCalledTimes(1);
+    expect(mockInterruptibleSleep).not.toHaveBeenCalled();
   });
 
   it('enrolls, waits, activates, and uses the activation session for managed runners', async () => {
@@ -439,7 +440,7 @@ describe('startRunner', () => {
       registrationToken: 'activation-token',
     });
     expect(mockRequestJob).toHaveBeenCalledWith('session-token');
-    expect(mockInterruptibleSleep).toHaveBeenCalledTimes(1);
+    expect(mockInterruptibleSleep).not.toHaveBeenCalled();
   });
 
   it('backs off before retrying a managed assignment poll that returns no token', async () => {
@@ -456,7 +457,7 @@ describe('startRunner', () => {
     await startRunner();
 
     expect(mockPollRunnerAssignment).toHaveBeenCalledTimes(2);
-    expect(mockInterruptibleSleep.mock.calls.map(([ms]) => ms)).toEqual([1, 0]);
+    expect(mockInterruptibleSleep.mock.calls.map(([ms]) => ms)).toEqual([1]);
   });
 
   it('retries a timed-out managed assignment poll and activates after a later assignment', async () => {

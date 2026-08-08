@@ -88,7 +88,6 @@ export async function startRunner(): Promise<void> {
     runnerSession = await initializeManagedRunnerSession();
     if (!runnerSession) return;
   }
-  await interruptableSleep(withJitter(config.SHIPFOX_POLL_INTERVAL_MS));
   let pollDeadline = nextPollDeadline();
 
   while (running) {
