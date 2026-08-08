@@ -886,16 +886,19 @@ describe('systemd boot activation', () => {
       {
         name: 'shipfox-runner.service',
         after: 'network-online.target time-sync.target shipfox-runner-env.service',
+        wants: 'network-online.target time-sync.target',
         wantedBy: undefined,
       },
       {
         name: 'shipfox-max-lifetime.service',
         after: 'network-online.target shipfox-runner-env.service',
+        wants: 'network-online.target',
         wantedBy: undefined,
       },
       {
         name: 'shipfox-spot-watchdog.service',
         after: 'network-online.target shipfox-runner.service shipfox-runner-env.service',
+        wants: 'network-online.target',
         wantedBy: 'shipfox-runner.target',
       },
     ] as const;
@@ -904,9 +907,7 @@ describe('systemd boot activation', () => {
       const unit = await readUnit(expectation.name);
 
       expect(systemdDirective(unit, 'Unit', 'After'), expectation.name).toBe(expectation.after);
-      expect(systemdDirective(unit, 'Unit', 'Wants'), expectation.name).toBe(
-        'network-online.target',
-      );
+      expect(systemdDirective(unit, 'Unit', 'Wants'), expectation.name).toBe(expectation.wants);
       expect(systemdDirective(unit, 'Unit', 'Requires'), expectation.name).toBe(
         'shipfox-runner-env.service',
       );
