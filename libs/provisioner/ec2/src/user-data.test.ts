@@ -13,12 +13,12 @@ const options: RunnerBootstrapUserDataOptions = {
 };
 
 describe('renderRunnerBootstrapUserData', () => {
-  it('writes the managed runner environment contract for cloud-init', () => {
+  it('atomically publishes the managed runner environment contract for cloud-init', () => {
     const userData = renderRunnerBootstrapUserData(options);
 
     expect(userData).toBe(`#cloud-config
 write_files:
-  - path: /etc/shipfox/runner.env
+  - path: /etc/shipfox/runner.env.tmp
     owner: root:root
     permissions: '0600'
     content: |
@@ -29,6 +29,8 @@ write_files:
       SHIPFOX_RUNNER_LABELS="linux,x64,self-hosted"
       SHIPFOX_POLL_MAX_DURATION_MS="300000"
       SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS="3600"
+runcmd:
+  - ['/usr/bin/mv', '--', /etc/shipfox/runner.env.tmp, /etc/shipfox/runner.env]
 `);
   });
 

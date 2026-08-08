@@ -1,12 +1,9 @@
 [Unit]
 Description=Shipfox runner hard maximum lifetime watchdog
-After=cloud-final.service shipfox-runner-env.service
-Wants=cloud-final.service
+After=network-online.target shipfox-runner-env.service
+Wants=network-online.target
 Requires=shipfox-runner-env.service
 
 [Service]
 Type=oneshot
 ExecStart=/opt/shipfox-runner/scripts/runtime/start-max-lifetime.sh
-
-[Install]
-WantedBy=cloud-init.target

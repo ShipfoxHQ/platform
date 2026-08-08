@@ -1,0 +1,5 @@
+[Unit]
+Description=Shipfox runner lifecycle
+After=network-online.target shipfox-runner-env.service
+Wants=network-online.target shipfox-runner.service shipfox-max-lifetime.service
+Requires=shipfox-runner-env.service
