@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process';
-import {chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {findProducedAmiId, parsePackerAmiArtifact} from '#aws.js';
@@ -950,11 +950,13 @@ UUID=efi /boot/efi vfat defaults 0 1
 UUID=data /data ext4 defaults 0 2
 `;
     const fixture = await createBootFixture(fstab);
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
 
     try {
       execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
       execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
 
+      expect(build).toContain('scripts/build/configure-boot.sh');
       expect(await readFile(join(fixture.root, 'boot/grub/grub.cfg'), 'utf8')).toContain(
         'fsck.mode=skip',
       );
