@@ -884,6 +884,20 @@ describe('systemd boot activation', () => {
     expect(result).toBe('');
   });
 
+  it('fails the workspace mount check when the marker requires a missing mount', () => {
+    const script = new URL('../scripts/runtime/verify-workspace-mount.sh', import.meta.url);
+
+    expect(() =>
+      execFileSync('sh', [script.pathname], {
+        env: {
+          ...process.env,
+          SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED: '1',
+          SHIPFOX_RUNNER_WORKSPACE_ROOT: '/definitely/missing/shipfox-workspaces',
+        },
+      }),
+    ).toThrow();
+  });
+
   it('starts the lifecycle target when the complete environment file appears', async () => {
     const pathUnit = await readUnit('shipfox-runner-env.path');
     const targetUnit = await readUnit('shipfox-runner.target');

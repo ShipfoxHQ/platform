@@ -93,7 +93,7 @@ const ec2TemplateSchema = z
 const ec2TemplatesSchema = z.record(z.string().min(1), ec2TemplateSchema);
 
 function canonicalEc2DeviceName(deviceName: string): string {
-  return deviceName.replace(XVD_DEVICE_ALIAS_PATTERN, '/dev/sd');
+  return deviceName.toLowerCase().replace(XVD_DEVICE_ALIAS_PATTERN, '/dev/sd');
 }
 
 /**

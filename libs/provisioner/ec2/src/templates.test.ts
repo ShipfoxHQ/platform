@@ -281,8 +281,11 @@ describe('loadEc2Templates', () => {
     expect(() => loadEc2Templates(path)).toThrow('root_device_name');
   });
 
-  it('rejects device-name aliases that map root and workspace to the same disk', () => {
-    const path = writeTemplates(template({workspace_device_name: '/dev/xvda1'}));
+  it.each([
+    '/dev/xvda1',
+    '/dev/XVDA1',
+  ])('rejects device-name aliases that map root and workspace to the same disk (%s)', (workspaceDeviceName) => {
+    const path = writeTemplates(template({workspace_device_name: workspaceDeviceName}));
 
     expect(() => loadEc2Templates(path)).toThrow('workspace_device_name');
   });
