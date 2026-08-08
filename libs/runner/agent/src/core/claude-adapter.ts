@@ -139,6 +139,9 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
           useOutputTools ? collector.guidanceText() : undefined,
         ),
         missingRequired: () => collector.missingRequired(),
+        guidanceForMissing: (missing) => collector.guidanceTextFor(missing),
+        terminalGuidanceForMissing: (missing) =>
+          collector.terminalOutputSpecificationsTextFor(missing),
         runTurn: async (message) => {
           messages?.push(userMessage(message));
           response = (await readClaudeResult({queryIterator, onSessionEntry})).response ?? '';

@@ -239,6 +239,9 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
             response = piSession.getLastAssistantText() ?? '';
           },
           missingRequired: () => collector.missingRequired(),
+          guidanceForMissing: (missing) => collector.guidanceTextFor(missing),
+          terminalGuidanceForMissing: (missing) =>
+            collector.terminalOutputSpecificationsTextFor(missing),
         });
         const outputs = collector.snapshot();
         return {
@@ -410,8 +413,7 @@ function setOutputTool(collector: OutputCollector) {
     description: 'Set one structured output value for this workflow step.',
     promptSnippet: 'set_output records a workflow step output.',
     promptGuidelines: [
-      'Use set_output once for each required workflow output before your final response.',
-      'Pass all values as strings. For json outputs, pass valid JSON text.',
+      'Call set_output for each required workflow output; the exact key, value encoding, and JSON Schema for each are in the task prompt.',
     ],
     parameters: Type.Object({
       key: Type.String(),

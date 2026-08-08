@@ -338,12 +338,13 @@ describe('claudeHarnessAdapter', () => {
   it('registers declared output tools when the Anthropic base URL override is active', async () => {
     configMock.AGENT_CLAUDE_ANTHROPIC_BASE_URL = 'http://127.0.0.1:11434';
     queryMock.mockReturnValue(makeQuery([successMessage, successMessage, successMessage]));
+    const schema = {type: 'array', items: {type: 'string'}};
 
     const result = claudeHarnessAdapter.run(
-      invocation({credentials: {}, outputs: {summary: {type: 'string'}}}),
+      invocation({credentials: {}, outputs: {findings: {type: 'json', schema}}}),
     );
 
-    await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+    await expect(result).rejects.toThrow('Agent step finished without required outputs: findings');
     expect(assertEgressAllowedMock).toHaveBeenCalledWith(
       'http://127.0.0.1:11434',
       expect.objectContaining({allowPrivateNetworks: true}),
@@ -351,6 +352,7 @@ describe('claudeHarnessAdapter', () => {
     expect(createSdkMcpServerMock).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'shipfox_outputs',
+        instructions: expect.stringContaining(JSON.stringify(schema, null, 2)),
         tools: [expect.objectContaining({name: 'set_output'})],
       }),
     );
