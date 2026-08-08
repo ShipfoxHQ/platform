@@ -83,6 +83,17 @@ interface IdleRunnerCandidate {
   launchKind: (typeof providerRunnerLaunchKindEnum.enumValues)[number];
 }
 
+interface BindableRunnerParams {
+  provisionerId: string;
+  workspaceId: string;
+  requiredLabels: string[];
+  scope: DemandScope;
+}
+
+interface IdleRunnerSelectionParams extends BindableRunnerParams {
+  count: number;
+}
+
 type PollDemandAndReserveLockedParams = PollDemandAndReserveParams & {
   scope: DemandScope;
 };
@@ -316,6 +327,8 @@ async function pollDemandAndReserveLockedTx(
           provisionerId: params.provisionerId,
           reservationId: boundReservation.id,
           workspaceId: params.workspaceId,
+          requiredLabels: demand.requiredLabels,
+          scope: params.scope,
           idleRunners,
         });
       }
@@ -461,15 +474,78 @@ function addUsedRunner(
   else usedByReservation.set(reservationId, new Set([runnerId]));
 }
 
+// An expired or missing reservation is stale. A live reservation protects a runner that is
+// still booting or waiting for its activation grace period.
+function canBindRunner(tx: Tx, params: BindableRunnerParams) {
+  return and(
+    or(
+      and(isNull(providerRunners.workspaceId), isNull(providerRunners.reservationId)),
+      and(
+        isNotNull(providerRunners.reservationId),
+        params.scope === 'installation'
+          ? undefined
+          : or(
+              isNull(providerRunners.workspaceId),
+              eq(providerRunners.workspaceId, params.workspaceId),
+            ),
+        notExists(
+          tx
+            .select({id: reservations.id})
+            .from(reservations)
+            .where(
+              and(
+                eq(reservations.id, providerRunners.reservationId),
+                gt(reservations.expiresAt, sql`now()`),
+              ),
+            ),
+        ),
+      ),
+    ),
+    or(
+      isNull(providerRunners.intendedReservationId),
+      notExists(
+        tx
+          .select({id: reservations.id})
+          .from(reservations)
+          .where(
+            and(
+              eq(reservations.id, providerRunners.intendedReservationId),
+              gt(reservations.expiresAt, sql`now()`),
+            ),
+          ),
+      ),
+    ),
+    isNull(providerRunners.reservationReleasedAt),
+    isNull(providerRunners.runnerSessionId),
+  );
+}
+
+function isBindableRunner(tx: Tx, params: BindableRunnerParams) {
+  return and(
+    eq(providerRunners.provisionerId, params.provisionerId),
+    canBindRunner(tx, params),
+    isNotNull(providerRunners.providerRunnerId),
+    eq(providerRunners.state, 'running'),
+    arrayContains(providerRunners.labels, params.requiredLabels),
+    exists(
+      tx
+        .select({id: runnerControlSessions.id})
+        .from(runnerControlSessions)
+        .where(
+          and(
+            eq(runnerControlSessions.runnerInstanceId, providerRunners.id),
+            eq(runnerControlSessions.provisionerId, params.provisionerId),
+            isNull(runnerControlSessions.closedAt),
+            gt(runnerControlSessions.expiresAt, sql`now()`),
+          ),
+        ),
+    ),
+  );
+}
+
 async function listIdleRunnerInstancesTx(
   tx: Tx,
-  params: {
-    provisionerId: string;
-    workspaceId: string;
-    requiredLabels: string[];
-    count: number;
-    scope: DemandScope;
-  },
+  params: IdleRunnerSelectionParams & {count: number},
 ): Promise<IdleRunnerCandidate[]> {
   const lockedRunners = await selectIdleRunnerInstancesTx(tx, params);
   if (lockedRunners.length === 0) return lockedRunners;
@@ -486,89 +562,57 @@ async function listIdleRunnerInstancesTx(
 
 async function selectIdleRunnerInstancesTx(
   tx: Tx,
-  params: {
-    provisionerId: string;
-    workspaceId: string;
-    requiredLabels: string[];
-    count: number;
-    scope: DemandScope;
-    runnerIds?: string[];
-  },
+  params: IdleRunnerSelectionParams & {count: number; runnerIds?: string[]},
 ): Promise<IdleRunnerCandidate[]> {
-  // An expired or missing reservation is stale. A live reservation protects a
-  // runner that is still booting or waiting for its activation grace period.
-  const canBindRunner = () =>
-    and(
-      or(
-        and(isNull(providerRunners.workspaceId), isNull(providerRunners.reservationId)),
-        and(
-          isNotNull(providerRunners.reservationId),
-          params.scope === 'installation'
-            ? undefined
-            : or(
-                isNull(providerRunners.workspaceId),
-                eq(providerRunners.workspaceId, params.workspaceId),
-              ),
-          notExists(
-            tx
-              .select({id: reservations.id})
-              .from(reservations)
-              .where(
-                and(
-                  eq(reservations.id, providerRunners.reservationId),
-                  gt(reservations.expiresAt, sql`now()`),
-                ),
-              ),
-          ),
-        ),
-      ),
-      or(
-        isNull(providerRunners.intendedReservationId),
-        notExists(
-          tx
-            .select({id: reservations.id})
-            .from(reservations)
-            .where(
-              and(
-                eq(reservations.id, providerRunners.intendedReservationId),
-                gt(reservations.expiresAt, sql`now()`),
-              ),
-            ),
-        ),
-      ),
-      isNull(providerRunners.reservationReleasedAt),
-      isNull(providerRunners.runnerSessionId),
-    );
+  if (params.runnerIds) {
+    // The first pass retains the row locks. Recheck the full predicate in a fresh statement so
+    // reservation subqueries see the state that was current when the lock was acquired.
+    return await tx
+      .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
+      .from(providerRunners)
+      .where(and(inArray(providerRunners.id, params.runnerIds), isBindableRunner(tx, params)))
+      .orderBy(asc(providerRunners.createdAt), asc(providerRunners.id))
+      .limit(params.count);
+  }
 
-  const idleRunners = await tx
-    .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
-    .from(providerRunners)
-    .where(
-      and(
-        eq(providerRunners.provisionerId, params.provisionerId),
-        params.runnerIds ? inArray(providerRunners.id, params.runnerIds) : undefined,
-        canBindRunner(),
-        isNotNull(providerRunners.providerRunnerId),
-        eq(providerRunners.state, 'running'),
-        arrayContains(providerRunners.labels, params.requiredLabels),
-        exists(
-          tx
-            .select({id: runnerControlSessions.id})
-            .from(runnerControlSessions)
-            .where(
-              and(
-                eq(runnerControlSessions.runnerInstanceId, providerRunners.id),
-                eq(runnerControlSessions.provisionerId, params.provisionerId),
-                isNull(runnerControlSessions.closedAt),
-                gt(runnerControlSessions.expiresAt, sql`now()`),
-              ),
-            ),
-        ),
-      ),
-    )
-    .orderBy(asc(providerRunners.createdAt), asc(providerRunners.id))
-    .limit(params.count)
-    .for('update');
+  // Select the oldest candidates first, but leave row locking to a second pass. The cleanup
+  // path locks runner rows by id, so the locking pass must use that same order. A skipped row
+  // rolls back only this nested savepoint and retries the bounded candidate scan, allowing the
+  // next-oldest eligible runner to refill the grant without retaining a partial lock set.
+  const retrySelection = Symbol('retry bindable runner selection');
+  const idleRunners = await (async () => {
+    while (true) {
+      try {
+        return await tx.transaction(async (lockTx) => {
+          const candidateRunners = await lockTx
+            .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
+            .from(providerRunners)
+            .where(isBindableRunner(lockTx, params))
+            .orderBy(asc(providerRunners.createdAt), asc(providerRunners.id))
+            .limit(params.count);
+
+          if (candidateRunners.length === 0) return candidateRunners;
+
+          // PostgreSQL can acquire row locks before sorting a multi-row FOR UPDATE result. Lock
+          // each selected candidate individually so both polling and cleanup use id order.
+          const lockedRunners: typeof candidateRunners = [];
+          for (const candidate of [...candidateRunners].sort(compareRunnerIds)) {
+            const [runner] = await lockTx
+              .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
+              .from(providerRunners)
+              .where(and(eq(providerRunners.id, candidate.id), isBindableRunner(lockTx, params)))
+              .for('update');
+            if (runner) lockedRunners.push(runner);
+          }
+
+          if (lockedRunners.length !== candidateRunners.length) throw retrySelection;
+          return lockedRunners;
+        });
+      } catch (error) {
+        if (error !== retrySelection) throw error;
+      }
+    }
+  })();
 
   return idleRunners;
 }
@@ -579,6 +623,8 @@ async function bindIdleRunnerInstancesTx(
     provisionerId: string;
     reservationId: string;
     workspaceId: string;
+    requiredLabels: string[];
+    scope: DemandScope;
     idleRunners: IdleRunnerCandidate[];
   },
 ): Promise<void> {
@@ -607,12 +653,7 @@ async function bindIdleRunnerInstancesTx(
       assignedAt: sql`now()`,
       updatedAt: sql`now()`,
     })
-    .where(
-      and(
-        inArray(providerRunners.id, idleRunnerIds),
-        eq(providerRunners.provisionerId, params.provisionerId),
-      ),
-    )
+    .where(and(inArray(providerRunners.id, idleRunnerIds), isBindableRunner(tx, params)))
     .returning({id: providerRunners.id, launchKind: providerRunners.launchKind});
 
   if (boundRunners.length !== params.idleRunners.length)
@@ -703,7 +744,16 @@ async function deleteReservationsWithCleanupTx(
 ): Promise<number> {
   if (ids.length === 0) return 0;
 
-  const affectedRunners = await tx
+  const isAffectedRunner = () =>
+    or(
+      and(
+        inArray(providerRunners.reservationId, ids),
+        isNull(providerRunners.runnerSessionId),
+        isNull(providerRunners.reservationReleasedAt),
+      ),
+      inArray(providerRunners.intendedReservationId, ids),
+    );
+  const candidateRunners = await tx
     .select({
       id: providerRunners.id,
       reservationId: providerRunners.reservationId,
@@ -712,18 +762,23 @@ async function deleteReservationsWithCleanupTx(
       reservationReleasedAt: providerRunners.reservationReleasedAt,
     })
     .from(providerRunners)
-    .where(
-      or(
-        and(
-          inArray(providerRunners.reservationId, ids),
-          isNull(providerRunners.runnerSessionId),
-          isNull(providerRunners.reservationReleasedAt),
-        ),
-        inArray(providerRunners.intendedReservationId, ids),
-      ),
-    )
-    .orderBy(asc(providerRunners.id))
-    .for('update');
+    .where(isAffectedRunner())
+    .orderBy(asc(providerRunners.id));
+  const affectedRunners: typeof candidateRunners = [];
+  for (const candidate of [...candidateRunners].sort(compareRunnerIds)) {
+    const [runner] = await tx
+      .select({
+        id: providerRunners.id,
+        reservationId: providerRunners.reservationId,
+        intendedReservationId: providerRunners.intendedReservationId,
+        runnerSessionId: providerRunners.runnerSessionId,
+        reservationReleasedAt: providerRunners.reservationReleasedAt,
+      })
+      .from(providerRunners)
+      .where(and(eq(providerRunners.id, candidate.id), isAffectedRunner()))
+      .for('update');
+    if (runner) affectedRunners.push(runner);
+  }
   const reservationRows = await tx
     .select({id: reservations.id})
     .from(reservations)
@@ -863,6 +918,10 @@ function deductProvisionerReservations(
       );
     drawSlots(satisfyingTemplates, reservation.reserved);
   }
+}
+
+function compareRunnerIds(left: {id: string}, right: {id: string}): number {
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
 
 function sortDemandRows(rows: DemandRow[]): DemandRow[] {
