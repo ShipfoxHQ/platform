@@ -1060,3 +1060,22 @@ async function createBootFixture(fstab: string) {
     },
   };
 }
+describe('ephemeral boot configuration', () => {
+  it('masks disposable boot services and stores the journal in memory', async () => {
+    const script = await readFile(
+      new URL('../scripts/build/configure-ephemeral-boot.sh', import.meta.url),
+      'utf8',
+    );
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+
+    expect(script).toContain('apt-daily.service');
+    expect(script).toContain('apt-daily-upgrade.service');
+    expect(script).toContain('unattended-upgrades.service');
+    expect(script).toContain('systemd-fsck-root.service');
+    expect(script).toContain('systemd-fsck@.service');
+    expect(script).toContain('systemd-journal-flush.service');
+    expect(script).toContain('Storage=volatile');
+    expect(script).toContain('/etc/systemd/journald.conf.d/shipfox-volatile.conf');
+    expect(build).toContain('scripts/build/configure-ephemeral-boot.sh');
+  });
+});

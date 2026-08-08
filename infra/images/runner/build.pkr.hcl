@@ -19,7 +19,8 @@ build {
       "${path.root}/scripts/build/setup-runner.sh",
       "${path.root}/scripts/build/install-node.sh",
       "${path.root}/scripts/build/install-runner.sh",
-      "${path.root}/scripts/build/configure-boot.sh"
+      "${path.root}/scripts/build/configure-boot.sh",
+      "${path.root}/scripts/build/configure-ephemeral-boot.sh"
     ]
   }
 
