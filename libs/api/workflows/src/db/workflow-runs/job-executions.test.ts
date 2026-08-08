@@ -148,6 +148,48 @@ describe('workflow run job executions', () => {
     expect(persisted?.outputs).toEqual({findings: [{severity: 'high'}]});
   });
 
+  test('persists job outputs in the raised size band when execution succeeds', async () => {
+    const outputKeys = ['one', 'two', 'three'];
+    const outputValues = Object.fromEntries(outputKeys.map((key) => [key, 'x'.repeat(64 * 1024)]));
+    const outputTemplates = Object.fromEntries(
+      outputKeys.map((key) => [key, template(`steps.collect.outputs.${key}`)]),
+    );
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({
+        jobs: {
+          build: {
+            steps: [{key: 'collect', run: 'echo build'}],
+            outputs: outputTemplates,
+          },
+        },
+      }),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+    await finishCollectedStep(job.id, outputValues);
+
+    const resolved = await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'succeeded',
+      expectedVersion: execution.version,
+    });
+
+    expect(resolved).toMatchObject({status: 'succeeded', outputs: outputValues});
+    const persisted = await getFirstJobExecutionByJobId(job.id);
+    expect(persisted?.outputs).toEqual(outputValues);
+  });
+
   test('persists JSON-safe typed integer and timestamp outputs when execution succeeds', async () => {
     const run = await createWorkflowRun({
       workspaceId,
