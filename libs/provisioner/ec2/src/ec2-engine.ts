@@ -75,6 +75,8 @@ export interface RunInstanceArgs {
   readonly associatePublicIp: boolean;
   readonly rootVolumeGb: number;
   readonly rootDeviceName: string;
+  readonly workspaceVolumeGb: number;
+  readonly workspaceDeviceName: string;
   readonly userData?: string;
 }
 
@@ -127,6 +129,15 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
                 Ebs: {
                   VolumeSize: args.rootVolumeGb,
                   VolumeType: 'gp3',
+                  DeleteOnTermination: true,
+                },
+              },
+              {
+                DeviceName: args.workspaceDeviceName,
+                Ebs: {
+                  VolumeSize: args.workspaceVolumeGb,
+                  VolumeType: 'gp3',
+                  Encrypted: true,
                   DeleteOnTermination: true,
                 },
               },

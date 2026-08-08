@@ -13,8 +13,9 @@ control loop.
 - `redactRunnerBootstrapUserData(options)` returns launch metadata that is safe to log.
 
 The user-data renderer writes the API URL, one-use bootstrap token, runner-declared labels,
-managed-runner protocol metadata, poll deadline, and watchdog lifetime. It never renders a
-workspace ID, workspace registration token, or activation token.
+managed-runner protocol metadata, the managed workspace root, poll deadline, and watchdog
+lifetime. It formats and mounts the non-root EBS volume before the runner starts. It never
+renders a workspace ID, workspace registration token, or activation token.
 
 ## Template config
 
@@ -44,7 +45,10 @@ defaults:
   security_groups: [sg-runner]
   iam_instance_profile: shipfox-runner
   associate_public_ip: false
-  root_volume_gb: 100
+  root_volume_gb: 30
+  root_device_name: /dev/sda1
+  workspace_volume_gb: 100
+  workspace_device_name: /dev/sdf
   max_concurrency: 50
   target_concurrency: 0
 
@@ -94,6 +98,19 @@ canonicalized with the shared runner-label rules.
 default. Set `cost` to an explicit unitless ranking where lower values win template
 selection. Give a Spot template a lower cost than its on-demand equivalent so the planner
 prefers Spot before spilling to on-demand capacity.
+
+`root_volume_gb` is the boot volume size. `workspace_volume_gb` is a separate, encrypted gp3
+volume created for per-job checkouts, logs, and credentials. The provider deletes both
+volumes with the instance. `workspace_device_name` is the EC2 block-device mapping name;
+cloud-init resolves the attached EBS disk to its runtime device before formatting and
+mounting it at `/var/lib/shipfox/workspaces`. It fails closed when the mapping is absent and
+the non-root EBS disk is not unique.
+
+The example defaults change general runner capacity from one 100 GB EBS volume to a 30 GB
+boot volume plus a 100 GB workspace volume (130 GB total). The GPU example uses 30 GB plus
+200 GB (230 GB total). EBS storage cost therefore increases with the extra 30 GB, while the
+exact amount depends on region, runner uptime, gp3 IOPS and throughput, and KMS settings.
+The split keeps job data out of the boot image and its snapshots.
 
 Families are independent. The general and GPU families above use different axes and
 markets; the GPU block's `subnets` replaces the general default list rather than

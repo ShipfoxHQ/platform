@@ -57,6 +57,7 @@ build {
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-boot-complete.service /etc/systemd/system/shipfox-runner-boot-complete.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-max-lifetime.service /etc/systemd/system/shipfox-max-lifetime.service",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/start-max-lifetime.sh /opt/shipfox-runner/scripts/runtime/start-max-lifetime.sh",
+      "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/verify-workspace-mount.sh /opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/helpers/logger.sh /opt/shipfox-runner/scripts/runtime/helpers/logger.sh",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable shipfox-runner-env.path"

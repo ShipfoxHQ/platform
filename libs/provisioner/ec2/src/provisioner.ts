@@ -94,6 +94,7 @@ function renderUserData(launch: ProviderRunnerLaunch<Ec2TemplateSpec>): string {
     labels: launch.template.labels,
     pollMaxDurationMs: numericRunnerEnv(launch, 'SHIPFOX_POLL_MAX_DURATION_MS'),
     maxLifetimeSeconds: numericRunnerEnv(launch, 'SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS'),
+    workspaceDeviceName: launch.template.spec.workspaceDeviceName,
   });
 }
 

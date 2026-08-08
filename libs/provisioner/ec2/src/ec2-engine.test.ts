@@ -28,6 +28,8 @@ const runArgs: RunInstanceArgs = {
   associatePublicIp: false,
   rootVolumeGb: 100,
   rootDeviceName: '/dev/sda1',
+  workspaceVolumeGb: 200,
+  workspaceDeviceName: '/dev/sdf',
   userData: '#cloud-config',
 };
 
@@ -72,6 +74,10 @@ describe('createEc2Engine', () => {
         {
           DeviceName: '/dev/sda1',
           Ebs: {VolumeSize: 100, VolumeType: 'gp3', DeleteOnTermination: true},
+        },
+        {
+          DeviceName: '/dev/sdf',
+          Ebs: {VolumeSize: 200, VolumeType: 'gp3', Encrypted: true, DeleteOnTermination: true},
         },
       ],
     });

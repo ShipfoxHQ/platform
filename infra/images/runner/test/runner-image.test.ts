@@ -902,6 +902,42 @@ describe('systemd boot activation', () => {
     return readFile(new URL(name, assets), 'utf8');
   }
 
+  it('requires the job workspace mount before starting the runner', async () => {
+    const unit = await readUnit('shipfox-runner.service');
+
+    expect(unit).toContain(
+      'After=network-online.target time-sync.target shipfox-runner-env.service',
+    );
+    expect(unit).toContain('Wants=network-online.target time-sync.target');
+    expect(unit).toContain(
+      'ExecStartPre=/opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh',
+    );
+  });
+
+  it('gates the workspace mount check on the new user-data marker', () => {
+    const script = new URL('../scripts/runtime/verify-workspace-mount.sh', import.meta.url);
+    const result = execFileSync('sh', [script.pathname], {
+      encoding: 'utf8',
+      env: {...process.env, SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED: ''},
+    });
+
+    expect(result).toBe('');
+  });
+
+  it('fails the workspace mount check when the marker requires a missing mount', () => {
+    const script = new URL('../scripts/runtime/verify-workspace-mount.sh', import.meta.url);
+
+    expect(() =>
+      execFileSync('sh', [script.pathname], {
+        env: {
+          ...process.env,
+          SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED: '1',
+          SHIPFOX_RUNNER_WORKSPACE_ROOT: '/definitely/missing/shipfox-workspaces',
+        },
+      }),
+    ).toThrow();
+  });
+
   it('starts the lifecycle target when the complete environment file appears', async () => {
     const pathUnit = await readUnit('shipfox-runner-env.path');
     const targetUnit = await readUnit('shipfox-runner.target');

@@ -66,7 +66,7 @@ variable "runner_version" {
 
 variable "os_disk_size_gb" {
   type    = number
-  default = 100
+  default = 30
 }
 
 variable "platform" {

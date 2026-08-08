@@ -24,6 +24,8 @@ export interface Ec2TemplateSpec {
   readonly associatePublicIp: boolean;
   readonly rootVolumeGb: number;
   readonly rootDeviceName: string;
+  readonly workspaceVolumeGb: number;
+  readonly workspaceDeviceName: string;
 }
 
 /** Raised when the template config file is missing, unparseable, or invalid. */
@@ -35,6 +37,7 @@ export class Ec2TemplateConfigError extends Error {
 }
 
 const MAX_TEMPLATE_CONCURRENCY = 100_000;
+const XVD_DEVICE_ALIAS_PATTERN = /^\/dev\/xvd/i;
 
 const ec2TemplateSchema = z
   .object({
@@ -51,7 +54,17 @@ const ec2TemplateSchema = z
     iam_instance_profile: z.string().trim().min(1).optional(),
     associate_public_ip: z.boolean(),
     root_volume_gb: z.number().int().positive(),
-    root_device_name: z.string().trim().min(1).optional(),
+    root_device_name: z
+      .string()
+      .trim()
+      .regex(/^\/dev\/[A-Za-z0-9]+$/, 'must be an EC2 device name like "/dev/sda1"')
+      .optional(),
+    workspace_volume_gb: z.number().int().positive().default(100),
+    workspace_device_name: z
+      .string()
+      .trim()
+      .regex(/^\/dev\/[A-Za-z0-9]+$/, 'must be an EC2 device name like "/dev/sdf"')
+      .default('/dev/sdf'),
     max_concurrency: z.number().int().positive().max(MAX_TEMPLATE_CONCURRENCY),
     target_concurrency: z.number().int().nonnegative().max(MAX_TEMPLATE_CONCURRENCY).optional(),
     cost: z.number().positive(),
@@ -65,9 +78,23 @@ const ec2TemplateSchema = z
         message: 'spot_max_price is only valid when market is "spot".',
       });
     }
+    if (
+      canonicalEc2DeviceName(spec.root_device_name ?? '/dev/sda1') ===
+      canonicalEc2DeviceName(spec.workspace_device_name)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['workspace_device_name'],
+        message: 'must differ from root_device_name.',
+      });
+    }
   });
 
 const ec2TemplatesSchema = z.record(z.string().min(1), ec2TemplateSchema);
+
+function canonicalEc2DeviceName(deviceName: string): string {
+  return deviceName.toLowerCase().replace(XVD_DEVICE_ALIAS_PATTERN, '/dev/sd');
+}
 
 /**
  * Read, parse, and validate the local EC2 template config, returning the
@@ -160,6 +187,8 @@ function toTemplate(
       associatePublicIp: spec.associate_public_ip,
       rootVolumeGb: spec.root_volume_gb,
       rootDeviceName: spec.root_device_name ?? '/dev/sda1',
+      workspaceVolumeGb: spec.workspace_volume_gb,
+      workspaceDeviceName: spec.workspace_device_name,
     },
   };
 }

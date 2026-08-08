@@ -45,6 +45,8 @@ templates:
     security_groups: [sg-runner]
     associate_public_ip: false
     root_volume_gb: 100
+    workspace_volume_gb: 100
+    workspace_device_name: /dev/sdf
     max_concurrency: 100
     cost: 5
 `;
@@ -71,6 +73,8 @@ templates:
     iam_instance_profile: shipfox-runner
     associate_public_ip: false
     root_volume_gb: 100
+    workspace_volume_gb: 100
+    workspace_device_name: /dev/sdf
     max_concurrency: 200
     target_concurrency: 2
     cost: 5
@@ -83,6 +87,8 @@ templates:
     security_groups: [sg-runner]
     associate_public_ip: true
     root_volume_gb: 120
+    workspace_volume_gb: 100
+    workspace_device_name: /dev/sdf
     max_concurrency: 50
     cost: 10
 `;
@@ -103,6 +109,9 @@ describe('loadEc2Templates', () => {
       spec: {
         market: 'on-demand',
         subnets: ['subnet-general-a', 'subnet-general-b'],
+        rootVolumeGb: 30,
+        workspaceVolumeGb: 100,
+        workspaceDeviceName: '/dev/sdf',
       },
     });
     expect(templates.find(({key}) => key === 'gpu-a10-cuda12')).toMatchObject({
@@ -111,6 +120,9 @@ describe('loadEc2Templates', () => {
         market: 'spot',
         subnets: ['subnet-gpu'],
         securityGroups: ['sg-gpu'],
+        rootVolumeGb: 30,
+        workspaceVolumeGb: 200,
+        workspaceDeviceName: '/dev/sdf',
       },
     });
   });
@@ -138,6 +150,8 @@ describe('loadEc2Templates', () => {
           associatePublicIp: false,
           rootVolumeGb: 100,
           rootDeviceName: '/dev/sda1',
+          workspaceVolumeGb: 100,
+          workspaceDeviceName: '/dev/sdf',
         },
       },
       {
@@ -155,6 +169,8 @@ describe('loadEc2Templates', () => {
           associatePublicIp: true,
           rootVolumeGb: 120,
           rootDeviceName: '/dev/sda1',
+          workspaceVolumeGb: 100,
+          workspaceDeviceName: '/dev/sdf',
         },
       },
     ]);
@@ -201,6 +217,16 @@ describe('loadEc2Templates', () => {
     expect(loadEc2Templates(writeTemplates(template()))[0]?.spec.rootDeviceName).toBe('/dev/sda1');
   });
 
+  it('uses workspace volume defaults and preserves explicit values', () => {
+    const explicit = loadEc2Templates(
+      writeTemplates(template({workspace_volume_gb: '250', workspace_device_name: '/dev/sdg'})),
+    )[0]?.spec;
+    const defaults = loadEc2Templates(writeTemplates(template()))[0]?.spec;
+
+    expect(explicit).toMatchObject({workspaceVolumeGb: 250, workspaceDeviceName: '/dev/sdg'});
+    expect(defaults).toMatchObject({workspaceVolumeGb: 100, workspaceDeviceName: '/dev/sdf'});
+  });
+
   it('canonicalizes labels (lowercase, dedupe, sort)', () => {
     const path = writeTemplates(template({labels: '[Ubuntu22, ubuntu22, ubuntu22-4cpu]'}));
 
@@ -234,6 +260,7 @@ describe('loadEc2Templates', () => {
     ['security_groups', {security_groups: '[]'}],
     ['associate_public_ip', {associate_public_ip: '"false"'}],
     ['root_volume_gb', {root_volume_gb: '-1'}],
+    ['workspace_volume_gb', {workspace_volume_gb: '-1'}],
     ['max_concurrency', {max_concurrency: '0'}],
     ['cost', {cost: '0'}],
   ])('throws when %s is invalid', (field, override) => {
@@ -252,6 +279,27 @@ describe('loadEc2Templates', () => {
     const path = writeTemplates(template({}, '    root_device_name: "   "\n'));
 
     expect(() => loadEc2Templates(path)).toThrow('root_device_name');
+  });
+
+  it.each([
+    '/dev/xvda1',
+    '/dev/XVDA1',
+  ])('rejects device-name aliases that map root and workspace to the same disk (%s)', (workspaceDeviceName) => {
+    const path = writeTemplates(template({workspace_device_name: workspaceDeviceName}));
+
+    expect(() => loadEc2Templates(path)).toThrow('workspace_device_name');
+  });
+
+  it('throws when workspace_device_name is blank', () => {
+    const path = writeTemplates(template({}, '    workspace_device_name: "   "\n'));
+
+    expect(() => loadEc2Templates(path)).toThrow('workspace_device_name');
+  });
+
+  it('throws when workspace_device_name is the root device', () => {
+    const path = writeTemplates(template({}, '    workspace_device_name: /dev/sda1\n'));
+
+    expect(() => loadEc2Templates(path)).toThrow('workspace_device_name');
   });
 
   it('throws when max_concurrency exceeds the limit', () => {

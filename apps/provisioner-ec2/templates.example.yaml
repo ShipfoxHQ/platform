@@ -35,8 +35,11 @@ defaults:
   security_groups: [sg-runner]
   iam_instance_profile: shipfox-runner
   associate_public_ip: false
-  root_volume_gb: 100
+  # Keep the boot volume small. Job checkouts and logs live on the separate workspace volume.
+  root_volume_gb: 30
   root_device_name: /dev/sda1
+  workspace_volume_gb: 100
+  workspace_device_name: /dev/sdf
   max_concurrency: 50
   target_concurrency: 0
 
@@ -82,6 +85,7 @@ matrix:
       spot_max_price: 1.25
       subnets: [subnet-gpu]
       security_groups: [sg-gpu]
-      root_volume_gb: 200
+      root_volume_gb: 30
+      workspace_volume_gb: 200
       max_concurrency: 10
       cost: 25
