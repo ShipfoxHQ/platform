@@ -7,6 +7,46 @@ import {parseBuildRunnerImageArgs} from '#build-runner-image.js';
 import {buildRunnerImageCandidate, parseRunnerImageCandidateArgs} from '#candidate.js';
 import {packerBuildArgs, readMiseNodeVersion} from '#runner-image.js';
 
+const WHITESPACE_PATTERN = /\s+/u;
+const EPHEMERAL_BOOT_MASKED_UNITS = [
+  'apt-daily.service',
+  'apt-daily-upgrade.service',
+  'apt-daily.timer',
+  'apt-daily-upgrade.timer',
+  'unattended-upgrades.service',
+  'systemd-journal-flush.service',
+  'lvm2-monitor.service',
+  'multipathd.service',
+  'multipathd.socket',
+  'ufw.service',
+  'plymouth-read-write.service',
+  'plymouth-quit.service',
+  'plymouth-quit-wait.service',
+  'udisks2.service',
+  'ModemManager.service',
+  'apport.service',
+  'sysstat.service',
+  'e2scrub_reap.service',
+  'hibinit-agent.service',
+  'grub-common.service',
+  'grub-initrd-fallback.service',
+  'keyboard-setup.service',
+  'console-setup.service',
+  'setvtrgb.service',
+  'getty@tty1.service',
+  'motd-news.timer',
+  'update-notifier-download.timer',
+  'update-notifier-motd.timer',
+  'fwupd-refresh.timer',
+  'man-db.timer',
+  'logrotate.timer',
+  'e2scrub_all.timer',
+  'fstrim.timer',
+  'dpkg-db-backup.timer',
+  'sysstat-collect.timer',
+  'sysstat-summary.timer',
+] as const;
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });
@@ -887,21 +927,25 @@ describe('systemd boot activation', () => {
     const expectations = [
       {
         name: 'shipfox-runner.service',
-        after: 'network-online.target time-sync.target shipfox-runner-env.service',
+        after:
+          'network-online.target time-sync.target shipfox-runner-env.service shipfox-runner-boot-complete.service',
         wants: 'network-online.target time-sync.target',
         wantedBy: undefined,
+        requires: 'shipfox-runner-env.service shipfox-runner-boot-complete.service',
       },
       {
         name: 'shipfox-max-lifetime.service',
         after: 'network-online.target shipfox-runner-env.service',
         wants: 'network-online.target',
         wantedBy: undefined,
+        requires: 'shipfox-runner-env.service',
       },
       {
         name: 'shipfox-spot-watchdog.service',
         after: 'network-online.target shipfox-runner.service shipfox-runner-env.service',
         wants: 'network-online.target',
         wantedBy: 'shipfox-runner.target',
+        requires: 'shipfox-runner-env.service',
       },
     ] as const;
 
@@ -911,7 +955,7 @@ describe('systemd boot activation', () => {
       expect(systemdDirective(unit, 'Unit', 'After'), expectation.name).toBe(expectation.after);
       expect(systemdDirective(unit, 'Unit', 'Wants'), expectation.name).toBe(expectation.wants);
       expect(systemdDirective(unit, 'Unit', 'Requires'), expectation.name).toBe(
-        'shipfox-runner-env.service',
+        expectation.requires,
       );
       expect(systemdDirective(unit, 'Install', 'WantedBy'), expectation.name).toBe(
         expectation.wantedBy,
@@ -936,6 +980,17 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(unit, 'Install', 'WantedBy')).toBeUndefined();
     expect(unit).not.toContain('cloud-config.service');
     expect(unit).not.toContain('cloud-final.service');
+  });
+
+  it('records a durable boot marker before starting the runner', async () => {
+    const marker = await readUnit('shipfox-runner-boot-complete.service');
+    const runner = await readUnit('shipfox-runner.service');
+
+    expect(marker).toContain('/var/lib/shipfox/boot-complete');
+    expect(marker).toContain('Before=shipfox-runner.service');
+    expect(runner).toContain('shipfox-runner-boot-complete.service');
+    expect(marker).not.toContain('cloud-config.service');
+    expect(marker).not.toContain('cloud-final.service');
   });
 });
 
@@ -1062,20 +1117,157 @@ async function createBootFixture(fstab: string) {
 }
 describe('ephemeral boot configuration', () => {
   it('masks disposable boot services and stores the journal in memory', async () => {
-    const script = await readFile(
-      new URL('../scripts/build/configure-ephemeral-boot.sh', import.meta.url),
-      'utf8',
-    );
+    const script = new URL('../scripts/build/configure-ephemeral-boot.sh', import.meta.url);
     const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
 
-    expect(script).toContain('apt-daily.service');
-    expect(script).toContain('apt-daily-upgrade.service');
-    expect(script).toContain('unattended-upgrades.service');
-    expect(script).toContain('systemd-fsck-root.service');
-    expect(script).toContain('systemd-fsck@.service');
-    expect(script).toContain('systemd-journal-flush.service');
-    expect(script).toContain('Storage=volatile');
-    expect(script).toContain('/etc/systemd/journald.conf.d/shipfox-volatile.conf');
-    expect(build).toContain('scripts/build/configure-ephemeral-boot.sh');
+    const fixture = await createEphemeralBootFixture();
+
+    try {
+      execFileSync('sh', ['-n', script.pathname], {stdio: 'pipe'});
+      execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+
+      expect((await readFile(fixture.maskLog, 'utf8')).trim().split(WHITESPACE_PATTERN)).toEqual([
+        '--now',
+        ...EPHEMERAL_BOOT_MASKED_UNITS,
+      ]);
+      expect((await readFile(fixture.catLog, 'utf8')).trim().split('\n')).toEqual([
+        ...EPHEMERAL_BOOT_MASKED_UNITS,
+      ]);
+      expect(await readFile(fixture.journalDropIn, 'utf8')).toBe(
+        '[Journal]\nStorage=volatile\nRuntimeMaxUse=64M\nRateLimitIntervalSec=30s\nRateLimitBurst=1000\n',
+      );
+
+      const scriptsStart = build.indexOf('scripts = [');
+      const scriptsEnd = build.indexOf('\n    ]', scriptsStart);
+      expect(scriptsStart).toBeGreaterThanOrEqual(0);
+      expect(scriptsEnd).toBeGreaterThan(scriptsStart);
+      expect(build.slice(scriptsStart, scriptsEnd)).toContain(
+        'scripts/build/configure-ephemeral-boot.sh',
+      );
+      expect(build).toContain(
+        'shipfox-runner-boot-complete.service /etc/systemd/system/shipfox-runner-boot-complete.service',
+      );
+      expect(build).toContain('systemctl enable shipfox-runner-env.path');
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when a masked unit is missing', async () => {
+    const script = new URL('../scripts/build/configure-ephemeral-boot.sh', import.meta.url);
+    const fixture = await createEphemeralBootFixture();
+
+    try {
+      expect(() =>
+        execFileSync('sh', [script.pathname], {
+          env: {...fixture.environment, SYSTEMCTL_MISSING_UNIT: 'udisks2.service'},
+          stdio: 'pipe',
+        }),
+      ).toThrow();
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when a higher-precedence journal setting wins', async () => {
+    const script = new URL('../scripts/build/configure-ephemeral-boot.sh', import.meta.url);
+    const fixture = await createEphemeralBootFixture();
+
+    try {
+      expect(() =>
+        execFileSync('sh', [script.pathname], {
+          env: {...fixture.environment, JOURNAL_EFFECTIVE_STORAGE: 'persistent'},
+          stdio: 'pipe',
+        }),
+      ).toThrow();
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
   });
 });
+
+async function createEphemeralBootFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-ephemeral-boot-'));
+  const commandDirectory = join(root, 'commands');
+  const journalDropIn = join(root, 'etc/systemd/journald.conf.d/shipfox-volatile.conf');
+  const maskLog = join(root, 'systemctl-mask.log');
+  const catLog = join(root, 'systemctl-cat.log');
+
+  await mkdir(commandDirectory, {recursive: true});
+  await writeExecutable(
+    join(commandDirectory, 'systemctl'),
+    `#!/bin/sh
+set -eu
+command="$1"
+shift
+case "$command" in
+  cat)
+    unit="$1"
+    printf '%s\\n' "$unit" >> "$SYSTEMCTL_CAT_LOG"
+    if [ "\${SYSTEMCTL_MISSING_UNIT:-}" = "$unit" ]; then
+      exit 1
+    fi
+    ;;
+  mask)
+    printf '%s\\n' "$*" >> "$SYSTEMCTL_MASK_LOG"
+    ;;
+  is-enabled)
+    printf '%s\\n' masked
+    ;;
+  *)
+    echo "unsupported systemctl command: $command" >&2
+    exit 2
+    ;;
+esac
+`,
+  );
+  await writeExecutable(
+    join(commandDirectory, 'install'),
+    `#!/bin/sh
+set -eu
+if [ "$1" != '-d' ]; then
+  echo "unsupported install invocation" >&2
+  exit 2
+fi
+shift
+if [ "$1" = '-m' ]; then
+  shift 2
+fi
+mkdir -p "$1"
+`,
+  );
+  await writeExecutable(
+    join(commandDirectory, 'systemd-analyze'),
+    `#!/bin/sh
+set -eu
+if [ "$1" != 'cat-config' ]; then
+  echo "unsupported systemd-analyze invocation" >&2
+  exit 2
+fi
+if [ -n "\${JOURNAL_EFFECTIVE_STORAGE:-}" ]; then
+  printf '[Journal]\\nStorage=%s\\nRuntimeMaxUse=64M\\nRateLimitIntervalSec=30s\\nRateLimitBurst=1000\\n' "$JOURNAL_EFFECTIVE_STORAGE"
+else
+  cat "$SHIPFOX_JOURNAL_DROP_IN"
+fi
+`,
+  );
+
+  return {
+    catLog,
+    environment: {
+      ...process.env,
+      PATH: `${commandDirectory}:${process.env.PATH ?? ''}`,
+      SHIPFOX_JOURNAL_DROP_IN: journalDropIn,
+      SYSTEMCTL_CAT_LOG: catLog,
+      SYSTEMCTL_MASK_LOG: maskLog,
+    },
+    journalDropIn,
+    maskLog,
+    root,
+  };
+}
+
+async function writeExecutable(path: string, contents: string): Promise<void> {
+  await writeFile(path, contents);
+  await chmod(path, 0o755);
+}
