@@ -15,6 +15,13 @@
       "when": 1785771111717,
       "tag": "0001_windy_sunfire",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786203875223,
+      "tag": "0002_output_failure_details",
+      "breakpoints": true
     }
   ]
 }

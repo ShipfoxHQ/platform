@@ -214,9 +214,9 @@ describe('workflow run job executions', () => {
     if (!job) throw new Error('Expected workflow job');
     const execution = await getFirstJobExecutionByJobId(job.id);
     if (!execution) throw new Error('Expected job execution');
-    await finishCollectedStep(job.id, {
-      payload: ['x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES - 1)],
-    });
+    const payload = ['x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES - 1)];
+    const measuredBytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+    await finishCollectedStep(job.id, {payload});
 
     const resolved = await updateJobExecutionStatus({
       jobExecutionId: execution.id,
@@ -224,7 +224,14 @@ describe('workflow run job executions', () => {
       expectedVersion: execution.version,
     });
 
-    expect(resolved).toMatchObject({status: 'failed', statusReason: 'unknown', outputs: null});
+    expect(resolved).toMatchObject({
+      status: 'failed',
+      statusReason: 'output_too_large',
+      statusReasonMessage:
+        `Job output "payload" exceeds the per-value size limit of ${MAX_JOB_OUTPUT_VALUE_BYTES} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_JOB_OUTPUT_VALUE_BYTES} bytes).`,
+      outputs: null,
+    });
   });
 
   test('fails a successful execution when the persisted model has too many job outputs', async () => {

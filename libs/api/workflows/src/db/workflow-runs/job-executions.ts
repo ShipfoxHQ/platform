@@ -117,6 +117,7 @@ export interface UpdateJobExecutionStatusAtVersionParams {
   status: JobExecutionStatus;
   expectedVersion: number;
   statusReason?: JobStatusReason | null | undefined;
+  statusReasonMessage?: string | null | undefined;
   markTimedOut?: boolean;
   secrets?: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'> | undefined;
 }
@@ -200,6 +201,7 @@ async function updateJobExecutionStatusAtVersion(
 ): Promise<{execution: JobExecution; changed: boolean} | null> {
   let status = params.status;
   let statusReason = params.statusReason ?? null;
+  let statusReasonMessage = params.statusReasonMessage ?? null;
   let outputs: Record<string, unknown> | null | undefined;
   if (TERMINAL_EXECUTION_STATUSES.includes(status)) {
     outputs = null;
@@ -222,7 +224,8 @@ async function updateJobExecutionStatusAtVersion(
         throw error;
       }
       status = 'failed';
-      statusReason = 'unknown';
+      statusReason = error instanceof JobOutputTooLargeError ? 'output_too_large' : 'unknown';
+      statusReasonMessage = error instanceof JobOutputTooLargeError ? error.message : null;
       outputs = null;
     }
   }
@@ -232,6 +235,7 @@ async function updateJobExecutionStatusAtVersion(
     .set({
       status,
       statusReason,
+      statusReasonMessage,
       ...(outputs === undefined ? {} : {outputs}),
       version: sql`${jobExecutions.version} + 1`,
       updatedAt: new Date(),
@@ -260,6 +264,7 @@ export interface UpdateJobExecutionStatusParams {
   status: JobExecutionStatus;
   expectedVersion: number;
   statusReason?: JobStatusReason | null | undefined;
+  statusReasonMessage?: string | null | undefined;
   secrets?: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'> | undefined;
 }
 
@@ -275,6 +280,7 @@ export async function updateJobExecutionStatus(
           status: params.status,
           expectedVersion: params.expectedVersion,
           statusReason,
+          statusReasonMessage: params.statusReasonMessage,
           secrets: params.secrets,
         }),
       fetchFn: async () => {

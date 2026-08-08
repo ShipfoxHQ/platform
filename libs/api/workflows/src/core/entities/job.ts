@@ -25,6 +25,7 @@ export const JOB_STATUS_REASONS = [
   'run_cancelled',
   'timed_out',
   'runner_lost',
+  'output_too_large',
   'step_failed',
   'unknown',
 ] as const;

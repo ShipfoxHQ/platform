@@ -20,6 +20,7 @@ export const jobExecutionDtoSchema = z.object({
   name: z.string(),
   status: jobExecutionStatusSchema,
   status_reason: z.string().nullable(),
+  status_reason_message: z.string().nullable().optional(),
   runner: z.array(z.string()).nullable(),
   trigger_events: z.array(workflowExecutionEventSchema).default([]),
   outputs: z.record(z.string(), z.unknown()).nullable(),

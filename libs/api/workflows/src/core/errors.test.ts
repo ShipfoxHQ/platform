@@ -3,6 +3,7 @@ import {
   DefinitionNotFoundError,
   InvalidJobRunnerLabelsError,
   isPermanentRunWorkflowError,
+  JobOutputTooLargeError,
   ProjectMismatchError,
 } from './errors.js';
 
@@ -41,5 +42,22 @@ describe('isPermanentRunWorkflowError', () => {
     const result = isPermanentRunWorkflowError('boom');
 
     expect(result).toBe(false);
+  });
+});
+
+describe('JobOutputTooLargeError', () => {
+  test('reports per-value measurements and overshoot', () => {
+    const error = new JobOutputTooLargeError('payload', 100, 150, 'value');
+
+    expect(error.name).toBe('JobOutputTooLargeError');
+    expect(error.overshootBytes).toBe(50);
+    expect(error.message).toContain('measured 150 bytes; overshoot 50 bytes');
+  });
+
+  test('reports total measurements and overshoot', () => {
+    const error = new JobOutputTooLargeError('payload', 100, 175, 'total');
+
+    expect(error.overshootBytes).toBe(75);
+    expect(error.message).toContain('measured 175 bytes; overshoot 75 bytes');
   });
 });

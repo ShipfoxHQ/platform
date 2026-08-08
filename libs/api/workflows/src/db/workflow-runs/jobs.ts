@@ -348,7 +348,10 @@ export async function updateJobStatusAtVersion(
   // makes the terminal fact fire exactly once across all paths.
   if (isJobTerminal(job.status)) {
     const [currentExecution] = await tx
-      .select({id: jobExecutions.id})
+      .select({
+        id: jobExecutions.id,
+        statusReasonMessage: jobExecutions.statusReasonMessage,
+      })
       .from(jobExecutions)
       .where(eq(jobExecutions.jobId, job.id))
       .orderBy(desc(jobExecutions.sequence), desc(jobExecutions.id))
@@ -363,6 +366,7 @@ export async function updateJobStatusAtVersion(
         workflowRunAttemptId: identity.workflowRunAttemptId,
         status: job.status,
         statusReason: job.statusReason,
+        statusReasonMessage: currentExecution?.statusReasonMessage ?? null,
       },
     });
   }

@@ -230,7 +230,12 @@ describe('failure annotations', () => {
   });
 
   it('projects a job failure from the current execution origin', async () => {
-    const payload = jobTerminatedPayload({status: 'failed'});
+    const payload = jobTerminatedPayload({
+      status: 'failed',
+      statusReason: 'output_too_large',
+      statusReasonMessage:
+        'Job output "payload" exceeds the per-value size limit of 16384 bytes (measured 16385 bytes; overshoot 1 bytes).',
+    });
     dbMocks.getJobScope.mockResolvedValue({
       workspaceId: '44444444-4444-4444-8444-444444444444',
       projectId: '55555555-5555-4555-8555-555555555555',
@@ -261,6 +266,13 @@ describe('failure annotations', () => {
         annotation: expect.objectContaining({
           op: 'replace',
           body: expect.stringContaining('Run tests'),
+        }),
+      }),
+    );
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: expect.objectContaining({
+          body: expect.stringContaining('measured 16385 bytes; overshoot 1 bytes'),
         }),
       }),
     );

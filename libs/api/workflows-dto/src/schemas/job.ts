@@ -26,6 +26,7 @@ export const jobStatusReasonSchema = z.enum([
   'run_cancelled',
   'timed_out',
   'runner_lost',
+  'output_too_large',
   'step_failed',
   'unknown',
 ]);

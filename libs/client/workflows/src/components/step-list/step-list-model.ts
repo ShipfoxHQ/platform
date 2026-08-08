@@ -77,6 +77,7 @@ export function emptyJobExecutionForJob(job: Job): JobExecution {
     name: job.name ?? job.key,
     status: job.status === 'skipped' ? 'cancelled' : job.status,
     statusReason: job.statusReason,
+    statusReasonMessage: null,
     runner: job.runner,
     outputs: job.outputs,
     triggerEvents: [],
