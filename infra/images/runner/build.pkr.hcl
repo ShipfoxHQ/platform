@@ -30,11 +30,27 @@ build {
 
   provisioner "shell" {
     inline = [
+      "sudo install -d -m 0755 /etc/systemd/network/10-netplan-ens5.network.d",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-ens5.network.d/99-shipfox-runner.conf"
+    ]
+    only = ["amazon-ebs.build_image"]
+  }
+
+  provisioner "shell" {
+    inline = [
+      "sudo install -d -m 0755 /etc/systemd/network/10-netplan-ens3.network.d /etc/systemd/network/10-netplan-enp1s0.network.d /etc/systemd/network/10-netplan-eth0.network.d",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-ens3.network.d/99-shipfox-runner.conf",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-enp1s0.network.d/99-shipfox-runner.conf",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-eth0.network.d/99-shipfox-runner.conf"
+    ]
+    only = ["qemu.build_image"]
+  }
+
+  provisioner "shell" {
+    inline = [
       "sudo install -d -m 0755 /etc/shipfox /opt/shipfox-runner/scripts/runtime/helpers",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.target /etc/systemd/system/shipfox-runner.target",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-env.path /etc/systemd/system/shipfox-runner-env.path",
-      "sudo install -d -m 0755 /etc/systemd/network",
-      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.network /etc/systemd/network/05-shipfox-runner.network",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.service /etc/systemd/system/shipfox-runner.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-env.service /etc/systemd/system/shipfox-runner-env.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-max-lifetime.service /etc/systemd/system/shipfox-max-lifetime.service",
