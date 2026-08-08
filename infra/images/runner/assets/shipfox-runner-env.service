@@ -1,7 +1,7 @@
 [Unit]
 Description=Validate Shipfox runner environment file
 After=network-online.target
-Wants=network-online.target
+Wants=network-online.target shipfox-runner.target
 
 [Service]
 Type=oneshot

@@ -21,9 +21,10 @@ The provider owns the values and must never bake them into the image. It must pu
 `/etc/shipfox/runner.env` atomically: stage the complete file at
 `/etc/shipfox/runner.env.tmp`, then rename it into place on the same filesystem. The
 image watches the final path and starts the lifecycle target when it appears, so this
-contract does not depend on cloud-init's systemd units or stage ordering. Cloud-init
-uses `write_files` for the temporary file and a final-stage `runcmd` rename; an off-cloud
-provisioner must provide the same temp-plus-rename behavior.
+contract does not depend on cloud-init's systemd units or stage ordering. The path unit
+pulls the environment gate, which in turn pulls the lifecycle target after its check
+passes. Cloud-init uses `write_files` for the temporary file and a final-stage `runcmd`
+rename; an off-cloud provisioner must provide the same temp-plus-rename behavior.
 
 The provider-rendered environment contains:
 

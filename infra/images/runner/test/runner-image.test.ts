@@ -867,7 +867,7 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(pathUnit, 'Unit', 'After')).toBe('network-online.target');
     expect(systemdDirective(pathUnit, 'Unit', 'Wants')).toBe('network-online.target');
     expect(systemdDirective(pathUnit, 'Path', 'PathExists')).toBe('/etc/shipfox/runner.env');
-    expect(systemdDirective(pathUnit, 'Path', 'Unit')).toBe('shipfox-runner.target');
+    expect(systemdDirective(pathUnit, 'Path', 'Unit')).toBe('shipfox-runner-env.service');
     expect(systemdDirective(pathUnit, 'Install', 'WantedBy')).toBe('multi-user.target');
     expect(pathUnit).not.toContain('cloud-config.service');
     expect(pathUnit).not.toContain('cloud-final.service');
@@ -922,7 +922,9 @@ describe('systemd boot activation', () => {
     const unit = await readUnit('shipfox-runner-env.service');
 
     expect(systemdDirective(unit, 'Unit', 'After')).toBe('network-online.target');
-    expect(systemdDirective(unit, 'Unit', 'Wants')).toBe('network-online.target');
+    expect(systemdDirective(unit, 'Unit', 'Wants')).toBe(
+      'network-online.target shipfox-runner.target',
+    );
     expect(systemdDirective(unit, 'Service', 'Type')).toBe('oneshot');
     expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
       '/usr/bin/test -s /etc/shipfox/runner.env',
