@@ -79,6 +79,10 @@ start_worktree_services() {
     die "Docker Compose is required for this setup profile; install or enable the Docker Compose plugin."
   fi
 
+  if ! docker info >/dev/null 2>&1; then
+    die "Docker daemon is unavailable; start Docker before running workspace:setup."
+  fi
+
   require_command pnpm
   pnpm dev:services:up
 }
