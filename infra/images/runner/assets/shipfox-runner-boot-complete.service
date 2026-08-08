@@ -1,0 +1,11 @@
+[Unit]
+Description=Record a successful Shipfox runner boot
+After=network-online.target time-sync.target shipfox-runner-env.service
+Wants=network-online.target time-sync.target
+Requires=shipfox-runner-env.service
+Before=shipfox-runner.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'install -d -m 0755 /var/lib/shipfox && date --iso-8601=seconds > /var/lib/shipfox/boot-complete'
+RemainAfterExit=yes

@@ -23,6 +23,49 @@ The image is checked during the bake and launched with a fresh ephemeral root vo
 
 The IPv6 duplicate-address detection setting is a drop-in for the netplan-generated primary interface configuration. Netplan remains responsible for DHCP, addresses, routes, and online requirements.
 
+The image is built for one job and one instance lifetime. The bake applies
+filesystem and network boot policy in `configure-boot.sh`, and disposable
+service and journal policy in
+[`configure-ephemeral-boot.sh`](scripts/build/configure-ephemeral-boot.sh).
+
+### Boot composition gate
+
+The bake checks that every unit in the mask inventory exists before it masks the
+unit. It checks the effective `systemd` state after masking. It also checks the
+effective journald configuration after writing the drop-in. A base-image change
+that removes a unit or overrides the drop-in fails the image build.
+
+### AppArmor decision
+
+The runner keeps `apparmor.service` enabled. It also keeps
+`snapd.apparmor.service` enabled when the base image provides it. This preserves
+the image security profile while snapd remains installed. This change does not
+mask or socket-activate either unit. ENG-1530 owns removing snapd.
+
+### Journal retention
+
+The host journal uses volatile storage with a `64M` runtime limit. Journald
+allows `1000` messages per service in a `30s` interval. Higher-volume host
+diagnostics can be rate-limited. Job output and runner telemetry remain the
+durable source of truth.
+
+The image writes `/var/lib/shipfox/boot-complete` after the environment path gate
+has validated the runner environment and activated the lifecycle. The marker
+survives a reboot while the instance volume exists. Host journal data and the
+marker disappear when the instance is terminated with its root volume.
+
+### Image freshness
+
+The image does not update packages after the bake. CI builds a candidate on each
+successful normal merge to `main`, and candidates expire after 14 days. The
+[`runner-image-freshness.yml`](../../../.github/workflows/runner-image-freshness.yml)
+workflow alerts when both architecture candidates and their manifest have not
+been published successfully within seven days.
+
+Release promotion should happen at least weekly. When the alert fires, rebuild
+or republish the candidate and investigate the release promotion path before
+using an older image.
+
 ## Environment contract
 
 The provider owns the values and must never bake them into the image. It must publish

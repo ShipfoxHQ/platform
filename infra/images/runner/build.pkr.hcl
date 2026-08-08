@@ -19,7 +19,8 @@ build {
       "${path.root}/scripts/build/setup-runner.sh",
       "${path.root}/scripts/build/install-node.sh",
       "${path.root}/scripts/build/install-runner.sh",
-      "${path.root}/scripts/build/configure-boot.sh"
+      "${path.root}/scripts/build/configure-boot.sh",
+      "${path.root}/scripts/build/configure-ephemeral-boot.sh"
     ]
   }
 
@@ -53,6 +54,7 @@ build {
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-env.path /etc/systemd/system/shipfox-runner-env.path",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.service /etc/systemd/system/shipfox-runner.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-env.service /etc/systemd/system/shipfox-runner-env.service",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-boot-complete.service /etc/systemd/system/shipfox-runner-boot-complete.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-max-lifetime.service /etc/systemd/system/shipfox-max-lifetime.service",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/start-max-lifetime.sh /opt/shipfox-runner/scripts/runtime/start-max-lifetime.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/helpers/logger.sh /opt/shipfox-runner/scripts/runtime/helpers/logger.sh",
