@@ -1,4 +1,16 @@
-import type {ProvisionerTemplate} from '@shipfox/provisioner-core';
+const observability = vi.hoisted(() => ({
+  registerEc2ServiceMetrics: vi.fn(),
+}));
+
+vi.mock('#metrics/service.js', () => ({
+  registerEc2ServiceMetrics: observability.registerEc2ServiceMetrics,
+}));
+
+import type {
+  ProviderRunnerTracker,
+  ProvisionerClient,
+  ProvisionerTemplate,
+} from '@shipfox/provisioner-core';
 import type {Ec2Engine} from '#ec2-engine.js';
 import {createEc2ProvisionerAdapter} from '#provisioner.js';
 import type {Ec2TemplateSpec} from '#templates.js';
@@ -28,6 +40,10 @@ const engine: Ec2Engine = {
 };
 
 describe('createEc2ProvisionerAdapter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it.each([
     [300_000, 330],
     [600_000, 630],
@@ -43,5 +59,33 @@ describe('createEc2ProvisionerAdapter', () => {
     });
 
     expect(adapter.reservationTtlSeconds).toBe(reservationTtlSeconds);
+  });
+
+  it('registers service metrics with the authenticated provisioner identity', async () => {
+    const adapter = createEc2ProvisionerAdapter({
+      engine,
+      templates: [template],
+      registrationDeadlineMs: 300_000,
+      launchHeadroomMs: 30_000,
+      reconcileIntervalMs: 60_000,
+    });
+
+    await adapter.onStart?.({
+      client: {
+        reconcileRunnerInstances: vi.fn().mockResolvedValue({
+          runners: [],
+          terminated_absent_provider_runner_ids: [],
+        }),
+      } as unknown as ProvisionerClient,
+      identity: {id: 'provisioner-1', workspaceId: null},
+      tracker: {
+        replaceAll: vi.fn(),
+      } as unknown as ProviderRunnerTracker,
+    });
+
+    expect(observability.registerEc2ServiceMetrics).toHaveBeenCalledWith({
+      engine,
+      provisionerId: 'provisioner-1',
+    });
   });
 });

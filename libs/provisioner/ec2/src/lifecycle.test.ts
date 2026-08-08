@@ -13,12 +13,14 @@ import type {Ec2TemplateSpec} from '#templates.js';
 const observability = vi.hoisted(() => ({
   logger: {debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn()},
   recordEc2Launch: vi.fn(),
+  recordEc2ReconcileAbsent: vi.fn(),
   recordEc2Termination: vi.fn(),
 }));
 
 vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logger}));
 vi.mock('#metrics/instance.js', () => ({
   recordEc2Launch: observability.recordEc2Launch,
+  recordEc2ReconcileAbsent: observability.recordEc2ReconcileAbsent,
   recordEc2Termination: observability.recordEc2Termination,
 }));
 
@@ -1008,13 +1010,29 @@ describe('createEc2Lifecycle', () => {
 
   it('logs backend absent ids while reconciling an empty observed set', async () => {
     const client = fakeClient({
-      reconcileResponse: {runners: [], terminated_absent_provider_runner_ids: ['vanished-runner']},
+      reconcileResponse: {
+        runners: [],
+        terminated_absent_provider_runner_ids: ['vanished-runner-1', 'vanished-runner-2'],
+      },
     });
     const lifecycle = makeLifecycle({client});
 
     await lifecycle.reconcile();
 
     expect(client.reconcileBodies).toEqual([{observed_provider_runner_ids: []}]);
+    expect(observability.recordEc2ReconcileAbsent).toHaveBeenCalledWith(2);
+    expect(observability.recordEc2ReconcileAbsent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not record reconcile absence when the backend reports no absent ids', async () => {
+    const client = fakeClient({
+      reconcileResponse: {runners: [], terminated_absent_provider_runner_ids: []},
+    });
+    const lifecycle = makeLifecycle({client});
+
+    await lifecycle.reconcile();
+
+    expect(observability.recordEc2ReconcileAbsent).not.toHaveBeenCalled();
   });
 
   it('terminates only managed instances matching requested ids', async () => {

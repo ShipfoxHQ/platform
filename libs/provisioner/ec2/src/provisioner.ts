@@ -8,6 +8,7 @@ import {
 import {config} from '#config.js';
 import {createEc2Engine, type Ec2Engine} from '#ec2-engine.js';
 import {createEc2Lifecycle, type Ec2Lifecycle} from '#lifecycle.js';
+import {registerEc2ServiceMetrics} from '#metrics/service.js';
 import {type Ec2TemplateSpec, loadEc2Templates} from '#templates.js';
 import {renderRunnerBootstrapUserData} from '#user-data.js';
 
@@ -37,6 +38,7 @@ export function createEc2ProvisionerAdapter(
     launch: (launch) => requireLifecycle(lifecycle).launch(launch),
     terminate: (ids) => requireLifecycle(lifecycle).terminate(ids),
     async onStart(runtime) {
+      registerEc2ServiceMetrics({engine: options.engine, provisionerId: runtime.identity.id});
       lifecycle = createLifecycle(options, runtime);
       await lifecycle.reconcile();
     },

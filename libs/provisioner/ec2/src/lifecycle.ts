@@ -20,6 +20,7 @@ import {buildInstanceTags, parseInstanceIdentity} from '#instance-identity.js';
 import {
   type Ec2TerminationReason,
   recordEc2Launch,
+  recordEc2ReconcileAbsent,
   recordEc2Termination,
 } from '#metrics/instance.js';
 import type {Ec2TemplateSpec} from '#templates.js';
@@ -223,6 +224,7 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
       .map((runner) => runner.provider_runner_id),
   );
   if (response.terminated_absent_provider_runner_ids.length > 0) {
+    recordEc2ReconcileAbsent(response.terminated_absent_provider_runner_ids.length);
     logger().info(
       {providerRunnerIds: response.terminated_absent_provider_runner_ids},
       'Backend terminated provisioned runners absent from EC2',
