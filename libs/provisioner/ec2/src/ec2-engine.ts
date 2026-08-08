@@ -16,6 +16,8 @@ const TRANSIENT_REASONS = new Set<Ec2EngineErrorReason>([
   'throttled',
   'unreachable',
 ]);
+const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/;
+const BASE64_TRAILING_PADDING_PATTERN = /=+$/;
 
 export type Ec2EngineErrorReason =
   | 'insufficient-capacity'
@@ -79,7 +81,10 @@ export interface RunInstanceArgs {
 export interface Ec2Engine {
   runInstance(args: RunInstanceArgs): Promise<Ec2InstanceView>;
   listManaged(provisionerId: string): Promise<Ec2InstanceView[]>;
-  getConsoleOutput(instanceId: string): Promise<string | undefined>;
+  getConsoleOutput(
+    instanceId: string,
+    options?: {signal?: AbortSignal},
+  ): Promise<string | undefined>;
   terminate(instanceIds: readonly string[]): Promise<void>;
 }
 
@@ -179,13 +184,15 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
       }
     },
 
-    async getConsoleOutput(instanceId) {
+    async getConsoleOutput(instanceId, options = {}) {
       try {
         const output = await client.send(
           new GetConsoleOutputCommand({InstanceId: instanceId, Latest: true}),
+          options.signal ? {abortSignal: options.signal} : undefined,
         );
-        return output.Output ? Buffer.from(output.Output, 'base64').toString('utf8') : undefined;
+        return decodeConsoleOutput(output.Output);
       } catch (error) {
+        if (errorName(error) === 'InvalidInstanceID.NotFound') return undefined;
         throw mapEc2Error(error, 'Cannot get EC2 instance console output.');
       }
     },
@@ -237,6 +244,29 @@ function normalizeState(state: string | undefined): Ec2InstanceState {
     default:
       return 'unknown';
   }
+}
+
+function decodeConsoleOutput(output: string | undefined): string | undefined {
+  const encoded = output?.trim();
+  if (!encoded) return undefined;
+  const paddingStart = encoded.indexOf('=');
+  const unpadded = paddingStart === -1 ? encoded : encoded.slice(0, paddingStart);
+  const padding = paddingStart === -1 ? 0 : encoded.length - paddingStart;
+  const remainder = unpadded.length % 4;
+  const expectedPadding = remainder === 0 ? 0 : 4 - remainder;
+  if (
+    !BASE64_PATTERN.test(encoded) ||
+    remainder === 1 ||
+    (padding !== 0 && padding !== expectedPadding)
+  ) {
+    throw new Ec2EngineError('unknown', 'EC2 returned invalid console output.');
+  }
+
+  const decoded = Buffer.from(encoded, 'base64');
+  if (decoded.toString('base64').replace(BASE64_TRAILING_PADDING_PATTERN, '') !== unpadded) {
+    throw new Ec2EngineError('unknown', 'EC2 returned invalid console output.');
+  }
+  return decoded.toString('utf8');
 }
 
 function mapEc2Error(error: unknown, message: string): Ec2EngineError {

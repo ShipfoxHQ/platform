@@ -1,5 +1,7 @@
 ---
+"@shipfox/api-runners-dto": patch
 "@shipfox/provisioner-ec2-provider": patch
 ---
 
-Capture the latest EC2 console output before terminating instances that miss the registration deadline.
+Capture a redacted, bounded EC2 console-output tail in registration-deadline termination
+reports without delaying cleanup when capture is unavailable.

@@ -41,6 +41,7 @@
     "@shipfox/api-runners-dto": "workspace:*",
     "@shipfox/config": "workspace:*",
     "@shipfox/node-opentelemetry": "workspace:*",
+    "@shipfox/redact": "workspace:*",
     "@shipfox/provisioner-core": "workspace:*",
     "@shipfox/runner-labels": "workspace:*",
     "js-yaml": "catalog:",

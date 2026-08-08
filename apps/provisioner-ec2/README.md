@@ -19,6 +19,11 @@ The AMI must include the Shipfox runner and its shutdown watchdog. Cloud-init wr
 `/etc/shipfox/runner.env` with the API URL, one-use token, labels, poll time, and
 maximum lifetime. The AMI reads that file and shuts down when its watchdog exits.
 
+The provisioner's AWS role must include `ec2:GetConsoleOutput` alongside its existing
+EC2 lifecycle permissions so registration-deadline termination reports can carry boot
+diagnostics. Keep the permission in the same narrowly scoped role policy as the other
+provisioner actions; if it is unavailable, termination still proceeds without output.
+
 ## Template families
 
 The checked-in [`templates.example.yaml`](templates.example.yaml) contains a general

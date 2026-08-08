@@ -1,4 +1,5 @@
 import {
+  MAX_PROVIDER_RUNNER_CONSOLE_OUTPUT_LENGTH,
   MAX_PROVIDER_RUNNER_REPORT_EVENTS,
   providerRunnerReportEventSchema,
   reportRunnerInstancesBodySchema,
@@ -21,10 +22,23 @@ describe('providerRunnerReportEventSchema', () => {
       provider_runner_id: 'container-1',
       labels: ['linux'],
       state: 'terminated',
+      console_output: 'cloud-init failed',
       reported_at: new Date().toISOString(),
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it('bounds captured console output', () => {
+    const result = providerRunnerReportEventSchema.safeParse({
+      provider_runner_id: 'container-1',
+      labels: ['linux'],
+      state: 'terminated',
+      console_output: 'x'.repeat(MAX_PROVIDER_RUNNER_CONSOLE_OUTPUT_LENGTH + 1),
+      reported_at: new Date().toISOString(),
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it('rejects provider-sensitive extra fields', () => {

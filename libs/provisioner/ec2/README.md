@@ -134,8 +134,11 @@ The provider reports non-terminal states on every observation.
 When the provider terminates an instance, it reports `terminated` with either
 `backend-terminate` or `registration-deadline`.
 Before a `registration-deadline` termination, the provider logs the latest decoded
-EC2 console output when AWS provides it. A console-output read failure does not
-block termination.
+EC2 console output when AWS provides it and includes a redacted, control-character-safe
+tail of at most 16 KiB in the termination report. Capture starts independently of the
+termination call and is abandoned after two seconds, so a read failure or timeout does
+not block termination. The provisioner's AWS role must allow `ec2:GetConsoleOutput`;
+missing permission only disables this diagnostic evidence.
 Stopped instances remain eligible for termination. Shutting-down and terminated
 instances do not trigger another AWS termination call.
 The in-memory marker resets when the provider restarts.

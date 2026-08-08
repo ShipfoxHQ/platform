@@ -124,6 +124,7 @@ export {
   activeRunnerStateSchema,
   activeRunnersResponseSchema,
   MAX_PROVIDER_KIND_LENGTH,
+  MAX_PROVIDER_RUNNER_CONSOLE_OUTPUT_LENGTH,
   MAX_PROVIDER_RUNNER_REASON_LENGTH,
   MAX_PROVIDER_RUNNER_REPORT_EVENTS,
   providerKindSchema,

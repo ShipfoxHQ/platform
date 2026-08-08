@@ -1,4 +1,5 @@
 import {
+  MAX_PROVIDER_RUNNER_CONSOLE_OUTPUT_LENGTH,
   MAX_RECONCILE_OBSERVED_RUNNERS,
   RESERVATION_EXPIRED_ERROR_CODE,
   type ReconcileRunnerInstancesResponseDto,
@@ -15,6 +16,7 @@ import type {
   ProvisionerTemplate,
 } from '@shipfox/provisioner-core';
 import {ProvisionerAuthenticationError} from '@shipfox/provisioner-core';
+import {redactSensitiveText} from '@shipfox/redact';
 import {type Ec2Engine, Ec2EngineError, type Ec2InstanceView} from '#ec2-engine.js';
 import {buildInstanceTags, parseInstanceIdentity} from '#instance-identity.js';
 import {
@@ -26,6 +28,7 @@ import type {Ec2TemplateSpec} from '#templates.js';
 
 const MAX_REPORT_BATCH = 1000;
 const MAX_REASON_LENGTH = 500;
+const CONSOLE_OUTPUT_CAPTURE_TIMEOUT_MS = 2_000;
 // DescribeInstances can retain terminated instances for about an hour. Keep the marker
 // for that long across a listing gap to cover eventual-consistency blips.
 const TERMINAL_REPORT_ABSENCE_GRACE_MS = 60 * 60 * 1000;
@@ -91,6 +94,9 @@ interface Ec2LifecycleContext {
   // Keep successful actions across short listing gaps so eventual-consistency reads do not
   // repeat AWS calls or metrics.
   readonly terminationActionedInstanceIds: Map<string, number>;
+  readonly consoleOutputCaptures: Map<string, Promise<string | undefined>>;
+  // Retain launch secrets only long enough to mask them if boot output echoes them.
+  readonly bootstrapTokensByRunnerId: Map<string, string>;
   readonly pendingTerminalReportedInstanceIds: Set<string>;
   readonly terminalReportInstanceIdsByEvent: WeakMap<RunnerInstanceReportEventDto, string>;
   readonly pendingReports: RunnerInstanceReportEventDto[];
@@ -119,6 +125,8 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     locallyLaunched: new Map(),
     terminalReportedInstanceIds: new Map(),
     terminationActionedInstanceIds: new Map(),
+    consoleOutputCaptures: new Map(),
+    bootstrapTokensByRunnerId: new Map(),
     pendingTerminalReportedInstanceIds: new Set(),
     terminalReportInstanceIdsByEvent: new WeakMap(),
     pendingReports: [],
@@ -165,6 +173,7 @@ async function launchRunner(
       templateKey: launch.template.key,
       launchedAt: new Date(context.now()),
     });
+    context.bootstrapTokensByRunnerId.set(launch.providerRunnerId, launch.bootstrapToken);
     recordEc2Launch(launch.template.spec.market, 'launched');
     logger().info(
       {
@@ -175,6 +184,7 @@ async function launchRunner(
       'Launched EC2 runner instance',
     );
   } catch (error) {
+    context.bootstrapTokensByRunnerId.delete(launch.providerRunnerId);
     recordEc2Launch(launch.template.spec.market, launchOutcome(error));
     logger().error(
       {
@@ -328,6 +338,7 @@ async function applyObservedInstances(
       if (terminalObservation) {
         const terminationReason =
           mapped.reason === 'spot-interruption' ? 'spot-interruption' : 'observed-terminated';
+        context.bootstrapTokensByRunnerId.delete(identity.providerRunnerId);
         recordEc2Termination(terminationReason);
         logger().info(
           {
@@ -539,6 +550,7 @@ function pruneTerminationActionedInstances(
       nowMs - actionedAt >= TERMINAL_REPORT_ABSENCE_GRACE_MS
     ) {
       context.terminationActionedInstanceIds.delete(instanceId);
+      context.consoleOutputCaptures.delete(instanceId);
     }
   }
 }
@@ -557,6 +569,7 @@ function synthesizeAbsentLaunchedRunners(
       continue;
     }
     context.locallyLaunched.delete(providerRunnerId);
+    context.bootstrapTokensByRunnerId.delete(providerRunnerId);
     const template = context.templatesByKey.get(launched.templateKey);
     if (!template) continue;
     events.push({
@@ -593,14 +606,28 @@ async function terminateInstances(
   const instancesToTerminate = terminableInstances.filter(
     (instance) => !context.terminationActionedInstanceIds.has(instance.instanceId),
   );
-  for (const instance of instancesToTerminate) {
-    if (reason === 'registration-deadline') {
-      await captureConsoleOutput(context, instance);
+  const consoleOutputCaptures = new Map<string, Promise<string | undefined>>();
+  if (reason === 'registration-deadline') {
+    for (const instance of instancesToTerminate) {
+      consoleOutputCaptures.set(instance.instanceId, captureConsoleOutput(context, instance));
     }
+    for (const instance of terminableInstances) {
+      const existingCapture = context.consoleOutputCaptures.get(instance.instanceId);
+      if (existingCapture) consoleOutputCaptures.set(instance.instanceId, existingCapture);
+    }
+  }
+  for (const instance of instancesToTerminate) {
     await context.engine.terminate([instance.instanceId]);
     const actionedAt = context.now().getTime();
     context.terminationActionedInstanceIds.set(instance.instanceId, actionedAt);
     recordEc2Termination(reason);
+  }
+  const capturedConsoleOutput = new Map<string, string | undefined>();
+  for (const [instanceId, capture] of consoleOutputCaptures) {
+    capturedConsoleOutput.set(instanceId, await capture);
+  }
+  for (const instance of instancesToTerminate) {
+    context.bootstrapTokensByRunnerId.delete(parseInstanceIdentity(instance).providerRunnerId);
   }
   const terminalReportInstanceIds = new Map<RunnerInstanceReportEventDto, string>();
   const events = terminableInstances.flatMap((instance) => {
@@ -611,7 +638,14 @@ async function terminateInstances(
     const labels = identity.labels.length > 0 ? identity.labels : (template?.labels ?? []);
     if (!identity.providerRunnerId || labels.length === 0) return [];
     if (hasTerminalReport(context, instance.instanceId)) return [];
-    const event = eventForInstance(context, instance, 'terminated', labels, reason);
+    const event = eventForInstance(
+      context,
+      instance,
+      'terminated',
+      labels,
+      reason,
+      capturedConsoleOutput.get(instance.instanceId),
+    );
     terminalReportInstanceIds.set(event, instance.instanceId);
     return [event];
   });
@@ -625,30 +659,128 @@ async function terminateInstances(
   }
 }
 
-async function captureConsoleOutput(
+function captureConsoleOutput(
   context: Ec2LifecycleContext,
   instance: Ec2InstanceView,
-): Promise<void> {
+): Promise<string | undefined> {
+  const existingCapture = context.consoleOutputCaptures.get(instance.instanceId);
+  if (existingCapture) return existingCapture;
+
+  const capture = fetchConsoleOutput(context, instance);
+  context.consoleOutputCaptures.set(instance.instanceId, capture);
+  return capture;
+}
+
+async function fetchConsoleOutput(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+): Promise<string | undefined> {
   const identity = parseInstanceIdentity(instance);
   const logFields = {
     provisioned_runner_id: identity.providerRunnerId,
     ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
     aws_instance_id: instance.instanceId,
   };
+  const bootstrapToken = identity.providerRunnerId
+    ? context.bootstrapTokensByRunnerId.get(identity.providerRunnerId)
+    : undefined;
 
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let request: Promise<
+    {status: 'captured'; consoleOutput: string | undefined} | {status: 'failed'; error: unknown}
+  >;
   try {
-    const consoleOutput = await context.engine.getConsoleOutput(instance.instanceId);
-    if (consoleOutput === undefined) return;
-    logger().info(
-      {...logFields, console_output: consoleOutput},
-      'Captured EC2 console output before registration deadline termination',
+    request = Promise.resolve(
+      context.engine.getConsoleOutput(instance.instanceId, {signal: controller.signal}),
+    ).then(
+      (consoleOutput) => ({
+        status: 'captured' as const,
+        consoleOutput: sanitizeConsoleOutput(consoleOutput, bootstrapToken),
+      }),
+      (error: unknown) => ({status: 'failed' as const, error}),
     );
   } catch (error) {
+    request = Promise.resolve({status: 'failed' as const, error});
+  }
+  const timedOut = new Promise<{status: 'timed-out'}>((resolve) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      resolve({status: 'timed-out'});
+    }, CONSOLE_OUTPUT_CAPTURE_TIMEOUT_MS);
+  });
+
+  const result = await Promise.race([request, timedOut]);
+  if (timeout) clearTimeout(timeout);
+  if (result.status === 'timed-out') {
     logger().warn(
-      {...logFields, err: error},
+      logFields,
+      'Timed out capturing EC2 console output before registration deadline termination',
+    );
+    return undefined;
+  }
+  if (result.status === 'failed') {
+    logger().warn(
+      {...logFields, err: result.error},
       'Failed to capture EC2 console output before registration deadline termination',
     );
+    return undefined;
   }
+  if (result.consoleOutput === undefined) return undefined;
+  logger().info(
+    {...logFields, console_output: result.consoleOutput},
+    'Captured EC2 console output before registration deadline termination',
+  );
+  return result.consoleOutput;
+}
+
+function sanitizeConsoleOutput(
+  consoleOutput: string | undefined,
+  bootstrapToken?: string,
+): string | undefined {
+  if (!consoleOutput || consoleOutput.trim().length === 0) return undefined;
+  const redacted = redactSensitiveText(
+    consoleOutput,
+    bootstrapToken ? {secrets: [bootstrapToken]} : {},
+  );
+  const safe = replaceControlCharacters(redacted);
+  if (safe.trim().length === 0) return undefined;
+  return truncateUtf8Tail(safe, MAX_PROVIDER_RUNNER_CONSOLE_OUTPUT_LENGTH);
+}
+
+function replaceControlCharacters(value: string): string {
+  let result = '';
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    switch (character) {
+      case '\n':
+        result += '\\n';
+        break;
+      case '\r':
+        result += '\\r';
+        break;
+      case '\t':
+        result += '\\t';
+        break;
+      default:
+        result +=
+          codePoint <= 0x1f ||
+          (codePoint >= 0x7f && codePoint <= 0x9f) ||
+          codePoint === 0x2028 ||
+          codePoint === 0x2029
+            ? '?'
+            : character;
+    }
+  }
+  return result;
+}
+
+function truncateUtf8Tail(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value, 'utf8');
+  if (bytes.byteLength <= maxBytes) return value;
+  let start = bytes.byteLength - maxBytes;
+  while (start < bytes.byteLength && ((bytes[start] ?? 0) & 0xc0) === 0x80) start += 1;
+  return bytes.subarray(start).toString('utf8');
 }
 
 function canTerminateInstance(instance: Ec2InstanceView): boolean {
@@ -775,6 +907,7 @@ function eventForInstance(
   state: RunnerInstanceReportEventDto['state'],
   labels: readonly string[],
   reason?: string,
+  consoleOutput?: string,
 ): RunnerInstanceReportEventDto {
   const identity = parseInstanceIdentity(instance);
   return {
@@ -785,6 +918,7 @@ function eventForInstance(
     labels: [...labels],
     state,
     ...(reason ? {reason: truncateReason(reason)} : {}),
+    ...(consoleOutput !== undefined ? {console_output: consoleOutput} : {}),
     reported_at: context.now().toISOString(),
     provider_kind: context.providerKind,
   };

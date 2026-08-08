@@ -942,6 +942,8 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.reconcile();
 
     expect(engine.terminated).toEqual(['i-123']);
+    expect(engine.consoleOutputRequests).toEqual([]);
+    expect(engine.operations).toEqual(['terminate:i-123']);
     expect(observability.recordEc2Termination).toHaveBeenCalledWith('backend-terminate');
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
@@ -998,9 +1000,10 @@ describe('createEc2Lifecycle', () => {
           launchTime: new Date('2026-01-01T00:00:00.000Z'),
         }),
       ],
-      consoleOutput: 'cloud-init failed\n',
+      consoleOutput: 'TOKEN=sf_rbt_sensitive-bootstrap-token\ncloud-init failed\n',
     });
-    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
 
     await lifecycle.observe();
 
@@ -1009,10 +1012,132 @@ describe('createEc2Lifecycle', () => {
     expect(observability.logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
         aws_instance_id: 'i-123',
-        console_output: 'cloud-init failed\n',
+        provisioned_runner_id: 'runner-1',
+        runner_instance_id: RUNNER_INSTANCE_ID,
+        console_output: 'TOKEN=***\\ncloud-init failed\\n',
       }),
       'Captured EC2 console output before registration deadline termination',
     );
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({
+        provider_runner_id: 'runner-1',
+        runner_instance_id: RUNNER_INSTANCE_ID,
+        state: 'terminated',
+        reason: 'registration-deadline',
+        console_output: 'TOKEN=***\\ncloud-init failed\\n',
+      }),
+    ]);
+  });
+
+  it('truncates console output to a safe UTF-8 tail before logging and reporting', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+      consoleOutput: `boot\n${'x'.repeat(20_000)}`,
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.observe();
+
+    const event = client.reportBodies.flatMap((body) => body.events)[0];
+    expect(event?.console_output).toHaveLength(16_384);
+    expect(event?.console_output?.split('').every((character) => character === 'x')).toBe(true);
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({console_output: event?.console_output}),
+      'Captured EC2 console output before registration deadline termination',
+    );
+  });
+
+  it('redacts the known bootstrap token even when output omits the variable name', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+      consoleOutput: 'sf_rbt_secret',
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.launch(launch());
+    await lifecycle.observe();
+
+    const event = client.reportBodies
+      .flatMap((body) => body.events)
+      .find((report) => report.state === 'terminated');
+    expect(event?.console_output).toBe('***');
+  });
+
+  it('starts capture without waiting for it before terminating', async () => {
+    let resolveOutput!: (output: string) => void;
+    const output = new Promise<string>((resolve) => {
+      resolveOutput = resolve;
+    });
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+      consoleOutputPromise: output,
+    });
+    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000});
+    const observation = lifecycle.observe();
+
+    await vi.waitFor(() => {
+      expect(engine.operations).toEqual(['console-output:i-123', 'terminate:i-123']);
+    });
+
+    resolveOutput('cloud-init failed');
+    await observation;
+  });
+
+  it('reuses a capture after a termination retry', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+      consoleOutput: 'cloud-init failed',
+      terminateErrors: [new Error('termination unavailable')],
+    });
+    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000});
+
+    await expect(lifecycle.observe()).rejects.toThrow('termination unavailable');
+    await lifecycle.observe();
+
+    expect(engine.consoleOutputRequests).toEqual(['i-123']);
+    expect(engine.terminated).toEqual(['i-123']);
+  });
+
+  it('does not log absent console output', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+    });
+    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000});
+
+    await lifecycle.observe();
+
+    expect(observability.logger.info).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'Captured EC2 console output before registration deadline termination',
+    );
+    expect(engine.terminated).toEqual(['i-123']);
   });
 
   it('still reaps a pending instance when console output capture fails', async () => {
@@ -1144,6 +1269,7 @@ function fakeEngine(
     runError?: Error;
     listError?: Error;
     consoleOutput?: string;
+    consoleOutputPromise?: Promise<string | undefined>;
     consoleOutputError?: Error;
     terminateErrors?: Array<Error | undefined>;
   } = {},
@@ -1176,6 +1302,7 @@ function fakeEngine(
     getConsoleOutput: (instanceId) => {
       consoleOutputRequests.push(instanceId);
       operations.push(`console-output:${instanceId}`);
+      if (options.consoleOutputPromise) return options.consoleOutputPromise;
       return options.consoleOutputError
         ? Promise.reject(options.consoleOutputError)
         : Promise.resolve(options.consoleOutput);

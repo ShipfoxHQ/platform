@@ -6438,6 +6438,9 @@ importers:
       '@shipfox/provisioner-core':
         specifier: workspace:*
         version: link:../core
+      '@shipfox/redact':
+        specifier: workspace:*
+        version: link:../../shared/common/redact
       '@shipfox/runner-labels':
         specifier: workspace:*
         version: link:../../shared/common/runner-labels

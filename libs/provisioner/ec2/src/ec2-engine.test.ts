@@ -253,6 +253,33 @@ describe('createEc2Engine', () => {
     await expect(engine.getConsoleOutput('i-123')).resolves.toBeUndefined();
   });
 
+  it('treats an instance that disappeared during capture as having no output', async () => {
+    const ec2 = fakeEc2({consoleOutputError: awsError('InvalidInstanceID.NotFound')});
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.getConsoleOutput('i-123')).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ['AuthFailure', 'auth', false],
+    ['Throttling', 'throttled', true],
+  ] as const)('maps console output %s as %s', async (code, reason, retryable) => {
+    const ec2 = fakeEc2({consoleOutputError: awsError(code)});
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.getConsoleOutput('i-123')).rejects.toMatchObject({reason, retryable});
+  });
+
+  it('rejects malformed console output', async () => {
+    const ec2 = fakeEc2({consoleOutput: 'not base64'});
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.getConsoleOutput('i-123')).rejects.toMatchObject({
+      reason: 'unknown',
+      retryable: false,
+    });
+  });
+
   it('terminates the requested instances', async () => {
     const ec2 = fakeEc2();
     const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});

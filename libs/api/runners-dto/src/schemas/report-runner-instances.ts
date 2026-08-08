@@ -5,6 +5,7 @@ import {runnerLabelSchema} from './register.js';
 export const MAX_PROVIDER_RUNNER_REPORT_EVENTS = 1000;
 export const MAX_PROVIDER_RUNNER_REASON_LENGTH = 500;
 export const MAX_PROVIDER_KIND_LENGTH = 64;
+export const MAX_PROVIDER_RUNNER_CONSOLE_OUTPUT_LENGTH = 16_384;
 
 export const providerRunnerStateSchema = z.enum([
   'starting',
@@ -26,6 +27,7 @@ export const providerRunnerReportEventSchema = z
     labels: z.array(runnerLabelSchema).min(1).max(MAX_RUNNER_LABELS),
     state: providerRunnerStateSchema,
     reason: z.string().min(1).max(MAX_PROVIDER_RUNNER_REASON_LENGTH).optional(),
+    console_output: z.string().max(MAX_PROVIDER_RUNNER_CONSOLE_OUTPUT_LENGTH).optional(),
     runner_session_id: z.string().uuid().optional(),
     reported_at: z.string().datetime(),
     provider_kind: providerKindSchema.optional(),
