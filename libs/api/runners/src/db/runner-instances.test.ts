@@ -7,6 +7,7 @@ import {
   countStaleEnrolledRunnerInstances,
   listActiveRunnerInstanceCountsByTemplateTx,
   listActiveRunnerInstances,
+  listProvisionedRunnerPendingMetrics,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminateIntents,
   reapStaleRunnerInstances,
@@ -2538,6 +2539,97 @@ describe('countStaleEnrolledRunnerInstances', () => {
         closeReason: params.closedAt ? 'test' : null,
       });
   }
+});
+
+describe('listProvisionedRunnerPendingMetrics', () => {
+  it('groups runners by the lifecycle phase that is currently blocking activation', async () => {
+    const provisionerId = crypto.randomUUID();
+    const provider = `metrics-test-${crypto.randomUUID()}`;
+    const reservationId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+    const old = new Date(Date.now() - 120_000);
+
+    const createRunner = async (params: {
+      state: 'starting' | 'running';
+      launchKind: 'demand' | 'warm' | 'manual';
+      intendedReservationId?: string | null;
+      workspaceId?: string | null;
+      reservationId?: string | null;
+      assignedAt?: Date | null;
+      createdAt?: Date;
+    }) => {
+      const [runner] = await db()
+        .insert(providerRunners)
+        .values({
+          provisionerId,
+          providerRunnerId: crypto.randomUUID(),
+          providerKind: provider,
+          launchKind: params.launchKind,
+          intendedReservationId: params.intendedReservationId ?? null,
+          workspaceId: params.workspaceId ?? null,
+          reservationId: params.reservationId ?? null,
+          assignedAt: params.assignedAt ?? null,
+          state: params.state,
+          labels: ['linux'],
+          reportedAt: new Date(),
+          createdAt: params.createdAt ?? old,
+        })
+        .returning({id: providerRunners.id});
+      if (!runner) throw new Error('Expected runner instance');
+      return runner.id;
+    };
+
+    await createRunner({state: 'starting', launchKind: 'demand'});
+    const enrollmentRunnerId = await createRunner({state: 'starting', launchKind: 'warm'});
+    const assignmentRunnerId = await createRunner({
+      state: 'running',
+      launchKind: 'demand',
+      intendedReservationId: reservationId,
+    });
+    const activationRunnerId = await createRunner({
+      state: 'running',
+      launchKind: 'manual',
+      workspaceId,
+      reservationId,
+      assignedAt: old,
+    });
+    const idleRunnerId = await createRunner({state: 'running', launchKind: 'warm'});
+    const demandIdleRunnerId = await createRunner({state: 'running', launchKind: 'demand'});
+
+    await db()
+      .insert(runnerControlSessions)
+      .values(
+        [
+          enrollmentRunnerId,
+          assignmentRunnerId,
+          activationRunnerId,
+          idleRunnerId,
+          demandIdleRunnerId,
+        ].map((runnerInstanceId) => ({
+          runnerInstanceId,
+          provisionerId,
+          hashedToken: crypto.randomUUID(),
+          prefix: 'metrics-test',
+          expiresAt: new Date(Date.now() + 60_000),
+          createdAt: old,
+        })),
+      );
+
+    const metrics = await listProvisionedRunnerPendingMetrics();
+    const ownMetrics = metrics.filter((metric) => metric.provider === provider);
+
+    expect(ownMetrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({phase: 'control_session', launchKind: 'demand', count: 1}),
+        expect.objectContaining({phase: 'enrollment', launchKind: 'warm', count: 1}),
+        expect.objectContaining({phase: 'assignment', launchKind: 'demand', count: 1}),
+        expect.objectContaining({phase: 'activation', launchKind: 'manual', count: 1}),
+        expect.objectContaining({phase: 'idle', launchKind: 'warm', count: 1}),
+        expect.objectContaining({phase: 'idle', launchKind: 'demand', count: 1}),
+      ]),
+    );
+    expect(ownMetrics).toHaveLength(6);
+  });
 });
 
 describe('runner instance provider attachment', () => {

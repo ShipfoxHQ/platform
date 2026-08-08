@@ -11,7 +11,7 @@ import {createEc2Lifecycle} from '#lifecycle.js';
 import type {Ec2TemplateSpec} from '#templates.js';
 
 const observability = vi.hoisted(() => ({
-  logger: {error: vi.fn(), info: vi.fn(), warn: vi.fn()},
+  logger: {debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn()},
   recordEc2Launch: vi.fn(),
   recordEc2Termination: vi.fn(),
 }));
@@ -550,13 +550,13 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.observe();
 
     expect(client.assignmentBodies).toHaveLength(2);
-    expect(observability.logger.warn).toHaveBeenCalledWith(
+    expect(observability.logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 409,
         code: 'runner-instance-not-assignable',
         retryable: true,
       }),
-      'Reservation assignment rejected; will retry',
+      'Reservation assignment pending; will retry',
     );
   });
 

@@ -29,7 +29,12 @@ import {
   RunnerSessionExhaustedError,
   RunningJobExecutionNotFoundError,
 } from '#core/errors.js';
-import {jobExecutionEnqueuedCount, jobExecutionLeaseExpiredCount} from '#metrics/instance.js';
+import {
+  jobExecutionEnqueuedCount,
+  jobExecutionLeaseExpiredCount,
+  type ProvisionedRunnerLifecycleObservation,
+  recordProvisionedRunnerActivationToFirstClaim,
+} from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {runnersOutbox} from './schema/outbox.js';
@@ -192,7 +197,8 @@ export async function claimPendingJobExecution(params: {
 
   if (params.sessionLabels.length === 0) return null;
 
-  return await db().transaction(async (tx) => {
+  let activationToFirstClaimObservation: ProvisionedRunnerLifecycleObservation | null = null;
+  const result = await db().transaction(async (tx) => {
     let provisionerId: string | null = null;
     let providerRunnerId: string | null = null;
     let runnerInstanceId: string | null = null;
@@ -297,13 +303,39 @@ export async function claimPendingJobExecution(params: {
           )
         : null;
     if (runnerInstanceCondition) {
-      await tx
+      const [claimedRunner] = await tx
         .update(providerRunners)
         .set({
           firstClaimedAt: sql`coalesce(${providerRunners.firstClaimedAt}, ${claimed.claimedAt})`,
           updatedAt: sql`now()`,
         })
-        .where(runnerInstanceCondition);
+        .where(runnerInstanceCondition)
+        .returning({
+          firstClaimedAt: providerRunners.firstClaimedAt,
+          isFirstClaim: sql<boolean>`${providerRunners.firstClaimedAt} = ${claimed.claimedAt}`,
+          provider: providerRunners.providerKind,
+          launchKind: providerRunners.launchKind,
+          runnerInstanceId: providerRunners.id,
+          sessionCreatedAtEpochMs: sql<number | null>`(
+            select extract(epoch from ${runnerSessions.createdAt})::double precision * 1000
+            from ${runnerSessions}
+            where ${runnerSessions.id} = ${params.runnerSessionId}
+          )`,
+        });
+      if (
+        claimedRunner?.isFirstClaim &&
+        claimedRunner.firstClaimedAt !== null &&
+        claimedRunner.sessionCreatedAtEpochMs !== null &&
+        claimedRunner.sessionCreatedAtEpochMs !== undefined
+      )
+        activationToFirstClaimObservation = {
+          durationSeconds:
+            (claimedRunner.firstClaimedAt.getTime() - claimedRunner.sessionCreatedAtEpochMs) /
+            1_000,
+          provider: claimedRunner.provider,
+          launchKind: claimedRunner.launchKind,
+          runnerInstanceId: claimedRunner.runnerInstanceId,
+        };
     }
 
     if (params.maxClaims !== null) {
@@ -335,6 +367,9 @@ export async function claimPendingJobExecution(params: {
       projectId: row.projectId,
     };
   });
+  if (activationToFirstClaimObservation)
+    recordProvisionedRunnerActivationToFirstClaim(activationToFirstClaimObservation);
+  return result;
 }
 
 async function touchRunnerSessionLiveness(params: {

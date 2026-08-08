@@ -7,12 +7,14 @@ import {
 } from '@shipfox/api-runners-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {
+  getRunnerAssignmentRejectionReason,
   ReservationExpiredError,
   ReservationNotFoundError,
   RunnerInstanceAlreadyAssignedError,
   RunnerInstanceNotAssignableError,
 } from '#core/errors.js';
 import {assignRunnerInstances} from '#core/runner-assignments.js';
+import {recordProvisionedRunnerAssignmentRejected} from '#metrics/instance.js';
 
 export const assignRunnerInstancesRoute = defineRoute({
   method: 'POST',
@@ -23,6 +25,12 @@ export const assignRunnerInstancesRoute = defineRoute({
     response: {200: assignRunnerInstancesResponseSchema},
   },
   errorHandler: (error) => {
+    const rejectionReason = getRunnerAssignmentRejectionReason(error);
+    if (rejectionReason)
+      recordProvisionedRunnerAssignmentRejected({
+        reason: rejectionReason,
+        surface: 'provisioner',
+      });
     if (error instanceof ReservationNotFoundError)
       throw new ClientError('Reservation not found', 'reservation-not-found', {status: 404});
     if (error instanceof ReservationExpiredError)

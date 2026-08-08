@@ -375,6 +375,82 @@ export async function countStaleEnrolledRunnerInstances(params: {
   return row?.count ?? 0;
 }
 
+export type ProvisionedRunnerPendingPhase =
+  | 'control_session'
+  | 'enrollment'
+  | 'assignment'
+  | 'activation'
+  | 'idle';
+
+export interface ProvisionedRunnerPendingMetric {
+  phase: ProvisionedRunnerPendingPhase;
+  provider: string;
+  launchKind: 'demand' | 'warm' | 'manual';
+  count: number;
+  oldestAgeSeconds: number;
+}
+
+export async function listProvisionedRunnerPendingMetrics(): Promise<
+  ProvisionedRunnerPendingMetric[]
+> {
+  const phase = sql<ProvisionedRunnerPendingPhase>`case
+    when ${runnerControlSessions.id} is null then 'control_session'
+    when ${providerRunners.state} <> 'running' then 'enrollment'
+    when ${providerRunners.intendedReservationId} is not null
+      and ${providerRunners.workspaceId} is null then 'assignment'
+    when ${providerRunners.workspaceId} is not null then 'activation'
+    else 'idle'
+  end`;
+  const startedAt = sql<Date | null>`case
+    when ${runnerControlSessions.id} is null then ${providerRunners.createdAt}
+    when ${providerRunners.state} <> 'running' then ${runnerControlSessions.createdAt}
+    when ${providerRunners.intendedReservationId} is not null
+      and ${providerRunners.workspaceId} is null then ${runnerControlSessions.createdAt}
+    when ${providerRunners.workspaceId} is not null
+      then coalesce(${providerRunners.assignedAt}, ${runnerControlSessions.createdAt})
+    else coalesce(
+      ${runnerControlSessions.createdAt},
+      ${providerRunners.assignedAt},
+      ${providerRunners.createdAt}
+    )
+  end`;
+  const rows = await db()
+    .select({
+      phase,
+      provider: sql<string>`coalesce(${providerRunners.providerKind}, 'unknown')`,
+      launchKind: providerRunners.launchKind,
+      count: sql<number>`count(*)::int`,
+      oldestAgeSeconds: sql<number>`coalesce(
+        max(extract(epoch from (now() - (${startedAt})))),
+        0
+      )::double precision`,
+    })
+    .from(providerRunners)
+    .leftJoin(
+      runnerControlSessions,
+      and(
+        eq(runnerControlSessions.runnerInstanceId, providerRunners.id),
+        isNull(runnerControlSessions.closedAt),
+        gt(runnerControlSessions.expiresAt, sql`now()`),
+      ),
+    )
+    .where(
+      and(
+        inArray(providerRunners.state, ['starting', 'running']),
+        isNull(providerRunners.runnerSessionId),
+      ),
+    )
+    .groupBy(phase, providerRunners.providerKind, providerRunners.launchKind);
+
+  return rows.map((row) => ({
+    phase: row.phase,
+    provider: row.provider,
+    launchKind: row.launchKind,
+    count: row.count,
+    oldestAgeSeconds: Math.max(0, row.oldestAgeSeconds),
+  }));
+}
+
 export async function listActiveRunnerInstances(params: {
   workspaceId: string;
   windowSeconds: number;

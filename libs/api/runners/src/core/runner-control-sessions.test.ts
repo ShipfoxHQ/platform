@@ -359,6 +359,77 @@ describe('enrollRunnerControlSession', () => {
       vi.resetModules();
     }
   });
+
+  it('records a rolled-back assignment rejection without recording its assignment timing', async () => {
+    const provisionerId = crypto.randomUUID();
+    const reservation = await createReservation({provisionerId});
+    const runnerInstanceId = await createRunner({
+      provisionerId,
+      intendedReservationId: reservation.id,
+    });
+    const assignmentTimingRecord = vi.fn();
+    const assignmentRejectionRecord = vi.fn();
+    const promotionFailureRecord = vi.fn();
+
+    vi.resetModules();
+    const {RunnerInstanceNotAssignableError} = await import('#core/errors.js');
+    const activationIssueError = new RunnerInstanceNotAssignableError(
+      runnerInstanceId,
+      'capacity-exhausted',
+    );
+    vi.doMock('#metrics/index.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('#metrics/index.js')>()),
+      recordProvisionedRunnerControlSessionToAssignment: assignmentTimingRecord,
+      recordProvisionedRunnerAssignmentRejected: assignmentRejectionRecord,
+      recordRunnerReservationPromotionFailure: promotionFailureRecord,
+    }));
+    vi.doMock('./runner-activation.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./runner-activation.js')>()),
+      issueRunnerActivationTokenTx: vi.fn().mockRejectedValue(activationIssueError),
+    }));
+
+    const {closePostgresClient, createPostgresClient} = await import('@shipfox/node-postgres');
+    createPostgresClient();
+
+    try {
+      const {enrollRunnerControlSession: enroll} = await import('./runner-control-sessions.js');
+      const result = await enroll({
+        runnerInstanceId,
+        provisionerId,
+        labels: ['linux'],
+        providerKind: 'docker',
+        protocolVersion: '1',
+      });
+      const [runner] = await db()
+        .select({
+          intendedReservationId: providerRunners.intendedReservationId,
+          reservationId: providerRunners.reservationId,
+          workspaceId: providerRunners.workspaceId,
+          assignedAt: providerRunners.assignedAt,
+        })
+        .from(providerRunners)
+        .where(eq(providerRunners.id, runnerInstanceId));
+
+      expect(result).toBeNull();
+      expect(runner).toEqual({
+        intendedReservationId: reservation.id,
+        reservationId: null,
+        workspaceId: null,
+        assignedAt: null,
+      });
+      expect(assignmentTimingRecord).not.toHaveBeenCalled();
+      expect(assignmentRejectionRecord).toHaveBeenCalledWith({
+        reason: 'capacity-exhausted',
+        surface: 'enrollment',
+      });
+      expect(promotionFailureRecord).toHaveBeenCalledWith('not-assignable');
+    } finally {
+      await closePostgresClient();
+      vi.doUnmock('#metrics/index.js');
+      vi.doUnmock('./runner-activation.js');
+      vi.resetModules();
+    }
+  });
 });
 
 async function expectPromotionFailure(params: {
