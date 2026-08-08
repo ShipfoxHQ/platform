@@ -30,9 +30,11 @@ import {
   RunningJobExecutionNotFoundError,
 } from '#core/errors.js';
 import {
+  type JobExecutionQueueTimeObservation,
   jobExecutionEnqueuedCount,
   jobExecutionLeaseExpiredCount,
   type ProviderRunnerLifecycleObservation,
+  recordJobExecutionQueueTime,
   recordProviderRunnerActivationToFirstClaim,
 } from '#metrics/instance.js';
 import type {Tx} from './db.js';
@@ -198,6 +200,7 @@ export async function claimPendingJobExecution(params: {
   if (params.sessionLabels.length === 0) return null;
 
   let activationToFirstClaimObservation: ProviderRunnerLifecycleObservation | null = null;
+  let queueTimeObservation: JobExecutionQueueTimeObservation | null = null;
   const result = await db().transaction(async (tx) => {
     let provisionerId: string | null = null;
     let providerRunnerId: string | null = null;
@@ -294,6 +297,12 @@ export async function claimPendingJobExecution(params: {
     const claimed = inserted[0];
     if (!claimed) return null;
 
+    queueTimeObservation = {
+      durationMilliseconds: claimed.claimedAt.getTime() - row.createdAt.getTime(),
+      provider: null,
+      launchKind: params.maxClaims === null ? 'manual' : 'unknown',
+    };
+
     const runnerInstanceCondition = runnerInstanceId
       ? eq(providerRunners.id, runnerInstanceId)
       : provisionerId && providerRunnerId
@@ -322,6 +331,10 @@ export async function claimPendingJobExecution(params: {
             where ${runnerSessions.id} = ${params.runnerSessionId}
           )`,
         });
+      if (claimedRunner && queueTimeObservation) {
+        queueTimeObservation.provider = claimedRunner.provider;
+        queueTimeObservation.launchKind = claimedRunner.launchKind;
+      }
       if (
         claimedRunner?.isFirstClaim &&
         claimedRunner.firstClaimedAt !== null &&
@@ -366,6 +379,7 @@ export async function claimPendingJobExecution(params: {
       projectId: row.projectId,
     };
   });
+  if (queueTimeObservation) recordJobExecutionQueueTime(queueTimeObservation);
   if (activationToFirstClaimObservation)
     recordProviderRunnerActivationToFirstClaim(activationToFirstClaimObservation);
   return result;

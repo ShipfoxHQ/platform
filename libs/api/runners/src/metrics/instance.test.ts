@@ -43,11 +43,13 @@ describe('runner lifecycle metrics', () => {
     >;
 
     expect(
-      calls.map(([name, options]) => ({
-        name,
-        unit: options.unit,
-        buckets: options.advice?.explicitBucketBoundaries,
-      })),
+      calls
+        .filter(([name]) => name.startsWith('runners_provider_runner_'))
+        .map(([name, options]) => ({
+          name,
+          unit: options.unit,
+          buckets: options.advice?.explicitBucketBoundaries,
+        })),
     ).toEqual([
       {
         name: 'runners_provider_runner_created_to_control_session',
@@ -88,5 +90,29 @@ describe('runner lifecycle metrics', () => {
     expect(
       metricMocks.histograms.get('runners_provider_runner_created_to_control_session')?.record,
     ).toHaveBeenCalledWith(1_234, {provider: 'ec2', launch_kind: 'demand'});
+  });
+});
+
+describe('job execution queue time metrics', () => {
+  it('records milliseconds with bounded labels and ignores negative durations', () => {
+    const record = metricMocks.histograms.get('runners_job_execution_queue_time')?.record;
+    expect(record).toBeDefined();
+
+    metrics.recordJobExecutionQueueTime({
+      durationMilliseconds: 1_234,
+      provider: null,
+      launchKind: 'manual',
+    });
+    metrics.recordJobExecutionQueueTime({
+      durationMilliseconds: -1,
+      provider: 'ec2',
+      launchKind: 'demand',
+    });
+
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith(1_234, {
+      provider: 'unknown',
+      launch_kind: 'manual',
+    });
   });
 });

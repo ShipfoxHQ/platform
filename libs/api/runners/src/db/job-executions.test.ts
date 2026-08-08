@@ -8,6 +8,7 @@ import {eq, sql} from 'drizzle-orm';
 import {EmptyRequiredLabelsError, RunnerSessionExhaustedError} from '#core/errors.js';
 import {claimJobExecution} from '#core/job-executions.js';
 import {detectAndExpireStuckJobs} from '#core/maintenance.js';
+import * as runnerMetrics from '#metrics/instance.js';
 import {
   getLeaseTokenClaims,
   pendingJobFactory,
@@ -242,20 +243,95 @@ describe('claimPendingJobExecution', () => {
     expect(new Date(payload.claimedAt).getTime()).toBe(running?.startedAt.getTime());
   });
 
+  it('records queue time from the pending row creation to the runner claim', async () => {
+    const created = await pendingJobFactory.create({workspaceId});
+    await db()
+      .update(pendingJobExecutions)
+      .set({createdAt: sql`now() - interval '60 seconds'`})
+      .where(eq(pendingJobExecutions.jobExecutionId, created.jobExecutionId));
+    const [pending] = await db()
+      .select({createdAt: pendingJobExecutions.createdAt})
+      .from(pendingJobExecutions)
+      .where(eq(pendingJobExecutions.jobExecutionId, created.jobExecutionId));
+    const recordQueueTime = vi.spyOn(runnerMetrics, 'recordJobExecutionQueueTime');
+
+    try {
+      await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+
+      const [running] = await db()
+        .select({startedAt: runningJobExecutions.startedAt})
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, created.jobExecutionId));
+      const observation = recordQueueTime.mock.calls[0]?.[0];
+      if (!pending || !running) throw new Error('Expected pending and running job rows');
+      expect(recordQueueTime).toHaveBeenCalledTimes(1);
+      expect(observation).toMatchObject({provider: null, launchKind: 'manual'});
+      expect(observation?.durationMilliseconds).toBe(
+        running.startedAt.getTime() - pending.createdAt.getTime(),
+      );
+      expect(observation?.durationMilliseconds).toBeGreaterThanOrEqual(60_000);
+      expect(observation?.durationMilliseconds).toBeLessThan(120_000);
+    } finally {
+      recordQueueTime.mockRestore();
+    }
+  });
+
+  it('records bounded queue labels for a provisioned runner claim', async () => {
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
+    await db()
+      .update(runnerSessions)
+      .set({registrationTokenKind: 'ephemeral', maxClaims: 1, provisionerId, providerRunnerId})
+      .where(eq(runnerSessions.id, runnerSessionId));
+    await db().insert(providerRunners).values({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      providerKind: 'ec2',
+      launchKind: 'demand',
+      labels: sessionLabels,
+      state: 'running',
+      reportedAt: new Date(),
+    });
+    await pendingJobFactory.create({workspaceId});
+    const recordQueueTime = vi.spyOn(runnerMetrics, 'recordJobExecutionQueueTime');
+
+    try {
+      await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
+
+      expect(recordQueueTime).toHaveBeenCalledWith(
+        expect.objectContaining({provider: 'ec2', launchKind: 'demand'}),
+      );
+      expect(recordQueueTime.mock.calls[0]?.[0].durationMilliseconds).toBeGreaterThanOrEqual(0);
+    } finally {
+      recordQueueTime.mockRestore();
+    }
+  });
+
   it('emits no claimed event when there is nothing to claim', async () => {
+    const recordQueueTime = vi.spyOn(runnerMetrics, 'recordJobExecutionQueueTime');
     const before = await db()
       .select()
       .from(runnersOutbox)
       .where(eq(runnersOutbox.eventType, RUNNER_JOB_CLAIMED));
 
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    try {
+      const claimed = await claimPendingJobExecution({
+        workspaceId,
+        runnerSessionId,
+        maxClaims: null,
+      });
 
-    const after = await db()
-      .select()
-      .from(runnersOutbox)
-      .where(eq(runnersOutbox.eventType, RUNNER_JOB_CLAIMED));
-    expect(claimed).toBeNull();
-    expect(after).toHaveLength(before.length);
+      const after = await db()
+        .select()
+        .from(runnersOutbox)
+        .where(eq(runnersOutbox.eventType, RUNNER_JOB_CLAIMED));
+      expect(claimed).toBeNull();
+      expect(after).toHaveLength(before.length);
+      expect(recordQueueTime).not.toHaveBeenCalled();
+    } finally {
+      recordQueueTime.mockRestore();
+    }
   });
 
   it('emits no claimed event when dropping an orphan pending row', async () => {
@@ -273,13 +349,23 @@ describe('claimPendingJobExecution', () => {
     });
     // Clear the initial claim's events so this assertion only covers the orphan claim.
     const beforeOrphanClaim = await outboxEventsForJob(RUNNER_JOB_CLAIMED, created.jobId);
+    const recordQueueTime = vi.spyOn(runnerMetrics, 'recordJobExecutionQueueTime');
 
-    const second = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    try {
+      const second = await claimPendingJobExecution({
+        workspaceId,
+        runnerSessionId,
+        maxClaims: null,
+      });
 
-    expect(second).toBeNull();
-    expect(await outboxEventsForJob(RUNNER_JOB_CLAIMED, created.jobId)).toHaveLength(
-      beforeOrphanClaim.length,
-    );
+      expect(second).toBeNull();
+      expect(await outboxEventsForJob(RUNNER_JOB_CLAIMED, created.jobId)).toHaveLength(
+        beforeOrphanClaim.length,
+      );
+      expect(recordQueueTime).not.toHaveBeenCalled();
+    } finally {
+      recordQueueTime.mockRestore();
+    }
   });
 
   it('returns the job ids when a job is available', async () => {

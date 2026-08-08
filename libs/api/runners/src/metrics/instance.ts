@@ -15,6 +15,17 @@ type ProviderRunnerAssignmentLifecycleLabels = ProviderRunnerLifecycleLabels & {
   surface: RunnerAssignmentSurface;
 };
 
+type JobExecutionQueueTimeLabels = {
+  provider: string;
+  launch_kind: RunnerLaunchKind | 'unknown';
+};
+
+export interface JobExecutionQueueTimeObservation {
+  durationMilliseconds: number;
+  provider: string | null;
+  launchKind: RunnerLaunchKind | 'unknown';
+}
+
 export interface ProviderRunnerLifecycleObservation {
   durationMilliseconds: number;
   provider: string | null;
@@ -35,6 +46,11 @@ const lifecycleDurationBuckets = {
   ],
   short: [10, 25, 50, 100, 250, 500, 1_000, 5_000, 10_000],
 };
+
+const queueTimeBucketsMilliseconds = [
+  100, 500, 1_000, 5_000, 10_000, 15_000, 20_000, 30_000, 45_000, 60_000, 90_000, 120_000, 300_000,
+  600_000, 900_000, 1_800_000, 3_600_000, 7_200_000, 14_400_000,
+];
 
 // Keep the ordered lifecycle phases as separate histograms so long boot times do not flatten
 // short handoffs. Assignment is the only phase with a surface dimension.
@@ -78,6 +94,15 @@ export const providerRunnerActivationToFirstClaimDuration =
       advice: {explicitBucketBoundaries: lifecycleDurationBuckets.short},
     },
   );
+
+export const jobExecutionQueueTimeDuration = meter.createHistogram<JobExecutionQueueTimeLabels>(
+  'runners_job_execution_queue_time',
+  {
+    description: 'Job execution pending queue duration from enqueue to runner claim',
+    unit: 'ms',
+    advice: {explicitBucketBoundaries: queueTimeBucketsMilliseconds},
+  },
+);
 
 export const providerRunnerAssignmentRejectedCount = meter.createCounter<{
   reason: RunnerAssignmentRejectionReason;
@@ -292,6 +317,16 @@ export function recordProviderRunnerActivationToFirstClaim(
   recordMetric(() =>
     providerRunnerActivationToFirstClaimDuration.record(params.durationMilliseconds, {
       provider: resolveProviderRunnerMetricProvider(params),
+      launch_kind: params.launchKind,
+    }),
+  );
+}
+
+export function recordJobExecutionQueueTime(params: JobExecutionQueueTimeObservation): void {
+  if (params.durationMilliseconds < 0) return;
+  recordMetric(() =>
+    jobExecutionQueueTimeDuration.record(params.durationMilliseconds, {
+      provider: params.provider ?? UNKNOWN_PROVIDER_KIND,
       launch_kind: params.launchKind,
     }),
   );
