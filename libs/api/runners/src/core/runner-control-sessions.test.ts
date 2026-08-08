@@ -379,8 +379,8 @@ describe('enrollRunnerControlSession', () => {
     );
     vi.doMock('#metrics/index.js', async (importOriginal) => ({
       ...(await importOriginal<typeof import('#metrics/index.js')>()),
-      recordProvisionedRunnerControlSessionToAssignment: assignmentTimingRecord,
-      recordProvisionedRunnerAssignmentRejected: assignmentRejectionRecord,
+      recordProviderRunnerControlSessionToAssignment: assignmentTimingRecord,
+      recordProviderRunnerAssignmentRejected: assignmentRejectionRecord,
       recordRunnerReservationPromotionFailure: promotionFailureRecord,
     }));
     vi.doMock('./runner-activation.js', async (importOriginal) => ({
