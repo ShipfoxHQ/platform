@@ -6,9 +6,9 @@ import {
   RunnerInstanceNotAssignableError,
 } from '#core/errors.js';
 import {
-  type ProvisionedRunnerAssignmentObservation,
+  type ProviderRunnerAssignmentObservation,
   type RunnerAssignmentSurface,
-  recordProvisionedRunnerControlSessionToAssignment,
+  recordProviderRunnerControlSessionToAssignment,
 } from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
@@ -28,13 +28,13 @@ export async function assignRunnerInstances(params: {
     assignRunnerInstancesTx(tx, {...params, surface: 'provisioner'}),
   );
   for (const observation of result.controlSessionToAssignment)
-    recordProvisionedRunnerControlSessionToAssignment(observation);
+    recordProviderRunnerControlSessionToAssignment(observation);
   return result.runnerInstanceIds;
 }
 
 interface AssignRunnerInstancesTxResult {
   runnerInstanceIds: string[];
-  controlSessionToAssignment: ProvisionedRunnerAssignmentObservation[];
+  controlSessionToAssignment: ProviderRunnerAssignmentObservation[];
 }
 
 export async function assignRunnerInstancesTx(
@@ -204,7 +204,7 @@ export async function assignRunnerInstancesTx(
       )
       .returning({id: providerRunners.id, assignedAt: providerRunners.assignedAt});
     const runnersById = new Map(newRunners.map((runner) => [runner.id, runner]));
-    const controlSessionToAssignment: ProvisionedRunnerAssignmentObservation[] = [];
+    const controlSessionToAssignment: ProviderRunnerAssignmentObservation[] = [];
     for (const assigned of assignedRows) {
       const runner = runnersById.get(assigned.id);
       const controlSessionCreatedAt = runner?.controlSessionCreatedAt;

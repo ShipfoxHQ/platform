@@ -4,8 +4,8 @@ import type {RunnerSession} from '#core/entities/runner-session.js';
 import {EmptyRunnerLabelsError} from '#core/errors.js';
 import {sanitizeRunnerLabelsOrThrow} from '#core/runner-labels.js';
 import {
-  type ProvisionedRunnerLifecycleObservation,
-  recordProvisionedRunnerAssignmentToActivation,
+  type ProviderRunnerLifecycleObservation,
+  recordProviderRunnerAssignmentToActivation,
 } from '#metrics/instance.js';
 import {db} from './db.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
@@ -62,7 +62,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
   labels: string[];
   toolCapabilities?: RunnerToolCapabilitiesDto | null;
 }) {
-  let assignmentToActivationObservation: ProvisionedRunnerLifecycleObservation | null = null;
+  let assignmentToActivationObservation: ProviderRunnerLifecycleObservation | null = null;
   const session = await db().transaction(async (tx) => {
     const [runner] = await tx
       .select({
@@ -161,7 +161,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
     return toRunnerSession(session);
   });
   if (assignmentToActivationObservation)
-    recordProvisionedRunnerAssignmentToActivation(assignmentToActivationObservation);
+    recordProviderRunnerAssignmentToActivation(assignmentToActivationObservation);
   return session;
 }
 

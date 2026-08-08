@@ -14,7 +14,7 @@ import {
   RunnerInstanceNotAssignableError,
 } from '#core/errors.js';
 import {assignRunnerInstances} from '#core/runner-assignments.js';
-import {recordProvisionedRunnerAssignmentRejected} from '#metrics/instance.js';
+import {recordProviderRunnerAssignmentRejected} from '#metrics/instance.js';
 
 export const assignRunnerInstancesRoute = defineRoute({
   method: 'POST',
@@ -27,7 +27,7 @@ export const assignRunnerInstancesRoute = defineRoute({
   errorHandler: (error) => {
     const rejectionReason = getRunnerAssignmentRejectionReason(error);
     if (rejectionReason)
-      recordProvisionedRunnerAssignmentRejected({
+      recordProviderRunnerAssignmentRejected({
         reason: rejectionReason,
         surface: 'provisioner',
       });

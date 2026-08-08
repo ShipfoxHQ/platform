@@ -23,9 +23,9 @@ import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-co
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {
   type RunnerReservationPromotionFailureReason,
-  recordProvisionedRunnerAssignmentRejected,
-  recordProvisionedRunnerControlSessionToAssignment,
-  recordProvisionedRunnerCreatedToControlSession,
+  recordProviderRunnerAssignmentRejected,
+  recordProviderRunnerControlSessionToAssignment,
+  recordProviderRunnerCreatedToControlSession,
   recordRunnerReservationCapacityFailure,
   recordRunnerReservationPromotionFailure,
 } from '#metrics/index.js';
@@ -190,7 +190,7 @@ export async function exchangeRunnerBootstrapToken(params: {
     };
   });
   if (result.runner)
-    recordProvisionedRunnerCreatedToControlSession({
+    recordProviderRunnerCreatedToControlSession({
       durationSeconds:
         (result.session.createdAt.getTime() - result.runner.createdAt.getTime()) / 1_000,
       provider: result.runner.provider,
@@ -360,12 +360,12 @@ export async function enrollRunnerControlSession(params: {
     }
   });
   for (const observation of result.controlSessionToAssignment)
-    recordProvisionedRunnerControlSessionToAssignment(observation);
+    recordProviderRunnerControlSessionToAssignment(observation);
   // These counters intentionally overlap: assignment_rejected records the assignment-facing
   // reason, while reservation_promotion_failure records the enrollment recovery outcome. They
   // answer different questions and must not be summed.
   if (result.assignmentRejectedReason)
-    recordProvisionedRunnerAssignmentRejected({
+    recordProviderRunnerAssignmentRejected({
       reason: result.assignmentRejectedReason,
       surface: 'enrollment',
     });

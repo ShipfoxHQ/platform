@@ -15,19 +15,18 @@ type ProviderRunnerAssignmentLifecycleLabels = ProviderRunnerLifecycleLabels & {
   surface: RunnerAssignmentSurface;
 };
 
-export interface ProvisionedRunnerLifecycleObservation {
+export interface ProviderRunnerLifecycleObservation {
   durationSeconds: number;
   provider: string | null;
   launchKind: RunnerLaunchKind;
   runnerInstanceId?: string;
 }
 
-export interface ProvisionedRunnerAssignmentObservation
-  extends ProvisionedRunnerLifecycleObservation {
+export interface ProviderRunnerAssignmentObservation extends ProviderRunnerLifecycleObservation {
   surface: RunnerAssignmentSurface;
 }
 
-export const UNKNOWN_PROVISIONED_RUNNER_PROVIDER = 'unknown';
+export const UNKNOWN_PROVIDER_RUNNER_PROVIDER = 'unknown';
 
 const lifecycleDurationBuckets = {
   long: [0.1, 0.5, 1, 5, 10, 15, 20, 30, 45, 60, 90, 120, 300, 600],
@@ -36,9 +35,9 @@ const lifecycleDurationBuckets = {
 
 // Keep the ordered lifecycle phases as separate histograms so long boot times do not flatten
 // short handoffs. Assignment is the only phase with a surface dimension.
-export const provisionedRunnerCreatedToControlSessionDuration =
+export const providerRunnerCreatedToControlSessionDuration =
   meter.createHistogram<ProviderRunnerLifecycleLabels>(
-    'runners_provisioned_runner_created_to_control_session_seconds',
+    'runners_provider_runner_created_to_control_session_seconds',
     {
       description: 'Provisioned runner row creation to control-session creation duration',
       unit: 's',
@@ -46,9 +45,9 @@ export const provisionedRunnerCreatedToControlSessionDuration =
     },
   );
 
-export const provisionedRunnerControlSessionToAssignmentDuration =
+export const providerRunnerControlSessionToAssignmentDuration =
   meter.createHistogram<ProviderRunnerAssignmentLifecycleLabels>(
-    'runners_provisioned_runner_control_session_to_assignment_seconds',
+    'runners_provider_runner_control_session_to_assignment_seconds',
     {
       description: 'Provisioned runner control-session creation to reservation assignment duration',
       unit: 's',
@@ -56,9 +55,9 @@ export const provisionedRunnerControlSessionToAssignmentDuration =
     },
   );
 
-export const provisionedRunnerAssignmentToActivationDuration =
+export const providerRunnerAssignmentToActivationDuration =
   meter.createHistogram<ProviderRunnerLifecycleLabels>(
-    'runners_provisioned_runner_assignment_to_activation_seconds',
+    'runners_provider_runner_assignment_to_activation_seconds',
     {
       description:
         'Provisioned runner reservation assignment to workspace runner-session creation duration',
@@ -67,9 +66,9 @@ export const provisionedRunnerAssignmentToActivationDuration =
     },
   );
 
-export const provisionedRunnerActivationToFirstClaimDuration =
+export const providerRunnerActivationToFirstClaimDuration =
   meter.createHistogram<ProviderRunnerLifecycleLabels>(
-    'runners_provisioned_runner_activation_to_first_claim_seconds',
+    'runners_provider_runner_activation_to_first_claim_seconds',
     {
       description:
         'Provisioned runner workspace runner-session creation to first job claim duration',
@@ -78,10 +77,10 @@ export const provisionedRunnerActivationToFirstClaimDuration =
     },
   );
 
-export const provisionedRunnerAssignmentRejectedCount = meter.createCounter<{
+export const providerRunnerAssignmentRejectedCount = meter.createCounter<{
   reason: RunnerAssignmentRejectionReason;
   surface: RunnerAssignmentSurface;
-}>('runners_provisioned_runner_assignment_rejected', {
+}>('runners_provider_runner_assignment_rejected', {
   description: 'Provisioned runner assignment operations rejected by bounded reason and surface',
 });
 
@@ -244,27 +243,27 @@ function resolveProviderRunnerMetricProvider(params: {
     {runnerInstanceId: params.runnerInstanceId},
     'Provisioned runner metric missing provider kind',
   );
-  return UNKNOWN_PROVISIONED_RUNNER_PROVIDER;
+  return UNKNOWN_PROVIDER_RUNNER_PROVIDER;
 }
 
-export function recordProvisionedRunnerCreatedToControlSession(
-  params: ProvisionedRunnerLifecycleObservation,
+export function recordProviderRunnerCreatedToControlSession(
+  params: ProviderRunnerLifecycleObservation,
 ): void {
   if (params.durationSeconds < 0) return;
   recordMetric(() =>
-    provisionedRunnerCreatedToControlSessionDuration.record(params.durationSeconds, {
+    providerRunnerCreatedToControlSessionDuration.record(params.durationSeconds, {
       provider: resolveProviderRunnerMetricProvider(params),
       launch_kind: params.launchKind,
     }),
   );
 }
 
-export function recordProvisionedRunnerControlSessionToAssignment(
-  params: ProvisionedRunnerAssignmentObservation,
+export function recordProviderRunnerControlSessionToAssignment(
+  params: ProviderRunnerAssignmentObservation,
 ): void {
   if (params.durationSeconds < 0) return;
   recordMetric(() =>
-    provisionedRunnerControlSessionToAssignmentDuration.record(params.durationSeconds, {
+    providerRunnerControlSessionToAssignmentDuration.record(params.durationSeconds, {
       provider: resolveProviderRunnerMetricProvider(params),
       launch_kind: params.launchKind,
       surface: params.surface,
@@ -272,35 +271,35 @@ export function recordProvisionedRunnerControlSessionToAssignment(
   );
 }
 
-export function recordProvisionedRunnerAssignmentToActivation(
-  params: ProvisionedRunnerLifecycleObservation,
+export function recordProviderRunnerAssignmentToActivation(
+  params: ProviderRunnerLifecycleObservation,
 ): void {
   if (params.durationSeconds < 0) return;
   recordMetric(() =>
-    provisionedRunnerAssignmentToActivationDuration.record(params.durationSeconds, {
+    providerRunnerAssignmentToActivationDuration.record(params.durationSeconds, {
       provider: resolveProviderRunnerMetricProvider(params),
       launch_kind: params.launchKind,
     }),
   );
 }
 
-export function recordProvisionedRunnerActivationToFirstClaim(
-  params: ProvisionedRunnerLifecycleObservation,
+export function recordProviderRunnerActivationToFirstClaim(
+  params: ProviderRunnerLifecycleObservation,
 ): void {
   if (params.durationSeconds < 0) return;
   recordMetric(() =>
-    provisionedRunnerActivationToFirstClaimDuration.record(params.durationSeconds, {
+    providerRunnerActivationToFirstClaimDuration.record(params.durationSeconds, {
       provider: resolveProviderRunnerMetricProvider(params),
       launch_kind: params.launchKind,
     }),
   );
 }
 
-export function recordProvisionedRunnerAssignmentRejected(params: {
+export function recordProviderRunnerAssignmentRejected(params: {
   reason: RunnerAssignmentRejectionReason;
   surface: RunnerAssignmentSurface;
 }): void {
-  recordMetric(() => provisionedRunnerAssignmentRejectedCount.add(1, params));
+  recordMetric(() => providerRunnerAssignmentRejectedCount.add(1, params));
 }
 
 export function recordRunnerReservationPromotionFailure(

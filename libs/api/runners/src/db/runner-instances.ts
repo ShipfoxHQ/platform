@@ -375,25 +375,23 @@ export async function countStaleEnrolledRunnerInstances(params: {
   return row?.count ?? 0;
 }
 
-export type ProvisionedRunnerPendingPhase =
+export type ProviderRunnerPendingPhase =
   | 'control_session'
   | 'enrollment'
   | 'assignment'
   | 'activation'
   | 'idle';
 
-export interface ProvisionedRunnerPendingMetric {
-  phase: ProvisionedRunnerPendingPhase;
+export interface ProviderRunnerPendingMetric {
+  phase: ProviderRunnerPendingPhase;
   provider: string;
   launchKind: 'demand' | 'warm' | 'manual';
   count: number;
   oldestAgeSeconds: number;
 }
 
-export async function listProvisionedRunnerPendingMetrics(): Promise<
-  ProvisionedRunnerPendingMetric[]
-> {
-  const phase = sql<ProvisionedRunnerPendingPhase>`case
+export async function listProviderRunnerPendingMetrics(): Promise<ProviderRunnerPendingMetric[]> {
+  const phase = sql<ProviderRunnerPendingPhase>`case
     when ${runnerControlSessions.id} is null then 'control_session'
     when ${providerRunners.state} <> 'running' then 'enrollment'
     when ${providerRunners.intendedReservationId} is not null
