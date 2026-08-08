@@ -159,11 +159,12 @@ export function skippedJobDescription(reason: Job['statusReason']): string {
     case 'run_cancelled':
     case 'timed_out':
     case 'runner_lost':
-    case 'output_too_large':
     case 'step_failed':
     case 'unknown':
     case null:
       return 'This job did not start.';
+    case 'output_too_large':
+      return 'The materialized job output exceeded its configured size limit.';
   }
 }
 

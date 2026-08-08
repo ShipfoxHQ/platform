@@ -3,7 +3,7 @@ import {
   workflowJobExecutionDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
-import {jobSucceededSummary} from './job-empty-states.js';
+import {jobSucceededSummary, skippedJobDescription} from './job-empty-states.js';
 
 describe('jobSucceededSummary', () => {
   test('counts only succeeded steps when skipped steps are present', () => {
@@ -23,5 +23,13 @@ describe('jobSucceededSummary', () => {
     if (!execution) throw new Error('Expected a job execution');
 
     expect(jobSucceededSummary(job, execution)).toBe('1 step succeeded');
+  });
+});
+
+describe('skippedJobDescription', () => {
+  test('explains when materialized output exceeds the configured size limit', () => {
+    expect(skippedJobDescription('output_too_large')).toBe(
+      'The materialized job output exceeded its configured size limit.',
+    );
   });
 });
