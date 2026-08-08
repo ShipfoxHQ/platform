@@ -1,7 +1,7 @@
 [Unit]
 Description=Shipfox platform runner
-After=cloud-final.service shipfox-runner-env.service
-Wants=cloud-final.service
+After=network-online.target shipfox-runner-env.service
+Wants=network-online.target
 Requires=shipfox-runner-env.service
 SuccessAction=poweroff-immediate
 FailureAction=poweroff-immediate
@@ -22,4 +22,4 @@ StandardError=journal
 SyslogIdentifier=shipfox-runner
 
 [Install]
-WantedBy=cloud-init.target
+WantedBy=multi-user.target

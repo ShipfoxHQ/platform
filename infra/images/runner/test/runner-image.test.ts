@@ -843,7 +843,7 @@ describe('spot watchdog runtime script', () => {
 });
 
 describe('systemd boot activation', () => {
-  it('activates every installable Shipfox service after cloud-init', async () => {
+  it('activates every installable Shipfox service after network readiness', async () => {
     const assets = new URL('../assets/', import.meta.url);
     const unitNames = (await readdir(assets)).filter((name) => name.endsWith('.service'));
 
@@ -851,7 +851,21 @@ describe('systemd boot activation', () => {
       const unit = await readFile(new URL(unitName, assets), 'utf8');
       if (!unit.includes('[Install]')) continue;
 
-      expect(unit, unitName).toContain('WantedBy=cloud-init.target');
+      expect(unit, unitName).toContain('After=network-online.target');
+      expect(unit, unitName).toContain('Wants=network-online.target');
+      expect(unit, unitName).toContain('WantedBy=multi-user.target');
+      expect(unit, unitName).not.toContain('cloud-final.service');
     }
+  });
+
+  it('validates runner environment after cloud-config without waiting for cloud-final', async () => {
+    const unit = await readFile(
+      new URL('../assets/shipfox-runner-env.service', import.meta.url),
+      'utf8',
+    );
+
+    expect(unit).toContain('After=network-online.target cloud-config.service');
+    expect(unit).toContain('Wants=network-online.target cloud-config.service');
+    expect(unit).not.toContain('cloud-final.service');
   });
 });

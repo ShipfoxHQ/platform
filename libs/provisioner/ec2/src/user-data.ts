@@ -34,8 +34,8 @@ interface RunnerBootstrapEnvironment {
 
 /**
  * Renders the cloud-init configuration consumed by the prebaked Shipfox runner image.
- * The runner image starts its systemd units after cloud-init and reads the environment
- * file written here. No workspace-scoped credential is included.
+ * The image's environment gate waits for cloud-config to write this file before lifecycle
+ * units start from the network-ready multi-user target. No workspace-scoped credential is included.
  */
 export function renderRunnerBootstrapUserData(options: RunnerBootstrapUserDataOptions): string {
   const environment = runnerBootstrapEnvironment(options);

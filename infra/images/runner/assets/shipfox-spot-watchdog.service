@@ -10,4 +10,4 @@ Restart=always
 RestartSec=5s
 
 [Install]
-WantedBy=cloud-init.target
+WantedBy=multi-user.target

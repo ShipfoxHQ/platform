@@ -1,7 +1,7 @@
 [Unit]
 Description=Validate Shipfox runner environment file
-After=cloud-final.service
-Wants=cloud-final.service
+After=network-online.target cloud-config.service
+Wants=network-online.target cloud-config.service
 
 [Service]
 Type=oneshot
