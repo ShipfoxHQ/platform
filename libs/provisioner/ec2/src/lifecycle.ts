@@ -159,9 +159,6 @@ async function launchRunner(
       spotMaxPrice: launch.template.spec.spotMaxPrice,
       subnetId: selectSubnet(launch),
       securityGroupIds: launch.template.spec.securityGroups,
-      ...(launch.template.spec.iamInstanceProfile
-        ? {iamInstanceProfile: launch.template.spec.iamInstanceProfile}
-        : {}),
       associatePublicIp: launch.template.spec.associatePublicIp,
       rootVolumeGb: launch.template.spec.rootVolumeGb,
       rootDeviceName: launch.template.spec.rootDeviceName,

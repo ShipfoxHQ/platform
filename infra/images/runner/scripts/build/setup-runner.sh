@@ -5,6 +5,10 @@ apt-get update
 apt-get install --yes --no-install-recommends \
   ca-certificates curl wget git openssh-client tar gzip xz-utils bzip2 zip unzip jq \
   build-essential python3 pkg-config ripgrep fd-find sudo amazon-ec2-utils
+# Runner instances have no host-management credentials. Remove snapd and its seeded
+# snaps instead of carrying a failed host-management path into every boot.
+apt-get purge --yes snapd
+rm -rf /var/lib/snapd /snap
 rm -rf /var/lib/apt/lists/*
 
 ln -sf "$(command -v fdfind)" /usr/local/bin/fd

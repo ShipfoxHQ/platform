@@ -6,14 +6,10 @@ import {fileURLToPath} from 'node:url';
 import {MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import {Ec2TemplateConfigError, loadEc2Templates} from '#templates.js';
 
-const observability = vi.hoisted(() => ({logger: {warn: vi.fn()}}));
-vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logger}));
-
 let dir: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'provisioner-ec2-'));
-  observability.logger.warn.mockReset();
 });
 
 afterEach(() => {
@@ -70,7 +66,6 @@ templates:
     spot_max_price: 0.05
     subnets: [subnet-aaa, subnet-bbb]
     security_groups: [sg-runner]
-    iam_instance_profile: shipfox-runner
     associate_public_ip: false
     root_volume_gb: 100
     workspace_volume_gb: 100
@@ -146,7 +141,6 @@ describe('loadEc2Templates', () => {
           spotMaxPrice: 0.05,
           subnets: ['subnet-aaa', 'subnet-bbb'],
           securityGroups: ['sg-runner'],
-          iamInstanceProfile: 'shipfox-runner',
           associatePublicIp: false,
           rootVolumeGb: 100,
           rootDeviceName: '/dev/sda1',
@@ -176,28 +170,10 @@ describe('loadEc2Templates', () => {
     ]);
   });
 
-  it('warns when a template has no IAM instance profile', () => {
-    const path = writeTemplates(template());
-
-    loadEc2Templates(path);
-
-    expect(observability.logger.warn).toHaveBeenCalledWith(
-      {
-        event: 'provisioner.ec2_template_missing_iam_instance_profile',
-        filePath: path,
-        templateKey: 't',
-        capability: 'host_debugging_over_aws_systems_manager',
-      },
-      'EC2 template "t" has no IAM instance profile; host debugging over AWS Systems Manager is unavailable',
-    );
-  });
-
-  it('does not warn when a template has an IAM instance profile', () => {
+  it('rejects IAM instance profiles because runner instances must not carry AWS credentials', () => {
     const path = writeTemplates(template({}, '    iam_instance_profile: shipfox-runner\n'));
 
-    loadEc2Templates(path);
-
-    expect(observability.logger.warn).not.toHaveBeenCalled();
+    expect(() => loadEc2Templates(path)).toThrow('iam_instance_profile');
   });
 
   it('accepts a null spot price', () => {
@@ -267,12 +243,6 @@ describe('loadEc2Templates', () => {
     const path = writeTemplates(template(override));
 
     expect(() => loadEc2Templates(path)).toThrow(field);
-  });
-
-  it('throws when iam_instance_profile is blank', () => {
-    const path = writeTemplates(template({}, '    iam_instance_profile: "   "\n'));
-
-    expect(() => loadEc2Templates(path)).toThrow('iam_instance_profile');
   });
 
   it('throws when root_device_name is blank', () => {

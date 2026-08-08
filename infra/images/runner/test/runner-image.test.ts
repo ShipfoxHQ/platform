@@ -1097,6 +1097,19 @@ UUID=data /data ext4 defaults 0 2
   });
 });
 
+describe('runner image composition', () => {
+  it('purges snapd and its seeded SSM agent from the image', async () => {
+    const setup = await readFile(
+      new URL('../scripts/build/setup-runner.sh', import.meta.url),
+      'utf8',
+    );
+
+    expect(setup).toContain('apt-get purge --yes snapd');
+    expect(setup).toContain('rm -rf /var/lib/snapd /snap');
+    expect(setup).not.toContain('amazon-ssm-agent');
+  });
+});
+
 async function createBootFixture(fstab: string) {
   const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-boot-'));
   const commandDirectory = join(root, 'commands');

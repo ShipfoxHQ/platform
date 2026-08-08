@@ -43,7 +43,6 @@ defaults:
   labels: [ec2]
   subnets: [subnet-general-a, subnet-general-b]
   security_groups: [sg-runner]
-  iam_instance_profile: shipfox-runner
   associate_public_ip: false
   root_volume_gb: 30
   root_device_name: /dev/sda1
@@ -93,11 +92,12 @@ Loading fails fast with a clear, file-scoped error on a missing file, malformed 
 invalid or unknown field, an unusable label, or an empty template set. Labels are
 canonicalized with the shared runner-label rules.
 
-`iam_instance_profile` is the IAM instance-profile name, not its ARN. For Spot templates,
-`spot_max_price: null` caps the request at the on-demand price and is the recommended
-default. Set `cost` to an explicit unitless ranking where lower values win template
-selection. Give a Spot template a lower cost than its on-demand equivalent so the planner
-prefers Spot before spilling to on-demand capacity.
+Runner instances deliberately do not accept an IAM instance profile: job code has passwordless
+root and unrestricted access to IMDS, so an instance profile would expose its credentials to the
+job. Host access uses EC2 Instance Connect. For Spot templates, `spot_max_price: null` caps the
+request at the on-demand price and is the recommended default. Set `cost` to an explicit unitless
+ranking where lower values win template selection. Give a Spot template a lower cost than its
+on-demand equivalent so the planner prefers Spot before spilling to on-demand capacity.
 
 `root_volume_gb` is the boot volume size. `workspace_volume_gb` is a separate, encrypted gp3
 volume created for per-job checkouts, logs, and credentials. The provider deletes both
