@@ -1640,6 +1640,38 @@ describe('materializeJobOutputs', () => {
     expect(materialize).toThrow(JobOutputTooLargeError);
   });
 
+  it('accepts values up to the per-value cap', () => {
+    const payload = 'x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES);
+    const job = outputJob({payload: template('steps.collect.outputs.payload')});
+
+    const result = materializeJobOutputs({
+      job,
+      context: outputContext({payload}),
+      definitionId: 'definition-1',
+    });
+
+    expect(result).toEqual({payload});
+  });
+
+  it('accepts output totals above the previous cap', () => {
+    const keys = ['one', 'two', 'three'];
+    const outputs = Object.fromEntries(
+      keys.map((key) => [key, template(`steps.collect.outputs.${key}`)]),
+    );
+    const values = Object.fromEntries(
+      keys.map((key) => [key, 'x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES)]),
+    );
+    const job = outputJob(outputs);
+
+    const result = materializeJobOutputs({
+      job,
+      context: outputContext(values),
+      definitionId: 'definition-1',
+    });
+
+    expect(result).toEqual(values);
+  });
+
   it('rejects the total materialized job output cap', () => {
     const keys = ['one', 'two', 'three', 'four', 'five'];
     const outputs = Object.fromEntries(
