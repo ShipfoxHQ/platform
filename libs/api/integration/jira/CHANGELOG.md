@@ -1,5 +1,11 @@
 # @shipfox/api-integration-jira
 
+## 12.4.0
+
+### Patch Changes
+
+- a566809: Registers Jira dynamic webhooks with a non-empty all-issues JQL filter.
+
 ## 12.3.0
 
 ### Minor Changes

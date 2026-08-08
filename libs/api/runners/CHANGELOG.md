@@ -1,5 +1,27 @@
 # @shipfox/api-runners
 
+## 12.4.0
+
+### Minor Changes
+
+- 9e16946: Runners are enrolled only when the reservation still has capacity, and partial-enrollment errors now report reservation shortfalls separately from launch grants.
+- 4fa8526: Adds opt-in reconciliation data so provisioners can retry intended reservation assignments.
+
+### Patch Changes
+
+- 99d798e: Repairs provider-reported runner assignments before activation and preserves reservation capacity during retries.
+- c98cd02: Deduct only pending launch units from provisioner capacity across reservation polls.
+- 67cc90d: Avoid provisional bound reservation writes when no runner can be rebound.
+- 2dbe43b: Split rebound and launch reservations so rebinding an idle runner does not create duplicate launch capacity.
+- e930624: Adds low-cardinality metrics and debug logs that identify why runner activation token issuance stops.
+- 57a6407: Reclaims demand-backed runners that never activate after their independent recovery window expires.
+- e41fc8d: Require provisioner reservation token and assignment flows to use launch reservations.
+- 0c2cee4: Align demand polling and reservation cleanup runner row lock ordering.
+  Recheck runner eligibility before binding after row-lock acquisition.
+- Updated dependencies [9e16946]
+- Updated dependencies [4fa8526]
+  - @shipfox/api-runners-dto@12.4.0
+
 ## 12.3.0
 
 ### Patch Changes

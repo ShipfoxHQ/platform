@@ -1,5 +1,14 @@
 # @shipfox/runner-orchestration
 
+## 0.1.22
+
+### Patch Changes
+
+- @shipfox/runner-agent@0.2.7
+- @shipfox/runner-protocol@0.2.14
+- @shipfox/runner-execution@0.1.20
+- @shipfox/runner-logs@0.1.20
+
 ## 0.1.21
 
 ### Patch Changes
