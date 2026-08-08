@@ -5,6 +5,10 @@ import {
   RunnerInstanceAlreadyAssignedError,
   RunnerInstanceNotAssignableError,
 } from '#core/errors.js';
+import {
+  type RunnerAssignmentSurface,
+  recordProviderRunnerControlSessionToAssignment,
+} from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
@@ -19,7 +23,9 @@ export async function assignRunnerInstances(params: {
   reservationId: string;
   runnerInstanceIds: string[];
 }): Promise<string[]> {
-  return await db().transaction(async (tx) => assignRunnerInstancesTx(tx, params));
+  return await db().transaction(async (tx) =>
+    assignRunnerInstancesTx(tx, {...params, surface: 'provisioner'}),
+  );
 }
 
 export async function assignRunnerInstancesTx(
@@ -28,8 +34,10 @@ export async function assignRunnerInstancesTx(
     provisionerId: string;
     reservationId: string;
     runnerInstanceIds: string[];
+    surface?: RunnerAssignmentSurface;
   },
 ): Promise<string[]> {
+  const surface = params.surface ?? 'provisioner';
   const runnerInstanceIds = [...params.runnerInstanceIds].sort();
   await lockRunnerReservationAdvisoryKeysTx(tx, {
     provisionerId: params.provisionerId,
@@ -43,6 +51,8 @@ export async function assignRunnerInstancesTx(
       workspaceId: providerRunners.workspaceId,
       assignedAt: providerRunners.assignedAt,
       providerRunnerId: providerRunners.providerRunnerId,
+      provider: providerRunners.providerKind,
+      launchKind: providerRunners.launchKind,
       labels: providerRunners.labels,
       state: providerRunners.state,
     })
@@ -94,10 +104,13 @@ export async function assignRunnerInstancesTx(
   if (!reservation) throw new ReservationNotFoundError(params.reservationId);
   if (reservation.expiresAt <= new Date()) throw new ReservationExpiredError(params.reservationId);
   if (runnerRows.length !== runnerInstanceIds.length)
-    throw new RunnerInstanceNotAssignableError(runnerInstanceIds[0] ?? '');
+    throw new RunnerInstanceNotAssignableError(runnerInstanceIds[0] ?? '', 'runner-not-found');
 
   const activeControlSessions = await tx
-    .select({runnerInstanceId: runnerControlSessions.runnerInstanceId})
+    .select({
+      runnerInstanceId: runnerControlSessions.runnerInstanceId,
+      createdAt: runnerControlSessions.createdAt,
+    })
     .from(runnerControlSessions)
     .where(
       and(
@@ -111,9 +124,13 @@ export async function assignRunnerInstancesTx(
   const runnerInstanceIdsWithControlSession = new Set(
     activeControlSessions.map((session) => session.runnerInstanceId),
   );
+  const controlSessionCreatedAtByRunner = new Map(
+    activeControlSessions.map((session) => [session.runnerInstanceId, session.createdAt]),
+  );
   const runners = runnerRows.map((runner) => ({
     ...runner,
     controlSessionId: runnerInstanceIdsWithControlSession.has(runner.id) ? runner.id : null,
+    controlSessionCreatedAt: controlSessionCreatedAtByRunner.get(runner.id) ?? null,
   }));
 
   const alreadyAssigned = runners.filter((runner) => runner.reservationId !== null);
@@ -147,18 +164,19 @@ export async function assignRunnerInstancesTx(
       ),
     );
   if ((assignedCount[0]?.count ?? 0) + newRunners.length > reservation.count)
-    throw new RunnerInstanceNotAssignableError(newRunners[0]?.id ?? '');
+    throw new RunnerInstanceNotAssignableError(newRunners[0]?.id ?? '', 'capacity-exhausted');
   for (const runner of newRunners) {
-    if (
-      runner.state !== 'running' ||
-      !runner.providerRunnerId ||
-      !runner.controlSessionId ||
-      !reservation.requiredLabels.every((label) => runner.labels.includes(label))
-    )
-      throw new RunnerInstanceNotAssignableError(runner.id);
+    if (runner.state !== 'running')
+      throw new RunnerInstanceNotAssignableError(runner.id, 'runner-not-running');
+    if (!runner.providerRunnerId)
+      throw new RunnerInstanceNotAssignableError(runner.id, 'provider-identity-missing');
+    if (!runner.controlSessionId)
+      throw new RunnerInstanceNotAssignableError(runner.id, 'control-session-not-active');
+    if (!reservation.requiredLabels.every((label) => runner.labels.includes(label)))
+      throw new RunnerInstanceNotAssignableError(runner.id, 'labels-mismatch');
   }
   if (newRunners.length > 0) {
-    await tx
+    const assignedRows = await tx
       .update(providerRunners)
       .set({
         workspaceId: reservation.workspaceId,
@@ -172,7 +190,20 @@ export async function assignRunnerInstancesTx(
           providerRunners.id,
           newRunners.map((runner) => runner.id),
         ),
-      );
+      )
+      .returning({id: providerRunners.id, assignedAt: providerRunners.assignedAt});
+    const runnersById = new Map(newRunners.map((runner) => [runner.id, runner]));
+    for (const assigned of assignedRows) {
+      const runner = runnersById.get(assigned.id);
+      const controlSessionCreatedAt = runner?.controlSessionCreatedAt;
+      if (!runner || !assigned.assignedAt || !controlSessionCreatedAt) continue;
+      recordProviderRunnerControlSessionToAssignment({
+        durationMs: assigned.assignedAt.getTime() - controlSessionCreatedAt.getTime(),
+        provider: runner.provider ?? 'unknown',
+        launchKind: runner.launchKind,
+        surface,
+      });
+    }
   }
   return params.runnerInstanceIds;
 }

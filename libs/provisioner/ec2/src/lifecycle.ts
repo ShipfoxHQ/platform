@@ -422,19 +422,18 @@ async function assignEnrolledReservations(
         candidates: assignmentCandidates,
         select: (candidate) => candidate.canonicalReservationId,
       });
-      logger().warn(
-        {
-          reservationId,
-          runnerInstanceIds,
-          observedReservationIds,
-          canonicalReservationIds,
-          err: error,
-          status,
-          ...(code ? {code} : {}),
-          retryable: !disposition.permanent,
-        },
-        disposition.message,
-      );
+      const details = {
+        reservationId,
+        runnerInstanceIds,
+        observedReservationIds,
+        canonicalReservationIds,
+        err: error,
+        status,
+        ...(code ? {code} : {}),
+        retryable: !disposition.permanent,
+      };
+      if (disposition.level === 'debug') logger().debug(details, disposition.message);
+      else logger().warn(details, disposition.message);
     }
   }
 }
@@ -485,27 +484,31 @@ function pruneSuppressedReservationRunners(
 function assignmentFailureDisposition(params: {
   status: number | undefined;
   code: string | undefined;
-}): {permanent: boolean; message: string} {
+}): {permanent: boolean; level: 'debug' | 'warn'; message: string} {
   if (params.status === 404) {
     return {
       permanent: true,
+      level: 'warn',
       message: 'Reservation assignment stopped because reservation was released',
     };
   }
   if (params.status === 409 && params.code === RESERVATION_EXPIRED_ERROR_CODE) {
     return {
       permanent: true,
+      level: 'warn',
       message: 'Reservation assignment stopped because reservation expired',
     };
   }
   if (params.status === 409 && params.code === RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE) {
     return {
       permanent: false,
-      message: 'Reservation assignment rejected; will retry',
+      level: 'debug',
+      message: 'Reservation assignment pending; will retry',
     };
   }
   return {
     permanent: false,
+    level: 'warn',
     message: 'Reservation assignment rejected; will retry',
   };
 }

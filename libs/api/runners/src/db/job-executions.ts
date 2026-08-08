@@ -29,7 +29,11 @@ import {
   RunnerSessionExhaustedError,
   RunningJobExecutionNotFoundError,
 } from '#core/errors.js';
-import {jobExecutionEnqueuedCount, jobExecutionLeaseExpiredCount} from '#metrics/instance.js';
+import {
+  jobExecutionEnqueuedCount,
+  jobExecutionLeaseExpiredCount,
+  recordProviderRunnerActivationToFirstClaim,
+} from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {runnersOutbox} from './schema/outbox.js';
@@ -297,13 +301,37 @@ export async function claimPendingJobExecution(params: {
           )
         : null;
     if (runnerInstanceCondition) {
-      await tx
+      const [firstClaimedRunner] = await tx
         .update(providerRunners)
         .set({
           firstClaimedAt: sql`coalesce(${providerRunners.firstClaimedAt}, ${claimed.claimedAt})`,
           updatedAt: sql`now()`,
         })
-        .where(runnerInstanceCondition);
+        .where(and(runnerInstanceCondition, isNull(providerRunners.firstClaimedAt)))
+        .returning({
+          firstClaimedAt: providerRunners.firstClaimedAt,
+          provider: providerRunners.providerKind,
+          launchKind: providerRunners.launchKind,
+        });
+      if (firstClaimedRunner) {
+        const [session] = await tx
+          .select({createdAt: runnerSessions.createdAt})
+          .from(runnerSessions)
+          .where(eq(runnerSessions.id, params.runnerSessionId))
+          .limit(1);
+        if (session && firstClaimedRunner.firstClaimedAt)
+          recordProviderRunnerActivationToFirstClaim({
+            durationMs: firstClaimedRunner.firstClaimedAt.getTime() - session.createdAt.getTime(),
+            provider: firstClaimedRunner.provider ?? 'unknown',
+            launchKind: firstClaimedRunner.launchKind,
+          });
+      } else {
+        // Preserve the liveness timestamp for later claims after the first-claim milestone.
+        await tx
+          .update(providerRunners)
+          .set({updatedAt: sql`now()`})
+          .where(runnerInstanceCondition);
+      }
     }
 
     if (params.maxClaims !== null) {

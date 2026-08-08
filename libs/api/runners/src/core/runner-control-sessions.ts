@@ -5,6 +5,7 @@ import {extractDisplayPrefix, generateOpaqueToken, hashOpaqueToken} from '@shipf
 import {and, eq, gt, isNull, notInArray, or, sql} from 'drizzle-orm';
 import {config} from '#config.js';
 import {
+  getRunnerAssignmentRejectionReason,
   ReservationExpiredError,
   ReservationNotFoundError,
   RunnerInstanceAlreadyAssignedError,
@@ -22,6 +23,8 @@ import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-co
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {
   type RunnerReservationPromotionFailureReason,
+  recordProviderRunnerAssignmentRejected,
+  recordProviderRunnerCreatedToControlSession,
   recordRunnerReservationCapacityFailure,
   recordRunnerReservationPromotionFailure,
 } from '#metrics/index.js';
@@ -137,7 +140,7 @@ export async function exchangeRunnerBootstrapToken(params: {
 }): Promise<{runnerInstanceId: string; controlSessionToken: string; expiresAt: Date}> {
   const controlSessionToken = generateOpaqueToken('runnerControlSession');
   const expiresAt = new Date(Date.now() + params.ttlSeconds * 1000);
-  return await db().transaction(async (tx) => {
+  const result = await db().transaction(async (tx) => {
     const [bootstrap] = await tx
       .update(runnerBootstrapTokens)
       .set({consumedAt: sql`now()`})
@@ -151,6 +154,20 @@ export async function exchangeRunnerBootstrapToken(params: {
       )
       .returning();
     if (!bootstrap) throw new RunnerBootstrapTokenInvalidError();
+    const [runner] = await tx
+      .select({
+        createdAt: providerRunners.createdAt,
+        provider: providerRunners.providerKind,
+        launchKind: providerRunners.launchKind,
+      })
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.id, bootstrap.runnerInstanceId),
+          eq(providerRunners.provisionerId, bootstrap.provisionerId),
+        ),
+      )
+      .limit(1);
     const [session] = await tx
       .insert(runnerControlSessions)
       .values({
@@ -160,10 +177,27 @@ export async function exchangeRunnerBootstrapToken(params: {
         prefix: extractDisplayPrefix(controlSessionToken),
         expiresAt,
       })
-      .returning({id: runnerControlSessions.id});
+      .returning({createdAt: runnerControlSessions.createdAt});
     if (!session) throw new Error('Runner control session insert returned no row');
-    return {runnerInstanceId: bootstrap.runnerInstanceId, controlSessionToken, expiresAt};
+    return {
+      runner,
+      session,
+      runnerInstanceId: bootstrap.runnerInstanceId,
+      controlSessionToken,
+      expiresAt,
+    };
   });
+  if (result.runner)
+    recordProviderRunnerCreatedToControlSession({
+      durationMs: result.session.createdAt.getTime() - result.runner.createdAt.getTime(),
+      provider: result.runner.provider ?? 'unknown',
+      launchKind: result.runner.launchKind,
+    });
+  return {
+    runnerInstanceId: result.runnerInstanceId,
+    controlSessionToken: result.controlSessionToken,
+    expiresAt: result.expiresAt,
+  };
 }
 
 export async function resolveRunnerControlSession(rawToken: string) {
@@ -274,6 +308,7 @@ export async function enrollRunnerControlSession(params: {
           provisionerId: params.provisionerId,
           reservationId: intendedReservationId,
           runnerInstanceIds: [params.runnerInstanceId],
+          surface: 'enrollment',
         });
         return await issueRunnerActivationTokenTx(promotionTx, {
           runnerInstanceId: params.runnerInstanceId,
@@ -283,6 +318,12 @@ export async function enrollRunnerControlSession(params: {
         });
       });
     } catch (error) {
+      const assignmentRejectionReason = getRunnerAssignmentRejectionReason(error);
+      if (assignmentRejectionReason)
+        recordProviderRunnerAssignmentRejected({
+          reason: assignmentRejectionReason,
+          surface: 'enrollment',
+        });
       const expectedFailureReason = getRunnerReservationPromotionFailureReason(error);
       const details = {
         err: error,

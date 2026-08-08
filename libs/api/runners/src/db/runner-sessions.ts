@@ -3,6 +3,7 @@ import {and, asc, eq, gt, inArray, isNull, lt, notExists, or, sql} from 'drizzle
 import type {RunnerSession} from '#core/entities/runner-session.js';
 import {EmptyRunnerLabelsError} from '#core/errors.js';
 import {sanitizeRunnerLabelsOrThrow} from '#core/runner-labels.js';
+import {recordProviderRunnerAssignmentToActivation} from '#metrics/instance.js';
 import {db} from './db.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
@@ -66,6 +67,9 @@ export async function createRunnerSessionConsumingActivationToken(params: {
         workspaceId: providerRunners.workspaceId,
         provisionerId: providerRunners.provisionerId,
         providerRunnerId: providerRunners.providerRunnerId,
+        assignedAt: providerRunners.assignedAt,
+        provider: providerRunners.providerKind,
+        launchKind: providerRunners.launchKind,
         runnerSessionId: providerRunners.runnerSessionId,
       })
       .from(runnerActivationTokens)
@@ -143,6 +147,12 @@ export async function createRunnerSessionConsumingActivationToken(params: {
           isNull(runnerControlSessions.closedAt),
         ),
       );
+    if (runner.assignedAt)
+      recordProviderRunnerAssignmentToActivation({
+        durationMs: session.createdAt.getTime() - runner.assignedAt.getTime(),
+        provider: runner.provider ?? 'unknown',
+        launchKind: runner.launchKind,
+      });
     return toRunnerSession(session);
   });
 }

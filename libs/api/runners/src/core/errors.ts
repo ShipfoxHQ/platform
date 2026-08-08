@@ -109,18 +109,47 @@ export class ReservationExpiredError extends Error {
   }
 }
 
+export type RunnerInstanceNotAssignableReason =
+  | 'runner-not-found'
+  | 'runner-not-running'
+  | 'provider-identity-missing'
+  | 'control-session-not-active'
+  | 'labels-mismatch'
+  | 'capacity-exhausted';
+
+export type RunnerAssignmentRejectionReason =
+  | 'reservation-not-found'
+  | 'reservation-expired'
+  | 'already-assigned'
+  | RunnerInstanceNotAssignableReason;
+
 export class RunnerInstanceNotAssignableError extends Error {
-  constructor(public readonly runnerInstanceId: string) {
+  constructor(
+    public readonly runnerInstanceId: string,
+    public readonly reason: RunnerInstanceNotAssignableReason,
+  ) {
     super(`Runner instance cannot be assigned: ${runnerInstanceId}`);
     this.name = 'RunnerInstanceNotAssignableError';
   }
 }
+
 export class RunnerInstanceAlreadyAssignedError extends Error {
   constructor(public readonly runnerInstanceId: string) {
     super(`Runner instance is already assigned: ${runnerInstanceId}`);
     this.name = 'RunnerInstanceAlreadyAssignedError';
   }
 }
+
+export function getRunnerAssignmentRejectionReason(
+  error: unknown,
+): RunnerAssignmentRejectionReason | null {
+  if (error instanceof ReservationNotFoundError) return 'reservation-not-found';
+  if (error instanceof ReservationExpiredError) return 'reservation-expired';
+  if (error instanceof RunnerInstanceAlreadyAssignedError) return 'already-assigned';
+  if (error instanceof RunnerInstanceNotAssignableError) return error.reason;
+  return null;
+}
+
 export class ReservationAlreadyAssignedError extends Error {
   constructor(public readonly reservationId: string) {
     super(`Reservation is already assigned: ${reservationId}`);

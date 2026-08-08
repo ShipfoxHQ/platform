@@ -1,6 +1,72 @@
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
+import type {RunnerAssignmentRejectionReason} from '#core/errors.js';
 
 const meter = instanceMetrics.getMeter('runners');
+
+export type RunnerLaunchKind = 'demand' | 'warm' | 'manual';
+export type RunnerAssignmentSurface = 'provisioner' | 'enrollment';
+
+type ProviderRunnerLifecycleLabels = {
+  provider: string;
+  launch_kind: RunnerLaunchKind;
+};
+
+type ProviderRunnerAssignmentLifecycleLabels = ProviderRunnerLifecycleLabels & {
+  surface: RunnerAssignmentSurface;
+};
+
+const lifecycleDurationAdvice = {
+  explicitBucketBoundaries: [
+    100, 500, 1_000, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000, 600_000,
+  ],
+};
+
+export const providerRunnerCreatedToControlSessionDuration =
+  meter.createHistogram<ProviderRunnerLifecycleLabels>(
+    'runners_provider_runner_created_to_control_session',
+    {
+      description: 'Provisioned runner row creation to control-session creation duration',
+      unit: 'ms',
+      advice: lifecycleDurationAdvice,
+    },
+  );
+
+export const providerRunnerControlSessionToAssignmentDuration =
+  meter.createHistogram<ProviderRunnerAssignmentLifecycleLabels>(
+    'runners_provider_runner_control_session_to_assignment',
+    {
+      description: 'Runner control-session creation to reservation assignment duration',
+      unit: 'ms',
+      advice: lifecycleDurationAdvice,
+    },
+  );
+
+export const providerRunnerAssignmentToActivationDuration =
+  meter.createHistogram<ProviderRunnerLifecycleLabels>(
+    'runners_provider_runner_assignment_to_activation',
+    {
+      description: 'Reservation assignment to workspace runner-session creation duration',
+      unit: 'ms',
+      advice: lifecycleDurationAdvice,
+    },
+  );
+
+export const providerRunnerActivationToFirstClaimDuration =
+  meter.createHistogram<ProviderRunnerLifecycleLabels>(
+    'runners_provider_runner_activation_to_first_claim',
+    {
+      description: 'Workspace runner-session creation to first job claim duration',
+      unit: 'ms',
+      advice: lifecycleDurationAdvice,
+    },
+  );
+
+export const providerRunnerAssignmentRejectedCount = meter.createCounter<{
+  reason: RunnerAssignmentRejectionReason;
+  surface: RunnerAssignmentSurface;
+}>('runners_provider_runner_assignment_rejected', {
+  description: 'Provisioned runner assignment operations rejected by bounded reason and surface',
+});
 
 export const jobExecutionEnqueuedCount = meter.createCounter<Record<string, never>>(
   'runners_job_execution_enqueued',
@@ -150,6 +216,71 @@ function recordMetric(record: () => void): void {
   } catch {
     // Metrics must not affect runner or provisioner request outcomes.
   }
+}
+
+export function recordProviderRunnerCreatedToControlSession(params: {
+  durationMs: number;
+  provider: string;
+  launchKind: RunnerLaunchKind;
+}): void {
+  if (params.durationMs < 0) return;
+  recordMetric(() =>
+    providerRunnerCreatedToControlSessionDuration.record(params.durationMs, {
+      provider: params.provider,
+      launch_kind: params.launchKind,
+    }),
+  );
+}
+
+export function recordProviderRunnerControlSessionToAssignment(params: {
+  durationMs: number;
+  provider: string;
+  launchKind: RunnerLaunchKind;
+  surface: RunnerAssignmentSurface;
+}): void {
+  if (params.durationMs < 0) return;
+  recordMetric(() =>
+    providerRunnerControlSessionToAssignmentDuration.record(params.durationMs, {
+      provider: params.provider,
+      launch_kind: params.launchKind,
+      surface: params.surface,
+    }),
+  );
+}
+
+export function recordProviderRunnerAssignmentToActivation(params: {
+  durationMs: number;
+  provider: string;
+  launchKind: RunnerLaunchKind;
+}): void {
+  if (params.durationMs < 0) return;
+  recordMetric(() =>
+    providerRunnerAssignmentToActivationDuration.record(params.durationMs, {
+      provider: params.provider,
+      launch_kind: params.launchKind,
+    }),
+  );
+}
+
+export function recordProviderRunnerActivationToFirstClaim(params: {
+  durationMs: number;
+  provider: string;
+  launchKind: RunnerLaunchKind;
+}): void {
+  if (params.durationMs < 0) return;
+  recordMetric(() =>
+    providerRunnerActivationToFirstClaimDuration.record(params.durationMs, {
+      provider: params.provider,
+      launch_kind: params.launchKind,
+    }),
+  );
+}
+
+export function recordProviderRunnerAssignmentRejected(params: {
+  reason: RunnerAssignmentRejectionReason;
+  surface: RunnerAssignmentSurface;
+}): void {
+  recordMetric(() => providerRunnerAssignmentRejectedCount.add(1, params));
 }
 
 export function recordRunnerReservationPromotionFailure(
