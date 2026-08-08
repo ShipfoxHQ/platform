@@ -46,6 +46,11 @@ runcmd:
       # name is not present. Never guess when more than one non-root EBS disk exists.
       workspace_device=''
       if [ -b "$workspace_device_name" ]; then
+        workspace_device_type="$(lsblk -ndo TYPE "$workspace_device_name" || true)"
+        if [ "$workspace_device_type" != 'disk' ]; then
+          echo "Configured workspace device $workspace_device_name is not a disk." >&2
+          exit 1
+        fi
         workspace_real_device="$(readlink -f "$workspace_device_name")"
         workspace_model="$(cat "/sys/class/block/$(basename "$workspace_real_device")/device/model" 2>/dev/null || true)"
         case "$workspace_model" in
@@ -67,6 +72,16 @@ runcmd:
       if [ -z "$root_disk" ]; then
         echo 'Unable to identify the root disk.' >&2
         exit 1
+      fi
+      if [ -n "$workspace_device" ]; then
+        workspace_disk="$(lsblk -ndo PKNAME "$workspace_device" || true)"
+        if [ -z "$workspace_disk" ]; then
+          workspace_disk="$(lsblk -ndo NAME "$workspace_device" || true)"
+        fi
+        if [ "$workspace_disk" = "$root_disk" ]; then
+          echo "Configured workspace device $workspace_device_name resolves to the root disk." >&2
+          exit 1
+        fi
       fi
 
       workspace_mapping_tool_available=false
