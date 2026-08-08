@@ -30,15 +30,15 @@ export function registerRunnersServiceMetrics(): void {
     },
   );
   const pendingProvisionedRunners = meter.createObservableGauge<PendingProvisionedRunnerLabels>(
-    'runners_provider_runners_pending',
+    'runners_provisioned_runner_pending',
     {
       description:
-        'Provisioned runners waiting for control-session creation, enrollment, reservation assignment, or activation',
+        'Provisioned runners by lifecycle phase, including idle runners without an active assignment',
     },
   );
   const pendingProvisionedRunnersOldestAge =
     meter.createObservableGauge<PendingProvisionedRunnerLabels>(
-      'runners_provider_runners_pending_oldest_age',
+      'runners_provisioned_runner_pending_oldest_age_seconds',
       {
         description: 'Oldest provisioned runner backlog age by lifecycle phase',
         unit: 's',

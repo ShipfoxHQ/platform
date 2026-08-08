@@ -23,8 +23,9 @@ import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-co
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {
   type RunnerReservationPromotionFailureReason,
-  recordProviderRunnerAssignmentRejected,
-  recordProviderRunnerCreatedToControlSession,
+  recordProvisionedRunnerAssignmentRejected,
+  recordProvisionedRunnerControlSessionToAssignment,
+  recordProvisionedRunnerCreatedToControlSession,
   recordRunnerReservationCapacityFailure,
   recordRunnerReservationPromotionFailure,
 } from '#metrics/index.js';
@@ -156,6 +157,7 @@ export async function exchangeRunnerBootstrapToken(params: {
     if (!bootstrap) throw new RunnerBootstrapTokenInvalidError();
     const [runner] = await tx
       .select({
+        runnerInstanceId: providerRunners.id,
         createdAt: providerRunners.createdAt,
         provider: providerRunners.providerKind,
         launchKind: providerRunners.launchKind,
@@ -188,10 +190,12 @@ export async function exchangeRunnerBootstrapToken(params: {
     };
   });
   if (result.runner)
-    recordProviderRunnerCreatedToControlSession({
-      durationMs: result.session.createdAt.getTime() - result.runner.createdAt.getTime(),
-      provider: result.runner.provider ?? 'unknown',
+    recordProvisionedRunnerCreatedToControlSession({
+      durationSeconds:
+        (result.session.createdAt.getTime() - result.runner.createdAt.getTime()) / 1_000,
+      provider: result.runner.provider,
       launchKind: result.runner.launchKind,
+      runnerInstanceId: result.runner.runnerInstanceId,
     });
   return {
     runnerInstanceId: result.runnerInstanceId,
@@ -229,7 +233,7 @@ export async function enrollRunnerControlSession(params: {
   providerKind: string;
   protocolVersion: string;
 }): Promise<string | null> {
-  return await db().transaction(async (tx) => {
+  const result = await db().transaction(async (tx) => {
     const [current] = await tx
       .select({
         intendedReservationId: providerRunners.intendedReservationId,
@@ -300,30 +304,38 @@ export async function enrollRunnerControlSession(params: {
     await updateRunnerControlSessionLastSeen(tx, params.runnerInstanceId, params.provisionerId);
 
     const intendedReservationId = updated.intendedReservationId;
-    if (!intendedReservationId) return null;
+    if (!intendedReservationId)
+      return {
+        activationToken: null,
+        controlSessionToAssignment: [],
+        assignmentRejectedReason: null,
+        promotionFailureReason: null,
+      };
 
     try {
-      return await tx.transaction(async (promotionTx) => {
-        await assignRunnerInstancesTx(promotionTx, {
+      const promotion = await tx.transaction(async (promotionTx) => {
+        const assignment = await assignRunnerInstancesTx(promotionTx, {
           provisionerId: params.provisionerId,
           reservationId: intendedReservationId,
           runnerInstanceIds: [params.runnerInstanceId],
           surface: 'enrollment',
         });
-        return await issueRunnerActivationTokenTx(promotionTx, {
+        const activationToken = await issueRunnerActivationTokenTx(promotionTx, {
           runnerInstanceId: params.runnerInstanceId,
           provisionerId: params.provisionerId,
           ttlSeconds: config.RUNNER_ACTIVATION_TOKEN_TTL_SECONDS,
           surface: 'enrollment',
         });
+        return {activationToken, controlSessionToAssignment: assignment.controlSessionToAssignment};
       });
+      return {
+        activationToken: promotion.activationToken,
+        controlSessionToAssignment: promotion.controlSessionToAssignment,
+        assignmentRejectedReason: null,
+        promotionFailureReason: null,
+      };
     } catch (error) {
       const assignmentRejectionReason = getRunnerAssignmentRejectionReason(error);
-      if (assignmentRejectionReason)
-        recordProviderRunnerAssignmentRejected({
-          reason: assignmentRejectionReason,
-          surface: 'enrollment',
-        });
       const expectedFailureReason = getRunnerReservationPromotionFailureReason(error);
       const details = {
         err: error,
@@ -332,7 +344,6 @@ export async function enrollRunnerControlSession(params: {
         reservationId: intendedReservationId,
       };
       if (expectedFailureReason) {
-        recordRunnerReservationPromotionFailure(expectedFailureReason);
         logger().debug(details, 'Runner reservation could not be promoted during enrollment');
       } else {
         logger().error(
@@ -340,9 +351,24 @@ export async function enrollRunnerControlSession(params: {
           'Unexpected failure promoting runner reservation during enrollment',
         );
       }
-      return null;
+      return {
+        activationToken: null,
+        controlSessionToAssignment: [],
+        assignmentRejectedReason: assignmentRejectionReason,
+        promotionFailureReason: expectedFailureReason,
+      };
     }
   });
+  for (const observation of result.controlSessionToAssignment)
+    recordProvisionedRunnerControlSessionToAssignment(observation);
+  if (result.assignmentRejectedReason)
+    recordProvisionedRunnerAssignmentRejected({
+      reason: result.assignmentRejectedReason,
+      surface: 'enrollment',
+    });
+  if (result.promotionFailureReason)
+    recordRunnerReservationPromotionFailure(result.promotionFailureReason);
+  return result.activationToken;
 }
 
 function getRunnerReservationPromotionFailureReason(

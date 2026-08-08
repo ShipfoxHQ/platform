@@ -32,7 +32,8 @@ import {
 import {
   jobExecutionEnqueuedCount,
   jobExecutionLeaseExpiredCount,
-  recordProviderRunnerActivationToFirstClaim,
+  type ProvisionedRunnerLifecycleObservation,
+  recordProvisionedRunnerActivationToFirstClaim,
 } from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
@@ -196,7 +197,8 @@ export async function claimPendingJobExecution(params: {
 
   if (params.sessionLabels.length === 0) return null;
 
-  return await db().transaction(async (tx) => {
+  let activationToFirstClaimObservation: ProvisionedRunnerLifecycleObservation | null = null;
+  const result = await db().transaction(async (tx) => {
     let provisionerId: string | null = null;
     let providerRunnerId: string | null = null;
     let runnerInstanceId: string | null = null;
@@ -301,37 +303,37 @@ export async function claimPendingJobExecution(params: {
           )
         : null;
     if (runnerInstanceCondition) {
-      const [firstClaimedRunner] = await tx
+      const [claimedRunner] = await tx
         .update(providerRunners)
         .set({
           firstClaimedAt: sql`coalesce(${providerRunners.firstClaimedAt}, ${claimed.claimedAt})`,
           updatedAt: sql`now()`,
         })
-        .where(and(runnerInstanceCondition, isNull(providerRunners.firstClaimedAt)))
+        .where(runnerInstanceCondition)
         .returning({
           firstClaimedAt: providerRunners.firstClaimedAt,
           provider: providerRunners.providerKind,
           launchKind: providerRunners.launchKind,
+          runnerInstanceId: providerRunners.id,
+          sessionCreatedAtEpochMs: sql<number | null>`(
+            select extract(epoch from ${runnerSessions.createdAt})::double precision * 1000
+            from ${runnerSessions}
+            where ${runnerSessions.id} = ${params.runnerSessionId}
+          )`,
         });
-      if (firstClaimedRunner) {
-        const [session] = await tx
-          .select({createdAt: runnerSessions.createdAt})
-          .from(runnerSessions)
-          .where(eq(runnerSessions.id, params.runnerSessionId))
-          .limit(1);
-        if (session && firstClaimedRunner.firstClaimedAt)
-          recordProviderRunnerActivationToFirstClaim({
-            durationMs: firstClaimedRunner.firstClaimedAt.getTime() - session.createdAt.getTime(),
-            provider: firstClaimedRunner.provider ?? 'unknown',
-            launchKind: firstClaimedRunner.launchKind,
-          });
-      } else {
-        // Preserve the liveness timestamp for later claims after the first-claim milestone.
-        await tx
-          .update(providerRunners)
-          .set({updatedAt: sql`now()`})
-          .where(runnerInstanceCondition);
-      }
+      if (
+        claimedRunner?.firstClaimedAt?.getTime() === claimed.claimedAt.getTime() &&
+        claimedRunner.sessionCreatedAtEpochMs !== null &&
+        claimedRunner.sessionCreatedAtEpochMs !== undefined
+      )
+        activationToFirstClaimObservation = {
+          durationSeconds:
+            (claimedRunner.firstClaimedAt.getTime() - claimedRunner.sessionCreatedAtEpochMs) /
+            1_000,
+          provider: claimedRunner.provider,
+          launchKind: claimedRunner.launchKind,
+          runnerInstanceId: claimedRunner.runnerInstanceId,
+        };
     }
 
     if (params.maxClaims !== null) {
@@ -363,6 +365,9 @@ export async function claimPendingJobExecution(params: {
       projectId: row.projectId,
     };
   });
+  if (activationToFirstClaimObservation)
+    recordProvisionedRunnerActivationToFirstClaim(activationToFirstClaimObservation);
+  return result;
 }
 
 async function touchRunnerSessionLiveness(params: {

@@ -57,6 +57,9 @@ export const providerRunners = pgTable(
       .on(table.provisionerId, table.providerRunnerId)
       .where(sql`${table.providerRunnerId} is not null`),
     index('runners_runner_instances_workspace_state_updated_idx').on(table.state, table.updatedAt),
+    index('runners_runner_instances_pending_metrics_idx')
+      .on(table.state, table.updatedAt)
+      .where(sql`${table.state} in ('starting', 'running') and ${table.runnerSessionId} is null`),
     index('runners_runner_instances_stale_reaper_idx').on(
       table.state,
       table.updatedAt,

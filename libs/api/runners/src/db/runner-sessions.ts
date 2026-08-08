@@ -3,7 +3,10 @@ import {and, asc, eq, gt, inArray, isNull, lt, notExists, or, sql} from 'drizzle
 import type {RunnerSession} from '#core/entities/runner-session.js';
 import {EmptyRunnerLabelsError} from '#core/errors.js';
 import {sanitizeRunnerLabelsOrThrow} from '#core/runner-labels.js';
-import {recordProviderRunnerAssignmentToActivation} from '#metrics/instance.js';
+import {
+  type ProvisionedRunnerLifecycleObservation,
+  recordProvisionedRunnerAssignmentToActivation,
+} from '#metrics/instance.js';
 import {db} from './db.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
@@ -59,7 +62,8 @@ export async function createRunnerSessionConsumingActivationToken(params: {
   labels: string[];
   toolCapabilities?: RunnerToolCapabilitiesDto | null;
 }) {
-  return await db().transaction(async (tx) => {
+  let assignmentToActivationObservation: ProvisionedRunnerLifecycleObservation | null = null;
+  const session = await db().transaction(async (tx) => {
     const [runner] = await tx
       .select({
         activationTokenId: runnerActivationTokens.id,
@@ -148,13 +152,17 @@ export async function createRunnerSessionConsumingActivationToken(params: {
         ),
       );
     if (runner.assignedAt)
-      recordProviderRunnerAssignmentToActivation({
-        durationMs: session.createdAt.getTime() - runner.assignedAt.getTime(),
-        provider: runner.provider ?? 'unknown',
+      assignmentToActivationObservation = {
+        durationSeconds: (session.createdAt.getTime() - runner.assignedAt.getTime()) / 1_000,
+        provider: runner.provider,
         launchKind: runner.launchKind,
-      });
+        runnerInstanceId: runner.runnerInstanceId,
+      };
     return toRunnerSession(session);
   });
+  if (assignmentToActivationObservation)
+    recordProvisionedRunnerAssignmentToActivation(assignmentToActivationObservation);
+  return session;
 }
 
 export interface DeleteExpiredRunnerSessionsParams {

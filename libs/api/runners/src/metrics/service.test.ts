@@ -9,8 +9,9 @@ const mocks = vi.hoisted(() => {
   const gaugeByName = {
     runners_enrolled_without_recent_report: gauges.enrolledRunnersWithoutRecentReport,
     runners_pending_job_executions: gauges.pendingJobExecutions,
-    runners_provider_runners_pending: gauges.pendingProvisionedRunners,
-    runners_provider_runners_pending_oldest_age: gauges.pendingProvisionedRunnersOldestAge,
+    runners_provisioned_runner_pending: gauges.pendingProvisionedRunners,
+    runners_provisioned_runner_pending_oldest_age_seconds:
+      gauges.pendingProvisionedRunnersOldestAge,
     runners_running_job_executions: gauges.runningJobExecutions,
   };
   return {

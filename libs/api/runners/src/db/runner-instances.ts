@@ -379,7 +379,8 @@ export type ProvisionedRunnerPendingPhase =
   | 'control_session'
   | 'enrollment'
   | 'assignment'
-  | 'activation';
+  | 'activation'
+  | 'idle';
 
 export interface ProvisionedRunnerPendingMetric {
   phase: ProvisionedRunnerPendingPhase;
@@ -392,13 +393,13 @@ export interface ProvisionedRunnerPendingMetric {
 export async function listProvisionedRunnerPendingMetrics(): Promise<
   ProvisionedRunnerPendingMetric[]
 > {
-  const phase = sql<ProvisionedRunnerPendingPhase | null>`case
+  const phase = sql<ProvisionedRunnerPendingPhase>`case
     when ${runnerControlSessions.id} is null then 'control_session'
     when ${providerRunners.state} <> 'running' then 'enrollment'
     when ${providerRunners.intendedReservationId} is not null
       and ${providerRunners.workspaceId} is null then 'assignment'
     when ${providerRunners.workspaceId} is not null then 'activation'
-    else null
+    else 'idle'
   end`;
   const startedAt = sql<Date | null>`case
     when ${runnerControlSessions.id} is null then ${providerRunners.createdAt}
@@ -407,7 +408,11 @@ export async function listProvisionedRunnerPendingMetrics(): Promise<
       and ${providerRunners.workspaceId} is null then ${runnerControlSessions.createdAt}
     when ${providerRunners.workspaceId} is not null
       then coalesce(${providerRunners.assignedAt}, ${runnerControlSessions.createdAt})
-    else null
+    else coalesce(
+      ${runnerControlSessions.createdAt},
+      ${providerRunners.assignedAt},
+      ${providerRunners.createdAt}
+    )
   end`;
   const rows = await db()
     .select({
@@ -437,19 +442,13 @@ export async function listProvisionedRunnerPendingMetrics(): Promise<
     )
     .groupBy(phase, providerRunners.providerKind, providerRunners.launchKind);
 
-  return rows.flatMap((row) =>
-    row.phase
-      ? [
-          {
-            phase: row.phase,
-            provider: row.provider,
-            launchKind: row.launchKind,
-            count: row.count,
-            oldestAgeSeconds: Math.max(0, row.oldestAgeSeconds),
-          },
-        ]
-      : [],
-  );
+  return rows.map((row) => ({
+    phase: row.phase,
+    provider: row.provider,
+    launchKind: row.launchKind,
+    count: row.count,
+    oldestAgeSeconds: Math.max(0, row.oldestAgeSeconds),
+  }));
 }
 
 export async function listActiveRunnerInstances(params: {

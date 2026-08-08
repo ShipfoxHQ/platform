@@ -6,8 +6,9 @@ import {
   RunnerInstanceNotAssignableError,
 } from '#core/errors.js';
 import {
+  type ProvisionedRunnerAssignmentObservation,
   type RunnerAssignmentSurface,
-  recordProviderRunnerControlSessionToAssignment,
+  recordProvisionedRunnerControlSessionToAssignment,
 } from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
@@ -23,9 +24,17 @@ export async function assignRunnerInstances(params: {
   reservationId: string;
   runnerInstanceIds: string[];
 }): Promise<string[]> {
-  return await db().transaction(async (tx) =>
+  const result = await db().transaction(async (tx) =>
     assignRunnerInstancesTx(tx, {...params, surface: 'provisioner'}),
   );
+  for (const observation of result.controlSessionToAssignment)
+    recordProvisionedRunnerControlSessionToAssignment(observation);
+  return result.runnerInstanceIds;
+}
+
+interface AssignRunnerInstancesTxResult {
+  runnerInstanceIds: string[];
+  controlSessionToAssignment: ProvisionedRunnerAssignmentObservation[];
 }
 
 export async function assignRunnerInstancesTx(
@@ -34,10 +43,9 @@ export async function assignRunnerInstancesTx(
     provisionerId: string;
     reservationId: string;
     runnerInstanceIds: string[];
-    surface?: RunnerAssignmentSurface;
+    surface: RunnerAssignmentSurface;
   },
-): Promise<string[]> {
-  const surface = params.surface ?? 'provisioner';
+): Promise<AssignRunnerInstancesTxResult> {
   const runnerInstanceIds = [...params.runnerInstanceIds].sort();
   await lockRunnerReservationAdvisoryKeysTx(tx, {
     provisionerId: params.provisionerId,
@@ -86,7 +94,10 @@ export async function assignRunnerInstancesTx(
           inArray(providerRunners.id, runnerInstanceIds),
         ),
       );
-    return params.runnerInstanceIds;
+    return {
+      runnerInstanceIds: params.runnerInstanceIds,
+      controlSessionToAssignment: [],
+    };
   }
 
   const [reservation] = await tx
@@ -193,19 +204,29 @@ export async function assignRunnerInstancesTx(
       )
       .returning({id: providerRunners.id, assignedAt: providerRunners.assignedAt});
     const runnersById = new Map(newRunners.map((runner) => [runner.id, runner]));
+    const controlSessionToAssignment: ProvisionedRunnerAssignmentObservation[] = [];
     for (const assigned of assignedRows) {
       const runner = runnersById.get(assigned.id);
       const controlSessionCreatedAt = runner?.controlSessionCreatedAt;
       if (!runner || !assigned.assignedAt || !controlSessionCreatedAt) continue;
-      recordProviderRunnerControlSessionToAssignment({
-        durationMs: assigned.assignedAt.getTime() - controlSessionCreatedAt.getTime(),
-        provider: runner.provider ?? 'unknown',
+      controlSessionToAssignment.push({
+        durationSeconds:
+          (assigned.assignedAt.getTime() - controlSessionCreatedAt.getTime()) / 1_000,
+        provider: runner.provider,
         launchKind: runner.launchKind,
-        surface,
+        surface: params.surface,
+        runnerInstanceId: runner.id,
       });
     }
+    return {
+      runnerInstanceIds: params.runnerInstanceIds,
+      controlSessionToAssignment,
+    };
   }
-  return params.runnerInstanceIds;
+  return {
+    runnerInstanceIds: params.runnerInstanceIds,
+    controlSessionToAssignment: [],
+  };
 }
 
 export type RunnerReservationCapacityFailureReason =

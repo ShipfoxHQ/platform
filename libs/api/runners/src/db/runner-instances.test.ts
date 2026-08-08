@@ -2594,20 +2594,25 @@ describe('listProvisionedRunnerPendingMetrics', () => {
       assignedAt: old,
     });
     const idleRunnerId = await createRunner({state: 'running', launchKind: 'warm'});
+    const demandIdleRunnerId = await createRunner({state: 'running', launchKind: 'demand'});
 
     await db()
       .insert(runnerControlSessions)
       .values(
-        [enrollmentRunnerId, assignmentRunnerId, activationRunnerId, idleRunnerId].map(
-          (runnerInstanceId) => ({
-            runnerInstanceId,
-            provisionerId,
-            hashedToken: crypto.randomUUID(),
-            prefix: 'metrics-test',
-            expiresAt: new Date(Date.now() + 60_000),
-            createdAt: old,
-          }),
-        ),
+        [
+          enrollmentRunnerId,
+          assignmentRunnerId,
+          activationRunnerId,
+          idleRunnerId,
+          demandIdleRunnerId,
+        ].map((runnerInstanceId) => ({
+          runnerInstanceId,
+          provisionerId,
+          hashedToken: crypto.randomUUID(),
+          prefix: 'metrics-test',
+          expiresAt: new Date(Date.now() + 60_000),
+          createdAt: old,
+        })),
       );
 
     const metrics = await listProvisionedRunnerPendingMetrics();
@@ -2619,9 +2624,11 @@ describe('listProvisionedRunnerPendingMetrics', () => {
         expect.objectContaining({phase: 'enrollment', launchKind: 'warm', count: 1}),
         expect.objectContaining({phase: 'assignment', launchKind: 'demand', count: 1}),
         expect.objectContaining({phase: 'activation', launchKind: 'manual', count: 1}),
+        expect.objectContaining({phase: 'idle', launchKind: 'warm', count: 1}),
+        expect.objectContaining({phase: 'idle', launchKind: 'demand', count: 1}),
       ]),
     );
-    expect(ownMetrics).toHaveLength(4);
+    expect(ownMetrics).toHaveLength(6);
   });
 });
 
