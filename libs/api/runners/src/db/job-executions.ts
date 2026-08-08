@@ -312,6 +312,7 @@ export async function claimPendingJobExecution(params: {
         .where(runnerInstanceCondition)
         .returning({
           firstClaimedAt: providerRunners.firstClaimedAt,
+          isFirstClaim: sql<boolean>`${providerRunners.firstClaimedAt} = ${claimed.claimedAt}`,
           provider: providerRunners.providerKind,
           launchKind: providerRunners.launchKind,
           runnerInstanceId: providerRunners.id,
@@ -322,7 +323,8 @@ export async function claimPendingJobExecution(params: {
           )`,
         });
       if (
-        claimedRunner?.firstClaimedAt?.getTime() === claimed.claimedAt.getTime() &&
+        claimedRunner?.isFirstClaim &&
+        claimedRunner.firstClaimedAt !== null &&
         claimedRunner.sessionCreatedAtEpochMs !== null &&
         claimedRunner.sessionCreatedAtEpochMs !== undefined
       )

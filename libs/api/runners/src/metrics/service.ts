@@ -7,7 +7,7 @@ import {
   type ProvisionedRunnerPendingMetric,
 } from '#db/runner-instances.js';
 
-type PendingProvisionedRunnerLabels = {
+type ProvisionedRunnerPhaseLabels = {
   phase: ProvisionedRunnerPendingMetric['phase'];
   provider: string;
   launch_kind: ProvisionedRunnerPendingMetric['launchKind'];
@@ -29,25 +29,25 @@ export function registerRunnersServiceMetrics(): void {
         'Running enrolled runners with a live control session, no workspace or runner session, and no recent provisioner report after the stale-runner grace window',
     },
   );
-  const pendingProvisionedRunners = meter.createObservableGauge<PendingProvisionedRunnerLabels>(
-    'runners_provisioned_runner_pending',
+  const provisionedRunnersByPhase = meter.createObservableGauge<ProvisionedRunnerPhaseLabels>(
+    'runners_provisioned_runner_by_phase',
     {
       description:
         'Provisioned runners by lifecycle phase, including idle runners without an active assignment',
     },
   );
-  const pendingProvisionedRunnersOldestAge =
-    meter.createObservableGauge<PendingProvisionedRunnerLabels>(
-      'runners_provisioned_runner_pending_oldest_age_seconds',
+  const provisionedRunnersByPhaseOldestAge =
+    meter.createObservableGauge<ProvisionedRunnerPhaseLabels>(
+      'runners_provisioned_runner_by_phase_oldest_age_seconds',
       {
-        description: 'Oldest provisioned runner backlog age by lifecycle phase',
+        description: 'Oldest provisioned runner age by lifecycle phase',
         unit: 's',
       },
     );
 
   meter.addBatchObservableCallback(
     async (observer) => {
-      const [depthResult, staleEnrolledRunnerCountResult, pendingProvisionedRunnersResult] =
+      const [depthResult, staleEnrolledRunnerCountResult, provisionedRunnersByPhaseResult] =
         await Promise.allSettled([
           getJobExecutionQueueDepth(),
           countStaleEnrolledRunnerInstances({
@@ -63,16 +63,16 @@ export function registerRunnersServiceMetrics(): void {
       if (staleEnrolledRunnerCountResult.status === 'fulfilled') {
         observer.observe(enrolledRunnersWithoutRecentReport, staleEnrolledRunnerCountResult.value);
       }
-      if (pendingProvisionedRunnersResult.status === 'fulfilled') {
-        for (const pending of pendingProvisionedRunnersResult.value) {
-          const attributes: PendingProvisionedRunnerLabels = {
+      if (provisionedRunnersByPhaseResult.status === 'fulfilled') {
+        for (const pending of provisionedRunnersByPhaseResult.value) {
+          const attributes: ProvisionedRunnerPhaseLabels = {
             phase: pending.phase,
             provider: pending.provider,
             launch_kind: pending.launchKind,
           };
-          observer.observe(pendingProvisionedRunners, pending.count, attributes);
+          observer.observe(provisionedRunnersByPhase, pending.count, attributes);
           observer.observe(
-            pendingProvisionedRunnersOldestAge,
+            provisionedRunnersByPhaseOldestAge,
             pending.oldestAgeSeconds,
             attributes,
           );
@@ -83,8 +83,8 @@ export function registerRunnersServiceMetrics(): void {
       pendingJobExecutions,
       runningJobExecutions,
       enrolledRunnersWithoutRecentReport,
-      pendingProvisionedRunners,
-      pendingProvisionedRunnersOldestAge,
+      provisionedRunnersByPhase,
+      provisionedRunnersByPhaseOldestAge,
     ],
   );
 }

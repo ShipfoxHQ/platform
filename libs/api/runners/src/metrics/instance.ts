@@ -31,7 +31,7 @@ export const UNKNOWN_PROVISIONED_RUNNER_PROVIDER = 'unknown';
 
 const lifecycleDurationBuckets = {
   long: [0.1, 0.5, 1, 5, 10, 15, 20, 30, 45, 60, 90, 120, 300, 600],
-  short: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 5],
+  short: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 5, 10],
 };
 
 // Keep the ordered lifecycle phases as separate histograms so long boot times do not flatten
@@ -52,7 +52,7 @@ export const provisionedRunnerControlSessionToAssignmentDuration =
     {
       description: 'Provisioned runner control-session creation to reservation assignment duration',
       unit: 's',
-      advice: {explicitBucketBoundaries: lifecycleDurationBuckets.short},
+      advice: {explicitBucketBoundaries: lifecycleDurationBuckets.long},
     },
   );
 

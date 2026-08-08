@@ -1,1 +1,0 @@
-CREATE INDEX "runners_runner_instances_pending_metrics_idx" ON "runners_runner_instances" USING btree ("state","updated_at") WHERE "runners_runner_instances"."state" in ('starting', 'running') and "runners_runner_instances"."runner_session_id" is null;

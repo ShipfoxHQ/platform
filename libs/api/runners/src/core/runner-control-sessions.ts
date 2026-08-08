@@ -361,6 +361,9 @@ export async function enrollRunnerControlSession(params: {
   });
   for (const observation of result.controlSessionToAssignment)
     recordProvisionedRunnerControlSessionToAssignment(observation);
+  // These counters intentionally overlap: assignment_rejected records the assignment-facing
+  // reason, while reservation_promotion_failure records the enrollment recovery outcome. They
+  // answer different questions and must not be summed.
   if (result.assignmentRejectedReason)
     recordProvisionedRunnerAssignmentRejected({
       reason: result.assignmentRejectedReason,

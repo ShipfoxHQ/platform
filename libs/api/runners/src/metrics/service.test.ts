@@ -2,16 +2,16 @@ const mocks = vi.hoisted(() => {
   const gauges = {
     enrolledRunnersWithoutRecentReport: {},
     pendingJobExecutions: {},
-    pendingProvisionedRunners: {},
-    pendingProvisionedRunnersOldestAge: {},
+    provisionedRunnersByPhase: {},
+    provisionedRunnersByPhaseOldestAge: {},
     runningJobExecutions: {},
   };
   const gaugeByName = {
     runners_enrolled_without_recent_report: gauges.enrolledRunnersWithoutRecentReport,
     runners_pending_job_executions: gauges.pendingJobExecutions,
-    runners_provisioned_runner_pending: gauges.pendingProvisionedRunners,
-    runners_provisioned_runner_pending_oldest_age_seconds:
-      gauges.pendingProvisionedRunnersOldestAge,
+    runners_provisioned_runner_by_phase: gauges.provisionedRunnersByPhase,
+    runners_provisioned_runner_by_phase_oldest_age_seconds:
+      gauges.provisionedRunnersByPhaseOldestAge,
     runners_running_job_executions: gauges.runningJobExecutions,
   };
   return {
@@ -113,7 +113,7 @@ describe('registerRunnersServiceMetrics', () => {
     expect(observer.observe).toHaveBeenCalledTimes(2);
   });
 
-  it('observes pending provisioned runners by lifecycle phase', async () => {
+  it('observes provisioned runners by lifecycle phase', async () => {
     mocks.listProvisionedRunnerPendingMetrics.mockResolvedValue([
       {
         phase: 'assignment',
@@ -131,13 +131,13 @@ describe('registerRunnersServiceMetrics', () => {
 
     await callback(observer);
 
-    expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.pendingProvisionedRunners, 3, {
+    expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.provisionedRunnersByPhase, 3, {
       phase: 'assignment',
       provider: 'ec2',
       launch_kind: 'demand',
     });
     expect(observer.observe).toHaveBeenCalledWith(
-      mocks.gauges.pendingProvisionedRunnersOldestAge,
+      mocks.gauges.provisionedRunnersByPhaseOldestAge,
       42,
       {phase: 'assignment', provider: 'ec2', launch_kind: 'demand'},
     );
