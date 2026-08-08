@@ -16,8 +16,10 @@ Copy [`templates.example.yaml`](templates.example.yaml). Set
 zero to keep ready runners without demand.
 
 The AMI must include the Shipfox runner and its shutdown watchdog. Cloud-init writes
-`/etc/shipfox/runner.env` with the API URL, one-use token, labels, poll time, and
-maximum lifetime. The AMI reads that file and shuts down when its watchdog exits.
+`/etc/shipfox/runner.env` with the API URL, one-use token, labels, workspace root, poll time,
+and maximum lifetime. It formats and mounts the separate workspace volume at
+`/var/lib/shipfox/workspaces` before the runner starts. The AMI reads that file and shuts
+down when its watchdog exits.
 
 ## Template families
 

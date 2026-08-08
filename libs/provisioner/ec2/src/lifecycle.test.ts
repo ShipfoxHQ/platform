@@ -42,6 +42,8 @@ const template: ProvisionerTemplate<Ec2TemplateSpec> = {
     associatePublicIp: false,
     rootVolumeGb: 100,
     rootDeviceName: '/dev/sda1',
+    workspaceVolumeGb: 100,
+    workspaceDeviceName: '/dev/sdf',
   },
 };
 
@@ -70,6 +72,8 @@ describe('createEc2Lifecycle', () => {
       clientToken: 'runner-1',
       ami: 'ami-0123456789abcdef0',
       market: 'spot',
+      workspaceVolumeGb: 100,
+      workspaceDeviceName: '/dev/sdf',
       tags: {'shipfox.provider_runner_id': 'runner-1'},
     });
     expect(observability.recordEc2Launch).toHaveBeenCalledWith('spot', 'launched');

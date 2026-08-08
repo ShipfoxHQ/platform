@@ -24,6 +24,8 @@ export interface Ec2TemplateSpec {
   readonly associatePublicIp: boolean;
   readonly rootVolumeGb: number;
   readonly rootDeviceName: string;
+  readonly workspaceVolumeGb: number;
+  readonly workspaceDeviceName: string;
 }
 
 /** Raised when the template config file is missing, unparseable, or invalid. */
@@ -52,6 +54,8 @@ const ec2TemplateSchema = z
     associate_public_ip: z.boolean(),
     root_volume_gb: z.number().int().positive(),
     root_device_name: z.string().trim().min(1).optional(),
+    workspace_volume_gb: z.number().int().positive().default(100),
+    workspace_device_name: z.string().trim().min(1).default('/dev/sdf'),
     max_concurrency: z.number().int().positive().max(MAX_TEMPLATE_CONCURRENCY),
     target_concurrency: z.number().int().nonnegative().max(MAX_TEMPLATE_CONCURRENCY).optional(),
     cost: z.number().positive(),
@@ -63,6 +67,13 @@ const ec2TemplateSchema = z
         code: z.ZodIssueCode.custom,
         path: ['spot_max_price'],
         message: 'spot_max_price is only valid when market is "spot".',
+      });
+    }
+    if ((spec.root_device_name ?? '/dev/sda1') === spec.workspace_device_name) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['workspace_device_name'],
+        message: 'must differ from root_device_name.',
       });
     }
   });
@@ -160,6 +171,8 @@ function toTemplate(
       associatePublicIp: spec.associate_public_ip,
       rootVolumeGb: spec.root_volume_gb,
       rootDeviceName: spec.root_device_name ?? '/dev/sda1',
+      workspaceVolumeGb: spec.workspace_volume_gb,
+      workspaceDeviceName: spec.workspace_device_name,
     },
   };
 }

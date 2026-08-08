@@ -18,6 +18,8 @@ const template: ProvisionerTemplate<Ec2TemplateSpec> = {
     associatePublicIp: false,
     rootVolumeGb: 20,
     rootDeviceName: '/dev/sda1',
+    workspaceVolumeGb: 100,
+    workspaceDeviceName: '/dev/sdf',
   },
 };
 

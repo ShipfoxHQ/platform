@@ -862,6 +862,12 @@ describe('systemd boot activation', () => {
     return readFile(new URL(name, assets), 'utf8');
   }
 
+  it('requires the job workspace mount before starting the runner', async () => {
+    const unit = await readUnit('shipfox-runner.service');
+
+    expect(unit).toContain('ExecStartPre=/usr/bin/mountpoint -q /var/lib/shipfox/workspaces');
+  });
+
   it('starts the lifecycle target when the complete environment file appears', async () => {
     const pathUnit = await readUnit('shipfox-runner-env.path');
     const targetUnit = await readUnit('shipfox-runner.target');

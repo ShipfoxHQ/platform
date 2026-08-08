@@ -158,6 +158,8 @@ async function launchRunner(
       associatePublicIp: launch.template.spec.associatePublicIp,
       rootVolumeGb: launch.template.spec.rootVolumeGb,
       rootDeviceName: launch.template.spec.rootDeviceName,
+      workspaceVolumeGb: launch.template.spec.workspaceVolumeGb,
+      workspaceDeviceName: launch.template.spec.workspaceDeviceName,
       ...(context.renderUserData ? {userData: context.renderUserData(launch)} : {}),
     });
     context.locallyLaunched.set(launch.providerRunnerId, {

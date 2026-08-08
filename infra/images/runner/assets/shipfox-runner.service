@@ -11,6 +11,7 @@ User=shipfox
 EnvironmentFile=-/etc/environment
 EnvironmentFile=/etc/shipfox/runner.env
 Environment=AGENT_CUSTOM_PROVIDER_ALLOW_PRIVATE_NETWORKS=false
+ExecStartPre=/usr/bin/mountpoint -q /var/lib/shipfox/workspaces
 WorkingDirectory=/opt/runner
 ExecStart=/usr/local/bin/node --enable-source-maps dist/index.js
 Restart=no

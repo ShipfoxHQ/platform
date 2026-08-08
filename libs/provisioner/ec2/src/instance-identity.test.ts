@@ -28,6 +28,8 @@ const launch: ProviderRunnerLaunch<Ec2TemplateSpec> = {
       associatePublicIp: false,
       rootVolumeGb: 100,
       rootDeviceName: '/dev/sda1',
+      workspaceVolumeGb: 100,
+      workspaceDeviceName: '/dev/sdf',
     },
   },
 };
