@@ -47,6 +47,15 @@ else
 fi
 """
 
+[tasks."workspace:setup:context"]
+description = "Install pinned tools, dependencies, and repository context"
+run = "bash dev/workspace-setup.sh context"
+
+[tasks."workspace:setup"]
+description = "Prepare this workspace for development and agent execution"
+depends = ["workspace:setup:context"]
+run = "bash dev/workspace-setup.sh services"
+
 [tasks.e2e]
 description = "Run E2E tests with local API and client dev servers"
 depends = ["e2e:build"]
