@@ -8,6 +8,7 @@ import {eq, sql} from 'drizzle-orm';
 import {EmptyRequiredLabelsError, RunnerSessionExhaustedError} from '#core/errors.js';
 import {claimJobExecution} from '#core/job-executions.js';
 import {detectAndExpireStuckJobs} from '#core/maintenance.js';
+import * as runnerMetrics from '#metrics/instance.js';
 import {
   getLeaseTokenClaims,
   pendingJobFactory,
@@ -240,6 +241,27 @@ describe('claimPendingJobExecution', () => {
     expect(payload.workflowRunId).toBe(created.workflowRunId);
     expect(payload.workflowRunAttemptId).toBe(created.workflowRunAttemptId);
     expect(new Date(payload.claimedAt).getTime()).toBe(running?.startedAt.getTime());
+  });
+
+  it('records queue time from the pending row creation to the runner claim', async () => {
+    const created = await pendingJobFactory.create({workspaceId});
+    const queuedAt = new Date(Date.now() - 60_000);
+    await db()
+      .update(pendingJobExecutions)
+      .set({createdAt: queuedAt})
+      .where(eq(pendingJobExecutions.jobExecutionId, created.jobExecutionId));
+    const recordQueueTime = vi.spyOn(runnerMetrics, 'recordJobExecutionQueueTime');
+
+    try {
+      await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+
+      const observation = recordQueueTime.mock.calls[0]?.[0];
+      expect(recordQueueTime).toHaveBeenCalledTimes(1);
+      expect(observation?.durationSeconds).toBeGreaterThanOrEqual(60);
+      expect(observation?.durationSeconds).toBeLessThan(120);
+    } finally {
+      recordQueueTime.mockRestore();
+    }
   });
 
   it('emits no claimed event when there is nothing to claim', async () => {

@@ -33,6 +33,7 @@ import {
   jobExecutionEnqueuedCount,
   jobExecutionLeaseExpiredCount,
   type ProviderRunnerLifecycleObservation,
+  recordJobExecutionQueueTime,
   recordProviderRunnerActivationToFirstClaim,
 } from '#metrics/instance.js';
 import type {Tx} from './db.js';
@@ -198,6 +199,7 @@ export async function claimPendingJobExecution(params: {
   if (params.sessionLabels.length === 0) return null;
 
   let activationToFirstClaimObservation: ProviderRunnerLifecycleObservation | null = null;
+  let queueTimeObservation: {durationSeconds: number} | null = null;
   const result = await db().transaction(async (tx) => {
     let provisionerId: string | null = null;
     let providerRunnerId: string | null = null;
@@ -294,6 +296,10 @@ export async function claimPendingJobExecution(params: {
     const claimed = inserted[0];
     if (!claimed) return null;
 
+    queueTimeObservation = {
+      durationSeconds: (claimed.claimedAt.getTime() - row.createdAt.getTime()) / 1_000,
+    };
+
     const runnerInstanceCondition = runnerInstanceId
       ? eq(providerRunners.id, runnerInstanceId)
       : provisionerId && providerRunnerId
@@ -366,6 +372,7 @@ export async function claimPendingJobExecution(params: {
       projectId: row.projectId,
     };
   });
+  if (queueTimeObservation) recordJobExecutionQueueTime(queueTimeObservation);
   if (activationToFirstClaimObservation)
     recordProviderRunnerActivationToFirstClaim(activationToFirstClaimObservation);
   return result;

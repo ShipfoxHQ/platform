@@ -36,6 +36,10 @@ const lifecycleDurationBuckets = {
   short: [10, 25, 50, 100, 250, 500, 1_000, 5_000, 10_000],
 };
 
+const queueTimeBuckets = [
+  0.1, 0.5, 1, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1_800, 3_600, 7_200, 14_400,
+];
+
 // Keep the ordered lifecycle phases as separate histograms so long boot times do not flatten
 // short handoffs. Assignment is the only phase with a surface dimension.
 export const providerRunnerCreatedToControlSessionDuration =
@@ -78,6 +82,15 @@ export const providerRunnerActivationToFirstClaimDuration =
       advice: {explicitBucketBoundaries: lifecycleDurationBuckets.short},
     },
   );
+
+export const jobExecutionQueueTimeDuration = meter.createHistogram<Record<string, never>>(
+  'runners_job_execution_queue_time_seconds',
+  {
+    description: 'Job execution pending queue duration from enqueue to runner claim',
+    unit: 's',
+    advice: {explicitBucketBoundaries: queueTimeBuckets},
+  },
+);
 
 export const providerRunnerAssignmentRejectedCount = meter.createCounter<{
   reason: RunnerAssignmentRejectionReason;
@@ -295,6 +308,11 @@ export function recordProviderRunnerActivationToFirstClaim(
       launch_kind: params.launchKind,
     }),
   );
+}
+
+export function recordJobExecutionQueueTime(params: {durationSeconds: number}): void {
+  if (params.durationSeconds < 0) return;
+  recordMetric(() => jobExecutionQueueTimeDuration.record(params.durationSeconds));
 }
 
 export function recordProviderRunnerAssignmentRejected(params: {
