@@ -57,14 +57,11 @@ marker disappear when the instance is terminated with its root volume.
 ### Image freshness
 
 The image does not update packages after the bake. CI builds a candidate on each
-successful normal merge to `main`, and candidates expire after 14 days. The
-[`runner-image-freshness.yml`](../../../.github/workflows/runner-image-freshness.yml)
-workflow alerts when both architecture candidates and their manifest have not
-been published successfully within seven days.
+successful normal merge to `main`, and candidates expire after 14 days.
 
-Release promotion should happen at least weekly. When the alert fires, rebuild
-or republish the candidate and investigate the release promotion path before
-using an older image.
+Release promotion should happen at least weekly. When a candidate is stale,
+rebuild or republish it and investigate the release promotion path before using
+an older image.
 
 ## Environment contract
 
