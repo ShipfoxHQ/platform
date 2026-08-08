@@ -33,10 +33,13 @@ export class OutputCollector {
     const keyResult = this.#validateKey(key);
     if (!keyResult.ok) return keyResult;
 
-    if (Buffer.byteLength(value, 'utf8') > MAX_OUTPUT_VALUE_BYTES) {
+    const valueBytes = Buffer.byteLength(value, 'utf8');
+    if (valueBytes > MAX_OUTPUT_VALUE_BYTES) {
       return {
         ok: false,
-        feedback: `Output "${key}" exceeds the per-value size limit of ${MAX_OUTPUT_VALUE_BYTES} bytes.`,
+        feedback:
+          `Output "${key}" exceeds the per-value size limit of ${MAX_OUTPUT_VALUE_BYTES} bytes ` +
+          `(measured ${valueBytes} bytes; overshoot ${valueBytes - MAX_OUTPUT_VALUE_BYTES} bytes).`,
       };
     }
 
@@ -44,7 +47,9 @@ export class OutputCollector {
     if (totalBytes > MAX_OUTPUT_TOTAL_BYTES) {
       return {
         ok: false,
-        feedback: `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes.`,
+        feedback:
+          `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes ` +
+          `(measured ${totalBytes} bytes; overshoot ${totalBytes - MAX_OUTPUT_TOTAL_BYTES} bytes).`,
       };
     }
 

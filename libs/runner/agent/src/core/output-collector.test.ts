@@ -158,27 +158,37 @@ describe('OutputCollector', () => {
 
   it('rejects values over the per-value cap', () => {
     const collector = new OutputCollector(undefined);
+    const measuredBytes = MAX_OUTPUT_VALUE_BYTES + 1;
 
-    const result = collector.trySet('large', 'x'.repeat(MAX_OUTPUT_VALUE_BYTES + 1));
+    const result = collector.trySet('large', 'x'.repeat(measuredBytes));
 
     expect(result).toEqual({
       ok: false,
-      feedback: `Output "large" exceeds the per-value size limit of ${MAX_OUTPUT_VALUE_BYTES} bytes.`,
+      feedback:
+        `Output "large" exceeds the per-value size limit of ${MAX_OUTPUT_VALUE_BYTES} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_OUTPUT_VALUE_BYTES} bytes).`,
     });
   });
 
   it('rejects output maps over the total cap', () => {
     const collector = new OutputCollector(undefined);
+    const firstValue = 'x'.repeat(MAX_OUTPUT_VALUE_BYTES - 20);
+    const overflowValue = 'y'.repeat(100);
     let first = {ok: true} as ReturnType<OutputCollector['trySet']>;
     for (let index = 0; index < 4; index += 1) {
-      first = collector.trySet(`chunk_${index}`, 'x'.repeat(MAX_OUTPUT_VALUE_BYTES - 20));
+      first = collector.trySet(`chunk_${index}`, firstValue);
     }
-    const second = collector.trySet('overflow', 'y'.repeat(100));
+    const second = collector.trySet('overflow', overflowValue);
+    const measuredBytes =
+      4 * Buffer.byteLength(`chunk_0=${firstValue}\n`, 'utf8') +
+      Buffer.byteLength(`overflow=${overflowValue}\n`, 'utf8');
 
     expect(first).toEqual({ok: true});
     expect(second).toEqual({
       ok: false,
-      feedback: `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes.`,
+      feedback:
+        `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_OUTPUT_TOTAL_BYTES} bytes).`,
     });
   });
 

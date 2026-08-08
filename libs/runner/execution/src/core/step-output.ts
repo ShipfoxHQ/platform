@@ -105,8 +105,12 @@ function parseSingleLineOutput(line: string): ParsedOutput | undefined {
 }
 
 function setOutput(outputs: Record<string, string>, key: string, value: string): void {
-  if (Buffer.byteLength(value, 'utf8') > MAX_OUTPUT_VALUE_BYTES) {
-    throw new StepOutputError(`Output "${key}" exceeds the per-value size limit.`);
+  const valueBytes = Buffer.byteLength(value, 'utf8');
+  if (valueBytes > MAX_OUTPUT_VALUE_BYTES) {
+    throw new StepOutputError(
+      `Output "${key}" exceeds the per-value size limit of ${MAX_OUTPUT_VALUE_BYTES} bytes ` +
+        `(measured ${valueBytes} bytes; overshoot ${valueBytes - MAX_OUTPUT_VALUE_BYTES} bytes).`,
+    );
   }
   outputs[key] = value;
 }

@@ -148,17 +148,24 @@ export class InvalidJobRunnerLabelsError extends Error {
 }
 
 export class JobOutputTooLargeError extends Error {
+  readonly overshootBytes: number;
+
   constructor(
     readonly outputKey: string,
     readonly limitBytes: number,
+    readonly measuredBytes: number,
     readonly scope: 'value' | 'total',
   ) {
+    const overshootBytes = measuredBytes - limitBytes;
     super(
       scope === 'total'
-        ? `Job outputs exceed the ${limitBytes}-byte total limit (at "${outputKey}")`
-        : `Job output "${outputKey}" exceeds the ${limitBytes}-byte size limit`,
+        ? `Job outputs exceed the total size limit of ${limitBytes} bytes at "${outputKey}" ` +
+            `(measured ${measuredBytes} bytes; overshoot ${overshootBytes} bytes).`
+        : `Job output "${outputKey}" exceeds the per-value size limit of ${limitBytes} bytes ` +
+            `(measured ${measuredBytes} bytes; overshoot ${overshootBytes} bytes).`,
     );
     this.name = 'JobOutputTooLargeError';
+    this.overshootBytes = overshootBytes;
   }
 }
 

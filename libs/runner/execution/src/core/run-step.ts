@@ -281,11 +281,21 @@ async function readBoundedStepOutput(outputPath: string): Promise<string | undef
       throw new StepOutputError('Step output file is not a regular file.');
     }
 
+    if (stat.size > MAX_OUTPUT_TOTAL_BYTES) {
+      throw new StepOutputError(
+        `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes ` +
+          `(measured ${stat.size} bytes; overshoot ${stat.size - MAX_OUTPUT_TOTAL_BYTES} bytes).`,
+      );
+    }
+
     const buffer = Buffer.alloc(MAX_OUTPUT_TOTAL_BYTES + 1);
     const {bytesRead} = await handle.read(buffer, 0, buffer.length, 0);
     if (bytesRead === 0) return undefined;
     if (bytesRead > MAX_OUTPUT_TOTAL_BYTES) {
-      throw new StepOutputError(`Step output exceeds ${MAX_OUTPUT_TOTAL_BYTES} bytes.`);
+      throw new StepOutputError(
+        `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes ` +
+          `(measured ${bytesRead} bytes; overshoot ${bytesRead - MAX_OUTPUT_TOTAL_BYTES} bytes).`,
+      );
     }
     return buffer.subarray(0, bytesRead).toString('utf8');
   } finally {

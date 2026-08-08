@@ -301,7 +301,10 @@ describe('executeRunStep', () => {
     const result = await executeRunStep(step);
 
     expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Step output exceeds');
+    expect(result.error?.message).toBe(
+      `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes ` +
+        `(measured ${MAX_OUTPUT_TOTAL_BYTES + 1} bytes; overshoot 1 bytes).`,
+    );
     expect(result.exit_code).toBeNull();
   });
 

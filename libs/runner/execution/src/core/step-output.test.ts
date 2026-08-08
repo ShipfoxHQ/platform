@@ -56,10 +56,15 @@ describe('parseStepOutput', () => {
   });
 
   it('throws when a value exceeds the per-value byte cap', () => {
-    const value = 'x'.repeat(MAX_OUTPUT_VALUE_BYTES + 1);
+    const measuredBytes = MAX_OUTPUT_VALUE_BYTES + 1;
+    const value = 'x'.repeat(measuredBytes);
     const parse = () => parseStepOutput(`payload=${value}`);
 
     expect(parse).toThrow(StepOutputError);
+    expect(parse).toThrow(
+      `Output "payload" exceeds the per-value size limit of ${MAX_OUTPUT_VALUE_BYTES} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_OUTPUT_VALUE_BYTES} bytes).`,
+    );
   });
 
   it('lets duplicate keys use the last value', () => {
