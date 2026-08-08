@@ -1,5 +1,7 @@
 import {execFileSync} from 'node:child_process';
-import {readFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {findProducedAmiId, parsePackerAmiArtifact} from '#aws.js';
 import {parseBuildRunnerImageArgs} from '#build-runner-image.js';
 import {buildRunnerImageCandidate, parseRunnerImageCandidateArgs} from '#candidate.js';
@@ -936,3 +938,125 @@ describe('systemd boot activation', () => {
     expect(unit).not.toContain('cloud-final.service');
   });
 });
+
+describe('runner boot configuration', () => {
+  const script = new URL('../scripts/build/configure-boot.sh', import.meta.url);
+
+  it('applies filesystem and fsck settings against a checked image fixture', async () => {
+    const fstab = `# fstab
+UUID=root / ext4 defaults 0 1
+UUID=boot /boot ext4 defaults 0 1 extra-column
+UUID=efi /boot/efi vfat defaults 0 1
+UUID=data /data ext4 defaults 0 2
+`;
+    const fixture = await createBootFixture(fstab);
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+
+    try {
+      execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+      execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+
+      expect(build).toContain('scripts/build/configure-boot.sh');
+      expect(await readFile(join(fixture.root, 'boot/grub/grub.cfg'), 'utf8')).toContain(
+        'fsck.mode=skip',
+      );
+      expect(await readFile(join(fixture.root, 'etc/systemd/systemctl.log'), 'utf8')).toBe(
+        'mask systemd-fsck-root.service\nmask systemd-fsck-root.service\n',
+      );
+      expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toBe(`# fstab
+UUID=root / ext4 defaults,noatime 0 1
+UUID=boot /boot ext4 defaults,noatime 0 0 extra-column
+UUID=efi /boot/efi vfat defaults 0 0
+UUID=data /data ext4 defaults 0 2
+`);
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails before publishing an image when a target fstab entry is malformed', async () => {
+    const fstab = 'UUID=root / ext4 defaults\n';
+    const fixture = await createBootFixture(fstab);
+
+    try {
+      expect(() =>
+        execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'}),
+      ).toThrow();
+      expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toBe(fstab);
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('installs IPv6 tuning as primary-interface netplan drop-ins', async () => {
+    const network = await readFile(
+      new URL('../assets/shipfox-runner.networkd.conf', import.meta.url),
+      'utf8',
+    );
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+
+    expect(network).toBe('[Network]\nIPv6DuplicateAddressDetection=0\n');
+    expect(build).toContain('10-netplan-ens5.network.d/99-shipfox-runner.conf');
+    expect(build).toContain('10-netplan-ens3.network.d/99-shipfox-runner.conf');
+    expect(build).toContain('10-netplan-enp1s0.network.d/99-shipfox-runner.conf');
+    expect(build).toContain('10-netplan-eth0.network.d/99-shipfox-runner.conf');
+    expect(build).not.toContain('DHCP=yes');
+    expect(build).not.toContain('RequiredForOnline=yes');
+    expect(build).not.toContain('05-shipfox-runner.network');
+  });
+});
+
+async function createBootFixture(fstab: string) {
+  const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-boot-'));
+  const commandDirectory = join(root, 'commands');
+
+  await mkdir(join(root, 'boot/grub'), {recursive: true});
+  await mkdir(join(root, 'etc/default/grub.d'), {recursive: true});
+  await mkdir(join(root, 'etc/systemd'), {recursive: true});
+  await mkdir(commandDirectory, {recursive: true});
+  await writeFile(join(root, 'etc/default/grub'), 'GRUB_CMDLINE_LINUX_DEFAULT="console=tty1"\n');
+  await writeFile(
+    join(root, 'etc/default/grub.d/50-cloudimg-settings.cfg'),
+    `GRUB_CMDLINE_LINUX_DEFAULT="\${GRUB_CMDLINE_LINUX_DEFAULT} console=ttyS0"\n`,
+  );
+  await writeFile(join(root, 'etc/fstab'), fstab);
+  await writeFile(
+    join(commandDirectory, 'update-grub'),
+    [
+      '#!/bin/sh',
+      'set -eu',
+      `root_dir=\${RUNNER_IMAGE_ROOT:?}`,
+      '. "$root_dir/etc/default/grub"',
+      'for dropin in "$root_dir"/etc/default/grub.d/*.cfg; do',
+      '  [ -e "$dropin" ] || continue',
+      '  . "$dropin"',
+      'done',
+      `printf "%s\\n" "linux \${GRUB_CMDLINE_LINUX_DEFAULT-}" > "$root_dir/boot/grub/grub.cfg"`,
+      '',
+    ].join('\n'),
+  );
+  await writeFile(
+    join(commandDirectory, 'systemctl'),
+    [
+      '#!/bin/sh',
+      'set -eu',
+      `root_dir=\${RUNNER_IMAGE_ROOT:?}`,
+      '[ "$#" -eq 2 ]',
+      '[ "$1" = mask ]',
+      '[ "$2" = systemd-fsck-root.service ]',
+      'printf "%s\\n" "$*" >> "$root_dir/etc/systemd/systemctl.log"',
+      '',
+    ].join('\n'),
+  );
+  await chmod(join(commandDirectory, 'update-grub'), 0o755);
+  await chmod(join(commandDirectory, 'systemctl'), 0o755);
+
+  return {
+    root,
+    environment: {
+      ...process.env,
+      PATH: `${commandDirectory}:${process.env.PATH ?? ''}`,
+      RUNNER_IMAGE_ROOT: root,
+    },
+  };
+}

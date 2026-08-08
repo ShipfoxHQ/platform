@@ -18,13 +18,32 @@ build {
     scripts = [
       "${path.root}/scripts/build/setup-runner.sh",
       "${path.root}/scripts/build/install-node.sh",
-      "${path.root}/scripts/build/install-runner.sh"
+      "${path.root}/scripts/build/install-runner.sh",
+      "${path.root}/scripts/build/configure-boot.sh"
     ]
   }
 
   provisioner "file" {
     destination = "/tmp/shipfox-runner-assets"
     source      = abspath("${path.root}/assets")
+  }
+
+  provisioner "shell" {
+    inline = [
+      "sudo install -d -m 0755 /etc/systemd/network/10-netplan-ens5.network.d",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-ens5.network.d/99-shipfox-runner.conf"
+    ]
+    only = ["amazon-ebs.build_image"]
+  }
+
+  provisioner "shell" {
+    inline = [
+      "sudo install -d -m 0755 /etc/systemd/network/10-netplan-ens3.network.d /etc/systemd/network/10-netplan-enp1s0.network.d /etc/systemd/network/10-netplan-eth0.network.d",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-ens3.network.d/99-shipfox-runner.conf",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-enp1s0.network.d/99-shipfox-runner.conf",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-eth0.network.d/99-shipfox-runner.conf"
+    ]
+    only = ["qemu.build_image"]
   }
 
   provisioner "shell" {

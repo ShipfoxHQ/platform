@@ -15,6 +15,14 @@ The AMI source uses Canonical Ubuntu 24.04 and requires AWS credentials in `eu-c
 
 Packer is pinned in `mise.toml`. Install QEMU and `xorriso` through the host operating system before running a QEMU build.
 
+## Boot behavior
+
+The image is checked during the bake and launched with a fresh ephemeral root volume. The image skips boot-time filesystem checks, applies `noatime` to `/` and `/boot`, and sets pass 0 for `/boot` and `/boot/efi`.
+
+`fsck.mode=skip` also suppresses checks for other filesystems with a non-zero pass number. Do not add a durable filesystem with a non-zero pass number without revisiting this image contract.
+
+The IPv6 duplicate-address detection setting is a drop-in for the netplan-generated primary interface configuration. Netplan remains responsible for DHCP, addresses, routes, and online requirements.
+
 ## Environment contract
 
 The provider owns the values and must never bake them into the image. It must publish
