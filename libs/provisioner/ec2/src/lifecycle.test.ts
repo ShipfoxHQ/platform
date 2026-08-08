@@ -13,12 +13,14 @@ import type {Ec2TemplateSpec} from '#templates.js';
 const observability = vi.hoisted(() => ({
   logger: {debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn()},
   recordEc2Launch: vi.fn(),
+  recordEc2ReconcileAbsent: vi.fn(),
   recordEc2Termination: vi.fn(),
 }));
 
 vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logger}));
 vi.mock('#metrics/instance.js', () => ({
   recordEc2Launch: observability.recordEc2Launch,
+  recordEc2ReconcileAbsent: observability.recordEc2ReconcileAbsent,
   recordEc2Termination: observability.recordEc2Termination,
 }));
 
@@ -1015,6 +1017,7 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.reconcile();
 
     expect(client.reconcileBodies).toEqual([{observed_provider_runner_ids: []}]);
+    expect(observability.recordEc2ReconcileAbsent).toHaveBeenCalledOnce();
   });
 
   it('terminates only managed instances matching requested ids', async () => {
