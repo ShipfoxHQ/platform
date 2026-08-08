@@ -1,5 +1,13 @@
 # @shipfox/api-server
 
+## 12.4.1
+
+### Patch Changes
+
+- Updated dependencies [f8eb3b5]
+- Updated dependencies [38e0acb]
+  - @shipfox/api-runners@12.4.1
+
 ## 12.4.0
 
 ### Patch Changes
