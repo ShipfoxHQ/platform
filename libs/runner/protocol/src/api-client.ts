@@ -248,10 +248,13 @@ function createRunnerSessionClient(sessionToken: string): KyInstance {
 
 // Scheduling is step-less: the claim returns only the job/run ids and the lease
 // token. Steps are pulled one at a time from the step API using that token.
-export async function requestJob(sessionToken: string): Promise<ClaimedJobResponseDto | null> {
+export async function requestJob(
+  sessionToken: string,
+  signal?: AbortSignal,
+): Promise<ClaimedJobResponseDto | null> {
   logger().debug('Polling for job');
 
-  const response = await postJobRequest(sessionToken);
+  const response = await postJobRequest(sessionToken, signal);
 
   if (response.status === 204) {
     return null;
@@ -260,9 +263,12 @@ export async function requestJob(sessionToken: string): Promise<ClaimedJobRespon
   return claimedJobResponseSchema.parse(await response.json());
 }
 
-async function postJobRequest(sessionToken: string): Promise<Response> {
+async function postJobRequest(sessionToken: string, signal?: AbortSignal): Promise<Response> {
   try {
-    return await createRunnerSessionClient(sessionToken).post('runners/jobs/request');
+    return await createRunnerSessionClient(sessionToken).post(
+      'runners/jobs/request',
+      signal ? {signal} : undefined,
+    );
   } catch (error) {
     if (!(error instanceof HTTPError) || error.response.status !== 409) throw error;
 

@@ -401,7 +401,7 @@ describe('startRunner', () => {
 
     expect(mockRegisterRunnerSession).toHaveBeenCalledTimes(1);
     expect(mockRequestJob).toHaveBeenCalledTimes(1);
-    expect(mockInterruptibleSleep).not.toHaveBeenCalled();
+    expect(mockInterruptibleSleep).toHaveBeenCalledTimes(1);
   });
 
   it('enrolls, waits, activates, and uses the activation session for managed runners', async () => {
@@ -439,8 +439,25 @@ describe('startRunner', () => {
       capabilities: {harnesses: {pi: {tools: ['read']}}},
       registrationToken: 'activation-token',
     });
-    expect(mockRequestJob).toHaveBeenCalledWith('session-token');
+    expect(mockRequestJob).toHaveBeenCalledWith('session-token', expect.any(AbortSignal));
     expect(mockInterruptibleSleep).not.toHaveBeenCalled();
+  });
+
+  it('backs off between empty direct polls', async () => {
+    setPollConfig({maxDuration: 0});
+    mockRequestJob
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(JOB)
+      .mockRejectedValueOnce(new RunnerSessionExhaustedError());
+
+    await startRunner();
+
+    expect(mockRequestJob).toHaveBeenCalledTimes(3);
+    expect(mockRunJobSteps).toHaveBeenCalledTimes(1);
+    expect(mockInterruptibleSleep).toHaveBeenCalledTimes(2);
+    expect(mockInterruptibleSleep.mock.invocationCallOrder[1]).toBeLessThan(
+      mockRequestJob.mock.invocationCallOrder[1] ?? Infinity,
+    );
   });
 
   it('backs off before retrying a managed assignment poll that returns no token', async () => {
@@ -552,6 +569,19 @@ describe('startRunner', () => {
 
     expect(mockRegisterRunnerSession).toHaveBeenCalledTimes(2);
     expect(mockRequestJob).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start a claimed job after shutdown during the first request', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(0);
+    mockRequestJob.mockImplementation(() => {
+      process.emit('SIGTERM');
+      return Promise.resolve(JOB);
+    });
+
+    await startRunner();
+
+    expect(mockRequestJob).toHaveBeenCalledWith('session-token', expect.any(AbortSignal));
+    expect(mockRunJobSteps).not.toHaveBeenCalled();
   });
 
   it('exits cleanly when shutdown aborts the managed assignment poll', async () => {

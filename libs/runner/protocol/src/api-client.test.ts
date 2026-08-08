@@ -45,7 +45,13 @@ const TOOL_CAPABILITIES: RunnerToolCapabilitiesDto = {
   },
 };
 
-let calls: Array<{url: string; method: string; authorization: string | null; body: string}>;
+let calls: Array<{
+  url: string;
+  method: string;
+  authorization: string | null;
+  body: string;
+  signal: AbortSignal;
+}>;
 let originalFetch: typeof globalThis.fetch;
 
 beforeAll(() => {
@@ -220,6 +226,17 @@ describe('api-client auth contexts', () => {
     const job = await requestJob('session-abc');
 
     expect(job).toBeNull();
+  });
+
+  it('requestJob forwards the shutdown signal to the claim request', async () => {
+    stubFetch(() => new Response(null, {status: 204}));
+    const controller = new AbortController();
+
+    await requestJob('session-abc', controller.signal);
+
+    expect(calls[0]?.signal.aborted).toBe(false);
+    controller.abort();
+    expect(calls[0]?.signal.aborted).toBe(true);
   });
 
   it('requestJob treats the session-exhausted 409 code as terminal', async () => {
@@ -970,6 +987,7 @@ function stubFetch(handler: (url: string) => Response | Promise<Response>): void
       method: request.method,
       authorization: request.headers.get('authorization'),
       body: await request.clone().text(),
+      signal: request.signal,
     });
     return handler(request.url);
   }) as unknown as typeof globalThis.fetch;
