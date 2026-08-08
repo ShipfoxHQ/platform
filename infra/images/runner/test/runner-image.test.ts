@@ -865,7 +865,23 @@ describe('systemd boot activation', () => {
   it('requires the job workspace mount before starting the runner', async () => {
     const unit = await readUnit('shipfox-runner.service');
 
-    expect(unit).toContain('ExecStartPre=/usr/bin/mountpoint -q /var/lib/shipfox/workspaces');
+    expect(unit).toContain(
+      'After=network-online.target time-sync.target shipfox-runner-env.service',
+    );
+    expect(unit).toContain('Wants=network-online.target time-sync.target');
+    expect(unit).toContain(
+      'ExecStartPre=/opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh',
+    );
+  });
+
+  it('gates the workspace mount check on the new user-data marker', () => {
+    const script = new URL('../scripts/runtime/verify-workspace-mount.sh', import.meta.url);
+    const result = execFileSync('sh', [script.pathname], {
+      encoding: 'utf8',
+      env: {...process.env, SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED: ''},
+    });
+
+    expect(result).toBe('');
   });
 
   it('starts the lifecycle target when the complete environment file appears', async () => {

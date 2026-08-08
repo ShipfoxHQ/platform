@@ -67,7 +67,7 @@ describe('createEc2Engine', () => {
         },
         {
           DeviceName: '/dev/sdf',
-          Ebs: {VolumeSize: 200, VolumeType: 'gp3', DeleteOnTermination: true},
+          Ebs: {VolumeSize: 200, VolumeType: 'gp3', Encrypted: true, DeleteOnTermination: true},
         },
       ],
     });

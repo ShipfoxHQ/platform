@@ -99,11 +99,18 @@ default. Set `cost` to an explicit unitless ranking where lower values win templ
 selection. Give a Spot template a lower cost than its on-demand equivalent so the planner
 prefers Spot before spilling to on-demand capacity.
 
-`root_volume_gb` is the boot volume size. `workspace_volume_gb` is a separate, empty gp3
+`root_volume_gb` is the boot volume size. `workspace_volume_gb` is a separate, encrypted gp3
 volume created for per-job checkouts, logs, and credentials. The provider deletes both
 volumes with the instance. `workspace_device_name` is the EC2 block-device mapping name;
-cloud-init resolves the attached non-root disk to its runtime device before formatting and
-mounting it at `/var/lib/shipfox/workspaces`.
+cloud-init resolves the attached EBS disk to its runtime device before formatting and
+mounting it at `/var/lib/shipfox/workspaces`. It fails closed when the mapping is absent and
+the non-root EBS disk is not unique.
+
+The example defaults change general runner capacity from one 100 GB EBS volume to a 30 GB
+boot volume plus a 100 GB workspace volume (130 GB total). The GPU example uses 30 GB plus
+200 GB (230 GB total). EBS storage cost therefore increases with the extra 30 GB, while the
+exact amount depends on region, runner uptime, gp3 IOPS and throughput, and KMS settings.
+The split keeps job data out of the boot image and its snapshots.
 
 Families are independent. The general and GPU families above use different axes and
 markets; the GPU block's `subnets` replaces the general default list rather than

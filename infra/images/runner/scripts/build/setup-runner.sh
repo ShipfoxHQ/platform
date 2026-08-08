@@ -4,7 +4,7 @@ set -eu
 apt-get update
 apt-get install --yes --no-install-recommends \
   ca-certificates curl wget git openssh-client tar gzip xz-utils bzip2 zip unzip jq \
-  build-essential python3 pkg-config ripgrep fd-find sudo
+  build-essential python3 pkg-config ripgrep fd-find sudo amazon-ec2-utils
 rm -rf /var/lib/apt/lists/*
 
 ln -sf "$(command -v fdfind)" /usr/local/bin/fd

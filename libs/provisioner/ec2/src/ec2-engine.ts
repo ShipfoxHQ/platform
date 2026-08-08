@@ -131,6 +131,7 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
                 Ebs: {
                   VolumeSize: args.workspaceVolumeGb,
                   VolumeType: 'gp3',
+                  Encrypted: true,
                   DeleteOnTermination: true,
                 },
               },

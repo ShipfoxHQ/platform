@@ -21,6 +21,14 @@ and maximum lifetime. It formats and mounts the separate workspace volume at
 `/var/lib/shipfox/workspaces` before the runner starts. The AMI reads that file and shuts
 down when its watchdog exits.
 
+### AMI migration
+
+The split-volume launch contract requires AMIs to be rebuilt before using the 30 GB boot
+volume in the example defaults. An older AMI can contain more root data than the smaller
+volume accepts, which makes the launch fail. Deploy the provider change before publishing
+the replacement AMI. During the transition, keep `root_volume_gb` at or above the old AMI's
+root snapshot size until every template uses a rebuilt AMI.
+
 ## Template families
 
 The checked-in [`templates.example.yaml`](templates.example.yaml) contains a general

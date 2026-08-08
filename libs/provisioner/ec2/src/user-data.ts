@@ -2,14 +2,32 @@ const CLOUD_INIT_HEADER = '#cloud-config';
 const RUNNER_ENV_PATH = '/etc/shipfox/runner.env';
 const RUNNER_ENV_TEMP_PATH = '/etc/shipfox/runner.env.tmp';
 const RUNNER_WORKSPACE_ROOT = '/var/lib/shipfox/workspaces';
+const EC2_DEVICE_NAME_PATTERN = /^\/dev\/[A-Za-z0-9]+$/;
 
-const WORKSPACE_MOUNT_SCRIPT = `set -eu
+function workspaceMountScript(workspaceDeviceName: string): string {
+  return String.raw`set -eu
 workspace_root='${RUNNER_WORKSPACE_ROOT}'
+workspace_device_name='${workspaceDeviceName}'
 install -d -o shipfox -g shipfox "$workspace_root"
 
-# Nitro instances expose EBS volumes as NVMe devices rather than the names used
-# in the EC2 block-device mapping. Exclude the disk containing / and use the
-# remaining disk, which is the empty workspace volume attached by the provider.
+# Xen exposes the configured mapping name directly. Nitro may expose the same
+# EBS volume as an NVMe device, so resolve it by its EBS model when the mapping
+# name is not present. Never guess when more than one non-root EBS disk exists.
+workspace_device=''
+if [ -b "$workspace_device_name" ]; then
+  workspace_real_device="$(readlink -f "$workspace_device_name")"
+  workspace_model="$(cat "/sys/class/block/$(basename "$workspace_real_device")/device/model" 2>/dev/null || true)"
+  case "$workspace_model" in
+    *'Amazon EC2 NVMe Instance Storage'*)
+      echo "Configured workspace device $workspace_device_name is instance storage." >&2
+      exit 1
+      ;;
+    *)
+      workspace_device="$workspace_device_name"
+      ;;
+  esac
+fi
+
 root_source="$(findmnt -n -o SOURCE /)"
 root_disk="$(lsblk -ndo PKNAME "$root_source" || true)"
 if [ -z "$root_disk" ]; then
@@ -20,18 +38,40 @@ if [ -z "$root_disk" ]; then
   exit 1
 fi
 
-workspace_device=''
-for candidate in $(lsblk -dnro NAME,TYPE | awk '$2 == "disk" {print "/dev/" $1}'); do
-  if [ "$candidate" = "/dev/$root_disk" ]; then
-    continue
+workspace_mapping_tool_available=false
+if command -v ebsnvme-id >/dev/null 2>&1; then
+  workspace_mapping_tool_available=true
+fi
+
+if [ -z "$workspace_device" ]; then
+  configured_device_name="$(printf '%s\n' "$workspace_device_name" | sed 's#^/dev/##')"
+  workspace_candidate_count=0
+  workspace_candidate=''
+  for candidate in $(lsblk -dnro NAME,TYPE | awk '$2 == "disk" {print "/dev/" $1}'); do
+    if [ "$candidate" = "/dev/$root_disk" ]; then
+      continue
+    fi
+    model="$(cat "/sys/class/block/$(basename "$candidate")/device/model" 2>/dev/null || true)"
+    if [ "$model" != 'Amazon Elastic Block Store' ]; then
+      continue
+    fi
+    if [ "$workspace_mapping_tool_available" = true ]; then
+      mapped_device_name="$(ebsnvme-id -b "$candidate" 2>/dev/null || true)"
+      mapped_device_name="$(printf '%s\n' "$mapped_device_name" | sed 's#^/dev/##')"
+      if [ "$mapped_device_name" != "$configured_device_name" ]; then
+        continue
+      fi
+    fi
+    workspace_candidate_count=$((workspace_candidate_count + 1))
+    workspace_candidate="$candidate"
+  done
+  if [ "$workspace_candidate_count" -ne 1 ]; then
+    echo "Unable to uniquely resolve EC2 workspace device $workspace_device_name; found $workspace_candidate_count non-root EBS disks." >&2
+    exit 1
   fi
-  model="$(cat "/sys/class/block/$(basename "$candidate")/device/model" 2>/dev/null || true)"
-  case "$model" in
-    *'Amazon EC2 NVMe Instance Storage'*) continue ;;
-  esac
-  workspace_device="$candidate"
-  break
-done
+  workspace_device="$workspace_candidate"
+fi
+
 if [ -z "$workspace_device" ]; then
   echo 'Unable to find the EC2 workspace disk.' >&2
   exit 1
@@ -46,12 +86,13 @@ if [ -z "$workspace_uuid" ]; then
   exit 1
 fi
 if ! grep -Fq " $workspace_root " /etc/fstab; then
-  printf 'UUID=%s %s auto defaults,nofail 0 0\\n' "$workspace_uuid" "$workspace_root" >> /etc/fstab
+  printf 'UUID=%s %s auto defaults,nofail 0 0\n' "$workspace_uuid" "$workspace_root" >> /etc/fstab
 fi
 if ! mountpoint -q "$workspace_root"; then
   mount "$workspace_device" "$workspace_root"
 fi
 chown shipfox:shipfox "$workspace_root"`;
+}
 
 /** Values written into the runner image environment file at EC2 boot. */
 export interface RunnerBootstrapUserDataOptions {
@@ -60,6 +101,7 @@ export interface RunnerBootstrapUserDataOptions {
   readonly labels: readonly string[];
   readonly pollMaxDurationMs: number;
   readonly maxLifetimeSeconds: number;
+  readonly workspaceDeviceName: string;
   readonly providerKind?: string;
   readonly protocolVersion?: string;
 }
@@ -82,6 +124,7 @@ interface RunnerBootstrapEnvironment {
   readonly SHIPFOX_RUNNER_PROTOCOL_VERSION: string;
   readonly SHIPFOX_RUNNER_LABELS: string;
   readonly SHIPFOX_RUNNER_WORKSPACE_ROOT: string;
+  readonly SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED: string;
   readonly SHIPFOX_POLL_MAX_DURATION_MS: string;
   readonly SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS: string;
 }
@@ -107,7 +150,7 @@ write_files:
 ${indent(envFile, 6)}
 runcmd:
   - |
-${indent(WORKSPACE_MOUNT_SCRIPT, 6)}
+${indent(workspaceMountScript(options.workspaceDeviceName), 6)}
   - ['/usr/bin/mv', '--', ${RUNNER_ENV_TEMP_PATH}, ${RUNNER_ENV_PATH}]
 `;
 }
@@ -140,6 +183,7 @@ function runnerBootstrapEnvironment(
     SHIPFOX_RUNNER_PROTOCOL_VERSION: protocolVersion,
     SHIPFOX_RUNNER_LABELS: options.labels.join(','),
     SHIPFOX_RUNNER_WORKSPACE_ROOT: RUNNER_WORKSPACE_ROOT,
+    SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED: '1',
     SHIPFOX_POLL_MAX_DURATION_MS: String(options.pollMaxDurationMs),
     SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS: String(options.maxLifetimeSeconds),
   };
@@ -153,6 +197,8 @@ function runnerBootstrapEnvironment(
     throw new Error('pollMaxDurationMs must be a non-negative integer.');
   if (!Number.isInteger(options.maxLifetimeSeconds) || options.maxLifetimeSeconds <= 0)
     throw new Error('maxLifetimeSeconds must be a positive integer.');
+  if (!EC2_DEVICE_NAME_PATTERN.test(options.workspaceDeviceName))
+    throw new Error('workspaceDeviceName must be an EC2 device name like /dev/sdf.');
 
   return values;
 }

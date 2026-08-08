@@ -109,6 +109,9 @@ describe('loadEc2Templates', () => {
       spec: {
         market: 'on-demand',
         subnets: ['subnet-general-a', 'subnet-general-b'],
+        rootVolumeGb: 30,
+        workspaceVolumeGb: 100,
+        workspaceDeviceName: '/dev/sdf',
       },
     });
     expect(templates.find(({key}) => key === 'gpu-a10-cuda12')).toMatchObject({
@@ -117,6 +120,9 @@ describe('loadEc2Templates', () => {
         market: 'spot',
         subnets: ['subnet-gpu'],
         securityGroups: ['sg-gpu'],
+        rootVolumeGb: 30,
+        workspaceVolumeGb: 200,
+        workspaceDeviceName: '/dev/sdf',
       },
     });
   });
@@ -273,6 +279,12 @@ describe('loadEc2Templates', () => {
     const path = writeTemplates(template({}, '    root_device_name: "   "\n'));
 
     expect(() => loadEc2Templates(path)).toThrow('root_device_name');
+  });
+
+  it('rejects device-name aliases that map root and workspace to the same disk', () => {
+    const path = writeTemplates(template({workspace_device_name: '/dev/xvda1'}));
+
+    expect(() => loadEc2Templates(path)).toThrow('workspace_device_name');
   });
 
   it('throws when workspace_device_name is blank', () => {
