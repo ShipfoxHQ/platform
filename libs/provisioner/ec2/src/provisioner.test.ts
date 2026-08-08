@@ -24,6 +24,7 @@ const template: ProvisionerTemplate<Ec2TemplateSpec> = {
 const engine: Ec2Engine = {
   runInstance: () => Promise.reject(new Error('not used')),
   listManaged: () => Promise.resolve([]),
+  getConsoleOutput: () => Promise.resolve(undefined),
   terminate: () => Promise.resolve(),
 };
 

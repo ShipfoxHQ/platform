@@ -990,6 +990,53 @@ describe('createEc2Lifecycle', () => {
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
+  it('captures console output before reaping a pending instance', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+      consoleOutput: 'cloud-init failed\n',
+    });
+    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000});
+
+    await lifecycle.observe();
+
+    expect(engine.consoleOutputRequests).toEqual(['i-123']);
+    expect(engine.operations).toEqual(['console-output:i-123', 'terminate:i-123']);
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aws_instance_id: 'i-123',
+        console_output: 'cloud-init failed\n',
+      }),
+      'Captured EC2 console output before registration deadline termination',
+    );
+  });
+
+  it('still reaps a pending instance when console output capture fails', async () => {
+    const error = new Error('console output unavailable');
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+      consoleOutputError: error,
+    });
+    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000});
+
+    await lifecycle.observe();
+
+    expect(engine.terminated).toEqual(['i-123']);
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({aws_instance_id: 'i-123', err: error}),
+      'Failed to capture EC2 console output before registration deadline termination',
+    );
+  });
+
   it('periodically reconciles and otherwise observes', async () => {
     const now = new Date(NOW);
     const client = fakeClient({
@@ -1096,15 +1143,26 @@ function fakeEngine(
     instances?: Ec2InstanceView[];
     runError?: Error;
     listError?: Error;
+    consoleOutput?: string;
+    consoleOutputError?: Error;
     terminateErrors?: Array<Error | undefined>;
   } = {},
-): Ec2Engine & {runArgs: Parameters<Ec2Engine['runInstance']>[0][]; terminated: string[]} {
+): Ec2Engine & {
+  runArgs: Parameters<Ec2Engine['runInstance']>[0][];
+  terminated: string[];
+  consoleOutputRequests: string[];
+  operations: string[];
+} {
   const runArgs: Parameters<Ec2Engine['runInstance']>[0][] = [];
   const terminated: string[] = [];
+  const consoleOutputRequests: string[] = [];
+  const operations: string[] = [];
   const terminateErrors = [...(options.terminateErrors ?? [])];
   return {
     runArgs,
     terminated,
+    consoleOutputRequests,
+    operations,
     runInstance: (args) => {
       runArgs.push(args);
       return options.runError
@@ -1115,9 +1173,17 @@ function fakeEngine(
       options.listError
         ? Promise.reject(options.listError)
         : Promise.resolve(options.instances ?? []),
+    getConsoleOutput: (instanceId) => {
+      consoleOutputRequests.push(instanceId);
+      operations.push(`console-output:${instanceId}`);
+      return options.consoleOutputError
+        ? Promise.reject(options.consoleOutputError)
+        : Promise.resolve(options.consoleOutput);
+    },
     terminate: (instanceIds) => {
       const error = terminateErrors.shift();
       if (error) return Promise.reject(error);
+      for (const instanceId of instanceIds) operations.push(`terminate:${instanceId}`);
       terminated.push(...instanceIds);
       return Promise.resolve();
     },

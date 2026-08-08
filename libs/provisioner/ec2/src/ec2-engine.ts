@@ -1,6 +1,7 @@
 import {
   DescribeInstancesCommand,
   EC2Client,
+  GetConsoleOutputCommand,
   type Instance,
   RunInstancesCommand,
   type RunInstancesCommandInput,
@@ -78,6 +79,7 @@ export interface RunInstanceArgs {
 export interface Ec2Engine {
   runInstance(args: RunInstanceArgs): Promise<Ec2InstanceView>;
   listManaged(provisionerId: string): Promise<Ec2InstanceView[]>;
+  getConsoleOutput(instanceId: string): Promise<string | undefined>;
   terminate(instanceIds: readonly string[]): Promise<void>;
 }
 
@@ -174,6 +176,17 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
         return instances;
       } catch (error) {
         throw mapEc2Error(error, 'Cannot list managed EC2 instances.');
+      }
+    },
+
+    async getConsoleOutput(instanceId) {
+      try {
+        const output = await client.send(
+          new GetConsoleOutputCommand({InstanceId: instanceId, Latest: true}),
+        );
+        return output.Output ? Buffer.from(output.Output, 'base64').toString('utf8') : undefined;
+      } catch (error) {
+        throw mapEc2Error(error, 'Cannot get EC2 instance console output.');
       }
     },
 

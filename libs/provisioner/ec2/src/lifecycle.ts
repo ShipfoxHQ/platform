@@ -594,6 +594,9 @@ async function terminateInstances(
     (instance) => !context.terminationActionedInstanceIds.has(instance.instanceId),
   );
   for (const instance of instancesToTerminate) {
+    if (reason === 'registration-deadline') {
+      await captureConsoleOutput(context, instance);
+    }
     await context.engine.terminate([instance.instanceId]);
     const actionedAt = context.now().getTime();
     context.terminationActionedInstanceIds.set(instance.instanceId, actionedAt);
@@ -619,6 +622,32 @@ async function terminateInstances(
     const identity = parseInstanceIdentity(instance);
     context.locallyLaunched.delete(identity.providerRunnerId);
     context.tracker.remove(identity.providerRunnerId);
+  }
+}
+
+async function captureConsoleOutput(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+): Promise<void> {
+  const identity = parseInstanceIdentity(instance);
+  const logFields = {
+    provisioned_runner_id: identity.providerRunnerId,
+    ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
+    aws_instance_id: instance.instanceId,
+  };
+
+  try {
+    const consoleOutput = await context.engine.getConsoleOutput(instance.instanceId);
+    if (consoleOutput === undefined) return;
+    logger().info(
+      {...logFields, console_output: consoleOutput},
+      'Captured EC2 console output before registration deadline termination',
+    );
+  } catch (error) {
+    logger().warn(
+      {...logFields, err: error},
+      'Failed to capture EC2 console output before registration deadline termination',
+    );
   }
 }
 

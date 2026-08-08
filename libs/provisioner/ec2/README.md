@@ -133,6 +133,9 @@ hour after a listing gap.
 The provider reports non-terminal states on every observation.
 When the provider terminates an instance, it reports `terminated` with either
 `backend-terminate` or `registration-deadline`.
+Before a `registration-deadline` termination, the provider logs the latest decoded
+EC2 console output when AWS provides it. A console-output read failure does not
+block termination.
 Stopped instances remain eligible for termination. Shutting-down and terminated
 instances do not trigger another AWS termination call.
 The in-memory marker resets when the provider restarts.

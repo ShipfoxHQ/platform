@@ -1,5 +1,6 @@
 import {
   DescribeInstancesCommand,
+  GetConsoleOutputCommand,
   RunInstancesCommand,
   TerminateInstancesCommand,
 } from '@aws-sdk/client-ec2';
@@ -231,6 +232,27 @@ describe('createEc2Engine', () => {
     expect(result).toEqual([]);
   });
 
+  it('gets the latest decoded console output for an instance', async () => {
+    const ec2 = fakeEc2({
+      consoleOutput: Buffer.from('cloud-init failed\n').toString('base64'),
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.getConsoleOutput('i-123')).resolves.toBe('cloud-init failed\n');
+
+    expect(commandInput<GetConsoleOutputCommand>(ec2.commands[0])).toEqual({
+      InstanceId: 'i-123',
+      Latest: true,
+    });
+  });
+
+  it('returns no console output when EC2 has not published one', async () => {
+    const ec2 = fakeEc2();
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.getConsoleOutput('i-123')).resolves.toBeUndefined();
+  });
+
   it('terminates the requested instances', async () => {
     const ec2 = fakeEc2();
     const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
@@ -279,6 +301,8 @@ function fakeEc2(
     runOutput?: unknown;
     runError?: Error;
     describeOutputs?: unknown[];
+    consoleOutput?: string;
+    consoleOutputError?: Error;
     terminateError?: Error;
     terminateErrorById?: Map<string, Error>;
   } = {},
@@ -296,6 +320,10 @@ function fakeEc2(
       }
       if (command instanceof DescribeInstancesCommand)
         return Promise.resolve(describeOutputs.shift() ?? {});
+      if (command instanceof GetConsoleOutputCommand) {
+        if (options.consoleOutputError) return Promise.reject(options.consoleOutputError);
+        return Promise.resolve({Output: options.consoleOutput});
+      }
       if (command instanceof TerminateInstancesCommand) {
         const instanceId = command.input.InstanceIds?.[0];
         const terminateError =
