@@ -205,34 +205,6 @@ describe('OutputCollector', () => {
     expect(collector.guidanceTextFor(['meta'])).not.toContain('Output "summary"');
   });
 
-  it('omits schema descriptions only from the human terminal representation', () => {
-    const collector = new OutputCollector({
-      meta: {
-        type: 'json',
-        schema: {
-          type: 'object',
-          description: 'Top-level help text.',
-          properties: {
-            description: {
-              type: 'string',
-              description: 'Field help text.',
-            },
-          },
-        },
-      },
-    });
-
-    const agentGuidance = collector.guidanceTextFor(['meta']);
-    const terminalGuidance = collector.terminalOutputSpecificationsTextFor(['meta']);
-
-    expect(agentGuidance).toContain('Top-level help text.');
-    expect(agentGuidance).toContain('Field help text.');
-    expect(terminalGuidance).not.toContain('Top-level help text.');
-    expect(terminalGuidance).not.toContain('Field help text.');
-    expect(terminalGuidance).toContain('"description": {');
-    expect(terminalGuidance).toContain('descriptions omitted');
-  });
-
   it('states the full contract for steps without declared outputs', () => {
     const collector = new OutputCollector(undefined);
 
@@ -290,7 +262,7 @@ describe('runOutputTurnLoop', () => {
     expect(runTurn).toHaveBeenCalledOnce();
   });
 
-  it('keeps correction instructions in reprompts but only output schemas in the final error', async () => {
+  it('keeps correction guidance in reprompts but omits it from the final error', async () => {
     const runTurn = vi.fn<Parameters<typeof runOutputTurnLoop>[0]['runTurn']>();
     const controller = new AbortController();
     const outputSpecification = [
@@ -308,14 +280,14 @@ describe('runOutputTurnLoop', () => {
       runTurn,
       missingRequired: () => ['findings'],
       guidanceForMissing: () => guidance,
-      terminalGuidanceForMissing: () => outputSpecification,
     }).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(RequiredOutputsMissingError);
-    expect(error).toMatchObject({message: expect.stringContaining(outputSpecification)});
     expect(error).toMatchObject({
-      message: expect.not.stringContaining('Workflow output contract:'),
+      message: 'Agent step finished without required outputs: findings',
     });
+    expect(error).toMatchObject({message: expect.not.stringContaining(outputSpecification)});
+    expect(error).toMatchObject({message: expect.not.stringContaining(guidance)});
     expect(runTurn).toHaveBeenLastCalledWith(expect.stringContaining(guidance));
   });
 });

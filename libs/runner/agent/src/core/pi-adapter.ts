@@ -240,8 +240,6 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
           },
           missingRequired: () => collector.missingRequired(),
           guidanceForMissing: (missing) => collector.guidanceTextFor(missing),
-          terminalGuidanceForMissing: (missing) =>
-            collector.terminalOutputSpecificationsTextFor(missing),
         });
         const outputs = collector.snapshot();
         return {

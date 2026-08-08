@@ -15,14 +15,8 @@ export type SetOutputResult = {readonly ok: true} | {readonly ok: false; readonl
 export const MAX_OUTPUT_REPROMPTS = 2;
 
 export class RequiredOutputsMissingError extends Error {
-  constructor(
-    public readonly missing: readonly string[],
-    guidance?: string,
-  ) {
-    super(
-      `Agent step finished without required outputs: ${missing.join(', ')}` +
-        (guidance === undefined ? '' : `\n\n${guidance}`),
-    );
+  constructor(public readonly missing: readonly string[]) {
+    super(`Agent step finished without required outputs: ${missing.join(', ')}`);
     this.name = 'RequiredOutputsMissingError';
   }
 }
@@ -83,10 +77,6 @@ export class OutputCollector {
     return outputGuidanceText(this.#declarations, keys);
   }
 
-  terminalOutputSpecificationsTextFor(keys: readonly string[]): string {
-    return outputSpecificationsText(this.#declarations, keys, 'terminal');
-  }
-
   #validateKey(key: string): SetOutputResult {
     if (!OUTPUT_KEY_REGEX.test(key)) {
       return {
@@ -114,7 +104,6 @@ export async function runOutputTurnLoop(params: {
   runTurn: (prompt: string) => Promise<void>;
   missingRequired: () => string[];
   guidanceForMissing?: (missing: readonly string[]) => string;
-  terminalGuidanceForMissing?: (missing: readonly string[]) => string;
 }): Promise<void> {
   let nextPrompt = params.prompt;
   for (let attempt = 0; attempt <= MAX_OUTPUT_REPROMPTS; attempt += 1) {
@@ -125,8 +114,7 @@ export async function runOutputTurnLoop(params: {
     if (missing.length === 0) return;
     const guidance = params.guidanceForMissing?.(missing);
     if (attempt === MAX_OUTPUT_REPROMPTS) {
-      const terminalGuidance = params.terminalGuidanceForMissing?.(missing) ?? guidance;
-      throw new RequiredOutputsMissingError(missing, terminalGuidance);
+      throw new RequiredOutputsMissingError(missing);
     }
     nextPrompt =
       `The previous turn ended without setting required workflow outputs: ${missing.join(', ')}. ` +
@@ -178,11 +166,7 @@ function feedbackForCoercionError(
   );
 }
 
-function outputDeclarationGuidance(
-  key: string,
-  declaration: OutputTypeDeclaration,
-  audience: 'agent' | 'terminal' = 'agent',
-): string {
+function outputDeclarationGuidance(key: string, declaration: OutputTypeDeclaration): string {
   const lines = [
     `Output "${key}"`,
     `- key: "${key}"`,
@@ -190,11 +174,9 @@ function outputDeclarationGuidance(
   ];
   if (declaration.schema !== undefined) {
     lines.push(
-      audience === 'agent'
-        ? '- The decoded JSON value must match this exact JSON Schema:'
-        : '- The decoded JSON value must match this JSON Schema (descriptions omitted):',
+      '- The decoded JSON value must match this exact JSON Schema:',
       '```json',
-      formatJsonSchema(declaration.schema, audience),
+      JSON.stringify(declaration.schema, null, 2),
       '```',
     );
   }
@@ -204,28 +186,15 @@ function outputDeclarationGuidance(
 function outputSpecificationsText(
   declarations: OutputDeclarations | undefined,
   keys?: readonly string[],
-  audience: 'agent' | 'terminal' = 'agent',
 ): string {
   if (declarations === undefined) return '';
   const requestedKeys = keys === undefined ? Object.keys(declarations) : keys;
   return requestedKeys
     .flatMap((key) => {
       const declaration = declarations[key];
-      return declaration === undefined
-        ? []
-        : [outputDeclarationGuidance(key, declaration, audience)];
+      return declaration === undefined ? [] : [outputDeclarationGuidance(key, declaration)];
     })
     .join('\n\n');
-}
-
-function formatJsonSchema(schema: unknown, audience: 'agent' | 'terminal'): string {
-  if (audience === 'agent') return JSON.stringify(schema, null, 2);
-  return JSON.stringify(
-    schema,
-    (key, value: unknown) =>
-      key === 'description' && typeof value === 'string' ? undefined : value,
-    2,
-  );
 }
 
 function declaredKeysFeedback(declarations: OutputDeclarations | undefined): string {
