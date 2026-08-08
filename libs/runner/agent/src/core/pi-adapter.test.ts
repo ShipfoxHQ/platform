@@ -492,14 +492,26 @@ describe('piHarnessAdapter', () => {
   });
 
   it('registers the output tool for steps with declared outputs', async () => {
-    const result = piHarnessAdapter.run(invocation({outputs: {summary: {type: 'string'}}}));
+    const schema = {type: 'array', items: {type: 'string'}};
+    const result = piHarnessAdapter.run(invocation({outputs: {findings: {type: 'json', schema}}}));
 
-    await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+    await expect(result).rejects.toThrow('Agent step finished without required outputs: findings');
 
     expect(createAgentSessionMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
-        customTools: [expect.objectContaining({name: 'set_output'})],
+        customTools: [
+          expect.objectContaining({
+            name: 'set_output',
+            promptGuidelines: [
+              'Call set_output for each required workflow output; the exact key, value encoding, and JSON Schema for each are in the task prompt.',
+            ],
+          }),
+        ],
       }),
+    );
+    expect(promptMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining(JSON.stringify(schema, null, 2)),
     );
   });
 
@@ -646,7 +658,7 @@ describe('piHarnessAdapter', () => {
     const result = piHarnessAdapter.run(invocation({outputs: {summary: {type: 'string'}}}));
 
     await expect(result).rejects.toMatchObject({
-      message: 'Agent step finished without required outputs: summary',
+      message: expect.stringContaining('Agent step finished without required outputs: summary'),
       response: 'final text without output',
     });
     expect(promptMock).toHaveBeenCalledTimes(3);
