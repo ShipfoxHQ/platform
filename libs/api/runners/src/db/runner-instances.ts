@@ -375,23 +375,23 @@ export async function countStaleEnrolledRunnerInstances(params: {
   return row?.count ?? 0;
 }
 
-export type ProviderRunnerPendingPhase =
+export type ProviderRunnerPhase =
   | 'control_session'
   | 'enrollment'
   | 'assignment'
   | 'activation'
   | 'idle';
 
-export interface ProviderRunnerPendingMetric {
-  phase: ProviderRunnerPendingPhase;
+export interface ProviderRunnerPhaseMetric {
+  phase: ProviderRunnerPhase;
   provider: string;
   launchKind: 'demand' | 'warm' | 'manual';
   count: number;
-  oldestAgeSeconds: number;
+  oldestAgeMilliseconds: number;
 }
 
-export async function listProviderRunnerPendingMetrics(): Promise<ProviderRunnerPendingMetric[]> {
-  const phase = sql<ProviderRunnerPendingPhase>`case
+export async function listProviderRunnerByPhaseMetrics(): Promise<ProviderRunnerPhaseMetric[]> {
+  const phase = sql<ProviderRunnerPhase>`case
     when ${runnerControlSessions.id} is null then 'control_session'
     when ${providerRunners.state} <> 'running' then 'enrollment'
     when ${providerRunners.intendedReservationId} is not null
@@ -418,8 +418,8 @@ export async function listProviderRunnerPendingMetrics(): Promise<ProviderRunner
       provider: sql<string>`coalesce(${providerRunners.providerKind}, 'unknown')`,
       launchKind: providerRunners.launchKind,
       count: sql<number>`count(*)::int`,
-      oldestAgeSeconds: sql<number>`coalesce(
-        max(extract(epoch from (now() - (${startedAt})))),
+      oldestAgeMilliseconds: sql<number>`coalesce(
+        max(extract(epoch from (now() - (${startedAt}))) * 1000),
         0
       )::double precision`,
     })
@@ -445,7 +445,7 @@ export async function listProviderRunnerPendingMetrics(): Promise<ProviderRunner
     provider: row.provider,
     launchKind: row.launchKind,
     count: row.count,
-    oldestAgeSeconds: Math.max(0, row.oldestAgeSeconds),
+    oldestAgeMilliseconds: Math.max(0, row.oldestAgeMilliseconds),
   }));
 }
 

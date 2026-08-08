@@ -3,14 +3,14 @@ import {config} from '#config.js';
 import {getJobExecutionQueueDepth} from '#db/job-executions.js';
 import {
   countStaleEnrolledRunnerInstances,
-  listProviderRunnerPendingMetrics,
-  type ProviderRunnerPendingMetric,
+  listProviderRunnerByPhaseMetrics,
+  type ProviderRunnerPhaseMetric,
 } from '#db/runner-instances.js';
 
 type ProviderRunnerPhaseLabels = {
-  phase: ProviderRunnerPendingMetric['phase'];
+  phase: ProviderRunnerPhaseMetric['phase'];
   provider: string;
-  launch_kind: ProviderRunnerPendingMetric['launchKind'];
+  launch_kind: ProviderRunnerPhaseMetric['launchKind'];
 };
 
 export function registerRunnersServiceMetrics(): void {
@@ -37,10 +37,10 @@ export function registerRunnersServiceMetrics(): void {
     },
   );
   const providerRunnersByPhaseOldestAge = meter.createObservableGauge<ProviderRunnerPhaseLabels>(
-    'runners_provider_runner_by_phase_oldest_age_seconds',
+    'runners_provider_runner_by_phase_oldest_age',
     {
       description: 'Oldest provider runner age by lifecycle phase',
-      unit: 's',
+      unit: 'ms',
     },
   );
 
@@ -52,7 +52,7 @@ export function registerRunnersServiceMetrics(): void {
           countStaleEnrolledRunnerInstances({
             graceSeconds: config.RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS,
           }),
-          listProviderRunnerPendingMetrics(),
+          listProviderRunnerByPhaseMetrics(),
         ]);
 
       if (depthResult.status === 'fulfilled') {
@@ -63,14 +63,18 @@ export function registerRunnersServiceMetrics(): void {
         observer.observe(enrolledRunnersWithoutRecentReport, staleEnrolledRunnerCountResult.value);
       }
       if (providerRunnersByPhaseResult.status === 'fulfilled') {
-        for (const pending of providerRunnersByPhaseResult.value) {
+        for (const metric of providerRunnersByPhaseResult.value) {
           const attributes: ProviderRunnerPhaseLabels = {
-            phase: pending.phase,
-            provider: pending.provider,
-            launch_kind: pending.launchKind,
+            phase: metric.phase,
+            provider: metric.provider,
+            launch_kind: metric.launchKind,
           };
-          observer.observe(providerRunnersByPhase, pending.count, attributes);
-          observer.observe(providerRunnersByPhaseOldestAge, pending.oldestAgeSeconds, attributes);
+          observer.observe(providerRunnersByPhase, metric.count, attributes);
+          observer.observe(
+            providerRunnersByPhaseOldestAge,
+            metric.oldestAgeMilliseconds,
+            attributes,
+          );
         }
       }
     },

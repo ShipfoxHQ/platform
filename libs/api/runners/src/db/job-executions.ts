@@ -329,9 +329,8 @@ export async function claimPendingJobExecution(params: {
         claimedRunner.sessionCreatedAtEpochMs !== undefined
       )
         activationToFirstClaimObservation = {
-          durationSeconds:
-            (claimedRunner.firstClaimedAt.getTime() - claimedRunner.sessionCreatedAtEpochMs) /
-            1_000,
+          durationMilliseconds:
+            claimedRunner.firstClaimedAt.getTime() - claimedRunner.sessionCreatedAtEpochMs,
           provider: claimedRunner.provider,
           launchKind: claimedRunner.launchKind,
           runnerInstanceId: claimedRunner.runnerInstanceId,

@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
     runners_enrolled_without_recent_report: gauges.enrolledRunnersWithoutRecentReport,
     runners_pending_job_executions: gauges.pendingJobExecutions,
     runners_provider_runner_by_phase: gauges.providerRunnersByPhase,
-    runners_provider_runner_by_phase_oldest_age_seconds: gauges.providerRunnersByPhaseOldestAge,
+    runners_provider_runner_by_phase_oldest_age: gauges.providerRunnersByPhaseOldestAge,
     runners_running_job_executions: gauges.runningJobExecutions,
   };
   return {
@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => {
     gauges,
     getMeter: vi.fn(),
     getJobExecutionQueueDepth: vi.fn(),
-    listProviderRunnerPendingMetrics: vi.fn(),
+    listProviderRunnerByPhaseMetrics: vi.fn(),
     getServiceMetricsProvider: vi.fn(),
   };
 });
@@ -36,7 +36,7 @@ vi.mock('#db/job-executions.js', () => ({
 }));
 vi.mock('#db/runner-instances.js', () => ({
   countStaleEnrolledRunnerInstances: mocks.countStaleEnrolledRunnerInstances,
-  listProviderRunnerPendingMetrics: mocks.listProviderRunnerPendingMetrics,
+  listProviderRunnerByPhaseMetrics: mocks.listProviderRunnerByPhaseMetrics,
 }));
 
 let registerRunnersServiceMetrics: typeof import('./service.js').registerRunnersServiceMetrics;
@@ -54,14 +54,14 @@ describe('registerRunnersServiceMetrics', () => {
     mocks.countStaleEnrolledRunnerInstances.mockReset();
     mocks.createObservableGauge.mockClear();
     mocks.getJobExecutionQueueDepth.mockReset();
-    mocks.listProviderRunnerPendingMetrics.mockReset();
+    mocks.listProviderRunnerByPhaseMetrics.mockReset();
     mocks.getMeter.mockReset();
     mocks.getServiceMetricsProvider.mockReset();
     mocks.getJobExecutionQueueDepth.mockResolvedValue({
       pendingJobExecutions: 0,
       runningJobExecutions: 0,
     });
-    mocks.listProviderRunnerPendingMetrics.mockResolvedValue([]);
+    mocks.listProviderRunnerByPhaseMetrics.mockResolvedValue([]);
     mocks.getMeter.mockReturnValue({
       createObservableGauge: mocks.createObservableGauge,
       addBatchObservableCallback: mocks.addBatchObservableCallback,
@@ -113,13 +113,13 @@ describe('registerRunnersServiceMetrics', () => {
   });
 
   it('observes provider runners by lifecycle phase', async () => {
-    mocks.listProviderRunnerPendingMetrics.mockResolvedValue([
+    mocks.listProviderRunnerByPhaseMetrics.mockResolvedValue([
       {
         phase: 'assignment',
         provider: 'ec2',
         launchKind: 'demand',
         count: 3,
-        oldestAgeSeconds: 42,
+        oldestAgeMilliseconds: 42,
       },
     ]);
 

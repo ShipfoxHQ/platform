@@ -191,8 +191,7 @@ export async function exchangeRunnerBootstrapToken(params: {
   });
   if (result.runner)
     recordProviderRunnerCreatedToControlSession({
-      durationSeconds:
-        (result.session.createdAt.getTime() - result.runner.createdAt.getTime()) / 1_000,
+      durationMilliseconds: result.session.createdAt.getTime() - result.runner.createdAt.getTime(),
       provider: result.runner.provider,
       launchKind: result.runner.launchKind,
       runnerInstanceId: result.runner.runnerInstanceId,

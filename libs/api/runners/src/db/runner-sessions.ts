@@ -153,7 +153,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
       );
     if (runner.assignedAt)
       assignmentToActivationObservation = {
-        durationSeconds: (session.createdAt.getTime() - runner.assignedAt.getTime()) / 1_000,
+        durationMilliseconds: session.createdAt.getTime() - runner.assignedAt.getTime(),
         provider: runner.provider,
         launchKind: runner.launchKind,
         runnerInstanceId: runner.runnerInstanceId,

@@ -210,8 +210,7 @@ export async function assignRunnerInstancesTx(
       const controlSessionCreatedAt = runner?.controlSessionCreatedAt;
       if (!runner || !assigned.assignedAt || !controlSessionCreatedAt) continue;
       controlSessionToAssignment.push({
-        durationSeconds:
-          (assigned.assignedAt.getTime() - controlSessionCreatedAt.getTime()) / 1_000,
+        durationMilliseconds: assigned.assignedAt.getTime() - controlSessionCreatedAt.getTime(),
         provider: runner.provider,
         launchKind: runner.launchKind,
         surface: params.surface,

@@ -7,7 +7,7 @@ import {
   countStaleEnrolledRunnerInstances,
   listActiveRunnerInstanceCountsByTemplateTx,
   listActiveRunnerInstances,
-  listProviderRunnerPendingMetrics,
+  listProviderRunnerByPhaseMetrics,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminateIntents,
   reapStaleRunnerInstances,
@@ -2541,7 +2541,7 @@ describe('countStaleEnrolledRunnerInstances', () => {
   }
 });
 
-describe('listProviderRunnerPendingMetrics', () => {
+describe('listProviderRunnerByPhaseMetrics', () => {
   it('groups runners by the lifecycle phase that is currently blocking activation', async () => {
     const provisionerId = crypto.randomUUID();
     const provider = `metrics-test-${crypto.randomUUID()}`;
@@ -2615,7 +2615,7 @@ describe('listProviderRunnerPendingMetrics', () => {
         })),
       );
 
-    const metrics = await listProviderRunnerPendingMetrics();
+    const metrics = await listProviderRunnerByPhaseMetrics();
     const ownMetrics = metrics.filter((metric) => metric.provider === provider);
 
     expect(ownMetrics).toEqual(
