@@ -1,0 +1,9 @@
+[Match]
+Name=eth* en*
+
+[Network]
+DHCP=yes
+IPv6DuplicateAddressDetection=0
+
+[Link]
+RequiredForOnline=yes

@@ -936,3 +936,31 @@ describe('systemd boot activation', () => {
     expect(unit).not.toContain('cloud-final.service');
   });
 });
+
+describe('runner boot configuration', () => {
+  it('applies the filesystem and fsck boot settings during the image build', async () => {
+    const script = await readFile(
+      new URL('../scripts/build/configure-boot.sh', import.meta.url),
+      'utf8',
+    );
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+
+    expect(script).toContain('fsck.mode=skip');
+    expect(script).toContain('systemd-fsck-root.service');
+    expect(script).toContain('noatime');
+    expect(build).toContain('scripts/build/configure-boot.sh');
+  });
+
+  it('disables IPv6 duplicate-address detection for runner interfaces', async () => {
+    const network = await readFile(
+      new URL('../assets/shipfox-runner.network', import.meta.url),
+      'utf8',
+    );
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+
+    expect(network).toContain('Name=eth* en*');
+    expect(network).toContain('DHCP=yes');
+    expect(network).toContain('IPv6DuplicateAddressDetection=0');
+    expect(build).toContain('05-shipfox-runner.network');
+  });
+});

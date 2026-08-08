@@ -18,7 +18,8 @@ build {
     scripts = [
       "${path.root}/scripts/build/setup-runner.sh",
       "${path.root}/scripts/build/install-node.sh",
-      "${path.root}/scripts/build/install-runner.sh"
+      "${path.root}/scripts/build/install-runner.sh",
+      "${path.root}/scripts/build/configure-boot.sh"
     ]
   }
 
@@ -32,6 +33,8 @@ build {
       "sudo install -d -m 0755 /etc/shipfox /opt/shipfox-runner/scripts/runtime/helpers",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.target /etc/systemd/system/shipfox-runner.target",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-env.path /etc/systemd/system/shipfox-runner-env.path",
+      "sudo install -d -m 0755 /etc/systemd/network",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.network /etc/systemd/network/05-shipfox-runner.network",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.service /etc/systemd/system/shipfox-runner.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-env.service /etc/systemd/system/shipfox-runner-env.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-max-lifetime.service /etc/systemd/system/shipfox-max-lifetime.service",
