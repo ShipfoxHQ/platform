@@ -1104,7 +1104,7 @@ describe('runner image composition', () => {
     const fixture = await createRunnerImageSetupFixture();
 
     try {
-      execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+      execFileSync('/bin/sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
 
       const events = (await readFile(fixture.commandLog, 'utf8')).trim().split('\n');
       const stopIndex = events.indexOf(
@@ -1132,7 +1132,7 @@ describe('runner image composition', () => {
 
     try {
       expect(() =>
-        execFileSync('sh', [script.pathname], {
+        execFileSync('/bin/sh', [script.pathname], {
           env: {...fixture.environment, RUNNER_IMAGE_FAIL_PURGE: '1'},
           stdio: 'pipe',
         }),
@@ -1153,7 +1153,7 @@ describe('runner image composition', () => {
       await writeExecutable(join(fixture.root, 'usr/bin/snap'), '#!/bin/sh\nexit 0\n');
 
       expect(() =>
-        execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'}),
+        execFileSync('/bin/sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'}),
       ).toThrow();
       expect(await pathExists(join(fixture.root, 'usr/bin/snap'))).toBe(true);
     } finally {
@@ -1291,7 +1291,7 @@ done
     commandLog,
     environment: {
       ...process.env,
-      PATH: `${commandDirectory}:/bin`,
+      PATH: commandDirectory,
       RUNNER_IMAGE_COMMAND_LOG: commandLog,
       RUNNER_IMAGE_ROOT: root,
     },
