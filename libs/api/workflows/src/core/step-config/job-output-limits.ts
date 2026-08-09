@@ -6,8 +6,8 @@ import {JobOutputNotJsonSafeError} from '#core/errors.js';
 
 export const MAX_JOB_OUTPUT_ENTRIES = WORKFLOW_DOCUMENT_JOB_OUTPUTS_MAX_ENTRIES;
 export const MAX_JOB_OUTPUT_NESTING_DEPTH = WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_DEPTH;
-export const MAX_JOB_OUTPUTS_TOTAL_BYTES = 64 * 1024;
-export const MAX_JOB_OUTPUT_VALUE_BYTES = 16 * 1024;
+export const MAX_JOB_OUTPUTS_TOTAL_BYTES = 256 * 1024;
+export const MAX_JOB_OUTPUT_VALUE_BYTES = 64 * 1024;
 
 const textEncoder = new TextEncoder();
 

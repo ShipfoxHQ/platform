@@ -29,7 +29,7 @@ can change the values marked configurable.
 
 | Limit | Default | Configurable | Details |
 | --- | --- | --- | --- |
-| Output bytes per job | 64 KiB total, 16 KiB per value | No | A job fails with an unknown status reason when materialized outputs exceed the cap. See [Job fields](/reference/workflow-schema#job-fields). |
+| Output bytes per job | 256 KiB total, 64 KiB per value | No | A job fails with an unknown status reason when materialized outputs exceed the cap. See [Job fields](/reference/workflow-schema#job-fields). |
 | Declared outputs per job | 128 entries | No | The `outputs:` map on one job. See [Job fields](/reference/workflow-schema#job-fields). |
 | Structured output nesting | 64 levels | No | Structured values deeper than this fail as non-JSON-safe outputs. |
 
