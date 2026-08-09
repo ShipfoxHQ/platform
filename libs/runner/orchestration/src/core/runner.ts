@@ -39,11 +39,13 @@ import {
 } from '@shipfox/runner-workspace';
 import {isTimeoutError} from 'ky';
 import {config} from '#config.js';
+import {createBootTimelineCollector} from '#core/boot-timeline.js';
 import {startHeartbeatLoop} from '#core/heartbeat-loop.js';
 import {runJobSteps} from '#core/step-loop.js';
 
 let running = true;
 let warnedAboutUnavailablePiExtensions = false;
+const bootTimeline = createBootTimelineCollector();
 // Module-level so the long-lived SIGINT handler can reach the in-flight job's
 // controller; locally-scoped capture isn't possible from a process-global handler.
 let currentJobAbortController: AbortController | undefined;
@@ -302,6 +304,13 @@ async function initializeManagedRunnerSession(): Promise<RunnerSession | undefin
     providerKind: enrollmentConfig.providerKind,
     protocolVersion: enrollmentConfig.protocolVersion,
   });
+  logger().info(
+    {
+      ...bootTimeline.createEvent(bootTimeline.captureEnrollment()),
+      provider_kind: enrollmentConfig.providerKind,
+    },
+    'runner.boot_timeline',
+  );
   const activationToken =
     enrollmentActivationToken ?? (await waitForRunnerActivation(controlSessionToken));
   if (!activationToken) return undefined;

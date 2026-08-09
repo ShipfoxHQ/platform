@@ -1,6 +1,10 @@
-import {createConfig, num} from '@shipfox/config';
+import {createConfig, num, str} from '@shipfox/config';
 
 export const config = createConfig({
+  IMAGE_REVISION: str({
+    desc: 'Optional image revision reported by runners that do not have baked image metadata. Leave it empty when no revision is available.',
+    default: '',
+  }),
   SHIPFOX_POLL_INTERVAL_MS: num({
     desc: 'How often the runner asks the API for new jobs, in milliseconds. The runner backs off toward SHIPFOX_POLL_MAX_INTERVAL_MS while idle or after errors.',
     default: 1000,
