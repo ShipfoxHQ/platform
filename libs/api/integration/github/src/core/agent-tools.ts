@@ -143,6 +143,8 @@ export class GithubAgentToolsProvider
           );
         }
         const client = (this.options.createClient ?? createOctokitClient)(token.token);
+        const method =
+          typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
 
         try {
           if (operation.kind === 'graphql') {
@@ -152,7 +154,16 @@ export class GithubAgentToolsProvider
               : githubToolResult(tool.id as GithubAgentToolId, data);
           }
 
-          const response = await client.request(operation.route, operation.parameters);
+          const operationParameters = await resolvePendingReviewParameters(
+            client,
+            operation.parameters,
+            tool.id as GithubAgentToolId,
+            method,
+          );
+          if (operationParameters === undefined) {
+            return githubToolError(NO_PENDING_REVIEW_MESSAGE);
+          }
+          const response = await client.request(operation.route, operationParameters);
           return githubToolResult(tool.id as GithubAgentToolId, response.data);
         } catch (error) {
           if (error instanceof GithubIntegrationProviderError)
@@ -417,6 +428,43 @@ function projectGithubOperationParameters(
     parameters.headers = {accept: 'application/vnd.github.diff'};
   }
   return parameters;
+}
+
+async function resolvePendingReviewParameters(
+  client: GithubToolClient,
+  parameters: Record<string, unknown>,
+  toolId: GithubAgentToolId,
+  method: string | undefined,
+): Promise<Record<string, unknown> | undefined> {
+  if (!isPendingReviewOperation(toolId, method)) return parameters;
+
+  const response = await client.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
+    owner: parameters.owner,
+    repo: parameters.repo,
+    pull_number: parameters.pull_number,
+    per_page: 100,
+  });
+  const reviewId = latestPendingReviewId(response.data);
+  return reviewId === undefined ? undefined : {...parameters, review_id: reviewId};
+}
+
+function isPendingReviewOperation(toolId: GithubAgentToolId, method: string | undefined): boolean {
+  return (
+    toolId === 'pull_request_review_write' &&
+    (method === 'submit_pending' || method === 'delete_pending')
+  );
+}
+
+function latestPendingReviewId(data: unknown): number | undefined {
+  if (!Array.isArray(data)) return undefined;
+
+  for (let index = data.length - 1; index >= 0; index -= 1) {
+    const review = data[index];
+    if (!isRecord(review) || review.state !== 'PENDING') continue;
+    if (typeof review.id === 'number' && Number.isSafeInteger(review.id)) return review.id;
+  }
+
+  return undefined;
 }
 
 function githubToolResult(toolId: GithubAgentToolId, data: unknown): GithubToolCallResult {
