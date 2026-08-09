@@ -1,5 +1,11 @@
 # @shipfox/api-integration-spi
 
+## 1.1.1
+
+### Patch Changes
+
+- f2b20af: Preserve GitHub provider rejection details and classify terminal agent-tool failures without reporting them as provider outages.
+
 ## 1.1.0
 
 ### Minor Changes

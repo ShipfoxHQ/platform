@@ -1,5 +1,25 @@
 # @shipfox/api-integration-core
 
+## 12.5.0
+
+### Patch Changes
+
+- f2b20af: Preserve GitHub provider rejection details and classify terminal agent-tool failures without reporting them as provider outages.
+- Updated dependencies [420ef97]
+- Updated dependencies [f2b20af]
+- Updated dependencies [da02bd8]
+- Updated dependencies [4fa3667]
+- Updated dependencies [5b1838c]
+  - @shipfox/api-integration-github@12.5.0
+  - @shipfox/api-integration-spi@1.1.1
+  - @shipfox/api-workflows-dto@12.5.0
+  - @shipfox/api-integration-gitea@12.5.0
+  - @shipfox/api-integration-jira@12.5.0
+  - @shipfox/api-integration-linear@12.5.0
+  - @shipfox/api-integration-sentry@12.5.0
+  - @shipfox/api-integration-slack@12.5.0
+  - @shipfox/api-integration-webhook@12.5.0
+
 ## 12.4.0
 
 ### Patch Changes

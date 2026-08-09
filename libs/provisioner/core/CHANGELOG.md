@@ -1,5 +1,11 @@
 # @shipfox/provisioner-core
 
+## 1.2.0
+
+### Minor Changes
+
+- d747f6a: Expose provider adapter demand snapshots for provider-specific observation.
+
 ## 1.1.1
 
 ### Patch Changes

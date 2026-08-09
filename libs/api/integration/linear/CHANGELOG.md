@@ -1,5 +1,12 @@
 # @shipfox/api-integration-linear
 
+## 12.5.0
+
+### Patch Changes
+
+- Updated dependencies [f2b20af]
+  - @shipfox/api-integration-spi@1.1.1
+
 ## 12.3.0
 
 ### Patch Changes

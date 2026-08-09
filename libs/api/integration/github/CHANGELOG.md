@@ -1,5 +1,16 @@
 # @shipfox/api-integration-github
 
+## 12.5.0
+
+### Patch Changes
+
+- 420ef97: GitHub agent artifact downloads now use GitHub's required zip format and return a temporary download URL.
+- f2b20af: Preserve GitHub provider rejection details and classify terminal agent-tool failures without reporting them as provider outages.
+- da02bd8: Add comments to the caller's latest pending pull request review.
+- 4fa3667: Resolve the latest pending pull request review before submitting or deleting it.
+- Updated dependencies [f2b20af]
+  - @shipfox/api-integration-spi@1.1.1
+
 ## 12.3.0
 
 ### Patch Changes

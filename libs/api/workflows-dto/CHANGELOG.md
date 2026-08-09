@@ -1,5 +1,11 @@
 # @shipfox/api-workflows-dto
 
+## 12.5.0
+
+### Minor Changes
+
+- 5b1838c: Expose actionable status reasons and messages when materialized job outputs cannot be persisted.
+
 ## 12.3.0
 
 ### Minor Changes
