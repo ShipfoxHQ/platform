@@ -1,27 +1,173 @@
-import {getServiceMetricsProvider} from '@shipfox/node-opentelemetry';
+import type {DemandStatDto} from '@shipfox/api-runners-dto';
+import {getServiceMetricsProvider, logger} from '@shipfox/node-opentelemetry';
+import {type ProvisionerTemplate, rankTemplatesForLabels} from '@shipfox/provisioner-core';
 import type {Ec2Engine, Ec2InstanceState} from '#ec2-engine.js';
+import {parseInstanceIdentity} from '#instance-identity.js';
+import type {Ec2TemplateSpec} from '#templates.js';
+
+type ServiceMetricLabels = {
+  template_key?: string;
+  state?: Ec2InstanceState | 'starting' | 'running';
+};
+type TemplateRunnerCounts = {starting: number; running: number};
+type TemplateDemand = {queued: number; oldestQueuedAtMs?: number};
 
 export interface RegisterEc2ServiceMetricsOptions {
   readonly engine: Ec2Engine;
   readonly provisionerId: string;
+  readonly templates: readonly ProvisionerTemplate<Ec2TemplateSpec>[];
+  readonly getDemandStats: () => readonly DemandStatDto[];
 }
 
 export function registerEc2ServiceMetrics(options: RegisterEc2ServiceMetricsOptions): void {
   const meter = getServiceMetricsProvider().getMeter('provisioner-ec2');
-  const managedInstances = meter.createObservableGauge<{
-    state: Ec2InstanceState;
-  }>('ec2_provisioner_managed_instances', {
-    description: 'EC2 runner instances currently managed by the provisioner, by EC2 state',
-  });
+  const managedInstances = meter.createObservableGauge<ServiceMetricLabels>(
+    'ec2_provisioner_managed_instances',
+    {
+      description: 'EC2 runner instances currently managed by the provisioner, by EC2 state',
+    },
+  );
+  const templateRunners = meter.createObservableGauge<ServiceMetricLabels>(
+    'ec2_provisioner_template_runners',
+    {description: 'EC2 runner instances charged against each template concurrency cap'},
+  );
+  const templateMaxConcurrency = meter.createObservableGauge<ServiceMetricLabels>(
+    'ec2_provisioner_template_max_concurrency',
+    {description: 'Configured maximum concurrency for each EC2 runner template'},
+  );
+  const templateTargetConcurrency = meter.createObservableGauge<ServiceMetricLabels>(
+    'ec2_provisioner_template_target_concurrency',
+    {description: 'Configured warm-pool target concurrency for each EC2 runner template'},
+  );
+  const templateQueuedDemand = meter.createObservableGauge<ServiceMetricLabels>(
+    'ec2_provisioner_template_queued_demand',
+    {description: 'Queued jobs matching each EC2 runner template'},
+  );
+  const templateOldestQueuedAge = meter.createObservableGauge<ServiceMetricLabels>(
+    'ec2_provisioner_template_oldest_queued_age',
+    {
+      description: 'Age of the oldest queued job matching each EC2 runner template',
+      unit: 'ms',
+    },
+  );
+  let lastUnattributedCount = 0;
 
   meter.addBatchObservableCallback(
     async (observer) => {
-      const instances = await options.engine.listManaged(options.provisionerId);
-      const counts = new Map<Ec2InstanceState, number>();
-      for (const instance of instances)
-        counts.set(instance.state, (counts.get(instance.state) ?? 0) + 1);
-      for (const [state, count] of counts) observer.observe(managedInstances, count, {state});
+      try {
+        const instances = await options.engine.listManaged(options.provisionerId);
+        const counts = new Map<Ec2InstanceState, number>();
+        for (const instance of instances)
+          counts.set(instance.state, (counts.get(instance.state) ?? 0) + 1);
+        for (const [state, count] of counts) observer.observe(managedInstances, count, {state});
+
+        const countsByTemplate = new Map<string, TemplateRunnerCounts>(
+          options.templates.map((template) => [template.key, {starting: 0, running: 0}]),
+        );
+        let unattributedCount = 0;
+        for (const instance of instances) {
+          const templateKey = parseInstanceIdentity(instance).templateKey;
+          if (!templateKey || !countsByTemplate.has(templateKey)) {
+            unattributedCount += 1;
+            continue;
+          }
+          const state = templateRunnerState(instance.state);
+          if (!state) continue;
+          const templateCounts = countsByTemplate.get(templateKey);
+          if (templateCounts) templateCounts[state] += 1;
+        }
+        if (unattributedCount !== 0 && unattributedCount !== lastUnattributedCount) {
+          logger().warn(
+            {
+              event: 'provisioner.ec2.unattributed_managed_instances',
+              count: unattributedCount,
+              provisionerId: options.provisionerId,
+            },
+            'Some managed EC2 instances do not map to a configured template',
+          );
+        }
+        lastUnattributedCount = unattributedCount;
+
+        const demandByTemplate = new Map<string, TemplateDemand>(
+          options.templates.map((template) => [template.key, {queued: 0}]),
+        );
+        for (const stat of options.getDemandStats()) {
+          if (stat.queued === 0) continue;
+          const oldestQueuedAtMs = Date.parse(stat.oldest_queued_at);
+          for (const template of rankTemplatesForLabels(stat.labels, options.templates)) {
+            const demand = demandByTemplate.get(template.key);
+            if (!demand) continue;
+            demand.queued += stat.queued;
+            if (Number.isFinite(oldestQueuedAtMs)) {
+              demand.oldestQueuedAtMs =
+                demand.oldestQueuedAtMs === undefined
+                  ? oldestQueuedAtMs
+                  : Math.min(demand.oldestQueuedAtMs, oldestQueuedAtMs);
+            }
+          }
+        }
+
+        for (const template of options.templates) {
+          const labels = {template_key: template.key};
+          const countsForTemplate = countsByTemplate.get(template.key) ?? {
+            starting: 0,
+            running: 0,
+          };
+          const demand = demandByTemplate.get(template.key) ?? {queued: 0};
+          observer.observe(templateRunners, countsForTemplate.starting, {
+            ...labels,
+            state: 'starting',
+          });
+          observer.observe(templateRunners, countsForTemplate.running, {
+            ...labels,
+            state: 'running',
+          });
+          observer.observe(templateMaxConcurrency, template.maxConcurrency, labels);
+          observer.observe(templateTargetConcurrency, template.targetConcurrency ?? 0, labels);
+          observer.observe(templateQueuedDemand, demand.queued, labels);
+          observer.observe(
+            templateOldestQueuedAge,
+            demand.oldestQueuedAtMs === undefined
+              ? 0
+              : Math.max(0, Date.now() - demand.oldestQueuedAtMs),
+            labels,
+          );
+        }
+      } catch (error) {
+        logger().warn(
+          {
+            event: 'provisioner.ec2.service_metrics_failed',
+            provisionerId: options.provisionerId,
+            reason: errorReason(error),
+          },
+          'EC2 service metrics callback failed',
+        );
+      }
     },
-    [managedInstances],
+    [
+      managedInstances,
+      templateRunners,
+      templateMaxConcurrency,
+      templateTargetConcurrency,
+      templateQueuedDemand,
+      templateOldestQueuedAge,
+    ],
   );
+}
+
+function templateRunnerState(state: Ec2InstanceState): 'starting' | 'running' | undefined {
+  switch (state) {
+    case 'pending':
+      return 'starting';
+    case 'running':
+      return 'running';
+    case 'unknown':
+      return 'running';
+    default:
+      return undefined;
+  }
+}
+
+function errorReason(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
 }

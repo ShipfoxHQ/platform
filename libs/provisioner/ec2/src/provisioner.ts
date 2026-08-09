@@ -1,3 +1,4 @@
+import type {DemandStatDto} from '@shipfox/api-runners-dto';
 import {
   type ProviderRunnerLaunch,
   type ProvisionerAdapter,
@@ -28,6 +29,7 @@ export function createEc2ProvisionerAdapter(
   options: CreateEc2ProvisionerAdapterOptions,
 ): ProvisionerAdapter<Ec2TemplateSpec> {
   let lifecycle: Ec2Lifecycle | undefined;
+  let lastDemandStats: readonly DemandStatDto[] = [];
 
   return {
     loadTemplates: () => Promise.resolve(options.templates),
@@ -37,8 +39,17 @@ export function createEc2ProvisionerAdapter(
     ),
     launch: (launch) => requireLifecycle(lifecycle).launch(launch),
     terminate: (ids) => requireLifecycle(lifecycle).terminate(ids),
+    onDemandStats(stats) {
+      lastDemandStats = stats.map((stat) => ({...stat, labels: [...stat.labels]}));
+    },
     async onStart(runtime) {
-      registerEc2ServiceMetrics({engine: options.engine, provisionerId: runtime.identity.id});
+      lastDemandStats = [];
+      registerEc2ServiceMetrics({
+        engine: options.engine,
+        provisionerId: runtime.identity.id,
+        templates: options.templates,
+        getDemandStats: () => lastDemandStats,
+      });
       lifecycle = createLifecycle(options, runtime);
       await lifecycle.reconcile();
     },

@@ -39,6 +39,7 @@ export {
   type Variant,
   type VariantBindings,
 } from '#template-file.js';
+export {rankTemplatesForLabels} from '#template-selection.js';
 export type {ProviderRunnerTracker} from '#tracker.js';
 export type {
   LaunchOutcome,

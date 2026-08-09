@@ -6,6 +6,7 @@ vi.mock('#metrics/service.js', () => ({
   registerEc2ServiceMetrics: observability.registerEc2ServiceMetrics,
 }));
 
+import type {DemandStatDto} from '@shipfox/api-runners-dto';
 import type {
   ProviderRunnerTracker,
   ProvisionerClient,
@@ -85,9 +86,43 @@ describe('createEc2ProvisionerAdapter', () => {
       } as unknown as ProviderRunnerTracker,
     });
 
-    expect(observability.registerEc2ServiceMetrics).toHaveBeenCalledWith({
-      engine,
-      provisionerId: 'provisioner-1',
-    });
+    expect(observability.registerEc2ServiceMetrics).toHaveBeenCalledWith(
+      expect.objectContaining({
+        engine,
+        provisionerId: 'provisioner-1',
+        templates: [template],
+      }),
+    );
+    expect(observability.registerEc2ServiceMetrics.mock.calls[0]?.[0].getDemandStats).toEqual(
+      expect.any(Function),
+    );
+
+    const getDemandStats = observability.registerEc2ServiceMetrics.mock.calls[0]?.[0]
+      .getDemandStats as () => readonly DemandStatDto[];
+    expect(getDemandStats()).toEqual([]);
+
+    const stats: DemandStatDto[] = [
+      {
+        labels: ['linux'],
+        queued: 2,
+        reserved: 1,
+        oldest_queued_at: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+    adapter.onDemandStats?.(stats);
+    expect(getDemandStats()).toEqual(stats);
+
+    stats[0]?.labels.push('gpu');
+    expect(getDemandStats()).toEqual([
+      {
+        labels: ['linux'],
+        queued: 2,
+        reserved: 1,
+        oldest_queued_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    adapter.onDemandStats?.([]);
+    expect(getDemandStats()).toEqual([]);
   });
 });

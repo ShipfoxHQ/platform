@@ -1,3 +1,4 @@
+import type {DemandStatDto} from '@shipfox/api-runners-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {
   withJitter as applyJitter,
@@ -29,6 +30,7 @@ const MAX_TEMPLATES_PER_POLL = 1000;
 const CONFIG_SAMPLE_LIMIT = 20;
 const CONVERGE_BACKOFF_FLOOR_MS = 5000;
 const TERMINATION_DRAIN_TIMEOUT_MS = 1000;
+const DEMAND_STATS_DELIVERY_FAILURE_PREFIX = 'Demand snapshot delivery failed: ';
 
 let running = true;
 let pollAbortController: AbortController | undefined;
@@ -352,8 +354,11 @@ export async function runDemandIteration<Spec>(
       impact: 'control_plane',
       at: new Date(),
     });
+    // Do not let a provider retain a demand snapshot after a failed poll.
+    notifyDemandStats(deps.adapter, [], health);
     throw error;
   }
+  notifyDemandStats(deps.adapter, result.stats, health);
 
   if (!deps.deferTermination) {
     if (result.providerTermination.status === 'failed') {
@@ -679,6 +684,40 @@ function isApiFacet(facet: HealthFacet | undefined): boolean {
 
 function errorReason(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
+}
+
+function notifyDemandStats<Spec>(
+  adapter: ProvisionerAdapter<Spec>,
+  stats: readonly DemandStatDto[],
+  health: HealthState,
+): void {
+  try {
+    adapter.onDemandStats?.(stats);
+  } catch (error) {
+    const reason = errorReason(error);
+    logger().warn(
+      {event: 'provisioner.demand_stats_delivery_failed', reason},
+      'Provider demand snapshot delivery failed',
+    );
+    if (!health.active.has('provider_observation')) {
+      applyHealthEvent(health, {
+        type: 'facet_failed',
+        facet: 'provider_observation',
+        cause: `${DEMAND_STATS_DELIVERY_FAILURE_PREFIX}${reason}`,
+        impact: 'capacity',
+        at: new Date(),
+      });
+    }
+    return;
+  }
+  const providerObservationFailure = health.active.get('provider_observation');
+  if (providerObservationFailure?.cause.startsWith(DEMAND_STATS_DELIVERY_FAILURE_PREFIX)) {
+    applyHealthEvent(health, {
+      type: 'facet_recovered',
+      facet: 'provider_observation',
+      at: new Date(),
+    });
+  }
 }
 
 function safeEndpoint(value: string): string {

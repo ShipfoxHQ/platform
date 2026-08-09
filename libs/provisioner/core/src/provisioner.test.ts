@@ -73,6 +73,152 @@ describe('runProvisionerIteration', () => {
     expect(pollBodies[0]).not.toHaveProperty('reservation_ttl_seconds');
   });
 
+  it('forwards each latest demand snapshot to the adapter', async () => {
+    const firstStats = [
+      {
+        labels: ['ubuntu22'],
+        queued: 3,
+        reserved: 1,
+        oldest_queued_at: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+    const secondStats = [
+      {
+        labels: ['ubuntu22', 'gpu'],
+        queued: 1,
+        reserved: 0,
+        oldest_queued_at: '2026-01-01T00:01:00.000Z',
+      },
+    ];
+    const {client} = harness({
+      responses: [
+        {stats: firstStats, reservations: []},
+        {stats: secondStats, reservations: []},
+        {stats: [], reservations: []},
+      ],
+    });
+    const onDemandStats = vi.fn();
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      onDemandStats,
+    };
+
+    for (let iteration = 0; iteration < 3; iteration += 1) {
+      await runDemandIteration({
+        adapter,
+        client,
+        templates: [template],
+        tracker: createInMemoryTracker(),
+        currentInterval: 1000,
+      });
+    }
+
+    expect(onDemandStats).toHaveBeenNthCalledWith(1, firstStats);
+    expect(onDemandStats).toHaveBeenNthCalledWith(2, secondStats);
+    expect(onDemandStats).toHaveBeenNthCalledWith(3, []);
+  });
+
+  it('clears the adapter demand snapshot after a failed poll', async () => {
+    const {client} = harness({response: {stats: [], reservations: []}});
+    client.pollDemand = () => Promise.reject(new Error('demand poll unavailable'));
+    const onDemandStats = vi.fn();
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      onDemandStats,
+    };
+
+    await expect(
+      runDemandIteration({
+        adapter,
+        client,
+        templates: [template],
+        tracker: createInMemoryTracker(),
+        currentInterval: 1000,
+      }),
+    ).rejects.toThrow('demand poll unavailable');
+
+    expect(onDemandStats).toHaveBeenCalledWith([]);
+  });
+
+  it('contains provider demand snapshot delivery failures and continues the iteration', async () => {
+    const {client} = harness({response: {stats: [], reservations: []}});
+    const health = createHealthState();
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      onDemandStats: () => {
+        throw new Error('metrics cache unavailable');
+      },
+    };
+
+    const result = await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      health,
+    });
+
+    expect(result).toEqual({nextInterval: 1500, degraded: true});
+    expect(health.active.has('provider_observation')).toBe(true);
+    expect(health.active.get('provider_observation')?.cause).toBe(
+      'Demand snapshot delivery failed: metrics cache unavailable',
+    );
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.demand_stats_delivery_failed',
+        reason: 'metrics cache unavailable',
+      }),
+      'Provider demand snapshot delivery failed',
+    );
+  });
+
+  it('preserves an existing provider observation failure across snapshot delivery', async () => {
+    const {client} = harness({response: {stats: [], reservations: []}});
+    const health = createHealthState();
+    health.active = new Map([
+      ['provider_observation', {cause: 'reconciliation unavailable', impact: 'capacity'}],
+    ]);
+    let shouldFail = true;
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      onDemandStats: () => {
+        if (shouldFail) throw new Error('metrics cache unavailable');
+      },
+    };
+
+    await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      health,
+    });
+    expect(health.active.get('provider_observation')).toEqual({
+      cause: 'reconciliation unavailable',
+      impact: 'capacity',
+    });
+
+    shouldFail = false;
+    await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      health,
+    });
+    expect(health.active.get('provider_observation')).toEqual({
+      cause: 'reconciliation unavailable',
+      impact: 'capacity',
+    });
+  });
+
   it('runs onTick before polling demand', async () => {
     const events: string[] = [];
     const {client} = harness({
@@ -567,13 +713,18 @@ describe('startProvisioner', () => {
 type PollDemandResponseFixture = Omit<PollDemandResponseDto, 'terminate_provider_runner_ids'> &
   Partial<Pick<PollDemandResponseDto, 'terminate_provider_runner_ids'>>;
 
-function harness(options: {response: PollDemandResponseFixture; onPoll?: () => void}): {
+function harness(options: {
+  response?: PollDemandResponseFixture;
+  responses?: readonly PollDemandResponseFixture[];
+  onPoll?: () => void;
+}): {
   client: ProvisionerClient;
   pollBodies: PollDemandBodyDto[];
   createBodies: CreateRunnerInstancesBodyDto[];
 } {
   const pollBodies: PollDemandBodyDto[] = [];
   const createBodies: CreateRunnerInstancesBodyDto[] = [];
+  let responseIndex = 0;
 
   return {
     pollBodies,
@@ -584,9 +735,11 @@ function harness(options: {response: PollDemandResponseFixture; onPoll?: () => v
       pollDemand: (body) => {
         options.onPoll?.();
         pollBodies.push(body);
+        const response = options.responses?.[responseIndex++] ?? options.response;
+        if (!response) return Promise.reject(new Error('poll demand fixture is exhausted'));
         return Promise.resolve({
-          ...options.response,
-          terminate_provider_runner_ids: options.response.terminate_provider_runner_ids ?? [],
+          ...response,
+          terminate_provider_runner_ids: response.terminate_provider_runner_ids ?? [],
         });
       },
       createRunnerInstances: (body) => {
