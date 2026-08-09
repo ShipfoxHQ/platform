@@ -55,6 +55,15 @@ describe('parseStepOutput', () => {
     expect(result).toEqual({'build-sha': 'abc123'});
   });
 
+  it('accepts a value at the per-value byte cap', () => {
+    expect(MAX_OUTPUT_VALUE_BYTES).toBe(64 * 1024);
+    const value = 'x'.repeat(MAX_OUTPUT_VALUE_BYTES);
+
+    const result = parseStepOutput(`payload=${value}`);
+
+    expect(result).toEqual({payload: value});
+  });
+
   it('throws when a value exceeds the per-value byte cap', () => {
     const measuredBytes = MAX_OUTPUT_VALUE_BYTES + 1;
     const value = 'x'.repeat(measuredBytes);

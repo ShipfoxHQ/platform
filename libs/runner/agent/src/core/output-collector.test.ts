@@ -170,6 +170,36 @@ describe('OutputCollector', () => {
     });
   });
 
+  it('accepts a value at the per-value cap', () => {
+    const collector = new OutputCollector(undefined);
+    const value = 'x'.repeat(MAX_OUTPUT_VALUE_BYTES);
+
+    const result = collector.trySet('large', value);
+
+    expect(result).toEqual({ok: true});
+    expect(collector.snapshot()).toEqual({large: value});
+  });
+
+  it('accepts output maps at the total cap', () => {
+    const collector = new OutputCollector(undefined);
+    const keys = ['one', 'two', 'three', 'four'];
+    const lineOverhead = keys.reduce(
+      (total, key) => total + Buffer.byteLength(`${key}=\n`, 'utf8'),
+      0,
+    );
+    const valueBytes = Math.floor((MAX_OUTPUT_TOTAL_BYTES - lineOverhead) / keys.length);
+    const remainder = MAX_OUTPUT_TOTAL_BYTES - (lineOverhead + valueBytes * keys.length);
+    const values = Object.fromEntries(
+      keys.map((key, index) => [key, 'x'.repeat(valueBytes + (index === 0 ? remainder : 0))]),
+    );
+
+    for (const [key, value] of Object.entries(values)) {
+      expect(collector.trySet(key, value)).toEqual({ok: true});
+    }
+
+    expect(collector.snapshot()).toEqual(values);
+  });
+
   it('rejects output maps over the total cap', () => {
     const collector = new OutputCollector(undefined);
     const firstValue = 'x'.repeat(MAX_OUTPUT_VALUE_BYTES - 20);
