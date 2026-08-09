@@ -591,9 +591,72 @@ describe('github agent tool catalog', () => {
         repo: 'platform',
         pull_number: 2,
         per_page: 100,
+        page: 1,
       },
     );
     expect(request).toHaveBeenNthCalledWith(2, testCase.route, testCase.parameters);
+  });
+
+  it('resolves a pending review from a later review page', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: Array.from({length: 100}, (_, index) => ({id: index + 1, state: 'APPROVED'})),
+      })
+      .mockResolvedValueOnce({data: [{id: 101, state: 'PENDING'}]})
+      .mockResolvedValueOnce({data: {id: 101, state: 'COMMENTED'}});
+
+    const result = await callGithubToolWithRequest(
+      'pull_request_review_write',
+      {
+        method: 'submit_pending',
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        body: 'Looks good.',
+        event: 'COMMENT',
+      },
+      request,
+    );
+
+    expect(result).toEqual({
+      content: [{type: 'text', text: JSON.stringify({id: 101, state: 'COMMENTED'})}],
+      structuredContent: {id: 101, state: 'COMMENTED'},
+    });
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        per_page: 100,
+        page: 1,
+      },
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        per_page: 100,
+        page: 2,
+      },
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      3,
+      'POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/events',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        body: 'Looks good.',
+        event: 'COMMENT',
+        review_id: 101,
+      },
+    );
   });
 
   it.each([

@@ -438,13 +438,7 @@ async function resolvePendingReviewParameters(
 ): Promise<Record<string, unknown> | undefined> {
   if (!isPendingReviewOperation(toolId, method)) return parameters;
 
-  const response = await client.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
-    owner: parameters.owner,
-    repo: parameters.repo,
-    pull_number: parameters.pull_number,
-    per_page: 100,
-  });
-  const reviewId = latestPendingReviewId(response.data);
+  const reviewId = await latestPendingReviewId(client, parameters);
   return reviewId === undefined ? undefined : {...parameters, review_id: reviewId};
 }
 
@@ -455,9 +449,31 @@ function isPendingReviewOperation(toolId: GithubAgentToolId, method: string | un
   );
 }
 
-function latestPendingReviewId(data: unknown): number | undefined {
-  if (!Array.isArray(data)) return undefined;
+async function latestPendingReviewId(
+  client: GithubToolClient,
+  parameters: Record<string, unknown>,
+): Promise<number | undefined> {
+  const perPage = 100;
+  let page = 1;
+  let reviewId: number | undefined;
 
+  while (true) {
+    const response = await client.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
+      owner: parameters.owner,
+      repo: parameters.repo,
+      pull_number: parameters.pull_number,
+      per_page: perPage,
+      page,
+    });
+    if (!Array.isArray(response.data)) return undefined;
+
+    reviewId = latestPendingReviewIdOnPage(response.data) ?? reviewId;
+    if (response.data.length < perPage) return reviewId;
+    page += 1;
+  }
+}
+
+function latestPendingReviewIdOnPage(data: readonly unknown[]): number | undefined {
   for (let index = data.length - 1; index >= 0; index -= 1) {
     const review = data[index];
     if (!isRecord(review) || review.state !== 'PENDING') continue;
