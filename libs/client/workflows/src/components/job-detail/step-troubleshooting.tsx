@@ -442,6 +442,8 @@ function failureTitle(reason: string | JobStatusReason): string {
       return 'Agent harness was unavailable';
     case 'runner_lost':
       return 'Runner stopped responding';
+    case 'output_too_large':
+      return 'Job output exceeded its size limit';
     case 'timed_out':
       return 'Step timed out';
     case 'step_failed':
@@ -489,6 +491,8 @@ function failureDescription(reason: string | JobStatusReason): string {
       return 'The runner could not start the agent harness.';
     case 'runner_lost':
       return 'The runner stopped responding before the step completed.';
+    case 'output_too_large':
+      return 'The materialized job output exceeded its configured size limit.';
     case 'timed_out':
       return 'The step exceeded its configured time limit.';
     case 'dependency_not_completed':

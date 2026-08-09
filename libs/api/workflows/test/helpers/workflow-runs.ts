@@ -132,6 +132,7 @@ export async function jobTerminatedEvents(jobId: string) {
         workflowRunId: string;
         status: string;
         statusReason: string | null;
+        statusReasonMessage?: string | null;
       },
   );
 }

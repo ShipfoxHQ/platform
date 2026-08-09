@@ -14,7 +14,12 @@ import {
   createAnnotationSpool,
   disposeAnnotationSpool,
 } from '#core/annotation-spool.js';
-import {MAX_OUTPUT_TOTAL_BYTES, parseStepOutput, StepOutputError} from '#core/step-output.js';
+import {
+  formatOutputSizeViolation,
+  MAX_OUTPUT_TOTAL_BYTES,
+  parseStepOutput,
+  StepOutputError,
+} from '#core/step-output.js';
 import type {StepResult} from '#core/step-result.js';
 
 /**
@@ -276,16 +281,24 @@ async function finalizeStepOutput(result: StepResult, outputPath: string): Promi
 async function readBoundedStepOutput(outputPath: string): Promise<string | undefined> {
   const handle = await open(outputPath, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
-    const stat = await handle.stat();
-    if (!stat.isFile()) {
+    const initialStat = await handle.stat();
+    if (!initialStat.isFile()) {
       throw new StepOutputError('Step output file is not a regular file.');
     }
 
     const buffer = Buffer.alloc(MAX_OUTPUT_TOTAL_BYTES + 1);
     const {bytesRead} = await handle.read(buffer, 0, buffer.length, 0);
     if (bytesRead === 0) return undefined;
-    if (bytesRead > MAX_OUTPUT_TOTAL_BYTES) {
-      throw new StepOutputError(`Step output exceeds ${MAX_OUTPUT_TOTAL_BYTES} bytes.`);
+    const measuredStat = await handle.stat();
+    const measuredBytes = Math.max(bytesRead, measuredStat.size);
+    if (measuredBytes > MAX_OUTPUT_TOTAL_BYTES) {
+      throw new StepOutputError(
+        formatOutputSizeViolation({
+          limitBytes: MAX_OUTPUT_TOTAL_BYTES,
+          measuredBytes,
+          scope: 'total',
+        }),
+      );
     }
     return buffer.subarray(0, bytesRead).toString('utf8');
   } finally {

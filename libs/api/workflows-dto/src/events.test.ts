@@ -139,6 +139,45 @@ describe('workflowsJobTerminatedSchema', () => {
     expect(result).toEqual(input);
   });
 
+  it('accepts a string status reason message', () => {
+    const input = {
+      ...validJobTerminated,
+      status: 'failed',
+      statusReason: 'output_too_large',
+      statusReasonMessage: 'Job output exceeded the configured size limit.',
+    };
+
+    const result = workflowsJobTerminatedSchema.parse(input);
+
+    expect(result).toEqual(input);
+  });
+
+  it('accepts a null status reason message', () => {
+    const input = {
+      ...validJobTerminated,
+      status: 'failed',
+      statusReason: 'unknown',
+      statusReasonMessage: null,
+    };
+
+    const result = workflowsJobTerminatedSchema.parse(input);
+
+    expect(result).toEqual(input);
+  });
+
+  it('rejects a non-string status reason message', () => {
+    const input = {
+      ...validJobTerminated,
+      status: 'failed',
+      statusReason: 'output_too_large',
+      statusReasonMessage: 413,
+    };
+
+    const parse = () => workflowsJobTerminatedSchema.parse(input);
+
+    expect(parse).toThrow();
+  });
+
   it('strips unknown keys (tolerant of forward-compatible producer additions)', () => {
     const input = {...validJobTerminated, addedLater: 'ignored'};
 

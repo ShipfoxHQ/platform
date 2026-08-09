@@ -147,6 +147,7 @@ export const workflowsJobTerminatedSchema = z.object({
   workflowRunAttemptId: nonEmptyStringSchema,
   status: jobTerminalStatusSchema,
   statusReason: jobStatusReasonSchema.nullable(),
+  statusReasonMessage: z.string().nullable().optional(),
 });
 export type WorkflowsJobTerminatedEventDto = z.infer<typeof workflowsJobTerminatedSchema>;
 

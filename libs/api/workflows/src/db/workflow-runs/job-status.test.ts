@@ -518,6 +518,36 @@ describe('workflow run queries', () => {
       });
     });
 
+    test('writes execution failure details on the terminated event', async () => {
+      const {run, jobId, jobExecutionId} = await seedPendingJob();
+      const statusReasonMessage =
+        'Job output "payload" exceeds the per-value size limit of 65536 bytes (measured 65537 bytes; overshoot 1 bytes).';
+
+      await updateJobExecutionStatus({
+        jobExecutionId: jobExecutionId as string,
+        status: 'failed',
+        expectedVersion: 1,
+        statusReason: 'output_too_large',
+        statusReasonMessage,
+      });
+      await updateJobStatus({
+        jobId,
+        status: 'failed',
+        expectedVersion: 1,
+        statusReason: 'output_too_large',
+      });
+
+      const events = await jobTerminatedEvents(jobId);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        jobId,
+        workflowRunId: run.id,
+        status: 'failed',
+        statusReason: 'output_too_large',
+        statusReasonMessage,
+      });
+    });
+
     test('writes no terminated event for a non-terminal transition', async () => {
       const {jobId} = await seedPendingJob();
 

@@ -295,13 +295,17 @@ describe('executeRunStep', () => {
   });
 
   it('fails a succeeded step when emitted output exceeds the total byte cap', async () => {
-    const script = `require('node:fs').writeFileSync(process.env.SHIPFOX_OUTPUT, 'x'.repeat(${MAX_OUTPUT_TOTAL_BYTES + 1}))`;
+    const measuredBytes = MAX_OUTPUT_TOTAL_BYTES + 1024;
+    const script = `require('node:fs').writeFileSync(process.env.SHIPFOX_OUTPUT, 'x'.repeat(${measuredBytes}))`;
     const step = buildStep({config: {run: `node -e ${JSON.stringify(script)}`}});
 
     const result = await executeRunStep(step);
 
     expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Step output exceeds');
+    expect(result.error?.message).toBe(
+      `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot 1024 bytes).`,
+    );
     expect(result.exit_code).toBeNull();
   });
 

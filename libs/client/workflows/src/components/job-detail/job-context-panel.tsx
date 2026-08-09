@@ -27,6 +27,7 @@ export function JobContextPanel({job, execution}: {job: Job; execution: JobExecu
       execution.triggerEvents.length ||
       job.success ||
       statusReason ||
+      execution.statusReasonMessage ||
       trace?.length ||
       hasTiming,
   );
@@ -113,6 +114,9 @@ function JobContextSheet({
             {job.success ? <ContextValue label="Condition" value={job.success} mono /> : null}
             {statusReason ? (
               <ContextValue label="Status reason" value={humanize(statusReason)} />
+            ) : null}
+            {execution.statusReasonMessage ? (
+              <ContextValue label="Failure details" value={execution.statusReasonMessage} />
             ) : null}
             {execution.triggerEvents.length ? (
               <JsonCode

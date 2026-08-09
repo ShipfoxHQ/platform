@@ -5,6 +5,7 @@ import {
   type StepOutputCoercionError,
 } from '@shipfox/expression';
 import {
+  formatOutputSizeViolation,
   MAX_OUTPUT_TOTAL_BYTES,
   MAX_OUTPUT_VALUE_BYTES,
   OUTPUT_KEY_REGEX,
@@ -33,10 +34,16 @@ export class OutputCollector {
     const keyResult = this.#validateKey(key);
     if (!keyResult.ok) return keyResult;
 
-    if (Buffer.byteLength(value, 'utf8') > MAX_OUTPUT_VALUE_BYTES) {
+    const valueBytes = Buffer.byteLength(value, 'utf8');
+    if (valueBytes > MAX_OUTPUT_VALUE_BYTES) {
       return {
         ok: false,
-        feedback: `Output "${key}" exceeds the per-value size limit of ${MAX_OUTPUT_VALUE_BYTES} bytes.`,
+        feedback: formatOutputSizeViolation({
+          key,
+          limitBytes: MAX_OUTPUT_VALUE_BYTES,
+          measuredBytes: valueBytes,
+          scope: 'value',
+        }),
       };
     }
 
@@ -44,7 +51,11 @@ export class OutputCollector {
     if (totalBytes > MAX_OUTPUT_TOTAL_BYTES) {
       return {
         ok: false,
-        feedback: `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes.`,
+        feedback: formatOutputSizeViolation({
+          limitBytes: MAX_OUTPUT_TOTAL_BYTES,
+          measuredBytes: totalBytes,
+          scope: 'total',
+        }),
       };
     }
 

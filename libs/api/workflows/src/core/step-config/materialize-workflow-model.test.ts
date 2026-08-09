@@ -1614,6 +1614,7 @@ describe('materializeJobOutputs', () => {
       {payload: {kind: 'list', element: 'string'}},
     );
     const payload = ['x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES - 1)];
+    const measuredBytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
 
     const materialize = () =>
       materializeJobOutputs({
@@ -1623,12 +1624,16 @@ describe('materializeJobOutputs', () => {
       });
 
     expect(materialize).toThrow(JobOutputTooLargeError);
-    expect(materialize).toThrow(`Job output "payload" exceeds the ${MAX_JOB_OUTPUT_VALUE_BYTES}`);
+    expect(materialize).toThrow(
+      `Job output "payload" exceeds the per-value size limit of ${MAX_JOB_OUTPUT_VALUE_BYTES} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_JOB_OUTPUT_VALUE_BYTES} bytes).`,
+    );
   });
 
   it('measures string values as UTF-8 bytes for the per-value cap', () => {
     const job = outputJob({payload: template('steps.collect.outputs.payload')});
     const payload = 'é'.repeat(Math.ceil(MAX_JOB_OUTPUT_VALUE_BYTES / 2) + 1);
+    const measuredBytes = Buffer.byteLength(payload, 'utf8');
 
     const materialize = () =>
       materializeJobOutputs({
@@ -1638,6 +1643,10 @@ describe('materializeJobOutputs', () => {
       });
 
     expect(materialize).toThrow(JobOutputTooLargeError);
+    expect(materialize).toThrow(
+      `Job output "payload" exceeds the per-value size limit of ${MAX_JOB_OUTPUT_VALUE_BYTES} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_JOB_OUTPUT_VALUE_BYTES} bytes).`,
+    );
   });
 
   it('rejects the total materialized job output cap', () => {
@@ -1648,6 +1657,10 @@ describe('materializeJobOutputs', () => {
     const values = Object.fromEntries(
       keys.map((key) => [key, 'x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES)]),
     );
+    const measuredBytes = Buffer.byteLength(
+      JSON.stringify(Object.fromEntries(keys.slice(0, 4).map((key) => [key, values[key]]))),
+      'utf8',
+    );
     const job = outputJob(outputs);
 
     const materialize = () =>
@@ -1655,7 +1668,8 @@ describe('materializeJobOutputs', () => {
 
     expect(materialize).toThrow(JobOutputTooLargeError);
     expect(materialize).toThrow(
-      `Job outputs exceed the ${MAX_JOB_OUTPUTS_TOTAL_BYTES}-byte total limit (at "four")`,
+      `Job outputs exceed the total size limit of ${MAX_JOB_OUTPUTS_TOTAL_BYTES} bytes at "four" ` +
+        `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_JOB_OUTPUTS_TOTAL_BYTES} bytes).`,
     );
   });
 
@@ -1667,6 +1681,7 @@ describe('materializeJobOutputs', () => {
     const values = Object.fromEntries(
       keys.map((key) => [key, 'x'.repeat(MAX_JOB_OUTPUT_VALUE_BYTES - 16)]),
     );
+    const measuredBytes = Buffer.byteLength(JSON.stringify(values), 'utf8');
     const job = outputJob(outputs);
 
     const materialize = () =>
@@ -1674,7 +1689,8 @@ describe('materializeJobOutputs', () => {
 
     expect(materialize).toThrow(JobOutputTooLargeError);
     expect(materialize).toThrow(
-      `Job outputs exceed the ${MAX_JOB_OUTPUTS_TOTAL_BYTES}-byte total limit`,
+      `Job outputs exceed the total size limit of ${MAX_JOB_OUTPUTS_TOTAL_BYTES} bytes at "${keys[3]}" ` +
+        `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_JOB_OUTPUTS_TOTAL_BYTES} bytes).`,
     );
   });
 

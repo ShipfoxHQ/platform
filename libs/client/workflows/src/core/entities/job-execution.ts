@@ -29,6 +29,7 @@ interface JobExecutionFields {
   name: string;
   status: JobExecutionStatus;
   statusReason: string | null;
+  statusReasonMessage: string | null;
   runner: string[] | null;
   outputs: Record<string, unknown> | null;
   triggerEvents: WorkflowExecutionEvent[];
@@ -49,6 +50,7 @@ export class JobExecution {
   name!: string;
   status!: JobExecutionStatus;
   statusReason!: string | null;
+  statusReasonMessage!: string | null;
   runner!: string[] | null;
   outputs!: Record<string, unknown> | null;
   triggerEvents!: WorkflowExecutionEvent[];

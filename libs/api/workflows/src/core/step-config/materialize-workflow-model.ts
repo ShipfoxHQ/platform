@@ -158,7 +158,7 @@ export function materializeJobOutputs(params: {
     const normalizedValue = normalizeJobOutputValue(value, key);
     const valueBytes = jobOutputValueByteLength(normalizedValue);
     if (valueBytes > MAX_JOB_OUTPUT_VALUE_BYTES) {
-      throw new JobOutputTooLargeError(key, MAX_JOB_OUTPUT_VALUE_BYTES, 'value');
+      throw new JobOutputTooLargeError(key, MAX_JOB_OUTPUT_VALUE_BYTES, valueBytes, 'value');
     }
 
     recordBytes += (index === 0 ? 0 : 1) + jobOutputRecordEntryByteLength(key, normalizedValue);
@@ -169,7 +169,7 @@ export function materializeJobOutputs(params: {
       writable: true,
     });
     if (recordBytes > MAX_JOB_OUTPUTS_TOTAL_BYTES) {
-      throw new JobOutputTooLargeError(key, MAX_JOB_OUTPUTS_TOTAL_BYTES, 'total');
+      throw new JobOutputTooLargeError(key, MAX_JOB_OUTPUTS_TOTAL_BYTES, recordBytes, 'total');
     }
   }
 

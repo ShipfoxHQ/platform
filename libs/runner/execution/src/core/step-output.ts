@@ -11,6 +11,19 @@ export class StepOutputError extends Error {
   }
 }
 
+export function formatOutputSizeViolation(params: {
+  key?: string;
+  limitBytes: number;
+  measuredBytes: number;
+  scope: 'value' | 'total';
+}): string {
+  const prefix =
+    params.scope === 'total'
+      ? `Step outputs exceed the total size limit of ${params.limitBytes} bytes`
+      : `Output "${params.key}" exceeds the per-value size limit of ${params.limitBytes} bytes`;
+  return `${prefix} (measured ${params.measuredBytes} bytes; overshoot ${params.measuredBytes - params.limitBytes} bytes).`;
+}
+
 export function parseStepOutput(raw: string): Record<string, string> {
   const outputs: Record<string, string> = {};
   const lines = outputLines(raw);
@@ -105,8 +118,16 @@ function parseSingleLineOutput(line: string): ParsedOutput | undefined {
 }
 
 function setOutput(outputs: Record<string, string>, key: string, value: string): void {
-  if (Buffer.byteLength(value, 'utf8') > MAX_OUTPUT_VALUE_BYTES) {
-    throw new StepOutputError(`Output "${key}" exceeds the per-value size limit.`);
+  const valueBytes = Buffer.byteLength(value, 'utf8');
+  if (valueBytes > MAX_OUTPUT_VALUE_BYTES) {
+    throw new StepOutputError(
+      formatOutputSizeViolation({
+        key,
+        limitBytes: MAX_OUTPUT_VALUE_BYTES,
+        measuredBytes: valueBytes,
+        scope: 'value',
+      }),
+    );
   }
   outputs[key] = value;
 }

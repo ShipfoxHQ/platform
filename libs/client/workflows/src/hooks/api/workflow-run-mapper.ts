@@ -165,6 +165,7 @@ export function toJobExecution(dto: WorkflowRunJobExecutionDetailDto): JobExecut
     name: dto.name,
     status: dto.status,
     statusReason: dto.status_reason,
+    statusReasonMessage: dto.status_reason_message ?? null,
     runner: dto.runner ?? null,
     outputs: dto.outputs ?? null,
     triggerEvents: (dto.trigger_events ?? []).map(toWorkflowExecutionEvent),

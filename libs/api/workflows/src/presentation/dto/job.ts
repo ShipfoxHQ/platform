@@ -56,6 +56,7 @@ export function toJobExecutionDto(jobExecution: JobExecution): JobExecutionDto {
     name: jobExecution.name,
     status: jobExecution.status,
     status_reason: jobExecution.statusReason,
+    status_reason_message: jobExecution.statusReasonMessage,
     runner: jobExecution.runner,
     trigger_events: jobExecution.triggerEvents,
     outputs: jobExecution.outputs,

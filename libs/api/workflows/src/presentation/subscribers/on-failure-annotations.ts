@@ -16,7 +16,12 @@ import {
 } from '#db/index.js';
 import {recordWorkflowFailureAnnotationFailed} from '#metrics/instance.js';
 
-const JOB_FAILURE_ANNOTATION_REASONS = new Set(['timed_out', 'runner_lost', 'condition_errored']);
+const JOB_FAILURE_ANNOTATION_REASONS = new Set([
+  'timed_out',
+  'runner_lost',
+  'condition_errored',
+  'output_too_large',
+]);
 
 export function onStepAttemptTerminatedFailureAnnotation(
   annotations: AnnotationsInterModuleClient,
@@ -123,7 +128,7 @@ export function onJobTerminatedFailureAnnotation(annotations: AnnotationsInterMo
         },
         context: failureContext('job', payload.jobId),
         failed: true,
-        body: jobFailureBody(payload.statusReason, origin),
+        body: jobFailureBody(payload.statusReason, payload.statusReasonMessage, origin),
       });
     } catch (error) {
       recordFailureAnnotationFailure(error, 'lookup', {jobId: payload.jobId});
@@ -200,6 +205,7 @@ function stepFailureBody(
 
 function jobFailureBody(
   reason: string | null,
+  statusReasonMessage: string | null | undefined,
   origin: {
     stepName: string;
     attemptStatus: string | null;
@@ -220,6 +226,7 @@ function jobFailureBody(
     '',
     progress,
     `Reason: \`${reason ?? 'unknown'}\``,
+    statusReasonMessage ? `Failure: ${statusReasonMessage}` : null,
     message ? `Failure: ${message}` : null,
     exitCode,
   ]

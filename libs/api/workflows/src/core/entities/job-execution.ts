@@ -43,6 +43,7 @@ export interface JobExecution {
   runner: string[] | null;
   status: JobExecutionStatus;
   statusReason: JobStatusReason | null;
+  statusReasonMessage?: string | null;
   triggerEvents: WorkflowExecutionEvent[];
   outputs: Record<string, unknown> | null;
   evaluationTrace?: readonly PersistedEvaluationTraceEntry[] | null;

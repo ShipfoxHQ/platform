@@ -163,6 +163,8 @@ export function skippedJobDescription(reason: Job['statusReason']): string {
     case 'unknown':
     case null:
       return 'This job did not start.';
+    case 'output_too_large':
+      return 'The materialized job output exceeded its configured size limit.';
   }
 }
 
@@ -179,6 +181,8 @@ function preStepFailureDescription(reason: string | null, runner: string[] | nul
       return 'The execution ended while the run was being cancelled.';
     case 'step_failed':
       return `The execution failed before step details were recorded.${runnerCopy} Review run annotations before re-running the workflow.`;
+    case 'output_too_large':
+      return 'The materialized job output exceeded its configured size limit. Review the failure details before re-running the workflow.';
     case 'condition_errored':
       return 'The job condition could not be evaluated. Review run annotations before re-running the workflow.';
     case 'dependency_not_completed':
