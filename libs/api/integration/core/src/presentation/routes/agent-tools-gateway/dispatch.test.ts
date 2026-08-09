@@ -1,0 +1,107 @@
+import type {reportError as reportErrorType} from '@shipfox/node-error-monitoring';
+import type {logger as loggerFactoryType} from '@shipfox/node-opentelemetry';
+import {IntegrationProviderError} from '#core/errors.js';
+import {
+  catalogTool,
+  connection,
+  materializedIntegration,
+  materializedTool,
+  registryWithAgentTools,
+} from '#test/agent-tools-gateway-helpers.js';
+import {createIntegrationToolDispatcher} from './dispatch.js';
+import type {AuthorizedIntegrationTool} from './resolve-authorized-tools.js';
+
+const dispatchMocks = vi.hoisted(() => ({
+  loggerError: vi.fn(),
+  reportError: vi.fn(),
+}));
+
+const loggerFactory = (() => ({
+  error: dispatchMocks.loggerError,
+})) as unknown as typeof loggerFactoryType;
+const reportError = dispatchMocks.reportError as unknown as typeof reportErrorType;
+
+describe('createIntegrationToolDispatcher', () => {
+  beforeEach(() => {
+    dispatchMocks.loggerError.mockReset();
+    dispatchMocks.reportError.mockReset();
+  });
+
+  it('preserves terminal provider errors without reporting them as outages', async () => {
+    const providerError = new IntegrationProviderError(
+      'provider-rejected',
+      'commit_id is missing',
+      undefined,
+      422,
+    );
+    const dispatch = createDispatcher(providerError);
+
+    const result = await dispatch({
+      authorizedTool: authorizedTool(),
+      arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'commit_id is missing'}],
+      structuredContent: {code: 'provider-rejected', status: 422},
+    });
+    expect(dispatchMocks.loggerError).not.toHaveBeenCalled();
+    expect(dispatchMocks.reportError).not.toHaveBeenCalled();
+  });
+
+  it('reports provider outages while preserving their message and status', async () => {
+    const providerError = new IntegrationProviderError(
+      'provider-unavailable',
+      'GitHub returned HTTP 503',
+      undefined,
+      503,
+    );
+    const dispatch = createDispatcher(providerError);
+
+    const result = await dispatch({
+      authorizedTool: authorizedTool(),
+      arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'GitHub returned HTTP 503'}],
+      structuredContent: {code: 'provider-unavailable', status: 503},
+    });
+    expect(dispatchMocks.loggerError).toHaveBeenCalledWith(
+      {err: providerError, provider: 'github'},
+      'Integration agent tool provider was unavailable',
+    );
+    expect(dispatchMocks.reportError).toHaveBeenCalledWith(providerError, {
+      boundary: 'integration.agent-tool',
+    });
+  });
+});
+
+function createDispatcher(callError: IntegrationProviderError) {
+  return createIntegrationToolDispatcher(
+    {
+      registry: registryWithAgentTools([catalogTool()], {callError}),
+    },
+    {logger: loggerFactory, reportError},
+  );
+}
+
+function authorizedTool(): AuthorizedIntegrationTool {
+  const integration = materializedIntegration({connectionId: 'connection-1'});
+  const tool = materializedTool();
+  return {
+    mcpName: 'github_main__issue_read',
+    integration,
+    tool,
+    connection: connection({
+      id: integration.connectionId,
+      workspaceId: 'workspace-1',
+      slug: integration.connectionSlug,
+    }),
+    description: 'Read issue metadata from GitHub.',
+    inputSchema: tool.inputSchema,
+    outputSchema: tool.outputSchema,
+  };
+}
