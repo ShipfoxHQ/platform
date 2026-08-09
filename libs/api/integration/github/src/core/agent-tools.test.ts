@@ -518,6 +518,173 @@ describe('github agent tool catalog', () => {
 
   it.each([
     {
+      method: 'submit_pending',
+      arguments: {
+        method: 'submit_pending',
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        body: 'Please address this before merging.',
+        event: 'REQUEST_CHANGES',
+      },
+      route: 'POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/events',
+      parameters: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        body: 'Please address this before merging.',
+        event: 'REQUEST_CHANGES',
+        review_id: 42,
+      },
+      data: {id: 42, state: 'CHANGES_REQUESTED'},
+    },
+    {
+      method: 'delete_pending',
+      arguments: {
+        method: 'delete_pending',
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+      },
+      route: 'DELETE /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}',
+      parameters: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        review_id: 42,
+      },
+      data: {id: 42, state: 'PENDING'},
+    },
+  ] satisfies Array<{
+    method: 'submit_pending' | 'delete_pending';
+    arguments: Record<string, unknown>;
+    route: string;
+    parameters: Record<string, unknown>;
+    data: unknown;
+  }>)('$method resolves the latest pending review before writing', async (testCase) => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: [
+          {id: 40, state: 'APPROVED'},
+          {id: 41, state: 'PENDING'},
+          {id: 42, state: 'PENDING'},
+        ],
+      })
+      .mockResolvedValueOnce({data: testCase.data});
+
+    const result = await callGithubToolWithRequest(
+      'pull_request_review_write',
+      testCase.arguments,
+      request,
+    );
+
+    expect(result).toEqual({
+      content: [{type: 'text', text: JSON.stringify(testCase.data)}],
+      structuredContent: testCase.data,
+    });
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        per_page: 100,
+        page: 1,
+      },
+    );
+    expect(request).toHaveBeenNthCalledWith(2, testCase.route, testCase.parameters);
+  });
+
+  it('resolves a pending review from a later review page', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: Array.from({length: 100}, (_, index) => ({id: index + 1, state: 'APPROVED'})),
+      })
+      .mockResolvedValueOnce({data: [{id: 101, state: 'PENDING'}]})
+      .mockResolvedValueOnce({data: {id: 101, state: 'COMMENTED'}});
+
+    const result = await callGithubToolWithRequest(
+      'pull_request_review_write',
+      {
+        method: 'submit_pending',
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        body: 'Looks good.',
+        event: 'COMMENT',
+      },
+      request,
+    );
+
+    expect(result).toEqual({
+      content: [{type: 'text', text: JSON.stringify({id: 101, state: 'COMMENTED'})}],
+      structuredContent: {id: 101, state: 'COMMENTED'},
+    });
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        per_page: 100,
+        page: 1,
+      },
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        per_page: 100,
+        page: 2,
+      },
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      3,
+      'POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/events',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        body: 'Looks good.',
+        event: 'COMMENT',
+        review_id: 101,
+      },
+    );
+  });
+
+  it.each([
+    'submit_pending',
+    'delete_pending',
+  ] as const)('%s reports when no pending review exists', async (method) => {
+    const request = vi.fn(() => Promise.resolve({data: []}));
+
+    const result = await callGithubToolWithRequest(
+      'pull_request_review_write',
+      {method, owner: 'shipfox', repo: 'platform', pull_number: 2},
+      request,
+    );
+
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'No pending pull request review found for the authenticated GitHub user.',
+        },
+      ],
+    });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
       toolId: 'list_issue_types',
       arguments: {owner: 'shipfox'},
       data: [{id: 1}],
@@ -614,11 +781,21 @@ async function callGithubTool(
   arguments_: Record<string, unknown>,
   data: unknown,
 ) {
+  return await callGithubToolWithRequest(
+    toolId,
+    arguments_,
+    vi.fn(() => Promise.resolve({data})),
+  );
+}
+
+async function callGithubToolWithRequest(
+  toolId: GithubAgentToolId,
+  arguments_: Record<string, unknown>,
+  request: GithubToolClient['request'],
+) {
   const tool = githubAgentToolCatalog.find((entry) => entry.id === toolId);
   if (!tool) throw new Error(`Missing GitHub tool: ${toolId}`);
-  const provider = createAgentToolsProvider({
-    request: vi.fn(() => Promise.resolve({data})),
-  });
+  const provider = createAgentToolsProvider({request});
   const session = await provider.openSession({
     connection: connection(),
     tools: [tool],

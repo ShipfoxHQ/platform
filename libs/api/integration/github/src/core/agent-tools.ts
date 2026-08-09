@@ -143,6 +143,8 @@ export class GithubAgentToolsProvider
           );
         }
         const client = (this.options.createClient ?? createOctokitClient)(token.token);
+        const method =
+          typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
 
         try {
           if (operation.kind === 'graphql') {
@@ -152,7 +154,16 @@ export class GithubAgentToolsProvider
               : githubToolResult(tool.id as GithubAgentToolId, data);
           }
 
-          const response = await client.request(operation.route, operation.parameters);
+          const operationParameters = await resolvePendingReviewParameters(
+            client,
+            operation.parameters,
+            tool.id as GithubAgentToolId,
+            method,
+          );
+          if (operationParameters === undefined) {
+            return githubToolError(NO_PENDING_REVIEW_MESSAGE);
+          }
+          const response = await client.request(operation.route, operationParameters);
           return githubToolResult(tool.id as GithubAgentToolId, response.data);
         } catch (error) {
           if (error instanceof GithubIntegrationProviderError)
@@ -417,6 +428,59 @@ function projectGithubOperationParameters(
     parameters.headers = {accept: 'application/vnd.github.diff'};
   }
   return parameters;
+}
+
+async function resolvePendingReviewParameters(
+  client: GithubToolClient,
+  parameters: Record<string, unknown>,
+  toolId: GithubAgentToolId,
+  method: string | undefined,
+): Promise<Record<string, unknown> | undefined> {
+  if (!isPendingReviewOperation(toolId, method)) return parameters;
+
+  const reviewId = await latestPendingReviewId(client, parameters);
+  return reviewId === undefined ? undefined : {...parameters, review_id: reviewId};
+}
+
+function isPendingReviewOperation(toolId: GithubAgentToolId, method: string | undefined): boolean {
+  return (
+    toolId === 'pull_request_review_write' &&
+    (method === 'submit_pending' || method === 'delete_pending')
+  );
+}
+
+async function latestPendingReviewId(
+  client: GithubToolClient,
+  parameters: Record<string, unknown>,
+): Promise<number | undefined> {
+  const perPage = 100;
+  let page = 1;
+  let reviewId: number | undefined;
+
+  while (true) {
+    const response = await client.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
+      owner: parameters.owner,
+      repo: parameters.repo,
+      pull_number: parameters.pull_number,
+      per_page: perPage,
+      page,
+    });
+    if (!Array.isArray(response.data)) return undefined;
+
+    reviewId = latestPendingReviewIdOnPage(response.data) ?? reviewId;
+    if (response.data.length < perPage) return reviewId;
+    page += 1;
+  }
+}
+
+function latestPendingReviewIdOnPage(data: readonly unknown[]): number | undefined {
+  for (let index = data.length - 1; index >= 0; index -= 1) {
+    const review = data[index];
+    if (!isRecord(review) || review.state !== 'PENDING') continue;
+    if (typeof review.id === 'number' && Number.isSafeInteger(review.id)) return review.id;
+  }
+
+  return undefined;
 }
 
 function githubToolResult(toolId: GithubAgentToolId, data: unknown): GithubToolCallResult {
