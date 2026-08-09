@@ -24,7 +24,7 @@ import {
   recordEc2ReconcileAbsent,
   recordEc2Termination,
 } from '#metrics/instance.js';
-import type {Ec2TemplateSpec} from '#templates.js';
+import {type Ec2TemplateSpec, UNKNOWN_TEMPLATE_KEY} from '#templates.js';
 
 const MAX_REPORT_BATCH = 1000;
 const MAX_REASON_LENGTH = 500;
@@ -43,6 +43,7 @@ type TrackerSeed = {
 type LocallyLaunchedRunner = {
   runnerInstanceId: string;
   templateKey: string;
+  ami: string;
   launchedAt: Date;
 };
 
@@ -169,11 +170,12 @@ async function launchRunner(
     const locallyLaunched = {
       runnerInstanceId: launch.runnerInstanceId,
       templateKey: launch.template.key,
+      ami: launch.template.spec.ami,
       launchedAt: new Date(context.now()),
     };
     context.locallyLaunched.set(launch.providerRunnerId, locallyLaunched);
     context.pendingLaunches.set(launch.providerRunnerId, locallyLaunched);
-    recordEc2Launch(launch.template.spec.market, 'launched');
+    recordEc2Launch(launch.template.spec.market, 'launched', launch.template.key);
     logger().info(
       {
         provisioned_runner_id: launch.providerRunnerId,
@@ -183,7 +185,7 @@ async function launchRunner(
       'Launched EC2 runner instance',
     );
   } catch (error) {
-    recordEc2Launch(launch.template.spec.market, launchOutcome(error));
+    recordEc2Launch(launch.template.spec.market, launchOutcome(error), launch.template.key);
     logger().error(
       {
         err: error,
@@ -308,7 +310,10 @@ async function applyObservedInstances(
     // separate pending metric candidate through listing gaps after this point.
     context.locallyLaunched.delete(identity.providerRunnerId);
     if (instance.state === 'running' && pendingLaunch) {
-      const templateKey = identity.templateKey ?? pendingLaunch.templateKey;
+      const templateKey = resolveTemplateKey(context, [
+        identity.templateKey,
+        pendingLaunch.templateKey,
+      ]);
       const template = context.templatesByKey.get(templateKey);
       context.pendingLaunches.delete(identity.providerRunnerId);
       if (template) {
@@ -356,14 +361,14 @@ async function applyObservedInstances(
       if (terminalObservation) {
         const terminationReason =
           mapped.reason === 'spot-interruption' ? 'spot-interruption' : 'observed-terminated';
-        recordEc2Termination(terminationReason);
+        const templateKey = resolveTemplateKey(context, [
+          identity.templateKey,
+          pendingLaunch?.templateKey,
+        ]);
+        const template = context.templatesByKey.get(templateKey);
+        recordEc2Termination(terminationReason, templateKey);
         logger().info(
-          {
-            provisioned_runner_id: identity.providerRunnerId,
-            ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
-            aws_instance_id: instance.instanceId,
-            reason: terminationReason,
-          },
+          terminationLogFields(instance, identity, templateKey, template, terminationReason),
           'Observed EC2 runner instance termination',
         );
       }
@@ -623,10 +628,24 @@ async function terminateInstances(
     (instance) => !context.terminationActionedInstanceIds.has(instance.instanceId),
   );
   for (const instance of instancesToTerminate) {
+    const identity = parseInstanceIdentity(instance);
+    const locallyLaunched = identity.providerRunnerId
+      ? (context.pendingLaunches.get(identity.providerRunnerId) ??
+        context.locallyLaunched.get(identity.providerRunnerId))
+      : undefined;
+    const templateKey = resolveTemplateKey(context, [
+      identity.templateKey,
+      locallyLaunched?.templateKey,
+    ]);
+    const template = context.templatesByKey.get(templateKey);
     await context.engine.terminate([instance.instanceId]);
     const actionedAt = context.now().getTime();
     context.terminationActionedInstanceIds.set(instance.instanceId, actionedAt);
-    recordEc2Termination(reason);
+    recordEc2Termination(reason, templateKey);
+    logger().info(
+      terminationLogFields(instance, identity, templateKey, template, reason, locallyLaunched?.ami),
+      'Terminated EC2 runner instance',
+    );
   }
   const terminalReportInstanceIds = new Map<RunnerInstanceReportEventDto, string>();
   const events = terminableInstances.flatMap((instance) => {
@@ -670,6 +689,36 @@ function hasTerminalReport(context: Ec2LifecycleContext, instanceId: string): bo
     context.terminalReportedInstanceIds.has(instanceId) ||
     context.pendingTerminalReportedInstanceIds.has(instanceId)
   );
+}
+
+function resolveTemplateKey(
+  context: Ec2LifecycleContext,
+  candidates: readonly (string | undefined)[],
+): string {
+  for (const candidate of candidates) {
+    if (candidate !== undefined && context.templatesByKey.has(candidate)) return candidate;
+  }
+  return UNKNOWN_TEMPLATE_KEY;
+}
+
+function terminationLogFields(
+  instance: Ec2InstanceView,
+  identity: ReturnType<typeof parseInstanceIdentity>,
+  templateKey: string,
+  template: ProvisionerTemplate<Ec2TemplateSpec> | undefined,
+  reason: string,
+  fallbackAmi?: string,
+) {
+  return {
+    ...(identity.providerRunnerId ? {provisioned_runner_id: identity.providerRunnerId} : {}),
+    ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
+    instance_id: instance.instanceId,
+    aws_instance_id: instance.instanceId,
+    template_key: templateKey,
+    ami: instance.ami ?? fallbackAmi ?? template?.spec.ami ?? 'unknown',
+    launch_time: instance.launchTime?.toISOString() ?? null,
+    reason,
+  };
 }
 
 function observedRunnerIds(instances: readonly Ec2InstanceView[]): string[] {

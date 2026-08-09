@@ -35,7 +35,22 @@ export class Ec2TemplateConfigError extends Error {
 }
 
 const MAX_TEMPLATE_CONCURRENCY = 100_000;
+export const MAX_EC2_TEMPLATES = 256;
+export const MAX_TEMPLATE_KEY_LENGTH = 128;
+export const UNKNOWN_TEMPLATE_KEY = '__unattributed__';
+const TEMPLATE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const XVD_DEVICE_ALIAS_PATTERN = /^\/dev\/xvd/i;
+
+const templateKeySchema = z
+  .string()
+  .trim()
+  .min(1, 'must not be blank')
+  .max(MAX_TEMPLATE_KEY_LENGTH, `must be at most ${MAX_TEMPLATE_KEY_LENGTH} characters`)
+  .regex(
+    TEMPLATE_KEY_PATTERN,
+    'must start with a letter or number and contain only letters, numbers, dots, underscores, or hyphens',
+  )
+  .refine((key) => key !== UNKNOWN_TEMPLATE_KEY, `is reserved for untagged instances`);
 
 const ec2TemplateSchema = z
   .object({
@@ -100,7 +115,9 @@ function canonicalEc2DeviceName(deviceName: string): string {
  * not validate, an invalid label, or an empty template set.
  */
 export function loadEc2Templates(filePath: string): ProvisionerTemplate<Ec2TemplateSpec>[] {
-  const parsed = ec2TemplatesSchema.safeParse(renderTemplates(filePath, parseYamlFile(filePath)));
+  const rendered = renderTemplates(filePath, parseYamlFile(filePath));
+  const normalized = normalizeTemplateKeys(filePath, rendered);
+  const parsed = ec2TemplatesSchema.safeParse(normalized);
   if (!parsed.success) {
     throw new Ec2TemplateConfigError(
       `Invalid EC2 template config at ${filePath}: ${formatIssues(parsed.error)}`,
@@ -111,6 +128,11 @@ export function loadEc2Templates(filePath: string): ProvisionerTemplate<Ec2Templ
   if (entries.length === 0) {
     throw new Ec2TemplateConfigError(
       `EC2 template config at ${filePath} declares no templates; add at least one.`,
+    );
+  }
+  if (entries.length > MAX_EC2_TEMPLATES) {
+    throw new Ec2TemplateConfigError(
+      `EC2 template config at ${filePath} declares ${entries.length} templates; the maximum is ${MAX_EC2_TEMPLATES}.`,
     );
   }
 
@@ -128,6 +150,46 @@ function renderTemplates(filePath: string, raw: unknown): unknown {
     }
     throw error;
   }
+}
+
+function normalizeTemplateKeys(filePath: string, rendered: unknown): unknown {
+  if (typeof rendered !== 'object' || rendered === null || Array.isArray(rendered)) {
+    return rendered;
+  }
+
+  const normalized: Record<string, unknown> = {};
+  const originalKeys = new Map<string, string>();
+  const issues: string[] = [];
+  for (const [rawKey, spec] of Object.entries(rendered)) {
+    const parsed = templateKeySchema.safeParse(rawKey);
+    if (!parsed.success) {
+      issues.push(`template key "${rawKey}": ${formatIssues(parsed.error)}`);
+      continue;
+    }
+
+    const key = parsed.data;
+    const previousRawKey = originalKeys.get(key);
+    if (previousRawKey !== undefined) {
+      issues.push(
+        `template keys "${previousRawKey}" and "${rawKey}" normalize to the same key "${key}"`,
+      );
+      continue;
+    }
+    originalKeys.set(key, rawKey);
+    Object.defineProperty(normalized, key, {
+      configurable: true,
+      enumerable: true,
+      value: spec,
+      writable: true,
+    });
+  }
+
+  if (issues.length > 0) {
+    throw new Ec2TemplateConfigError(
+      `Invalid EC2 template config at ${filePath}: ${issues.join('; ')}`,
+    );
+  }
+  return normalized;
 }
 
 function toTemplate(

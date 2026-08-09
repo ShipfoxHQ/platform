@@ -8,7 +8,7 @@ import {
 } from '@aws-sdk/client-ec2';
 import {SHIPFOX_TAGS} from '#instance-identity.js';
 import {type Ec2Architecture, recordEc2LaunchDuration} from '#metrics/instance.js';
-import type {Ec2Market} from '#templates.js';
+import {type Ec2Market, UNKNOWN_TEMPLATE_KEY} from '#templates.js';
 
 const TRANSIENT_REASONS = new Set<Ec2EngineErrorReason>([
   'insufficient-capacity',
@@ -52,6 +52,7 @@ export type Ec2InstanceState =
 
 export interface Ec2InstanceView {
   readonly instanceId: string;
+  readonly ami?: string;
   readonly tags: Readonly<Record<string, string>>;
   readonly state: Ec2InstanceState;
   readonly architecture?: Ec2Architecture;
@@ -167,7 +168,7 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
         const view = toInstanceView(instance);
         recordEc2LaunchDuration({
           durationMs: completedAt - startedAt,
-          templateKey: args.tags[SHIPFOX_TAGS.templateKey] ?? 'unknown',
+          templateKey: args.tags[SHIPFOX_TAGS.templateKey] ?? UNKNOWN_TEMPLATE_KEY,
           market: args.market,
           architecture: view.architecture ?? 'unknown',
           availabilityZone: view.availabilityZone ?? 'unknown',
@@ -176,7 +177,7 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
       } catch (error) {
         recordEc2LaunchDuration({
           durationMs: now() - startedAt,
-          templateKey: args.tags[SHIPFOX_TAGS.templateKey] ?? 'unknown',
+          templateKey: args.tags[SHIPFOX_TAGS.templateKey] ?? UNKNOWN_TEMPLATE_KEY,
           market: args.market,
           architecture: 'unknown',
           availabilityZone: 'unknown',
@@ -230,6 +231,7 @@ function toInstanceView(instance: Instance): Ec2InstanceView {
 
   return {
     instanceId: instance.InstanceId,
+    ...(instance.ImageId ? {ami: instance.ImageId} : {}),
     tags: Object.fromEntries(
       (instance.Tags ?? []).flatMap(({Key, Value}) =>
         Key !== undefined && Value !== undefined ? [[Key, Value]] : [],

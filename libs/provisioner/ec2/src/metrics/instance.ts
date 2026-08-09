@@ -23,20 +23,22 @@ const ec2DurationAdvice = {
 };
 
 const launchCount = meter.createCounter<{
+  template_key: string;
   market: 'spot' | 'on-demand';
   outcome: 'launched' | 'capacity' | 'throttled' | 'error';
 }>('ec2_provisioner_launch', {
-  description: 'EC2 runner launch attempts by market and outcome',
+  description: 'EC2 runner launch attempts by template, market, and outcome',
 });
 
 const terminateCount = meter.createCounter<{
+  template_key: string;
   reason:
     | 'backend-terminate'
     | 'registration-deadline'
     | 'spot-interruption'
     | 'observed-terminated';
 }>('ec2_provisioner_terminate', {
-  description: 'EC2 runner instance terminations by reason',
+  description: 'EC2 runner instance terminations by template and reason',
 });
 
 const reconcileAbsentCount = meter.createCounter<Record<string, never>>(
@@ -75,12 +77,16 @@ export type Ec2TerminationReason =
   | 'spot-interruption'
   | 'observed-terminated';
 
-export function recordEc2Launch(market: 'spot' | 'on-demand', outcome: Ec2LaunchOutcome): void {
-  launchCount.add(1, {market, outcome});
+export function recordEc2Launch(
+  market: 'spot' | 'on-demand',
+  outcome: Ec2LaunchOutcome,
+  templateKey: string,
+): void {
+  launchCount.add(1, {template_key: templateKey, market, outcome});
 }
 
-export function recordEc2Termination(reason: Ec2TerminationReason): void {
-  terminateCount.add(1, {reason});
+export function recordEc2Termination(reason: Ec2TerminationReason, templateKey: string): void {
+  terminateCount.add(1, {template_key: templateKey, reason});
 }
 
 export function recordEc2ReconcileAbsent(count: number): void {

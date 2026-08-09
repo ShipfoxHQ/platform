@@ -41,6 +41,20 @@ EC2 operators provide their own AMI and instance-type lookup maps under `vars`.
 as the GPU `subnets` replaces the default list rather than appending to it. Labels may
 overlap across families; lower `cost` wins when more than one template matches.
 
+The EC2 launch and termination counters use the expanded template key as a label.
+Keys are trimmed and must start with a letter or number, contain only letters, numbers,
+dots, underscores, or hyphens, and be at most 128 characters. The provider accepts at
+most 256 expanded templates; the checked-in example expands to 11 keys: one hand-written
+template, eight general variants (`2 × 2 × 2`), and two GPU variants (`2 × 1`). Keep
+production matrix axes bounded because each additional template adds another series to
+these counters.
+
+Instances with a missing, malformed, or no-longer-configured `shipfox.template_key` use
+the reserved `__unattributed__` series for termination metrics and logs. Do not use that
+key in configuration. Renaming a template intentionally separates its existing launch
+series from later termination series, so preserve keys when historical attribution must
+remain continuous.
+
 ## Configuration
 
 | Variable | Required | Default | Purpose |

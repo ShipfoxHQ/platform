@@ -8,7 +8,7 @@ import type {
 import {ProvisionerAuthenticationError} from '@shipfox/provisioner-core';
 import {type Ec2Engine, Ec2EngineError, type Ec2InstanceView} from '#ec2-engine.js';
 import {createEc2Lifecycle} from '#lifecycle.js';
-import type {Ec2TemplateSpec} from '#templates.js';
+import {type Ec2TemplateSpec, UNKNOWN_TEMPLATE_KEY} from '#templates.js';
 
 const observability = vi.hoisted(() => ({
   logger: {debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn()},
@@ -80,7 +80,7 @@ describe('createEc2Lifecycle', () => {
       workspaceDeviceName: '/dev/sdf',
       tags: {'shipfox.provider_runner_id': 'runner-1'},
     });
-    expect(observability.recordEc2Launch).toHaveBeenCalledWith('spot', 'launched');
+    expect(observability.recordEc2Launch).toHaveBeenCalledWith('spot', 'launched', 'spot-small');
     expect(observability.logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
         provisioned_runner_id: 'runner-1',
@@ -112,7 +112,7 @@ describe('createEc2Lifecycle', () => {
       {state: 'starting'},
       {state: 'failed', reason: 'throttled'},
     ]);
-    expect(observability.recordEc2Launch).toHaveBeenCalledWith('spot', 'throttled');
+    expect(observability.recordEc2Launch).toHaveBeenCalledWith('spot', 'throttled', 'spot-small');
   });
 
   it('preserves a just-launched instance in the tracker while DescribeInstances lags', async () => {
@@ -661,7 +661,10 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
       expect.objectContaining({state: 'failed', reason: 'spot-interruption'}),
     ]);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('spot-interruption');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'spot-interruption',
+      'spot-small',
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
@@ -887,7 +890,10 @@ describe('createEc2Lifecycle', () => {
   });
 
   it('terminates and reports instances with backend terminate intent', async () => {
-    const engine = fakeEngine({instances: [instance({state: 'running'})]});
+    const launchTime = new Date('2026-01-01T00:00:00.000Z');
+    const engine = fakeEngine({
+      instances: [instance({state: 'running', launchTime, ami: 'ami-actual'})],
+    });
     const client = fakeClient({
       reconcileResponse: {
         runners: [reconciledRunner('runner-1', 'terminate')],
@@ -906,7 +912,23 @@ describe('createEc2Lifecycle', () => {
         reason: 'backend-terminate',
       }),
     ]);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('backend-terminate');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'backend-terminate',
+      'spot-small',
+    );
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      {
+        provisioned_runner_id: 'runner-1',
+        runner_instance_id: RUNNER_INSTANCE_ID,
+        instance_id: 'i-123',
+        aws_instance_id: 'i-123',
+        template_key: 'spot-small',
+        ami: 'ami-actual',
+        launch_time: launchTime.toISOString(),
+        reason: 'backend-terminate',
+      },
+      'Terminated EC2 runner instance',
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
@@ -1009,7 +1031,7 @@ describe('createEc2Lifecycle', () => {
 
   it('terminates an instance with backend terminate intent even when its labels are unresolvable', async () => {
     const engine = fakeEngine({
-      instances: [instance({state: 'running', templateKey: 'unknown-template', labels: ''})],
+      instances: [instance({state: 'running', templateKey: null, labels: ''})],
     });
     const client = fakeClient({
       reconcileResponse: {
@@ -1023,7 +1045,23 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.reconcile();
 
     expect(engine.terminated).toEqual(['i-123']);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('backend-terminate');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'backend-terminate',
+      UNKNOWN_TEMPLATE_KEY,
+    );
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      {
+        provisioned_runner_id: 'runner-1',
+        runner_instance_id: RUNNER_INSTANCE_ID,
+        instance_id: 'i-123',
+        aws_instance_id: 'i-123',
+        template_key: UNKNOWN_TEMPLATE_KEY,
+        ami: 'unknown',
+        launch_time: null,
+        reason: 'backend-terminate',
+      },
+      'Terminated EC2 runner instance',
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
@@ -1045,8 +1083,36 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.observe();
 
     expect(engine.terminated).toEqual(['i-123']);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('registration-deadline');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'registration-deadline',
+      UNKNOWN_TEMPLATE_KEY,
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
+  });
+
+  it('attributes an observed tagless termination to the reserved fallback key', async () => {
+    const engine = fakeEngine({instances: [instance({state: 'terminated', templateKey: null})]});
+    const lifecycle = makeLifecycle({engine});
+
+    await lifecycle.observe();
+
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'observed-terminated',
+      UNKNOWN_TEMPLATE_KEY,
+    );
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      {
+        provisioned_runner_id: 'runner-1',
+        runner_instance_id: RUNNER_INSTANCE_ID,
+        instance_id: 'i-123',
+        aws_instance_id: 'i-123',
+        template_key: UNKNOWN_TEMPLATE_KEY,
+        ami: 'unknown',
+        launch_time: null,
+        reason: 'observed-terminated',
+      },
+      'Observed EC2 runner instance termination',
+    );
   });
 
   it('reaps a pending instance past its registration deadline', async () => {
@@ -1067,7 +1133,10 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
       expect.objectContaining({state: 'terminated', reason: 'registration-deadline'}),
     ]);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('registration-deadline');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'registration-deadline',
+      'spot-small',
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
@@ -1168,15 +1237,17 @@ function instance(args: {
   availabilityZone?: string;
   stateTransitionReason?: string;
   launchTime?: Date;
+  ami?: string;
   instanceId?: string;
   providerRunnerId?: string;
   runnerInstanceId?: string;
-  templateKey?: string;
+  templateKey?: string | null;
   labels?: string;
 }): Ec2InstanceView {
   return {
     instanceId: args.instanceId ?? 'i-123',
     state: args.state,
+    ...(args.ami ? {ami: args.ami} : {}),
     ...(args.architecture ? {architecture: args.architecture} : {}),
     ...(args.availabilityZone ? {availabilityZone: args.availabilityZone} : {}),
     tags: {
@@ -1184,7 +1255,9 @@ function instance(args: {
       'shipfox.provider_runner_id': args.providerRunnerId ?? 'runner-1',
       'shipfox.provisioner_id': '00000000-0000-4000-8000-000000000001',
       'shipfox.reservation_id': '00000000-0000-4000-8000-000000000003',
-      'shipfox.template_key': args.templateKey ?? 'spot-small',
+      ...(args.templateKey === null
+        ? {}
+        : {'shipfox.template_key': args.templateKey ?? 'spot-small'}),
       'shipfox.labels': args.labels ?? 'ubuntu22',
     },
     ...(args.stateTransitionReason ? {stateTransitionReason: args.stateTransitionReason} : {}),
