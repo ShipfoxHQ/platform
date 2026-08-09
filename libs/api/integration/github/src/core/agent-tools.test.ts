@@ -275,6 +275,11 @@ const githubOperationRouteCases = [
   },
   {
     toolId: 'add_issue_comment',
+    args: {issue_number: 1, reaction: '+1', body: 'Comment'},
+    expectedRoute: 'POST /repos/{owner}/{repo}/issues/{issue_number}/comments',
+  },
+  {
+    toolId: 'add_issue_comment',
     args: {comment_id: 1, reaction: '+1'},
     expectedRoute: 'POST /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions',
   },
@@ -305,8 +310,8 @@ const githubOperationRouteCases = [
   {
     toolId: 'sub_issue_write',
     method: 'reprioritize',
-    args: {issue_number: 1, sub_issue_id: 2},
-    expectedRoute: 'PATCH /repos/{owner}/{repo}/issues/{issue_number}/sub_issues/{sub_issue_id}',
+    args: {issue_number: 1, sub_issue_id: 2, after_id: 3},
+    expectedRoute: 'PATCH /repos/{owner}/{repo}/issues/{issue_number}/sub_issues/priority',
   },
   {
     toolId: 'pull_request_read',
@@ -384,8 +389,13 @@ const githubOperationRouteCases = [
   },
   {
     toolId: 'add_reply_to_pull_request_comment',
-    args: {comment_id: 1},
-    expectedRoute: 'POST /repos/{owner}/{repo}/pulls/{comment_id}/replies',
+    args: {pull_number: 1, comment_id: 2, body: 'Reply'},
+    expectedRoute: 'POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies',
+  },
+  {
+    toolId: 'add_reply_to_pull_request_comment',
+    args: {comment_id: 2, reaction: '+1'},
+    expectedRoute: 'POST /repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions',
   },
   {
     toolId: 'merge_pull_request',
@@ -736,6 +746,113 @@ describe('github agent tool catalog', () => {
     expect(result).toEqual({
       content: [{type: 'text', text: '{"number":1}'}],
       structuredContent: {number: 1},
+    });
+  });
+
+  it('returns artifact download metadata without buffering archive bytes', async () => {
+    const request = vi.fn(() =>
+      Promise.resolve({
+        status: 302,
+        headers: {
+          location: 'https://objects.example/artifact.zip?token=temporary',
+          'content-type': 'application/zip',
+          'content-length': '1234',
+        },
+        data: new ArrayBuffer(1024),
+      }),
+    );
+    const result = await callGithubToolWithRequest(
+      'actions_get',
+      {
+        method: 'download_workflow_run_artifact',
+        owner: 'shipfox',
+        repo: 'platform',
+        resource_id: '42',
+      },
+      request,
+    );
+    const expected = {
+      archive_format: 'zip',
+      download_url: 'https://objects.example/artifact.zip?token=temporary',
+      artifact_id: '42',
+      content_type: 'application/zip',
+      size_bytes: 1234,
+    };
+
+    expect(request).toHaveBeenCalledWith(
+      'GET /repos/{owner}/{repo}/actions/artifacts/{resource_id}/zip',
+      {owner: 'shipfox', repo: 'platform', resource_id: '42'},
+    );
+    expect(result).toEqual({
+      content: [{type: 'text', text: JSON.stringify(expected)}],
+      structuredContent: expected,
+    });
+  });
+
+  it('fails artifact downloads without a redirect URL instead of returning an empty success', async () => {
+    const result = await callGithubToolWithRequest(
+      'actions_get',
+      {
+        method: 'download_workflow_run_artifact',
+        owner: 'shipfox',
+        repo: 'platform',
+        resource_id: '42',
+      },
+      vi.fn(() =>
+        Promise.resolve({
+          status: 302,
+          headers: {},
+          data: new ArrayBuffer(0),
+        }),
+      ),
+    );
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'GitHub artifact download did not return a download URL'}],
+    });
+  });
+
+  it('projects get_diff request headers through the provider session', async () => {
+    const request = vi.fn(() => Promise.resolve({data: 'diff --git a/file b/file'}));
+    const result = await callGithubToolWithRequest(
+      'pull_request_read',
+      {
+        method: 'get_diff',
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+      },
+      request,
+    );
+
+    expect(request).toHaveBeenCalledWith('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+      owner: 'shipfox',
+      repo: 'platform',
+      pull_number: 2,
+      headers: {accept: 'application/vnd.github.diff'},
+    });
+    expect(result).toEqual({
+      content: [{type: 'text', text: '{"result":"diff --git a/file b/file"}'}],
+      structuredContent: {result: 'diff --git a/file b/file'},
+    });
+  });
+
+  it('projects issue comment reactions through the provider session', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {id: 7}}));
+    const result = await callGithubToolWithRequest(
+      'add_issue_comment',
+      {owner: 'shipfox', repo: 'platform', issue_number: 1, reaction: '+1'},
+      request,
+    );
+
+    expect(request).toHaveBeenCalledWith(
+      'POST /repos/{owner}/{repo}/issues/{issue_number}/reactions',
+      {owner: 'shipfox', repo: 'platform', issue_number: 1, content: '+1'},
+    );
+    expect(result).toEqual({
+      content: [{type: 'text', text: '{"id":7}'}],
+      structuredContent: {id: 7},
     });
   });
 

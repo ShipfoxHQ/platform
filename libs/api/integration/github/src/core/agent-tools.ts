@@ -51,6 +51,8 @@ type GithubToolCallResult = {
 
 const GITHUB_GRAPHQL_ROUTE = 'POST /graphql';
 const GITHUB_ARTIFACT_ARCHIVE_FORMAT = 'zip';
+const GITHUB_ARTIFACT_DOWNLOAD_ROUTE = `GET /repos/{owner}/{repo}/actions/artifacts/{resource_id}/${GITHUB_ARTIFACT_ARCHIVE_FORMAT}`;
+const GITHUB_ARTIFACT_DOWNLOAD_TIMEOUT_MS = 30_000;
 const NO_PENDING_REVIEW_MESSAGE =
   'No pending pull request review found for the authenticated GitHub user.';
 
@@ -171,7 +173,13 @@ export class GithubAgentToolsProvider
         const response = await mapGithubError(() =>
           client.request(operation.route, operationParameters),
         );
-        return githubToolResult(tool.id as GithubAgentToolId, response.data);
+        return githubToolResult(
+          tool.id as GithubAgentToolId,
+          response.data,
+          response,
+          operationParameters,
+          operation.route,
+        );
       },
     };
   }
@@ -185,8 +193,15 @@ export interface GithubAgentToolsProviderOptions {
   createClient?: GithubToolClientFactory | undefined;
 }
 
+export interface GithubToolResponse {
+  data: unknown;
+  headers?: Record<string, string | number | undefined> | undefined;
+  status?: number | undefined;
+  url?: string | undefined;
+}
+
 export interface GithubToolClient {
-  request(route: string, parameters: Record<string, unknown>): Promise<{data: unknown}>;
+  request(route: string, parameters: Record<string, unknown>): Promise<GithubToolResponse>;
   graphql?: ((query: string, variables: Record<string, unknown>) => Promise<unknown>) | undefined;
 }
 
@@ -205,7 +220,29 @@ function createOctokitClient(token: string): GithubToolClient {
     retry: {enabled: false},
   });
   return {
-    request: async (route, parameters) => await octokit.request(route, parameters),
+    request: async (route, parameters) => {
+      if (route !== GITHUB_ARTIFACT_DOWNLOAD_ROUTE) {
+        return await octokit.request(route, parameters);
+      }
+
+      const abortController = new AbortController();
+      const timeout = setTimeout(
+        () => abortController.abort(),
+        GITHUB_ARTIFACT_DOWNLOAD_TIMEOUT_MS,
+      );
+      try {
+        return await octokit.request(route, {
+          ...parameters,
+          request: {
+            redirect: 'manual',
+            parseSuccessResponseBody: false,
+            signal: abortController.signal,
+          },
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
     graphql: async (query, variables) => await octokit.graphql(query, variables),
   };
 }
@@ -279,7 +316,7 @@ export function githubOperationRoute(
     case 'sub_issue_write.remove':
       return `DELETE ${repoPath}/issues/${issue}/sub_issues/{sub_issue_id}`;
     case 'sub_issue_write.reprioritize':
-      return `PATCH ${repoPath}/issues/${issue}/sub_issues/{sub_issue_id}`;
+      return `PATCH ${repoPath}/issues/${issue}/sub_issues/priority`;
     case 'pull_request_read.get':
       return `GET ${repoPath}/pulls/${pull}`;
     case 'pull_request_read.get_diff':
@@ -307,7 +344,9 @@ export function githubOperationRoute(
     case 'update_pull_request.':
       return `PATCH ${repoPath}/pulls/${pull}`;
     case 'add_reply_to_pull_request_comment.':
-      return `POST ${repoPath}/pulls/{comment_id}/replies`;
+      return args.reaction !== undefined && args.body === undefined
+        ? `POST ${repoPath}/pulls/comments/{comment_id}/reactions`
+        : `POST ${repoPath}/pulls/${pull}/comments/{comment_id}/replies`;
     case 'merge_pull_request.':
       return `PUT ${repoPath}/pulls/${pull}/merge`;
     case 'update_pull_request_branch.':
@@ -335,7 +374,7 @@ export function githubOperationRoute(
     case 'actions_get.get_workflow_job':
       return `GET ${repoPath}/actions/jobs/${resource}`;
     case 'actions_get.download_workflow_run_artifact':
-      return `GET ${repoPath}/actions/artifacts/${resource}/${GITHUB_ARTIFACT_ARCHIVE_FORMAT}`;
+      return GITHUB_ARTIFACT_DOWNLOAD_ROUTE;
     case 'actions_get.get_workflow_run_usage':
       return `GET ${repoPath}/actions/runs/${resource}/timing`;
     case 'actions_get.get_workflow_run_logs_url':
@@ -485,8 +524,17 @@ function latestPendingReviewIdOnPage(data: readonly unknown[]): number | undefin
   return undefined;
 }
 
-function githubToolResult(toolId: GithubAgentToolId, data: unknown): GithubToolCallResult {
-  const structuredContent = projectGithubToolOutput(toolId, data);
+function githubToolResult(
+  toolId: GithubAgentToolId,
+  data: unknown,
+  response?: GithubToolResponse,
+  parameters?: Record<string, unknown>,
+  route?: string,
+): GithubToolCallResult {
+  const structuredContent = projectGithubToolOutput(toolId, data, response, parameters, route);
+  if (structuredContent === undefined) {
+    return githubToolError('GitHub artifact download did not return a download URL');
+  }
   return {
     content: [{type: 'text', text: JSON.stringify(structuredContent)}],
     structuredContent,
@@ -496,7 +544,14 @@ function githubToolResult(toolId: GithubAgentToolId, data: unknown): GithubToolC
 function projectGithubToolOutput(
   toolId: GithubAgentToolId,
   data: unknown,
-): Record<string, unknown> {
+  response?: GithubToolResponse,
+  parameters?: Record<string, unknown>,
+  route?: string,
+): Record<string, unknown> | undefined {
+  if (route === GITHUB_ARTIFACT_DOWNLOAD_ROUTE) {
+    return projectGithubArtifactDownloadOutput(response, parameters);
+  }
+
   switch (toolId) {
     case 'list_issue_types':
       return {issue_types: data};
@@ -516,6 +571,30 @@ function projectGithubToolOutput(
     default:
       return isRecord(data) ? data : {result: data};
   }
+}
+
+function projectGithubArtifactDownloadOutput(
+  response: GithubToolResponse | undefined,
+  parameters: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (response === undefined) return undefined;
+  const downloadUrl = response.headers?.location;
+  if (typeof downloadUrl !== 'string' || downloadUrl.length === 0) return undefined;
+
+  const output: Record<string, unknown> = {
+    archive_format: GITHUB_ARTIFACT_ARCHIVE_FORMAT,
+    download_url: downloadUrl,
+  };
+  if (typeof parameters?.resource_id === 'string') output.artifact_id = parameters.resource_id;
+
+  const contentType = response.headers?.['content-type'];
+  if (typeof contentType === 'string') output.content_type = contentType;
+
+  const contentLength = response.headers?.['content-length'];
+  const sizeBytes = typeof contentLength === 'number' ? contentLength : Number(contentLength);
+  if (Number.isSafeInteger(sizeBytes) && sizeBytes >= 0) output.size_bytes = sizeBytes;
+
+  return output;
 }
 
 function githubSearchItems(data: unknown): unknown {

@@ -2,4 +2,4 @@
 "@shipfox/api-integration-github": patch
 ---
 
-Keep GitHub agent routes aligned with their declared and runtime parameters, including artifact downloads.
+GitHub agent artifact downloads now use GitHub's required zip format and return a temporary download URL.
