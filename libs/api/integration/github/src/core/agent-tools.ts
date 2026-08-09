@@ -50,6 +50,7 @@ type GithubToolCallResult = {
 };
 
 const GITHUB_GRAPHQL_ROUTE = 'POST /graphql';
+const GITHUB_ARTIFACT_ARCHIVE_FORMAT = 'zip';
 const NO_PENDING_REVIEW_MESSAGE =
   'No pending pull request review found for the authenticated GitHub user.';
 
@@ -231,7 +232,7 @@ function resolveGithubOperation(
       };
 }
 
-function githubOperationRoute(
+export function githubOperationRoute(
   toolId: GithubAgentToolId,
   method: string | undefined,
   args: Record<string, unknown>,
@@ -334,7 +335,7 @@ function githubOperationRoute(
     case 'actions_get.get_workflow_job':
       return `GET ${repoPath}/actions/jobs/${resource}`;
     case 'actions_get.download_workflow_run_artifact':
-      return `GET ${repoPath}/actions/artifacts/${resource}/{archive_format}`;
+      return `GET ${repoPath}/actions/artifacts/${resource}/${GITHUB_ARTIFACT_ARCHIVE_FORMAT}`;
     case 'actions_get.get_workflow_run_usage':
       return `GET ${repoPath}/actions/runs/${resource}/timing`;
     case 'actions_get.get_workflow_run_logs_url':
@@ -414,7 +415,7 @@ function latestPendingReviewNodeId(data: unknown): string | undefined {
   return latest?.id;
 }
 
-function projectGithubOperationParameters(
+export function projectGithubOperationParameters(
   toolId: GithubAgentToolId,
   method: string | undefined,
   args: Record<string, unknown>,

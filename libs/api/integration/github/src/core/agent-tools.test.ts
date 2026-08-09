@@ -7,6 +7,8 @@ import {
   type GithubToolClient,
   githubAgentToolCatalog,
   githubAgentToolSelectionCatalog,
+  githubOperationRoute,
+  projectGithubOperationParameters,
 } from '#core/agent-tools.js';
 import {createGithubIntegrationProvider} from '#index.js';
 
@@ -202,6 +204,321 @@ const expectedCatalogRows = [
   },
 ];
 
+type GithubOperationRouteCase = {
+  toolId: GithubAgentToolId;
+  method?: string;
+  args: Record<string, unknown>;
+  expectedRoute: string;
+  runtimeInjectedProperties?: readonly string[];
+};
+
+const githubOperationRouteCases = [
+  {
+    toolId: 'issue_read',
+    method: 'get',
+    args: {issue_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/issues/{issue_number}',
+  },
+  {
+    toolId: 'issue_read',
+    method: 'get_comments',
+    args: {issue_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/issues/{issue_number}/comments',
+  },
+  {
+    toolId: 'issue_read',
+    method: 'get_sub_issues',
+    args: {issue_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues',
+  },
+  {
+    toolId: 'issue_read',
+    method: 'get_parent',
+    args: {issue_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/issues/{issue_number}/parent',
+  },
+  {
+    toolId: 'issue_read',
+    method: 'get_labels',
+    args: {issue_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/issues/{issue_number}/labels',
+  },
+  {
+    toolId: 'list_issue_types',
+    args: {owner: 'shipfox'},
+    expectedRoute: 'GET /orgs/{owner}/issue-types',
+  },
+  {
+    toolId: 'list_issue_types',
+    args: {owner: 'shipfox', repo: 'platform'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/issue-types',
+  },
+  {
+    toolId: 'list_issues',
+    args: {},
+    expectedRoute: 'GET /repos/{owner}/{repo}/issues',
+  },
+  {
+    toolId: 'search_issues',
+    args: {},
+    expectedRoute: 'GET /search/issues',
+  },
+  {
+    toolId: 'add_issue_comment',
+    args: {issue_number: 1, body: 'Comment'},
+    expectedRoute: 'POST /repos/{owner}/{repo}/issues/{issue_number}/comments',
+  },
+  {
+    toolId: 'add_issue_comment',
+    args: {issue_number: 1, reaction: '+1'},
+    expectedRoute: 'POST /repos/{owner}/{repo}/issues/{issue_number}/reactions',
+  },
+  {
+    toolId: 'add_issue_comment',
+    args: {comment_id: 1, reaction: '+1'},
+    expectedRoute: 'POST /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions',
+  },
+  {
+    toolId: 'issue_write',
+    method: 'create',
+    args: {},
+    expectedRoute: 'POST /repos/{owner}/{repo}/issues',
+  },
+  {
+    toolId: 'issue_write',
+    method: 'update',
+    args: {issue_number: 1},
+    expectedRoute: 'PATCH /repos/{owner}/{repo}/issues/{issue_number}',
+  },
+  {
+    toolId: 'sub_issue_write',
+    method: 'add',
+    args: {issue_number: 1},
+    expectedRoute: 'POST /repos/{owner}/{repo}/issues/{issue_number}/sub_issues',
+  },
+  {
+    toolId: 'sub_issue_write',
+    method: 'remove',
+    args: {issue_number: 1, sub_issue_id: 2},
+    expectedRoute: 'DELETE /repos/{owner}/{repo}/issues/{issue_number}/sub_issues/{sub_issue_id}',
+  },
+  {
+    toolId: 'sub_issue_write',
+    method: 'reprioritize',
+    args: {issue_number: 1, sub_issue_id: 2},
+    expectedRoute: 'PATCH /repos/{owner}/{repo}/issues/{issue_number}/sub_issues/{sub_issue_id}',
+  },
+  {
+    toolId: 'pull_request_read',
+    method: 'get',
+    args: {pull_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/pulls/{pull_number}',
+  },
+  {
+    toolId: 'pull_request_read',
+    method: 'get_diff',
+    args: {pull_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/pulls/{pull_number}',
+  },
+  {
+    toolId: 'pull_request_read',
+    method: 'get_status',
+    args: {pull_number: 1, ref: 'main'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/commits/{ref}/status',
+  },
+  {
+    toolId: 'pull_request_read',
+    method: 'get_files',
+    args: {pull_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/pulls/{pull_number}/files',
+  },
+  {
+    toolId: 'pull_request_read',
+    method: 'get_commits',
+    args: {pull_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/pulls/{pull_number}/commits',
+  },
+  {
+    toolId: 'pull_request_read',
+    method: 'get_review_comments',
+    args: {pull_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/pulls/{pull_number}/comments',
+  },
+  {
+    toolId: 'pull_request_read',
+    method: 'get_reviews',
+    args: {pull_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
+  },
+  {
+    toolId: 'pull_request_read',
+    method: 'get_comments',
+    args: {pull_number: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/issues/{pull_number}/comments',
+  },
+  {
+    toolId: 'pull_request_read',
+    method: 'get_check_runs',
+    args: {pull_number: 1, ref: 'main'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/commits/{ref}/check-runs',
+  },
+  {
+    toolId: 'list_pull_requests',
+    args: {},
+    expectedRoute: 'GET /repos/{owner}/{repo}/pulls',
+  },
+  {
+    toolId: 'search_pull_requests',
+    args: {},
+    expectedRoute: 'GET /search/issues',
+  },
+  {
+    toolId: 'create_pull_request',
+    args: {},
+    expectedRoute: 'POST /repos/{owner}/{repo}/pulls',
+  },
+  {
+    toolId: 'update_pull_request',
+    args: {pull_number: 1},
+    expectedRoute: 'PATCH /repos/{owner}/{repo}/pulls/{pull_number}',
+  },
+  {
+    toolId: 'add_reply_to_pull_request_comment',
+    args: {comment_id: 1},
+    expectedRoute: 'POST /repos/{owner}/{repo}/pulls/{comment_id}/replies',
+  },
+  {
+    toolId: 'merge_pull_request',
+    args: {pull_number: 1},
+    expectedRoute: 'PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge',
+  },
+  {
+    toolId: 'update_pull_request_branch',
+    args: {pull_number: 1},
+    expectedRoute: 'PUT /repos/{owner}/{repo}/pulls/{pull_number}/update-branch',
+  },
+  {
+    toolId: 'pull_request_review_write',
+    method: 'create',
+    args: {pull_number: 1},
+    expectedRoute: 'POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
+  },
+  {
+    toolId: 'pull_request_review_write',
+    method: 'submit_pending',
+    args: {pull_number: 1},
+    runtimeInjectedProperties: ['review_id'],
+    expectedRoute: 'POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/events',
+  },
+  {
+    toolId: 'pull_request_review_write',
+    method: 'delete_pending',
+    args: {pull_number: 1},
+    runtimeInjectedProperties: ['review_id'],
+    expectedRoute: 'DELETE /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}',
+  },
+  {
+    toolId: 'add_comment_to_pending_review',
+    args: {pull_number: 1, path: 'src/index.ts', body: 'Comment'},
+    expectedRoute: 'POST /graphql',
+  },
+  {
+    toolId: 'actions_list',
+    method: 'list_workflows',
+    args: {},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/workflows',
+  },
+  {
+    toolId: 'actions_list',
+    method: 'list_workflow_runs',
+    args: {resource_id: 'workflow'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/workflows/{resource_id}/runs',
+  },
+  {
+    toolId: 'actions_list',
+    method: 'list_workflow_jobs',
+    args: {resource_id: 'run'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/runs/{resource_id}/jobs',
+  },
+  {
+    toolId: 'actions_list',
+    method: 'list_workflow_run_artifacts',
+    args: {resource_id: 'run'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/runs/{resource_id}/artifacts',
+  },
+  {
+    toolId: 'actions_get',
+    method: 'get_workflow',
+    args: {resource_id: 'workflow'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/workflows/{resource_id}',
+  },
+  {
+    toolId: 'actions_get',
+    method: 'get_workflow_run',
+    args: {resource_id: 'run'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/runs/{resource_id}',
+  },
+  {
+    toolId: 'actions_get',
+    method: 'get_workflow_job',
+    args: {resource_id: 'job'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/jobs/{resource_id}',
+  },
+  {
+    toolId: 'actions_get',
+    method: 'download_workflow_run_artifact',
+    args: {resource_id: 'artifact'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/artifacts/{resource_id}/zip',
+  },
+  {
+    toolId: 'actions_get',
+    method: 'get_workflow_run_usage',
+    args: {resource_id: 'run'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/runs/{resource_id}/timing',
+  },
+  {
+    toolId: 'actions_get',
+    method: 'get_workflow_run_logs_url',
+    args: {resource_id: 'run'},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/runs/{resource_id}/logs',
+  },
+  {
+    toolId: 'actions_run_trigger',
+    method: 'run_workflow',
+    args: {workflow_id: 'ci.yml', ref: 'main'},
+    expectedRoute: 'POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches',
+  },
+  {
+    toolId: 'actions_run_trigger',
+    method: 'rerun_workflow_run',
+    args: {run_id: 1},
+    expectedRoute: 'POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun',
+  },
+  {
+    toolId: 'actions_run_trigger',
+    method: 'rerun_failed_jobs',
+    args: {run_id: 1},
+    expectedRoute: 'POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs',
+  },
+  {
+    toolId: 'actions_run_trigger',
+    method: 'cancel_workflow_run',
+    args: {run_id: 1},
+    expectedRoute: 'POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel',
+  },
+  {
+    toolId: 'actions_run_trigger',
+    method: 'delete_workflow_run_logs',
+    args: {run_id: 1},
+    expectedRoute: 'DELETE /repos/{owner}/{repo}/actions/runs/{run_id}/logs',
+  },
+  {
+    toolId: 'get_job_logs',
+    args: {job_id: 1},
+    expectedRoute: 'GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs',
+  },
+] satisfies readonly GithubOperationRouteCase[];
+
 describe('github agent tool catalog', () => {
   it('matches the GitHub MCP-style tool rows', () => {
     const rows = githubAgentToolCatalog.map(
@@ -216,6 +533,57 @@ describe('github agent tool catalog', () => {
     );
 
     expect(rows).toEqual(expectedCatalogRows);
+  });
+
+  it('covers every catalog operation with an exact route case', () => {
+    const catalogOperationKeys = githubAgentToolCatalog.flatMap(
+      (entry) =>
+        entry.methods?.map((method) => operationKey(entry.id, method.id)) ?? [
+          operationKey(entry.id),
+        ],
+    );
+    const routeCaseOperationKeys = githubOperationRouteCases.map(({toolId, method}) =>
+      operationKey(toolId, method),
+    );
+
+    expect([...new Set(routeCaseOperationKeys)].sort()).toEqual(
+      [...new Set(catalogOperationKeys)].sort(),
+    );
+  });
+
+  it.each(
+    githubOperationRouteCases,
+  )('asserts the $toolId.$method route and its input placeholders', ({
+    toolId,
+    method,
+    args,
+    expectedRoute,
+    runtimeInjectedProperties = [],
+  }) => {
+    const route = githubOperationRoute(toolId, method, args);
+
+    expect(route).toBe(expectedRoute);
+    if (route === undefined) return;
+
+    const inputProperties = new Set(Object.keys(inputSchemaFor(toolId).properties ?? {}));
+    const undeclaredArguments = Object.keys(args).filter((name) => !inputProperties.has(name));
+    expect(undeclaredArguments).toEqual([]);
+
+    const projectedParameters = projectGithubOperationParameters(toolId, method, args);
+    const injectedProperties = new Set([
+      ...runtimeInjectedProperties,
+      ...Object.keys(projectedParameters).filter(
+        (name) => !inputProperties.has(name) && !Object.hasOwn(args, name),
+      ),
+    ]);
+    const placeholders = Array.from(route.matchAll(/\{([^{}]+)\}/g), (match) => match[1]).filter(
+      (name): name is string => name !== undefined,
+    );
+    const undeclaredPlaceholders = placeholders.filter(
+      (name) => !inputProperties.has(name) && !injectedProperties.has(name),
+    );
+
+    expect(undeclaredPlaceholders).toEqual([]);
   });
 
   it('defines descriptions and schemas for every tool and method', () => {
@@ -939,4 +1307,8 @@ function inputSchemaFor(id: (typeof githubAgentToolCatalog)[number]['id']) {
     anyOf?: unknown[] | undefined;
     oneOf?: unknown[] | undefined;
   };
+}
+
+function operationKey(toolId: GithubAgentToolId, method?: string) {
+  return `${toolId}.${method ?? ''}`;
 }
