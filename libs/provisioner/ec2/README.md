@@ -149,7 +149,7 @@ The `template_key` label is the rendered template key, not a raw demand label se
 
 | Metric | Value |
 | --- | --- |
-| `ec2_provisioner_template_runners{state}` | EC2 instances charged against the template cap. `pending` instances report as `starting`. |
+| `ec2_provisioner_template_runners{state}` | EC2 instances charged against the template cap. `pending` instances report as `starting`; unknown states report as `running`. |
 | `ec2_provisioner_template_max_concurrency` | Configured ceiling for the template. |
 | `ec2_provisioner_template_target_concurrency` | Configured warm-pool floor for the template. |
 | `ec2_provisioner_template_queued_demand` | Queued jobs whose labels match the template. |
@@ -160,6 +160,8 @@ The production ECS module keeps one provisioner task, so this fleet count matche
 per-process `max_concurrency` cap. AWS listings are eventually consistent and can briefly
 undercount a new launch. Queue gauges use the latest demand poll and map each label set to
 every ranked matching template.
+If a demand poll fails, the core adapter clears the cached snapshot so queue gauges do not
+retain stale saturation values.
 
 Each rendered template creates six time series: two runner states and four single-series
 gauges. Matrix families multiply their axis sizes, so keep the rendered template count

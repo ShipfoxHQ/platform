@@ -1,5 +1,5 @@
 import type {DemandStatDto} from '@shipfox/api-runners-dto';
-import {getServiceMetricsProvider} from '@shipfox/node-opentelemetry';
+import {getServiceMetricsProvider, logger} from '@shipfox/node-opentelemetry';
 import {type ProvisionerTemplate, rankTemplatesForLabels} from '@shipfox/provisioner-core';
 import type {Ec2Engine, Ec2InstanceState} from '#ec2-engine.js';
 import {parseInstanceIdentity} from '#instance-identity.js';
@@ -50,66 +50,97 @@ export function registerEc2ServiceMetrics(options: RegisterEc2ServiceMetricsOpti
       unit: 'ms',
     },
   );
+  let lastUnattributedCount = 0;
 
   meter.addBatchObservableCallback(
     async (observer) => {
-      const instances = await options.engine.listManaged(options.provisionerId);
-      const counts = new Map<Ec2InstanceState, number>();
-      for (const instance of instances)
-        counts.set(instance.state, (counts.get(instance.state) ?? 0) + 1);
-      for (const [state, count] of counts) observer.observe(managedInstances, count, {state});
+      try {
+        const instances = await options.engine.listManaged(options.provisionerId);
+        const counts = new Map<Ec2InstanceState, number>();
+        for (const instance of instances)
+          counts.set(instance.state, (counts.get(instance.state) ?? 0) + 1);
+        for (const [state, count] of counts) observer.observe(managedInstances, count, {state});
 
-      const countsByTemplate = new Map<string, TemplateRunnerCounts>(
-        options.templates.map((template) => [template.key, {starting: 0, running: 0}]),
-      );
-      for (const instance of instances) {
-        const templateKey = parseInstanceIdentity(instance).templateKey;
-        const templateCounts = templateKey ? countsByTemplate.get(templateKey) : undefined;
-        const state = templateRunnerState(instance.state);
-        if (!templateCounts || !state) continue;
-        templateCounts[state] += 1;
-      }
+        const countsByTemplate = new Map<string, TemplateRunnerCounts>(
+          options.templates.map((template) => [template.key, {starting: 0, running: 0}]),
+        );
+        let unattributedCount = 0;
+        for (const instance of instances) {
+          const templateKey = parseInstanceIdentity(instance).templateKey;
+          if (!templateKey || !countsByTemplate.has(templateKey)) {
+            unattributedCount += 1;
+            continue;
+          }
+          const state = templateRunnerState(instance.state);
+          if (!state) continue;
+          const templateCounts = countsByTemplate.get(templateKey);
+          if (templateCounts) templateCounts[state] += 1;
+        }
+        if (unattributedCount !== 0 && unattributedCount !== lastUnattributedCount) {
+          logger().warn(
+            {
+              event: 'provisioner.ec2.unattributed_managed_instances',
+              count: unattributedCount,
+              provisionerId: options.provisionerId,
+            },
+            'Some managed EC2 instances do not map to a configured template',
+          );
+        }
+        lastUnattributedCount = unattributedCount;
 
-      const demandByTemplate = new Map<string, TemplateDemand>(
-        options.templates.map((template) => [template.key, {queued: 0}]),
-      );
-      for (const stat of options.getDemandStats()) {
-        if (stat.queued === 0) continue;
-        const oldestQueuedAtMs = Date.parse(stat.oldest_queued_at);
-        for (const template of rankTemplatesForLabels(stat.labels, options.templates)) {
-          const demand = demandByTemplate.get(template.key);
-          if (!demand) continue;
-          demand.queued += stat.queued;
-          if (Number.isFinite(oldestQueuedAtMs)) {
-            demand.oldestQueuedAtMs =
-              demand.oldestQueuedAtMs === undefined
-                ? oldestQueuedAtMs
-                : Math.min(demand.oldestQueuedAtMs, oldestQueuedAtMs);
+        const demandByTemplate = new Map<string, TemplateDemand>(
+          options.templates.map((template) => [template.key, {queued: 0}]),
+        );
+        for (const stat of options.getDemandStats()) {
+          if (stat.queued === 0) continue;
+          const oldestQueuedAtMs = Date.parse(stat.oldest_queued_at);
+          for (const template of rankTemplatesForLabels(stat.labels, options.templates)) {
+            const demand = demandByTemplate.get(template.key);
+            if (!demand) continue;
+            demand.queued += stat.queued;
+            if (Number.isFinite(oldestQueuedAtMs)) {
+              demand.oldestQueuedAtMs =
+                demand.oldestQueuedAtMs === undefined
+                  ? oldestQueuedAtMs
+                  : Math.min(demand.oldestQueuedAtMs, oldestQueuedAtMs);
+            }
           }
         }
-      }
 
-      for (const template of options.templates) {
-        const labels = {template_key: template.key};
-        const countsForTemplate = countsByTemplate.get(template.key) ?? {starting: 0, running: 0};
-        const demand = demandByTemplate.get(template.key) ?? {queued: 0};
-        observer.observe(templateRunners, countsForTemplate.starting, {
-          ...labels,
-          state: 'starting',
-        });
-        observer.observe(templateRunners, countsForTemplate.running, {
-          ...labels,
-          state: 'running',
-        });
-        observer.observe(templateMaxConcurrency, template.maxConcurrency, labels);
-        observer.observe(templateTargetConcurrency, template.targetConcurrency ?? 0, labels);
-        observer.observe(templateQueuedDemand, demand.queued, labels);
-        observer.observe(
-          templateOldestQueuedAge,
-          demand.oldestQueuedAtMs === undefined
-            ? 0
-            : Math.max(0, Date.now() - demand.oldestQueuedAtMs),
-          labels,
+        for (const template of options.templates) {
+          const labels = {template_key: template.key};
+          const countsForTemplate = countsByTemplate.get(template.key) ?? {
+            starting: 0,
+            running: 0,
+          };
+          const demand = demandByTemplate.get(template.key) ?? {queued: 0};
+          observer.observe(templateRunners, countsForTemplate.starting, {
+            ...labels,
+            state: 'starting',
+          });
+          observer.observe(templateRunners, countsForTemplate.running, {
+            ...labels,
+            state: 'running',
+          });
+          observer.observe(templateMaxConcurrency, template.maxConcurrency, labels);
+          observer.observe(templateTargetConcurrency, template.targetConcurrency ?? 0, labels);
+          observer.observe(templateQueuedDemand, demand.queued, labels);
+          observer.observe(
+            templateOldestQueuedAge,
+            demand.oldestQueuedAtMs === undefined
+              ? 0
+              : Math.max(0, Date.now() - demand.oldestQueuedAtMs),
+            labels,
+          );
+        }
+      } catch (error) {
+        logger().warn(
+          {
+            event: 'provisioner.ec2.service_metrics_failed',
+            provisionerId: options.provisionerId,
+            reason: errorReason(error),
+          },
+          'EC2 service metrics callback failed',
         );
       }
     },
@@ -130,7 +161,13 @@ function templateRunnerState(state: Ec2InstanceState): 'starting' | 'running' | 
       return 'starting';
     case 'running':
       return 'running';
+    case 'unknown':
+      return 'running';
     default:
       return undefined;
   }
+}
+
+function errorReason(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
 }

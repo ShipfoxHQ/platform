@@ -21,11 +21,13 @@ const mocks = vi.hoisted(() => {
     gauges,
     getMeter: vi.fn(),
     getServiceMetricsProvider: vi.fn(),
+    logger: {warn: vi.fn()},
   };
 });
 
 vi.mock('@shipfox/node-opentelemetry', () => ({
   getServiceMetricsProvider: mocks.getServiceMetricsProvider,
+  logger: () => mocks.logger,
 }));
 
 import type {DemandStatDto} from '@shipfox/api-runners-dto';
@@ -59,6 +61,7 @@ describe('registerEc2ServiceMetrics', () => {
     mocks.createObservableGauge.mockClear();
     mocks.getMeter.mockReset();
     mocks.getServiceMetricsProvider.mockReset();
+    mocks.logger.warn.mockReset();
     mocks.getMeter.mockReturnValue({
       createObservableGauge: mocks.createObservableGauge,
       addBatchObservableCallback: mocks.addBatchObservableCallback,
@@ -90,6 +93,14 @@ describe('registerEc2ServiceMetrics', () => {
     expect(mocks.createObservableGauge).toHaveBeenCalledWith('ec2_provisioner_managed_instances', {
       description: 'EC2 runner instances currently managed by the provisioner, by EC2 state',
     });
+    expect(mocks.addBatchObservableCallback).toHaveBeenCalledWith(expect.any(Function), [
+      mocks.gauges.managedInstances,
+      mocks.gauges.templateRunners,
+      mocks.gauges.templateMaxConcurrency,
+      mocks.gauges.templateTargetConcurrency,
+      mocks.gauges.templateQueuedDemand,
+      mocks.gauges.templateOldestQueuedAge,
+    ]);
     expect(listManaged).toHaveBeenCalledWith('provisioner-1');
     expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.managedInstances, 1, {
       state: 'pending',
@@ -104,6 +115,8 @@ describe('registerEc2ServiceMetrics', () => {
     const instances: Ec2InstanceView[] = [
       instance('i-linux-pending', 'pending', 'linux'),
       instance('i-linux-running', 'running', 'linux'),
+      instance('i-linux-unknown-state', 'unknown', 'linux'),
+      instance('i-linux-stopping', 'stopping', 'linux'),
       instance('i-gpu-running', 'running', 'linux-gpu'),
       instance('i-unknown-running', 'running', 'unconfigured'),
     ];
@@ -139,7 +152,7 @@ describe('registerEc2ServiceMetrics', () => {
         template_key: 'linux',
         state: 'starting',
       });
-      expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.templateRunners, 1, {
+      expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.templateRunners, 2, {
         template_key: 'linux',
         state: 'running',
       });
@@ -169,9 +182,72 @@ describe('registerEc2ServiceMetrics', () => {
       expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.templateOldestQueuedAge, 3_000, {
         template_key: 'linux-gpu',
       });
+      expect(mocks.logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'provisioner.ec2.unattributed_managed_instances',
+          count: 1,
+        }),
+        'Some managed EC2 instances do not map to a configured template',
+      );
     } finally {
       nowSpy.mockRestore();
     }
+  });
+
+  it('observes zero demand and runner counts when no instances or jobs are present', async () => {
+    const engine = {listManaged: vi.fn().mockResolvedValue([])} as unknown as Ec2Engine;
+    registerEc2ServiceMetrics({
+      engine,
+      provisionerId: 'provisioner-1',
+      templates,
+      getDemandStats: () => [],
+    });
+    const callback = mocks.addBatchObservableCallback.mock.calls[0]?.[0];
+    const observer = {observe: vi.fn()};
+
+    await callback?.(observer);
+
+    for (const template of templates) {
+      const labels = {template_key: template.key};
+      expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.templateRunners, 0, {
+        ...labels,
+        state: 'starting',
+      });
+      expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.templateRunners, 0, {
+        ...labels,
+        state: 'running',
+      });
+      expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.templateQueuedDemand, 0, labels);
+      expect(observer.observe).toHaveBeenCalledWith(
+        mocks.gauges.templateOldestQueuedAge,
+        0,
+        labels,
+      );
+    }
+  });
+
+  it('logs a structured warning when the EC2 listing fails', async () => {
+    const engine = {
+      listManaged: vi.fn().mockRejectedValue(new Error('AWS unavailable')),
+    } as unknown as Ec2Engine;
+    registerEc2ServiceMetrics({
+      engine,
+      provisionerId: 'provisioner-1',
+      templates,
+      getDemandStats: () => [],
+    });
+    const callback = mocks.addBatchObservableCallback.mock.calls[0]?.[0];
+
+    await callback?.({observe: vi.fn()});
+
+    expect(mocks.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.ec2.service_metrics_failed',
+        provisionerId: 'provisioner-1',
+        reason: 'AWS unavailable',
+      }),
+      'EC2 service metrics callback failed',
+    );
   });
 });
 

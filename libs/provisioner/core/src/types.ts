@@ -90,7 +90,10 @@ export interface ProvisionerAdapter<Spec = unknown> {
   readonly launch: LaunchRunner<Spec>;
   readonly terminate?: TerminateRunners;
   onStart?(runtime: ProvisionerRuntime): Promise<void>;
-  /** Receives the latest demand snapshot for provider-specific observation. */
+  /**
+   * Receives the latest demand snapshot for provider-specific observation. An empty
+   * snapshot is sent when polling fails so providers do not retain stale demand.
+   */
   onDemandStats?(stats: readonly DemandStatDto[]): void;
   onTick?(): Promise<void>;
   onStop?(): Promise<void>;
