@@ -113,6 +113,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       throw providerErrorFromBackoff(
         envelope?.backoffReason ?? 'provider-unavailable',
         (envelope?.backoffUntil?.getTime() ?? now.getTime()) - now.getTime(),
+        envelope?.backoffError,
       );
     }
 
@@ -131,6 +132,10 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         permissions: envelope?.permissions,
         backoffUntil: until,
         backoffReason: classified.reason,
+        backoffError: {
+          message: providerError.message,
+          ...(providerError.status === undefined ? {} : {status: providerError.status}),
+        },
       }).catch((writeError) => {
         logger().warn(
           {installationId: params.installationId, reason: classified.reason, error: writeError},
@@ -215,6 +220,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       throw providerErrorFromBackoff(
         params.envelope.backoffReason,
         params.envelope.backoffUntil.getTime() - initialNow.getTime(),
+        params.envelope.backoffError,
       );
     }
 
@@ -231,6 +237,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         throw providerErrorFromBackoff(
           envelope?.backoffReason ?? 'provider-unavailable',
           (envelope?.backoffUntil?.getTime() ?? now.getTime()) - now.getTime(),
+          envelope?.backoffError,
         );
       }
     }
