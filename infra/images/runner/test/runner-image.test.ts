@@ -1104,7 +1104,13 @@ describe('runner image composition', () => {
     const fixture = await createRunnerImageSetupFixture();
 
     try {
-      execFileSync('/bin/sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+      execFileSync('/bin/sh', [script.pathname], {
+        env: {
+          ...fixture.environment,
+          RUNNER_IMAGE_FAIL_UMOUNT: join(fixture.root, 'snap/amazon-ssm-agent'),
+        },
+        stdio: 'pipe',
+      });
 
       const events = (await readFile(fixture.commandLog, 'utf8')).trim().split('\n');
       const stopIndex = events.indexOf(
@@ -1116,7 +1122,8 @@ describe('runner image composition', () => {
       expect(build).toContain('scripts/build/setup-runner.sh');
       expect(stopIndex).toBeGreaterThanOrEqual(0);
       expect(purgeIndex).toBeGreaterThan(stopIndex);
-      expect(unmountEvents).toHaveLength(4);
+      expect(unmountEvents).toHaveLength(5);
+      expect(unmountEvents).toContain(`umount -l ${join(fixture.root, 'snap/amazon-ssm-agent')}`);
       expect(unmountEvents.every((event) => events.indexOf(event) < purgeIndex)).toBe(true);
       expect(await pathExists(join(fixture.root, 'snap'))).toBe(false);
       expect(await pathExists(join(fixture.root, 'snap/amazon-ssm-agent'))).toBe(false);
@@ -1156,6 +1163,22 @@ describe('runner image composition', () => {
         execFileSync('/bin/sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'}),
       ).toThrow();
       expect(await pathExists(join(fixture.root, 'usr/bin/snap'))).toBe(true);
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when snap remains available on PATH', async () => {
+    const script = new URL('../scripts/build/setup-runner.sh', import.meta.url);
+    const fixture = await createRunnerImageSetupFixture();
+
+    try {
+      await writeExecutable(join(fixture.commandDirectory, 'snap'), '#!/bin/sh\nexit 0\n');
+
+      expect(() =>
+        execFileSync('/bin/sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'}),
+      ).toThrow();
+      expect(await pathExists(join(fixture.root, 'snap'))).toBe(false);
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
@@ -1289,6 +1312,7 @@ done
 
   return {
     commandLog,
+    commandDirectory,
     environment: {
       ...process.env,
       PATH: commandDirectory,
