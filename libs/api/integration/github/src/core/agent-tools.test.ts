@@ -3,6 +3,7 @@ import {DEFAULT_JOB_LOG_TAIL_LINES} from '#core/actions-logs.js';
 import {
   type GithubAgentToolId,
   GithubAgentToolsProvider,
+  type GithubToolClient,
   githubAgentToolCatalog,
   githubAgentToolSelectionCatalog,
 } from '#core/agent-tools.js';
@@ -369,6 +370,139 @@ describe('github agent tool catalog', () => {
     });
   });
 
+  it('adds a comment to the latest pending review through GraphQL', async () => {
+    const request = vi.fn();
+    const graphql = vi
+      .fn()
+      .mockResolvedValueOnce({
+        viewer: {login: 'shipfox-ai[bot]'},
+        repository: {
+          pullRequest: {
+            reviews: {
+              nodes: [
+                {
+                  id: 'review-older',
+                  author: {login: 'shipfox-ai[bot]'},
+                  createdAt: '2026-08-09T10:00:00Z',
+                },
+                {
+                  id: 'review-latest',
+                  author: {login: 'shipfox-ai[bot]'},
+                  createdAt: '2026-08-09T10:01:00Z',
+                },
+              ],
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        addPullRequestReviewThread: {thread: {id: 'thread-1'}},
+      });
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pendingReviewTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'add_comment_to_pending_review',
+      arguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        path: 'src/agent-tools.ts',
+        body: 'Please handle this error.',
+        subject_type: 'LINE',
+        line: 42,
+        side: 'RIGHT',
+        start_line: 40,
+        start_side: 'RIGHT',
+      },
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(graphql).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('reviews(last: 100, states: [PENDING])'),
+      {owner: 'shipfox', repo: 'platform', pullNumber: 2},
+    );
+    expect(graphql).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('addPullRequestReviewThread'),
+      {
+        input: {
+          pullRequestReviewId: 'review-latest',
+          path: 'src/agent-tools.ts',
+          body: 'Please handle this error.',
+          subjectType: 'LINE',
+          line: 42,
+          side: 'RIGHT',
+          startLine: 40,
+          startSide: 'RIGHT',
+        },
+      },
+    );
+    expect(result).toEqual({
+      content: [
+        {
+          type: 'text',
+          text: '{"addPullRequestReviewThread":{"thread":{"id":"thread-1"}}}',
+        },
+      ],
+      structuredContent: {addPullRequestReviewThread: {thread: {id: 'thread-1'}}},
+    });
+  });
+
+  it('returns an explicit error when there is no pending review for the caller', async () => {
+    const request = vi.fn();
+    const graphql = vi.fn().mockResolvedValueOnce({
+      viewer: {login: 'shipfox-ai[bot]'},
+      repository: {
+        pullRequest: {
+          reviews: {
+            nodes: [
+              {
+                id: 'review-other-user',
+                author: {login: 'another-user'},
+                createdAt: '2026-08-09T10:00:00Z',
+              },
+            ],
+          },
+        },
+      },
+    });
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pendingReviewTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'add_comment_to_pending_review',
+      arguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        path: 'src/agent-tools.ts',
+        body: 'Please handle this error.',
+      },
+    });
+
+    expect(graphql).toHaveBeenCalledTimes(1);
+    expect(request).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'No pending pull request review found for the authenticated GitHub user.',
+        },
+      ],
+    });
+  });
+
   it('requires a ref for pull request status and check-run reads', async () => {
     const result = await callGithubTool(
       'pull_request_read',
@@ -482,7 +616,20 @@ async function callGithubTool(
 ) {
   const tool = githubAgentToolCatalog.find((entry) => entry.id === toolId);
   if (!tool) throw new Error(`Missing GitHub tool: ${toolId}`);
-  const provider = new GithubAgentToolsProvider({
+  const provider = createAgentToolsProvider({
+    request: vi.fn(() => Promise.resolve({data})),
+  });
+  const session = await provider.openSession({
+    connection: connection(),
+    tools: [tool],
+    scope: undefined,
+  });
+
+  return await session.call({toolId, arguments: arguments_});
+}
+
+function createAgentToolsProvider(client: GithubToolClient) {
+  return new GithubAgentToolsProvider({
     getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
     tokenProvider: {
       getInstallationAccessToken: vi.fn(() =>
@@ -498,15 +645,14 @@ async function callGithubTool(
         }),
       ),
     },
-    createClient: vi.fn(() => ({request: vi.fn(() => Promise.resolve({data}))})),
+    createClient: vi.fn(() => client),
   });
-  const session = await provider.openSession({
-    connection: connection(),
-    tools: [tool],
-    scope: undefined,
-  });
+}
 
-  return await session.call({toolId, arguments: arguments_});
+function pendingReviewTool() {
+  const tool = githubAgentToolCatalog.find((entry) => entry.id === 'add_comment_to_pending_review');
+  if (!tool) throw new Error('Missing add_comment_to_pending_review tool');
+  return tool;
 }
 
 function connection() {

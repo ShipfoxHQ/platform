@@ -48,6 +48,41 @@ type GithubToolCallResult = {
   structuredContent?: Record<string, unknown> | undefined;
 };
 
+const GITHUB_GRAPHQL_ROUTE = 'POST /graphql';
+const NO_PENDING_REVIEW_MESSAGE =
+  'No pending pull request review found for the authenticated GitHub user.';
+
+const LATEST_PENDING_REVIEW_QUERY = `
+  query LatestPendingPullRequestReview($owner: String!, $repo: String!, $pullNumber: Int!) {
+    viewer {
+      login
+    }
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $pullNumber) {
+        reviews(last: 100, states: [PENDING]) {
+          nodes {
+            id
+            author {
+              login
+            }
+            createdAt
+          }
+        }
+      }
+    }
+  }
+`;
+
+const ADD_PENDING_REVIEW_COMMENT_MUTATION = `
+  mutation AddCommentToPendingReview($input: AddPullRequestReviewThreadInput!) {
+    addPullRequestReviewThread(input: $input) {
+      thread {
+        id
+      }
+    }
+  }
+`;
+
 export class GithubAgentToolsProvider
   implements
     AgentToolsProvider<
@@ -110,6 +145,13 @@ export class GithubAgentToolsProvider
         const client = (this.options.createClient ?? createOctokitClient)(token.token);
 
         try {
+          if (operation.kind === 'graphql') {
+            const data = await addCommentToPendingReview(client, operation.parameters);
+            return data === undefined
+              ? githubToolError(NO_PENDING_REVIEW_MESSAGE)
+              : githubToolResult(tool.id as GithubAgentToolId, data);
+          }
+
           const response = await client.request(operation.route, operation.parameters);
           return githubToolResult(tool.id as GithubAgentToolId, response.data);
         } catch (error) {
@@ -132,6 +174,7 @@ export interface GithubAgentToolsProviderOptions {
 
 export interface GithubToolClient {
   request(route: string, parameters: Record<string, unknown>): Promise<{data: unknown}>;
+  graphql?: ((query: string, variables: Record<string, unknown>) => Promise<unknown>) | undefined;
 }
 
 export type GithubToolClientFactory = (token: string) => GithubToolClient;
@@ -139,6 +182,7 @@ export type GithubToolClientFactory = (token: string) => GithubToolClient;
 interface GithubToolOperation {
   route: string;
   parameters: Record<string, unknown>;
+  kind: 'rest' | 'graphql';
 }
 
 function createOctokitClient(token: string): GithubToolClient {
@@ -149,6 +193,7 @@ function createOctokitClient(token: string): GithubToolClient {
   });
   return {
     request: async (route, parameters) => await octokit.request(route, parameters),
+    graphql: async (query, variables) => await octokit.graphql(query, variables),
   };
 }
 
@@ -167,7 +212,11 @@ function resolveGithubOperation(
   const route = githubOperationRoute(toolId, method, params);
   return route === undefined
     ? undefined
-    : {route, parameters: projectGithubOperationParameters(toolId, method, params)};
+    : {
+        route,
+        parameters: projectGithubOperationParameters(toolId, method, params),
+        kind: route === GITHUB_GRAPHQL_ROUTE ? 'graphql' : 'rest',
+      };
 }
 
 function githubOperationRoute(
@@ -257,7 +306,7 @@ function githubOperationRoute(
     case 'pull_request_review_write.delete_pending':
       return `DELETE ${repoPath}/pulls/${pull}/reviews/{review_id}`;
     case 'add_comment_to_pending_review.':
-      return `POST ${repoPath}/pulls/${pull}/comments`;
+      return GITHUB_GRAPHQL_ROUTE;
     case 'actions_list.list_workflows':
       return `GET ${repoPath}/actions/workflows`;
     case 'actions_list.list_workflow_runs':
@@ -293,6 +342,64 @@ function githubOperationRoute(
     default:
       return undefined;
   }
+}
+
+async function addCommentToPendingReview(
+  client: GithubToolClient,
+  args: Record<string, unknown>,
+): Promise<unknown | undefined> {
+  if (client.graphql === undefined) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'GitHub client does not support GraphQL operations',
+    );
+  }
+
+  const reviewLookup = await client.graphql(LATEST_PENDING_REVIEW_QUERY, {
+    owner: args.owner,
+    repo: args.repo,
+    pullNumber: args.pull_number,
+  });
+  const reviewId = latestPendingReviewNodeId(reviewLookup);
+  if (reviewId === undefined) return undefined;
+
+  const input: Record<string, unknown> = {
+    pullRequestReviewId: reviewId,
+    path: args.path,
+    body: args.body,
+    subjectType: args.subject_type,
+  };
+  if (args.line !== undefined) input.line = args.line;
+  if (args.side !== undefined) input.side = args.side;
+  if (args.start_line !== undefined) input.startLine = args.start_line;
+  if (args.start_side !== undefined) input.startSide = args.start_side;
+
+  return await client.graphql(ADD_PENDING_REVIEW_COMMENT_MUTATION, {input});
+}
+
+function latestPendingReviewNodeId(data: unknown): string | undefined {
+  if (!isRecord(data)) return undefined;
+
+  const viewer = isRecord(data.viewer) ? data.viewer.login : undefined;
+  if (typeof viewer !== 'string') return undefined;
+
+  const repository = isRecord(data.repository) ? data.repository : undefined;
+  const pullRequest =
+    repository && isRecord(repository.pullRequest) ? repository.pullRequest : undefined;
+  const reviews = pullRequest && isRecord(pullRequest.reviews) ? pullRequest.reviews : undefined;
+  const nodes = reviews && Array.isArray(reviews.nodes) ? reviews.nodes : [];
+
+  let latest: {createdAt: string; id: string} | undefined;
+  for (const node of nodes) {
+    if (!isRecord(node)) continue;
+    const author = isRecord(node.author) ? node.author.login : undefined;
+    const id = node.id;
+    const createdAt = node.createdAt;
+    if (author !== viewer || typeof id !== 'string' || typeof createdAt !== 'string') continue;
+    if (latest === undefined || createdAt > latest.createdAt) latest = {createdAt, id};
+  }
+
+  return latest?.id;
 }
 
 function projectGithubOperationParameters(
