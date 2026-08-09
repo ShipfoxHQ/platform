@@ -1028,8 +1028,8 @@ describe('systemd boot activation', () => {
 
     execFileSync('sh', ['-n', script.pathname], {stdio: 'pipe'});
 
-    expect(source).toContain('findmnt -no SOURCE /');
-    expect(source).toContain('lsblk -no PKNAME "$root_source"');
+    expect(source).toContain('findmnt -no SOURCE / || true');
+    expect(source).toContain('lsblk -no PKNAME "$root_source" 2>/dev/null | head -n1 | tr -d');
     expect(source).toContain('read -r read_ops _ read_sectors _');
     expect(source).toContain('/sys/block/$root_device/stat');
     expect(source).toContain('/run/shipfox/boot-io');

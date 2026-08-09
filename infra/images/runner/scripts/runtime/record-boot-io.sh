@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-root_source="$(findmnt -no SOURCE /)"
-root_device="$(lsblk -no PKNAME "$root_source" 2>/dev/null || true)"
+root_source="$(findmnt -no SOURCE / || true)"
+root_device="$(lsblk -no PKNAME "$root_source" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
 if [ -z "$root_device" ]; then
   root_device="$(basename "$root_source")"
 fi

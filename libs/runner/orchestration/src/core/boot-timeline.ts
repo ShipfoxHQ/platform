@@ -148,8 +148,8 @@ function addReadFields(
   setField(fields, 'boot_read_bytes', bootReadBytes);
   setField(fields, 'boot_read_ops', bootIo.readOps);
 
-  if (processStartSeconds !== undefined && processStartSeconds > 0) {
-    setField(fields, 'boot_read_bytes_per_second', bootReadBytes / processStartSeconds);
+  if (bootIo.uptimeSeconds > 0) {
+    setField(fields, 'boot_read_bytes_per_second', bootReadBytes / bootIo.uptimeSeconds);
   }
 
   const current = enrollment.currentDiskReads;

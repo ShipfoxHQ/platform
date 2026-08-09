@@ -45,7 +45,6 @@ import {runJobSteps} from '#core/step-loop.js';
 
 let running = true;
 let warnedAboutUnavailablePiExtensions = false;
-let bootTimelineReported = false;
 const bootTimeline = createBootTimelineCollector();
 // Module-level so the long-lived SIGINT handler can reach the in-flight job's
 // controller; locally-scoped capture isn't possible from a process-global handler.
@@ -305,13 +304,7 @@ async function initializeManagedRunnerSession(): Promise<RunnerSession | undefin
     providerKind: enrollmentConfig.providerKind,
     protocolVersion: enrollmentConfig.protocolVersion,
   });
-  if (!bootTimelineReported) {
-    bootTimelineReported = true;
-    logger().info(
-      bootTimeline.createEvent(bootTimeline.captureEnrollment()),
-      'runner.boot_timeline',
-    );
-  }
+  logger().info(bootTimeline.createEvent(bootTimeline.captureEnrollment()), 'runner.boot_timeline');
   const activationToken =
     enrollmentActivationToken ?? (await waitForRunnerActivation(controlSessionToken));
   if (!activationToken) return undefined;

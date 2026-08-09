@@ -9,7 +9,7 @@ describe('boot timeline collection', () => {
     const files: Record<string, string> = {
       '/proc/uptime': '42.5 0.0',
       '/run/shipfox/boot-io':
-        'root_device=nvme0n1\nread_ops=100\nread_sectors=200\nuptime_seconds=40.0\n',
+        'root_device=nvme0n1\nread_ops=100\nread_sectors=200\nuptime_seconds=35.5\n',
       '/sys/block/nvme0n1/stat': '150 0 250 0 0 0 0 0 0 0 0 0 0 0 0 0 0',
       '/proc/self/stat': systemdStat(4000),
       '/proc/1/stat': systemdStat(100),
@@ -30,7 +30,7 @@ describe('boot timeline collection', () => {
       image_revision: '0123456789abcdef0123456789abcdef01234567',
       boot_read_bytes: 102_400,
       boot_read_ops: 100,
-      boot_read_bytes_per_second: 102_400 / 40,
+      boot_read_bytes_per_second: 102_400 / 35.5,
       runner_read_bytes: 25_600,
       runner_read_ops: 50,
       runner_read_bytes_per_second: 25_600 / 20.5,
