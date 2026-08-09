@@ -54,18 +54,20 @@ describe('EC2 provisioner metrics', () => {
   };
 
   it('records launch outcomes with bounded labels', () => {
-    metrics.recordEc2Launch('spot', 'capacity');
+    metrics.recordEc2Launch('spot', 'capacity', 'spot-small');
 
     expect(counterAdd('ec2_provisioner_launch')).toHaveBeenCalledWith(1, {
+      template_key: 'spot-small',
       market: 'spot',
       outcome: 'capacity',
     });
   });
 
   it('records termination reasons with bounded labels', () => {
-    metrics.recordEc2Termination('spot-interruption');
+    metrics.recordEc2Termination('spot-interruption', 'spot-small');
 
     expect(counterAdd('ec2_provisioner_terminate')).toHaveBeenCalledWith(1, {
+      template_key: 'spot-small',
       reason: 'spot-interruption',
     });
   });

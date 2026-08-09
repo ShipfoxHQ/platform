@@ -41,6 +41,11 @@ EC2 operators provide their own AMI and instance-type lookup maps under `vars`.
 as the GPU `subnets` replaces the default list rather than appending to it. Labels may
 overlap across families; lower `cost` wins when more than one template matches.
 
+The EC2 launch and termination counters use the expanded template key as a label.
+The checked-in example expands to 11 keys: one hand-written template, eight general
+variants (`2 × 2 × 2`), and two GPU variants (`2 × 1`). Keep production matrix axes
+bounded because each additional template adds another series to these counters.
+
 ## Configuration
 
 | Variable | Required | Default | Purpose |

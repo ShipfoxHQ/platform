@@ -80,7 +80,7 @@ describe('createEc2Lifecycle', () => {
       workspaceDeviceName: '/dev/sdf',
       tags: {'shipfox.provider_runner_id': 'runner-1'},
     });
-    expect(observability.recordEc2Launch).toHaveBeenCalledWith('spot', 'launched');
+    expect(observability.recordEc2Launch).toHaveBeenCalledWith('spot', 'launched', 'spot-small');
     expect(observability.logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
         provisioned_runner_id: 'runner-1',
@@ -112,7 +112,7 @@ describe('createEc2Lifecycle', () => {
       {state: 'starting'},
       {state: 'failed', reason: 'throttled'},
     ]);
-    expect(observability.recordEc2Launch).toHaveBeenCalledWith('spot', 'throttled');
+    expect(observability.recordEc2Launch).toHaveBeenCalledWith('spot', 'throttled', 'spot-small');
   });
 
   it('preserves a just-launched instance in the tracker while DescribeInstances lags', async () => {
@@ -661,7 +661,10 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
       expect.objectContaining({state: 'failed', reason: 'spot-interruption'}),
     ]);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('spot-interruption');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'spot-interruption',
+      'spot-small',
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
@@ -887,7 +890,8 @@ describe('createEc2Lifecycle', () => {
   });
 
   it('terminates and reports instances with backend terminate intent', async () => {
-    const engine = fakeEngine({instances: [instance({state: 'running'})]});
+    const launchTime = new Date('2026-01-01T00:00:00.000Z');
+    const engine = fakeEngine({instances: [instance({state: 'running', launchTime})]});
     const client = fakeClient({
       reconcileResponse: {
         runners: [reconciledRunner('runner-1', 'terminate')],
@@ -906,7 +910,20 @@ describe('createEc2Lifecycle', () => {
         reason: 'backend-terminate',
       }),
     ]);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('backend-terminate');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'backend-terminate',
+      'spot-small',
+    );
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      {
+        instance_id: 'i-123',
+        template_key: 'spot-small',
+        ami: 'ami-0123456789abcdef0',
+        launch_time: launchTime.toISOString(),
+        reason: 'backend-terminate',
+      },
+      'Terminated EC2 runner instance',
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
@@ -1023,7 +1040,10 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.reconcile();
 
     expect(engine.terminated).toEqual(['i-123']);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('backend-terminate');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'backend-terminate',
+      'unknown-template',
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
@@ -1045,7 +1065,10 @@ describe('createEc2Lifecycle', () => {
     await lifecycle.observe();
 
     expect(engine.terminated).toEqual(['i-123']);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('registration-deadline');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'registration-deadline',
+      'unknown-template',
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
@@ -1067,7 +1090,10 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
       expect.objectContaining({state: 'terminated', reason: 'registration-deadline'}),
     ]);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith('registration-deadline');
+    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
+      'registration-deadline',
+      'spot-small',
+    );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
