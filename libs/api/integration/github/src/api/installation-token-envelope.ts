@@ -19,15 +19,21 @@ const providerErrorReasons = [
   'rate-limited',
   'timeout',
   'provider-unavailable',
+  'provider-rejected',
   'malformed-provider-response',
   'content-too-large',
   'too-many-files',
 ] as const satisfies readonly IntegrationProviderErrorReason[];
 
 const providerErrorReasonSchema = z.enum(providerErrorReasons);
+const backoffErrorSchema = z.object({
+  message: z.string(),
+  status: z.number().int().optional(),
+});
 const terminalMintErrorReasons = new Set<IntegrationProviderErrorReason>([
   'access-denied',
   'installation-not-found',
+  'provider-rejected',
   'malformed-provider-response',
 ]);
 
@@ -44,6 +50,7 @@ const installationTokenEnvelopeSchema = z.object({
   permissions: z.record(z.string(), z.enum(['read', 'write', 'admin'])).optional(),
   backoffUntil: z.string().datetime().optional(),
   backoffReason: providerErrorReasonSchema.optional(),
+  backoffError: backoffErrorSchema.optional(),
 });
 
 export interface InstallationTokenEnvelope {
@@ -52,6 +59,12 @@ export interface InstallationTokenEnvelope {
   permissions?: Record<string, 'read' | 'write' | 'admin'> | undefined;
   backoffUntil?: Date | undefined;
   backoffReason?: IntegrationProviderErrorReason | undefined;
+  backoffError?:
+    | {
+        message: string;
+        status?: number | undefined;
+      }
+    | undefined;
 }
 
 export type MintErrorClass = 'transient' | 'terminal';
@@ -75,6 +88,7 @@ export function encodeInstallationTokenEnvelope(envelope: InstallationTokenEnvel
       backoffUntil: envelope.backoffUntil.toISOString(),
     }),
     ...(envelope.backoffReason !== undefined && {backoffReason: envelope.backoffReason}),
+    ...(envelope.backoffError !== undefined && {backoffError: envelope.backoffError}),
   });
 }
 
@@ -95,6 +109,7 @@ export function parseInstallationTokenEnvelope(raw: string): InstallationTokenEn
     permissions: result.data.permissions,
     backoffUntil: result.data.backoffUntil ? new Date(result.data.backoffUntil) : undefined,
     backoffReason: result.data.backoffReason,
+    backoffError: result.data.backoffError,
   };
 }
 
@@ -151,18 +166,25 @@ export function backoffMs(classified: ClassifiedMintError): number {
 export function providerErrorFromBackoff(
   reason: IntegrationProviderErrorReason,
   retryAfterMs: number,
+  backoffError?: InstallationTokenEnvelope['backoffError'],
 ): GithubIntegrationProviderError {
   return new GithubIntegrationProviderError(
     reason,
-    `GitHub installation token mint is backed off after ${reason}`,
+    backoffError?.message ?? `GitHub installation token mint is backed off after ${reason}`,
     Math.max(1, Math.ceil(retryAfterMs / 1000)),
+    backoffError?.status,
   );
 }
 
 export function toProviderError(error: unknown): GithubIntegrationProviderError {
   if (error instanceof GithubIntegrationProviderError) return error;
   if (error instanceof IntegrationProviderError) {
-    return new GithubIntegrationProviderError(error.reason, error.message, error.retryAfterSeconds);
+    return new GithubIntegrationProviderError(
+      error.reason,
+      error.message,
+      error.retryAfterSeconds,
+      error.status,
+    );
   }
   return new GithubIntegrationProviderError(
     'provider-unavailable',

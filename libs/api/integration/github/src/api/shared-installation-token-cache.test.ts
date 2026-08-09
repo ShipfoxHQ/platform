@@ -190,6 +190,34 @@ describe('SharedInstallationTokenCache', () => {
     expect(mint).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves terminal provider rejection details through backoff', async () => {
+    const store = createStore();
+    const mint = vi
+      .fn()
+      .mockRejectedValue(
+        new GithubIntegrationProviderError(
+          'provider-rejected',
+          'commit_id is missing',
+          undefined,
+          422,
+        ),
+      );
+    const shared = cache({store});
+
+    await expect(shared.getOrMint(installationId, mint)).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message: 'commit_id is missing',
+      status: 422,
+    });
+    await expect(shared.getOrMint(installationId, mint)).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message: 'commit_id is missing',
+      status: 422,
+    });
+
+    expect(mint).toHaveBeenCalledTimes(1);
+  });
+
   it('serves stale when refresh minting fails while the token is still valid', async () => {
     const store = createStore();
     setEnvelope(store, token('ghs_existing', '2026-06-10T11:04:30.000Z'));

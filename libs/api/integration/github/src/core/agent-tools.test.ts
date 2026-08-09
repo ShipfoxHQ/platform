@@ -1,3 +1,4 @@
+import {RequestError} from 'octokit';
 import type {GithubApiClient} from '#api/client.js';
 import {DEFAULT_JOB_LOG_TAIL_LINES} from '#core/actions-logs.js';
 import {
@@ -500,6 +501,47 @@ describe('github agent tool catalog', () => {
           text: 'No pending pull request review found for the authenticated GitHub user.',
         },
       ],
+    });
+  });
+
+  it('maps Octokit 4xx failures to terminal provider errors', async () => {
+    const providerError = new RequestError('commit_id is missing', 422, {
+      request: {
+        method: 'POST',
+        url: 'https://api.github.com/repos/shipfox/platform/issues/1',
+        headers: {},
+      },
+    });
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'installation-token',
+            expiresAt: new Date(),
+            permissions: {issues: 'read' as const},
+          }),
+        ),
+      },
+      createClient: vi.fn(() => ({
+        request: vi.fn(() => Promise.reject(providerError)),
+      })),
+    });
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [githubAgentToolCatalog[0]],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'issue_read',
+        arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      }),
+    ).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message: 'commit_id is missing',
+      status: 422,
     });
   });
 

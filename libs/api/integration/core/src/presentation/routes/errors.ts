@@ -28,6 +28,7 @@ function isProviderError(error: unknown): error is IntegrationProviderError {
         error.reason === 'rate-limited' ||
         error.reason === 'timeout' ||
         error.reason === 'provider-unavailable' ||
+        error.reason === 'provider-rejected' ||
         error.reason === 'malformed-provider-response' ||
         error.reason === 'content-too-large' ||
         error.reason === 'too-many-files'))

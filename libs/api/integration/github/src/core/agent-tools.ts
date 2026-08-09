@@ -8,6 +8,7 @@ import type {
   OpenAgentToolsSessionInput,
 } from '@shipfox/api-integration-spi';
 import {Octokit} from 'octokit';
+import {mapGithubError} from '#api/client.js';
 import {
   createGithubInstallationTokenProvider,
   type GithubInstallationTokenProvider,
@@ -146,30 +147,30 @@ export class GithubAgentToolsProvider
         const method =
           typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
 
-        try {
-          if (operation.kind === 'graphql') {
-            const data = await addCommentToPendingReview(client, operation.parameters);
-            return data === undefined
-              ? githubToolError(NO_PENDING_REVIEW_MESSAGE)
-              : githubToolResult(tool.id as GithubAgentToolId, data);
-          }
+        if (operation.kind === 'graphql') {
+          const data = await mapGithubError(() =>
+            addCommentToPendingReview(client, operation.parameters),
+          );
+          return data === undefined
+            ? githubToolError(NO_PENDING_REVIEW_MESSAGE)
+            : githubToolResult(tool.id as GithubAgentToolId, data);
+        }
 
-          const operationParameters = await resolvePendingReviewParameters(
+        const operationParameters = await mapGithubError(() =>
+          resolvePendingReviewParameters(
             client,
             operation.parameters,
             tool.id as GithubAgentToolId,
             method,
-          );
-          if (operationParameters === undefined) {
-            return githubToolError(NO_PENDING_REVIEW_MESSAGE);
-          }
-          const response = await client.request(operation.route, operationParameters);
-          return githubToolResult(tool.id as GithubAgentToolId, response.data);
-        } catch (error) {
-          if (error instanceof GithubIntegrationProviderError)
-            return githubToolError(error.message);
-          throw error;
+          ),
+        );
+        if (operationParameters === undefined) {
+          return githubToolError(NO_PENDING_REVIEW_MESSAGE);
         }
+        const response = await mapGithubError(() =>
+          client.request(operation.route, operationParameters),
+        );
+        return githubToolResult(tool.id as GithubAgentToolId, response.data);
       },
     };
   }

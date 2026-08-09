@@ -15,17 +15,33 @@ export interface CreateIntegrationToolDispatcherParams {
   registry: IntegrationProviderRegistry;
 }
 
+export interface IntegrationToolDispatcherDependencies {
+  logger?: typeof logger;
+  reportError?: typeof reportError;
+}
+
 const timeoutErrorPattern = /timed?\s*out|timeout/i;
 const credentialErrorNamePattern = /Token|Credential|Secret|AccessToken/;
 
 export function createIntegrationToolDispatcher(
   params: CreateIntegrationToolDispatcherParams,
+  dependencies: IntegrationToolDispatcherDependencies = {},
 ): IntegrationToolDispatcher {
-  return (input) => dispatchIntegrationToolCall({...input, registry: params.registry});
+  return (input) =>
+    dispatchIntegrationToolCall({
+      ...input,
+      registry: params.registry,
+      logger: dependencies.logger ?? logger,
+      reportError: dependencies.reportError ?? reportError,
+    });
 }
 
 async function dispatchIntegrationToolCall(
-  input: IntegrationToolDispatchInput & {registry: IntegrationProviderRegistry},
+  input: IntegrationToolDispatchInput & {
+    registry: IntegrationProviderRegistry;
+    logger: typeof logger;
+    reportError: typeof reportError;
+  },
 ): Promise<CallToolResult> {
   let session: AgentToolSession<CallToolResult> | undefined;
 
@@ -52,15 +68,17 @@ async function dispatchIntegrationToolCall(
   } catch (error) {
     const result = errorResult(error);
     if (result.code === 'provider-unavailable') {
-      logger().error(
-        {err: error, provider: input.authorizedTool.integration.provider},
-        'Integration agent tool provider was unavailable',
-      );
-      reportError(error, {boundary: 'integration.agent-tool'});
+      input
+        .logger()
+        .error(
+          {err: error, provider: input.authorizedTool.integration.provider},
+          'Integration agent tool provider was unavailable',
+        );
+      input.reportError(error, {boundary: 'integration.agent-tool'});
     }
     return toolError(result);
   } finally {
-    await closeSession(session);
+    await closeSession(session, input.logger, input.reportError);
   }
 }
 
@@ -90,21 +108,36 @@ function agentToolCatalogEntry(input: IntegrationToolDispatchInput): AgentToolCa
   };
 }
 
-async function closeSession(session: {close?(): Promise<void>} | undefined): Promise<void> {
+async function closeSession(
+  session: {close?(): Promise<void>} | undefined,
+  loggerFactory: typeof logger,
+  reportErrorFn: typeof reportError,
+): Promise<void> {
   try {
     await session?.close?.();
   } catch (error) {
     // Cleanup must not mask the tool result returned to the runner.
-    logger().error({err: error}, 'Failed to close integration agent tool session');
-    reportError(error, {boundary: 'integration.agent-tool', operation: 'close-session'});
+    loggerFactory().error({err: error}, 'Failed to close integration agent tool session');
+    reportErrorFn(error, {boundary: 'integration.agent-tool', operation: 'close-session'});
   }
 }
 
-function errorResult(error: unknown): {code: string; message: string} {
+interface IntegrationToolError {
+  code: string;
+  message: string;
+  retryAfterSeconds?: number | undefined;
+  status?: number | undefined;
+}
+
+function errorResult(error: unknown): IntegrationToolError {
   if (error instanceof IntegrationProviderError) {
     return {
       code: error.reason,
-      message: `Integration provider error: ${error.reason}`,
+      message: error.message,
+      ...(error.retryAfterSeconds === undefined
+        ? {}
+        : {retryAfterSeconds: error.retryAfterSeconds}),
+      ...(error.status === undefined ? {} : {status: error.status}),
     };
   }
 
@@ -142,10 +175,16 @@ function isCredentialError(error: unknown): boolean {
   return credentialErrorNamePattern.test(error.name);
 }
 
-function toolError(params: {code: string; message: string}): CallToolResult {
+function toolError(params: IntegrationToolError): CallToolResult {
   return {
     isError: true,
     content: [{type: 'text', text: params.message}],
-    structuredContent: {code: params.code},
+    structuredContent: {
+      code: params.code,
+      ...(params.retryAfterSeconds === undefined
+        ? {}
+        : {retryAfterSeconds: params.retryAfterSeconds}),
+      ...(params.status === undefined ? {} : {status: params.status}),
+    },
   };
 }

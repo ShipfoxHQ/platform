@@ -9,6 +9,7 @@ import {
 } from '@shipfox/api-auth-context';
 import {type AuthMethod, ClientError, closeApp, createApp} from '@shipfox/node-fastify';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
+import {IntegrationProviderError} from '#core/errors.js';
 import {
   agentStepConfig,
   catalogTool,
@@ -227,13 +228,19 @@ describe('agent tools gateway route', () => {
     });
   });
 
-  it('returns bounded MCP errors when provider dispatch fails', async () => {
+  it('returns the provider message and terminal code for rejected calls', async () => {
     const lease = leaseContext({workspaceId: 'workspace-1'});
     const integration = materializedIntegration({connectionId: 'connection-1'});
     leases.set('provider-error-lease', lease);
+    const providerError = new IntegrationProviderError(
+      'provider-rejected',
+      'commit_id is missing',
+      undefined,
+      422,
+    );
     const app = await createGatewayApp({
       registry: registryWithAgentTools([catalogTool()], {
-        callError: new Error('remote provider leaked implementation detail'),
+        callError: providerError,
       }),
       loadLeasedAgentStep: async () => ({
         workspaceId: lease.workspaceId,
@@ -269,8 +276,8 @@ describe('agent tools gateway route', () => {
 
     expect(result).toEqual({
       isError: true,
-      content: [{type: 'text', text: 'Integration provider call failed'}],
-      structuredContent: {code: 'provider-unavailable'},
+      content: [{type: 'text', text: 'commit_id is missing'}],
+      structuredContent: {code: 'provider-rejected', status: 422},
     });
   });
 

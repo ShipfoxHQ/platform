@@ -1,9 +1,19 @@
 import {GithubIntegrationProviderError} from '#core/errors.js';
-import {createGithubApiClient} from './client.js';
+import {createGithubApiClient, mapGithubError} from './client.js';
 
-const {createInstallationAccessTokenMock} = vi.hoisted(() => ({
-  createInstallationAccessTokenMock: vi.fn(),
-}));
+const {createInstallationAccessTokenMock, RequestErrorMock} = vi.hoisted(() => {
+  class RequestErrorMock extends Error {
+    constructor(
+      message: string,
+      public readonly status: number,
+    ) {
+      super(message);
+      this.name = 'HttpError';
+    }
+  }
+
+  return {createInstallationAccessTokenMock: vi.fn(), RequestErrorMock};
+});
 
 vi.mock('octokit', () => ({
   App: class App {
@@ -16,8 +26,34 @@ vi.mock('octokit', () => ({
       return {defaults: options};
     },
   },
-  RequestError: class RequestError extends Error {},
+  RequestError: RequestErrorMock,
 }));
+
+describe('mapGithubError', () => {
+  it.each([400, 409, 422])('maps HTTP %i to a terminal provider rejection', async (status) => {
+    const error = new RequestErrorMock(`GitHub rejected request with HTTP ${status}`, status);
+
+    const result = mapGithubError(() => Promise.reject(error));
+
+    await expect(result).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message: `GitHub rejected request with HTTP ${status}`,
+      status,
+    });
+  });
+
+  it('preserves the status when mapping provider unavailability', async () => {
+    const error = new RequestErrorMock('GitHub is unavailable', 503);
+
+    const result = mapGithubError(() => Promise.reject(error));
+
+    await expect(result).rejects.toMatchObject({
+      reason: 'provider-unavailable',
+      message: 'GitHub is unavailable',
+      status: 503,
+    });
+  });
+});
 
 describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
   beforeEach(() => {
