@@ -28,6 +28,7 @@ export const JOB_STATUS_REASONS = [
   'output_too_large',
   'step_failed',
   'unknown',
+  'output_invalid',
 ] as const;
 
 export type JobStatusReason = (typeof JOB_STATUS_REASONS)[number];

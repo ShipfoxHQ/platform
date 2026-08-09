@@ -42,4 +42,17 @@ describe('job DTO schema', () => {
 
     expect(result.status_reason).toBe(statusReason);
   });
+
+  it.each([
+    'output_too_large',
+    'output_invalid',
+  ] as const)('accepts job failure reason "%s"', (statusReason) => {
+    const result = jobDtoSchema.parse({
+      ...baseJob,
+      status: 'failed',
+      status_reason: statusReason,
+    });
+
+    expect(result.status_reason).toBe(statusReason);
+  });
 });

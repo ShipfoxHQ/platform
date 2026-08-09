@@ -122,6 +122,41 @@ export interface UpdateJobExecutionStatusAtVersionParams {
   secrets?: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'> | undefined;
 }
 
+const MAX_STATUS_REASON_MESSAGE_LENGTH = 2048;
+
+export type JobOutputFailure = {
+  statusReason: Extract<JobStatusReason, 'output_invalid' | 'output_too_large'>;
+  statusReasonMessage: string;
+};
+
+export function classifyJobOutputFailure(error: unknown): JobOutputFailure | null {
+  if (error instanceof JobOutputTooLargeError) {
+    return {
+      statusReason: 'output_too_large',
+      statusReasonMessage: boundedStatusReasonMessage(error.message),
+    };
+  }
+
+  if (
+    (error instanceof InterpolationUnresolvableError && error.field === 'job.outputs') ||
+    error instanceof JobOutputNotJsonSafeError ||
+    error instanceof JobOutputTooManyEntriesError
+  ) {
+    return {
+      statusReason: 'output_invalid',
+      statusReasonMessage: boundedStatusReasonMessage(error.message),
+    };
+  }
+
+  return null;
+}
+
+function boundedStatusReasonMessage(message: string): string {
+  return message.length <= MAX_STATUS_REASON_MESSAGE_LENGTH
+    ? message
+    : `${message.slice(0, MAX_STATUS_REASON_MESSAGE_LENGTH - 1)}…`;
+}
+
 async function resolveJobExecutionOutputs(
   tx: Tx,
   params: {
@@ -215,17 +250,11 @@ async function updateJobExecutionStatusAtVersion(
         secrets: params.secrets,
       });
     } catch (error) {
-      if (
-        !(error instanceof InterpolationUnresolvableError) &&
-        !(error instanceof JobOutputNotJsonSafeError) &&
-        !(error instanceof JobOutputTooLargeError) &&
-        !(error instanceof JobOutputTooManyEntriesError)
-      ) {
-        throw error;
-      }
+      const outputFailure = classifyJobOutputFailure(error);
+      if (outputFailure === null) throw error;
       status = 'failed';
-      statusReason = error instanceof JobOutputTooLargeError ? 'output_too_large' : 'unknown';
-      statusReasonMessage = error instanceof JobOutputTooLargeError ? error.message : null;
+      statusReason = outputFailure.statusReason;
+      statusReasonMessage = outputFailure.statusReasonMessage;
       outputs = null;
     }
   }
