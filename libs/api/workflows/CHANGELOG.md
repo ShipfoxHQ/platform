@@ -1,5 +1,18 @@
 # @shipfox/api-workflows
 
+## 12.5.0
+
+### Minor Changes
+
+- 5b1838c: Expose actionable status reasons and messages when materialized job outputs cannot be persisted.
+
+### Patch Changes
+
+- 69940bc: Include measured output sizes and overshoots in job output size errors.
+- 41f8f5f: Raises job output limits to 64 KiB per value and 256 KiB total before runner-side cap changes.
+- Updated dependencies [5b1838c]
+  - @shipfox/api-workflows-dto@12.5.0
+
 ## 12.4.0
 
 ### Patch Changes

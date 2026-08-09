@@ -1,5 +1,13 @@
 # @shipfox/client-features
 
+## 18.0.0
+
+### Patch Changes
+
+- Updated dependencies [cd6fef9]
+- Updated dependencies [5b1838c]
+  - @shipfox/client-workflows@18.0.0
+
 ## 17.0.1
 
 ### Patch Changes

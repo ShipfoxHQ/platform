@@ -1,5 +1,17 @@
 # @shipfox/client-workflows
 
+## 18.0.0
+
+### Minor Changes
+
+- 5b1838c: Expose actionable status reasons and messages when materialized job outputs cannot be persisted.
+
+### Patch Changes
+
+- cd6fef9: Lets the run job rail use available height and exposes overflow when the job list scrolls.
+- Updated dependencies [5b1838c]
+  - @shipfox/api-workflows-dto@12.5.0
+
 ## 17.0.0
 
 ### Minor Changes

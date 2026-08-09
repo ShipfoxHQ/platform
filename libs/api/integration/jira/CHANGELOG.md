@@ -1,5 +1,12 @@
 # @shipfox/api-integration-jira
 
+## 12.5.0
+
+### Patch Changes
+
+- Updated dependencies [f2b20af]
+  - @shipfox/api-integration-spi@1.1.1
+
 ## 12.4.0
 
 ### Patch Changes

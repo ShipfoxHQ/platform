@@ -1,5 +1,13 @@
 # @shipfox/provisioner-ec2-provider
 
+## 1.0.13
+
+### Patch Changes
+
+- 3578bb5: Attribute EC2 lifecycle metrics and termination diagnostics to template pools.
+- Updated dependencies [d747f6a]
+  - @shipfox/provisioner-core@1.2.0
+
 ## 1.0.12
 
 ### Patch Changes
