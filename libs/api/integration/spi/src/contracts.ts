@@ -253,6 +253,7 @@ export type IntegrationProviderErrorReason =
   | 'rate-limited'
   | 'timeout'
   | 'provider-unavailable'
+  | 'provider-rejected'
   | 'malformed-provider-response'
   | 'content-too-large'
   | 'too-many-files';
@@ -262,6 +263,7 @@ export class IntegrationProviderError extends Error {
     public readonly reason: IntegrationProviderErrorReason,
     message: string,
     public readonly retryAfterSeconds?: number | undefined,
+    public readonly status?: number | undefined,
   ) {
     super(message);
     this.name = 'IntegrationProviderError';

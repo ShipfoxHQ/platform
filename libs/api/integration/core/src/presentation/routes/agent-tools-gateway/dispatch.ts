@@ -100,11 +100,22 @@ async function closeSession(session: {close?(): Promise<void>} | undefined): Pro
   }
 }
 
-function errorResult(error: unknown): {code: string; message: string} {
+interface IntegrationToolError {
+  code: string;
+  message: string;
+  retryAfterSeconds?: number | undefined;
+  status?: number | undefined;
+}
+
+function errorResult(error: unknown): IntegrationToolError {
   if (error instanceof IntegrationProviderError) {
     return {
       code: error.reason,
-      message: `Integration provider error: ${error.reason}`,
+      message: error.message,
+      ...(error.retryAfterSeconds === undefined
+        ? {}
+        : {retryAfterSeconds: error.retryAfterSeconds}),
+      ...(error.status === undefined ? {} : {status: error.status}),
     };
   }
 
@@ -142,10 +153,16 @@ function isCredentialError(error: unknown): boolean {
   return credentialErrorNamePattern.test(error.name);
 }
 
-function toolError(params: {code: string; message: string}): CallToolResult {
+function toolError(params: IntegrationToolError): CallToolResult {
   return {
     isError: true,
     content: [{type: 'text', text: params.message}],
-    structuredContent: {code: params.code},
+    structuredContent: {
+      code: params.code,
+      ...(params.retryAfterSeconds === undefined
+        ? {}
+        : {retryAfterSeconds: params.retryAfterSeconds}),
+      ...(params.status === undefined ? {} : {status: params.status}),
+    },
   };
 }

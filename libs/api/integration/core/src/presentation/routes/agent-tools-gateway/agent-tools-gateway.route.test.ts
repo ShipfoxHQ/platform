@@ -9,6 +9,7 @@ import {
 } from '@shipfox/api-auth-context';
 import {type AuthMethod, ClientError, closeApp, createApp} from '@shipfox/node-fastify';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
+import {IntegrationProviderError} from '#core/errors.js';
 import {
   agentStepConfig,
   catalogTool,
@@ -18,6 +19,36 @@ import {
   registryWithAgentTools,
 } from '#test/agent-tools-gateway-helpers.js';
 import {createAgentToolsGatewayRoutes} from './index.js';
+
+const gatewayMocks = vi.hoisted(() => ({
+  loggerError: vi.fn(),
+  loggerInfo: vi.fn(),
+  loggerWarn: vi.fn(),
+  reportError: vi.fn(),
+}));
+
+vi.mock('@shipfox/node-error-monitoring', () => ({
+  reportError: gatewayMocks.reportError,
+}));
+vi.mock('@shipfox/node-opentelemetry', () => {
+  const metric = {add: vi.fn(), record: vi.fn()};
+  const meter = {
+    createCounter: () => metric,
+    createGauge: () => metric,
+    createHistogram: () => metric,
+    createUpDownCounter: () => metric,
+  };
+
+  return {
+    getFastifyInstrumentation: () => undefined,
+    instanceMetrics: {getMeter: () => meter},
+    logger: () => ({
+      error: gatewayMocks.loggerError,
+      info: gatewayMocks.loggerInfo,
+      warn: gatewayMocks.loggerWarn,
+    }),
+  };
+});
 
 let leases = new Map<string, LeasedJobContext>();
 
@@ -43,6 +74,10 @@ describe('agent tools gateway route', () => {
   beforeEach(async () => {
     await closeApp();
     leases = new Map();
+    gatewayMocks.loggerError.mockReset();
+    gatewayMocks.loggerInfo.mockReset();
+    gatewayMocks.loggerWarn.mockReset();
+    gatewayMocks.reportError.mockReset();
   });
 
   afterEach(async () => {
@@ -227,13 +262,19 @@ describe('agent tools gateway route', () => {
     });
   });
 
-  it('returns bounded MCP errors when provider dispatch fails', async () => {
+  it('returns the provider message and terminal code for rejected calls', async () => {
     const lease = leaseContext({workspaceId: 'workspace-1'});
     const integration = materializedIntegration({connectionId: 'connection-1'});
     leases.set('provider-error-lease', lease);
+    const providerError = new IntegrationProviderError(
+      'provider-rejected',
+      'commit_id is missing',
+      undefined,
+      422,
+    );
     const app = await createGatewayApp({
       registry: registryWithAgentTools([catalogTool()], {
-        callError: new Error('remote provider leaked implementation detail'),
+        callError: providerError,
       }),
       loadLeasedAgentStep: async () => ({
         workspaceId: lease.workspaceId,
@@ -269,8 +310,50 @@ describe('agent tools gateway route', () => {
 
     expect(result).toEqual({
       isError: true,
-      content: [{type: 'text', text: 'Integration provider call failed'}],
-      structuredContent: {code: 'provider-unavailable'},
+      content: [{type: 'text', text: 'commit_id is missing'}],
+      structuredContent: {code: 'provider-rejected', status: 422},
+    });
+    expect(gatewayMocks.loggerError).not.toHaveBeenCalled();
+    expect(gatewayMocks.reportError).not.toHaveBeenCalled();
+  });
+
+  it('reports provider unavailability while preserving its message and status', async () => {
+    const lease = leaseContext({workspaceId: 'workspace-1'});
+    const integration = materializedIntegration({connectionId: 'connection-1'});
+    leases.set('provider-unavailable-lease', lease);
+    const providerError = new IntegrationProviderError(
+      'provider-unavailable',
+      'GitHub returned HTTP 503',
+      undefined,
+      503,
+    );
+    const app = await createGatewayApp({
+      registry: registryWithAgentTools([catalogTool()], {callError: providerError}),
+      loadLeasedAgentStep: async () => ({
+        workspaceId: lease.workspaceId,
+        step: {type: 'agent', config: agentStepConfig([integration])},
+      }),
+      getIntegrationConnectionById: async () =>
+        connection({
+          id: integration.connectionId,
+          workspaceId: lease.workspaceId,
+          slug: integration.connectionSlug,
+        }),
+    });
+
+    const result = await callIssueReadTool(app, 'provider-unavailable-lease');
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'GitHub returned HTTP 503'}],
+      structuredContent: {code: 'provider-unavailable', status: 503},
+    });
+    expect(gatewayMocks.loggerError).toHaveBeenCalledWith(
+      {err: providerError, provider: 'github'},
+      'Integration agent tool provider was unavailable',
+    );
+    expect(gatewayMocks.reportError).toHaveBeenCalledWith(providerError, {
+      boundary: 'integration.agent-tool',
     });
   });
 

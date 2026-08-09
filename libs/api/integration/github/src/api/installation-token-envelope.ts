@@ -19,6 +19,7 @@ const providerErrorReasons = [
   'rate-limited',
   'timeout',
   'provider-unavailable',
+  'provider-rejected',
   'malformed-provider-response',
   'content-too-large',
   'too-many-files',
@@ -28,6 +29,7 @@ const providerErrorReasonSchema = z.enum(providerErrorReasons);
 const terminalMintErrorReasons = new Set<IntegrationProviderErrorReason>([
   'access-denied',
   'installation-not-found',
+  'provider-rejected',
   'malformed-provider-response',
 ]);
 
@@ -162,7 +164,12 @@ export function providerErrorFromBackoff(
 export function toProviderError(error: unknown): GithubIntegrationProviderError {
   if (error instanceof GithubIntegrationProviderError) return error;
   if (error instanceof IntegrationProviderError) {
-    return new GithubIntegrationProviderError(error.reason, error.message, error.retryAfterSeconds);
+    return new GithubIntegrationProviderError(
+      error.reason,
+      error.message,
+      error.retryAfterSeconds,
+      error.status,
+    );
   }
   return new GithubIntegrationProviderError(
     'provider-unavailable',

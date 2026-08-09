@@ -433,13 +433,19 @@ export async function mapGithubError<T>(
     if (error instanceof GithubIntegrationProviderError) throw error;
     if (error instanceof RequestError) {
       if (error.status === 404) {
-        throw new GithubIntegrationProviderError(notFoundReason, error.message);
+        throw new GithubIntegrationProviderError(
+          notFoundReason,
+          error.message,
+          undefined,
+          error.status,
+        );
       }
       if (error.status === 429 || isGithubRateLimitError(error)) {
         throw new GithubIntegrationProviderError(
           'rate-limited',
           error.message,
           retryAfterSeconds(error),
+          error.status,
         );
       }
       if (error.status === 401 || error.status === 403) {
@@ -447,10 +453,24 @@ export async function mapGithubError<T>(
           'access-denied',
           error.message,
           retryAfterSeconds(error),
+          error.status,
         );
       }
       if (error.status >= 500) {
-        throw new GithubIntegrationProviderError('provider-unavailable', error.message);
+        throw new GithubIntegrationProviderError(
+          'provider-unavailable',
+          error.message,
+          undefined,
+          error.status,
+        );
+      }
+      if (error.status >= 400) {
+        throw new GithubIntegrationProviderError(
+          'provider-rejected',
+          error.message,
+          undefined,
+          error.status,
+        );
       }
     }
     if (error instanceof Error && error.name === 'AbortError') {
