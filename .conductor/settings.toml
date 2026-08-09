@@ -2,22 +2,7 @@
 
 [scripts]
 run_mode = "concurrent"
-setup = """
-set -e
-mise trust
-mise install
-if [ "${CONDUCTOR_IS_LOCAL:-1}" = "1" ]; then
-  if [ -n "${CONDUCTOR_ROOT_PATH:-}" ]; then
-    mise -C "$CONDUCTOR_ROOT_PATH" trust
-    mise -C "$CONDUCTOR_ROOT_PATH" install
-  fi
-fi
-mise exec -- pnpm -r install --frozen-lockfile
-if [ "${CONDUCTOR_IS_LOCAL:-1}" = "1" ]; then
-  mise run ollama:up
-  mise exec -- pnpm dev:services:up
-fi
-"""
+setup = "mise run --yes workspace:setup"
 archive = """
 if [ "${CONDUCTOR_IS_LOCAL:-1}" = "1" ]; then
   mise exec -- pnpm dev:services:destroy
