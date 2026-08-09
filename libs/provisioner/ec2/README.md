@@ -94,10 +94,12 @@ canonicalized with the shared runner-label rules.
 
 Runner instances deliberately do not accept an IAM instance profile: job code has passwordless
 root and unrestricted access to IMDS, so an instance profile would expose its credentials to the
-job. Host access uses EC2 Instance Connect. For Spot templates, `spot_max_price: null` caps the
-request at the on-demand price and is the recommended default. Set `cost` to an explicit unitless
-ranking where lower values win template selection. Give a Spot template a lower cost than its
-on-demand equivalent so the planner prefers Spot before spilling to on-demand capacity.
+job. This change intentionally leaves no host-shell access until ENG-1541 provisions the EC2
+Instance Connect Endpoint; the base image's deb-backed EC2 Instance Connect and SSH socket are
+kept for that follow-up. For Spot templates, `spot_max_price: null` caps the request at the
+on-demand price and is the recommended default. Set `cost` to an explicit unitless ranking where
+lower values win template selection. Give a Spot template a lower cost than its on-demand
+equivalent so the planner prefers Spot before spilling to on-demand capacity.
 
 `root_volume_gb` is the boot volume size. `workspace_volume_gb` is a separate, encrypted gp3
 volume created for per-job checkouts, logs, and credentials. The provider deletes both

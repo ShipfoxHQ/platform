@@ -198,6 +198,16 @@ function formatIssues(error: z.ZodError): string {
   return error.issues
     .map((issue) => {
       const path = issue.path.join('.');
+      if (issue.code === z.ZodIssueCode.unrecognized_keys) {
+        const keys = issue.keys
+          .map((key) =>
+            key === 'iam_instance_profile'
+              ? `${key} (remove this field; runner instances must not carry AWS credentials)`
+              : key,
+          )
+          .join(', ');
+        return `${path ? `${path}: ` : ''}unrecognized key(s): ${keys}`;
+      }
       return path ? `${path}: ${issue.message}` : issue.message;
     })
     .join('; ');

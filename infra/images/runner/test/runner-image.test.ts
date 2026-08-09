@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process';
-import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {findProducedAmiId, parsePackerAmiArtifact} from '#aws.js';
@@ -1098,15 +1098,67 @@ UUID=data /data ext4 defaults 0 2
 });
 
 describe('runner image composition', () => {
-  it('purges snapd and its seeded SSM agent from the image', async () => {
-    const setup = await readFile(
-      new URL('../scripts/build/setup-runner.sh', import.meta.url),
-      'utf8',
-    );
+  it('unmounts seeded snaps, purges snapd, and removes its image state', async () => {
+    const script = new URL('../scripts/build/setup-runner.sh', import.meta.url);
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+    const fixture = await createRunnerImageSetupFixture();
 
-    expect(setup).toContain('apt-get purge --yes snapd');
-    expect(setup).toContain('rm -rf /var/lib/snapd /snap');
-    expect(setup).not.toContain('amazon-ssm-agent');
+    try {
+      execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+
+      const events = (await readFile(fixture.commandLog, 'utf8')).trim().split('\n');
+      const stopIndex = events.indexOf(
+        'systemctl stop snapd.seeded.service snapd.service snapd.socket',
+      );
+      const purgeIndex = events.indexOf('apt-get purge --yes snapd');
+      const unmountEvents = events.filter((event) => event.startsWith('umount '));
+
+      expect(build).toContain('scripts/build/setup-runner.sh');
+      expect(stopIndex).toBeGreaterThanOrEqual(0);
+      expect(purgeIndex).toBeGreaterThan(stopIndex);
+      expect(unmountEvents).toHaveLength(4);
+      expect(unmountEvents.every((event) => events.indexOf(event) < purgeIndex)).toBe(true);
+      expect(await pathExists(join(fixture.root, 'snap'))).toBe(false);
+      expect(await pathExists(join(fixture.root, 'snap/amazon-ssm-agent'))).toBe(false);
+      expect(await pathExists(join(fixture.root, 'var/lib/snapd'))).toBe(false);
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when the snapd purge fails', async () => {
+    const script = new URL('../scripts/build/setup-runner.sh', import.meta.url);
+    const fixture = await createRunnerImageSetupFixture();
+
+    try {
+      expect(() =>
+        execFileSync('sh', [script.pathname], {
+          env: {...fixture.environment, RUNNER_IMAGE_FAIL_PURGE: '1'},
+          stdio: 'pipe',
+        }),
+      ).toThrow();
+
+      expect(await pathExists(join(fixture.root, 'snap'))).toBe(true);
+      expect(await readFile(fixture.commandLog, 'utf8')).not.toContain('rm -rf');
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when snapd artifacts remain after purge', async () => {
+    const script = new URL('../scripts/build/setup-runner.sh', import.meta.url);
+    const fixture = await createRunnerImageSetupFixture();
+
+    try {
+      await writeExecutable(join(fixture.root, 'usr/bin/snap'), '#!/bin/sh\nexit 0\n');
+
+      expect(() =>
+        execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'}),
+      ).toThrow();
+      expect(await pathExists(join(fixture.root, 'usr/bin/snap'))).toBe(true);
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
   });
 });
 
@@ -1163,6 +1215,97 @@ async function createBootFixture(fstab: string) {
       RUNNER_IMAGE_ROOT: root,
     },
   };
+}
+
+async function createRunnerImageSetupFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-setup-'));
+  const commandDirectory = join(root, 'commands');
+  const commandLog = join(root, 'command.log');
+
+  await mkdir(join(root, 'snap/amazon-ssm-agent'), {recursive: true});
+  await mkdir(join(root, 'snap/core22'), {recursive: true});
+  await mkdir(join(root, 'snap/snapd'), {recursive: true});
+  await mkdir(join(root, 'var/lib/snapd'), {recursive: true});
+  await mkdir(join(root, 'var/lib/apt/lists'), {recursive: true});
+  await mkdir(join(root, 'usr/bin'), {recursive: true});
+  await mkdir(join(root, 'usr/local/bin'), {recursive: true});
+  await mkdir(join(root, 'etc/default'), {recursive: true});
+  await mkdir(join(root, 'etc/sudoers.d'), {recursive: true});
+  await mkdir(commandDirectory, {recursive: true});
+
+  await writeExecutable(
+    join(commandDirectory, 'apt-get'),
+    `#!/bin/sh
+set -eu
+printf 'apt-get %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+if [ "$1" = purge ] && [ -n "\${RUNNER_IMAGE_FAIL_PURGE:-}" ]; then
+  exit 1
+fi
+`,
+  );
+  await writeExecutable(
+    join(commandDirectory, 'systemctl'),
+    `#!/bin/sh
+set -eu
+printf 'systemctl %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+[ "$1" = stop ]
+`,
+  );
+  await writeExecutable(
+    join(commandDirectory, 'umount'),
+    `#!/bin/sh
+set -eu
+printf 'umount %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+if [ "\${RUNNER_IMAGE_FAIL_UMOUNT:-}" = "$1" ]; then
+  exit 1
+fi
+`,
+  );
+  await writeExecutable(
+    join(commandDirectory, 'rm'),
+    `#!/bin/sh
+set -eu
+printf 'rm %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+exec /bin/rm "$@"
+`,
+  );
+  await writeExecutable(
+    join(commandDirectory, 'install'),
+    `#!/bin/sh
+set -eu
+last=''
+for argument; do
+  last="$argument"
+done
+/bin/mkdir -p "$last"
+`,
+  );
+  await writeExecutable(join(commandDirectory, 'ln'), '#!/bin/sh\nexec /bin/ln "$@"\n');
+  await writeExecutable(join(commandDirectory, 'chmod'), '#!/bin/sh\nexec /bin/chmod "$@"\n');
+  await writeExecutable(join(commandDirectory, 'groupadd'), '#!/bin/sh\nexit 0\n');
+  await writeExecutable(join(commandDirectory, 'id'), '#!/bin/sh\nexit 1\n');
+  await writeExecutable(join(commandDirectory, 'useradd'), '#!/bin/sh\nexit 0\n');
+  await writeExecutable(join(commandDirectory, 'fdfind'), '#!/bin/sh\nexit 0\n');
+
+  return {
+    commandLog,
+    environment: {
+      ...process.env,
+      PATH: `${commandDirectory}:/bin`,
+      RUNNER_IMAGE_COMMAND_LOG: commandLog,
+      RUNNER_IMAGE_ROOT: root,
+    },
+    root,
+  };
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 describe('ephemeral boot configuration', () => {
   it('masks disposable boot services and stores the journal in memory', async () => {

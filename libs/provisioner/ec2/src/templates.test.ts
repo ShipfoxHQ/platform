@@ -173,7 +173,20 @@ describe('loadEc2Templates', () => {
   it('rejects IAM instance profiles because runner instances must not carry AWS credentials', () => {
     const path = writeTemplates(template({}, '    iam_instance_profile: shipfox-runner\n'));
 
-    expect(() => loadEc2Templates(path)).toThrow('iam_instance_profile');
+    expect(() => loadEc2Templates(path)).toThrow(
+      'iam_instance_profile (remove this field; runner instances must not carry AWS credentials)',
+    );
+  });
+
+  it('rejects IAM instance profiles inherited from defaults', () => {
+    const path = writeTemplates(`
+defaults:
+  iam_instance_profile: shipfox-runner
+${template().trimStart()}`);
+
+    expect(() => loadEc2Templates(path)).toThrow(
+      'iam_instance_profile (remove this field; runner instances must not carry AWS credentials)',
+    );
   });
 
   it('accepts a null spot price', () => {
