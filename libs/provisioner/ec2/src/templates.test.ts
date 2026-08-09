@@ -4,7 +4,13 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
-import {Ec2TemplateConfigError, loadEc2Templates} from '#templates.js';
+import {
+  Ec2TemplateConfigError,
+  loadEc2Templates,
+  MAX_EC2_TEMPLATES,
+  MAX_TEMPLATE_KEY_LENGTH,
+  UNKNOWN_TEMPLATE_KEY,
+} from '#templates.js';
 
 let dir: string;
 
@@ -54,6 +60,10 @@ templates:
       defaults,
     ) + extra
   );
+}
+
+function templateWithKey(key: string): string {
+  return template().replace('  t:', `  ${JSON.stringify(key)}:`);
 }
 
 const VALID = `
@@ -172,10 +182,24 @@ describe('loadEc2Templates', () => {
 
   it('rejects IAM instance profiles because runner instances must not carry AWS credentials', () => {
     const path = writeTemplates(template({}, '    iam_instance_profile: shipfox-runner\n'));
-
     expect(() => loadEc2Templates(path)).toThrow(
       'iam_instance_profile (remove this field; runner instances must not carry AWS credentials)',
     );
+  });
+
+  it('trims template keys before loading them', () => {
+    const [loaded] = loadEc2Templates(writeTemplates(templateWithKey('  trimmed-key  ')));
+
+    expect(loaded?.key).toBe('trimmed-key');
+  });
+
+  it.each([
+    ['blank', '   ', 'must not be blank'],
+    ['invalid characters', 'bad/key', 'must start with a letter or number'],
+    ['too long', 'a'.repeat(MAX_TEMPLATE_KEY_LENGTH + 1), 'must be at most'],
+    ['reserved', UNKNOWN_TEMPLATE_KEY, 'reserved for untagged instances'],
+  ])('rejects a %s template key', (_name, key, message) => {
+    expect(() => loadEc2Templates(writeTemplates(templateWithKey(key)))).toThrow(message);
   });
 
   it('rejects IAM instance profiles inherited from defaults', () => {
@@ -382,6 +406,33 @@ matrix:
       {ami: 'ami-0baa', instanceType: 'm7i.xlarge'},
       {ami: 'ami-0bab', instanceType: 'm7i.xlarge'},
     ]);
+  });
+
+  it('rejects an expanded template set above the metric cardinality limit', () => {
+    const values = Array.from({length: MAX_EC2_TEMPLATES + 1}, (_, index) => index).join(', ');
+    const path = writeTemplates(`
+templates: {}
+matrix:
+  bounded:
+    axes:
+      index: [${values}]
+    template:
+      labels: [ubuntu22]
+      ami: ami-0123456789abcdef0
+      instance_type: m6i.large
+      market: spot
+      spot_max_price: 0.05
+      subnets: [subnet-aaa]
+      security_groups: [sg-runner]
+      associate_public_ip: false
+      root_volume_gb: 100
+      workspace_volume_gb: 100
+      workspace_device_name: /dev/sdf
+      max_concurrency: 100
+      cost: 5
+`);
+
+    expect(() => loadEc2Templates(path)).toThrow(`the maximum is ${MAX_EC2_TEMPLATES}`);
   });
 
   it('aggregates missing lookup keys with matrix bindings and field paths', () => {

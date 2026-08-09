@@ -205,6 +205,7 @@ describe('createEc2Engine', () => {
             {
               Instances: [
                 instance({
+                  ImageId: 'ami-actual',
                   State: {Name: 'terminated'},
                   StateTransitionReason: 'User initiated (2026-07-18 12:01:00 GMT)',
                   StateReason: {
@@ -235,6 +236,7 @@ describe('createEc2Engine', () => {
       stateTransitionReason: 'User initiated (2026-07-18 12:01:00 GMT)',
       stateReasonCode: 'Server.SpotInstanceTermination',
       stateReasonMessage: 'Spot capacity reclaimed',
+      ami: 'ami-actual',
     });
     expect(result[1]?.instanceId).toBe('i-456');
   });
