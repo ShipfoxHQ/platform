@@ -48,8 +48,12 @@ build {
   }
 
   provisioner "shell" {
+    environment_vars = ["SHIPFOX_IMAGE_REVISION=${var.revision}"]
+    execute_command  = "sudo -E sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
       "sudo install -d -m 0755 /etc/shipfox /opt/shipfox-runner/scripts/runtime/helpers",
+      "printf '%s\\n' \"$SHIPFOX_IMAGE_REVISION\" > /etc/shipfox/image-revision",
+      "chmod 0444 /etc/shipfox/image-revision",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.target /etc/systemd/system/shipfox-runner.target",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-env.path /etc/systemd/system/shipfox-runner-env.path",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.service /etc/systemd/system/shipfox-runner.service",
@@ -57,6 +61,7 @@ build {
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-boot-complete.service /etc/systemd/system/shipfox-runner-boot-complete.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-max-lifetime.service /etc/systemd/system/shipfox-max-lifetime.service",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/start-max-lifetime.sh /opt/shipfox-runner/scripts/runtime/start-max-lifetime.sh",
+      "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/record-boot-io.sh /opt/shipfox-runner/scripts/runtime/record-boot-io.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/verify-workspace-mount.sh /opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/helpers/logger.sh /opt/shipfox-runner/scripts/runtime/helpers/logger.sh",
       "sudo systemctl daemon-reload",

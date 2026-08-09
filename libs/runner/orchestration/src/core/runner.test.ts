@@ -406,6 +406,7 @@ describe('startRunner', () => {
 
   it('enrolls, waits, activates, and uses the activation session for managed runners', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(0);
+    const info = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
     vi.stubEnv('SHIPFOX_RUNNER_BOOTSTRAP_TOKEN', 'sf_rbt_bootstrap-token');
     vi.stubEnv('SHIPFOX_RUNNER_PROVIDER_KIND', 'ec2');
     vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
@@ -441,6 +442,17 @@ describe('startRunner', () => {
     });
     expect(mockRequestJob).toHaveBeenCalledWith('session-token', expect.any(AbortSignal));
     expect(mockInterruptibleSleep).not.toHaveBeenCalled();
+
+    const bootTimelineCalls = info.mock.calls.filter(
+      ([, message]) => message === 'runner.boot_timeline',
+    );
+    expect(bootTimelineCalls).toHaveLength(1);
+    const bootTimelineCallIndex = info.mock.calls.findIndex(
+      ([, message]) => message === 'runner.boot_timeline',
+    );
+    expect(info.mock.invocationCallOrder[bootTimelineCallIndex]).toBeLessThan(
+      mockRequestJob.mock.invocationCallOrder[0] ?? Infinity,
+    );
   });
 
   it('backs off between empty direct polls', async () => {

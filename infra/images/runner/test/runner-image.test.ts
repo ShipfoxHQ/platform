@@ -1009,6 +1009,9 @@ describe('systemd boot activation', () => {
       'network-online.target shipfox-runner.target',
     );
     expect(systemdDirective(unit, 'Service', 'Type')).toBe('oneshot');
+    expect(systemdDirective(unit, 'Service', 'ExecStartPre')).toBe(
+      "/bin/sh -c '/opt/shipfox-runner/scripts/runtime/record-boot-io.sh || true'",
+    );
     expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
       '/usr/bin/test -s /etc/shipfox/runner.env',
     );
@@ -1016,6 +1019,25 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(unit, 'Install', 'WantedBy')).toBeUndefined();
     expect(unit).not.toContain('cloud-config.service');
     expect(unit).not.toContain('cloud-final.service');
+  });
+
+  it('resolves the root device and publishes a boot I/O sample', async () => {
+    const script = new URL('../scripts/runtime/record-boot-io.sh', import.meta.url);
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+    const source = await readFile(script, 'utf8');
+
+    execFileSync('sh', ['-n', script.pathname], {stdio: 'pipe'});
+
+    expect(source).toContain('findmnt -no SOURCE /');
+    expect(source).toContain('lsblk -no PKNAME "$root_source"');
+    expect(source).toContain('read -r read_ops _ read_sectors _');
+    expect(source).toContain('/sys/block/$root_device/stat');
+    expect(source).toContain('/run/shipfox/boot-io');
+    expect(build).toContain(
+      'record-boot-io.sh /opt/shipfox-runner/scripts/runtime/record-boot-io.sh',
+    );
+    expect(build).toContain('SHIPFOX_IMAGE_REVISION=$' + '{var.revision}');
+    expect(build).toContain('/etc/shipfox/image-revision');
   });
 
   it('records a durable boot marker before starting the runner', async () => {
