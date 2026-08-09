@@ -38,9 +38,10 @@ that removes a unit or overrides the drop-in fails the image build.
 ### AppArmor decision
 
 The runner keeps `apparmor.service` enabled. It also keeps
-`snapd.apparmor.service` enabled when the base image provides it. This preserves
-the image security profile while snapd remains installed. This change does not
-mask or socket-activate either unit. ENG-1530 owns removing snapd.
+the base image's AppArmor profiles without changing the security posture. The image
+purges `snapd` and removes `/var/lib/snapd` and `/snap` during setup, so the seeded
+`amazon-ssm-agent` snap and `snapd.apparmor.service` are absent. This change does not
+mask or socket-activate `apparmor.service`.
 
 ### Journal retention
 

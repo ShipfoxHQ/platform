@@ -33,7 +33,6 @@ defaults:
   labels: [ec2]
   subnets: [subnet-general-a, subnet-general-b]
   security_groups: [sg-runner]
-  iam_instance_profile: shipfox-runner
   associate_public_ip: false
   # Keep the boot volume small. Job checkouts and logs live on the separate workspace volume.
   root_volume_gb: 30

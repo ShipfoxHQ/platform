@@ -71,7 +71,6 @@ export interface RunInstanceArgs {
   readonly spotMaxPrice: number | null;
   readonly subnetId: string;
   readonly securityGroupIds: readonly string[];
-  readonly iamInstanceProfile?: string;
   readonly associatePublicIp: boolean;
   readonly rootVolumeGb: number;
   readonly rootDeviceName: string;
@@ -112,6 +111,10 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
               Tags: Object.entries(args.tags).map(([Key, Value]) => ({Key, Value})),
             })),
             InstanceInitiatedShutdownBehavior: 'terminate',
+            MetadataOptions: {
+              HttpTokens: 'required',
+              HttpPutResponseHopLimit: 1,
+            },
             // A network interface is required for AssociatePublicIpAddress to work consistently.
             NetworkInterfaces: [
               {
@@ -142,9 +145,6 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
                 },
               },
             ],
-            ...(args.iamInstanceProfile
-              ? {IamInstanceProfile: {Name: args.iamInstanceProfile}}
-              : {}),
             ...(args.market === 'spot'
               ? {
                   InstanceMarketOptions: {

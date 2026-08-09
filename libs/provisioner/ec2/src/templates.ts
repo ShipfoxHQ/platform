@@ -1,5 +1,4 @@
 import {readFileSync} from 'node:fs';
-import {logger} from '@shipfox/node-opentelemetry';
 import {
   type ProvisionerTemplate,
   ProvisionerTemplateFileError,
@@ -20,7 +19,6 @@ export interface Ec2TemplateSpec {
   readonly spotMaxPrice: number | null;
   readonly subnets: readonly string[];
   readonly securityGroups: readonly string[];
-  readonly iamInstanceProfile?: string;
   readonly associatePublicIp: boolean;
   readonly rootVolumeGb: number;
   readonly rootDeviceName: string;
@@ -51,7 +49,6 @@ const ec2TemplateSchema = z
     spot_max_price: z.number().positive().nullish(),
     subnets: z.array(z.string().trim().min(1)).min(1),
     security_groups: z.array(z.string().trim().min(1)).min(1),
-    iam_instance_profile: z.string().trim().min(1).optional(),
     associate_public_ip: z.boolean(),
     root_volume_gb: z.number().int().positive(),
     root_device_name: z
@@ -156,18 +153,6 @@ function toTemplate(
     );
   }
 
-  if (spec.iam_instance_profile === undefined) {
-    logger().warn(
-      {
-        event: 'provisioner.ec2_template_missing_iam_instance_profile',
-        filePath,
-        templateKey: key,
-        capability: 'host_debugging_over_aws_systems_manager',
-      },
-      `EC2 template "${key}" has no IAM instance profile; host debugging over AWS Systems Manager is unavailable`,
-    );
-  }
-
   return {
     key,
     labels,
@@ -181,9 +166,6 @@ function toTemplate(
       spotMaxPrice: spec.spot_max_price ?? null,
       subnets: spec.subnets,
       securityGroups: spec.security_groups,
-      ...(spec.iam_instance_profile === undefined
-        ? {}
-        : {iamInstanceProfile: spec.iam_instance_profile}),
       associatePublicIp: spec.associate_public_ip,
       rootVolumeGb: spec.root_volume_gb,
       rootDeviceName: spec.root_device_name ?? '/dev/sda1',
@@ -216,6 +198,16 @@ function formatIssues(error: z.ZodError): string {
   return error.issues
     .map((issue) => {
       const path = issue.path.join('.');
+      if (issue.code === z.ZodIssueCode.unrecognized_keys) {
+        const keys = issue.keys
+          .map((key) =>
+            key === 'iam_instance_profile'
+              ? `${key} (remove this field; runner instances must not carry AWS credentials)`
+              : key,
+          )
+          .join(', ');
+        return `${path ? `${path}: ` : ''}unrecognized key(s): ${keys}`;
+      }
       return path ? `${path}: ${issue.message}` : issue.message;
     })
     .join('; ');

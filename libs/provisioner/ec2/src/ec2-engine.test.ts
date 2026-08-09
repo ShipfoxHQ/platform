@@ -43,7 +43,7 @@ describe('createEc2Engine', () => {
     const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
     const expectedTags = Object.entries(runArgs.tags).map(([Key, Value]) => ({Key, Value}));
 
-    await engine.runInstance({...runArgs, iamInstanceProfile: 'runner-profile'});
+    await engine.runInstance(runArgs);
 
     expect(commandInput<RunInstancesCommand>(ec2.commands[0])).toMatchObject({
       MinCount: 1,
@@ -52,7 +52,7 @@ describe('createEc2Engine', () => {
       ImageId: runArgs.ami,
       InstanceType: runArgs.instanceType,
       InstanceInitiatedShutdownBehavior: 'terminate',
-      IamInstanceProfile: {Name: 'runner-profile'},
+      MetadataOptions: {HttpTokens: 'required', HttpPutResponseHopLimit: 1},
       UserData: Buffer.from('#cloud-config').toString('base64'),
       TagSpecifications: [
         {
@@ -81,14 +81,6 @@ describe('createEc2Engine', () => {
         },
       ],
     });
-  });
-
-  it('omits an absent IAM instance profile', async () => {
-    const ec2 = fakeEc2();
-    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
-
-    await engine.runInstance(runArgs);
-
     expect(commandInput<RunInstancesCommand>(ec2.commands[0])).not.toHaveProperty(
       'IamInstanceProfile',
     );
