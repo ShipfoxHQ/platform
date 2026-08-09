@@ -1185,6 +1185,27 @@ describe('runner image composition', () => {
   });
 });
 
+describe('runner installation', () => {
+  it('removes the dependency tree from the image build staging area', async () => {
+    const script = new URL('../scripts/build/install-runner.sh', import.meta.url);
+    const fixture = await createRunnerInstallFixture();
+
+    try {
+      execFileSync('/bin/sh', [script.pathname], {
+        env: fixture.environment,
+        stdio: 'pipe',
+      });
+
+      expect(await pathExists(fixture.workspace)).toBe(false);
+      expect(await readFile(fixture.commandLog, 'utf8')).toContain(
+        'pnpm --filter=@shipfox/runner deploy --prod --legacy --config.strict-peer-dependencies=false /opt/runner',
+      );
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+});
+
 async function createBootFixture(fstab: string) {
   const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-boot-'));
   const commandDirectory = join(root, 'commands');
@@ -1320,6 +1341,39 @@ done
       RUNNER_IMAGE_ROOT: root,
     },
     root,
+  };
+}
+
+async function createRunnerInstallFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-install-'));
+  const commandDirectory = join(root, 'commands');
+  const workspace = join(root, 'tmp/shipfox-runner-workspace');
+  const commandLog = join(root, 'command.log');
+
+  await mkdir(join(workspace, 'package'), {recursive: true});
+  await mkdir(commandDirectory, {recursive: true});
+  await writeFile(join(workspace, 'package/pnpm-lock.yaml'), 'lockfileVersion: 9.0\n');
+  await writeExecutable(join(commandDirectory, 'corepack'), '#!/bin/sh\nexit 0\n');
+  await writeExecutable(
+    join(commandDirectory, 'pnpm'),
+    `#!/bin/sh
+set -eu
+printf 'pnpm %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+`,
+  );
+  await writeExecutable(join(commandDirectory, 'node'), '#!/bin/sh\nexit 0\n');
+  await writeExecutable(join(commandDirectory, 'chown'), '#!/bin/sh\nexit 0\n');
+
+  return {
+    commandLog,
+    environment: {
+      ...process.env,
+      PATH: `${commandDirectory}:${process.env.PATH ?? ''}`,
+      RUNNER_IMAGE_COMMAND_LOG: commandLog,
+      RUNNER_IMAGE_ROOT: root,
+    },
+    root,
+    workspace,
   };
 }
 
