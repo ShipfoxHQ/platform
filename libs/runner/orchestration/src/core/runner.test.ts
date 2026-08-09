@@ -447,6 +447,13 @@ describe('startRunner', () => {
       ([, message]) => message === 'runner.boot_timeline',
     );
     expect(bootTimelineCalls).toHaveLength(1);
+    expect(bootTimelineCalls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        boot_timeline_version: 1,
+        telemetry_state: expect.any(String),
+        provider_kind: 'ec2',
+      }),
+    );
     const bootTimelineCallIndex = info.mock.calls.findIndex(
       ([, message]) => message === 'runner.boot_timeline',
     );

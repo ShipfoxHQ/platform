@@ -57,6 +57,10 @@ variable "node_version" {
 variable "revision" {
   type    = string
   default = "local"
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]+$", var.revision))
+    error_message = "Revision must contain only letters, numbers, dots, underscores, or hyphens."
+  }
 }
 
 variable "runner_version" {

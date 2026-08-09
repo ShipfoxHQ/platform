@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import {config} from '#config.js';
 
 const BOOT_IO_PATH = '/run/shipfox/boot-io';
 const IMAGE_REVISION_PATH = '/etc/shipfox/image-revision';
@@ -6,7 +7,9 @@ const PROCESS_STAT_PATH = '/proc/self/stat';
 const SYSTEMD_STAT_PATH = '/proc/1/stat';
 const UPTIME_PATH = '/proc/uptime';
 const SYSTEM_CLOCK_TICKS_PER_SECOND = 100;
+const BOOT_TIMELINE_VERSION = 1 as const;
 const ROOT_DEVICE_PATTERN = /^[a-zA-Z0-9._-]+$/u;
+const IMAGE_REVISION_PATTERN = /^[a-zA-Z0-9._-]+$/u;
 const WHITESPACE_PATTERN = /\s+/u;
 
 type ReadText = (path: string) => string | undefined;
@@ -26,7 +29,11 @@ type EnrollmentSample = {
   uptimeSeconds?: number;
 };
 
-export type BootTimelineFields = Record<string, number | string>;
+export type BootTimelineFields = {
+  boot_timeline_version: typeof BOOT_TIMELINE_VERSION;
+  telemetry_state: 'complete' | 'unavailable';
+  [key: string]: number | string;
+};
 
 function readText(path: string): string | undefined {
   try {
@@ -112,19 +119,24 @@ function setField(
 
 function readImageRevision(read: ReadText): string | undefined {
   const bakedRevision = read(IMAGE_REVISION_PATH)?.trim();
-  if (bakedRevision) return bakedRevision;
+  const environmentRevision = config.IMAGE_REVISION?.trim() ?? '';
+  const revision = bakedRevision || environmentRevision;
 
-  const environmentRevision = process.env.IMAGE_REVISION?.trim();
-  return environmentRevision || undefined;
+  if (!revision || revision === 'local' || !IMAGE_REVISION_PATTERN.test(revision)) {
+    return undefined;
+  }
+  return revision;
 }
 
-function readEnrollmentSample(read: ReadText): EnrollmentSample {
+function readDiskReads(read: ReadText, rootDevice: string | undefined): DiskReadSample | undefined {
+  if (rootDevice === undefined) return undefined;
+
+  return parseDiskReadSample(read(`/sys/block/${rootDevice}/stat`));
+}
+
+function readEnrollmentSample(read: ReadText, bootIo: BootIoSample | undefined): EnrollmentSample {
   const uptimeSeconds = parseUptime(read(UPTIME_PATH));
-  const bootIo = parseBootIoSample(read(BOOT_IO_PATH));
-  const currentDiskReads =
-    bootIo === undefined
-      ? undefined
-      : parseDiskReadSample(read(`/sys/block/${bootIo.rootDevice}/stat`));
+  const currentDiskReads = readDiskReads(read, bootIo?.rootDevice);
 
   return {
     ...(currentDiskReads === undefined ? {} : {currentDiskReads}),
@@ -139,6 +151,7 @@ function readBootIo(read: ReadText): BootIoSample | undefined {
 function addReadFields(
   fields: BootTimelineFields,
   processStartSeconds: number | undefined,
+  processStartDiskReads: DiskReadSample | undefined,
   enrollment: EnrollmentSample,
   bootIo: BootIoSample | undefined,
 ): void {
@@ -153,10 +166,11 @@ function addReadFields(
   }
 
   const current = enrollment.currentDiskReads;
-  if (current === undefined) return;
+  if (current === undefined || processStartDiskReads === undefined) return;
 
-  const runnerReadBytes = Math.max(0, current.readSectors - bootIo.readSectors) * 512;
-  const runnerReadOps = Math.max(0, current.readOps - bootIo.readOps);
+  const runnerReadBytes =
+    Math.max(0, current.readSectors - processStartDiskReads.readSectors) * 512;
+  const runnerReadOps = Math.max(0, current.readOps - processStartDiskReads.readOps);
   setField(fields, 'runner_read_bytes', runnerReadBytes);
   setField(fields, 'runner_read_ops', runnerReadOps);
 
@@ -173,14 +187,25 @@ export function createBootTimelineCollector(read: ReadText = readText) {
   const processStartUptimeSeconds = parseUptime(read(UPTIME_PATH));
   const processStartOffsetSeconds =
     parseProcessStartSeconds(read(PROCESS_STAT_PATH)) ?? processStartUptimeSeconds;
+  const bootIo = readBootIo(read);
+  const processStartDiskReads = readDiskReads(read, bootIo?.rootDevice);
 
   return {
     captureEnrollment(): EnrollmentSample {
-      return readEnrollmentSample(read);
+      return readEnrollmentSample(read, bootIo);
     },
 
     createEvent(enrollment: EnrollmentSample): BootTimelineFields {
-      const fields: BootTimelineFields = {};
+      const fields: BootTimelineFields = {
+        boot_timeline_version: BOOT_TIMELINE_VERSION,
+        telemetry_state:
+          bootIo !== undefined &&
+          processStartDiskReads !== undefined &&
+          enrollment.currentDiskReads !== undefined &&
+          enrollment.uptimeSeconds !== undefined
+            ? 'complete'
+            : 'unavailable',
+      };
       const systemdStartSeconds = parseProcessStartSeconds(read(SYSTEMD_STAT_PATH));
 
       setField(fields, 'uptime_seconds', processStartUptimeSeconds);
@@ -195,7 +220,7 @@ export function createBootTimelineCollector(read: ReadText = readText) {
           : undefined,
       );
       setField(fields, 'image_revision', readImageRevision(read));
-      addReadFields(fields, processStartOffsetSeconds, enrollment, readBootIo(read));
+      addReadFields(fields, processStartOffsetSeconds, processStartDiskReads, enrollment, bootIo);
 
       return fields;
     },

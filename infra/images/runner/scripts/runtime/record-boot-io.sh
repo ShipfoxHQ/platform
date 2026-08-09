@@ -17,6 +17,10 @@ read -r read_ops _ read_sectors _ < "$stat_path"
 uptime_seconds="$(awk '{print $1}' /proc/uptime)"
 
 install -d -m 0755 /run/shipfox
+if [ -e /run/shipfox/boot-io ]; then
+  exit 0
+fi
+
 temporary_path="$(mktemp /run/shipfox/boot-io.XXXXXX)"
 trap 'rm -f "$temporary_path"' EXIT
 cat > "$temporary_path" <<EOF
@@ -26,5 +30,12 @@ read_sectors=$read_sectors
 uptime_seconds=$uptime_seconds
 EOF
 chmod 0644 "$temporary_path"
-mv -- "$temporary_path" /run/shipfox/boot-io
+if ! ln -- "$temporary_path" /run/shipfox/boot-io 2>/dev/null; then
+  if [ -e /run/shipfox/boot-io ]; then
+    exit 0
+  fi
+  printf 'runner boot telemetry: failed to publish the boot I/O sample\n' >&2
+  exit 1
+fi
+rm -f "$temporary_path"
 trap - EXIT

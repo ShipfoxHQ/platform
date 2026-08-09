@@ -49,7 +49,7 @@ build {
 
   provisioner "shell" {
     environment_vars = ["SHIPFOX_IMAGE_REVISION=${var.revision}"]
-    execute_command  = "sudo -E sh -c '{{ .Vars }} {{ .Path }}'"
+    execute_command  = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
       "sudo install -d -m 0755 /etc/shipfox /opt/shipfox-runner/scripts/runtime/helpers",
       "printf '%s\\n' \"$SHIPFOX_IMAGE_REVISION\" > /etc/shipfox/image-revision",

@@ -5,6 +5,6 @@ Wants=network-online.target shipfox-runner.target
 
 [Service]
 Type=oneshot
-ExecStartPre=/bin/sh -c '/opt/shipfox-runner/scripts/runtime/record-boot-io.sh || true'
+ExecStartPre=/bin/sh -c '/usr/bin/timeout 5s /opt/shipfox-runner/scripts/runtime/record-boot-io.sh || true'
 ExecStart=/usr/bin/test -s /etc/shipfox/runner.env
 RemainAfterExit=yes

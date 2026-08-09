@@ -304,7 +304,13 @@ async function initializeManagedRunnerSession(): Promise<RunnerSession | undefin
     providerKind: enrollmentConfig.providerKind,
     protocolVersion: enrollmentConfig.protocolVersion,
   });
-  logger().info(bootTimeline.createEvent(bootTimeline.captureEnrollment()), 'runner.boot_timeline');
+  logger().info(
+    {
+      ...bootTimeline.createEvent(bootTimeline.captureEnrollment()),
+      provider_kind: enrollmentConfig.providerKind,
+    },
+    'runner.boot_timeline',
+  );
   const activationToken =
     enrollmentActivationToken ?? (await waitForRunnerActivation(controlSessionToken));
   if (!activationToken) return undefined;
