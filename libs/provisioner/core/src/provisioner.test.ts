@@ -176,6 +176,49 @@ describe('runProvisionerIteration', () => {
     );
   });
 
+  it('preserves an existing provider observation failure across snapshot delivery', async () => {
+    const {client} = harness({response: {stats: [], reservations: []}});
+    const health = createHealthState();
+    health.active = new Map([
+      ['provider_observation', {cause: 'reconciliation unavailable', impact: 'capacity'}],
+    ]);
+    let shouldFail = true;
+    const adapter: ProvisionerAdapter<null> = {
+      loadTemplates: () => Promise.resolve([template]),
+      launch: () => Promise.resolve(),
+      onDemandStats: () => {
+        if (shouldFail) throw new Error('metrics cache unavailable');
+      },
+    };
+
+    await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      health,
+    });
+    expect(health.active.get('provider_observation')).toEqual({
+      cause: 'reconciliation unavailable',
+      impact: 'capacity',
+    });
+
+    shouldFail = false;
+    await runDemandIteration({
+      adapter,
+      client,
+      templates: [template],
+      tracker: createInMemoryTracker(),
+      currentInterval: 1000,
+      health,
+    });
+    expect(health.active.get('provider_observation')).toEqual({
+      cause: 'reconciliation unavailable',
+      impact: 'capacity',
+    });
+  });
+
   it('runs onTick before polling demand', async () => {
     const events: string[] = [];
     const {client} = harness({

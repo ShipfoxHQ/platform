@@ -691,7 +691,6 @@ function notifyDemandStats<Spec>(
   stats: readonly DemandStatDto[],
   health: HealthState,
 ): void {
-  const previousProviderObservationFailure = health.active.get('provider_observation');
   try {
     adapter.onDemandStats?.(stats);
   } catch (error) {
@@ -700,16 +699,19 @@ function notifyDemandStats<Spec>(
       {event: 'provisioner.demand_stats_delivery_failed', reason},
       'Provider demand snapshot delivery failed',
     );
-    applyHealthEvent(health, {
-      type: 'facet_failed',
-      facet: 'provider_observation',
-      cause: `${DEMAND_STATS_DELIVERY_FAILURE_PREFIX}${reason}`,
-      impact: 'capacity',
-      at: new Date(),
-    });
+    if (!health.active.has('provider_observation')) {
+      applyHealthEvent(health, {
+        type: 'facet_failed',
+        facet: 'provider_observation',
+        cause: `${DEMAND_STATS_DELIVERY_FAILURE_PREFIX}${reason}`,
+        impact: 'capacity',
+        at: new Date(),
+      });
+    }
     return;
   }
-  if (previousProviderObservationFailure?.cause.startsWith(DEMAND_STATS_DELIVERY_FAILURE_PREFIX)) {
+  const providerObservationFailure = health.active.get('provider_observation');
+  if (providerObservationFailure?.cause.startsWith(DEMAND_STATS_DELIVERY_FAILURE_PREFIX)) {
     applyHealthEvent(health, {
       type: 'facet_recovered',
       facet: 'provider_observation',
