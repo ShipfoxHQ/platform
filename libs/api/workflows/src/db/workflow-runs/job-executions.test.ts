@@ -1,6 +1,12 @@
 import {WORKFLOWS_JOB_EXECUTION_TIMED_OUT} from '@shipfox/api-workflows-dto';
 import {and, eq, sql} from 'drizzle-orm';
 import {
+  InterpolationUnresolvableError,
+  JobOutputNotJsonSafeError,
+  JobOutputTooLargeError,
+  JobOutputTooManyEntriesError,
+} from '#core/errors.js';
+import {
   MAX_JOB_OUTPUT_ENTRIES,
   MAX_JOB_OUTPUT_VALUE_BYTES,
 } from '#core/step-config/job-output-limits.js';
@@ -19,6 +25,7 @@ import {
   resolveJobExecutionAfterLeaseExpiry,
   updateJobExecutionStatus,
 } from '../workflow-runs.js';
+import {classifyJobOutputFailure} from './job-executions.js';
 
 describe('workflow run job executions', () => {
   let workspaceId: string;
@@ -278,6 +285,48 @@ describe('workflow run job executions', () => {
     });
   });
 
+  test('fails a successful execution when a materialized job output cannot be resolved', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({
+        jobs: {
+          build: {
+            steps: [{key: 'collect', run: 'echo build'}],
+            outputs: {payload: template('steps.collect.outputs.missing')},
+          },
+        },
+      }),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+    await finishCollectedStep(job.id, {});
+
+    const resolved = await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'succeeded',
+      expectedVersion: execution.version,
+    });
+
+    expect(resolved).toMatchObject({
+      status: 'failed',
+      statusReason: 'output_invalid',
+      statusReasonMessage: expect.stringContaining(
+        'job.outputs uses `steps.collect.outputs.missing`',
+      ),
+      outputs: null,
+    });
+  });
+
   test('fails a successful execution when the persisted model has too many job outputs', async () => {
     const outputs = Object.fromEntries(
       Array.from({length: MAX_JOB_OUTPUT_ENTRIES + 1}, (_, index) => {
@@ -316,7 +365,52 @@ describe('workflow run job executions', () => {
       expectedVersion: execution.version,
     });
 
-    expect(resolved).toMatchObject({status: 'failed', statusReason: 'unknown', outputs: null});
+    expect(resolved).toMatchObject({
+      status: 'failed',
+      statusReason: 'output_invalid',
+      statusReasonMessage: `Job outputs cannot define more than ${MAX_JOB_OUTPUT_ENTRIES} entries (found ${MAX_JOB_OUTPUT_ENTRIES + 1})`,
+      outputs: null,
+    });
+  });
+});
+
+describe('classifyJobOutputFailure', () => {
+  test.each([
+    [
+      new InterpolationUnresolvableError('definition-1', {
+        field: 'job.outputs',
+        source: 'steps.collect.outputs.payload',
+      }),
+      'output_invalid',
+    ],
+    [new JobOutputNotJsonSafeError('payload', 'undefined is not a JSON value'), 'output_invalid'],
+    [new JobOutputTooManyEntriesError(11, 10), 'output_invalid'],
+    [new JobOutputTooLargeError('payload', 16 * 1024, 16 * 1024 + 1, 'value'), 'output_too_large'],
+  ] as const)('classifies %s with the persisted reason', (error, statusReason) => {
+    expect(classifyJobOutputFailure(error)).toMatchObject({statusReason});
+  });
+
+  test('does not classify interpolation failures outside job outputs', () => {
+    const error = new InterpolationUnresolvableError('definition-1', {
+      field: 'env',
+      source: 'event.ref',
+      envKey: 'REF',
+    });
+
+    expect(classifyJobOutputFailure(error)).toBeNull();
+  });
+
+  test('does not classify unexpected failures', () => {
+    expect(classifyJobOutputFailure(new Error('database unavailable'))).toBeNull();
+  });
+
+  test('bounds the persisted message', () => {
+    const failure = classifyJobOutputFailure(
+      new JobOutputNotJsonSafeError('payload', 'x'.repeat(4096)),
+    );
+
+    expect(failure?.statusReasonMessage).toHaveLength(2048);
+    expect(failure?.statusReasonMessage.endsWith('…')).toBe(true);
   });
 });
 

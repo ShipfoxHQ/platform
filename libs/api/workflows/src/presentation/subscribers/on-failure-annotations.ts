@@ -21,6 +21,7 @@ const JOB_FAILURE_ANNOTATION_REASONS = new Set([
   'runner_lost',
   'condition_errored',
   'output_too_large',
+  'output_invalid',
 ]);
 
 export function onStepAttemptTerminatedFailureAnnotation(

@@ -33,6 +33,7 @@ import {
   emptyStateForJob,
   emptyStateForMissingExecution,
   jobSucceededSummary,
+  MaterializedOutputFailureNotice,
 } from './job-empty-states.js';
 import {
   resolveWorkflowJobSelection,
@@ -258,39 +259,42 @@ export function JobDetailView({
                 Logs
               </Text>
               {selectedJobExecution ? (
-                <StepList
-                  job={job}
-                  jobExecution={selectedJobExecution}
-                  selectedAttemptId={selectedAttemptId}
-                  defaultSelectedAttemptId={landingSelection?.attemptId}
-                  onSelectedAttemptChange={selectAttempt}
-                  inspectorOpenAttemptId={inspectorOpenAttemptId}
-                  onInspectorOpenChange={onInspectorOpenChange}
-                  autoSelectActiveAttempt
-                  emptyState={emptyStateForJob(job, selectedJobExecution)}
-                  showHeader={false}
-                  className="rounded-none border-0 bg-transparent"
-                  renderExpandedStep={(context) => (
-                    <ExpandedStep context={context} pageScrollRef={pageScrollRef} />
-                  )}
-                  renderInspector={(entry) => (
-                    <StepInspectorSheet
-                      entry={entry}
-                      open
-                      onOpenChange={(open) => onInspectorOpenChange(open ? entry.id : null)}
-                      workspaceSlug={workspaceSlug}
-                      projectSlug={projectSlug}
-                      workflowRunId={run.id}
-                      runAttempt={run.runAttempt.attempt}
-                      jobId={job.id}
-                      annotationCount={annotationCountForStep(
-                        annotationSummaryQuery.data,
-                        entry.step.id,
-                        entry.attempt,
-                      )}
-                    />
-                  )}
-                />
+                <>
+                  <MaterializedOutputFailureNotice jobExecution={selectedJobExecution} />
+                  <StepList
+                    job={job}
+                    jobExecution={selectedJobExecution}
+                    selectedAttemptId={selectedAttemptId}
+                    defaultSelectedAttemptId={landingSelection?.attemptId}
+                    onSelectedAttemptChange={selectAttempt}
+                    inspectorOpenAttemptId={inspectorOpenAttemptId}
+                    onInspectorOpenChange={onInspectorOpenChange}
+                    autoSelectActiveAttempt
+                    emptyState={emptyStateForJob(job, selectedJobExecution)}
+                    showHeader={false}
+                    className="rounded-none border-0 bg-transparent"
+                    renderExpandedStep={(context) => (
+                      <ExpandedStep context={context} pageScrollRef={pageScrollRef} />
+                    )}
+                    renderInspector={(entry) => (
+                      <StepInspectorSheet
+                        entry={entry}
+                        open
+                        onOpenChange={(open) => onInspectorOpenChange(open ? entry.id : null)}
+                        workspaceSlug={workspaceSlug}
+                        projectSlug={projectSlug}
+                        workflowRunId={run.id}
+                        runAttempt={run.runAttempt.attempt}
+                        jobId={job.id}
+                        annotationCount={annotationCountForStep(
+                          annotationSummaryQuery.data,
+                          entry.step.id,
+                          entry.attempt,
+                        )}
+                      />
+                    )}
+                  />
+                </>
               ) : (
                 <EmptyStateForMissingExecution job={job} />
               )}

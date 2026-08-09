@@ -1,3 +1,4 @@
+import {Callout, CalloutContent, CalloutDescription, CalloutTitle} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import type {Job, JobExecution, Step, StepError} from '#core/workflow-run.js';
 import {
@@ -8,6 +9,44 @@ import {
 } from '#core/workflow-run.js';
 import type {StepListEmptyState} from '../step-list/index.js';
 import {formatJobExecutionTime} from './job-execution-time-text.js';
+
+const MATERIALIZED_OUTPUT_FAILURE_DESCRIPTION =
+  'A materialized job output could not be persisted: it exceeded a size or entry cap, contained a non-JSON-safe value, or referenced an unresolved value. Check the output mapping and values before re-running the workflow.';
+const OUTPUT_TOO_LARGE_FAILURE_DESCRIPTION =
+  'The materialized job output exceeded its configured size limit. Review the failure details before re-running the workflow.';
+
+export function outputFailureDescriptionForExecution(
+  jobExecution: JobExecution,
+): string | undefined {
+  if (jobExecution.steps.length === 0) return undefined;
+
+  if (jobExecution.statusReason === 'output_invalid') {
+    return jobExecution.statusReasonMessage || MATERIALIZED_OUTPUT_FAILURE_DESCRIPTION;
+  }
+  if (jobExecution.statusReason === 'output_too_large') {
+    return jobExecution.statusReasonMessage || OUTPUT_TOO_LARGE_FAILURE_DESCRIPTION;
+  }
+  return undefined;
+}
+
+export function MaterializedOutputFailureNotice({jobExecution}: {jobExecution: JobExecution}) {
+  const description = outputFailureDescriptionForExecution(jobExecution);
+  if (!description) return null;
+
+  return (
+    <Callout
+      role="alert"
+      type="error"
+      variant="secondary"
+      className="border-b border-border-neutral-base px-row py-row"
+    >
+      <CalloutContent>
+        <CalloutTitle>Job output could not be persisted</CalloutTitle>
+        <CalloutDescription>{description}</CalloutDescription>
+      </CalloutContent>
+    </Callout>
+  );
+}
 
 export function emptyStateForJob(
   job: Job,
@@ -64,7 +103,11 @@ export function emptyStateForJob(
   if (displayStatus === 'failed') {
     return {
       title: 'Job failed before its first step started',
-      description: preStepFailureDescription(jobExecution.statusReason ?? job.statusReason, runner),
+      description: preStepFailureDescription(
+        jobExecution.statusReason ?? job.statusReason,
+        runner,
+        jobExecution.statusReasonMessage,
+      ),
       status: displayStatus,
     };
   }
@@ -159,6 +202,7 @@ export function skippedJobDescription(reason: Job['statusReason']): string {
     case 'run_cancelled':
     case 'timed_out':
     case 'runner_lost':
+    case 'output_invalid':
     case 'step_failed':
     case 'unknown':
     case null:
@@ -168,7 +212,11 @@ export function skippedJobDescription(reason: Job['statusReason']): string {
   }
 }
 
-function preStepFailureDescription(reason: string | null, runner: string[] | null = null): string {
+function preStepFailureDescription(
+  reason: string | null,
+  runner: string[] | null = null,
+  statusReasonMessage: string | null = null,
+): string {
   const runnerCopy = runner?.length ? ` Required runner labels: ${runner.join(', ')}.` : '';
 
   switch (reason) {
@@ -182,7 +230,9 @@ function preStepFailureDescription(reason: string | null, runner: string[] | nul
     case 'step_failed':
       return `The execution failed before step details were recorded.${runnerCopy} Review run annotations before re-running the workflow.`;
     case 'output_too_large':
-      return 'The materialized job output exceeded its configured size limit. Review the failure details before re-running the workflow.';
+      return statusReasonMessage || OUTPUT_TOO_LARGE_FAILURE_DESCRIPTION;
+    case 'output_invalid':
+      return statusReasonMessage || MATERIALIZED_OUTPUT_FAILURE_DESCRIPTION;
     case 'condition_errored':
       return 'The job condition could not be evaluated. Review run annotations before re-running the workflow.';
     case 'dependency_not_completed':

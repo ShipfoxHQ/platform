@@ -36,6 +36,7 @@ const jobStatusReasonSchema = z.enum([
   'output_too_large',
   'step_failed',
   'unknown',
+  'output_invalid',
 ]);
 const stepStatusSchema = z.enum([
   'pending',

@@ -22,6 +22,13 @@
       "when": 1786203875223,
       "tag": "0002_output_failure_details",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786266649202,
+      "tag": "0003_output_invalid_reason",
+      "breakpoints": true
     }
   ]
 }
