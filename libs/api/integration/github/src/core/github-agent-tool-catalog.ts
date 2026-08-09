@@ -670,7 +670,7 @@ export const githubAgentToolCatalog = [
     id: 'add_comment_to_pending_review',
     category: 'pull_requests',
     description:
-      "Add review comment to the requester's latest pending pull request review. A pending review needs to already exist to call this.",
+      "Add a review comment to the requester's latest pending pull request review. The comment remains part of that pending review until it is submitted; a pending review needs to already exist to call this.",
     sensitivity: 'write',
     sensitive: false,
     requiredScope: scopes.pullRequestsWrite,
