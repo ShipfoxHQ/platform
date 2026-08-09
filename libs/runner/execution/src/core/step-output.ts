@@ -1,5 +1,5 @@
-export const MAX_OUTPUT_TOTAL_BYTES = 64 * 1024;
-export const MAX_OUTPUT_VALUE_BYTES = 16 * 1024;
+export const MAX_OUTPUT_TOTAL_BYTES = 256 * 1024;
+export const MAX_OUTPUT_VALUE_BYTES = 64 * 1024;
 
 export const OUTPUT_KEY_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
 const OUTPUT_LINE_SPLIT_REGEX = /\r?\n/;

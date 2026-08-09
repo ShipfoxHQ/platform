@@ -4,7 +4,7 @@ import {basename, isAbsolute, join} from 'node:path';
 import type {StepDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {type CommandStartMetadata, executeRunStep, type OutputSink} from '#core/run-step.js';
-import {MAX_OUTPUT_TOTAL_BYTES} from '#core/step-output.js';
+import {MAX_OUTPUT_TOTAL_BYTES, MAX_OUTPUT_VALUE_BYTES} from '#core/step-output.js';
 
 const GRANDCHILD_PID_REGEX = /GRANDCHILD_PID=(\d+)/;
 const READY_REGEX = /READY/;
@@ -292,6 +292,38 @@ describe('executeRunStep', () => {
     if (!summary || !dir) throw new Error('Expected annotation spool output paths');
     await expect(access(summary)).rejects.toThrow();
     await expect(access(dir)).rejects.toThrow();
+  });
+
+  it('accepts output at the total byte cap', async () => {
+    expect(MAX_OUTPUT_TOTAL_BYTES).toBe(256 * 1024);
+    expect(MAX_OUTPUT_VALUE_BYTES).toBe(64 * 1024);
+    const keys = ['one', 'two', 'three', 'four'];
+    const lineOverhead = keys.reduce(
+      (total, key) => total + Buffer.byteLength(`${key}=\n`, 'utf8'),
+      0,
+    );
+    const valueBytes = Math.floor((MAX_OUTPUT_TOTAL_BYTES - lineOverhead) / keys.length);
+    const remainder = MAX_OUTPUT_TOTAL_BYTES - (lineOverhead + valueBytes * keys.length);
+    const values = Object.fromEntries(
+      keys.map((key, index) => [key, 'x'.repeat(valueBytes + (index === 0 ? remainder : 0))]),
+    );
+    expect(
+      Math.max(...Object.values(values).map((value) => Buffer.byteLength(value, 'utf8'))),
+    ).toBeLessThanOrEqual(MAX_OUTPUT_VALUE_BYTES);
+    const script = [
+      "const fs = require('node:fs');",
+      `const keys = ${JSON.stringify(keys)};`,
+      `const valueBytes = ${valueBytes};`,
+      `const remainder = ${remainder};`,
+      "const output = keys.map((key, index) => key + '=' + 'x'.repeat(valueBytes + (index === 0 ? remainder : 0)) + '\\n').join('');",
+      'fs.writeFileSync(process.env.SHIPFOX_OUTPUT, output);',
+    ].join(' ');
+    const step = buildStep({config: {run: `node -e ${JSON.stringify(script)}`}});
+
+    const result = await executeRunStep(step);
+
+    expect(result.success).toBe(true);
+    expect(result.outputs).toEqual(values);
   });
 
   it('fails a succeeded step when emitted output exceeds the total byte cap', async () => {
