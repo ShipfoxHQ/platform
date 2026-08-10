@@ -4,7 +4,7 @@ import type {RouteParentId} from '#contract.js';
 import {routePathForParent} from '#runtime/anchor-paths.js';
 import {buildAnchorSkeleton} from '#runtime/anchors.js';
 import type {RouteImpl} from '#runtime/define-route.js';
-import {assertRouteFrame} from '#runtime/route-frame.js';
+import {assertRouteImplFrame} from '#runtime/route-frame.js';
 
 export type ResolveRouteImpl = (specifier: string) => RouteImpl | Promise<RouteImpl>;
 
@@ -62,7 +62,7 @@ export async function assembleRouteTree(
 
   for (const layout of layouts) {
     const impl = await options.resolveImpl(layout.impl);
-    assertRouteFrame(impl.options.staticData, layout.impl, layout.path);
+    assertRouteImplFrame(impl, layout.impl, layout.path);
     const parentRoute = isShellAnchor(layout.parent)
       ? skeleton.anchors[layout.parent]
       : layoutRoutes.get(layout.parent);
@@ -80,7 +80,7 @@ export async function assembleRouteTree(
   const routeEntries: Array<{parent: RouteParentId; route: AnyRoute}> = await Promise.all(
     routes.map(async (route) => {
       const impl = await options.resolveImpl(route.impl);
-      assertRouteFrame(impl.options.staticData, route.impl, route.path);
+      assertRouteImplFrame(impl, route.impl, route.path);
       const parentRoute = isShellAnchor(route.parent)
         ? skeleton.anchors[route.parent]
         : layoutRoutes.get(route.parent);

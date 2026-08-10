@@ -1,4 +1,4 @@
-import {assertRouteFrame, isRouteFrame, routeFrames} from './route-frame.js';
+import {assertRouteFrame, assertRouteImplFrame, isRouteFrame, routeFrames} from './route-frame.js';
 
 describe('route frames', () => {
   test('defines the supported shell-owned frames', () => {
@@ -13,11 +13,18 @@ describe('route frames', () => {
   test.each([
     undefined,
     {},
+    {layout: 'full-bleed'},
     {frame: 'full-bleed'},
     {frame: 'content-wide'},
   ])('rejects a route without a supported frame: %j', (staticData) => {
     expect(() => assertRouteFrame(staticData, './route.tsx', '/example')).toThrow(
       'must declare staticData.frame as "content", "data", or "focused".',
+    );
+  });
+
+  test('rejects a module that does not export a defined route', () => {
+    expect(() => assertRouteImplFrame({}, './route.tsx', '/example')).toThrow(
+      'must export default defineRoute(...).',
     );
   });
 });

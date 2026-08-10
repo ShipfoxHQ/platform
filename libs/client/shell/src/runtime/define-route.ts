@@ -1,11 +1,16 @@
 import type {ComponentType} from 'react';
+import type {RouteFrame} from './route-frame.js';
+
+export interface RouteStaticData extends Record<string, unknown> {
+  frame: RouteFrame;
+}
 
 export interface RouteImplOptions {
   component?: ComponentType;
   loader?: unknown;
   validateSearch?: unknown;
   beforeLoad?: unknown;
-  staticData?: unknown;
+  staticData: RouteStaticData;
   pendingComponent?: ComponentType;
   errorComponent?: ComponentType;
 }

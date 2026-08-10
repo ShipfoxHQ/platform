@@ -1,5 +1,5 @@
 import {Link, Outlet} from '@tanstack/react-router';
-import {screen} from '@testing-library/react';
+import {screen, within} from '@testing-library/react';
 import {defineClientFeature} from '#contract.js';
 import {renderComposedShell} from '#test/render.js';
 import {defineRoute} from './define-route.js';
@@ -54,32 +54,51 @@ describe('composed routes', () => {
     const features = [
       defineClientFeature({
         id: 'acme.admin',
-        layouts: [{id: 'acme.admin.layout', path: '/admin', parent: 'root', impl: 'layout'}],
+        layouts: [
+          {
+            id: 'acme.admin.layout',
+            path: '/w/$workspaceSlug/admin',
+            parent: 'workspaceLayout',
+            impl: 'layout',
+          },
+        ],
       }),
       defineClientFeature({
         id: 'acme.users',
-        routes: [{path: '/admin/users', parent: 'acme.admin.layout', impl: 'users'}],
+        routes: [
+          {
+            path: '/w/$workspaceSlug/admin/users',
+            parent: 'acme.admin.layout',
+            impl: 'users',
+          },
+        ],
         navigation: [
           {
             id: 'admin.users',
             scope: 'layout',
             layout: 'acme.admin.layout',
             label: 'Users',
-            to: '/admin/users',
+            to: '/w/$workspaceSlug/admin/users',
             order: 200,
           },
         ],
       }),
       defineClientFeature({
         id: 'acme.overview',
-        routes: [{path: '/admin/overview', parent: 'acme.admin.layout', impl: 'overview'}],
+        routes: [
+          {
+            path: '/w/$workspaceSlug/admin/overview',
+            parent: 'acme.admin.layout',
+            impl: 'overview',
+          },
+        ],
         navigation: [
           {
             id: 'admin.overview',
             scope: 'layout',
             layout: 'acme.admin.layout',
             label: 'Overview',
-            to: '/admin/overview',
+            to: '/w/$workspaceSlug/admin/overview',
             order: 100,
           },
         ],
@@ -88,11 +107,11 @@ describe('composed routes', () => {
 
     await renderComposedShell({
       features,
-      initialPath: '/admin/users',
+      initialPath: '/w/workspace/admin/users',
       resolveImpl: (specifier) => {
         if (specifier === 'layout') {
           return defineRoute({
-            staticData: {frame: 'content'},
+            staticData: {frame: 'data'},
             component: () => (
               <>
                 <nav aria-label="Administration sections">
@@ -114,11 +133,14 @@ describe('composed routes', () => {
       },
     });
 
-    expect((await screen.findAllByRole('link')).map((link) => link.textContent)).toEqual([
-      'Overview',
-      'Users',
-    ]);
+    const sectionLinks = within(
+      await screen.findByRole('navigation', {name: 'Administration sections'}),
+    ).getAllByRole('link');
+    expect(sectionLinks.map((link) => link.textContent)).toEqual(['Overview', 'Users']);
     expect(await screen.findByRole('heading', {name: 'users'})).toBeVisible();
+    const main = await screen.findByRole('main');
+    expect(main).toHaveClass('overflow-auto');
+    expect(main.firstElementChild).toHaveClass('max-w-[1120px]');
   });
 
   test.each([
@@ -176,7 +198,7 @@ describe('composed routes', () => {
       renderComposedShell({
         features: [feature],
         initialPath: '/w/workspace/default-frame',
-        resolveImpl: () => defineRoute({component: () => <h1>Missing frame</h1>}),
+        resolveImpl: () => defineRoute({component: () => <h1>Missing frame</h1>} as never),
       }),
     ).rejects.toThrow(
       'Route implementation "default" for "/w/$workspaceSlug/default-frame" must declare staticData.frame',

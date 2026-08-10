@@ -162,14 +162,12 @@ export default defineRoute({
   component: WorkflowsPage,
   loader: loadWorkflows,
   validateSearch: workflowsSearchSchema,
-  staticData: {frame: 'data'},
 });
 ```
 
 The route options support the TanStack behavior used by the current client: `component`, `loader`,
-`beforeLoad`, `validateSearch`, `staticData`, `pendingComponent`, and `errorComponent`. Composed route
-implementations must declare `staticData.frame` as `content`, `data`, or `focused`. The generated route
-supplies its path, parent, and router context.
+`beforeLoad`, `validateSearch`, `staticData`, `pendingComponent`, and `errorComponent`. The generated
+route supplies its path, parent, and router context.
 
 ### Paths and anchors
 
@@ -228,7 +226,7 @@ The generated file:
 - creates code-based routes below the shell anchors;
 - exports `routeTree` and `router`;
 - augments TanStack Router's `Register` with the consumer's router type; and
-- checks that each implementation is a `defineRoute()` result with a supported `staticData.frame`.
+- checks that each implementation is a `defineRoute()` result.
 
 Consumer-local generation preserves typed `Link`, `useParams`, and `useSearch` for upstream and
 external routes. The published shell must not augment `Register`, because different applications
@@ -371,7 +369,6 @@ id, key, or feature id.
 | UUID parameter after entity prefix | `Route "<path>" must place UUID parameter "<param>" after a page segment.` |
 | Route module not found | `Could not resolve route implementation "<specifier>" for "<path>".` |
 | Invalid route export | `Route implementation "<specifier>" for "<path>" must export default defineRoute(...).` |
-| Missing route frame | `Route implementation "<specifier>" for "<path>" must declare staticData.frame as "content", "data", or "focused".` |
 | Feature evaluation | `Failed to evaluate features module "<file>". Features modules must be Node-safe: <cause>` |
 | Invalid feature export | `Features module "<file>" must export a features array.` |
 

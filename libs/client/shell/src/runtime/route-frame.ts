@@ -1,3 +1,5 @@
+import {isRouteImpl, type RouteImpl} from './define-route.js';
+
 export const routeFrames = ['content', 'data', 'focused'] as const;
 
 export type RouteFrame = (typeof routeFrames)[number];
@@ -20,4 +22,17 @@ export function assertRouteFrame(
   throw new Error(
     `Route implementation "${impl}" for "${path}" must declare staticData.frame as "content", "data", or "focused".`,
   );
+}
+
+export function assertRouteImplFrame(
+  routeImpl: unknown,
+  impl: string,
+  path: string,
+): asserts routeImpl is RouteImpl {
+  if (!isRouteImpl(routeImpl)) {
+    throw new TypeError(
+      `Route implementation "${impl}" for "${path}" must export default defineRoute(...).`,
+    );
+  }
+  assertRouteFrame(routeImpl.options.staticData, impl, path);
 }
