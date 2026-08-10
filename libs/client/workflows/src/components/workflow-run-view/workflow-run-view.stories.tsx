@@ -3,17 +3,26 @@ import {configureApiClient} from '@shipfox/client-api';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {type ReactNode, useEffect, useState} from 'react';
-import {workflowJobDto, workflowRunDetailDto} from '#test/fixtures/workflow-run.js';
+import {
+  runAttemptsResponseDto,
+  workflowJobDto,
+  workflowRunDetailDto,
+} from '#test/fixtures/workflow-run.js';
 import {WorkflowRunView} from './workflow-run-view.js';
 
 const PROJECT_ID = '22222222-2222-4222-8222-222222222222';
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
+const RUN_STARTED_AT = '2026-06-26T11:57:00.000Z';
+const RUN_FINISHED_AT = '2026-06-26T11:59:00.000Z';
 
 const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
   id: RUN_ID,
   project_id: PROJECT_ID,
   name: 'deploy-web',
   status: 'succeeded',
+  started_at: RUN_STARTED_AT,
+  finished_at: RUN_FINISHED_AT,
+  has_started_job_execution: true,
   jobs: [
     workflowJobDto({
       key: 'build',
@@ -37,6 +46,7 @@ const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
     }),
   ],
 });
+const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({attempts: []});
 
 const withRunApi: Decorator = (Story) => (
   <RunWorkspaceStoryProviders>
@@ -80,10 +90,21 @@ function RunWorkspaceStoryProviders({children}: {children: ReactNode}) {
       fetchImpl: (input) => {
         const url =
           input instanceof Request ? input.url : input instanceof URL ? input.href : String(input);
-        const body = url.includes('/annotations')
-          ? {annotations: [], has_more: false, next_cursor: null}
-          : RUN_RESPONSE;
+        const path = new URL(url, 'https://api.example.test').pathname;
+        const isNotFound =
+          path !== '/annotations' &&
+          path !== `/workflows/runs/${RUN_ID}/attempts` &&
+          path !== `/workflows/runs/${RUN_ID}`;
+        const body =
+          path === '/annotations'
+            ? {annotations: [], has_more: false, next_cursor: null}
+            : path === `/workflows/runs/${RUN_ID}/attempts`
+              ? RUN_ATTEMPTS_RESPONSE
+              : path === `/workflows/runs/${RUN_ID}`
+                ? RUN_RESPONSE
+                : {code: 'not-found'};
         return new Response(JSON.stringify(body), {
+          status: isNotFound ? 404 : 200,
           headers: {'content-type': 'application/json'},
         });
       },
