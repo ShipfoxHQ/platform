@@ -199,6 +199,21 @@ describe('cleanupOrphanedJobLogs', () => {
   it('does not throw when the runner log root is missing', async () => {
     await expect(cleanupOrphanedJobLogs(root)).resolves.toBeUndefined();
   });
+
+  it('preserves a job directory while the job owns its log lock', async () => {
+    const logsRoot = join(root, '.shipfox-runner-logs');
+    const orphan = join(logsRoot, 'job-44444444-4444-4444-8444-444444444444');
+    await mkdir(orphan, {recursive: true});
+    await writeFile(join(orphan, 'setup.ndjson'), '{}\n');
+    await writeFile(`${orphan}.lock`, `${process.pid}\n`);
+
+    await cleanupOrphanedJobLogs(root);
+
+    expect((await stat(orphan)).isDirectory()).toBe(true);
+    await rm(`${orphan}.lock`, {force: true});
+    await cleanupOrphanedJobLogs(root);
+    await expect(stat(orphan)).rejects.toThrow();
+  });
 });
 
 describe('cleanupWorkspace', () => {

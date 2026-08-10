@@ -1,13 +1,15 @@
 import type {Dirent} from 'node:fs';
-import {mkdir, readdir, rm} from 'node:fs/promises';
+import {mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
-import {join, parse, resolve} from 'node:path';
+import {dirname, join, parse, resolve} from 'node:path';
 import {logger} from '@shipfox/node-opentelemetry';
 import {isUuid} from '@shipfox/regex';
 import {config} from '#config.js';
 
 const RUNNER_LOGS_DIR = '.shipfox-runner-logs';
 const RUNNER_CRED_DIR = '.shipfox-runner-cred';
+const JOB_LOG_LOCK_SUFFIX = '.lock';
+const JOB_LOG_LOCK_RETRY_MS = 10;
 
 /**
  * Thrown when `SHIPFOX_RUNNER_WORKSPACE_ROOT` resolves to a path we refuse to
@@ -111,7 +113,7 @@ export async function createJobDir(cwd: string): Promise<void> {
  * Resets the runner-owned log directory before a job can reuse it after a crash.
  */
 export async function createJobLogsDir(logsDir: string): Promise<void> {
-  await resetDir(logsDir);
+  await withJobLogLock(logsDir, true, () => resetDir(logsDir));
 }
 
 /**
@@ -137,8 +139,69 @@ export async function cleanupOrphanedJobLogs(root: string): Promise<void> {
           entry.name.startsWith('job-') &&
           isUuid(entry.name.slice('job-'.length)),
       )
-      .map((entry) => cleanupJobLogs(join(logsRoot, entry.name))),
+      .map((entry) =>
+        withJobLogLock(join(logsRoot, entry.name), false, () =>
+          cleanupJobLogs(join(logsRoot, entry.name)),
+        ),
+      ),
   );
+}
+
+/**
+ * Coordinates the asynchronous orphan sweep with setup's pre-clean. A sweep
+ * skips an active job, while setup waits for a sweep that already owns the
+ * lock before recreating the directory. The pid makes locks left by a crashed
+ * runner recoverable without weakening the mutual exclusion for live runners.
+ */
+async function withJobLogLock<T>(
+  logsDir: string,
+  waitForLock: boolean,
+  action: () => Promise<T>,
+): Promise<T | undefined> {
+  const lockPath = `${logsDir}${JOB_LOG_LOCK_SUFFIX}`;
+  await mkdir(dirname(logsDir), {recursive: true});
+
+  while (true) {
+    try {
+      await writeFile(lockPath, `${process.pid}\n`, {flag: 'wx'});
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+
+      if (await isStaleJobLogLock(lockPath)) {
+        await rm(lockPath, {force: true});
+        continue;
+      }
+      if (!waitForLock) return undefined;
+
+      await new Promise((resolve) => setTimeout(resolve, JOB_LOG_LOCK_RETRY_MS));
+    }
+  }
+
+  try {
+    return await action();
+  } finally {
+    await rm(lockPath, {force: true});
+  }
+}
+
+async function isStaleJobLogLock(lockPath: string): Promise<boolean> {
+  let raw: string;
+  try {
+    raw = await readFile(lockPath, 'utf8');
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+
+  const pid = Number(raw.trim());
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ESRCH';
+  }
 }
 
 /**

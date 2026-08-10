@@ -428,13 +428,18 @@ describe('startRunner', () => {
     vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
     mockRunnerStartupMode.mockReturnValue('managed');
 
+    let cleanupSettled = false;
     let finishCleanup!: () => void;
     mockCleanupOrphanedJobLogs.mockReturnValue(
       new Promise<void>((resolve) => {
-        finishCleanup = resolve;
+        finishCleanup = () => {
+          cleanupSettled = true;
+          resolve();
+        };
       }),
     );
     mockExchangeRunnerBootstrapToken.mockImplementation(() => {
+      expect(cleanupSettled).toBe(false);
       finishCleanup();
       return Promise.resolve({controlSessionToken: 'control-token'});
     });
@@ -448,6 +453,27 @@ describe('startRunner', () => {
     expect(mockCleanupOrphanedJobLogs.mock.invocationCallOrder[0]).toBeLessThan(
       mockExchangeRunnerBootstrapToken.mock.invocationCallOrder[0] ?? Infinity,
     );
+  });
+
+  it('warns when orphan log cleanup fails without blocking managed bootstrap', async () => {
+    const warn = vi.spyOn(logger(), 'warn').mockImplementation(() => undefined);
+    const cleanupError = new Error('permission denied');
+    vi.stubEnv('SHIPFOX_RUNNER_BOOTSTRAP_TOKEN', 'sf_rbt_bootstrap-token');
+    vi.stubEnv('SHIPFOX_RUNNER_PROVIDER_KIND', 'ec2');
+    vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
+    mockRunnerStartupMode.mockReturnValue('managed');
+    mockCleanupOrphanedJobLogs.mockRejectedValue(cleanupError);
+    mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
+    mockEnrollRunnerControlSession.mockResolvedValue('activation-token');
+    mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
+
+    await startRunner();
+
+    expect(warn).toHaveBeenCalledWith(
+      {err: cleanupError, workspaceRoot: WORKSPACE_ROOT},
+      'Failed to sweep orphaned job logs',
+    );
+    expect(mockExchangeRunnerBootstrapToken).toHaveBeenCalledWith('sf_rbt_bootstrap-token');
   });
 
   it('enrolls, waits, activates, and uses the activation session for managed runners', async () => {
@@ -496,10 +522,19 @@ describe('startRunner', () => {
     expect(bootTimelineCalls).toHaveLength(1);
     expect(bootTimelineCalls[0]?.[0]).toEqual(
       expect.objectContaining({
-        boot_timeline_version: 1,
+        boot_timeline_version: 2,
         telemetry_state: expect.any(String),
+        process_entry_uptime_seconds: expect.any(Number),
+        runner_started_uptime_seconds: expect.any(Number),
+        bootstrap_exchange_uptime_seconds: expect.any(Number),
         provider_kind: 'ec2',
       }),
+    );
+    const activationCall = info.mock.calls.find(
+      ([, message]) => message === 'Managed runner activated',
+    );
+    expect(activationCall?.[0]).toEqual(
+      expect.objectContaining({activation_uptime_seconds: expect.any(Number)}),
     );
     const bootTimelineCallIndex = info.mock.calls.findIndex(
       ([, message]) => message === 'runner.boot_timeline',

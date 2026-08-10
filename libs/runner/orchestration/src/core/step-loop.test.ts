@@ -1,6 +1,7 @@
 import type {AgentConfigIssueDto, NextStepResponseDto, StepDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {HTTPError} from 'ky';
+import type {RunnerAgentStepModule} from '#core/step-loop.js';
 
 const {AgentRuntimeConfigRequestError, StepSecretsRequestError, resolveWorkingDirectoryMock} =
   vi.hoisted(() => ({
@@ -50,9 +51,6 @@ const createStepLogStreamMock = vi.fn();
 const createSessionLogStreamMock = vi.fn();
 const executeAgentStepMock = vi.fn();
 const createJobLogsDirMock = vi.fn();
-const {agentStepModuleEvaluated} = vi.hoisted(() => ({
-  agentStepModuleEvaluated: {value: false},
-}));
 
 vi.mock('@shipfox/runner-protocol', () => ({
   requestNextStep: (...args: unknown[]) => requestNextStepMock(...args),
@@ -84,7 +82,6 @@ vi.mock('@shipfox/runner-logs', async () => {
 });
 
 vi.mock('@shipfox/runner-agent/step', () => {
-  agentStepModuleEvaluated.value = true;
   return {
     executeAgentStep: (...args: unknown[]) => executeAgentStepMock(...args),
   };
@@ -96,8 +93,14 @@ vi.mock('@shipfox/runner-workspace', () => ({
     resolveWorkingDirectoryMock(cwd, workingDirectory),
 }));
 
-const {executeStep, pullNextStep, publishStepAnnotations, reportStepResult, runJobSteps} =
-  await import('#core/step-loop.js');
+const {
+  createRunnerAgentStepLoader,
+  executeStep,
+  pullNextStep,
+  publishStepAnnotations,
+  reportStepResult,
+  runJobSteps,
+} = await import('#core/step-loop.js');
 
 const JOB_ID = '00000000-0000-0000-0000-0000000000aa';
 const RUN_ID = '00000000-0000-0000-0000-0000000000ab';
@@ -269,7 +272,7 @@ describe('runJobSteps', () => {
     vi.restoreAllMocks();
   });
 
-  it('does not load the agent step module for a shell-only job', async () => {
+  it('does not execute the agent module for a shell-only job', async () => {
     const setup = buildSetupStep();
     const run = buildRunStep();
     requestNextStepMock
@@ -281,8 +284,34 @@ describe('runJobSteps', () => {
 
     await runLoop({signal: ac.signal});
 
-    expect(agentStepModuleEvaluated.value).toBe(false);
     expect(executeAgentStepMock).not.toHaveBeenCalled();
+  });
+
+  it('loads the agent module once and reuses the fulfilled promise', async () => {
+    const agentStepModule = {} as RunnerAgentStepModule;
+    const importAgentStep = vi.fn<() => Promise<RunnerAgentStepModule>>();
+    importAgentStep.mockResolvedValue(agentStepModule);
+    const loadRunnerAgentStep = createRunnerAgentStepLoader(importAgentStep);
+
+    await expect(loadRunnerAgentStep()).resolves.toBe(agentStepModule);
+    await expect(loadRunnerAgentStep()).resolves.toBe(agentStepModule);
+
+    expect(importAgentStep).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears a rejected agent module import so the next job can retry', async () => {
+    const agentStepModule = {} as RunnerAgentStepModule;
+    const importError = new Error('agent module unavailable');
+    const importAgentStep = vi
+      .fn<() => Promise<RunnerAgentStepModule>>()
+      .mockRejectedValueOnce(importError)
+      .mockResolvedValueOnce(agentStepModule);
+    const loadRunnerAgentStep = createRunnerAgentStepLoader(importAgentStep);
+
+    await expect(loadRunnerAgentStep()).rejects.toBe(importError);
+    await expect(loadRunnerAgentStep()).resolves.toBe(agentStepModule);
+
+    expect(importAgentStep).toHaveBeenCalledTimes(2);
   });
 
   it('runs the setup step then a run step against the prepared cwd, reporting both', async () => {

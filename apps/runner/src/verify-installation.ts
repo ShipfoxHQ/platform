@@ -1,4 +1,21 @@
+import {createRequire} from 'node:module';
 import {assertPiHarnessExtensionsAvailable} from '@shipfox/runner-agent/pi-extensions';
+
+const require = createRequire(import.meta.url);
+const RUNNER_AGENT_RUNTIME_EXPORTS = [
+  '@shipfox/runner-agent/pi-extensions',
+  '@shipfox/runner-agent/tool-capabilities',
+  '@shipfox/runner-agent/step',
+] as const;
+
+for (const specifier of RUNNER_AGENT_RUNTIME_EXPORTS) {
+  try {
+    require.resolve(specifier);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to resolve runner agent export "${specifier}": ${reason}`);
+  }
+}
 
 // Runs during the container and AMI image builds, against the deployed production closure rather
 // than the pnpm development tree. Imports the leaf module, not a package barrel: the runner barrels

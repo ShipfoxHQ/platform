@@ -7,7 +7,8 @@ const PROCESS_STAT_PATH = '/proc/self/stat';
 const SYSTEMD_STAT_PATH = '/proc/1/stat';
 const UPTIME_PATH = '/proc/uptime';
 const SYSTEM_CLOCK_TICKS_PER_SECOND = 100;
-const BOOT_TIMELINE_VERSION = 1 as const;
+// Version 2 names runner phase samples in the process.uptime() time base.
+const BOOT_TIMELINE_VERSION = 2 as const;
 const ROOT_DEVICE_PATTERN = /^[a-zA-Z0-9._-]+$/u;
 const IMAGE_REVISION_PATTERN = /^[a-zA-Z0-9._-]+$/u;
 const WHITESPACE_PATTERN = /\s+/u;
@@ -30,13 +31,13 @@ type EnrollmentSample = {
 };
 
 type RunnerBootPhase =
-  | 'runner_started_offset_seconds'
-  | 'bootstrap_exchange_offset_seconds'
-  | 'activation_offset_seconds'
-  | 'first_claim_offset_seconds';
+  | 'runner_started_uptime_seconds'
+  | 'bootstrap_exchange_uptime_seconds'
+  | 'activation_uptime_seconds'
+  | 'first_claim_uptime_seconds';
 
 type RunnerBootPhaseFields = {
-  process_entry_offset_seconds: number;
+  process_entry_uptime_seconds: number;
 } & Partial<Record<RunnerBootPhase, number>>;
 
 export type BootTimelineFields = {
@@ -237,10 +238,13 @@ export function createBootTimelineCollector(read: ReadText = readText) {
   };
 }
 
-/** Records process-monotonic offsets for the phases that surround runner enrollment. */
-export function createRunnerBootPhaseTimeline(now: () => number = () => process.uptime()) {
+/** Records process-uptime samples for the phases that surround runner enrollment. */
+export function createRunnerBootPhaseTimeline(
+  now: () => number = () => process.uptime(),
+  processEntryUptimeSeconds = now(),
+) {
   const fields: RunnerBootPhaseFields = {
-    process_entry_offset_seconds: now(),
+    process_entry_uptime_seconds: processEntryUptimeSeconds,
   };
 
   return {

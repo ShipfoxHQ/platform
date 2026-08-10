@@ -1071,6 +1071,20 @@ describe('systemd boot activation', () => {
   });
 });
 
+describe('runner container entrypoint', () => {
+  it('starts the compiled runner and verifies its production closure', async () => {
+    const dockerfile = await readFile(
+      new URL('../../../../apps/runner/Dockerfile', import.meta.url),
+      'utf8',
+    );
+
+    expect(dockerfile).toContain('RUN node ./dist/verify-installation.js');
+    expect(dockerfile).toContain('ENTRYPOINT ["tini", "--"]');
+    expect(dockerfile).toContain('CMD ["node", "./dist/index.js"]');
+    expect(dockerfile).not.toContain('--enable-source-maps');
+  });
+});
+
 describe('runner boot configuration', () => {
   const script = new URL('../scripts/build/configure-boot.sh', import.meta.url);
 

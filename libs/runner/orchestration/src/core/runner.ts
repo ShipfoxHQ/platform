@@ -46,7 +46,8 @@ import {runJobSteps} from '#core/step-loop.js';
 let running = true;
 let warnedAboutUnavailablePiExtensions = false;
 const bootTimeline = createBootTimelineCollector();
-const bootPhaseTimeline = createRunnerBootPhaseTimeline();
+type RunnerBootPhaseTimeline = ReturnType<typeof createRunnerBootPhaseTimeline>;
+let bootPhaseTimeline: RunnerBootPhaseTimeline | undefined;
 // Module-level so the long-lived SIGINT handler can reach the in-flight job's
 // controller; locally-scoped capture isn't possible from a process-global handler.
 let currentJobAbortController: AbortController | undefined;
@@ -63,10 +64,13 @@ const shutdownController = createGracefulShutdownController({
   },
 });
 
-export async function startRunner(): Promise<void> {
+export async function startRunner(
+  options: {processEntryUptimeSeconds?: number} = {},
+): Promise<void> {
   running = true;
   shutdownController.reset();
   shutdownController.start();
+  const runnerBootPhaseTimeline = getRunnerBootPhaseTimeline(options.processEntryUptimeSeconds);
 
   // Fail fast at startup: a dangerous root should crash the process at deploy,
   // not silently fail every job.
@@ -78,10 +82,10 @@ export async function startRunner(): Promise<void> {
   warnAboutUnavailablePiExtensions();
   const startupMode = runnerStartupMode();
 
-  bootPhaseTimeline.mark('runner_started_offset_seconds');
+  runnerBootPhaseTimeline.mark('runner_started_uptime_seconds');
   logger().info(
     {
-      ...bootPhaseTimeline.snapshot(),
+      ...runnerBootPhaseTimeline.snapshot(),
       pollInterval: config.SHIPFOX_POLL_INTERVAL_MS,
       pollMaxDuration: config.SHIPFOX_POLL_MAX_DURATION_MS,
       workspaceRoot,
@@ -92,7 +96,7 @@ export async function startRunner(): Promise<void> {
   let currentInterval = config.SHIPFOX_POLL_INTERVAL_MS;
   let runnerSession: RunnerSession | undefined;
   if (startupMode === 'managed') {
-    runnerSession = await initializeManagedRunnerSession();
+    runnerSession = await initializeManagedRunnerSession(runnerBootPhaseTimeline);
     if (!runnerSession) return;
   } else {
     await interruptableSleep(withJitter(config.SHIPFOX_POLL_INTERVAL_MS));
@@ -121,10 +125,10 @@ export async function startRunner(): Promise<void> {
 
       if (!running) return;
 
-      bootPhaseTimeline.mark('first_claim_offset_seconds');
+      runnerBootPhaseTimeline.mark('first_claim_uptime_seconds');
       logger().info(
         {
-          ...bootPhaseTimeline.snapshot(),
+          ...runnerBootPhaseTimeline.snapshot(),
           workflowRunId: job.workflow_run_id,
           workflowRunAttemptId: job.workflow_run_attempt_id,
           jobId: job.job_id,
@@ -300,10 +304,12 @@ export async function runJob(
   }
 }
 
-async function initializeManagedRunnerSession(): Promise<RunnerSession | undefined> {
+async function initializeManagedRunnerSession(
+  runnerBootPhaseTimeline: RunnerBootPhaseTimeline,
+): Promise<RunnerSession | undefined> {
   const bootstrapToken = consumeManagedRunnerBootstrapToken();
   const exchanged = await exchangeRunnerBootstrapToken(bootstrapToken);
-  bootPhaseTimeline.mark('bootstrap_exchange_offset_seconds');
+  runnerBootPhaseTimeline.mark('bootstrap_exchange_uptime_seconds');
   const controlSessionToken = exchanged.controlSessionToken;
   const enrollmentConfig = managedRunnerEnrollmentConfig();
   const enrollmentActivationToken = await enrollRunnerControlSession({
@@ -315,7 +321,7 @@ async function initializeManagedRunnerSession(): Promise<RunnerSession | undefin
   logger().info(
     {
       ...bootTimeline.createEvent(bootTimeline.captureEnrollment()),
-      ...bootPhaseTimeline.snapshot(),
+      ...runnerBootPhaseTimeline.snapshot(),
       provider_kind: enrollmentConfig.providerKind,
     },
     'runner.boot_timeline',
@@ -328,12 +334,24 @@ async function initializeManagedRunnerSession(): Promise<RunnerSession | undefin
     capabilities: runnerToolCapabilities(),
     registrationToken: activationToken,
   });
-  bootPhaseTimeline.mark('activation_offset_seconds');
+  runnerBootPhaseTimeline.mark('activation_uptime_seconds');
   logger().info(
-    {...bootPhaseTimeline.snapshot(), runnerSessionId: runnerSession.session_id},
+    {...runnerBootPhaseTimeline.snapshot(), runnerSessionId: runnerSession.session_id},
     'Managed runner activated',
   );
   return runnerSession;
+}
+
+function getRunnerBootPhaseTimeline(
+  processEntryUptimeSeconds: number | undefined,
+): RunnerBootPhaseTimeline {
+  if (bootPhaseTimeline !== undefined) return bootPhaseTimeline;
+
+  bootPhaseTimeline = createRunnerBootPhaseTimeline(
+    () => process.uptime(),
+    processEntryUptimeSeconds,
+  );
+  return bootPhaseTimeline;
 }
 
 async function waitForRunnerActivation(controlSessionToken: string): Promise<string | undefined> {
