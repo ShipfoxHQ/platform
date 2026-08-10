@@ -12,6 +12,7 @@ import type {
 } from '#core/entities/provisioner-token.js';
 import {ProvisionerAdminIdempotencyKeyReuseError} from '#core/errors.js';
 import {db} from './db.js';
+import {releaseTerminalRunnerInstanceReservationsByIds} from './reservations.js';
 import {runnersAdminCommandResults} from './schema/admin-command-results.js';
 import {runnersOutbox} from './schema/outbox.js';
 import {provisionerTokens, toProvisionerToken} from './schema/provisioner-tokens.js';
@@ -62,7 +63,7 @@ async function cascadeProvisionerRevocation(tx: Tx, provisionerId: string) {
         ),
       ),
     );
-  await tx
+  const terminatedRows = await tx
     .update(providerRunners)
     .set({state: 'terminated', terminatedAt: sql`now()`, updatedAt: sql`now()`})
     .where(
@@ -70,7 +71,17 @@ async function cascadeProvisionerRevocation(tx: Tx, provisionerId: string) {
         eq(providerRunners.provisionerId, provisionerId),
         isNull(providerRunners.runnerSessionId),
       ),
-    );
+    )
+    .returning({id: providerRunners.id});
+  const runnerInstanceIds = terminatedRows.map((row) => row.id);
+  if (runnerInstanceIds.length > 0) {
+    await releaseTerminalRunnerInstanceReservationsByIds(tx, {
+      workspaceId: null,
+      provisionerId,
+      runnerInstanceIds,
+      requireUnlinkedSession: false,
+    });
+  }
   await tx
     .update(runnerSessions)
     .set({revokedAt: sql`now()`})

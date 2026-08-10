@@ -165,6 +165,7 @@ export async function assignRunnerInstancesTx(
           and(
             eq(providerRunners.reservationId, reservation.id),
             isNull(providerRunners.reservationReleasedAt),
+            notInArray(providerRunners.state, [...terminalStates]),
           ),
           and(
             eq(providerRunners.intendedReservationId, reservation.id),
@@ -308,7 +309,6 @@ export async function validateRunnerReservationCapacityTx(
       id: providerRunners.id,
       reservationId: providerRunners.reservationId,
       intendedReservationId: providerRunners.intendedReservationId,
-      state: providerRunners.state,
     })
     .from(providerRunners)
     .where(
@@ -316,7 +316,10 @@ export async function validateRunnerReservationCapacityTx(
         eq(providerRunners.provisionerId, params.provisionerId),
         isNull(providerRunners.reservationReleasedAt),
         or(
-          inArray(providerRunners.reservationId, reservationIds),
+          and(
+            inArray(providerRunners.reservationId, reservationIds),
+            notInArray(providerRunners.state, [...terminalStates]),
+          ),
           and(
             inArray(providerRunners.intendedReservationId, reservationIds),
             notInArray(providerRunners.state, [...terminalStates]),
@@ -331,11 +334,7 @@ export async function validateRunnerReservationCapacityTx(
       usedRunnerIds.add(runner.id);
       usedRunnerIdsByReservation.set(runner.reservationId, usedRunnerIds);
     }
-    if (
-      runner.intendedReservationId &&
-      requestedReservationIds.has(runner.intendedReservationId) &&
-      !terminalStates.includes(runner.state as (typeof terminalStates)[number])
-    ) {
+    if (runner.intendedReservationId && requestedReservationIds.has(runner.intendedReservationId)) {
       const usedRunnerIds =
         usedRunnerIdsByReservation.get(runner.intendedReservationId) ?? new Set<string>();
       usedRunnerIds.add(runner.id);

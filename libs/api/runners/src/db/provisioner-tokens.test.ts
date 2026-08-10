@@ -10,6 +10,7 @@ import {
   touchProvisionerLastSeen,
 } from '#db/provisioner-tokens.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
+import {reservations} from '#db/schema/reservations.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
 import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
@@ -105,10 +106,22 @@ describe('provisioner token db', () => {
   it("cascades revocation to the provisioner's unclaimed runner credentials and sessions", async () => {
     const workspaceId = crypto.randomUUID();
     const provisioner = await provisionerTokenFactory.create({workspaceId});
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId: provisioner.id,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Expected reservation');
     const runner = await providerRunnerFactory.create({
       workspaceId,
       provisionerId: provisioner.id,
       runnerSessionId: null,
+      reservationId: reservation.id,
     });
     const future = new Date(Date.now() + 60_000);
     const tokenValue = (name: string) => hashOpaqueToken(`${name}-${crypto.randomUUID()}`);
@@ -192,6 +205,10 @@ describe('provisioner token db', () => {
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.id));
+    const [releasedReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, reservation.id));
     const [revokedSession] = await db()
       .select()
       .from(runnerSessions)
@@ -207,6 +224,8 @@ describe('provisioner token db', () => {
     expect(activation?.revokedAt).toBeInstanceOf(Date);
     expect(terminatedRunner).toMatchObject({state: 'terminated'});
     expect(terminatedRunner?.terminatedAt).toBeInstanceOf(Date);
+    expect(terminatedRunner?.reservationReleasedAt).toBeInstanceOf(Date);
+    expect(releasedReservation).toBeUndefined();
     expect(revokedSession?.revokedAt).toBeInstanceOf(Date);
     expect(preservedSession?.revokedAt).toBeNull();
   });

@@ -3,6 +3,10 @@ import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {createRunnerSessionConsumingEphemeralToken} from '#db/ephemeral-registration-tokens.js';
 import {
+  pollDemandAndReserve,
+  releaseTerminalRunnerInstanceReservationsByIds,
+} from '#db/reservations.js';
+import {
   attachRunnerInstanceProviderId,
   countStaleEnrolledRunnerInstances,
   listActiveRunnerInstanceCountsByTemplateTx,
@@ -22,6 +26,7 @@ import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
 import {
   ephemeralRegistrationTokenFactory,
+  pendingJobFactory,
   providerRunnerFactory,
   provisionerTokenFactory,
   reservationFactory,
@@ -219,6 +224,39 @@ describe('reportRunnerInstances', () => {
     const rows = await providerRunnerRowsFor({workspaceId, provisionerId});
     expect(rows[0]?.state).toBe('failed');
     expect(rows[0]?.reason).toBe('late stale failure');
+  });
+
+  it('does not release a reservation for a terminal report older than the projection', async () => {
+    const reservationId = await createReservation(1);
+    const currentReportedAt = new Date('2025-01-01T00:01:00.000Z');
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'stale-terminal-runner',
+      reservationId,
+      state: 'running',
+      reportedAt: currentReportedAt,
+    });
+
+    const result = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: 'stale-terminal-runner',
+          reservationId,
+          state: 'failed',
+          reportedAt: new Date(currentReportedAt.getTime() - 1_000),
+        }),
+      ],
+    });
+
+    const [providerRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+    const [reservation] = await reservationRowsFor({workspaceId, provisionerId});
+    expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
+    expect(providerRunner).toMatchObject({state: 'failed', reservationReleasedAt: null});
+    expect(reservation?.count).toBe(1);
   });
 
   it('rejects older out-of-order events in the same lifecycle state', async () => {
@@ -1036,8 +1074,16 @@ describe('reportRunnerInstances', () => {
     expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
-  it('does not release a reservation for a provisioned runner that already has a runner session', async () => {
+  it('releases a reservation for a provisioned runner that already has a runner session', async () => {
     const reservationId = await createReservation(1);
+    const runnerSession = await runnerSessionFactory.create({workspaceId});
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      reservationId,
+      state: 'running',
+    });
 
     const result = await reportRunnerInstances({
       scope: 'workspace',
@@ -1048,16 +1094,55 @@ describe('reportRunnerInstances', () => {
           providerRunnerId: 'provisioned-runner-1',
           reservationId,
           state: 'failed',
-          runnerSessionId: crypto.randomUUID(),
+          runnerSessionId: runnerSession.id,
         }),
       ],
     });
 
     const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
     const providerRunnerRows = await providerRunnerRowsFor({workspaceId, provisionerId});
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(reservationRows).toHaveLength(0);
+    expect(providerRunnerRows[0]?.runnerSessionId).toBe(runnerSession.id);
+    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
+  });
+
+  it('keeps a reservation while a terminal runner still has a running job', async () => {
+    const reservationId = await createReservation(1);
+    const runnerSession = await runnerSessionFactory.create({workspaceId});
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'busy-terminal-runner',
+      reservationId,
+      runnerSessionId: runnerSession.id,
+      state: 'running',
+    });
+    await insertRunningJobRow({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'busy-terminal-runner',
+    });
+
+    const result = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: 'busy-terminal-runner',
+          reservationId,
+          state: 'failed',
+          runnerSessionId: runnerSession.id,
+        }),
+      ],
+    });
+
+    const [providerRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+    const [reservation] = await reservationRowsFor({workspaceId, provisionerId});
     expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
-    expect(reservationRows[0]?.count).toBe(1);
-    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeNull();
+    expect(providerRunner).toMatchObject({state: 'failed', reservationReleasedAt: null});
+    expect(reservation?.count).toBe(1);
   });
 
   it('uses the consumed ephemeral token session before releasing a terminal report', async () => {
@@ -1067,6 +1152,13 @@ describe('reportRunnerInstances', () => {
       provisionerId,
       reservationId,
       providerRunnerId: 'provisioned-runner-1',
+    });
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      reservationId,
+      state: 'running',
     });
     const session = await createRunnerSessionConsumingEphemeralToken({
       ephemeralTokenId: token.id,
@@ -1091,16 +1183,24 @@ describe('reportRunnerInstances', () => {
 
     const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
     const providerRunnerRows = await providerRunnerRowsFor({workspaceId, provisionerId});
-    expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
-    expect(reservationRows[0]?.count).toBe(1);
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(reservationRows).toHaveLength(0);
     expect(providerRunnerRows[0]?.runnerSessionId).toBe(session.id);
-    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeNull();
+    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
   it('preserves claimed runner session metadata when a terminal state wins the batch', async () => {
     const reservationId = await createReservation(1);
     const runnerSessionId = crypto.randomUUID();
     const reportedAt = new Date('2025-01-01T00:00:00.000Z');
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      reservationId,
+      state: 'running',
+      reportedAt: new Date(reportedAt.getTime() - 1_000),
+    });
 
     const result = await reportRunnerInstances({
       scope: 'workspace',
@@ -1125,11 +1225,11 @@ describe('reportRunnerInstances', () => {
 
     const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
     const providerRunnerRows = await providerRunnerRowsFor({workspaceId, provisionerId});
-    expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
-    expect(reservationRows[0]?.count).toBe(1);
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(reservationRows).toHaveLength(0);
     expect(providerRunnerRows[0]?.state).toBe('failed');
     expect(providerRunnerRows[0]?.runnerSessionId).toBe(runnerSessionId);
-    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeNull();
+    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
   it('returns honored terminate intents only for the first active-to-terminated transition', async () => {
@@ -1642,7 +1742,6 @@ describe('reapStaleRunnerInstances', () => {
       .values({
         provisionerId: installationProvisioner.id,
         intendedReservationId: reservation.id,
-        providerRunnerId: 'stale-installation-runner-with-reservation',
         state: 'starting',
         reportedAt: staleAt(),
         updatedAt: staleAt(),
@@ -1746,6 +1845,30 @@ describe('reapStaleRunnerInstances', () => {
     expect(reservationRows.find((row) => row.id === reservationId)).toBeUndefined();
   });
 
+  it('drains stale terminal rows with unreleased session-linked reservations', async () => {
+    const reservationId = await createReservation(1);
+    const session = await createLinkedSession({
+      providerRunnerId: 'legacy-terminal-runner',
+      updatedAt: staleAt(),
+    });
+    await createRunnerInstance({
+      providerRunnerId: 'legacy-terminal-runner',
+      reservationId,
+      runnerSessionId: session.id,
+      state: 'failed',
+      reportedAt: staleAt(),
+      updatedAt: staleAt(),
+    });
+
+    const result = await reapStaleRunnerInstances({thresholdSeconds: 60, limit: 100});
+
+    const [providerRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+    const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
+    expect(result).toEqual({reaped: 0, reservationsReleased: 1});
+    expect(providerRunner?.reservationReleasedAt).toBeInstanceOf(Date);
+    expect(reservationRows).toHaveLength(0);
+  });
+
   it('flags expired releases and drains only the configured batch size', async () => {
     const activeReservationId = await createReservation(2);
     const expiredReservationId = await createReservation(1, {
@@ -1784,6 +1907,52 @@ describe('reapStaleRunnerInstances', () => {
         .filter((row) => row.reservationId)
         .every((row) => row.reservationReleasedAt instanceof Date),
     ).toBe(true);
+  });
+
+  it('waits for reservation assignment locks before releasing terminal runners', async () => {
+    const reservationId = await createReservation(1);
+    const runner = await createRunnerInstance({
+      providerRunnerId: 'terminal-assignment-race',
+      reservationId,
+      state: 'failed',
+      reportedAt: staleAt(),
+      updatedAt: staleAt(),
+    });
+    const releaseLock = deferred<void>();
+    const lockHolderReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${provisionerId}:${reservationId}`}))`,
+      );
+      lockHolderReady.resolve();
+      await releaseLock.promise;
+    });
+
+    const cleanup = (async () => {
+      await lockHolderReady.promise;
+      return await db().transaction((tx) =>
+        releaseTerminalRunnerInstanceReservationsByIds(tx, {
+          workspaceId,
+          provisionerId,
+          runnerInstanceIds: [runner.id],
+          requireUnlinkedSession: false,
+        }),
+      );
+    })();
+
+    try {
+      await waitForLockWait({queryLike: '%pg_advisory_xact_lock%'});
+      const [beforeRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+      const [beforeReservation] = await reservationRowsFor({workspaceId, provisionerId});
+      expect(beforeRunner?.reservationReleasedAt).toBeNull();
+      expect(beforeReservation?.count).toBe(1);
+    } finally {
+      releaseLock.resolve();
+      await Promise.all([cleanup, lockHolder]);
+    }
+
+    const [providerRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+    expect(providerRunner?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
   it('does not double-release reservations when terminal report and reaper queue on the workspace lock', async () => {
@@ -1971,6 +2140,58 @@ describe('reconcileRunnerInstances', () => {
     expect(providerRunner?.state).toBe('terminated');
     expect(providerRunner?.terminatedAt).toBeInstanceOf(Date);
     expect(reservation?.count).toBe(1);
+  });
+
+  it('releases reservations when reconciling stale installation runners', async () => {
+    const reservationWorkspaceId = crypto.randomUUID();
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId: reservationWorkspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Expected reservation');
+    const [runner] = await db()
+      .insert(providerRunners)
+      .values({
+        workspaceId: null,
+        provisionerId,
+        providerRunnerId: 'stale-installation-runner',
+        reservationId: reservation.id,
+        runnerSessionId: crypto.randomUUID(),
+        state: 'running',
+        reportedAt: staleReportedAt(),
+        updatedAt: staleReportedAt(),
+      })
+      .returning({id: providerRunners.id});
+    if (!runner) throw new Error('Expected runner');
+
+    const result = await reconcileRunnerInstances({
+      workspaceId: null,
+      provisionerId,
+      observedRunnerInstanceIds: ['observed-runner'],
+      terminateGraceSeconds: 60,
+    });
+
+    const [providerRunner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    const [remainingReservation] = await db()
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, reservation.id));
+    expect(result).toMatchObject({
+      absentIds: ['stale-installation-runner'],
+      reservationsReleased: 1,
+    });
+    expect(providerRunner).toMatchObject({state: 'terminated'});
+    expect(providerRunner?.reservationReleasedAt).toBeInstanceOf(Date);
+    expect(remainingReservation).toBeUndefined();
   });
 
   it('treats an empty observed set as read-only', async () => {
@@ -2219,8 +2440,9 @@ describe('reconcileRunnerInstances', () => {
     ]);
   });
 
-  it('terminates session-bound absent runners without releasing their reservation', async () => {
+  it('terminates session-bound absent runners and releases their reservation', async () => {
     const reservationId = await createReservation(1);
+    await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
     await createRunnerInstance({
       providerRunnerId: 'provisioned-runner-1',
       reservationId,
@@ -2237,10 +2459,23 @@ describe('reconcileRunnerInstances', () => {
 
     const [providerRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
     const [reservation] = await reservationRowsFor({workspaceId, provisionerId});
-    expect(result.reservationsReleased).toBe(0);
+    expect(result.reservationsReleased).toBe(1);
     expect(providerRunner?.state).toBe('terminated');
-    expect(providerRunner?.reservationReleasedAt).toBeNull();
-    expect(reservation?.count).toBe(1);
+    expect(providerRunner?.reservationReleasedAt).toBeInstanceOf(Date);
+    expect(reservation).toBeUndefined();
+
+    const poll = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [
+        {templateKey: 'linux', labels: ['linux'], availableSlots: 1, starting: 0, running: 0},
+      ],
+    });
+    expect(poll.reservations).toHaveLength(1);
+    expect(poll.reservations[0]?.count).toBe(1);
+    expect(poll.stats[0]).toMatchObject({labels: ['linux'], queued: 1, reserved: 1});
   });
 
   it('returns a deterministic newest running job execution bound to an observed provisioned runner', async () => {

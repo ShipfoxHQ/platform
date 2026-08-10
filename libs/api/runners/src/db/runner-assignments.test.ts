@@ -304,6 +304,26 @@ describe('assignRunnerInstances', () => {
     ).resolves.toEqual([runner.id]);
   });
 
+  it('does not charge capacity for a terminal reservation assignment before release bookkeeping', async () => {
+    const reservation = await createReservation();
+    await db().insert(providerRunners).values({
+      provisionerId,
+      reservationId: reservation.id,
+      providerRunnerId: crypto.randomUUID(),
+      state: 'failed',
+      reportedAt: new Date(),
+    });
+    const runner = await createEnrolledRunner();
+
+    await expect(
+      assignRunnerInstances({
+        provisionerId,
+        reservationId: reservation.id,
+        runnerInstanceIds: [runner.id],
+      }),
+    ).resolves.toEqual([runner.id]);
+  });
+
   async function createReservation(
     overrides: Partial<{expiresAt: Date; requiredLabels: string[]; kind: 'bound' | 'launch'}> = {},
   ) {
