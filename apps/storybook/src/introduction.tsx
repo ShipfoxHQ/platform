@@ -64,7 +64,7 @@ export function IntroductionPage() {
   }, []);
 
   return (
-    <main className="min-h-dvh bg-background-neutral-background px-24 py-48">
+    <main className="min-h-dvh bg-background-subtle-base px-24 py-48">
       <div className="mx-auto flex max-w-[960px] flex-col gap-32">
         <header className="max-w-[720px]">
           <Code variant="label" bold className="text-foreground-neutral-muted">

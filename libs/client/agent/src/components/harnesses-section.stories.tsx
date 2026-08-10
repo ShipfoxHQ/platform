@@ -33,7 +33,7 @@ function HarnessesStory({scenario}: HarnessesStoryProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="mx-auto w-full max-w-[760px] bg-background-neutral-background p-24">
+      <div className="mx-auto w-full max-w-[760px] bg-background-subtle-base p-24">
         <WorkspaceHarnessesSection workspaceId={WORKSPACE_ID} />
       </div>
       <Toaster />

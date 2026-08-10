@@ -105,7 +105,7 @@ function ModelProviderOnboardingStory({scenario}: ModelProviderOnboardingStoryPr
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="bg-background-neutral-background px-24 py-32">
+      <div className="bg-background-subtle-base px-24 py-32">
         <ModelProviderOnboardingPage
           workspaceId={WORKSPACE_ID}
           onSkip={() => undefined}

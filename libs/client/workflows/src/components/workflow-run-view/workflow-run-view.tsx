@@ -666,7 +666,7 @@ function RunWorkspaceNavSkeleton() {
   return (
     <aside
       aria-label="Loading run navigation"
-      className="hidden w-240 shrink-0 border-r border-border-neutral-base bg-background-neutral-background p-panel-compact min-[768px]:block"
+      className="hidden w-240 shrink-0 border-r border-border-neutral-base bg-background-subtle-base p-panel-compact min-[768px]:block"
     >
       <div className="flex flex-col gap-group">
         <div className="h-32 rounded-4 bg-background-components-subtle" />

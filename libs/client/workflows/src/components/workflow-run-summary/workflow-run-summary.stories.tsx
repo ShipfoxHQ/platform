@@ -56,10 +56,10 @@ const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({
 });
 
 const withFrame: Decorator = (Story) => (
-  <div className="min-h-screen bg-background-neutral-background">
+  <div className="min-h-screen bg-background-subtle-base">
     <div className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col overflow-hidden border-x border-border-neutral-base bg-background-subtle-base">
       <Story />
-      <div className="min-h-0 flex-1 bg-background-neutral-background p-16" />
+      <div className="min-h-0 flex-1 bg-background-subtle-base p-16" />
     </div>
   </div>
 );

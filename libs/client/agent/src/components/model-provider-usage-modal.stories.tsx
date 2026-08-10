@@ -20,7 +20,7 @@ function ModelProviderUsageModalStory({variant}: ModelProviderUsageModalStoryPro
       : usageTargetFromCatalogEntry(entry);
 
   return (
-    <div className="min-h-screen bg-background-neutral-background p-24">
+    <div className="min-h-screen bg-background-subtle-base p-24">
       <ModelProviderUsageModal
         target={target}
         initialModel={target.defaultModel}

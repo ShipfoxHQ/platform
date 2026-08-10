@@ -11,7 +11,7 @@ const meta = {
   parameters: {layout: 'centered'},
   decorators: [
     (Story) => (
-      <div className="h-520 w-900 overflow-auto bg-background-neutral-background p-16">
+      <div className="h-520 w-900 overflow-auto bg-background-subtle-base p-16">
         <Story />
       </div>
     ),

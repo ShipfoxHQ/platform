@@ -24,7 +24,7 @@ export const Playground: Story = {
     await argosScreenshot(ctx, 'Tabs Default');
   },
   render: () => (
-    <div className="bg-background-neutral-background p-24 w-[80vw]">
+    <div className="bg-background-subtle-base p-24 w-[80vw]">
       <Tabs defaultValue="analytics">
         <TabsList className="gap-12 border-b border-neutral-strong">
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
@@ -44,7 +44,7 @@ export const Controlled: Story = {
   render: () => {
     const [value, setValue] = useState('analytics');
     return (
-      <div className="bg-background-neutral-background p-24 w-[80vw]">
+      <div className="bg-background-subtle-base p-24 w-[80vw]">
         <Tabs value={value} onValueChange={setValue}>
           <TabsList className="gap-12 border-b border-neutral-strong">
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
@@ -79,7 +79,7 @@ export const MultipleTabs: Story = {
     await argosScreenshot(ctx, 'Tabs Multiple');
   },
   render: () => (
-    <div className="bg-background-neutral-background p-24 w-[80vw]">
+    <div className="bg-background-subtle-base p-24 w-[80vw]">
       <Tabs defaultValue="tab1">
         <TabsList className="gap-12 border-b border-neutral-strong">
           <TabsTrigger value="tab1">Tab 1</TabsTrigger>

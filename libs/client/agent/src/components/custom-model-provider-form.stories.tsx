@@ -23,7 +23,7 @@ function CustomModelProviderFormStory({mode}: CustomModelProviderFormStoryProps)
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="min-h-screen bg-background-neutral-background p-24">
+      <div className="min-h-screen bg-background-subtle-base p-24">
         <Modal open={open} onOpenChange={setOpen}>
           <ModalContent
             className="max-h-[min(760px,calc(100vh-32px))]"
