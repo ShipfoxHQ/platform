@@ -18,7 +18,7 @@ Shared React component library for Shipfox apps. It provides design tokens, Tail
 The `@shipfox/react-ui/index.css` entry defines four target surface roles for page and component authors.
 The table records the target contract, not every token's current resolution. Until the migration
 lands, light canvas uses `--color-alpha-black-2`, light inline fill resolves to `#fafafa`, and dark
-code resolves to `#27272a`. See [the surface ladder in `DESIGN.md`](../../../DESIGN.md#the-surface-ladder)
+code resolves to `#27272a`. See [the surface ladder in `DESIGN.md`](../../../../DESIGN.md#the-surface-ladder)
 for the current-versus-target mapping.
 
 | Role | Token | Target light | Target dark | Used for |
