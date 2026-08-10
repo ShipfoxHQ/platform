@@ -9,8 +9,9 @@ import {
   fetchLogAttachment,
 } from '#attachments.js';
 import {
-  GITHUB_INSTALLATION_TOKEN,
   GITHUB_READ_RESULT_MARKER,
+  GITHUB_STATEFUL_INSTALLATION_TOKEN,
+  GITHUB_STATELESS_INSTALLATION_TOKEN,
   GITHUB_WRITE_RESULT_MARKER,
   startGithubApiMock,
 } from '#github-api.js';
@@ -23,149 +24,165 @@ import {expect, test} from './fixtures.js';
 const CLAUDE_AGENT_MODEL = 'deterministic-github-tools-agent';
 const TERMINAL_TIMEOUT_MS = 60_000;
 const BEARER_AUTHORIZATION = /^bearer /iu;
+const GITHUB_TOKEN_CASES = [
+  {
+    format: 'stateless',
+    token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+    authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`,
+  },
+  {
+    format: 'stateful',
+    token: GITHUB_STATEFUL_INSTALLATION_TOKEN,
+    authorization: `token ${GITHUB_STATEFUL_INSTALLATION_TOKEN}`,
+  },
+] as const;
 
 test.describe.configure({mode: 'serial'});
 
-test('runs selected GitHub tools and denies unselected authority', async ({suite}, testInfo) => {
-  const uniqueId = crypto.randomUUID().replaceAll('-', '').slice(0, 10);
-  const installationId = Number.parseInt(uniqueId.slice(0, 7), 16) + 1;
-  const githubApi = await startGithubApiMock();
-  let fakeModelProvider: Awaited<ReturnType<typeof startFakeOpenAiModelProvider>> | undefined;
+for (const tokenCase of GITHUB_TOKEN_CASES) {
+  test(`runs selected GitHub tools with a ${tokenCase.format} token`, async ({suite}, testInfo) => {
+    const uniqueId = crypto.randomUUID().replaceAll('-', '').slice(0, 10);
+    const installationId = Number.parseInt(uniqueId.slice(0, 7), 16) + 1;
+    const githubApi = await startGithubApiMock({installationToken: tokenCase.token});
+    let fakeModelProvider: Awaited<ReturnType<typeof startFakeOpenAiModelProvider>> | undefined;
 
-  try {
-    const scriptId = `${suite.runId}-github-agent-tools-${uniqueId}`;
-    fakeModelProvider = await startFakeOpenAiModelProvider({
-      runId: `${suite.runId}-github-agent-tools-${uniqueId}`,
-    });
-    const connection = await createGithubConnection({
-      workspaceId: suite.workspaceId,
-      installationId,
-      accountLogin: `e${uniqueId.slice(0, 5)}`,
-      displayName: `GitHub E2E ${uniqueId}`,
-      installerUserId: crypto.randomUUID(),
-    });
-    const issueReadTool = `mcp__shipfox_integration_tools__${connection.slug}__issue_read`;
-    const issueWriteTool = `mcp__shipfox_integration_tools__${connection.slug}__issue_write`;
-    const addIssueCommentTool = `mcp__shipfox_integration_tools__${connection.slug}__add_issue_comment`;
-    const fakeAnthropic = await createAnthropicFakeModelProviderConfig({
-      workspaceId: suite.workspaceId,
-      fakeModelProvider,
-      scriptId,
-      model: CLAUDE_AGENT_MODEL,
-      responses: [
-        toolCall(issueReadTool, {
-          method: 'get',
-          owner: 'shipfox',
-          repo: 'e2e',
-          issue_number: 1,
-        }),
-        toolCall(issueWriteTool, {
-          method: 'create',
-          owner: 'shipfox',
-          repo: 'e2e',
-          title: 'Synthetic GitHub issue',
-        }),
-        toolCall(issueReadTool, {
-          method: 'get_comments',
-          owner: 'shipfox',
-          repo: 'e2e',
-          issue_number: 1,
-        }),
-        toolCall(addIssueCommentTool, {
-          owner: 'shipfox',
-          repo: 'e2e',
-          issue_number: 1,
-          body: 'This tool was not selected',
-        }),
-        message('done'),
-      ],
-      assertions: [
-        {kind: 'model', equals: CLAUDE_AGENT_MODEL},
-        {kind: 'tool_present', name: issueReadTool},
-        {kind: 'tool_present', name: issueWriteTool},
-        {kind: 'tool_absent', name: addIssueCommentTool},
-        {
-          kind: 'message_content_includes',
-          value: GITHUB_READ_RESULT_MARKER,
-          minRequestIndex: 1,
-        },
-        {
-          kind: 'message_content_includes',
-          value: GITHUB_WRITE_RESULT_MARKER,
-          minRequestIndex: 2,
-        },
-        {
-          kind: 'message_content_includes',
-          value: 'Unauthorized integration tool method: get_comments',
-          minRequestIndex: 3,
-        },
-        {
-          kind: 'message_content_includes',
-          value: 'No such tool available:',
-          minRequestIndex: 4,
-        },
-      ],
-      setAsDefault: true,
-    });
-
-    const terminal = await runGithubToolsWorkflow({
-      suite,
-      testInfo,
-      uniqueId,
-      connectionSlug: connection.slug,
-      runnerEnv: fakeAnthropic.runnerEnv,
-    });
-
-    expect(terminal.status).toBe('succeeded');
-    expect(terminal.jobs.find((job) => job.key === 'tools')?.status).toBe('succeeded');
-    const providerRequests = await fakeModelProvider.getRequests(scriptId);
-    expect(providerRequests).toHaveLength(6);
-    expect(providerRequests[0]).toMatchObject({
-      model: `${CLAUDE_AGENT_MODEL}-small-fast`,
-      served_response: 'message:non_consuming_model',
-    });
-    expect(providerRequests.filter((request) => request.model === CLAUDE_AGENT_MODEL)).toHaveLength(
-      5,
-    );
-    expect(providerRequests.every((request) => request.assertion_failures.length === 0)).toBe(true);
-    expect(githubApi.calls).toEqual([
-      {
-        kind: 'mint-token',
-        authorization: expect.stringMatching(BEARER_AUTHORIZATION),
-        tokenFormatOverride: 'enabled',
+    try {
+      const scriptId = `${suite.runId}-github-agent-tools-${uniqueId}`;
+      fakeModelProvider = await startFakeOpenAiModelProvider({
+        runId: `${suite.runId}-github-agent-tools-${uniqueId}`,
+      });
+      const connection = await createGithubConnection({
+        workspaceId: suite.workspaceId,
         installationId,
-        body: {},
-      },
-      {
-        kind: 'read-issue',
-        authorization: `bearer ${GITHUB_INSTALLATION_TOKEN}`,
-        owner: 'shipfox',
-        repo: 'e2e',
-        issueNumber: 1,
-      },
-      {
-        kind: 'create-issue',
-        authorization: `bearer ${GITHUB_INSTALLATION_TOKEN}`,
-        owner: 'shipfox',
-        repo: 'e2e',
-        body: {title: 'Synthetic GitHub issue'},
-      },
-    ]);
-  } finally {
-    await Promise.all([
-      fakeModelProvider?.stop()?.catch((error: unknown) => {
-        process.stderr.write(
-          `github-agent-tools-e2e: stopFakeOpenAiModelProvider failed: ${String(error)}\n`,
-        );
-      }) ?? Promise.resolve(),
-      githubApi.stop().catch((error: unknown) => {
-        process.stderr.write(
-          `github-agent-tools-e2e: stopGithubApiMock failed: ${String(error)}\n`,
-        );
-      }),
-    ]);
-  }
-});
+        accountLogin: `e${uniqueId.slice(0, 5)}`,
+        displayName: `GitHub E2E ${uniqueId}`,
+        installerUserId: crypto.randomUUID(),
+      });
+      const issueReadTool = `mcp__shipfox_integration_tools__${connection.slug}__issue_read`;
+      const issueWriteTool = `mcp__shipfox_integration_tools__${connection.slug}__issue_write`;
+      const addIssueCommentTool = `mcp__shipfox_integration_tools__${connection.slug}__add_issue_comment`;
+      const fakeAnthropic = await createAnthropicFakeModelProviderConfig({
+        workspaceId: suite.workspaceId,
+        fakeModelProvider,
+        scriptId,
+        model: CLAUDE_AGENT_MODEL,
+        responses: [
+          toolCall(issueReadTool, {
+            method: 'get',
+            owner: 'shipfox',
+            repo: 'e2e',
+            issue_number: 1,
+          }),
+          toolCall(issueWriteTool, {
+            method: 'create',
+            owner: 'shipfox',
+            repo: 'e2e',
+            title: 'Synthetic GitHub issue',
+          }),
+          toolCall(issueReadTool, {
+            method: 'get_comments',
+            owner: 'shipfox',
+            repo: 'e2e',
+            issue_number: 1,
+          }),
+          toolCall(addIssueCommentTool, {
+            owner: 'shipfox',
+            repo: 'e2e',
+            issue_number: 1,
+            body: 'This tool was not selected',
+          }),
+          message('done'),
+        ],
+        assertions: [
+          {kind: 'model', equals: CLAUDE_AGENT_MODEL},
+          {kind: 'tool_present', name: issueReadTool},
+          {kind: 'tool_present', name: issueWriteTool},
+          {kind: 'tool_absent', name: addIssueCommentTool},
+          {
+            kind: 'message_content_includes',
+            value: GITHUB_READ_RESULT_MARKER,
+            minRequestIndex: 1,
+          },
+          {
+            kind: 'message_content_includes',
+            value: GITHUB_WRITE_RESULT_MARKER,
+            minRequestIndex: 2,
+          },
+          {
+            kind: 'message_content_includes',
+            value: 'Unauthorized integration tool method: get_comments',
+            minRequestIndex: 3,
+          },
+          {
+            kind: 'message_content_includes',
+            value: 'No such tool available:',
+            minRequestIndex: 4,
+          },
+        ],
+        setAsDefault: true,
+      });
+
+      const terminal = await runGithubToolsWorkflow({
+        suite,
+        testInfo,
+        uniqueId,
+        connectionSlug: connection.slug,
+        runnerEnv: fakeAnthropic.runnerEnv,
+      });
+
+      expect(terminal.status).toBe('succeeded');
+      expect(terminal.jobs.find((job) => job.key === 'tools')?.status).toBe('succeeded');
+      const providerRequests = await fakeModelProvider.getRequests(scriptId);
+      expect(providerRequests).toHaveLength(6);
+      expect(providerRequests[0]).toMatchObject({
+        model: `${CLAUDE_AGENT_MODEL}-small-fast`,
+        served_response: 'message:non_consuming_model',
+      });
+      expect(
+        providerRequests.filter((request) => request.model === CLAUDE_AGENT_MODEL),
+      ).toHaveLength(5);
+      expect(providerRequests.every((request) => request.assertion_failures.length === 0)).toBe(
+        true,
+      );
+      expect(githubApi.calls).toEqual([
+        {
+          kind: 'mint-token',
+          authorization: expect.stringMatching(BEARER_AUTHORIZATION),
+          tokenFormatOverride: 'enabled',
+          installationId,
+          body: {},
+        },
+        {
+          kind: 'read-issue',
+          authorization: tokenCase.authorization,
+          owner: 'shipfox',
+          repo: 'e2e',
+          issueNumber: 1,
+        },
+        {
+          kind: 'create-issue',
+          authorization: tokenCase.authorization,
+          owner: 'shipfox',
+          repo: 'e2e',
+          body: {title: 'Synthetic GitHub issue'},
+        },
+      ]);
+    } finally {
+      await Promise.all([
+        fakeModelProvider?.stop()?.catch((error: unknown) => {
+          process.stderr.write(
+            `github-agent-tools-e2e: stopFakeOpenAiModelProvider failed: ${String(error)}\n`,
+          );
+        }) ?? Promise.resolve(),
+        githubApi.stop().catch((error: unknown) => {
+          process.stderr.write(
+            `github-agent-tools-e2e: stopGithubApiMock failed: ${String(error)}\n`,
+          );
+        }),
+      ]);
+    }
+  });
+}
 
 async function runGithubToolsWorkflow(params: {
   suite: SuiteContext;

@@ -75,6 +75,7 @@ describe('e2eEnv', () => {
       'This E2E deployment does not accept new accounts.',
     );
     assert.equal(env.GITHUB_API_BASE_URL, 'http://127.0.0.1:55361/');
+    assert.equal(env.GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE, 'enabled');
     assert.equal(env.SLACK_API_BASE_URL, 'http://127.0.0.1:55362/');
     assert.match(env.GITHUB_APP_PRIVATE_KEY, /BEGIN PRIVATE KEY/u);
     assert.equal(env.LINEAR_MCP_ENDPOINT, 'http://127.0.0.1:55360/mcp');
@@ -92,6 +93,7 @@ describe('e2eEnv', () => {
       GITEA_CLONE_BASE_URL: 'http://localhost:3000',
       LINEAR_MCP_ENDPOINT: 'http://127.0.0.1:16120/mcp',
       GITHUB_API_BASE_URL: 'http://127.0.0.1:16121',
+      GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE: 'disabled',
       SLACK_API_BASE_URL: 'http://127.0.0.1:16122',
       SHIPFOX_API_URL: 'http://localhost:55351',
       GITEA_BASE_URL: 'http://localhost:55356',
@@ -107,6 +109,7 @@ describe('e2eEnv', () => {
     assert.equal(env.GITEA_CLONE_BASE_URL, 'http://localhost:3000');
     assert.equal(env.LINEAR_MCP_ENDPOINT, 'http://127.0.0.1:16120/mcp');
     assert.equal(env.GITHUB_API_BASE_URL, 'http://127.0.0.1:16121');
+    assert.equal(env.GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE, 'disabled');
     assert.equal(env.SLACK_API_BASE_URL, 'http://127.0.0.1:16122');
     assert.equal(env.WEBHOOK_PUBLIC_URL, 'https://webhooks.example.test');
     assert.equal(env.AUTH_SIGNUP_GATE_ENABLED, 'false');

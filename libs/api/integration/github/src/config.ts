@@ -29,6 +29,11 @@ export const config = createConfig({
     desc: 'Base URL used for GitHub REST API requests. Set this only for GitHub Enterprise Server or a compatible test server.',
     default: 'https://api.github.com',
   }),
+  GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE: str({
+    desc: 'Temporary GitHub installation token format override. Set this to enabled to request stateless tokens, disabled to request stateful tokens, or leave it unset to follow the GitHub rollout.',
+    choices: ['enabled', 'disabled'] as const,
+    default: undefined,
+  }),
   GITHUB_INSTALL_STATE_SECRET: str({
     desc: 'Secret used to sign the state token that protects the GitHub App install flow. Required.',
   }),

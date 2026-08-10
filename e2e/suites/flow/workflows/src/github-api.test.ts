@@ -1,13 +1,30 @@
 import {
-  GITHUB_INSTALLATION_TOKEN,
   GITHUB_READ_RESULT_MARKER,
+  GITHUB_STATEFUL_INSTALLATION_TOKEN,
+  GITHUB_STATELESS_INSTALLATION_TOKEN,
   GITHUB_WRITE_RESULT_MARKER,
   startGithubApiMock,
 } from './github-api.js';
 
+const GITHUB_INSTALLATION_TOKEN_PATTERN = /^ghs_[A-Za-z0-9._-]{36,}$/u;
+
 describe('GitHub API mock', () => {
-  it('serves installation-token, issue-read, and issue-write requests', async () => {
-    const mock = await startGithubApiMock(new URL('http://127.0.0.1:0'));
+  it.each([
+    {
+      format: 'stateless',
+      token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+      authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`,
+    },
+    {
+      format: 'stateful',
+      token: GITHUB_STATEFUL_INSTALLATION_TOKEN,
+      authorization: `token ${GITHUB_STATEFUL_INSTALLATION_TOKEN}`,
+    },
+  ])('serves $format installation-token and issue requests', async ({token, authorization}) => {
+    const mock = await startGithubApiMock({
+      endpoint: new URL('http://127.0.0.1:0'),
+      installationToken: token,
+    });
 
     try {
       const mint = await fetch(new URL('/app/installations/1234/access_tokens', mock.endpoint), {
@@ -20,21 +37,21 @@ describe('GitHub API mock', () => {
         body: '{}',
       });
       const read = await fetch(new URL('/repos/shipfox/e2e/issues/1', mock.endpoint), {
-        headers: {authorization: `token ${GITHUB_INSTALLATION_TOKEN}`},
+        headers: {authorization},
       });
       const write = await fetch(new URL('/repos/shipfox/e2e/issues', mock.endpoint), {
         method: 'POST',
         headers: {
-          authorization: `token ${GITHUB_INSTALLATION_TOKEN}`,
+          authorization,
           'content-type': 'application/json',
         },
         body: JSON.stringify({title: 'Synthetic issue'}),
       });
 
       expect(mint.status).toBe(201);
-      expect(GITHUB_INSTALLATION_TOKEN).toHaveLength(520);
+      expect(token).toMatch(GITHUB_INSTALLATION_TOKEN_PATTERN);
       await expect(mint.json()).resolves.toMatchObject({
-        token: GITHUB_INSTALLATION_TOKEN,
+        token,
         permissions: {issues: 'write'},
       });
       await expect(read.json()).resolves.toMatchObject({marker: GITHUB_READ_RESULT_MARKER});
@@ -49,14 +66,14 @@ describe('GitHub API mock', () => {
         },
         {
           kind: 'read-issue',
-          authorization: `token ${GITHUB_INSTALLATION_TOKEN}`,
+          authorization,
           owner: 'shipfox',
           repo: 'e2e',
           issueNumber: 1,
         },
         {
           kind: 'create-issue',
-          authorization: `token ${GITHUB_INSTALLATION_TOKEN}`,
+          authorization,
           owner: 'shipfox',
           repo: 'e2e',
           body: {title: 'Synthetic issue'},

@@ -196,6 +196,8 @@ export function e2eEnv(sourceEnv) {
     GITEA_CLONE_BASE_URL: sourceEnv.GITEA_CLONE_BASE_URL ?? giteaUrl,
     HOST: sourceEnv.HOST ?? '0.0.0.0',
     GITHUB_API_BASE_URL: githubApiBaseUrl,
+    GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE:
+      sourceEnv.GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE ?? 'enabled',
     GITHUB_APP_CLIENT_ID: sourceEnv.GITHUB_APP_CLIENT_ID ?? 'e2e-github-client-id',
     GITHUB_APP_CLIENT_SECRET: sourceEnv.GITHUB_APP_CLIENT_SECRET ?? 'e2e-github-client-secret',
     GITHUB_APP_ID: sourceEnv.GITHUB_APP_ID ?? '1',

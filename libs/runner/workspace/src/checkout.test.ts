@@ -72,6 +72,8 @@ function queueFetchFailure(stderr: string) {
 }
 
 const BASE = {repositoryUrl: 'https://github.com/acme/repo.git', ref: 'main', cwd: '/work/job-1'};
+const GITHUB_INSTALLATION_TOKEN_PATTERN = /^ghs_[A-Za-z0-9._-]{36,}$/u;
+const GITHUB_STATEFUL_INSTALLATION_TOKEN = `ghs_${'d'.repeat(36)}`;
 const GITHUB_STATELESS_INSTALLATION_TOKEN =
   `ghs_123456_${'a'.repeat(169)}` + `.${'b'.repeat(169)}` + `.${'c'.repeat(169)}`;
 
@@ -223,19 +225,22 @@ describe('checkoutRepository argv', () => {
     expect(fetchOptions.env.GIT_CONFIG_VALUE_99).toBeUndefined();
   });
 
-  it('injects a stateless GitHub token as a basic header and registers both secrets', async () => {
+  it.each([
+    {format: 'stateful', token: GITHUB_STATEFUL_INSTALLATION_TOKEN},
+    {format: 'stateless', token: GITHUB_STATELESS_INSTALLATION_TOKEN},
+  ])('injects a $format GitHub token as a basic header and registers both secrets', async ({
+    token,
+  }) => {
     queueSuccessfulCheckout();
     const onSecrets = vi.fn();
-    const expected = Buffer.from(`x-access-token:${GITHUB_STATELESS_INSTALLATION_TOKEN}`).toString(
-      'base64',
-    );
+    const expected = Buffer.from(`x-access-token:${token}`).toString('base64');
 
     await checkoutRepository({
       ...BASE,
       auth: {
         kind: 'basic',
         username: 'x-access-token',
-        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        token,
         expires_at: '2026-01-01T00:00:00Z',
         carry: 'header',
         host: 'github.com',
@@ -246,10 +251,10 @@ describe('checkoutRepository argv', () => {
 
     const fetchArgs = spawnMock.mock.calls[2]?.[1] as string[];
     const fetchOptions = spawnMock.mock.calls[2]?.[2] as {env: Record<string, string>};
-    expect(GITHUB_STATELESS_INSTALLATION_TOKEN).toHaveLength(520);
+    expect(token).toMatch(GITHUB_INSTALLATION_TOKEN_PATTERN);
     expect(fetchArgs[0]).toBe('fetch');
     expect(fetchOptions.env.GIT_CONFIG_VALUE_0).toBe(`Authorization: Basic ${expected}`);
-    expect(onSecrets).toHaveBeenCalledWith([GITHUB_STATELESS_INSTALLATION_TOKEN, expected]);
+    expect(onSecrets).toHaveBeenCalledWith([token, expected]);
   });
 
   it('disables interactive credential prompts on every git process', async () => {

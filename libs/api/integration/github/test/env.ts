@@ -14,3 +14,4 @@ process.env.GITHUB_APP_SLUG = 'shipfox-test';
 process.env.GITHUB_APP_USERNAME = 'shipfox-test';
 process.env.GITHUB_INSTALL_STATE_SECRET = 'test-install-state-secret';
 process.env.GITHUB_API_BASE_URL = 'https://api.github.com';
+process.env.GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE = 'enabled';
