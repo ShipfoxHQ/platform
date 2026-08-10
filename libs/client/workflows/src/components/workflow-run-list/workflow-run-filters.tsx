@@ -53,7 +53,7 @@ export function WorkflowRunFilters({
   const [sheetOpen, setSheetOpen] = useState(false);
 
   return (
-    <div className="flex flex-wrap items-center gap-inline">
+    <div className="flex w-full flex-wrap items-center gap-inline">
       <Input
         value={search.search ?? ''}
         onChange={(event) => onChange({search: event.target.value})}

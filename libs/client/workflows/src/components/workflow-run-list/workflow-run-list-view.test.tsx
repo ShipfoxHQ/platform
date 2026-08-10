@@ -14,6 +14,7 @@ import {WorkflowRunListView} from './workflow-run-list-view.js';
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
 const JOB_STRIP_LABEL_RE = /jobs:/u;
 const JOB_SUMMARY_NAME_RE = /queued-build/u;
+const OVERFLOW_COUNT_RE = /^\+/u;
 const WORKSPACE_SLUG = 'acme';
 const PROJECT_SLUG = 'checkout-api';
 
@@ -33,6 +34,38 @@ describe('WorkflowRunListView', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  describe('panel composition', () => {
+    test('keeps the controls in the panel header and states in its body', async () => {
+      renderListView([run('succeeded', 'build-image')]);
+      await screen.findByText('build-image');
+
+      const panel = document.querySelector<HTMLElement>('[data-slot="panel"]');
+      const header = panel?.querySelector<HTMLElement>('[data-slot="panel-header"]');
+      const body = panel?.querySelector<HTMLElement>('[data-slot="panel-body"]');
+
+      expect(panel).not.toBeNull();
+      expect(header).not.toBeNull();
+      expect(body).not.toBeNull();
+      expect(within(header as HTMLElement).getByLabelText('Search runs')).toBeInTheDocument();
+      expect(
+        within(header as HTMLElement).getByRole('button', {name: filterTrigger('Status')}),
+      ).toBeInTheDocument();
+      expect(
+        within(header as HTMLElement).getByRole('button', {name: filterTrigger('Branch')}),
+      ).toBeInTheDocument();
+      expect(
+        within(header as HTMLElement).getByRole('button', {name: filterTrigger('Actor')}),
+      ).toBeInTheDocument();
+      expect(
+        within(header as HTMLElement).getByRole('button', {name: filterTrigger('Event')}),
+      ).toBeInTheDocument();
+      expect(
+        within(header as HTMLElement).getByLabelText('Filter runs by creation date'),
+      ).toBeInTheDocument();
+      expect(within(body as HTMLElement).getByText('build-image')).toBeInTheDocument();
+    });
   });
 
   describe('filtering', () => {
@@ -380,8 +413,17 @@ describe('WorkflowRunListView', () => {
     test('counts the jobs it had to hide beyond the strip threshold', async () => {
       renderListView([run('running', 'deploy-web', 'run-1', {...workflowRunJobsOfStatus(40)})]);
 
-      expect(await screen.findByText('+33')).toBeInTheDocument();
+      expect(await screen.findByText('+24')).toBeInTheDocument();
       expect(screen.getByRole('img', {name: '40 jobs: 40 succeeded'})).toBeInTheDocument();
+    });
+
+    test('renders every job in the API preview without a client-side cap', async () => {
+      renderListView([run('running', 'deploy-web', 'run-1', {...workflowRunJobsOfStatus(16)})]);
+
+      const strip = await screen.findByRole('img', {name: '16 jobs: 16 succeeded'});
+
+      expect(within(strip).getAllByLabelText('Succeeded')).toHaveLength(16);
+      expect(within(strip).queryByText(OVERFLOW_COUNT_RE)).not.toBeInTheDocument();
     });
 
     // The API sends a bounded preview, so a run whose only failure sits past it has no failed
@@ -398,7 +440,7 @@ describe('WorkflowRunListView', () => {
         name: '21 jobs: 1 failed, 20 succeeded',
       });
       expect(strip).toBeInTheDocument();
-      expect(screen.getByText('+14')).toBeInTheDocument();
+      expect(screen.getByText('+5')).toBeInTheDocument();
       expect(within(strip).getByLabelText('Failed')).toBeInTheDocument();
     });
 
@@ -420,8 +462,8 @@ describe('WorkflowRunListView', () => {
       ]);
 
       const strip = await screen.findByRole('img', {name: '20 jobs: 20 listening'});
-      expect(screen.getByText('+13')).toBeInTheDocument();
-      expect(within(strip).getAllByLabelText('Listening')).toHaveLength(8);
+      expect(screen.getByText('+4')).toBeInTheDocument();
+      expect(within(strip).getAllByLabelText('Listening')).toHaveLength(17);
 
       const user = userEvent.setup();
       await user.hover(strip);

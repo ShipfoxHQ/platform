@@ -16,7 +16,7 @@ const SKELETON_ROW_COUNT = 8;
 export function WorkflowRunListSkeleton() {
   return (
     <div
-      className="@container divide-y divide-border-neutral-base border-t border-border-neutral-base"
+      className="@container divide-y divide-border-neutral-base"
       role="status"
       aria-label="Loading runs"
     >

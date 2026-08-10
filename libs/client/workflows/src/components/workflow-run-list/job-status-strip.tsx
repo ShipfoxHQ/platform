@@ -6,15 +6,6 @@ import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-ic
 import {deriveJobDisplayStatus, type JobDisplayStatus} from '#core/entities/job.js';
 import type {WorkflowRunJobSummary, WorkflowRunJobs} from '#core/workflow-run.js';
 
-/**
- * How many glyphs fit the strip's column before it starts costing the run name width.
- *
- * Sized so the widest case still fits the row's 160px strip column: seven 12px glyphs with
- * 3px gaps is 102px, and the overflow indicator adds a glyph plus a count of at most five
- * monospace characters, about 56px. Overshooting does not wrap, it paints over the duration
- * column. This sits under the API's preview bound, so resizing the strip is a change here.
- */
-const MAX_VISIBLE_JOBS = 7;
 const GLYPH_SIZE = 12;
 const MAX_TOOLTIP_JOB_NAMES = 6;
 
@@ -65,7 +56,10 @@ export interface JobStatusStripProps {
 export function JobStatusStrip({jobs, className}: JobStatusStripProps) {
   if (jobs.total === 0) return null;
 
-  const visible = jobs.preview.slice(0, MAX_VISIBLE_JOBS);
+  // The data frame gives the row enough room for the whole API preview. Only jobs beyond that
+  // server-side preview need an overflow marker; the old seven-glyph cap belonged to the
+  // previous 1120px page width.
+  const visible = jobs.preview;
   const hiddenCount = jobs.total - visible.length;
   const overflowStatus = worstHiddenStatus(jobs, visible);
   const summary = jobStatusSummary(jobs);

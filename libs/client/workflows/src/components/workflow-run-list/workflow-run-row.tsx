@@ -37,7 +37,7 @@ export function WorkflowRunRowList({
     // A container, not the viewport, drives the row's breakpoints. What a row can afford is its
     // own width; keying off the viewport would keep the job strip hidden on a wide screen or
     // crush it on a narrow one.
-    <ul className="@container divide-y divide-border-neutral-base border-t border-border-neutral-base">
+    <ul className="@container divide-y divide-border-neutral-base">
       {runs.map((run) => (
         <li key={run.id}>
           <WorkflowRunRow run={run} workspaceSlug={workspaceSlug} projectSlug={projectSlug} />
@@ -99,10 +99,10 @@ export function WorkflowRunRow({
       </div>
 
       <span className="flex shrink-0 items-center gap-cluster">
-        {/* Fixed at the strip's worst case (see MAX_VISIBLE_JOBS) so the overflow count cannot
-            paint over the duration, and kept even when a run has no jobs planned yet, so the
-            numerics stay in line down the list instead of stepping in and out. */}
-        <span className="hidden w-160 @min-[1040px]:flex">
+        {/* Reserve the API preview's full width so the overflow count cannot paint over the
+            duration, and keep it even when a run has no jobs planned yet so the numerics stay in
+            line down the list instead of stepping in and out. */}
+        <span className="hidden w-320 @min-[1040px]:flex">
           <JobStatusStrip jobs={run.jobs} />
         </span>
         <span className="flex w-64 justify-end">
@@ -121,7 +121,7 @@ export function WorkflowRunRow({
   // Rows run edge to edge inside the list's scroll container, which would clip the standard
   // outset focus ring, so this one is inset per the design system's focus-ring rule.
   const rowClassName =
-    'flex w-full min-w-0 items-center gap-inline px-row py-row text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)] focus-visible:outline-none @min-[976px]:h-44 @min-[976px]:py-0';
+    'flex w-full min-w-0 items-center gap-inline px-row py-row text-left transition-colors hover:bg-background-neutral-hover focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)] focus-visible:outline-none @min-[976px]:h-44 @min-[976px]:py-0';
 
   // Optimistic manual runs (temp-<uuid>) have no detail page until the canonical row
   // replaces them on the next poll, so they render non-interactively instead of as a link

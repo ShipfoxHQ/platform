@@ -229,9 +229,7 @@ function StateExample({label, children}: {label: string; children: ReactNode}) {
       <Code variant="label" className="text-foreground-neutral-subtle">
         {label}
       </Code>
-      <div className="flex h-560 rounded-8 border border-border-neutral-base bg-background-neutral-base p-16">
-        {children}
-      </div>
+      <div className="flex h-560 min-w-0 bg-background-subtle-base p-16">{children}</div>
     </div>
   );
 }
