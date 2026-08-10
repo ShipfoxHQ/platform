@@ -52,10 +52,7 @@ describe('WorkflowRunView', () => {
     const workspaceLayout = screen
       .getByRole('navigation', {name: 'Run workspace'})
       .closest('[data-run-workspace-layout]');
-    expect(workspaceLayout).toHaveClass(
-      'border-t',
-      'border-border-neutral-base',
-    );
+    expect(workspaceLayout).toHaveClass('border-t', 'border-border-neutral-base');
     expect(workspaceLayout).not.toHaveClass('max-w-[1360px]');
     expect(workspaceLayout?.querySelector('[data-run-workspace-frame]')).toHaveClass(
       'mx-auto',
