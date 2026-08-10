@@ -70,6 +70,17 @@ install_dependencies() {
   printf 'workspace setup: repository context is tracked; no generated context step is required.\n'
 }
 
+install_test_browser() {
+  local args=(install chromium)
+
+  if [[ "$(uname -s)" == Linux ]]; then
+    args=(install --with-deps chromium)
+  fi
+
+  require_command pnpm
+  pnpm --filter=@shipfox/playwright exec playwright "${args[@]}"
+}
+
 start_worktree_services() {
   if ! command -v docker >/dev/null 2>&1; then
     die "Docker is required for this setup profile; install Docker before running workspace:setup."
@@ -119,6 +130,7 @@ run_services() {
       ;;
   esac
 
+  install_test_browser
   printf 'workspace setup: ready (%s).\n' "$profile"
 }
 
