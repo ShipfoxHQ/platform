@@ -148,10 +148,6 @@ export function deriveJobDisplayStatus(
 ): JobDisplayStatus {
   if (isTerminalJobStatus(job.status)) return job.status;
   if (job.mode === 'listening' && job.listenerStatus === 'listening') return 'listening';
-  // Older list responses do not carry execution evidence. Preserve their running verdict
-  // until the API has supplied the richer display counts and preview fields.
-  if (job.executionStatus === null && job.status === 'running') return 'running';
-
   const execution =
     job.executionStatus === undefined
       ? defaultJobExecution(job)

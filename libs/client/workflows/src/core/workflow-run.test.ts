@@ -12,6 +12,7 @@ import {
   workflowRunAttemptDto,
   workflowRunDetailDto,
   workflowRunDto,
+  workflowRunJobSummaryDto,
   workflowRunListResponseDto,
   workflowStepAttemptDto,
   workflowStepDto,
@@ -125,6 +126,18 @@ describe('workflow run model mapping', () => {
       state: 'live',
       fromIso: '2026-05-07T01:01:10.000Z',
     });
+  });
+
+  test('keeps legacy raw-status counts aligned with preview glyphs', () => {
+    const {job_display_status_counts: _displayCounts, ...legacyDto} = workflowRunDto({
+      jobs: [workflowRunJobSummaryDto({status: 'running', execution_status: null})],
+      job_status_counts: [{status: 'running', count: 1}],
+    });
+
+    const run = toWorkflowRunListItem(legacyDto);
+
+    expect(run.jobs.preview[0]?.executionStatus).toBe('running');
+    expect(run.jobs.statusCounts).toEqual([{status: 'running', count: 1}]);
   });
 
   test('maps run list pagination fields', () => {

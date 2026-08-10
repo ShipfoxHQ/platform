@@ -107,7 +107,7 @@ describe('deriveJobDisplayStatus', () => {
     ).toBe(expected);
   });
 
-  test('falls back to a running verdict for a legacy preview without execution evidence', () => {
+  test('does not infer execution from a running verdict without execution evidence', () => {
     expect(
       deriveJobDisplayStatus({
         mode: 'one_shot',
@@ -116,7 +116,7 @@ describe('deriveJobDisplayStatus', () => {
         executionStatus: null,
         jobExecutions: [],
       }),
-    ).toBe('running');
+    ).toBe('pending');
   });
 
   test('uses the same running execution evidence with and without a step tree', () => {

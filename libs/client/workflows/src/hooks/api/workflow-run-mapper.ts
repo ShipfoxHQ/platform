@@ -96,6 +96,7 @@ export function toWorkflowRunRecord(dto: WorkflowRunResponseDto): WorkflowRunRec
 }
 
 export function toWorkflowRunListItem(dto: WorkflowRunListItemDto): WorkflowRunListItem {
+  const hasDisplayStatusCounts = dto.job_display_status_counts !== undefined;
   const statusCounts = (dto.job_display_status_counts ?? dto.job_status_counts).map(
     ({status, count}) => ({status, count}),
   );
@@ -107,9 +108,14 @@ export function toWorkflowRunListItem(dto: WorkflowRunListItemDto): WorkflowRunL
         key: job.key,
         name: job.name,
         status: job.status,
-        mode: job.mode,
-        listenerStatus: job.listener_status,
-        executionStatus: job.execution_status,
+        mode: job.mode ?? 'one_shot',
+        listenerStatus: job.listener_status ?? 'inactive',
+        // The optional display-count field is the rollout capability signal. Pre-display API
+        // responses only carry raw verdict counts, so mirror their non-terminal verdict into
+        // execution evidence to keep each legacy glyph aligned with those fallback counts.
+        executionStatus: hasDisplayStatusCounts
+          ? (job.execution_status ?? null)
+          : legacyExecutionStatus(job.status),
         position: job.position,
       })),
       statusCounts,
@@ -118,6 +124,12 @@ export function toWorkflowRunListItem(dto: WorkflowRunListItemDto): WorkflowRunL
       total: statusCounts.reduce((sum, entry) => sum + entry.count, 0),
     },
   };
+}
+
+function legacyExecutionStatus(
+  status: WorkflowRunListItemDto['jobs'][number]['status'],
+): 'pending' | 'running' | null {
+  return status === 'pending' || status === 'running' ? status : null;
 }
 
 export function toWorkflowRunListPage(dto: WorkflowRunListResponseDto): WorkflowRunListPage {

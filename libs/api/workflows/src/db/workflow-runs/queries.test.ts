@@ -413,6 +413,7 @@ describe('workflow run queries', () => {
         {status: 'skipped', executionStatus: null},
       ]);
       expect(summary.get(run.id)?.statusCounts).toEqual([{status: 'skipped', count: 1}]);
+      expect(summary.get(run.id)?.rawStatusCounts).toEqual([{status: 'skipped', count: 1}]);
     });
 
     // Checks the invariant the snapshot exists to protect: for a run inside the preview

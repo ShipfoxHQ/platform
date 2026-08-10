@@ -161,7 +161,7 @@ export const workflowRunJobSummaryDtoSchema = z.object({
   position: z.number().int().nonnegative(),
 });
 
-export type WorkflowRunJobSummaryDto = z.infer<typeof workflowRunJobSummaryDtoSchema>;
+export type WorkflowRunJobSummaryDto = z.input<typeof workflowRunJobSummaryDtoSchema>;
 
 /**
  * How many jobs a run list row carries in graph order.
@@ -203,7 +203,7 @@ export const workflowRunListItemSchema = workflowRunResponseSchema.extend({
   job_display_status_counts: z.array(workflowRunJobDisplayStatusCountDtoSchema).optional(),
 });
 
-export type WorkflowRunListItemDto = z.infer<typeof workflowRunListItemSchema>;
+export type WorkflowRunListItemDto = z.input<typeof workflowRunListItemSchema>;
 
 export const workflowRunListResponseSchema = z.object({
   runs: z.array(workflowRunListItemSchema),
@@ -211,7 +211,7 @@ export const workflowRunListResponseSchema = z.object({
   filtered_total_count: z.number().int().nonnegative().nullable(),
 });
 
-export type WorkflowRunListResponseDto = z.infer<typeof workflowRunListResponseSchema>;
+export type WorkflowRunListResponseDto = z.input<typeof workflowRunListResponseSchema>;
 
 const aggregateBucketSchema = z.object({
   value: z.string(),
