@@ -48,8 +48,7 @@ describe('WorkflowJobDetailPage', () => {
 
     expect(await screen.findByRole('region', {name: 'Loading workflow run'})).toBeInTheDocument();
 
-    const layout = container.querySelector('[data-run-workspace-layout]');
-    const pageRoot = layout?.parentElement?.parentElement;
+    const pageRoot = container.querySelector('[data-workflow-page-root="job-detail"]');
 
     expect(pageRoot).not.toBeNull();
     expect(pageRoot).not.toHaveClass('bg-background-subtle-base');

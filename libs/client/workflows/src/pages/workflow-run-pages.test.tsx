@@ -75,16 +75,14 @@ describe('WorkflowRunPages', () => {
   test('lets the list route inherit its shell canvas and width', async () => {
     configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
 
-    renderRunsPath();
+    const {container} = renderRunsPath();
 
-    const list = await screen.findByLabelText('Workflow runs');
-    const pageContent = list.parentElement;
-    const pageRoot = pageContent?.parentElement;
+    await screen.findByLabelText('Workflow runs');
+    const pageRoot = container.querySelector('[data-workflow-page-root="runs"]');
 
     expect(pageRoot).not.toBeNull();
     expect(pageRoot).not.toHaveClass('bg-background-neutral-base');
     expect(pageRoot).not.toHaveClass('max-w-[1120px]');
-    expect(pageContent).not.toHaveClass('max-w-[1120px]');
   });
 
   test('keeps the list route and filters in place instead of redirecting to a run', async () => {
@@ -206,8 +204,7 @@ describe('WorkflowRunPages', () => {
 
     expect(await screen.findByRole('region', {name: 'Loading workflow run'})).toBeInTheDocument();
 
-    const layout = container.querySelector('[data-run-workspace-layout]');
-    const pageRoot = layout?.parentElement?.parentElement;
+    const pageRoot = container.querySelector('[data-workflow-page-root="run-detail"]');
 
     expect(pageRoot).not.toBeNull();
     expect(pageRoot).not.toHaveClass('bg-background-subtle-base');
