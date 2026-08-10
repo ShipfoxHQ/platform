@@ -15,9 +15,13 @@ Shared React component library for Shipfox apps. It provides design tokens, Tail
 
 ### Surface roles
 
-The `@shipfox/react-ui/index.css` entry defines four surface roles for page and component authors:
+The `@shipfox/react-ui/index.css` entry defines four target surface roles for page and component authors.
+The table records the target contract, not every token's current resolution. Until the migration
+lands, light canvas uses `--color-alpha-black-2`, light inline fill resolves to `#fafafa`, and dark
+code resolves to `#27272a`. See [the surface ladder in `DESIGN.md`](../../../DESIGN.md#the-surface-ladder)
+for the current-versus-target mapping.
 
-| Role | Token | Light | Dark | Used for |
+| Role | Token | Target light | Target dark | Used for |
 | --- | --- | --- | --- | --- |
 | Canvas | `background-subtle-base` | `#fafafa` | `#0f0f10` | the page, nav bar, tab strip, rails, object headers, panel header strips |
 | Panel | `background-neutral-base` | `#ffffff` | `#1a1a1b` | panel bodies, rows, popovers, modals |
@@ -27,7 +31,7 @@ The `@shipfox/react-ui/index.css` entry defines four surface roles for page and 
 The ladder follows two rules:
 
 - Panel sits one ramp step toward the foreground from canvas in both themes. A panel header strip sits one step below its panel, which is the canvas value.
-- No page, panel, or code surface uses an alpha token, because alpha composites over a parent that varies.
+- Page, panel, or code surfaces should use opaque tokens, because alpha composites over a parent that varies. During migration, light-mode canvas is the current exception: `background-subtle-base` uses `--color-alpha-black-2` and resolves to `#fafafa` over white.
 
 ## Imports
 
