@@ -1,6 +1,7 @@
 import {
   WORKFLOWS_JOB_ACTIVATED,
   WORKFLOWS_JOB_EVENT_DELIVERED,
+  WORKFLOWS_JOB_EXECUTION_TERMINATED,
   WORKFLOWS_JOB_EXECUTION_TIMED_OUT,
   WORKFLOWS_JOB_STEPS_SETTLED,
   WORKFLOWS_JOB_TERMINATED,
@@ -12,6 +13,7 @@ import {
   workflowsEventSchemas,
   workflowsJobActivatedSchema,
   workflowsJobEventDeliveredSchema,
+  workflowsJobExecutionTerminatedSchema,
   workflowsJobExecutionTimedOutSchema,
   workflowsJobStepsSettledSchema,
   workflowsJobTerminatedSchema,
@@ -56,6 +58,16 @@ const validJobExecutionTimedOut = {
   jobId: 'job-1',
   jobExecutionId: 'execution-1',
   workflowRunAttemptId: 'attempt-1',
+};
+
+const validJobExecutionTerminated = {
+  jobId: 'job-1',
+  jobExecutionId: 'execution-1',
+  workflowRunId: 'run-1',
+  workflowRunAttemptId: 'attempt-1',
+  status: 'cancelled',
+  statusReason: 'run_cancelled',
+  statusReasonMessage: null,
 };
 
 const validJobActivated = {
@@ -184,6 +196,24 @@ describe('workflowsJobTerminatedSchema', () => {
     const result = workflowsJobTerminatedSchema.parse(input);
 
     expect(result).toEqual(validJobTerminated);
+  });
+});
+
+describe('workflowsJobExecutionTerminatedSchema', () => {
+  it('parses a terminal job-execution fact', () => {
+    const result = workflowsJobExecutionTerminatedSchema.parse(validJobExecutionTerminated);
+
+    expect(result).toEqual(validJobExecutionTerminated);
+  });
+
+  it('rejects a non-terminal status', () => {
+    const parse = () =>
+      workflowsJobExecutionTerminatedSchema.parse({
+        ...validJobExecutionTerminated,
+        status: 'running',
+      });
+
+    expect(parse).toThrow();
   });
 });
 
@@ -379,6 +409,7 @@ describe('workflowsEventSchemas', () => {
         WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
         WORKFLOWS_WORKFLOW_RUN_TERMINATED,
         WORKFLOWS_WORKFLOW_RUN_CANCELLED,
+        WORKFLOWS_JOB_EXECUTION_TERMINATED,
         WORKFLOWS_JOB_EXECUTION_TIMED_OUT,
         WORKFLOWS_JOB_ACTIVATED,
         WORKFLOWS_JOB_EVENT_DELIVERED,

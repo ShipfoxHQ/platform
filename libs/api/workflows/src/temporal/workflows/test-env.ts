@@ -289,10 +289,6 @@ function createMockActivities() {
       calls.push({name: 'bulkSetStepStatuses', params});
     },
 
-    cancelRunnerJobsActivity: (params: {jobIds: string[]}) => {
-      calls.push({name: 'cancelRunnerJobsActivity', params});
-    },
-
     // Scheduling is step-less. The mock runner reports the job outcome by signalling
     // the per-step terminal-completion signal (job-finished) and/or the lease-expiry
     // signal, reproducing the outbox → subscriber → signal rail.

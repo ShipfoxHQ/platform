@@ -10,7 +10,12 @@ import {
   MAX_JOB_OUTPUT_ENTRIES,
   MAX_JOB_OUTPUT_VALUE_BYTES,
 } from '#core/step-config/job-output-limits.js';
-import {buildModel, template, workflowRunAttemptId} from '#test/helpers/workflow-runs.js';
+import {
+  buildModel,
+  jobExecutionTerminatedEvents,
+  template,
+  workflowRunAttemptId,
+} from '#test/helpers/workflow-runs.js';
 import {db} from '../db.js';
 import {workflowsOutbox} from '../schema/outbox.js';
 import {
@@ -77,6 +82,55 @@ describe('workflow run job executions', () => {
       jobExecutionId: execution.id,
       workflowRunAttemptId: actualAttemptId,
     });
+  });
+
+  test('writes one terminal fact when a job execution becomes terminal', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+
+    const running = await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'running',
+      expectedVersion: execution.version,
+    });
+    expect(await jobExecutionTerminatedEvents(execution.id)).toHaveLength(0);
+
+    await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'cancelled',
+      expectedVersion: running.version,
+      statusReason: 'run_cancelled',
+    });
+    await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'failed',
+      expectedVersion: running.version + 1,
+      statusReason: 'unknown',
+    });
+
+    expect(await jobExecutionTerminatedEvents(execution.id)).toEqual([
+      expect.objectContaining({
+        jobId: job.id,
+        jobExecutionId: execution.id,
+        workflowRunId: run.id,
+        status: 'cancelled',
+        statusReason: 'run_cancelled',
+      }),
+    ]);
   });
 
   test('does not cancel steps when lease expiry loses the execution version race', async () => {

@@ -12,6 +12,7 @@ import * as runnerMetrics from '#metrics/instance.js';
 import {
   getLeaseTokenClaims,
   pendingJobFactory,
+  providerRunnerFactory,
   runnerSessionFactory,
   runnersTestAuthClient,
 } from '#test/index.js';
@@ -1611,6 +1612,50 @@ describe('detectAndExpireStuckJobs', () => {
     // The lease-expired event carries only the assignment identifiers.
     expect(payload.status).toBeUndefined();
     expect(payload.steps).toBeUndefined();
+  });
+
+  it('releases a terminal runner reservation when its stuck lease is reaped', async () => {
+    const stale = await makeStaleJob(600);
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = crypto.randomUUID();
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    if (!reservation) throw new Error('Expected reservation');
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      reservationId: reservation.id,
+      runnerSessionId,
+      state: 'terminated',
+      terminatedAt: new Date(),
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({provisionerId, providerRunnerId})
+      .where(eq(runningJobExecutions.jobExecutionId, stale.jobExecutionId));
+
+    await expireStuckJobExecutions({
+      noFirstHeartbeatGraceSeconds: 60,
+      thresholdSeconds: 180,
+    });
+
+    expect(
+      await db().select().from(reservations).where(eq(reservations.id, reservation.id)),
+    ).toHaveLength(0);
+    const [runner] = await db()
+      .select()
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
   it('does not requeue an execution after its lease has expired', async () => {

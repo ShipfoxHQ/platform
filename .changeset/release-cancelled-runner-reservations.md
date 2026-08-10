@@ -1,5 +1,7 @@
 ---
 "@shipfox/api-runners": patch
+"@shipfox/api-workflows": patch
+"@shipfox/api-workflows-dto": minor
 ---
 
-Release terminal runner reservations when their remaining job leases have already been cancelled.
+Publish terminal job execution facts and use them to converge runner leases before releasing terminal runner reservations.

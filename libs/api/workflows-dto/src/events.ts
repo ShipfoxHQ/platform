@@ -11,6 +11,9 @@ export const WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED =
 export const WORKFLOWS_WORKFLOW_RUN_TERMINATED = 'workflows.workflow_run.terminated' as const;
 // Intent fact for cooperative run cancellation. Consumers use this to stop orchestration.
 export const WORKFLOWS_WORKFLOW_RUN_CANCELLED = 'workflows.workflow_run.cancelled' as const;
+// Terminal fact for a job execution, written in the same transaction as every
+// transition to succeeded, failed, or cancelled.
+export const WORKFLOWS_JOB_EXECUTION_TERMINATED = 'workflows.job_execution.terminated' as const;
 export const WORKFLOWS_JOB_EXECUTION_TIMED_OUT = 'workflows.job_execution.timed_out' as const;
 export const WORKFLOWS_JOB_ACTIVATED = 'workflows.job.activated' as const;
 export const WORKFLOWS_JOB_EVENT_DELIVERED = 'workflows.job_event.delivered' as const;
@@ -72,6 +75,19 @@ export const workflowsJobExecutionTimedOutSchema = z.object({
 });
 export type WorkflowsJobExecutionTimedOutEventDto = z.infer<
   typeof workflowsJobExecutionTimedOutSchema
+>;
+
+export const workflowsJobExecutionTerminatedSchema = z.object({
+  jobId: nonEmptyStringSchema,
+  jobExecutionId: nonEmptyStringSchema,
+  workflowRunId: nonEmptyStringSchema,
+  workflowRunAttemptId: nonEmptyStringSchema,
+  status: workflowRunTerminalStatusSchema,
+  statusReason: jobStatusReasonSchema.nullable(),
+  statusReasonMessage: z.string().nullable().optional(),
+});
+export type WorkflowsJobExecutionTerminatedEventDto = z.infer<
+  typeof workflowsJobExecutionTerminatedSchema
 >;
 
 const workflowsJobActivatedBaseSchema = z.object({
@@ -196,6 +212,7 @@ export interface WorkflowsEventMapDto {
   [WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED]: WorkflowsWorkflowRunAttemptCreatedEventDto;
   [WORKFLOWS_WORKFLOW_RUN_TERMINATED]: WorkflowsWorkflowRunTerminatedEventDto;
   [WORKFLOWS_WORKFLOW_RUN_CANCELLED]: WorkflowsWorkflowRunCancelledEventDto;
+  [WORKFLOWS_JOB_EXECUTION_TERMINATED]: WorkflowsJobExecutionTerminatedEventDto;
   [WORKFLOWS_JOB_EXECUTION_TIMED_OUT]: WorkflowsJobExecutionTimedOutEventDto;
   [WORKFLOWS_JOB_ACTIVATED]: WorkflowsJobActivatedEventDto;
   [WORKFLOWS_JOB_EVENT_DELIVERED]: WorkflowsJobEventDeliveredEventDto;
@@ -209,6 +226,7 @@ export const workflowsEventSchemas = {
   [WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED]: workflowsWorkflowRunAttemptCreatedSchema,
   [WORKFLOWS_WORKFLOW_RUN_TERMINATED]: workflowsWorkflowRunTerminatedSchema,
   [WORKFLOWS_WORKFLOW_RUN_CANCELLED]: workflowsWorkflowRunCancelledSchema,
+  [WORKFLOWS_JOB_EXECUTION_TERMINATED]: workflowsJobExecutionTerminatedSchema,
   [WORKFLOWS_JOB_EXECUTION_TIMED_OUT]: workflowsJobExecutionTimedOutSchema,
   [WORKFLOWS_JOB_ACTIVATED]: workflowsJobActivatedSchema,
   [WORKFLOWS_JOB_EVENT_DELIVERED]: workflowsJobEventDeliveredSchema,

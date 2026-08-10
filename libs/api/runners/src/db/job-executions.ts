@@ -45,6 +45,7 @@ import {pendingJobExecutions} from './schema/pending-job-executions.js';
 import {providerRunners} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
+import {terminalJobExecutions} from './schema/terminal-job-executions.js';
 
 const runnerJobExecutionLockPrefix = 'runners_job_execution:';
 
@@ -52,6 +53,35 @@ async function lockJobExecution(tx: Tx, jobExecutionId: string): Promise<void> {
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtext(${`${runnerJobExecutionLockPrefix}${jobExecutionId}`}))`,
   );
+}
+
+async function releaseReservationsForTerminalRunningRows(
+  tx: Tx,
+  rows: ReadonlyArray<{
+    provisionerId: string | null;
+    providerRunnerId: string | null;
+  }>,
+): Promise<void> {
+  const providerRunnerIdsByProvisionerId = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (row.provisionerId === null || row.providerRunnerId === null) continue;
+    const providerRunnerIds =
+      providerRunnerIdsByProvisionerId.get(row.provisionerId) ?? new Set<string>();
+    providerRunnerIds.add(row.providerRunnerId);
+    providerRunnerIdsByProvisionerId.set(row.provisionerId, providerRunnerIds);
+  }
+
+  for (const [provisionerId, providerRunnerIds] of providerRunnerIdsByProvisionerId) {
+    await releaseTerminalRunnerInstanceReservationsByIds(tx, {
+      workspaceId: null,
+      provisionerId,
+      providerRunnerIds: [...providerRunnerIds],
+      requireUnlinkedSession: false,
+      // Lock and re-check the runner row locally so lease finalization remains retryable
+      // without a workflow/runner scope lock.
+      requireTerminalState: false,
+    });
+  }
 }
 
 export interface EnqueueJobExecutionParams {
@@ -103,6 +133,15 @@ export async function enqueueJobExecution(params: EnqueueJobExecutionParams): Pr
 
   const enqueued = await db().transaction(async (tx) => {
     await lockJobExecution(tx, params.jobExecutionId);
+
+    // The terminal outbox fact can win the race against a delayed enqueue activity. Keep its
+    // local projection durable so that reordering cannot resurrect a finished execution.
+    const [terminal] = await tx
+      .select({jobExecutionId: terminalJobExecutions.jobExecutionId})
+      .from(terminalJobExecutions)
+      .where(eq(terminalJobExecutions.jobExecutionId, params.jobExecutionId))
+      .limit(1);
+    if (terminal) return false;
 
     const [leaseExpired] = await tx
       .select({id: runnersOutbox.id})
@@ -434,18 +473,7 @@ export async function releaseJobExecution(params: {jobExecutionId: string}): Pro
         providerRunnerId: runningJobExecutions.providerRunnerId,
       });
 
-    const deletedRunningRow = deletedRunningRows[0];
-    if (deletedRunningRow?.provisionerId && deletedRunningRow.providerRunnerId) {
-      await releaseTerminalRunnerInstanceReservationsByIds(tx, {
-        workspaceId: null,
-        provisionerId: deletedRunningRow.provisionerId,
-        providerRunnerIds: [deletedRunningRow.providerRunnerId],
-        requireUnlinkedSession: false,
-        // Lock and re-check the runner row locally so terminal reporting remains retryable
-        // without a workflow/runner scope lock.
-        requireTerminalState: false,
-      });
-    }
+    await releaseReservationsForTerminalRunningRows(tx, deletedRunningRows);
   });
 }
 
@@ -537,9 +565,13 @@ export async function expireStuckJobExecutions(params: {
         workflowRunAttemptId: runningJobExecutions.workflowRunAttemptId,
         jobId: runningJobExecutions.jobId,
         jobExecutionId: runningJobExecutions.jobExecutionId,
+        provisionerId: runningJobExecutions.provisionerId,
+        providerRunnerId: runningJobExecutions.providerRunnerId,
       });
 
     if (deleted.length === 0) return [];
+
+    await releaseReservationsForTerminalRunningRows(tx, deleted);
 
     await writeOutboxEvents<RunnersEventMap>(
       tx,
@@ -555,7 +587,12 @@ export async function expireStuckJobExecutions(params: {
       })),
     );
 
-    return deleted;
+    return deleted.map(({workflowRunId, workflowRunAttemptId, jobId, jobExecutionId}) => ({
+      workflowRunId,
+      workflowRunAttemptId,
+      jobId,
+      jobExecutionId,
+    }));
   });
 
   if (reaped.length > 0) jobExecutionLeaseExpiredCount.add(reaped.length);
@@ -812,18 +849,31 @@ export async function reconcileTerminalJobExecution(params: {
   await db().transaction(async (tx) => {
     await lockJobExecution(tx, params.jobExecutionId);
 
+    // Record the fact before mutating queue state. Enqueue takes the same advisory lock and
+    // consults this projection, which closes the terminal-before-enqueue ordering.
+    await tx
+      .insert(terminalJobExecutions)
+      .values({jobExecutionId: params.jobExecutionId})
+      .onConflictDoNothing({target: terminalJobExecutions.jobExecutionId});
+
     // Delete pending before updating running to match claim/release lock order. Claim locks
     // pending rows with SKIP LOCKED before inserting the running lease, so this ordering makes
     // a concurrent terminal reconciliation either win before claim or cancel the new lease.
     await tx
       .delete(pendingJobExecutions)
       .where(eq(pendingJobExecutions.jobExecutionId, params.jobExecutionId));
-    await tx
+    const cancelledRunningRows = await tx
       .update(runningJobExecutions)
       .set({
         cancellationRequestedAt: sql`COALESCE(${runningJobExecutions.cancellationRequestedAt}, now())`,
       })
-      .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId));
+      .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId))
+      .returning({
+        provisionerId: runningJobExecutions.provisionerId,
+        providerRunnerId: runningJobExecutions.providerRunnerId,
+      });
+
+    await releaseReservationsForTerminalRunningRows(tx, cancelledRunningRows);
   });
 }
 
@@ -832,11 +882,17 @@ export async function cancelRunnerJobs(params: {jobIds: string[]}): Promise<void
 
   await db().transaction(async (tx) => {
     await tx.delete(pendingJobExecutions).where(inArray(pendingJobExecutions.jobId, params.jobIds));
-    await tx
+    const cancelledRunningRows = await tx
       .update(runningJobExecutions)
       .set({
         cancellationRequestedAt: sql`COALESCE(${runningJobExecutions.cancellationRequestedAt}, now())`,
       })
-      .where(inArray(runningJobExecutions.jobId, params.jobIds));
+      .where(inArray(runningJobExecutions.jobId, params.jobIds))
+      .returning({
+        provisionerId: runningJobExecutions.provisionerId,
+        providerRunnerId: runningJobExecutions.providerRunnerId,
+      });
+
+    await releaseReservationsForTerminalRunningRows(tx, cancelledRunningRows);
   });
 }

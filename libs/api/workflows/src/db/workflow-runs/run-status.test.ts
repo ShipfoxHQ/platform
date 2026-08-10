@@ -4,6 +4,7 @@ import {nextStepForJob} from '#core/job-execution.js';
 import {
   buildModel,
   createTestRun,
+  jobExecutionTerminatedEvents,
   jobTerminatedEvents,
   runCancelledEvents,
   runTerminatedEvents,
@@ -16,6 +17,7 @@ import {
   cancelWorkflowRun,
   createRerunWorkflowRun,
   createWorkflowRun,
+  getFirstJobExecutionByJobId,
   getJobsByWorkflowRunId,
   getStepsByJobId,
   getWorkflowRunById,
@@ -257,6 +259,8 @@ describe('workflow run queries', () => {
       const [runningJobExecution, succeededJob, skippedJob] = await getJobsByWorkflowRunId(run.id);
       if (!runningJobExecution || !succeededJob || !skippedJob) throw new Error('Expected jobs');
       await updateJobStatus({jobId: runningJobExecution.id, status: 'running', expectedVersion: 1});
+      const execution = await getFirstJobExecutionByJobId(runningJobExecution.id);
+      if (!execution) throw new Error('Expected running job execution');
       await nextStepForJob(runningJobExecution.id);
       await updateJobStatus({jobId: succeededJob.id, status: 'succeeded', expectedVersion: 1});
       await updateJobStatus({
@@ -294,6 +298,15 @@ describe('workflow run queries', () => {
       expect(await jobTerminatedEvents(runningJobExecution.id)).toEqual([
         expect.objectContaining({
           jobId: runningJobExecution.id,
+          workflowRunId: run.id,
+          status: 'cancelled',
+          statusReason: 'run_cancelled',
+        }),
+      ]);
+      expect(await jobExecutionTerminatedEvents(execution.id)).toEqual([
+        expect.objectContaining({
+          jobId: runningJobExecution.id,
+          jobExecutionId: execution.id,
           workflowRunId: run.id,
           status: 'cancelled',
           statusReason: 'run_cancelled',

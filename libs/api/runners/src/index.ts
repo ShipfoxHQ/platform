@@ -4,6 +4,7 @@ import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import {administrationActionEventSchemas} from '@shipfox/api-common-dto';
 import {runnersEventSchemas} from '@shipfox/api-runners-dto';
 import {
+  WORKFLOWS_JOB_EXECUTION_TERMINATED,
   WORKFLOWS_JOB_EXECUTION_TIMED_OUT,
   type WorkflowsEventMapDto,
 } from '@shipfox/api-workflows-dto';
@@ -16,6 +17,7 @@ import {
   createRunnerControlSessionAuthMethod,
   createRunnerRegistrationTokenAuthMethod,
   createRunnerRoutes,
+  onWorkflowsJobExecutionTerminated,
   onWorkflowsJobExecutionTimedOut,
 } from '#presentation/index.js';
 import {createRunnersInterModulePresentation} from '#presentation/inter-module.js';
@@ -64,7 +66,11 @@ export function createRunnersModule({
     publishers: [
       {name: 'runners', table: runnersOutbox, db, eventSchemas: runnersPublisherEventSchemas},
     ],
-    subscribers: [subscriber(WORKFLOWS_JOB_EXECUTION_TIMED_OUT, onWorkflowsJobExecutionTimedOut)],
+    subscribers: [
+      subscriber(WORKFLOWS_JOB_EXECUTION_TERMINATED, onWorkflowsJobExecutionTerminated),
+      // Keep consuming the narrower event while older outbox rows drain during rollout.
+      subscriber(WORKFLOWS_JOB_EXECUTION_TIMED_OUT, onWorkflowsJobExecutionTimedOut),
+    ],
     workers: [
       {
         taskQueue: RUNNERS_MAINTENANCE_TASK_QUEUE,

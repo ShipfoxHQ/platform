@@ -30,6 +30,7 @@ import {steps, toStep} from '../schema/steps.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
 import {getDirectDependencyJobContexts} from './jobs.js';
+import {writeJobExecutionTerminatedOutbox} from './outbox.js';
 import {loadReferencedVariables} from './runs.js';
 import {
   getWorkflowContextForJob,
@@ -282,6 +283,15 @@ async function updateJobExecutionStatusAtVersion(
 
   const row = rows[0];
   if (!row) return null;
+  if (TERMINAL_EXECUTION_STATUSES.includes(row.status)) {
+    await writeJobExecutionTerminatedOutbox(tx, {
+      jobId: row.jobId,
+      jobExecutionId: row.id,
+      status: row.status,
+      statusReason: row.statusReason,
+      statusReasonMessage: row.statusReasonMessage,
+    });
+  }
   return {
     execution: toJobExecution(row, await getJobExecutionFallbackName(tx, row.id)),
     changed: true,

@@ -48,6 +48,7 @@ import {
   getDirectDependencyJobContexts,
   loadReferencedVariables,
   updateJobStatusAtVersion,
+  writeJobExecutionTerminatedOutbox,
 } from './workflow-runs.js';
 
 const TERMINAL_EXECUTION_STATUSES: JobExecutionStatus[] = ['succeeded', 'failed', 'cancelled'];
@@ -481,6 +482,13 @@ export async function settleListenerJobExecution(params: {
       )
       .returning();
     if (!execution) return false;
+    await writeJobExecutionTerminatedOutbox(tx, {
+      jobId: execution.jobId,
+      jobExecutionId: execution.id,
+      status: execution.status,
+      statusReason: execution.statusReason,
+      statusReasonMessage: execution.statusReasonMessage,
+    });
     await bulkUpdateStepStatuses(
       {jobExecutionId: params.jobExecutionId, status: params.status},
       tx,
@@ -614,6 +622,16 @@ async function persistMaterializedListenerExecution(
     })
     .returning();
   if (!execution) throw new Error('Insert returned no rows');
+
+  if (execution.status === 'failed') {
+    await writeJobExecutionTerminatedOutbox(tx, {
+      jobId: execution.jobId,
+      jobExecutionId: execution.id,
+      status: execution.status,
+      statusReason: execution.statusReason,
+      statusReasonMessage: execution.statusReasonMessage,
+    });
+  }
 
   await tx
     .update(jobListenerEvents)

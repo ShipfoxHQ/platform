@@ -247,12 +247,6 @@ export function createEnqueueJobExecutionForRunner(runners: RunnersInterModuleCl
   };
 }
 
-export function createCancelRunnerJobsActivity(runners: RunnersInterModuleClient) {
-  return async function cancelRunnerJobsActivity(params: {jobIds: string[]}): Promise<void> {
-    await runners.cancelJobs(params);
-  };
-}
-
 export async function failJobExecutionAsTimedOutActivity(
   params: {jobExecutionId: string; runAttemptId: string; expectedVersion: number},
   secrets: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'>,

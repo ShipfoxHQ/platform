@@ -375,9 +375,7 @@ describe('jobListenerOrchestration', () => {
 
       expect(settleListenerCalls().map((c) => c.params.status)).toEqual(['cancelled']);
       expect(listenerFiringOutcomeCalls().map((c) => c.params.outcome)).toEqual(['cancelled']);
-      expect(callsNamed('cancelRunnerJobsActivity')).toEqual([
-        {name: 'cancelRunnerJobsActivity', params: {jobIds: [jobId]}},
-      ]);
+      expect(callsNamed('cancelRunnerJobsActivity')).toHaveLength(0);
       expect(resolveJobListenerCalls().map((c) => c.params.reason)).toEqual(['until']);
     });
 

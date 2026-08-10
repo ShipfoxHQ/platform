@@ -310,7 +310,7 @@ describe('runOrchestration', () => {
     expect(finalRunAttemptStatus?.params.version).toBeGreaterThan(0);
   });
 
-  test('cancel signal stops scheduling and fans out runner cancellation', async () => {
+  test('cancel signal stops scheduling without calling runners directly', async () => {
     const jobs = [dagJob('j1', 'build'), dagJob('j2', 'deploy', ['build'])];
     setCfg({dag: makeDag(jobs, 'r-cancel'), jobResults: new Map(), skipSignal: true});
 
@@ -326,9 +326,7 @@ describe('runOrchestration', () => {
 
     expect(setRunAttemptStatusCalls().map((c) => c.params.status)).toEqual(['running']);
     expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(1);
-    expect(callsNamed('cancelRunnerJobsActivity')).toEqual([
-      {name: 'cancelRunnerJobsActivity', params: {jobIds: ['j1', 'j2']}},
-    ]);
+    expect(callsNamed('cancelRunnerJobsActivity')).toHaveLength(0);
   });
 
   test('starts listening jobs and cancels them with the run', async () => {
@@ -348,9 +346,7 @@ describe('runOrchestration', () => {
 
     expect(setRunAttemptStatusCalls().map((c) => c.params.status)).toEqual(['running']);
     expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(0);
-    expect(callsNamed('cancelRunnerJobsActivity')).toEqual([
-      {name: 'cancelRunnerJobsActivity', params: {jobIds: ['j1']}},
-    ]);
+    expect(callsNamed('cancelRunnerJobsActivity')).toHaveLength(0);
   });
 
   test('aborts early when the initial running write reports an already-terminal run', async () => {

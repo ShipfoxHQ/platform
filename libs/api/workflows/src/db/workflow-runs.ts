@@ -35,6 +35,7 @@ export {
   updateJobStatusAtVersion,
 } from './workflow-runs/jobs.js';
 export {
+  writeJobExecutionTerminatedOutbox,
   writeJobStepsSettledOutbox,
   writeStepAttemptTerminatedOutbox,
   writeStepRestartEnqueuedOutbox,

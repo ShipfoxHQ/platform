@@ -25,7 +25,6 @@ const {
   resolveJobListenerActivity,
   settleListenerJobExecutionActivity,
   recordListenerFiringOutcomeActivity,
-  cancelRunnerJobsActivity,
 } = proxyActivities<ReturnType<typeof createOrchestrationActivities>>({
   startToCloseTimeout: '30s',
 });
@@ -447,7 +446,6 @@ async function runListenerExecution(params: {
         status: 'cancelled',
       });
       await recordListenerFiringOutcomeActivity({outcome: 'cancelled'});
-      await cancelRunnerJobsActivity({jobIds: [params.input.jobId]});
       return;
     }
   }

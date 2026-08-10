@@ -6,7 +6,6 @@ import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-modu
 import {
   activateJobListenerActivity,
   bulkSetStepStatuses,
-  createCancelRunnerJobsActivity,
   createDrainListenerEventsActivity,
   createEnqueueJobExecutionForRunner,
   createReleaseLeaseActivity,
@@ -39,7 +38,6 @@ export function createOrchestrationActivities(params: {
     setJobExecutionStatus: async (activityParams: Parameters<typeof setJobExecutionStatus>[0]) =>
       await setJobExecutionStatus(activityParams, params.secrets),
     bulkSetStepStatuses,
-    cancelRunnerJobsActivity: createCancelRunnerJobsActivity(params.runners),
     enqueueJobExecutionForRunner: createEnqueueJobExecutionForRunner(params.runners),
     evaluateJobActivationsActivity,
     failJobExecutionAsTimedOutActivity: async (
