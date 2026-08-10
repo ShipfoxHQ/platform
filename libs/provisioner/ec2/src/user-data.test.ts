@@ -22,7 +22,23 @@ describe('renderRunnerBootstrapUserData', () => {
   it('publishes the runner environment only after boot-owned workspace setup', () => {
     const userData = renderRunnerBootstrapUserData(options);
 
-    expect(userData).toContain('SHIPFOX_RUNNER_PROVIDER_KIND="ec2"');
+    expect(userData).toContain(`write_files:
+  - path: /etc/shipfox/runner.env.tmp
+    owner: root:root
+    permissions: '0600'
+    content: |`);
+    for (const line of [
+      'SHIPFOX_API_URL="https://api.shipfox.test"',
+      'SHIPFOX_RUNNER_BOOTSTRAP_TOKEN="sf_rbt_sensitive-bootstrap-token"',
+      'SHIPFOX_RUNNER_PROVIDER_KIND="ec2"',
+      'SHIPFOX_RUNNER_PROTOCOL_VERSION="1"',
+      'SHIPFOX_RUNNER_LABELS="linux,x64,self-hosted"',
+      'SHIPFOX_RUNNER_WORKSPACE_ROOT="/var/lib/shipfox/workspaces"',
+      'SHIPFOX_POLL_MAX_DURATION_MS="300000"',
+      'SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS="3600"',
+    ]) {
+      expect(userData).toContain(`      ${line}`);
+    }
     expect(userData).toContain("workspace_mount_unit='var-lib-shipfox-workspaces.mount'");
     expect(userData).toContain('abort_boot()');
     expect(userData).toContain('systemctl poweroff --no-wall');
