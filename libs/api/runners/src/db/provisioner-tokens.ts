@@ -12,7 +12,7 @@ import type {
 } from '#core/entities/provisioner-token.js';
 import {ProvisionerAdminIdempotencyKeyReuseError} from '#core/errors.js';
 import {db} from './db.js';
-import {releaseTerminalRunnerInstanceReservationsByIds} from './runner-instances.js';
+import {releaseTerminalRunnerInstanceReservationsByIds} from './reservations.js';
 import {runnersAdminCommandResults} from './schema/admin-command-results.js';
 import {runnersOutbox} from './schema/outbox.js';
 import {provisionerTokens, toProvisionerToken} from './schema/provisioner-tokens.js';

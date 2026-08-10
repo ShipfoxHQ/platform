@@ -10,6 +10,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  lte,
   notExists,
   notInArray,
   or,
@@ -27,6 +28,7 @@ import {reservations} from './schema/reservations.js';
 import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
 import {type providerRunnerLaunchKindEnum, providerRunners} from './schema/runner-instances.js';
+import {runningJobExecutions} from './schema/running-job-executions.js';
 
 export interface ReservationTemplate {
   templateKey: string;
@@ -888,12 +890,6 @@ export async function releaseReservationUnits(
     gt(reservations.expiresAt, sql`now()`),
   );
 
-  const deleted = await tx
-    .delete(reservations)
-    .where(and(scope, sql`${reservations.count} <= ${releaseCount}`))
-    .returning({count: reservations.count});
-  const releasedFromDeleted = deleted.reduce((total, row) => total + row.count, 0);
-
   const decremented = await tx
     .update(reservations)
     .set({count: sql`${reservations.count} - ${releaseCount}`})
@@ -904,7 +900,235 @@ export async function releaseReservationUnits(
     0,
   );
 
+  const decrementedIds = decremented.map((row) => row.id);
+  const deleted = await tx
+    .delete(reservations)
+    .where(
+      and(
+        scope,
+        sql`${reservations.count} <= ${releaseCount}`,
+        decrementedIds.length > 0 ? notInArray(reservations.id, decrementedIds) : undefined,
+      ),
+    )
+    .returning({count: reservations.count});
+  const releasedFromDeleted = deleted.reduce((total, row) => total + row.count, 0);
+
   return releasedFromDeleted + releasedFromDecremented;
+}
+
+export async function releaseTerminalRunnerInstanceReservationsByIds(
+  tx: Tx,
+  params: {
+    workspaceId: string | null;
+    provisionerId: string;
+    providerRunnerIds?: string[];
+    runnerInstanceIds?: string[];
+    reportedAtByProviderRunnerId?: ReadonlyMap<string, Date>;
+    requireUnlinkedSession?: boolean;
+  },
+): Promise<number> {
+  if (
+    (params.providerRunnerIds?.length ?? 0) === 0 &&
+    (params.runnerInstanceIds?.length ?? 0) === 0
+  )
+    return 0;
+
+  const reservationWorkspacePredicate =
+    params.workspaceId === null
+      ? sql``
+      : sql`and ${eq(reservations.workspaceId, params.workspaceId)}`;
+  const noRunningJobPredicate = notExists(
+    tx
+      .select({id: runningJobExecutions.id})
+      .from(runningJobExecutions)
+      .where(
+        and(
+          eq(runningJobExecutions.provisionerId, params.provisionerId),
+          eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
+          params.workspaceId === null
+            ? undefined
+            : eq(runningJobExecutions.workspaceId, params.workspaceId),
+        ),
+      ),
+  );
+  const reportFreshnessPredicate =
+    params.reportedAtByProviderRunnerId && params.reportedAtByProviderRunnerId.size > 0
+      ? or(
+          ...[...params.reportedAtByProviderRunnerId].map(([providerRunnerId, reportedAt]) =>
+            and(
+              eq(providerRunners.providerRunnerId, providerRunnerId),
+              lte(providerRunners.reportedAt, reportedAt),
+            ),
+          ),
+        )
+      : undefined;
+  const runnerIdentityPredicate = or(
+    params.providerRunnerIds && params.providerRunnerIds.length > 0
+      ? inArray(providerRunners.providerRunnerId, params.providerRunnerIds)
+      : undefined,
+    params.runnerInstanceIds && params.runnerInstanceIds.length > 0
+      ? inArray(providerRunners.id, params.runnerInstanceIds)
+      : undefined,
+  );
+
+  const rows = await tx
+    .select({
+      id: providerRunners.id,
+      releaseReservationId: sql<string | null>`coalesce(
+        (select ${reservations.id}
+         from ${reservations}
+         where ${reservations.id} = ${providerRunners.intendedReservationId}
+           and ${reservations.provisionerId} = ${params.provisionerId}
+           ${reservationWorkspacePredicate}),
+        (select ${reservations.id}
+         from ${reservations}
+         where ${reservations.id} = ${providerRunners.reservationId}
+           and ${reservations.provisionerId} = ${params.provisionerId}
+           ${reservationWorkspacePredicate})
+      )`,
+      releaseReservationWorkspaceId: sql<string | null>`coalesce(
+        (select ${reservations.workspaceId}
+         from ${reservations}
+         where ${reservations.id} = ${providerRunners.intendedReservationId}
+           and ${reservations.provisionerId} = ${params.provisionerId}
+           ${reservationWorkspacePredicate}),
+        (select ${reservations.workspaceId}
+         from ${reservations}
+         where ${reservations.id} = ${providerRunners.reservationId}
+           and ${reservations.provisionerId} = ${params.provisionerId}
+           ${reservationWorkspacePredicate})
+      )`,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        runnerIdentityPredicate,
+        inArray(providerRunners.state, terminalStates),
+        or(
+          isNotNull(providerRunners.reservationId),
+          isNotNull(providerRunners.intendedReservationId),
+        ),
+        params.workspaceId === null
+          ? undefined
+          : or(
+              and(
+                eq(providerRunners.workspaceId, params.workspaceId),
+                or(
+                  exists(
+                    tx
+                      .select({id: reservations.id})
+                      .from(reservations)
+                      .where(
+                        and(
+                          eq(reservations.workspaceId, params.workspaceId),
+                          eq(reservations.provisionerId, params.provisionerId),
+                          eq(reservations.id, providerRunners.reservationId),
+                        ),
+                      ),
+                  ),
+                  exists(
+                    tx
+                      .select({id: reservations.id})
+                      .from(reservations)
+                      .where(
+                        and(
+                          eq(reservations.workspaceId, params.workspaceId),
+                          eq(reservations.provisionerId, params.provisionerId),
+                          eq(reservations.id, providerRunners.intendedReservationId),
+                        ),
+                      ),
+                  ),
+                ),
+              ),
+              and(
+                isNull(providerRunners.workspaceId),
+                isNotNull(providerRunners.intendedReservationId),
+                exists(
+                  tx
+                    .select({id: reservations.id})
+                    .from(reservations)
+                    .where(
+                      and(
+                        eq(reservations.workspaceId, params.workspaceId),
+                        eq(reservations.provisionerId, params.provisionerId),
+                        eq(reservations.id, providerRunners.intendedReservationId),
+                      ),
+                    ),
+                ),
+              ),
+            ),
+        params.requireUnlinkedSession === false
+          ? undefined
+          : isNull(providerRunners.runnerSessionId),
+        noRunningJobPredicate,
+        reportFreshnessPredicate,
+        isNull(providerRunners.reservationReleasedAt),
+      ),
+    )
+    .for('update');
+
+  if (rows.length === 0) return 0;
+
+  const updated = await tx
+    .update(providerRunners)
+    .set({
+      intendedReservationId: null,
+      reservationReleasedAt: sql`now()`,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        inArray(
+          providerRunners.id,
+          rows.map((row) => row.id),
+        ),
+        params.requireUnlinkedSession === false
+          ? undefined
+          : isNull(providerRunners.runnerSessionId),
+        noRunningJobPredicate,
+        reportFreshnessPredicate,
+        isNull(providerRunners.reservationReleasedAt),
+      ),
+    )
+    .returning({id: providerRunners.id});
+
+  const releasesByReservationId = new Map<
+    string,
+    {workspaceId: string; reservationId: string; count: number}
+  >();
+  const updatedIds = new Set(updated.map((row) => row.id));
+  for (const row of rows) {
+    if (!updatedIds.has(row.id)) continue;
+    if (!row.releaseReservationId || !row.releaseReservationWorkspaceId) continue;
+    const key = `${row.releaseReservationWorkspaceId}:${row.releaseReservationId}`;
+    const release = releasesByReservationId.get(key) ?? {
+      workspaceId: row.releaseReservationWorkspaceId,
+      reservationId: row.releaseReservationId,
+      count: 0,
+    };
+    release.count += 1;
+    releasesByReservationId.set(key, release);
+  }
+
+  if (releasesByReservationId.size === 0) return 0;
+
+  const releasesByWorkspaceId = new Map<string, Array<{reservationId: string; count: number}>>();
+  for (const release of releasesByReservationId.values()) {
+    const releases = releasesByWorkspaceId.get(release.workspaceId) ?? [];
+    releases.push({reservationId: release.reservationId, count: release.count});
+    releasesByWorkspaceId.set(release.workspaceId, releases);
+  }
+
+  let released = 0;
+  for (const [workspaceId, releases] of releasesByWorkspaceId) {
+    released += await releaseReservationUnits(tx, {
+      workspaceId,
+      provisionerId: params.provisionerId,
+      releases,
+    });
+  }
+  return released;
 }
 
 function deductProvisionerReservations(

@@ -1820,6 +1820,40 @@ describe('pollDemandAndReserve', () => {
     );
   });
 
+  it('does not strand units when concurrent releases drain one reservation', async () => {
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 2,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!reservation) throw new Error('Expected reservation');
+
+    const [firstReleased, secondReleased] = await Promise.all([
+      db().transaction((tx) =>
+        releaseReservationUnits(tx, {
+          workspaceId,
+          provisionerId,
+          releases: [{reservationId: reservation.id, count: 1}],
+        }),
+      ),
+      db().transaction((tx) =>
+        releaseReservationUnits(tx, {
+          workspaceId,
+          provisionerId,
+          releases: [{reservationId: reservation.id, count: 1}],
+        }),
+      ),
+    ]);
+
+    expect(firstReleased + secondReleased).toBe(2);
+    expect(await reservationsForTest()).toHaveLength(0);
+  });
+
   it('deletes reservations when releasing all remaining units', async () => {
     await reservationFactory.create({
       workspaceId,

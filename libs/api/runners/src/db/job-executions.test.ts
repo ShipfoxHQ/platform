@@ -29,6 +29,7 @@ import {
 } from './job-executions.js';
 import {runnersOutbox} from './schema/outbox.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
+import {reservations} from './schema/reservations.js';
 import {providerRunners} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
@@ -967,6 +968,53 @@ describe('releaseJobExecution', () => {
     await expect(
       releaseJobExecution({jobExecutionId: crypto.randomUUID()}),
     ).resolves.toBeUndefined();
+  });
+
+  it('releases a terminal runner reservation after deleting its final lease', async () => {
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: sessionLabels,
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!reservation) throw new Error('Expected reservation');
+
+    await db()
+      .update(runnerSessions)
+      .set({registrationTokenKind: 'ephemeral', maxClaims: 1, provisionerId, providerRunnerId})
+      .where(eq(runnerSessions.id, runnerSessionId));
+    await db().insert(providerRunners).values({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      reservationId: reservation.id,
+      runnerSessionId,
+      state: 'terminated',
+      reportedAt: new Date(),
+      terminatedAt: new Date(),
+      labels: sessionLabels,
+    });
+
+    const created = await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
+    expect(claimed?.jobExecutionId).toBe(created.jobExecutionId);
+
+    await releaseJobExecution({jobExecutionId: created.jobExecutionId});
+
+    expect(
+      await db().select().from(reservations).where(eq(reservations.id, reservation.id)),
+    ).toHaveLength(0);
+    const [runner] = await db()
+      .select({reservationReleasedAt: providerRunners.reservationReleasedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.reservationReleasedAt).toEqual(expect.any(Date));
   });
 
   it('releases regardless of which session holds the lease', async () => {
