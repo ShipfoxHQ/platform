@@ -3,17 +3,21 @@ language js(typescript, jsx)
 
 or {
   JsxElement(opening_element = JsxOpeningElement(name = "Table")) as $table where {
-    $table <: not within JsxElement(opening_element = JsxOpeningElement(name = "Panel")),
+    $table <: not within JsxElement(
+      opening_element = JsxOpeningElement(name = or {"Panel", "Card"}),
+    ),
     register_diagnostic(
       span=$table,
-      message="client-architecture/no-table-outside-panel: wrap the Table in a Panel; the Panel owns the border, radius, and surface."
+      message="client-architecture/no-table-outside-panel: wrap the Table in a Panel (Card is the current implementation); the Panel owns the border, radius, and surface."
     )
   },
   JsxSelfClosingElement(name = "Table") as $table where {
-    $table <: not within JsxElement(opening_element = JsxOpeningElement(name = "Panel")),
+    $table <: not within JsxElement(
+      opening_element = JsxOpeningElement(name = or {"Panel", "Card"}),
+    ),
     register_diagnostic(
       span=$table,
-      message="client-architecture/no-table-outside-panel: wrap the Table in a Panel; the Panel owns the border, radius, and surface."
+      message="client-architecture/no-table-outside-panel: wrap the Table in a Panel (Card is the current implementation); the Panel owns the border, radius, and surface."
     )
   }
 }
