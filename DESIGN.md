@@ -108,6 +108,10 @@ components:
     typography: "{typography.label}"
     rounded: "{rounded.input}"
     padding: "2px 6px"
+  card:
+    backgroundColor: "{colors.panel}"
+    rounded: "{rounded.panel}"
+    padding: "12px"
   panel:
     backgroundColor: "{colors.panel}"
     rounded: "{rounded.panel}"
@@ -140,10 +144,17 @@ for dark mode, so tooling that needs theme-correct output resolves the named tok
 code and prose disagree, the code wins and this file is corrected in the same
 change.
 
-The one exception is the surface, frame, and panel model described under
-[Layout](#layout) and [Elevation and depth](#elevation-and-depth). That
-model is committed, and `@shipfox/react-ui` is being brought onto it. Read those
-two sections as the target a change should move toward.
+The one exception is the surface, frame, and panel model. It is described under
+[Layout](#layout), [Elevation and depth](#elevation-and-depth), and
+[Panels](#panels), and recorded in the `panel`, `panel-header`, and `panel-row`
+frontmatter entries. That model is committed, and `@shipfox/react-ui` is being
+brought onto it. Read those sections as the target a change should move toward,
+not as a description of what ships today.
+
+Two consequences while the work lands. `Panel` does not exist yet, and `Card`
+still ships in its place. Three surface tokens still resolve to values other than
+the ones the ladder names, and
+[The surface ladder](#the-surface-ladder) lists each one.
 
 ## Overview
 
@@ -202,9 +213,11 @@ automatically, so component code never branches on theme. The families:
   [Elevation and depth](#elevation-and-depth) and are the only tokens that
   paint a page, a panel, or a code block. The rest of the family covers states and
   overlays: `-neutral-hover` / `-pressed`, `-components-hover` / `-pressed`,
-  `-field-base` / `-field-hover` (inputs),
+  `-field-base` / `-field-hover` (inputs), `-neutral-overlay` (popovers),
   `-highlight-{base,hover,interactive}` (brand-tied selection), `-modal-overlay` /
   `-backdrop-backdrop` (scrims), and `-accent-{neutral,blue,purple,success,warning,error}-{soft,base,strong}`.
+  `-neutral-background` is still defined and still paints about 30 surfaces. It
+  carries no role in the ladder and retires onto the canvas.
 - Foregrounds: `text-foreground-neutral-{base,subtle,muted,disabled}`,
   `-on-color` (on a saturated fill), `-on-inverted` (on a contrast surface),
   `-highlight-interactive` (link/CTA orange), `-highlight-error`.
@@ -233,8 +246,8 @@ focus, and disabled for one component: `--background-button-*`, `--shadow-button
 - **Canvas / Panel** (`canvas` `--color-neutral-50`, `panel`
   `--color-neutral-0`): the page and the panels that sit on it, on light.
 - **Panel Inverted** (`panel-inverted`, `--color-neutral-900`): the near-black
-  code surface on light. Dark resolves it to `--color-neutral-1000`, so code stays
-  the darkest surface in both themes.
+  code surface on light. Dark targets `--color-neutral-1000`, so code becomes the
+  darkest surface in both themes. Dark resolves to `--color-neutral-800` today.
 - **Border** (`border`, `--color-neutral-300`): the default hairline.
 
 Dark mode inverts these roles through the same token names (the page becomes
@@ -404,17 +417,34 @@ settings panel.
 
 ### The surface ladder
 
-**Four roles, four tokens, and the same number of steps in both themes.** Values
-below are the resolved hexes, but components always consume the token. The
-frontmatter names the first two surfaces after the same roles, as `colors.canvas`
-and `colors.panel`.
+**Four roles, four tokens, and the same number of steps in both themes.**
+Components always consume the token, never the hex. The frontmatter names the
+first two surfaces after the same roles, as `colors.canvas` and `colors.panel`.
 
 | Role | Token | Light | Dark | Paints |
 | --- | --- | --- | --- | --- |
 | Canvas | `bg-background-subtle-base` | `#fafafa` | `#0f0f10` | The page, the nav bar, the tab strip, rails, object headers, panel header strips |
-| Panel | `bg-background-neutral-base` | `#ffffff` | `#1a1a1b` | Panel bodies, rows, popovers, modals |
-| Code | `bg-background-contrast-*` | `#1a1a1b` | `#030303` | Code, logs, YAML, agent transcripts |
+| Panel | `bg-background-neutral-base` | `#ffffff` | `#1a1a1b` | Panel bodies, rows, modals |
+| Code | `bg-background-contrast-base` | `#1a1a1b` | `#030303` | Code, logs, YAML, agent transcripts |
 | Inline fill | `bg-background-components-base` | `#f4f4f5` | `#27272a` | Avatars, badges, kbd, chips inside a panel |
+
+**Those hexes are the target, and three tokens do not resolve to them yet.** Read
+this table as the contract the package is moving to.
+
+| Token | Resolves today | Target |
+| --- | --- | --- |
+| `--background-subtle-base` (light) | `--color-alpha-black-2` | opaque `--color-neutral-50` |
+| `--background-components-base` (light) | `--color-neutral-50` | `--color-neutral-100` |
+| `--background-contrast-base` (dark) | `--color-neutral-800` | `--color-neutral-1000` |
+
+`--background-contrast-subtle` and `--background-contrast-hover` are translucent
+in dark today and become opaque in the same change. `--background-neutral-background`
+still paints about 30 surfaces and retires onto the canvas role.
+
+**Overlays sit outside this ladder.** A popover uses
+`--background-neutral-overlay`, a tooltip uses its own variant tokens, and a modal
+uses the panel fill. None of them is a page surface, so none is governed by the
+four roles above.
 
 Two rules generate the ladder:
 
@@ -495,12 +525,15 @@ pills are `rounded-4` or `rounded-full`, panels are `rounded-8`. Do not drift.
 
 `@shipfox/react-ui` ships the batteries. Reach for an existing component before
 building anything: `accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`,
-`callout`, `code-block`, `collapsible`, `combobox`, `command`,
+`callout`, `card`, `code-block`, `collapsible`, `combobox`, `command`,
 `date-picker`, `date-range-picker`, `dot`, `dropdown-menu`, `empty-state`,
 `form-field`, `icon`, `input`, `kbd`, `label`, `load-error-state`, `loader`, `log`,
-`logo`, `markdown`, `modal`, `panel`, `popover`, `radio-group`, `relative-time`,
+`logo`, `markdown`, `modal`, `popover`, `radio-group`, `relative-time`,
 `scroll-area`, `search`, `select`, `sheet`, `shiny-text`, `skeleton`, `table`,
 `tabs`, `theme`, `toast`, `tooltip`, and `typography`.
+
+`Panel` is landing and replaces `Card`. Until it ships, `Card` remains the
+container in code, and [Panels](#panels) describes the target.
 
 ### Buttons
 
@@ -528,9 +561,13 @@ building anything: `accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`
 
 ### Panels
 
-`Panel` is the only container for a data region, and it replaces the former
-`Card`. It composes `PanelHeader`, `PanelTitle`, `PanelActions`, `PanelBody`,
-`PanelRow`, and `PanelEmpty`.
+**This section is the target, not what ships.** `Panel` does not exist in
+`@shipfox/react-ui` yet, and `Card` is still the exported container. Do not import
+`Panel` until the package ships it.
+
+`Panel` becomes the only container for a data region, replacing `Card`. It
+composes `PanelHeader`, `PanelTitle`, `PanelActions`, `PanelBody`, `PanelRow`,
+and `PanelEmpty`.
 
 - **Shell:** `rounded-8`, panel fill, hairline border, elevation from the shadow
   tokens.
