@@ -97,9 +97,40 @@ describe('createIntegrationToolDispatcher', () => {
       boundary: 'integration.agent-tool',
     });
   });
+
+  it('classifies unrecognized failures as unknown instead of provider outages', async () => {
+    const internalError = new Error('request timeout configuration is invalid');
+    const dispatch = createDispatcher(internalError);
+
+    const result = await dispatch({
+      authorizedTool: authorizedTool(),
+      arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      method: 'get',
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'Integration tool call failed'}],
+      structuredContent: {code: 'unknown'},
+    });
+    expect(dispatchMocks.loggerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: internalError,
+        provider: 'github',
+        toolId: 'issue_read',
+        method: 'get',
+        errorCode: 'unknown',
+      }),
+      'Integration agent tool call failed',
+    );
+    expect(dispatchMocks.loggerError.mock.calls[0]?.[0]).not.toHaveProperty('providerStatus');
+    expect(dispatchMocks.reportError).toHaveBeenCalledWith(internalError, {
+      boundary: 'integration.agent-tool',
+    });
+  });
 });
 
-function createDispatcher(callError: IntegrationProviderError) {
+function createDispatcher(callError: unknown) {
   return createIntegrationToolDispatcher(
     {
       registry: registryWithAgentTools([catalogTool()], {callError}),

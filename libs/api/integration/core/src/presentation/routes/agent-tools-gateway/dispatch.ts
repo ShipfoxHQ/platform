@@ -10,6 +10,7 @@ import type {
   AgentToolsProvider,
 } from '#core/providers/agent-tools.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
+import type {IntegrationAgentToolCallErrorCode} from '#metrics/index.js';
 import {NO_METHOD_LABEL} from './audit.js';
 import type {IntegrationToolDispatcher, IntegrationToolDispatchInput} from './mcp-server.js';
 
@@ -23,7 +24,8 @@ export interface IntegrationToolDispatcherDependencies {
   reportError?: typeof reportError;
 }
 
-const timeoutErrorPattern = /timed?\s*out|timeout/i;
+const timeoutErrorNamePattern = /timed?\s*out|timeout/i;
+const mcpRequestTimeoutMessagePattern = /^MCP error -32001:\s*Request timed out\b/i;
 const credentialErrorNamePattern = /Token|Credential|Secret|AccessToken/;
 
 export function createIntegrationToolDispatcher(
@@ -72,7 +74,7 @@ async function dispatchIntegrationToolCall(
     });
   } catch (error) {
     const result = errorResult(error);
-    if (result.code === 'provider-unavailable') {
+    if (result.code === 'provider-unavailable' || result.code === 'unknown') {
       input.logger().error(
         {
           ...toolCallLogContext(input),
@@ -80,7 +82,9 @@ async function dispatchIntegrationToolCall(
           errorCode: result.code,
           ...(result.status === undefined ? {} : {providerStatus: result.status}),
         },
-        'Integration agent tool provider was unavailable',
+        result.code === 'provider-unavailable'
+          ? 'Integration agent tool provider was unavailable'
+          : 'Integration agent tool call failed',
       );
       input.reportError(error, {boundary: 'integration.agent-tool'});
     }
@@ -153,7 +157,7 @@ async function closeSession(
 }
 
 interface IntegrationToolError {
-  code: string;
+  code: IntegrationAgentToolCallErrorCode;
   message: string;
   retryAfterSeconds?: number | undefined;
   status?: number | undefined;
@@ -186,8 +190,8 @@ function errorResult(error: unknown): IntegrationToolError {
   }
 
   return {
-    code: 'provider-unavailable',
-    message: 'Integration provider call failed',
+    code: 'unknown',
+    message: 'Integration tool call failed',
   };
 }
 
@@ -195,8 +199,8 @@ function isTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return (
     error.name === 'AbortError' ||
-    timeoutErrorPattern.test(error.name) ||
-    timeoutErrorPattern.test(error.message)
+    timeoutErrorNamePattern.test(error.name) ||
+    (error.name === 'McpError' && mcpRequestTimeoutMessagePattern.test(error.message))
   );
 }
 

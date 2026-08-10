@@ -986,6 +986,45 @@ describe('github agent tool catalog', () => {
           text: 'No pending pull request review found for the authenticated GitHub user.',
         },
       ],
+      structuredContent: {code: 'provider-rejected'},
+    });
+  });
+
+  it('returns an access-denied code when the installation lacks a required permission', async () => {
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'installation-token',
+            expiresAt: new Date(),
+            permissions: {},
+          }),
+        ),
+      },
+    });
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'list_issues');
+    if (!tool) throw new Error('Missing list_issues tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'list_issues',
+      arguments: {owner: 'shipfox', repo: 'platform'},
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub installation token is missing permission for this operation',
+        },
+      ],
+      structuredContent: {code: 'access-denied'},
     });
   });
 
@@ -1040,6 +1079,7 @@ describe('github agent tool catalog', () => {
     expect(result).toEqual({
       isError: true,
       content: [{type: 'text', text: 'Missing required parameter: ref'}],
+      structuredContent: {code: 'invalid-request'},
     });
   });
 
@@ -1206,6 +1246,7 @@ describe('github agent tool catalog', () => {
           text: 'No pending pull request review found for the authenticated GitHub user.',
         },
       ],
+      structuredContent: {code: 'provider-rejected'},
     });
     expect(request).toHaveBeenCalledOnce();
   });
