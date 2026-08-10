@@ -478,10 +478,10 @@
   --background-neutral-disabled: var(--color-neutral-800);
   --background-field-hover: var(--color-alpha-white-8);
   --background-switch-off: var(--color-neutral-700);
-  --background-contrast-subtle: var(--color-alpha-white-2);
-  --background-contrast-hover: var(--color-alpha-white-8);
+  --background-contrast-subtle: var(--color-neutral-950);
+  --background-contrast-hover: var(--color-neutral-900);
   --background-contrast-pressed: var(--color-alpha-white-12);
-  --background-contrast-base: var(--color-neutral-800);
+  --background-contrast-base: var(--color-neutral-1000);
   --background-neutral-background: var(--color-neutral-1000);
   --background-backdrop-backdrop: var(--color-alpha-black-64);
   --background-modal-overlay: var(--color-alpha-black-88);
