@@ -91,20 +91,19 @@ function RunWorkspaceStoryProviders({children}: {children: ReactNode}) {
         const url =
           input instanceof Request ? input.url : input instanceof URL ? input.href : String(input);
         const path = new URL(url, 'https://api.example.test').pathname;
-        const isNotFound =
-          path !== '/annotations' &&
-          path !== `/workflows/runs/${RUN_ID}/attempts` &&
-          path !== `/workflows/runs/${RUN_ID}`;
-        const body =
+        const response =
           path === '/annotations'
-            ? {annotations: [], has_more: false, next_cursor: null}
+            ? {
+                body: {annotations: [], has_more: false, next_cursor: null},
+                status: 200,
+              }
             : path === `/workflows/runs/${RUN_ID}/attempts`
-              ? RUN_ATTEMPTS_RESPONSE
+              ? {body: RUN_ATTEMPTS_RESPONSE, status: 200}
               : path === `/workflows/runs/${RUN_ID}`
-                ? RUN_RESPONSE
-                : {code: 'not-found'};
-        return new Response(JSON.stringify(body), {
-          status: isNotFound ? 404 : 200,
+                ? {body: RUN_RESPONSE, status: 200}
+                : {body: {code: 'not-found'}, status: 404};
+        return new Response(JSON.stringify(response.body), {
+          status: response.status,
           headers: {'content-type': 'application/json'},
         });
       },
