@@ -902,7 +902,7 @@ describe('systemd boot activation', () => {
     return readFile(new URL(name, assets), 'utf8');
   }
 
-  it('requires the job workspace mount before starting the runner', async () => {
+  it('keeps the workspace gate in the image-level service boundary', async () => {
     const unit = await readUnit('shipfox-runner.service');
 
     expect(unit).toContain(
@@ -912,30 +912,43 @@ describe('systemd boot activation', () => {
     expect(unit).toContain(
       'ExecStartPre=/opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh',
     );
+    expect(unit).not.toContain('RequiresMountsFor=');
   });
 
-  it('gates the workspace mount check on the new user-data marker', () => {
+  it('ships the provider-gated workspace preflight separately from the runner app', async () => {
     const script = new URL('../scripts/runtime/verify-workspace-mount.sh', import.meta.url);
-    const result = execFileSync('sh', [script.pathname], {
-      encoding: 'utf8',
-      env: {...process.env, SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED: ''},
-    });
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+    const source = await readFile(script, 'utf8');
 
-    expect(result).toBe('');
-  });
+    execFileSync('sh', ['-n', script.pathname], {stdio: 'pipe'});
 
-  it('fails the workspace mount check when the marker requires a missing mount', () => {
-    const script = new URL('../scripts/runtime/verify-workspace-mount.sh', import.meta.url);
-
+    expect(() =>
+      execFileSync('sh', [script.pathname], {
+        env: {...process.env, SHIPFOX_RUNNER_PROVIDER_KIND: 'qemu'},
+        stdio: 'pipe',
+      }),
+    ).not.toThrow();
     expect(() =>
       execFileSync('sh', [script.pathname], {
         env: {
           ...process.env,
-          SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED: '1',
-          SHIPFOX_RUNNER_WORKSPACE_ROOT: '/definitely/missing/shipfox-workspaces',
+          SHIPFOX_RUNNER_PROVIDER_KIND: 'ec2',
+          SHIPFOX_RUNNER_WORKSPACE_ROOT: '/tmp/shipfox-workspace-not-mounted',
         },
+        stdio: 'pipe',
       }),
     ).toThrow();
+
+    expect(source).toContain('SHIPFOX_RUNNER_PROVIDER_KIND');
+    expect(source).toContain(
+      `workspace_root="\${SHIPFOX_RUNNER_WORKSPACE_ROOT:-/var/lib/shipfox/workspaces}"`,
+    );
+    expect(source).toContain('exec mountpoint -q "$workspace_root"');
+    expect(source).toContain('the runner application only receives a usable workspace directory');
+    expect(build).toContain(
+      'verify-workspace-mount.sh /opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh',
+    );
+    expect(build).not.toContain('var-lib-shipfox-workspaces.mount');
   });
 
   it('starts the lifecycle target when the complete environment file appears', async () => {
