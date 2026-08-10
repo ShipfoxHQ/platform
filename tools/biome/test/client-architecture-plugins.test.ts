@@ -291,7 +291,23 @@ describe('client-architecture Biome plugins', () => {
     const pageWidthPlugin = rootConfig.plugins.find(({path}) =>
       path.endsWith('/client-architecture/no-arbitrary-page-width.grit'),
     );
-    assert.ok(pageWidthPlugin?.includes.includes('**/libs/client/**'));
+    assert.ok(pageWidthPlugin?.includes.includes('**/libs/client/**/src/pages/**'));
+    assert.ok(
+      pageWidthPlugin?.includes.includes(
+        '**/libs/client/integrations/src/components/callback-status-shell.tsx',
+      ),
+    );
+    assert.ok(
+      pageWidthPlugin?.includes.includes(
+        '**/libs/client/integrations/src/components/redirect-install-page.tsx',
+      ),
+    );
+    assert.ok(
+      pageWidthPlugin?.includes.includes(
+        '**/libs/client/workflows/src/components/workflow-run-view/workflow-run-view.tsx',
+      ),
+    );
+    assert.ok(!pageWidthPlugin?.includes.includes('**/libs/client/**'));
     assert.ok(pageWidthPlugin?.includes.includes('!**/libs/client/shell/**'));
   });
 

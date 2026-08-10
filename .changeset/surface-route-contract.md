@@ -2,4 +2,4 @@
 "@shipfox/client-shell": major
 ---
 
-Requires composed route implementations to declare a supported frame for surface-system layout ownership.
+Requires composed route implementations to declare `staticData.frame` as `content`, `data`, or `focused`.

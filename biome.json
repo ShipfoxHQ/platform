@@ -325,7 +325,10 @@
     {
       "path": "./tools/biome/plugins/client-architecture/no-arbitrary-page-width.grit",
       "includes": [
-        "**/libs/client/**",
+        "**/libs/client/**/src/pages/**",
+        "**/libs/client/integrations/src/components/callback-status-shell.tsx",
+        "**/libs/client/integrations/src/components/redirect-install-page.tsx",
+        "**/libs/client/workflows/src/components/workflow-run-view/workflow-run-view.tsx",
         "!**/libs/client/shell/**",
         "!**/dist/**",
         "!**/node_modules/**",
