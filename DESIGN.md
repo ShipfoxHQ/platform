@@ -6,9 +6,10 @@ colors:
   brand-deep: "#e63e00"
   brand-tint: "#fff4f0"
   ink: "#0f0f10"
-  canvas: "#ffffff"
+  canvas: "#fafafa"
+  panel: "#ffffff"
   on-contrast: "rgba(255,255,255,0.88)"
-  surface: "#fafafa"
+  on-color: "#ffffff"
   panel-inverted: "#1a1a1b"
   primary-fill: "#27272a"
   primary-fill-hover: "#3f3f46"
@@ -83,7 +84,7 @@ components:
   button-primary-hover:
     backgroundColor: "{colors.primary-fill-hover}"
   button-secondary:
-    backgroundColor: "{colors.canvas}"
+    backgroundColor: "{colors.panel}"
     textColor: "{colors.ink}"
     typography: "{typography.body}"
     rounded: "{rounded.button}"
@@ -91,13 +92,13 @@ components:
     height: "32px"
   button-danger:
     backgroundColor: "{colors.danger}"
-    textColor: "{colors.canvas}"
+    textColor: "{colors.on-color}"
     typography: "{typography.body}"
     rounded: "{rounded.button}"
     padding: "0 10px"
     height: "32px"
   input:
-    backgroundColor: "{colors.canvas}"
+    backgroundColor: "{colors.panel}"
     textColor: "{colors.ink}"
     typography: "{typography.body}"
     rounded: "{rounded.input}"
@@ -108,15 +109,15 @@ components:
     rounded: "{rounded.input}"
     padding: "2px 6px"
   panel:
-    backgroundColor: "{colors.canvas}"
+    backgroundColor: "{colors.panel}"
     rounded: "{rounded.panel}"
     padding: "24px"
   panel-header:
-    backgroundColor: "{colors.surface}"
+    backgroundColor: "{colors.canvas}"
     typography: "{typography.title}"
     padding: "12px 16px"
   panel-row:
-    backgroundColor: "{colors.canvas}"
+    backgroundColor: "{colors.panel}"
     typography: "{typography.body}"
     padding: "12px 16px"
 ---
@@ -229,7 +230,7 @@ focus, and disabled for one component: `--background-button-*`, `--shadow-button
 - **Ink** (`ink`, `--color-neutral-950`): primary text on light.
 - **Subtle / Muted** (`subtle` `--color-neutral-600`, `muted` `--color-neutral-500`):
   secondary text and metadata.
-- **Canvas / Surface** (`surface` `--color-neutral-50`, `canvas`
+- **Canvas / Panel** (`canvas` `--color-neutral-50`, `panel`
   `--color-neutral-0`): the page and the panels that sit on it, on light.
 - **Panel Inverted** (`panel-inverted`, `--color-neutral-900`): the near-black
   code surface on light. Dark resolves it to `--color-neutral-1000`, so code stays
@@ -404,7 +405,9 @@ settings panel.
 ### The surface ladder
 
 **Four roles, four tokens, and the same number of steps in both themes.** Values
-below are the resolved hexes, but components always consume the token.
+below are the resolved hexes, but components always consume the token. The
+frontmatter names the first two surfaces after the same roles, as `colors.canvas`
+and `colors.panel`.
 
 | Role | Token | Light | Dark | Paints |
 | --- | --- | --- | --- | --- |
