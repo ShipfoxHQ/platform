@@ -151,7 +151,7 @@ const markdownComponents = {
       return (
         <code
           className={cn(
-            'rounded-2 bg-background-subtle-base px-4 py-2 font-code text-xs text-foreground-neutral-base',
+            'rounded-2 bg-background-components-base px-4 py-2 font-code text-xs text-foreground-neutral-base',
             className,
           )}
           {...props}

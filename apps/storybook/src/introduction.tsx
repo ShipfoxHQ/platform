@@ -81,7 +81,7 @@ export function IntroductionPage() {
 
         <section
           aria-labelledby="preview-identity"
-          className="rounded-8 bg-background-subtle-base p-20"
+          className="rounded-8 border border-border-neutral-base bg-background-subtle-base p-20"
         >
           <Code variant="label" bold id="preview-identity">
             Preview identity

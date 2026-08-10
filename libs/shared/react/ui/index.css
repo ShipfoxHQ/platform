@@ -206,9 +206,9 @@
 
   /* Design Token Variables - Light Mode */
   /* Background */
-  --background-components-hover: var(--color-neutral-100);
+  --background-components-hover: var(--color-neutral-200);
   --background-neutral-base: var(--color-neutral-0);
-  --background-components-pressed: var(--color-neutral-200);
+  --background-components-pressed: var(--color-neutral-300);
   --background-subtle-pressed: var(--color-neutral-200);
   --background-highlight-interactive: var(--color-primary-500);
   --background-subtle-hover: var(--color-neutral-100);
@@ -218,11 +218,11 @@
   --background-highlight-base: var(--color-primary-50);
   --background-neutral-hover: var(--color-neutral-100);
   --background-neutral-overlay: var(--color-neutral-0);
-  --background-components-base: var(--color-neutral-50);
+  --background-components-base: var(--color-neutral-100);
   --background-field-component: var(--color-neutral-0);
   --background-switch-off-hover: var(--color-neutral-300);
   --background-field-component-hover: var(--color-neutral-50);
-  --background-subtle-base: var(--color-alpha-black-2);
+  --background-subtle-base: var(--color-neutral-50);
   --background-neutral-disabled: var(--color-neutral-100);
   --background-field-hover: var(--color-neutral-100);
   --background-switch-off: var(--color-neutral-200);
