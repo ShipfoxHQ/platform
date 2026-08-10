@@ -1,5 +1,16 @@
 # @shipfox/api-workflows
 
+## 12.6.0
+
+### Minor Changes
+
+- 53b87f0: Distinguish queued and executing jobs in workflow run list status strips.
+
+### Patch Changes
+
+- Updated dependencies [53b87f0]
+  - @shipfox/api-workflows-dto@12.6.0
+
 ## 12.5.0
 
 ### Minor Changes

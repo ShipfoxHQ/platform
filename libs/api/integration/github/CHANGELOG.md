@@ -1,5 +1,13 @@
 # @shipfox/api-integration-github
 
+## 12.6.0
+
+### Patch Changes
+
+- 8aaed9e: Expose bounded error codes for deterministic GitHub agent tool failures.
+- 4848ad7: Fix pending GitHub review comments by resolving the caller's pending review through the REST API.
+- 594cdbe: Support both stateless and stateful GitHub App installation token formats.
+
 ## 12.5.0
 
 ### Patch Changes

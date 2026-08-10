@@ -1,5 +1,17 @@
 # @shipfox/api-integration-core
 
+## 12.6.0
+
+### Patch Changes
+
+- 8aaed9e: Record bounded integration tool error details in audit logs and metrics.
+- Updated dependencies [8aaed9e]
+- Updated dependencies [4848ad7]
+- Updated dependencies [594cdbe]
+- Updated dependencies [53b87f0]
+  - @shipfox/api-integration-github@12.6.0
+  - @shipfox/api-workflows-dto@12.6.0
+
 ## 12.5.0
 
 ### Patch Changes
