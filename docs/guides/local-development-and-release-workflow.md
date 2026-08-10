@@ -43,6 +43,65 @@ If you add, update, or exempt a dependency, read the
 catalog rules, exceptions, package families, and the required dependency
 checks.
 
+## Prepare an agent workspace
+
+Agent workspaces use two stable repository entrypoints after the host installs
+`mise`. [mise.toml](../../mise.toml) and
+[dev/workspace-setup.sh](../../dev/workspace-setup.sh) own their executable
+behavior.
+
+| Need | Command | Result |
+| --- | --- | --- |
+| Build, run, or test the code. | `mise run --yes workspace:setup` | Installs pinned tools, frozen dependencies, repository context, the test browser, and profile-required services. |
+| Run a read-only job, such as PR review. | `mise run --yes workspace:setup:context` | Installs pinned tools, frozen dependencies, and repository context. It starts no service or shared Ollama. |
+
+The full command depends on the context command. Both commands are
+non-interactive. A rerun normally reconciles the prepared state. The
+[Shared Ollama](#shared-ollama) section documents the manual recovery exception.
+
+Profile selection uses the first matching signal:
+
+1. `SHIPFOX_SETUP_PROFILE` explicitly selects `conductor-local`,
+   `conductor-cloud`, `workflow`, or `developer`.
+2. `CONDUCTOR_IS_LOCAL=1` selects `conductor-local`.
+   `CONDUCTOR_IS_LOCAL=0` selects `conductor-cloud`.
+3. `SHIPFOX_WORKSPACE` selects `workflow`.
+4. No matching signal selects `developer`.
+
+Conductor supplies `CONDUCTOR_IS_LOCAL`. Workflow hosts supply
+`SHIPFOX_WORKSPACE`. Use the explicit override only to emulate a supported
+profile.
+
+| Environment | Full setup behavior |
+| --- | --- |
+| Local Conductor workspace | Starts worktree services and the shared Shipfox Ollama service. |
+| Conductor cloud workspace | Prepares dependencies and context without starting services. |
+| Ephemeral workflow | Starts worktree services without starting shared Ollama. |
+| Direct developer invocation | Starts worktree services and the shared Shipfox Ollama service. |
+
+The host must provide `mise` 2026.5.18 or newer, matching the minimum in
+`mise.toml`. Service-starting profiles also require Docker, Docker Compose, and
+a running Docker daemon. Workflow host provisioning stays outside these
+repository commands.
+
+These commands execute branch-controlled mise tasks, setup scripts, and
+dependency lifecycle scripts. Treat a checked-out review branch as executable
+code. Run read-only PR jobs in an isolated sandbox without mounted credentials,
+copied secrets, or access to trusted host state.
+
+Setup does not copy secrets, certificates, or static ignored files. Use
+Conductor Files to Copy, `.worktreeinclude`, or the existing environment
+provisioning mechanism only for trusted, non-review workspaces.
+
+Local profiles share one Ollama state directory under the repository root.
+Avoid concurrent cold starts or stop operations until one setup reports the
+shared service as healthy.
+
+Service cleanup also stays outside setup. Conductor archive hooks run
+`mise exec -- pnpm dev:services:destroy` for local workspaces. A workflow must
+use a disposable host or run the same destroy command at the end of its job.
+Persistent hosts can use the status and stop commands below before cleanup.
+
 ## Docker services and Conductor worktrees
 
 A normal checkout uses the repository Docker Compose stack:
