@@ -1,5 +1,13 @@
 # @shipfox/api-runners
 
+## 12.7.0
+
+### Patch Changes
+
+- 7a5e247: Release runner reservation units when a provisioner reports a terminal runner.
+- Updated dependencies [4df5e37]
+  - @shipfox/api-workflows-dto@12.7.0
+
 ## 12.6.0
 
 ### Patch Changes
