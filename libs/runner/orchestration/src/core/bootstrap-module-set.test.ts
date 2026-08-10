@@ -1,5 +1,6 @@
 import {spawnSync} from 'node:child_process';
-import {existsSync, mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -7,7 +8,11 @@ import {fileURLToPath} from 'node:url';
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const probePath = resolve(packageRoot, 'test/bootstrap-module-set-probe.mjs');
 const moduleTrackerPath = resolve(packageRoot, 'test/module-load-tracker.mjs');
-const tsxLoaderPath = resolve(packageRoot, '../../../apps/runner/node_modules/tsx/dist/loader.mjs');
+const require = createRequire(import.meta.url);
+const tsxLoaderPath = require.resolve('tsx');
+const LINE_BREAK_PATTERN = /\r?\n/u;
+const HEAVY_AGENT_PACKAGE_PATTERN =
+  /\/node_modules\/(?:@anthropic-ai|@earendil-works|@modelcontextprotocol)(?:\/|\+)/u;
 
 it('keeps heavy agent packages out of the managed bootstrap module set', () => {
   const trackerDirectory = mkdtempSync(join(tmpdir(), 'shipfox-runner-module-set-'));
@@ -46,8 +51,11 @@ it('keeps heavy agent packages out of the managed bootstrap module set', () => {
       );
     }
 
-    const loadedHeavyModules = existsSync(trackerFile) ? readFileSync(trackerFile, 'utf8') : '';
-    expect(loadedHeavyModules).toBe('');
+    const loadedModules = readFileSync(trackerFile, 'utf8')
+      .split(LINE_BREAK_PATTERN)
+      .filter(Boolean);
+    expect(loadedModules.length).toBeGreaterThan(0);
+    expect(loadedModules.some((url) => HEAVY_AGENT_PACKAGE_PATTERN.test(url))).toBe(false);
   } finally {
     rmSync(trackerDirectory, {recursive: true, force: true});
   }

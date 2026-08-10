@@ -214,6 +214,19 @@ describe('cleanupOrphanedJobLogs', () => {
     await cleanupOrphanedJobLogs(root);
     await expect(stat(orphan)).rejects.toThrow();
   });
+
+  it('reclaims a lock left by a dead or invalid owner', async () => {
+    const logsRoot = join(root, '.shipfox-runner-logs');
+    const orphan = join(logsRoot, 'job-55555555-5555-4555-8555-555555555555');
+    await mkdir(orphan, {recursive: true});
+    await writeFile(`${orphan}.lock`, 'not-a-live-owner');
+
+    await cleanupOrphanedJobLogs(root);
+
+    await expect(stat(orphan)).rejects.toThrow();
+    await expect(stat(`${orphan}.lock`)).rejects.toThrow();
+    await expect(stat(`${orphan}.lock.reclaim`)).rejects.toThrow();
+  });
 });
 
 describe('cleanupWorkspace', () => {

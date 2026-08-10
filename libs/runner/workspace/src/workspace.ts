@@ -1,5 +1,6 @@
+import {randomUUID} from 'node:crypto';
 import type {Dirent} from 'node:fs';
-import {mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdir, readdir, readFile, readlink, rm, symlink, writeFile} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {dirname, join, parse, resolve} from 'node:path';
 import {logger} from '@shipfox/node-opentelemetry';
@@ -163,13 +164,19 @@ async function withJobLogLock<T>(
 
   while (true) {
     try {
-      await writeFile(lockPath, `${process.pid}\n`, {flag: 'wx'});
+      await writeFile(lockPath, `${process.pid}:${randomUUID()}`, {flag: 'wx'});
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 
-      if (await isStaleJobLogLock(lockPath)) {
-        await rm(lockPath, {force: true});
+      const existingLock = await readJobLogLock(lockPath);
+      if (existingLock === undefined) {
+        continue;
+      }
+      if (
+        isProcessDead(existingLock.pid) &&
+        (await tryReclaimStaleJobLogLock(lockPath, existingLock.raw))
+      ) {
         continue;
       }
       if (!waitForLock) return undefined;
@@ -185,15 +192,25 @@ async function withJobLogLock<T>(
   }
 }
 
-async function isStaleJobLogLock(lockPath: string): Promise<boolean> {
+type JobLogLock = {
+  pid: number;
+  raw: string;
+};
+
+async function readJobLogLock(lockPath: string): Promise<JobLogLock | undefined> {
   let raw: string;
   try {
-    raw = await readFile(lockPath, 'utf8');
+    raw = (await readFile(lockPath, 'utf8')).trim();
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'ENOENT';
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
   }
 
-  const pid = Number(raw.trim());
+  const pid = Number(raw.split(':', 1)[0]);
+  return {pid, raw};
+}
+
+function isProcessDead(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return true;
 
   try {
@@ -202,6 +219,53 @@ async function isStaleJobLogLock(lockPath: string): Promise<boolean> {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'ESRCH';
   }
+}
+
+/**
+ * Claims stale-lock reclamation with an atomic symlink. The claim records the
+ * reclaimer pid, so another process can safely take over if the reclaimer
+ * crashes; no process unlinks the lock after a separate liveness check.
+ */
+async function tryReclaimStaleJobLogLock(lockPath: string, expectedLock: string): Promise<boolean> {
+  const reclaimPath = `${lockPath}.reclaim`;
+
+  while (true) {
+    try {
+      // A symlink is created atomically, and its target publishes the full
+      // reclaimer token before another process can observe the claim.
+      await symlink(`${process.pid}:${randomUUID()}`, reclaimPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (!(await isStaleReclaimer(reclaimPath))) return false;
+      await rm(reclaimPath, {force: true});
+    }
+  }
+
+  try {
+    const currentLock = await readJobLogLock(lockPath);
+    if (currentLock?.raw !== expectedLock) return false;
+
+    try {
+      await rm(lockPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    return true;
+  } finally {
+    await rm(reclaimPath, {force: true});
+  }
+}
+
+async function isStaleReclaimer(reclaimPath: string): Promise<boolean> {
+  let target: string;
+  try {
+    target = await readlink(reclaimPath);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+
+  return isProcessDead(Number(target.split(':', 1)[0]));
 }
 
 /**

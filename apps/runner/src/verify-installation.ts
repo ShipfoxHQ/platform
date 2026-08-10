@@ -3,7 +3,6 @@ import {assertPiHarnessExtensionsAvailable} from '@shipfox/runner-agent/pi-exten
 
 const require = createRequire(import.meta.url);
 const RUNNER_AGENT_RUNTIME_EXPORTS = [
-  '@shipfox/runner-agent/pi-extensions',
   '@shipfox/runner-agent/tool-capabilities',
   '@shipfox/runner-agent/step',
 ] as const;

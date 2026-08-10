@@ -51,6 +51,9 @@ const createStepLogStreamMock = vi.fn();
 const createSessionLogStreamMock = vi.fn();
 const executeAgentStepMock = vi.fn();
 const createJobLogsDirMock = vi.fn();
+const {agentStepModuleEvaluated} = vi.hoisted(() => ({
+  agentStepModuleEvaluated: {value: false},
+}));
 
 vi.mock('@shipfox/runner-protocol', () => ({
   requestNextStep: (...args: unknown[]) => requestNextStepMock(...args),
@@ -82,6 +85,14 @@ vi.mock('@shipfox/runner-logs', async () => {
 });
 
 vi.mock('@shipfox/runner-agent/step', () => {
+  agentStepModuleEvaluated.value = true;
+  return {
+    executeAgentStep: (...args: unknown[]) => executeAgentStepMock(...args),
+  };
+});
+
+vi.mock('@shipfox/runner-agent', () => {
+  agentStepModuleEvaluated.value = true;
   return {
     executeAgentStep: (...args: unknown[]) => executeAgentStepMock(...args),
   };
@@ -227,6 +238,7 @@ describe('runJobSteps', () => {
     createStepLogStreamMock.mockReset();
     createSessionLogStreamMock.mockReset();
     executeAgentStepMock.mockReset();
+    agentStepModuleEvaluated.value = false;
     resolveWorkingDirectoryMock.mockReset();
     resolveWorkingDirectoryMock.mockImplementation(
       async (cwd: string, workingDirectory: unknown) =>
@@ -285,6 +297,7 @@ describe('runJobSteps', () => {
     await runLoop({signal: ac.signal});
 
     expect(executeAgentStepMock).not.toHaveBeenCalled();
+    expect(agentStepModuleEvaluated.value).toBe(false);
   });
 
   it('loads the agent module once and reuses the fulfilled promise', async () => {
