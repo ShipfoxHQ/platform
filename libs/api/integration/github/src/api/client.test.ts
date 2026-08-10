@@ -1,4 +1,5 @@
 import {GithubIntegrationProviderError} from '#core/errors.js';
+import {GITHUB_STATELESS_INSTALLATION_TOKEN} from '#test/index.js';
 import {createGithubApiClient, mapGithubError} from './client.js';
 
 const {createInstallationAccessTokenMock, RequestErrorMock} = vi.hoisted(() => {
@@ -62,7 +63,10 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
 
   it('mints a repository-scoped, read-only installation token', async () => {
     createInstallationAccessTokenMock.mockResolvedValue({
-      data: {token: 'ghs_installationtoken', expires_at: '2026-06-10T12:00:00.000Z'},
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
     });
     const client = createGithubApiClient();
 
@@ -72,13 +76,15 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
     });
 
     expect(result).toEqual({
-      token: 'ghs_installationtoken',
+      token: GITHUB_STATELESS_INSTALLATION_TOKEN,
       expiresAt: new Date('2026-06-10T12:00:00.000Z'),
     });
+    expect(GITHUB_STATELESS_INSTALLATION_TOKEN).toHaveLength(520);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledWith({
       installation_id: 1,
       repository_ids: [42],
       permissions: {contents: 'read'},
+      headers: {'X-GitHub-Stateless-S2S-Token': 'enabled'},
     });
   });
 
@@ -98,6 +104,7 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
       installation_id: 1,
       repository_ids: [42],
       permissions: {contents: 'write'},
+      headers: {'X-GitHub-Stateless-S2S-Token': 'enabled'},
     });
   });
 

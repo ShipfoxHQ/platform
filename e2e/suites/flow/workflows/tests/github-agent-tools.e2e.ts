@@ -132,19 +132,20 @@ test('runs selected GitHub tools and denies unselected authority', async ({suite
       {
         kind: 'mint-token',
         authorization: expect.stringMatching(BEARER_AUTHORIZATION),
+        tokenFormatOverride: 'enabled',
         installationId,
         body: {},
       },
       {
         kind: 'read-issue',
-        authorization: `token ${GITHUB_INSTALLATION_TOKEN}`,
+        authorization: `bearer ${GITHUB_INSTALLATION_TOKEN}`,
         owner: 'shipfox',
         repo: 'e2e',
         issueNumber: 1,
       },
       {
         kind: 'create-issue',
-        authorization: `token ${GITHUB_INSTALLATION_TOKEN}`,
+        authorization: `bearer ${GITHUB_INSTALLATION_TOKEN}`,
         owner: 'shipfox',
         repo: 'e2e',
         body: {title: 'Synthetic GitHub issue'},

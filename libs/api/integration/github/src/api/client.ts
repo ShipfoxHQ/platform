@@ -5,6 +5,10 @@ import {App, Octokit, RequestError} from 'octokit';
 import {config, normalizedGithubApiBaseUrl, normalizedGithubPrivateKey} from '#config.js';
 import {GithubIntegrationProviderError} from '#core/errors.js';
 
+export const STATELESS_INSTALLATION_TOKEN_HEADERS = {
+  'X-GitHub-Stateless-S2S-Token': 'enabled',
+};
+
 const NEXT_PAGE_RE = /[?&]page=(\d+)/;
 const TRAILING_SLASHES_RE = /\/+$/;
 const MAX_TREE_WALK_DEPTH = 10;
@@ -353,6 +357,7 @@ class OctokitGithubApiClient implements GithubApiClient {
         installation_id: input.installationId,
         repository_ids: [input.repositoryId],
         permissions: input.permissions ?? {contents: 'read'},
+        headers: STATELESS_INSTALLATION_TOKEN_HEADERS,
       }),
     );
 

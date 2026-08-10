@@ -5,7 +5,11 @@ import {GithubIntegrationProviderError} from '#core/errors.js';
 import {withInstallationTokenLock} from '#db/installation-token-lock.js';
 import {getGithubInstallationByInstallationId} from '#db/installations.js';
 import {recordInstallationTokenLookup} from '#metrics/index.js';
-import {type GithubInstallationAccessToken, mapGithubError} from './client.js';
+import {
+  type GithubInstallationAccessToken,
+  mapGithubError,
+  STATELESS_INSTALLATION_TOKEN_HEADERS,
+} from './client.js';
 import {
   githubInstallationTokenNamespace,
   TOKEN_REFRESH_MARGIN_MS,
@@ -55,6 +59,7 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
       () =>
         this.getApp().octokit.rest.apps.createInstallationAccessToken({
           installation_id: installationId,
+          headers: STATELESS_INSTALLATION_TOKEN_HEADERS,
         }),
       'installation-not-found',
     );

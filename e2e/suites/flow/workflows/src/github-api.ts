@@ -6,7 +6,12 @@ import {
   type ServerResponse,
 } from 'node:http';
 
-export const GITHUB_INSTALLATION_TOKEN = 'github-e2e-installation-token';
+const JWT_SEGMENT_LENGTH = 169;
+
+export const GITHUB_INSTALLATION_TOKEN =
+  `ghs_123456_${'a'.repeat(JWT_SEGMENT_LENGTH)}` +
+  `.${'b'.repeat(JWT_SEGMENT_LENGTH)}` +
+  `.${'c'.repeat(JWT_SEGMENT_LENGTH)}`;
 export const GITHUB_READ_RESULT_MARKER = 'github-read-result-marker';
 export const GITHUB_WRITE_RESULT_MARKER = 'github-write-result-marker';
 
@@ -18,6 +23,7 @@ export type GithubApiMockCall =
   | {
       kind: 'mint-token';
       authorization: string | undefined;
+      tokenFormatOverride: string | undefined;
       installationId: number;
       body: Record<string, unknown>;
     }
@@ -86,6 +92,7 @@ async function handleGithubRequest(params: {
     params.calls.push({
       kind: 'mint-token',
       authorization,
+      tokenFormatOverride: singleHeader(params.request.headers['x-github-stateless-s2s-token']),
       installationId: Number(mintMatch[1]),
       body: await readJsonBody(params.request),
     });
@@ -130,6 +137,10 @@ async function handleGithubRequest(params: {
   }
 
   sendJson(params.response, 404, {message: 'Not Found'});
+}
+
+function singleHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value.join(', ') : value;
 }
 
 function requiredGithubApiBaseUrl(): string {

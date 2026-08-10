@@ -72,6 +72,8 @@ function queueFetchFailure(stderr: string) {
 }
 
 const BASE = {repositoryUrl: 'https://github.com/acme/repo.git', ref: 'main', cwd: '/work/job-1'};
+const GITHUB_STATELESS_INSTALLATION_TOKEN =
+  `ghs_123456_${'a'.repeat(169)}` + `.${'b'.repeat(169)}` + `.${'c'.repeat(169)}`;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -221,17 +223,19 @@ describe('checkoutRepository argv', () => {
     expect(fetchOptions.env.GIT_CONFIG_VALUE_99).toBeUndefined();
   });
 
-  it('injects a basic credential as a base64 Authorization header and registers both secrets', async () => {
+  it('injects a stateless GitHub token as a basic header and registers both secrets', async () => {
     queueSuccessfulCheckout();
     const onSecrets = vi.fn();
-    const expected = Buffer.from('x-token:tok-123').toString('base64');
+    const expected = Buffer.from(`x-access-token:${GITHUB_STATELESS_INSTALLATION_TOKEN}`).toString(
+      'base64',
+    );
 
     await checkoutRepository({
       ...BASE,
       auth: {
         kind: 'basic',
-        username: 'x-token',
-        token: 'tok-123',
+        username: 'x-access-token',
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
         expires_at: '2026-01-01T00:00:00Z',
         carry: 'header',
         host: 'github.com',
@@ -242,9 +246,10 @@ describe('checkoutRepository argv', () => {
 
     const fetchArgs = spawnMock.mock.calls[2]?.[1] as string[];
     const fetchOptions = spawnMock.mock.calls[2]?.[2] as {env: Record<string, string>};
+    expect(GITHUB_STATELESS_INSTALLATION_TOKEN).toHaveLength(520);
     expect(fetchArgs[0]).toBe('fetch');
     expect(fetchOptions.env.GIT_CONFIG_VALUE_0).toBe(`Authorization: Basic ${expected}`);
-    expect(onSecrets).toHaveBeenCalledWith(['tok-123', expected]);
+    expect(onSecrets).toHaveBeenCalledWith([GITHUB_STATELESS_INSTALLATION_TOKEN, expected]);
   });
 
   it('disables interactive credential prompts on every git process', async () => {

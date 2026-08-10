@@ -12,7 +12,11 @@ describe('GitHub API mock', () => {
     try {
       const mint = await fetch(new URL('/app/installations/1234/access_tokens', mock.endpoint), {
         method: 'POST',
-        headers: {authorization: 'Bearer app-jwt', 'content-type': 'application/json'},
+        headers: {
+          authorization: 'Bearer app-jwt',
+          'content-type': 'application/json',
+          'x-github-stateless-s2s-token': 'enabled',
+        },
         body: '{}',
       });
       const read = await fetch(new URL('/repos/shipfox/e2e/issues/1', mock.endpoint), {
@@ -28,6 +32,7 @@ describe('GitHub API mock', () => {
       });
 
       expect(mint.status).toBe(201);
+      expect(GITHUB_INSTALLATION_TOKEN).toHaveLength(520);
       await expect(mint.json()).resolves.toMatchObject({
         token: GITHUB_INSTALLATION_TOKEN,
         permissions: {issues: 'write'},
@@ -38,6 +43,7 @@ describe('GitHub API mock', () => {
         {
           kind: 'mint-token',
           authorization: 'Bearer app-jwt',
+          tokenFormatOverride: 'enabled',
           installationId: 1234,
           body: {},
         },
