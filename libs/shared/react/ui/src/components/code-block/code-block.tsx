@@ -122,7 +122,7 @@ export function CodeBlockFilename({className, value, children, ...props}: CodeBl
   return (
     <div
       className={cn(
-        'flex min-h-0 min-w-0 flex-1 items-center overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-20 font-code text-foreground-neutral-muted',
+        'flex min-h-0 min-w-0 flex-1 items-center overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-20 font-code text-foreground-contrast-secondary',
         className,
       )}
       {...props}
@@ -250,10 +250,10 @@ export function CodeBlockSurface({
       className={cn(
         'flex min-h-0 min-w-0 flex-1 shrink-0 rounded-8 border border-border-contrast-bottom bg-background-contrast-subtle font-code',
         '[&_pre]:py-12 [&_pre]:font-code',
-        '[&_code]:w-full [&_code]:grid [&_code]:overflow-x-auto [&_code]:bg-transparent [&_code]:font-code [&_code]:text-xs [&_code]:leading-20 [&_code]:text-foreground-neutral-base',
+        '[&_code]:w-full [&_code]:grid [&_code]:overflow-x-auto [&_code]:bg-transparent [&_code]:font-code [&_code]:text-xs [&_code]:leading-20 [&_code]:text-foreground-contrast-primary',
         '[&_.line]:block [&_.line]:px-12 [&_.line]:w-full [&_.line]:relative [&_.line]:font-code [&_.line]:min-h-[1.25rem]',
         lineNumbers &&
-          '[&_code]:[counter-reset:line] [&_code]:[counter-increment:line_0] [&_.line]:before:content-[counter(line)] [&_.line]:before:inline-block [&_.line]:before:[counter-increment:line] [&_.line]:before:w-16 [&_.line]:before:mr-16 [&_.line]:before:text-xs [&_.line]:before:text-right [&_.line]:before:text-foreground-neutral-subtle [&_.line]:before:font-code [&_.line]:before:select-none',
+          '[&_code]:[counter-reset:line] [&_code]:[counter-increment:line_0] [&_.line]:before:content-[counter(line)] [&_.line]:before:inline-block [&_.line]:before:[counter-increment:line] [&_.line]:before:w-16 [&_.line]:before:mr-16 [&_.line]:before:text-xs [&_.line]:before:text-right [&_.line]:before:text-foreground-contrast-secondary [&_.line]:before:font-code [&_.line]:before:select-none',
         '[&_.line.diff]:after:absolute [&_.line.diff]:after:left-0 [&_.line.diff]:after:top-0 [&_.line.diff]:after:bottom-0 [&_.line.diff]:after:w-1',
         '[&_.line.diff.add]:bg-tag-success-bg [&_.line.diff.add]:text-tag-success-text [&_.line.diff.add]:after:bg-tag-success-icon',
         '[&_.line.diff.remove]:bg-tag-error-bg [&_.line.diff.remove]:text-tag-error-text [&_.line.diff.remove]:after:bg-tag-error-icon',
@@ -305,7 +305,7 @@ export type CodeBlockContentProps = Omit<HTMLAttributes<HTMLDivElement>, 'childr
 export function CodeBlockContent({
   children,
   themes = {
-    light: 'vitesse-light',
+    light: 'vitesse-dark',
     dark: 'vitesse-dark',
   },
   language = 'typescript',

@@ -97,18 +97,20 @@ export function LogDisclosureTrigger({
           {chevron === 'leading' && (
             <Icon
               name="chevronRight"
-              className="size-16 flex-none text-foreground-neutral-muted motion-safe:transition-transform group-data-[state=open]/disc:rotate-90"
+              className="size-16 flex-none text-foreground-contrast-secondary motion-safe:transition-transform group-data-[state=open]/disc:rotate-90"
             />
           )}
           {children != null && <span className="min-w-0 truncate font-medium">{children}</span>}
           {summary != null && (
-            <span className="min-w-0 truncate text-foreground-neutral-muted group-data-[state=open]/disc:hidden">
+            <span className="min-w-0 truncate text-foreground-contrast-secondary group-data-[state=open]/disc:hidden">
               {summary}
             </span>
           )}
         </CollapsibleTrigger>
         {trailing != null && (
-          <span className="flex-none tabular-nums text-foreground-neutral-muted">{trailing}</span>
+          <span className="flex-none tabular-nums text-foreground-contrast-secondary">
+            {trailing}
+          </span>
         )}
       </div>
     </LogRowFrame>

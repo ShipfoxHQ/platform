@@ -64,7 +64,7 @@ export function WorkflowSourceContent({
             className={cn(
               'min-h-full px-0 pb-0',
               '[&>div]:rounded-none [&>div]:border-0 [&>div]:bg-background-contrast-base',
-              '[&_code]:!text-sm [&_code]:!text-foreground-neutral-on-inverted [&_.line]:!text-sm [&_.line]:before:!text-sm [&_.line]:before:!text-foreground-neutral-muted',
+              '[&_code]:!text-sm [&_code]:!text-foreground-contrast-primary [&_.line]:!text-sm [&_.line]:before:!text-sm [&_.line]:before:!text-foreground-contrast-secondary',
             )}
           >
             <CodeBlockContent

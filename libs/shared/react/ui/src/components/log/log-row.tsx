@@ -9,6 +9,8 @@ const logRowTone = cva('', {
   variants: {
     tone: {
       default: '',
+      // Keep status on the semantic edge; full-row status fills break log rhythm
+      // and violate the Shape-Not-Just-Color Rule in DESIGN.md.
       error: 'shadow-[inset_2px_0_0_var(--tag-error-icon)]',
       warning: 'shadow-[inset_2px_0_0_var(--tag-warning-icon)]',
       success: 'shadow-[inset_2px_0_0_var(--tag-success-icon)]',

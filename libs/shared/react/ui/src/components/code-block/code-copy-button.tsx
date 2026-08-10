@@ -67,7 +67,7 @@ export function CodeCopyButton({
       aria-label={isCopied ? 'Copied' : 'Copy to clipboard'}
       onClick={handleClick}
       className={cn(
-        'flex shrink-0 cursor-pointer items-center justify-center rounded-6 bg-transparent text-foreground-neutral-muted transition-colors hover:bg-background-components-hover active:bg-background-components-pressed p-4 outline-none focus-visible:shadow-button-neutral-focus',
+        'flex shrink-0 cursor-pointer items-center justify-center rounded-6 bg-transparent text-foreground-contrast-secondary transition-colors hover:bg-background-components-hover hover:text-foreground-contrast-primary active:bg-background-components-pressed p-4 outline-none focus-visible:shadow-button-neutral-focus',
         className,
       )}
     >

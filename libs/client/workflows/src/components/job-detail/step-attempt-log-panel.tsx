@@ -144,7 +144,7 @@ function StepLogsLoadingSurface({label, className}: {label: string; className: s
 function StepLogsWaitingSurface({startedAt, className}: {startedAt: string; className: string}) {
   return (
     <div role="status" aria-label="Waiting for logs" className={className}>
-      <Text size="xs" className="px-tight py-row text-foreground-neutral-muted">
+      <Text size="xs" className="px-tight py-row text-foreground-contrast-secondary">
         Waiting for output ·{' '}
         <span className="font-code tabular-nums" aria-hidden="true">
           <JobExecutionTimeText time={{state: 'live', fromIso: startedAt}} />

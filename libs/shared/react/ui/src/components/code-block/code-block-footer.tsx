@@ -52,7 +52,10 @@ export function CodeBlockFooter({
     return (
       <Comp
         data-slot="code-block-footer"
-        className={cn('flex w-full items-center justify-start gap-12 px-16 py-12', className)}
+        className={cn(
+          'flex w-full items-center justify-start gap-12 px-16 py-12 text-foreground-contrast-primary',
+          className,
+        )}
         {...props}
       >
         {children}
@@ -63,7 +66,10 @@ export function CodeBlockFooter({
   return (
     <Comp
       data-slot="code-block-footer"
-      className={cn('flex w-full items-center justify-start gap-12 px-16 py-12', className)}
+      className={cn(
+        'flex w-full items-center justify-start gap-12 px-16 py-12 text-foreground-contrast-primary',
+        className,
+      )}
       {...props}
     >
       <CodeBlockFooterIcon className="text-tag-success-icon">{defaultIcon}</CodeBlockFooterIcon>
@@ -179,7 +185,7 @@ export function CodeBlockFooterDescription({
     return (
       <Slot
         data-slot="code-block-footer-description"
-        className={cn('text-xs text-foreground-neutral-subtle', className)}
+        className={cn('text-xs text-foreground-contrast-secondary', className)}
         {...props}
       >
         {children}
@@ -191,7 +197,7 @@ export function CodeBlockFooterDescription({
     <Text
       data-slot="code-block-footer-description"
       size="xs"
-      className={cn('text-foreground-neutral-subtle', className)}
+      className={cn('text-foreground-contrast-secondary', className)}
       {...props}
     >
       {children}

@@ -157,13 +157,13 @@ function NoOutputRow({state}: {state: NonNullable<LogViewProps['emptyState']>}) 
 
   return (
     <LogRow lineNumber={null}>
-      <LogContent className="text-foreground-neutral-muted">
+      <LogContent className="text-foreground-contrast-secondary">
         <span className="inline-flex min-w-0 items-center gap-inline">
           <Icon name="info" className="size-14 flex-none" aria-hidden="true" />
           <span className="min-w-0">
             <span className="font-medium">{copy.title}</span>
             {' · '}
-            <span className="text-foreground-neutral-subtle">{copy.detail}</span>
+            <span className="text-foreground-contrast-secondary">{copy.detail}</span>
           </span>
         </span>
       </LogContent>

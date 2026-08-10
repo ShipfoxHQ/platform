@@ -52,9 +52,9 @@ export function CodeContent({
         }}
         {...props}
         className={cn(
-          'shiki-override w-full overflow-x-auto font-code [&_pre]:m-0 [&_pre]:p-0 [&_pre]:bg-transparent [&_pre]:font-code [&_code]:font-code [&_code]:bg-transparent [&_code]:text-xs [&_code]:leading-20 [&_code]:text-foreground-neutral-base [&_code]:grid',
+          'shiki-override w-full overflow-x-auto font-code [&_pre]:m-0 [&_pre]:p-0 [&_pre]:bg-transparent [&_pre]:font-code [&_code]:font-code [&_code]:bg-transparent [&_code]:text-xs [&_code]:leading-20 [&_code]:text-foreground-contrast-primary [&_code]:grid',
           lineNumbers &&
-            '[&_code]:[counter-reset:line] [&_code]:[counter-increment:line_0] [&_.line]:before:content-[counter(line)] [&_.line]:before:inline-block [&_.line]:before:[counter-increment:line] [&_.line]:before:w-16 [&_.line]:before:mr-16 [&_.line]:before:text-xs [&_.line]:before:text-right [&_.line]:before:text-foreground-neutral-subtle [&_.line]:before:font-code [&_.line]:before:select-none',
+            '[&_code]:[counter-reset:line] [&_code]:[counter-increment:line_0] [&_.line]:before:content-[counter(line)] [&_.line]:before:inline-block [&_.line]:before:[counter-increment:line] [&_.line]:before:w-16 [&_.line]:before:mr-16 [&_.line]:before:text-xs [&_.line]:before:text-right [&_.line]:before:text-foreground-contrast-secondary [&_.line]:before:font-code [&_.line]:before:select-none',
           '[&_.line]:block [&_.line]:px-12 [&_.line]:w-full [&_.line]:relative [&_.line]:font-code [&_.line]:text-xs [&_.line]:leading-20 [&_.line]:min-h-[1.25rem]',
           CODE_BLOCK_HIGHLIGHTED_LINE_DESCENDANT_STYLE,
           className,
@@ -77,10 +77,10 @@ export function CodeContent({
     >
       <code
         className={cn(
-          'w-full overflow-x-auto bg-transparent font-code text-xs leading-20 text-foreground-neutral-base',
+          'w-full overflow-x-auto bg-transparent font-code text-xs leading-20 text-foreground-contrast-primary',
           'grid',
           lineNumbers &&
-            '[counter-reset:line] [counter-increment:line_0] [&_.line]:before:content-[counter(line)] [&_.line]:before:inline-block [&_.line]:before:[counter-increment:line] [&_.line]:before:w-16 [&_.line]:before:mr-16 [&_.line]:before:text-xs [&_.line]:before:text-right [&_.line]:before:text-foreground-neutral-subtle [&_.line]:before:font-code [&_.line]:before:select-none',
+            '[counter-reset:line] [counter-increment:line_0] [&_.line]:before:content-[counter(line)] [&_.line]:before:inline-block [&_.line]:before:[counter-increment:line] [&_.line]:before:w-16 [&_.line]:before:mr-16 [&_.line]:before:text-xs [&_.line]:before:text-right [&_.line]:before:text-foreground-contrast-secondary [&_.line]:before:font-code [&_.line]:before:select-none',
         )}
       >
         {lines.map((line, index) => {

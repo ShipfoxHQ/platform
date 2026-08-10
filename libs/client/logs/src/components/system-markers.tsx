@@ -11,9 +11,15 @@ import type {
 type MarkerTone = 'default' | 'warning' | 'error';
 
 const toneText: Record<MarkerTone, string> = {
-  default: 'text-foreground-neutral-muted',
-  warning: 'text-tag-warning-text',
-  error: 'text-tag-error-text',
+  default: 'text-foreground-contrast-secondary',
+  warning: 'text-foreground-contrast-primary',
+  error: 'text-foreground-contrast-primary',
+};
+
+const toneIcon: Record<MarkerTone, string> = {
+  default: 'text-foreground-contrast-secondary',
+  warning: 'text-tag-warning-icon',
+  error: 'text-tag-error-icon',
 };
 
 interface LogMarkerRowProps {
@@ -53,7 +59,11 @@ function LogMarkerRow({
     >
       <LogContent className={cn('block', toneText[tone])}>
         <span className="inline-flex w-full items-center gap-inline">
-          <Icon name={icon} className="size-14 flex-none" aria-hidden="true" />
+          <Icon
+            name={icon}
+            className={cn('size-14 flex-none', toneIcon[tone])}
+            aria-hidden="true"
+          />
           {/* Label, detail, and figures share one text cluster joined by a literal
               " · ". Flex `gap` is visual only and would copy with no separator, so the
               separators are real inline text. The dashed rule trails after the text

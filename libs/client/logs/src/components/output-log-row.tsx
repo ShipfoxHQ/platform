@@ -27,7 +27,11 @@ export function OutputLogRow({
       data-stream={record.stream}
       className={cn(isStderr && 'shadow-[inset_2px_0_0_var(--color-border-neutral-strong)]')}
     >
-      <LogContent variant="code" ansi className={cn(isStderr && 'text-foreground-neutral-subtle')}>
+      <LogContent
+        variant="code"
+        ansi
+        className={cn(isStderr && 'text-foreground-contrast-secondary')}
+      >
         {stripTrailingNewline(record.data)}
       </LogContent>
     </LogRow>

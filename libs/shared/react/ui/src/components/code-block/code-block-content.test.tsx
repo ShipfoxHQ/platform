@@ -6,7 +6,7 @@ import {
   CODE_BLOCK_HIGHLIGHTED_LINE_DESCENDANT_STYLE,
   CODE_BLOCK_HIGHLIGHTED_LINE_STYLE,
 } from './code-content.js';
-import {CodeBlockContent} from './index.js';
+import {CodeBlockContent, CodeBlockSurface} from './index.js';
 
 vi.mock('shiki', () => ({
   codeToHtml: vi.fn(),
@@ -66,6 +66,27 @@ describe('CodeBlockContent', () => {
     });
 
     expect(codeToHtmlMock.mock.calls[0]?.[1].transformers).toBeUndefined();
+  });
+
+  test('uses the dark Shiki theme for the always-dark code surface', async () => {
+    const codeToHtmlMock = vi.mocked(codeToHtml);
+    codeToHtmlMock.mockResolvedValue(highlightedHtml);
+
+    renderCodeBlockContent({
+      code: 'steps:\n  - uses: actions/checkout@v3',
+      language: 'yaml',
+      syntaxHighlighting: true,
+    });
+
+    await waitFor(() => {
+      expect(codeToHtmlMock).toHaveBeenCalledTimes(1);
+    });
+
+    const options = codeToHtmlMock.mock.calls[0]?.[1] as {themes?: unknown} | undefined;
+    expect(options?.themes).toEqual({
+      light: 'vitesse-dark',
+      dark: 'vitesse-dark',
+    });
   });
 
   test('passes a Shiki transformer that marks explicit diff content', async () => {
@@ -140,6 +161,20 @@ describe('CodeBlockContent', () => {
     expect(CODE_BLOCK_HIGHLIGHTED_LINE_DESCENDANT_STYLE).toContain(
       ':!bg-background-contrast-highlight',
     );
+  });
+
+  test('uses contrast foreground tokens for the code surface', () => {
+    const {container} = render(
+      <CodeBlockSurface>
+        <pre>
+          <code>const value = true;</code>
+        </pre>
+      </CodeBlockSurface>,
+    );
+
+    const surface = container.querySelector('[data-slot="code-block-surface"]');
+    expect(surface?.className).toContain('text-foreground-contrast-primary');
+    expect(surface?.className).toContain('text-foreground-contrast-secondary');
   });
 });
 
