@@ -1,13 +1,16 @@
+import {randomUUID} from 'node:crypto';
 import type {Dirent} from 'node:fs';
-import {mkdir, readdir, rm} from 'node:fs/promises';
+import {link, mkdir, readdir, readFile, readlink, rm, symlink, writeFile} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
-import {join, parse, resolve} from 'node:path';
+import {dirname, join, parse, resolve} from 'node:path';
 import {logger} from '@shipfox/node-opentelemetry';
 import {isUuid} from '@shipfox/regex';
 import {config} from '#config.js';
 
 const RUNNER_LOGS_DIR = '.shipfox-runner-logs';
 const RUNNER_CRED_DIR = '.shipfox-runner-cred';
+const JOB_LOG_LOCK_SUFFIX = '.lock';
+const JOB_LOG_LOCK_RETRY_MS = 10;
 
 /**
  * Thrown when `SHIPFOX_RUNNER_WORKSPACE_ROOT` resolves to a path we refuse to
@@ -111,7 +114,7 @@ export async function createJobDir(cwd: string): Promise<void> {
  * Resets the runner-owned log directory before a job can reuse it after a crash.
  */
 export async function createJobLogsDir(logsDir: string): Promise<void> {
-  await resetDir(logsDir);
+  await withJobLogLock(logsDir, true, () => resetDir(logsDir));
 }
 
 /**
@@ -137,8 +140,145 @@ export async function cleanupOrphanedJobLogs(root: string): Promise<void> {
           entry.name.startsWith('job-') &&
           isUuid(entry.name.slice('job-'.length)),
       )
-      .map((entry) => cleanupJobLogs(join(logsRoot, entry.name))),
+      .map((entry) =>
+        withJobLogLock(join(logsRoot, entry.name), false, () =>
+          cleanupJobLogs(join(logsRoot, entry.name)),
+        ),
+      ),
   );
+}
+
+/**
+ * Coordinates the asynchronous orphan sweep with setup's pre-clean. A sweep
+ * skips an active job, while setup waits for a sweep that already owns the
+ * lock before recreating the directory. The pid makes locks left by a crashed
+ * runner recoverable without weakening the mutual exclusion for live runners.
+ */
+async function withJobLogLock<T>(
+  logsDir: string,
+  waitForLock: boolean,
+  action: () => Promise<T>,
+): Promise<T | undefined> {
+  const lockPath = `${logsDir}${JOB_LOG_LOCK_SUFFIX}`;
+  await mkdir(dirname(logsDir), {recursive: true});
+
+  while (true) {
+    if (await tryAcquireJobLogLock(lockPath)) {
+      break;
+    }
+
+    const existingLock = await readJobLogLock(lockPath);
+    if (existingLock === undefined) continue;
+    if (
+      isProcessDead(existingLock.pid) &&
+      (await tryReclaimStaleJobLogLock(lockPath, existingLock.raw))
+    ) {
+      continue;
+    }
+    if (!waitForLock) return undefined;
+
+    await new Promise((resolve) => setTimeout(resolve, JOB_LOG_LOCK_RETRY_MS));
+  }
+
+  try {
+    return await action();
+  } finally {
+    await rm(lockPath, {force: true});
+  }
+}
+
+type JobLogLock = {
+  pid: number;
+  raw: string;
+};
+
+async function tryAcquireJobLogLock(lockPath: string): Promise<boolean> {
+  const lockOwner = `${process.pid}:${randomUUID()}`;
+  const temporaryLockPath = `${lockPath}.${process.pid}.${randomUUID()}.tmp`;
+
+  try {
+    await writeFile(temporaryLockPath, lockOwner, {flag: 'wx'});
+    try {
+      await link(temporaryLockPath, lockPath);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      return false;
+    }
+  } finally {
+    await rm(temporaryLockPath, {force: true});
+  }
+}
+
+async function readJobLogLock(lockPath: string): Promise<JobLogLock | undefined> {
+  let raw: string;
+  try {
+    raw = (await readFile(lockPath, 'utf8')).trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+
+  const pid = Number(raw.split(':', 1)[0]);
+  return {pid, raw};
+}
+
+function isProcessDead(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ESRCH';
+  }
+}
+
+/**
+ * Claims stale-lock reclamation with an atomic symlink. The claim records the
+ * reclaimer pid, so another process can safely take over if the reclaimer
+ * crashes; no process unlinks the lock after a separate liveness check.
+ */
+async function tryReclaimStaleJobLogLock(lockPath: string, expectedLock: string): Promise<boolean> {
+  const reclaimPath = `${lockPath}.reclaim`;
+
+  while (true) {
+    try {
+      // A symlink is created atomically, and its target publishes the full
+      // reclaimer token before another process can observe the claim.
+      await symlink(`${process.pid}:${randomUUID()}`, reclaimPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (!(await isStaleReclaimer(reclaimPath))) return false;
+      await rm(reclaimPath, {force: true});
+    }
+  }
+
+  try {
+    const currentLock = await readJobLogLock(lockPath);
+    if (currentLock?.raw !== expectedLock) return false;
+
+    try {
+      await rm(lockPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    return true;
+  } finally {
+    await rm(reclaimPath, {force: true});
+  }
+}
+
+async function isStaleReclaimer(reclaimPath: string): Promise<boolean> {
+  let target: string;
+  try {
+    target = await readlink(reclaimPath);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+
+  return isProcessDead(Number(target.split(':', 1)[0]));
 }
 
 /**

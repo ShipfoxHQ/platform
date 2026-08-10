@@ -35,6 +35,26 @@
         "types": "./dist/core/pi-extensions.d.ts",
         "default": "./dist/core/pi-extensions.js"
       }
+    },
+    "./tool-capabilities": {
+      "workspace-source": {
+        "types": "./src/core/tool-capabilities.ts",
+        "default": "./src/core/tool-capabilities.ts"
+      },
+      "default": {
+        "types": "./dist/core/tool-capabilities.d.ts",
+        "default": "./dist/core/tool-capabilities.js"
+      }
+    },
+    "./step": {
+      "workspace-source": {
+        "types": "./src/core/step.ts",
+        "default": "./src/core/step.ts"
+      },
+      "default": {
+        "types": "./dist/core/step.d.ts",
+        "default": "./dist/core/step.js"
+      }
     }
   },
   "scripts": {

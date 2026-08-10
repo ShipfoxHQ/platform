@@ -913,6 +913,10 @@ describe('systemd boot activation', () => {
       'ExecStartPre=/opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh',
     );
     expect(unit).not.toContain('RequiresMountsFor=');
+    expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
+      '/usr/local/bin/node dist/index.js',
+    );
+    expect(unit).not.toContain('--enable-source-maps');
   });
 
   it('ships the provider-gated workspace preflight separately from the runner app', async () => {
@@ -1064,6 +1068,20 @@ describe('systemd boot activation', () => {
     expect(runner).toContain('shipfox-runner-boot-complete.service');
     expect(marker).not.toContain('cloud-config.service');
     expect(marker).not.toContain('cloud-final.service');
+  });
+});
+
+describe('runner container entrypoint', () => {
+  it('starts the compiled runner and verifies its production closure', async () => {
+    const dockerfile = await readFile(
+      new URL('../../../../apps/runner/Dockerfile', import.meta.url),
+      'utf8',
+    );
+
+    expect(dockerfile).toContain('RUN node ./dist/verify-installation.js');
+    expect(dockerfile).toContain('ENTRYPOINT ["tini", "--"]');
+    expect(dockerfile).toContain('CMD ["node", "./dist/index.js"]');
+    expect(dockerfile).not.toContain('--enable-source-maps');
   });
 });
 

@@ -1,4 +1,4 @@
-import {createBootTimelineCollector} from '#core/boot-timeline.js';
+import {createBootTimelineCollector, createRunnerBootPhaseTimeline} from '#core/boot-timeline.js';
 
 function systemdStat(startTicks: number): string {
   return `1 (systemd) S ${Array.from({length: 18}, () => '0').join(' ')} ${startTicks}`;
@@ -23,7 +23,7 @@ describe('boot timeline collection', () => {
     const event = collector.createEvent(collector.captureEnrollment());
 
     expect(event).toEqual({
-      boot_timeline_version: 1,
+      boot_timeline_version: 2,
       telemetry_state: 'complete',
       uptime_seconds: 42.5,
       process_start_offset_seconds: 40,
@@ -40,12 +40,38 @@ describe('boot timeline collection', () => {
     });
   });
 
+  it('records each runner phase once from a monotonic clock', () => {
+    const now = vi
+      .fn<() => number>()
+      .mockReturnValueOnce(10)
+      .mockReturnValueOnce(11)
+      .mockReturnValueOnce(12)
+      .mockReturnValueOnce(13)
+      .mockReturnValueOnce(14);
+    const timeline = createRunnerBootPhaseTimeline(now, 9);
+
+    timeline.mark('runner_started_uptime_seconds');
+    timeline.mark('runner_started_uptime_seconds');
+    timeline.mark('bootstrap_exchange_uptime_seconds');
+    timeline.mark('activation_uptime_seconds');
+    timeline.mark('first_claim_uptime_seconds');
+
+    expect(timeline.snapshot()).toEqual({
+      process_entry_uptime_seconds: 9,
+      runner_started_uptime_seconds: 10,
+      bootstrap_exchange_uptime_seconds: 11,
+      activation_uptime_seconds: 12,
+      first_claim_uptime_seconds: 13,
+    });
+    expect(now).toHaveBeenCalledTimes(4);
+  });
+
   it('keeps the event useful when an older image has no telemetry files', () => {
     const files: Record<string, string> = {'/proc/uptime': '12.25 0.0'};
     const collector = createBootTimelineCollector((path) => files[path]);
 
     expect(collector.createEvent(collector.captureEnrollment())).toEqual({
-      boot_timeline_version: 1,
+      boot_timeline_version: 2,
       telemetry_state: 'unavailable',
       uptime_seconds: 12.25,
       process_start_offset_seconds: 12.25,
