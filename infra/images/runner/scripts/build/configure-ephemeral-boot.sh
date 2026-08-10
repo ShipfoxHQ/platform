@@ -3,6 +3,9 @@ set -eu
 
 # Runner instances are ephemeral. These units either repeat work already done while
 # baking the image or maintain state that has no value after the instance exits.
+# configure-boot.sh leaves /boot and /boot/efi detached at runtime. This inventory
+# includes the image's package, bootloader, and firmware writers so they cannot
+# update the root-volume shadow directories behind those detached mounts.
 # Keep the inventory explicit. The bake fails when a base image no longer contains
 # one of these units, so a renamed or removed unit cannot silently weaken the gate.
 

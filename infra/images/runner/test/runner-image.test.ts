@@ -1075,15 +1075,46 @@ UUID=data /data ext4 defaults 0 2
       expect(await readFile(join(fixture.root, 'boot/grub/grub.cfg'), 'utf8')).toContain(
         'fsck.mode=skip',
       );
+      expect(await readFile(join(fixture.root, 'etc/systemd/default-target'), 'utf8')).toBe(
+        'multi-user.target\n',
+      );
       expect(await readFile(join(fixture.root, 'etc/systemd/systemctl.log'), 'utf8')).toBe(
         'mask systemd-fsck-root.service\nmask systemd-fsck-root.service\n',
       );
       expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toBe(`# fstab
 UUID=root / ext4 defaults,noatime 0 1
-UUID=boot /boot ext4 defaults,noatime 0 0 extra-column
-UUID=efi /boot/efi vfat defaults 0 0
+UUID=boot /boot ext4 defaults,noatime,noauto 0 0 extra-column
+UUID=efi /boot/efi vfat defaults,noauto 0 0
 UUID=data /data ext4 defaults 0 2
 `);
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails before touching fstab when default target verification disagrees', async () => {
+    const fstab = `# fstab
+UUID=root / ext4 defaults 0 1
+UUID=boot /boot ext4 defaults 0 1
+UUID=efi /boot/efi vfat defaults 0 1
+`;
+    const fixture = await createBootFixture(fstab);
+
+    try {
+      expect(() =>
+        execFileSync('sh', [script.pathname], {
+          env: {
+            ...fixture.environment,
+            RUNNER_IMAGE_SYSTEMCTL_DEFAULT_TARGET: 'graphical.target',
+          },
+          stdio: 'pipe',
+        }),
+      ).toThrow();
+      expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toBe(fstab);
+      expect(await readFile(join(fixture.root, 'etc/systemd/default-target'), 'utf8')).toBe(
+        'multi-user.target\n',
+      );
+      expect(await pathExists(join(fixture.root, 'etc/systemd/systemctl.log'))).toBe(false);
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
@@ -1098,6 +1129,70 @@ UUID=data /data ext4 defaults 0 2
         execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'}),
       ).toThrow();
       expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toBe(fstab);
+      expect(await pathExists(join(fixture.root, 'etc/systemd/default-target'))).toBe(false);
+      expect(await pathExists(join(fixture.root, 'etc/systemd/systemctl.log'))).toBe(false);
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails before publishing an image when a boot fstab entry is missing', async () => {
+    const fstab = `# fstab
+UUID=root / ext4 defaults 0 1
+UUID=efi /boot/efi vfat defaults 0 1
+`;
+    const fixture = await createBootFixture(fstab);
+
+    try {
+      expect(() =>
+        execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'}),
+      ).toThrow();
+      expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toBe(fstab);
+      expect(await pathExists(join(fixture.root, 'etc/systemd/default-target'))).toBe(false);
+      expect(await pathExists(join(fixture.root, 'etc/systemd/systemctl.log'))).toBe(false);
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it.each(['NOAUTO', 'NoAuto'])('canonicalizes an existing %s fstab option', async (option) => {
+    const fstab = `# fstab
+UUID=root / ext4 defaults 0 1
+UUID=boot /boot ext4 defaults,noatime,${option} 0 1 extra-column
+UUID=efi /boot/efi vfat defaults,${option} 0 1
+`;
+    const fixture = await createBootFixture(fstab);
+
+    try {
+      execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+      execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+
+      expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toBe(`# fstab
+UUID=root / ext4 defaults,noatime 0 1
+UUID=boot /boot ext4 defaults,noatime,noauto 0 0 extra-column
+UUID=efi /boot/efi vfat defaults,noauto 0 0
+`);
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('normalizes space-padded fstab options', async () => {
+    const fstab = `# fstab
+UUID=root / ext4 defaults 0 1
+UUID=boot /boot ext4 defaults, noauto 0 1
+UUID=efi /boot/efi vfat defaults, NoAuto 0 1
+`;
+    const fixture = await createBootFixture(fstab);
+
+    try {
+      execFileSync('sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+
+      expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toBe(`# fstab
+UUID=root / ext4 defaults,noatime 0 1
+UUID=boot /boot ext4 defaults,noauto,noatime 0 0
+UUID=efi /boot/efi vfat defaults,noauto 0 0
+`);
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
@@ -1265,10 +1360,29 @@ async function createBootFixture(fstab: string) {
       '#!/bin/sh',
       'set -eu',
       `root_dir=\${RUNNER_IMAGE_ROOT:?}`,
-      '[ "$#" -eq 2 ]',
-      '[ "$1" = mask ]',
-      '[ "$2" = systemd-fsck-root.service ]',
-      'printf "%s\\n" "$*" >> "$root_dir/etc/systemd/systemctl.log"',
+      'case "$1" in',
+      '  set-default)',
+      '    [ "$#" -eq 2 ]',
+      '    [ "$2" = multi-user.target ]',
+      '    printf "%s\\n" "$2" > "$root_dir/etc/systemd/default-target"',
+      '    ;;',
+      '  get-default)',
+      '    [ "$#" -eq 1 ]',
+      `    if [ -n "\${RUNNER_IMAGE_SYSTEMCTL_DEFAULT_TARGET:-}" ]; then`,
+      '      printf "%s\\n" "$RUNNER_IMAGE_SYSTEMCTL_DEFAULT_TARGET"',
+      '    else',
+      '      cat "$root_dir/etc/systemd/default-target"',
+      '    fi',
+      '    ;;',
+      '  mask)',
+      '    [ "$#" -eq 2 ]',
+      '    [ "$2" = systemd-fsck-root.service ]',
+      '    printf "%s\\n" "$*" >> "$root_dir/etc/systemd/systemctl.log"',
+      '    ;;',
+      '  *)',
+      '    exit 1',
+      '    ;;',
+      'esac',
       '',
     ].join('\n'),
   );

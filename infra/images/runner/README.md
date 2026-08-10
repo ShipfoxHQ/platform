@@ -17,7 +17,9 @@ Packer is pinned in `mise.toml`. Install QEMU and `xorriso` through the host ope
 
 ## Boot behavior
 
-The image is checked during the bake and launched with a fresh ephemeral root volume. The image skips boot-time filesystem checks, applies `noatime` to `/` and `/boot`, and sets pass 0 for `/boot` and `/boot/efi`.
+The image is checked during the bake and starts with `multi-user.target` as the systemd default. It skips boot-time filesystem checks and applies `noatime` to `/` and `/boot`.
+
+The fstab entries for `/boot` and `/boot/efi` use `noauto` and pass 0. The partitions remain in the image for the bootloader, but systemd does not mount them during runner startup. `configure-ephemeral-boot.sh` masks the image's package, bootloader, and firmware update units so they cannot write to the detached mount-point directories.
 
 `fsck.mode=skip` also suppresses checks for other filesystems with a non-zero pass number. Do not add a durable filesystem with a non-zero pass number without revisiting this image contract.
 
@@ -30,10 +32,12 @@ service and journal policy in
 
 ### Boot composition gate
 
-The bake checks that every unit in the mask inventory exists before it masks the
-unit. It checks the effective `systemd` state after masking. It also checks the
-effective journald configuration after writing the drop-in. A base-image change
-that removes a unit or overrides the drop-in fails the image build.
+The bake checks the default systemd target and re-reads the installed fstab to
+confirm that both boot entries use `noauto` and pass 0. It checks that every unit
+in the mask inventory exists before it masks the unit. It checks the effective
+`systemd` state after masking. It also checks the effective journald configuration
+after writing the drop-in. A base-image change that removes a unit, changes a
+boot entry, or overrides the drop-in fails the image build.
 
 ### AppArmor decision
 
