@@ -53,7 +53,14 @@ describe('WorkflowRunView', () => {
       screen
         .getByRole('navigation', {name: 'Run workspace'})
         .closest('[data-run-workspace-layout]'),
-    ).toHaveClass('border-t', 'border-border-neutral-base', 'min-[768px]:flex-row');
+    ).toHaveClass(
+      'mx-auto',
+      'w-full',
+      'max-w-[1360px]',
+      'border-t',
+      'border-border-neutral-base',
+      'min-[768px]:flex-row',
+    );
     expect(screen.getByRole('link', {name: 'Summary'})).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('heading', {name: 'Jobs'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'Run details'})).toBeInTheDocument();

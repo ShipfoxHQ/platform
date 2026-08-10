@@ -309,7 +309,7 @@ function RunViewContent({
 
       <div
         data-run-workspace-layout
-        className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-border-neutral-base min-[768px]:flex-row"
+        className="mx-auto flex min-h-0 min-w-0 w-full max-w-[1360px] flex-1 flex-col border-t border-border-neutral-base min-[768px]:flex-row"
       >
         {runData && workspaceSlug && projectSlug ? (
           <RunWorkspaceNav
