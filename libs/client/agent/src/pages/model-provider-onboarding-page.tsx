@@ -104,7 +104,7 @@ export function ModelProviderOnboardingPage({
       : 'model-provider-provider-step';
 
   return (
-    <div className="mx-auto flex w-full max-w-[640px] flex-col gap-section">
+    <div className="mx-auto flex w-full flex-col gap-section">
       <header className="flex flex-col gap-cluster">
         <div className="flex items-start justify-between gap-group max-[520px]:flex-col max-[520px]:gap-inline">
           <Header id={headingId} variant="h1" tabIndex={-1} className="outline-none">

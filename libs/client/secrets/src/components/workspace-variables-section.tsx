@@ -1,5 +1,6 @@
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button, IconButton} from '@shipfox/react-ui/button';
+import {Card} from '@shipfox/react-ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -91,7 +92,7 @@ export function WorkspaceVariablesSection({workspaceId}: {workspaceId: string}) 
         ) : null}
 
         {variables.length > 0 ? (
-          <StoreSurface>
+          <Card className="overflow-hidden p-0">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -114,7 +115,7 @@ export function WorkspaceVariablesSection({workspaceId}: {workspaceId: string}) 
                 ))}
               </TableBody>
             </Table>
-          </StoreSurface>
+          </Card>
         ) : null}
       </section>
 

@@ -78,8 +78,8 @@ export function WorkspaceOnboardingPage() {
   });
 
   return (
-    <main className="min-h-screen bg-background-subtle-base px-frame py-frame max-[520px]:px-row">
-      <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-[1120px] flex-col gap-section">
+    <main className="min-h-screen px-frame py-frame max-[520px]:px-row">
+      <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full flex-col gap-section">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-inline">
             <div className="flex size-36 items-center justify-center rounded-8 border border-border-neutral-base bg-background-neutral-base shadow-button-neutral">

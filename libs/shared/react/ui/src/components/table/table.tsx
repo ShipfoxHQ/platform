@@ -54,7 +54,7 @@ function TableHead({className, ...props}: ComponentProps<'th'>) {
     <th
       data-slot="table-head"
       className={cn(
-        'h-40 border-b border-border-neutral-base bg-background-subtle-base px-12 text-left align-middle text-xs font-medium leading-20 text-foreground-neutral-subtle',
+        'h-40 border-b border-border-neutral-base bg-background-neutral-base px-12 text-left align-middle text-xs font-medium leading-20 text-foreground-neutral-subtle',
         '[&:has([role=checkbox])]:w-0 [&:has([role=checkbox])]:px-12 [&:has([role=checkbox])]:pr-0 [&:has([role=checkbox])]:pt-6',
         className,
       )}

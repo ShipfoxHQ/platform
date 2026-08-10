@@ -7,7 +7,7 @@ import {Text} from '@shipfox/react-ui/typography';
 
 export function WorkflowRunSkeleton() {
   return (
-    <section aria-label="Loading workflow run" className="bg-background-subtle-base px-row py-row">
+    <section aria-label="Loading workflow run" className="px-row py-row">
       <div className="flex min-w-0 flex-wrap items-center gap-x-cluster gap-y-inline">
         <div className="flex min-w-0 items-center gap-inline">
           <Skeleton className="size-8 rounded-full" />

@@ -40,7 +40,7 @@ export function GiteaInstallPage() {
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-[480px] flex-col gap-section">
+    <div className="mx-auto flex w-full flex-col gap-section">
       <header className="flex flex-col gap-inline">
         <Header variant="h1">Install Gitea</Header>
         <Text size="md" className="text-foreground-neutral-muted">

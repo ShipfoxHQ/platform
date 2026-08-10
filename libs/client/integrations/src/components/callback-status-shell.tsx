@@ -43,8 +43,8 @@ export function CallbackStatusShell({
     : undefined;
 
   return (
-    <main className="flex min-h-screen bg-background-subtle-base px-row py-frame">
-      <div className="mx-auto flex w-full max-w-[480px] flex-col justify-center gap-section">
+    <main className="flex min-h-screen px-row py-frame">
+      <div className="mx-auto flex w-full flex-col justify-center gap-section">
         <h2 ref={headingRef} tabIndex={-1} className="text-24 font-semibold outline-none">
           {title}
         </h2>

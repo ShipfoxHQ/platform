@@ -9,7 +9,7 @@ export function FullPageLoader({className, ...props}: ComponentProps<'div'>) {
       role="status"
       aria-label="Loading"
       aria-busy="true"
-      className={cn('flex h-dvh items-center justify-center bg-background-subtle-base', className)}
+      className={cn('flex h-dvh items-center justify-center', className)}
       {...props}
     >
       <ShipfoxLoader size={64} animation="circular" color="orange" background="dark" />

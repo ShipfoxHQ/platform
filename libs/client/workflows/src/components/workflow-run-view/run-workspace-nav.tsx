@@ -53,7 +53,7 @@ export function RunWorkspaceNav({
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
-      <aside className="flex min-h-0 w-full shrink-0 flex-col border-b border-border-neutral-base bg-background-subtle-base min-[768px]:w-240 min-[768px]:border-b-0 min-[768px]:border-r">
+      <aside className="flex min-h-0 w-full shrink-0 flex-col border-b border-border-neutral-base min-[768px]:w-240 min-[768px]:border-b-0 min-[768px]:border-r">
         <Collapsible
           open={mobileOpen}
           onOpenChange={setMobileOpen}
