@@ -1,8 +1,14 @@
 import type {GetIntegrationConnectionByIdFn} from '@shipfox/api-integration-spi';
 import {GithubIntegrationProviderError} from '#core/errors.js';
-import {githubInstallationFactory} from '#test/index.js';
+import {
+  GITHUB_STATEFUL_INSTALLATION_TOKEN,
+  GITHUB_STATELESS_INSTALLATION_TOKEN,
+  githubInstallationFactory,
+} from '#test/index.js';
 import {encodeInstallationTokenEnvelope} from './installation-token-envelope.js';
 import {createGithubInstallationTokenProvider} from './installation-token-provider.js';
+
+const GITHUB_INSTALLATION_TOKEN_PATTERN = /^ghs_[A-Za-z0-9._-]{36,}$/u;
 
 const {appOptions, createInstallationAccessTokenMock, RequestErrorMock} = vi.hoisted(() => ({
   appOptions: [] as unknown[],
@@ -28,6 +34,9 @@ vi.mock('octokit', () => ({
     }
   },
   Octokit: {
+    plugin() {
+      return this;
+    },
     defaults(options: unknown) {
       return {defaults: options};
     },
@@ -47,26 +56,49 @@ describe('GithubInstallationTokenProvider', () => {
 
   it('mints a broad installation token on a cache miss', async () => {
     createInstallationAccessTokenMock.mockResolvedValue({
-      data: {token: 'ghs_installationtoken', expires_at: '2026-06-10T12:00:00.000Z'},
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
     });
     const provider = createGithubInstallationTokenProvider();
 
     const result = await provider.getInstallationAccessToken(1);
 
     expect(result).toEqual({
-      token: 'ghs_installationtoken',
+      token: GITHUB_STATELESS_INSTALLATION_TOKEN,
       expiresAt: new Date('2026-06-10T12:00:00.000Z'),
     });
+    expect(GITHUB_STATELESS_INSTALLATION_TOKEN).toMatch(GITHUB_INSTALLATION_TOKEN_PATTERN);
+    expect(GITHUB_STATELESS_INSTALLATION_TOKEN.slice(4).split('.')).toHaveLength(3);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledWith({
       installation_id: 1,
     });
+  });
+
+  it('passes through a stateful broad installation token', async () => {
+    createInstallationAccessTokenMock.mockResolvedValue({
+      data: {
+        token: GITHUB_STATEFUL_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
+    });
+    const provider = createGithubInstallationTokenProvider();
+
+    const result = await provider.getInstallationAccessToken(1);
+
+    expect(result.token).toBe(GITHUB_STATEFUL_INSTALLATION_TOKEN);
+    expect(GITHUB_STATEFUL_INSTALLATION_TOKEN).not.toContain('.');
   });
 
   it('returns a cached token without a second mint', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
     createInstallationAccessTokenMock.mockResolvedValue({
-      data: {token: 'ghs_installationtoken', expires_at: '2026-06-10T12:00:00.000Z'},
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
     });
     const provider = createGithubInstallationTokenProvider();
 
@@ -151,7 +183,10 @@ describe('GithubInstallationTokenProvider', () => {
         updatedAt: new Date(),
       });
     createInstallationAccessTokenMock.mockResolvedValue({
-      data: {token: 'ghs_installationtoken', expires_at: '2026-06-10T12:00:00.000Z'},
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
     });
     const provider = createGithubInstallationTokenProvider({
       getIntegrationConnectionById,
@@ -174,6 +209,10 @@ describe('GithubInstallationTokenProvider', () => {
     const second = await provider.getInstallationAccessToken(installationId);
 
     expect(first).toEqual(second);
+    expect(first.token).toBe(GITHUB_STATELESS_INSTALLATION_TOKEN);
+    expect(values.get(`${workspaceId}:${installationId}`)).toContain(
+      GITHUB_STATELESS_INSTALLATION_TOKEN,
+    );
     expect(lockCalls).toBe(1);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
   });

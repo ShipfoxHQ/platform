@@ -6,7 +6,13 @@ import {
   type ServerResponse,
 } from 'node:http';
 
-export const GITHUB_INSTALLATION_TOKEN = 'github-e2e-installation-token';
+const JWT_SEGMENT_LENGTH = 169;
+
+export const GITHUB_STATELESS_INSTALLATION_TOKEN =
+  `ghs_123456_${'a'.repeat(JWT_SEGMENT_LENGTH)}` +
+  `.${'b'.repeat(JWT_SEGMENT_LENGTH)}` +
+  `.${'c'.repeat(JWT_SEGMENT_LENGTH)}`;
+export const GITHUB_STATEFUL_INSTALLATION_TOKEN = `ghs_${'d'.repeat(36)}`;
 export const GITHUB_READ_RESULT_MARKER = 'github-read-result-marker';
 export const GITHUB_WRITE_RESULT_MARKER = 'github-write-result-marker';
 
@@ -18,6 +24,7 @@ export type GithubApiMockCall =
   | {
       kind: 'mint-token';
       authorization: string | undefined;
+      tokenFormatOverride: string | undefined;
       installationId: number;
       body: Record<string, unknown>;
     }
@@ -42,13 +49,26 @@ export interface GithubApiMock {
   stop(): Promise<void>;
 }
 
+export interface GithubApiMockOptions {
+  endpoint?: URL | undefined;
+  installationToken?: string | undefined;
+}
+
 export async function startGithubApiMock(
-  endpoint = new URL(requiredGithubApiBaseUrl()),
+  options: GithubApiMockOptions = {},
 ): Promise<GithubApiMock> {
   const calls: GithubApiMockCall[] = [];
+  const installationToken = options.installationToken ?? GITHUB_STATELESS_INSTALLATION_TOKEN;
+  const endpoint = options.endpoint ?? new URL(requiredGithubApiBaseUrl());
   let boundEndpoint = endpoint;
   const server = createServer((request, response) => {
-    void handleGithubRequest({calls, endpoint: boundEndpoint, request, response});
+    void handleGithubRequest({
+      calls,
+      endpoint: boundEndpoint,
+      installationToken,
+      request,
+      response,
+    });
   });
 
   try {
@@ -73,6 +93,7 @@ export async function startGithubApiMock(
 async function handleGithubRequest(params: {
   calls: GithubApiMockCall[];
   endpoint: URL;
+  installationToken: string;
   request: IncomingMessage;
   response: ServerResponse;
 }): Promise<void> {
@@ -86,11 +107,12 @@ async function handleGithubRequest(params: {
     params.calls.push({
       kind: 'mint-token',
       authorization,
+      tokenFormatOverride: singleHeader(params.request.headers['x-github-stateless-s2s-token']),
       installationId: Number(mintMatch[1]),
       body: await readJsonBody(params.request),
     });
     sendJson(params.response, 201, {
-      token: GITHUB_INSTALLATION_TOKEN,
+      token: params.installationToken,
       expires_at: '2099-01-01T00:00:00.000Z',
       permissions: {issues: 'write'},
       repository_selection: 'all',
@@ -130,6 +152,10 @@ async function handleGithubRequest(params: {
   }
 
   sendJson(params.response, 404, {message: 'Not Found'});
+}
+
+function singleHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value.join(', ') : value;
 }
 
 function requiredGithubApiBaseUrl(): string {

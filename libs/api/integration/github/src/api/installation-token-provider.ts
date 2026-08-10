@@ -4,8 +4,9 @@ import {config, normalizedGithubApiBaseUrl, normalizedGithubPrivateKey} from '#c
 import {GithubIntegrationProviderError} from '#core/errors.js';
 import {withInstallationTokenLock} from '#db/installation-token-lock.js';
 import {getGithubInstallationByInstallationId} from '#db/installations.js';
-import {recordInstallationTokenLookup} from '#metrics/index.js';
+import {recordInstallationTokenFormat, recordInstallationTokenLookup} from '#metrics/index.js';
 import {type GithubInstallationAccessToken, mapGithubError} from './client.js';
+import {githubInstallationTokenFormatPlugin} from './github-octokit.js';
 import {
   githubInstallationTokenNamespace,
   TOKEN_REFRESH_MARGIN_MS,
@@ -66,6 +67,8 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
       );
     }
 
+    recordInstallationTokenFormat(response.data.token);
+
     const expiresAt = new Date(response.data.expires_at);
     if (Number.isNaN(expiresAt.getTime())) {
       throw new GithubIntegrationProviderError(
@@ -86,7 +89,7 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
       this.app = new App({
         appId: config.GITHUB_APP_ID,
         privateKey: normalizedGithubPrivateKey(),
-        Octokit: Octokit.defaults({
+        Octokit: Octokit.plugin(githubInstallationTokenFormatPlugin).defaults({
           baseUrl: normalizedGithubApiBaseUrl(),
           throttle: {
             onRateLimit: (

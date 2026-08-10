@@ -1,6 +1,7 @@
 import type {IntegrationProviderErrorReason} from '@shipfox/api-integration-spi';
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
 import type {MintErrorClass} from '#api/installation-token-envelope.js';
+import {config} from '#config.js';
 
 const meter = instanceMetrics.getMeter('github');
 
@@ -31,6 +32,13 @@ const installationTokenMintDuration = meter.createHistogram<Record<string, never
     advice: {explicitBucketBoundaries: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000]},
   },
 );
+
+const installationTokenFormatCount = meter.createCounter<{
+  format: 'stateless' | 'stateful' | 'unknown';
+  override: 'enabled' | 'disabled' | 'absent';
+}>('github_installation_token_format', {
+  description: 'GitHub installation tokens observed by format and requested override',
+});
 
 const installationTokenLockWaitDuration = meter.createHistogram<Record<string, never>>(
   'github_installation_token_lock_wait_duration',
@@ -70,6 +78,15 @@ export function recordInstallationTokenMint(params: {
   });
 }
 
+export function recordInstallationTokenFormat(token: string): void {
+  recordMetric(() => {
+    installationTokenFormatCount.add(1, {
+      format: installationTokenFormat(token),
+      override: config.GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE ?? 'absent',
+    });
+  });
+}
+
 export function recordInstallationTokenLockWait(durationMs: number): void {
   recordMetric(() => installationTokenLockWaitDuration.record(durationMs));
 }
@@ -79,4 +96,12 @@ export function recordInstallationTokenBackoff(params: {
   class: MintErrorClass;
 }): void {
   recordMetric(() => installationTokenBackoffCount.add(1, params));
+}
+
+function installationTokenFormat(token: string): 'stateless' | 'stateful' | 'unknown' {
+  if (!token.startsWith('ghs_')) return 'unknown';
+  const dotCount = token.slice(4).split('.').length - 1;
+  if (dotCount === 2) return 'stateless';
+  if (dotCount === 0) return 'stateful';
+  return 'unknown';
 }

@@ -1,5 +1,11 @@
 import {GithubIntegrationProviderError} from '#core/errors.js';
+import {
+  GITHUB_STATEFUL_INSTALLATION_TOKEN,
+  GITHUB_STATELESS_INSTALLATION_TOKEN,
+} from '#test/index.js';
 import {createGithubApiClient, mapGithubError} from './client.js';
+
+const GITHUB_INSTALLATION_TOKEN_PATTERN = /^ghs_[A-Za-z0-9._-]{36,}$/u;
 
 const {createInstallationAccessTokenMock, RequestErrorMock} = vi.hoisted(() => {
   class RequestErrorMock extends Error {
@@ -22,6 +28,9 @@ vi.mock('octokit', () => ({
     };
   },
   Octokit: {
+    plugin() {
+      return this;
+    },
     defaults(options: unknown) {
       return {defaults: options};
     },
@@ -62,7 +71,10 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
 
   it('mints a repository-scoped, read-only installation token', async () => {
     createInstallationAccessTokenMock.mockResolvedValue({
-      data: {token: 'ghs_installationtoken', expires_at: '2026-06-10T12:00:00.000Z'},
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
     });
     const client = createGithubApiClient();
 
@@ -72,9 +84,11 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
     });
 
     expect(result).toEqual({
-      token: 'ghs_installationtoken',
+      token: GITHUB_STATELESS_INSTALLATION_TOKEN,
       expiresAt: new Date('2026-06-10T12:00:00.000Z'),
     });
+    expect(GITHUB_STATELESS_INSTALLATION_TOKEN).toMatch(GITHUB_INSTALLATION_TOKEN_PATTERN);
+    expect(GITHUB_STATELESS_INSTALLATION_TOKEN.slice(4).split('.')).toHaveLength(3);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledWith({
       installation_id: 1,
       repository_ids: [42],
@@ -82,18 +96,24 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
     });
   });
 
-  it('mints a repository-scoped write installation token when requested', async () => {
+  it('passes through a stateful repository-scoped write token', async () => {
     createInstallationAccessTokenMock.mockResolvedValue({
-      data: {token: 'ghs_installationtoken', expires_at: '2026-06-10T12:00:00.000Z'},
+      data: {
+        token: GITHUB_STATEFUL_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
     });
     const client = createGithubApiClient();
 
-    await client.createInstallationAccessToken({
+    const result = await client.createInstallationAccessToken({
       installationId: 1,
       repositoryId: 42,
       permissions: {contents: 'write'},
     });
 
+    expect(result.token).toBe(GITHUB_STATEFUL_INSTALLATION_TOKEN);
+    expect(GITHUB_STATEFUL_INSTALLATION_TOKEN).toMatch(GITHUB_INSTALLATION_TOKEN_PATTERN);
+    expect(GITHUB_STATEFUL_INSTALLATION_TOKEN).not.toContain('.');
     expect(createInstallationAccessTokenMock).toHaveBeenCalledWith({
       installation_id: 1,
       repository_ids: [42],

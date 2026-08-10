@@ -4,6 +4,11 @@ import ky, {HTTPError, TimeoutError} from 'ky';
 import {App, Octokit, RequestError} from 'octokit';
 import {config, normalizedGithubApiBaseUrl, normalizedGithubPrivateKey} from '#config.js';
 import {GithubIntegrationProviderError} from '#core/errors.js';
+import {recordInstallationTokenFormat} from '#metrics/index.js';
+import {
+  getGithubInstallationOctokit,
+  githubInstallationTokenFormatPlugin,
+} from './github-octokit.js';
 
 const NEXT_PAGE_RE = /[?&]page=(\d+)/;
 const TRAILING_SLASHES_RE = /\/+$/;
@@ -186,7 +191,9 @@ class OctokitGithubApiClient implements GithubApiClient {
     limit: number;
     cursor?: string | undefined;
   }): Promise<GithubRepositoryPage> {
-    const octokit = await this.getApp().getInstallationOctokit(input.installationId);
+    const octokit = await mapGithubError(() =>
+      getGithubInstallationOctokit(this.getApp(), input.installationId),
+    );
     const page = cursorToPage(input.cursor);
     const response = await mapGithubError(() =>
       octokit.rest.apps.listReposAccessibleToInstallation({
@@ -205,7 +212,9 @@ class OctokitGithubApiClient implements GithubApiClient {
     installationId: number;
     repositoryId: number;
   }): Promise<GithubRepository> {
-    const octokit = await this.getApp().getInstallationOctokit(input.installationId);
+    const octokit = await mapGithubError(() =>
+      getGithubInstallationOctokit(this.getApp(), input.installationId),
+    );
     const response = await mapGithubError(() =>
       octokit.request('GET /repositories/{repository_id}', {
         repository_id: input.repositoryId,
@@ -223,7 +232,9 @@ class OctokitGithubApiClient implements GithubApiClient {
     limit: number;
     cursor?: string | undefined;
   }): Promise<GithubFilePage> {
-    const octokit = await this.getApp().getInstallationOctokit(input.installationId);
+    const octokit = await mapGithubError(() =>
+      getGithubInstallationOctokit(this.getApp(), input.installationId),
+    );
     const repository = await this.getRepository({
       installationId: input.installationId,
       repositoryId: input.repositoryId,
@@ -303,7 +314,9 @@ class OctokitGithubApiClient implements GithubApiClient {
     ref: string;
     path: string;
   }): Promise<GithubFileContent> {
-    const octokit = await this.getApp().getInstallationOctokit(input.installationId);
+    const octokit = await mapGithubError(() =>
+      getGithubInstallationOctokit(this.getApp(), input.installationId),
+    );
     const repository = await this.getRepository({
       installationId: input.installationId,
       repositoryId: input.repositoryId,
@@ -363,6 +376,8 @@ class OctokitGithubApiClient implements GithubApiClient {
       );
     }
 
+    recordInstallationTokenFormat(response.data.token);
+
     const expiresAt = new Date(response.data.expires_at);
     if (Number.isNaN(expiresAt.getTime())) {
       throw new GithubIntegrationProviderError(
@@ -383,7 +398,9 @@ class OctokitGithubApiClient implements GithubApiClient {
       this.app = new App({
         appId: config.GITHUB_APP_ID,
         privateKey: normalizedGithubPrivateKey(),
-        Octokit: Octokit.defaults({baseUrl: normalizedGithubApiBaseUrl()}),
+        Octokit: Octokit.plugin(githubInstallationTokenFormatPlugin).defaults({
+          baseUrl: normalizedGithubApiBaseUrl(),
+        }),
       });
     }
     return this.app;
