@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-01",
+  "generatedAt": "2026-08-10",
   "title": "Design System: Shipfox",
   "extensions": {
     "colorMeta": {
@@ -67,6 +67,21 @@
       "canvas": {
         "role": "neutral",
         "displayName": "Canvas",
+        "canonical": "#fafafa",
+        "tonalRamp": [
+          "#0f0f10",
+          "#27272a",
+          "#3f3f46",
+          "#52525b",
+          "#71717a",
+          "#a1a1aa",
+          "#e4e4e7",
+          "#fafafa"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel",
         "canonical": "#ffffff",
         "tonalRamp": [
           "#0f0f10",
@@ -79,10 +94,25 @@
           "#ffffff"
         ]
       },
-      "surface": {
+      "on-contrast": {
         "role": "neutral",
-        "displayName": "Surface",
-        "canonical": "#fafafa",
+        "displayName": "Label On Contrast",
+        "canonical": "rgba(255,255,255,0.88)",
+        "tonalRamp": [
+          "rgba(255,255,255,0.16)",
+          "rgba(255,255,255,0.24)",
+          "rgba(255,255,255,0.40)",
+          "rgba(255,255,255,0.56)",
+          "rgba(255,255,255,0.64)",
+          "rgba(255,255,255,0.72)",
+          "rgba(255,255,255,0.88)",
+          "#ffffff"
+        ]
+      },
+      "on-color": {
+        "role": "neutral",
+        "displayName": "Text On Color",
+        "canonical": "#ffffff",
         "tonalRamp": [
           "#0f0f10",
           "#27272a",
@@ -90,8 +120,8 @@
           "#52525b",
           "#71717a",
           "#a1a1aa",
-          "#e4e4e7",
-          "#fafafa"
+          "#d4d4d8",
+          "#ffffff"
         ]
       },
       "panel-inverted": {
@@ -113,6 +143,21 @@
         "role": "neutral",
         "displayName": "Primary Fill",
         "canonical": "#27272a",
+        "tonalRamp": [
+          "#0f0f10",
+          "#1a1a1b",
+          "#27272a",
+          "#3f3f46",
+          "#52525b",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8"
+        ]
+      },
+      "primary-fill-hover": {
+        "role": "neutral",
+        "displayName": "Primary Fill Hover",
+        "canonical": "#3f3f46",
         "tonalRamp": [
           "#0f0f10",
           "#1a1a1b",
@@ -214,6 +259,21 @@
           "#ffe4e6"
         ]
       },
+      "danger": {
+        "role": "status",
+        "displayName": "Danger Fill",
+        "canonical": "#e11d48",
+        "tonalRamp": [
+          "#4c0519",
+          "#881337",
+          "#be123c",
+          "#e11d48",
+          "#f43f5e",
+          "#fb7185",
+          "#fda4af",
+          "#ffe4e6"
+        ]
+      },
       "warning": {
         "role": "status",
         "displayName": "Warning Orange",
@@ -243,51 +303,6 @@
           "#c4b5fd",
           "#ede9fe"
         ]
-      },
-      "danger": {
-        "role": "status",
-        "displayName": "Danger Fill",
-        "canonical": "#e11d48",
-        "tonalRamp": [
-          "#4c0519",
-          "#881337",
-          "#be123c",
-          "#e11d48",
-          "#f43f5e",
-          "#fb7185",
-          "#fda4af",
-          "#ffe4e6"
-        ]
-      },
-      "primary-fill-hover": {
-        "role": "neutral",
-        "displayName": "Primary Fill Hover",
-        "canonical": "#3f3f46",
-        "tonalRamp": [
-          "#0f0f10",
-          "#1a1a1b",
-          "#27272a",
-          "#3f3f46",
-          "#52525b",
-          "#71717a",
-          "#a1a1aa",
-          "#d4d4d8"
-        ]
-      },
-      "on-contrast": {
-        "role": "neutral",
-        "displayName": "Label On Contrast",
-        "canonical": "rgba(255,255,255,0.88)",
-        "tonalRamp": [
-          "rgba(255,255,255,0.16)",
-          "rgba(255,255,255,0.24)",
-          "rgba(255,255,255,0.40)",
-          "rgba(255,255,255,0.56)",
-          "rgba(255,255,255,0.64)",
-          "rgba(255,255,255,0.72)",
-          "rgba(255,255,255,0.88)",
-          "#ffffff"
-        ]
       }
     },
     "typographyMeta": {
@@ -299,7 +314,10 @@
         "displayName": "Headline",
         "purpose": "Page titles and sub-headings (24 to 28px)."
       },
-      "title": { "displayName": "Title", "purpose": "Section and card headings (16 to 18px)." },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section and panel headings (16 to 18px)."
+      },
       "body": {
         "displayName": "Body",
         "purpose": "Default copy, form and button labels (13 to 14px)."
@@ -330,6 +348,16 @@
         "purpose": "The secondary button and quiet surface stack."
       },
       {
+        "name": "button-danger",
+        "value": "0 -1px 0 0 rgba(255,255,255,0.16), 0 0 0 1px rgba(255,255,255,0.12), 0 0 0 1px #be123c, 0 0 1px 1.5px rgba(24,24,27,0.24), 0 2px 2px 0 rgba(24,24,27,0.24)",
+        "purpose": "The destructive button stack: a red keyline with the shared ambient drop."
+      },
+      {
+        "name": "button-success",
+        "value": "0 -1px 0 0 rgba(255,255,255,0.16), 0 0 0 1px rgba(255,255,255,0.12), 0 0 0 1px #047857, 0 0 1px 1.5px rgba(24,24,27,0.24), 0 2px 2px 0 rgba(24,24,27,0.24)",
+        "purpose": "The explicit-confirm button stack: a green keyline with the shared ambient drop."
+      },
+      {
         "name": "focus-ring",
         "value": "0 0 0 2px rgba(255,255,255,0.88), 0 0 0 4px #e63e00",
         "purpose": "The button focus ring (--color-primary-500), appended to the button stacks. Fields and inputs use --shadow-border-interactive-with-active instead. Never stripped."
@@ -338,15 +366,24 @@
         "name": "tooltip",
         "value": "0 0 0 1px rgba(24,24,27,0.08), 0 2px 4px 0 rgba(24,24,27,0.08), 0 4px 8px 0 rgba(24,24,27,0.08)",
         "purpose": "Lifted stack for tooltips and popovers."
+      },
+      {
+        "name": "separator-inset",
+        "value": "inset 0 1px 0 0 rgba(255,255,255,0.15), inset 0 -1px 0 0 rgba(0,0,0,0.06)",
+        "purpose": "Inset top highlight and bottom shadow for hairline dividers inside dark panels."
       }
     ],
     "motion": [
       {
         "name": "enter",
         "value": "cubic-bezier(0, 0, 0.2, 1)",
-        "purpose": "Ease-out for discrete entrances (panel in, focus ring), 150 to 250ms."
+        "purpose": "Ease-out for discrete entrances such as a panel entering, a state flip, or a focus ring, with a 150 to 250ms duration."
       },
-      { "name": "exit", "value": "cubic-bezier(0.4, 0, 1, 1)", "purpose": "Ease-in for exits." },
+      {
+        "name": "exit",
+        "value": "cubic-bezier(0.4, 0, 1, 1)",
+        "purpose": "Ease-in for discrete exits."
+      },
       {
         "name": "move",
         "value": "cubic-bezier(0.4, 0, 0.2, 1)",
@@ -355,14 +392,34 @@
       {
         "name": "running-pulse",
         "value": "1s cubic-bezier(0, 0, 0.2, 1) infinite",
-        "purpose": "Tailwind animate-ping on the running status dot: two outward rings offset by -500ms, each scaling to 2x as opacity fades from 0.6 to 0. motion-safe only; a static dot under reduced motion."
+        "purpose": "The WorkflowStatusIcon running state uses one external ripple treatment, motion-safe only, and degrades to a static disc under reduced motion. Append-only logs and counters swap silently; there is no spinner."
       }
     ],
     "breakpoints": [
-      { "name": "app-content-max", "value": "1120px" },
-      { "name": "marketing-content-max", "value": "1280px" },
-      { "name": "nav-height", "value": "56px" },
-      { "name": "tab-strip-height", "value": "40px" }
+      {
+        "name": "content-frame-max",
+        "value": "1120px"
+      },
+      {
+        "name": "data-frame",
+        "value": "100%"
+      },
+      {
+        "name": "focused-frame-max",
+        "value": "640px"
+      },
+      {
+        "name": "marketing-content-max",
+        "value": "1280px"
+      },
+      {
+        "name": "nav-height",
+        "value": "56px"
+      },
+      {
+        "name": "tab-strip-height",
+        "value": "40px"
+      }
     ]
   },
   "components": [
@@ -402,97 +459,113 @@
       "name": "Status Badge (Running)",
       "kind": "chip",
       "refersTo": "badge-status",
-      "description": "State as the headline of a card or header. Color plus word only, no leading glyph or dot inside the pill.",
+      "description": "State as the headline of a panel or header. Color plus word only, with no leading glyph or dot inside the pill.",
       "html": "<span class=\"ds-badge-running\">Running</span>",
       "css": ".ds-badge-running { display:inline-flex; align-items:center; padding:2px 6px; border-radius:4px; background:var(--tag-blue-bg, #dbeafe); color:var(--tag-blue-text, #1e40af); font-family:Inter,sans-serif; font-size:12px; font-weight:500; box-shadow:inset 0 0 0 1px var(--tag-blue-border, #bfdbfe); }"
     },
     {
-      "name": "Card",
+      "name": "Card (compatibility)",
       "kind": "card",
       "refersTo": "card",
-      "description": "Default container. 8px corners, component surface, hairline keyline, never tinted to a status.",
+      "description": "Compatibility container while Panel lands: 8px corners, panel fill, hairline border, and 12px padding. Never tinted to a status.",
       "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">fix_sentry_issue</div><div class=\"ds-card-meta\">3 jobs · 12 steps</div></div>",
-      "css": ".ds-card { background:var(--background-components-base, #fafafa); border-radius:8px; padding:24px; box-shadow:var(--shadow-button-neutral, 0 0 0 1px rgba(24,24,27,0.08), 0 2px 4px 0 rgba(24,24,27,0.08), 0 4px 8px 0 rgba(24,24,27,0.08)); font-family:Inter,sans-serif; color:var(--foreground-neutral-base, #0f0f10); } .ds-card-title { font-size:16px; font-weight:500; } .ds-card-meta { margin-top:6px; font-family:'Commit Mono',monospace; font-size:13px; color:var(--foreground-neutral-muted, #71717a); }"
+      "css": ".ds-card { display:flex; flex-direction:column; gap:16px; background:var(--background-neutral-base, #ffffff); border:1px solid var(--border-neutral-base, #d4d4d8); border-radius:8px; padding:12px; font-family:Inter,sans-serif; color:var(--foreground-neutral-base, #0f0f10); } .ds-card-title { font-size:16px; font-weight:500; } .ds-card-meta { margin-top:6px; font-family:'Commit Mono',monospace; font-size:13px; color:var(--foreground-neutral-muted, #71717a); }"
     },
     {
-      "name": "Status Dot (Running)",
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "The target data-region container: bare chrome on the canvas, a bordered panel body, an optional canvas header strip, and hairline row dividers. A panel never contains another panel.",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-panel-header\"><span class=\"ds-panel-title\">Runs</span><button class=\"ds-panel-action\">New run</button></div><div class=\"ds-panel-row\">fix_sentry_issue <span class=\"ds-panel-meta\">running</span></div></section>",
+      "css": ".ds-panel { overflow:hidden; background:var(--background-neutral-base, #ffffff); border:1px solid var(--border-neutral-base, #d4d4d8); border-radius:8px; box-shadow:var(--shadow-button-neutral, 0 0 0 1px rgba(24,24,27,0.08), 0 2px 4px 0 rgba(24,24,27,0.08), 0 4px 8px 0 rgba(24,24,27,0.08)); color:var(--foreground-neutral-base, #0f0f10); font-family:Inter,sans-serif; } .ds-panel-header { display:flex; align-items:center; justify-content:space-between; min-height:48px; background:var(--background-subtle-base, #fafafa); padding:12px 16px; border-bottom:1px solid var(--border-neutral-base, #d4d4d8); } .ds-panel-title { font-size:16px; font-weight:500; } .ds-panel-action { height:32px; padding:0 10px; border:0; border-radius:6px; background:var(--background-button-inverted-default, #27272a); color:var(--foreground-contrast-primary, rgba(255,255,255,0.88)); font:inherit; cursor:pointer; } .ds-panel-action:hover { background:var(--background-button-inverted-hover, #3f3f46); } .ds-panel-action:focus-visible { outline:none; box-shadow:var(--shadow-button-inverted-focus, 0 0 0 2px rgba(255,255,255,0.88), 0 0 0 4px #e63e00); } .ds-panel-row { display:flex; align-items:center; justify-content:space-between; min-height:44px; padding:12px 16px; background:var(--background-neutral-base, #ffffff); } .ds-panel-row + .ds-panel-row { border-top:1px solid var(--border-neutral-base, #d4d4d8); } .ds-panel-meta { color:var(--foreground-neutral-muted, #71717a); font-family:'Commit Mono',monospace; font-size:13px; }"
+    },
+    {
+      "name": "Running Status Glyph",
       "kind": "custom",
-      "refersTo": "badge-status",
-      "description": "The shipped Dot primitive at variant=info with ripple: a 6px disc in --tag-blue-text with two outward animate-ping rings for the live running state. Rings are motion-safe and collapse to a static dot under reduced motion. Rendered aria-hidden; the status label lives on the surrounding control.",
-      "html": "<span class=\"ds-dot-running\" aria-hidden=\"true\"><span class=\"ds-dot-ping\"></span><span class=\"ds-dot-ping ds-dot-ping-delay\"></span><span class=\"ds-dot-core\"></span></span>",
-      "css": ".ds-dot-running { position:relative; display:inline-flex; width:6px; height:6px; flex-shrink:0; color:var(--tag-blue-text, #1e40af); } .ds-dot-ping { position:absolute; inset:0; border-radius:9999px; background:currentColor; opacity:.6; } @media (prefers-reduced-motion: no-preference) { .ds-dot-ping { animation:ds-ping 1s cubic-bezier(0,0,0.2,1) infinite; } .ds-dot-ping-delay { animation-delay:-500ms; } } .ds-dot-core { position:relative; width:100%; height:100%; border-radius:9999px; background:currentColor; } @keyframes ds-ping { 75%, 100% { transform:scale(2); opacity:0; } }"
+      "description": "WorkflowStatusIcon's live state: a filled status disc with one external ripple treatment, accessible as Running, and static under reduced motion. It is not a spinner.",
+      "html": "<span class=\"ds-status-glyph-running\" role=\"img\" aria-label=\"Running\"><span class=\"ds-status-glyph-ping\"></span><span class=\"ds-status-glyph-core\"></span></span>",
+      "css": ".ds-status-glyph-running { position:relative; display:inline-flex; width:16px; height:16px; flex-shrink:0; align-items:center; justify-content:center; color:var(--tag-blue-icon, #3b82f6); } .ds-status-glyph-ping { position:absolute; inset:2px; border-radius:9999px; background:currentColor; opacity:.6; } @media (prefers-reduced-motion: no-preference) { .ds-status-glyph-ping { animation:ds-status-ping 1s cubic-bezier(0,0,0.2,1) infinite; } } .ds-status-glyph-core { position:relative; width:8px; height:8px; border-radius:9999px; background:currentColor; } @keyframes ds-status-ping { 75%, 100% { transform:scale(2); opacity:0; } }"
     },
     {
       "name": "Code Surface",
       "kind": "custom",
-      "refersTo": "card",
-      "description": "Multi-line code, log, and YAML: Commit Mono on the near-black inverted surface in both themes, with muted line numbers.",
+      "description": "Multi-line code, log, and YAML: Commit Mono on the near-black inverted surface in both themes, with muted line numbers and no-wrap overflow.",
       "html": "<pre class=\"ds-code\"><code><span class=\"ds-ln\">1</span>run: npm test\n<span class=\"ds-ln\">2</span>gate:\n<span class=\"ds-ln\">3</span>  on_failure:\n<span class=\"ds-ln\">4</span>    restart_from: fix</code></pre>",
-      "css": ".ds-code { margin:0; background:var(--background-contrast-base, #1a1a1b); color:var(--foreground-contrast-primary, rgba(255,255,255,0.88)); font-family:'Commit Mono',monospace; font-size:13px; line-height:20px; padding:12px 16px; border-radius:8px; overflow-x:auto; } .ds-code .ds-ln { display:inline-block; width:20px; margin-right:16px; color:var(--foreground-neutral-muted, #71717a); user-select:none; text-align:right; }"
+      "css": ".ds-code { margin:0; background:var(--background-contrast-base, #1a1a1b); color:var(--foreground-contrast-primary, rgba(255,255,255,0.88)); font-family:'Commit Mono',monospace; font-size:13px; line-height:20px; padding:12px 16px; border-radius:8px; overflow-x:auto; white-space:pre; } .ds-code .ds-ln { display:inline-block; width:20px; margin-right:16px; color:var(--foreground-neutral-muted, #71717a); user-select:none; text-align:right; }"
     }
   ],
   "narrative": {
     "northStar": "The Glass Cockpit",
-    "overview": "A glass cockpit is the panel a pilot trusts at 2am: every readout is legible at a glance, nothing moves that does not mean something, and the one warning light that turns on is the one thing you look at. Shipfox is that panel for engineers flying fleets of agents. The chrome is quiet and industrial. The data is where all the life is: logs streaming, a run resolving, an agent thinking out loud, tokens and cost ticking up. The interface earns trust by getting out of the way until something needs attention, then pointing at exactly what. The aesthetic is industrial and utilitarian, in the lineage of Linear, Vercel, and Resend. Function first, data dense, monospace used as a structural element and not a garnish. It is not brutalist, not playful, and not editorial: this is an instrument, not a magazine. Both light and dark are first-class: light leads for most surfaces, dark owns the code-heavy contexts and is honored whenever the user picks it. The users live in terminals and read logs when things are on fire. They expect figures that do not dance, status they can trust without reading the label twice, keyboard reach, and zero marketing fluff inside the product.",
+    "overview": "A glass cockpit is the panel a pilot trusts at 2 AM: every readout is legible at a glance, nothing moves that does not mean something, and the one warning light that turns on is the one thing you look at. Shipfox is that panel for engineers flying fleets of agents. The chrome is quiet and industrial. The data is where all the life is: logs streaming, a run resolving, an agent thinking out loud, tokens and cost ticking up. The interface earns trust by getting out of the way until something needs attention, then pointing at exactly what. The aesthetic is industrial and utilitarian, in the lineage of Linear, Vercel, and Resend. Function first, data dense, monospace used as a structural element and not a garnish. It is not brutalist (there is polish: layered shadows, rounded corners, tuned contrast), not playful (no bouncy curves, no mascots), and not editorial (this is an instrument, not a magazine). Both light and dark are first-class: light leads for most surfaces, dark owns the code-heavy contexts (logs, YAML, agent transcripts) and is honored whenever the user picks it. The users live in terminals and read logs when things are on fire. They expect figures that do not dance, status they can trust without reading the label twice, keyboard reach, and zero marketing fluff inside the product. Every decision below serves that reader.",
     "keyCharacteristics": [
       "Instrument-grade density. Comfortable-compact by default. Take the denser of two reasonable options on app surfaces, the more spacious on marketing.",
       "Monospace is structure. Commit Mono carries everything a user types, copies, or pattern-matches. It is load-bearing, not decorative.",
-      "Orange is the warning light. The brand accent marks focus, 'you are here,' and the live edge. It is never a fill you reach for to feel branded.",
+      "Orange is the warning light. The brand accent marks focus, \"you are here,\" and the live edge. It is never a fill you reach for to feel branded.",
       "Trustworthy status. State is carried by shape and color together, never color alone. The UI must not lie to an operator.",
       "Calm chrome, loud data. Navigation and containers recede; runs, logs, and metrics are the loudest thing on screen."
     ],
     "rules": [
       {
         "name": "The Warning-Light Rule",
-        "body": "Brand orange marks four things and nothing else: the focus ring (always), the active or selected surface ('you are here'), inline links, and the brand mark. It is deliberately not the primary button (that is inverted neutral) and not a status hue (warning orange is a different scale from brand orange). If you reach for orange to make something feel branded, stop.",
+        "body": "Brand orange marks four things and nothing else: the focus ring (always), the active or selected surface ('you are here'), inline links, and the brand mark. It is deliberately not the primary button (that is inverted neutral) and not a status hue (warning orange is a different scale, --color-orange-*, from brand --color-primary-*). If you reach for orange to make something feel branded, stop. The brand lives in monospace, density, restraint, and that one precise ring.",
         "section": "colors"
       },
       {
         "name": "The Shape-Not-Just-Color Rule",
-        "body": "Status is never carried by color alone (WCAG 1.4.1). A glyph shape or a written word always co-signs the hue, and the status color lives in the dot, pill, glyph, or border, never as a full row or card fill.",
+        "body": "Status is never carried by color alone (WCAG 1.4.1). A glyph shape or a written word always co-signs the hue, and the status color lives in the dot, pill, glyph, or border, never as a full row or panel fill (which fights zebra rhythm and dark mode).",
         "section": "colors"
       },
       {
         "name": "The Use-The-Components Rule",
-        "body": "Typography flows through Header, Text, and Code. Write a Header variant, never a raw h1 with inline text-3xl font-medium. Inlining the scale scatters type decisions across the codebase.",
+        "body": "Typography flows through Header, Text, and Code (components/typography/*). Write <Header variant=\"h1\"> and <Text size=\"sm\">, never a raw <h1 class=\"text-3xl font-medium\">. Inlining the scale scatters type decisions across the codebase.",
         "section": "typography"
       },
       {
         "name": "The Monospace-Is-Structure Rule",
-        "body": "Reach for font-code whenever the content is something a user types, copies, or pattern-matches: source, YAML, JSON, logs, SHAs, IDs, paths, refs, URLs, durations, byte counts, sequence and line numbers, tokens, and environment or tag values. Numbers written as prose stay in font-display; numbers presented as data stay in font-code.",
+        "body": "Reach for font-code whenever the content is something a user types, copies, or pattern-matches: source, YAML, JSON, logs and command output, SHAs, IDs, paths, refs, URLs, durations, byte counts, sequence and line numbers, capability tokens, and environment or tag values. Numbers written as prose (\"14 jobs failed\") stay in font-display; numbers presented as data stay in font-code.",
         "section": "typography"
       },
       {
         "name": "The Pixel-Spacing Rule",
-        "body": "index.css sets --spacing: 1px, so Tailwind utility numbers are pixels: p-16 is 16px, gap-8 is 8px, h-32 is 32px. This is not stock Tailwind, where p-4 would be 16px. Here p-4 is 4px. Flag the mismatch in review.",
+        "body": "index.css sets --spacing: 1px, so in this Tailwind v4 setup utility numbers are pixels: p-16 is 16px, gap-8 is 8px, and h-32 is 32px. This is not stock Tailwind, where p-4 would be 16px. Here p-4 is 4px. The raw scale remains useful for token definitions and component internals. Product surfaces should use the semantic roles below.",
         "section": "layout"
       },
       {
-        "name": "The Token-Only-Shadow Rule",
+        "name": "The Opaque-Surface Rule",
+        "body": "No page, panel, or code surface uses an alpha token. A translucent surface composites over its parent, and the parent varies by route, so the same component would render a different color on different pages.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Token-Only Shadow Rule",
         "body": "Never write a custom box-shadow hex. Custom shadows break in dark mode because they miss the theme-aware alpha layering the tokens carry. If you need a new elevation, add a token.",
         "section": "elevation"
       },
       {
         "name": "The Flat-Focus-Ring Rule",
-        "body": "The orange focus ring is universal and never stripped. If a container's overflow-hidden would clip the standard outset ring, switch that one control to an inset ring in --color-primary-500, never remove it.",
+        "body": "An orange focus ring is universal and never stripped. If a container's overflow-hidden would clip the standard outset ring, switch that one control to an inset ring in --color-primary-500, never remove it.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "Do carry status with shape and color together, and keep the status color in the glyph, pill, or border (never a full row or card fill).",
-      "Do route every color through a semantic or component token. A raw hex outside index.css is a bug; push it into a token.",
+      "Do carry status with shape and color together, and keep the status color in the glyph, pill, or border (never a full row or panel fill).",
+      "Do route every color through a semantic or component token. A raw #RRGGBB outside index.css is a bug; push it into a token.",
       "Do use the typography components (Header, Text, Code) for all type.",
-      "Do keep tables tight: sticky header, hairline row borders (not zebra), right-aligned tabular numerics, row hover surface, and inline actions in transparent variants revealed on hover.",
+      "Do keep tables tight: sticky header, hairline row borders (not zebra), right-aligned tabular numerics, row hover surface, and inline actions in transparent / transparentMuted revealed on hover. A table always sits in a panel, and the panel owns the border and the radius.",
+      "Do declare a frame on every route, and let the shell own the page background and the page width.",
       "Do respect prefers-reduced-motion: disable pulsing indicators and tab transitions, and give every icon-only button an aria-label.",
-      "Do reserve motion for discrete events (150 to 250ms ease-out for a state flip or a panel entering); let high-frequency data (logs, polling counters) swap silently.",
+      "Do reserve motion for discrete events (150 to 250 ms ease-out for a state flip or a panel entering); let high-frequency data (logs, polling counters) swap silently.",
       "Do let marketing breathe more (text-5xl heads, gap-64 sections) while keeping the same restraint."
     ],
     "donts": [
       "Don't make the primary button orange. Primary is inverted neutral; orange is the focus ring, the 'you are here,' and the link.",
       "Don't treat p-4 as 16px. It is 4px here. This diverges from stock Tailwind.",
-      "Don't write a custom box-shadow; use the shadow tokens or add one, or dark mode breaks.",
-      "Don't put decorative gradients on CTAs, or icons-in-colored-circles feature grids, or centered-everything hero triplets on marketing.",
-      "Don't animate append-only high-frequency data, or tint a card or row background to match a status.",
+      "Don't write a custom box-shadow; use the --shadow-* tokens or add one, or dark mode breaks.",
+      "Don't put decorative gradients on CTAs, or icons-in-colored-circles feature grids, or centered-everything hero triplets on marketing. Engineers smell hype a block away.",
+      "Don't animate append-only high-frequency data, or tint a panel or row background to match a status.",
+      "Don't set a background or a width on a page. Both belong to the frame.",
+      "Don't nest a panel inside a panel, and don't give a navigation rail a border or a radius.",
+      "Don't add a page title or a page description to an app surface. Settings sub-pages are the one exception.",
+      "Don't paint a page, panel, or code surface with an alpha token. It composites over a parent that varies by route.",
       "Don't mix icon styles (Lucide next to Remix) in the same toolbar.",
       "Don't expand brand orange into status, or meta purple into running-state semantics."
     ]
