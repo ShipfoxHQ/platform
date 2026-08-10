@@ -216,8 +216,8 @@ automatically, so component code never branches on theme. The families:
   `-field-base` / `-field-hover` (inputs), `-neutral-overlay` (popovers),
   `-highlight-{base,hover,interactive}` (brand-tied selection), `-modal-overlay` /
   `-backdrop-backdrop` (scrims), and `-accent-{neutral,blue,purple,success,warning,error}-{soft,base,strong}`.
-  `-neutral-background` is still defined and still paints about 30 surfaces. It
-  carries no role in the ladder and retires onto the canvas.
+  The former neutral background role is retired; use the canvas token for page
+  surfaces.
 - Foregrounds: `text-foreground-neutral-{base,subtle,muted,disabled}`,
   `-on-color` (on a saturated fill), `-on-inverted` (on a contrast surface),
   `-highlight-interactive` (link/CTA orange), `-highlight-error`.
