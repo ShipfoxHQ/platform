@@ -111,13 +111,17 @@ describe('WorkspaceOnboardingPage', () => {
     const slug = screen.getByLabelText('Workspace slug');
     expect(screen.getByText(`${window.location.origin}/w/acme`)).toBeInTheDocument();
     fireEvent.change(name, {target: {value: 'Acme Labs'}});
-    expect(slug).toHaveValue('acme-labs');
-    expect(screen.getByText(`${window.location.origin}/w/acme-labs`)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(slug).toHaveValue('acme-labs');
+      expect(screen.getByText(`${window.location.origin}/w/acme-labs`)).toBeInTheDocument();
+    });
 
     fireEvent.change(slug, {target: {value: 'custom-workspace'}});
     fireEvent.change(name, {target: {value: 'Renamed Labs'}});
-    expect(slug).toHaveValue('custom-workspace');
-    expect(screen.getByText(`${window.location.origin}/w/custom-workspace`)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(slug).toHaveValue('custom-workspace');
+      expect(screen.getByText(`${window.location.origin}/w/custom-workspace`)).toBeInTheDocument();
+    });
   });
 
   test('checks a manually edited workspace slug for availability', async () => {
