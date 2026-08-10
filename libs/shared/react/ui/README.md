@@ -4,7 +4,7 @@ Shared React component library for Shipfox apps. It provides design tokens, Tail
 
 ## What it does
 
-- **Components**: Accordion, Alert, Avatar, Badge, Button, Calendar, Callout, Card, CodeBlock, Collapsible, Combobox, Command, DatePicker, DateRangePicker, Dot, DropdownMenu, EmptyState, FormField, Icon, Input, Kbd, Label, LoadErrorState, Loader, Log, Logo, Markdown, Modal, Popover, RadioGroup, RelativeTime, ScrollArea, Search, Select, Sheet, ShinyText, Skeleton, Switch, Table, Tabs, Textarea, ThemeProvider, Toast, Tooltip, and Typography.
+- **Components**: Accordion, Alert, Avatar, Badge, Button, Calendar, Callout, Card, CodeBlock, Collapsible, Combobox, Command, DatePicker, DateRangePicker, Dot, DropdownMenu, EmptyState, FormField, Icon, Input, Kbd, Label, LoadErrorState, Loader, Log, Logo, Markdown, Modal, Panel, Popover, RadioGroup, RelativeTime, ScrollArea, Search, Select, Sheet, ShinyText, Skeleton, Switch, Table, Tabs, Textarea, ThemeProvider, Toast, Tooltip, and Typography.
 - **Theme helpers**: `ThemeProvider`, `useTheme()`, and `useResolvedTheme()`.
 - **Hooks**: `useCopyToClipboard`, `useIsTextTruncated`, `useShikiHighlight`, `useShikiStyleInjection`, plus the theme hooks above.
 - **Utilities**: `cn()` for class name merging, `copyTextToClipboard`, `formatBytes`, `formatDate`/`formatTimestamp`, `formatDuration`/`humanDuration`, `formatRelative`, `debounce`, and avatar helpers (`getInitial`, `getPlaceholderImageUrl`).
@@ -78,22 +78,26 @@ export function AppRoot() {
 ## Usage
 
 ```tsx
-import {Button} from '@shipfox/react-ui/button';
-import {Card, CardContent, CardTitle} from '@shipfox/react-ui/card';
-import {Text} from '@shipfox/react-ui/typography';
+import {Panel, PanelBody, PanelHeader, PanelRow, PanelTitle} from '@shipfox/react-ui/panel';
 
-export function EmptyState() {
+export function ProjectList() {
   return (
-    <Card>
-      <CardTitle>No projects yet</CardTitle>
-      <CardContent>
-        <Text size="sm">Create a project to start running workflows.</Text>
-      </CardContent>
-      <Button iconLeft="plus">Create project</Button>
-    </Card>
+    <Panel>
+      <PanelHeader>
+        <PanelTitle>Projects</PanelTitle>
+      </PanelHeader>
+      <PanelBody>
+        <PanelRow>Shipfox</PanelRow>
+      </PanelBody>
+    </Panel>
   );
 }
 ```
+
+`Panel` is the shared container for a data region. Use `PanelRow` for rows and
+keep panels flat. Rows use a neutral hover surface, and status stays in glyphs or
+pills. Use `PanelHeader` with `variant="plain"` for a titled block on a focused
+surface.
 
 `FormField` wires up label, input, error, and description with the correct `id`, `aria-invalid`, and `aria-describedby` plumbing. Render controls through `FormFieldInput` or `FormFieldTextarea` to inherit those props automatically:
 

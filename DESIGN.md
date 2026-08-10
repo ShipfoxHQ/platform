@@ -147,13 +147,11 @@ change.
 The one exception is the surface, frame, and panel model. It is described under
 [Layout](#layout), [Elevation and depth](#elevation-and-depth), and
 [Panels](#panels), and recorded in the `panel`, `panel-header`, and `panel-row`
-frontmatter entries. That model is committed, and `@shipfox/react-ui` is being
-brought onto it. Read those sections as the target a change should move toward,
-not as a description of what ships today.
+frontmatter entries. `@shipfox/react-ui` exposes the panel primitive, and the
+remaining page migrations are bringing callers onto the model.
 
-Two consequences while the work lands. `Panel` does not exist yet, and `Card`
-still ships in its place. One surface token still resolves to a value other than
-the ones the ladder names, and
+`Card` still ships for compatibility while its consumers migrate to `Panel`. One
+surface token still resolves to a value other than the ones the ladder names, and
 [The surface ladder](#the-surface-ladder) lists it.
 
 ## Overview
@@ -525,12 +523,12 @@ building anything: `accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`
 `callout`, `card`, `code-block`, `collapsible`, `combobox`, `command`,
 `date-picker`, `date-range-picker`, `dot`, `dropdown-menu`, `empty-state`,
 `form-field`, `icon`, `input`, `kbd`, `label`, `load-error-state`, `loader`, `log`,
-`logo`, `markdown`, `modal`, `popover`, `radio-group`, `relative-time`,
+`logo`, `markdown`, `modal`, `panel`, `popover`, `radio-group`, `relative-time`,
 `scroll-area`, `search`, `select`, `sheet`, `shiny-text`, `skeleton`, `table`,
 `tabs`, `theme`, `toast`, `tooltip`, and `typography`.
 
-`Panel` is landing and replaces `Card`. Until it ships, `Card` remains the
-container in code, and [Panels](#panels) describes the target.
+`Panel` is the container for a data region. `Card` remains available for
+compatibility while its consumers migrate to `Panel`.
 
 ### Buttons
 
@@ -558,11 +556,7 @@ container in code, and [Panels](#panels) describes the target.
 
 ### Panels
 
-**This section is the target, not what ships.** `Panel` does not exist in
-`@shipfox/react-ui` yet, and `Card` is still the exported container. Do not import
-`Panel` until the package ships it.
-
-`Panel` becomes the only container for a data region, replacing `Card`. It
+`Panel` is the only container for a data region, replacing `Card`. It
 composes `PanelHeader`, `PanelTitle`, `PanelActions`, `PanelBody`, `PanelRow`,
 and `PanelEmpty`.
 

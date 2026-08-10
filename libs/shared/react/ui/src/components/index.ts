@@ -26,6 +26,7 @@ export * from './log/index.js';
 export * from './logo/index.js';
 export * from './markdown/index.js';
 export * from './modal/index.js';
+export * from './panel/index.js';
 export * from './popover/index.js';
 export * from './radio-group/index.js';
 export * from './relative-time/index.js';
