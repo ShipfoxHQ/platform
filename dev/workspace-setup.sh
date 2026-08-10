@@ -70,11 +70,24 @@ install_dependencies() {
   printf 'workspace setup: repository context is tracked; no generated context step is required.\n'
 }
 
+has_linux_dependency_privileges() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    return 0
+  fi
+
+  command -v sudo >/dev/null 2>&1 || return 1
+  sudo -n -v >/dev/null 2>&1
+}
+
 install_test_browser() {
   local args=(install chromium)
 
   if [[ "$(uname -s)" == Linux ]]; then
-    args=(install --with-deps chromium)
+    if has_linux_dependency_privileges; then
+      args=(install --with-deps chromium)
+    else
+      printf 'workspace setup: passwordless sudo is unavailable; installing Chromium without Linux dependencies.\n' >&2
+    fi
   fi
 
   require_command pnpm
