@@ -41,6 +41,19 @@ describe('WorkflowJobDetailPage', () => {
     jobAnnotations.value = [];
   });
 
+  test('lets the job detail route inherit its shell canvas', async () => {
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    const {container} = renderJobPath();
+
+    expect(await screen.findByRole('region', {name: 'Loading workflow run'})).toBeInTheDocument();
+
+    const pageRoot = container.querySelector('[data-workflow-page-root="job-detail"]');
+
+    expect(pageRoot).not.toBeNull();
+    expect(pageRoot).not.toHaveClass('bg-background-subtle-base');
+  });
+
   test('links the job to its annotations without rendering one', async () => {
     jobAnnotations.value = [
       {

@@ -75,15 +75,15 @@ const SAMPLE_RUNS: WorkflowRunListItem[] = [
 
 // One story on the full-width page. The data states (loading / empty / errors / runs) are
 // driven by args; search, the filter menus, "clear filters" and "no matches" are live in the
-// rendered toolbar since the view owns that state. The decorator gives the list the 1120px
-// content cap and a real height, so `flex-1` scrolls the way it does in the app shell.
+// rendered toolbar since the view owns that state. The decorator gives the list a full-width
+// subtle canvas and a real height, so `flex-1` scrolls the way it does in the app shell.
 const meta = {
   title: 'Workflows/WorkflowRunList',
   component: WorkflowRunListView,
   parameters: {layout: 'centered'},
   decorators: [
     (Story) => (
-      <div className="flex h-600 w-[1120px] max-w-full bg-background-neutral-base p-24">
+      <div className="flex h-600 w-full bg-background-subtle-base p-24">
         <Story />
       </div>
     ),
