@@ -75,17 +75,17 @@ describe('RepositoryPicker', () => {
     const loadingGrid = container.querySelector('[aria-hidden="true"]');
     if (!loadingGrid) throw new Error('Repository loading grid was not rendered');
 
-    expect(loadingGrid).toHaveClass('grid', 'grid-cols-2', 'gap-inline', 'max-[760px]:grid-cols-1');
+    expect(loadingGrid).toHaveClass(
+      'grid',
+      'grid-cols-2',
+      'gap-px',
+      'bg-border-neutral-base',
+      'max-[760px]:grid-cols-1',
+    );
     expect(loadingGrid.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4);
     for (const placeholder of loadingGrid.querySelectorAll(':scope > div')) {
-      expect(placeholder).toHaveClass(
-        'h-50',
-        'rounded-8',
-        'border',
-        'border-border-neutral-base',
-        'bg-background-neutral-base',
-        'p-[14px]',
-      );
+      expect(placeholder).toHaveClass('h-50', 'bg-background-neutral-base', 'p-[14px]');
+      expect(placeholder).not.toHaveClass('rounded-8', 'border');
     }
   });
 });

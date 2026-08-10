@@ -17,7 +17,13 @@ describe('ProjectSettingsPage', () => {
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
     renderProjectPage('/w/acme/p/platform/settings/general', <ProjectSettingsPage />);
-    fireEvent.change(await screen.findByLabelText('Project name'), {
+    const nameInput = await screen.findByLabelText('Project name');
+    expect(screen.getByRole('heading', {name: 'General'})).toBeInTheDocument();
+    expect(
+      screen.queryByText('Update the project name and the slug used in its URLs.'),
+    ).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(1);
+    fireEvent.change(nameInput, {
       target: {value: 'Platform API'},
     });
     fireEvent.click(screen.getByRole('button', {name: 'Save changes'}));

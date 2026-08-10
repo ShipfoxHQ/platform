@@ -43,6 +43,13 @@ describe('CreateProjectPage', () => {
     const nameInput = await screen.findByLabelText('Project name');
     const slugInput = await screen.findByLabelText('Project slug');
     await waitFor(() => expect(nameInput).toHaveValue('Platform'));
+    expect(
+      screen.queryByText(
+        'A Shipfox project starts from a Git repository. Choose the repository Shipfox should track, then give the project a name.',
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox', {name: 'Search repositories'})).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(3);
     expect(slugInput).toHaveValue('platform');
     expect(slugInput).toHaveAttribute('aria-describedby', 'project-slug-description');
     expect(screen.getByText('/w/acme/p/platform')).toBeInTheDocument();

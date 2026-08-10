@@ -10,6 +10,8 @@ import {useId} from 'react';
 import type {Repository} from '#core/models.js';
 
 const REPOSITORY_GRID_CLASS_NAME = 'grid grid-cols-2 gap-inline max-[760px]:grid-cols-1';
+const REPOSITORY_SKELETON_GRID_CLASS_NAME =
+  'grid grid-cols-2 gap-px bg-border-neutral-base max-[760px]:grid-cols-1';
 const REPOSITORY_SKELETON_WIDTHS = ['w-64', 'w-96', 'w-80', 'w-112'] as const;
 
 export function RepositoryPicker({
@@ -59,11 +61,7 @@ export function RepositoryPicker({
 
       {isLoading ? <RepositoryLoadingState /> : null}
 
-      {!isLoading && repositories.length === 0 ? (
-        <div className="rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact">
-          <Text size="sm">{emptyMessage}</Text>
-        </div>
-      ) : null}
+      {!isLoading && repositories.length === 0 ? <Text size="sm">{emptyMessage}</Text> : null}
 
       {repositories.length > 0 ? (
         <RadioGroup
@@ -118,14 +116,11 @@ function RepositoryLoadingState() {
       <div role="status" className="sr-only">
         Loading repositories.
       </div>
-      <div aria-hidden="true" className={REPOSITORY_GRID_CLASS_NAME}>
+      <div aria-hidden="true" className={REPOSITORY_SKELETON_GRID_CLASS_NAME}>
         {/* The skeleton mirrors RadioGroupItem's own 14px padding contract so the
             placeholder and the loaded card stay the same height. */}
         {REPOSITORY_SKELETON_WIDTHS.map((width) => (
-          <div
-            key={width}
-            className="h-50 min-w-0 rounded-8 border border-border-neutral-base bg-background-neutral-base p-[14px]"
-          >
+          <div key={width} className="h-50 min-w-0 bg-background-neutral-base p-[14px]">
             <Skeleton className={`h-20 ${width}`} />
           </div>
         ))}

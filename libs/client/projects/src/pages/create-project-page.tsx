@@ -13,7 +13,9 @@ import {displayNameFieldError, SlugField} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {FormField, FormFieldInput, fieldError} from '@shipfox/react-ui/form-field';
+import {Input} from '@shipfox/react-ui/input';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
+import {Panel, PanelActions, PanelBody, PanelHeader, PanelTitle} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
@@ -199,15 +201,9 @@ export function CreateProjectPage() {
 
   return (
     <div className="flex w-full flex-col gap-section">
-      <header className="flex flex-col gap-inline">
-        <Header id="create-project-title" variant="h1">
-          Create project
-        </Header>
-        <Text size="sm" className="text-foreground-neutral-muted">
-          A Shipfox project starts from a Git repository. Choose the repository Shipfox should
-          track, then give the project a name.
-        </Text>
-      </header>
+      <Header id="create-project-title" variant="h1">
+        Create project
+      </Header>
 
       <ModelProviderReminderBanner workspaceId={workspace.id} />
 
@@ -240,161 +236,177 @@ export function CreateProjectPage() {
         className="grid items-start gap-region lg:grid-cols-[minmax(0,1fr)_340px]"
       >
         <div className="flex min-w-0 flex-col gap-region">
-          <section className="flex flex-col gap-group" aria-label="Source integration">
-            <div className="flex items-start justify-between gap-group">
-              <div className="flex flex-col gap-tight">
-                <Header variant="h3">Source integration</Header>
-                <Text size="sm" className="text-foreground-neutral-muted">
-                  Choose the integration that can access the repository.
-                </Text>
-              </div>
+          <section aria-label="Source integration">
+            <Panel>
+              <PanelHeader>
+                <PanelTitle>Source integration</PanelTitle>
+                {connections.length === 1 ? (
+                  <PanelActions>
+                    <Button asChild variant="transparent" size="sm" className="shrink-0">
+                      <Link
+                        to="/w/$workspaceSlug/integrations"
+                        params={{workspaceSlug: workspace.slug}}
+                      >
+                        Add another integration
+                      </Link>
+                    </Button>
+                  </PanelActions>
+                ) : null}
+              </PanelHeader>
 
-              {connections.length === 1 ? (
-                <Button asChild variant="transparent" size="sm" className="shrink-0">
-                  <Link
-                    to="/w/$workspaceSlug/integrations"
-                    params={{workspaceSlug: workspace.slug}}
-                  >
-                    Add another integration
-                  </Link>
-                </Button>
+              {connections.length > 0 ? (
+                <PanelBody className="p-panel">
+                  <ConnectionPicker
+                    connections={connections}
+                    selectedConnectionId={effectiveSelectedConnectionId}
+                    onSelect={selectConnection}
+                  />
+                </PanelBody>
               ) : null}
-            </div>
-
-            {connections.length > 0 ? (
-              <ConnectionPicker
-                connections={connections}
-                selectedConnectionId={effectiveSelectedConnectionId}
-                onSelect={selectConnection}
-              />
-            ) : null}
+            </Panel>
           </section>
 
           {showRepoPicker ? (
-            <section className="flex flex-col gap-group" aria-label="Repository">
-              <div className="flex flex-col gap-tight">
-                <Header variant="h3">Repository</Header>
-                <Text size="sm" className="text-foreground-neutral-muted">
-                  Select the repository this project tracks.
-                </Text>
-              </div>
-
-              <RepositoryPicker
-                repositories={repositories}
-                selectedRepositoryId={selectedRepositoryId}
-                onSelect={setSelectedRepositoryId}
-                isLoading={repositoriesQuery.isPending}
-                isFetchingNextPage={repositoriesQuery.isFetchingNextPage}
-                hasNextPage={repositoriesQuery.hasNextPage}
-                onLoadMore={() => repositoriesQuery.fetchNextPage()}
-                emptyMessage={filteredEmptyMessage}
-                searchValue={repoFilter}
-                onSearchChange={setRepoFilter}
-              />
+            <section aria-label="Repository">
+              <Panel>
+                <PanelHeader className="flex-wrap">
+                  <PanelTitle>Repository</PanelTitle>
+                  <PanelActions className="min-w-0 max-[640px]:ml-0 max-[640px]:basis-full">
+                    <Input
+                      type="search"
+                      placeholder="Search repositories…"
+                      aria-label="Search repositories"
+                      value={repoFilter}
+                      onChange={(event) => setRepoFilter(event.target.value)}
+                      className="w-full max-w-[320px]"
+                    />
+                  </PanelActions>
+                </PanelHeader>
+                <PanelBody className="p-panel">
+                  <RepositoryPicker
+                    repositories={repositories}
+                    selectedRepositoryId={selectedRepositoryId}
+                    onSelect={setSelectedRepositoryId}
+                    isLoading={repositoriesQuery.isPending}
+                    isFetchingNextPage={repositoriesQuery.isFetchingNextPage}
+                    hasNextPage={repositoriesQuery.hasNextPage}
+                    onLoadMore={() => repositoriesQuery.fetchNextPage()}
+                    emptyMessage={filteredEmptyMessage}
+                  />
+                </PanelBody>
+              </Panel>
             </section>
           ) : null}
         </div>
 
         <aside className="lg:sticky lg:top-32">
-          <div className="flex flex-col gap-group rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel">
-            <div className="flex flex-col gap-tight">
-              <Header variant="h3">Project details</Header>
-              <Text size="sm" className="text-foreground-neutral-muted">
-                Confirm the source and create the project.
-              </Text>
-            </div>
+          <Panel>
+            <PanelHeader>
+              <PanelTitle>Project details</PanelTitle>
+            </PanelHeader>
+            <PanelBody className="gap-group p-panel">
+              {formError ? (
+                <Callout role="alert" type="error">
+                  <div ref={errorRef} tabIndex={-1}>
+                    {formError}
+                  </div>
+                </Callout>
+              ) : null}
 
-            {formError ? (
-              <Callout role="alert" type="error">
-                <div ref={errorRef} tabIndex={-1}>
-                  {formError}
-                </div>
-              </Callout>
-            ) : null}
+              <ProjectSummary
+                connection={selectedConnection}
+                repositoryName={selectedRepository?.fullName}
+              />
 
-            <ProjectSummary
-              connection={selectedConnection}
-              repositoryName={selectedRepository?.fullName}
-            />
+              <form.Field
+                name="name"
+                validators={{
+                  onBlur: ({value}) =>
+                    displayNameFieldError(
+                      value,
+                      'Project name',
+                      createProjectBodySchema.shape.name,
+                    ),
+                  onSubmit: ({value}) =>
+                    displayNameFieldError(
+                      value,
+                      'Project name',
+                      createProjectBodySchema.shape.name,
+                    ),
+                }}
+              >
+                {(field) => (
+                  <FormField label="Project name" id="project-name" error={fieldError(field)}>
+                    <FormFieldInput
+                      name="name"
+                      type="text"
+                      value={field.state.value}
+                      onChange={(event) => {
+                        const nextName = event.target.value;
+                        setNameTouched(true);
+                        field.handleChange(nextName);
+                        if (!slugManuallyEdited) {
+                          setSlugCheckEnabled(true);
+                          setSlugConflict(false);
+                          form.setFieldValue('slug', slugifyName(nextName, {fallback: 'project'}));
+                        }
+                      }}
+                      onBlur={field.handleBlur}
+                      placeholder="Platform"
+                    />
+                  </FormField>
+                )}
+              </form.Field>
 
-            <form.Field
-              name="name"
-              validators={{
-                onBlur: ({value}) =>
-                  displayNameFieldError(value, 'Project name', createProjectBodySchema.shape.name),
-                onSubmit: ({value}) =>
-                  displayNameFieldError(value, 'Project name', createProjectBodySchema.shape.name),
-              }}
-            >
-              {(field) => (
-                <FormField label="Project name" id="project-name" error={fieldError(field)}>
-                  <FormFieldInput
-                    name="name"
-                    type="text"
+              <form.Field
+                name="slug"
+                validators={{
+                  onBlur: createProjectBodySchema.shape.slug,
+                  onSubmit: createProjectBodySchema.shape.slug,
+                }}
+              >
+                {(field) => (
+                  <SlugField
+                    id="project-slug"
+                    label="Project slug"
+                    name="slug"
                     value={field.state.value}
-                    onChange={(event) => {
-                      const nextName = event.target.value;
-                      setNameTouched(true);
-                      field.handleChange(nextName);
-                      if (!slugManuallyEdited) {
-                        setSlugCheckEnabled(true);
-                        setSlugConflict(false);
-                        form.setFieldValue('slug', slugifyName(nextName, {fallback: 'project'}));
-                      }
+                    onChange={(value) => {
+                      setSlugManuallyEdited(true);
+                      setSlugCheckEnabled(true);
+                      setSlugConflict(false);
+                      field.handleChange(value);
                     }}
                     onBlur={field.handleBlur}
-                    placeholder="Platform"
+                    error={
+                      slugConflict ? 'This project slug is already in use.' : fieldError(field)
+                    }
+                    description={
+                      <span className="font-code">
+                        {`/w/${workspace.slug}/p/${field.state.value}`}
+                      </span>
+                    }
+                    placeholder="platform"
+                    className="font-code"
+                    checkEnabled={slugCheckEnabled}
+                    debounceMs={0}
+                    isValid={isSlugValid}
+                    checkAvailability={checkProjectSlugAvailability}
                   />
-                </FormField>
-              )}
-            </form.Field>
+                )}
+              </form.Field>
 
-            <form.Field
-              name="slug"
-              validators={{
-                onBlur: createProjectBodySchema.shape.slug,
-                onSubmit: createProjectBodySchema.shape.slug,
-              }}
-            >
-              {(field) => (
-                <SlugField
-                  id="project-slug"
-                  label="Project slug"
-                  name="slug"
-                  value={field.state.value}
-                  onChange={(value) => {
-                    setSlugManuallyEdited(true);
-                    setSlugCheckEnabled(true);
-                    setSlugConflict(false);
-                    field.handleChange(value);
-                  }}
-                  onBlur={field.handleBlur}
-                  error={slugConflict ? 'This project slug is already in use.' : fieldError(field)}
-                  description={
-                    <span className="font-code">
-                      {`/w/${workspace.slug}/p/${field.state.value}`}
-                    </span>
-                  }
-                  placeholder="platform"
-                  className="font-code"
-                  checkEnabled={slugCheckEnabled}
-                  debounceMs={0}
-                  isValid={isSlugValid}
-                  checkAvailability={checkProjectSlugAvailability}
-                />
-              )}
-            </form.Field>
-
-            <Button
-              type="submit"
-              iconRight="chevronRight"
-              isLoading={createProject.isPending}
-              disabled={!selectedConnection || !selectedRepository}
-              className="w-full"
-            >
-              Create project
-            </Button>
-          </div>
+              <Button
+                type="submit"
+                iconRight="chevronRight"
+                isLoading={createProject.isPending}
+                disabled={!selectedConnection || !selectedRepository}
+                className="w-full"
+              >
+                Create project
+              </Button>
+            </PanelBody>
+          </Panel>
         </aside>
       </form>
     </div>
