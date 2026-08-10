@@ -71,7 +71,8 @@ describe('composition registries', () => {
     await renderComposedShell({
       features,
       initialPath: '/w/workspace/settings/first',
-      resolveImpl: () => defineRoute({component: () => <h1>Settings page</h1>}),
+      resolveImpl: () =>
+        defineRoute({staticData: {frame: 'content'}, component: () => <h1>Settings page</h1>}),
     });
 
     expect(await screen.findByRole('heading', {name: 'Workspace settings'})).toBeVisible();

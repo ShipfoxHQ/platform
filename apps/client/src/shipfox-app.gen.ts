@@ -2,7 +2,7 @@
 // biome-ignore-all format: generated code has stable, reviewable output.
 // biome-ignore-all assist/source/organizeImports: generated imports follow route order.
 import {createRoute, createRouter} from '@tanstack/react-router';
-import {buildAnchorSkeleton, isRouteImpl, parseAppSearch, stringifyAppSearch, type RouteImpl, type RouterContext} from '@shipfox/client-shell/runtime';
+import {assertRouteFrame, buildAnchorSkeleton, isRouteImpl, parseAppSearch, stringifyAppSearch, type RouteImpl, type RouterContext} from '@shipfox/client-shell/runtime';
 import * as route0Module from "@shipfox/client-auth/routes/index";
 import * as route1Module from "@shipfox/client-auth/routes/login";
 import * as route2Module from "@shipfox/client-auth/routes/logout";
@@ -47,6 +47,7 @@ function routeOptions<T extends RouteImpl>(routeImpl: T, impl: string, path: str
   if (!isRouteImpl(routeImpl)) {
     throw new TypeError(`Route implementation "${impl}" for "${path}" must export default defineRoute(...).`);
   }
+  assertRouteFrame(routeImpl.options.staticData, impl, path);
   return routeImpl.options;
 }
 

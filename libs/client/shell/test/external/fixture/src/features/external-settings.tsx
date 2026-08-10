@@ -14,6 +14,6 @@ function ExternalSettings() {
   );
 }
 
-const route = defineRoute({component: ExternalSettings});
+const route = defineRoute({staticData: {frame: 'content'}, component: ExternalSettings});
 
 export default route;

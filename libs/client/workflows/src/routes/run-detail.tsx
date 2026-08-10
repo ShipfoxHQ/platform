@@ -4,7 +4,7 @@ import {validateWorkflowRunsSearch, workflowRouteParams} from './inputs.js';
 import {ProjectRoute} from './project-route.js';
 
 export default defineRoute({
-  staticData: {layout: 'full-bleed'},
+  staticData: {frame: 'data'},
   validateSearch: validateWorkflowRunsSearch,
   component: () => {
     const {workspaceSlug, projectSlug, workflowRunId} = useRouteParams(workflowRouteParams);
