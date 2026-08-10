@@ -1,0 +1,19 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+or {
+  JsStringLiteralExpression() as $token where {
+    $token <: r".*\bbg-background-(?:subtle-base|neutral-background)\b.*",
+    register_diagnostic(
+      span=$token,
+      message="client-architecture/no-page-canvas-tokens: let the shell-owned frame provide the canvas; use a Panel or a semantic surface role for page content."
+    )
+  },
+  JsxString() as $token where {
+    $token <: r".*\bbg-background-(?:subtle-base|neutral-background)\b.*",
+    register_diagnostic(
+      span=$token,
+      message="client-architecture/no-page-canvas-tokens: let the shell-owned frame provide the canvas; use a Panel or a semantic surface role for page content."
+    )
+  }
+}

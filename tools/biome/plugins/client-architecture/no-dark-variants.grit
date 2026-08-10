@@ -1,0 +1,19 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+or {
+  JsStringLiteralExpression() as $class where {
+    $class <: r".*dark:.*",
+    register_diagnostic(
+      span=$class,
+      message="client-architecture/no-dark-variants: use semantic surface and foreground tokens so the theme resolves through the token ladder."
+    )
+  },
+  JsxString() as $class where {
+    $class <: r".*dark:.*",
+    register_diagnostic(
+      span=$class,
+      message="client-architecture/no-dark-variants: use semantic surface and foreground tokens so the theme resolves through the token ladder."
+    )
+  }
+}

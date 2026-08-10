@@ -242,6 +242,107 @@
       ]
     },
     {
+      "path": "./tools/biome/plugins/client-architecture/no-page-canvas-tokens.grit",
+      "includes": [
+        "**/libs/client/**",
+        "**/libs/shared/react/ui/**",
+        "!**/libs/client/shell/**",
+        "!**/dist/**",
+        "!**/node_modules/**",
+        "!**/*.test.ts",
+        "!**/*.test.tsx",
+        "!**/*.stories.ts",
+        "!**/*.stories.tsx",
+        "!**/test/**",
+        "!**/tests/**",
+        "!**/__tests__/**",
+        "!**/generated/**",
+        "!**/__generated__/**",
+        "!**/*.gen.ts",
+        "!**/*.gen.tsx"
+      ]
+    },
+    {
+      "path": "./tools/biome/plugins/client-architecture/no-dark-variants.grit",
+      "includes": [
+        "**/libs/client/**",
+        "**/libs/shared/react/ui/**",
+        "!**/dist/**",
+        "!**/node_modules/**",
+        "!**/*.test.ts",
+        "!**/*.test.tsx",
+        "!**/*.stories.ts",
+        "!**/*.stories.tsx",
+        "!**/test/**",
+        "!**/tests/**",
+        "!**/__tests__/**",
+        "!**/generated/**",
+        "!**/__generated__/**",
+        "!**/*.gen.ts",
+        "!**/*.gen.tsx"
+      ]
+    },
+    {
+      "path": "./tools/biome/plugins/client-architecture/no-nested-panel.grit",
+      "includes": [
+        "**/libs/client/**",
+        "**/libs/shared/react/ui/**",
+        "!**/dist/**",
+        "!**/node_modules/**",
+        "!**/*.test.ts",
+        "!**/*.test.tsx",
+        "!**/*.stories.ts",
+        "!**/*.stories.tsx",
+        "!**/test/**",
+        "!**/tests/**",
+        "!**/__tests__/**",
+        "!**/generated/**",
+        "!**/__generated__/**",
+        "!**/*.gen.ts",
+        "!**/*.gen.tsx"
+      ]
+    },
+    {
+      "path": "./tools/biome/plugins/client-architecture/no-table-outside-panel.grit",
+      "includes": [
+        "**/libs/client/**",
+        "**/libs/shared/react/ui/**",
+        "!**/dist/**",
+        "!**/node_modules/**",
+        "!**/*.test.ts",
+        "!**/*.test.tsx",
+        "!**/*.stories.ts",
+        "!**/*.stories.tsx",
+        "!**/test/**",
+        "!**/tests/**",
+        "!**/__tests__/**",
+        "!**/generated/**",
+        "!**/__generated__/**",
+        "!**/*.gen.ts",
+        "!**/*.gen.tsx"
+      ]
+    },
+    {
+      "path": "./tools/biome/plugins/client-architecture/no-arbitrary-page-width.grit",
+      "includes": [
+        "**/libs/client/**",
+        "!**/libs/client/shell/**",
+        "!**/dist/**",
+        "!**/node_modules/**",
+        "!**/*.test.ts",
+        "!**/*.test.tsx",
+        "!**/*.stories.ts",
+        "!**/*.stories.tsx",
+        "!**/test/**",
+        "!**/tests/**",
+        "!**/__tests__/**",
+        "!**/generated/**",
+        "!**/__generated__/**",
+        "!**/*.gen.ts",
+        "!**/*.gen.tsx"
+      ]
+    },
+    {
       "path": "./tools/biome/plugins/database-boundaries/no-direct-table-declaration.grit",
       "includes": [
         "**/libs/api/**/src/db/**",

@@ -1,0 +1,21 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+or {
+  JsxOpeningElement(name = $element_name) as $element where {
+    $element_name <: or {"div", "form", "main", "section"},
+    $element <: r".*(?:[a-z-]+:)?max-w-\[[^\]]+\].*",
+    register_diagnostic(
+      span=$element,
+      message="client-architecture/no-arbitrary-page-width: declare the route frame; the shell owns page width instead of an arbitrary max-w-[...] utility."
+    )
+  },
+  JsxSelfClosingElement(name = $element_name) as $element where {
+    $element_name <: or {"div", "form", "main", "section"},
+    $element <: r".*(?:[a-z-]+:)?max-w-\[[^\]]+\].*",
+    register_diagnostic(
+      span=$element,
+      message="client-architecture/no-arbitrary-page-width: declare the route frame; the shell owns page width instead of an arbitrary max-w-[...] utility."
+    )
+  }
+}
