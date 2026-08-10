@@ -11,6 +11,24 @@ Shared React component library for Shipfox apps. It provides design tokens, Tail
 - **Icons**: Custom Shipfox icons plus the icon registry used by the `Icon` component.
 - **CSS entry**: `@shipfox/react-ui/index.css` for fonts, Tailwind, animation utilities, and design tokens.
 
+## Public API
+
+### Surface roles
+
+The `@shipfox/react-ui/index.css` entry defines four surface roles for page and component authors:
+
+| Role | Token | Light | Dark | Used for |
+| --- | --- | --- | --- | --- |
+| Canvas | `background-subtle-base` | `#fafafa` | `#0f0f10` | the page, nav bar, tab strip, rails, object headers, panel header strips |
+| Panel | `background-neutral-base` | `#ffffff` | `#1a1a1b` | panel bodies, rows, popovers, modals |
+| Code | `background-contrast-*` | `#1a1a1b` | `#030303` | code, logs, YAML, agent transcripts |
+| Inline fill | `background-components-base` | `#f4f4f5` | `#27272a` | avatars, badges, kbd, chips inside a panel |
+
+The ladder follows two rules:
+
+- Panel sits one ramp step toward the foreground from canvas in both themes. A panel header strip sits one step below its panel, which is the canvas value.
+- No page, panel, or code surface uses an alpha token, because alpha composites over a parent that varies.
+
 ## Imports
 
 Import from a subpath. Each component has its own entry
