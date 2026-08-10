@@ -9,8 +9,8 @@ import {
 import {
   isPiExtensionAvailable,
   PI_HARNESS_EXTENSION_PACKAGE_NAMES,
-  runnerToolCapabilities,
-} from '@shipfox/runner-agent';
+} from '@shipfox/runner-agent/pi-extensions';
+import {runnerToolCapabilities} from '@shipfox/runner-agent/tool-capabilities';
 import {
   consumeManagedRunnerBootstrapToken,
   createLeaseClient,
@@ -39,13 +39,14 @@ import {
 } from '@shipfox/runner-workspace';
 import {isTimeoutError} from 'ky';
 import {config} from '#config.js';
-import {createBootTimelineCollector} from '#core/boot-timeline.js';
+import {createBootTimelineCollector, createRunnerBootPhaseTimeline} from '#core/boot-timeline.js';
 import {startHeartbeatLoop} from '#core/heartbeat-loop.js';
 import {runJobSteps} from '#core/step-loop.js';
 
 let running = true;
 let warnedAboutUnavailablePiExtensions = false;
 const bootTimeline = createBootTimelineCollector();
+const bootPhaseTimeline = createRunnerBootPhaseTimeline();
 // Module-level so the long-lived SIGINT handler can reach the in-flight job's
 // controller; locally-scoped capture isn't possible from a process-global handler.
 let currentJobAbortController: AbortController | undefined;
@@ -70,13 +71,17 @@ export async function startRunner(): Promise<void> {
   // Fail fast at startup: a dangerous root should crash the process at deploy,
   // not silently fail every job.
   const workspaceRoot = resolveWorkspaceRootFromEnv();
-  await cleanupOrphanedJobLogs(workspaceRoot);
+  void cleanupOrphanedJobLogs(workspaceRoot).catch((error) => {
+    logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job logs');
+  });
   requireRunnerLabels();
   warnAboutUnavailablePiExtensions();
   const startupMode = runnerStartupMode();
 
+  bootPhaseTimeline.mark('runner_started_offset_seconds');
   logger().info(
     {
+      ...bootPhaseTimeline.snapshot(),
       pollInterval: config.SHIPFOX_POLL_INTERVAL_MS,
       pollMaxDuration: config.SHIPFOX_POLL_MAX_DURATION_MS,
       workspaceRoot,
@@ -116,8 +121,10 @@ export async function startRunner(): Promise<void> {
 
       if (!running) return;
 
+      bootPhaseTimeline.mark('first_claim_offset_seconds');
       logger().info(
         {
+          ...bootPhaseTimeline.snapshot(),
           workflowRunId: job.workflow_run_id,
           workflowRunAttemptId: job.workflow_run_attempt_id,
           jobId: job.job_id,
@@ -296,6 +303,7 @@ export async function runJob(
 async function initializeManagedRunnerSession(): Promise<RunnerSession | undefined> {
   const bootstrapToken = consumeManagedRunnerBootstrapToken();
   const exchanged = await exchangeRunnerBootstrapToken(bootstrapToken);
+  bootPhaseTimeline.mark('bootstrap_exchange_offset_seconds');
   const controlSessionToken = exchanged.controlSessionToken;
   const enrollmentConfig = managedRunnerEnrollmentConfig();
   const enrollmentActivationToken = await enrollRunnerControlSession({
@@ -307,6 +315,7 @@ async function initializeManagedRunnerSession(): Promise<RunnerSession | undefin
   logger().info(
     {
       ...bootTimeline.createEvent(bootTimeline.captureEnrollment()),
+      ...bootPhaseTimeline.snapshot(),
       provider_kind: enrollmentConfig.providerKind,
     },
     'runner.boot_timeline',
@@ -319,7 +328,11 @@ async function initializeManagedRunnerSession(): Promise<RunnerSession | undefin
     capabilities: runnerToolCapabilities(),
     registrationToken: activationToken,
   });
-  logger().info({runnerSessionId: runnerSession.session_id}, 'Managed runner activated');
+  bootPhaseTimeline.mark('activation_offset_seconds');
+  logger().info(
+    {...bootPhaseTimeline.snapshot(), runnerSessionId: runnerSession.session_id},
+    'Managed runner activated',
+  );
   return runnerSession;
 }
 

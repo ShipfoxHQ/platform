@@ -135,9 +135,8 @@ ENV IMAGE_REVISION=$IMAGE_REVISION \
     BUILD_NUMBER=$BUILD_NUMBER \
     RUNNER_VERSION=$RUNNER_VERSION
 
-# tini as PID 1; --enable-source-maps maps stack traces back to TypeScript.
-# OpenTelemetry is started in-process by startRunner(), so it needs no preload
-# flag. The flag stays on the entrypoint command (not NODE_OPTIONS) so it applies
-# to the runner only, not to the user step processes it spawns.
+# tini as PID 1. OpenTelemetry is started in-process by startRunner(), so it
+# needs no preload flag. The runner command is separate from user step
+# processes, which are spawned by the runner.
 ENTRYPOINT ["tini", "--"]
-CMD ["node", "--enable-source-maps", "./dist/index.js"]
+CMD ["node", "./dist/index.js"]

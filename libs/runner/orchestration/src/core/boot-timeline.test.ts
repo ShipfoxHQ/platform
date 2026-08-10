@@ -1,4 +1,4 @@
-import {createBootTimelineCollector} from '#core/boot-timeline.js';
+import {createBootTimelineCollector, createRunnerBootPhaseTimeline} from '#core/boot-timeline.js';
 
 function systemdStat(startTicks: number): string {
   return `1 (systemd) S ${Array.from({length: 18}, () => '0').join(' ')} ${startTicks}`;
@@ -38,6 +38,32 @@ describe('boot timeline collection', () => {
       runner_read_ops: 30,
       runner_read_bytes_per_second: 15_360 / 20.5,
     });
+  });
+
+  it('records each runner phase once from a monotonic clock', () => {
+    const now = vi
+      .fn<() => number>()
+      .mockReturnValueOnce(10)
+      .mockReturnValueOnce(11)
+      .mockReturnValueOnce(12)
+      .mockReturnValueOnce(13)
+      .mockReturnValueOnce(14);
+    const timeline = createRunnerBootPhaseTimeline(now);
+
+    timeline.mark('runner_started_offset_seconds');
+    timeline.mark('runner_started_offset_seconds');
+    timeline.mark('bootstrap_exchange_offset_seconds');
+    timeline.mark('activation_offset_seconds');
+    timeline.mark('first_claim_offset_seconds');
+
+    expect(timeline.snapshot()).toEqual({
+      process_entry_offset_seconds: 10,
+      runner_started_offset_seconds: 11,
+      bootstrap_exchange_offset_seconds: 12,
+      activation_offset_seconds: 13,
+      first_claim_offset_seconds: 14,
+    });
+    expect(now).toHaveBeenCalledTimes(5);
   });
 
   it('keeps the event useful when an older image has no telemetry files', () => {

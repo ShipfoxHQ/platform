@@ -6,7 +6,6 @@ import {
 import type {LogOutcomeDto, NextStepResponseDto, StepDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {redactSecrets} from '@shipfox/redact';
-import {executeAgentStep} from '@shipfox/runner-agent';
 import {
   type CheckoutDestinations,
   type CommandStartMetadata,
@@ -44,6 +43,16 @@ import {createJobLogsDir, resolveWorkingDirectory} from '@shipfox/runner-workspa
 import type {KyInstance} from 'ky';
 
 const WHITESPACE_REGEX = /\s+/;
+type RunnerAgentStepModule = typeof import('@shipfox/runner-agent/step');
+let runnerAgentStepModule: Promise<RunnerAgentStepModule> | undefined;
+
+function loadRunnerAgentStep(): Promise<RunnerAgentStepModule> {
+  if (runnerAgentStepModule !== undefined) return runnerAgentStepModule;
+
+  const pending = import('@shipfox/runner-agent/step');
+  runnerAgentStepModule = pending;
+  return pending;
+}
 
 // Reporting a step before pulling the next one is the safety invariant: a lost report is
 // retried in place (next/report are idempotent), so a step is never re-pulled or
@@ -466,6 +475,7 @@ export async function executeStep(params: {
       }
       stream = sessionStream;
       registerStreamSecrets(sessionStream);
+      const {executeAgentStep} = await loadRunnerAgentStep();
       const result = await executeAgentStep(step, {
         signal,
         cwd: stepCwd,

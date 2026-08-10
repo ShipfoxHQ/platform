@@ -913,6 +913,10 @@ describe('systemd boot activation', () => {
       'ExecStartPre=/opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh',
     );
     expect(unit).not.toContain('RequiresMountsFor=');
+    expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
+      '/usr/local/bin/node dist/index.js',
+    );
+    expect(unit).not.toContain('--enable-source-maps');
   });
 
   it('ships the provider-gated workspace preflight separately from the runner app', async () => {

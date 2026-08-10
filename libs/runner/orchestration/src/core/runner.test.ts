@@ -38,18 +38,35 @@ vi.mock('#core/step-loop.js', () => ({
   runJobSteps: vi.fn(),
 }));
 
-const {isPiExtensionAvailableMock} = vi.hoisted(() => ({
+const {isPiExtensionAvailableMock, runnerAgentBarrelEvaluated} = vi.hoisted(() => ({
   isPiExtensionAvailableMock: vi.fn((_params: {packageName: string}) => true),
+  runnerAgentBarrelEvaluated: {value: false},
 }));
 
-vi.mock('@shipfox/runner-agent', () => ({
+vi.mock('@shipfox/runner-agent', () => {
+  runnerAgentBarrelEvaluated.value = true;
+  return {
+    isPiExtensionAvailable: isPiExtensionAvailableMock,
+    PI_HARNESS_EXTENSION_PACKAGE_NAMES: ['pi-web-access', 'pi-mcp-adapter'],
+    runnerToolCapabilities: vi.fn(() => ({
+      harnesses: {
+        pi: {tools: ['read']},
+      },
+    })),
+  };
+});
+
+vi.mock('@shipfox/runner-agent/pi-extensions', () => ({
+  isPiExtensionAvailable: isPiExtensionAvailableMock,
+  PI_HARNESS_EXTENSION_PACKAGE_NAMES: ['pi-web-access', 'pi-mcp-adapter'],
+}));
+
+vi.mock('@shipfox/runner-agent/tool-capabilities', () => ({
   runnerToolCapabilities: vi.fn(() => ({
     harnesses: {
       pi: {tools: ['read']},
     },
   })),
-  isPiExtensionAvailable: isPiExtensionAvailableMock,
-  PI_HARNESS_EXTENSION_PACKAGE_NAMES: ['pi-web-access', 'pi-mcp-adapter'],
 }));
 
 vi.mock('@shipfox/runner-protocol', () => ({
@@ -79,7 +96,7 @@ vi.mock('@shipfox/runner-protocol', () => ({
 
 import {logger} from '@shipfox/node-opentelemetry';
 import {interruptibleSleep} from '@shipfox/node-resilient-loop';
-import {runnerToolCapabilities} from '@shipfox/runner-agent';
+import {runnerToolCapabilities} from '@shipfox/runner-agent/tool-capabilities';
 import {
   consumeManagedRunnerBootstrapToken,
   createLeaseClient,
@@ -170,6 +187,7 @@ beforeEach(() => {
   mockJobWorkspacePath.mockReturnValue(JOB_CWD);
   mockJobLogsPath.mockReturnValue(JOB_LOGS_DIR);
   mockJobCredentialsPath.mockReturnValue(JOB_CREDENTIALS_DIR);
+  mockCleanupOrphanedJobLogs.mockResolvedValue(undefined);
   mockRunJobSteps.mockResolvedValue();
 });
 
@@ -404,6 +422,34 @@ describe('startRunner', () => {
     expect(mockInterruptibleSleep).toHaveBeenCalledTimes(1);
   });
 
+  it('does not wait for orphan log cleanup before managed bootstrap', async () => {
+    vi.stubEnv('SHIPFOX_RUNNER_BOOTSTRAP_TOKEN', 'sf_rbt_bootstrap-token');
+    vi.stubEnv('SHIPFOX_RUNNER_PROVIDER_KIND', 'ec2');
+    vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
+    mockRunnerStartupMode.mockReturnValue('managed');
+
+    let finishCleanup!: () => void;
+    mockCleanupOrphanedJobLogs.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishCleanup = resolve;
+      }),
+    );
+    mockExchangeRunnerBootstrapToken.mockImplementation(() => {
+      finishCleanup();
+      return Promise.resolve({controlSessionToken: 'control-token'});
+    });
+    mockEnrollRunnerControlSession.mockResolvedValue('activation-token');
+    mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
+
+    await startRunner();
+
+    expect(mockCleanupOrphanedJobLogs).toHaveBeenCalledWith(WORKSPACE_ROOT);
+    expect(mockExchangeRunnerBootstrapToken).toHaveBeenCalledWith('sf_rbt_bootstrap-token');
+    expect(mockCleanupOrphanedJobLogs.mock.invocationCallOrder[0]).toBeLessThan(
+      mockExchangeRunnerBootstrapToken.mock.invocationCallOrder[0] ?? Infinity,
+    );
+  });
+
   it('enrolls, waits, activates, and uses the activation session for managed runners', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(0);
     const info = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
@@ -423,6 +469,7 @@ describe('startRunner', () => {
 
     await startRunner();
 
+    expect(runnerAgentBarrelEvaluated.value).toBe(false);
     expect(mockConsumeManagedRunnerBootstrapToken).toHaveBeenCalledTimes(1);
     expect(mockExchangeRunnerBootstrapToken).toHaveBeenCalledWith('sf_rbt_bootstrap-token');
     expect(mockEnrollRunnerControlSession).toHaveBeenCalledWith({

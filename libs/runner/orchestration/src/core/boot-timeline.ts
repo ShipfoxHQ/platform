@@ -29,6 +29,16 @@ type EnrollmentSample = {
   uptimeSeconds?: number;
 };
 
+type RunnerBootPhase =
+  | 'runner_started_offset_seconds'
+  | 'bootstrap_exchange_offset_seconds'
+  | 'activation_offset_seconds'
+  | 'first_claim_offset_seconds';
+
+type RunnerBootPhaseFields = {
+  process_entry_offset_seconds: number;
+} & Partial<Record<RunnerBootPhase, number>>;
+
 export type BootTimelineFields = {
   boot_timeline_version: typeof BOOT_TIMELINE_VERSION;
   telemetry_state: 'complete' | 'unavailable';
@@ -223,6 +233,24 @@ export function createBootTimelineCollector(read: ReadText = readText) {
       addReadFields(fields, processStartOffsetSeconds, processStartDiskReads, enrollment, bootIo);
 
       return fields;
+    },
+  };
+}
+
+/** Records process-monotonic offsets for the phases that surround runner enrollment. */
+export function createRunnerBootPhaseTimeline(now: () => number = () => process.uptime()) {
+  const fields: RunnerBootPhaseFields = {
+    process_entry_offset_seconds: now(),
+  };
+
+  return {
+    mark(phase: RunnerBootPhase): void {
+      if (fields[phase] !== undefined) return;
+      fields[phase] = now();
+    },
+
+    snapshot(): RunnerBootPhaseFields {
+      return {...fields};
     },
   };
 }

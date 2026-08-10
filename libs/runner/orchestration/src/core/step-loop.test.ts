@@ -50,6 +50,9 @@ const createStepLogStreamMock = vi.fn();
 const createSessionLogStreamMock = vi.fn();
 const executeAgentStepMock = vi.fn();
 const createJobLogsDirMock = vi.fn();
+const {agentStepModuleEvaluated} = vi.hoisted(() => ({
+  agentStepModuleEvaluated: {value: false},
+}));
 
 vi.mock('@shipfox/runner-protocol', () => ({
   requestNextStep: (...args: unknown[]) => requestNextStepMock(...args),
@@ -80,9 +83,12 @@ vi.mock('@shipfox/runner-logs', async () => {
   };
 });
 
-vi.mock('@shipfox/runner-agent', () => ({
-  executeAgentStep: (...args: unknown[]) => executeAgentStepMock(...args),
-}));
+vi.mock('@shipfox/runner-agent/step', () => {
+  agentStepModuleEvaluated.value = true;
+  return {
+    executeAgentStep: (...args: unknown[]) => executeAgentStepMock(...args),
+  };
+});
 
 vi.mock('@shipfox/runner-workspace', () => ({
   createJobLogsDir: (...args: unknown[]) => createJobLogsDirMock(...args),
@@ -261,6 +267,22 @@ describe('runJobSteps', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('does not load the agent step module for a shell-only job', async () => {
+    const setup = buildSetupStep();
+    const run = buildRunStep();
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeRunStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(agentStepModuleEvaluated.value).toBe(false);
+    expect(executeAgentStepMock).not.toHaveBeenCalled();
   });
 
   it('runs the setup step then a run step against the prepared cwd, reporting both', async () => {
