@@ -156,7 +156,7 @@ function AgentSessionRowView({
               <span
                 className={cn(
                   'inline-flex items-center gap-tight',
-                  row.isError ? 'text-red-600 dark:text-red-400' : 'text-foreground-neutral-muted',
+                  row.isError ? 'text-tag-error-text' : 'text-foreground-neutral-muted',
                 )}
               >
                 <Icon
@@ -174,10 +174,7 @@ function AgentSessionRowView({
             </span>
           </LogDisclosureTrigger>
           <LogDisclosureContent>
-            <LogContent
-              variant="code"
-              className={cn(row.isError && 'text-red-600 dark:text-red-400')}
-            >
+            <LogContent variant="code" className={cn(row.isError && 'text-tag-error-text')}>
               <PreviewText text={row.output} />
             </LogContent>
           </LogDisclosureContent>
@@ -220,7 +217,7 @@ function AgentSessionRowView({
           <LogDisclosureTrigger
             timestamp={new Date(row.timestamp)}
             summary={compactPreview(row.raw)}
-            className="text-orange-600 dark:text-orange-400"
+            className="text-tag-warning-text"
           >
             <span className="inline-flex min-w-0 items-center gap-inline">
               <Icon name="errorWarningLine" className="size-14 flex-none" aria-hidden="true" />
@@ -253,7 +250,7 @@ function MessageIcon({role, terminalFailure}: {role: string; terminalFailure: bo
       name={name}
       className={cn(
         'mt-[2px] size-14 flex-none',
-        terminalFailure ? 'text-red-600 dark:text-red-400' : 'text-foreground-neutral-muted',
+        terminalFailure ? 'text-tag-error-icon' : 'text-foreground-neutral-muted',
       )}
       aria-hidden="true"
     />

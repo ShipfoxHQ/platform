@@ -43,7 +43,7 @@ export function LogRows({
         aria-live="polite"
         className={cn(
           'overflow-y-auto rounded-12 border border-border-contrast-bottom shadow-button-neutral',
-          'bg-background-neutral-base dark:bg-background-contrast-subtle',
+          'bg-background-contrast-subtle',
           'py-8 font-code text-xs leading-20 text-foreground-neutral-base',
           'scrollbar',
           className,

@@ -431,7 +431,7 @@ function EventPayload({payload}: {payload: string}) {
             <CodeBlockItem
               value={item.filename}
               lineNumbers={false}
-              className="px-0 pb-0 [&>div]:rounded-none [&>div]:border-0 [&>div]:bg-background-contrast-base [&>div]:dark:bg-background-contrast-base [&_code]:!text-foreground-neutral-on-color"
+              className="px-0 pb-0 [&>div]:rounded-none [&>div]:border-0 [&>div]:bg-background-contrast-base [&_code]:!text-foreground-neutral-on-color"
             >
               <CodeBlockContent language="json" syntaxHighlighting={false}>
                 {item.code}

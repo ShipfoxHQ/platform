@@ -69,7 +69,7 @@ export function CodeBlock({
     <CodeBlockContext.Provider value={{value, onValueChange, data}}>
       <div
         className={cn(
-          'size-full overflow-hidden rounded-12 bg-background-components-pressed dark:bg-background-contrast-base shadow-button-neutral',
+          'size-full overflow-hidden rounded-12 bg-background-contrast-base shadow-button-neutral',
           className,
         )}
         {...props}
@@ -84,7 +84,7 @@ export function CodeBlockHeader({className, ...props}: CodeBlockHeaderProps) {
   return (
     <div
       className={cn(
-        'flex w-full flex-row items-center gap-12 overflow-clip bg-background-components-pressed dark:bg-background-contrast-base px-16 py-8',
+        'flex w-full flex-row items-center gap-12 overflow-clip bg-background-contrast-base px-16 py-8',
         className,
       )}
       {...props}
@@ -248,7 +248,7 @@ export function CodeBlockSurface({
     <div
       data-slot="code-block-surface"
       className={cn(
-        'flex min-h-0 min-w-0 flex-1 shrink-0 rounded-8 border border-border-contrast-bottom bg-background-neutral-base dark:bg-background-contrast-subtle font-code',
+        'flex min-h-0 min-w-0 flex-1 shrink-0 rounded-8 border border-border-contrast-bottom bg-background-contrast-subtle font-code',
         '[&_pre]:py-12 [&_pre]:font-code',
         '[&_code]:w-full [&_code]:grid [&_code]:overflow-x-auto [&_code]:bg-transparent [&_code]:font-code [&_code]:text-xs [&_code]:leading-20 [&_code]:text-foreground-neutral-base',
         '[&_.line]:block [&_.line]:px-12 [&_.line]:w-full [&_.line]:relative [&_.line]:font-code [&_.line]:min-h-[1.25rem]',

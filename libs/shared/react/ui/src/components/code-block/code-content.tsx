@@ -8,10 +8,10 @@ import {
 import {useScrollHighlightedLineIntoView} from './use-scroll-highlighted-line.js';
 
 export const CODE_BLOCK_HIGHLIGHTED_LINE_STYLE =
-  '!bg-[color-mix(in_srgb,var(--border-highlights-interactive)_7%,transparent)] dark:!bg-[color-mix(in_srgb,var(--border-highlights-interactive)_12%,transparent)] shadow-[inset_2px_0_0_color-mix(in_srgb,var(--border-highlights-interactive)_65%,transparent)]';
+  '!bg-background-contrast-highlight shadow-[inset_2px_0_0_color-mix(in_srgb,var(--border-highlights-interactive)_65%,transparent)]';
 
 export const CODE_BLOCK_HIGHLIGHTED_LINE_DESCENDANT_STYLE =
-  '[&_.line.highlighted-line]:!bg-[color-mix(in_srgb,var(--border-highlights-interactive)_7%,transparent)] dark:[&_.line.highlighted-line]:!bg-[color-mix(in_srgb,var(--border-highlights-interactive)_12%,transparent)] [&_.line.highlighted-line]:shadow-[inset_2px_0_0_color-mix(in_srgb,var(--border-highlights-interactive)_65%,transparent)]';
+  '[&_.line.highlighted-line]:!bg-background-contrast-highlight [&_.line.highlighted-line]:shadow-[inset_2px_0_0_color-mix(in_srgb,var(--border-highlights-interactive)_65%,transparent)]';
 
 type CodeContentProps = HTMLAttributes<HTMLElement> & {
   code: string;

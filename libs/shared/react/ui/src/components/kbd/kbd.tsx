@@ -11,7 +11,7 @@ export function Kbd({className, ...props}: KbdProps) {
         'pointer-events-none inline-flex h-20 w-fit min-w-20 items-center justify-center gap-1 rounded-4 px-4 font-display text-xs font-medium select-none',
         'bg-background-components-base text-foreground-neutral-subtle border border-border-neutral-base shadow-button-neutral',
         '[&_svg:not([class*="size-"])]:size-12',
-        'in-data-[slot=tooltip-content]:bg-background/20 in-data-[slot=tooltip-content]:text-background dark:in-data-[slot=tooltip-content]:bg-background/10',
+        'in-data-[slot=tooltip-content]:bg-background-kbd-tooltip in-data-[slot=tooltip-content]:text-background',
         className,
       )}
       {...props}

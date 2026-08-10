@@ -64,11 +64,10 @@ function CodeTabsContent({
     <>
       <Tabs.List
         className={cn(
-          'relative flex w-full flex-row items-center justify-between gap-12 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden bg-background-components-pressed dark:bg-background-contrast-base px-16 py-8',
+          'relative flex w-full flex-row items-center justify-between gap-12 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden bg-background-contrast-base px-16 py-8',
           'border-b border-border-contrast-bottom',
           'after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px',
-          'after:bg-border-neutral-base',
-          'dark:after:bg-border-contrast-top',
+          'after:bg-border-contrast-top',
           'after:shadow-separator-inset',
         )}
       >
@@ -99,7 +98,7 @@ function CodeTabsContent({
           <Tabs.Content key={code} value={code} className="w-full">
             <div
               className={cn(
-                'flex min-h-0 min-w-0 w-full shrink-0 rounded-8 border border-border-contrast-bottom bg-background-neutral-base dark:bg-background-contrast-subtle font-code',
+                'flex min-h-0 min-w-0 w-full shrink-0 rounded-8 border border-border-contrast-bottom bg-background-contrast-subtle font-code',
                 '[&_pre]:py-12 [&_pre]:font-code',
                 '[&_pre]:m-0 [&_pre]:px-0 [&_pre]:bg-transparent',
                 '[&_code]:w-full [&_code]:overflow-x-auto [&_code]:bg-transparent [&_code]:font-code [&_code]:text-xs [&_code]:leading-20 [&_code]:text-foreground-neutral-base',
@@ -164,7 +163,7 @@ export function CodeTabs({
   return (
     <Tabs.Root
       className={cn(
-        'w-full overflow-hidden rounded-12 bg-background-components-pressed dark:bg-background-contrast-base shadow-button-neutral',
+        'w-full overflow-hidden rounded-12 bg-background-contrast-base shadow-button-neutral',
         className,
       )}
       value={value}

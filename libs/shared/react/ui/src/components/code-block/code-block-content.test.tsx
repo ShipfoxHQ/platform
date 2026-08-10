@@ -136,8 +136,10 @@ describe('CodeBlockContent', () => {
   });
 
   test('keeps highlighted line backgrounds above the Shiki transparent reset', () => {
-    expect(CODE_BLOCK_HIGHLIGHTED_LINE_STYLE).toContain('!bg-[');
-    expect(CODE_BLOCK_HIGHLIGHTED_LINE_DESCENDANT_STYLE).toContain(':!bg-[');
+    expect(CODE_BLOCK_HIGHLIGHTED_LINE_STYLE).toContain('!bg-background-contrast-highlight');
+    expect(CODE_BLOCK_HIGHLIGHTED_LINE_DESCENDANT_STYLE).toContain(
+      ':!bg-background-contrast-highlight',
+    );
   });
 });
 

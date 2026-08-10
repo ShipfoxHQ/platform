@@ -12,8 +12,8 @@ type MarkerTone = 'default' | 'warning' | 'error';
 
 const toneText: Record<MarkerTone, string> = {
   default: 'text-foreground-neutral-muted',
-  warning: 'text-orange-600 dark:text-orange-400',
-  error: 'text-red-600 dark:text-red-400',
+  warning: 'text-tag-warning-text',
+  error: 'text-tag-error-text',
 };
 
 interface LogMarkerRowProps {

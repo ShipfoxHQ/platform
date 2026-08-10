@@ -251,6 +251,12 @@
   --background-contrast-hover: var(--color-neutral-800);
   --background-contrast-pressed: var(--color-neutral-700);
   --background-contrast-base: var(--color-neutral-900);
+  --background-contrast-highlight: color-mix(
+    in srgb,
+    var(--border-highlights-interactive) 7%,
+    var(--background-contrast-base)
+  );
+  --background-kbd-tooltip: color-mix(in srgb, var(--background-neutral-base) 20%, transparent);
   --background-backdrop-backdrop: var(--color-alpha-black-64);
   --background-modal-overlay: var(--color-alpha-black-88);
 
@@ -502,6 +508,12 @@
   --background-contrast-hover: var(--color-neutral-900);
   --background-contrast-pressed: var(--color-alpha-white-12);
   --background-contrast-base: var(--color-neutral-1000);
+  --background-contrast-highlight: color-mix(
+    in srgb,
+    var(--border-highlights-interactive) 12%,
+    var(--background-contrast-base)
+  );
+  --background-kbd-tooltip: color-mix(in srgb, var(--background-neutral-base) 10%, transparent);
   --background-backdrop-backdrop: var(--color-alpha-black-64);
   --background-modal-overlay: var(--color-alpha-black-88);
 
@@ -849,6 +861,8 @@
   --color-background-contrast-hover: var(--background-contrast-hover);
   --color-background-contrast-pressed: var(--background-contrast-pressed);
   --color-background-contrast-base: var(--background-contrast-base);
+  --color-background-contrast-highlight: var(--background-contrast-highlight);
+  --color-background-kbd-tooltip: var(--background-kbd-tooltip);
   --color-background-backdrop-backdrop: var(--background-backdrop-backdrop);
   --color-background-modal-overlay: var(--background-modal-overlay);
 
