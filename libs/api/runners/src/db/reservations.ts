@@ -427,7 +427,6 @@ async function listActiveProvisionerReservationRowsTx(
       id: providerRunners.id,
       reservationId: providerRunners.reservationId,
       intendedReservationId: providerRunners.intendedReservationId,
-      state: providerRunners.state,
     })
     .from(providerRunners)
     .where(
@@ -448,18 +447,10 @@ async function listActiveProvisionerReservationRowsTx(
     );
   const usedByReservation = new Map<string, Set<string>>();
   for (const runner of usedRunnerRows) {
-    if (
-      runner.reservationId &&
-      activeIdSet.has(runner.reservationId) &&
-      !terminalStates.includes(runner.state as (typeof terminalStates)[number])
-    ) {
+    if (runner.reservationId && activeIdSet.has(runner.reservationId)) {
       addUsedRunner(usedByReservation, runner.reservationId, runner.id);
     }
-    if (
-      runner.intendedReservationId &&
-      activeIdSet.has(runner.intendedReservationId) &&
-      !terminalStates.includes(runner.state as (typeof terminalStates)[number])
-    ) {
+    if (runner.intendedReservationId && activeIdSet.has(runner.intendedReservationId)) {
       addUsedRunner(usedByReservation, runner.intendedReservationId, runner.id);
     }
   }
@@ -870,47 +861,50 @@ export async function releaseReservationUnits(
     releases: Array<{reservationId: string; count: number}>;
   },
 ): Promise<number> {
-  let released = 0;
-
+  const releaseByReservationId = new Map<string, number>();
   for (const release of params.releases) {
     if (release.count <= 0) continue;
-
-    const decremented = await tx
-      .update(reservations)
-      .set({count: sql`${reservations.count} - ${release.count}`})
-      .where(
-        and(
-          eq(reservations.id, release.reservationId),
-          eq(reservations.workspaceId, params.workspaceId),
-          eq(reservations.provisionerId, params.provisionerId),
-          gt(reservations.count, release.count),
-          gt(reservations.expiresAt, sql`now()`),
-        ),
-      )
-      .returning({id: reservations.id});
-
-    if (decremented.length > 0) {
-      released += release.count;
-      continue;
-    }
-
-    const deleted = await tx
-      .delete(reservations)
-      .where(
-        and(
-          eq(reservations.id, release.reservationId),
-          eq(reservations.workspaceId, params.workspaceId),
-          eq(reservations.provisionerId, params.provisionerId),
-          sql`${reservations.count} <= ${release.count}`,
-          gt(reservations.expiresAt, sql`now()`),
-        ),
-      )
-      .returning({count: reservations.count});
-
-    released += deleted.reduce((total, row) => total + row.count, 0);
+    releaseByReservationId.set(
+      release.reservationId,
+      (releaseByReservationId.get(release.reservationId) ?? 0) + release.count,
+    );
   }
+  const reservationIds = [...releaseByReservationId.keys()];
+  if (reservationIds.length === 0) return 0;
 
-  return released;
+  const releaseCount = sql<number>`CASE ${reservations.id}
+    ${sql.join(
+      [...releaseByReservationId].map(
+        ([reservationId, count]) => sql`WHEN ${reservationId} THEN ${count}`,
+      ),
+      sql` `,
+    )}
+    ELSE 0
+  END`;
+  const scope = and(
+    eq(reservations.workspaceId, params.workspaceId),
+    eq(reservations.provisionerId, params.provisionerId),
+    inArray(reservations.id, reservationIds),
+    gt(reservations.expiresAt, sql`now()`),
+  );
+
+  const deleted = await tx
+    .delete(reservations)
+    .where(and(scope, sql`${reservations.count} <= ${releaseCount}`))
+    .returning({count: reservations.count});
+  const releasedFromDeleted = deleted.reduce((total, row) => total + row.count, 0);
+
+  const decremented = await tx
+    .update(reservations)
+    .set({count: sql`${reservations.count} - ${releaseCount}`})
+    .where(and(scope, gt(reservations.count, releaseCount)))
+    .returning({id: reservations.id});
+  const releasedFromDecremented = decremented.reduce(
+    (total, row) => total + (releaseByReservationId.get(row.id) ?? 0),
+    0,
+  );
+
+  return releasedFromDeleted + releasedFromDecremented;
 }
 
 function deductProvisionerReservations(

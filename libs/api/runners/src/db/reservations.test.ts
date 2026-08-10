@@ -558,6 +558,43 @@ describe('pollDemandAndReserve', () => {
     expect(result.reservations).toEqual([]);
   });
 
+  it('counts only active assigned runners when deducting provisioner reservations', async () => {
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 2,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!reservation) throw new Error('Expected reservation');
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: reservation.id,
+      state: 'running',
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: reservation.id,
+      state: 'failed',
+    });
+    await createPendingJobs(2, ['linux', 'gpu']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 2,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 2)],
+    });
+
+    expect(result.reservations).toHaveLength(1);
+    expect(result.reservations[0]?.count).toBe(1);
+    expect(result.stats[0]).toMatchObject({queued: 2, reserved: 1});
+  });
+
   it('binds a runner whose intended reservation has passed its activation grace period', async () => {
     const intendedReservation = await createIntendedReservation({
       workspaceId,
@@ -1737,6 +1774,50 @@ describe('pollDemandAndReserve', () => {
     const rows = await reservationsForTest();
     expect(released).toBe(2);
     expect(rows[0]?.count).toBe(1);
+  });
+
+  it('releases units from multiple reservations in one transaction', async () => {
+    const [first] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 3,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    const [second] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux', 'gpu'],
+        count: 2,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!first || !second) throw new Error('Expected reservations');
+
+    const released = await db().transaction((tx) =>
+      releaseReservationUnits(tx, {
+        workspaceId,
+        provisionerId,
+        releases: [
+          {reservationId: first.id, count: 2},
+          {reservationId: second.id, count: 1},
+        ],
+      }),
+    );
+
+    const rows = await reservationsForTest();
+    expect(released).toBe(3);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({id: first.id, count: 1}),
+        expect.objectContaining({id: second.id, count: 1}),
+      ]),
+    );
   });
 
   it('deletes reservations when releasing all remaining units', async () => {

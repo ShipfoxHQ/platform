@@ -10,6 +10,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  lte,
   notExists,
   notInArray,
   or,
@@ -30,7 +31,7 @@ import {
 import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
 import {releaseReservationUnits} from './reservations.js';
 import {validateRunnerReservationCapacityTx} from './runner-assignments.js';
-import {terminalStates} from './runner-states.js';
+import {activeStates, terminalStates} from './runner-states.js';
 import {ephemeralRegistrationTokens} from './schema/ephemeral-registration-tokens.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
@@ -39,11 +40,6 @@ import {providerRunners, toRunnerInstance} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
 
-export const activeStates = [
-  'starting',
-  'running',
-  'stopping',
-] as const satisfies readonly RunnerInstanceState[];
 export const divergenceCountStates = ['starting', 'running'] as const satisfies readonly Extract<
   RunnerInstanceState,
   'starting' | 'running'
@@ -157,6 +153,14 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
 
     const events = await hydrateRunnerSessionIdsFromConsumedTokens(tx, params, aggregatedEvents);
     const reservationSafeEvents = await guardReportedReservationIdsTx(tx, params, events);
+    const existingReportedAtByProviderRunnerId = hasTerminalEvent
+      ? await listExistingProviderRunnerReportedAtTx(tx, params, reservationSafeEvents)
+      : new Map<string, Date>();
+    const freshTerminalEvents = reservationSafeEvents.filter((event) => {
+      if (!isTerminalState(event.state)) return false;
+      const existingReportedAt = existingReportedAtByProviderRunnerId.get(event.providerRunnerId);
+      return existingReportedAt === undefined || event.reportedAt >= existingReportedAt;
+    });
     const terminateIntentsHonored = await listTerminateIntentsHonoredByTerminatedReportsTx(
       tx,
       params,
@@ -214,9 +218,10 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
         `,
       });
 
-    const reservationsReleased = hasTerminalEvent
-      ? await releaseTerminalRunnerInstanceReservations(tx, params, reservationSafeEvents)
-      : 0;
+    const reservationsReleased =
+      freshTerminalEvents.length > 0
+        ? await releaseTerminalRunnerInstanceReservations(tx, params, freshTerminalEvents)
+        : 0;
 
     return {
       accepted: reservationSafeEvents.length,
@@ -224,6 +229,33 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
       terminateIntentsHonored,
     };
   });
+}
+
+async function listExistingProviderRunnerReportedAtTx(
+  tx: Tx,
+  params: ReportRunnerInstancesParams,
+  events: RunnerInstanceReportRow[],
+): Promise<Map<string, Date>> {
+  const providerRunnerIds = [...new Set(events.map((event) => event.providerRunnerId))];
+  if (providerRunnerIds.length === 0) return new Map();
+
+  const rows = await tx
+    .select({
+      providerRunnerId: providerRunners.providerRunnerId,
+      reportedAt: providerRunners.reportedAt,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        inArray(providerRunners.providerRunnerId, providerRunnerIds),
+      ),
+    );
+  return new Map(
+    rows.flatMap((row) =>
+      row.providerRunnerId ? [[row.providerRunnerId, row.reportedAt] as const] : [],
+    ),
+  );
 }
 
 async function guardReportedReservationIdsTx(
@@ -713,16 +745,15 @@ export async function reconcileRunnerInstances(
               ),
             ),
           )
-          .returning({providerRunnerId: providerRunners.providerRunnerId});
+          .returning({id: providerRunners.id, providerRunnerId: providerRunners.providerRunnerId});
 
         absentIds = updated.flatMap((row) => (row.providerRunnerId ? [row.providerRunnerId] : []));
-        if (params.workspaceId) {
-          reservationsReleased = await releaseTerminalRunnerInstanceReservationsByIds(tx, {
-            workspaceId: params.workspaceId,
-            provisionerId: params.provisionerId,
-            providerRunnerIds: absentIds,
-          });
-        }
+        reservationsReleased = await releaseTerminalRunnerInstanceReservationsByIds(tx, {
+          workspaceId: params.workspaceId,
+          provisionerId: params.provisionerId,
+          runnerInstanceIds: updated.map((row) => row.id),
+          requireUnlinkedSession: false,
+        });
       }
     }
 
@@ -782,10 +813,41 @@ export async function reapStaleRunnerInstances(params: {
       .orderBy(asc(providerRunners.updatedAt), asc(providerRunners.id))
       .limit(params.limit);
 
-    if (candidateRows.length === 0) return {reaped: 0, reservationsReleased: 0};
+    const terminalReservationRows =
+      candidateRows.length === 0
+        ? await tx
+            .select({
+              id: providerRunners.id,
+              workspaceId: providerRunners.workspaceId,
+              provisionerId: providerRunners.provisionerId,
+              providerRunnerId: providerRunners.providerRunnerId,
+            })
+            .from(providerRunners)
+            .where(
+              and(
+                inArray(providerRunners.state, terminalStates),
+                isNotNull(providerRunners.runnerSessionId),
+                lt(providerRunners.updatedAt, cutoff),
+                isNull(providerRunners.reservationReleasedAt),
+                or(
+                  isNotNull(providerRunners.reservationId),
+                  isNotNull(providerRunners.intendedReservationId),
+                ),
+              ),
+            )
+            .orderBy(asc(providerRunners.updatedAt), asc(providerRunners.id))
+            .limit(params.limit)
+        : [];
+
+    if (candidateRows.length === 0 && terminalReservationRows.length === 0)
+      return {reaped: 0, reservationsReleased: 0};
 
     const workspaceIds = [
-      ...new Set(candidateRows.flatMap((row) => (row.workspaceId ? [row.workspaceId] : []))),
+      ...new Set(
+        [...candidateRows, ...terminalReservationRows].flatMap((row) =>
+          row.workspaceId ? [row.workspaceId] : [],
+        ),
+      ),
     ].sort();
     for (const workspaceId of workspaceIds) {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${workspaceId}))`);
@@ -809,6 +871,7 @@ export async function reapStaleRunnerInstances(params: {
         ),
       )
       .returning({
+        id: providerRunners.id,
         workspaceId: providerRunners.workspaceId,
         provisionerId: providerRunners.provisionerId,
         providerRunnerId: providerRunners.providerRunnerId,
@@ -819,7 +882,15 @@ export async function reapStaleRunnerInstances(params: {
       reservationsReleased += await releaseTerminalRunnerInstanceReservationsByIds(tx, {
         workspaceId: group.workspaceId,
         provisionerId: group.provisionerId,
-        providerRunnerIds: group.providerRunnerIds,
+        runnerInstanceIds: group.runnerInstanceIds,
+        requireUnlinkedSession: false,
+      });
+    }
+    for (const group of groupRunnerInstanceIds(terminalReservationRows)) {
+      reservationsReleased += await releaseTerminalRunnerInstanceReservationsByIds(tx, {
+        workspaceId: group.workspaceId,
+        provisionerId: group.provisionerId,
+        runnerInstanceIds: group.runnerInstanceIds,
         requireUnlinkedSession: false,
       });
     }
@@ -840,25 +911,67 @@ async function releaseTerminalRunnerInstanceReservations(
     workspaceId: params.workspaceId,
     provisionerId: params.provisionerId,
     providerRunnerIds: terminalEvents.map((event) => event.providerRunnerId),
+    reportedAtByProviderRunnerId: new Map(
+      terminalEvents.map((event) => [event.providerRunnerId, event.reportedAt]),
+    ),
     requireUnlinkedSession: false,
   });
 }
 
-async function releaseTerminalRunnerInstanceReservationsByIds(
+export async function releaseTerminalRunnerInstanceReservationsByIds(
   tx: Tx,
   params: {
     workspaceId: string | null;
     provisionerId: string;
-    providerRunnerIds: string[];
+    providerRunnerIds?: string[];
+    runnerInstanceIds?: string[];
+    reportedAtByProviderRunnerId?: ReadonlyMap<string, Date>;
     requireUnlinkedSession?: boolean;
   },
 ): Promise<number> {
-  if (params.providerRunnerIds.length === 0) return 0;
+  if (
+    (params.providerRunnerIds?.length ?? 0) === 0 &&
+    (params.runnerInstanceIds?.length ?? 0) === 0
+  )
+    return 0;
 
   const reservationWorkspacePredicate =
     params.workspaceId === null
       ? sql``
       : sql`and ${eq(reservations.workspaceId, params.workspaceId)}`;
+  const noRunningJobPredicate = notExists(
+    tx
+      .select({id: runningJobExecutions.id})
+      .from(runningJobExecutions)
+      .where(
+        and(
+          eq(runningJobExecutions.provisionerId, params.provisionerId),
+          eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
+          params.workspaceId === null
+            ? undefined
+            : eq(runningJobExecutions.workspaceId, params.workspaceId),
+        ),
+      ),
+  );
+  const reportFreshnessPredicate =
+    params.reportedAtByProviderRunnerId && params.reportedAtByProviderRunnerId.size > 0
+      ? or(
+          ...[...params.reportedAtByProviderRunnerId].map(([providerRunnerId, reportedAt]) =>
+            and(
+              eq(providerRunners.providerRunnerId, providerRunnerId),
+              lte(providerRunners.reportedAt, reportedAt),
+            ),
+          ),
+        )
+      : undefined;
+  const runnerIdentityPredicate = or(
+    params.providerRunnerIds && params.providerRunnerIds.length > 0
+      ? inArray(providerRunners.providerRunnerId, params.providerRunnerIds)
+      : undefined,
+    params.runnerInstanceIds && params.runnerInstanceIds.length > 0
+      ? inArray(providerRunners.id, params.runnerInstanceIds)
+      : undefined,
+  );
 
   const rows = await tx
     .select({
@@ -892,7 +1005,7 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
     .where(
       and(
         eq(providerRunners.provisionerId, params.provisionerId),
-        inArray(providerRunners.providerRunnerId, params.providerRunnerIds),
+        runnerIdentityPredicate,
         inArray(providerRunners.state, terminalStates),
         or(
           isNotNull(providerRunners.reservationId),
@@ -950,6 +1063,8 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
         params.requireUnlinkedSession === false
           ? undefined
           : isNull(providerRunners.runnerSessionId),
+        noRunningJobPredicate,
+        reportFreshnessPredicate,
         isNull(providerRunners.reservationReleasedAt),
       ),
     )
@@ -973,6 +1088,8 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
         params.requireUnlinkedSession === false
           ? undefined
           : isNull(providerRunners.runnerSessionId),
+        noRunningJobPredicate,
+        reportFreshnessPredicate,
         isNull(providerRunners.reservationReleasedAt),
       ),
     )
@@ -998,12 +1115,19 @@ async function releaseTerminalRunnerInstanceReservationsByIds(
 
   if (releasesByReservationId.size === 0) return 0;
 
-  let released = 0;
+  const releasesByWorkspaceId = new Map<string, Array<{reservationId: string; count: number}>>();
   for (const release of releasesByReservationId.values()) {
+    const releases = releasesByWorkspaceId.get(release.workspaceId) ?? [];
+    releases.push({reservationId: release.reservationId, count: release.count});
+    releasesByWorkspaceId.set(release.workspaceId, releases);
+  }
+
+  let released = 0;
+  for (const [workspaceId, releases] of releasesByWorkspaceId) {
     released += await releaseReservationUnits(tx, {
-      workspaceId: release.workspaceId,
+      workspaceId,
       provisionerId: params.provisionerId,
-      releases: [{reservationId: release.reservationId, count: release.count}],
+      releases,
     });
   }
   return released;
@@ -1059,24 +1183,28 @@ function staleRunnerInstanceWhere(tx: Tx, cutoff: SQL): SQL<boolean> {
 
 function groupRunnerInstanceIds(
   rows: Array<{
+    id: string;
     workspaceId: string | null;
     provisionerId: string;
     providerRunnerId: string | null;
   }>,
-): Array<{workspaceId: string | null; provisionerId: string; providerRunnerIds: string[]}> {
+): Array<{
+  workspaceId: string | null;
+  provisionerId: string;
+  runnerInstanceIds: string[];
+}> {
   const groups = new Map<
     string,
-    {workspaceId: string | null; provisionerId: string; providerRunnerIds: string[]}
+    {workspaceId: string | null; provisionerId: string; runnerInstanceIds: string[]}
   >();
   for (const row of rows) {
-    if (!row.providerRunnerId) continue;
     const key = `${row.workspaceId ?? ''}:${row.provisionerId}`;
     const group = groups.get(key) ?? {
       workspaceId: row.workspaceId,
       provisionerId: row.provisionerId,
-      providerRunnerIds: [],
+      runnerInstanceIds: [],
     };
-    group.providerRunnerIds.push(row.providerRunnerId);
+    group.runnerInstanceIds.push(row.id);
     groups.set(key, group);
   }
   return [...groups.values()];
