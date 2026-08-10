@@ -130,6 +130,7 @@ export interface WorkflowRunDetail extends WorkflowRun {
   latestAttempt: number;
   runAttempt: WorkflowRunAttempt;
   jobs: Job[];
+  hasStartedJobExecution: boolean;
 }
 
 export interface WorkflowRunListPage {
@@ -195,10 +196,4 @@ export function isWorkflowRunTerminal(status: WorkflowRunStatus): boolean {
 
 export function isWorkflowStatus(status: string): status is WorkflowStatus {
   return WORKFLOW_STATUSES.has(status as WorkflowStatus);
-}
-
-export function workflowRunHasStartedFromJobs(
-  jobs: readonly Pick<Job, 'jobExecutions'>[],
-): boolean {
-  return jobs.some(({jobExecutions}) => jobExecutions.some(({startedAt}) => startedAt !== null));
 }

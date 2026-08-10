@@ -21,6 +21,7 @@ import {
   getJobExecutionsByJobId,
   getJobsByWorkflowRunId,
   getStepsByJobId,
+  recordJobExecutionStartedAt,
   updateWorkflowRunStatus,
 } from '#db/workflow-runs.js';
 import {workflowModel} from '#test/index.js';
@@ -135,6 +136,36 @@ describe('GET /api/workflows/runs/:id', () => {
     expect(body.jobs[0]).not.toHaveProperty('queued_at');
     expect(body.jobs[0]).not.toHaveProperty('started_at');
     expect(body.jobs[0]).not.toHaveProperty('finished_at');
+  });
+
+  // The run list decides this from the same executions, so a run detail that answered it from
+  // its own payload could drift from the row the user clicked through.
+  test('reports whether any job execution of the attempt reached its runner', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId: crypto.randomUUID(),
+      definitionId: crypto.randomUUID(),
+      model: workflowModel({name: 'Test', jobs: {build: {steps: [{run: 'npm build'}]}}}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+
+    const before = await app.inject({method: 'GET', url: `/api/workflows/runs/${run.id}`});
+    expect(before.json().has_started_job_execution).toBe(false);
+
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    const [execution] = await getJobExecutionsByJobId(job?.id ?? '');
+    await recordJobExecutionStartedAt({
+      jobExecutionId: execution?.id ?? '',
+      startedAt: new Date('2026-05-07T01:00:05.000Z'),
+    });
+
+    const after = await app.inject({method: 'GET', url: `/api/workflows/runs/${run.id}`});
+    expect(after.json().has_started_job_execution).toBe(true);
   });
 
   test('does not aggregate latest_attempt for a first attempt without lineage', async () => {

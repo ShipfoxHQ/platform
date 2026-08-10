@@ -202,10 +202,13 @@ export const workflowRunListItemSchema = workflowRunResponseSchema.extend({
    */
   job_display_status_counts: z.array(workflowRunJobDisplayStatusCountDtoSchema).optional(),
   /**
-   * Whether any job execution in the attempt reached its runner. A `cancelled` job does not
-   * say this on its own, so the counts above cannot answer it.
+   * Whether any job execution in the attempt reached its runner. A `cancelled` job does not say
+   * this on its own, so the counts above cannot answer it.
+   *
+   * Defaults to started, so an older API response during a rollout keeps the reading a run had
+   * before this field existed rather than claiming work that ran never began.
    */
-  has_started_job_execution: z.boolean(),
+  has_started_job_execution: z.boolean().optional().default(true),
 });
 
 export type WorkflowRunListItemDto = z.input<typeof workflowRunListItemSchema>;

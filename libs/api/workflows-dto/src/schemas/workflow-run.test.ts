@@ -207,7 +207,6 @@ describe('workflow run list item schema', () => {
   test.each([
     ['a jobs array', {job_status_counts: []}],
     ['job status counts', {jobs: []}],
-    ['started-job flag', {jobs: [], job_status_counts: []}],
   ])('rejects a run list item without %s', (_missing, partial) => {
     const result = workflowRunListItemSchema.safeParse({
       ...baseRun,

@@ -630,6 +630,8 @@ function hydrateWorkflowRunDetail(
     runAttempt: toWorkflowRunAttempt(attempt),
     latestAttempt,
     jobs: [],
+    // Read off the same rows the executions come from, so the flag cannot contradict them.
+    hasStartedJobExecution: rows.some((row) => row.jobExecution?.startedAt != null),
   };
   const jobById = new Map<string, WorkflowJobDetail>();
   const jobExecutionById = new Map<string, JobExecutionDetail>();

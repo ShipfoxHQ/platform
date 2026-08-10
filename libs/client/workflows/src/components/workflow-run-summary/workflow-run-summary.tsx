@@ -15,7 +15,6 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useId} from 'react';
 import {WorkflowRunNumberLabel} from '#components/workflow-run-number-label.js';
-import {workflowRunHasStartedFromJobs} from '#core/entities/workflow-run.js';
 import {
   isWorkflowRunTerminal,
   type Job,
@@ -65,7 +64,7 @@ export function WorkflowRunSummary({
       ? {workspaceSlug, projectSlug, latestAttempt}
       : null;
   const displayDuration = run.runAttempt.displayDuration;
-  const hasStarted = workflowRunHasStartedFromJobs(run.jobs);
+  const hasStarted = run.hasStartedJobExecution;
   const {ref: headingTextRef, isTruncated: isHeadingTruncated} =
     useIsTextTruncated<HTMLSpanElement>(run.name);
 

@@ -72,6 +72,14 @@ export type WorkflowRunJobDetailDto = z.infer<typeof workflowRunJobDetailDtoSche
 export const workflowRunDetailResponseSchema = workflowRunResponseSchema.extend({
   run_attempt: workflowRunAttemptDtoSchema,
   jobs: z.array(workflowRunJobDetailDtoSchema),
+  /**
+   * Whether any job execution of this attempt reached its runner. Redundant with the executions
+   * below, and deliberately so: the server decides it once for both this response and the run
+   * list, which is what keeps the two surfaces from reaching different answers.
+   *
+   * Defaults to started for the same rollout reason as the list item's copy.
+   */
+  has_started_job_execution: z.boolean().optional().default(true),
 });
 
 export type WorkflowRunDetailResponseDto = z.infer<typeof workflowRunDetailResponseSchema>;

@@ -176,6 +176,7 @@ export function workflowRunJobsOfStatus(
   'jobs' | 'job_status_counts' | 'job_display_status_counts' | 'has_started_job_execution'
 > {
   return workflowRunJobsFixture(Array.from({length: count}, () => status));
+}
 
 export function workflowRunListItem(
   overrides: Partial<WorkflowRunListItemDto> = {},
@@ -203,7 +204,12 @@ export function workflowRunListPage(
 export function workflowRunDetailDto(
   overrides: Partial<WorkflowRunDetailResponseDto> = {},
 ): WorkflowRunDetailResponseDto {
-  const {jobs, run_attempt: runAttemptOverride, ...runOverrides} = overrides;
+  const {
+    jobs,
+    run_attempt: runAttemptOverride,
+    has_started_job_execution: hasStartedOverride,
+    ...runOverrides
+  } = overrides;
   const run = workflowRunDto(runOverrides);
 
   return {
@@ -219,6 +225,13 @@ export function workflowRunDetailDto(
         finished_at: run.finished_at,
       }),
     jobs: jobs ?? [],
+    // Follows the executions the case actually built, so the fixture cannot claim a run started
+    // while carrying no execution that did.
+    has_started_job_execution:
+      hasStartedOverride ??
+      (jobs ?? []).some((job) =>
+        job.job_executions.some((execution) => execution.started_at != null),
+      ),
   };
 }
 
