@@ -62,27 +62,6 @@ const GITHUB_ARTIFACT_DOWNLOAD_TIMEOUT_MS = 30_000;
 const NO_PENDING_REVIEW_MESSAGE =
   'No pending pull request review found for the authenticated GitHub user.';
 
-const LATEST_PENDING_REVIEW_QUERY = `
-  query LatestPendingPullRequestReview($owner: String!, $repo: String!, $pullNumber: Int!) {
-    viewer {
-      login
-    }
-    repository(owner: $owner, name: $repo) {
-      pullRequest(number: $pullNumber) {
-        reviews(last: 100, states: [PENDING]) {
-          nodes {
-            id
-            author {
-              login
-            }
-            createdAt
-          }
-        }
-      }
-    }
-  }
-`;
-
 const ADD_PENDING_REVIEW_COMMENT_MUTATION = `
   mutation AddCommentToPendingReview($input: AddPullRequestReviewThreadInput!) {
     addPullRequestReviewThread(input: $input) {
@@ -415,16 +394,17 @@ async function addCommentToPendingReview(
     );
   }
 
-  const reviewLookup = await client.graphql(LATEST_PENDING_REVIEW_QUERY, {
-    owner: args.owner,
-    repo: args.repo,
-    pullNumber: args.pull_number,
-  });
-  const reviewId = latestPendingReviewNodeId(reviewLookup);
-  if (reviewId === undefined) return undefined;
+  const review = await latestPendingReview(client, args);
+  if (review === undefined) return undefined;
+  if (review.nodeId === undefined) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'GitHub pending pull request review did not include a node ID',
+    );
+  }
 
   const input: Record<string, unknown> = {
-    pullRequestReviewId: reviewId,
+    pullRequestReviewId: review.nodeId,
     path: args.path,
     body: args.body,
     subjectType: args.subject_type,
@@ -435,31 +415,6 @@ async function addCommentToPendingReview(
   if (args.start_side !== undefined) input.startSide = args.start_side;
 
   return await client.graphql(ADD_PENDING_REVIEW_COMMENT_MUTATION, {input});
-}
-
-function latestPendingReviewNodeId(data: unknown): string | undefined {
-  if (!isRecord(data)) return undefined;
-
-  const viewer = isRecord(data.viewer) ? data.viewer.login : undefined;
-  if (typeof viewer !== 'string') return undefined;
-
-  const repository = isRecord(data.repository) ? data.repository : undefined;
-  const pullRequest =
-    repository && isRecord(repository.pullRequest) ? repository.pullRequest : undefined;
-  const reviews = pullRequest && isRecord(pullRequest.reviews) ? pullRequest.reviews : undefined;
-  const nodes = reviews && Array.isArray(reviews.nodes) ? reviews.nodes : [];
-
-  let latest: {createdAt: string; id: string} | undefined;
-  for (const node of nodes) {
-    if (!isRecord(node)) continue;
-    const author = isRecord(node.author) ? node.author.login : undefined;
-    const id = node.id;
-    const createdAt = node.createdAt;
-    if (author !== viewer || typeof id !== 'string' || typeof createdAt !== 'string') continue;
-    if (latest === undefined || createdAt > latest.createdAt) latest = {createdAt, id};
-  }
-
-  return latest?.id;
 }
 
 export function projectGithubOperationParameters(
@@ -487,8 +442,15 @@ async function resolvePendingReviewParameters(
 ): Promise<Record<string, unknown> | undefined> {
   if (!isPendingReviewOperation(toolId, method)) return parameters;
 
-  const reviewId = await latestPendingReviewId(client, parameters);
-  return reviewId === undefined ? undefined : {...parameters, review_id: reviewId};
+  const review = await latestPendingReview(client, parameters);
+  if (review === undefined) return undefined;
+  if (review.id === undefined) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'GitHub pending pull request review did not include a numeric ID',
+    );
+  }
+  return {...parameters, review_id: review.id};
 }
 
 function isPendingReviewOperation(toolId: GithubAgentToolId, method: string | undefined): boolean {
@@ -498,13 +460,18 @@ function isPendingReviewOperation(toolId: GithubAgentToolId, method: string | un
   );
 }
 
-async function latestPendingReviewId(
+interface PendingReviewReference {
+  id?: number | undefined;
+  nodeId?: string | undefined;
+}
+
+async function latestPendingReview(
   client: GithubToolClient,
   parameters: Record<string, unknown>,
-): Promise<number | undefined> {
+): Promise<PendingReviewReference | undefined> {
   const perPage = 100;
   let page = 1;
-  let reviewId: number | undefined;
+  let pendingReview: PendingReviewReference | undefined;
 
   while (true) {
     const response = await client.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
@@ -514,19 +481,28 @@ async function latestPendingReviewId(
       per_page: perPage,
       page,
     });
-    if (!Array.isArray(response.data)) return undefined;
+    if (!Array.isArray(response.data)) {
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        'GitHub pull request review list response was malformed',
+      );
+    }
 
-    reviewId = latestPendingReviewIdOnPage(response.data) ?? reviewId;
-    if (response.data.length < perPage) return reviewId;
+    pendingReview = latestPendingReviewOnPage(response.data) ?? pendingReview;
+    if (response.data.length < perPage) return pendingReview;
     page += 1;
   }
 }
 
-function latestPendingReviewIdOnPage(data: readonly unknown[]): number | undefined {
+function latestPendingReviewOnPage(data: readonly unknown[]): PendingReviewReference | undefined {
   for (let index = data.length - 1; index >= 0; index -= 1) {
     const review = data[index];
     if (!isRecord(review) || review.state !== 'PENDING') continue;
-    if (typeof review.id === 'number' && Number.isSafeInteger(review.id)) return review.id;
+    const id =
+      typeof review.id === 'number' && Number.isSafeInteger(review.id) ? review.id : undefined;
+    const nodeId =
+      typeof review.node_id === 'string' && review.node_id.length > 0 ? review.node_id : undefined;
+    return {id, nodeId};
   }
 
   return undefined;

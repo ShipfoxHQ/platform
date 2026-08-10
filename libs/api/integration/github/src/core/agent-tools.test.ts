@@ -858,33 +858,15 @@ describe('github agent tool catalog', () => {
   });
 
   it('adds a comment to the latest pending review through GraphQL', async () => {
-    const request = vi.fn();
-    const graphql = vi
-      .fn()
-      .mockResolvedValueOnce({
-        viewer: {login: 'shipfox-ai[bot]'},
-        repository: {
-          pullRequest: {
-            reviews: {
-              nodes: [
-                {
-                  id: 'review-older',
-                  author: {login: 'shipfox-ai[bot]'},
-                  createdAt: '2026-08-09T10:00:00Z',
-                },
-                {
-                  id: 'review-latest',
-                  author: {login: 'shipfox-ai[bot]'},
-                  createdAt: '2026-08-09T10:01:00Z',
-                },
-              ],
-            },
-          },
-        },
-      })
-      .mockResolvedValueOnce({
-        addPullRequestReviewThread: {thread: {id: 'thread-1'}},
-      });
+    const request = vi.fn().mockResolvedValueOnce({
+      data: [
+        {id: 40, node_id: 'review-older', state: 'PENDING'},
+        {id: 41, node_id: 'review-latest', state: 'PENDING'},
+      ],
+    });
+    const graphql = vi.fn().mockResolvedValueOnce({
+      addPullRequestReviewThread: {thread: {id: 'thread-1'}},
+    });
     const provider = createAgentToolsProvider({request, graphql});
     const session = await provider.openSession({
       connection: connection(),
@@ -908,28 +890,25 @@ describe('github agent tool catalog', () => {
       },
     });
 
-    expect(request).not.toHaveBeenCalled();
-    expect(graphql).toHaveBeenNthCalledWith(
-      1,
-      expect.stringContaining('reviews(last: 100, states: [PENDING])'),
-      {owner: 'shipfox', repo: 'platform', pullNumber: 2},
-    );
-    expect(graphql).toHaveBeenNthCalledWith(
-      2,
-      expect.stringContaining('addPullRequestReviewThread'),
-      {
-        input: {
-          pullRequestReviewId: 'review-latest',
-          path: 'src/agent-tools.ts',
-          body: 'Please handle this error.',
-          subjectType: 'LINE',
-          line: 42,
-          side: 'RIGHT',
-          startLine: 40,
-          startSide: 'RIGHT',
-        },
+    expect(request).toHaveBeenCalledWith('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
+      owner: 'shipfox',
+      repo: 'platform',
+      pull_number: 2,
+      per_page: 100,
+      page: 1,
+    });
+    expect(graphql).toHaveBeenCalledWith(expect.stringContaining('addPullRequestReviewThread'), {
+      input: {
+        pullRequestReviewId: 'review-latest',
+        path: 'src/agent-tools.ts',
+        body: 'Please handle this error.',
+        subjectType: 'LINE',
+        line: 42,
+        side: 'RIGHT',
+        startLine: 40,
+        startSide: 'RIGHT',
       },
-    );
+    });
     expect(result).toEqual({
       content: [
         {
@@ -942,23 +921,8 @@ describe('github agent tool catalog', () => {
   });
 
   it('returns an explicit error when there is no pending review for the caller', async () => {
-    const request = vi.fn();
-    const graphql = vi.fn().mockResolvedValueOnce({
-      viewer: {login: 'shipfox-ai[bot]'},
-      repository: {
-        pullRequest: {
-          reviews: {
-            nodes: [
-              {
-                id: 'review-other-user',
-                author: {login: 'another-user'},
-                createdAt: '2026-08-09T10:00:00Z',
-              },
-            ],
-          },
-        },
-      },
-    });
+    const request = vi.fn().mockResolvedValueOnce({data: []});
+    const graphql = vi.fn();
     const provider = createAgentToolsProvider({request, graphql});
     const session = await provider.openSession({
       connection: connection(),
@@ -977,8 +941,8 @@ describe('github agent tool catalog', () => {
       },
     });
 
-    expect(graphql).toHaveBeenCalledTimes(1);
-    expect(request).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledOnce();
+    expect(graphql).not.toHaveBeenCalled();
     expect(result).toEqual({
       isError: true,
       content: [
@@ -1027,6 +991,64 @@ describe('github agent tool catalog', () => {
       ],
       structuredContent: {code: 'access-denied'},
     });
+  });
+
+  it('rejects a pending review without a GraphQL node ID', async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      data: [{id: 41, state: 'PENDING'}],
+    });
+    const graphql = vi.fn();
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pendingReviewTool()],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'add_comment_to_pending_review',
+        arguments: {
+          owner: 'shipfox',
+          repo: 'platform',
+          pull_number: 2,
+          path: 'src/agent-tools.ts',
+          body: 'Please handle this error.',
+        },
+      }),
+    ).rejects.toMatchObject({
+      reason: 'malformed-provider-response',
+      message: 'GitHub pending pull request review did not include a node ID',
+    });
+    expect(graphql).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed pending review list response', async () => {
+    const request = vi.fn().mockResolvedValueOnce({data: {reviews: []}});
+    const graphql = vi.fn();
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pendingReviewTool()],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'add_comment_to_pending_review',
+        arguments: {
+          owner: 'shipfox',
+          repo: 'platform',
+          pull_number: 2,
+          path: 'src/agent-tools.ts',
+          body: 'Please handle this error.',
+        },
+      }),
+    ).rejects.toMatchObject({
+      reason: 'malformed-provider-response',
+      message: 'GitHub pull request review list response was malformed',
+    });
+    expect(graphql).not.toHaveBeenCalled();
   });
 
   it('maps Octokit 4xx failures to terminal provider errors', async () => {
