@@ -49,6 +49,12 @@ type GithubToolCallResult = {
   structuredContent?: Record<string, unknown> | undefined;
 };
 
+type GithubToolErrorCode =
+  | 'invalid-request'
+  | 'access-denied'
+  | 'provider-rejected'
+  | 'malformed-provider-response';
+
 const GITHUB_GRAPHQL_ROUTE = 'POST /graphql';
 const GITHUB_ARTIFACT_ARCHIVE_FORMAT = 'zip';
 const GITHUB_ARTIFACT_DOWNLOAD_ROUTE = `GET /repos/{owner}/{repo}/actions/artifacts/{resource_id}/${GITHUB_ARTIFACT_ARCHIVE_FORMAT}`;
@@ -134,16 +140,18 @@ export class GithubAgentToolsProvider
     return {
       call: async (call) => {
         const tool = input.tools.find((candidate) => candidate.id === call.toolId);
-        if (!tool) return githubToolError(`Unknown GitHub tool: ${call.toolId}`);
+        if (!tool) return githubToolError(`Unknown GitHub tool: ${call.toolId}`, 'invalid-request');
         const operation = resolveGithubOperation(tool, call);
-        if (operation === undefined) return githubToolError('Unknown GitHub tool operation');
+        if (operation === undefined)
+          return githubToolError('Unknown GitHub tool operation', 'invalid-request');
         const validationError = validateGithubToolArguments(tool, call.arguments);
-        if (validationError) return githubToolError(validationError);
+        if (validationError) return githubToolError(validationError, 'invalid-request');
         tokenPromise ??= this.tokenProvider.getInstallationAccessToken(installationId);
         const token = await tokenPromise;
         if (!hasGrantedPermissions(token.permissions ?? {}, tool, call)) {
           return githubToolError(
             'GitHub installation token is missing permission for this operation',
+            'access-denied',
           );
         }
         const client = (this.options.createClient ?? createOctokitClient)(token.token);
@@ -155,7 +163,7 @@ export class GithubAgentToolsProvider
             addCommentToPendingReview(client, operation.parameters),
           );
           return data === undefined
-            ? githubToolError(NO_PENDING_REVIEW_MESSAGE)
+            ? githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected')
             : githubToolResult(tool.id as GithubAgentToolId, data);
         }
 
@@ -168,7 +176,7 @@ export class GithubAgentToolsProvider
           ),
         );
         if (operationParameters === undefined) {
-          return githubToolError(NO_PENDING_REVIEW_MESSAGE);
+          return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
         }
         const response = await mapGithubError(() =>
           client.request(operation.route, operationParameters),
@@ -533,7 +541,10 @@ function githubToolResult(
 ): GithubToolCallResult {
   const structuredContent = projectGithubToolOutput(toolId, data, response, parameters, route);
   if (structuredContent === undefined) {
-    return githubToolError('GitHub artifact download did not return a download URL');
+    return githubToolError(
+      'GitHub artifact download did not return a download URL',
+      'malformed-provider-response',
+    );
   }
   return {
     content: [{type: 'text', text: JSON.stringify(structuredContent)}],
@@ -601,8 +612,12 @@ function githubSearchItems(data: unknown): unknown {
   return isRecord(data) ? data.items : data;
 }
 
-function githubToolError(message: string): GithubToolCallResult {
-  return {isError: true, content: [{type: 'text', text: message}]};
+function githubToolError(message: string, code: GithubToolErrorCode): GithubToolCallResult {
+  return {
+    isError: true,
+    content: [{type: 'text', text: message}],
+    structuredContent: {code},
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

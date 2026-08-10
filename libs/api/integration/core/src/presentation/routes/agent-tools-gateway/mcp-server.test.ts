@@ -54,6 +54,7 @@ describe('buildAgentToolsMcpServer', () => {
         }),
         method: 'get',
         outcome: 'success',
+        errorCode: 'none',
       },
     ]);
   });
@@ -93,6 +94,7 @@ describe('buildAgentToolsMcpServer', () => {
       {
         method: expectedMethod,
         outcome: 'invalid-request',
+        errorCode: 'invalid-request',
       },
     ]);
     if (expectedToolId) {
@@ -128,7 +130,9 @@ describe('buildAgentToolsMcpServer', () => {
         arguments: {method: 'ignored'},
       }),
     );
-    expect(records).toMatchObject([{method: NO_METHOD_LABEL, outcome: 'success'}]);
+    expect(records).toMatchObject([
+      {method: NO_METHOD_LABEL, outcome: 'success', errorCode: 'none'},
+    ]);
   });
 
   it('defaults omitted arguments to an empty object for optional-argument tools', async () => {
@@ -179,7 +183,7 @@ describe('buildAgentToolsMcpServer', () => {
         arguments: expect.objectContaining({issue_number: 'not-an-integer'}),
       }),
     );
-    expect(records).toMatchObject([{method: 'get', outcome: 'success'}]);
+    expect(records).toMatchObject([{method: 'get', outcome: 'success', errorCode: 'none'}]);
   });
 
   it('records tool-error when dispatch returns an error result', async () => {
@@ -204,7 +208,7 @@ describe('buildAgentToolsMcpServer', () => {
     await close();
 
     expect(result.isError).toBe(true);
-    expect(records).toMatchObject([{method: 'get', outcome: 'tool-error'}]);
+    expect(records).toMatchObject([{method: 'get', outcome: 'tool-error', errorCode: 'unknown'}]);
   });
 
   it('records exception before rethrowing dispatcher failures', async () => {
@@ -227,7 +231,40 @@ describe('buildAgentToolsMcpServer', () => {
     ).rejects.toThrow('MCP error -32603');
     await close();
 
-    expect(records).toMatchObject([{method: 'get', outcome: 'exception'}]);
+    expect(records).toMatchObject([{method: 'get', outcome: 'exception', errorCode: 'unknown'}]);
+  });
+
+  it('records bounded provider error details returned by the dispatcher', async () => {
+    const dispatch = vi.fn(async () => ({
+      isError: true,
+      content: [{type: 'text' as const, text: 'provider rejected call'}],
+      structuredContent: {code: 'provider-rejected', status: 422},
+    }));
+    const records: Parameters<
+      NonNullable<Parameters<typeof buildAgentToolsMcpServer>[0]['recordCall']>
+    >[0][] = [];
+    const {client, close} = await connectClient(dispatch, defaultAuthorizedTools(), (record) =>
+      records.push(record),
+    );
+
+    const result = await client.callTool(
+      {
+        name: 'github_main__issue_read',
+        arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      },
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(result.isError).toBe(true);
+    expect(records).toMatchObject([
+      {
+        method: 'get',
+        outcome: 'tool-error',
+        errorCode: 'provider-rejected',
+        providerStatus: 422,
+      },
+    ]);
   });
 });
 

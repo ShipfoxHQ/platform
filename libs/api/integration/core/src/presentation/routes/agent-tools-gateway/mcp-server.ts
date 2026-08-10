@@ -6,7 +6,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
-import {INVALID_METHOD_LABEL, type IntegrationToolCallRecorder, NO_METHOD_LABEL} from './audit.js';
+import {normalizeIntegrationAgentToolCallErrorCode} from '#metrics/index.js';
+import {
+  INVALID_METHOD_LABEL,
+  type IntegrationAgentToolCallErrorCode,
+  type IntegrationToolCallRecorder,
+  NO_METHOD_LABEL,
+} from './audit.js';
 import type {
   AuthorizedIntegrationTool,
   AuthorizedIntegrationToolMap,
@@ -61,6 +67,7 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
         arguments: request.params.arguments ?? {},
         method: NO_METHOD_LABEL,
         outcome: 'invalid-request',
+        errorCode: 'invalid-request',
       });
       return toolError(`Unknown integration tool: ${request.params.name}`);
     }
@@ -72,6 +79,7 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
         arguments: args,
         method: NO_METHOD_LABEL,
         outcome: 'invalid-request',
+        errorCode: 'invalid-request',
       });
       return toolError('Tool arguments must be an object');
     }
@@ -83,6 +91,7 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
         arguments: args,
         method: INVALID_METHOD_LABEL,
         outcome: 'invalid-request',
+        errorCode: 'invalid-request',
       });
       return toolError(methodValidation.message);
     }
@@ -99,6 +108,7 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
         arguments: args,
         method,
         outcome: result.isError === true ? 'tool-error' : 'success',
+        ...toolCallErrorDetails(result),
       });
       return result;
     } catch (error) {
@@ -107,12 +117,30 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
         arguments: args,
         method,
         outcome: 'exception',
+        errorCode: 'unknown',
       });
       throw error;
     }
   });
 
   return server;
+}
+
+function toolCallErrorDetails(result: CallToolResult): {
+  errorCode: IntegrationAgentToolCallErrorCode | 'none';
+  providerStatus?: number | undefined;
+} {
+  if (result.isError !== true) return {errorCode: 'none'};
+
+  const structuredContent = isRecord(result.structuredContent)
+    ? result.structuredContent
+    : undefined;
+  const providerStatus = statusCode(structuredContent?.status);
+
+  return {
+    errorCode: normalizeIntegrationAgentToolCallErrorCode(structuredContent?.code),
+    ...(providerStatus === undefined ? {} : {providerStatus}),
+  };
 }
 
 function recordToolCall(
@@ -156,4 +184,10 @@ function toolError(message: string): CallToolResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function statusCode(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value
+    : undefined;
 }

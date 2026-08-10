@@ -26,8 +26,6 @@ export interface CreateAgentToolsGatewayRoutesParams {
 export function createAgentToolsGatewayRoutes(
   params: CreateAgentToolsGatewayRoutesParams,
 ): RouteGroup {
-  const dispatchIntegrationToolCall = createIntegrationToolDispatcher({registry: params.registry});
-
   return {
     prefix: '/runs/jobs/current/integration-tools',
     auth: AUTH_LEASED_JOB,
@@ -37,6 +35,7 @@ export function createAgentToolsGatewayRoutes(
         path: '/mcp',
         description: 'Gateway MCP endpoint for integration-backed agent tools',
         handler: async (request, reply) => {
+          const lease = requireLeasedJobContext(request);
           const authorizedTools = await resolveAuthorizedIntegrationTools({
             request,
             loadLeasedAgentStep: params.loadLeasedAgentStep,
@@ -45,8 +44,8 @@ export function createAgentToolsGatewayRoutes(
           });
           const server = buildAgentToolsMcpServer({
             authorizedTools,
-            dispatch: dispatchIntegrationToolCall,
-            recordCall: createIntegrationToolCallRecorder(requireLeasedJobContext(request)),
+            dispatch: createIntegrationToolDispatcher({registry: params.registry, lease}),
+            recordCall: createIntegrationToolCallRecorder(lease),
           });
           const transport = new StreamableHTTPServerTransport();
 
