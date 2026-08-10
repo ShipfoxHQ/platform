@@ -70,10 +70,7 @@ export function WorkflowRunSummary({
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
-      <section
-        aria-labelledby={headingId}
-        className="bg-background-neutral-background px-row py-row"
-      >
+      <section aria-labelledby={headingId} className="bg-background-subtle-base px-row py-row">
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-cluster gap-y-inline overflow-hidden max-[480px]:grid-cols-1">
           <div className="col-start-1 row-start-1 min-w-0 max-[480px]:col-start-auto max-[480px]:row-start-auto">
             <div className="flex min-w-0 items-center gap-inline">

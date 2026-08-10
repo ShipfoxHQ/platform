@@ -225,7 +225,7 @@ export const CreatedTokenPanels: Story = {
 
 function StorySurface({children}: {children: ReactNode}) {
   return (
-    <div className="min-h-screen bg-background-neutral-background p-24">
+    <div className="min-h-screen bg-background-subtle-base p-24">
       <div className="mx-auto flex w-full max-w-[920px] flex-col gap-32">{children}</div>
     </div>
   );

@@ -436,8 +436,7 @@ this table as the contract the package is moving to.
 | `--background-contrast-base` (dark) | `--color-neutral-800` | `--color-neutral-1000` |
 
 `--background-contrast-subtle` and `--background-contrast-hover` are translucent
-in dark today and become opaque in the same change. `--background-neutral-background`
-still paints about 30 surfaces and retires onto the canvas role.
+in dark today and become opaque in the same change.
 
 **Overlays sit outside this ladder.** A popover uses
 `--background-neutral-overlay`, a tooltip uses its own variant tokens, and a modal

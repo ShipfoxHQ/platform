@@ -82,7 +82,7 @@ function IntegrationGalleryStory({scenario}: IntegrationGalleryStoryProps) {
       getParentRoute: () => workspaceRoute,
       path: 'settings/integrations',
       component: () => (
-        <div className="mx-auto w-full max-w-[760px] bg-background-neutral-background p-24">
+        <div className="mx-auto w-full max-w-[760px] bg-background-subtle-base p-24">
           <IntegrationGallery workspaceId={WORKSPACE_ID} />
         </div>
       ),

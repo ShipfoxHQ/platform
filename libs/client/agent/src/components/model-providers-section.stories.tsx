@@ -118,7 +118,7 @@ function ModelProvidersStory({scenario}: ModelProvidersStoryProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="mx-auto w-full max-w-[760px] bg-background-neutral-background p-24">
+      <div className="mx-auto w-full max-w-[760px] bg-background-subtle-base p-24">
         <WorkspaceModelProvidersSection workspaceId={WORKSPACE_ID} />
       </div>
       <Toaster />

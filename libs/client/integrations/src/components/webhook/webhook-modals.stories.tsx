@@ -126,7 +126,7 @@ export const CopyableValueState: Story = {
 
 function StorySurface({scenario}: {scenario: Scenario}) {
   return (
-    <div className="min-h-screen bg-background-neutral-background p-24">
+    <div className="min-h-screen bg-background-subtle-base p-24">
       {scenario === 'create-form' ? (
         <WebhookCreateModal
           workspaceId={WORKSPACE_ID}

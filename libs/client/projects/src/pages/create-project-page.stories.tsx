@@ -64,7 +64,7 @@ function CreateProjectPageStory({scenario}: CreateProjectPageStoryProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <JotaiProvider store={store}>
-        <div className="min-h-screen bg-background-neutral-background px-24 py-32">
+        <div className="min-h-screen bg-background-subtle-base px-24 py-32">
           <div className="mx-auto w-full max-w-[1120px]">
             <RouterProvider router={router} />
           </div>
