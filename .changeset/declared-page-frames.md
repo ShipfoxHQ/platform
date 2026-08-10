@@ -1,5 +1,5 @@
 ---
-"@shipfox/client-shell": patch
+"@shipfox/client-shell": minor
 ---
 
-Replaces the full-bleed layout flag with declared content, data, and focused page frames.
+Adds declared content, data, and focused page frames while preserving legacy full-bleed route metadata during migration.

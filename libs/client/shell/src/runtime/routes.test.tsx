@@ -157,4 +157,47 @@ describe('composed routes', () => {
     expect(main).toHaveClass(mainClass);
     expect(frameContainer).toHaveClass(frameClass);
   });
+
+  test('defaults routes without a declared frame to the content frame', async () => {
+    const feature = defineClientFeature({
+      id: 'acme.default-frame',
+      routes: [
+        {path: '/w/$workspaceSlug/default-frame', parent: 'workspaceLayout', impl: 'default'},
+      ],
+    });
+
+    await renderComposedShell({
+      features: [feature],
+      initialPath: '/w/workspace/default-frame',
+      resolveImpl: () => defineRoute({component: () => <h1>Default frame</h1>}),
+    });
+
+    expect(await screen.findByRole('heading', {name: 'Default frame'})).toBeVisible();
+    const main = screen.getByRole('main');
+    expect(main).toHaveClass('overflow-auto');
+    expect(main.firstElementChild).toHaveClass('max-w-[1120px]');
+  });
+
+  test('keeps legacy full-bleed routes on the compatibility frame', async () => {
+    const feature = defineClientFeature({
+      id: 'acme.legacy-frame',
+      routes: [{path: '/w/$workspaceSlug/legacy-frame', parent: 'workspaceLayout', impl: 'legacy'}],
+    });
+
+    await renderComposedShell({
+      features: [feature],
+      initialPath: '/w/workspace/legacy-frame',
+      resolveImpl: () =>
+        defineRoute({
+          staticData: {layout: 'full-bleed'},
+          component: () => <h1>Legacy frame</h1>,
+        }),
+    });
+
+    expect(await screen.findByRole('heading', {name: 'Legacy frame'})).toBeVisible();
+    const main = screen.getByRole('main');
+    expect(main).toHaveClass('overflow-hidden');
+    expect(main.firstElementChild).toBe(screen.getByRole('heading', {name: 'Legacy frame'}));
+    expect(main.firstElementChild).not.toHaveClass('max-w-[1120px]');
+  });
 });

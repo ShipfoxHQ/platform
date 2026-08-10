@@ -7,10 +7,13 @@ import {NavBar} from './nav-bar.js';
 import {NavTabs} from './nav-tabs.js';
 
 type PageFrame = 'content' | 'data' | 'focused';
+type ResolvedPageFrame = PageFrame | 'legacy-full-bleed';
 
 declare module '@tanstack/react-router' {
   interface StaticDataRouteOption {
     frame?: PageFrame;
+    /** @deprecated Use `frame: 'data'`. */
+    layout?: 'full-bleed';
   }
 }
 
@@ -31,14 +34,16 @@ export function MainLayout({
   const {projectSlug} = useRouteParams(parseWorkspaceProjectParams);
   const matches = useMatches();
   if (!workspace) return <FullPageLoader />;
-  const frame = matches.reduce<PageFrame>(
-    (current, match) => match.staticData.frame ?? current,
+  const frame = matches.reduce<ResolvedPageFrame>(
+    (current, match) =>
+      match.staticData.frame ??
+      (match.staticData.layout === 'full-bleed' ? 'legacy-full-bleed' : current),
     'content',
   );
   const appContentHeight = hideProjectNavigation
     ? '[--app-content-h:calc(100dvh_-_56px)]'
     : '[--app-content-h:calc(100dvh_-_96px)]';
-  const isDataFrame = frame === 'data';
+  const isFullBleedFrame = frame === 'data' || frame === 'legacy-full-bleed';
   return (
     <div className="h-screen w-full flex flex-col bg-background-subtle-base">
       <NavBar hideProjectNavigation={hideProjectNavigation} />
@@ -46,11 +51,15 @@ export function MainLayout({
         <NavTabs entries={navigation} scope={projectSlug ? 'project' : 'workspace'} />
       )}
       <main
-        className={`${isDataFrame ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'flex-1 overflow-auto'} ${appContentHeight}`}
+        className={`${isFullBleedFrame ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'flex-1 overflow-auto'} ${appContentHeight}`}
       >
-        <div className={frameClassNames[frame]}>
+        {frame === 'legacy-full-bleed' ? (
           <Outlet />
-        </div>
+        ) : (
+          <div className={frameClassNames[frame]}>
+            <Outlet />
+          </div>
+        )}
       </main>
     </div>
   );

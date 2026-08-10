@@ -29,7 +29,6 @@ export function buildAnchorSkeleton({
   const rootRoute = createRootRouteWithContext<RouterContext>()({
     component: Outlet,
     notFoundComponent: NotFoundPage,
-    staticData: {frame: 'focused'},
   });
   const workspaceLayout = createRoute({
     getParentRoute: () => rootRoute,
