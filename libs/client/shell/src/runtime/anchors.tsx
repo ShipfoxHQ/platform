@@ -33,6 +33,7 @@ export function buildAnchorSkeleton({
   const workspaceLayout = createRoute({
     getParentRoute: () => rootRoute,
     path: anchorPaths.workspaceLayout,
+    staticData: {frame: 'content'},
     beforeLoad: async ({context, params, location}) => {
       const auth = context.auth;
       if (!auth || auth.isLoading || !context.queryClient) return;
@@ -83,6 +84,7 @@ export function buildAnchorSkeleton({
   const projectLayout = createRoute({
     getParentRoute: () => workspaceLayout,
     path: '/p/$projectSlug',
+    staticData: {frame: 'content'},
     beforeLoad: async ({context, params}) => {
       const auth = context.auth;
       if (!auth || auth.isLoading || !context.queryClient) return;
