@@ -11,6 +11,28 @@ Shared React component library for Shipfox apps. It provides design tokens, Tail
 - **Icons**: Custom Shipfox icons plus the icon registry used by the `Icon` component.
 - **CSS entry**: `@shipfox/react-ui/index.css` for fonts, Tailwind, animation utilities, and design tokens.
 
+## Public API
+
+### Surface roles
+
+The `@shipfox/react-ui/index.css` entry defines four target surface roles for page and component authors.
+The table records the target contract, not every token's current resolution. Until the migration
+lands, light canvas uses `--color-alpha-black-2`, light inline fill resolves to `#fafafa`, and dark
+code resolves to `#27272a`. See [the surface ladder in `DESIGN.md`](../../../../DESIGN.md#the-surface-ladder)
+for the current-versus-target mapping.
+
+| Role | Token | Target light | Target dark | Used for |
+| --- | --- | --- | --- | --- |
+| Canvas | `background-subtle-base` | `#fafafa` | `#0f0f10` | the page, nav bar, tab strip, rails, object headers, panel header strips |
+| Panel | `background-neutral-base` | `#ffffff` | `#1a1a1b` | panel bodies, rows, popovers, modals |
+| Code | `background-contrast-*` | `#1a1a1b` | `#030303` | code, logs, YAML, agent transcripts |
+| Inline fill | `background-components-base` | `#f4f4f5` | `#27272a` | avatars, badges, kbd, chips inside a panel |
+
+The ladder follows two rules:
+
+- Panel sits one ramp step toward the foreground from canvas in both themes. A panel header strip sits one step below its panel, which is the canvas value.
+- Page, panel, or code surfaces should use opaque tokens, because alpha composites over a parent that varies. During migration, light-mode canvas is the current exception: `background-subtle-base` uses `--color-alpha-black-2` and resolves to `#fafafa` over white.
+
 ## Imports
 
 Import from a subpath. Each component has its own entry

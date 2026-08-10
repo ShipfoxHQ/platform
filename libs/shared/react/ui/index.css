@@ -204,6 +204,27 @@
   --color-alpha-black-80: rgba(24, 24, 27, 0.8);
   --color-alpha-black-88: rgba(24, 24, 27, 0.88);
 
+  /*
+   * Target surface roles
+   *
+   * | Role | Token | Target light | Target dark | Used for |
+   * | --- | --- | --- | --- | --- |
+   * | Canvas | `background-subtle-base` | `#fafafa` | `#0f0f10` | the page, nav bar, tab strip, rails, object headers, panel header strips |
+   * | Panel | `background-neutral-base` | `#ffffff` | `#1a1a1b` | panel bodies, rows, popovers, modals |
+   * | Code | `background-contrast-*` | `#1a1a1b` | `#030303` | code, logs, YAML, agent transcripts |
+   * | Inline fill | `background-components-base` | `#f4f4f5` | `#27272a` | avatars, badges, kbd, chips inside a panel |
+   *
+   * Panel sits one ramp step toward the foreground from canvas in both themes.
+   * A panel header strip sits one step below its panel, which is the canvas value.
+   * This table records target values. During migration, light canvas uses
+   * `--color-alpha-black-2`, light inline fill resolves to `#fafafa`, and dark code
+   * resolves to `#27272a`. See DESIGN.md#the-surface-ladder for the
+   * current-versus-target mapping.
+   * Page, panel, or code surfaces should use opaque tokens, because alpha
+   * composites over a parent that varies. During migration, light-mode canvas is
+   * the current exception: `background-subtle-base` uses `--color-alpha-black-2`
+   * and resolves to `#fafafa` over white.
+   */
   /* Design Token Variables - Light Mode */
   /* Background */
   --background-components-hover: var(--color-neutral-200);
