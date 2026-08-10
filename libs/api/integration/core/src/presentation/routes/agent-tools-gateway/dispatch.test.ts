@@ -4,6 +4,7 @@ import {IntegrationProviderError} from '#core/errors.js';
 import {
   catalogTool,
   connection,
+  leaseContext,
   materializedIntegration,
   materializedTool,
   registryWithAgentTools,
@@ -39,6 +40,7 @@ describe('createIntegrationToolDispatcher', () => {
     const result = await dispatch({
       authorizedTool: authorizedTool(),
       arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      method: 'get',
     });
 
     expect(result).toEqual({
@@ -62,6 +64,7 @@ describe('createIntegrationToolDispatcher', () => {
     const result = await dispatch({
       authorizedTool: authorizedTool(),
       arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      method: 'get',
     });
 
     expect(result).toEqual({
@@ -70,9 +73,26 @@ describe('createIntegrationToolDispatcher', () => {
       structuredContent: {code: 'provider-unavailable', status: 503},
     });
     expect(dispatchMocks.loggerError).toHaveBeenCalledWith(
-      {err: providerError, provider: 'github'},
+      expect.objectContaining({
+        err: providerError,
+        provider: 'github',
+        toolId: 'issue_read',
+        method: 'get',
+        errorCode: 'provider-unavailable',
+        providerStatus: 503,
+      }),
       'Integration agent tool provider was unavailable',
     );
+    expect(dispatchMocks.loggerError.mock.calls[0]?.[0]).toMatchObject({
+      jobId: 'job-1',
+      jobExecutionId: 'execution-1',
+      workflowRunId: 'run-1',
+      workflowRunAttemptId: 'attempt-1',
+      workspaceId: 'workspace-1',
+      currentStepId: 'step-1',
+      currentStepAttempt: 2,
+      connectionId: 'connection-1',
+    });
     expect(dispatchMocks.reportError).toHaveBeenCalledWith(providerError, {
       boundary: 'integration.agent-tool',
     });
@@ -83,6 +103,15 @@ function createDispatcher(callError: IntegrationProviderError) {
   return createIntegrationToolDispatcher(
     {
       registry: registryWithAgentTools([catalogTool()], {callError}),
+      lease: leaseContext({
+        jobId: 'job-1',
+        jobExecutionId: 'execution-1',
+        workflowRunId: 'run-1',
+        workflowRunAttemptId: 'attempt-1',
+        workspaceId: 'workspace-1',
+        currentStepId: 'step-1',
+        currentStepAttempt: 2,
+      }),
     },
     {logger: loggerFactory, reportError},
   );

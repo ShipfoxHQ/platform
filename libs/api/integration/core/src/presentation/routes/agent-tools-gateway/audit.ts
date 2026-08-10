@@ -1,10 +1,13 @@
 import type {LeasedJobContext} from '@shipfox/api-auth-context';
 import {logger} from '@shipfox/node-opentelemetry';
 import {
+  type IntegrationAgentToolCallErrorLabel,
   type IntegrationAgentToolCallOutcome,
   recordIntegrationAgentToolCall,
 } from '#metrics/index.js';
 import type {AuthorizedIntegrationTool} from './resolve-authorized-tools.js';
+
+export type {IntegrationAgentToolCallErrorCode} from '#metrics/index.js';
 
 export const UNKNOWN_TOOL_LABEL = 'unknown';
 export const NO_METHOD_LABEL = 'none';
@@ -20,6 +23,8 @@ export interface IntegrationToolCallAuditRecord {
   arguments: unknown;
   method: string;
   outcome: IntegrationAgentToolCallOutcome;
+  errorCode: IntegrationAgentToolCallErrorLabel;
+  providerStatus?: number | undefined;
 }
 
 export type IntegrationToolCallRecorder = (record: IntegrationToolCallAuditRecord) => void;
@@ -47,6 +52,7 @@ export function createIntegrationToolCallRecorder(
       tool: toolId,
       method: record.method,
       outcome: record.outcome,
+      error_code: record.errorCode,
     });
 
     logInfo(
@@ -63,6 +69,8 @@ export function createIntegrationToolCallRecorder(
         toolId,
         method: record.method,
         outcome: record.outcome,
+        errorCode: record.errorCode,
+        ...(record.providerStatus === undefined ? {} : {providerStatus: record.providerStatus}),
         argumentSummary: summarizeIntegrationToolArguments(record.arguments),
       },
       'integration tool call audited',

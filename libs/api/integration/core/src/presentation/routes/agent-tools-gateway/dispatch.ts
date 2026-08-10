@@ -1,4 +1,5 @@
 import type {CallToolResult} from '@modelcontextprotocol/sdk/types.js';
+import type {LeasedJobContext} from '@shipfox/api-auth-context';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
 import {IntegrationProviderError} from '#core/errors.js';
@@ -9,10 +10,12 @@ import type {
   AgentToolsProvider,
 } from '#core/providers/agent-tools.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
+import {NO_METHOD_LABEL} from './audit.js';
 import type {IntegrationToolDispatcher, IntegrationToolDispatchInput} from './mcp-server.js';
 
 export interface CreateIntegrationToolDispatcherParams {
   registry: IntegrationProviderRegistry;
+  lease?: LeasedJobContext | undefined;
 }
 
 export interface IntegrationToolDispatcherDependencies {
@@ -31,6 +34,7 @@ export function createIntegrationToolDispatcher(
     dispatchIntegrationToolCall({
       ...input,
       registry: params.registry,
+      lease: params.lease,
       logger: dependencies.logger ?? logger,
       reportError: dependencies.reportError ?? reportError,
     });
@@ -39,6 +43,7 @@ export function createIntegrationToolDispatcher(
 async function dispatchIntegrationToolCall(
   input: IntegrationToolDispatchInput & {
     registry: IntegrationProviderRegistry;
+    lease?: LeasedJobContext | undefined;
     logger: typeof logger;
     reportError: typeof reportError;
   },
@@ -68,18 +73,43 @@ async function dispatchIntegrationToolCall(
   } catch (error) {
     const result = errorResult(error);
     if (result.code === 'provider-unavailable') {
-      input
-        .logger()
-        .error(
-          {err: error, provider: input.authorizedTool.integration.provider},
-          'Integration agent tool provider was unavailable',
-        );
+      input.logger().error(
+        {
+          ...toolCallLogContext(input),
+          err: error,
+          errorCode: result.code,
+          ...(result.status === undefined ? {} : {providerStatus: result.status}),
+        },
+        'Integration agent tool provider was unavailable',
+      );
       input.reportError(error, {boundary: 'integration.agent-tool'});
     }
     return toolError(result);
   } finally {
     await closeSession(session, input.logger, input.reportError);
   }
+}
+
+function toolCallLogContext(
+  input: IntegrationToolDispatchInput & {lease?: LeasedJobContext | undefined},
+): Record<string, unknown> {
+  return {
+    ...(input.lease === undefined
+      ? {}
+      : {
+          jobId: input.lease.jobId,
+          jobExecutionId: input.lease.jobExecutionId,
+          workflowRunId: input.lease.workflowRunId,
+          workflowRunAttemptId: input.lease.workflowRunAttemptId,
+          workspaceId: input.lease.workspaceId,
+          currentStepId: input.lease.currentStepId,
+          currentStepAttempt: input.lease.currentStepAttempt,
+        }),
+    connectionId: input.authorizedTool.connection.id,
+    provider: input.authorizedTool.integration.provider,
+    toolId: input.authorizedTool.tool.id,
+    method: input.method ?? NO_METHOD_LABEL,
+  };
 }
 
 function agentToolCatalogEntry(input: IntegrationToolDispatchInput): AgentToolCatalogEntry {
