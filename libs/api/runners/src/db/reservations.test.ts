@@ -535,6 +535,29 @@ describe('pollDemandAndReserve', () => {
     expect(result.reservations).toEqual([]);
   });
 
+  it('deducts a terminal assigned runner reservation unit as pending', async () => {
+    const reservation = await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: reservation.id,
+      state: 'terminated',
+    });
+    await createPendingJobs(1, ['linux', 'gpu']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
+    });
+
+    expect(result.reservations).toEqual([]);
+  });
+
   it('binds a runner whose intended reservation has passed its activation grace period', async () => {
     const intendedReservation = await createIntendedReservation({
       workspaceId,

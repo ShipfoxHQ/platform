@@ -435,7 +435,10 @@ async function listActiveProvisionerReservationRowsTx(
         eq(providerRunners.provisionerId, params.provisionerId),
         isNull(providerRunners.reservationReleasedAt),
         or(
-          inArray(providerRunners.reservationId, activeIds),
+          and(
+            inArray(providerRunners.reservationId, activeIds),
+            notInArray(providerRunners.state, [...terminalStates]),
+          ),
           and(
             inArray(providerRunners.intendedReservationId, activeIds),
             notInArray(providerRunners.state, [...terminalStates]),
@@ -445,7 +448,11 @@ async function listActiveProvisionerReservationRowsTx(
     );
   const usedByReservation = new Map<string, Set<string>>();
   for (const runner of usedRunnerRows) {
-    if (runner.reservationId && activeIdSet.has(runner.reservationId)) {
+    if (
+      runner.reservationId &&
+      activeIdSet.has(runner.reservationId) &&
+      !terminalStates.includes(runner.state as (typeof terminalStates)[number])
+    ) {
       addUsedRunner(usedByReservation, runner.reservationId, runner.id);
     }
     if (

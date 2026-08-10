@@ -1036,8 +1036,16 @@ describe('reportRunnerInstances', () => {
     expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
-  it('does not release a reservation for a provisioned runner that already has a runner session', async () => {
+  it('releases a reservation for a provisioned runner that already has a runner session', async () => {
     const reservationId = await createReservation(1);
+    const runnerSession = await runnerSessionFactory.create({workspaceId});
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      reservationId,
+      state: 'running',
+    });
 
     const result = await reportRunnerInstances({
       scope: 'workspace',
@@ -1048,16 +1056,17 @@ describe('reportRunnerInstances', () => {
           providerRunnerId: 'provisioned-runner-1',
           reservationId,
           state: 'failed',
-          runnerSessionId: crypto.randomUUID(),
+          runnerSessionId: runnerSession.id,
         }),
       ],
     });
 
     const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
     const providerRunnerRows = await providerRunnerRowsFor({workspaceId, provisionerId});
-    expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
-    expect(reservationRows[0]?.count).toBe(1);
-    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeNull();
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(reservationRows).toHaveLength(0);
+    expect(providerRunnerRows[0]?.runnerSessionId).toBe(runnerSession.id);
+    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
   it('uses the consumed ephemeral token session before releasing a terminal report', async () => {
@@ -1067,6 +1076,13 @@ describe('reportRunnerInstances', () => {
       provisionerId,
       reservationId,
       providerRunnerId: 'provisioned-runner-1',
+    });
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      reservationId,
+      state: 'running',
     });
     const session = await createRunnerSessionConsumingEphemeralToken({
       ephemeralTokenId: token.id,
@@ -1091,16 +1107,23 @@ describe('reportRunnerInstances', () => {
 
     const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
     const providerRunnerRows = await providerRunnerRowsFor({workspaceId, provisionerId});
-    expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
-    expect(reservationRows[0]?.count).toBe(1);
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(reservationRows).toHaveLength(0);
     expect(providerRunnerRows[0]?.runnerSessionId).toBe(session.id);
-    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeNull();
+    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
   it('preserves claimed runner session metadata when a terminal state wins the batch', async () => {
     const reservationId = await createReservation(1);
     const runnerSessionId = crypto.randomUUID();
     const reportedAt = new Date('2025-01-01T00:00:00.000Z');
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      reservationId,
+      state: 'running',
+    });
 
     const result = await reportRunnerInstances({
       scope: 'workspace',
@@ -1125,11 +1148,11 @@ describe('reportRunnerInstances', () => {
 
     const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
     const providerRunnerRows = await providerRunnerRowsFor({workspaceId, provisionerId});
-    expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
-    expect(reservationRows[0]?.count).toBe(1);
+    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
+    expect(reservationRows).toHaveLength(0);
     expect(providerRunnerRows[0]?.state).toBe('failed');
     expect(providerRunnerRows[0]?.runnerSessionId).toBe(runnerSessionId);
-    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeNull();
+    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
   it('returns honored terminate intents only for the first active-to-terminated transition', async () => {

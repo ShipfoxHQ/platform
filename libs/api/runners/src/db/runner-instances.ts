@@ -840,6 +840,7 @@ async function releaseTerminalRunnerInstanceReservations(
     workspaceId: params.workspaceId,
     provisionerId: params.provisionerId,
     providerRunnerIds: terminalEvents.map((event) => event.providerRunnerId),
+    requireUnlinkedSession: false,
   });
 }
 
