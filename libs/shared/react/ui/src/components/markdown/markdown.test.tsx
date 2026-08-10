@@ -51,6 +51,14 @@ describe('Markdown', () => {
     expect(container.firstChild).toBeNull();
   });
 
+  test('uses the inline fill for inline code', () => {
+    const {container} = renderMarkdown('Run `pnpm test`.');
+
+    expect(
+      container.querySelector('code')?.classList.contains('bg-background-components-base'),
+    ).toBe(true);
+  });
+
   test('renders GFM tables, lists, and safe external links', () => {
     const {container, getByRole, getByText} = renderMarkdown(`
 - one

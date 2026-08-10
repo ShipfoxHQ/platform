@@ -206,9 +206,9 @@
 
   /* Design Token Variables - Light Mode */
   /* Background */
-  --background-components-hover: var(--color-neutral-100);
+  --background-components-hover: var(--color-neutral-200);
   --background-neutral-base: var(--color-neutral-0);
-  --background-components-pressed: var(--color-neutral-200);
+  --background-components-pressed: var(--color-neutral-300);
   --background-subtle-pressed: var(--color-neutral-200);
   --background-highlight-interactive: var(--color-primary-500);
   --background-subtle-hover: var(--color-neutral-100);

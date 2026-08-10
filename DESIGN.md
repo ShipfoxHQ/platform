@@ -152,9 +152,9 @@ brought onto it. Read those sections as the target a change should move toward,
 not as a description of what ships today.
 
 Two consequences while the work lands. `Panel` does not exist yet, and `Card`
-still ships in its place. Three surface tokens still resolve to values other than
+still ships in its place. One surface token still resolves to a value other than
 the ones the ladder names, and
-[The surface ladder](#the-surface-ladder) lists each one.
+[The surface ladder](#the-surface-ladder) lists it.
 
 ## Overview
 
@@ -428,13 +428,11 @@ first two surfaces after the same roles, as `colors.canvas` and `colors.panel`.
 | Code | `bg-background-contrast-base` | `#1a1a1b` | `#030303` | Code, logs, YAML, agent transcripts |
 | Inline fill | `bg-background-components-base` | `#f4f4f5` | `#27272a` | Avatars, badges, kbd, chips inside a panel |
 
-**Those hexes are the target, and three tokens do not resolve to them yet.** Read
+**Those hexes are the target, and one token does not resolve to them yet.** Read
 this table as the contract the package is moving to.
 
 | Token | Resolves today | Target |
 | --- | --- | --- |
-| `--background-subtle-base` (light) | `--color-alpha-black-2` | opaque `--color-neutral-50` |
-| `--background-components-base` (light) | `--color-neutral-50` | `--color-neutral-100` |
 | `--background-contrast-base` (dark) | `--color-neutral-800` | `--color-neutral-1000` |
 
 `--background-contrast-subtle` and `--background-contrast-hover` are translucent
