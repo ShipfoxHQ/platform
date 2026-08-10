@@ -223,7 +223,7 @@ function StepListContent({
       <section
         aria-labelledby={showHeader ? titleId : undefined}
         className={cn(
-          'flex min-h-0 flex-col rounded-8 border border-border-neutral-base bg-background-components-base',
+          'flex min-h-0 flex-col rounded-8 border border-border-neutral-base bg-background-neutral-base',
           className,
         )}
       >
@@ -425,8 +425,8 @@ function StepRow({
     <>
       <div
         className={cn(
-          'group flex min-w-0 items-center gap-inline pr-[8px] transition-colors hover:bg-background-components-hover active:bg-background-components-pressed',
-          selected && 'bg-background-components-hover',
+          'group flex min-w-0 items-center gap-inline bg-background-neutral-base pr-[8px] transition-colors hover:bg-background-neutral-hover active:bg-background-neutral-pressed',
+          selected && 'bg-background-neutral-hover',
           !hasExpandedContent && ['border-b border-border-neutral-base', isLast && 'border-b-0'],
         )}
       >

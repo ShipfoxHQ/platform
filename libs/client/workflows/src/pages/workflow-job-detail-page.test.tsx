@@ -117,6 +117,9 @@ describe('WorkflowJobDetailPage', () => {
       await screen.findByRole('region', {name: 'tests output, attempt 2'}),
     ).toBeInTheDocument();
     expect(screen.getByRole('region', {name: 'release logs'})).toBeInTheDocument();
+    expect(screen.getByRole('textbox', {name: 'Search logs'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Refresh logs'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Log settings'})).toBeInTheDocument();
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     expect(screen.getByRole('img', {name: 'Job status: Succeeded'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'deploy-web'})).toBeInTheDocument();

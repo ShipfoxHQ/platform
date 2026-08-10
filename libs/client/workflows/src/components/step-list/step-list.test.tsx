@@ -210,7 +210,7 @@ describe('StepList', () => {
     await user.click(deployRow);
 
     expect(buildRow.parentElement?.parentElement).not.toHaveClass('bg-background-components-hover');
-    expect(deployRow.parentElement?.parentElement).toHaveClass('bg-background-components-hover');
+    expect(deployRow.parentElement?.parentElement).toHaveClass('bg-background-neutral-hover');
   });
 
   test('opens a default selected attempt', () => {

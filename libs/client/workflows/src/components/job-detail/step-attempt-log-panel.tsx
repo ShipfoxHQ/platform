@@ -13,7 +13,7 @@ import {JobExecutionTimeText} from './job-execution-time-text.js';
 const TAIL_FOLLOW_THRESHOLD_PX = 24;
 const INITIAL_LOG_ERROR_RETRY_COUNT = 5;
 const INITIAL_LOG_ERROR_RETRY_DELAY_MS = 1_500;
-const defaultLogSurfaceClasses = 'rounded-8';
+const defaultLogSurfaceClasses = 'rounded-none border-0 bg-background-contrast-base shadow-none';
 
 export interface StepAttemptLogPanelProps {
   stepId: string;
@@ -24,6 +24,10 @@ export interface StepAttemptLogPanelProps {
   /** The page scroll column used by the uncapped job-detail log surface. */
   pageScrollRef: RefObject<HTMLElement | null>;
   surfaceClassName?: string | undefined;
+  search?: string | undefined;
+  wrap?: boolean | undefined;
+  showLineNumbers?: boolean | undefined;
+  refreshToken?: number | undefined;
   initialErrorRetryCount?: number | undefined;
   initialErrorRetryDelayMs?: number | undefined;
 }
@@ -35,6 +39,10 @@ export function StepAttemptLogPanel({
   attemptStartedAt,
   pageScrollRef,
   surfaceClassName = defaultLogSurfaceClasses,
+  search = '',
+  wrap = false,
+  showLineNumbers = true,
+  refreshToken = 0,
   initialErrorRetryCount = INITIAL_LOG_ERROR_RETRY_COUNT,
   initialErrorRetryDelayMs = INITIAL_LOG_ERROR_RETRY_DELAY_MS,
 }: StepAttemptLogPanelProps) {
@@ -55,6 +63,13 @@ export function StepAttemptLogPanel({
     retryMissingStream && query.data === undefined && isMissingStepLogStreamError(query.error);
   const initialError = query.isError && query.data === undefined && !missingActiveStream;
   const staleError = query.isError && query.data !== undefined;
+  const lastRefreshTokenRef = useRef(refreshToken);
+
+  useEffect(() => {
+    if (refreshToken === lastRefreshTokenRef.current) return;
+    lastRefreshTokenRef.current = refreshToken;
+    void query.refetch();
+  }, [query.refetch, refreshToken]);
 
   useEffect(() => {
     const scrollElement = pageScrollRef.current;
@@ -85,14 +100,28 @@ export function StepAttemptLogPanel({
   }, [anchorToFailure, pageScrollRef, recordCount]);
 
   if (query.isPending) {
-    return <StepLogsLoadingSurface label="Loading logs" className={surfaceClassName} />;
+    return (
+      <StepLogsLoadingSurface
+        label="Loading logs"
+        className={surfaceClassName}
+        wrap={wrap}
+        showLineNumbers={showLineNumbers}
+      />
+    );
   }
 
   if (missingActiveStream) {
     if (attemptStatus === 'running' && attemptStartedAt) {
       return <StepLogsWaitingSurface startedAt={attemptStartedAt} className={surfaceClassName} />;
     }
-    return <StepLogsLoadingSurface label="Waiting for logs" className={surfaceClassName} />;
+    return (
+      <StepLogsLoadingSurface
+        label="Waiting for logs"
+        className={surfaceClassName}
+        wrap={wrap}
+        showLineNumbers={showLineNumbers}
+      />
+    );
   }
 
   if (initialError) {
@@ -124,6 +153,9 @@ export function StepAttemptLogPanel({
       ) : null}
       <LogView
         records={records}
+        search={search}
+        wrap={wrap}
+        showLineNumbers={showLineNumbers}
         emptyState={query.data?.complete ? 'complete' : 'pending'}
         anchorToFailure={anchorToFailure}
         ariaLive={attemptStatus === 'running' ? 'polite' : 'off'}
@@ -133,10 +165,20 @@ export function StepAttemptLogPanel({
   );
 }
 
-function StepLogsLoadingSurface({label, className}: {label: string; className: string}) {
+function StepLogsLoadingSurface({
+  label,
+  className,
+  wrap,
+  showLineNumbers,
+}: {
+  label: string;
+  className: string;
+  wrap: boolean;
+  showLineNumbers: boolean;
+}) {
   return (
     <div role="status" aria-label={label}>
-      <LogViewSkeleton className={className} />
+      <LogViewSkeleton className={className} wrap={wrap} showLineNumbers={showLineNumbers} />
     </div>
   );
 }

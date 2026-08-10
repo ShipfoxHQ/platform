@@ -85,6 +85,38 @@ describe('LogView', () => {
     expect(screen.queryByText('No output yet')).toBeNull();
   });
 
+  test('filters output and session rows by the log search term', () => {
+    render(
+      <LogView
+        search="failure"
+        records={[
+          output('setup complete\n'),
+          output('failure: test failed\n'),
+          agentSession({
+            kind: 'message',
+            timestamp: ts,
+            role: 'assistant',
+            label: 'assistant',
+            meta: [],
+            text: 'The failure is in the validation step.',
+            terminalFailure: false,
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('failure: test failed')).toBeDefined();
+    expect(screen.getByText('The failure is in the validation step.')).toBeDefined();
+    expect(screen.queryByText('setup complete')).toBeNull();
+  });
+
+  test('shows a message when the log search has no matches', () => {
+    render(<LogView search="missing" records={[output('hello\n')]} />);
+
+    expect(screen.getByText('No log lines match “missing”.')).toBeDefined();
+    expect(screen.queryByText('hello')).toBeNull();
+  });
+
   test('allows terminal logs to opt out of live announcements', () => {
     render(<LogView records={[output('hello\n')]} ariaLive="off" />);
 
