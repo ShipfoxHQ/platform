@@ -125,6 +125,7 @@ function runDetail(
       rerun_mode: null,
     },
     jobs: [listenerJob()],
+    has_started_job_execution: true,
     ...overrides,
   };
 }
