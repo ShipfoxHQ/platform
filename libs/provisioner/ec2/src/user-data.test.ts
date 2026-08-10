@@ -31,7 +31,6 @@ write_files:
       SHIPFOX_RUNNER_PROTOCOL_VERSION="1"
       SHIPFOX_RUNNER_LABELS="linux,x64,self-hosted"
       SHIPFOX_RUNNER_WORKSPACE_ROOT="/var/lib/shipfox/workspaces"
-      SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED="1"
       SHIPFOX_POLL_MAX_DURATION_MS="300000"
       SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS="3600"
 runcmd:
@@ -39,6 +38,11 @@ runcmd:
       set -eu
       workspace_root='/var/lib/shipfox/workspaces'
       workspace_device_name='/dev/sdf'
+      workspace_mount_unit='var-lib-shipfox-workspaces.mount'
+      workspace_mount_dropin_dir='/etc/systemd/system/var-lib-shipfox-workspaces.mount.d'
+      workspace_mount_unit_path="/etc/systemd/system/$workspace_mount_unit"
+      runner_mount_dropin_dir='/etc/systemd/system/shipfox-runner.service.d'
+      runner_mount_dropin_path="$runner_mount_dropin_dir/10-shipfox-workspace.conf"
       install -d -o shipfox -g shipfox "$workspace_root"
 
       # Xen exposes the configured mapping name directly. Nitro may expose the same
@@ -124,7 +128,7 @@ runcmd:
       fi
 
       if ! blkid "$workspace_device" >/dev/null 2>&1; then
-        mkfs.ext4 -F -L shipfox-workspace "$workspace_device"
+        mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1 -L 'shipfox-workspc' "$workspace_device"
       fi
       workspace_uuid="$(blkid -s UUID -o value "$workspace_device")"
       if [ -z "$workspace_uuid" ]; then
@@ -134,11 +138,35 @@ runcmd:
       if ! grep -Fq " $workspace_root " /etc/fstab; then
         printf 'UUID=%s %s auto defaults,nofail 0 0\\n' "$workspace_uuid" "$workspace_root" >> /etc/fstab
       fi
+
+      # Keep the shared runner image provider-neutral. EC2 adds this boot-time dependency
+      # only after the image's standalone mount unit is available; QEMU and older AMIs use
+      # the direct-mount fallback below and never receive this drop-in.
+      if [ -f "$workspace_mount_unit_path" ]; then
+        mkdir -p "$runner_mount_dropin_dir"
+        printf '[Unit]\\nRequires=%s\\nAfter=%s\\n' "$workspace_mount_unit" "$workspace_mount_unit" > "$runner_mount_dropin_path"
+      fi
+
+      # Keep formatting in the EC2 boot sequence and mounting in systemd. The image ships
+      # a standalone mount unit; its UUID is filled in here after the volume is formatted.
+      # Older images do not have that unit, so retain the direct-mount path during migration.
+      mkdir -p "$workspace_mount_dropin_dir"
+      printf '[Mount]\\nWhat=UUID=%s\\n' "$workspace_uuid" > "$workspace_mount_dropin_dir/10-shipfox-workspace.conf"
+      systemctl daemon-reload
+      if [ -f "$workspace_mount_unit_path" ] && \\
+        systemctl enable "$workspace_mount_unit" && systemctl start "$workspace_mount_unit"; then
+        :
+      else
+        if ! mountpoint -q "$workspace_root"; then
+          mount "$workspace_device" "$workspace_root"
+        fi
+      fi
       if ! mountpoint -q "$workspace_root"; then
-        mount "$workspace_device" "$workspace_root"
+        echo "The EC2 workspace volume did not mount at $workspace_root." >&2
+        exit 1
       fi
       chown shipfox:shipfox "$workspace_root"
-  - ['/usr/bin/mv', '--', /etc/shipfox/runner.env.tmp, /etc/shipfox/runner.env]
+      /usr/bin/mv -- '/etc/shipfox/runner.env.tmp' '/etc/shipfox/runner.env'
 `);
   });
 
