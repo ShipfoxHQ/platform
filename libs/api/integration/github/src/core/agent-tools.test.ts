@@ -12,6 +12,8 @@ import {
 } from '#core/agent-tools.js';
 import {createGithubIntegrationProvider} from '#index.js';
 
+const githubAppReviewUser = {login: 'shipfox-test[bot]'};
+
 const expectedCatalogRows = [
   {
     id: 'issue_read',
@@ -857,11 +859,17 @@ describe('github agent tool catalog', () => {
     });
   });
 
-  it('adds a comment to the latest pending review through GraphQL', async () => {
+  it('adds a comment to the latest caller pending review through GraphQL', async () => {
     const request = vi.fn().mockResolvedValueOnce({
       data: [
-        {id: 40, node_id: 'review-older', state: 'PENDING'},
-        {id: 41, node_id: 'review-latest', state: 'PENDING'},
+        {id: 40, node_id: 'review-older', state: 'PENDING', user: githubAppReviewUser},
+        {id: 41, node_id: 'review-latest', state: 'PENDING', user: githubAppReviewUser},
+        {
+          id: 42,
+          node_id: 'another-review',
+          state: 'PENDING',
+          user: {login: 'another-user'},
+        },
       ],
     });
     const graphql = vi.fn().mockResolvedValueOnce({
@@ -890,13 +898,17 @@ describe('github agent tool catalog', () => {
       },
     });
 
-    expect(request).toHaveBeenCalledWith('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
-      owner: 'shipfox',
-      repo: 'platform',
-      pull_number: 2,
-      per_page: 100,
-      page: 1,
-    });
+    expect(request).toHaveBeenCalledWith(
+      'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
+      expect.objectContaining({
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        per_page: 100,
+        page: 1,
+      }),
+    );
+    expect(request.mock.calls[0]?.[1]).toHaveProperty('request.signal');
     expect(graphql).toHaveBeenCalledWith(expect.stringContaining('addPullRequestReviewThread'), {
       input: {
         pullRequestReviewId: 'review-latest',
@@ -921,7 +933,16 @@ describe('github agent tool catalog', () => {
   });
 
   it('returns an explicit error when there is no pending review for the caller', async () => {
-    const request = vi.fn().mockResolvedValueOnce({data: []});
+    const request = vi.fn().mockResolvedValueOnce({
+      data: [
+        {
+          id: 41,
+          node_id: 'another-review',
+          state: 'PENDING',
+          user: {login: 'another-user'},
+        },
+      ],
+    });
     const graphql = vi.fn();
     const provider = createAgentToolsProvider({request, graphql});
     const session = await provider.openSession({
@@ -995,7 +1016,7 @@ describe('github agent tool catalog', () => {
 
   it('rejects a pending review without a GraphQL node ID', async () => {
     const request = vi.fn().mockResolvedValueOnce({
-      data: [{id: 41, state: 'PENDING'}],
+      data: [{id: 41, state: 'PENDING', user: githubAppReviewUser}],
     });
     const graphql = vi.fn();
     const provider = createAgentToolsProvider({request, graphql});
@@ -1021,6 +1042,44 @@ describe('github agent tool catalog', () => {
       message: 'GitHub pending pull request review did not include a node ID',
     });
     expect(graphql).not.toHaveBeenCalled();
+  });
+
+  it('skips a malformed newer review for an older valid caller review', async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      data: [
+        {
+          id: 40,
+          node_id: 'review-valid',
+          state: 'PENDING',
+          user: githubAppReviewUser,
+        },
+        {id: 41, node_id: '   ', state: 'PENDING', user: githubAppReviewUser},
+      ],
+    });
+    const graphql = vi.fn().mockResolvedValueOnce({
+      addPullRequestReviewThread: {thread: {id: 'thread-1'}},
+    });
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pendingReviewTool()],
+      scope: undefined,
+    });
+
+    await session.call({
+      toolId: 'add_comment_to_pending_review',
+      arguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        path: 'src/agent-tools.ts',
+        body: 'Please handle this error.',
+      },
+    });
+
+    expect(graphql).toHaveBeenCalledWith(expect.stringContaining('addPullRequestReviewThread'), {
+      input: expect.objectContaining({pullRequestReviewId: 'review-valid'}),
+    });
   });
 
   it('rejects a malformed pending review list response', async () => {
@@ -1157,8 +1216,9 @@ describe('github agent tool catalog', () => {
       .mockResolvedValueOnce({
         data: [
           {id: 40, state: 'APPROVED'},
-          {id: 41, state: 'PENDING'},
-          {id: 42, state: 'PENDING'},
+          {id: 41, state: 'PENDING', user: githubAppReviewUser},
+          {id: 42, state: 'PENDING', user: githubAppReviewUser},
+          {id: 43, state: 'PENDING', user: {login: 'another-user'}},
         ],
       })
       .mockResolvedValueOnce({data: testCase.data});
@@ -1176,13 +1236,13 @@ describe('github agent tool catalog', () => {
     expect(request).toHaveBeenNthCalledWith(
       1,
       'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
-      {
+      expect.objectContaining({
         owner: 'shipfox',
         repo: 'platform',
         pull_number: 2,
         per_page: 100,
         page: 1,
-      },
+      }),
     );
     expect(request).toHaveBeenNthCalledWith(2, testCase.route, testCase.parameters);
   });
@@ -1191,9 +1251,17 @@ describe('github agent tool catalog', () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({
-        data: Array.from({length: 100}, (_, index) => ({id: index + 1, state: 'APPROVED'})),
+        data: [
+          ...Array.from({length: 99}, (_, index) => ({id: index + 1, state: 'APPROVED'})),
+          {id: 100, state: 'PENDING', user: githubAppReviewUser},
+        ],
+        headers: {
+          link: '<https://api.github.com/repositories/1/pulls/2/reviews?per_page=100&page=2>; rel="last"',
+        },
       })
-      .mockResolvedValueOnce({data: [{id: 101, state: 'PENDING'}]})
+      .mockResolvedValueOnce({
+        data: [{id: 101, state: 'PENDING', user: githubAppReviewUser}],
+      })
       .mockResolvedValueOnce({data: {id: 101, state: 'COMMENTED'}});
 
     const result = await callGithubToolWithRequest(
@@ -1216,24 +1284,24 @@ describe('github agent tool catalog', () => {
     expect(request).toHaveBeenNthCalledWith(
       1,
       'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
-      {
+      expect.objectContaining({
         owner: 'shipfox',
         repo: 'platform',
         pull_number: 2,
         per_page: 100,
         page: 1,
-      },
+      }),
     );
     expect(request).toHaveBeenNthCalledWith(
       2,
       'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
-      {
+      expect.objectContaining({
         owner: 'shipfox',
         repo: 'platform',
         pull_number: 2,
         per_page: 100,
         page: 2,
-      },
+      }),
     );
     expect(request).toHaveBeenNthCalledWith(
       3,
@@ -1247,6 +1315,61 @@ describe('github agent tool catalog', () => {
         review_id: 101,
       },
     );
+  });
+
+  it('bounds pending review lookup to the newest review pages', async () => {
+    const request = vi.fn().mockResolvedValue({data: []});
+    request.mockResolvedValueOnce({
+      data: Array.from({length: 100}, (_, index) => ({id: index + 1, state: 'APPROVED'})),
+      headers: {
+        link: '<https://api.github.com/repositories/1/pulls/2/reviews?per_page=100&page=6>; rel="last"',
+      },
+    });
+
+    await expect(
+      callGithubToolWithRequest(
+        'pull_request_review_write',
+        {
+          method: 'submit_pending',
+          owner: 'shipfox',
+          repo: 'platform',
+          pull_number: 2,
+          body: 'Looks good.',
+          event: 'COMMENT',
+        },
+        request,
+      ),
+    ).rejects.toMatchObject({
+      reason: 'content-too-large',
+      message: 'GitHub pull request review history exceeded the pending review lookup limit',
+    });
+    expect(request).toHaveBeenCalledTimes(5);
+    expect(request.mock.calls.map((call) => call[1]?.page)).toEqual([1, 6, 5, 4, 3]);
+  });
+
+  it.each([0, -1])('rejects non-positive pending review ID %s', async (id) => {
+    const request = vi.fn().mockResolvedValueOnce({
+      data: [{id, state: 'PENDING', user: githubAppReviewUser}],
+    });
+
+    await expect(
+      callGithubToolWithRequest(
+        'pull_request_review_write',
+        {
+          method: 'submit_pending',
+          owner: 'shipfox',
+          repo: 'platform',
+          pull_number: 2,
+          body: 'Looks good.',
+          event: 'COMMENT',
+        },
+        request,
+      ),
+    ).rejects.toMatchObject({
+      reason: 'malformed-provider-response',
+      message: 'GitHub pending pull request review did not include a numeric ID',
+    });
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it.each([

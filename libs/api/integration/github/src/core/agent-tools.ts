@@ -13,7 +13,7 @@ import {
   createGithubInstallationTokenProvider,
   type GithubInstallationTokenProvider,
 } from '#api/installation-token-provider.js';
-import {normalizedGithubApiBaseUrl} from '#config.js';
+import {config, normalizedGithubApiBaseUrl} from '#config.js';
 import type {GithubInstallation} from '#db/installations.js';
 import {GithubIntegrationProviderError} from './errors.js';
 import {
@@ -59,6 +59,12 @@ const GITHUB_GRAPHQL_ROUTE = 'POST /graphql';
 const GITHUB_ARTIFACT_ARCHIVE_FORMAT = 'zip';
 const GITHUB_ARTIFACT_DOWNLOAD_ROUTE = `GET /repos/{owner}/{repo}/actions/artifacts/{resource_id}/${GITHUB_ARTIFACT_ARCHIVE_FORMAT}`;
 const GITHUB_ARTIFACT_DOWNLOAD_TIMEOUT_MS = 30_000;
+const GITHUB_APP_BOT_SUFFIX = '[bot]';
+const PENDING_REVIEW_PAGE_SIZE = 100;
+const PENDING_REVIEW_MAX_PAGE_REQUESTS = 5;
+const PENDING_REVIEW_LOOKUP_TIMEOUT_MS = 15_000;
+const PENDING_REVIEW_PAGE_TIMEOUT_MS = 5_000;
+const PENDING_REVIEW_PAGE_PATTERN = /[?&]page=(\d+)/u;
 const NO_PENDING_REVIEW_MESSAGE =
   'No pending pull request review found for the authenticated GitHub user.';
 
@@ -394,7 +400,7 @@ async function addCommentToPendingReview(
     );
   }
 
-  const review = await latestPendingReview(client, args);
+  const review = await latestPendingReview(client, args, 'nodeId');
   if (review === undefined) return undefined;
   if (review.nodeId === undefined) {
     throw new GithubIntegrationProviderError(
@@ -442,7 +448,7 @@ async function resolvePendingReviewParameters(
 ): Promise<Record<string, unknown> | undefined> {
   if (!isPendingReviewOperation(toolId, method)) return parameters;
 
-  const review = await latestPendingReview(client, parameters);
+  const review = await latestPendingReview(client, parameters, 'id');
   if (review === undefined) return undefined;
   if (review.id === undefined) {
     throw new GithubIntegrationProviderError(
@@ -465,22 +471,59 @@ interface PendingReviewReference {
   nodeId?: string | undefined;
 }
 
+type PendingReviewIdentifier = keyof PendingReviewReference;
+
+interface PendingReviewPageResult {
+  malformed: boolean;
+  review?: PendingReviewReference | undefined;
+}
+
 async function latestPendingReview(
   client: GithubToolClient,
   parameters: Record<string, unknown>,
+  requiredIdentifier: PendingReviewIdentifier,
 ): Promise<PendingReviewReference | undefined> {
-  const perPage = 100;
-  let page = 1;
-  let pendingReview: PendingReviewReference | undefined;
+  const lookupController = new AbortController();
+  const lookupTimeout = setTimeout(
+    () => lookupController.abort(),
+    PENDING_REVIEW_LOOKUP_TIMEOUT_MS,
+  );
 
-  while (true) {
-    const response = await client.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
-      owner: parameters.owner,
-      repo: parameters.repo,
-      pull_number: parameters.pull_number,
-      per_page: perPage,
-      page,
-    });
+  try {
+    return await latestPendingReviewBeforeDeadline(
+      client,
+      parameters,
+      requiredIdentifier,
+      lookupController.signal,
+    );
+  } finally {
+    clearTimeout(lookupTimeout);
+  }
+}
+
+async function latestPendingReviewBeforeDeadline(
+  client: GithubToolClient,
+  parameters: Record<string, unknown>,
+  requiredIdentifier: PendingReviewIdentifier,
+  lookupSignal: AbortSignal,
+): Promise<PendingReviewReference | undefined> {
+  const firstPage = await requestPendingReviewPage(client, parameters, 1, lookupSignal);
+  const lastPage = pendingReviewLastPage(firstPage.headers);
+  let requests = 1;
+  let malformed = false;
+
+  for (let page = lastPage; page >= 1; page -= 1) {
+    let response = firstPage;
+    if (page !== 1) {
+      if (requests >= PENDING_REVIEW_MAX_PAGE_REQUESTS) {
+        throw new GithubIntegrationProviderError(
+          'content-too-large',
+          'GitHub pull request review history exceeded the pending review lookup limit',
+        );
+      }
+      response = await requestPendingReviewPage(client, parameters, page, lookupSignal);
+      requests += 1;
+    }
     if (!Array.isArray(response.data)) {
       throw new GithubIntegrationProviderError(
         'malformed-provider-response',
@@ -488,24 +531,101 @@ async function latestPendingReview(
       );
     }
 
-    pendingReview = latestPendingReviewOnPage(response.data) ?? pendingReview;
-    if (response.data.length < perPage) return pendingReview;
-    page += 1;
+    const result = latestPendingReviewOnPage(response.data, requiredIdentifier);
+    if (result.review !== undefined) return result.review;
+    malformed ||= result.malformed;
+  }
+
+  if (malformed) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      requiredIdentifier === 'nodeId'
+        ? 'GitHub pending pull request review did not include a node ID'
+        : 'GitHub pending pull request review did not include a numeric ID',
+    );
+  }
+  return undefined;
+}
+
+async function requestPendingReviewPage(
+  client: GithubToolClient,
+  parameters: Record<string, unknown>,
+  page: number,
+  lookupSignal: AbortSignal,
+): Promise<GithubToolResponse> {
+  const pageController = new AbortController();
+  const abortPage = () => pageController.abort();
+  if (lookupSignal.aborted) abortPage();
+  else lookupSignal.addEventListener('abort', abortPage, {once: true});
+  const pageTimeout = setTimeout(abortPage, PENDING_REVIEW_PAGE_TIMEOUT_MS);
+
+  try {
+    return await client.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
+      owner: parameters.owner,
+      repo: parameters.repo,
+      pull_number: parameters.pull_number,
+      per_page: PENDING_REVIEW_PAGE_SIZE,
+      page,
+      request: {signal: pageController.signal},
+    });
+  } finally {
+    clearTimeout(pageTimeout);
+    lookupSignal.removeEventListener('abort', abortPage);
   }
 }
 
-function latestPendingReviewOnPage(data: readonly unknown[]): PendingReviewReference | undefined {
+function pendingReviewLastPage(headers: GithubToolResponse['headers']): number {
+  const link = headers?.link;
+  if (typeof link !== 'string') return 1;
+  const lastLink = link.split(',').find((part) => part.includes('rel="last"'));
+  if (lastLink === undefined) return 1;
+  const match = PENDING_REVIEW_PAGE_PATTERN.exec(lastLink);
+  const page = match?.[1] === undefined ? Number.NaN : Number.parseInt(match[1], 10);
+  if (!Number.isSafeInteger(page) || page < 1) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'GitHub pull request review pagination response was malformed',
+    );
+  }
+  return page;
+}
+
+function latestPendingReviewOnPage(
+  data: readonly unknown[],
+  requiredIdentifier: PendingReviewIdentifier,
+): PendingReviewPageResult {
+  let malformed = false;
+  const appLogin = githubAppBotLogin().toLowerCase();
   for (let index = data.length - 1; index >= 0; index -= 1) {
     const review = data[index];
     if (!isRecord(review) || review.state !== 'PENDING') continue;
+    const userLogin = isRecord(review.user) ? review.user.login : undefined;
+    if (typeof userLogin !== 'string' || userLogin.trim().length === 0) {
+      malformed = true;
+      continue;
+    }
+    if (userLogin.trim().toLowerCase() !== appLogin) continue;
     const id =
-      typeof review.id === 'number' && Number.isSafeInteger(review.id) ? review.id : undefined;
+      typeof review.id === 'number' && Number.isSafeInteger(review.id) && review.id > 0
+        ? review.id
+        : undefined;
     const nodeId =
-      typeof review.node_id === 'string' && review.node_id.length > 0 ? review.node_id : undefined;
-    return {id, nodeId};
+      typeof review.node_id === 'string' && review.node_id.trim().length > 0
+        ? review.node_id.trim()
+        : undefined;
+    const reference = {id, nodeId};
+    if (reference[requiredIdentifier] !== undefined) return {malformed, review: reference};
+    malformed = true;
   }
 
-  return undefined;
+  return {malformed};
+}
+
+function githubAppBotLogin(): string {
+  const configuredUsername = config.GITHUB_APP_USERNAME?.trim() || config.GITHUB_APP_SLUG.trim();
+  return configuredUsername.toLowerCase().endsWith(GITHUB_APP_BOT_SUFFIX)
+    ? configuredUsername
+    : `${configuredUsername}${GITHUB_APP_BOT_SUFFIX}`;
 }
 
 function githubToolResult(
