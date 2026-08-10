@@ -59,9 +59,9 @@ describe('WorkflowRunView', () => {
     expect(screen.getByRole('heading', {name: 'Run details'})).toBeInTheDocument();
     expect(screen.getByRole('region', {name: 'All jobs summary'})).toBeInTheDocument();
     expect(screen.getByRole('region', {name: 'Workflow jobs'})).toBeInTheDocument();
-    expect(container.querySelector('[data-run-workspace-content]')).toHaveClass(
+    expect(container.querySelector('[data-run-workspace-content]')).toHaveClass('flex-1');
+    expect(container.querySelector('[data-run-workspace-content]')).not.toHaveClass(
       'bg-background-neutral-base',
-      'flex-1',
     );
     expect(screen.queryByRole('tab', {name: 'Jobs'})).not.toBeInTheDocument();
   });

@@ -325,10 +325,7 @@ function RunViewContent({
           <RunWorkspaceNavSkeleton />
         )}
 
-        <div
-          data-run-workspace-content
-          className="flex min-h-0 min-w-0 flex-1 flex-col bg-background-neutral-base"
-        >
+        <div data-run-workspace-content className="flex min-h-0 min-w-0 flex-1 flex-col">
           {runData && jobContent ? (
             jobContent
           ) : runData ? (
@@ -395,7 +392,7 @@ function RunSectionContent({
         aria-label="All jobs summary"
         className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
       >
-        <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-group px-frame">
+        <div className="mx-auto flex w-full flex-col gap-group px-frame">
           <Text as="h2" className="sr-only">
             All jobs summary
           </Text>
@@ -431,7 +428,7 @@ function RunSectionContent({
       aria-label="Workflow source"
       className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
     >
-      <div className="mx-auto flex min-h-full w-full max-w-[1120px] flex-col px-frame">
+      <div className="mx-auto flex min-h-full w-full flex-col px-frame">
         <Text as="h2" className="sr-only">
           Workflow source
         </Text>
@@ -526,7 +523,7 @@ function RunAnnotationsSection({
       aria-label="Run annotations"
       className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
     >
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-group px-frame">
+      <div className="mx-auto flex w-full flex-col gap-group px-frame">
         <Text as="h2" className="sr-only">
           Annotations
         </Text>

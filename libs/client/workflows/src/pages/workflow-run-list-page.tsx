@@ -49,8 +49,8 @@ export function WorkflowRunsPage({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden bg-background-neutral-base">
-      <div className="mx-auto flex min-h-0 w-full max-w-[1120px] flex-1 flex-col px-frame py-frame">
+    <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="mx-auto flex min-h-0 w-full flex-1 flex-col px-frame py-frame">
         <WorkflowRunList
           projectId={projectId}
           workspaceSlug={workspaceSlug}
