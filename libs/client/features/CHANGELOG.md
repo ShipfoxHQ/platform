@@ -1,5 +1,12 @@
 # @shipfox/client-features
 
+## 20.0.0
+
+### Patch Changes
+
+- Updated dependencies [4df5e37]
+  - @shipfox/client-workflows@20.0.0
+
 ## 19.0.0
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shipfox/api-integration-github
 
+## 12.7.0
+
+### Minor Changes
+
+- 4639dd9: Add GitHub pull request review-thread inspection and resolution tools.
+
 ## 12.6.0
 
 ### Patch Changes

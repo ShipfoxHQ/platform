@@ -1,5 +1,12 @@
 # @shipfox/api-logs
 
+## 12.7.0
+
+### Patch Changes
+
+- Updated dependencies [4df5e37]
+  - @shipfox/api-workflows-dto@12.7.0
+
 ## 12.6.0
 
 ### Patch Changes

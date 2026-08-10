@@ -1,5 +1,14 @@
 # @shipfox/api-integration-core
 
+## 12.7.0
+
+### Patch Changes
+
+- Updated dependencies [4639dd9]
+- Updated dependencies [4df5e37]
+  - @shipfox/api-integration-github@12.7.0
+  - @shipfox/api-workflows-dto@12.7.0
+
 ## 12.6.0
 
 ### Patch Changes

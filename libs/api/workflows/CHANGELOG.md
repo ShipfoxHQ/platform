@@ -1,5 +1,19 @@
 # @shipfox/api-workflows
 
+## 12.7.0
+
+### Minor Changes
+
+- 4df5e37: Workflow run list items and run detail now carry `has_started_job_execution`, reporting whether any
+  job execution of the attempt reached a runner. Run surfaces no longer show a client-derived `Queued`
+  state: the run list and run detail present the API attempt status and duration, and read the new
+  field to label a finished run's duration as run or elapsed time.
+
+### Patch Changes
+
+- Updated dependencies [4df5e37]
+  - @shipfox/api-workflows-dto@12.7.0
+
 ## 12.6.0
 
 ### Minor Changes
