@@ -33,7 +33,7 @@ export function toRunDto(run: WorkflowRun, latestAttempt = run.currentAttempt): 
   };
 }
 
-const EMPTY_JOBS: WorkflowRunJobsSummary = {preview: [], statusCounts: []};
+const EMPTY_JOBS: WorkflowRunJobsSummary = {preview: [], statusCounts: [], rawStatusCounts: []};
 
 export function toRunListItemDto(
   run: WorkflowRun,
@@ -46,9 +46,13 @@ export function toRunListItemDto(
       key: job.key,
       name: job.name,
       status: job.status,
+      mode: job.mode,
+      listener_status: job.listenerStatus,
+      execution_status: job.executionStatus,
       position: job.position,
     })),
-    job_status_counts: jobs.statusCounts.map(({status, count}) => ({status, count})),
+    job_status_counts: jobs.rawStatusCounts.map(({status, count}) => ({status, count})),
+    job_display_status_counts: jobs.statusCounts.map(({status, count}) => ({status, count})),
   };
 }
 

@@ -81,6 +81,7 @@ export {
   stepStatusReasonSchema,
 } from './step.js';
 export {
+  jobExecutionStatusSchema,
   type RerunWorkflowRunBodyDto,
   rerunWorkflowRunBodySchema,
   WORKFLOW_RUN_JOB_PREVIEW_LIMIT,
@@ -89,6 +90,7 @@ export {
   type WorkflowRunAttemptDto,
   type WorkflowRunAttemptsResponseDto,
   type WorkflowRunDto,
+  type WorkflowRunJobDisplayStatusCountDto,
   type WorkflowRunJobStatusCountDto,
   type WorkflowRunJobSummaryDto,
   type WorkflowRunListItemDto,
@@ -104,6 +106,7 @@ export {
   workflowRunAttemptDtoSchema,
   workflowRunAttemptsResponseSchema,
   workflowRunDtoSchema,
+  workflowRunJobDisplayStatusCountDtoSchema,
   workflowRunJobStatusCountDtoSchema,
   workflowRunJobSummaryDtoSchema,
   workflowRunListItemSchema,
@@ -118,7 +121,6 @@ export {
 export {
   type JobExecutionDto,
   jobExecutionDtoSchema,
-  jobExecutionStatusSchema,
   type StepAttemptDetailResponseDto,
   stepAttemptDetailResponseSchema,
   type WorkflowRunDetailResponseDto,

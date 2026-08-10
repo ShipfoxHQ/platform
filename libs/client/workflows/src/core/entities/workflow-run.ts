@@ -1,5 +1,16 @@
-import {type Job, type JobStatus, WORKFLOW_JOB_STATUSES} from './job.js';
-import {elapsedTimeFromTimestamps, type JobExecutionDisplayDuration} from './job-execution.js';
+import {
+  type Job,
+  type JobDisplayStatus,
+  type JobMode,
+  type JobStatus,
+  type ListenerStatus,
+  WORKFLOW_JOB_STATUSES,
+} from './job.js';
+import {
+  elapsedTimeFromTimestamps,
+  type JobExecutionDisplayDuration,
+  type JobExecutionStatus,
+} from './job-execution.js';
 import type {WorkflowRunAttempt, WorkflowRunAttemptSummary} from './workflow-run-attempt.js';
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
@@ -60,11 +71,14 @@ export interface WorkflowRunJobSummary {
   key: string;
   name: string | null;
   status: JobStatus;
+  mode: JobMode;
+  listenerStatus: ListenerStatus;
+  executionStatus: JobExecutionStatus | null;
   position: number;
 }
 
 export interface WorkflowRunJobStatusCount {
-  status: JobStatus;
+  status: JobDisplayStatus;
   count: number;
 }
 
@@ -209,7 +223,7 @@ export interface WorkflowRunProgress {
   runStatus: WorkflowRunStatus;
   startedAt: string | null;
   finishedAt: string | null;
-  jobStatuses: JobStatus[];
+  jobStatuses: JobDisplayStatus[];
   firstStartedAt?: string | null | undefined;
 }
 

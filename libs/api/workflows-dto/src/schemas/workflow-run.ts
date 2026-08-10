@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {jobStatusSchema} from './job.js';
+import {jobModeSchema, listenerStatusSchema} from './job-listening.js';
 
 export const workflowRunStatusSchema = z.enum([
   'pending',
@@ -10,6 +11,14 @@ export const workflowRunStatusSchema = z.enum([
 ]);
 
 export type WorkflowRunStatusDto = z.infer<typeof workflowRunStatusSchema>;
+
+export const jobExecutionStatusSchema = z.enum([
+  'pending',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
 
 export const workflowRunRerunModeSchema = z.enum(['all', 'failed']);
 
@@ -137,16 +146,22 @@ export const workflowRunAttemptsResponseSchema = z.object({
 export type WorkflowRunAttemptsResponseDto = z.infer<typeof workflowRunAttemptsResponseSchema>;
 
 // The run list renders a status glyph per job so a failing run can be read without being
-// opened, which needs the current attempt's jobs in graph order but none of their steps.
+// opened. Runtime state comes from the selected execution rather than the job verdict, while
+// mode and listener status let the client apply the same display rule as run detail. These
+// fields default to the pre-display-state contract so a web client can roll out before or
+// alongside an API deployment without rejecting an older response.
 export const workflowRunJobSummaryDtoSchema = z.object({
   id: z.string().uuid(),
   key: z.string(),
   name: z.string().nullable(),
   status: jobStatusSchema,
+  mode: jobModeSchema.optional().default('one_shot'),
+  listener_status: listenerStatusSchema.optional().default('inactive'),
+  execution_status: jobExecutionStatusSchema.nullable().optional().default(null),
   position: z.number().int().nonnegative(),
 });
 
-export type WorkflowRunJobSummaryDto = z.infer<typeof workflowRunJobSummaryDtoSchema>;
+export type WorkflowRunJobSummaryDto = z.input<typeof workflowRunJobSummaryDtoSchema>;
 
 /**
  * How many jobs a run list row carries in graph order.
@@ -158,7 +173,7 @@ export type WorkflowRunJobSummaryDto = z.infer<typeof workflowRunJobSummaryDtoSc
  */
 export const WORKFLOW_RUN_JOB_PREVIEW_LIMIT = 16;
 
-/** One status and how many of the run's jobs hold it, counted over all of them. */
+/** The persisted job verdict and how many of the run's jobs carry it, counted over all of them. */
 export const workflowRunJobStatusCountDtoSchema = z.object({
   status: jobStatusSchema,
   count: z.number().int().positive(),
@@ -166,14 +181,29 @@ export const workflowRunJobStatusCountDtoSchema = z.object({
 
 export type WorkflowRunJobStatusCountDto = z.infer<typeof workflowRunJobStatusCountDtoSchema>;
 
+/** One display status and how many of the run's jobs render it, counted over all of them. */
+export const workflowRunJobDisplayStatusCountDtoSchema = z.object({
+  status: jobStatusSchema.or(z.literal('listening')),
+  count: z.number().int().positive(),
+});
+
+export type WorkflowRunJobDisplayStatusCountDto = z.infer<
+  typeof workflowRunJobDisplayStatusCountDtoSchema
+>;
+
 export const workflowRunListItemSchema = workflowRunResponseSchema.extend({
   /** Up to `WORKFLOW_RUN_JOB_PREVIEW_LIMIT` jobs in graph order, not the whole set. */
   jobs: z.array(workflowRunJobSummaryDtoSchema).max(WORKFLOW_RUN_JOB_PREVIEW_LIMIT),
-  /** Counted over every job of the attempt, including those past the preview. */
+  /** Persisted verdict counts, kept stable so older web clients can consume new responses. */
   job_status_counts: z.array(workflowRunJobStatusCountDtoSchema),
+  /**
+   * Display-state counts over every job of the attempt, including those past the preview.
+   * Optional so a new web client can consume an older API response during rollout.
+   */
+  job_display_status_counts: z.array(workflowRunJobDisplayStatusCountDtoSchema).optional(),
 });
 
-export type WorkflowRunListItemDto = z.infer<typeof workflowRunListItemSchema>;
+export type WorkflowRunListItemDto = z.input<typeof workflowRunListItemSchema>;
 
 export const workflowRunListResponseSchema = z.object({
   runs: z.array(workflowRunListItemSchema),
@@ -181,7 +211,7 @@ export const workflowRunListResponseSchema = z.object({
   filtered_total_count: z.number().int().nonnegative().nullable(),
 });
 
-export type WorkflowRunListResponseDto = z.infer<typeof workflowRunListResponseSchema>;
+export type WorkflowRunListResponseDto = z.input<typeof workflowRunListResponseSchema>;
 
 const aggregateBucketSchema = z.object({
   value: z.string(),

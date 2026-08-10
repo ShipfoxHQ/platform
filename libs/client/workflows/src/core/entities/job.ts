@@ -2,6 +2,7 @@ import {
   deriveJobExecutionDisplayStatus,
   type JobExecution,
   type JobExecutionDisplayDuration,
+  type JobExecutionStatus,
 } from './job-execution.js';
 import type {EvaluationTraceEntry} from './step-attempt.js';
 
@@ -140,12 +141,23 @@ export function isTerminalJobStatus(status: JobStatus): boolean {
 }
 
 export function deriveJobDisplayStatus(
-  job: Pick<Job, 'mode' | 'status' | 'listenerStatus' | 'jobExecutions'>,
+  job: Pick<Job, 'mode' | 'status' | 'listenerStatus' | 'jobExecutions'> & {
+    /** List previews carry the selected execution state without its step tree. */
+    executionStatus?: JobExecutionStatus | null | undefined;
+  },
 ): JobDisplayStatus {
   if (isTerminalJobStatus(job.status)) return job.status;
   if (job.mode === 'listening' && job.listenerStatus === 'listening') return 'listening';
-
-  const execution = defaultJobExecution(job);
+  const execution =
+    job.executionStatus === undefined
+      ? defaultJobExecution(job)
+      : job.executionStatus === null
+        ? undefined
+        : {status: job.executionStatus, steps: []};
+  // A running execution is the shared display rule for both list previews and detail jobs.
+  // The list has no step tree, while the detail path can still use the execution's steps for
+  // other non-running states.
+  if (execution?.status === 'running') return 'running';
   return execution ? deriveJobExecutionDisplayStatus(execution) : 'pending';
 }
 

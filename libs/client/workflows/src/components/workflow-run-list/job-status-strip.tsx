@@ -3,7 +3,8 @@ import {Code, Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
-import type {JobStatus, WorkflowRunJobSummary, WorkflowRunJobs} from '#core/workflow-run.js';
+import {deriveJobDisplayStatus, type JobDisplayStatus} from '#core/entities/job.js';
+import type {WorkflowRunJobSummary, WorkflowRunJobs} from '#core/workflow-run.js';
 
 /**
  * How many glyphs fit the strip's column before it starts costing the run name width.
@@ -33,16 +34,17 @@ const COMPACT_COUNT_FORMAT = new Intl.NumberFormat('en', {
 
 // Worst-first, so the overflow glyph reports the most alarming thing it is standing in for.
 // A strip that hides a failure behind eight green discs would be worse than no strip at all.
-const STATUS_SEVERITY: Record<JobStatus, number> = {
+const STATUS_SEVERITY: Record<JobDisplayStatus, number> = {
   failed: 5,
   running: 4,
+  listening: 4,
   pending: 3,
   cancelled: 2,
   skipped: 1,
   succeeded: 0,
 };
 
-const NOTABLE_STATUSES: readonly JobStatus[] = ['failed', 'running'];
+const NOTABLE_STATUSES: readonly JobDisplayStatus[] = ['failed', 'running', 'listening'];
 
 export interface JobStatusStripProps {
   jobs: WorkflowRunJobs;
@@ -80,7 +82,7 @@ export function JobStatusStrip({jobs, className}: JobStatusStripProps) {
             {visible.map((job) => (
               <WorkflowStatusIcon
                 key={job.id}
-                status={job.status}
+                status={displayStatus(job)}
                 size={GLYPH_SIZE}
                 // One ripple per running job, on every row, would turn a calm list into a
                 // field of pulses. The run's own glyph already carries the live edge.
@@ -121,7 +123,7 @@ function JobStatusStripTooltip({jobs, summary}: {jobs: WorkflowRunJobs; summary:
   // can be named, but the count of those left over is read off the totals, so a failure past
   // the preview is still accounted for rather than silently missing.
   const named = jobs.preview
-    .filter((job) => NOTABLE_STATUSES.includes(job.status))
+    .filter((job) => NOTABLE_STATUSES.includes(displayStatus(job)))
     .slice(0, MAX_TOOLTIP_JOB_NAMES);
   const notableTotal = NOTABLE_STATUSES.reduce((total, status) => total + countOf(jobs, status), 0);
   const remaining = notableTotal - named.length;
@@ -133,7 +135,7 @@ function JobStatusStripTooltip({jobs, summary}: {jobs: WorkflowRunJobs; summary:
       </Text>
       {named.map((job) => (
         <Code as="span" variant="label" key={job.id} className="block truncate">
-          {getWorkflowStatusVisual(job.status).label.toLowerCase()} · {job.name ?? job.key}
+          {getWorkflowStatusVisual(displayStatus(job)).label.toLowerCase()} · {job.name ?? job.key}
         </Code>
       ))}
       {remaining > 0 ? (
@@ -162,15 +164,16 @@ export function jobStatusSummary(jobs: WorkflowRunJobs): string {
 function worstHiddenStatus(
   jobs: WorkflowRunJobs,
   visible: readonly WorkflowRunJobSummary[],
-): JobStatus | null {
+): JobDisplayStatus | null {
   const hidden = new Map(jobs.statusCounts.map(({status, count}) => [status, count]));
   for (const job of visible) {
-    const remaining = (hidden.get(job.status) ?? 0) - 1;
-    if (remaining > 0) hidden.set(job.status, remaining);
-    else hidden.delete(job.status);
+    const status = displayStatus(job);
+    const remaining = (hidden.get(status) ?? 0) - 1;
+    if (remaining > 0) hidden.set(status, remaining);
+    else hidden.delete(status);
   }
 
-  let worst: JobStatus | null = null;
+  let worst: JobDisplayStatus | null = null;
   for (const [status, count] of hidden) {
     if (count <= 0) continue;
     if (worst === null || STATUS_SEVERITY[status] > STATUS_SEVERITY[worst]) worst = status;
@@ -184,6 +187,16 @@ export function overflowCountLabel(hiddenCount: number): string {
     : COMPACT_COUNT_FORMAT.format(hiddenCount);
 }
 
-function countOf(jobs: WorkflowRunJobs, status: JobStatus): number {
+function countOf(jobs: WorkflowRunJobs, status: JobDisplayStatus): number {
   return jobs.statusCounts.find((entry) => entry.status === status)?.count ?? 0;
+}
+
+function displayStatus(job: WorkflowRunJobSummary): JobDisplayStatus {
+  return deriveJobDisplayStatus({
+    mode: job.mode,
+    status: job.status,
+    listenerStatus: job.listenerStatus,
+    executionStatus: job.executionStatus,
+    jobExecutions: [],
+  });
 }

@@ -3,15 +3,11 @@ import {evaluationTraceSchema} from './evaluation-trace.js';
 import {jobDtoSchema} from './job.js';
 import {workflowExecutionEventSchema} from './job-listening.js';
 import {stepAttemptDetailDtoSchema, stepAttemptDtoSchema, stepDtoSchema} from './step.js';
-import {workflowRunAttemptDtoSchema, workflowRunResponseSchema} from './workflow-run.js';
-
-export const jobExecutionStatusSchema = z.enum([
-  'pending',
-  'running',
-  'succeeded',
-  'failed',
-  'cancelled',
-]);
+import {
+  jobExecutionStatusSchema,
+  workflowRunAttemptDtoSchema,
+  workflowRunResponseSchema,
+} from './workflow-run.js';
 
 export const jobExecutionDtoSchema = z.object({
   id: z.string().uuid(),

@@ -81,6 +81,7 @@ export function workflowRunDto(
     finished_at: null,
     jobs: [],
     job_status_counts: [],
+    job_display_status_counts: [],
     ...overrides,
   };
 }
@@ -89,11 +90,15 @@ export function workflowRunJobSummaryDto(
   overrides: Partial<WorkflowRunJobSummaryDto> = {},
 ): WorkflowRunJobSummaryDto {
   jobSummarySequence += 1;
+  const status = overrides.status ?? 'succeeded';
   return {
     id: `${JOB_SUMMARY_ID_PREFIX}${String(jobSummarySequence).padStart(11, '0')}`,
     key: `job-${jobSummarySequence}`,
     name: null,
-    status: 'succeeded',
+    status,
+    mode: 'one_shot',
+    listener_status: 'inactive',
+    execution_status: executionStatusForFixtureStatus(status),
     position: jobSummarySequence - 1,
     ...overrides,
   };
@@ -104,13 +109,25 @@ export function workflowRunJobSummaryDtos(
   count: number,
   statuses: readonly JobStatusDto[] = [],
 ): WorkflowRunJobSummaryDto[] {
-  return Array.from({length: count}, (_, index) =>
-    workflowRunJobSummaryDto({
+  return Array.from({length: count}, (_, index) => {
+    const status = statuses[index];
+    return workflowRunJobSummaryDto({
       key: `job-${index + 1}`,
       position: index,
-      ...(statuses[index] ? {status: statuses[index]} : {}),
-    }),
-  );
+      ...(status
+        ? {
+            status,
+            execution_status: executionStatusForFixtureStatus(status),
+          }
+        : {}),
+    });
+  });
+}
+
+function executionStatusForFixtureStatus(
+  status: JobStatusDto,
+): WorkflowRunJobSummaryDto['execution_status'] {
+  return status === 'pending' || status === 'running' ? status : null;
 }
 
 /**
@@ -122,16 +139,19 @@ export function workflowRunJobSummaryDtos(
  */
 export function workflowRunJobsFixture(
   statuses: readonly JobStatusDto[],
-): Pick<WorkflowRunListItemDto, 'jobs' | 'job_status_counts'> {
+): Pick<WorkflowRunListItemDto, 'jobs' | 'job_status_counts' | 'job_display_status_counts'> {
   const counts = new Map<JobStatusDto, number>();
   for (const status of statuses) counts.set(status, (counts.get(status) ?? 0) + 1);
 
+  const preview = workflowRunJobSummaryDtos(
+    Math.min(statuses.length, WORKFLOW_RUN_JOB_PREVIEW_LIMIT),
+    statuses,
+  );
+
   return {
-    jobs: workflowRunJobSummaryDtos(
-      Math.min(statuses.length, WORKFLOW_RUN_JOB_PREVIEW_LIMIT),
-      statuses,
-    ),
+    jobs: preview,
     job_status_counts: [...counts.entries()].map(([status, count]) => ({status, count})),
+    job_display_status_counts: [...counts.entries()].map(([status, count]) => ({status, count})),
   };
 }
 
@@ -139,7 +159,7 @@ export function workflowRunJobsFixture(
 export function workflowRunJobsOfStatus(
   count: number,
   status: JobStatusDto = 'succeeded',
-): Pick<WorkflowRunListItemDto, 'jobs' | 'job_status_counts'> {
+): Pick<WorkflowRunListItemDto, 'jobs' | 'job_status_counts' | 'job_display_status_counts'> {
   return workflowRunJobsFixture(Array.from({length: count}, () => status));
 }
 

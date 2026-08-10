@@ -107,6 +107,9 @@ describe('workflow run list item schema', () => {
       key: `job-${position}`,
       name: null,
       status: 'succeeded' as const,
+      mode: 'one_shot' as const,
+      listener_status: 'inactive' as const,
+      execution_status: null,
       position,
     };
   }
@@ -121,6 +124,55 @@ describe('workflow run list item schema', () => {
 
     expect(result.jobs).toHaveLength(1);
     expect(result.jobs[0]?.status).toBe('succeeded');
+    expect(result.jobs[0]?.execution_status).toBeNull();
+  });
+
+  test('carries execution evidence and listening state for display derivation', () => {
+    const result = workflowRunListItemSchema.parse({
+      ...baseRun,
+      source_snapshot: null,
+      jobs: [
+        {
+          ...jobDto(0),
+          mode: 'listening',
+          listener_status: 'listening',
+          execution_status: 'running',
+        },
+      ],
+      job_status_counts: [{status: 'running', count: 1}],
+      job_display_status_counts: [{status: 'listening', count: 1}],
+    });
+
+    expect(result.jobs[0]).toMatchObject({
+      mode: 'listening',
+      listener_status: 'listening',
+      execution_status: 'running',
+    });
+    expect(result.job_status_counts).toEqual([{status: 'running', count: 1}]);
+    expect(result.job_display_status_counts).toEqual([{status: 'listening', count: 1}]);
+  });
+
+  test('accepts a pre-display-state API response during a mixed-version rollout', () => {
+    const {
+      mode: _mode,
+      listener_status: _listenerStatus,
+      execution_status: _executionStatus,
+      ...legacyJob
+    } = jobDto(0);
+
+    const result = workflowRunListItemSchema.parse({
+      ...baseRun,
+      source_snapshot: null,
+      jobs: [legacyJob],
+      job_status_counts: [{status: 'running', count: 1}],
+    });
+
+    expect(result.jobs[0]).toMatchObject({
+      mode: 'one_shot',
+      listener_status: 'inactive',
+      execution_status: null,
+    });
+    expect(result.job_display_status_counts).toBeUndefined();
   });
 
   // The preview is a bounded slice, so counts describe jobs the payload never carried.
