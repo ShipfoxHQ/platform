@@ -2,7 +2,10 @@ import {pgClient} from '@shipfox/node-postgres';
 import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {createRunnerSessionConsumingEphemeralToken} from '#db/ephemeral-registration-tokens.js';
-import {pollDemandAndReserve} from '#db/reservations.js';
+import {
+  pollDemandAndReserve,
+  releaseTerminalRunnerInstanceReservationsByIds,
+} from '#db/reservations.js';
 import {
   attachRunnerInstanceProviderId,
   countStaleEnrolledRunnerInstances,
@@ -1904,6 +1907,52 @@ describe('reapStaleRunnerInstances', () => {
         .filter((row) => row.reservationId)
         .every((row) => row.reservationReleasedAt instanceof Date),
     ).toBe(true);
+  });
+
+  it('waits for reservation assignment locks before releasing terminal runners', async () => {
+    const reservationId = await createReservation(1);
+    const runner = await createRunnerInstance({
+      providerRunnerId: 'terminal-assignment-race',
+      reservationId,
+      state: 'failed',
+      reportedAt: staleAt(),
+      updatedAt: staleAt(),
+    });
+    const releaseLock = deferred<void>();
+    const lockHolderReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${provisionerId}:${reservationId}`}))`,
+      );
+      lockHolderReady.resolve();
+      await releaseLock.promise;
+    });
+
+    const cleanup = (async () => {
+      await lockHolderReady.promise;
+      return await db().transaction((tx) =>
+        releaseTerminalRunnerInstanceReservationsByIds(tx, {
+          workspaceId,
+          provisionerId,
+          runnerInstanceIds: [runner.id],
+          requireUnlinkedSession: false,
+        }),
+      );
+    })();
+
+    try {
+      await waitForLockWait({queryLike: '%pg_advisory_xact_lock%'});
+      const [beforeRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+      const [beforeReservation] = await reservationRowsFor({workspaceId, provisionerId});
+      expect(beforeRunner?.reservationReleasedAt).toBeNull();
+      expect(beforeReservation?.count).toBe(1);
+    } finally {
+      releaseLock.resolve();
+      await Promise.all([cleanup, lockHolder]);
+    }
+
+    const [providerRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+    expect(providerRunner?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
   it('does not double-release reservations when terminal report and reaper queue on the workspace lock', async () => {

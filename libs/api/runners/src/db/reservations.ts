@@ -925,6 +925,8 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
     runnerInstanceIds?: string[];
     reportedAtByProviderRunnerId?: ReadonlyMap<string, Date>;
     requireUnlinkedSession?: boolean;
+    /** Lock linked runners before rechecking terminal state for lease finalization. */
+    requireTerminalState?: boolean;
   },
 ): Promise<number> {
   if (
@@ -971,9 +973,47 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
       : undefined,
   );
 
+  // Assignment locks these keys before changing runner links. Acquire them before locking or
+  // marking terminal runners so an assignment cannot consume a reservation concurrently with
+  // this release.
+  const reservationRowsToLock = await tx
+    .select({
+      reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        runnerIdentityPredicate,
+        params.requireTerminalState === false
+          ? undefined
+          : inArray(providerRunners.state, terminalStates),
+        or(
+          isNotNull(providerRunners.reservationId),
+          isNotNull(providerRunners.intendedReservationId),
+        ),
+        isNull(providerRunners.reservationReleasedAt),
+      ),
+    );
+  const reservationIdsToLock = [
+    ...new Set(
+      reservationRowsToLock.flatMap((row) =>
+        [row.reservationId, row.intendedReservationId].filter(
+          (reservationId): reservationId is string => reservationId !== null,
+        ),
+      ),
+    ),
+  ];
+  await lockRunnerReservationAdvisoryKeysTx(tx, {
+    provisionerId: params.provisionerId,
+    reservationIds: reservationIdsToLock,
+  });
+
   const rows = await tx
     .select({
       id: providerRunners.id,
+      state: providerRunners.state,
       releaseReservationId: sql<string | null>`coalesce(
         (select ${reservations.id}
          from ${reservations}
@@ -1004,7 +1044,9 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
       and(
         eq(providerRunners.provisionerId, params.provisionerId),
         runnerIdentityPredicate,
-        inArray(providerRunners.state, terminalStates),
+        params.requireTerminalState === false
+          ? undefined
+          : inArray(providerRunners.state, terminalStates),
         or(
           isNotNull(providerRunners.reservationId),
           isNotNull(providerRunners.intendedReservationId),
@@ -1070,6 +1112,15 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
 
   if (rows.length === 0) return 0;
 
+  // The lease-finalization path deliberately locks active rows too. If a terminal report is
+  // concurrently projecting the runner state, PostgreSQL rechecks this row after the lock and
+  // lets cleanup observe the committed terminal state without a cross-module advisory lock.
+  const terminalRows =
+    params.requireTerminalState === false
+      ? rows.filter((row) => terminalStates.some((terminalState) => terminalState === row.state))
+      : rows;
+  if (terminalRows.length === 0) return 0;
+
   const updated = await tx
     .update(providerRunners)
     .set({
@@ -1081,7 +1132,7 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
       and(
         inArray(
           providerRunners.id,
-          rows.map((row) => row.id),
+          terminalRows.map((row) => row.id),
         ),
         params.requireUnlinkedSession === false
           ? undefined
@@ -1098,7 +1149,7 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
     {workspaceId: string; reservationId: string; count: number}
   >();
   const updatedIds = new Set(updated.map((row) => row.id));
-  for (const row of rows) {
+  for (const row of terminalRows) {
     if (!updatedIds.has(row.id)) continue;
     if (!row.releaseReservationId || !row.releaseReservationWorkspaceId) continue;
     const key = `${row.releaseReservationWorkspaceId}:${row.releaseReservationId}`;

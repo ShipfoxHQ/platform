@@ -407,7 +407,8 @@ async function touchRunnerSessionLiveness(params: {
  * Releases a job execution's lease when the orchestration workflow finalizes it: deletes the
  * running-job-execution row AND any lingering pending row for the same execution, in one tx.
  * When the deleted lease was the last one for a terminal provider runner, it also releases the
- * runner's reservation in the same transaction.
+ * runner's reservation in the same runner-owned transaction. Terminal reports and workflow lease
+ * finalization remain independently retryable; they do not share a cross-module scope lock.
  * Idempotent (0-row no-op), no token scope (the workflow is authoritative), and
  * emits no event: the workflow already owns the outcome. Sweeping the pending row
  * too closes the at-least-once window where an enqueue retry left an orphan that a
@@ -435,16 +436,14 @@ export async function releaseJobExecution(params: {jobExecutionId: string}): Pro
 
     const deletedRunningRow = deletedRunningRows[0];
     if (deletedRunningRow?.provisionerId && deletedRunningRow.providerRunnerId) {
-      // Serialize this cleanup with terminal reports and the stale-runner reaper, which use the
-      // workspace lock while inspecting the runner and its leases.
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${deletedRunningRow.workspaceId}))`,
-      );
       await releaseTerminalRunnerInstanceReservationsByIds(tx, {
         workspaceId: null,
         provisionerId: deletedRunningRow.provisionerId,
         providerRunnerIds: [deletedRunningRow.providerRunnerId],
         requireUnlinkedSession: false,
+        // Lock and re-check the runner row locally so terminal reporting remains retryable
+        // without a workflow/runner scope lock.
+        requireTerminalState: false,
       });
     }
   });

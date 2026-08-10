@@ -1017,6 +1017,77 @@ describe('releaseJobExecution', () => {
     expect(runner?.reservationReleasedAt).toEqual(expect.any(Date));
   });
 
+  it('rechecks terminal state after a concurrent terminal projection commits', async () => {
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: sessionLabels,
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!reservation) throw new Error('Expected reservation');
+
+    await db()
+      .update(runnerSessions)
+      .set({registrationTokenKind: 'ephemeral', maxClaims: 1, provisionerId, providerRunnerId})
+      .where(eq(runnerSessions.id, runnerSessionId));
+    await db().insert(providerRunners).values({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      reservationId: reservation.id,
+      runnerSessionId,
+      state: 'running',
+      reportedAt: new Date(),
+      labels: sessionLabels,
+    });
+
+    const created = await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
+    expect(claimed?.jobExecutionId).toBe(created.jobExecutionId);
+
+    const terminalProjectionReady = deferred<void>();
+    const releaseTerminalProjection = deferred<void>();
+    const terminalProjection = db().transaction(async (tx) => {
+      await tx
+        .update(providerRunners)
+        .set({state: 'failed', failedAt: new Date(), updatedAt: new Date()})
+        .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+      terminalProjectionReady.resolve();
+      await releaseTerminalProjection.promise;
+    });
+
+    await terminalProjectionReady.promise;
+    const cleanup = releaseJobExecution({jobExecutionId: created.jobExecutionId});
+    try {
+      await waitForLockWait({queryLike: '%runner_instances%'});
+
+      expect(
+        await db().select().from(reservations).where(eq(reservations.id, reservation.id)),
+      ).toHaveLength(1);
+    } finally {
+      releaseTerminalProjection.resolve();
+      await Promise.all([terminalProjection, cleanup]);
+    }
+
+    expect(
+      await db().select().from(reservations).where(eq(reservations.id, reservation.id)),
+    ).toHaveLength(0);
+    const [runner] = await db()
+      .select({
+        reservationReleasedAt: providerRunners.reservationReleasedAt,
+        state: providerRunners.state,
+      })
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner).toMatchObject({state: 'failed', reservationReleasedAt: expect.any(Date)});
+  });
+
   it('releases regardless of which session holds the lease', async () => {
     await pendingJobFactory.create({workspaceId});
     const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
