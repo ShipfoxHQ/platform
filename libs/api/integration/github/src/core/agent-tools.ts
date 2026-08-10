@@ -78,6 +78,63 @@ const ADD_PENDING_REVIEW_COMMENT_MUTATION = `
   }
 `;
 
+const GET_PULL_REQUEST_REVIEW_THREADS_QUERY = `
+  query GetPullRequestReviewThreads(
+    $owner: String!
+    $repo: String!
+    $pullNumber: Int!
+    $after: String
+  ) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $pullNumber) {
+        reviewThreads(first: 100, after: $after) {
+          nodes {
+            id
+            isResolved
+            comments(first: 100) {
+              nodes {
+                id
+                databaseId
+                body
+                author {
+                  login
+                }
+                path
+                line
+                side
+                startLine
+                startSide
+                createdAt
+                updatedAt
+                url
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+  }
+`;
+
+const RESOLVE_PULL_REQUEST_REVIEW_THREAD_MUTATION = `
+  mutation ResolvePullRequestReviewThread($input: ResolveReviewThreadInput!) {
+    resolveReviewThread(input: $input) {
+      thread {
+        id
+        isResolved
+      }
+    }
+  }
+`;
+
 export class GithubAgentToolsProvider
   implements
     AgentToolsProvider<
@@ -145,11 +202,17 @@ export class GithubAgentToolsProvider
 
         if (operation.kind === 'graphql') {
           const data = await mapGithubError(() =>
-            addCommentToPendingReview(client, operation.parameters),
+            executeGithubGraphqlOperation(
+              client,
+              tool.id as GithubAgentToolId,
+              method,
+              operation.parameters,
+            ),
           );
-          return data === undefined
-            ? githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected')
-            : githubToolResult(tool.id as GithubAgentToolId, data);
+          if (data === undefined && tool.id === 'add_comment_to_pending_review') {
+            return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
+          }
+          return githubToolResult(tool.id as GithubAgentToolId, data);
         }
 
         const operationParameters = await mapGithubError(() =>
@@ -322,6 +385,8 @@ export function githubOperationRoute(
       return `GET ${repoPath}/pulls/${pull}/commits`;
     case 'pull_request_read.get_review_comments':
       return `GET ${repoPath}/pulls/${pull}/comments`;
+    case 'pull_request_read.get_review_threads':
+      return GITHUB_GRAPHQL_ROUTE;
     case 'pull_request_read.get_reviews':
       return `GET ${repoPath}/pulls/${pull}/reviews`;
     case 'pull_request_read.get_comments':
@@ -350,6 +415,8 @@ export function githubOperationRoute(
       return `POST ${repoPath}/pulls/${pull}/reviews/{review_id}/events`;
     case 'pull_request_review_write.delete_pending':
       return `DELETE ${repoPath}/pulls/${pull}/reviews/{review_id}`;
+    case 'pull_request_review_thread_write.resolve':
+      return GITHUB_GRAPHQL_ROUTE;
     case 'add_comment_to_pending_review.':
       return GITHUB_GRAPHQL_ROUTE;
     case 'actions_list.list_workflows':
@@ -421,6 +488,43 @@ async function addCommentToPendingReview(
   if (args.start_side !== undefined) input.startSide = args.start_side;
 
   return await client.graphql(ADD_PENDING_REVIEW_COMMENT_MUTATION, {input});
+}
+
+async function executeGithubGraphqlOperation(
+  client: GithubToolClient,
+  toolId: GithubAgentToolId,
+  method: string | undefined,
+  parameters: Record<string, unknown>,
+): Promise<unknown | undefined> {
+  if (client.graphql === undefined) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'GitHub client does not support GraphQL operations',
+    );
+  }
+
+  switch (`${toolId}.${method ?? ''}`) {
+    case 'pull_request_read.get_review_threads': {
+      const variables: Record<string, unknown> = {
+        owner: parameters.owner,
+        repo: parameters.repo,
+        pullNumber: parameters.pull_number,
+      };
+      if (typeof parameters.cursor === 'string') variables.after = parameters.cursor;
+      return await client.graphql(GET_PULL_REQUEST_REVIEW_THREADS_QUERY, variables);
+    }
+    case 'pull_request_review_thread_write.resolve':
+      return await client.graphql(RESOLVE_PULL_REQUEST_REVIEW_THREAD_MUTATION, {
+        input: {threadId: parameters.thread_id},
+      });
+    case 'add_comment_to_pending_review.':
+      return await addCommentToPendingReview(client, parameters);
+    default:
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        'GitHub operation does not support GraphQL operations',
+      );
+  }
 }
 
 export function projectGithubOperationParameters(

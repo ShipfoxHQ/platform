@@ -175,6 +175,13 @@ const pullRequestReadMethods = [
     scopes.pullRequestsRead,
   ),
   method(
+    'get_review_threads',
+    'Get review threads, their resolution state, and comments for a specific pull request.',
+    'read',
+    false,
+    scopes.pullRequestsRead,
+  ),
+  method(
     'get_reviews',
     'Get reviews for a specific pull request.',
     'read',
@@ -215,6 +222,16 @@ const pullRequestReviewWriteMethods = [
   method(
     'delete_pending',
     'Delete the latest pending pull request review.',
+    'write',
+    false,
+    scopes.pullRequestsWrite,
+  ),
+] as const satisfies readonly GithubAgentToolCatalogMethod[];
+
+const pullRequestReviewThreadWriteMethods = [
+  method(
+    'resolve',
+    'Resolve a pull request review thread.',
     'write',
     false,
     scopes.pullRequestsWrite,
@@ -472,6 +489,7 @@ export const githubAgentToolCatalog = [
           methodRequiredSchema('get_files', []),
           methodRequiredSchema('get_commits', []),
           methodRequiredSchema('get_review_comments', []),
+          methodRequiredSchema('get_review_threads', []),
           methodRequiredSchema('get_reviews', []),
           methodRequiredSchema('get_comments', []),
           methodRequiredSchema('get_check_runs', ['ref']),
@@ -665,6 +683,23 @@ export const githubAgentToolCatalog = [
       ['method', 'pull_number'],
     ),
     outputSchema: openObjectSchema('Pull request review write result'),
+  }),
+  tool({
+    id: 'pull_request_review_thread_write',
+    category: 'pull_requests',
+    description: 'Resolve review threads on a pull request in a GitHub repository.',
+    methods: pullRequestReviewThreadWriteMethods,
+    inputSchema: repositoryInputSchema(
+      {
+        method: methodSchema(
+          pullRequestReviewThreadWriteMethods,
+          'The write operation to perform on a pull request review thread',
+        ),
+        thread_id: stringSchema('The node ID of the review thread'),
+      },
+      ['method', 'thread_id'],
+    ),
+    outputSchema: openObjectSchema('Pull request review thread write result'),
   }),
   tool({
     id: 'add_comment_to_pending_review',

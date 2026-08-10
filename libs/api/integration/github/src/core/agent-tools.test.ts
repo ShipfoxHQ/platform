@@ -83,6 +83,7 @@ const expectedCatalogRows = [
       'get_files',
       'get_commits',
       'get_review_comments',
+      'get_review_threads',
       'get_reviews',
       'get_comments',
       'get_check_runs',
@@ -147,6 +148,14 @@ const expectedCatalogRows = [
     sensitive: false,
     requiredScope: [{permission: 'pull_requests', access: 'write'}],
     methods: ['create', 'submit_pending', 'delete_pending'],
+  },
+  {
+    id: 'pull_request_review_thread_write',
+    category: 'pull_requests',
+    sensitivity: 'write',
+    sensitive: false,
+    requiredScope: [{permission: 'pull_requests', access: 'write'}],
+    methods: ['resolve'],
   },
   {
     id: 'add_comment_to_pending_review',
@@ -353,6 +362,12 @@ const githubOperationRouteCases = [
   },
   {
     toolId: 'pull_request_read',
+    method: 'get_review_threads',
+    args: {pull_number: 1},
+    expectedRoute: 'POST /graphql',
+  },
+  {
+    toolId: 'pull_request_read',
     method: 'get_reviews',
     args: {pull_number: 1},
     expectedRoute: 'GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
@@ -428,6 +443,12 @@ const githubOperationRouteCases = [
     args: {pull_number: 1},
     runtimeInjectedProperties: ['review_id'],
     expectedRoute: 'DELETE /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}',
+  },
+  {
+    toolId: 'pull_request_review_thread_write',
+    method: 'resolve',
+    args: {thread_id: 'PRRT_kwDOExample'},
+    expectedRoute: 'POST /graphql',
   },
   {
     toolId: 'add_comment_to_pending_review',
@@ -663,6 +684,7 @@ describe('github agent tool catalog', () => {
       {properties: {method: {const: 'get_files'}}, required: []},
       {properties: {method: {const: 'get_commits'}}, required: []},
       {properties: {method: {const: 'get_review_comments'}}, required: []},
+      {properties: {method: {const: 'get_review_threads'}}, required: []},
       {properties: {method: {const: 'get_reviews'}}, required: []},
       {properties: {method: {const: 'get_comments'}}, required: []},
       {properties: {method: {const: 'get_check_runs'}}, required: ['ref']},
@@ -838,6 +860,104 @@ describe('github agent tool catalog', () => {
     expect(result).toEqual({
       content: [{type: 'text', text: '{"result":"diff --git a/file b/file"}'}],
       structuredContent: {result: 'diff --git a/file b/file'},
+    });
+  });
+
+  it('reads pull request review threads through GraphQL', async () => {
+    const request = vi.fn();
+    const data = {
+      repository: {
+        pullRequest: {
+          reviewThreads: {
+            nodes: [
+              {
+                id: 'PRRT_kwDOExample',
+                isResolved: false,
+                comments: {
+                  nodes: [
+                    {
+                      id: 'PRRC_kwDOExample',
+                      databaseId: 7,
+                      body: 'Please handle this.',
+                      author: {login: 'reviewer'},
+                      path: 'src/index.ts',
+                      line: 42,
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const graphql = vi.fn().mockResolvedValueOnce(data);
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pullRequestReadTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'pull_request_read',
+      arguments: {
+        method: 'get_review_threads',
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        cursor: 'cursor-1',
+      },
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(graphql).toHaveBeenCalledWith(
+      expect.stringContaining('reviewThreads(first: 100, after: $after)'),
+      {owner: 'shipfox', repo: 'platform', pullNumber: 2, after: 'cursor-1'},
+    );
+    const query = graphql.mock.calls[0]?.[0];
+    expect(query).toContain('isResolved');
+    expect(query).toContain('author');
+    expect(query).toContain('path');
+    expect(query).toContain('line');
+    expect(result).toEqual({
+      content: [{type: 'text', text: JSON.stringify(data)}],
+      structuredContent: data,
+    });
+  });
+
+  it('resolves a pull request review thread through GraphQL', async () => {
+    const request = vi.fn();
+    const data = {
+      resolveReviewThread: {
+        thread: {id: 'PRRT_kwDOExample', isResolved: true},
+      },
+    };
+    const graphql = vi.fn().mockResolvedValueOnce(data);
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pullRequestReviewThreadWriteTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'pull_request_review_thread_write',
+      arguments: {
+        method: 'resolve',
+        owner: 'shipfox',
+        repo: 'platform',
+        thread_id: 'PRRT_kwDOExample',
+      },
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(graphql).toHaveBeenCalledWith(expect.stringContaining('resolveReviewThread'), {
+      input: {threadId: 'PRRT_kwDOExample'},
+    });
+    expect(result).toEqual({
+      content: [{type: 'text', text: JSON.stringify(data)}],
+      structuredContent: data,
     });
   });
 
@@ -1543,6 +1663,20 @@ function createAgentToolsProvider(client: GithubToolClient) {
 function pendingReviewTool() {
   const tool = githubAgentToolCatalog.find((entry) => entry.id === 'add_comment_to_pending_review');
   if (!tool) throw new Error('Missing add_comment_to_pending_review tool');
+  return tool;
+}
+
+function pullRequestReadTool() {
+  const tool = githubAgentToolCatalog.find((entry) => entry.id === 'pull_request_read');
+  if (!tool) throw new Error('Missing pull_request_read tool');
+  return tool;
+}
+
+function pullRequestReviewThreadWriteTool() {
+  const tool = githubAgentToolCatalog.find(
+    (entry) => entry.id === 'pull_request_review_thread_write',
+  );
+  if (!tool) throw new Error('Missing pull_request_review_thread_write tool');
   return tool;
 }
 
