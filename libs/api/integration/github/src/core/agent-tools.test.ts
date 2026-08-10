@@ -810,6 +810,7 @@ describe('github agent tool catalog', () => {
     expect(result).toEqual({
       isError: true,
       content: [{type: 'text', text: 'GitHub artifact download did not return a download URL'}],
+      structuredContent: {code: 'malformed-provider-response'},
     });
   });
 

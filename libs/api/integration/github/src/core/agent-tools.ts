@@ -49,7 +49,11 @@ type GithubToolCallResult = {
   structuredContent?: Record<string, unknown> | undefined;
 };
 
-type GithubToolErrorCode = 'invalid-request' | 'access-denied' | 'provider-rejected';
+type GithubToolErrorCode =
+  | 'invalid-request'
+  | 'access-denied'
+  | 'provider-rejected'
+  | 'malformed-provider-response';
 
 const GITHUB_GRAPHQL_ROUTE = 'POST /graphql';
 const GITHUB_ARTIFACT_ARCHIVE_FORMAT = 'zip';
@@ -537,7 +541,10 @@ function githubToolResult(
 ): GithubToolCallResult {
   const structuredContent = projectGithubToolOutput(toolId, data, response, parameters, route);
   if (structuredContent === undefined) {
-    return githubToolError('GitHub artifact download did not return a download URL');
+    return githubToolError(
+      'GitHub artifact download did not return a download URL',
+      'malformed-provider-response',
+    );
   }
   return {
     content: [{type: 'text', text: JSON.stringify(structuredContent)}],
