@@ -1,6 +1,6 @@
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
-import {Card} from '@shipfox/react-ui/card';
+import {Panel} from '@shipfox/react-ui/panel';
 import {Table, TableBody, TableHead, TableHeader, TableRow} from '@shipfox/react-ui/table';
 import {hasTriggerEventFilters} from '#core/trigger-event.js';
 import {EventsFilterBar} from './events-filter-bar.js';
@@ -41,7 +41,7 @@ export function EventsList({
   }
 
   return (
-    <Card className="min-h-0 overflow-hidden p-0">
+    <Panel className="min-h-0 overflow-hidden p-0">
       <EventsFilterBar
         filters={filters}
         onFiltersChange={onFiltersChange}
@@ -93,6 +93,6 @@ export function EventsList({
           ) : null}
         </>
       ) : null}
-    </Card>
+    </Panel>
   );
 }

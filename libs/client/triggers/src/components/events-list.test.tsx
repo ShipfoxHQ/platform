@@ -72,6 +72,15 @@ async function selectResult(label: string) {
 }
 
 describe('EventsList', () => {
+  test('renders the event list as a panel with a header strip', () => {
+    renderList(makeProps());
+
+    const panel = document.querySelector('[data-slot="panel"]');
+
+    expect(panel).toBeInTheDocument();
+    expect(panel?.querySelector('[data-slot="panel-header"]')).toBeInTheDocument();
+  });
+
   test('renders a row per event with its match summary', () => {
     renderList(makeProps());
 

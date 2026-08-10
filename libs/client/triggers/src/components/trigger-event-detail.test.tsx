@@ -103,6 +103,9 @@ describe('TriggerEventDetailView', () => {
     renderDetailView(makeEvent());
 
     expect(await screen.findByText('Triggered 1 workflow')).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Matched workflows'})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Payload'})).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(2);
     expect(screen.getByText('Deploy production')).toBeInTheDocument();
     expect(screen.getByRole('link', {name: DEPLOY_RUN_LINK_NAME})).toHaveAttribute(
       'href',
