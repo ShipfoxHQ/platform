@@ -262,16 +262,41 @@ async function guardReportedReservationIdsTx(
   params: ReportRunnerInstancesParams,
   events: RunnerInstanceReportRow[],
 ): Promise<RunnerInstanceReportRow[]> {
-  const reservationIds = [
+  const reportedReservationIds = [
     ...new Set(events.flatMap((event) => (event.reservationId ? [event.reservationId] : []))),
   ].sort();
-  if (reservationIds.length === 0) return events;
+  const providerRunnerIds = [...new Set(events.map((event) => event.providerRunnerId))];
+  if (reportedReservationIds.length === 0 && !events.some((event) => isTerminalState(event.state)))
+    return events;
 
-  await lockRunnerReservationAdvisoryKeysTx(tx, {
-    provisionerId: params.provisionerId,
-    reservationIds,
-  });
-  const providerRunnerIds = events.map((event) => event.providerRunnerId);
+  // Lock every reservation currently associated with the reported runners before taking a
+  // runner row lock. Terminal reports may omit reservationId, or carry a stale one; discovering
+  // the stored IDs here keeps report projection in the same reservation-then-runner order as
+  // assignment and terminal cleanup.
+  const existingReservationRows = await tx
+    .select({
+      reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        inArray(providerRunners.providerRunnerId, providerRunnerIds),
+      ),
+    );
+  const storedReservationIds = existingReservationRows.flatMap((row) =>
+    [row.reservationId, row.intendedReservationId].filter(
+      (reservationId): reservationId is string => reservationId !== null,
+    ),
+  );
+  const reservationIds = [...new Set([...reportedReservationIds, ...storedReservationIds])].sort();
+  if (reservationIds.length > 0)
+    await lockRunnerReservationAdvisoryKeysTx(tx, {
+      provisionerId: params.provisionerId,
+      reservationIds,
+    });
+
   const existingRows = await tx
     .select({
       providerRunnerId: providerRunners.providerRunnerId,
