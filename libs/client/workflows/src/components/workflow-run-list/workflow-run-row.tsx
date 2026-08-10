@@ -34,9 +34,9 @@ export function WorkflowRunRowList({
   projectSlug?: string | undefined;
 }) {
   return (
-    // A container, not the viewport, drives the row's breakpoints. The list is capped at
-    // 1120px inside a wider page, so what a row can afford is its own width; keying off the
-    // viewport would keep the job strip hidden on a wide screen or crush it on a narrow one.
+    // A container, not the viewport, drives the row's breakpoints. What a row can afford is its
+    // own width; keying off the viewport would keep the job strip hidden on a wide screen or
+    // crush it on a narrow one.
     <ul className="@container divide-y divide-border-neutral-base border-t border-border-neutral-base">
       {runs.map((run) => (
         <li key={run.id}>
@@ -55,9 +55,9 @@ export function WorkflowRunRowList({
  * drops beneath. The numeric columns are fixed-width so duration and time form real columns
  * down the list rather than tracking each row's name length.
  *
- * The thresholds are the container widths the spec's viewport breakpoints produce, given a
- * column capped at 1120px with 24px of page padding on each side: a 1280px viewport leaves
- * the row 1072px, and a 1024px viewport leaves it 976px.
+ * The 976px threshold keeps identity and provenance on one line; below it, provenance drops
+ * beneath the identity. The 1040px threshold keeps the job strip visible; below it, the strip is
+ * hidden so the numeric columns remain aligned.
  */
 export function WorkflowRunRow({
   run,

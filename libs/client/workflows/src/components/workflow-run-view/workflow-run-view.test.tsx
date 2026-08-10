@@ -66,6 +66,19 @@ describe('WorkflowRunView', () => {
     expect(screen.queryByRole('tab', {name: 'Jobs'})).not.toBeInTheDocument();
   });
 
+  test.each([
+    {tab: undefined, region: 'All jobs summary'},
+    {tab: 'source', region: 'Workflow source'},
+    {tab: 'annotations', region: 'Run annotations'},
+  ] as const)('does not cap the $region section at 1120px', async ({tab, region}) => {
+    configureRunFetch();
+
+    renderView({tab});
+
+    const section = await screen.findByRole('region', {name: region});
+    expect(section.firstElementChild).not.toHaveClass('max-w-[1120px]');
+  });
+
   test('treats the removed Jobs tab URL as the graph Summary', async () => {
     configureRunFetch();
 

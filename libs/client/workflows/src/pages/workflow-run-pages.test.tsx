@@ -72,6 +72,21 @@ describe('WorkflowRunPages', () => {
     expect(screen.queryByLabelText('Loading workflow run')).not.toBeInTheDocument();
   });
 
+  test('lets the list route inherit its shell canvas and width', async () => {
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    renderRunsPath();
+
+    const list = await screen.findByLabelText('Workflow runs');
+    const pageContent = list.parentElement;
+    const pageRoot = pageContent?.parentElement;
+
+    expect(pageRoot).not.toBeNull();
+    expect(pageRoot).not.toHaveClass('bg-background-neutral-base');
+    expect(pageRoot).not.toHaveClass('max-w-[1120px]');
+    expect(pageContent).not.toHaveClass('max-w-[1120px]');
+  });
+
   test('keeps the list route and filters in place instead of redirecting to a run', async () => {
     configureApiClient({fetchImpl: createRunsListFetch()});
 
@@ -182,6 +197,20 @@ describe('WorkflowRunPages', () => {
     expect(screen.queryByLabelText('Workflow runs')).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', {name: JOBS_TAB_NAME})).not.toBeInTheDocument();
     expect(currentSearch(router).tab).toBeUndefined();
+  });
+
+  test('lets the run detail route inherit its shell canvas', async () => {
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    const {container} = renderRunPath();
+
+    expect(await screen.findByRole('region', {name: 'Loading workflow run'})).toBeInTheDocument();
+
+    const layout = container.querySelector('[data-run-workspace-layout]');
+    const pageRoot = layout?.parentElement?.parentElement;
+
+    expect(pageRoot).not.toBeNull();
+    expect(pageRoot).not.toHaveClass('bg-background-subtle-base');
   });
 
   test('maps the removed Jobs tab URL to the graph Summary', async () => {
