@@ -18,4 +18,7 @@ function ExternalAdminLayout() {
   );
 }
 
-export default defineRoute({component: ExternalAdminLayout});
+export default defineRoute({
+  staticData: {frame: 'content'},
+  component: ExternalAdminLayout,
+});

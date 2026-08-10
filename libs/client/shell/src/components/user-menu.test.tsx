@@ -25,7 +25,8 @@ async function openAccountMenu(chrome: Partial<ChromeSlots> = {}) {
   await renderComposedShell({
     features: [accountMenuFeature()],
     initialPath: '/w/workspace/account-menu',
-    resolveImpl: () => defineRoute({component: () => <h1>Account menu</h1>}),
+    resolveImpl: () =>
+      defineRoute({staticData: {frame: 'content'}, component: () => <h1>Account menu</h1>}),
     chrome,
   });
   fireEvent.pointerDown(await screen.findByRole('button', {name: 'User menu'}));

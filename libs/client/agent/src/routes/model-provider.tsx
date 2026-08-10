@@ -4,6 +4,7 @@ import {ModelProviderOnboardingPage} from '#pages/model-provider-onboarding-page
 import {modelProviderRouteParams} from './inputs.js';
 
 export default defineRoute({
+  staticData: {frame: 'focused'},
   component: () => {
     const {workspaceSlug} = useRouteParams(modelProviderRouteParams);
     const workspace = useActiveWorkspace();

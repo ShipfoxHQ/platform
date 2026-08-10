@@ -4,6 +4,7 @@ import {SignupPage} from '#pages/signup-page.js';
 import {validateRedirectSearch} from './inputs.js';
 
 export default defineRoute({
+  staticData: {frame: 'focused'},
   validateSearch: validateRedirectSearch,
   component: () => (
     <GuestGuard>

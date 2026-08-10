@@ -29,6 +29,7 @@ const callbackRequests = createSingleFlight<string, void>({maxTerminalResults: 3
 const toastedCallbacks = new Set<string>();
 
 export default defineRoute({
+  staticData: {frame: 'focused'},
   validateSearch: validateGithubCallbackSearch,
   component: GithubCallbackRoute,
 });

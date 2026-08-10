@@ -6,6 +6,7 @@
 - **Linear issue:** [ENG-959](https://linear.app/shipfox/issue/ENG-959/author-the-client-composition-adr)
 - **Implementation issue:** [ENG-938](https://linear.app/shipfox/issue/ENG-938/implement-and-publish-the-client-composition-seam)
 - **Amended by:** [ADR 0009: Client URLs and resource identity](0009-client-urls-resource-identity.md)
+- **Amended by:** [ADR 0012: Client route frames](0012-client-route-frames.md)
 
 ## Context
 

@@ -15,6 +15,7 @@ function validateSearch(search: Record<string, unknown>): TriggerEventsSearch {
 }
 
 export default defineRoute({
+  staticData: {frame: 'content'},
   validateSearch,
   component: () => {
     const workspace = useActiveWorkspace();
