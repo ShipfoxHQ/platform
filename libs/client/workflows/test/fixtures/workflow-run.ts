@@ -94,6 +94,9 @@ export function workflowRunJobSummaryDto(
     key: `job-${jobSummarySequence}`,
     name: null,
     status: 'succeeded',
+    mode: 'one_shot',
+    listener_status: 'inactive',
+    execution_status: null,
     position: jobSummarySequence - 1,
     ...overrides,
   };

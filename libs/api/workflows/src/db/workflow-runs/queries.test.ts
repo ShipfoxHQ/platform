@@ -272,6 +272,40 @@ describe('workflow run queries', () => {
       expect(summary.get(run.id)?.statusCounts).toEqual([{status: 'pending', count: 2}]);
     });
 
+    test('returns execution evidence and counts its display status', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+        triggerPayload: manualTrigger(),
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('expected the run to have a job');
+      const execution = await getFirstJobExecutionByJobId(job.id);
+      if (!execution) throw new Error('expected the job to have an execution');
+
+      await updateJobExecutionStatus({
+        jobExecutionId: execution.id,
+        status: 'running',
+        expectedVersion: execution.version,
+      });
+
+      const summary = await listWorkflowRunJobSummaries([
+        {id: run.id, currentAttempt: run.currentAttempt},
+      ]);
+
+      expect(summary.get(run.id)?.preview).toMatchObject([
+        {
+          status: 'pending',
+          mode: 'one_shot',
+          listenerStatus: 'inactive',
+          executionStatus: 'running',
+        },
+      ]);
+      expect(summary.get(run.id)?.statusCounts).toEqual([{status: 'running', count: 1}]);
+    });
+
     // Checks the invariant the snapshot exists to protect: for a run inside the preview
     // bound, the statuses drawn and the statuses counted describe the same jobs and must
     // agree exactly. The read races a commit to give the anomaly a chance to appear, so this

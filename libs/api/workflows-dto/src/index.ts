@@ -26,6 +26,7 @@ export {
   type JobStatusDto,
   type JobStatusReasonDto,
   jobDtoSchema,
+  jobExecutionStatusSchema,
   jobListeningBatchSchema,
   jobListeningSchema,
   jobModeSchema,

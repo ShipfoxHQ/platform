@@ -307,6 +307,37 @@ describe('WorkflowRunListView', () => {
       ).toBeInTheDocument();
     });
 
+    test('shows an executing one-shot job instead of its pending verdict', async () => {
+      const {jobs} = workflowRunJobsFixture(['pending']);
+      renderListView([
+        run('running', 'deploy-web', 'run-1', {
+          jobs: jobs.map((job) => ({...job, execution_status: 'running'})),
+          job_status_counts: [{status: 'running', count: 1}],
+        }),
+      ]);
+
+      const strip = await screen.findByRole('img', {name: '1 job: 1 running'});
+      expect(within(strip).getByLabelText('Running')).toBeInTheDocument();
+    });
+
+    test('shows an active listener as listening in the job strip', async () => {
+      const {jobs} = workflowRunJobsFixture(['running']);
+      renderListView([
+        run('running', 'event-driven', 'run-1', {
+          jobs: jobs.map((job) => ({
+            ...job,
+            mode: 'listening',
+            listener_status: 'listening',
+            execution_status: null,
+          })),
+          job_status_counts: [{status: 'listening', count: 1}],
+        }),
+      ]);
+
+      const strip = await screen.findByRole('img', {name: '1 job: 1 listening'});
+      expect(within(strip).getByLabelText('Listening')).toBeInTheDocument();
+    });
+
     // The link's aria-label replaces its contents, so the strip's own label is not spoken
     // when the row is announced as a link. Where a run failed has to survive that.
     test('carries the job breakdown into the row link name', async () => {

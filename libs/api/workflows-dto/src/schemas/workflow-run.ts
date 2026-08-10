@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {jobStatusSchema} from './job.js';
+import {jobModeSchema, listenerStatusSchema} from './job-listening.js';
 
 export const workflowRunStatusSchema = z.enum([
   'pending',
@@ -10,6 +11,14 @@ export const workflowRunStatusSchema = z.enum([
 ]);
 
 export type WorkflowRunStatusDto = z.infer<typeof workflowRunStatusSchema>;
+
+export const jobExecutionStatusSchema = z.enum([
+  'pending',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
 
 export const workflowRunRerunModeSchema = z.enum(['all', 'failed']);
 
@@ -137,12 +146,16 @@ export const workflowRunAttemptsResponseSchema = z.object({
 export type WorkflowRunAttemptsResponseDto = z.infer<typeof workflowRunAttemptsResponseSchema>;
 
 // The run list renders a status glyph per job so a failing run can be read without being
-// opened, which needs the current attempt's jobs in graph order but none of their steps.
+// opened. Runtime state comes from the selected execution rather than the job verdict, while
+// mode and listener status let the client apply the same display rule as run detail.
 export const workflowRunJobSummaryDtoSchema = z.object({
   id: z.string().uuid(),
   key: z.string(),
   name: z.string().nullable(),
   status: jobStatusSchema,
+  mode: jobModeSchema,
+  listener_status: listenerStatusSchema,
+  execution_status: jobExecutionStatusSchema.nullable(),
   position: z.number().int().nonnegative(),
 });
 
@@ -158,9 +171,9 @@ export type WorkflowRunJobSummaryDto = z.infer<typeof workflowRunJobSummaryDtoSc
  */
 export const WORKFLOW_RUN_JOB_PREVIEW_LIMIT = 16;
 
-/** One status and how many of the run's jobs hold it, counted over all of them. */
+/** One display status and how many of the run's jobs render it, counted over all of them. */
 export const workflowRunJobStatusCountDtoSchema = z.object({
-  status: jobStatusSchema,
+  status: jobStatusSchema.or(z.literal('listening')),
   count: z.number().int().positive(),
 });
 

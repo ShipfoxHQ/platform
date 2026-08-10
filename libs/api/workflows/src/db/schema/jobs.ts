@@ -61,6 +61,9 @@ export const jobs = pgTable(
     key: text('key').notNull(),
     mode: jobModeEnum('mode').notNull().default('one_shot'),
     name: text('name'),
+    // This is the job's execution verdict, not its runtime lifecycle. Active execution state
+    // lives on job_executions and must be read there when a surface needs to distinguish
+    // waiting from executing.
     status: jobStatusEnum('status').notNull().default('pending'),
     statusReason: jobStatusReasonEnum('status_reason'),
     carriedOver: boolean('carried_over').notNull().default(false),

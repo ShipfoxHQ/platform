@@ -5,7 +5,8 @@ import {
   timestampIdCursorWhere,
 } from '@shipfox/node-drizzle';
 import {and, asc, count, desc, eq, gte, lte, type SQL, sql} from 'drizzle-orm';
-import type {JobStatus} from '#core/entities/job.js';
+import type {JobMode, JobStatus, ListenerStatus} from '#core/entities/job.js';
+import type {JobExecutionStatus} from '#core/entities/job-execution.js';
 import type {
   JobExecutionDetail,
   StepDetail,
@@ -52,6 +53,9 @@ export interface WorkflowRunJobSummary {
   key: string;
   name: string | null;
   status: JobStatus;
+  mode: JobMode;
+  listenerStatus: ListenerStatus;
+  executionStatus: JobExecutionStatus | null;
   position: number;
 }
 
@@ -212,7 +216,10 @@ export interface WorkflowRunJobSummaryTarget {
  * A page row's jobs: a bounded slice to draw, and totals describing all of them.
  *
  * The preview is what a row can show; `statusCounts` is what it can say. Keeping the counts
- * server-side is what lets a row report a failure that sits past the preview.
+ * server-side is what lets a row report a failure that sits past the preview. Counts use the
+ * display status derived from the job verdict, listener state, and selected execution state;
+ * the row keeps the verdict and evidence separate so the client can apply the same display
+ * rule as run detail.
  */
 export interface WorkflowRunJobsSummary {
   preview: WorkflowRunJobSummary[];
@@ -220,7 +227,7 @@ export interface WorkflowRunJobsSummary {
 }
 
 export interface WorkflowRunJobStatusCount {
-  status: JobStatus;
+  status: JobStatus | 'listening';
   count: number;
 }
 
@@ -269,15 +276,58 @@ export async function listWorkflowRunJobSummaries(
           key: jobs.key,
           name: jobs.name,
           status: jobs.status,
-          position: jobs.position,
-          rank: sql<number>`row_number() over (partition by ${workflowRunAttempts.workflowRunId} order by ${jobs.position} asc, ${jobs.id} asc)`.as(
-            'rank',
+          mode: jobs.mode,
+          listenerStatus: jobs.listenerStatus,
+          executionStatus: sql<JobExecutionStatus | null>`${jobExecutions.status}`.as(
+            'execution_status',
           ),
+          position: jobs.position,
+          jobRank:
+            sql<number>`dense_rank() over (partition by ${workflowRunAttempts.workflowRunId} order by ${jobs.position} asc, ${jobs.id} asc)`.as(
+              'job_rank',
+            ),
+          executionRank:
+            sql<number>`row_number() over (partition by ${jobs.id} order by case when ${jobExecutions.status} = 'running' then 0 else 1 end, ${jobExecutions.sequence} desc, ${jobExecutions.id} desc)`.as(
+              'execution_rank',
+            ),
         })
         .from(jobs)
         .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+        .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
         .where(attemptFilter)
         .as('ranked');
+
+      const executionDisplayStatus = sql<JobExecutionStatus | null>`
+        case
+          when bool_or(${jobExecutions.status} = 'running') then 'running'
+          else (array_agg(${jobExecutions.status} order by ${jobExecutions.sequence} desc, ${jobExecutions.id} desc))[1]
+        end
+      `;
+      const displayStatus = sql<WorkflowRunJobStatusCount['status']>`
+        case
+          when ${jobs.status} in ('succeeded', 'failed', 'cancelled', 'skipped') then ${jobs.status}::text
+          when ${jobs.mode} = 'listening' and ${jobs.listenerStatus} = 'listening' then 'listening'
+          when ${executionDisplayStatus} is not null then ${executionDisplayStatus}::text
+          else 'pending'
+        end
+      `;
+      const displayStatusByJob = tx
+        .select({
+          workflowRunId: workflowRunAttempts.workflowRunId,
+          status: displayStatus.as('status'),
+        })
+        .from(jobs)
+        .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+        .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
+        .where(attemptFilter)
+        .groupBy(
+          workflowRunAttempts.workflowRunId,
+          jobs.id,
+          jobs.status,
+          jobs.mode,
+          jobs.listenerStatus,
+        )
+        .as('display_status_by_job');
 
       return {
         previewRows: await tx
@@ -287,21 +337,24 @@ export async function listWorkflowRunJobSummaries(
             key: ranked.key,
             name: ranked.name,
             status: ranked.status,
+            mode: ranked.mode,
+            listenerStatus: ranked.listenerStatus,
+            executionStatus: ranked.executionStatus,
             position: ranked.position,
           })
           .from(ranked)
-          .where(lte(ranked.rank, WORKFLOW_RUN_JOB_PREVIEW_LIMIT))
+          .where(
+            and(lte(ranked.jobRank, WORKFLOW_RUN_JOB_PREVIEW_LIMIT), eq(ranked.executionRank, 1)),
+          )
           .orderBy(asc(ranked.workflowRunId), asc(ranked.position), asc(ranked.id)),
         countRows: await tx
           .select({
-            workflowRunId: workflowRunAttempts.workflowRunId,
-            status: jobs.status,
+            workflowRunId: displayStatusByJob.workflowRunId,
+            status: displayStatusByJob.status,
             count: count(),
           })
-          .from(jobs)
-          .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
-          .where(attemptFilter)
-          .groupBy(workflowRunAttempts.workflowRunId, jobs.status),
+          .from(displayStatusByJob)
+          .groupBy(displayStatusByJob.workflowRunId, displayStatusByJob.status),
       };
     },
     {isolationLevel: 'repeatable read', accessMode: 'read only'},

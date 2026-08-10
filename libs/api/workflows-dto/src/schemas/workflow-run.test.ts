@@ -107,6 +107,9 @@ describe('workflow run list item schema', () => {
       key: `job-${position}`,
       name: null,
       status: 'succeeded' as const,
+      mode: 'one_shot' as const,
+      listener_status: 'inactive' as const,
+      execution_status: null,
       position,
     };
   }
@@ -121,6 +124,30 @@ describe('workflow run list item schema', () => {
 
     expect(result.jobs).toHaveLength(1);
     expect(result.jobs[0]?.status).toBe('succeeded');
+    expect(result.jobs[0]?.execution_status).toBeNull();
+  });
+
+  test('carries execution evidence and listening state for display derivation', () => {
+    const result = workflowRunListItemSchema.parse({
+      ...baseRun,
+      source_snapshot: null,
+      jobs: [
+        {
+          ...jobDto(0),
+          mode: 'listening',
+          listener_status: 'listening',
+          execution_status: 'running',
+        },
+      ],
+      job_status_counts: [{status: 'listening', count: 1}],
+    });
+
+    expect(result.jobs[0]).toMatchObject({
+      mode: 'listening',
+      listener_status: 'listening',
+      execution_status: 'running',
+    });
+    expect(result.job_status_counts).toEqual([{status: 'listening', count: 1}]);
   });
 
   // The preview is a bounded slice, so counts describe jobs the payload never carried.

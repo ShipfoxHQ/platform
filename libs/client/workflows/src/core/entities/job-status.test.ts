@@ -91,6 +91,18 @@ describe('deriveJobDisplayStatus', () => {
     ).toBe('listening');
   });
 
+  test('uses list execution evidence when the step tree is not present', () => {
+    expect(
+      deriveJobDisplayStatus({
+        mode: 'one_shot',
+        status: 'pending',
+        listenerStatus: 'inactive',
+        executionStatus: 'running',
+        jobExecutions: [],
+      }),
+    ).toBe('running');
+  });
+
   test('uses the terminal job status when an active listener has resolved', () => {
     expect(
       deriveJobDisplayStatus({
