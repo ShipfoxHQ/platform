@@ -1,5 +1,4 @@
-/// <reference types="node" />
-
+// @ts-expect-error Node built-ins are available in the Vitest Node environment but not part of the UI package's browser type surface.
 import {readFileSync} from 'node:fs';
 
 const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
