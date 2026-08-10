@@ -108,10 +108,6 @@ components:
     typography: "{typography.label}"
     rounded: "{rounded.input}"
     padding: "2px 6px"
-  card:
-    backgroundColor: "{colors.panel}"
-    rounded: "{rounded.panel}"
-    padding: "12px"
   panel:
     backgroundColor: "{colors.panel}"
     rounded: "{rounded.panel}"
@@ -147,12 +143,10 @@ change.
 The one exception is the surface, frame, and panel model. It is described under
 [Layout](#layout), [Elevation and depth](#elevation-and-depth), and
 [Panels](#panels), and recorded in the `panel`, `panel-header`, and `panel-row`
-frontmatter entries. `@shipfox/react-ui` exposes the panel primitive, and the
-remaining page migrations are bringing callers onto the model.
-
-`Card` still ships for compatibility while its consumers migrate to `Panel`. One
-surface token still resolves to a value other than the ones the ladder names, and
-[The surface ladder](#the-surface-ladder) lists it.
+frontmatter entries. `@shipfox/react-ui` exposes the panel primitive, and callers
+use it for data regions and focused titled blocks. One surface token still
+resolves to a value other than the ones the ladder names, and [The surface
+ladder](#the-surface-ladder) lists it.
 
 ## Overview
 
@@ -520,15 +514,14 @@ pills are `rounded-4` or `rounded-full`, panels are `rounded-8`. Do not drift.
 
 `@shipfox/react-ui` ships the batteries. Reach for an existing component before
 building anything: `accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`,
-`callout`, `card`, `code-block`, `collapsible`, `combobox`, `command`,
+`callout`, `code-block`, `collapsible`, `combobox`, `command`,
 `date-picker`, `date-range-picker`, `dot`, `dropdown-menu`, `empty-state`,
 `form-field`, `icon`, `input`, `kbd`, `label`, `load-error-state`, `loader`, `log`,
 `logo`, `markdown`, `modal`, `panel`, `popover`, `radio-group`, `relative-time`,
 `scroll-area`, `search`, `select`, `sheet`, `shiny-text`, `skeleton`, `table`,
 `tabs`, `theme`, `toast`, `tooltip`, and `typography`.
 
-`Panel` is the container for a data region. `Card` remains available for
-compatibility while its consumers migrate to `Panel`.
+`Panel` is the container for a data region and a focused titled block.
 
 ### Buttons
 

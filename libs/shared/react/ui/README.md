@@ -4,7 +4,7 @@ Shared React component library for Shipfox apps. It provides design tokens, Tail
 
 ## What it does
 
-- **Components**: Accordion, Alert, Avatar, Badge, Button, Calendar, Callout, Card, CodeBlock, Collapsible, Combobox, Command, DatePicker, DateRangePicker, Dot, DropdownMenu, EmptyState, FormField, Icon, Input, Kbd, Label, LoadErrorState, Loader, Log, Logo, Markdown, Modal, Panel, Popover, RadioGroup, RelativeTime, ScrollArea, Search, Select, Sheet, ShinyText, Skeleton, Switch, Table, Tabs, Textarea, ThemeProvider, Toast, Tooltip, and Typography.
+- **Components**: Accordion, Alert, Avatar, Badge, Button, Calendar, Callout, CodeBlock, Collapsible, Combobox, Command, DatePicker, DateRangePicker, Dot, DropdownMenu, EmptyState, FormField, Icon, Input, Kbd, Label, LoadErrorState, Loader, Log, Logo, Markdown, Modal, Panel, Popover, RadioGroup, RelativeTime, ScrollArea, Search, Select, Sheet, ShinyText, Skeleton, Switch, Table, Tabs, Textarea, ThemeProvider, Toast, Tooltip, and Typography.
 - **Theme helpers**: `ThemeProvider`, `useTheme()`, and `useResolvedTheme()`.
 - **Hooks**: `useCopyToClipboard`, `useIsTextTruncated`, `useShikiHighlight`, `useShikiStyleInjection`, plus the theme hooks above.
 - **Utilities**: `cn()` for class name merging, `copyTextToClipboard`, `formatBytes`, `formatDate`/`formatTimestamp`, `formatDuration`/`humanDuration`, `formatRelative`, `debounce`, and avatar helpers (`getInitial`, `getPlaceholderImageUrl`).
@@ -36,7 +36,7 @@ The ladder follows two rules:
 ## Imports
 
 Import from a subpath. Each component has its own entry
-(`@shipfox/react-ui/button`, `@shipfox/react-ui/card`, ...); hooks live under
+(`@shipfox/react-ui/button`, `@shipfox/react-ui/panel`, ...); hooks live under
 `@shipfox/react-ui/hooks` and utilities under `@shipfox/react-ui/utils`. This
 keeps the dev server and bundlers from pulling the whole component tree (and its
 Radix and icon dependencies) when you only need one component. The package root
@@ -98,6 +98,11 @@ export function ProjectList() {
 keep panels flat. Rows use a neutral hover surface, and status stays in glyphs or
 pills. Use `PanelHeader` with `variant="plain"` for a titled block on a focused
 surface.
+
+Version 2 removes `Card`. Migrate `Card` to `Panel`, `CardHeader` to
+`PanelHeader variant="plain"`, `CardTitle` to `PanelTitle`, `CardContent` to
+`PanelBody`, `CardAction` to `PanelActions`, and `CardDescription` to a muted
+`Text` component. Keep `CardFooter` content in the panel layout or a `PanelBody`.
 
 `FormField` wires up label, input, error, and description with the correct `id`, `aria-invalid`, and `aria-describedby` plumbing. Render controls through `FormFieldInput` or `FormFieldTextarea` to inherit those props automatically:
 

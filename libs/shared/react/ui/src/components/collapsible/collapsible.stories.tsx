@@ -1,8 +1,8 @@
 import type {Meta, StoryObj} from '@storybook/react';
 import {useState} from 'react';
 import {Button} from '#components/button/index.js';
-import {Card} from '#components/card/index.js';
 import {Icon} from '#components/icon/index.js';
+import {Panel} from '#components/panel/index.js';
 import {Text} from '#components/typography/index.js';
 import {Collapsible, CollapsibleContent, CollapsibleTrigger} from './collapsible.js';
 
@@ -86,12 +86,12 @@ export const Controlled: Story = {
 
           <Collapsible open={open} onOpenChange={setOpen}>
             <CollapsibleContent>
-              <Card>
+              <Panel className="p-panel">
                 <Text size="sm" className="text-foreground-neutral-muted">
                   Advanced settings let you override the default runner image, concurrency limits,
                   and environment variables. Most workspaces never need to touch these.
                 </Text>
-              </Card>
+              </Panel>
             </CollapsibleContent>
           </Collapsible>
         </div>
@@ -102,9 +102,9 @@ export const Controlled: Story = {
   },
 };
 
-export const InCard: Story = {
+export const InPanel: Story = {
   render: () => (
-    <Card className="w-[420px] gap-8">
+    <Panel className="w-[420px] p-panel">
       <Collapsible defaultOpen className="flex flex-col gap-4">
         <TriggerRow>What counts as a build minute?</TriggerRow>
         <CollapsibleContent>
@@ -114,6 +114,6 @@ export const InCard: Story = {
           </Text>
         </CollapsibleContent>
       </Collapsible>
-    </Card>
+    </Panel>
   ),
 };

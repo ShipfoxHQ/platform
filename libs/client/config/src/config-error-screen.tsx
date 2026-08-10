@@ -1,6 +1,6 @@
 import {ButtonLink} from '@shipfox/react-ui/button';
-import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@shipfox/react-ui/card';
 import {Icon} from '@shipfox/react-ui/icon';
+import {Panel, PanelBody, PanelHeader, PanelTitle} from '@shipfox/react-ui/panel';
 import {Code, Text} from '@shipfox/react-ui/typography';
 import type {ConfigKeyError} from './load-config.js';
 
@@ -22,19 +22,19 @@ export interface ConfigErrorScreenProps {
 export function ConfigErrorScreen({errors, docsUrl}: ConfigErrorScreenProps) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background-subtle-base px-frame py-frame">
-      <Card className="w-full max-w-[512px]">
-        <CardHeader>
+      <Panel className="w-full max-w-[512px]">
+        <PanelHeader variant="plain" className="flex-col items-start gap-inline">
           <div className="flex items-center gap-inline">
             <Icon name="errorWarningLine" className="size-20 text-tag-error-icon" />
-            <CardTitle variant="h2">Configuration error</CardTitle>
+            <PanelTitle variant="h2">Configuration error</PanelTitle>
           </div>
-          <CardDescription>
+          <Text size="sm" className="text-foreground-neutral-muted">
             The Shipfox client could not start because its configuration is missing or invalid. Set
             the environment variables below and restart the container.
-          </CardDescription>
-        </CardHeader>
+          </Text>
+        </PanelHeader>
 
-        <CardContent className="flex flex-col">
+        <PanelBody className="flex flex-col">
           {errors.map((error) => (
             <div
               key={error.key}
@@ -64,18 +64,20 @@ export function ConfigErrorScreen({errors, docsUrl}: ConfigErrorScreenProps) {
               </Text>
             </div>
           ))}
-        </CardContent>
+        </PanelBody>
 
         {docsUrl ? (
-          <Text size="sm" className="text-foreground-neutral-muted">
-            See the{' '}
-            <ButtonLink href={docsUrl} variant="interactive" underline>
-              self-hosting configuration guide
-            </ButtonLink>
-            .
-          </Text>
+          <div className="p-panel pt-0">
+            <Text size="sm" className="text-foreground-neutral-muted">
+              See the{' '}
+              <ButtonLink href={docsUrl} variant="interactive" underline>
+                self-hosting configuration guide
+              </ButtonLink>
+              .
+            </Text>
+          </div>
         ) : null}
-      </Card>
+      </Panel>
     </main>
   );
 }

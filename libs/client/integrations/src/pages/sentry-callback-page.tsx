@@ -3,8 +3,8 @@ import {useRouteSearch} from '@shipfox/client-shell/runtime';
 import {createSingleFlight, sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {Button, ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
-import {Card} from '@shipfox/react-ui/card';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
+import {Panel} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useQueryClient} from '@tanstack/react-query';
@@ -212,7 +212,7 @@ export function SentryCallbackPage() {
 
       <section className="flex flex-col gap-inline" aria-label="Choose a workspace">
         {orderedWorkspaces.map((workspace) => (
-          <Card key={workspace.id} className="p-panel-compact">
+          <Panel key={workspace.id} className="p-panel-compact">
             <div className="flex items-center justify-between gap-cluster">
               <Text size="md" bold className="truncate">
                 {workspace.name}
@@ -226,7 +226,7 @@ export function SentryCallbackPage() {
                 Install
               </Button>
             </div>
-          </Card>
+          </Panel>
         ))}
       </section>
 
