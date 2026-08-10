@@ -347,7 +347,7 @@ function ExpandedStep({
       role="region"
       tabIndex={0}
       aria-label={`${context.stepLabel} output, attempt ${context.attempt}`}
-      className="flex min-w-0 flex-col border-t border-border-neutral-base bg-background-neutral-base outline-none focus-visible:shadow-border-interactive-with-active dark:bg-background-contrast-subtle"
+      className="flex min-w-0 flex-col border-t border-border-neutral-base bg-background-contrast-subtle outline-none focus-visible:shadow-border-interactive-with-active"
     >
       <StepAttemptLogPanel
         stepId={context.stepId}

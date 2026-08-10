@@ -31,7 +31,7 @@ export function LogWrapToggle({
         'opacity-0 group-hover/log-row:opacity-100 focus-visible:opacity-100',
         overridden
           ? 'text-foreground-highlight-interactive opacity-100'
-          : 'text-foreground-neutral-muted hover:text-foreground-neutral-base',
+          : 'text-foreground-contrast-secondary hover:text-foreground-contrast-primary',
         className,
       )}
       {...props}

@@ -55,10 +55,10 @@ export function LogRowFrame({
           'group/log-row flex items-start transition-colors',
           'hover:bg-neutral-500/[0.06]',
           // Caller styling (e.g. row tone) sits before `selected` so the cursor
-          // row always wins the background it shares with a tone tint.
+          // row always wins the selected surface and edge affordance.
           className,
           selected &&
-            'bg-background-neutral-pressed shadow-[inset_2px_0_0_var(--foreground-highlight-interactive)] hover:bg-background-neutral-pressed',
+            'bg-background-contrast-pressed shadow-[inset_2px_0_0_var(--foreground-highlight-interactive)] hover:bg-background-contrast-pressed',
         )}
         {...props}
       >
@@ -68,7 +68,7 @@ export function LogRowFrame({
             aria-hidden="true"
             className={cn(
               'w-44 flex-none select-none px-12 text-right tabular-nums',
-              selected ? 'text-foreground-neutral-base' : 'text-foreground-neutral-subtle',
+              selected ? 'text-foreground-contrast-primary' : 'text-foreground-contrast-secondary',
             )}
           >
             {lineNumber ?? ''}
@@ -85,14 +85,14 @@ export function LogRowFrame({
                 if (window.getSelection()?.isCollapsed === false) return;
                 onTimestampsClick();
               }}
-              className="w-80 flex-none cursor-pointer px-4 text-foreground-neutral-muted tabular-nums transition-colors hover:text-foreground-neutral-base"
+              className="w-80 flex-none cursor-pointer px-4 text-foreground-contrast-secondary tabular-nums transition-colors hover:text-foreground-contrast-primary"
             >
               {timeText}
             </span>
           ) : (
             <span
               data-slot="log-row-time"
-              className="w-80 flex-none px-4 text-foreground-neutral-muted tabular-nums"
+              className="w-80 flex-none px-4 text-foreground-contrast-secondary tabular-nums"
             >
               {timeText}
             </span>

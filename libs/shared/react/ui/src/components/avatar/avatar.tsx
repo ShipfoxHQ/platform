@@ -130,7 +130,7 @@ export function Avatar({
   ...props
 }: AvatarProps) {
   const innerClassName =
-    'flex h-full w-full items-center justify-center rounded-inherit relative bg-background-neutral-base dark:bg-background-components-base text-foreground-neutral-subtle';
+    'flex h-full w-full items-center justify-center rounded-inherit relative bg-background-components-base text-foreground-neutral-subtle';
 
   const renderContent = (): ReactNode => {
     if (content === 'image') {

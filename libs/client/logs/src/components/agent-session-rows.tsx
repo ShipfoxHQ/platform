@@ -64,7 +64,7 @@ function AgentSessionRowView({
           tone={row.terminalFailure ? 'error' : 'default'}
           data-log-terminal-failure={row.terminalFailure ? 'true' : undefined}
         >
-          <LogContent className="text-foreground-neutral-base">
+          <LogContent className="text-foreground-contrast-primary">
             <span className="flex min-w-0 items-start gap-inline">
               <MessageIcon role={row.role} terminalFailure={row.terminalFailure} />
               <span className="flex min-w-0 flex-1 flex-col gap-tight">
@@ -86,12 +86,12 @@ function AgentSessionRowView({
           <LogDisclosureTrigger
             summary={wordSummary(row.text)}
             timestamp={new Date(row.timestamp)}
-            className="text-foreground-neutral-subtle"
+            className="text-foreground-contrast-secondary"
           >
             thinking
           </LogDisclosureTrigger>
-          <LogDisclosureContent className="text-foreground-neutral-subtle">
-            <LogContent className="text-foreground-neutral-subtle">
+          <LogDisclosureContent className="text-foreground-contrast-secondary">
+            <LogContent className="text-foreground-contrast-secondary">
               <PreviewText text={row.text} />
             </LogContent>
           </LogDisclosureContent>
@@ -156,7 +156,7 @@ function AgentSessionRowView({
               <span
                 className={cn(
                   'inline-flex items-center gap-tight',
-                  row.isError ? 'text-red-600 dark:text-red-400' : 'text-foreground-neutral-muted',
+                  row.isError ? 'text-tag-error-icon' : 'text-foreground-contrast-secondary',
                 )}
               >
                 <Icon
@@ -174,10 +174,7 @@ function AgentSessionRowView({
             </span>
           </LogDisclosureTrigger>
           <LogDisclosureContent>
-            <LogContent
-              variant="code"
-              className={cn(row.isError && 'text-red-600 dark:text-red-400')}
-            >
+            <LogContent variant="code" className="text-foreground-contrast-primary">
               <PreviewText text={row.output} />
             </LogContent>
           </LogDisclosureContent>
@@ -193,7 +190,7 @@ function AgentSessionRowView({
           tone={row.tone}
           data-log-terminal-failure={row.terminalFailure ? 'true' : undefined}
         >
-          <LogContent className="text-foreground-neutral-muted">
+          <LogContent className="text-foreground-contrast-secondary">
             <span className="inline-flex w-full items-center gap-inline">
               <Icon name="informationLine" className="size-14 flex-none" aria-hidden="true" />
               <span className="min-w-0">
@@ -201,7 +198,7 @@ function AgentSessionRowView({
                 {row.detail != null ? (
                   <>
                     {' · '}
-                    <span className="text-foreground-neutral-subtle">{row.detail}</span>
+                    <span className="text-foreground-contrast-secondary">{row.detail}</span>
                   </>
                 ) : null}
               </span>
@@ -220,10 +217,14 @@ function AgentSessionRowView({
           <LogDisclosureTrigger
             timestamp={new Date(row.timestamp)}
             summary={compactPreview(row.raw)}
-            className="text-orange-600 dark:text-orange-400"
+            className="text-foreground-contrast-primary"
           >
             <span className="inline-flex min-w-0 items-center gap-inline">
-              <Icon name="errorWarningLine" className="size-14 flex-none" aria-hidden="true" />
+              <Icon
+                name="errorWarningLine"
+                className="size-14 flex-none text-tag-warning-icon"
+                aria-hidden="true"
+              />
               <span className="truncate">{row.label}</span>
             </span>
           </LogDisclosureTrigger>
@@ -253,7 +254,7 @@ function MessageIcon({role, terminalFailure}: {role: string; terminalFailure: bo
       name={name}
       className={cn(
         'mt-[2px] size-14 flex-none',
-        terminalFailure ? 'text-red-600 dark:text-red-400' : 'text-foreground-neutral-muted',
+        terminalFailure ? 'text-tag-error-icon' : 'text-foreground-contrast-secondary',
       )}
       aria-hidden="true"
     />
@@ -264,8 +265,8 @@ function MessageRoleLabel({label, terminalFailure}: {label: string; terminalFail
   return (
     <span
       className={cn(
-        'min-w-0 font-code text-foreground-neutral-muted',
-        terminalFailure && 'text-foreground-highlight-error',
+        'min-w-0 font-code text-foreground-contrast-secondary',
+        terminalFailure && 'text-foreground-contrast-primary',
       )}
     >
       <span className="truncate">{label}</span>
@@ -280,7 +281,7 @@ function RowMetadata({meta, className}: {meta: readonly SessionViewRowMeta[]; cl
   if (inlineMeta != null) {
     return (
       <span
-        className={cn('font-code text-xs text-foreground-neutral-muted', className)}
+        className={cn('font-code text-xs text-foreground-contrast-secondary', className)}
         title={`${inlineMeta.label}: ${inlineMeta.value}`}
       >
         {inlineMeta.value}
@@ -301,7 +302,7 @@ function MetadataTrigger({meta}: {meta: readonly SessionViewRowMeta[]}) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="inline-flex size-20 flex-none items-center justify-center rounded-4 text-foreground-neutral-muted opacity-60 transition-opacity hover:bg-background-components-hover hover:text-foreground-neutral-base hover:opacity-100 focus-visible:opacity-100 focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)] group-hover/log-row:opacity-100"
+          className="inline-flex size-20 flex-none items-center justify-center rounded-4 text-foreground-contrast-secondary opacity-60 transition-opacity hover:bg-background-components-hover hover:text-foreground-contrast-primary hover:opacity-100 focus-visible:opacity-100 focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)] group-hover/log-row:opacity-100"
           aria-label="Show message metadata"
         >
           <Icon name="informationLine" className="size-12" aria-hidden="true" />

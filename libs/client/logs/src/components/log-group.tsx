@@ -42,11 +42,11 @@ function GroupStatus({node, terminated}: {node: GroupLogNode; terminated: boolea
   // closed only because an ancestor's group_end cascaded (its own end was dropped, so endTs
   // is null). Either way show "incomplete" rather than a blank slot or a forever spinner.
   if (node.closed || terminated) {
-    return <span className="text-foreground-neutral-muted">incomplete</span>;
+    return <span className="text-foreground-contrast-secondary">incomplete</span>;
   }
 
   return (
-    <span className="inline-flex items-center gap-tight text-foreground-neutral-muted">
+    <span className="inline-flex items-center gap-tight text-foreground-contrast-secondary">
       <Icon name="loader4Line" className="size-12 motion-safe:animate-spin" aria-hidden="true" />
       running
     </span>

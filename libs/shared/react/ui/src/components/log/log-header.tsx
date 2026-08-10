@@ -18,7 +18,7 @@ export function LogHeader({className, children, end, ...props}: LogHeaderProps) 
     >
       <div className="flex min-w-0 items-center gap-6">{children}</div>
       {end != null && (
-        <div className="ml-auto flex items-center gap-8 text-foreground-neutral-muted tabular-nums">
+        <div className="ml-auto flex items-center gap-8 text-foreground-contrast-secondary tabular-nums">
           {end}
         </div>
       )}

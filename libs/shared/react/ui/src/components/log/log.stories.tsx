@@ -94,7 +94,7 @@ export const Playground: Story = {
           </LogContent>
         </LogRow>
         <LogRow lineNumber={41} timestamp={at(10.7)}>
-          <LogContent variant="code" className="text-foreground-neutral-muted">
+          <LogContent variant="code" className="text-foreground-contrast-secondary">
             built in 412ms
           </LogContent>
         </LogRow>
@@ -119,7 +119,7 @@ export const LineNumbers: Story = {
             <LogContent variant="code">linking 318 packages</LogContent>
           </LogRow>
           <LogRow lineNumber={null}>
-            <LogContent variant="code" className="text-foreground-neutral-muted">
+            <LogContent variant="code" className="text-foreground-contrast-secondary">
               lineNumber=null: a marker row keeps the gutter blank
             </LogContent>
           </LogRow>
@@ -512,11 +512,11 @@ export const Composition: Story = {
           <LogContent variant="code">
             <Glyph className="text-blue-500 dark:text-blue-400">{'⚙ '}</Glyph>
             <span className="font-bold text-blue-600 dark:text-blue-400">read_file</span>
-            <span className="text-foreground-neutral-muted"> src/api/client.ts</span>
+            <span className="text-foreground-contrast-secondary"> src/api/client.ts</span>
           </LogContent>
         </LogRow>
         <LogRow lineNumber={44} timestamp={at(9.54)} indent={1}>
-          <LogContent variant="code" className="text-foreground-neutral-muted">
+          <LogContent variant="code" className="text-foreground-contrast-secondary">
             <Glyph className="font-bold text-green-500 dark:text-green-400">{'✓ '}</Glyph>
             read_file · 64 lines
           </LogContent>
