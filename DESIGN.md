@@ -55,7 +55,7 @@ typography:
 rounded:
   input: "4px"
   button: "6px"
-  card: "8px"
+  panel: "8px"
   modal: "10px"
   full: "9999px"
 spacing:
@@ -107,10 +107,18 @@ components:
     typography: "{typography.label}"
     rounded: "{rounded.input}"
     padding: "2px 6px"
-  card:
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.card}"
+  panel:
+    backgroundColor: "{colors.canvas}"
+    rounded: "{rounded.panel}"
     padding: "24px"
+  panel-header:
+    backgroundColor: "{colors.surface}"
+    typography: "{typography.title}"
+    padding: "12px 16px"
+  panel-row:
+    backgroundColor: "{colors.canvas}"
+    typography: "{typography.body}"
+    padding: "12px 16px"
 ---
 
 # Design System: Shipfox
@@ -130,6 +138,11 @@ for dark mode, so tooling that needs theme-correct output resolves the named tok
 (for example `--background-button-inverted-default`) rather than the raw hex. When
 code and prose disagree, the code wins and this file is corrected in the same
 change.
+
+The one exception is the surface, frame, and panel model described under
+[Layout](#layout) and [Elevation and depth](#elevation-and-depth). That
+model is committed, and `@shipfox/react-ui` is being brought onto it. Read those
+two sections as the target a change should move toward.
 
 ## Overview
 
@@ -184,10 +197,11 @@ semantic token you need does not exist, add it rather than reaching past the lay
 **Layer 2, semantic tokens.** Role tokens that flip between light and dark
 automatically, so component code never branches on theme. The families:
 
-- Backgrounds: `bg-background-neutral-base` (canvas), `-neutral-background` (page
-  under panels), `-components-base` (cards), `-components-hover` / `-pressed`,
-  `-field-base` / `-field-hover` (inputs), `-subtle-base` (zebra whisper),
-  `-contrast-base` (inverted panel for code, popovers, tooltips),
+- Backgrounds: the four surface roles are defined in
+  [Elevation and depth](#elevation-and-depth) and are the only tokens that
+  paint a page, a panel, or a code block. The rest of the family covers states and
+  overlays: `-neutral-hover` / `-pressed`, `-components-hover` / `-pressed`,
+  `-field-base` / `-field-hover` (inputs),
   `-highlight-{base,hover,interactive}` (brand-tied selection), `-modal-overlay` /
   `-backdrop-backdrop` (scrims), and `-accent-{neutral,blue,purple,success,warning,error}-{soft,base,strong}`.
 - Foregrounds: `text-foreground-neutral-{base,subtle,muted,disabled}`,
@@ -215,14 +229,15 @@ focus, and disabled for one component: `--background-button-*`, `--shadow-button
 - **Ink** (`ink`, `--color-neutral-950`): primary text on light.
 - **Subtle / Muted** (`subtle` `--color-neutral-600`, `muted` `--color-neutral-500`):
   secondary text and metadata.
-- **Canvas / Surface** (`canvas` `--color-neutral-0`, `surface` `--color-neutral-50`):
-  page and component backgrounds on light.
+- **Canvas / Surface** (`surface` `--color-neutral-50`, `canvas`
+  `--color-neutral-0`): the page and the panels that sit on it, on light.
 - **Panel Inverted** (`panel-inverted`, `--color-neutral-900`): the near-black
-  surface used for code, logs, popovers, and tooltips in both themes.
+  code surface on light. Dark resolves it to `--color-neutral-1000`, so code stays
+  the darkest surface in both themes.
 - **Border** (`border`, `--color-neutral-300`): the default hairline.
 
-Dark mode inverts these roles through the same token names (canvas becomes
-`--color-neutral-900`, ink becomes `--color-neutral-100`, and so on); write once,
+Dark mode inverts these roles through the same token names (the page becomes
+`--color-neutral-950`, ink becomes `--color-neutral-100`, and so on); write once,
 both themes resolve.
 
 ### Status and functional
@@ -257,7 +272,7 @@ restraint, and that one precise ring.
 <!-- vale off -->
 **The Shape-Not-Just-Color Rule.** Status is never carried by color alone
 (WCAG 1.4.1). A glyph shape or a written word always co-signs the hue, and the
-status color lives in the dot, pill, glyph, or border, never as a full row or card
+status color lives in the dot, pill, glyph, or border, never as a full row or panel
 fill (which fights zebra rhythm and dark mode).
 <!-- vale on -->
 
@@ -279,7 +294,7 @@ families: durations, run numbers, and counters do not jitter when they update.
 - **Headline** (Inter Medium, `text-3xl` 28px/44, `text-2xl` 24px/32): page titles
   and sub-headings.
 - **Title** (Inter Medium, `text-xl` 18px/28, `text-lg` 16px/24): section headings
-  and card headings.
+  and panel headings.
 - **Body** (Inter Regular, `text-md` 14px/24): default copy, form labels, button
   labels at md. `text-sm` 13px/20 for table body and helper text.
 - **Label** (Inter Medium, `text-xs` 12px/20): tags, metadata, table footers.
@@ -303,20 +318,55 @@ prose ("14 jobs failed") stay in `font-display`; numbers presented as data stay 
 ## Layout
 
 **The spatial model is grid-disciplined in the app, editorial only on marketing
-and auth.** The app is a predictable top nav plus content plus optional right rail.
-Marketing gets asymmetry and air; settings and admin look like the run viewer, not
-the marketing page.
+and auth.** Marketing gets asymmetry and air. Settings and admin look like the run
+viewer, not the marketing page.
 
-- **App shell.** Top header 56px, sticky, holding the logo, workspace crumb,
-  project crumb, and user menu. A 40px tab strip sits sticky directly beneath and
-  is always reserved (rendered even when empty) so navigation never jumps. No
-  persistent left rail; all navigation chrome lives in the top bar. Content is
-  fluid, capped at 1120px (`max-w-[1120px] mx-auto px-24 py-32`). A details right
-  rail, when present, is 360 to 420px.
-- **Marketing.** Single content column up to ~1280px, generous vertical rhythm,
-  full-bleed background panels allowed.
-- **Auth and onboarding.** Rendered under a bare layout: centered cards, no nav
-  chrome.
+**App shell.** Top header 56px, sticky, holding the logo, workspace crumb, project
+crumb, and user menu. A 40px tab strip sits sticky directly beneath. The strip is
+always reserved and renders even when empty, so navigation never jumps.
+
+A surface may also carry a left rail: the run workspace nav at 240px, or the
+settings nav at 180px. A rail is navigation, so it follows the chrome rules in
+[Elevation and depth](#elevation-and-depth). It also sits inside the page
+frame rather than pinning to the viewport edge, so it never drifts away from the
+content it belongs to. A details right rail, when present, is 360 to 420px.
+
+### Frames
+
+**Every route declares one frame, and the shell owns all three.** A page never
+sets its own background and never sets its own width. Both come from the frame.
+
+| Frame | Width | For |
+| --- | --- | --- |
+| `content` | 1120px centered | Settings, forms, object configuration, indexes |
+| `data` | Full width, no cap | Run lists, run and job views, logs, tables |
+| `focused` | 640px centered, bare layout | Auth, onboarding, callbacks |
+
+Both capped frames center inside `px-frame` gutters. The `data` frame keeps the
+same gutters at every width. Data surfaces run edge to edge on purpose, because a
+wide log or run table shows more per screen. The panel border supplies the edge
+the eye tracks against.
+
+Marketing sits outside this model. It keeps a single content column up to about
+1280px, generous vertical rhythm, and full-bleed background panels.
+
+### Page headings
+
+**App pages carry no title and no description.** The nav bar and the tab strip
+already say where the reader is, so a page title repeats them. A description never
+survives its title; the two are removed together.
+
+Two things follow:
+
+- **List controls live in the panel header strip.** Search, filters, and the
+  primary action belong to the panel they act on, not to the page.
+- **Object identity is not a page title.** A run header keeps its status pill,
+  name, trigger, and duration, because those name the object rather than the page.
+
+Settings sub-pages are the exception and keep a bare title. The settings nav does
+not name the active section anywhere else.
+
+### Spacing
 
 **The Pixel-Spacing Rule.** `index.css` sets `--spacing: 1px`, so in this Tailwind
 v4 setup **utility numbers are pixels**: `p-16` is 16px, `gap-8` is 8px, and `h-32`
@@ -343,20 +393,60 @@ Use arbitrary spacing only for a fixed optical offset, reserved control space, o
 asymmetric component contract that has no semantic role.
 
 **Density posture.** The default medium button is `h-32`; component sizing owns its
-padding. Use `gap-group` for form row rhythm, `p-panel` for standard cards, and
+padding. Use `gap-group` for form row rhythm, `p-panel` for a panel without rows, and
 `px-row` or `py-row` for row controls. A surface is at the wrong density when a
 table needs horizontal scroll from cell padding, when an app page shows more
 whitespace than content above the fold, or when a marketing page feels like a
 settings panel.
 
-## Elevation & Depth
+## Elevation and depth
 
-Depth is conveyed by **multi-layer token-driven shadows**, not by flat tonal
+### The surface ladder
+
+**Four roles, four tokens, and the same number of steps in both themes.** Values
+below are the resolved hexes, but components always consume the token.
+
+| Role | Token | Light | Dark | Paints |
+| --- | --- | --- | --- | --- |
+| Canvas | `bg-background-subtle-base` | `#fafafa` | `#0f0f10` | The page, the nav bar, the tab strip, rails, object headers, panel header strips |
+| Panel | `bg-background-neutral-base` | `#ffffff` | `#1a1a1b` | Panel bodies, rows, popovers, modals |
+| Code | `bg-background-contrast-*` | `#1a1a1b` | `#030303` | Code, logs, YAML, agent transcripts |
+| Inline fill | `bg-background-components-base` | `#f4f4f5` | `#27272a` | Avatars, badges, kbd, chips inside a panel |
+
+Two rules generate the ladder:
+
+- **Panel sits one ramp step toward the foreground from canvas, in both themes.**
+  A panel header strip sits one step back from its panel, which lands on the
+  canvas value. That is why one token paints both the page and the strip.
+- **Code is the darkest surface in both themes.** Code reads better on near-black
+  even on light, so it does not follow the theme.
+
+**The Opaque-Surface Rule.** No page, panel, or code surface uses an alpha token.
+A translucent surface composites over its parent, and the parent varies by route,
+so the same component would render a different color on different pages.
+
+**Inline fill is not a surface.** It is a chip on top of one. Never use it as the
+background of a page or a panel.
+
+### Chrome and panels
+
+**Chrome is bare on the canvas. Every data region is a bordered panel.**
+
+Navigation, page frame, rails, and object headers sit directly on the canvas.
+Hairlines and spacing separate them, never a border or a radius. Anything holding
+data sits in a panel instead: 1px hairline, `rounded-8`, panel fill, an optional
+header strip, and hairline row dividers.
+
+**A panel never contains another panel.** Where a page wants a grid of tiles, the
+tiles are cells inside one panel divided by internal hairlines. A bordered tile
+inside a panel is two frames around one thing.
+
+### Shadow vocabulary
+
+Depth is also conveyed by **multi-layer token-driven shadows**, not by flat tonal
 layering alone. Every interactive surface composes a stack: a hairline top
 highlight, a 1px key-line border, and one or two soft ambient drops. These stacks
 are theme-aware inside the token, so a component never sets a raw shadow.
-
-### Shadow Vocabulary
 
 - **`--shadow-border-base`**: the default surface and input keyline (hairline ring
   plus faint drop). The resting elevation for fields and bordered chips.
@@ -387,8 +477,8 @@ The form language is **softly rounded, tight radii, hairline borders.** Corners
 signal role, not decoration, and the radius scale is fixed:
 
 - **4px** (`rounded-4`): inputs and status pills.
-- **6px** (`rounded-6`): buttons and small cards. The default component corner.
-- **8px** (`rounded-8`): cards and popovers.
+- **6px** (`rounded-6`): buttons and small chips. The default component corner.
+- **8px** (`rounded-8`): panels and popovers.
 - **10px** (`rounded-10`): modals and sheets.
 - **12 to 16px**: marketing tiles and hero cards.
 - **`rounded-full`**: avatars, status dots, and icon-only circular buttons.
@@ -396,16 +486,16 @@ signal role, not decoration, and the radius scale is fixed:
 Borders are 1px hairlines in `border-border-neutral-base`, used between table rows
 in place of zebra fills. Silhouettes stay rectangular and calm; there are no
 organic blobs, no clipped diagonals, no decorative geometry. Buttons are `rounded-6`,
-pills are `rounded-4` or `rounded-full`, cards are `rounded-8`. Do not drift.
+pills are `rounded-4` or `rounded-full`, panels are `rounded-8`. Do not drift.
 
 ## Components
 
 `@shipfox/react-ui` ships the batteries. Reach for an existing component before
 building anything: `accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`,
-`callout`, `card`, `code-block`, `collapsible`, `combobox`, `command`,
+`callout`, `code-block`, `collapsible`, `combobox`, `command`,
 `date-picker`, `date-range-picker`, `dot`, `dropdown-menu`, `empty-state`,
 `form-field`, `icon`, `input`, `kbd`, `label`, `load-error-state`, `loader`, `log`,
-`logo`, `markdown`, `modal`, `popover`, `radio-group`, `relative-time`,
+`logo`, `markdown`, `modal`, `panel`, `popover`, `radio-group`, `relative-time`,
 `scroll-area`, `search`, `select`, `sheet`, `shiny-text`, `skeleton`, `table`,
 `tabs`, `theme`, `toast`, `tooltip`, and `typography`.
 
@@ -429,15 +519,29 @@ building anything: `accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`
 ### Chips / Badges
 
 - **Status badge:** `Badge` with a `--tag-*` family, `rounded-4` or `rounded-full`,
-  `text-xs`. When state is the headline of a card or header, the pill is **color
+  `text-xs`. When state is the headline of a panel or header, the pill is **color
   plus word only**: no leading glyph or dot inside a pill (a circle within a
   rounded border is too many surfaces in a small space).
 
-### Cards / Containers
+### Panels
 
-- **Corners** `rounded-8`, **background** `bg-background-components-base`, **padding**
-  `p-24` default (`p-16` compact), **border** the hairline, **elevation** from the
-  shadow tokens. Never tint a card or row background to match a status.
+`Panel` is the only container for a data region, and it replaces the former
+`Card`. It composes `PanelHeader`, `PanelTitle`, `PanelActions`, `PanelBody`,
+`PanelRow`, and `PanelEmpty`.
+
+- **Shell:** `rounded-8`, panel fill, hairline border, elevation from the shadow
+  tokens.
+- **Header:** `PanelHeader` defaults to a `strip` variant on the canvas fill with
+  a hairline underneath. It carries the title or the list controls on the left and
+  the primary action on the right. The `plain` variant drops the strip and the
+  hairline, for a titled block on a focused surface.
+- **Body:** rows use `px-row` and `py-row` with hairline dividers, and the last row
+  drops its divider. A panel without rows uses `p-panel` (`p-panel-compact` when
+  compact).
+- **States:** empty, error, and loading states render inside the body. A list with
+  zero rows keeps the same footprint and border as a list with rows.
+
+Never tint a panel or a row background to match a status.
 
 ### Inputs / Fields
 
@@ -494,13 +598,16 @@ appending 50 lines a second with an entrance animation is nausea.
 ### Do:
 
 - **Do** carry status with shape and color together, and keep the status color in
-  the glyph, pill, or border (never a full row or card fill).
+  the glyph, pill, or border (never a full row or panel fill).
 - **Do** route every color through a semantic or component token. A raw `#RRGGBB`
   outside `index.css` is a bug; push it into a token.
 - **Do** use the typography components (`Header`, `Text`, `Code`) for all type.
 - **Do** keep tables tight: sticky header, hairline row borders (not zebra),
   right-aligned tabular numerics, row hover surface, and inline actions in
-  `transparent` / `transparentMuted` revealed on hover.
+  `transparent` / `transparentMuted` revealed on hover. A table always sits in a
+  panel, and the panel owns the border and the radius.
+- **Do** declare a frame on every route, and let the shell own the page background
+  and the page width.
 - **Do** respect `prefers-reduced-motion`: disable pulsing indicators and tab
   transitions, and give every icon-only button an `aria-label`.
 - **Do** reserve motion for discrete events (150 to 250 ms ease-out for a state
@@ -519,8 +626,15 @@ appending 50 lines a second with an entrance animation is nausea.
 - **Don't** put decorative gradients on CTAs, or icons-in-colored-circles feature
   grids, or centered-everything hero triplets on marketing. Engineers smell hype a
   block away.
-- **Don't** animate append-only high-frequency data, or tint a card or row
+- **Don't** animate append-only high-frequency data, or tint a panel or row
   background to match a status.
+- **Don't** set a background or a width on a page. Both belong to the frame.
+- **Don't** nest a panel inside a panel, and don't give a navigation rail a border
+  or a radius.
+- **Don't** add a page title or a page description to an app surface. Settings
+  sub-pages are the one exception.
+- **Don't** paint a page, panel, or code surface with an alpha token. It
+  composites over a parent that varies by route.
 - **Don't** mix icon styles (Lucide next to Remix) in the same toolbar.
 - **Don't** expand brand orange into status, or `meta` purple into running-state
   semantics.
