@@ -2,50 +2,37 @@ import {Icon} from '@shipfox/react-ui/icon';
 import {useTimeTick} from '@shipfox/react-ui/time-ticker';
 import {Code} from '@shipfox/react-ui/typography';
 import {cn, humanDuration} from '@shipfox/react-ui/utils';
-import type {
-  WorkflowRunAttemptDisplayDuration,
-  WorkflowRunDisplayDuration,
-} from '#core/workflow-run.js';
+import type {WorkflowRunAttemptDisplayDuration} from '#core/workflow-run.js';
 
 /**
- * The run list reads an attempt's own marks and cannot tell queue from run, so an unkinded
- * duration still renders as run time. Only surfaces holding the run's jobs pass a kind.
+ * A run reports one span: how long its attempt has been under way. Queueing is a job
+ * execution's own affair, and the job surfaces report it there.
  */
-export type WorkflowRunDurationDisplay =
-  | WorkflowRunAttemptDisplayDuration
-  | WorkflowRunDisplayDuration;
-
-type DurationKind = 'queue' | 'run';
-
-const GLYPH_BY_KIND = {queue: 'hourglassLine', run: 'timerLine'} as const;
-const LIVE_VERB_BY_KIND = {queue: 'queued', run: 'running'} as const;
-const FIXED_VERB_BY_KIND = {queue: 'queued', run: 'ran'} as const;
+export type WorkflowRunDurationDisplay = WorkflowRunAttemptDisplayDuration;
 
 export function WorkflowRunDurationLabel({
   duration,
+  hasStarted,
   className,
 }: {
   duration: WorkflowRunDurationDisplay | null;
+  hasStarted: boolean;
   className?: string | undefined;
 }) {
   if (duration === null) return null;
-  const kind = durationKind(duration);
 
   switch (duration.state) {
     case 'fixed': {
       const display = formatFixedDurationLabel(duration.elapsed);
+      const verb = hasStarted ? 'ran' : 'lasted';
       return (
-        <DurationText
-          className={className}
-          kind={kind}
-          ariaLabel={`${FIXED_VERB_BY_KIND[kind]} ${display}`}
-        >
+        <DurationText className={className} ariaLabel={`${verb} ${display}`}>
           {display}
         </DurationText>
       );
     }
     case 'live':
-      return <LiveDurationText duration={duration} kind={kind} className={className} />;
+      return <LiveDurationText duration={duration} className={className} />;
     default: {
       const exhaustive: never = duration;
       return exhaustive;
@@ -55,22 +42,25 @@ export function WorkflowRunDurationLabel({
 
 export function useWorkflowRunDurationAccessibleLabel(
   duration: WorkflowRunDurationDisplay | null,
+  hasStarted: boolean,
 ): string | undefined {
   useTimeTick();
-  return workflowRunDurationAccessibleLabel(duration);
+  return workflowRunDurationAccessibleLabel(duration, hasStarted);
 }
 
 export function workflowRunDurationAccessibleLabel(
   duration: WorkflowRunDurationDisplay | null,
+  hasStarted: boolean,
 ): string | undefined {
   if (duration === null) return undefined;
-  const kind = durationKind(duration);
 
   switch (duration.state) {
     case 'live':
-      return `${LIVE_VERB_BY_KIND[kind]} ${humanDuration(duration.fromIso)}`;
-    case 'fixed':
-      return `${FIXED_VERB_BY_KIND[kind]} ${formatFixedDurationLabel(duration.elapsed)}`;
+      return `running ${humanDuration(duration.fromIso)}`;
+    case 'fixed': {
+      const verb = hasStarted ? 'ran' : 'lasted';
+      return `${verb} ${formatFixedDurationLabel(duration.elapsed)}`;
+    }
     default: {
       const exhaustive: never = duration;
       return exhaustive;
@@ -78,27 +68,17 @@ export function workflowRunDurationAccessibleLabel(
   }
 }
 
-function durationKind(duration: WorkflowRunDurationDisplay): DurationKind {
-  return 'kind' in duration ? duration.kind : 'run';
-}
-
 function LiveDurationText({
   duration,
-  kind,
   className,
 }: {
   duration: Extract<WorkflowRunDurationDisplay, {state: 'live'}>;
-  kind: DurationKind;
   className?: string | undefined;
 }) {
   useTimeTick();
   const display = humanDuration(duration.fromIso);
   return (
-    <DurationText
-      className={className}
-      kind={kind}
-      ariaLabel={`${LIVE_VERB_BY_KIND[kind]} ${display}`}
-    >
+    <DurationText className={className} ariaLabel={`running ${display}`}>
       {display}
     </DurationText>
   );
@@ -107,12 +87,10 @@ function LiveDurationText({
 function DurationText({
   children,
   className,
-  kind,
   ariaLabel,
 }: {
   children: string;
   className?: string | undefined;
-  kind: DurationKind;
   ariaLabel?: string | undefined;
 }) {
   return (
@@ -125,10 +103,9 @@ function DurationText({
         className,
       )}
     >
-      {/* The glyph is the only visible mark of queue vs run: the status badge already writes
-          "Queued", and the numeric columns are fixed width. The verb rides the accessible
-          name instead. */}
-      <Icon name={GLYPH_BY_KIND[kind]} className="size-12 shrink-0" aria-hidden="true" />
+      {/* The verb rides the accessible name: the numeric columns are fixed width and the
+          status badge already says whether the run is still going. */}
+      <Icon name="timerLine" className="size-12 shrink-0" aria-hidden="true" />
       {children}
     </Code>
   );

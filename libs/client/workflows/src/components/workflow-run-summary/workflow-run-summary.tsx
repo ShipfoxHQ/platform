@@ -12,26 +12,23 @@ import {useIsTextTruncated} from '@shipfox/react-ui/hooks';
 import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
-import {Code, Header, Text} from '@shipfox/react-ui/typography';
+import {Header, Text} from '@shipfox/react-ui/typography';
 import {useId} from 'react';
 import {WorkflowRunNumberLabel} from '#components/workflow-run-number-label.js';
+import {workflowRunHasStartedFromJobs} from '#core/entities/workflow-run.js';
 import {
   isWorkflowRunTerminal,
   type Job,
   WORKFLOW_RUN_STATUSES,
   type WorkflowRunDetail,
   type WorkflowRunRerunMode,
-  workflowRunBlockingJob,
-  workflowRunDetailDisplay,
 } from '#core/workflow-run.js';
 import {WorkflowRunDurationLabel} from '../workflow-run-duration-label.js';
 import {getWorkflowStatusVisual} from '../workflow-status/status-visuals.js';
 import {WorkflowRunAttemptSwitcher} from './workflow-run-attempt-switcher.js';
 
 const STATUS_BADGE_LABEL_WIDTH_CH = Math.max(
-  ...[...WORKFLOW_RUN_STATUSES, 'queued' as const].map(
-    (status) => getWorkflowStatusVisual(status).label.length,
-  ),
+  ...WORKFLOW_RUN_STATUSES.map((status) => getWorkflowStatusVisual(status).label.length),
 );
 const RERUN_BUTTON_SURFACE_CLASS_NAME =
   'bg-background-neutral-base hover:bg-background-neutral-hover active:bg-background-neutral-pressed';
@@ -60,19 +57,15 @@ export function WorkflowRunSummary({
   latestAttempt,
 }: WorkflowRunSummaryProps) {
   const headingId = useId();
-  const display = workflowRunDetailDisplay(run);
-  const status = getWorkflowStatusVisual(display.status);
+  const status = getWorkflowStatusVisual(run.runAttempt.status);
   const action = workflowRunActionForRun(run);
   const hasAction = canRenderWorkflowRunAction(action, onCancel, onRerun);
   const attemptSwitcher =
     latestAttempt && latestAttempt > 1 && workspaceSlug && projectSlug
       ? {workspaceSlug, projectSlug, latestAttempt}
       : null;
-  const displayDuration = display.duration;
-  // Named only while the run is waiting and has more than one job: with a single job the rail
-  // and the graph already say which one it is.
-  const blockingJob =
-    display.status === 'queued' && run.jobs.length > 1 ? workflowRunBlockingJob(run.jobs) : null;
+  const displayDuration = run.runAttempt.displayDuration;
+  const hasStarted = workflowRunHasStartedFromJobs(run.jobs);
   const {ref: headingTextRef, isTruncated: isHeadingTruncated} =
     useIsTextTruncated<HTMLSpanElement>(run.name);
 
@@ -184,22 +177,9 @@ export function WorkflowRunSummary({
                 <MetadataSeparator />
                 <WorkflowRunDurationLabel
                   duration={displayDuration}
+                  hasStarted={hasStarted}
                   className="text-foreground-neutral-subtle"
                 />
-              </>
-            ) : null}
-
-            {blockingJob ? (
-              <>
-                <MetadataSeparator />
-                <span className="flex min-w-0 items-center gap-tight">
-                  <Text as="span" size="xs" className="shrink-0">
-                    waiting on
-                  </Text>
-                  <Code as="span" variant="label" className="min-w-0 truncate">
-                    {blockingJob.displayName}
-                  </Code>
-                </span>
               </>
             ) : null}
           </div>

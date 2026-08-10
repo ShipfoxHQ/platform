@@ -201,6 +201,11 @@ export const workflowRunListItemSchema = workflowRunResponseSchema.extend({
    * Optional so a new web client can consume an older API response during rollout.
    */
   job_display_status_counts: z.array(workflowRunJobDisplayStatusCountDtoSchema).optional(),
+  /**
+   * Whether any job execution in the attempt reached its runner. A `cancelled` job does not
+   * say this on its own, so the counts above cannot answer it.
+   */
+  has_started_job_execution: z.boolean(),
 });
 
 export type WorkflowRunListItemDto = z.input<typeof workflowRunListItemSchema>;

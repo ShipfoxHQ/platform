@@ -14,6 +14,7 @@ import {
   listRunAttempts,
   listWorkflowRunJobSummaries,
   listWorkflowRunsByProject,
+  recordJobExecutionStartedAt,
   updateJobExecutionStatus,
   updateJobStatus,
   updateWorkflowRunStatus,
@@ -273,6 +274,32 @@ describe('workflow run queries', () => {
       ]);
 
       expect(summary.get(run.id)?.statusCounts).toEqual([{status: 'pending', count: 2}]);
+      expect(summary.get(run.id)?.hasStartedJobExecution).toBe(false);
+    });
+
+    test('reports when any current-attempt job execution has started', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+        triggerPayload: manualTrigger(),
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected workflow job');
+      const execution = await getFirstJobExecutionByJobId(job.id);
+      if (!execution) throw new Error('Expected workflow job execution');
+
+      await recordJobExecutionStartedAt({
+        jobExecutionId: execution.id,
+        startedAt: new Date('2026-05-07T01:00:05.000Z'),
+      });
+
+      const summary = await listWorkflowRunJobSummaries([
+        {id: run.id, currentAttempt: run.currentAttempt},
+      ]);
+
+      expect(summary.get(run.id)?.hasStartedJobExecution).toBe(true);
     });
 
     test('returns execution evidence and counts its display status', async () => {

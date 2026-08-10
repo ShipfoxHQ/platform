@@ -119,6 +119,7 @@ export function toWorkflowRunListItem(dto: WorkflowRunListItemDto): WorkflowRunL
         position: job.position,
       })),
       statusCounts,
+      hasStartedJobExecution: dto.has_started_job_execution,
       // Derived rather than sent: the counts already cover every job, and a separate total
       // would be a second source of truth that could disagree with them.
       total: statusCounts.reduce((sum, entry) => sum + entry.count, 0),

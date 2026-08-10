@@ -103,6 +103,7 @@ describe('workflow run model mapping', () => {
       latest_attempt: 4,
       started_at: '2026-05-07T01:01:10.000Z',
       finished_at: null,
+      has_started_job_execution: true,
     });
 
     const run = toWorkflowRunListItem(dto);
@@ -122,6 +123,7 @@ describe('workflow run model mapping', () => {
     expect(run).not.toHaveProperty('startedAt');
     expect(run).not.toHaveProperty('finishedAt');
     expect(run).not.toHaveProperty('displayDuration');
+    expect(run.jobs.hasStartedJobExecution).toBe(true);
     expect(run.runAttempt.displayDuration).toEqual({
       state: 'live',
       fromIso: '2026-05-07T01:01:10.000Z',

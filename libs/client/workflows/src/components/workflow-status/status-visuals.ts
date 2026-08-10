@@ -18,10 +18,6 @@ export function getWorkflowStatusVisual(status: WorkflowDisplayStatus): Workflow
   switch (status) {
     case 'pending':
       return {kind: 'pending', label: 'Pending', dot: 'neutral', badge: 'neutral'};
-    // Waiting on a runner is the awaiting-* state the warning tone was held for: the run is
-    // live but nothing is executing, which is the operator's problem to see, not ours to hide.
-    case 'queued':
-      return {kind: 'queued', label: 'Queued', dot: 'warning', badge: 'warning'};
     case 'running':
       return {kind: 'running', label: 'Running', dot: 'info', badge: 'info'};
     case 'listening':

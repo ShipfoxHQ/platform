@@ -20,7 +20,6 @@ import {
   workflowRunActor,
   workflowRunBranchLabel,
   workflowRunCommitLabel,
-  workflowRunListItemDisplay,
 } from '#core/workflow-run.js';
 import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
 import {JobStatusStrip, jobStatusSummary} from './job-status-strip.js';
@@ -69,9 +68,11 @@ export function WorkflowRunRow({
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
 }) {
-  const display = workflowRunListItemDisplay(run);
-  const durationLabel = useWorkflowRunDurationAccessibleLabel(display.duration);
-  const statusLabel = getWorkflowStatusVisual(display.status).label;
+  const duration = run.runAttempt.displayDuration;
+  const hasStarted = run.jobs.hasStartedJobExecution;
+  const durationLabel = useWorkflowRunDurationAccessibleLabel(duration, hasStarted);
+  const status = run.runAttempt.status;
+  const statusLabel = getWorkflowStatusVisual(status).label;
   const runNumberLabel = formatWorkflowRunNumberLabel(run);
   const branch = workflowRunBranchLabel(run);
   const commit = workflowRunCommitLabel(run);
@@ -79,7 +80,7 @@ export function WorkflowRunRow({
 
   const body = (
     <>
-      <WorkflowStatusIcon status={display.status} size={14} className="shrink-0" />
+      <WorkflowStatusIcon status={status} size={14} className="shrink-0" />
 
       <div className="flex min-w-0 flex-1 flex-col gap-tight @min-[976px]:flex-row @min-[976px]:items-center @min-[976px]:gap-cluster">
         <span className="flex min-w-0 items-center gap-inline @min-[976px]:flex-1">
@@ -105,7 +106,7 @@ export function WorkflowRunRow({
           <JobStatusStrip jobs={run.jobs} />
         </span>
         <span className="flex w-64 justify-end">
-          <WorkflowRunDurationLabel duration={display.duration} />
+          <WorkflowRunDurationLabel duration={duration} hasStarted={hasStarted} />
         </span>
         <Code
           variant="label"

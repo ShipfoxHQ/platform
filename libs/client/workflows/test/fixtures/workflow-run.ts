@@ -82,6 +82,7 @@ export function workflowRunDto(
     jobs: [],
     job_status_counts: [],
     job_display_status_counts: [],
+    has_started_job_execution: false,
     ...overrides,
   };
 }
@@ -136,10 +137,18 @@ function executionStatusForFixtureStatus(
  *
  * Built from one list so the two can never disagree. A fixture whose counts contradicted its
  * preview would hide exactly the bug the split exists to prevent.
+ *
+ * `has_started_job_execution` follows the statuses where they settle it: `succeeded` and `failed`
+ * cannot be reached without running. `pending`, `skipped`, and `cancelled` leave it open, which is
+ * the ambiguity the server flag exists to resolve, so those default to not started and a case that
+ * needs the other reading overrides it.
  */
 export function workflowRunJobsFixture(
   statuses: readonly JobStatusDto[],
-): Pick<WorkflowRunListItemDto, 'jobs' | 'job_status_counts' | 'job_display_status_counts'> {
+): Pick<
+  WorkflowRunListItemDto,
+  'jobs' | 'job_status_counts' | 'job_display_status_counts' | 'has_started_job_execution'
+> {
   const counts = new Map<JobStatusDto, number>();
   for (const status of statuses) counts.set(status, (counts.get(status) ?? 0) + 1);
 
@@ -152,6 +161,9 @@ export function workflowRunJobsFixture(
     jobs: preview,
     job_status_counts: [...counts.entries()].map(([status, count]) => ({status, count})),
     job_display_status_counts: [...counts.entries()].map(([status, count]) => ({status, count})),
+    has_started_job_execution: statuses.some(
+      (status) => status === 'running' || status === 'succeeded' || status === 'failed',
+    ),
   };
 }
 
@@ -159,9 +171,11 @@ export function workflowRunJobsFixture(
 export function workflowRunJobsOfStatus(
   count: number,
   status: JobStatusDto = 'succeeded',
-): Pick<WorkflowRunListItemDto, 'jobs' | 'job_status_counts' | 'job_display_status_counts'> {
+): Pick<
+  WorkflowRunListItemDto,
+  'jobs' | 'job_status_counts' | 'job_display_status_counts' | 'has_started_job_execution'
+> {
   return workflowRunJobsFixture(Array.from({length: count}, () => status));
-}
 
 export function workflowRunListItem(
   overrides: Partial<WorkflowRunListItemDto> = {},

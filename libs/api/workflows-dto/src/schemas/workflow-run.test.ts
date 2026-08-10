@@ -120,6 +120,7 @@ describe('workflow run list item schema', () => {
       source_snapshot: null,
       jobs: [jobDto(0)],
       job_status_counts: [{status: 'succeeded', count: 1}],
+      has_started_job_execution: true,
     });
 
     expect(result.jobs).toHaveLength(1);
@@ -185,6 +186,7 @@ describe('workflow run list item schema', () => {
         {status: 'succeeded', count: 40},
         {status: 'failed', count: 2},
       ],
+      has_started_job_execution: true,
     });
 
     expect(result.job_status_counts).toHaveLength(2);
@@ -196,6 +198,7 @@ describe('workflow run list item schema', () => {
       source_snapshot: null,
       jobs: Array.from({length: WORKFLOW_RUN_JOB_PREVIEW_LIMIT + 1}, (_, index) => jobDto(index)),
       job_status_counts: [],
+      has_started_job_execution: false,
     });
 
     expect(result.success).toBe(false);
@@ -204,6 +207,7 @@ describe('workflow run list item schema', () => {
   test.each([
     ['a jobs array', {job_status_counts: []}],
     ['job status counts', {jobs: []}],
+    ['started-job flag', {jobs: [], job_status_counts: []}],
   ])('rejects a run list item without %s', (_missing, partial) => {
     const result = workflowRunListItemSchema.safeParse({
       ...baseRun,

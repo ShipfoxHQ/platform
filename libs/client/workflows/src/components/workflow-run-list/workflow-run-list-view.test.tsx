@@ -470,6 +470,7 @@ describe('WorkflowRunListView', () => {
         run('succeeded', 'build-image', 'run-build-image', {
           started_at: '2026-05-07T01:00:00.000Z',
           finished_at: '2026-05-07T01:02:14.000Z',
+          has_started_job_execution: true,
         }),
       ]);
 
@@ -494,6 +495,53 @@ describe('WorkflowRunListView', () => {
 
       const duration = await screen.findByText('2m 14s');
       expect(duration).toHaveAttribute('aria-label', 'running 2m 14s');
+    });
+
+    test('uses the attempt status when all listed jobs are pending', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-05-07T01:02:14.000Z'));
+
+      renderListView([
+        run('running', 'waiting-for-runner', 'run-waiting-for-runner', {
+          ...workflowRunJobsFixture(['pending', 'pending']),
+          started_at: '2026-05-07T01:00:00.000Z',
+          finished_at: null,
+        }),
+      ]);
+
+      const duration = await screen.findByText('2m 14s');
+      expect(duration).toHaveAttribute('aria-label', 'running 2m 14s');
+      expect(
+        screen.getByRole('link', {
+          name: (name) => name.includes('Running') && name.includes('running 2m 14s'),
+        }),
+      ).toBeInTheDocument();
+    });
+
+    test('uses a neutral verb when no listed job execution started', async () => {
+      renderListView([
+        run('cancelled', 'cancelled-before-runner', 'run-cancelled-before-runner', {
+          ...workflowRunJobsFixture(['pending']),
+          started_at: '2026-05-07T01:00:00.000Z',
+          finished_at: '2026-05-07T01:02:14.000Z',
+        }),
+      ]);
+
+      const duration = await screen.findByText('2m 14s');
+      expect(duration).toHaveAttribute('aria-label', 'lasted 2m 14s');
+    });
+
+    test('uses the started-execution flag when a cancelled job reached a runner', async () => {
+      renderListView([
+        run('cancelled', 'cancelled-after-start', 'run-cancelled-after-start', {
+          ...workflowRunJobsFixture(['cancelled']),
+          has_started_job_execution: true,
+          started_at: '2026-05-07T01:00:00.000Z',
+          finished_at: '2026-05-07T01:02:14.000Z',
+        }),
+      ]);
+
+      const duration = await screen.findByText('2m 14s');
+      expect(duration).toHaveAttribute('aria-label', 'ran 2m 14s');
     });
 
     test('renders the workflow name beside the run number', async () => {

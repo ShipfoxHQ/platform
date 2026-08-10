@@ -89,24 +89,6 @@ export function WorkflowStatusIcon({
         <Icon name="pulseLine" size={Math.max(8, Math.round(size * 0.7))} className="text-white" />
       </span>
     );
-  } else if (visual.kind === 'queued') {
-    // An hourglass in the same filled disc the listening state uses, so waiting reads as its
-    // own shape rather than as a pending ring that happens to be a different colour.
-    glyph = (
-      <span
-        className={cn(
-          'inline-flex shrink-0 items-center justify-center rounded-full bg-current',
-          box,
-          toneByVariant.warning,
-        )}
-      >
-        <Icon
-          name="hourglassLine"
-          size={Math.max(8, Math.round(size * 0.7))}
-          className="text-white"
-        />
-      </span>
-    );
   } else if (visual.kind === 'running') {
     glyph = <Dot variant="info" ripple={ripple} className={box} />;
   } else if (visual.kind === 'pending') {
