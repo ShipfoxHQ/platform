@@ -112,6 +112,10 @@ describe('client-architecture Biome plugins', () => {
           const output = `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`;
           assert.match(output, new RegExp(`client-architecture/${ruleName}`, 'u'));
           assert.match(output, /rejected\.tsx:/u);
+          if (ruleName === 'no-dark-variants') {
+            assert.match(output, /rejected\.tsx:2:/u);
+            assert.match(output, /rejected\.tsx:3:/u);
+          }
           return true;
         },
       );

@@ -3,28 +3,28 @@ language js(typescript, jsx)
 
 or {
   JsStringLiteralExpression() as $class where {
-    $class <: r".*(?:^|\s)[^\s]*dark:(?:[^\s${]+|\$\{).*",
+    $class <: r".*(?:^|\s)[^\s]*dark:(?:[^\s${\x22\x27\x60]+|\$\{|[\x22\x27\x60]).*",
     register_diagnostic(
       span=$class,
       message="client-architecture/no-dark-variants: use semantic surface and foreground tokens so the theme resolves through the token ladder."
     )
   },
   JsxString() as $class where {
-    $class <: r".*(?:^|\s)[^\s]*dark:(?:[^\s${]+|\$\{).*",
+    $class <: r".*(?:^|\s)[^\s]*dark:(?:[^\s${\x22\x27\x60]+|\$\{|[\x22\x27\x60]).*",
     register_diagnostic(
       span=$class,
       message="client-architecture/no-dark-variants: use semantic surface and foreground tokens so the theme resolves through the token ladder."
     )
   },
   JsTemplateExpression() as $class where {
-    $class <: r".*(?:^|\s)[^\s]*dark:(?:[^\s${]+|\$\{).*",
+    $class <: r".*(?:^|\s)[^\s]*dark:(?:[^\s${\x22\x27\x60]+|\$\{|[\x22\x27\x60]).*",
     register_diagnostic(
       span=$class,
       message="client-architecture/no-dark-variants: use semantic surface and foreground tokens so the theme resolves through the token ladder."
     )
   },
   JsTemplateElement() as $class where {
-    $class <: r".*(?:^|\s)[^\s]*dark:(?:[^\s${]+|\$\{).*",
+    $class <: r".*(?:^|\s)[^\s]*dark:(?:[^\s${\x22\x27\x60]+|\$\{|[\x22\x27\x60]).*",
     register_diagnostic(
       span=$class,
       message="client-architecture/no-dark-variants: use semantic surface and foreground tokens so the theme resolves through the token ladder."
