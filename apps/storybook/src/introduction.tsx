@@ -131,7 +131,7 @@ export function IntroductionPage() {
                 key={storybook.id}
               >
                 <Panel className="h-full p-panel-compact">
-                  <PanelTitle>{storybook.title}</PanelTitle>
+                  <PanelTitle title={storybook.title}>{storybook.title}</PanelTitle>
                 </Panel>
               </a>
             ))}

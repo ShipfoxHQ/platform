@@ -106,7 +106,7 @@ function ProviderCard({
         type="button"
         aria-label={`Add ${provider.displayName}`}
         onClick={() => onOpenProvider?.(provider.provider)}
-        className="group flex h-full w-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
+        className="group flex h-full w-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact text-left shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
       >
         <ProviderCardContent provider={provider} action="Add" />
       </button>
@@ -118,7 +118,7 @@ function ProviderCard({
       to={catalog.setupPath}
       params={{workspaceSlug}}
       aria-label={`Install ${provider.displayName}`}
-      className="group flex h-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
+      className="group flex h-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
     >
       <ProviderCardContent provider={provider} action="Install" />
     </Link>

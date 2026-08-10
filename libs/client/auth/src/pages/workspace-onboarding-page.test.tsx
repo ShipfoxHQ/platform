@@ -66,7 +66,7 @@ describe('WorkspaceOnboardingPage', () => {
     });
     configureApiClient({fetchImpl});
 
-    renderAuthPage(
+    const {container} = renderAuthPage(
       '/',
       <AuthGuard>
         <WorkspaceGuard>
@@ -74,7 +74,11 @@ describe('WorkspaceOnboardingPage', () => {
         </WorkspaceGuard>
       </AuthGuard>,
     );
-    fireEvent.change(await screen.findByLabelText('Workspace name'), {
+    const workspaceName = await screen.findByLabelText('Workspace name');
+    expect(container.querySelector('[data-slot="panel-header"]')).toHaveClass('p-panel');
+    expect(container.querySelector('[data-slot="panel-header"]')).not.toHaveClass('p-0');
+    expect(container.querySelector('[data-slot="panel-body"]')).toHaveClass('p-panel');
+    fireEvent.change(workspaceName, {
       target: {value: '  Acme  '},
     });
     fireEvent.click(screen.getByRole('button', {name: 'Create workspace'}));

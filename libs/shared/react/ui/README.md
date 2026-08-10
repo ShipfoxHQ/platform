@@ -101,8 +101,9 @@ surface.
 
 Version 2 removes `Card`. Migrate `Card` to `Panel`, `CardHeader` to
 `PanelHeader variant="plain"`, `CardTitle` to `PanelTitle`, `CardContent` to
-`PanelBody`, `CardAction` to `PanelActions`, and `CardDescription` to a muted
-`Text` component. Keep `CardFooter` content in the panel layout or a `PanelBody`.
+`PanelBody`, `CardAction` to `PanelActions`, and `CardDescription` to a `Text`
+with `className="text-foreground-neutral-muted"`. Keep `CardFooter` content in
+the panel layout or a `PanelBody`.
 
 `FormField` wires up label, input, error, and description with the correct `id`, `aria-invalid`, and `aria-describedby` plumbing. Render controls through `FormFieldInput` or `FormFieldTextarea` to inherit those props automatically:
 

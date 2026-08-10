@@ -38,7 +38,7 @@ export function ConfigErrorScreen({errors, docsUrl}: ConfigErrorScreenProps) {
           {errors.map((error) => (
             <div
               key={error.key}
-              className="flex flex-col gap-tight border-t border-border-neutral-base py-row first:border-t-0 first:pt-0"
+              className="flex flex-col gap-tight border-t border-border-neutral-base px-row py-row first:border-t-0 first:pt-0"
             >
               <Code variant="label" bold className="text-foreground-neutral-base">
                 {error.key}
@@ -67,7 +67,7 @@ export function ConfigErrorScreen({errors, docsUrl}: ConfigErrorScreenProps) {
         </PanelBody>
 
         {docsUrl ? (
-          <div className="p-panel pt-0">
+          <div className="mt-group p-panel pt-0">
             <Text size="sm" className="text-foreground-neutral-muted">
               See the{' '}
               <ButtonLink href={docsUrl} variant="interactive" underline>
