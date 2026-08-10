@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import type {Dirent} from 'node:fs';
-import {mkdir, readdir, readFile, readlink, rm, symlink, writeFile} from 'node:fs/promises';
+import {link, mkdir, readdir, readFile, readlink, rm, symlink, writeFile} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {dirname, join, parse, resolve} from 'node:path';
 import {logger} from '@shipfox/node-opentelemetry';
@@ -163,26 +163,21 @@ async function withJobLogLock<T>(
   await mkdir(dirname(logsDir), {recursive: true});
 
   while (true) {
-    try {
-      await writeFile(lockPath, `${process.pid}:${randomUUID()}`, {flag: 'wx'});
+    if (await tryAcquireJobLogLock(lockPath)) {
       break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-
-      const existingLock = await readJobLogLock(lockPath);
-      if (existingLock === undefined) {
-        continue;
-      }
-      if (
-        isProcessDead(existingLock.pid) &&
-        (await tryReclaimStaleJobLogLock(lockPath, existingLock.raw))
-      ) {
-        continue;
-      }
-      if (!waitForLock) return undefined;
-
-      await new Promise((resolve) => setTimeout(resolve, JOB_LOG_LOCK_RETRY_MS));
     }
+
+    const existingLock = await readJobLogLock(lockPath);
+    if (existingLock === undefined) continue;
+    if (
+      isProcessDead(existingLock.pid) &&
+      (await tryReclaimStaleJobLogLock(lockPath, existingLock.raw))
+    ) {
+      continue;
+    }
+    if (!waitForLock) return undefined;
+
+    await new Promise((resolve) => setTimeout(resolve, JOB_LOG_LOCK_RETRY_MS));
   }
 
   try {
@@ -196,6 +191,24 @@ type JobLogLock = {
   pid: number;
   raw: string;
 };
+
+async function tryAcquireJobLogLock(lockPath: string): Promise<boolean> {
+  const lockOwner = `${process.pid}:${randomUUID()}`;
+  const temporaryLockPath = `${lockPath}.${process.pid}.${randomUUID()}.tmp`;
+
+  try {
+    await writeFile(temporaryLockPath, lockOwner, {flag: 'wx'});
+    try {
+      await link(temporaryLockPath, lockPath);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      return false;
+    }
+  } finally {
+    await rm(temporaryLockPath, {force: true});
+  }
+}
 
 async function readJobLogLock(lockPath: string): Promise<JobLogLock | undefined> {
   let raw: string;

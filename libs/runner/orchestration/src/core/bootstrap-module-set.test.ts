@@ -8,6 +8,7 @@ import {fileURLToPath} from 'node:url';
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const probePath = resolve(packageRoot, 'test/bootstrap-module-set-probe.mjs');
 const moduleTrackerPath = resolve(packageRoot, 'test/module-load-tracker.mjs');
+const commonJsModuleTrackerPath = resolve(packageRoot, 'test/module-load-tracker.cjs');
 const require = createRequire(import.meta.url);
 const tsxLoaderPath = require.resolve('tsx');
 const LINE_BREAK_PATTERN = /\r?\n/u;
@@ -23,6 +24,8 @@ it('keeps heavy agent packages out of the managed bootstrap module set', () => {
       process.execPath,
       [
         '--conditions=workspace-source',
+        '--require',
+        commonJsModuleTrackerPath,
         `--import=${tsxLoaderPath}`,
         '--loader',
         moduleTrackerPath,

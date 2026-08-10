@@ -112,6 +112,7 @@ const {
   reportStepResult,
   runJobSteps,
 } = await import('#core/step-loop.js');
+const agentStepModuleEvaluatedDuringStepLoopImport = agentStepModuleEvaluated.value;
 
 const JOB_ID = '00000000-0000-0000-0000-0000000000aa';
 const RUN_ID = '00000000-0000-0000-0000-0000000000ab';
@@ -238,7 +239,6 @@ describe('runJobSteps', () => {
     createStepLogStreamMock.mockReset();
     createSessionLogStreamMock.mockReset();
     executeAgentStepMock.mockReset();
-    agentStepModuleEvaluated.value = false;
     resolveWorkingDirectoryMock.mockReset();
     resolveWorkingDirectoryMock.mockImplementation(
       async (cwd: string, workingDirectory: unknown) =>
@@ -297,7 +297,7 @@ describe('runJobSteps', () => {
     await runLoop({signal: ac.signal});
 
     expect(executeAgentStepMock).not.toHaveBeenCalled();
-    expect(agentStepModuleEvaluated.value).toBe(false);
+    expect(agentStepModuleEvaluatedDuringStepLoopImport).toBe(false);
   });
 
   it('loads the agent module once and reuses the fulfilled promise', async () => {
