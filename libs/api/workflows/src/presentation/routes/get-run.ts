@@ -63,6 +63,7 @@ export function getRunRoute(projects: ProjectsModuleClient) {
         ...toRunDto(run, run.latestAttempt),
         run_attempt: toRunAttemptDto(run.runAttempt),
         jobs: jobDtos,
+        has_started_job_execution: run.hasStartedJobExecution,
       };
     },
   });

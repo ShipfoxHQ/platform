@@ -358,7 +358,7 @@ function buildTempRun({
     updatedAt: createdAt,
     isTemporary: true,
     // The optimistic row genuinely has no jobs yet: the server has not planned the graph.
-    jobs: {preview: [], statusCounts: [], total: 0},
+    jobs: {preview: [], statusCounts: [], hasStartedJobExecution: false, total: 0},
     runAttempt: new WorkflowRunAttemptSummary({
       workflowRunId: id,
       attempt: 1,

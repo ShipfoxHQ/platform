@@ -159,6 +159,17 @@ describe('WorkflowRunSummary', () => {
   test('shows a live selected attempt duration for running runs', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-05-07T01:02:14.000Z'));
     renderSummary({
+      jobs: [
+        workflowJobDto({
+          status: 'running',
+          job_executions: [
+            workflowJobExecutionDto({
+              status: 'running',
+              started_at: '2026-05-07T01:02:00.000Z',
+            }),
+          ],
+        }),
+      ],
       run_attempt: {
         id: '11111111-1111-4111-8111-000000000001',
         workflow_run_id: RUN_ID,
@@ -178,7 +189,9 @@ describe('WorkflowRunSummary', () => {
     expect(duration).toHaveAttribute('aria-label', 'running 2m 14s');
   });
 
-  test('reads a running run whose jobs have not started as queued', async () => {
+  // The header reports the attempt the API returned. Whether a job has reached a runner yet is
+  // the job surfaces' business, so an attempt whose jobs are all pending still reads as running.
+  test('reads a running attempt as running whatever its jobs have reached', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-05-07T01:02:14.000Z'));
     renderSummary({
       jobs: [workflowJobDto({status: 'pending'})],
@@ -187,50 +200,89 @@ describe('WorkflowRunSummary', () => {
 
     const summary = await screen.findByRole('region', {name: 'deploy-web'});
 
-    expect(within(summary).getAllByText('Queued')).not.toHaveLength(0);
-    expect(within(summary).queryByText('Running')).not.toBeInTheDocument();
-    expect(within(summary).getByText('2m 14s')).toHaveAttribute('aria-label', 'queued 2m 14s');
+    expect(within(summary).getAllByText('Running')).not.toHaveLength(0);
+    expect(within(summary).queryByText('Queued')).not.toBeInTheDocument();
+    expect(within(summary).getByText('2m 14s')).toHaveAttribute('aria-label', 'running 2m 14s');
   });
 
-  test('names the job a queued run is waiting on when there is more than one', async () => {
+  test('uses a neutral verb when an attempt finished before any job execution started', async () => {
     renderSummary({
+      status: 'cancelled',
       jobs: [
         workflowJobDto({
-          name: 'lint',
-          status: 'pending',
-          job_executions: [workflowJobExecutionDto({queued_at: '2026-05-07T01:00:00.000Z'})],
-        }),
-        workflowJobDto({
-          name: 'build',
-          status: 'pending',
-          job_executions: [workflowJobExecutionDto({queued_at: '2026-05-07T00:59:00.000Z'})],
-        }),
-      ],
-      run_attempt: runningAttemptDto(),
-    });
-
-    const summary = await screen.findByRole('region', {name: 'deploy-web'});
-
-    expect(within(summary).getByText('waiting on')).toBeInTheDocument();
-    expect(within(summary).getByText('build')).toBeInTheDocument();
-  });
-
-  test('leaves the waiting job unnamed when the run has a single job', async () => {
-    renderSummary({
-      jobs: [
-        workflowJobDto({
-          name: 'build',
           status: 'pending',
           job_executions: [workflowJobExecutionDto({queued_at: '2026-05-07T01:00:00.000Z'})],
         }),
       ],
-      run_attempt: runningAttemptDto(),
+      run_attempt: {
+        id: '11111111-1111-4111-8111-000000000001',
+        workflow_run_id: RUN_ID,
+        attempt: 1,
+        status: 'cancelled',
+        created_at: '2026-05-07T01:00:00.000Z',
+        started_at: '2026-05-07T01:00:00.000Z',
+        finished_at: '2026-05-07T01:02:14.000Z',
+        rerun_mode: null,
+      },
     });
 
     const summary = await screen.findByRole('region', {name: 'deploy-web'});
 
-    expect(within(summary).getAllByText('Queued')).not.toHaveLength(0);
-    expect(within(summary).queryByText('waiting on')).not.toBeInTheDocument();
+    expect(within(summary).getAllByText('Cancelled')).not.toHaveLength(0);
+    expect(within(summary).getByText('2m 14s')).toHaveAttribute('aria-label', 'lasted 2m 14s');
+  });
+
+  test('uses the run verb when a cancelled job execution started', async () => {
+    renderSummary({
+      status: 'cancelled',
+      jobs: [
+        workflowJobDto({
+          status: 'cancelled',
+          job_executions: [
+            workflowJobExecutionDto({
+              status: 'cancelled',
+              started_at: '2026-05-07T01:00:05.000Z',
+            }),
+          ],
+        }),
+      ],
+      run_attempt: {
+        id: '11111111-1111-4111-8111-000000000001',
+        workflow_run_id: RUN_ID,
+        attempt: 1,
+        status: 'cancelled',
+        created_at: '2026-05-07T01:00:00.000Z',
+        started_at: '2026-05-07T01:00:00.000Z',
+        finished_at: '2026-05-07T01:02:14.000Z',
+        rerun_mode: null,
+      },
+    });
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getByText('2m 14s')).toHaveAttribute('aria-label', 'ran 2m 14s');
+  });
+
+  test('uses a neutral verb when every job was skipped', async () => {
+    renderSummary({
+      status: 'succeeded',
+      jobs: [workflowJobDto({status: 'skipped'})],
+      run_attempt: {
+        id: '11111111-1111-4111-8111-000000000001',
+        workflow_run_id: RUN_ID,
+        attempt: 1,
+        status: 'succeeded',
+        created_at: '2026-05-07T01:00:00.000Z',
+        started_at: '2026-05-07T01:00:00.000Z',
+        finished_at: '2026-05-07T01:02:14.000Z',
+        rerun_mode: null,
+      },
+    });
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getAllByText('Succeeded')).not.toHaveLength(0);
+    expect(within(summary).getByText('2m 14s')).toHaveAttribute('aria-label', 'lasted 2m 14s');
   });
 
   test('does not render a whole-run source control', async () => {

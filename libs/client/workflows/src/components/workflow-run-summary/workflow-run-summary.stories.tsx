@@ -18,7 +18,6 @@ import {WorkflowRunAttempt, type WorkflowRunStatus} from '#core/workflow-run.js'
 import {
   runAttemptsResponseDto,
   workflowJobDto,
-  workflowJobExecutionDto,
   workflowRunAttemptDto,
   workflowRunDetail,
 } from '#test/fixtures/workflow-run.js';
@@ -203,49 +202,12 @@ export const Durations: Story = {
   ),
 };
 
-/**
- * A live attempt whose jobs have not started. The header reports the wait rather than a run
- * that never began, and names the job the run is blocked on once there is more than one.
- */
-export const Queued: Story = {
-  render: () => (
-    <div className="flex flex-col">
-      <WorkflowRunSummary run={queuedRun('release-queued', ['build'])} />
-      <WorkflowRunSummary run={queuedRun('release-queued-fan-out', ['build', 'lint', 'test'])} />
-    </div>
-  ),
-};
-
 export const Cancellable: Story = {
   args: {
     run: workflowRunDetail({status: 'running'}),
     onCancel: noop,
   },
 };
-
-function queuedRun(name: string, jobNames: string[]) {
-  return workflowRunDetail({
-    status: 'running',
-    name,
-    run_attempt: workflowRunAttemptDto({
-      status: 'running',
-      created_at: RUN_STARTED_AT,
-      started_at: RUN_STARTED_AT,
-      finished_at: null,
-    }),
-    jobs: jobNames.map((jobName, index) =>
-      workflowJobDto({
-        name: jobName,
-        status: 'pending',
-        job_executions: [
-          workflowJobExecutionDto({
-            queued_at: new Date(Date.parse(RUN_STARTED_AT) + index * 1000).toISOString(),
-          }),
-        ],
-      }),
-    ),
-  });
-}
 
 export const Cancelling: Story = {
   args: {

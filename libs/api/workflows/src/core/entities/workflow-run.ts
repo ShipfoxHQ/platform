@@ -107,4 +107,7 @@ export interface WorkflowRunDetail extends WorkflowRun {
   runAttempt: WorkflowRunAttempt;
   latestAttempt: number;
   jobs: WorkflowJobDetail[];
+  /** Whether any job execution of this attempt reached its runner, decided here so the detail
+   * and the list cannot answer it differently. */
+  hasStartedJobExecution: boolean;
 }

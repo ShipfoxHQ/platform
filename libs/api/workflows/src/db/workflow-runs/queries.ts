@@ -213,7 +213,8 @@ export interface WorkflowRunJobSummaryTarget {
 }
 
 /**
- * A page row's jobs: a bounded slice to draw, and totals describing all of them.
+ * A page row's jobs: a bounded slice to draw, totals describing all of them, and whether any
+ * execution has reached a runner.
  *
  * The preview is what a row can show; `statusCounts` is what it can say. Keeping the counts
  * server-side is what lets a row report a failure that sits past the preview. Counts use the
@@ -225,6 +226,7 @@ export interface WorkflowRunJobsSummary {
   preview: WorkflowRunJobSummary[];
   statusCounts: WorkflowRunJobStatusCount[];
   rawStatusCounts: WorkflowRunJobRawStatusCount[];
+  hasStartedJobExecution: boolean;
 }
 
 export interface WorkflowRunJobStatusCount {
@@ -253,8 +255,8 @@ export interface WorkflowRunJobRawStatusCount {
  * attempt 1's run metadata with attempt 2's jobs, and the row would report a status its strip
  * contradicts.
  *
- * The two reads share one repeatable-read snapshot. They describe the same jobs at the same
- * instant, and the strip combines them into a single glyph row, so under the default
+ * The reads share one repeatable-read snapshot. They describe the same jobs and executions at
+ * the same instant, and the strip combines them into a single glyph row, so under the default
  * read-committed isolation a job settling between the statements would draw a pending glyph
  * beside a summary counting it as failed. Sequential inside one transaction is the cost of
  * that; at a four-second poll the extra round trip does not register.
@@ -321,6 +323,14 @@ export async function listWorkflowRunJobSummaries(
         .leftJoin(selectedExecution, eq(selectedExecution.jobId, jobs.id))
         .where(attemptFilter)
         .as('ranked');
+      // Correlated per job rather than a grouped scan of `job_executions`: an aggregate over the
+      // whole table cannot have the page's filter pushed into it, so it would read every execution
+      // ever recorded on each poll and grow with history rather than with the page.
+      const hasStartedJobExecution = sql<boolean>`bool_or(exists (
+        select 1
+        from ${jobExecutions}
+        where ${jobExecutions.jobId} = ${jobs.id} and ${jobExecutions.startedAt} is not null
+      ))`;
 
       const executionDisplayStatus = sql<JobExecutionStatus | null>`
         ${selectedExecution.executionStatus}
@@ -356,6 +366,7 @@ export async function listWorkflowRunJobSummaries(
             rawStatus: jobs.status,
             status: displayStatus,
             count: count(),
+            hasStartedJobExecution,
           })
           .from(jobs)
           .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
@@ -370,10 +381,18 @@ export async function listWorkflowRunJobSummaries(
   for (const {workflowRunId, ...summary} of previewRows) {
     summaryFor(summaries, workflowRunId).preview.push(summary);
   }
-  for (const {workflowRunId, rawStatus, status, count: statusCount} of countRows) {
+  for (const {
+    workflowRunId,
+    rawStatus,
+    status,
+    count: statusCount,
+    hasStartedJobExecution,
+  } of countRows) {
     const summary = summaryFor(summaries, workflowRunId);
     appendStatusCount(summary.rawStatusCounts, rawStatus, statusCount);
     appendStatusCount(summary.statusCounts, status, statusCount);
+    // One row per (run, verdict, display status), so the run's answer is the OR of its groups.
+    summary.hasStartedJobExecution ||= hasStartedJobExecution;
   }
 
   return summaries;
@@ -385,7 +404,12 @@ function summaryFor(
 ): WorkflowRunJobsSummary {
   const existing = summaries.get(workflowRunId);
   if (existing) return existing;
-  const created: WorkflowRunJobsSummary = {preview: [], statusCounts: [], rawStatusCounts: []};
+  const created: WorkflowRunJobsSummary = {
+    preview: [],
+    statusCounts: [],
+    rawStatusCounts: [],
+    hasStartedJobExecution: false,
+  };
   summaries.set(workflowRunId, created);
   return created;
 }
@@ -606,6 +630,8 @@ function hydrateWorkflowRunDetail(
     runAttempt: toWorkflowRunAttempt(attempt),
     latestAttempt,
     jobs: [],
+    // Read off the same rows the executions come from, so the flag cannot contradict them.
+    hasStartedJobExecution: rows.some((row) => row.jobExecution?.startedAt != null),
   };
   const jobById = new Map<string, WorkflowJobDetail>();
   const jobExecutionById = new Map<string, JobExecutionDetail>();

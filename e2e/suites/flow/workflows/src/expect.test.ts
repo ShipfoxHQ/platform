@@ -142,6 +142,7 @@ function makeDetail(
       rerun_mode: null,
     },
     jobs: [makeJob()],
+    has_started_job_execution: true,
     ...overrides,
   };
 }

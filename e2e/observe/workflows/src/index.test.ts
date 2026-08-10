@@ -78,6 +78,7 @@ function detail(params: Partial<WorkflowRunDetailResponseDto> = {}): WorkflowRun
       rerun_mode: null,
     },
     jobs: params.jobs ?? [],
+    has_started_job_execution: params.has_started_job_execution ?? false,
   };
 }
 
