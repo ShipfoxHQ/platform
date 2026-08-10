@@ -1,4 +1,7 @@
 import {execFileSync} from 'node:child_process';
+import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 import {
   type RunnerBootstrapUserDataOptions,
@@ -16,158 +19,26 @@ const options: RunnerBootstrapUserDataOptions = {
 };
 
 describe('renderRunnerBootstrapUserData', () => {
-  it('atomically publishes the managed runner environment contract for cloud-init', () => {
+  it('publishes the runner environment only after boot-owned workspace setup', () => {
     const userData = renderRunnerBootstrapUserData(options);
 
-    expect(userData).toBe(`#cloud-config
-write_files:
-  - path: /etc/shipfox/runner.env.tmp
-    owner: root:root
-    permissions: '0600'
-    content: |
-      SHIPFOX_API_URL="https://api.shipfox.test"
-      SHIPFOX_RUNNER_BOOTSTRAP_TOKEN="sf_rbt_sensitive-bootstrap-token"
-      SHIPFOX_RUNNER_PROVIDER_KIND="ec2"
-      SHIPFOX_RUNNER_PROTOCOL_VERSION="1"
-      SHIPFOX_RUNNER_LABELS="linux,x64,self-hosted"
-      SHIPFOX_RUNNER_WORKSPACE_ROOT="/var/lib/shipfox/workspaces"
-      SHIPFOX_POLL_MAX_DURATION_MS="300000"
-      SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS="3600"
-runcmd:
-  - |
-      set -eu
-      workspace_root='/var/lib/shipfox/workspaces'
-      workspace_device_name='/dev/sdf'
-      workspace_mount_unit='var-lib-shipfox-workspaces.mount'
-      workspace_mount_dropin_dir='/etc/systemd/system/var-lib-shipfox-workspaces.mount.d'
-      workspace_mount_unit_path="/etc/systemd/system/$workspace_mount_unit"
-      runner_mount_dropin_dir='/etc/systemd/system/shipfox-runner.service.d'
-      runner_mount_dropin_path="$runner_mount_dropin_dir/10-shipfox-workspace.conf"
-      install -d -o shipfox -g shipfox "$workspace_root"
-
-      # Xen exposes the configured mapping name directly. Nitro may expose the same
-      # EBS volume as an NVMe device, so resolve it by its EBS model when the mapping
-      # name is not present. Never guess when more than one non-root EBS disk exists.
-      workspace_device=''
-      if [ -b "$workspace_device_name" ]; then
-        workspace_device_type="$(lsblk -ndo TYPE "$workspace_device_name" || true)"
-        if [ "$workspace_device_type" != 'disk' ]; then
-          echo "Configured workspace device $workspace_device_name is not a disk." >&2
-          exit 1
-        fi
-        workspace_real_device="$(readlink -f "$workspace_device_name")"
-        workspace_model="$(cat "/sys/class/block/$(basename "$workspace_real_device")/device/model" 2>/dev/null || true)"
-        case "$workspace_model" in
-          *'Amazon EC2 NVMe Instance Storage'*)
-            echo "Configured workspace device $workspace_device_name is instance storage." >&2
-            exit 1
-            ;;
-          *)
-            workspace_device="$workspace_device_name"
-            ;;
-        esac
-      fi
-
-      root_source="$(findmnt -n -o SOURCE /)"
-      root_disk="$(lsblk -ndo PKNAME "$root_source" || true)"
-      if [ -z "$root_disk" ]; then
-        root_disk="$(lsblk -ndo NAME "$root_source")"
-      fi
-      if [ -z "$root_disk" ]; then
-        echo 'Unable to identify the root disk.' >&2
-        exit 1
-      fi
-      if [ -n "$workspace_device" ]; then
-        workspace_disk="$(lsblk -ndo PKNAME "$workspace_device" || true)"
-        if [ -z "$workspace_disk" ]; then
-          workspace_disk="$(lsblk -ndo NAME "$workspace_device" || true)"
-        fi
-        if [ "$workspace_disk" = "$root_disk" ]; then
-          echo "Configured workspace device $workspace_device_name resolves to the root disk." >&2
-          exit 1
-        fi
-      fi
-
-      workspace_mapping_tool_available=false
-      if command -v ebsnvme-id >/dev/null 2>&1; then
-        workspace_mapping_tool_available=true
-      fi
-
-      if [ -z "$workspace_device" ]; then
-        configured_device_name="$(printf '%s\\n' "$workspace_device_name" | sed 's#^/dev/##')"
-        workspace_candidate_count=0
-        workspace_candidate=''
-        for candidate in $(lsblk -dnro NAME,TYPE | awk '$2 == "disk" {print "/dev/" $1}'); do
-          if [ "$candidate" = "/dev/$root_disk" ]; then
-            continue
-          fi
-          model="$(cat "/sys/class/block/$(basename "$candidate")/device/model" 2>/dev/null || true)"
-          if [ "$model" != 'Amazon Elastic Block Store' ]; then
-            continue
-          fi
-          if [ "$workspace_mapping_tool_available" = true ]; then
-            mapped_device_name="$(ebsnvme-id -b "$candidate" 2>/dev/null || true)"
-            mapped_device_name="$(printf '%s\\n' "$mapped_device_name" | sed 's#^/dev/##')"
-            if [ "$mapped_device_name" != "$configured_device_name" ]; then
-              continue
-            fi
-          fi
-          workspace_candidate_count=$((workspace_candidate_count + 1))
-          workspace_candidate="$candidate"
-        done
-        if [ "$workspace_candidate_count" -ne 1 ]; then
-          echo "Unable to uniquely resolve EC2 workspace device $workspace_device_name; found $workspace_candidate_count non-root EBS disks." >&2
-          exit 1
-        fi
-        workspace_device="$workspace_candidate"
-      fi
-
-      if [ -z "$workspace_device" ]; then
-        echo 'Unable to find the EC2 workspace disk.' >&2
-        exit 1
-      fi
-
-      if ! blkid "$workspace_device" >/dev/null 2>&1; then
-        mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1 -L 'shipfox-workspc' "$workspace_device"
-      fi
-      workspace_uuid="$(blkid -s UUID -o value "$workspace_device")"
-      if [ -z "$workspace_uuid" ]; then
-        echo 'The EC2 workspace disk has no filesystem UUID.' >&2
-        exit 1
-      fi
-      if ! grep -Fq " $workspace_root " /etc/fstab; then
-        printf 'UUID=%s %s auto defaults,nofail 0 0\\n' "$workspace_uuid" "$workspace_root" >> /etc/fstab
-      fi
-
-      # Keep the shared runner image provider-neutral. EC2 adds this boot-time dependency
-      # only after the image's standalone mount unit is available; QEMU and older AMIs use
-      # the direct-mount fallback below and never receive this drop-in.
-      if [ -f "$workspace_mount_unit_path" ]; then
-        mkdir -p "$runner_mount_dropin_dir"
-        printf '[Unit]\\nRequires=%s\\nAfter=%s\\n' "$workspace_mount_unit" "$workspace_mount_unit" > "$runner_mount_dropin_path"
-      fi
-
-      # Keep formatting in the EC2 boot sequence and mounting in systemd. The image ships
-      # a standalone mount unit; its UUID is filled in here after the volume is formatted.
-      # Older images do not have that unit, so retain the direct-mount path during migration.
-      mkdir -p "$workspace_mount_dropin_dir"
-      printf '[Mount]\\nWhat=UUID=%s\\n' "$workspace_uuid" > "$workspace_mount_dropin_dir/10-shipfox-workspace.conf"
-      systemctl daemon-reload
-      if [ -f "$workspace_mount_unit_path" ] && \\
-        systemctl enable "$workspace_mount_unit" && systemctl start "$workspace_mount_unit"; then
-        :
-      else
-        if ! mountpoint -q "$workspace_root"; then
-          mount "$workspace_device" "$workspace_root"
-        fi
-      fi
-      if ! mountpoint -q "$workspace_root"; then
-        echo "The EC2 workspace volume did not mount at $workspace_root." >&2
-        exit 1
-      fi
-      chown shipfox:shipfox "$workspace_root"
-      /usr/bin/mv -- '/etc/shipfox/runner.env.tmp' '/etc/shipfox/runner.env'
-`);
+    expect(userData).toContain('SHIPFOX_RUNNER_PROVIDER_KIND="ec2"');
+    expect(userData).toContain("workspace_mount_unit='var-lib-shipfox-workspaces.mount'");
+    expect(userData).toContain('abort_boot()');
+    expect(userData).toContain('systemctl poweroff --no-wall');
+    expect(userData).toContain(
+      "printf '[Unit]\\nDescription=Mount the Shipfox job workspace volume",
+    );
+    expect(userData).toContain(
+      `printf '[Unit]\\nRequires=%s\\nAfter=%s\\n' "$workspace_mount_unit"`,
+    );
+    expect(userData).not.toContain('/etc/fstab');
+    expect(userData).not.toContain('SHIPFOX_RUNNER_WORKSPACE_MOUNT_REQUIRED');
+    expect(userData).not.toContain('mount "$workspace_device"');
+    expect(userData.indexOf('systemctl start "$workspace_mount_unit"')).toBeLessThan(
+      userData.indexOf('/usr/bin/mv --'),
+    );
+    expect(userData).toContain("if ! /usr/bin/mv -- '/etc/shipfox/runner.env.tmp'");
   });
 
   it('does not render workspace-scoped registration material', () => {
@@ -178,17 +49,41 @@ runcmd:
   });
 
   it('renders a workspace mount script accepted by POSIX sh', () => {
-    const userData = renderRunnerBootstrapUserData(options);
-    const marker = 'runcmd:\n  - |\n';
-    const markerOffset = userData.indexOf(marker);
-    const script = userData
-      .slice(markerOffset + marker.length)
-      .split('\n')
-      .map((line) => (line.startsWith('      ') ? line.slice(6) : line))
-      .join('\n');
+    const script = extractWorkspaceMountScript(renderRunnerBootstrapUserData(options));
 
-    expect(markerOffset).toBeGreaterThanOrEqual(0);
     expect(() => execFileSync('sh', ['-n', '-c', script])).not.toThrow();
+  });
+
+  it('powers off before publishing the environment when workspace setup fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'shipfox-ec2-user-data-'));
+    const commandDirectory = join(root, 'commands');
+    const poweroffLog = join(root, 'poweroff.log');
+    const script = extractWorkspaceMountScript(renderRunnerBootstrapUserData(options));
+
+    await mkdir(commandDirectory, {recursive: true});
+    await writeFile(join(commandDirectory, 'install'), '#!/bin/sh\nexit 1\n');
+    await writeFile(
+      join(commandDirectory, 'systemctl'),
+      '#!/bin/sh\nprintf "%s\\n" "$*" >> "$BOOT_TEST_POWEROFF_LOG"\n',
+    );
+    await chmod(join(commandDirectory, 'install'), 0o755);
+    await chmod(join(commandDirectory, 'systemctl'), 0o755);
+
+    try {
+      expect(() =>
+        execFileSync('sh', ['-c', script], {
+          env: {
+            ...process.env,
+            BOOT_TEST_POWEROFF_LOG: poweroffLog,
+            PATH: `${commandDirectory}:${process.env.PATH ?? ''}`,
+          },
+          stdio: 'pipe',
+        }),
+      ).toThrow();
+      expect(await readFile(poweroffLog, 'utf8')).toBe('poweroff --no-wall\n');
+    } finally {
+      await rm(root, {force: true, recursive: true});
+    }
   });
 
   it('rejects unsafe environment values', () => {
@@ -217,3 +112,15 @@ describe('redactRunnerBootstrapUserData', () => {
     expect(JSON.stringify(redacted)).not.toContain(options.apiUrl);
   });
 });
+
+function extractWorkspaceMountScript(userData: string): string {
+  const marker = 'runcmd:\n  - |\n';
+  const markerOffset = userData.indexOf(marker);
+
+  expect(markerOffset).toBeGreaterThanOrEqual(0);
+  return userData
+    .slice(markerOffset + marker.length)
+    .split('\n')
+    .map((line) => (line.startsWith('      ') ? line.slice(6) : line))
+    .join('\n');
+}

@@ -11,6 +11,7 @@ User=shipfox
 EnvironmentFile=-/etc/environment
 EnvironmentFile=/etc/shipfox/runner.env
 Environment=AGENT_CUSTOM_PROVIDER_ALLOW_PRIVATE_NETWORKS=false
+ExecStartPre=/opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh
 WorkingDirectory=/opt/runner
 ExecStart=/usr/local/bin/node --enable-source-maps dist/index.js
 Restart=no
