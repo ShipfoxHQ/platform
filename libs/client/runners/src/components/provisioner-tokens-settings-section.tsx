@@ -98,7 +98,11 @@ export function WorkspaceProvisionerTokensSettingsSection({workspaceId}: {worksp
         {tokensQuery.isPending ? <ProvisionerTokenTableSkeleton /> : null}
 
         {tokensQuery.isError && tokensQuery.data === undefined ? (
-          <QueryLoadError query={tokensQuery} subject="provisioner registration tokens" />
+          <QueryLoadError
+            query={tokensQuery}
+            subject="provisioner registration tokens"
+            variant="panel"
+          />
         ) : null}
 
         {tokensQuery.data !== undefined && tokens.length === 0 ? <EmptyProvisionerTokens /> : null}

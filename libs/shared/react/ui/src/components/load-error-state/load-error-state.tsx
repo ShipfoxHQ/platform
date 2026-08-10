@@ -1,6 +1,6 @@
 import type {ReactNode} from 'react';
 import {Button} from '../button/index.js';
-import {EmptyState} from '../empty-state/index.js';
+import {EmptyState, type EmptyStateVariant} from '../empty-state/index.js';
 import type {IconName} from '../icon/index.js';
 
 export interface LoadErrorStateProps {
@@ -13,7 +13,7 @@ export interface LoadErrorStateProps {
   retrying?: boolean;
   /** Accessible label for the Retry button, e.g. "Retry loading integrations". */
   retryLabel?: string;
-  variant?: 'default' | 'compact';
+  variant?: EmptyStateVariant;
 }
 
 /**

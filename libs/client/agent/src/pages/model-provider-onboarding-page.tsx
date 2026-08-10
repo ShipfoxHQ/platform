@@ -1,6 +1,7 @@
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
+import {Card} from '@shipfox/react-ui/card';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Modal, ModalContent, ModalHeader, ModalTitle} from '@shipfox/react-ui/modal';
@@ -293,7 +294,12 @@ function ModelProviderGridSkeleton() {
   return (
     <div className={PROVIDER_GRID_CLASS}>
       {[0, 1, 2, 3].map((card) => (
-        <Skeleton key={card} className="h-136 w-full" />
+        <Card key={card} className="h-136 w-full justify-center p-panel-compact">
+          <div className="flex items-center justify-between gap-cluster">
+            <Skeleton className="h-16 w-100" />
+            <Skeleton className="h-16 w-64 shrink-0" />
+          </div>
+        </Card>
       ))}
     </div>
   );

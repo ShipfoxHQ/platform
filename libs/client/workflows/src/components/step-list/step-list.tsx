@@ -326,11 +326,10 @@ function StepListEmptyStateView({
   if (!emptyState.status) {
     return (
       <EmptyState
-        className="min-h-120 p-panel"
         icon="componentLine"
         title={emptyState.title}
         description={emptyState.description}
-        variant="compact"
+        variant="panel"
       />
     );
   }

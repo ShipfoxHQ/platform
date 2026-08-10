@@ -52,7 +52,9 @@ export function EventsList({
       />
 
       {query.isPending ? <EventsListSkeleton /> : null}
-      {!query.isPending ? <QueryLoadError query={query} subject="events" icon="pulseLine" /> : null}
+      {!query.isPending ? (
+        <QueryLoadError query={query} subject="events" icon="pulseLine" variant="panel" />
+      ) : null}
       {!query.isPending && refreshFailed ? <EventsListStaleError query={query} /> : null}
       {showEmptyState && !activeFilters ? <EventsListEmpty workspaceSlug={workspaceSlug} /> : null}
       {showEmptyState && activeFilters ? <EventsListNoMatches onClear={clearFilters} /> : null}

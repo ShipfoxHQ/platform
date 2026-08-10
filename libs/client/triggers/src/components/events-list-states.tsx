@@ -8,12 +8,16 @@ import {Link} from '@tanstack/react-router';
 
 export function EventsListSkeleton() {
   return (
-    <div className="flex flex-col gap-inline p-tight" role="status" aria-label="Loading events">
+    <div
+      className="flex flex-col divide-y divide-border-neutral-base"
+      role="status"
+      aria-label="Loading events"
+    >
       {Array.from({length: 8}).map((_, index) => (
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: skeleton row, stable position
           key={index}
-          className="flex h-20 items-center gap-cluster"
+          className="flex min-h-44 items-center gap-cluster px-row py-row"
         >
           <Skeleton className="size-6 shrink-0 rounded-full" />
           <Skeleton className="h-12 w-1/4" />
@@ -27,39 +31,37 @@ export function EventsListSkeleton() {
 
 export function EventsListEmpty({workspaceSlug}: {workspaceSlug?: string | undefined}) {
   return (
-    <div className="p-panel-compact">
-      <EmptyState
-        icon="pulseLine"
-        title="No events yet"
-        description="Events appear here once a connected integration delivers one or you fire a trigger."
-        action={
-          workspaceSlug ? (
-            <Button asChild size="sm" variant="secondary">
-              <Link to="/w/$workspaceSlug/settings/integrations" params={{workspaceSlug}}>
-                Configure integrations
-              </Link>
-            </Button>
-          ) : undefined
-        }
-      />
-    </div>
+    <EmptyState
+      icon="pulseLine"
+      title="No events yet"
+      description="Events appear here once a connected integration delivers one or you fire a trigger."
+      action={
+        workspaceSlug ? (
+          <Button asChild size="sm" variant="secondary">
+            <Link to="/w/$workspaceSlug/settings/integrations" params={{workspaceSlug}}>
+              Configure integrations
+            </Link>
+          </Button>
+        ) : undefined
+      }
+      variant="panel"
+    />
   );
 }
 
 export function EventsListNoMatches({onClear}: {onClear: () => void}) {
   return (
-    <div className="p-panel-compact">
-      <EmptyState
-        icon="filterOffLine"
-        title="No matching events"
-        description="No events match your current filters."
-        action={
-          <Button type="button" size="sm" variant="secondary" onClick={onClear}>
-            Clear filters
-          </Button>
-        }
-      />
-    </div>
+    <EmptyState
+      icon="filterOffLine"
+      title="No matching events"
+      description="No events match your current filters."
+      action={
+        <Button type="button" size="sm" variant="secondary" onClick={onClear}>
+          Clear filters
+        </Button>
+      }
+      variant="panel"
+    />
   );
 }
 

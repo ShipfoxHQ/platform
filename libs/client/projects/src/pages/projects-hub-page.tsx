@@ -80,7 +80,9 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
 
       {isInitialLoading || (search && hasNoData && query.isFetching) ? <ProjectsSkeleton /> : null}
 
-      {query.isError && hasNoData ? <QueryLoadError query={query} subject="projects" /> : null}
+      {query.isError && hasNoData ? (
+        <QueryLoadError query={query} subject="projects" variant="panel" />
+      ) : null}
 
       {!isInitialLoading && !query.isError && projects.length === 0 && !search ? (
         <EmptyProjects workspaceSlug={workspace.slug} />
@@ -158,6 +160,7 @@ function EmptyProjects({workspaceSlug}: {workspaceSlug: string}) {
       icon="folderLine"
       title="Create your first project"
       description="Connect a repository-backed project to start building workflows."
+      variant="panel"
       action={
         <Button asChild iconRight="chevronRight">
           <Link to="/w/$workspaceSlug/projects/new" params={{workspaceSlug}}>
@@ -175,6 +178,7 @@ function NoSearchResults({search, onClear}: {search: string; onClear: () => void
       icon="searchLine"
       title={`No projects match “${search}”`}
       description="Try a different search, or clear it to see all projects."
+      variant="panel"
       action={
         <Button size="sm" variant="secondary" onClick={onClear}>
           Clear search

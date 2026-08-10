@@ -24,6 +24,19 @@ describe('QueryLoadError', () => {
     expect(screen.getByRole('button', {name: 'Retry loading integrations'})).toBeInTheDocument();
   });
 
+  it('passes the panel variant through to the placeholder', () => {
+    const query = buildQuery();
+
+    const {container} = render(
+      <QueryLoadError query={query} subject="integrations" variant="panel" />,
+    );
+
+    expect(container.querySelector('[data-slot="empty-state"]')).toHaveAttribute(
+      'data-variant',
+      'panel',
+    );
+  });
+
   it('renders nothing when stale data is present (a refetch failed after a prior success)', () => {
     const query = buildQuery({data: {connections: []}});
 

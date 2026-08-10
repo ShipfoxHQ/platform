@@ -219,6 +219,7 @@ export function EmptyManualRegistrationTokens() {
       icon="key2Line"
       title="No usable manual registration tokens"
       description="Create a token to connect a runner to this workspace."
+      variant="panel"
     />
   );
 }
@@ -228,10 +229,10 @@ export function ManualRegistrationTokenTableSkeleton() {
     <div
       role="status"
       aria-label="Loading manual registration tokens"
-      className="flex flex-col gap-inline"
+      className="flex flex-col divide-y divide-border-neutral-base overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base"
     >
       {[0, 1, 2].map((row) => (
-        <Skeleton key={row} className="h-44 w-full" />
+        <Skeleton key={row} className="h-44 w-full rounded-none" />
       ))}
     </div>
   );

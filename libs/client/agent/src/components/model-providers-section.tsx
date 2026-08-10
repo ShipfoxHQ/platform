@@ -1,6 +1,7 @@
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button, IconButton} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
+import {Card} from '@shipfox/react-ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -132,17 +133,18 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         ) : null}
 
         {configsQuery.isError && configsQuery.data === undefined ? (
-          <div className={cn(SURFACE_CLASS, 'px-row')}>
-            <QueryLoadError query={configsQuery} subject="model provider configs" />
+          <div className={SURFACE_CLASS}>
+            <QueryLoadError query={configsQuery} subject="model provider configs" variant="panel" />
           </div>
         ) : null}
 
         {configsQuery.data !== undefined && configs.length === 0 ? (
-          <div className={cn(SURFACE_CLASS, 'px-row')}>
+          <div className={SURFACE_CLASS}>
             <EmptyState
               icon="key2Line"
               title="No providers configured"
               description="Configure a provider below to run agent steps with workspace-managed credentials."
+              variant="panel"
             />
           </div>
         ) : null}
@@ -214,8 +216,8 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         {catalogQuery.isPending || configsQuery.isPending ? <ModelProviderGridSkeleton /> : null}
 
         {catalogQuery.isError && catalogQuery.data === undefined ? (
-          <div className={cn(SURFACE_CLASS, 'px-row')}>
-            <QueryLoadError query={catalogQuery} subject="model provider catalog" />
+          <div className={SURFACE_CLASS}>
+            <QueryLoadError query={catalogQuery} subject="model provider catalog" variant="panel" />
           </div>
         ) : null}
 
@@ -625,7 +627,12 @@ function ModelProviderGridSkeleton() {
   return (
     <div role="status" aria-label="Loading available providers" className={PROVIDER_GRID_CLASS}>
       {[0, 1, 2, 3].map((card) => (
-        <Skeleton key={card} className="h-136 w-full" />
+        <Card key={card} className="h-136 w-full justify-center p-panel-compact">
+          <div className="flex items-center justify-between gap-cluster">
+            <Skeleton className="h-16 w-100" />
+            <Skeleton className="h-16 w-64 shrink-0" />
+          </div>
+        </Card>
       ))}
     </div>
   );

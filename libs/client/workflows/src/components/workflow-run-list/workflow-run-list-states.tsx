@@ -24,7 +24,7 @@ export function WorkflowRunListSkeleton() {
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: skeleton row, stable position
           key={index}
-          className="flex items-center gap-inline px-row py-row @min-[976px]:h-44 @min-[976px]:py-0"
+          className="flex min-h-44 items-center gap-inline px-row py-row @min-[976px]:h-44 @min-[976px]:py-0"
         >
           <Skeleton className="size-14 shrink-0 rounded-full" />
           <Skeleton className="h-12 w-[220px] max-w-[40%]" />
@@ -89,6 +89,7 @@ export function WorkflowRunListEmpty({
           </Button>
         ) : null
       }
+      variant="panel"
     />
   );
 }
@@ -148,6 +149,7 @@ export function WorkflowRunListNoMatches({
             </Button>
           </div>
         }
+        variant="panel"
       />
     </div>
   );

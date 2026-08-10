@@ -95,8 +95,8 @@ export function WorkspaceHarnessesSection({workspaceId}: {workspaceId: string}) 
       {configsQuery.isPending ? <HarnessRowsSkeleton /> : null}
 
       {configsQuery.isError && configsQuery.data === undefined ? (
-        <div className={cn(SURFACE_CLASS, 'px-row')}>
-          <QueryLoadError query={configsQuery} subject="harnesses" />
+        <div className={SURFACE_CLASS}>
+          <QueryLoadError query={configsQuery} subject="harnesses" variant="panel" />
         </div>
       ) : null}
 

@@ -92,7 +92,11 @@ export function WorkspaceManualRegistrationTokensSettingsSection({
         {tokensQuery.isPending ? <ManualRegistrationTokenTableSkeleton /> : null}
 
         {tokensQuery.isError && tokensQuery.data === undefined ? (
-          <QueryLoadError query={tokensQuery} subject="manual registration tokens" />
+          <QueryLoadError
+            query={tokensQuery}
+            subject="manual registration tokens"
+            variant="panel"
+          />
         ) : null}
 
         {tokensQuery.data !== undefined && tokens.length === 0 ? (

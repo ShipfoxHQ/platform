@@ -257,15 +257,20 @@ export function EmptyProvisionerTokens() {
       icon="key2Line"
       title="No usable provisioner registration tokens"
       description="Create a token to connect a provisioner that provisions runners on demand."
+      variant="panel"
     />
   );
 }
 
 export function ProvisionerTokenTableSkeleton() {
   return (
-    <div role="status" aria-label="Loading provisioner tokens" className="flex flex-col gap-inline">
+    <div
+      role="status"
+      aria-label="Loading provisioner tokens"
+      className="flex flex-col divide-y divide-border-neutral-base overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base"
+    >
       {[0, 1, 2].map((row) => (
-        <Skeleton key={row} className="h-44 w-full" />
+        <Skeleton key={row} className="h-44 w-full rounded-none" />
       ))}
     </div>
   );

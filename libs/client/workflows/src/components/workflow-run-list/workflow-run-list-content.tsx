@@ -55,7 +55,7 @@ export function WorkflowRunListContent({
     <div className="min-h-0 flex-1 overflow-y-auto">
       {isPending ? <WorkflowRunListSkeleton /> : null}
       {!isPending ? (
-        <QueryLoadError query={query} subject="workflow runs" icon="pulseLine" />
+        <QueryLoadError query={query} subject="workflow runs" icon="pulseLine" variant="panel" />
       ) : null}
       {!isPending && refreshFailed ? <WorkflowRunListStaleError query={query} /> : null}
       {showEmptyState ? (

@@ -85,7 +85,7 @@ function MembersSection({
       {query.isPending ? <TableSkeleton rows={3} cols={3} /> : null}
 
       {query.isError && query.data === undefined ? (
-        <QueryLoadError query={query} subject="members" />
+        <QueryLoadError query={query} subject="members" variant="panel" />
       ) : null}
 
       {members.length > 0 ? (
@@ -230,7 +230,7 @@ function PendingInvitationsSection({
       {query.isPending ? <TableSkeleton rows={2} cols={3} /> : null}
 
       {query.isError && query.data === undefined ? (
-        <QueryLoadError query={query} subject="invitations" />
+        <QueryLoadError query={query} subject="invitations" variant="panel" />
       ) : null}
 
       {query.data !== undefined && invitations.length === 0 ? <EmptyInvitations /> : null}
@@ -458,16 +458,20 @@ function EmptyInvitations() {
       icon="mailLine"
       title="No pending invitations."
       description="Invite someone above to grow your workspace."
+      variant="panel"
     />
   );
 }
 
 function TableSkeleton({rows, cols}: {rows: number; cols: number}) {
   return (
-    <div className="flex flex-col gap-cluster">
+    <div className="flex flex-col overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base">
       {Array.from({length: rows}).map((_, rowIdx) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder rows
-        <div key={rowIdx} className="grid grid-cols-3 gap-group">
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder rows
+          key={rowIdx}
+          className="grid min-h-44 grid-cols-3 gap-group border-b border-border-neutral-base px-row py-row last:border-b-0"
+        >
           {Array.from({length: cols}).map((__, colIdx) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder cells
             <Skeleton key={colIdx} className="h-20" />

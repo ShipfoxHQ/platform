@@ -171,10 +171,10 @@ function WorkflowDefinitionsList({
 }) {
   if (isPending) {
     return (
-      <div className="flex flex-col gap-inline">
-        <Skeleton className="h-40 w-full" />
-        <Skeleton className="h-40 w-full" />
-        <Skeleton className="h-40 w-full" />
+      <div className="flex flex-col divide-y divide-border-neutral-base overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base">
+        <Skeleton className="h-44 w-full rounded-none" />
+        <Skeleton className="h-44 w-full rounded-none" />
+        <Skeleton className="h-44 w-full rounded-none" />
       </div>
     );
   }
@@ -186,6 +186,7 @@ function WorkflowDefinitionsList({
         description="Definitions could not be loaded. Source metadata remains visible."
         onRetry={onRetry}
         retryLabel="Retry loading workflows"
+        variant="panel"
       />
     );
   }
@@ -356,7 +357,7 @@ function WorkflowEmptyState({sync}: {sync: DefinitionSyncSummary | null}) {
             ? 'No workflow definitions found.'
             : 'Workflow sync has not reported yet.';
 
-  return <EmptyState icon="flowChart" title="No workflows" description={message} />;
+  return <EmptyState icon="flowChart" title="No workflows" description={message} variant="panel" />;
 }
 
 function WorkflowSyncAlert({sync}: {sync: DefinitionSyncSummary | null | undefined}) {

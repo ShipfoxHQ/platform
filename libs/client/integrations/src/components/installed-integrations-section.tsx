@@ -59,20 +59,22 @@ export function InstalledIntegrationsSection({
       {isPending ? <InstalledSkeleton label="Loading integrations" /> : null}
 
       {error ? (
-        <div className={cn(INSTALLED_SURFACE_CLASS, 'px-row')}>
+        <div className={INSTALLED_SURFACE_CLASS}>
           <QueryLoadError
             query={{isError: true, isFetching, data: undefined, error, refetch: onRetry}}
             subject="integrations"
+            variant="panel"
           />
         </div>
       ) : null}
 
       {!isPending && !error && connections.length === 0 ? (
-        <div className={cn(INSTALLED_SURFACE_CLASS, 'px-row')}>
+        <div className={INSTALLED_SURFACE_CLASS}>
           <EmptyState
             icon="componentLine"
             title="No integrations installed yet"
             description="Install a provider below to get started."
+            variant="panel"
           />
         </div>
       ) : null}

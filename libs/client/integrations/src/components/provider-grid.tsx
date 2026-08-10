@@ -5,7 +5,6 @@ import {Icon} from '@shipfox/react-ui/icon';
 import {Panel} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
-import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
 import type {IntegrationProvider} from '#core/models.js';
 import {PROVIDER_CATALOG} from '#provider-catalog.js';
@@ -46,7 +45,7 @@ export function ProviderGrid({
 
   if (error) {
     return (
-      <div className={cn(PROVIDER_SURFACE_CLASS, 'px-row')}>
+      <div className={PROVIDER_SURFACE_CLASS}>
         <QueryLoadError
           query={{
             isError: true,
@@ -56,6 +55,7 @@ export function ProviderGrid({
             refetch: onRetry ?? (() => undefined),
           }}
           subject={errorSubject}
+          variant="panel"
         />
       </div>
     );
@@ -63,11 +63,12 @@ export function ProviderGrid({
 
   if (installableProviders.length === 0) {
     return (
-      <div className={cn(PROVIDER_SURFACE_CLASS, 'px-row')}>
+      <div className={PROVIDER_SURFACE_CLASS}>
         <EmptyState
           icon="componentLine"
           title="No integrations available"
           description={emptyMessage}
+          variant="panel"
         />
       </div>
     );

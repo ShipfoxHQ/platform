@@ -3,6 +3,8 @@ import {cn} from '#utils/cn.js';
 import {Icon, type IconName} from '../icon/index.js';
 import {Text} from '../typography/index.js';
 
+export type EmptyStateVariant = 'default' | 'compact' | 'panel';
+
 export interface EmptyStateProps extends ComponentProps<'div'> {
   icon?: IconName;
   /** Tints the icon only: neutral for "no content", error for a failed load. */
@@ -11,7 +13,8 @@ export interface EmptyStateProps extends ComponentProps<'div'> {
   description?: ReactNode;
   /** Single primary action (a Button/Link) rendered below the text. */
   action?: ReactNode;
-  variant?: 'default' | 'compact';
+  /** Fills the body of a bordered data-region panel. */
+  variant?: EmptyStateVariant;
 }
 
 export function EmptyState({
@@ -27,7 +30,9 @@ export function EmptyState({
   const containerClasses =
     variant === 'compact'
       ? 'flex flex-col items-center justify-center gap-10'
-      : 'flex flex-col items-center justify-center gap-12 py-48';
+      : variant === 'panel'
+        ? 'flex min-h-120 w-full flex-1 flex-col items-center justify-center gap-12 p-panel'
+        : 'flex flex-col items-center justify-center gap-12 py-48';
 
   const iconContainerClasses =
     variant === 'compact'
@@ -35,7 +40,12 @@ export function EmptyState({
       : 'flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong';
 
   return (
-    <div className={cn(containerClasses, className)} {...props}>
+    <div
+      data-slot="empty-state"
+      data-variant={variant}
+      className={cn(containerClasses, className)}
+      {...props}
+    >
       <div className={iconContainerClasses}>
         <Icon
           name={icon}
