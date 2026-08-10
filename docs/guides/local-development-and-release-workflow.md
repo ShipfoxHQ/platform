@@ -43,6 +43,39 @@ If you add, update, or exempt a dependency, read the
 catalog rules, exceptions, package families, and the required dependency
 checks.
 
+## Prepare an agent workspace
+
+Agent workspaces use two stable repository entrypoints after `mise` is
+available:
+
+| Need | Command | Result |
+| --- | --- | --- |
+| Build, run, or test the code. | `mise run --yes workspace:setup` | Installs pinned tools, frozen dependencies, repository context, the test browser, and profile-required services. |
+| Run a read-only job, such as PR review. | `mise run --yes workspace:setup:context` | Installs pinned tools, frozen dependencies, and repository context. It starts no service or shared Ollama. |
+
+The full command depends on the context command. Both commands are
+non-interactive and safe to rerun after a partial failure.
+
+The environment selects the setup profile without changing either command:
+
+| Environment | Full setup behavior |
+| --- | --- |
+| Local Conductor workspace | Starts worktree services and the shared Shipfox Ollama service. |
+| Conductor cloud workspace | Prepares dependencies and context without starting services. |
+| Ephemeral workflow | Starts worktree services without starting shared Ollama. |
+| Direct developer invocation | Starts worktree services and the shared Shipfox Ollama service. |
+
+The host must provide `mise`. Service-starting workflow hosts must also provide
+Docker and Docker Compose. Workflow host provisioning stays outside these
+repository commands.
+
+Setup does not copy secrets, certificates, or static ignored files. Use
+Conductor Files to Copy, `.worktreeinclude`, or the existing environment
+provisioning mechanism for those files.
+
+Service cleanup also stays outside setup. Conductor archive hooks continue to
+run `mise exec -- pnpm dev:services:destroy` for local workspaces.
+
 ## Docker services and Conductor worktrees
 
 A normal checkout uses the repository Docker Compose stack:
