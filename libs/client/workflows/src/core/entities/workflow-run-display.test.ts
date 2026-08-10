@@ -100,6 +100,34 @@ describe('workflowRunListItemDisplay', () => {
     expect(display.status).toBe('running');
     expect(display.duration).toMatchObject({kind: 'run'});
   });
+
+  test('uses execution-derived running counts for the row headline', () => {
+    const run = workflowRunListItem({
+      status: 'running',
+      ...workflowRunJobsFixture(['pending']),
+      job_display_status_counts: [{status: 'running', count: 1}],
+      started_at: ATTEMPT_STARTED_AT,
+    });
+
+    const display = workflowRunListItemDisplay(run);
+
+    expect(display.status).toBe('running');
+    expect(display.duration).toMatchObject({kind: 'run'});
+  });
+
+  test('uses execution-derived listening counts as started work', () => {
+    const run = workflowRunListItem({
+      status: 'running',
+      ...workflowRunJobsFixture(['pending']),
+      job_display_status_counts: [{status: 'listening', count: 1}],
+      started_at: ATTEMPT_STARTED_AT,
+    });
+
+    const display = workflowRunListItemDisplay(run);
+
+    expect(display.status).toBe('running');
+    expect(display.duration).toMatchObject({kind: 'run'});
+  });
 });
 
 describe('workflowRunBlockingJob', () => {

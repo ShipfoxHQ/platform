@@ -312,7 +312,8 @@ describe('WorkflowRunListView', () => {
       renderListView([
         run('running', 'deploy-web', 'run-1', {
           jobs: jobs.map((job) => ({...job, execution_status: 'running'})),
-          job_status_counts: [{status: 'running', count: 1}],
+          job_status_counts: [{status: 'pending', count: 1}],
+          job_display_status_counts: [{status: 'running', count: 1}],
         }),
       ]);
 
@@ -330,12 +331,27 @@ describe('WorkflowRunListView', () => {
             listener_status: 'listening',
             execution_status: null,
           })),
-          job_status_counts: [{status: 'listening', count: 1}],
+          job_status_counts: [{status: 'running', count: 1}],
+          job_display_status_counts: [{status: 'listening', count: 1}],
         }),
       ]);
 
       const strip = await screen.findByRole('img', {name: '1 job: 1 listening'});
       expect(within(strip).getByLabelText('Listening')).toBeInTheDocument();
+    });
+
+    test('shows a failed execution when the job verdict is still pending', async () => {
+      const {jobs} = workflowRunJobsFixture(['pending']);
+      renderListView([
+        run('running', 'deploy-web', 'run-1', {
+          jobs: jobs.map((job) => ({...job, execution_status: 'failed'})),
+          job_status_counts: [{status: 'pending', count: 1}],
+          job_display_status_counts: [{status: 'failed', count: 1}],
+        }),
+      ]);
+
+      const strip = await screen.findByRole('img', {name: '1 job: 1 failed'});
+      expect(within(strip).getByLabelText('Failed')).toBeInTheDocument();
     });
 
     // The link's aria-label replaces its contents, so the strip's own label is not spoken
@@ -384,6 +400,32 @@ describe('WorkflowRunListView', () => {
       expect(strip).toBeInTheDocument();
       expect(screen.getByText('+14')).toBeInTheDocument();
       expect(within(strip).getByLabelText('Failed')).toBeInTheDocument();
+    });
+
+    test('reports listening jobs in the overflow glyph and tooltip', async () => {
+      const {jobs} = workflowRunJobsFixture(
+        Array.from({length: 16}, () => 'pending') as JobStatusDto[],
+      );
+      renderListView([
+        run('running', 'event-driven', 'run-listener', {
+          jobs: jobs.map((job) => ({
+            ...job,
+            mode: 'listening',
+            listener_status: 'listening',
+            execution_status: null,
+          })),
+          job_status_counts: [{status: 'pending', count: 20}],
+          job_display_status_counts: [{status: 'listening', count: 20}],
+        }),
+      ]);
+
+      const strip = await screen.findByRole('img', {name: '20 jobs: 20 listening'});
+      expect(screen.getByText('+13')).toBeInTheDocument();
+      expect(within(strip).getAllByLabelText('Listening')).toHaveLength(8);
+
+      const user = userEvent.setup();
+      await user.hover(strip);
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('and 14 more');
     });
 
     // Nothing caps a workflow's job count, so an exact overflow count is unbounded in width

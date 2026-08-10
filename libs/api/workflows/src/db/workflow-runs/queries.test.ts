@@ -1,5 +1,8 @@
 import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
+import {eq} from 'drizzle-orm';
 import {buildModel, createTestRun} from '#test/helpers/workflow-runs.js';
+import {db} from '../db.js';
+import {jobs} from '../schema/jobs.js';
 import {
   createRerunWorkflowRun,
   createWorkflowRun,
@@ -304,6 +307,112 @@ describe('workflow run queries', () => {
         },
       ]);
       expect(summary.get(run.id)?.statusCounts).toEqual([{status: 'running', count: 1}]);
+      expect(summary.get(run.id)?.rawStatusCounts).toEqual([{status: 'pending', count: 1}]);
+    });
+
+    test('counts an active listener without an execution', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {
+            listen: {
+              listening: {
+                on: [{source: 'github', event: 'push'}],
+                onResolve: 'finish',
+              },
+              steps: [{run: 'echo listen'}],
+            },
+          },
+        }),
+        triggerPayload: manualTrigger(),
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('expected the run to have a listener job');
+
+      await db().update(jobs).set({listenerStatus: 'listening'}).where(eq(jobs.id, job.id));
+
+      const summary = await listWorkflowRunJobSummaries([
+        {id: run.id, currentAttempt: run.currentAttempt},
+      ]);
+
+      expect(summary.get(run.id)?.preview).toMatchObject([
+        {
+          mode: 'listening',
+          listenerStatus: 'listening',
+          executionStatus: null,
+        },
+      ]);
+      expect(summary.get(run.id)?.statusCounts).toEqual([{status: 'listening', count: 1}]);
+      expect(summary.get(run.id)?.rawStatusCounts).toEqual([{status: 'pending', count: 1}]);
+    });
+
+    test('keeps a terminal verdict ahead of a running execution', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+        triggerPayload: manualTrigger(),
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('expected the run to have a job');
+      const execution = await getFirstJobExecutionByJobId(job.id);
+      if (!execution) throw new Error('expected the job to have an execution');
+
+      await updateJobExecutionStatus({
+        jobExecutionId: execution.id,
+        status: 'running',
+        expectedVersion: execution.version,
+      });
+      await updateJobStatus({jobId: job.id, status: 'failed', expectedVersion: job.version});
+
+      const summary = await listWorkflowRunJobSummaries([
+        {id: run.id, currentAttempt: run.currentAttempt},
+      ]);
+
+      expect(summary.get(run.id)?.preview).toMatchObject([
+        {status: 'failed', executionStatus: 'running'},
+      ]);
+      expect(summary.get(run.id)?.statusCounts).toEqual([{status: 'failed', count: 1}]);
+      expect(summary.get(run.id)?.rawStatusCounts).toEqual([{status: 'failed', count: 1}]);
+    });
+
+    test('counts a skipped zero-execution job from its terminal verdict', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {
+            listen: {
+              listening: {
+                on: [{source: 'github', event: 'push'}],
+                onResolve: 'finish',
+              },
+              steps: [{run: 'echo listen'}],
+            },
+          },
+        }),
+        triggerPayload: manualTrigger(),
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('expected the run to have a listener job');
+
+      await db()
+        .update(jobs)
+        .set({status: 'skipped', listenerStatus: 'resolved'})
+        .where(eq(jobs.id, job.id));
+
+      const summary = await listWorkflowRunJobSummaries([
+        {id: run.id, currentAttempt: run.currentAttempt},
+      ]);
+
+      expect(summary.get(run.id)?.preview).toMatchObject([
+        {status: 'skipped', executionStatus: null},
+      ]);
+      expect(summary.get(run.id)?.statusCounts).toEqual([{status: 'skipped', count: 1}]);
     });
 
     // Checks the invariant the snapshot exists to protect: for a run inside the preview
@@ -479,11 +588,34 @@ function totalOf(summary: {statusCounts: Array<{count: number}>} | undefined): n
 
 /** Statuses the preview actually drew, counted. */
 function previewCounts(
-  summary: {preview: Array<{status: string}>} | undefined,
+  summary:
+    | {
+        preview: Array<{
+          status: string;
+          mode: string;
+          listenerStatus: string;
+          executionStatus: string | null;
+        }>;
+      }
+    | undefined,
 ): Record<string, number> {
   const counts: Record<string, number> = {};
-  for (const job of summary?.preview ?? []) counts[job.status] = (counts[job.status] ?? 0) + 1;
+  for (const job of summary?.preview ?? []) {
+    const status = previewDisplayStatus(job);
+    counts[status] = (counts[status] ?? 0) + 1;
+  }
   return counts;
+}
+
+function previewDisplayStatus(job: {
+  status: string;
+  mode: string;
+  listenerStatus: string;
+  executionStatus: string | null;
+}): string {
+  if (['succeeded', 'failed', 'cancelled', 'skipped'].includes(job.status)) return job.status;
+  if (job.mode === 'listening' && job.listenerStatus === 'listening') return 'listening';
+  return job.executionStatus ?? 'pending';
 }
 
 /** The same shape read off the totals, so the two halves can be compared directly. */

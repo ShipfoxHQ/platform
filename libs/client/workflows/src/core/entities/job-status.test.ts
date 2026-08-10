@@ -42,7 +42,7 @@ describe('deriveJobDisplayStatus', () => {
     const statuses: Array<[JobExecutionStatus, string[], JobDisplayStatus]> = [
       ['pending', [], 'pending'],
       ['pending', ['running'], 'running'],
-      ['running', [], 'pending'],
+      ['running', [], 'running'],
       ['running', ['running'], 'running'],
     ];
 
@@ -91,16 +91,50 @@ describe('deriveJobDisplayStatus', () => {
     ).toBe('listening');
   });
 
-  test('uses list execution evidence when the step tree is not present', () => {
+  test.each([
+    ['pending', 'pending'],
+    ['failed', 'failed'],
+    [null, 'pending'],
+  ] as const)('uses list execution evidence for %s', (executionStatus, expected) => {
     expect(
       deriveJobDisplayStatus({
         mode: 'one_shot',
         status: 'pending',
         listenerStatus: 'inactive',
-        executionStatus: 'running',
+        executionStatus,
+        jobExecutions: [],
+      }),
+    ).toBe(expected);
+  });
+
+  test('falls back to a running verdict for a legacy preview without execution evidence', () => {
+    expect(
+      deriveJobDisplayStatus({
+        mode: 'one_shot',
+        status: 'running',
+        listenerStatus: 'inactive',
+        executionStatus: null,
         jobExecutions: [],
       }),
     ).toBe('running');
+  });
+
+  test('uses the same running execution evidence with and without a step tree', () => {
+    const detailStatus = deriveJobDisplayStatus({
+      mode: 'one_shot',
+      status: 'pending',
+      listenerStatus: 'inactive',
+      jobExecutions: [{status: 'running', steps: [], sequence: 1}] as never,
+    });
+    const listStatus = deriveJobDisplayStatus({
+      mode: 'one_shot',
+      status: 'pending',
+      listenerStatus: 'inactive',
+      executionStatus: 'running',
+      jobExecutions: [],
+    });
+
+    expect(listStatus).toBe(detailStatus);
   });
 
   test('uses the terminal job status when an active listener has resolved', () => {

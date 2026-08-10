@@ -96,6 +96,7 @@ export {
   workflowRunDetailResponseSchema,
   workflowRunDtoSchema,
   workflowRunJobDetailDtoSchema,
+  workflowRunJobDisplayStatusCountDtoSchema,
   workflowRunJobExecutionDetailDtoSchema,
   workflowRunJobStatusCountDtoSchema,
   workflowRunJobSummaryDtoSchema,
@@ -110,6 +111,7 @@ export {
 export {type StepSourceLocationDto, stepSourceLocationSchema} from '#schemas/step.js';
 export {
   WORKFLOW_RUN_JOB_PREVIEW_LIMIT,
+  type WorkflowRunJobDisplayStatusCountDto,
   type WorkflowRunJobStatusCountDto,
   type WorkflowRunJobSummaryDto,
   type WorkflowRunListItemDto,

@@ -224,10 +224,16 @@ export interface WorkflowRunJobSummaryTarget {
 export interface WorkflowRunJobsSummary {
   preview: WorkflowRunJobSummary[];
   statusCounts: WorkflowRunJobStatusCount[];
+  rawStatusCounts: WorkflowRunJobRawStatusCount[];
 }
 
 export interface WorkflowRunJobStatusCount {
   status: JobStatus | 'listening';
+  count: number;
+}
+
+export interface WorkflowRunJobRawStatusCount {
+  status: JobStatus;
   count: number;
 }
 
@@ -269,7 +275,32 @@ export async function listWorkflowRunJobSummaries(
 
   const {previewRows, countRows} = await db().transaction(
     async (tx) => {
+      // Pick the execution the detail view would display once per job before either list
+      // statement touches it. The existing (job_id, sequence) index supports the latest
+      // execution ordering, while the status-first expression preserves the rule that an
+      // active execution wins over a newer completed retry.
+      const selectedExecution = tx.$with('selected_execution').as(
+        tx
+          .selectDistinctOn([jobExecutions.jobId], {
+            jobId: jobExecutions.jobId,
+            executionStatus: sql<JobExecutionStatus>`${jobExecutions.status}`.as(
+              'execution_status',
+            ),
+          })
+          .from(jobExecutions)
+          .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+          .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+          .where(attemptFilter)
+          .orderBy(
+            asc(jobExecutions.jobId),
+            sql`case when ${jobExecutions.status} = 'running' then 0 else 1 end`,
+            desc(jobExecutions.sequence),
+            desc(jobExecutions.id),
+          ),
+      );
+
       const ranked = tx
+        .with(selectedExecution)
         .select({
           workflowRunId: workflowRunAttempts.workflowRunId,
           id: jobs.id,
@@ -278,30 +309,21 @@ export async function listWorkflowRunJobSummaries(
           status: jobs.status,
           mode: jobs.mode,
           listenerStatus: jobs.listenerStatus,
-          executionStatus: sql<JobExecutionStatus | null>`${jobExecutions.status}`.as(
-            'execution_status',
-          ),
+          executionStatus: selectedExecution.executionStatus,
           position: jobs.position,
           jobRank:
-            sql<number>`dense_rank() over (partition by ${workflowRunAttempts.workflowRunId} order by ${jobs.position} asc, ${jobs.id} asc)`.as(
+            sql<number>`row_number() over (partition by ${workflowRunAttempts.workflowRunId} order by ${jobs.position} asc, ${jobs.id} asc)`.as(
               'job_rank',
-            ),
-          executionRank:
-            sql<number>`row_number() over (partition by ${jobs.id} order by case when ${jobExecutions.status} = 'running' then 0 else 1 end, ${jobExecutions.sequence} desc, ${jobExecutions.id} desc)`.as(
-              'execution_rank',
             ),
         })
         .from(jobs)
         .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
-        .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
+        .leftJoin(selectedExecution, eq(selectedExecution.jobId, jobs.id))
         .where(attemptFilter)
         .as('ranked');
 
       const executionDisplayStatus = sql<JobExecutionStatus | null>`
-        case
-          when bool_or(${jobExecutions.status} = 'running') then 'running'
-          else (array_agg(${jobExecutions.status} order by ${jobExecutions.sequence} desc, ${jobExecutions.id} desc))[1]
-        end
+        ${selectedExecution.executionStatus}
       `;
       const displayStatus = sql<WorkflowRunJobStatusCount['status']>`
         case
@@ -311,24 +333,6 @@ export async function listWorkflowRunJobSummaries(
           else 'pending'
         end
       `;
-      const displayStatusByJob = tx
-        .select({
-          workflowRunId: workflowRunAttempts.workflowRunId,
-          status: displayStatus.as('status'),
-        })
-        .from(jobs)
-        .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
-        .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
-        .where(attemptFilter)
-        .groupBy(
-          workflowRunAttempts.workflowRunId,
-          jobs.id,
-          jobs.status,
-          jobs.mode,
-          jobs.listenerStatus,
-        )
-        .as('display_status_by_job');
-
       return {
         previewRows: await tx
           .select({
@@ -343,18 +347,21 @@ export async function listWorkflowRunJobSummaries(
             position: ranked.position,
           })
           .from(ranked)
-          .where(
-            and(lte(ranked.jobRank, WORKFLOW_RUN_JOB_PREVIEW_LIMIT), eq(ranked.executionRank, 1)),
-          )
+          .where(lte(ranked.jobRank, WORKFLOW_RUN_JOB_PREVIEW_LIMIT))
           .orderBy(asc(ranked.workflowRunId), asc(ranked.position), asc(ranked.id)),
         countRows: await tx
+          .with(selectedExecution)
           .select({
-            workflowRunId: displayStatusByJob.workflowRunId,
-            status: displayStatusByJob.status,
+            workflowRunId: workflowRunAttempts.workflowRunId,
+            rawStatus: jobs.status,
+            status: displayStatus,
             count: count(),
           })
-          .from(displayStatusByJob)
-          .groupBy(displayStatusByJob.workflowRunId, displayStatusByJob.status),
+          .from(jobs)
+          .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+          .leftJoin(selectedExecution, eq(selectedExecution.jobId, jobs.id))
+          .where(attemptFilter)
+          .groupBy(workflowRunAttempts.workflowRunId, jobs.status, displayStatus),
       };
     },
     {isolationLevel: 'repeatable read', accessMode: 'read only'},
@@ -363,8 +370,10 @@ export async function listWorkflowRunJobSummaries(
   for (const {workflowRunId, ...summary} of previewRows) {
     summaryFor(summaries, workflowRunId).preview.push(summary);
   }
-  for (const {workflowRunId, status, count: statusCount} of countRows) {
-    summaryFor(summaries, workflowRunId).statusCounts.push({status, count: statusCount});
+  for (const {workflowRunId, rawStatus, status, count: statusCount} of countRows) {
+    const summary = summaryFor(summaries, workflowRunId);
+    appendStatusCount(summary.rawStatusCounts, rawStatus, statusCount);
+    appendStatusCount(summary.statusCounts, status, statusCount);
   }
 
   return summaries;
@@ -376,9 +385,22 @@ function summaryFor(
 ): WorkflowRunJobsSummary {
   const existing = summaries.get(workflowRunId);
   if (existing) return existing;
-  const created: WorkflowRunJobsSummary = {preview: [], statusCounts: []};
+  const created: WorkflowRunJobsSummary = {preview: [], statusCounts: [], rawStatusCounts: []};
   summaries.set(workflowRunId, created);
   return created;
+}
+
+function appendStatusCount<T extends string>(
+  counts: Array<{status: T; count: number}>,
+  status: T,
+  count: number,
+): void {
+  const existing = counts.find((entry) => entry.status === status);
+  if (existing) {
+    existing.count += count;
+  } else {
+    counts.push({status, count});
+  }
 }
 
 export async function listWorkflowRunsByProject(projectId: string): Promise<WorkflowRun[]> {

@@ -332,7 +332,7 @@ describe('JobNode status indicator', () => {
     expect(screen.getByRole('button', {name: 'deploy-prod, Succeeded'})).toBeInTheDocument();
   });
 
-  test('shows a running lifecycle without a running step as pending', () => {
+  test('shows a running lifecycle without a running step as running', () => {
     const node = makeNode({
       name: 'deploy',
       status: 'pending',
@@ -341,7 +341,7 @@ describe('JobNode status indicator', () => {
 
     renderNode(node);
 
-    expect(screen.getByRole('button', {name: 'deploy, Pending'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'deploy, Running'})).toBeInTheDocument();
   });
 
   test('shows a pending lifecycle as running while a step is active', () => {

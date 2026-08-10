@@ -42,6 +42,7 @@ export type {
   WorkflowJobExecutionDepthParams,
   WorkflowRunAggregates,
   WorkflowRunFilters,
+  WorkflowRunJobRawStatusCount,
   WorkflowRunJobStatusCount,
   WorkflowRunJobSummary,
   WorkflowRunJobSummaryTarget,

@@ -96,7 +96,9 @@ export function toWorkflowRunRecord(dto: WorkflowRunResponseDto): WorkflowRunRec
 }
 
 export function toWorkflowRunListItem(dto: WorkflowRunListItemDto): WorkflowRunListItem {
-  const statusCounts = dto.job_status_counts.map(({status, count}) => ({status, count}));
+  const statusCounts = (dto.job_display_status_counts ?? dto.job_status_counts).map(
+    ({status, count}) => ({status, count}),
+  );
   return {
     ...toWorkflowRunRecord(dto),
     jobs: {

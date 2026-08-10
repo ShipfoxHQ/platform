@@ -148,10 +148,9 @@ export function deriveJobDisplayStatus(
 ): JobDisplayStatus {
   if (isTerminalJobStatus(job.status)) return job.status;
   if (job.mode === 'listening' && job.listenerStatus === 'listening') return 'listening';
-  // A list preview has no step tree, so a running execution is already the strongest evidence
-  // available that the job is executing. Detail views omit this field and retain step-aware
-  // execution display semantics below.
-  if (job.executionStatus === 'running') return 'running';
+  // Older list responses do not carry execution evidence. Preserve their running verdict
+  // until the API has supplied the richer display counts and preview fields.
+  if (job.executionStatus === null && job.status === 'running') return 'running';
 
   const execution =
     job.executionStatus === undefined
@@ -159,6 +158,10 @@ export function deriveJobDisplayStatus(
       : job.executionStatus === null
         ? undefined
         : {status: job.executionStatus, steps: []};
+  // A running execution is the shared display rule for both list previews and detail jobs.
+  // The list has no step tree, while the detail path can still use the execution's steps for
+  // other non-running states.
+  if (execution?.status === 'running') return 'running';
   return execution ? deriveJobExecutionDisplayStatus(execution) : 'pending';
 }
 

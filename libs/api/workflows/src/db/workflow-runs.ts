@@ -47,6 +47,7 @@ export type {
   WorkflowRunAggregates,
   WorkflowRunCursor,
   WorkflowRunFilters,
+  WorkflowRunJobRawStatusCount,
   WorkflowRunJobStatusCount,
   WorkflowRunJobSummary,
   WorkflowRunJobSummaryTarget,

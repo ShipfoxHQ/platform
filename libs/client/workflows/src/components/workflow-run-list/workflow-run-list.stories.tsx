@@ -101,6 +101,12 @@ type Story = StoryObj<typeof meta>;
 
 export const Playground: Story = {};
 
+export const ExecutionStates: Story = {
+  args: {
+    runs: [makeExecutionStateRun(), makeListeningStateRun()],
+  },
+};
+
 /**
  * The row under its one-line threshold, at the 720px a 768px viewport leaves the column.
  *
@@ -228,4 +234,29 @@ function StateExample({label, children}: {label: string; children: ReactNode}) {
       </div>
     </div>
   );
+}
+
+function makeExecutionStateRun(): WorkflowRunListItem {
+  const fixture = workflowRunJobsFixture(['pending']);
+  return sequencedWorkflowRunListItem('running', 'one-shot-executing', 1, {
+    ...fixture,
+    jobs: fixture.jobs.map((job) => ({...job, execution_status: 'running'})),
+    job_status_counts: [{status: 'pending', count: 1}],
+    job_display_status_counts: [{status: 'running', count: 1}],
+  });
+}
+
+function makeListeningStateRun(): WorkflowRunListItem {
+  const fixture = workflowRunJobsFixture(['pending']);
+  return sequencedWorkflowRunListItem('running', 'event-driven-listener', 3, {
+    ...fixture,
+    jobs: fixture.jobs.map((job) => ({
+      ...job,
+      mode: 'listening',
+      listener_status: 'listening',
+      execution_status: null,
+    })),
+    job_status_counts: [{status: 'pending', count: 1}],
+    job_display_status_counts: [{status: 'listening', count: 1}],
+  });
 }
