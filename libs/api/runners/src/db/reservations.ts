@@ -939,7 +939,9 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
     params.workspaceId === null
       ? sql``
       : sql`and ${eq(reservations.workspaceId, params.workspaceId)}`;
-  const noRunningJobPredicate = notExists(
+  // Cancellation keeps the lease row so the provisioner can observe its terminate intent.
+  // Once the runner is terminal, only an uncancelled lease should block reservation release.
+  const noUncancelledRunningJobPredicate = notExists(
     tx
       .select({id: runningJobExecutions.id})
       .from(runningJobExecutions)
@@ -947,6 +949,7 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
         and(
           eq(runningJobExecutions.provisionerId, params.provisionerId),
           eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
+          isNull(runningJobExecutions.cancellationRequestedAt),
           params.workspaceId === null
             ? undefined
             : eq(runningJobExecutions.workspaceId, params.workspaceId),
@@ -1103,7 +1106,7 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
         params.requireUnlinkedSession === false
           ? undefined
           : isNull(providerRunners.runnerSessionId),
-        noRunningJobPredicate,
+        noUncancelledRunningJobPredicate,
         reportFreshnessPredicate,
         isNull(providerRunners.reservationReleasedAt),
       ),
@@ -1137,7 +1140,7 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
         params.requireUnlinkedSession === false
           ? undefined
           : isNull(providerRunners.runnerSessionId),
-        noRunningJobPredicate,
+        noUncancelledRunningJobPredicate,
         reportFreshnessPredicate,
         isNull(providerRunners.reservationReleasedAt),
       ),
