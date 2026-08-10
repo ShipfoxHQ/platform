@@ -16,6 +16,12 @@ if [ ! -r "$grub_config" ] || ! grep -Eq '(^|[[:space:]])fsck\.mode=skip([[:spac
   exit 1
 fi
 
+systemctl set-default multi-user.target
+if [ "$(systemctl get-default)" != 'multi-user.target' ]; then
+  printf '%s\n' 'configure-boot: default target is not multi-user.target' >&2
+  exit 1
+fi
+
 # The image is checked during the bake; running root fsck on every ephemeral boot
 # only adds latency and cannot repair a durable runner volume.
 systemctl mask systemd-fsck-root.service
@@ -51,6 +57,7 @@ function add_option(options, option, values, count, i) {
     changed = 1
   }
   if ($2 == "/boot" || $2 == "/boot/efi") {
+    $4 = add_option($4, "noauto")
     $6 = 0
     changed = 1
   }

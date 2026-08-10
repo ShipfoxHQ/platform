@@ -1075,13 +1075,16 @@ UUID=data /data ext4 defaults 0 2
       expect(await readFile(join(fixture.root, 'boot/grub/grub.cfg'), 'utf8')).toContain(
         'fsck.mode=skip',
       );
+      expect(await readFile(join(fixture.root, 'etc/systemd/default-target'), 'utf8')).toBe(
+        'multi-user.target\n',
+      );
       expect(await readFile(join(fixture.root, 'etc/systemd/systemctl.log'), 'utf8')).toBe(
         'mask systemd-fsck-root.service\nmask systemd-fsck-root.service\n',
       );
       expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toBe(`# fstab
 UUID=root / ext4 defaults,noatime 0 1
-UUID=boot /boot ext4 defaults,noatime 0 0 extra-column
-UUID=efi /boot/efi vfat defaults 0 0
+UUID=boot /boot ext4 defaults,noatime,noauto 0 0 extra-column
+UUID=efi /boot/efi vfat defaults,noauto 0 0
 UUID=data /data ext4 defaults 0 2
 `);
     } finally {
@@ -1265,10 +1268,25 @@ async function createBootFixture(fstab: string) {
       '#!/bin/sh',
       'set -eu',
       `root_dir=\${RUNNER_IMAGE_ROOT:?}`,
-      '[ "$#" -eq 2 ]',
-      '[ "$1" = mask ]',
-      '[ "$2" = systemd-fsck-root.service ]',
-      'printf "%s\\n" "$*" >> "$root_dir/etc/systemd/systemctl.log"',
+      'case "$1" in',
+      '  set-default)',
+      '    [ "$#" -eq 2 ]',
+      '    [ "$2" = multi-user.target ]',
+      '    printf "%s\\n" "$2" > "$root_dir/etc/systemd/default-target"',
+      '    ;;',
+      '  get-default)',
+      '    [ "$#" -eq 1 ]',
+      '    cat "$root_dir/etc/systemd/default-target"',
+      '    ;;',
+      '  mask)',
+      '    [ "$#" -eq 2 ]',
+      '    [ "$2" = systemd-fsck-root.service ]',
+      '    printf "%s\\n" "$*" >> "$root_dir/etc/systemd/systemctl.log"',
+      '    ;;',
+      '  *)',
+      '    exit 1',
+      '    ;;',
+      'esac',
       '',
     ].join('\n'),
   );
