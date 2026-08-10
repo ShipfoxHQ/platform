@@ -1,0 +1,107 @@
+import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
+import {configureApiClient} from '@shipfox/client-api';
+import type {Decorator, Meta, StoryObj} from '@storybook/react';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {type ReactNode, useEffect, useState} from 'react';
+import {workflowJobDto, workflowRunDetailDto} from '#test/fixtures/workflow-run.js';
+import {WorkflowRunView} from './workflow-run-view.js';
+
+const PROJECT_ID = '22222222-2222-4222-8222-222222222222';
+const RUN_ID = '11111111-1111-4111-8111-111111111111';
+
+const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
+  id: RUN_ID,
+  project_id: PROJECT_ID,
+  name: 'deploy-web',
+  status: 'succeeded',
+  jobs: [
+    workflowJobDto({
+      key: 'build',
+      name: 'build',
+      status: 'succeeded',
+      position: 0,
+    }),
+    workflowJobDto({
+      key: 'deploy',
+      name: 'deploy',
+      status: 'succeeded',
+      position: 1,
+      dependencies: ['build'],
+    }),
+    workflowJobDto({
+      key: 'notify',
+      name: 'notify',
+      status: 'succeeded',
+      position: 2,
+      dependencies: ['deploy'],
+    }),
+  ],
+});
+
+const withRunApi: Decorator = (Story) => (
+  <RunWorkspaceStoryProviders>
+    <Story />
+  </RunWorkspaceStoryProviders>
+);
+
+const meta = {
+  title: 'Workflows/WorkflowRunView',
+  component: WorkflowRunView,
+  parameters: {
+    layout: 'fullscreen',
+    argos: {
+      modes: {dark: {theme: 'dark'}},
+      fitToContent: true,
+    },
+  },
+  decorators: [withRunApi],
+  args: {
+    projectId: PROJECT_ID,
+    workspaceSlug: 'acme',
+    projectSlug: 'platform',
+    workflowRunId: RUN_ID,
+  },
+} satisfies Meta<typeof WorkflowRunView>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const WideViewport: Story = {};
+
+function RunWorkspaceStoryProviders({children}: {children: ReactNode}) {
+  const [queryClient] = useState(
+    () => new QueryClient({defaultOptions: {queries: {retry: false}}}),
+  );
+  const [configured, setConfigured] = useState(false);
+
+  useEffect(() => {
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: (input) => {
+        const url =
+          input instanceof Request ? input.url : input instanceof URL ? input.href : String(input);
+        const body = url.includes('/annotations')
+          ? {annotations: [], has_more: false, next_cursor: null}
+          : RUN_RESPONSE;
+        return new Response(JSON.stringify(body), {
+          headers: {'content-type': 'application/json'},
+        });
+      },
+    });
+    setConfigured(true);
+
+    return () => {
+      configureApiClient({baseUrl: '', fetchImpl: undefined});
+    };
+  }, []);
+
+  if (!configured) return null;
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <div className="h-[720px] min-w-[1440px] w-[1440px] bg-background-subtle-base">
+        {children}
+      </div>
+    </QueryClientProvider>
+  );
+}

@@ -11,6 +11,7 @@ import {
 } from '@shipfox/react-ui/select';
 import {toast} from '@shipfox/react-ui/toast';
 import {Text} from '@shipfox/react-ui/typography';
+import {cn} from '@shipfox/react-ui/utils';
 import {useNavigate} from '@tanstack/react-router';
 import {type ReactNode, useEffect, useMemo} from 'react';
 import {buildRunAnnotationList, type RunAnnotationSummary} from '#core/run-annotation.js';
@@ -53,6 +54,7 @@ import {
 } from './workflow-run-states.js';
 
 type RunWorkspaceSection = Exclude<WorkflowRunTab, 'jobs'>;
+const RUN_WORKSPACE_FRAME_CLASS_NAME = 'mx-auto w-full max-w-[calc(240px_+_1120px)]';
 
 export interface WorkflowRunViewProps {
   projectId: string;
@@ -157,6 +159,7 @@ function RunViewContent({
   const activeSection = runWorkspaceSection(tab);
   const cancelMutation = useCancelWorkflowRunMutation(runData);
   const sourceSnapshot = runData?.sourceSnapshot ?? null;
+  const hasJobContent = Boolean(jobContent);
   const resolvedSelection =
     runData && selection ? resolveWorkflowRunSelection({run: runData, selection}) : undefined;
   const highlightedLineRange = resolvedSelection?.step?.sourceLocation ?? null;
@@ -309,44 +312,55 @@ function RunViewContent({
 
       <div
         data-run-workspace-layout
-        className="mx-auto flex min-h-0 min-w-0 w-full max-w-[1360px] flex-1 flex-col border-t border-border-neutral-base min-[768px]:flex-row"
+        className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-border-neutral-base"
       >
-        {runData && workspaceSlug && projectSlug ? (
-          <RunWorkspaceNav
-            workspaceSlug={workspaceSlug}
-            projectSlug={projectSlug}
-            run={runData}
-            activeSection={activeSection}
-            currentJobId={activeJobId}
-            jobSearch={jobSearch}
-            annotationSummary={annotationSummary}
-          />
-        ) : (
-          <RunWorkspaceNavSkeleton />
-        )}
-
-        <div data-run-workspace-content className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {runData && jobContent ? (
-            jobContent
-          ) : runData ? (
-            <RunSectionContent
-              section={activeSection}
-              run={runData}
-              annotations={annotations}
-              annotationSummary={annotationSummary}
+        <div
+          data-run-workspace-frame
+          className={cn(
+            'flex min-h-0 min-w-0 w-full flex-1 flex-col min-[768px]:flex-row',
+            !hasJobContent && RUN_WORKSPACE_FRAME_CLASS_NAME,
+          )}
+        >
+          {runData && workspaceSlug && projectSlug ? (
+            <RunWorkspaceNav
               workspaceSlug={workspaceSlug}
               projectSlug={projectSlug}
-              selection={selection}
-              selectedJobId={selection?.jobId}
-              onSelectGraphJob={selectGraphJob}
-              onSelectAnnotationJob={selectAnnotationJob}
-              onClearAnnotationFilters={clearAnnotationFilters}
-              sourceSnapshot={sourceSnapshot}
-              highlightedLineRange={highlightedLineRange}
+              run={runData}
+              activeSection={activeSection}
+              currentJobId={activeJobId}
+              jobSearch={jobSearch}
+              annotationSummary={annotationSummary}
             />
           ) : (
-            <div className="min-h-0 flex-1 overflow-auto p-panel">{loadingOrError}</div>
+            <RunWorkspaceNavSkeleton />
           )}
+
+          <div
+            data-run-workspace-content
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+          >
+            {runData && jobContent ? (
+              jobContent
+            ) : runData ? (
+              <RunSectionContent
+                section={activeSection}
+                run={runData}
+                annotations={annotations}
+                annotationSummary={annotationSummary}
+                workspaceSlug={workspaceSlug}
+                projectSlug={projectSlug}
+                selection={selection}
+                selectedJobId={selection?.jobId}
+                onSelectGraphJob={selectGraphJob}
+                onSelectAnnotationJob={selectAnnotationJob}
+                onClearAnnotationFilters={clearAnnotationFilters}
+                sourceSnapshot={sourceSnapshot}
+                highlightedLineRange={highlightedLineRange}
+              />
+            ) : (
+              <div className="min-h-0 flex-1 overflow-auto p-panel">{loadingOrError}</div>
+            )}
+          </div>
         </div>
       </div>
     </div>
