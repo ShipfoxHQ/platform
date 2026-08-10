@@ -2,6 +2,7 @@ import {Button} from '@shipfox/react-ui/button';
 import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@shipfox/react-ui/collapsible';
 import {Combobox, type ComboboxOption} from '@shipfox/react-ui/combobox';
 import {type DateRange, DateRangePicker} from '@shipfox/react-ui/date-range-picker';
+import {PanelHeader} from '@shipfox/react-ui/panel';
 import {Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {type ReactNode, useState} from 'react';
@@ -95,84 +96,86 @@ export function EventsFilterBar({
   }
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="flex items-center justify-between gap-inline border-b border-border-neutral-base px-row py-row">
-        <CollapsibleTrigger asChild>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            iconLeft="filter3Line"
-            iconRight={open ? 'arrowUpSLine' : 'arrowDownSLine'}
-          >
-            {activeCount > 0 ? `Filters (${activeCount})` : 'Filters'}
-          </Button>
-        </CollapsibleTrigger>
-        {hasActiveFilters ? (
-          <Button type="button" size="2xs" variant="transparentMuted" onClick={onClear}>
-            Clear filters
-          </Button>
-        ) : null}
-      </div>
-      <CollapsibleContent>
-        <div className="grid grid-cols-1 gap-x-cluster gap-y-inline border-b border-border-neutral-base px-row py-row min-[520px]:grid-cols-2">
-          <FilterField label="Date" className="col-span-full">
-            <DateRangePicker
-              size="small"
-              className="w-full"
-              {...(dateRange ? {dateRange} : {})}
-              onDateRangeSelect={handleDateRange}
-              onClear={() => onFiltersChange({from: undefined, to: undefined})}
-              placeholder="Any date"
-            />
-          </FilterField>
-          <FilterField label="Result">
-            <Combobox
-              multiple
-              size="small"
-              aria-label="Filter by result"
-              options={RESULT_OPTIONS}
-              value={resultValue}
-              onValueChange={handleResultValue}
-              placeholder="All results"
-              emptyState="No results"
-              className="w-full"
-              maxVisibleChips={2}
-            />
-          </FilterField>
-          <FilterField label="Source">
-            <Combobox
-              multiple
-              size="small"
-              options={toOptions(sources)}
-              value={filters.source ?? []}
-              onValueChange={(value) =>
-                onFiltersChange({source: value.length > 0 ? value : undefined})
-              }
-              placeholder="All sources"
-              emptyState="No sources yet"
-              className="w-full"
-              maxVisibleChips={2}
-            />
-          </FilterField>
-          <FilterField label="Event">
-            <Combobox
-              multiple
-              size="small"
-              options={toOptions(events)}
-              value={filters.event ?? []}
-              onValueChange={(value) =>
-                onFiltersChange({event: value.length > 0 ? value : undefined})
-              }
-              placeholder="All events"
-              emptyState="No events yet"
-              className="w-full"
-              maxVisibleChips={2}
-            />
-          </FilterField>
+    <PanelHeader className="min-h-48 flex-col items-stretch gap-0 p-0">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <div className="flex items-center justify-between gap-inline px-row py-row">
+          <CollapsibleTrigger asChild>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              iconLeft="filter3Line"
+              iconRight={open ? 'arrowUpSLine' : 'arrowDownSLine'}
+            >
+              {activeCount > 0 ? `Filters (${activeCount})` : 'Filters'}
+            </Button>
+          </CollapsibleTrigger>
+          {hasActiveFilters ? (
+            <Button type="button" size="2xs" variant="transparentMuted" onClick={onClear}>
+              Clear filters
+            </Button>
+          ) : null}
         </div>
-      </CollapsibleContent>
-    </Collapsible>
+        <CollapsibleContent>
+          <div className="grid grid-cols-1 gap-x-cluster gap-y-inline px-row py-row min-[520px]:grid-cols-2">
+            <FilterField label="Date" className="col-span-full">
+              <DateRangePicker
+                size="small"
+                className="w-full"
+                {...(dateRange ? {dateRange} : {})}
+                onDateRangeSelect={handleDateRange}
+                onClear={() => onFiltersChange({from: undefined, to: undefined})}
+                placeholder="Any date"
+              />
+            </FilterField>
+            <FilterField label="Result">
+              <Combobox
+                multiple
+                size="small"
+                aria-label="Filter by result"
+                options={RESULT_OPTIONS}
+                value={resultValue}
+                onValueChange={handleResultValue}
+                placeholder="All results"
+                emptyState="No results"
+                className="w-full"
+                maxVisibleChips={2}
+              />
+            </FilterField>
+            <FilterField label="Source">
+              <Combobox
+                multiple
+                size="small"
+                options={toOptions(sources)}
+                value={filters.source ?? []}
+                onValueChange={(value) =>
+                  onFiltersChange({source: value.length > 0 ? value : undefined})
+                }
+                placeholder="All sources"
+                emptyState="No sources yet"
+                className="w-full"
+                maxVisibleChips={2}
+              />
+            </FilterField>
+            <FilterField label="Event">
+              <Combobox
+                multiple
+                size="small"
+                options={toOptions(events)}
+                value={filters.event ?? []}
+                onValueChange={(value) =>
+                  onFiltersChange({event: value.length > 0 ? value : undefined})
+                }
+                placeholder="All events"
+                emptyState="No events yet"
+                className="w-full"
+                maxVisibleChips={2}
+              />
+            </FilterField>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </PanelHeader>
   );
 }
 

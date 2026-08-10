@@ -1,5 +1,4 @@
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
-import {Header, Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {useEffect, useMemo, useState} from 'react';
 import {EventsList} from '#components/events-list.js';
@@ -43,20 +42,7 @@ export function EventsPage({
 
   return (
     <RelativeTimeProvider>
-      <section
-        className="@container flex min-w-0 flex-col gap-group"
-        aria-labelledby="trigger-events-heading"
-      >
-        <div className="flex flex-col gap-tight">
-          <Header id="trigger-events-heading" variant="h3">
-            Events
-          </Header>
-          <Text size="sm" className="text-foreground-neutral-muted">
-            A workspace-wide audit log of trigger events received from integrations, schedules, and
-            manual trigger calls.
-          </Text>
-        </div>
-
+      <section className="@container flex min-w-0 flex-col gap-group" aria-label="Events">
         <div className="grid min-h-0 items-start gap-group @min-[820px]:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
           <div className={cn('min-w-0', selectedEventId && '@max-[820px]:hidden')}>
             <EventsList
