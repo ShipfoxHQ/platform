@@ -136,7 +136,7 @@ function ProjectSettingsForm({project}: {project: Project}) {
             ) : null}
 
             <form
-              className="flex w-full flex-col gap-group"
+              className="flex w-full max-w-[560px] flex-col gap-group"
               noValidate
               onSubmit={(event) => {
                 event.preventDefault();

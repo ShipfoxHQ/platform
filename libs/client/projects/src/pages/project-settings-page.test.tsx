@@ -19,6 +19,9 @@ describe('ProjectSettingsPage', () => {
     renderProjectPage('/w/acme/p/platform/settings/general', <ProjectSettingsPage />);
     const nameInput = await screen.findByLabelText('Project name');
     expect(screen.getByRole('heading', {name: 'General'})).toBeInTheDocument();
+    const settingsForm = nameInput.closest('form');
+    expect(settingsForm).not.toBeNull();
+    expect(settingsForm).toHaveClass('max-w-[560px]');
     expect(
       screen.queryByText('Update the project name and the slug used in its URLs.'),
     ).not.toBeInTheDocument();

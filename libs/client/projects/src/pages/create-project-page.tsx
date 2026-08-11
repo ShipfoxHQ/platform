@@ -236,25 +236,25 @@ export function CreateProjectPage() {
         className="grid items-start gap-region lg:grid-cols-[minmax(0,1fr)_340px]"
       >
         <div className="flex min-w-0 flex-col gap-region">
-          <section aria-label="Source integration">
-            <Panel>
-              <PanelHeader>
-                <PanelTitle>Source integration</PanelTitle>
-                {connections.length === 1 ? (
-                  <PanelActions>
-                    <Button asChild variant="transparent" size="sm" className="shrink-0">
-                      <Link
-                        to="/w/$workspaceSlug/integrations"
-                        params={{workspaceSlug: workspace.slug}}
-                      >
-                        Add another integration
-                      </Link>
-                    </Button>
-                  </PanelActions>
-                ) : null}
-              </PanelHeader>
+          {connections.length > 0 ? (
+            <section aria-label="Source integration">
+              <Panel>
+                <PanelHeader>
+                  <PanelTitle>Source integration</PanelTitle>
+                  {connections.length === 1 ? (
+                    <PanelActions>
+                      <Button asChild variant="transparent" size="sm" className="shrink-0">
+                        <Link
+                          to="/w/$workspaceSlug/integrations"
+                          params={{workspaceSlug: workspace.slug}}
+                        >
+                          Add another integration
+                        </Link>
+                      </Button>
+                    </PanelActions>
+                  ) : null}
+                </PanelHeader>
 
-              {connections.length > 0 ? (
                 <PanelBody className="p-panel">
                   <ConnectionPicker
                     connections={connections}
@@ -262,9 +262,9 @@ export function CreateProjectPage() {
                     onSelect={selectConnection}
                   />
                 </PanelBody>
-              ) : null}
-            </Panel>
-          </section>
+              </Panel>
+            </section>
+          ) : null}
 
           {showRepoPicker ? (
             <section aria-label="Repository">

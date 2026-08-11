@@ -1,6 +1,5 @@
 import {Button} from '@shipfox/react-ui/button';
 import {useIsTextTruncated} from '@shipfox/react-ui/hooks';
-import {Input} from '@shipfox/react-ui/input';
 import {Label} from '@shipfox/react-ui/label';
 import {RadioGroup, RadioGroupItem} from '@shipfox/react-ui/radio-group';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
@@ -23,9 +22,6 @@ export function RepositoryPicker({
   hasNextPage,
   onLoadMore,
   emptyMessage = 'No repositories found.',
-  searchValue,
-  onSearchChange,
-  searchDisabled,
 }: {
   repositories: Repository[];
   selectedRepositoryId: string | undefined;
@@ -35,29 +31,14 @@ export function RepositoryPicker({
   hasNextPage?: boolean;
   onLoadMore?: () => void;
   emptyMessage?: string;
-  searchValue?: string;
-  onSearchChange?: (value: string) => void;
-  searchDisabled?: boolean;
 }) {
   const labelId = useId();
-  const showSearch = onSearchChange !== undefined;
 
   return (
     <div className="flex flex-col gap-inline">
       <Label id={labelId} className="sr-only">
         Repository
       </Label>
-
-      {showSearch ? (
-        <Input
-          type="search"
-          placeholder="Search repositories…"
-          aria-label="Search repositories"
-          value={searchValue ?? ''}
-          onChange={(event) => onSearchChange?.(event.target.value)}
-          disabled={searchDisabled}
-        />
-      ) : null}
 
       {isLoading ? <RepositoryLoadingState /> : null}
 

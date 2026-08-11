@@ -1,6 +1,7 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient} from '@tanstack/react-query';
-import {fireEvent, screen, waitFor} from '@testing-library/react';
+import {fireEvent, screen, waitFor, within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {projectsQueryKeys} from '#hooks/api/projects.js';
 import {
   jsonResponse,
@@ -50,6 +51,17 @@ describe('CreateProjectPage', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole('searchbox', {name: 'Search repositories'})).toBeInTheDocument();
     expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(3);
+    expect(within(panelForHeading('Project details')).getByLabelText('Project name')).toBe(
+      nameInput,
+    );
+    expect(within(panelForHeading('Project details')).getByLabelText('Project slug')).toBe(
+      slugInput,
+    );
+    expect(
+      within(panelForHeading('Repository')).getByRole('searchbox', {
+        name: 'Search repositories',
+      }),
+    ).toBeInTheDocument();
     expect(slugInput).toHaveValue('platform');
     expect(slugInput).toHaveAttribute('aria-describedby', 'project-slug-description');
     expect(screen.getByText('/w/acme/p/platform')).toBeInTheDocument();
@@ -75,6 +87,65 @@ describe('CreateProjectPage', () => {
       },
     });
   }, 10_000);
+
+  test('does not render an empty source panel when connections fail to load', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return Promise.resolve(jsonResponse({message: 'upstream unavailable'}, {status: 500}));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
+
+    expect(
+      await screen.findByText(
+        'Could not load source integrations. Refresh the integrations list to continue.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: 'Source integration'})).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(1);
+  });
+
+  test('passes the repository search filter to the query and renders the filtered empty state', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return Promise.resolve(jsonResponse({connections: [connectionDto()]}));
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        const search = new URL(request.url).searchParams.get('search');
+        return Promise.resolve(
+          jsonResponse(
+            search === 'xyz'
+              ? {repositories: [], next_cursor: null}
+              : {repositories: [repositoryDto()], next_cursor: null},
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
+    expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('searchbox', {name: 'Search repositories'}), 'xyz');
+
+    expect(await screen.findByText('No repositories matching "xyz".')).toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.some(([input]) => {
+        const request = input as Request;
+        return (
+          request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`) &&
+          new URL(request.url).searchParams.get('search') === 'xyz'
+        );
+      }),
+    ).toBe(true);
+  });
 
   test('auto-derives the slug from each keystroke in the name field until the slug is touched', async () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
@@ -502,4 +573,10 @@ function projectPostCount(fetchImpl: ReturnType<typeof vi.fn>): number {
     const request = input as Request;
     return request.url.endsWith('/projects') && request.method === 'POST';
   }).length;
+}
+
+function panelForHeading(name: string): HTMLElement {
+  const panel = screen.getByRole('heading', {name}).closest('[data-slot="panel"]');
+  if (!(panel instanceof HTMLElement)) throw new Error(`Panel not found for heading: ${name}`);
+  return panel;
 }

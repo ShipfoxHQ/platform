@@ -4,4 +4,4 @@
 '@shipfox/react-ui': patch
 ---
 
-Recompose project settings and project creation around shared content-frame panel surfaces and button-like radio choices.
+Project settings and project creation now use shared panels, with source integrations presented as button-style radio choices.

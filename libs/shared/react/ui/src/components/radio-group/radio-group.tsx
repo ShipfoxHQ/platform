@@ -20,7 +20,7 @@ export function RadioGroupItem({
         'hover:bg-background-button-neutral-hover active:bg-background-button-neutral-pressed',
         'data-[state=checked]:border-border-highlights-interactive data-[state=checked]:shadow-border-interactive-with-active',
         'focus-visible:shadow-border-interactive-with-active',
-        'disabled:cursor-not-allowed disabled:bg-background-neutral-disabled disabled:text-foreground-neutral-disabled disabled:shadow-none',
+        'data-[disabled]:cursor-not-allowed data-[disabled]:border-border-neutral-base data-[disabled]:bg-background-neutral-disabled data-[disabled]:text-foreground-neutral-disabled data-[disabled]:shadow-none',
         className,
       )}
       {...props}
@@ -29,7 +29,7 @@ export function RadioGroupItem({
         aria-hidden="true"
         className="flex size-16 shrink-0 items-center justify-center rounded-full border border-border-neutral-base"
       >
-        <RadioGroupPrimitive.Indicator className="size-8 rounded-full bg-background-highlight-interactive" />
+        <RadioGroupPrimitive.Indicator className="size-8 rounded-full bg-background-highlight-interactive data-[disabled]:bg-foreground-neutral-disabled" />
       </div>
       <div className="min-w-0 flex-1">{children}</div>
     </RadioGroupPrimitive.Item>
