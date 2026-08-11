@@ -441,7 +441,7 @@ describe('writeAmbientGitCredential', () => {
     expect(mode).toBe(0o600);
     expect(content).toContain('[http "https://github.com/acme/repo.git"]');
     expect(content).toContain('extraHeader = "Authorization: Bearer tok-123"');
-    expect(content).toContain('[http]\n\tfollowRedirects = false');
+    expect(content).not.toContain('[http]\n\tfollowRedirects = false');
   });
 
   it('accumulates credentials for multiple repositories in one config', async () => {

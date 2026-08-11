@@ -2,6 +2,7 @@ import type {CheckoutTokenResponseDto, StepErrorReasonDto} from '@shipfox/api-wo
 import {logger} from '@shipfox/node-opentelemetry';
 import {HTTPError, requestCheckoutToken} from '@shipfox/runner-protocol';
 import {
+  ambientGitCredentialSecrets,
   type CheckoutCommandStartMetadata,
   CheckoutError,
   type CheckoutFailureKind,
@@ -72,6 +73,7 @@ export async function checkoutRepositoryAt(params: {
 }): Promise<
   CheckoutPhaseResult<{
     ambientGitConfigPath?: string | undefined;
+    ambientGitConfigSecrets?: string[] | undefined;
     checkout: NonNullable<StepResult['checkout']>;
   }>
 > {
@@ -97,7 +99,7 @@ export async function checkoutRepositoryAt(params: {
       onOutput: checkoutOutput(log),
     });
     log?.writeGroup({name: 'Checkout complete', lines: [`Checked out commit: ${commit}`]});
-    const ambientGitConfigPath = await persistAmbientGitCredential({
+    const ambientGitConfig = await persistAmbientGitCredential({
       gitConfigPath,
       checkout,
       log,
@@ -112,7 +114,12 @@ export async function checkoutRepositoryAt(params: {
           commit,
           path: destination,
         },
-        ...(ambientGitConfigPath ? {ambientGitConfigPath} : {}),
+        ...(ambientGitConfig
+          ? {
+              ambientGitConfigPath: ambientGitConfig.path,
+              ambientGitConfigSecrets: ambientGitConfig.secrets,
+            }
+          : {}),
       },
     };
   } catch (error) {
@@ -142,24 +149,25 @@ async function persistAmbientGitCredential(params: {
   checkout: CheckoutTokenResponseDto;
   log?: CheckoutLogSink | undefined;
   scope: CheckoutFailureScope;
-}): Promise<string | undefined> {
+}): Promise<{path: string; secrets: string[]} | undefined> {
   const {gitConfigPath, checkout, log, scope} = params;
-  if (!checkout.auth?.persist || checkout.auth.carry !== 'header') return undefined;
+  const auth = checkout.auth;
+  if (!auth?.persist || auth.carry !== 'header') return undefined;
 
   try {
     await writeAmbientGitCredential({
       configPath: gitConfigPath,
       repositoryUrl: checkout.repository_url,
-      auth: checkout.auth,
+      auth,
       ...(checkout.git_author ? {gitAuthor: checkout.git_author} : {}),
     });
-    return gitConfigPath;
+    return {path: gitConfigPath, secrets: ambientGitCredentialSecrets(auth)};
   } catch (error) {
     writeWarning(
       log,
       'Repository access was not persisted',
       [
-        `The checkout succeeded, but agent steps will run without ambient git authentication. Details: ${messageOf(error)}`,
+        `The checkout succeeded, but agent and run steps will run without ambient git authentication. Details: ${messageOf(error)}`,
         'Git commands in later steps may need their own credentials.',
       ],
       scope,

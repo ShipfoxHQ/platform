@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {accessSync, constants, statSync} from 'node:fs';
-import {open, unlink, writeFile} from 'node:fs/promises';
+import {chmod, copyFile, open, unlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {basename, delimiter, isAbsolute, join, resolve} from 'node:path';
 import {TextDecoder} from 'node:util';
@@ -92,6 +92,7 @@ async function runShellCommand(
   const metadata = commandStartMetadata({command, scriptPath, cwd: options.cwd});
   notifyCommandStart(options.onCommandStart, cloneCommandStartMetadata(metadata));
   let annotationSpool: AnnotationSpool | undefined;
+  let isolatedGitConfigGlobal: string | undefined;
 
   try {
     await writeFile(scriptPath, command, {mode: 0o700});
@@ -105,7 +106,16 @@ async function runShellCommand(
       );
     }
 
-    const result = await spawnAndCapture(metadata, stepEnv, outputPath, annotationSpool, options);
+    isolatedGitConfigGlobal = await isolateGitConfigGlobal(options.gitConfigGlobal);
+    const result = await spawnAndCapture(
+      metadata,
+      stepEnv,
+      outputPath,
+      annotationSpool,
+      isolatedGitConfigGlobal === undefined
+        ? options
+        : {...options, gitConfigGlobal: isolatedGitConfigGlobal},
+    );
     const outputResult = await finalizeStepOutput(result, outputPath);
     if (!annotationSpool) return outputResult;
 
@@ -113,10 +123,33 @@ async function runShellCommand(
     if (annotations.length === 0) return outputResult;
     return {...outputResult, annotations};
   } finally {
+    if (isolatedGitConfigGlobal !== undefined) {
+      await unlink(isolatedGitConfigGlobal).catch(() => undefined);
+    }
     if (annotationSpool) await disposeAnnotationSpool(annotationSpool);
     await unlink(scriptPath).catch(() => undefined);
     await unlink(outputPath).catch(() => undefined);
   }
+}
+
+async function isolateGitConfigGlobal(configPath: string | undefined): Promise<string | undefined> {
+  if (configPath === undefined) return undefined;
+  const isolatedPath = join(tmpdir(), `shipfox-gitconfig-${randomUUID()}`);
+  try {
+    await copyFile(configPath, isolatedPath);
+    await chmod(isolatedPath, 0o600);
+    return isolatedPath;
+  } catch (error) {
+    await unlink(isolatedPath).catch(() => undefined);
+    if (isFileSystemError(error, 'ENOENT')) return undefined;
+    throw error;
+  }
+}
+
+function isFileSystemError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return (
+    error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === code
+  );
 }
 
 function spawnAndCapture(

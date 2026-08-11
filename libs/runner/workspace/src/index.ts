@@ -1,4 +1,5 @@
 export {
+  ambientGitCredentialSecrets,
   assertGitAvailable,
   type CheckoutCommandStartMetadata,
   CheckoutError,

@@ -1,5 +1,6 @@
 import {execFile} from 'node:child_process';
 import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {createServer, type Server} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
@@ -27,6 +28,7 @@ const AUTH: CheckoutTokenAuthDto = {
   persist: true,
 };
 const EXPECTED_HEADER = `Authorization: Basic ${Buffer.from(`${AUTH.username}:${AUTH.token}`).toString('base64')}`;
+const EXPECTED_AUTHORIZATION = EXPECTED_HEADER.slice('Authorization: '.length);
 
 let workdir: string;
 let repository: string;
@@ -39,6 +41,30 @@ async function git(args: string[], dir: string): Promise<void> {
 
 function readCapture(): Promise<string> {
   return readFile(capturePath, 'utf8');
+}
+
+async function listen(server: Server): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve());
+  });
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('Test server did not expose a TCP address');
+  }
+  return address.port;
+}
+
+async function close(server: Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+function uploadPackAdvertisement(): string {
+  const payload = `${'0'.repeat(40)} HEAD\0symref=HEAD:refs/heads/main\n`;
+  const packet = `${(Buffer.byteLength(payload) + 4).toString(16).padStart(4, '0')}${payload}`;
+  return `001e# service=git-upload-pack\n0000${packet}0000`;
 }
 
 beforeEach(async () => {
@@ -104,6 +130,46 @@ describe('executeRunStep with a persisted checkout config (real git)', () => {
     const repositoryConfig = await readFile(join(repository, '.git', 'config'), 'utf8');
     expect(repositoryConfig).not.toContain(AUTH.token);
     expect(repositoryConfig).not.toContain('extraHeader');
+  });
+
+  it('does not let a run step mutate the shared ambient config', async () => {
+    const before = await readFile(gitConfigPath, 'utf8');
+    const step = buildRunStep('git config --global user.email "mutated@example.com"');
+
+    const result = await executeRunStep(step, {cwd: repository, gitConfigGlobal: gitConfigPath});
+
+    expect(result.success).toBe(true);
+    expect(await readFile(gitConfigPath, 'utf8')).toBe(before);
+  });
+
+  it('sends the persisted credential through a real git HTTP request', async () => {
+    let authorization: string | undefined;
+    const server = createServer((request, response) => {
+      authorization = request.headers.authorization;
+      response.writeHead(200, {'content-type': 'application/x-git-upload-pack-advertisement'});
+      response.end(uploadPackAdvertisement());
+    });
+    const port = await listen(server);
+    const repositoryUrl = `http://127.0.0.1:${port}/repo.git`;
+
+    try {
+      await writeAmbientGitCredential({
+        configPath: gitConfigPath,
+        repositoryUrl,
+        auth: AUTH,
+        gitAuthor: GIT_AUTHOR,
+      });
+      const step = buildRunStep(`git ls-remote "${repositoryUrl}"`);
+      const result = await executeRunStep(step, {
+        cwd: repository,
+        gitConfigGlobal: gitConfigPath,
+      });
+
+      expect(result.success).toBe(true);
+      expect(authorization).toBe(EXPECTED_AUTHORIZATION);
+    } finally {
+      await close(server);
+    }
   });
 
   it('leaves git without the checkout identity when credentials were not persisted', async () => {

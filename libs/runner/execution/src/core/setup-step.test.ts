@@ -233,6 +233,7 @@ describe('executeSetupStep', () => {
         },
       },
       ambientGitConfigPath: GIT_CONFIG_PATH,
+      ambientGitConfigSecrets: ['t'],
     });
   });
 
@@ -298,7 +299,7 @@ describe('executeSetupStep', () => {
     expect(log.writeGroup).toHaveBeenCalledWith({
       name: 'Repository access was not persisted',
       lines: [
-        'The checkout succeeded, but agent steps will run without ambient git authentication. Details: disk denied',
+        'The checkout succeeded, but agent and run steps will run without ambient git authentication. Details: disk denied',
         'Git commands in later steps may need their own credentials.',
       ],
       source: 'stderr',
@@ -338,7 +339,7 @@ describe('executeSetupStep', () => {
       {
         name: 'Repository access was not persisted',
         lines: [
-          'The checkout succeeded, but agent steps will run without ambient git authentication. Details: disk denied',
+          'The checkout succeeded, but agent and run steps will run without ambient git authentication. Details: disk denied',
           'Git commands in later steps may need their own credentials.',
         ],
       },

@@ -27,6 +27,7 @@ export interface SetupJobContext {
 export interface SetupStepExecution {
   result: StepResult;
   ambientGitConfigPath?: string | undefined;
+  ambientGitConfigSecrets?: string[] | undefined;
 }
 
 // The synthetic "Set up job" step body. It owns per-job workspace preparation and the
@@ -78,6 +79,9 @@ export async function executeSetupStep(params: {
     result: {success: true, error: null, exit_code: 0, checkout: checkout.value.checkout},
     ...(checkout.value.ambientGitConfigPath
       ? {ambientGitConfigPath: checkout.value.ambientGitConfigPath}
+      : {}),
+    ...(checkout.value.ambientGitConfigSecrets
+      ? {ambientGitConfigSecrets: checkout.value.ambientGitConfigSecrets}
       : {}),
   };
 }
@@ -133,6 +137,7 @@ async function runCheckoutSetup(params: {
 }): Promise<
   CheckoutPhaseResult<{
     ambientGitConfigPath?: string | undefined;
+    ambientGitConfigSecrets?: string[] | undefined;
     checkout: NonNullable<StepResult['checkout']>;
   }>
 > {

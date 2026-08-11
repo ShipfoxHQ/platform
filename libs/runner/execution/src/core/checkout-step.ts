@@ -33,6 +33,7 @@ export type CheckoutDestinations = Map<string, CheckoutDestination>;
 export interface CheckoutStepExecution {
   result: StepResult;
   ambientGitConfigPath?: string | undefined;
+  ambientGitConfigSecrets?: string[] | undefined;
 }
 
 /**
@@ -135,6 +136,9 @@ export async function executeCheckoutStep(params: {
       result: {success: true, error: null, exit_code: 0, checkout: result},
       ...(checkout.value.ambientGitConfigPath
         ? {ambientGitConfigPath: checkout.value.ambientGitConfigPath}
+        : {}),
+      ...(checkout.value.ambientGitConfigSecrets
+        ? {ambientGitConfigSecrets: checkout.value.ambientGitConfigSecrets}
         : {}),
     };
   } catch (error) {
