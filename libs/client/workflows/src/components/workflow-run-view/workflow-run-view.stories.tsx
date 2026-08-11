@@ -61,12 +61,16 @@ const meta = {
     layout: 'fullscreen',
     viewport: {
       defaultViewport: 'wide',
-      viewports: {
+      options: {
         wide: {
           name: 'Wide',
           styles: {width: '1440px', height: '720px'},
+          type: 'desktop',
         },
       },
+    },
+    globals: {
+      viewport: {value: 'wide'},
     },
     argos: {
       modes: {dark: {theme: 'dark'}},
