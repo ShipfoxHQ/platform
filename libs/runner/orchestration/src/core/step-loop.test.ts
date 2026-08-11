@@ -1636,6 +1636,11 @@ describe('runJobSteps', () => {
         secretValues: expect.arrayContaining(['checkout-token', 'basic-credential']),
       }),
     );
+    expect(createStepLogStreamMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        secrets: expect.arrayContaining(['checkout-token', 'basic-credential']),
+      }),
+    );
   });
 
   it('passes a checkout step ambient git config path to later run steps', async () => {

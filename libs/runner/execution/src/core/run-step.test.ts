@@ -578,6 +578,23 @@ describe('executeRunStep', () => {
     expect(stderr).not.toContain(hex);
   });
 
+  it('redacts persisted Git credential forms from a config dump', async () => {
+    const token = 'ghs-persisted-token-for-redaction';
+    const credential = Buffer.from(`x-access-token:${token}`).toString('base64');
+    const header = `Authorization: Basic ${credential}`;
+    const step = buildStep({config: {run: `printf '%s\\n' ${JSON.stringify(header)}`}});
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true as never);
+
+    const result = await executeRunStep(step, {secretValues: [token, credential]});
+
+    const stdout = stdoutWrite.mock.calls.map((call) => String(call[0])).join('');
+    expect(result.success).toBe(true);
+    expect(stdout).toContain('Authorization: Basic ***');
+    expect(stdout).not.toContain(header);
+    expect(stdout).not.toContain(token);
+    expect(stdout).not.toContain(credential);
+  });
+
   it('redacts env and command secret output from the runner stdout tee', async () => {
     const secret = 'runtime-secret-e2e';
     const step = buildStep({
