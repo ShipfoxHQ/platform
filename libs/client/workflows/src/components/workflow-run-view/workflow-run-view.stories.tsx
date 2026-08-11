@@ -59,9 +59,18 @@ const meta = {
   component: WorkflowRunView,
   parameters: {
     layout: 'fullscreen',
+    viewport: {
+      defaultViewport: 'wide',
+      viewports: {
+        wide: {
+          name: 'Wide',
+          styles: {width: '1440px', height: '720px'},
+        },
+      },
+    },
     argos: {
       modes: {dark: {theme: 'dark'}},
-      fitToContent: true,
+      fitToContent: false,
     },
   },
   decorators: [withRunApi],
