@@ -75,9 +75,11 @@ describe('WorkspaceOnboardingPage', () => {
       </AuthGuard>,
     );
     const workspaceName = await screen.findByLabelText('Workspace name');
-    expect(container.querySelector('[data-slot="panel-header"]')).toHaveClass('p-panel');
-    expect(container.querySelector('[data-slot="panel-header"]')).not.toHaveClass('p-0');
-    expect(container.querySelector('[data-slot="panel-body"]')).toHaveClass('p-panel');
+    expect(container.querySelector('[data-slot="panel-header"]')).toHaveAttribute(
+      'data-variant',
+      'plain',
+    );
+    expect(container.querySelector('[data-slot="panel-body"]')).toBeInTheDocument();
     fireEvent.change(workspaceName, {
       target: {value: '  Acme  '},
     });

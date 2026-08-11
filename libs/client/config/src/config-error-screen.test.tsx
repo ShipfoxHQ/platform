@@ -27,11 +27,11 @@ describe('ConfigErrorScreen', () => {
     rerender(<ConfigErrorScreen errors={[apiUrlError]} docsUrl="https://docs.shipfox.io/config" />);
 
     expect(screen.getByRole('link')).toHaveAttribute('href', 'https://docs.shipfox.io/config');
+    expect(container.querySelector('[data-slot="panel"]')).toHaveClass('gap-group');
     expect(container.querySelector('[data-slot="panel-body"]')).toHaveClass('flex', 'flex-col');
     expect(container.querySelector('[data-slot="panel-body"] > div')).toHaveClass(
       'px-row',
       'py-row',
     );
-    expect(container.querySelector('[data-slot="panel-body"] + div')).toHaveClass('mt-group');
   });
 });

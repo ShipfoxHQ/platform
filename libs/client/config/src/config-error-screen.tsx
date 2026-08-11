@@ -22,7 +22,7 @@ export interface ConfigErrorScreenProps {
 export function ConfigErrorScreen({errors, docsUrl}: ConfigErrorScreenProps) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background-subtle-base px-frame py-frame">
-      <Panel className="w-full max-w-[512px]">
+      <Panel className="w-full max-w-[512px] gap-group">
         <PanelHeader variant="plain" className="flex-col items-start gap-inline">
           <div className="flex items-center gap-inline">
             <Icon name="errorWarningLine" className="size-20 text-tag-error-icon" />
@@ -67,7 +67,7 @@ export function ConfigErrorScreen({errors, docsUrl}: ConfigErrorScreenProps) {
         </PanelBody>
 
         {docsUrl ? (
-          <div className="mt-group p-panel pt-0">
+          <div className="p-panel pt-0">
             <Text size="sm" className="text-foreground-neutral-muted">
               See the{' '}
               <ButtonLink href={docsUrl} variant="interactive" underline>
