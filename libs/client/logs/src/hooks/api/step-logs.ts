@@ -172,9 +172,14 @@ export function useStepAttemptLogsQuery(
   });
 
   const refetchLogs = useCallback(() => {
-    manualRefetchRef.current = true;
+    // React Query reuses an in-flight request when it has no cached data. Only
+    // mark a refetch as manual when this call can start a new request; otherwise
+    // the marker would be consumed by the next automatic poll.
+    if (!query.isFetching || query.data !== undefined) {
+      manualRefetchRef.current = true;
+    }
     return query.refetch();
-  }, [query.refetch]);
+  }, [query.data, query.isFetching, query.refetch]);
 
   return {...query, refetchLogs};
 }
