@@ -1,4 +1,5 @@
 import type {JobStatusDto} from '@shipfox/api-workflows-dto';
+import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import {screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {WorkflowRunListItem, WorkflowRunStatus} from '#core/workflow-run.js';
@@ -8,6 +9,7 @@ import {
   workflowRunListItem,
 } from '#test/fixtures/workflow-run.js';
 import {renderWithRouter} from '#test/render.js';
+import {JOB_STATUS_STRIP_WIDTH, jobStatusStripWidthForPreview} from './job-status-strip.js';
 import type {WorkflowRunListQuery, WorkflowRunListViewProps} from './types.js';
 import {WorkflowRunListView} from './workflow-run-list-view.js';
 
@@ -424,6 +426,11 @@ describe('WorkflowRunListView', () => {
 
       expect(within(strip).getAllByLabelText('Succeeded')).toHaveLength(16);
       expect(within(strip).queryByText(OVERFLOW_COUNT_RE)).not.toBeInTheDocument();
+    });
+
+    test('reserves the full API preview and overflow marker width', () => {
+      expect(jobStatusStripWidthForPreview(WORKFLOW_RUN_JOB_PREVIEW_LIMIT)).toBe(294);
+      expect(JOB_STATUS_STRIP_WIDTH).toBe(294);
     });
 
     // The API sends a bounded preview, so a run whose only failure sits past it has no failed

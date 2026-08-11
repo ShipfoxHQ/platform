@@ -22,7 +22,7 @@ import {
   workflowRunCommitLabel,
 } from '#core/workflow-run.js';
 import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
-import {JobStatusStrip, jobStatusSummary} from './job-status-strip.js';
+import {JOB_STATUS_STRIP_WIDTH, JobStatusStrip, jobStatusSummary} from './job-status-strip.js';
 
 export function WorkflowRunRowList({
   runs,
@@ -56,8 +56,8 @@ export function WorkflowRunRowList({
  * down the list rather than tracking each row's name length.
  *
  * The 976px threshold keeps identity and provenance on one line; below it, provenance drops
- * beneath the identity. The 1040px threshold keeps the job strip visible; below it, the strip is
- * hidden so the numeric columns remain aligned.
+ * beneath the identity. The 1200px threshold keeps the full job preview and numeric columns
+ * readable together; below it, the strip is hidden so the numeric columns remain aligned.
  */
 export function WorkflowRunRow({
   run,
@@ -101,8 +101,12 @@ export function WorkflowRunRow({
       <span className="flex shrink-0 items-center gap-cluster">
         {/* Reserve the API preview's full width so the overflow count cannot paint over the
             duration, and keep it even when a run has no jobs planned yet so the numerics stay in
-            line down the list instead of stepping in and out. */}
-        <span className="hidden w-320 @min-[1040px]:flex">
+            line down the list instead of stepping in and out. The max-content width expands if
+            the payload ever exceeds the current API preview bound. */}
+        <span
+          className="hidden w-max shrink-0 @min-[1200px]:flex"
+          style={{minWidth: JOB_STATUS_STRIP_WIDTH}}
+        >
           <JobStatusStrip jobs={run.jobs} />
         </span>
         <span className="flex w-64 justify-end">

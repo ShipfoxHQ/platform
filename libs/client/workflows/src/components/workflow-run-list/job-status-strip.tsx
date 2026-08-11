@@ -1,12 +1,17 @@
+import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
+import {memo} from 'react';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
 import {deriveJobDisplayStatus, type JobDisplayStatus} from '#core/entities/job.js';
 import type {WorkflowRunJobSummary, WorkflowRunJobs} from '#core/workflow-run.js';
 
 const GLYPH_SIZE = 12;
+const GLYPH_GAP = 3;
+const OVERFLOW_GAP = 2;
+const OVERFLOW_LABEL_WIDTH = 40;
 const MAX_TOOLTIP_JOB_NAMES = 6;
 
 /**
@@ -22,6 +27,20 @@ const COMPACT_COUNT_FORMAT = new Intl.NumberFormat('en', {
   notation: 'compact',
   maximumFractionDigits: 1,
 });
+
+/**
+ * Reserves one full API preview and its overflow marker in a run row.
+ *
+ * Keep this derived from the API preview bound so the row reservation grows with the payload
+ * contract instead of silently drifting into the duration and timestamp columns.
+ */
+export function jobStatusStripWidthForPreview(previewLimit: number): number {
+  const previewWidth = previewLimit * GLYPH_SIZE + Math.max(previewLimit - 1, 0) * GLYPH_GAP;
+  const overflowWidth = GLYPH_GAP + GLYPH_SIZE + OVERFLOW_GAP + OVERFLOW_LABEL_WIDTH;
+  return previewWidth + overflowWidth;
+}
+
+export const JOB_STATUS_STRIP_WIDTH = jobStatusStripWidthForPreview(WORKFLOW_RUN_JOB_PREVIEW_LIMIT);
 
 // Worst-first, so the overflow glyph reports the most alarming thing it is standing in for.
 // A strip that hides a failure behind eight green discs would be worse than no strip at all.
@@ -53,7 +72,7 @@ export interface JobStatusStripProps {
  * job including those the server never sent. That split is what lets the overflow glyph
  * report a failure sitting past the preview instead of quietly dropping it.
  */
-export function JobStatusStrip({jobs, className}: JobStatusStripProps) {
+export const JobStatusStrip = memo(function JobStatusStrip({jobs, className}: JobStatusStripProps) {
   if (jobs.total === 0) return null;
 
   // The data frame gives the row enough room for the whole API preview. Only jobs beyond that
@@ -109,7 +128,7 @@ export function JobStatusStrip({jobs, className}: JobStatusStripProps) {
       </TooltipContent>
     </Tooltip>
   );
-}
+});
 
 function JobStatusStripTooltip({jobs, summary}: {jobs: WorkflowRunJobs; summary: string}) {
   // Naming the jobs that need attention is the whole point of hovering; succeeded jobs are

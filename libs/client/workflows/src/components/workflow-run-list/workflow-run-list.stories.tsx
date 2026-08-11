@@ -137,27 +137,18 @@ export const NarrowLayout: Story = {
 };
 
 /**
- * Row density against the three strip sizes the threshold has to survive: comfortably under
- * it, comfortably over it, and far enough over that the overflow count carries the failure.
+ * Row density against the three strip sizes the preview bound has to survive: comfortably under
+ * it, just over it, and far enough over that the overflow count carries the failure.
  */
 export const JobStripDensity: Story = {
   args: {
     runs: [
       makeRun('succeeded', 'two-jobs', 2, {jobs: ['succeeded', 'succeeded']}),
-      makeRun('failed', 'twelve-jobs', 6, {
+      makeRun('failed', 'seventeen-jobs', 6, {
         jobs: [
-          'succeeded',
-          'succeeded',
-          'succeeded',
+          ...(Array.from({length: 12}, () => 'succeeded') as JobStatusDto[]),
           'failed',
-          'succeeded',
-          'succeeded',
-          'skipped',
-          'skipped',
-          'succeeded',
-          'succeeded',
-          'succeeded',
-          'succeeded',
+          ...(Array.from({length: 4}, () => 'skipped') as JobStatusDto[]),
         ],
       }),
       makeRun('running', 'forty-jobs', 9, {
