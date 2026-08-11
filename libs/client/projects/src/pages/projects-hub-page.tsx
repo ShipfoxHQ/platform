@@ -81,18 +81,24 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
       {isInitialLoading || (search && hasNoData && query.isFetching) ? <ProjectsSkeleton /> : null}
 
       {query.isError && hasNoData ? (
-        <QueryLoadError query={query} subject="projects" variant="panel" />
+        <Panel>
+          <QueryLoadError query={query} subject="projects" variant="panel" />
+        </Panel>
       ) : null}
 
       {!isInitialLoading && !query.isError && projects.length === 0 && !search ? (
-        <EmptyProjects workspaceSlug={workspace.slug} />
+        <Panel>
+          <EmptyProjects workspaceSlug={workspace.slug} />
+        </Panel>
       ) : null}
 
       {!query.isFetching && !query.isError && projects.length === 0 && search ? (
-        <NoSearchResults
-          search={search}
-          onClear={() => navigate({search: {} as never, replace: true})}
-        />
+        <Panel>
+          <NoSearchResults
+            search={search}
+            onClear={() => navigate({search: {} as never, replace: true})}
+          />
+        </Panel>
       ) : null}
 
       {projects.length > 0 ? (

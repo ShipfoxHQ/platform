@@ -82,10 +82,12 @@ function MembersSection({
         </Text>
       </div>
 
-      {query.isPending ? <TableSkeleton rows={3} cols={3} /> : null}
+      {query.isPending ? <TableSkeleton rows={3} cols={3} label="Loading members" /> : null}
 
       {query.isError && query.data === undefined ? (
-        <QueryLoadError query={query} subject="members" variant="panel" />
+        <Panel>
+          <QueryLoadError query={query} subject="members" variant="panel" />
+        </Panel>
       ) : null}
 
       {members.length > 0 ? (
@@ -227,13 +229,19 @@ function PendingInvitationsSection({
         />
       </div>
 
-      {query.isPending ? <TableSkeleton rows={2} cols={3} /> : null}
+      {query.isPending ? <TableSkeleton rows={2} cols={3} label="Loading invitations" /> : null}
 
       {query.isError && query.data === undefined ? (
-        <QueryLoadError query={query} subject="invitations" variant="panel" />
+        <Panel>
+          <QueryLoadError query={query} subject="invitations" variant="panel" />
+        </Panel>
       ) : null}
 
-      {query.data !== undefined && invitations.length === 0 ? <EmptyInvitations /> : null}
+      {query.data !== undefined && invitations.length === 0 ? (
+        <Panel>
+          <EmptyInvitations />
+        </Panel>
+      ) : null}
 
       {invitations.length > 0 ? (
         <Panel>
@@ -463,14 +471,14 @@ function EmptyInvitations() {
   );
 }
 
-function TableSkeleton({rows, cols}: {rows: number; cols: number}) {
+function TableSkeleton({rows, cols, label}: {rows: number; cols: number; label: string}) {
   return (
-    <div className="flex flex-col overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base">
+    <Panel role="status" aria-label={label} className="divide-y">
       {Array.from({length: rows}).map((_, rowIdx) => (
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder rows
           key={rowIdx}
-          className="grid min-h-44 grid-cols-3 gap-group border-b border-border-neutral-base px-row py-row last:border-b-0"
+          className="grid min-h-44 grid-cols-3 gap-group px-row py-row"
         >
           {Array.from({length: cols}).map((__, colIdx) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder cells
@@ -478,6 +486,6 @@ function TableSkeleton({rows, cols}: {rows: number; cols: number}) {
           ))}
         </div>
       ))}
-    </div>
+    </Panel>
   );
 }

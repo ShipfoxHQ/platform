@@ -171,153 +171,161 @@ function WorkflowDefinitionsList({
 }) {
   if (isPending) {
     return (
-      <div className="flex flex-col divide-y divide-border-neutral-base overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base">
+      <Panel role="status" aria-label="Loading workflows" className="divide-y">
         <Skeleton className="h-44 w-full rounded-none" />
         <Skeleton className="h-44 w-full rounded-none" />
         <Skeleton className="h-44 w-full rounded-none" />
-      </div>
+      </Panel>
     );
   }
 
   if (isError && definitions.length === 0) {
     return (
-      <LoadErrorState
-        title="Couldn't load workflows"
-        description="Definitions could not be loaded. Source metadata remains visible."
-        onRetry={onRetry}
-        retryLabel="Retry loading workflows"
-        variant="panel"
-      />
+      <Panel>
+        <LoadErrorState
+          title="Couldn't load workflows"
+          description="Definitions could not be loaded. Source metadata remains visible."
+          onRetry={onRetry}
+          retryLabel="Retry loading workflows"
+          variant="panel"
+        />
+      </Panel>
     );
   }
 
   if (definitions.length === 0) {
-    return <WorkflowEmptyState sync={sync} />;
+    return (
+      <Panel>
+        <WorkflowEmptyState sync={sync} />
+      </Panel>
+    );
   }
 
   return (
     <>
-      <Panel className="hidden md:flex">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-40"></TableHead>
-              <TableHead>Workflow</TableHead>
-              <TableHead className="w-180">Updated</TableHead>
-              <TableHead className="w-80 text-right"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {definitions.map((definition) => {
-              const runErrorMessage =
-                runError?.definitionId === definition.id ? runError.message : null;
-              const isRunning = runningDefinitionId === definition.id;
+      <Panel>
+        <div className="hidden md:block">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-40"></TableHead>
+                <TableHead>Workflow</TableHead>
+                <TableHead className="w-180">Updated</TableHead>
+                <TableHead className="w-80 text-right"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {definitions.map((definition) => {
+                const runErrorMessage =
+                  runError?.definitionId === definition.id ? runError.message : null;
+                const isRunning = runningDefinitionId === definition.id;
 
-              return (
-                // The workflow-name cell holds a `<button>` so the row is
-                // keyboard-reachable (Tab focuses, Enter/Space activates
-                // via native button semantics). The TableRow itself is no
-                // longer clickable: a row-level onClick would be invisible
-                // to keyboard users and require custom keydown handling.
-                // The `group` class on the row still drives the Run button
-                // reveal on hover or focus-within.
-                <TableRow key={definition.id} className="group">
-                  <TableCell>
-                    <Icon
-                      name={sourceIcon(definition.source)}
-                      className="size-16 text-foreground-neutral-muted"
-                      aria-hidden="true"
-                    />
-                  </TableCell>
-                  <TableCell className="max-w-260">
-                    <div className="flex min-w-0 flex-col gap-tight">
-                      <button
-                        type="button"
-                        onClick={() => onOpenDefinition(definition)}
-                        className="flex min-w-0 flex-col gap-tight text-left outline-none focus-visible:shadow-border-interactive-with-active rounded-4"
-                      >
-                        <Text size="sm" bold className="truncate">
-                          {definition.name}
-                        </Text>
-                        <Code className="truncate text-foreground-neutral-muted">
-                          {definition.configPath ?? 'Manual definition'}
-                        </Code>
-                      </button>
-                      {runErrorMessage ? (
-                        <Text size="xs" className="text-tag-error-text">
-                          {runErrorMessage}
-                        </Text>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-foreground-neutral-muted">
-                    <RelativeTime value={definition.updatedAt} />
-                  </TableCell>
-                  <TableCell>
-                    {definition.manualTrigger ? (
-                      <div className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                        <Button size="xs" isLoading={isRunning} onClick={() => onRun(definition)}>
-                          Run
-                        </Button>
+                return (
+                  // The workflow-name cell holds a `<button>` so the row is
+                  // keyboard-reachable (Tab focuses, Enter/Space activates
+                  // via native button semantics). The TableRow itself is no
+                  // longer clickable: a row-level onClick would be invisible
+                  // to keyboard users and require custom keydown handling.
+                  // The `group` class on the row still drives the Run button
+                  // reveal on hover or focus-within.
+                  <TableRow key={definition.id} className="group">
+                    <TableCell>
+                      <Icon
+                        name={sourceIcon(definition.source)}
+                        className="size-16 text-foreground-neutral-muted"
+                        aria-hidden="true"
+                      />
+                    </TableCell>
+                    <TableCell className="max-w-260">
+                      <div className="flex min-w-0 flex-col gap-tight">
+                        <button
+                          type="button"
+                          onClick={() => onOpenDefinition(definition)}
+                          className="flex min-w-0 flex-col gap-tight rounded-4 text-left outline-none focus-visible:shadow-border-interactive-with-active"
+                        >
+                          <Text size="sm" bold className="truncate">
+                            {definition.name}
+                          </Text>
+                          <Code className="truncate text-foreground-neutral-muted">
+                            {definition.configPath ?? 'Manual definition'}
+                          </Code>
+                        </button>
+                        {runErrorMessage ? (
+                          <Text size="xs" className="text-tag-error-text">
+                            {runErrorMessage}
+                          </Text>
+                        ) : null}
                       </div>
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </Panel>
+                    </TableCell>
+                    <TableCell className="text-foreground-neutral-muted">
+                      <RelativeTime value={definition.updatedAt} />
+                    </TableCell>
+                    <TableCell>
+                      {definition.manualTrigger ? (
+                        <div className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                          <Button size="xs" isLoading={isRunning} onClick={() => onRun(definition)}>
+                            Run
+                          </Button>
+                        </div>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
 
-      <div className="flex flex-col rounded-8 border border-border-neutral-base md:hidden">
-        {definitions.map((definition) => {
-          const runErrorMessage =
-            runError?.definitionId === definition.id ? runError.message : null;
-          const isRunning = runningDefinitionId === definition.id;
+        <div className="flex flex-col md:hidden">
+          {definitions.map((definition) => {
+            const runErrorMessage =
+              runError?.definitionId === definition.id ? runError.message : null;
+            const isRunning = runningDefinitionId === definition.id;
 
-          return (
-            <div
-              key={definition.id}
-              className="flex flex-col gap-inline border-b border-border-neutral-base p-panel-compact last:border-b-0"
-            >
-              <button
-                type="button"
-                className="flex min-w-0 items-start gap-inline text-left"
-                onClick={() => onOpenDefinition(definition)}
+            return (
+              <div
+                key={definition.id}
+                className="flex flex-col gap-inline border-b border-border-neutral-base p-panel-compact last:border-b-0"
               >
-                <Icon
-                  name={sourceIcon(definition.source)}
-                  className="size-16 shrink-0 text-foreground-neutral-muted"
-                  aria-hidden="true"
-                />
-                <div className="flex min-w-0 flex-col gap-tight">
-                  <Text size="sm" bold className="break-words">
-                    {definition.name}
+                <button
+                  type="button"
+                  className="flex min-w-0 items-start gap-inline text-left"
+                  onClick={() => onOpenDefinition(definition)}
+                >
+                  <Icon
+                    name={sourceIcon(definition.source)}
+                    className="size-16 shrink-0 text-foreground-neutral-muted"
+                    aria-hidden="true"
+                  />
+                  <div className="flex min-w-0 flex-col gap-tight">
+                    <Text size="sm" bold className="break-words">
+                      {definition.name}
+                    </Text>
+                    <Code className="break-words text-foreground-neutral-muted">
+                      {definition.configPath ?? 'Manual definition'}
+                    </Code>
+                  </div>
+                </button>
+                <div className="flex items-center justify-between gap-inline">
+                  <Text size="xs" className="text-foreground-neutral-muted">
+                    Updated <RelativeTime value={definition.updatedAt} />
                   </Text>
-                  <Code className="break-words text-foreground-neutral-muted">
-                    {definition.configPath ?? 'Manual definition'}
-                  </Code>
+                  {definition.manualTrigger ? (
+                    <Button size="sm" isLoading={isRunning} onClick={() => onRun(definition)}>
+                      Run
+                    </Button>
+                  ) : null}
                 </div>
-              </button>
-              <div className="flex items-center justify-between gap-inline">
-                <Text size="xs" className="text-foreground-neutral-muted">
-                  Updated <RelativeTime value={definition.updatedAt} />
-                </Text>
-                {definition.manualTrigger ? (
-                  <Button size="sm" isLoading={isRunning} onClick={() => onRun(definition)}>
-                    Run
-                  </Button>
+                {runErrorMessage ? (
+                  <Text size="xs" className="text-tag-error-text">
+                    {runErrorMessage}
+                  </Text>
                 ) : null}
               </div>
-              {runErrorMessage ? (
-                <Text size="xs" className="text-tag-error-text">
-                  {runErrorMessage}
-                </Text>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      </Panel>
 
       {isFetchNextPageError ? (
         <Callout role="alert" type="error">

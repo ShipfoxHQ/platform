@@ -1,7 +1,6 @@
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button, IconButton} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
-import {Card} from '@shipfox/react-ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,10 +46,11 @@ import {
   useSetDefaultModelProviderMutation,
 } from '#hooks/api/model-providers.js';
 import {AddCustomProviderCard} from './add-custom-provider-card.js';
-import {AvailableProvidersGrid, PROVIDER_GRID_CLASS} from './available-providers-grid.js';
+import {AvailableProvidersGrid} from './available-providers-grid.js';
 import {ChangeDefaultModelForm} from './change-default-model-form.js';
 import {CustomModelProviderForm} from './custom-model-provider-form.js';
 import {modelProviderConfigErrorToFormError} from './form-errors.js';
+import {ModelProviderGridSkeleton} from './model-provider-grid-skeleton.js';
 import {ModelProviderUsageModal} from './model-provider-usage-modal.js';
 import {
   type ModelProviderUsageTarget,
@@ -213,7 +213,9 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
           </Text>
         </div>
 
-        {catalogQuery.isPending || configsQuery.isPending ? <ModelProviderGridSkeleton /> : null}
+        {catalogQuery.isPending || configsQuery.isPending ? (
+          <ModelProviderGridSkeleton label="Loading available providers" />
+        ) : null}
 
         {catalogQuery.isError && catalogQuery.data === undefined ? (
           <div className={SURFACE_CLASS}>
@@ -620,20 +622,5 @@ function ModelProviderRowsSkeleton({label}: {label: string}) {
         </li>
       ))}
     </ul>
-  );
-}
-
-function ModelProviderGridSkeleton() {
-  return (
-    <div role="status" aria-label="Loading available providers" className={PROVIDER_GRID_CLASS}>
-      {[0, 1, 2, 3].map((card) => (
-        <Card key={card} className="h-136 w-full justify-center p-panel-compact">
-          <div className="flex items-center justify-between gap-cluster">
-            <Skeleton className="h-16 w-100" />
-            <Skeleton className="h-16 w-64 shrink-0" />
-          </div>
-        </Card>
-      ))}
-    </div>
   );
 }

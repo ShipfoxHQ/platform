@@ -9,6 +9,7 @@ import {
   ModalTitle,
   ModalTrigger,
 } from '@shipfox/react-ui/modal';
+import {Panel} from '@shipfox/react-ui/panel';
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useMemo, useState} from 'react';
@@ -98,14 +99,20 @@ export function WorkspaceProvisionerTokensSettingsSection({workspaceId}: {worksp
         {tokensQuery.isPending ? <ProvisionerTokenTableSkeleton /> : null}
 
         {tokensQuery.isError && tokensQuery.data === undefined ? (
-          <QueryLoadError
-            query={tokensQuery}
-            subject="provisioner registration tokens"
-            variant="panel"
-          />
+          <Panel>
+            <QueryLoadError
+              query={tokensQuery}
+              subject="provisioner registration tokens"
+              variant="panel"
+            />
+          </Panel>
         ) : null}
 
-        {tokensQuery.data !== undefined && tokens.length === 0 ? <EmptyProvisionerTokens /> : null}
+        {tokensQuery.data !== undefined && tokens.length === 0 ? (
+          <Panel>
+            <EmptyProvisionerTokens />
+          </Panel>
+        ) : null}
 
         {tokens.length > 0 ? (
           <RelativeTimeProvider>

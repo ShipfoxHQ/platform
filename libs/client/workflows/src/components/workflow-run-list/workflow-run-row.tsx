@@ -1,5 +1,6 @@
 import {TriggerSourceIcon} from '@shipfox/client-triggers';
 import {Icon, type IconName} from '@shipfox/react-ui/icon';
+import {Panel} from '@shipfox/react-ui/panel';
 import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Code, Text} from '@shipfox/react-ui/typography';
@@ -37,13 +38,15 @@ export function WorkflowRunRowList({
     // A container, not the viewport, drives the row's breakpoints. What a row can afford is its
     // own width; keying off the viewport would keep the job strip hidden on a wide screen or
     // crush it on a narrow one.
-    <ul className="@container divide-y divide-border-neutral-base">
-      {runs.map((run) => (
-        <li key={run.id}>
-          <WorkflowRunRow run={run} workspaceSlug={workspaceSlug} projectSlug={projectSlug} />
-        </li>
-      ))}
-    </ul>
+    <Panel className="@container">
+      <ul className="divide-y divide-border-neutral-base">
+        {runs.map((run) => (
+          <li key={run.id}>
+            <WorkflowRunRow run={run} workspaceSlug={workspaceSlug} projectSlug={projectSlug} />
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 

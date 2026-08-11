@@ -1,6 +1,7 @@
 import type {ComponentProps, ReactNode} from 'react';
 import {cn} from '#utils/cn.js';
 import {Icon, type IconName} from '../icon/index.js';
+import {PanelEmpty} from '../panel/index.js';
 import {Text} from '../typography/index.js';
 
 export type EmptyStateVariant = 'default' | 'compact' | 'panel';
@@ -31,7 +32,7 @@ export function EmptyState({
     variant === 'compact'
       ? 'flex flex-col items-center justify-center gap-10'
       : variant === 'panel'
-        ? 'flex min-h-120 w-full flex-1 flex-col items-center justify-center gap-12 p-panel'
+        ? 'w-full flex-1 flex-col gap-12'
         : 'flex flex-col items-center justify-center gap-12 py-48';
 
   const iconContainerClasses =
@@ -39,8 +40,10 @@ export function EmptyState({
       ? 'flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong bg-background-neutral-base p-8'
       : 'flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong';
 
+  const EmptyStateContainer = variant === 'panel' ? PanelEmpty : 'div';
+
   return (
-    <div
+    <EmptyStateContainer
       data-slot="empty-state"
       data-variant={variant}
       className={cn(containerClasses, className)}
@@ -57,7 +60,7 @@ export function EmptyState({
           )}
         />
       </div>
-      <div className={cn('text-center', variant === 'default' && 'space-y-4')}>
+      <div className={cn('text-center', variant !== 'compact' && 'space-y-4')}>
         {title ? (
           <Text
             size="sm"
@@ -77,6 +80,6 @@ export function EmptyState({
         ) : null}
       </div>
       {action ? <div>{action}</div> : null}
-    </div>
+    </EmptyStateContainer>
   );
 }
