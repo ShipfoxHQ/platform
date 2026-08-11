@@ -240,6 +240,31 @@ describe('StepAttemptLogPanel', () => {
     expect(screen.getByRole('button', {name: 'Retry'})).toBeInTheDocument();
   });
 
+  test('refetches the expanded attempt when its refresh token changes', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(inlineLogBody(outputLine('first\n'), 1)))
+      .mockResolvedValueOnce(jsonResponse(inlineLogBody(outputLine('second\n'), 2)));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {rerender} = renderPanel({attemptStatus: 'succeeded', refreshToken: 0});
+
+    expect(await screen.findByText('first')).toBeInTheDocument();
+    rerender(
+      <div>
+        <StepAttemptLogPanel
+          stepId={STEP_ID}
+          attempt={1}
+          attemptStatus="succeeded"
+          pageScrollRef={createRef<HTMLDivElement>()}
+          refreshToken={1}
+        />
+      </div>,
+    );
+
+    expect(await screen.findByText('second')).toBeInTheDocument();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   test('does not follow new log output after the user scrolls away from the tail', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);

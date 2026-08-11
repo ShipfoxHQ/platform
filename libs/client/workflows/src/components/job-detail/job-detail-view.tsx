@@ -20,7 +20,7 @@ import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
-import {type RefObject, useEffect, useRef, useState} from 'react';
+import {type RefObject, useCallback, useEffect, useRef, useState} from 'react';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {summarizeJobAnnotations} from '#core/run-annotation.js';
 import {isWorkflowRunTerminal, type Job, type JobExecution, type Step} from '#core/workflow-run.js';
@@ -33,7 +33,7 @@ import {
   workflowRunSearchParams,
 } from '#routes/inputs.js';
 import {type StepExpandedContext, StepList} from '../step-list/index.js';
-import {getStepStatusVisual} from '../step-list/step-list-model.js';
+import {getStepStatusVisual, stepLabel} from '../step-list/step-list-model.js';
 import {
   WorkflowRunNotFound,
   WorkflowRunStaleError,
@@ -56,6 +56,7 @@ import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
 import {StepInspectorSheet} from './step-troubleshooting.js';
 
 type InspectorState = {key: string; attemptId: string | null};
+type LogRefreshRequest = {attemptId: string; token: number};
 
 export interface JobDetailViewProps {
   workspaceSlug: string;
@@ -86,7 +87,9 @@ export function JobDetailView({
   const [logSearch, setLogSearch] = useState('');
   const [wrapLogs, setWrapLogs] = useState(false);
   const [showLineNumbers, setShowLineNumbers] = useState(true);
-  const [logRefreshToken, setLogRefreshToken] = useState(0);
+  const [expandedLogAttemptIds, setExpandedLogAttemptIds] = useState<readonly string[]>([]);
+  const [logRefreshRequest, setLogRefreshRequest] = useState<LogRefreshRequest | null>(null);
+  const [logFetchingByAttemptId, setLogFetchingByAttemptId] = useState<Record<string, boolean>>({});
   const hasLoadedData = query.data !== undefined;
   // Reuse the run workspace's bounded annotation read for the job header chip. The separate
   // summary query below stays counts-only and is scoped to the inspector's selected execution.
@@ -127,6 +130,23 @@ export function JobDetailView({
     // after rail navigation without putting focus on a decorative status element.
     heading?.focus({preventScroll: true});
   }, [hasLoadedData, jobId]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    setLogSearch('');
+    setWrapLogs(false);
+    setShowLineNumbers(true);
+    setExpandedLogAttemptIds([]);
+    setLogRefreshRequest(null);
+    setLogFetchingByAttemptId({});
+  }, [jobId]);
+
+  const handleLogFetchingChange = useCallback((attemptId: string, isFetching: boolean) => {
+    setLogFetchingByAttemptId((current) => {
+      if (current[attemptId] === isFetching) return current;
+      return {...current, [attemptId]: isFetching};
+    });
+  }, []);
 
   if (query.isPending) return <JobDetailSkeleton />;
 
@@ -186,11 +206,16 @@ export function JobDetailView({
   const selectedAttemptForNotice = hasExplicitStep
     ? resolvedSelection.selectedAttemptId
     : landingSelection?.attemptId;
-  const selectedLogStep = selectedJobExecution?.steps.find((step) => step.id === selectedStepId);
-  const selectedLogAttempt = selectedLogStep?.attempts.find(
-    (attempt) => attempt.id === (selectedAttemptForNotice ?? undefined),
+  const expandedLogSelection = findExpandedLogSelection(
+    selectedJobExecution,
+    expandedLogAttemptIds,
   );
+  const selectedLogStep = expandedLogSelection?.step;
+  const selectedLogAttempt = expandedLogSelection?.attempt;
   const selectedLogStatus = selectedLogAttempt?.status ?? selectedLogStep?.status;
+  const logIsFetching = Boolean(
+    selectedLogAttempt && logFetchingByAttemptId[selectedLogAttempt.id],
+  );
   const showRetargetNotice =
     runningSelection !== undefined &&
     (selectedStepId !== runningSelection.stepId ||
@@ -246,11 +271,11 @@ export function JobDetailView({
   }
 
   function refreshLogs() {
-    if (selectedLogStep && selectedLogAttempt) {
-      setLogRefreshToken((token) => token + 1);
-      return;
-    }
-    void query.refetch();
+    if (!selectedLogAttempt) return;
+    setLogRefreshRequest((current) => ({
+      attemptId: selectedLogAttempt.id,
+      token: (current?.token ?? 0) + 1,
+    }));
   }
 
   return (
@@ -292,11 +317,12 @@ export function JobDetailView({
                   search={logSearch}
                   onSearchChange={setLogSearch}
                   onRefresh={refreshLogs}
+                  refreshing={logIsFetching}
                   showLineNumbers={showLineNumbers}
                   onShowLineNumbersChange={setShowLineNumbers}
                   wrap={wrapLogs}
                   onWrapChange={setWrapLogs}
-                  disabled={!selectedLogStep}
+                  disabled={!selectedLogAttempt}
                 />
                 <PanelBody className="min-w-0 p-0">
                   <Text as="h2" className="sr-only">
@@ -311,6 +337,7 @@ export function JobDetailView({
                         selectedAttemptId={selectedAttemptId}
                         defaultSelectedAttemptId={landingSelection?.attemptId}
                         onSelectedAttemptChange={selectAttempt}
+                        onExpandedAttemptIdsChange={setExpandedLogAttemptIds}
                         inspectorOpenAttemptId={inspectorOpenAttemptId}
                         onInspectorOpenChange={onInspectorOpenChange}
                         autoSelectActiveAttempt
@@ -324,7 +351,13 @@ export function JobDetailView({
                             search={logSearch}
                             wrap={wrapLogs}
                             showLineNumbers={showLineNumbers}
-                            refreshToken={logRefreshToken}
+                            attemptId={context.attemptId}
+                            refreshToken={
+                              logRefreshRequest?.attemptId === context.attemptId
+                                ? logRefreshRequest.token
+                                : 0
+                            }
+                            onFetchingChange={handleLogFetchingChange}
                           />
                         )}
                         renderInspector={(entry) => (
@@ -392,14 +425,18 @@ function ExpandedStep({
   search,
   wrap,
   showLineNumbers,
+  attemptId,
   refreshToken,
+  onFetchingChange,
 }: {
   context: StepExpandedContext;
   pageScrollRef: RefObject<HTMLDivElement | null>;
   search: string;
   wrap: boolean;
   showLineNumbers: boolean;
+  attemptId: string;
   refreshToken: number;
+  onFetchingChange: (attemptId: string, isFetching: boolean) => void;
 }) {
   if (context.carriedOver) return <CarriedOverStepPanel />;
 
@@ -419,7 +456,9 @@ function ExpandedStep({
         search={search}
         wrap={wrap}
         showLineNumbers={showLineNumbers}
+        attemptId={attemptId}
         refreshToken={refreshToken}
+        onFetchingChange={onFetchingChange}
       />
     </section>
   );
@@ -432,6 +471,7 @@ function JobLogPanelHeader({
   search,
   onSearchChange,
   onRefresh,
+  refreshing,
   showLineNumbers,
   onShowLineNumbersChange,
   wrap,
@@ -444,6 +484,7 @@ function JobLogPanelHeader({
   search: string;
   onSearchChange: (value: string) => void;
   onRefresh: () => void;
+  refreshing: boolean;
   showLineNumbers: boolean;
   onShowLineNumbersChange: (value: boolean) => void;
   wrap: boolean;
@@ -456,7 +497,7 @@ function JobLogPanelHeader({
     <PanelHeader className="flex flex-wrap items-center gap-group">
       <div className="min-w-0 flex-1">
         <Text size="sm" bold className="truncate text-foreground-neutral-base">
-          {step ? stepLabel(step) : 'Logs'}
+          {step ? stepLabel(step, step.position) : 'Logs'}
         </Text>
         {statusVisual ? (
           <div className="flex min-w-0 items-center gap-inline text-foreground-neutral-muted">
@@ -490,6 +531,8 @@ function JobLogPanelHeader({
           icon="refreshLine"
           aria-label="Refresh logs"
           onClick={onRefresh}
+          disabled={disabled}
+          isLoading={refreshing}
         />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -499,6 +542,7 @@ function JobLogPanelHeader({
               size="sm"
               icon="settings3Line"
               aria-label="Log settings"
+              disabled={disabled}
             />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" size="sm">
@@ -517,14 +561,6 @@ function JobLogPanelHeader({
       </PanelActions>
     </PanelHeader>
   );
-}
-
-function stepLabel(step: Pick<Step, 'name' | 'key'>): string {
-  const name = step.name.trim();
-  if (name) return name;
-
-  const key = step.key?.trim();
-  return key || 'Step';
 }
 
 function EmptyStateForMissingExecution({job}: {job: Job}) {
@@ -621,7 +657,11 @@ function runningStepSelection(jobExecution: JobExecution | undefined) {
       .reverse()
       .find((candidate) => candidate.status === 'running');
     if (attempt)
-      return {stepId: step.id, attemptId: attempt.id, stepLabel: step.name || step.key || step.id};
+      return {
+        stepId: step.id,
+        attemptId: attempt.id,
+        stepLabel: stepLabel(step, step.position),
+      };
   }
   return undefined;
 }
@@ -631,6 +671,23 @@ function findAttempt(jobExecution: JobExecution, attemptId: string) {
     const attempt = step.attempts.find((candidate) => candidate.id === attemptId);
     if (attempt) return {step, attemptId: attempt.id};
   }
+  return undefined;
+}
+
+function findExpandedLogSelection(
+  jobExecution: JobExecution | undefined,
+  attemptIds: readonly string[],
+) {
+  if (!jobExecution) return undefined;
+
+  for (let index = attemptIds.length - 1; index >= 0; index -= 1) {
+    const attemptId = attemptIds[index];
+    if (!attemptId) continue;
+    const match = findAttempt(jobExecution, attemptId);
+    const attempt = match?.step.attempts.find((candidate) => candidate.id === attemptId);
+    if (match && attempt) return {step: match.step, attempt};
+  }
+
   return undefined;
 }
 

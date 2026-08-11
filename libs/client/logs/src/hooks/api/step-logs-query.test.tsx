@@ -218,6 +218,23 @@ describe('useStepAttemptLogsQuery', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
+  test('does not spend the bounded missing-stream budget on manual refreshes', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({code: 'not-found'}, {status: 404}));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderStepLogsHook(
+      {stepId: STEP_ID, attempt: 1},
+      {retryMissingStream: true, missingStreamRetryCount: 1, missingStreamRetryDelayMs: 60_000},
+    );
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const refresh = await result.current.refetchLogs();
+
+    expect(refresh.error).toBeTruthy();
+    expect(refresh.data).toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   test('starts a fresh bounded window after unbounded missing-stream polling', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({code: 'not-found'}, {status: 404}));
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});

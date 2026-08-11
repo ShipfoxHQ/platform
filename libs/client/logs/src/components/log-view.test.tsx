@@ -12,6 +12,20 @@ const output = (data: string): LogRecord => ({
   stream: 'stdout',
   data,
 });
+const groupStart = (groupId: string, name: string): LogRecord => ({
+  v: 1,
+  ts,
+  type: 'group_start',
+  groupId,
+  parentGroupId: null,
+  name,
+});
+const groupEnd = (groupId: string): LogRecord => ({
+  v: 1,
+  ts,
+  type: 'group_end',
+  groupId,
+});
 type AgentSessionRow = Extract<LogRecord, {type: 'agent_session'}>['row'];
 
 const agentSession = (row: AgentSessionRow, offsetMs = 0): LogRecord => ({
@@ -108,12 +122,32 @@ describe('LogView', () => {
     expect(screen.getByText('failure: test failed')).toBeDefined();
     expect(screen.getByText('The failure is in the validation step.')).toBeDefined();
     expect(screen.queryByText('setup complete')).toBeNull();
+    expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'off');
+    expect(screen.getByRole('status')).toHaveTextContent('Log search updated for “failure”.');
+  });
+
+  test('opens matching groups and filters their children', () => {
+    render(
+      <LogView
+        search="success"
+        records={[
+          groupStart('build', 'Build'),
+          output('setup complete\n'),
+          output('Success: compiled\n'),
+          groupEnd('build'),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('Success: compiled')).toBeInTheDocument();
+    expect(screen.queryByText('setup complete')).not.toBeInTheDocument();
+    expect(screen.getByText('1 line')).toBeInTheDocument();
   });
 
   test('shows a message when the log search has no matches', () => {
     render(<LogView search="missing" records={[output('hello\n')]} />);
 
-    expect(screen.getByText('No log lines match “missing”.')).toBeDefined();
+    expect(screen.getByRole('status')).toHaveTextContent('No log lines match “missing”.');
     expect(screen.queryByText('hello')).toBeNull();
   });
 
@@ -302,6 +336,7 @@ describe('LogView', () => {
             terminalFailure: true,
           }),
         ]}
+        search="cannot"
       />,
     );
 

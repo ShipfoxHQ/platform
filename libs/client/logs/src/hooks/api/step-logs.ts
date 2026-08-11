@@ -1,7 +1,7 @@
 import {readLogsResponseSchema} from '@shipfox/api-logs-dto';
 import {ApiError, checkedApiRequest} from '@shipfox/client-api';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
-import {useRef} from 'react';
+import {useCallback, useRef} from 'react';
 import {
   mergeLogRead,
   STEP_LOG_LIVE_REFETCH_MS,
@@ -80,6 +80,7 @@ export function useStepAttemptLogsQuery(
   const queryClient = useQueryClient();
   const missingStreamFailureCountRef = useRef(0);
   const missingStreamScopeRef = useRef<string | null>(null);
+  const manualRefetchRef = useRef(false);
   const enabled = Boolean(stepId && attempt && Number.isInteger(attempt) && attempt > 0);
   const queryKey =
     enabled && stepId && attempt
@@ -97,11 +98,13 @@ export function useStepAttemptLogsQuery(
   const initialErrorRetryDelayMs = options.initialErrorRetryDelayMs ?? STEP_LOG_LIVE_REFETCH_MS;
   const missingStreamRetryDelayMs = options.missingStreamRetryDelayMs ?? STEP_LOG_LIVE_REFETCH_MS;
 
-  return useQuery({
+  const query = useQuery({
     queryKey,
     enabled,
     queryFn: async ({signal}) => {
       const previous = queryClient.getQueryData<StepLogSnapshot>(queryKey);
+      const manualRefetch = manualRefetchRef.current;
+      manualRefetchRef.current = false;
       let response: Awaited<ReturnType<typeof readStepAttemptLogsPage>>;
       try {
         response = await readStepAttemptLogsPage({
@@ -114,7 +117,8 @@ export function useStepAttemptLogsQuery(
         if (
           options.retryMissingStream &&
           previous === undefined &&
-          isMissingStepLogStreamError(error)
+          isMissingStepLogStreamError(error) &&
+          !manualRefetch
         ) {
           const retryCount = options.missingStreamRetryCount;
           if (retryCount === undefined) throw error;
@@ -166,6 +170,13 @@ export function useStepAttemptLogsQuery(
     refetchOnWindowFocus: (query) => !query.state.data?.complete,
     refetchOnReconnect: (query) => !query.state.data?.complete,
   });
+
+  const refetchLogs = useCallback(() => {
+    if (!query.isFetching) manualRefetchRef.current = true;
+    return query.refetch({cancelRefetch: false});
+  }, [query.isFetching, query.refetch]);
+
+  return {...query, refetchLogs};
 }
 
 function emptyCompleteLogSnapshot(): StepLogSnapshot {

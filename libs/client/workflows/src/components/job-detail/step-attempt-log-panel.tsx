@@ -27,7 +27,9 @@ export interface StepAttemptLogPanelProps {
   search?: string | undefined;
   wrap?: boolean | undefined;
   showLineNumbers?: boolean | undefined;
+  attemptId?: string | undefined;
   refreshToken?: number | undefined;
+  onFetchingChange?: ((attemptId: string, isFetching: boolean) => void) | undefined;
   initialErrorRetryCount?: number | undefined;
   initialErrorRetryDelayMs?: number | undefined;
 }
@@ -42,7 +44,9 @@ export function StepAttemptLogPanel({
   search = '',
   wrap = false,
   showLineNumbers = true,
+  attemptId,
   refreshToken = 0,
+  onFetchingChange,
   initialErrorRetryCount = INITIAL_LOG_ERROR_RETRY_COUNT,
   initialErrorRetryDelayMs = INITIAL_LOG_ERROR_RETRY_DELAY_MS,
 }: StepAttemptLogPanelProps) {
@@ -68,8 +72,13 @@ export function StepAttemptLogPanel({
   useEffect(() => {
     if (refreshToken === lastRefreshTokenRef.current) return;
     lastRefreshTokenRef.current = refreshToken;
-    void query.refetch();
-  }, [query.refetch, refreshToken]);
+    void query.refetchLogs();
+  }, [query.refetchLogs, refreshToken]);
+
+  useEffect(() => {
+    if (!attemptId) return;
+    onFetchingChange?.(attemptId, query.isFetching);
+  }, [attemptId, onFetchingChange, query.isFetching]);
 
   useEffect(() => {
     const scrollElement = pageScrollRef.current;
@@ -125,7 +134,7 @@ export function StepAttemptLogPanel({
   }
 
   if (initialError) {
-    return <StepLogsError retrying={query.isFetching} onRetry={() => void query.refetch()} />;
+    return <StepLogsError retrying={query.isFetching} onRetry={() => void query.refetchLogs()} />;
   }
 
   return (
@@ -144,7 +153,7 @@ export function StepAttemptLogPanel({
               size="2xs"
               variant="secondary"
               isLoading={query.isFetching}
-              onClick={() => void query.refetch()}
+              onClick={() => void query.refetchLogs()}
             >
               Retry
             </Button>
@@ -158,7 +167,7 @@ export function StepAttemptLogPanel({
         showLineNumbers={showLineNumbers}
         emptyState={query.data?.complete ? 'complete' : 'pending'}
         anchorToFailure={anchorToFailure}
-        ariaLive={attemptStatus === 'running' ? 'polite' : 'off'}
+        ariaLive={search.trim() ? 'off' : attemptStatus === 'running' ? 'polite' : 'off'}
         className={surfaceClassName}
       />
     </div>

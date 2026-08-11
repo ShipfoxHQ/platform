@@ -3,9 +3,16 @@
 import {Icon} from '@shipfox/react-ui/icon';
 import {LogContent, LogRow, LogRows, type LogTimestampMode} from '@shipfox/react-ui/log';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
-import {cn} from '@shipfox/react-ui/utils';
-import {type ReactNode, type UIEventHandler, useEffect, useMemo, useRef} from 'react';
+import {
+  type ReactNode,
+  type UIEventHandler,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import type {LogRecord} from '#core/log-model.js';
+import {buildLogSearchIndex, filterLogNodes} from '#core/log-search.js';
 import {
   assertNever,
   buildLogTree,
@@ -52,14 +59,22 @@ export function LogView({
 }: LogViewProps) {
   const rowsRef = useRef<HTMLDivElement>(null);
   const tree = useMemo(() => buildLogTree(records), [records]);
-  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const deferredSearch = useDeferredValue(search);
+  const normalizedSearch = deferredSearch.trim().toLocaleLowerCase();
+  const searchIndex = useMemo(() => buildLogSearchIndex(tree.nodes), [tree.nodes]);
   const visibleNodes = useMemo(
-    () => (normalizedSearch ? filterLogNodes(tree.nodes, normalizedSearch) : tree.nodes),
-    [normalizedSearch, tree.nodes],
+    () =>
+      normalizedSearch ? filterLogNodes(tree.nodes, normalizedSearch, searchIndex) : tree.nodes,
+    [normalizedSearch, searchIndex, tree.nodes],
   );
-  const resolvedToolCalls = useMemo(() => collectResolvedToolCalls(tree.nodes), [tree.nodes]);
+  const resolvedToolCalls = useMemo(() => collectResolvedToolCalls(visibleNodes), [visibleNodes]);
   const noOutputState = normalizedSearch ? null : getNoOutputState(tree, emptyState);
   const anchorRecordCount = records.length;
+  const searchStatus = normalizedSearch
+    ? visibleNodes.length === 0
+      ? `No log lines match “${deferredSearch.trim()}”.`
+      : `Log search updated for “${deferredSearch.trim()}”.`
+    : null;
 
   useEffect(() => {
     if (!anchorToFailure) return;
@@ -82,22 +97,36 @@ export function LogView({
   }, [anchorToFailure, anchorRecordCount]);
 
   return (
-    <LogRows
-      ref={rowsRef}
-      timestamps={timestamps}
-      wrap={wrap}
-      showLineNumbers={showLineNumbers}
-      aria-live={ariaLive}
-      className={cn('bg-background-contrast-base', className)}
-      onScroll={onScroll}
-      {...(tree.originTs != null ? {timestampOrigin: new Date(tree.originTs)} : {})}
-    >
-      {noOutputState ? <NoOutputRow state={noOutputState} /> : null}
-      {normalizedSearch && visibleNodes.length === 0 ? (
-        <NoSearchMatchesRow query={search.trim()} />
+    <>
+      {searchStatus ? (
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {searchStatus}
+        </div>
       ) : null}
-      {renderNodes(visibleNodes, 0, tree, defaultGroupsOpen, resolvedToolCalls)}
-    </LogRows>
+      <LogRows
+        ref={rowsRef}
+        timestamps={timestamps}
+        wrap={wrap}
+        showLineNumbers={showLineNumbers}
+        aria-live={normalizedSearch ? 'off' : ariaLive}
+        className={className}
+        onScroll={onScroll}
+        {...(tree.originTs != null ? {timestampOrigin: new Date(tree.originTs)} : {})}
+      >
+        {noOutputState ? <NoOutputRow state={noOutputState} /> : null}
+        {normalizedSearch && visibleNodes.length === 0 ? (
+          <NoSearchMatchesRow query={deferredSearch.trim()} />
+        ) : null}
+        {renderNodes(
+          visibleNodes,
+          0,
+          tree,
+          defaultGroupsOpen,
+          Boolean(normalizedSearch),
+          resolvedToolCalls,
+        )}
+      </LogRows>
+    </>
   );
 }
 
@@ -116,7 +145,7 @@ export function LogViewSkeleton({
       timestamps={timestamps}
       wrap={wrap}
       showLineNumbers={showLineNumbers}
-      className={cn('bg-background-contrast-base', className)}
+      className={className}
       role="presentation"
       aria-live="off"
       aria-hidden="true"
@@ -195,36 +224,12 @@ function NoSearchMatchesRow({query}: {query: string}) {
   );
 }
 
-function filterLogNodes(nodes: readonly LogNode[], query: string): LogNode[] {
-  return nodes.flatMap((node): LogNode[] => {
-    const matches = searchableNodeText(node).toLocaleLowerCase().includes(query);
-    if (node.kind !== 'group') return matches ? [node] : [];
-
-    const children = matches ? node.children : filterLogNodes(node.children, query);
-    return matches || children.length > 0 ? [{...node, children}] : [];
-  });
-}
-
-function searchableNodeText(node: LogNode): string {
-  switch (node.kind) {
-    case 'output':
-      return node.record.data;
-    case 'group':
-      return node.record.name;
-    case 'marker':
-      return JSON.stringify(node.record) ?? '';
-    case 'session':
-      return JSON.stringify(node.record.row) ?? '';
-    default:
-      return assertNever(node);
-  }
-}
-
 function renderNodes(
   nodes: readonly LogNode[],
   depth: number,
   tree: LogTree,
   defaultGroupsOpen: boolean,
+  forceOpen: boolean,
   resolvedToolCalls: ResolvedToolCalls,
 ): ReactNode[] {
   // `node.seq` is the stable, unique render key (see `LogNodeBase`): a concatenated
@@ -249,8 +254,16 @@ function renderNodes(
             depth={depth}
             terminated={tree.terminated}
             defaultOpen={defaultGroupsOpen}
+            forceOpen={forceOpen}
           >
-            {renderNodes(node.children, depth + 1, tree, defaultGroupsOpen, resolvedToolCalls)}
+            {renderNodes(
+              node.children,
+              depth + 1,
+              tree,
+              defaultGroupsOpen,
+              forceOpen,
+              resolvedToolCalls,
+            )}
           </LogGroup>
         );
       case 'marker':
@@ -263,6 +276,7 @@ function renderNodes(
             resolvedToolCallIds={resolvedToolCalls.ids}
             toolCallNames={resolvedToolCalls.names}
             indent={depth}
+            forceOpen={forceOpen}
           />
         );
       default:
