@@ -33,9 +33,6 @@ export const listenerEventsAvailableSignal = defineSignal<[]>(LISTENER_EVENTS_AV
 export const listenerResolveSignal = defineSignal<[]>(LISTENER_RESOLVE_SIGNAL);
 
 export interface JobListenerOrchestrationInput {
-  workspaceId: string;
-  workflowRunId: string;
-  projectId: string;
   runAttemptId: string;
   jobId: string;
   jobVersion: number;
@@ -412,9 +409,6 @@ async function runListenerExecution(params: {
       workflowIdReusePolicy: 'ALLOW_DUPLICATE',
       args: [
         {
-          workspaceId: params.input.workspaceId,
-          workflowRunId: params.input.workflowRunId,
-          projectId: params.input.projectId,
           jobId: params.input.jobId,
           jobExecutionId: params.jobExecutionId,
           runAttemptId: params.input.runAttemptId,

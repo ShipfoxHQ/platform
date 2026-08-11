@@ -1,19 +1,17 @@
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
-import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
 import {
   activateJobListenerActivity,
   bulkSetStepStatuses,
   createDrainListenerEventsActivity,
-  createEnqueueJobExecutionForRunner,
-  createReleaseLeaseActivity,
   evaluateJobActivationsActivity,
   failJobExecutionAsTimedOutActivity,
   failRunAsTimedOutActivity,
   loadRunAttemptDag,
   peekListenerBufferActivity,
+  queueJobExecutionActivity,
   recordListenerFiringOutcomeActivity,
   resolveJobListenerActivity,
   resolveJobStatusFromJobExecutionsActivity,
@@ -28,7 +26,6 @@ export function createOrchestrationActivities(params: {
   agent: AgentInterModuleClient;
   integrations: IntegrationsModuleClient;
   projects: ProjectsModuleClient;
-  runners: RunnersInterModuleClient;
   secrets: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'>;
 }) {
   return {
@@ -38,7 +35,7 @@ export function createOrchestrationActivities(params: {
     setJobExecutionStatus: async (activityParams: Parameters<typeof setJobExecutionStatus>[0]) =>
       await setJobExecutionStatus(activityParams, params.secrets),
     bulkSetStepStatuses,
-    enqueueJobExecutionForRunner: createEnqueueJobExecutionForRunner(params.runners),
+    queueJobExecutionActivity,
     evaluateJobActivationsActivity,
     failJobExecutionAsTimedOutActivity: async (
       activityParams: Parameters<typeof failJobExecutionAsTimedOutActivity>[0],
@@ -59,6 +56,5 @@ export function createOrchestrationActivities(params: {
       activityParams: Parameters<typeof resolveLeaseExpiredJobExecutionActivity>[0],
     ) => await resolveLeaseExpiredJobExecutionActivity(activityParams, params.secrets),
     resolveJobStatusFromJobExecutionsActivity,
-    releaseLeaseActivity: createReleaseLeaseActivity(params.runners),
   };
 }

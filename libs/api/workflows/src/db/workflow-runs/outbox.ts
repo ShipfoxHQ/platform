@@ -1,5 +1,6 @@
 import {
   type LogOutcomeDto,
+  WORKFLOWS_JOB_EXECUTION_QUEUED,
   WORKFLOWS_JOB_EXECUTION_TERMINATED,
   WORKFLOWS_JOB_STEPS_SETTLED,
   WORKFLOWS_STEP_ATTEMPT_TERMINATED,
@@ -13,6 +14,32 @@ import {writeWorkflowsOutboxEvent} from '../outbox-writes.js';
 import {jobExecutions} from '../schema/job-executions.js';
 import {steps} from '../schema/steps.js';
 import {getWorkflowContextForJob} from './shared.js';
+
+export async function writeJobExecutionQueuedOutbox(
+  tx: Tx,
+  params: {
+    jobId: string;
+    jobExecutionId: string;
+    requiredLabels: string[];
+    queuedAt: Date;
+  },
+): Promise<void> {
+  const identity = await getWorkflowContextForJob(params.jobId, tx);
+
+  await writeWorkflowsOutboxEvent(tx, {
+    type: WORKFLOWS_JOB_EXECUTION_QUEUED,
+    payload: {
+      jobId: params.jobId,
+      jobExecutionId: params.jobExecutionId,
+      workflowRunId: identity.workflowRunId,
+      workflowRunAttemptId: identity.workflowRunAttemptId,
+      workspaceId: identity.workspaceId,
+      projectId: identity.projectId,
+      requiredLabels: params.requiredLabels,
+      queuedAt: params.queuedAt.toISOString(),
+    },
+  });
+}
 
 export async function writeJobExecutionTerminatedOutbox(
   tx: Tx,

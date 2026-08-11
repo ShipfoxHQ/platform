@@ -1,12 +1,7 @@
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
-import {
-  type RunnersInterModuleClient,
-  runnersInterModuleContract,
-} from '@shipfox/api-runners-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
-import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {ApplicationFailure} from '@temporalio/common';
 import {defaultJobConditionTrace} from '#core/condition-trace.js';
 import type {JobStatus, JobStatusReason, ResolutionReason} from '#core/entities/job.js';
@@ -31,6 +26,7 @@ import {
   getWorkflowRunByAttemptId,
   type JobActivationDecision,
   peekListenerBuffer,
+  queueJobExecution,
   resolveJobExecutionAfterLeaseExpiry,
   resolveJobListener,
   resolveJobStatusFromJobExecutions,
@@ -209,42 +205,12 @@ export async function resolveLeaseExpiredJobExecutionActivity(
   }
 }
 
-// Best-effort lease cleanup on job finalization. Idempotent: deleting an
-// already-released (or already-reaped) lease is a no-op. The workflow wraps the
-// call so a persistent failure never blocks the DAG result.
-export function createReleaseLeaseActivity(runners: RunnersInterModuleClient) {
-  return async function releaseLeaseActivity(params: {jobExecutionId: string}): Promise<void> {
-    await runners.releaseJobExecution({jobExecutionId: params.jobExecutionId});
-  };
-}
-
-export function createEnqueueJobExecutionForRunner(runners: RunnersInterModuleClient) {
-  return async function enqueueJobExecutionForRunner(params: {
-    workspaceId: string;
-    workflowRunId: string;
-    jobId: string;
-    jobExecutionId: string;
-    runAttemptId: string;
-    projectId: string;
-    requiredLabels: string[];
-  }): Promise<void> {
-    try {
-      await runners.enqueueJobExecution({
-        workspaceId: params.workspaceId,
-        workflowRunId: params.workflowRunId,
-        workflowRunAttemptId: params.runAttemptId,
-        jobId: params.jobId,
-        jobExecutionId: params.jobExecutionId,
-        projectId: params.projectId,
-        requiredLabels: params.requiredLabels,
-      });
-    } catch (err) {
-      if (isInterModuleKnownError(runnersInterModuleContract.methods.enqueueJobExecution, err)) {
-        throw ApplicationFailure.nonRetryable(err.message, err.name);
-      }
-      throw err;
-    }
-  };
+export async function queueJobExecutionActivity(params: {
+  jobId: string;
+  jobExecutionId: string;
+}): Promise<{newVersion: number; status: Exclude<JobStatus, 'skipped'>}> {
+  const execution = await queueJobExecution({jobExecutionId: params.jobExecutionId});
+  return {newVersion: execution.version, status: execution.status};
 }
 
 export async function failJobExecutionAsTimedOutActivity(

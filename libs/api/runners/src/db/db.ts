@@ -14,7 +14,6 @@ import {runnerBootstrapTokens, runnerControlSessions} from './schema/runner-cont
 import {providerRunners} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
-import {terminalJobExecutions} from './schema/terminal-job-executions.js';
 
 export const schema = {
   runnersAdminCommandResults,
@@ -31,7 +30,6 @@ export const schema = {
   runnerActivationTokens,
   manualRegistrationTokens,
   runningJobExecutions,
-  terminalJobExecutions,
   runnersOutbox,
 };
 

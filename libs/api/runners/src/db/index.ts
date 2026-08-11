@@ -25,7 +25,6 @@ export type {
   RunnerInstanceBoundJobExecution,
 } from './job-executions.js';
 export {
-  cancelRunnerJobs,
   claimPendingJobExecution,
   enqueueJobExecution,
   expireStuckJobExecutions,
@@ -34,7 +33,6 @@ export {
   listActiveRunningJobExecutions,
   listRunningJobExecutionsByRunnerInstanceTx,
   recordHeartbeat,
-  releaseJobExecution,
 } from './job-executions.js';
 export type {CreateManualRegistrationTokenParams} from './manual-registration-tokens.js';
 export {

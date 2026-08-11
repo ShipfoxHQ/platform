@@ -1,8 +1,8 @@
 import {
   WORKFLOWS_JOB_ACTIVATED,
   WORKFLOWS_JOB_EVENT_DELIVERED,
+  WORKFLOWS_JOB_EXECUTION_QUEUED,
   WORKFLOWS_JOB_EXECUTION_TERMINATED,
-  WORKFLOWS_JOB_EXECUTION_TIMED_OUT,
   WORKFLOWS_JOB_STEPS_SETTLED,
   WORKFLOWS_JOB_TERMINATED,
   WORKFLOWS_STEP_ATTEMPT_TERMINATED,
@@ -13,8 +13,8 @@ import {
   workflowsEventSchemas,
   workflowsJobActivatedSchema,
   workflowsJobEventDeliveredSchema,
+  workflowsJobExecutionQueuedSchema,
   workflowsJobExecutionTerminatedSchema,
-  workflowsJobExecutionTimedOutSchema,
   workflowsJobStepsSettledSchema,
   workflowsJobTerminatedSchema,
   workflowsStepAttemptTerminatedSchema,
@@ -54,10 +54,15 @@ const validRunCancelled = {
   projectId: 'proj-1',
 };
 
-const validJobExecutionTimedOut = {
+const validJobExecutionQueued = {
   jobId: 'job-1',
   jobExecutionId: 'execution-1',
+  workflowRunId: 'run-1',
   workflowRunAttemptId: 'attempt-1',
+  workspaceId: 'ws-1',
+  projectId: 'project-1',
+  requiredLabels: ['linux'],
+  queuedAt: '2026-08-11T08:00:00.000Z',
 };
 
 const validJobExecutionTerminated = {
@@ -352,9 +357,9 @@ describe.each([
     'projectId',
   ],
   [
-    'workflowsJobExecutionTimedOutSchema',
-    workflowsJobExecutionTimedOutSchema,
-    validJobExecutionTimedOut,
+    'workflowsJobExecutionQueuedSchema',
+    workflowsJobExecutionQueuedSchema,
+    validJobExecutionQueued,
     'jobId',
   ],
   ['workflowsJobActivatedSchema', workflowsJobActivatedSchema, validJobActivated, 'mode'],
@@ -409,8 +414,8 @@ describe('workflowsEventSchemas', () => {
         WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
         WORKFLOWS_WORKFLOW_RUN_TERMINATED,
         WORKFLOWS_WORKFLOW_RUN_CANCELLED,
+        WORKFLOWS_JOB_EXECUTION_QUEUED,
         WORKFLOWS_JOB_EXECUTION_TERMINATED,
-        WORKFLOWS_JOB_EXECUTION_TIMED_OUT,
         WORKFLOWS_JOB_ACTIVATED,
         WORKFLOWS_JOB_EVENT_DELIVERED,
         WORKFLOWS_JOB_TERMINATED,

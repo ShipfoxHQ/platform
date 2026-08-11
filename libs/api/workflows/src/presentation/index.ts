@@ -5,7 +5,6 @@ export {
   onJobTerminatedFailureAnnotation,
   onRunnerJobClaimed,
   onRunnerJobLeaseExpired,
-  onRunnerJobQueued,
   onStepAttemptTerminatedFailureAnnotation,
   onWorkflowRunAttemptCreated,
   onWorkflowRunCancelled,

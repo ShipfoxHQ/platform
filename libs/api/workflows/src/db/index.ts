@@ -85,7 +85,7 @@ export {
   listWorkflowRunJobSummaries,
   listWorkflowRuns,
   listWorkflowRunsByProject,
-  recordJobExecutionQueuedAt,
+  queueJobExecution,
   recordJobExecutionStartedAt,
   resolveJobExecutionAfterLeaseExpiry,
   resolveJobStatusFromJobExecutions,

@@ -177,9 +177,6 @@ function launchJob(
       workflowId: `job-listener:${job.id}`,
       args: [
         {
-          workspaceId: run.workspaceId,
-          workflowRunId: run.workflowRunId,
-          projectId: run.projectId,
           jobId: job.id,
           runAttemptId: run.runAttemptId,
           jobVersion: runtimeJobVersion(job, progress),
@@ -225,9 +222,6 @@ function launchJob(
     workflowId: `job:${job.id}`,
     args: [
       {
-        workspaceId: run.workspaceId,
-        workflowRunId: run.workflowRunId,
-        projectId: run.projectId,
         jobId: job.id,
         jobExecutionId: job.jobExecutionId,
         runAttemptId: run.runAttemptId,

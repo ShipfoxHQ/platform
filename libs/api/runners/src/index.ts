@@ -4,8 +4,8 @@ import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import {administrationActionEventSchemas} from '@shipfox/api-common-dto';
 import {runnersEventSchemas} from '@shipfox/api-runners-dto';
 import {
+  WORKFLOWS_JOB_EXECUTION_QUEUED,
   WORKFLOWS_JOB_EXECUTION_TERMINATED,
-  WORKFLOWS_JOB_EXECUTION_TIMED_OUT,
   type WorkflowsEventMapDto,
 } from '@shipfox/api-workflows-dto';
 import {type ShipfoxModule, subscriberFactory} from '@shipfox/node-module';
@@ -17,8 +17,8 @@ import {
   createRunnerControlSessionAuthMethod,
   createRunnerRegistrationTokenAuthMethod,
   createRunnerRoutes,
+  onWorkflowsJobExecutionQueued,
   onWorkflowsJobExecutionTerminated,
-  onWorkflowsJobExecutionTimedOut,
 } from '#presentation/index.js';
 import {createRunnersInterModulePresentation} from '#presentation/inter-module.js';
 import {createRunnersMaintenanceActivities} from '#temporal/activities/index.js';
@@ -32,12 +32,8 @@ export {
   unadvertisedRunnerTools,
 } from '#core/runner-tool-capabilities.js';
 export {
-  cancelRunnerJobs,
-  type EnqueueJobExecutionParams,
-  enqueueJobExecution,
   getWorkspaceJobCounts,
   isJobLeaseActive,
-  releaseJobExecution,
 } from '#db/index.js';
 export type {
   CreateRunnersModuleOptions,
@@ -67,9 +63,8 @@ export function createRunnersModule({
       {name: 'runners', table: runnersOutbox, db, eventSchemas: runnersPublisherEventSchemas},
     ],
     subscribers: [
+      subscriber(WORKFLOWS_JOB_EXECUTION_QUEUED, onWorkflowsJobExecutionQueued),
       subscriber(WORKFLOWS_JOB_EXECUTION_TERMINATED, onWorkflowsJobExecutionTerminated),
-      // Keep consuming the narrower event while older outbox rows drain during rollout.
-      subscriber(WORKFLOWS_JOB_EXECUTION_TIMED_OUT, onWorkflowsJobExecutionTimedOut),
     ],
     workers: [
       {

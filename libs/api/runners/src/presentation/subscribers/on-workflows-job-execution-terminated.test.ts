@@ -1,8 +1,6 @@
 import type {WorkflowsJobExecutionTerminatedEventDto} from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
 import {db} from '#db/db.js';
-import {enqueueJobExecution} from '#db/job-executions.js';
-import {pendingJobExecutions} from '#db/schema/pending-job-executions.js';
 import {reservations} from '#db/schema/reservations.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
@@ -10,36 +8,6 @@ import {providerRunnerFactory, runnerSessionFactory} from '#test/index.js';
 import {onWorkflowsJobExecutionTerminated} from './on-workflows-job-execution-terminated.js';
 
 describe('onWorkflowsJobExecutionTerminated', () => {
-  it('prevents a late enqueue after the terminal fact is consumed', async () => {
-    const payload: WorkflowsJobExecutionTerminatedEventDto = {
-      jobId: crypto.randomUUID(),
-      jobExecutionId: crypto.randomUUID(),
-      workflowRunId: crypto.randomUUID(),
-      workflowRunAttemptId: crypto.randomUUID(),
-      status: 'cancelled',
-      statusReason: 'run_cancelled',
-      statusReasonMessage: null,
-    };
-
-    await onWorkflowsJobExecutionTerminated(payload);
-    await enqueueJobExecution({
-      workspaceId: crypto.randomUUID(),
-      workflowRunId: payload.workflowRunId,
-      workflowRunAttemptId: payload.workflowRunAttemptId,
-      jobId: payload.jobId,
-      jobExecutionId: payload.jobExecutionId,
-      projectId: crypto.randomUUID(),
-      requiredLabels: ['linux'],
-    });
-
-    expect(
-      await db()
-        .select()
-        .from(pendingJobExecutions)
-        .where(eq(pendingJobExecutions.jobExecutionId, payload.jobExecutionId)),
-    ).toHaveLength(0);
-  });
-
   it('releases a terminal runner reservation once no uncancelled lease remains', async () => {
     const workspaceId = crypto.randomUUID();
     const provisionerId = crypto.randomUUID();

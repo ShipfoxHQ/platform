@@ -138,13 +138,10 @@ export {
 export {
   RUNNER_JOB_CLAIMED,
   RUNNER_JOB_LEASE_EXPIRED,
-  RUNNER_JOB_QUEUED,
   type RunnerJobClaimedEvent,
   type RunnerJobLeaseExpiredEvent,
-  type RunnerJobQueuedEvent,
   type RunnersEventMap,
   runnerJobClaimedEventSchema,
   runnerJobLeaseExpiredEventSchema,
-  runnerJobQueuedEventSchema,
   runnersEventSchemas,
 } from './events.js';

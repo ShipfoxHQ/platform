@@ -1,8 +1,4 @@
-import {
-  RUNNER_JOB_CLAIMED,
-  RUNNER_JOB_LEASE_EXPIRED,
-  RUNNER_JOB_QUEUED,
-} from '@shipfox/api-runners-dto';
+import {RUNNER_JOB_CLAIMED, RUNNER_JOB_LEASE_EXPIRED} from '@shipfox/api-runners-dto';
 import {pgClient} from '@shipfox/node-postgres';
 import {eq, sql} from 'drizzle-orm';
 import {EmptyRequiredLabelsError, RunnerSessionExhaustedError} from '#core/errors.js';
@@ -18,7 +14,6 @@ import {
 } from '#test/index.js';
 import {db} from './db.js';
 import {
-  cancelRunnerJobs,
   claimPendingJobExecution as claimPendingJobExecutionDb,
   enqueueJobExecution,
   expireStuckJobExecutions,
@@ -26,7 +21,6 @@ import {
   isJobLeaseActive,
   reconcileTerminalJobExecution,
   recordHeartbeat,
-  releaseJobExecution,
 } from './job-executions.js';
 import {runnersOutbox} from './schema/outbox.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
@@ -71,6 +65,7 @@ describe('enqueueJobExecution', () => {
     const workflowRunAttemptId = crypto.randomUUID();
     const workspaceId = crypto.randomUUID();
     const projectId = crypto.randomUUID();
+    const queuedAt = new Date('2026-08-11T08:00:00.000Z');
 
     await enqueueJobExecution({
       workspaceId,
@@ -80,6 +75,7 @@ describe('enqueueJobExecution', () => {
       workflowRunAttemptId,
       projectId,
       requiredLabels: ['linux'],
+      queuedAt,
     });
 
     const rows = await db()
@@ -94,6 +90,7 @@ describe('enqueueJobExecution', () => {
     expect(rows[0]?.projectId).toBe(projectId);
     expect(rows[0]?.workspaceId).toBe(workspaceId);
     expect(rows[0]?.requiredLabels).toEqual(['linux']);
+    expect(rows[0]?.createdAt).toEqual(queuedAt);
     expect(rows[0]).not.toHaveProperty('payload');
   });
 
@@ -109,6 +106,7 @@ describe('enqueueJobExecution', () => {
       workflowRunAttemptId: crypto.randomUUID(),
       projectId: crypto.randomUUID(),
       requiredLabels: ['Ubuntu22', ' ubuntu22 ', 'LINUX'],
+      queuedAt: new Date(),
     });
 
     const rows = await db()
@@ -128,6 +126,7 @@ describe('enqueueJobExecution', () => {
         workflowRunAttemptId: crypto.randomUUID(),
         projectId: crypto.randomUUID(),
         requiredLabels: [],
+        queuedAt: new Date(),
       }),
     ).rejects.toBeInstanceOf(EmptyRequiredLabelsError);
   });
@@ -142,6 +141,7 @@ describe('enqueueJobExecution', () => {
       jobId,
       jobExecutionId: crypto.randomUUID(),
       requiredLabels: ['linux'],
+      queuedAt: new Date(),
     };
 
     await enqueueJobExecution(params);
@@ -152,63 +152,6 @@ describe('enqueueJobExecution', () => {
       .from(pendingJobExecutions)
       .where(eq(pendingJobExecutions.jobExecutionId, params.jobExecutionId));
     expect(rows).toHaveLength(1);
-  });
-
-  it('emits runners.job.queued carrying the pending row created_at', async () => {
-    const jobId = crypto.randomUUID();
-    const workflowRunId = crypto.randomUUID();
-    const workflowRunAttemptId = crypto.randomUUID();
-
-    await enqueueJobExecution({
-      workspaceId: crypto.randomUUID(),
-      workflowRunId,
-      jobId,
-      jobExecutionId: crypto.randomUUID(),
-      workflowRunAttemptId,
-      projectId: crypto.randomUUID(),
-      requiredLabels: ['linux'],
-    });
-
-    const [pending] = await db()
-      .select()
-      .from(pendingJobExecutions)
-      .where(eq(pendingJobExecutions.jobId, jobId));
-    const outbox = await outboxEventsForJob(RUNNER_JOB_QUEUED, jobId);
-    expect(outbox).toHaveLength(1);
-    expect(outbox[0]?.eventType).toBe(RUNNER_JOB_QUEUED);
-    const payload = outbox[0]?.payload as {
-      jobId: string;
-      workflowRunId: string;
-      workflowRunAttemptId: string;
-      queuedAt: string;
-    };
-    expect(payload.jobId).toBe(jobId);
-    expect(payload.workflowRunId).toBe(workflowRunId);
-    expect(payload.workflowRunAttemptId).toBe(workflowRunAttemptId);
-    expect(new Date(payload.queuedAt).getTime()).toBe(pending?.createdAt.getTime());
-  });
-
-  it('does not double-emit queued when the same jobId is re-enqueued (idempotency regression)', async () => {
-    const params = {
-      workspaceId: crypto.randomUUID(),
-      workflowRunId: crypto.randomUUID(),
-      workflowRunAttemptId: crypto.randomUUID(),
-      projectId: crypto.randomUUID(),
-      jobId: crypto.randomUUID(),
-      jobExecutionId: crypto.randomUUID(),
-      requiredLabels: ['linux'],
-    };
-
-    await enqueueJobExecution(params);
-    await enqueueJobExecution(params);
-
-    expect(
-      await db()
-        .select()
-        .from(pendingJobExecutions)
-        .where(eq(pendingJobExecutions.jobExecutionId, params.jobExecutionId)),
-    ).toHaveLength(1);
-    expect(await outboxEventsForJob(RUNNER_JOB_QUEUED, params.jobId)).toHaveLength(1);
   });
 });
 
@@ -828,7 +771,7 @@ describe('claimPendingJobExecution', () => {
     expect(running[0]?.jobId).toBe(created.jobId);
   });
 
-  it('leaves a non-matching orphan unclaimed until release sweeps it', async () => {
+  it('leaves a non-matching orphan unclaimed until terminal reconciliation sweeps it', async () => {
     const created = await pendingJobFactory.create({workspaceId});
     const first = await claimPendingJobExecution({workspaceId, runnerSessionId});
     if (!first) throw new Error('Expected pending job to be claimed');
@@ -848,15 +791,15 @@ describe('claimPendingJobExecution', () => {
       runnerSessionId,
       sessionLabels: ['macos'],
     });
-    await releaseJobExecution({jobExecutionId: created.jobExecutionId});
+    await reconcileTerminalJobExecution({jobExecutionId: created.jobExecutionId});
 
     expect(second).toBeNull();
-    expect(
-      await db()
-        .select()
-        .from(runningJobExecutions)
-        .where(eq(runningJobExecutions.workspaceId, workspaceId)),
-    ).toHaveLength(0);
+    const [running] = await db()
+      .select()
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.workspaceId, workspaceId));
+    expect(running?.jobExecutionId).toBe(created.jobExecutionId);
+    expect(running?.cancellationRequestedAt).not.toBeNull();
     expect(
       await db()
         .select()
@@ -934,206 +877,6 @@ describe('claimJobExecution', () => {
     });
 
     expect(claimed).toBeNull();
-  });
-});
-
-describe('releaseJobExecution', () => {
-  let workspaceId: string;
-  let runnerSessionId: string;
-
-  beforeEach(async () => {
-    workspaceId = crypto.randomUUID();
-    const runnerSession = await runnerSessionFactory.create({workspaceId});
-    runnerSessionId = runnerSession.id;
-  });
-
-  it('deletes the running row and writes no outbox event', async () => {
-    await pendingJobFactory.create({workspaceId});
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
-    const before = await outboxEventsForJob(RUNNER_JOB_CLAIMED, claimed?.jobId as string);
-
-    await releaseJobExecution({jobExecutionId: claimed?.jobExecutionId as string});
-
-    expect(
-      await db()
-        .select()
-        .from(runningJobExecutions)
-        .where(eq(runningJobExecutions.jobExecutionId, claimed?.jobExecutionId as string)),
-    ).toHaveLength(0);
-    expect(await outboxEventsForJob(RUNNER_JOB_CLAIMED, claimed?.jobId as string)).toHaveLength(
-      before.length,
-    );
-  });
-
-  it('is a no-op when the job is absent (idempotent)', async () => {
-    await expect(
-      releaseJobExecution({jobExecutionId: crypto.randomUUID()}),
-    ).resolves.toBeUndefined();
-  });
-
-  it('releases a terminal runner reservation after deleting its final lease', async () => {
-    const provisionerId = crypto.randomUUID();
-    const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
-    const [reservation] = await db()
-      .insert(reservations)
-      .values({
-        workspaceId,
-        provisionerId,
-        requiredLabels: sessionLabels,
-        count: 1,
-        expiresAt: new Date(Date.now() + 60_000),
-      })
-      .returning({id: reservations.id});
-    if (!reservation) throw new Error('Expected reservation');
-
-    await db()
-      .update(runnerSessions)
-      .set({registrationTokenKind: 'ephemeral', maxClaims: 1, provisionerId, providerRunnerId})
-      .where(eq(runnerSessions.id, runnerSessionId));
-    await db().insert(providerRunners).values({
-      workspaceId,
-      provisionerId,
-      providerRunnerId,
-      reservationId: reservation.id,
-      runnerSessionId,
-      state: 'terminated',
-      reportedAt: new Date(),
-      terminatedAt: new Date(),
-      labels: sessionLabels,
-    });
-
-    const created = await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
-    expect(claimed?.jobExecutionId).toBe(created.jobExecutionId);
-
-    await releaseJobExecution({jobExecutionId: created.jobExecutionId});
-
-    expect(
-      await db().select().from(reservations).where(eq(reservations.id, reservation.id)),
-    ).toHaveLength(0);
-    const [runner] = await db()
-      .select({reservationReleasedAt: providerRunners.reservationReleasedAt})
-      .from(providerRunners)
-      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
-    expect(runner?.reservationReleasedAt).toEqual(expect.any(Date));
-  });
-
-  it('rechecks terminal state after a concurrent terminal projection commits', async () => {
-    const provisionerId = crypto.randomUUID();
-    const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
-    const [reservation] = await db()
-      .insert(reservations)
-      .values({
-        workspaceId,
-        provisionerId,
-        requiredLabels: sessionLabels,
-        count: 1,
-        expiresAt: new Date(Date.now() + 60_000),
-      })
-      .returning({id: reservations.id});
-    if (!reservation) throw new Error('Expected reservation');
-
-    await db()
-      .update(runnerSessions)
-      .set({registrationTokenKind: 'ephemeral', maxClaims: 1, provisionerId, providerRunnerId})
-      .where(eq(runnerSessions.id, runnerSessionId));
-    await db().insert(providerRunners).values({
-      workspaceId,
-      provisionerId,
-      providerRunnerId,
-      reservationId: reservation.id,
-      runnerSessionId,
-      state: 'running',
-      reportedAt: new Date(),
-      labels: sessionLabels,
-    });
-
-    const created = await pendingJobFactory.create({workspaceId, requiredLabels: ['linux']});
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
-    expect(claimed?.jobExecutionId).toBe(created.jobExecutionId);
-
-    const terminalProjectionReady = deferred<void>();
-    const releaseTerminalProjection = deferred<void>();
-    const terminalProjection = db().transaction(async (tx) => {
-      await tx
-        .update(providerRunners)
-        .set({state: 'failed', failedAt: new Date(), updatedAt: new Date()})
-        .where(eq(providerRunners.providerRunnerId, providerRunnerId));
-      terminalProjectionReady.resolve();
-      await releaseTerminalProjection.promise;
-    });
-
-    await terminalProjectionReady.promise;
-    const cleanup = releaseJobExecution({jobExecutionId: created.jobExecutionId});
-    try {
-      await waitForLockWait({queryLike: '%runner_instances%'});
-
-      expect(
-        await db().select().from(reservations).where(eq(reservations.id, reservation.id)),
-      ).toHaveLength(1);
-    } finally {
-      releaseTerminalProjection.resolve();
-      await Promise.all([terminalProjection, cleanup]);
-    }
-
-    expect(
-      await db().select().from(reservations).where(eq(reservations.id, reservation.id)),
-    ).toHaveLength(0);
-    const [runner] = await db()
-      .select({
-        reservationReleasedAt: providerRunners.reservationReleasedAt,
-        state: providerRunners.state,
-      })
-      .from(providerRunners)
-      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
-    expect(runner).toMatchObject({state: 'failed', reservationReleasedAt: expect.any(Date)});
-  });
-
-  it('releases regardless of which session holds the lease', async () => {
-    await pendingJobFactory.create({workspaceId});
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
-
-    // No token is passed: the workflow is authoritative over the lease.
-    await releaseJobExecution({jobExecutionId: claimed?.jobExecutionId as string});
-
-    expect(
-      await db()
-        .select()
-        .from(runningJobExecutions)
-        .where(eq(runningJobExecutions.jobExecutionId, claimed?.jobExecutionId as string)),
-    ).toHaveLength(0);
-  });
-
-  it('also sweeps a lingering pending row for the same job', async () => {
-    await pendingJobFactory.create({workspaceId});
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
-    // An orphan pending row left by a post-claim enqueue retry.
-    await db()
-      .insert(pendingJobExecutions)
-      .values({
-        workspaceId,
-        workflowRunId: claimed?.workflowRunId as string,
-        jobId: claimed?.jobId as string,
-        jobExecutionId: claimed?.jobExecutionId as string,
-        workflowRunAttemptId: claimed?.workflowRunAttemptId as string,
-        projectId: claimed?.projectId as string,
-        requiredLabels: ['linux'],
-      });
-
-    await releaseJobExecution({jobExecutionId: claimed?.jobExecutionId as string});
-
-    expect(
-      await db()
-        .select()
-        .from(runningJobExecutions)
-        .where(eq(runningJobExecutions.jobExecutionId, claimed?.jobExecutionId as string)),
-    ).toHaveLength(0);
-    expect(
-      await db()
-        .select()
-        .from(pendingJobExecutions)
-        .where(eq(pendingJobExecutions.jobExecutionId, claimed?.jobExecutionId as string)),
-    ).toHaveLength(0);
   });
 });
 
@@ -1455,68 +1198,6 @@ async function waitForLockWait(params: {queryLike: string}) {
   throw new Error(`Timed out waiting for lock waiter matching ${params.queryLike}`);
 }
 
-describe('cancelRunnerJobs', () => {
-  let workspaceId: string;
-  let runnerSessionId: string;
-
-  beforeEach(async () => {
-    workspaceId = crypto.randomUUID();
-    const runnerSession = await runnerSessionFactory.create({workspaceId});
-    runnerSessionId = runnerSession.id;
-  });
-
-  it('deletes queued jobs and requests cancellation for running jobs', async () => {
-    const running = await pendingJobFactory.create({workspaceId});
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
-    const queued = await pendingJobFactory.create({workspaceId});
-
-    await cancelRunnerJobs({jobIds: [queued.jobId, claimed?.jobId as string]});
-
-    expect(
-      await db()
-        .select()
-        .from(pendingJobExecutions)
-        .where(eq(pendingJobExecutions.workspaceId, workspaceId)),
-    ).toHaveLength(0);
-    const rows = await db()
-      .select()
-      .from(runningJobExecutions)
-      .where(eq(runningJobExecutions.workspaceId, workspaceId));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.jobId).toBe(running.jobId);
-    expect(rows[0]?.cancellationRequestedAt).not.toBeNull();
-  });
-
-  it('is idempotent and no-ops for absent jobs', async () => {
-    const queued = await pendingJobFactory.create({workspaceId});
-
-    await cancelRunnerJobs({jobIds: [queued.jobId, crypto.randomUUID()]});
-    await cancelRunnerJobs({jobIds: [queued.jobId, crypto.randomUUID()]});
-
-    expect(
-      await db()
-        .select()
-        .from(pendingJobExecutions)
-        .where(eq(pendingJobExecutions.workspaceId, workspaceId)),
-    ).toHaveLength(0);
-    expect(
-      await db()
-        .select()
-        .from(runningJobExecutions)
-        .where(eq(runningJobExecutions.workspaceId, workspaceId)),
-    ).toHaveLength(0);
-  });
-
-  it('prevents a cancelled queued job from being claimed', async () => {
-    const queued = await pendingJobFactory.create({workspaceId});
-
-    await cancelRunnerJobs({jobIds: [queued.jobId]});
-
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
-    expect(claimed).toBeNull();
-  });
-});
-
 describe('detectAndExpireStuckJobs', () => {
   let workspaceId: string;
   let runnerSessionId: string;
@@ -1674,6 +1355,7 @@ describe('detectAndExpireStuckJobs', () => {
       jobExecutionId: stale.jobExecutionId,
       projectId: stale.projectId,
       requiredLabels: ['linux'],
+      queuedAt: new Date(),
     });
 
     expect(
@@ -1825,7 +1507,7 @@ describe('detectAndExpireStuckJobs', () => {
     expect(await outboxForJobs([jobId])).toHaveLength(1);
   });
 
-  it('sweeps an orphan pending row for the job it reaps (best-effort release may have failed)', async () => {
+  it('sweeps an orphan pending row for the job it reaps', async () => {
     const {jobId, jobExecutionId, workflowRunId, workflowRunAttemptId, projectId} =
       await makeStaleJob(600);
     // A post-claim enqueue retry left a pending row whose job is already running;
