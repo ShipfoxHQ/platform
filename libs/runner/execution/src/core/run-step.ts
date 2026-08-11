@@ -49,6 +49,12 @@ interface RunStepOptions {
   signal?: AbortSignal;
   cwd?: string;
   workspace?: string;
+  /**
+   * Path to the ambient Git config a persisted checkout wrote. Exported as
+   * `GIT_CONFIG_GLOBAL` so `git` in the step sees the checkout author identity and the
+   * repository-scoped credential, matching what agent steps already get.
+   */
+  gitConfigGlobal?: string;
   secretEnv?: Readonly<Record<string, string>>;
   secretValues?: readonly string[];
   onOutput?: OutputSink;
@@ -139,6 +145,7 @@ function spawnAndCapture(
         ...((options.workspace ?? options.cwd)
           ? {SHIPFOX_WORKSPACE: options.workspace ?? options.cwd}
           : {}),
+        ...(options.gitConfigGlobal ? {GIT_CONFIG_GLOBAL: options.gitConfigGlobal} : {}),
         SHIPFOX_OUTPUT: outputPath,
         ...(annotationSpool?.env ?? {}),
       },

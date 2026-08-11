@@ -555,6 +555,7 @@ export async function executeStep(params: {
       signal,
       cwd: stepCwd,
       workspace: cwd,
+      ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
       ...(runSecretMaterial?.secretEnv ? {secretEnv: runSecretMaterial.secretEnv} : {}),
       ...(runSecretMaterial?.secretValues ? {secretValues: runSecretMaterial.secretValues} : {}),
       onCommandStart: (metadata) => writeCommandMetadata(stepStream, metadata),

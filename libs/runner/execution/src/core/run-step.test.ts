@@ -202,6 +202,42 @@ describe('executeRunStep', () => {
     expect(JSON.parse(output.text())).toEqual({SHIPFOX_WORKSPACE: '/runner/workspace'});
   });
 
+  it('exposes the ambient git config as GIT_CONFIG_GLOBAL and overrides user env', async () => {
+    const step = buildStep({
+      config: {
+        run: nodeEnvDumpCommand(['GIT_CONFIG_GLOBAL']),
+        env: {GIT_CONFIG_GLOBAL: '/tmp/user.gitconfig'},
+      },
+    });
+
+    const output = collectOutput();
+    const result = await executeRunStep(step, {
+      gitConfigGlobal: '/runner-cred/job-1/git-cred.config',
+      onOutput: output.sink,
+    });
+
+    expect(result.success).toBe(true);
+    expect(JSON.parse(output.text())).toEqual({
+      GIT_CONFIG_GLOBAL: '/runner-cred/job-1/git-cred.config',
+    });
+  });
+
+  it('leaves GIT_CONFIG_GLOBAL unset when the checkout persisted no credentials', async () => {
+    const previous = process.env.GIT_CONFIG_GLOBAL;
+    delete process.env.GIT_CONFIG_GLOBAL;
+    try {
+      const step = buildStep({config: {run: nodeEnvDumpCommand(['GIT_CONFIG_GLOBAL'])}});
+      const output = collectOutput();
+
+      const result = await executeRunStep(step, {onOutput: output.sink});
+
+      expect(result.success).toBe(true);
+      expect(JSON.parse(output.text())).toEqual({GIT_CONFIG_GLOBAL: null});
+    } finally {
+      if (previous !== undefined) process.env.GIT_CONFIG_GLOBAL = previous;
+    }
+  });
+
   it('collects SHIPFOX_STEP_SUMMARY as a default annotation', async () => {
     const step = buildStep({
       config: {run: 'echo "### Summary" >> "$SHIPFOX_STEP_SUMMARY"'},
