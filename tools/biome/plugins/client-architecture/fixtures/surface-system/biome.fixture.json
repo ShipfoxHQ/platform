@@ -1,0 +1,57 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+  "vcs": {
+    "enabled": false
+  },
+  "assist": {
+    "enabled": true
+  },
+  "formatter": {
+    "enabled": true,
+    "useEditorconfig": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf",
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "bracketSpacing": false,
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "arrowParentheses": "always"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "plugins": [
+    {
+      "path": "../../no-page-canvas-tokens.grit",
+      "includes": ["**/no-page-canvas-tokens/**"]
+    },
+    {
+      "path": "../../no-dark-variants.grit",
+      "includes": ["**/no-dark-variants/**"]
+    },
+    {
+      "path": "../../no-nested-panel.grit",
+      "includes": ["**/no-nested-panel/**"]
+    },
+    {
+      "path": "../../no-table-outside-panel.grit",
+      "includes": ["**/no-table-outside-panel/**"]
+    },
+    {
+      "path": "../../no-arbitrary-page-width.grit",
+      "includes": ["**/no-arbitrary-page-width/**"]
+    }
+  ],
+  "files": {
+    "includes": ["**/*.tsx"]
+  }
+}

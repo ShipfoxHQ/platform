@@ -246,10 +246,8 @@ export function SentryCallbackPage() {
 
 function CallbackColumn({children}: {children: React.ReactNode}) {
   return (
-    <main className="flex min-h-screen bg-background-subtle-base px-row py-frame">
-      <div className="mx-auto flex w-full max-w-[480px] flex-col justify-center gap-section">
-        {children}
-      </div>
+    <main className="flex min-h-screen px-row py-frame">
+      <div className="mx-auto flex w-full flex-col justify-center gap-section">{children}</div>
     </main>
   );
 }

@@ -60,7 +60,7 @@ export function RepositoryPicker({
       {isLoading ? <RepositoryLoadingState /> : null}
 
       {!isLoading && repositories.length === 0 ? (
-        <div className="rounded-8 border border-border-neutral-base bg-background-subtle-base p-panel-compact">
+        <div className="rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact">
           <Text size="sm">{emptyMessage}</Text>
         </div>
       ) : null}

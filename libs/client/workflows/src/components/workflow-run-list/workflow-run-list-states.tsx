@@ -16,7 +16,7 @@ const SKELETON_ROW_COUNT = 8;
 export function WorkflowRunListSkeleton() {
   return (
     <div
-      className="@container divide-y divide-border-neutral-base border-t border-border-neutral-base"
+      className="@container divide-y divide-border-neutral-base"
       role="status"
       aria-label="Loading runs"
     >
@@ -28,7 +28,7 @@ export function WorkflowRunListSkeleton() {
         >
           <Skeleton className="size-14 shrink-0 rounded-full" />
           <Skeleton className="h-12 w-[220px] max-w-[40%]" />
-          <Skeleton className="ml-auto hidden h-12 w-96 @min-[1040px]:block" />
+          <Skeleton className="ml-auto hidden h-12 w-96 @min-[1200px]:block" />
           <Skeleton className="h-12 w-48" />
           <Skeleton className="h-12 w-48" />
         </div>

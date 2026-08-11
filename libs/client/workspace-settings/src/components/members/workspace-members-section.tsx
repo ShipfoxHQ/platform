@@ -4,6 +4,7 @@ import {QueryLoadError} from '@shipfox/client-ui';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
+import {Card} from '@shipfox/react-ui/card';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {FormField, FormFieldInput, fieldError} from '@shipfox/react-ui/form-field';
 import {Icon} from '@shipfox/react-ui/icon';
@@ -88,28 +89,30 @@ function MembersSection({
       ) : null}
 
       {members.length > 0 ? (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Joined</TableHead>
-              <TableHead className="w-80 text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {members.map((member) => (
-              <MemberRow
-                key={member.id}
-                member={member}
-                members={members}
-                currentUserId={auth.user?.id}
-                workspaceId={workspaceId}
-                workspaceName={workspaceName}
-              />
-            ))}
-          </TableBody>
-        </Table>
+        <Card className="overflow-hidden p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Joined</TableHead>
+                <TableHead className="w-80 text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {members.map((member) => (
+                <MemberRow
+                  key={member.id}
+                  member={member}
+                  members={members}
+                  currentUserId={auth.user?.id}
+                  workspaceId={workspaceId}
+                  workspaceName={workspaceName}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       ) : null}
     </section>
   );
@@ -233,25 +236,27 @@ function PendingInvitationsSection({
       {query.data !== undefined && invitations.length === 0 ? <EmptyInvitations /> : null}
 
       {invitations.length > 0 ? (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Email</TableHead>
-              <TableHead>Invited by</TableHead>
-              <TableHead>Expires</TableHead>
-              <TableHead className="w-80 text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {invitations.map((invitation) => (
-              <InvitationRow
-                key={invitation.id}
-                invitation={invitation}
-                workspaceId={workspaceId}
-              />
-            ))}
-          </TableBody>
-        </Table>
+        <Card className="overflow-hidden p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Email</TableHead>
+                <TableHead>Invited by</TableHead>
+                <TableHead>Expires</TableHead>
+                <TableHead className="w-80 text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {invitations.map((invitation) => (
+                <InvitationRow
+                  key={invitation.id}
+                  invitation={invitation}
+                  workspaceId={workspaceId}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       ) : null}
     </section>
   );

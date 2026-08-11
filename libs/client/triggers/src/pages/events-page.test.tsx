@@ -13,6 +13,7 @@ import {EventsPage} from './events-page.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const EVENT_ID = '22222222-2222-4222-8222-222222222222';
+const EVENTS_HEADING = /^Events$/u;
 
 const useTriggerEventsInfiniteQueryMock = vi.mocked(useTriggerEventsInfiniteQuery);
 const useTriggerEventFacetsQueryMock = vi.mocked(useTriggerEventFacetsQuery);
@@ -89,6 +90,12 @@ describe('EventsPage', () => {
     );
     fireEvent.click(await screen.findByRole('button', {name: 'Open details for github · push'}));
     expect(screen.getByRole('button', {name: 'Back to events'})).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: EVENTS_HEADING})).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'A workspace-wide audit log of trigger events received from integrations, schedules, and manual trigger calls.',
+      ),
+    ).not.toBeInTheDocument();
 
     useTriggerEventsInfiniteQueryMock.mockReturnValue(makeListQuery([]));
     rerender(<EventsPage workspaceId={WORKSPACE_ID} filters={{}} onFiltersChange={vi.fn()} />);

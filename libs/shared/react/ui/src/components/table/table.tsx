@@ -3,7 +3,7 @@ import {cn} from '#utils/cn.js';
 
 function Table({className, ...props}: ComponentProps<'table'>) {
   return (
-    <div className="relative w-full overflow-auto rounded-8 scrollbar">
+    <div className="relative w-full overflow-auto scrollbar">
       <table
         data-slot="table"
         className={cn('w-full caption-bottom text-sm', className)}
@@ -54,7 +54,7 @@ function TableHead({className, ...props}: ComponentProps<'th'>) {
     <th
       data-slot="table-head"
       className={cn(
-        'h-40 border-b border-border-neutral-base bg-background-subtle-base px-12 text-left align-middle text-xs font-medium leading-20 text-foreground-neutral-subtle',
+        'h-40 border-b border-border-neutral-base bg-background-neutral-base px-12 text-left align-middle text-xs font-medium leading-20 text-foreground-neutral-subtle',
         '[&:has([role=checkbox])]:w-0 [&:has([role=checkbox])]:px-12 [&:has([role=checkbox])]:pr-0 [&:has([role=checkbox])]:pt-6',
         className,
       )}
@@ -68,7 +68,7 @@ function TableCell({className, ...props}: ComponentProps<'td'>) {
     <td
       data-slot="table-cell"
       className={cn(
-        'truncate bg-background-neutral-base px-12 py-10 align-middle text-sm leading-20 text-foreground-neutral-base',
+        'truncate px-12 py-10 align-middle text-sm leading-20 text-foreground-neutral-base',
         'group-hover/row:bg-background-neutral-hover',
         'group-data-[selected=true]/row:bg-background-neutral-pressed!',
         '[&:has([role=checkbox])]:pr-0 [&:has([role=checkbox])]:pt-14',

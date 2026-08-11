@@ -9,6 +9,7 @@ import {
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
+import {Card} from '@shipfox/react-ui/card';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Icon, type IconName} from '@shipfox/react-ui/icon';
 import {LoadErrorState} from '@shipfox/react-ui/load-error-state';
@@ -195,7 +196,7 @@ function WorkflowDefinitionsList({
 
   return (
     <>
-      <div className="hidden rounded-8 border border-border-neutral-base md:block">
+      <Card className="hidden overflow-hidden p-0 md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -265,7 +266,7 @@ function WorkflowDefinitionsList({
             })}
           </TableBody>
         </Table>
-      </div>
+      </Card>
 
       <div className="flex flex-col rounded-8 border border-border-neutral-base md:hidden">
         {definitions.map((definition) => {

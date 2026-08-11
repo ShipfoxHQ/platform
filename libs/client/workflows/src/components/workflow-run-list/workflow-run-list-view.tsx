@@ -1,3 +1,4 @@
+import {Panel, PanelBody, PanelHeader} from '@shipfox/react-ui/panel';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Header} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
@@ -58,7 +59,7 @@ export function WorkflowRunListView({
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
       <section
         aria-labelledby={headingId}
-        className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-cluster', className)}
+        className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)}
       >
         {/* The tab strip above already reads "Runs", so the page heading is for structure and
             assistive tech rather than a second visible title competing with it. */}
@@ -66,27 +67,32 @@ export function WorkflowRunListView({
           Workflow runs
         </Header>
 
-        <WorkflowRunFilters
-          search={currentSearch}
-          facets={facets}
-          onChange={handleFiltersChange}
-          onClear={handleClearFilters}
-          hasActiveFilters={hasActiveFilters}
-        />
-
-        <WorkflowRunListContent
-          query={query}
-          totalRuns={runs.length}
-          runs={filteredRuns}
-          workspaceSlug={workspaceSlug}
-          projectSlug={projectSlug}
-          hasActiveFilters={hasActiveFilters}
-          onClearFilters={handleClearFilters}
-          hasNextPage={hasNextPage}
-          isFetchingNextPage={isFetchingNextPage}
-          isFetchNextPageError={isFetchNextPageError}
-          {...(onLoadMore ? {onLoadMore} : {})}
-        />
+        <Panel className="min-h-0 flex-1">
+          <PanelHeader className="flex-wrap">
+            <WorkflowRunFilters
+              search={currentSearch}
+              facets={facets}
+              onChange={handleFiltersChange}
+              onClear={handleClearFilters}
+              hasActiveFilters={hasActiveFilters}
+            />
+          </PanelHeader>
+          <PanelBody className="min-h-0 flex-1">
+            <WorkflowRunListContent
+              query={query}
+              totalRuns={runs.length}
+              runs={filteredRuns}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              hasActiveFilters={hasActiveFilters}
+              onClearFilters={handleClearFilters}
+              hasNextPage={hasNextPage}
+              isFetchingNextPage={isFetchingNextPage}
+              isFetchNextPageError={isFetchNextPageError}
+              {...(onLoadMore ? {onLoadMore} : {})}
+            />
+          </PanelBody>
+        </Panel>
       </section>
     </TimeTickerProvider>
   );

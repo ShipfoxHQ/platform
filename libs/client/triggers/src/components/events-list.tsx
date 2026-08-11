@@ -1,5 +1,6 @@
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
+import {Panel} from '@shipfox/react-ui/panel';
 import {Table, TableBody, TableHead, TableHeader, TableRow} from '@shipfox/react-ui/table';
 import {hasTriggerEventFilters} from '#core/trigger-event.js';
 import {EventsFilterBar} from './events-filter-bar.js';
@@ -40,7 +41,7 @@ export function EventsList({
   }
 
   return (
-    <div className="flex min-h-0 flex-col overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base">
+    <Panel className="min-h-0 overflow-hidden p-0">
       <EventsFilterBar
         filters={filters}
         onFiltersChange={onFiltersChange}
@@ -92,6 +93,6 @@ export function EventsList({
           ) : null}
         </>
       ) : null}
-    </div>
+    </Panel>
   );
 }

@@ -14,6 +14,7 @@ import {
 } from '@shipfox/react-ui/code-block';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Icon} from '@shipfox/react-ui/icon';
+import {Panel, PanelBody, PanelHeader, PanelTitle} from '@shipfox/react-ui/panel';
 import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
@@ -29,8 +30,6 @@ import {useTriggerEventQuery} from '#hooks/api/trigger-events.js';
 import {triggerEventResult} from './trigger-event-result.js';
 import {TriggerSourceIcon} from './trigger-source-icon.js';
 
-const PANEL_CLASS =
-  'min-h-0 rounded-8 border border-border-neutral-base bg-background-neutral-base';
 const DETAIL_RAIL_CLASS =
   '@min-[820px]:sticky @min-[820px]:top-16 @min-[820px]:max-h-[calc(var(--app-content-h,100dvh_-_96px)_-_32px)] @min-[820px]:min-h-[min(320px,calc(var(--app-content-h,100dvh_-_96px)_-_32px))]';
 
@@ -87,9 +86,9 @@ export function TriggerEventDetailView({
   return (
     <aside
       aria-label="Event details"
-      className={cn(PANEL_CLASS, DETAIL_RAIL_CLASS, 'flex min-h-0 flex-col overflow-hidden')}
+      className={cn(DETAIL_RAIL_CLASS, 'flex min-h-0 flex-col gap-group')}
     >
-      <div className="flex shrink-0 flex-col gap-cluster border-b border-border-neutral-base p-panel-compact">
+      <div className="flex shrink-0 flex-col gap-cluster p-panel-compact">
         <Button
           type="button"
           variant="transparentMuted"
@@ -138,7 +137,7 @@ export function TriggerEventDetailView({
 
       <div
         key={event.id}
-        className="flex min-h-0 flex-1 flex-col gap-section overflow-y-auto p-panel-compact scrollbar"
+        className="flex min-h-0 flex-1 flex-col gap-group overflow-y-auto scrollbar"
       >
         <EventRuns workspaceId={workspaceId} workspaceSlug={workspaceSlug} event={event} />
         <EventPayload payload={formattedPayload} />
@@ -157,14 +156,10 @@ function triggerEventFullLabel(event: Pick<TriggerEventDetailModel, 'event' | 's
 
 function TriggerEventDetailPlaceholder() {
   return (
-    <aside
-      aria-label="Event details"
-      className={cn(
-        PANEL_CLASS,
-        'hidden min-h-[240px] items-center justify-center p-panel @min-[820px]:flex',
-      )}
-    >
-      <EmptyState icon="pulseLine" variant="compact" title="No event selected" />
+    <aside aria-label="Event details" className="hidden min-h-[240px] @min-[820px]:flex">
+      <Panel className="flex min-h-0 flex-1 items-center justify-center p-panel">
+        <EmptyState icon="pulseLine" variant="compact" title="No event selected" />
+      </Panel>
     </aside>
   );
 }
@@ -173,28 +168,26 @@ function TriggerEventDetailLoading({onBack}: {onBack: () => void}) {
   return (
     <aside
       aria-label="Event details"
-      className={cn(
-        PANEL_CLASS,
-        DETAIL_RAIL_CLASS,
-        'flex min-h-[320px] flex-col gap-group p-panel-compact',
-      )}
+      className={cn(DETAIL_RAIL_CLASS, 'flex min-h-[320px] flex-col')}
     >
-      <Button
-        type="button"
-        variant="transparentMuted"
-        size="sm"
-        iconLeft="arrowLeftLine"
-        className="self-start @min-[820px]:hidden"
-        onClick={onBack}
-      >
-        Back to events
-      </Button>
-      <div className="flex flex-col gap-inline">
-        <Skeleton className="h-16 w-160" />
-        <Skeleton className="h-12 w-120" />
-      </div>
-      <Skeleton className="h-96" />
-      <Skeleton className="h-160" />
+      <Panel className="flex min-h-[320px] flex-col gap-group p-panel-compact">
+        <Button
+          type="button"
+          variant="transparentMuted"
+          size="sm"
+          iconLeft="arrowLeftLine"
+          className="self-start @min-[820px]:hidden"
+          onClick={onBack}
+        >
+          Back to events
+        </Button>
+        <div className="flex flex-col gap-inline">
+          <Skeleton className="h-16 w-160" />
+          <Skeleton className="h-12 w-120" />
+        </div>
+        <Skeleton className="h-96" />
+        <Skeleton className="h-160" />
+      </Panel>
     </aside>
   );
 }
@@ -203,30 +196,28 @@ function TriggerEventDetailError({onBack, onRetry}: {onBack: () => void; onRetry
   return (
     <aside
       aria-label="Event details"
-      className={cn(
-        PANEL_CLASS,
-        DETAIL_RAIL_CLASS,
-        'flex min-h-[320px] flex-col gap-group p-panel-compact',
-      )}
+      className={cn(DETAIL_RAIL_CLASS, 'flex min-h-[320px] flex-col')}
     >
-      <Button
-        type="button"
-        variant="transparentMuted"
-        size="sm"
-        iconLeft="arrowLeftLine"
-        className="self-start @min-[820px]:hidden"
-        onClick={onBack}
-      >
-        Back to events
-      </Button>
-      <Callout role="alert" type="error">
-        <div className="flex items-center justify-between gap-cluster">
-          <Text size="sm">Event detail could not be loaded.</Text>
-          <Button type="button" variant="secondary" size="xs" onClick={onRetry}>
-            Retry
-          </Button>
-        </div>
-      </Callout>
+      <Panel className="flex min-h-[320px] flex-col gap-group p-panel-compact">
+        <Button
+          type="button"
+          variant="transparentMuted"
+          size="sm"
+          iconLeft="arrowLeftLine"
+          className="self-start @min-[820px]:hidden"
+          onClick={onBack}
+        >
+          Back to events
+        </Button>
+        <Callout role="alert" type="error">
+          <div className="flex items-center justify-between gap-cluster">
+            <Text size="sm">Event detail could not be loaded.</Text>
+            <Button type="button" variant="secondary" size="xs" onClick={onRetry}>
+              Retry
+            </Button>
+          </div>
+        </Callout>
+      </Panel>
     </aside>
   );
 }
@@ -243,9 +234,13 @@ function EventRuns({
   if (event.decisions.length === 0) {
     if (event.outcome === 'discarded') {
       return (
-        <Text size="sm" className="text-foreground-neutral-muted">
-          No workflows are subscribed to this event.
-        </Text>
+        <Panel>
+          <PanelBody className="p-panel-compact">
+            <Text size="sm" className="text-foreground-neutral-muted">
+              No workflows are subscribed to this event.
+            </Text>
+          </PanelBody>
+        </Panel>
       );
     }
     return null;
@@ -301,23 +296,25 @@ function EventRunsList({
   event: TriggerEventDetailModel;
 }) {
   return (
-    <section aria-labelledby="trigger-event-runs-heading" className="flex flex-col gap-inline">
-      <Text id="trigger-event-runs-heading" size="sm" bold>
-        Matched workflows
-      </Text>
-      <ul className="-mx-inline flex flex-col gap-tight">
-        {event.decisions.map((decision) => (
-          <DecisionRow
-            key={decision.id}
-            workspaceSlug={workspaceSlug}
-            projectId={decision.projectId ?? undefined}
-            projectSlug={decision.projectId ? projectSlugs.get(decision.projectId) : undefined}
-            projectDetailLookupEnabled={projectDetailLookupEnabled}
-            decision={decision}
-          />
-        ))}
-      </ul>
-    </section>
+    <Panel>
+      <PanelHeader>
+        <PanelTitle>Matched workflows</PanelTitle>
+      </PanelHeader>
+      <PanelBody>
+        <ul>
+          {event.decisions.map((decision) => (
+            <DecisionRow
+              key={decision.id}
+              workspaceSlug={workspaceSlug}
+              projectId={decision.projectId ?? undefined}
+              projectSlug={decision.projectId ? projectSlugs.get(decision.projectId) : undefined}
+              projectDetailLookupEnabled={projectDetailLookupEnabled}
+              decision={decision}
+            />
+          ))}
+        </ul>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -343,25 +340,27 @@ function DecisionRow({
 
   if (decision.decision !== 'triggered' || !decision.runId || !decision.runName) {
     return (
-      <li className="flex min-w-0 items-start gap-inline rounded-6 p-tight">
-        <Icon
-          name="cornerDownRightLine"
-          className="size-14 shrink-0 text-foreground-neutral-disabled"
-          aria-hidden="true"
-        />
-        <div className="flex min-w-0 flex-col gap-tight">
-          <Text size="sm" className="min-w-0 truncate text-foreground-neutral-base">
-            {decision.subscriptionName}
-          </Text>
-          {decision.reason ? (
-            <Text size="xs" className="text-foreground-highlight-error">
-              {decision.reason}
+      <li className="border-b border-border-neutral-base px-row py-row last:border-b-0">
+        <div className="flex min-w-0 items-start gap-inline">
+          <Icon
+            name="cornerDownRightLine"
+            className="size-14 shrink-0 text-foreground-neutral-disabled"
+            aria-hidden="true"
+          />
+          <div className="flex min-w-0 flex-col gap-tight">
+            <Text size="sm" className="min-w-0 truncate text-foreground-neutral-base">
+              {decision.subscriptionName}
             </Text>
-          ) : (
-            <Text size="xs" className="text-foreground-neutral-disabled">
-              No run created
-            </Text>
-          )}
+            {decision.reason ? (
+              <Text size="xs" className="text-foreground-highlight-error">
+                {decision.reason}
+              </Text>
+            ) : (
+              <Text size="xs" className="text-foreground-neutral-disabled">
+                No run created
+              </Text>
+            )}
+          </div>
         </div>
       </li>
     );
@@ -385,10 +384,10 @@ function DecisionRow({
     </>
   );
   const rowClassName =
-    'flex min-w-0 items-start gap-inline rounded-6 p-tight hover:bg-background-components-hover focus-visible:outline-none focus-visible:shadow-button-neutral-focus';
+    'flex min-w-0 items-start gap-inline px-row py-row hover:bg-background-neutral-hover focus-visible:outline-none focus-visible:shadow-button-neutral-focus';
 
   return (
-    <li>
+    <li className="border-b border-border-neutral-base last:border-b-0">
       {workspaceSlug && resolvedProjectSlug ? (
         <Link
           to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
@@ -412,34 +411,38 @@ function EventPayload({payload}: {payload: string}) {
   const data = [{language: 'json', filename: 'payload.json', code: payload}];
 
   return (
-    <section aria-labelledby="trigger-event-payload-heading" className="flex flex-col gap-inline">
-      <Text id="trigger-event-payload-heading" size="sm" bold>
-        Payload
-      </Text>
-      <CodeBlock
-        data={data}
-        className="flex h-auto flex-col overflow-visible rounded-8 bg-background-contrast-base shadow-none"
-      >
-        <CodeBlockHeader className="sticky top-0 z-10 shrink-0 border-b border-border-contrast-base bg-background-contrast-base p-tight">
-          <CodeBlockFiles>
-            {(item) => <CodeBlockFilename value={item.filename}>{item.filename}</CodeBlockFilename>}
-          </CodeBlockFiles>
-          <CodeBlockCopyButton />
-        </CodeBlockHeader>
-        <CodeBlockBody className="min-h-0 scrollbar">
-          {(item) => (
-            <CodeBlockItem
-              value={item.filename}
-              lineNumbers={false}
-              className="px-0 pb-0 [&>div]:rounded-none [&>div]:border-0 [&>div]:bg-background-contrast-base [&_code]:!text-foreground-neutral-on-color"
-            >
-              <CodeBlockContent language="json" syntaxHighlighting={false}>
-                {item.code}
-              </CodeBlockContent>
-            </CodeBlockItem>
-          )}
-        </CodeBlockBody>
-      </CodeBlock>
-    </section>
+    <Panel>
+      <PanelHeader>
+        <PanelTitle>Payload</PanelTitle>
+      </PanelHeader>
+      <PanelBody className="p-0">
+        <CodeBlock
+          data={data}
+          className="flex h-auto flex-col overflow-visible rounded-none bg-background-contrast-base shadow-none"
+        >
+          <CodeBlockHeader className="sticky top-0 z-10 shrink-0 border-b border-border-contrast-base bg-background-contrast-base p-tight">
+            <CodeBlockFiles>
+              {(item) => (
+                <CodeBlockFilename value={item.filename}>{item.filename}</CodeBlockFilename>
+              )}
+            </CodeBlockFiles>
+            <CodeBlockCopyButton />
+          </CodeBlockHeader>
+          <CodeBlockBody className="min-h-0 scrollbar">
+            {(item) => (
+              <CodeBlockItem
+                value={item.filename}
+                lineNumbers={false}
+                className="px-0 pb-0 [&>div]:rounded-none [&>div]:border-0 [&>div]:bg-background-contrast-base [&_code]:!text-foreground-neutral-on-color"
+              >
+                <CodeBlockContent language="json" syntaxHighlighting={false}>
+                  {item.code}
+                </CodeBlockContent>
+              </CodeBlockItem>
+            )}
+          </CodeBlockBody>
+        </CodeBlock>
+      </PanelBody>
+    </Panel>
   );
 }

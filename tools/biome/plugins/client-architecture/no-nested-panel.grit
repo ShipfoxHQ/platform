@@ -1,0 +1,17 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+JsxElement(
+  opening_element = JsxOpeningElement(name = $outer_name),
+  children = $children,
+) as $outer where {
+  $outer_name <: "Panel",
+  $children <: contains or {
+    JsxElement(opening_element = JsxOpeningElement(name = "Panel")),
+    JsxSelfClosingElement(name = "Panel"),
+  },
+  register_diagnostic(
+    span=$outer,
+    message="client-architecture/no-nested-panel: keep one Panel and use its internal rows or cells instead of placing a Panel inside another Panel."
+  )
+}

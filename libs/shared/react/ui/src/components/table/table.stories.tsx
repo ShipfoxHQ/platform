@@ -2,6 +2,7 @@ import type {Meta, StoryObj} from '@storybook/react';
 import {StatusBadge} from '#components/badge/index.js';
 import {Button} from '#components/button/index.js';
 import {Code} from '#components/typography/index.js';
+import {Panel} from '../panel/panel.js';
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './table.js';
 
 const meta = {
@@ -40,7 +41,7 @@ const workflows = [
 
 export const Playground: Story = {
   render: () => (
-    <div className="w-760 rounded-8 border border-border-neutral-base bg-background-neutral-base">
+    <Panel className="w-760">
       <Table>
         <TableHeader>
           <TableRow>
@@ -71,6 +72,6 @@ export const Playground: Story = {
           ))}
         </TableBody>
       </Table>
-    </div>
+    </Panel>
   ),
 };
