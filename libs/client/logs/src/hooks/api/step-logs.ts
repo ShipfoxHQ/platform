@@ -172,9 +172,9 @@ export function useStepAttemptLogsQuery(
   });
 
   const refetchLogs = useCallback(() => {
-    if (!query.isFetching) manualRefetchRef.current = true;
-    return query.refetch({cancelRefetch: false});
-  }, [query.isFetching, query.refetch]);
+    manualRefetchRef.current = true;
+    return query.refetch();
+  }, [query.refetch]);
 
   return {...query, refetchLogs};
 }

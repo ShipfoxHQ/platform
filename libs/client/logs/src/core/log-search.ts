@@ -18,7 +18,7 @@ export function filterLogNodes(
   query: string,
   index: LogSearchIndex,
 ): LogNode[] {
-  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const normalizedQuery = query.trim().toLowerCase();
   return filterLogNodesInternal(nodes, normalizedQuery, index);
 }
 
@@ -46,7 +46,7 @@ function filterLogNodesInternal(
 
 function indexNodes(nodes: readonly LogNode[], textBySeq: Map<number, string>): void {
   for (const node of nodes) {
-    textBySeq.set(node.seq, searchableNodeText(node).toLocaleLowerCase());
+    textBySeq.set(node.seq, searchableNodeText(node).toLowerCase());
     if (node.kind === 'group') indexNodes(node.children, textBySeq);
   }
 }

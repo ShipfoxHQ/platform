@@ -70,6 +70,7 @@ export function WorkflowJobDetailPage({
         jobSearch={search}
         jobContent={
           <JobDetailView
+            key={jobId}
             workspaceSlug={workspaceSlug}
             projectSlug={projectSlug}
             workflowRunId={workflowRunId}

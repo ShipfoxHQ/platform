@@ -2,7 +2,7 @@ import {configureApiClient} from '@shipfox/client-api';
 import {type StepLogSnapshot, stepLogsQueryKeys} from '@shipfox/client-logs';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {createRef, type ReactNode} from 'react';
+import {createRef} from 'react';
 import {inlineLogBody, outputLine} from '#test/fixtures/logs.js';
 import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
 
@@ -49,25 +49,28 @@ function renderPanel(
     new QueryClient({
       defaultOptions: {queries: {retry: false}},
     });
-  const wrapper = ({children}: {children: ReactNode}) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
   const pageScrollRef = createRef<HTMLDivElement>();
-
-  return {
-    queryClient,
-    ...render(
+  const renderPanelUi = (panelProps: Partial<Parameters<typeof StepAttemptLogPanel>[0]>) => (
+    <QueryClientProvider client={queryClient}>
       <div ref={pageScrollRef}>
         <StepAttemptLogPanel
           stepId={STEP_ID}
           attempt={1}
           attemptStatus="running"
           pageScrollRef={pageScrollRef}
-          {...props}
+          {...panelProps}
         />
-      </div>,
-      {wrapper},
-    ),
+      </div>
+    </QueryClientProvider>
+  );
+  const rendered = render(renderPanelUi(props));
+
+  return {
+    queryClient,
+    ...rendered,
+    rerenderPanel: (nextProps: Partial<Parameters<typeof StepAttemptLogPanel>[0]> = {}) => {
+      rendered.rerender(renderPanelUi({...props, ...nextProps}));
+    },
   };
 }
 
@@ -246,20 +249,10 @@ describe('StepAttemptLogPanel', () => {
       .mockResolvedValueOnce(jsonResponse(inlineLogBody(outputLine('first\n'), 1)))
       .mockResolvedValueOnce(jsonResponse(inlineLogBody(outputLine('second\n'), 2)));
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
-    const {rerender} = renderPanel({attemptStatus: 'succeeded', refreshToken: 0});
+    const {rerenderPanel} = renderPanel({attemptStatus: 'succeeded', refreshToken: 0});
 
     expect(await screen.findByText('first')).toBeInTheDocument();
-    rerender(
-      <div>
-        <StepAttemptLogPanel
-          stepId={STEP_ID}
-          attempt={1}
-          attemptStatus="succeeded"
-          pageScrollRef={createRef<HTMLDivElement>()}
-          refreshToken={1}
-        />
-      </div>,
-    );
+    rerenderPanel({refreshToken: 1});
 
     expect(await screen.findByText('second')).toBeInTheDocument();
     expect(fetchImpl).toHaveBeenCalledTimes(2);

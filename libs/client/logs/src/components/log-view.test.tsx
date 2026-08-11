@@ -256,6 +256,34 @@ describe('LogView', () => {
     expect(screen.getByText('awaiting result')).toBeDefined();
   });
 
+  test('keeps tool relationships when search matches only one side', () => {
+    const records = [
+      agentSession({
+        kind: 'tool-call',
+        timestamp: ts,
+        id: 'call-1',
+        name: 'edit_file',
+        input: '{}',
+      }),
+      agentSession({
+        kind: 'tool-result',
+        timestamp: ts + 1,
+        toolCallId: 'call-1',
+        toolName: 'edit_file',
+        output: 'patched',
+        isError: false,
+      }),
+    ];
+
+    const {unmount} = render(<LogView search="{}" records={records} />);
+    expect(screen.queryByText('awaiting result')).not.toBeInTheDocument();
+
+    unmount();
+    render(<LogView search="patched" records={records} />);
+    expect(screen.getByText('result edit_file')).toBeInTheDocument();
+    expect(screen.queryByText('result (unmatched)')).not.toBeInTheDocument();
+  });
+
   test('renders unknown session entries without crashing', () => {
     render(
       <LogView

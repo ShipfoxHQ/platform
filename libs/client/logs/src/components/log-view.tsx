@@ -60,14 +60,14 @@ export function LogView({
   const rowsRef = useRef<HTMLDivElement>(null);
   const tree = useMemo(() => buildLogTree(records), [records]);
   const deferredSearch = useDeferredValue(search);
-  const normalizedSearch = deferredSearch.trim().toLocaleLowerCase();
+  const normalizedSearch = deferredSearch.trim().toLowerCase();
   const searchIndex = useMemo(() => buildLogSearchIndex(tree.nodes), [tree.nodes]);
   const visibleNodes = useMemo(
     () =>
       normalizedSearch ? filterLogNodes(tree.nodes, normalizedSearch, searchIndex) : tree.nodes,
     [normalizedSearch, searchIndex, tree.nodes],
   );
-  const resolvedToolCalls = useMemo(() => collectResolvedToolCalls(visibleNodes), [visibleNodes]);
+  const resolvedToolCalls = useMemo(() => collectResolvedToolCalls(tree.nodes), [tree.nodes]);
   const noOutputState = normalizedSearch ? null : getNoOutputState(tree, emptyState);
   const anchorRecordCount = records.length;
   const searchStatus = normalizedSearch

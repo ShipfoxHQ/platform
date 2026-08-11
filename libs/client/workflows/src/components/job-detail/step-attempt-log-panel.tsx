@@ -239,7 +239,14 @@ function StepLogsError({retrying, onRetry}: {retrying: boolean; onRetry: () => v
     >
       <div className="flex min-w-0 flex-1 items-center justify-between gap-inline">
         <Text size="xs">Could not load logs.</Text>
-        <Button type="button" size="2xs" variant="secondary" isLoading={retrying} onClick={onRetry}>
+        <Button
+          type="button"
+          size="2xs"
+          variant="secondary"
+          isLoading={retrying}
+          disabled={retrying}
+          onClick={onRetry}
+        >
           Retry
         </Button>
       </div>

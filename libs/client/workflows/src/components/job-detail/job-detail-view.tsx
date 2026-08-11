@@ -23,7 +23,7 @@ import {Link} from '@tanstack/react-router';
 import {type RefObject, useCallback, useEffect, useRef, useState} from 'react';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {summarizeJobAnnotations} from '#core/run-annotation.js';
-import {isWorkflowRunTerminal, type Job, type JobExecution, type Step} from '#core/workflow-run.js';
+import {isWorkflowRunTerminal, type Job, type JobExecution} from '#core/workflow-run.js';
 import {useWorkflowRunAnnotationSummaryQuery} from '#hooks/api/annotations.js';
 import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
@@ -33,7 +33,11 @@ import {
   workflowRunSearchParams,
 } from '#routes/inputs.js';
 import {type StepExpandedContext, StepList} from '../step-list/index.js';
-import {getStepStatusVisual, stepLabel} from '../step-list/step-list-model.js';
+import {
+  buildStepListModel,
+  getStepStatusVisual,
+  type StepListModel,
+} from '../step-list/step-list-model.js';
 import {
   WorkflowRunNotFound,
   WorkflowRunStaleError,
@@ -56,7 +60,6 @@ import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
 import {StepInspectorSheet} from './step-troubleshooting.js';
 
 type InspectorState = {key: string; attemptId: string | null};
-type LogRefreshRequest = {attemptId: string; token: number};
 
 export interface JobDetailViewProps {
   workspaceSlug: string;
@@ -88,7 +91,7 @@ export function JobDetailView({
   const [wrapLogs, setWrapLogs] = useState(false);
   const [showLineNumbers, setShowLineNumbers] = useState(true);
   const [expandedLogAttemptIds, setExpandedLogAttemptIds] = useState<readonly string[]>([]);
-  const [logRefreshRequest, setLogRefreshRequest] = useState<LogRefreshRequest | null>(null);
+  const [logRefreshTokens, setLogRefreshTokens] = useState<Record<string, number>>({});
   const [logFetchingByAttemptId, setLogFetchingByAttemptId] = useState<Record<string, boolean>>({});
   const hasLoadedData = query.data !== undefined;
   // Reuse the run workspace's bounded annotation read for the job header chip. The separate
@@ -131,16 +134,6 @@ export function JobDetailView({
     heading?.focus({preventScroll: true});
   }, [hasLoadedData, jobId]);
 
-  useEffect(() => {
-    if (!jobId) return;
-    setLogSearch('');
-    setWrapLogs(false);
-    setShowLineNumbers(true);
-    setExpandedLogAttemptIds([]);
-    setLogRefreshRequest(null);
-    setLogFetchingByAttemptId({});
-  }, [jobId]);
-
   const handleLogFetchingChange = useCallback((attemptId: string, isFetching: boolean) => {
     setLogFetchingByAttemptId((current) => {
       if (current[attemptId] === isFetching) return current;
@@ -175,6 +168,7 @@ export function JobDetailView({
   const resolvedSelection = resolveWorkflowJobSelection({job, selection: search});
   const selectedJobExecution = resolvedSelection.jobExecution;
   const hasExplicitStep = Boolean(search.stepId && resolvedSelection.step);
+  const stepListModel = buildStepListModel({job, jobExecution: selectedJobExecution});
   const currentLandingSelection = workflowJobLandingSelection(selectedJobExecution);
   if (selectedJobExecution) {
     const frozenLanding = landingSelectionRef.current;
@@ -201,7 +195,7 @@ export function JobDetailView({
   }
   const landingSelection = landingSelectionRef.current?.selection;
   const selectedAttemptId = hasExplicitStep ? resolvedSelection.selectedAttemptId : undefined;
-  const runningSelection = runningStepSelection(selectedJobExecution);
+  const runningSelection = runningStepSelection(selectedJobExecution, stepListModel);
   const selectedStepId = resolvedSelection.step?.id ?? landingSelection?.stepId;
   const selectedAttemptForNotice = hasExplicitStep
     ? resolvedSelection.selectedAttemptId
@@ -209,6 +203,7 @@ export function JobDetailView({
   const expandedLogSelection = findExpandedLogSelection(
     selectedJobExecution,
     expandedLogAttemptIds,
+    stepListModel,
   );
   const selectedLogStep = expandedLogSelection?.step;
   const selectedLogAttempt = expandedLogSelection?.attempt;
@@ -272,9 +267,9 @@ export function JobDetailView({
 
   function refreshLogs() {
     if (!selectedLogAttempt) return;
-    setLogRefreshRequest((current) => ({
-      attemptId: selectedLogAttempt.id,
-      token: (current?.token ?? 0) + 1,
+    setLogRefreshTokens((current) => ({
+      ...current,
+      [selectedLogAttempt.id]: (current[selectedLogAttempt.id] ?? 0) + 1,
     }));
   }
 
@@ -311,7 +306,7 @@ export function JobDetailView({
               />
               <Panel data-job-log-panel className="min-w-0">
                 <JobLogPanelHeader
-                  step={selectedLogStep}
+                  stepLabel={expandedLogSelection?.stepLabel}
                   attempt={selectedLogAttempt?.attempt}
                   status={selectedLogStatus}
                   search={logSearch}
@@ -352,11 +347,7 @@ export function JobDetailView({
                             wrap={wrapLogs}
                             showLineNumbers={showLineNumbers}
                             attemptId={context.attemptId}
-                            refreshToken={
-                              logRefreshRequest?.attemptId === context.attemptId
-                                ? logRefreshRequest.token
-                                : 0
-                            }
+                            refreshToken={logRefreshTokens[context.attemptId] ?? 0}
                             onFetchingChange={handleLogFetchingChange}
                           />
                         )}
@@ -465,7 +456,7 @@ function ExpandedStep({
 }
 
 function JobLogPanelHeader({
-  step,
+  stepLabel,
   attempt,
   status,
   search,
@@ -478,7 +469,7 @@ function JobLogPanelHeader({
   onWrapChange,
   disabled,
 }: {
-  step: Step | undefined;
+  stepLabel: string | undefined;
   attempt: number | undefined;
   status: string | undefined;
   search: string;
@@ -497,7 +488,7 @@ function JobLogPanelHeader({
     <PanelHeader className="flex flex-wrap items-center gap-group">
       <div className="min-w-0 flex-1">
         <Text size="sm" bold className="truncate text-foreground-neutral-base">
-          {step ? stepLabel(step, step.position) : 'Logs'}
+          {stepLabel ?? 'Logs'}
         </Text>
         {statusVisual ? (
           <div className="flex min-w-0 items-center gap-inline text-foreground-neutral-muted">
@@ -531,7 +522,7 @@ function JobLogPanelHeader({
           icon="refreshLine"
           aria-label="Refresh logs"
           onClick={onRefresh}
-          disabled={disabled}
+          disabled={disabled || refreshing}
           isLoading={refreshing}
         />
         <DropdownMenu>
@@ -644,7 +635,7 @@ function NewerAttemptNotice({
   );
 }
 
-function runningStepSelection(jobExecution: JobExecution | undefined) {
+function runningStepSelection(jobExecution: JobExecution | undefined, model: StepListModel) {
   if (!jobExecution) return undefined;
   const steps = [...jobExecution.steps].sort(
     (left, right) => left.position - right.position || left.id.localeCompare(right.id),
@@ -660,7 +651,7 @@ function runningStepSelection(jobExecution: JobExecution | undefined) {
       return {
         stepId: step.id,
         attemptId: attempt.id,
-        stepLabel: stepLabel(step, step.position),
+        stepLabel: model.entries.find((entry) => entry.id === attempt.id)?.step.label ?? 'Step',
       };
   }
   return undefined;
@@ -677,6 +668,7 @@ function findAttempt(jobExecution: JobExecution, attemptId: string) {
 function findExpandedLogSelection(
   jobExecution: JobExecution | undefined,
   attemptIds: readonly string[],
+  model: StepListModel,
 ) {
   if (!jobExecution) return undefined;
 
@@ -685,7 +677,8 @@ function findExpandedLogSelection(
     if (!attemptId) continue;
     const match = findAttempt(jobExecution, attemptId);
     const attempt = match?.step.attempts.find((candidate) => candidate.id === attemptId);
-    if (match && attempt) return {step: match.step, attempt};
+    const entry = model.entries.find((candidate) => candidate.id === attemptId);
+    if (match && attempt && entry) return {step: match.step, attempt, stepLabel: entry.step.label};
   }
 
   return undefined;
