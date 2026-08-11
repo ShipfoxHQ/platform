@@ -32,7 +32,7 @@ describe('Table', () => {
     expect(panel?.classList.contains('border-border-neutral-base')).toBe(true);
     expect(tableContainer?.classList.contains('rounded-8')).toBe(false);
     expect(tableContainer?.classList.contains('border')).toBe(false);
-    expect(header?.classList.contains('bg-background-subtle-base')).toBe(true);
+    expect(header?.classList.contains('bg-background-neutral-base')).toBe(true);
     expect(cell?.classList.contains('bg-background-neutral-base')).toBe(false);
     expect(row?.classList.contains('hover:bg-background-neutral-hover')).toBe(true);
     expect(row?.classList.contains('data-[selected=true]:bg-background-neutral-pressed')).toBe(

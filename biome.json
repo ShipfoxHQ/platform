@@ -247,6 +247,7 @@
         "**/libs/client/**",
         "**/libs/shared/react/ui/**",
         "!**/libs/client/shell/**",
+        "!**/libs/shared/react/ui/src/components/panel/**",
         "!**/libs/client/config/src/config-error-screen.tsx",
         "!**/dist/**",
         "!**/node_modules/**",

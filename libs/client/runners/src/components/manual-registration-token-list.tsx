@@ -1,6 +1,5 @@
 import {Button, IconButton} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
-import {Card} from '@shipfox/react-ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +15,7 @@ import {
   ModalHeader,
   ModalTitle,
 } from '@shipfox/react-ui/modal';
+import {Panel} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {
   Table,
@@ -46,7 +46,7 @@ export function ManualRegistrationTokenList({
 }) {
   return (
     <>
-      <Card className="max-[760px]:hidden overflow-hidden p-0">
+      <Panel className="max-[760px]:hidden">
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
@@ -81,7 +81,7 @@ export function ManualRegistrationTokenList({
             ))}
           </TableBody>
         </Table>
-      </Card>
+      </Panel>
       <ul
         className="hidden flex-col gap-inline max-[760px]:flex"
         aria-label="Manual registration tokens"

@@ -1,6 +1,5 @@
 import {Button, IconButton} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
-import {Card} from '@shipfox/react-ui/card';
 import {Dot} from '@shipfox/react-ui/dot';
 import {
   DropdownMenu,
@@ -17,6 +16,7 @@ import {
   ModalHeader,
   ModalTitle,
 } from '@shipfox/react-ui/modal';
+import {Panel} from '@shipfox/react-ui/panel';
 import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {
@@ -54,7 +54,7 @@ export function ProvisionerTokenList({
 }) {
   return (
     <>
-      <Card className="max-[760px]:hidden overflow-hidden p-0">
+      <Panel className="max-[760px]:hidden">
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
@@ -93,7 +93,7 @@ export function ProvisionerTokenList({
             ))}
           </TableBody>
         </Table>
-      </Card>
+      </Panel>
       <ul className="hidden flex-col gap-inline max-[760px]:flex" aria-label="Provisioner tokens">
         {tokens.map((token) => (
           <li

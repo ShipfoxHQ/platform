@@ -4,7 +4,6 @@ import {QueryLoadError} from '@shipfox/client-ui';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
-import {Card} from '@shipfox/react-ui/card';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {FormField, FormFieldInput, fieldError} from '@shipfox/react-ui/form-field';
 import {Icon} from '@shipfox/react-ui/icon';
@@ -17,6 +16,7 @@ import {
   ModalTitle,
   ModalTrigger,
 } from '@shipfox/react-ui/modal';
+import {Panel} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {
   Table,
@@ -89,7 +89,7 @@ function MembersSection({
       ) : null}
 
       {members.length > 0 ? (
-        <Card className="overflow-hidden p-0">
+        <Panel>
           <Table>
             <TableHeader>
               <TableRow>
@@ -112,7 +112,7 @@ function MembersSection({
               ))}
             </TableBody>
           </Table>
-        </Card>
+        </Panel>
       ) : null}
     </section>
   );
@@ -236,7 +236,7 @@ function PendingInvitationsSection({
       {query.data !== undefined && invitations.length === 0 ? <EmptyInvitations /> : null}
 
       {invitations.length > 0 ? (
-        <Card className="overflow-hidden p-0">
+        <Panel>
           <Table>
             <TableHeader>
               <TableRow>
@@ -256,7 +256,7 @@ function PendingInvitationsSection({
               ))}
             </TableBody>
           </Table>
-        </Card>
+        </Panel>
       ) : null}
     </section>
   );
