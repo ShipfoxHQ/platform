@@ -31,6 +31,7 @@ describe('Panel', () => {
     expect(panel?.classList.contains('rounded-8')).toBe(true);
     expect(panel?.classList.contains('border-border-neutral-base')).toBe(true);
     expect(header?.getAttribute('data-variant')).toBe('strip');
+    expect(header?.classList.contains('bg-background-neutral-base')).toBe(true);
     expect(rows).toHaveLength(2);
     expect(rows[0]?.classList.contains('hover:bg-background-neutral-hover')).toBe(true);
   });
