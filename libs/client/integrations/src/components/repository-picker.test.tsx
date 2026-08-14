@@ -86,17 +86,18 @@ describe('RepositoryPicker', () => {
     const loadingGrid = container.querySelector('[aria-hidden="true"]');
     if (!loadingGrid) throw new Error('Repository loading grid was not rendered');
 
-    expect(loadingGrid).toHaveClass(
-      'grid',
-      'grid-cols-2',
-      'gap-px',
-      'bg-border-neutral-base',
-      'max-[760px]:grid-cols-1',
-    );
+    // The placeholders sit in the same gap grid as the loaded cards, so the list
+    // does not change shape when the fetch resolves.
+    expect(loadingGrid).toHaveClass('grid', 'grid-cols-2', 'gap-inline', 'max-[760px]:grid-cols-1');
     expect(loadingGrid.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4);
-    for (const placeholder of loadingGrid.querySelectorAll(':scope > div')) {
-      expect(placeholder).toHaveClass('h-50', 'bg-background-neutral-base', 'p-[14px]');
-      expect(placeholder).not.toHaveClass('rounded-8', 'border');
+    // The placeholder box belongs to `RadioGroupItemSkeleton`, so this only
+    // checks that each slot carries the indicator and one bar. react-ui owns
+    // keeping that surface identical to a real item.
+    const placeholders = loadingGrid.querySelectorAll(':scope > div');
+    expect(placeholders).toHaveLength(4);
+    for (const placeholder of placeholders) {
+      expect(placeholder.querySelector('[data-slot="radio-indicator"]')).not.toBeNull();
+      expect(placeholder.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     }
   });
 });

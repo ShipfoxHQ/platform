@@ -17,11 +17,11 @@ import {
   ModalHeader,
   ModalTitle,
 } from '@shipfox/react-ui/modal';
+import {Panel, PanelBody, PanelRow} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {toast} from '@shipfox/react-ui/toast';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Header, Text} from '@shipfox/react-ui/typography';
-import {cn} from '@shipfox/react-ui/utils';
 import {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {
   type ManagementModal,
@@ -58,9 +58,6 @@ import {
   usageTargetFromCustomConfig,
 } from './model-provider-usage-target.js';
 import {ModelProviderTestAndSaveForm} from './test-and-save-form.js';
-
-const SURFACE_CLASS =
-  'overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base';
 
 type UsageTarget = {
   target: ModelProviderUsageTarget;
@@ -133,75 +130,83 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         ) : null}
 
         {configsQuery.isError && configsQuery.data === undefined ? (
-          <div className={SURFACE_CLASS}>
+          <Panel>
             <QueryLoadError query={configsQuery} subject="model provider configs" variant="panel" />
-          </div>
+          </Panel>
         ) : null}
 
         {configsQuery.data !== undefined && configs.length === 0 ? (
-          <div className={SURFACE_CLASS}>
+          <Panel>
             <EmptyState
               icon="key2Line"
               title="No providers configured"
               description="Configure a provider below to run agent steps with workspace-managed credentials."
               variant="panel"
             />
-          </div>
+          </Panel>
         ) : null}
 
         {configs.length > 0 ? (
-          <ul className={cn('divide-y divide-border-neutral-base', SURFACE_CLASS)}>
-            {configs.map((config) => {
-              const catalogEntry = providerById.get(config.providerId);
-              const entry =
-                catalogEntry && isSupportedProvider(catalogEntry) ? catalogEntry : undefined;
-              const builtinConfig = isBuiltinModelProviderConfig(config) ? config : undefined;
-              const customConfig = isCustomModelProviderConfig(config) ? config : undefined;
-              return (
-                <ConfiguredProviderRow
-                  key={config.providerId}
-                  workspaceId={workspaceId}
-                  config={config}
-                  entry={entry}
-                  isDefault={config.providerId === defaultProviderId}
-                  onEdit={() => {
-                    if (entry && builtinConfig) {
-                      dispatchModal({type: 'edit-builtin', provider: entry, config: builtinConfig});
-                    } else if (customConfig) {
-                      dispatchModal({type: 'edit-custom', config: customConfig});
-                    }
-                  }}
-                  onChangeDefaultModel={() => {
-                    if (entry && builtinConfig)
-                      dispatchModal({
-                        type: 'change-default-model',
-                        provider: entry,
-                        config: builtinConfig,
-                      });
-                  }}
-                  onShowUsage={() => {
-                    if (entry && builtinConfig) {
-                      setPendingUsageTarget(null);
-                      dispatchModal({
-                        type: 'show-usage',
-                        providerId: entry.id,
-                        initialModel: builtinConfig.defaultModel,
-                        restoreFocusToConfiguredProviders: false,
-                      });
-                    } else if (customConfig) {
-                      setPendingUsageTarget(null);
-                      dispatchModal({
-                        type: 'show-usage',
-                        providerId: customConfig.providerId,
-                        initialModel: customConfig.defaultModel,
-                        restoreFocusToConfiguredProviders: false,
-                      });
-                    }
-                  }}
-                />
-              );
-            })}
-          </ul>
+          <Panel>
+            <PanelBody asChild>
+              <ul>
+                {configs.map((config) => {
+                  const catalogEntry = providerById.get(config.providerId);
+                  const entry =
+                    catalogEntry && isSupportedProvider(catalogEntry) ? catalogEntry : undefined;
+                  const builtinConfig = isBuiltinModelProviderConfig(config) ? config : undefined;
+                  const customConfig = isCustomModelProviderConfig(config) ? config : undefined;
+                  return (
+                    <ConfiguredProviderRow
+                      key={config.providerId}
+                      workspaceId={workspaceId}
+                      config={config}
+                      entry={entry}
+                      isDefault={config.providerId === defaultProviderId}
+                      onEdit={() => {
+                        if (entry && builtinConfig) {
+                          dispatchModal({
+                            type: 'edit-builtin',
+                            provider: entry,
+                            config: builtinConfig,
+                          });
+                        } else if (customConfig) {
+                          dispatchModal({type: 'edit-custom', config: customConfig});
+                        }
+                      }}
+                      onChangeDefaultModel={() => {
+                        if (entry && builtinConfig)
+                          dispatchModal({
+                            type: 'change-default-model',
+                            provider: entry,
+                            config: builtinConfig,
+                          });
+                      }}
+                      onShowUsage={() => {
+                        if (entry && builtinConfig) {
+                          setPendingUsageTarget(null);
+                          dispatchModal({
+                            type: 'show-usage',
+                            providerId: entry.id,
+                            initialModel: builtinConfig.defaultModel,
+                            restoreFocusToConfiguredProviders: false,
+                          });
+                        } else if (customConfig) {
+                          setPendingUsageTarget(null);
+                          dispatchModal({
+                            type: 'show-usage',
+                            providerId: customConfig.providerId,
+                            initialModel: customConfig.defaultModel,
+                            restoreFocusToConfiguredProviders: false,
+                          });
+                        }
+                      }}
+                    />
+                  );
+                })}
+              </ul>
+            </PanelBody>
+          </Panel>
         ) : null}
       </section>
 
@@ -218,9 +223,9 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         ) : null}
 
         {catalogQuery.isError && catalogQuery.data === undefined ? (
-          <div className={SURFACE_CLASS}>
+          <Panel>
             <QueryLoadError query={catalogQuery} subject="model provider catalog" variant="panel" />
-          </div>
+          </Panel>
         ) : null}
 
         {configsLoaded ? (
@@ -248,25 +253,35 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         ) : null}
 
         {unsupportedProviders.length > 0 ? (
-          <ul className={cn('divide-y divide-border-neutral-base', SURFACE_CLASS)}>
-            {unsupportedProviders.map((entry) => (
-              <li key={entry.id} className="flex items-start gap-cluster px-row py-row opacity-70">
-                <Icon
-                  name="forbid2Line"
-                  className="mt-[2px] size-18 shrink-0 text-foreground-neutral-muted"
-                  aria-hidden
-                />
-                <div className="flex min-w-0 flex-1 flex-col gap-tight">
-                  <Text size="md" bold className="truncate">
-                    {entry.label}
-                  </Text>
-                  <Text size="sm" className="text-foreground-neutral-muted">
-                    {entry.unsupportedReason}
-                  </Text>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <Panel>
+            <PanelBody asChild>
+              <ul>
+                {unsupportedProviders.map((entry) => (
+                  <PanelRow
+                    asChild
+                    className="items-start justify-start gap-cluster opacity-70 hover:bg-background-neutral-base"
+                    key={entry.id}
+                  >
+                    <li>
+                      <Icon
+                        name="forbid2Line"
+                        className="mt-[2px] size-18 shrink-0 text-foreground-neutral-muted"
+                        aria-hidden
+                      />
+                      <div className="flex min-w-0 flex-1 flex-col gap-tight">
+                        <Text size="md" bold className="truncate">
+                          {entry.label}
+                        </Text>
+                        <Text size="sm" className="text-foreground-neutral-muted">
+                          {entry.unsupportedReason}
+                        </Text>
+                      </div>
+                    </li>
+                  </PanelRow>
+                ))}
+              </ul>
+            </PanelBody>
+          </Panel>
         ) : null}
       </section>
 
@@ -472,91 +487,93 @@ function ConfiguredProviderRow({
   }
 
   return (
-    <li className="flex flex-col gap-inline px-row py-row transition-colors hover:bg-background-components-hover">
-      <div className="flex items-center justify-between gap-cluster">
-        <div className="flex min-w-0 items-center gap-inline">
-          {isDefault ? (
-            <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex size-16 shrink-0 items-center justify-center">
-                    <Icon
-                      name="starLine"
-                      className="size-16 text-foreground-neutral-muted"
-                      aria-hidden
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>Default provider</TooltipContent>
-              </Tooltip>
-              <span className="sr-only">Default provider</span>
-            </>
-          ) : null}
-          <Text size="md" bold className="truncate">
-            {label}
-          </Text>
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <IconButton
-              size="sm"
-              variant="transparent"
-              icon="more2Line"
-              aria-label={`Open ${label} provider actions`}
-            />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {!isDefault ? (
+    <PanelRow asChild className="flex-col items-stretch gap-inline">
+      <li>
+        <div className="flex items-center justify-between gap-cluster">
+          <div className="flex min-w-0 items-center gap-inline">
+            {isDefault ? (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex size-16 shrink-0 items-center justify-center">
+                      <Icon
+                        name="starLine"
+                        className="size-16 text-foreground-neutral-muted"
+                        aria-hidden
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Default provider</TooltipContent>
+                </Tooltip>
+                <span className="sr-only">Default provider</span>
+              </>
+            ) : null}
+            <Text size="md" bold className="truncate">
+              {label}
+            </Text>
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <IconButton
+                size="sm"
+                variant="transparent"
+                icon="more2Line"
+                aria-label={`Open ${label} provider actions`}
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {!isDefault ? (
+                <DropdownMenuItem
+                  icon="starLine"
+                  disabled={setDefault.isPending || (!entry && !customConfig)}
+                  onSelect={() => {
+                    void handleSetDefault();
+                  }}
+                >
+                  Set as default
+                </DropdownMenuItem>
+              ) : null}
+              {isBuiltinConfig ? (
+                <DropdownMenuItem
+                  icon="settings3Line"
+                  disabled={!entry}
+                  onSelect={onChangeDefaultModel}
+                >
+                  Change default model
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem icon="bookOpenLine" disabled={!canUse} onSelect={onShowUsage}>
+                View workflow example
+              </DropdownMenuItem>
+              <DropdownMenuItem icon="editLine" disabled={!canEdit} onSelect={onEdit}>
+                {customConfig ? 'Edit' : 'Edit credentials'}
+              </DropdownMenuItem>
               <DropdownMenuItem
-                icon="starLine"
-                disabled={setDefault.isPending || (!entry && !customConfig)}
+                icon="deleteBinLine"
                 onSelect={() => {
-                  void handleSetDefault();
+                  setDeleteOpen(true);
                 }}
               >
-                Set as default
+                Delete
               </DropdownMenuItem>
-            ) : null}
-            {isBuiltinConfig ? (
-              <DropdownMenuItem
-                icon="settings3Line"
-                disabled={!entry}
-                onSelect={onChangeDefaultModel}
-              >
-                Change default model
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem icon="bookOpenLine" disabled={!canUse} onSelect={onShowUsage}>
-              View workflow example
-            </DropdownMenuItem>
-            <DropdownMenuItem icon="editLine" disabled={!canEdit} onSelect={onEdit}>
-              {customConfig ? 'Edit' : 'Edit credentials'}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              icon="deleteBinLine"
-              onSelect={() => {
-                setDeleteOpen(true);
-              }}
-            >
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      {defaultError ? (
-        <Callout role="alert" type="error">
-          <Text size="sm">{defaultError}</Text>
-        </Callout>
-      ) : null}
-      <DeleteModelProviderDialog
-        open={deleteOpen}
-        onOpenChange={handleDeleteOpenChange}
-        label={label}
-        errorMessage={deleteError}
-        isLoading={deleteConfig.isPending}
-        onDelete={handleDelete}
-      />
-    </li>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {defaultError ? (
+          <Callout role="alert" type="error">
+            <Text size="sm">{defaultError}</Text>
+          </Callout>
+        ) : null}
+        <DeleteModelProviderDialog
+          open={deleteOpen}
+          onOpenChange={handleDeleteOpenChange}
+          label={label}
+          errorMessage={deleteError}
+          isLoading={deleteConfig.isPending}
+          onDelete={handleDelete}
+        />
+      </li>
+    </PanelRow>
   );
 }
 
@@ -606,21 +623,27 @@ function DeleteModelProviderDialog({
 
 function ModelProviderRowsSkeleton({label}: {label: string}) {
   return (
-    <ul
-      role="status"
-      aria-label={label}
-      className={cn('divide-y divide-border-neutral-base', SURFACE_CLASS)}
-    >
-      {[0, 1, 2].map((row) => (
-        <li key={row} className="flex items-center gap-cluster px-row py-row">
-          <Skeleton className="size-32 shrink-0" />
-          <div className="flex min-w-0 flex-1 flex-col gap-inline">
-            <Skeleton className="h-16 w-120" />
-            <Skeleton className="h-14 w-180" />
-          </div>
-          <Skeleton className="h-28 w-96 shrink-0" />
-        </li>
-      ))}
-    </ul>
+    <Panel>
+      <PanelBody asChild>
+        <ul role="status" aria-label={label}>
+          {[0, 1, 2].map((row) => (
+            <PanelRow
+              asChild
+              className="justify-start gap-cluster hover:bg-background-neutral-base"
+              key={row}
+            >
+              <li>
+                <Skeleton className="size-32 shrink-0" />
+                <div className="flex min-w-0 flex-1 flex-col gap-inline">
+                  <Skeleton className="h-16 w-120" />
+                  <Skeleton className="h-14 w-180" />
+                </div>
+                <Skeleton className="h-28 w-96 shrink-0" />
+              </li>
+            </PanelRow>
+          ))}
+        </ul>
+      </PanelBody>
+    </Panel>
   );
 }

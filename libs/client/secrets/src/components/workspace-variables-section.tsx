@@ -26,7 +26,7 @@ import {useDeleteVariableMutation, useVariablesQuery} from '#hooks/api/variables
 import {copyKeyName} from './copy-key.js';
 import {DeleteEntryDialog} from './delete-entry-dialog.js';
 import {secretsErrorToFormError} from './form-errors.js';
-import {StoreRowsSkeleton, StoreSurface} from './store-section-shell.js';
+import {StoreRowsSkeleton} from './store-section-shell.js';
 import {VariableForm} from './variable-form.js';
 
 const VARIABLES_DESCRIPTION =
@@ -71,13 +71,13 @@ export function WorkspaceVariablesSection({workspaceId}: {workspaceId: string}) 
         {variablesQuery.isPending ? <StoreRowsSkeleton label="Loading variables" /> : null}
 
         {variablesQuery.isError && variablesQuery.data === undefined ? (
-          <StoreSurface>
+          <Panel>
             <QueryLoadError query={variablesQuery} subject="variables" variant="panel" />
-          </StoreSurface>
+          </Panel>
         ) : null}
 
         {variablesQuery.data !== undefined && variables.length === 0 ? (
-          <StoreSurface>
+          <Panel>
             <EmptyState
               icon="bracesLine"
               title="No variables yet"
@@ -89,7 +89,7 @@ export function WorkspaceVariablesSection({workspaceId}: {workspaceId: string}) 
                 </Button>
               }
             />
-          </StoreSurface>
+          </Panel>
         ) : null}
 
         {variables.length > 0 ? (

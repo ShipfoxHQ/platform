@@ -1,12 +1,16 @@
 import type {Meta, StoryObj} from '@storybook/react';
 import {StatusBadge} from '#components/badge/index.js';
 import {Button} from '#components/button/index.js';
+import {Icon} from '#components/icon/index.js';
 import {Code, Text} from '#components/typography/index.js';
 import {
   Panel,
   PanelActions,
   PanelBody,
+  PanelCell,
+  PanelCellAction,
   PanelEmpty,
+  PanelGrid,
   PanelHeader,
   PanelRow,
   PanelTitle,
@@ -33,6 +37,14 @@ const workflows = [
     status: 'Failed',
     statusVariant: 'error' as const,
   },
+];
+
+const gridProjects = [
+  {name: 'Platform', path: 'platform'},
+  {name: 'Agent runtime', path: 'agent-runtime'},
+  {name: 'Workflows', path: 'workflows'},
+  {name: 'Docs site', path: 'docs-site'},
+  {name: 'Provisioner', path: 'provisioner'},
 ];
 
 const meta = {
@@ -92,6 +104,30 @@ export const Variants: Story = {
         </Panel>
       ))}
     </div>
+  ),
+};
+
+export const Grid: Story = {
+  render: () => (
+    <Panel className="w-640">
+      <PanelHeader>
+        <PanelTitle>Projects</PanelTitle>
+      </PanelHeader>
+      <PanelBody>
+        <PanelGrid aria-label="Projects">
+          {gridProjects.map((project) => (
+            <PanelCell key={project.path}>
+              <PanelCellAction>
+                <Icon name="folderLine" className="size-24 shrink-0" aria-hidden />
+                <Text as="span" size="md" bold className="truncate">
+                  {project.name}
+                </Text>
+              </PanelCellAction>
+            </PanelCell>
+          ))}
+        </PanelGrid>
+      </PanelBody>
+    </Panel>
   ),
 };
 

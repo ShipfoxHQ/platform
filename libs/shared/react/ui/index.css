@@ -389,6 +389,8 @@
     0 2px 2px 0 var(--color-alpha-black-24);
   --shadow-border-interactive-with-active: 0 0 0 1px #ff8b16, 0 0 0 4px rgba(255, 49, 0, 0.25);
   --shadow-border-error: 0 0 0 1px #ff1f5a, 0 0 0 3px rgba(246, 0, 67, 0.25);
+  /* Theme-invariant: for controls whose parent clips the outset focus ring. */
+  --shadow-focus-inset: inset 0 0 0 2px var(--color-primary-500);
   --shadow-button-inverted:
     0 -1px 0 0 var(--color-alpha-white-12), 0 0 0 1px var(--color-alpha-white-10),
     0 0 0 1px var(--color-neutral-600), 0 0 1px 1.5px var(--color-alpha-black-24),
@@ -625,6 +627,8 @@
     0 2px 2px 0 var(--color-alpha-black-24);
   --shadow-border-interactive-with-active: 0 0 0 1px #ff8b16, 0 0 0 4px rgba(255, 49, 0, 0.25);
   --shadow-border-error: 0 0 0 1px #ff1f5a, 0 0 0 3px rgba(246, 0, 67, 0.25);
+  /* Theme-invariant: for controls whose parent clips the outset focus ring. */
+  --shadow-focus-inset: inset 0 0 0 2px var(--color-primary-500);
   --shadow-button-inverted:
     0 -1px 0 0 var(--color-alpha-white-12), 0 0 0 1px var(--color-alpha-white-10),
     0 0 0 1px var(--color-neutral-600), 0 0 1px 1.5px var(--color-alpha-black-24),
@@ -1015,6 +1019,7 @@
   --shadow-border-base: var(--shadow-border-base);
   --shadow-border-interactive-with-active: var(--shadow-border-interactive-with-active);
   --shadow-border-error: var(--shadow-border-error);
+  --shadow-focus-inset: var(--shadow-focus-inset);
   --shadow-button-inverted: var(--shadow-button-inverted);
   --shadow-button-inverted-focus: var(--shadow-button-inverted-focus);
   --shadow-button-neutral: var(--shadow-button-neutral);

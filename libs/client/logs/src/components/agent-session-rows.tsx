@@ -313,7 +313,7 @@ function MetadataTrigger({meta}: {meta: readonly SessionViewRowMeta[]}) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="inline-flex size-20 flex-none items-center justify-center rounded-4 text-foreground-contrast-secondary opacity-60 transition-opacity hover:bg-background-components-hover hover:text-foreground-contrast-primary hover:opacity-100 focus-visible:opacity-100 focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)] group-hover/log-row:opacity-100"
+          className="inline-flex size-20 flex-none items-center justify-center rounded-4 text-foreground-contrast-secondary opacity-60 transition-opacity hover:bg-background-components-hover hover:text-foreground-contrast-primary hover:opacity-100 focus-visible:opacity-100 focus-visible:shadow-focus-inset group-hover/log-row:opacity-100"
           aria-label="Show message metadata"
         >
           <Icon name="informationLine" className="size-12" aria-hidden="true" />
@@ -347,7 +347,7 @@ function PreviewText({text}: {text: string}) {
         <button
           type="button"
           aria-expanded={expanded}
-          className="ms-inline inline-flex min-h-24 items-center rounded-4 px-tight font-display text-xs text-foreground-highlight-interactive focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)]"
+          className="ms-inline inline-flex min-h-24 items-center rounded-4 px-tight font-display text-xs text-foreground-highlight-interactive focus-visible:shadow-focus-inset"
           onClick={() => setExpanded((value) => !value)}
         >
           {expanded ? 'show less' : 'show more'}
