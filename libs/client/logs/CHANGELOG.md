@@ -1,5 +1,23 @@
 # @shipfox/client-logs
 
+## 21.0.0
+
+### Minor Changes
+
+- 7db4171: Composes job detail logs into the Panel surface with searchable output and display controls.
+
+### Patch Changes
+
+- f1d127e: Use dark contrast surfaces with readable semantic foregrounds across code and log views, preserve status on log-row edge accents, and add shared highlight and tooltip tokens for code and keyboard affordances.
+- Updated dependencies [0f4abe4]
+- Updated dependencies [71d0c44]
+- Updated dependencies [30beb8f]
+- Updated dependencies [16733a7]
+- Updated dependencies [163c40a]
+- Updated dependencies [6703982]
+- Updated dependencies [f1d127e]
+  - @shipfox/react-ui@2.0.0
+
 ## 17.0.0
 
 ### Minor Changes

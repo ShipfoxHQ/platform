@@ -1,5 +1,34 @@
 # @shipfox/client-workflows
 
+## 21.0.0
+
+### Patch Changes
+
+- 6425336: Aligns the run workspace rail with its content frame at wide viewport sizes while keeping dedicated job content full width.
+- 36f284f: Recomposes workflow runs into a full-width data panel and shows the complete job preview.
+- 261701e: Removes per-page canvas and width overrides so workflow pages render full-width surfaces instead of a locally painted, capped 1120px column.
+- 7db4171: Composes job detail logs into the Panel surface with searchable output and display controls.
+- 6703982: Retire the `background-neutral-background` CSS token and migrate workflow page canvases to `background-subtle-base`.
+- f1d127e: Use dark contrast surfaces with readable semantic foregrounds across code and log views, preserve status on log-row edge accents, and add shared highlight and tooltip tokens for code and keyboard affordances.
+- Updated dependencies [0f4abe4]
+- Updated dependencies [71d0c44]
+- Updated dependencies [9c21429]
+- Updated dependencies [30beb8f]
+- Updated dependencies [7db4171]
+- Updated dependencies [16733a7]
+- Updated dependencies [fd15e1f]
+- Updated dependencies [163c40a]
+- Updated dependencies [c4376a1]
+- Updated dependencies [6703982]
+- Updated dependencies [f1d127e]
+- Updated dependencies [0e860d7]
+  - @shipfox/react-ui@2.0.0
+  - @shipfox/client-shell@21.0.0
+  - @shipfox/client-logs@21.0.0
+  - @shipfox/client-triggers@21.0.0
+  - @shipfox/client-projects@21.0.0
+  - @shipfox/client-ui@21.0.0
+
 ## 20.0.0
 
 ### Minor Changes

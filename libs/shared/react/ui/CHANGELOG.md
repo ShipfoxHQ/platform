@@ -1,5 +1,30 @@
 # @shipfox/react-ui
 
+## 2.0.0
+
+### Major Changes
+
+- 30beb8f: Remove the `Card` component and migrate its consumers to `Panel`.
+
+  Migration mapping: `Card` to `Panel`, `CardHeader` to `PanelHeader variant="plain"`,
+  `CardTitle` to `PanelTitle`, `CardContent` to `PanelBody`, `CardAction` to
+  `PanelActions`, and `CardDescription` to a `Text` with
+  `className="text-foreground-neutral-muted"`. Keep `CardFooter` content in the
+  panel layout or a `PanelBody`.
+
+- 6703982: Retire the `background-neutral-background` CSS token and migrate workflow page canvases to `background-subtle-base`.
+
+### Minor Changes
+
+- 163c40a: Adds the Panel surface primitive with header, body, row, and empty-state components.
+
+### Patch Changes
+
+- 0f4abe4: Make tables inherit their wrapping panel surface and keep container borders and radii on `Panel`.
+- 71d0c44: Make dark-mode code surfaces near-black and opaque.
+- 16733a7: Align light-mode surface tokens with the shared four-role ladder.
+- f1d127e: Use dark contrast surfaces with readable semantic foregrounds across code and log views, preserve status on log-row edge accents, and add shared highlight and tooltip tokens for code and keyboard affordances.
+
 ## 1.2.0
 
 ### Minor Changes

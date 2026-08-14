@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/client-triggers",
   "license": "MIT",
-  "version": "17.0.0",
+  "version": "21.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
