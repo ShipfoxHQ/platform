@@ -1,4 +1,5 @@
 export {AuthActions, AuthShell, type AuthShellProps} from '#components/auth-shell.js';
+export {FocusedFrame} from '#components/focused-frame.js';
 export {WorkspaceCrumb, type WorkspaceCrumbProps} from '#components/workspace-crumb.js';
 export {WorkspaceSwitcher} from '#components/workspace-switcher.js';
 export type {

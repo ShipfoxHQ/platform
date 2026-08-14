@@ -1,5 +1,6 @@
 import {slugifyName, slugSchema} from '@shipfox/api-common-dto';
 import {createWorkspaceBodySchema} from '@shipfox/api-workspaces-dto';
+import {FocusedFrame} from '@shipfox/client-shell/runtime';
 import {displayNameFieldError, SlugField} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -16,23 +17,6 @@ import {checkWorkspaceSlugAvailability, useCreateWorkspaceAuth} from '#hooks/api
 import {useAuthState} from '#hooks/use-auth-state.js';
 import {lastWorkspaceIdAtom, rememberLastWorkspaceId} from '#state/last-workspace.js';
 import {workspaceOnboardingErrorToFormError} from './form-errors.js';
-
-const previewMetrics = [
-  {label: 'Runs', value: '--'},
-  {label: 'Passed', value: '--'},
-  {label: 'Failed', value: '--'},
-  {label: 'Duration', value: '--'},
-];
-const previewBars = [
-  {id: 'runs-start', height: 32},
-  {id: 'runs-mid-low', height: 48},
-  {id: 'runs-dip', height: 28},
-  {id: 'runs-mid-high', height: 66},
-  {id: 'runs-mid', height: 54},
-  {id: 'runs-peak', height: 82},
-  {id: 'runs-late-low', height: 44},
-  {id: 'runs-late-high', height: 74},
-];
 
 function isSlugValid(value: string): boolean {
   return slugSchema.safeParse(value).success;
@@ -79,7 +63,7 @@ export function WorkspaceOnboardingPage() {
 
   return (
     <main className="min-h-screen px-frame py-frame max-[520px]:px-row">
-      <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full flex-col gap-section">
+      <FocusedFrame className="flex min-h-[calc(100vh-64px)] flex-col gap-section">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-inline">
             <div className="flex size-36 items-center justify-center rounded-8 border border-border-neutral-base bg-background-neutral-base shadow-button-neutral">
@@ -91,9 +75,9 @@ export function WorkspaceOnboardingPage() {
           </div>
         </header>
 
-        <section className="grid flex-1 items-center gap-region lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
+        <section className="flex flex-1 items-center">
           <form
-            className="relative z-10 w-full"
+            className="w-full"
             noValidate
             aria-labelledby="workspace-onboarding-title"
             onSubmit={(event) => {
@@ -208,70 +192,8 @@ export function WorkspaceOnboardingPage() {
               </PanelBody>
             </Panel>
           </form>
-
-          <div className="hidden flex-col gap-group lg:flex" aria-hidden="true">
-            <div className="grid grid-cols-4 gap-cluster">
-              {previewMetrics.map((metric) => (
-                <div
-                  className="rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact shadow-button-neutral"
-                  key={metric.label}
-                >
-                  <Text size="xs" className="text-foreground-neutral-muted">
-                    {metric.label}
-                  </Text>
-                  <Text size="xl" bold>
-                    {metric.value}
-                  </Text>
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-group">
-              <PreviewPanel title="Performance over time" />
-              <PreviewPanel title="Duration distribution" bars />
-            </div>
-            <div className="flex flex-col gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact shadow-button-neutral">
-              <Text size="sm" bold>
-                Jobs breakdown
-              </Text>
-              <div className="flex flex-col gap-inline">
-                {[0, 1, 2, 3].map((row) => (
-                  <div
-                    className="grid grid-cols-[1fr_80px_80px] gap-cluster border-t border-border-neutral-base pt-[10px]"
-                    key={row}
-                  >
-                    <div className="h-12 rounded-full bg-background-neutral-disabled" />
-                    <div className="h-12 rounded-full bg-background-neutral-disabled" />
-                    <div className="h-12 rounded-full bg-background-neutral-disabled" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
         </section>
-      </div>
+      </FocusedFrame>
     </main>
-  );
-}
-
-function PreviewPanel({title, bars = false}: {title: string; bars?: boolean}) {
-  return (
-    <div className="flex flex-col gap-group rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact shadow-button-neutral">
-      <Text size="sm" bold>
-        {title}
-      </Text>
-      <div className="flex h-[220px] items-end gap-inline border-b border-l border-border-neutral-base px-row pb-[10px]">
-        {previewBars.map((bar) => (
-          <div
-            className={
-              bars
-                ? 'w-full rounded-t-4 bg-background-neutral-disabled'
-                : 'w-full rounded-full bg-background-neutral-disabled'
-            }
-            key={`${title}-${bar.id}`}
-            style={{height: `${bar.height}%`}}
-          />
-        ))}
-      </div>
-    </div>
   );
 }

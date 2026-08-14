@@ -1,3 +1,4 @@
+import {FocusedFrame} from '@shipfox/client-shell/runtime';
 import {ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {Text} from '@shipfox/react-ui/typography';
@@ -43,8 +44,8 @@ export function CallbackStatusShell({
     : undefined;
 
   return (
-    <main className="flex min-h-screen px-row py-frame">
-      <div className="mx-auto flex w-full flex-col justify-center gap-section">
+    <main className="flex min-h-screen px-frame py-frame">
+      <FocusedFrame className="flex flex-col justify-center gap-section">
         <h2 ref={headingRef} tabIndex={-1} className="text-24 font-semibold outline-none">
           {title}
         </h2>
@@ -71,7 +72,7 @@ export function CallbackStatusShell({
           ) : null}
           {settings}
         </div>
-      </div>
+      </FocusedFrame>
     </main>
   );
 }

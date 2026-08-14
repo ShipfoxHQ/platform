@@ -4,6 +4,7 @@ import type {NavTabEntry} from '#contract.js';
 import {useMaybeActiveWorkspace} from '#runtime/active-workspace.js';
 import type {RouteFrame} from '#runtime/route-frame.js';
 import {parseWorkspaceProjectParams, useRouteParams} from '#runtime/route-inputs.js';
+import {FOCUSED_FRAME_CONTENT_CLASS_NAME} from './focused-frame.js';
 import {NavBar} from './nav-bar.js';
 import {NavTabs} from './nav-tabs.js';
 
@@ -16,7 +17,7 @@ declare module '@tanstack/react-router' {
 const frameClassNames: Record<RouteFrame, string> = {
   content: 'mx-auto w-full max-w-[1120px] px-frame py-frame',
   data: 'flex min-h-0 w-full flex-1 flex-col px-frame py-frame',
-  focused: 'mx-auto w-full max-w-[640px] px-frame py-frame',
+  focused: `${FOCUSED_FRAME_CONTENT_CLASS_NAME} px-frame py-frame`,
 };
 
 export function MainLayout({
