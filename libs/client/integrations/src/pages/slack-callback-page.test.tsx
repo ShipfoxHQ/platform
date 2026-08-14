@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
+import {configureApiClient} from '@shipfox/client-api';
 import {screen, waitFor} from '@testing-library/react';
 import {StrictMode} from 'react';
 import {SLACK_INSTALL_WORKSPACE_KEY} from '#slack-callback.js';
@@ -27,6 +28,12 @@ vi.mock('#hooks/api/integrations.js', async (importOriginal) => {
 beforeEach(() => {
   window.sessionStorage.clear();
   completeCallbackMock.mockReset();
+  configureApiClient({
+    baseUrl: 'https://api.example.test',
+    fetchImpl: vi.fn((_input: RequestInfo | URL) =>
+      Promise.reject(new Error('Workspace list unavailable')),
+    ),
+  });
 });
 
 describe('SlackCallbackPage', () => {

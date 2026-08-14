@@ -33,7 +33,7 @@ export function PanelHeader({className, variant = 'strip', ...props}: PanelHeade
       className={cn(
         'flex min-w-0 items-center justify-between gap-group',
         variant === 'strip'
-          ? 'min-h-48 border-b border-border-neutral-base bg-background-subtle-base px-row py-row'
+          ? 'min-h-48 border-b border-border-neutral-base bg-background-neutral-base px-row py-row'
           : 'bg-background-neutral-base p-panel',
         className,
       )}
