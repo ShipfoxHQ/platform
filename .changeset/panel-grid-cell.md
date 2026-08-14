@@ -2,4 +2,4 @@
 "@shipfox/react-ui": minor
 ---
 
-Add `PanelGrid`, `PanelCell`, and `PanelCellAction` for a two-column grid of cells divided by hairlines, and add a `--shadow-focus-inset` token for controls whose parent clips the outset focus ring. `PanelCellAction` renders the trailing verb and chevron from an `action` prop, so the mark that separates a cell you open from a choice you select lives in one place. `Panel`, `PanelBody`, and `PanelRow` now accept `asChild`, so a panel can be an `aside` and a row list can keep `ul` and `li` semantics. `PanelHeader`'s strip variant returns to the canvas fill the surface ladder specifies.
+Add `PanelGrid`, `PanelCell`, and `PanelCellAction` for a two-column grid of cells divided by hairlines, collapsing to one column at 760px and padding an odd cell count so the last row's divider spans the panel. `PanelCellAction` renders a trailing verb and chevron from an `action` prop. Add a `--shadow-focus-inset` token for controls whose parent clips the outset focus ring. `Panel`, `PanelBody`, and `PanelRow` accept `asChild`, so a panel can render as an `aside` and a row list can keep `ul` and `li` semantics.

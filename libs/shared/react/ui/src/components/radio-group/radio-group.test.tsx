@@ -101,4 +101,22 @@ describe('RadioGroupItemSkeleton', () => {
     expect(skeleton?.getAttribute('aria-hidden')).toBe('true');
     expect(skeleton?.querySelector('[data-slot="radio-indicator"]')).not.toBeNull();
   });
+
+  test('lets the caller vary the bar width across a loading grid', () => {
+    const {container} = render(
+      <>
+        <RadioGroupItemSkeleton labelClassName="w-64" />
+        <RadioGroupItemSkeleton labelClassName="w-112" />
+      </>,
+    );
+
+    const bars = container.querySelectorAll('[data-slot="skeleton"]');
+
+    // A `flex-1` basis would collapse every supplied width to the same length.
+    expect(bars[0]?.classList.contains('w-64')).toBe(true);
+    expect(bars[1]?.classList.contains('w-112')).toBe(true);
+    for (const bar of bars) {
+      expect(bar.classList.contains('flex-1')).toBe(false);
+    }
+  });
 });

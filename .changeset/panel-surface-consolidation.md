@@ -6,4 +6,4 @@
 "@shipfox/client-triggers": patch
 ---
 
-Compose the shared `Panel` primitives instead of hand-rolling the panel class string in each package. Grids of openable things, such as the integration gallery, the available providers grid, and the harness picker, become cells inside one panel rather than standalone bordered tiles. That matches the projects hub and gives every one of these surfaces the same hover, focus, and elevation treatment.
+Panels across these surfaces share one hover, focus, and elevation treatment. Grids of openable things, including the integration gallery, the available providers grid, and the harness picker, render as cells inside a single panel divided by hairlines instead of separate bordered tiles.

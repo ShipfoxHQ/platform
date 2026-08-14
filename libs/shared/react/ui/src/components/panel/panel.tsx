@@ -185,24 +185,27 @@ export function PanelCellAction({
   ...props
 }: PanelCellActionProps) {
   const Component = asChild ? Slot : 'button';
+  // A conditional verb resolves to null or false, which must read as no verb at
+  // all rather than a bare chevron pushed to the far edge.
+  const hasAction = Boolean(action);
 
   return (
     <Component
       data-slot="panel-cell-action"
       className={cn(
-        'group flex min-w-0 flex-1 items-center gap-cluster px-row py-row text-left transition-colors',
+        'group flex min-w-0 flex-1 cursor-pointer items-center gap-cluster px-row py-row text-left transition-colors',
         'hover:bg-background-neutral-hover',
         // Cells run edge to edge inside the panel, whose `overflow-hidden` crops
         // an outset ring, so this one is drawn inset per the focus-ring rule.
         'focus-visible:shadow-focus-inset focus-visible:outline-none',
-        action === undefined ? undefined : 'justify-between',
+        hasAction && 'justify-between',
         className,
       )}
       {...(asChild ? {} : {type: 'button' as const})}
       {...props}
     >
       <Slottable>{children}</Slottable>
-      {action === undefined ? null : (
+      {hasAction ? (
         <span
           data-slot="panel-cell-verb"
           className="flex shrink-0 items-center gap-tight text-foreground-neutral-muted transition-colors group-hover:text-foreground-highlight-interactive"
@@ -212,7 +215,7 @@ export function PanelCellAction({
           </Text>
           <Icon name="chevronRight" className="size-16" aria-hidden />
         </span>
-      )}
+      ) : null}
     </Component>
   );
 }

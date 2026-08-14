@@ -73,7 +73,9 @@ export function RadioGroupItemSkeleton({
   return (
     <div aria-hidden="true" className={cn(ITEM_SURFACE_CLASS, className)} {...props}>
       <span data-slot="radio-indicator" className={INDICATOR_CLASS} />
-      <Skeleton className={cn('h-16 flex-1', labelClassName)} />
+      {/* `w-full`, not `flex-1`: a flex basis of 0 would beat any width passed in
+          and every placeholder would come out the same length. */}
+      <Skeleton className={cn('h-16 w-full', labelClassName)} />
     </div>
   );
 }

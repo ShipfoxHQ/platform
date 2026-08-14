@@ -167,6 +167,18 @@ describe('PanelCellAction', () => {
     expect(action.getAttribute('type')).toBe('button');
     expect(action.classList.contains('focus-visible:shadow-focus-inset')).toBe(true);
     expect(action.classList.contains('hover:bg-background-neutral-hover')).toBe(true);
+    expect(action.classList.contains('cursor-pointer')).toBe(true);
+  });
+
+  test('treats a conditional verb that resolves to nothing as no verb', () => {
+    const showVerb = false;
+    const {container} = render(
+      <PanelCellAction action={showVerb ? 'Install' : null}>GitHub</PanelCellAction>,
+    );
+
+    // A bare chevron pushed to the far edge would claim this cell navigates.
+    expect(container.querySelector('[data-slot="panel-cell-verb"]')).toBeNull();
+    expect(screen.getByRole('button').classList.contains('justify-between')).toBe(false);
   });
 
   test('renders as its child so a link can fill the cell', () => {
