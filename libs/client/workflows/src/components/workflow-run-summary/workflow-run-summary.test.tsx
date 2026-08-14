@@ -299,7 +299,11 @@ describe('WorkflowRunSummary', () => {
     const onCancel = vi.fn();
     renderSummary({}, {onCancel});
 
-    await user.click(await screen.findByRole('button', {name: 'Cancel workflow'}));
+    const button = await screen.findByRole('button', {name: 'Cancel workflow'});
+    expect(button).toHaveClass('bg-background-neutral-base');
+    expect(button).not.toHaveClass('bg-background-button-danger-default');
+
+    await user.click(button);
 
     expect(onCancel).toHaveBeenCalledTimes(1);
   });

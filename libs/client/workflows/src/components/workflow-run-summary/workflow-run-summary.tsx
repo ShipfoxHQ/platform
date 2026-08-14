@@ -29,7 +29,7 @@ import {WorkflowRunAttemptSwitcher} from './workflow-run-attempt-switcher.js';
 const STATUS_BADGE_LABEL_WIDTH_CH = Math.max(
   ...WORKFLOW_RUN_STATUSES.map((status) => getWorkflowStatusVisual(status).label.length),
 );
-const RERUN_BUTTON_SURFACE_CLASS_NAME =
+const NEUTRAL_ACTION_SURFACE_CLASS_NAME =
   'bg-background-neutral-base hover:bg-background-neutral-hover active:bg-background-neutral-pressed';
 
 type WorkflowRunAction = 'cancel' | 'rerun-all' | 'rerun-menu' | 'none';
@@ -206,8 +206,9 @@ function WorkflowRunActionSlot({
     return (
       <Button
         type="button"
-        variant="danger"
+        variant="secondary"
         size="xs"
+        className={NEUTRAL_ACTION_SURFACE_CLASS_NAME}
         isLoading={cancelling}
         disabled={cancelling}
         onClick={onCancel}
@@ -225,7 +226,7 @@ function WorkflowRunActionSlot({
         type="button"
         variant="secondary"
         size="xs"
-        className={RERUN_BUTTON_SURFACE_CLASS_NAME}
+        className={NEUTRAL_ACTION_SURFACE_CLASS_NAME}
         isLoading={rerunPending}
         disabled={rerunPending}
         onClick={() => onRerun('all')}
@@ -244,7 +245,7 @@ function WorkflowRunActionSlot({
           type="button"
           variant="secondary"
           size="xs"
-          className={RERUN_BUTTON_SURFACE_CLASS_NAME}
+          className={NEUTRAL_ACTION_SURFACE_CLASS_NAME}
           iconRight="arrowDownSLine"
           isLoading={rerunPending}
           disabled={rerunPending}

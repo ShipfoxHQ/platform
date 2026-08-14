@@ -92,7 +92,8 @@ describe('RunWorkspaceNav', () => {
       />,
     );
 
-    expect(await screen.findByRole('link', {name: 'Summary'})).toBeInTheDocument();
+    const summary = await screen.findByRole('link', {name: 'Summary'});
+    expect(summary).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'Jobs'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'Run details'})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Annotations'})).toBeInTheDocument();
@@ -112,6 +113,7 @@ describe('RunWorkspaceNav', () => {
 
     const current = within(jobs).getByRole('link', {name: BUILD_LINK_PATTERN});
     expect(current).toHaveAttribute('aria-current', 'page');
+    expect(current.querySelector('[data-run-workspace-active-bar]')).not.toBeNull();
     expect(current).toHaveAttribute(
       'href',
       expect.stringContaining(`/runs/${RUN_ID}/jobs/${CURRENT_JOB_ID}`),
@@ -137,7 +139,9 @@ describe('RunWorkspaceNav', () => {
 
     expect(await screen.findByRole('heading', {name: 'Jobs'})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: BUILD_LINK_PATTERN})).toBeInTheDocument();
-    expect(screen.getByRole('link', {name: 'Summary'})).toHaveAttribute('aria-current', 'page');
+    const summary = screen.getByRole('link', {name: 'Summary'});
+    expect(summary).toHaveAttribute('aria-current', 'page');
+    expect(summary.querySelector('[data-run-workspace-active-bar]')).not.toBeNull();
   });
 
   test('scrolls the current job into view when the mobile rail opens', async () => {

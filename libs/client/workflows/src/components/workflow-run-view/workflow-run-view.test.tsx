@@ -54,16 +54,15 @@ describe('WorkflowRunView', () => {
       .closest('[data-run-workspace-layout]');
     expect(workspaceLayout).toHaveClass('border-t', 'border-border-neutral-base');
     expect(workspaceLayout).not.toHaveClass('max-w-[1360px]');
-    expect(workspaceLayout?.querySelector('[data-run-workspace-frame]')).toHaveClass(
-      'mx-auto',
-      'w-full',
-      'max-w-[calc(240px_+_1120px)]',
-      'min-[768px]:flex-row',
-    );
+    const workspaceFrame = workspaceLayout?.querySelector('[data-run-workspace-frame]');
+    expect(workspaceFrame).toHaveClass('w-full', 'min-[768px]:flex-row');
+    expect(workspaceFrame).not.toHaveClass('mx-auto', 'max-w-[calc(240px_+_1120px)]');
     expect(screen.getByRole('link', {name: 'Summary'})).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('heading', {name: 'Jobs'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'Run details'})).toBeInTheDocument();
-    expect(screen.getByRole('region', {name: 'All jobs summary'})).toBeInTheDocument();
+    const allJobsSummary = screen.getByRole('region', {name: 'All jobs summary'});
+    expect(allJobsSummary).toBeInTheDocument();
+    expect(allJobsSummary.querySelector('[data-slot="panel"]')).not.toBeNull();
     expect(screen.getByRole('region', {name: 'Workflow jobs'})).toBeInTheDocument();
     expect(container.querySelector('[data-run-workspace-content]')).toHaveClass('flex-1');
     expect(container.querySelector('[data-run-workspace-content]')).not.toHaveClass(
@@ -82,7 +81,8 @@ describe('WorkflowRunView', () => {
     renderView({tab});
 
     const section = await screen.findByRole('region', {name: region});
-    expect(section.firstElementChild).not.toHaveClass('max-w-[1120px]');
+    expect(section.firstElementChild).not.toHaveClass('mx-auto', 'px-frame', 'max-w-[1120px]');
+    expect(section.querySelector('[data-slot="panel"]')).not.toBeNull();
   });
 
   test('keeps dedicated job content on the full-width data surface', async () => {

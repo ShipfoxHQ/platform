@@ -1,6 +1,7 @@
 import {ApiError} from '@shipfox/client-api';
 import {QueryLoadError} from '@shipfox/client-ui';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
+import {Panel, PanelBody, PanelHeader} from '@shipfox/react-ui/panel';
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
 import {
   Select,
@@ -11,7 +12,6 @@ import {
 } from '@shipfox/react-ui/select';
 import {toast} from '@shipfox/react-ui/toast';
 import {Text} from '@shipfox/react-ui/typography';
-import {cn} from '@shipfox/react-ui/utils';
 import {useNavigate} from '@tanstack/react-router';
 import {type ReactNode, useEffect, useMemo} from 'react';
 import {buildRunAnnotationList, type RunAnnotationSummary} from '#core/run-annotation.js';
@@ -54,7 +54,6 @@ import {
 } from './workflow-run-states.js';
 
 type RunWorkspaceSection = Exclude<WorkflowRunTab, 'jobs'>;
-const RUN_WORKSPACE_FRAME_CLASS_NAME = 'mx-auto w-full max-w-[calc(240px_+_1120px)]';
 
 export interface WorkflowRunViewProps {
   projectId: string;
@@ -159,7 +158,6 @@ function RunViewContent({
   const activeSection = runWorkspaceSection(tab);
   const cancelMutation = useCancelWorkflowRunMutation(runData);
   const sourceSnapshot = runData?.sourceSnapshot ?? null;
-  const hasJobContent = Boolean(jobContent);
   const resolvedSelection =
     runData && selection ? resolveWorkflowRunSelection({run: runData, selection}) : undefined;
   const highlightedLineRange = resolvedSelection?.step?.sourceLocation ?? null;
@@ -316,10 +314,7 @@ function RunViewContent({
       >
         <div
           data-run-workspace-frame
-          className={cn(
-            'flex min-h-0 min-w-0 w-full flex-1 flex-col min-[768px]:flex-row',
-            !hasJobContent && RUN_WORKSPACE_FRAME_CLASS_NAME,
-          )}
+          className="flex min-h-0 min-w-0 w-full flex-1 flex-col min-[768px]:flex-row"
         >
           {runData && workspaceSlug && projectSlug ? (
             <RunWorkspaceNav
@@ -403,16 +398,20 @@ function RunSectionContent({
         aria-label="All jobs summary"
         className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
       >
-        <div className="mx-auto flex w-full flex-col gap-group px-frame">
+        <div className="flex w-full flex-col gap-group">
           <Text as="h2" className="sr-only">
             All jobs summary
           </Text>
-          <JobGraph
-            run={run}
-            selectedJobId={selectedJobId}
-            onSelectedJobChange={onSelectGraphJob}
-            className="min-h-160 overflow-hidden"
-          />
+          <Panel className="min-h-160">
+            <PanelBody className="min-h-160 p-0">
+              <JobGraph
+                run={run}
+                selectedJobId={selectedJobId}
+                onSelectedJobChange={onSelectGraphJob}
+                className="min-h-160 overflow-hidden"
+              />
+            </PanelBody>
+          </Panel>
         </div>
       </section>
     );
@@ -439,28 +438,33 @@ function RunSectionContent({
       aria-label="Workflow source"
       className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
     >
-      <div className="mx-auto flex min-h-full w-full flex-col px-frame">
+      <div className="flex min-h-full w-full flex-col">
         <Text as="h2" className="sr-only">
           Workflow source
         </Text>
-        {sourceSnapshot ? (
-          <WorkflowSourceContent
-            source={sourceSnapshot}
-            highlightedLineRange={highlightedLineRange}
-            scrollHighlightedIntoView
-          />
-        ) : (
-          <EmptyState
-            className="min-h-160 w-full"
-            icon="fileDamageLine"
-            title="Source snapshot unavailable"
-            description={
-              run.isTemporary
-                ? 'Temporary runs do not capture workflow source.'
-                : 'This run was created before workflow source snapshots were captured.'
-            }
-          />
-        )}
+        <Panel className="min-h-160 flex-1">
+          <PanelBody className="min-h-160 flex-1 p-0">
+            {sourceSnapshot ? (
+              <WorkflowSourceContent
+                source={sourceSnapshot}
+                highlightedLineRange={highlightedLineRange}
+                scrollHighlightedIntoView
+              />
+            ) : (
+              <EmptyState
+                variant="panel"
+                className="min-h-160"
+                icon="fileDamageLine"
+                title="Source snapshot unavailable"
+                description={
+                  run.isTemporary
+                    ? 'Temporary runs do not capture workflow source.'
+                    : 'This run was created before workflow source snapshots were captured.'
+                }
+              />
+            )}
+          </PanelBody>
+        </Panel>
       </div>
     </section>
   );
@@ -534,45 +538,49 @@ function RunAnnotationsSection({
       aria-label="Run annotations"
       className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
     >
-      <div className="mx-auto flex w-full flex-col gap-group px-frame">
+      <div className="flex w-full flex-col">
         <Text as="h2" className="sr-only">
           Annotations
         </Text>
-        <div className="flex flex-wrap items-center justify-between gap-inline">
-          <RunAnnotationSummaryLine
-            summary={annotationSummary}
-            workspaceSlug={workspaceSlug}
-            projectSlug={projectSlug}
-            workflowRunId={run.id}
-            search={selection}
-          />
-          <AnnotationJobFilter
-            jobs={run.jobs}
-            selectedJobId={selectedJob?.id}
-            onSelect={onSelectAnnotationJob}
-          />
-        </div>
-        <RunAnnotationList
-          // Remounting on a filter or run-attempt change resets the render window, so the next
-          // list never inherits a "show more" position from different data.
-          key={`${run.id}:${run.runAttempt.attempt}:${severity ?? 'all'}:${selectedJob?.id ?? 'all'}`}
-          query={annotations.query}
-          entries={entries}
-          derivedAnnotations={derivedAnnotations}
-          workspaceSlug={workspaceSlug}
-          projectSlug={projectSlug}
-          workflowRunId={run.id}
-          runAttempt={run.runAttempt.attempt}
-          // A run with no annotations at all offers no filter to clear, whatever the URL says.
-          filtered={Boolean(
-            (severity || selectedJob || selection?.annotation) &&
-              ((annotationSummary?.total ?? 0) > 0 || hasSynthesizedJobAnnotations),
-          )}
-          filteredJobName={selectedJob?.displayName}
-          filteredSeverity={severity}
-          onClearFilters={onClearAnnotationFilters}
-          selectedAnnotationId={selection?.annotation}
-        />
+        <Panel>
+          <PanelHeader className="flex-wrap">
+            <RunAnnotationSummaryLine
+              summary={annotationSummary}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              workflowRunId={run.id}
+              search={selection}
+            />
+            <AnnotationJobFilter
+              jobs={run.jobs}
+              selectedJobId={selectedJob?.id}
+              onSelect={onSelectAnnotationJob}
+            />
+          </PanelHeader>
+          <PanelBody className="gap-group p-panel">
+            <RunAnnotationList
+              // Remounting on a filter or run-attempt change resets the render window, so the next
+              // list never inherits a "show more" position from different data.
+              key={`${run.id}:${run.runAttempt.attempt}:${severity ?? 'all'}:${selectedJob?.id ?? 'all'}`}
+              query={annotations.query}
+              entries={entries}
+              derivedAnnotations={derivedAnnotations}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              workflowRunId={run.id}
+              runAttempt={run.runAttempt.attempt}
+              // A run with no annotations at all offers no filter to clear, whatever the URL says.
+              filtered={Boolean(
+                (severity || selectedJob || selection?.annotation) &&
+                  ((annotationSummary?.total ?? 0) > 0 || hasSynthesizedJobAnnotations),
+              )}
+              filteredJobName={selectedJob?.displayName}
+              filteredSeverity={severity}
+              onClearFilters={onClearAnnotationFilters}
+              selectedAnnotationId={selection?.annotation}
+            />
+          </PanelBody>
+        </Panel>
       </div>
     </section>
   );
@@ -674,7 +682,7 @@ function RunWorkspaceNavSkeleton() {
   return (
     <aside
       aria-label="Loading run navigation"
-      className="hidden w-240 shrink-0 border-r border-border-neutral-base p-panel-compact min-[768px]:block"
+      className="hidden w-240 shrink-0 p-panel-compact min-[768px]:block"
     >
       <div className="flex flex-col gap-group">
         <div className="h-32 rounded-4 bg-background-components-subtle" />

@@ -133,7 +133,9 @@ function RunWorkspaceStoryProviders({children}: {children: ReactNode}) {
   return (
     <QueryClientProvider client={queryClient}>
       <div className="flex h-[720px] min-w-[1440px] w-[1440px] bg-background-subtle-base">
-        {children}
+        <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col px-frame py-frame">
+          {children}
+        </div>
       </div>
     </QueryClientProvider>
   );
