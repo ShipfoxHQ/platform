@@ -13,6 +13,7 @@ const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const CURRENT_JOB_ID = '88888888-8888-4888-8888-888888888888';
 const BUILD_LINK_PATTERN = /build/;
 const DEPLOY_LINK_PATTERN = /deploy/;
+const SETUP_LINK_PATTERN = /setup/;
 const NOW = Date.parse('2026-06-26T12:00:00.000Z');
 
 describe('RunWorkspaceNav', () => {
@@ -92,7 +93,8 @@ describe('RunWorkspaceNav', () => {
       />,
     );
 
-    expect(await screen.findByRole('link', {name: 'Summary'})).toBeInTheDocument();
+    const summary = await screen.findByRole('link', {name: 'Summary'});
+    expect(summary).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'Jobs'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'Run details'})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Annotations'})).toBeInTheDocument();
@@ -112,6 +114,13 @@ describe('RunWorkspaceNav', () => {
 
     const current = within(jobs).getByRole('link', {name: BUILD_LINK_PATTERN});
     expect(current).toHaveAttribute('aria-current', 'page');
+    expect(current.querySelector('[data-run-workspace-active-bar]')).not.toBeNull();
+    expect(
+      within(jobs)
+        .getByRole('link', {name: SETUP_LINK_PATTERN})
+        .querySelector('[data-run-workspace-active-bar]'),
+    ).toBeNull();
+    expect(jobs.querySelectorAll('[data-run-workspace-active-bar]')).toHaveLength(1);
     expect(current).toHaveAttribute(
       'href',
       expect.stringContaining(`/runs/${RUN_ID}/jobs/${CURRENT_JOB_ID}`),
@@ -137,7 +146,36 @@ describe('RunWorkspaceNav', () => {
 
     expect(await screen.findByRole('heading', {name: 'Jobs'})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: BUILD_LINK_PATTERN})).toBeInTheDocument();
-    expect(screen.getByRole('link', {name: 'Summary'})).toHaveAttribute('aria-current', 'page');
+    const summary = screen.getByRole('link', {name: 'Summary'});
+    expect(summary).toHaveAttribute('aria-current', 'page');
+    expect(summary.querySelector('[data-run-workspace-active-bar]')).not.toBeNull();
+  });
+
+  test('falls back to the first job when the current job id is stale', async () => {
+    const run = workflowRunDetail({
+      id: RUN_ID,
+      jobs: [
+        workflowJobDto({id: 'job-deploy', name: 'deploy', position: 1}),
+        workflowJobDto({id: 'job-setup', name: 'setup', position: 0}),
+      ],
+    });
+
+    renderWithRouter(
+      <RunWorkspaceNav
+        workspaceSlug="acme"
+        projectSlug="project"
+        run={run}
+        activeSection="summary"
+        currentJobId="stale-job-id"
+      />,
+    );
+
+    const jobs = (await screen.findByRole('heading', {name: 'Jobs'})).closest('section');
+    if (!jobs) throw new Error('Missing jobs section');
+
+    const fallback = within(jobs).getByRole('link', {name: SETUP_LINK_PATTERN});
+    expect(fallback).toHaveAttribute('aria-current', 'page');
+    expect(jobs.querySelectorAll('[data-run-workspace-active-bar]')).toHaveLength(1);
   });
 
   test('scrolls the current job into view when the mobile rail opens', async () => {
