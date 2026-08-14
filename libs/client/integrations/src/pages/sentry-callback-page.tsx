@@ -1,5 +1,5 @@
 import {useAuthState, useRefreshAuth} from '@shipfox/client-auth';
-import {useRouteSearch} from '@shipfox/client-shell/runtime';
+import {FocusedFrame, useRouteSearch} from '@shipfox/client-shell/runtime';
 import {createSingleFlight, sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {Button, ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -246,8 +246,8 @@ export function SentryCallbackPage() {
 
 function CallbackColumn({children}: {children: React.ReactNode}) {
   return (
-    <main className="flex min-h-screen px-row py-frame">
-      <div className="mx-auto flex w-full flex-col justify-center gap-section">{children}</div>
+    <main className="flex min-h-screen px-frame py-frame">
+      <FocusedFrame className="flex flex-col justify-center gap-section">{children}</FocusedFrame>
     </main>
   );
 }

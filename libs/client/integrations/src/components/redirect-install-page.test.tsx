@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import {ApiError} from '@shipfox/client-api';
+import {FOCUSED_FRAME_CONTENT_CLASS_NAME} from '@shipfox/client-shell/runtime';
 import {screen, waitFor} from '@testing-library/react';
 import {StrictMode} from 'react';
 import {INTEGRATIONS_TEST_WID, renderIntegrationsPage} from '#test/render.js';
 import {RedirectInstallPage} from './redirect-install-page.js';
+
+const FOCUSED_FRAME_CONTENT_CLASSES = FOCUSED_FRAME_CONTENT_CLASS_NAME.split(' ');
 
 function renderInstallPage(
   props: Parameters<typeof RedirectInstallPage>[0],
@@ -62,6 +65,7 @@ describe('RedirectInstallPage', () => {
 
     // Alert mounts via framer-motion (opacity 0 in jsdom), so assert presence.
     expect(await screen.findByText('Sentry app not configured')).toBeInTheDocument();
+    expect(screen.getByRole('alert').parentElement).toHaveClass(...FOCUSED_FRAME_CONTENT_CLASSES);
     expect(screen.getByRole('link', {name: 'Back to integrations'})).toBeVisible();
   });
 

@@ -1,5 +1,5 @@
 import {useAuthState, useRefreshAuth} from '@shipfox/client-auth';
-import {useRouteSearch} from '@shipfox/client-shell/runtime';
+import {FocusedFrame, useRouteSearch} from '@shipfox/client-shell/runtime';
 import {sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {Button, ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -300,8 +300,8 @@ function JiraSiteSelectionPage({
   onSelect: (site: JiraSite) => void;
 }) {
   return (
-    <main className="flex min-h-screen px-row py-frame">
-      <div className="mx-auto flex w-full flex-col justify-center gap-section">
+    <main className="flex min-h-screen px-frame py-frame">
+      <FocusedFrame className="flex flex-col justify-center gap-section">
         <header className="flex flex-col gap-inline">
           <Header variant="h2">Choose a Jira site</Header>
           <Text size="sm" className="text-foreground-neutral-muted">
@@ -360,7 +360,7 @@ function JiraSiteSelectionPage({
             </ButtonLink>
           )}
         </div>
-      </div>
+      </FocusedFrame>
     </main>
   );
 }

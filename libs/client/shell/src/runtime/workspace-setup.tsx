@@ -5,6 +5,7 @@ import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import type {QueryClient} from '@tanstack/react-query';
 import {type ErrorComponentProps, useRouter} from '@tanstack/react-router';
+import {FocusedFrame} from '#components/focused-frame.js';
 
 export interface WorkspaceSetupState {
   hideProjectNavigation: boolean;
@@ -33,7 +34,7 @@ export function WorkspaceSetupPending() {
 export function WorkspaceUnavailablePage({workspaceName}: {workspaceName?: string | undefined}) {
   return (
     <main className="min-h-screen bg-background-subtle-base px-frame py-frame max-[520px]:px-row">
-      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-cluster">
+      <FocusedFrame className="flex flex-col gap-cluster">
         <Header variant="h1">Workspace unavailable</Header>
         <Text size="md" className="text-foreground-neutral-muted">
           {workspaceName
@@ -41,7 +42,7 @@ export function WorkspaceUnavailablePage({workspaceName}: {workspaceName?: strin
             : 'This workspace is currently unavailable.'}{' '}
           Please contact your configured support contact if you need help.
         </Text>
-      </div>
+      </FocusedFrame>
     </main>
   );
 }
@@ -60,7 +61,7 @@ export function WorkspaceLayoutErrorRoute({error, reset}: ErrorComponentProps) {
         : 'Try again in a moment.';
   return (
     <main className="min-h-screen bg-background-subtle-base px-frame py-frame max-[520px]:px-row">
-      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-section">
+      <FocusedFrame className="flex flex-col gap-section">
         <Header variant="h1">{setupError ? 'Workspace setup' : 'Workspace'}</Header>
         <Callout role="alert" type="error">
           <div className="flex flex-col gap-inline">
@@ -73,7 +74,7 @@ export function WorkspaceLayoutErrorRoute({error, reset}: ErrorComponentProps) {
             </Button>
           </div>
         </Callout>
-      </div>
+      </FocusedFrame>
     </main>
   );
 }

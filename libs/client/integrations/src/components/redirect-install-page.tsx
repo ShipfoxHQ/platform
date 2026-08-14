@@ -1,5 +1,6 @@
 import {ApiError} from '@shipfox/client-api';
 import {useActiveWorkspace} from '@shipfox/client-auth';
+import {FocusedFrame} from '@shipfox/client-shell/runtime';
 import {ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
@@ -54,7 +55,7 @@ export function RedirectInstallPage({
 
   if (errorMessage) {
     return (
-      <div className="mx-auto flex w-full max-w-[480px] flex-col gap-group">
+      <FocusedFrame className="flex flex-col gap-group">
         <Callout role="alert" type="error">
           <Text size="sm">{errorMessage}</Text>
         </Callout>
@@ -63,7 +64,7 @@ export function RedirectInstallPage({
             Back to integrations
           </Link>
         </ButtonLink>
-      </div>
+      </FocusedFrame>
     );
   }
 
