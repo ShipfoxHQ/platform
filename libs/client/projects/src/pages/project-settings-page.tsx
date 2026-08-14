@@ -13,8 +13,9 @@ import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {FormField, FormFieldInput, fieldError} from '@shipfox/react-ui/form-field';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
+import {Panel, PanelBody} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
-import {Header, Text} from '@shipfox/react-ui/typography';
+import {Header} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
 import {useNavigate} from '@tanstack/react-router';
 import {useState} from 'react';
@@ -124,86 +125,97 @@ function ProjectSettingsForm({project}: {project: Project}) {
   return (
     <>
       <div className="flex min-w-0 flex-col gap-section">
-        <header className="flex flex-col gap-inline">
-          <Header variant="h1">General</Header>
-          <Text size="sm" className="text-foreground-neutral-muted">
-            Update the project name and the slug used in its URLs.
-          </Text>
-        </header>
+        <Header variant="h1">General</Header>
 
-        {formError ? (
-          <Callout role="alert" type="error">
-            {formError}
-          </Callout>
-        ) : null}
+        <Panel>
+          <PanelBody className="gap-group p-panel">
+            {formError ? (
+              <Callout role="alert" type="error">
+                {formError}
+              </Callout>
+            ) : null}
 
-        <form
-          className="flex max-w-[560px] flex-col gap-group"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
-          <form.Field
-            name="name"
-            validators={{
-              onBlur: ({value}) =>
-                displayNameFieldError(value, 'Project name', createProjectBodySchema.shape.name),
-              onSubmit: ({value}) =>
-                displayNameFieldError(value, 'Project name', createProjectBodySchema.shape.name),
-            }}
-          >
-            {(field) => (
-              <FormField label="Project name" id="project-settings-name" error={fieldError(field)}>
-                <FormFieldInput
-                  name="name"
-                  type="text"
-                  value={field.state.value}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  onBlur={field.handleBlur}
-                />
-              </FormField>
-            )}
-          </form.Field>
+            <form
+              className="flex w-full max-w-[560px] flex-col gap-group"
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void form.handleSubmit();
+              }}
+            >
+              <form.Field
+                name="name"
+                validators={{
+                  onBlur: ({value}) =>
+                    displayNameFieldError(
+                      value,
+                      'Project name',
+                      createProjectBodySchema.shape.name,
+                    ),
+                  onSubmit: ({value}) =>
+                    displayNameFieldError(
+                      value,
+                      'Project name',
+                      createProjectBodySchema.shape.name,
+                    ),
+                }}
+              >
+                {(field) => (
+                  <FormField
+                    label="Project name"
+                    id="project-settings-name"
+                    error={fieldError(field)}
+                  >
+                    <FormFieldInput
+                      name="name"
+                      type="text"
+                      value={field.state.value}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      onBlur={field.handleBlur}
+                    />
+                  </FormField>
+                )}
+              </form.Field>
 
-          <form.Field
-            name="slug"
-            validators={{
-              onBlur: createProjectBodySchema.shape.slug,
-              onSubmit: createProjectBodySchema.shape.slug,
-            }}
-          >
-            {(field) => (
-              <SlugField
-                id="project-settings-slug"
-                label="Project slug"
+              <form.Field
                 name="slug"
-                value={field.state.value}
-                onChange={(value) => field.handleChange(value)}
-                onBlur={field.handleBlur}
-                error={fieldError(field)}
-                description={
-                  <span className="break-all font-code">
-                    /w/{workspace.slug}/p/{field.state.value}
-                  </span>
-                }
-                placeholder="platform"
-                className="font-code"
-                currentSlug={project.slug}
-                checkEnabled
-                debounceMs={0}
-                isValid={isSlugValid}
-                checkAvailability={checkProjectSlugAvailability}
-              />
-            )}
-          </form.Field>
+                validators={{
+                  onBlur: createProjectBodySchema.shape.slug,
+                  onSubmit: createProjectBodySchema.shape.slug,
+                }}
+              >
+                {(field) => (
+                  <SlugField
+                    id="project-settings-slug"
+                    label="Project slug"
+                    name="slug"
+                    value={field.state.value}
+                    onChange={(value) => field.handleChange(value)}
+                    onBlur={field.handleBlur}
+                    error={fieldError(field)}
+                    description={
+                      <span className="break-all font-code">
+                        /w/{workspace.slug}/p/{field.state.value}
+                      </span>
+                    }
+                    placeholder="platform"
+                    className="font-code"
+                    currentSlug={project.slug}
+                    checkEnabled
+                    debounceMs={0}
+                    isValid={isSlugValid}
+                    checkAvailability={checkProjectSlugAvailability}
+                  />
+                )}
+              </form.Field>
 
-          <Button type="submit" isLoading={updateProject.isPending} className="self-start">
-            Save changes
-          </Button>
-        </form>
+              <Button type="submit" isLoading={updateProject.isPending} className="self-start">
+                Save changes
+              </Button>
+            </form>
+          </PanelBody>
+        </Panel>
       </div>
 
       <SlugChangeWarning

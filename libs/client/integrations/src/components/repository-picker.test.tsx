@@ -17,6 +17,19 @@ afterEach(() => {
 });
 
 describe('RepositoryPicker', () => {
+  test('renders the default empty message without an internal search control', () => {
+    renderPicker();
+
+    expect(screen.getByText('No repositories found.')).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+  });
+
+  test('renders a custom empty message', () => {
+    renderPicker({emptyMessage: 'No repositories visible to this connection.'});
+
+    expect(screen.getByText('No repositories visible to this connection.')).toBeInTheDocument();
+  });
+
   test('renders repository names without owner or default branch metadata', () => {
     renderPicker({
       repositories: [
@@ -65,27 +78,25 @@ describe('RepositoryPicker', () => {
     const {container} = renderPicker({
       repositories: [],
       isLoading: true,
-      searchValue: '',
-      onSearchChange: () => undefined,
     });
 
     expect(screen.getByRole('status')).toHaveTextContent('Loading repositories.');
-    expect(screen.getByRole('searchbox')).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
 
     const loadingGrid = container.querySelector('[aria-hidden="true"]');
     if (!loadingGrid) throw new Error('Repository loading grid was not rendered');
 
-    expect(loadingGrid).toHaveClass('grid', 'grid-cols-2', 'gap-inline', 'max-[760px]:grid-cols-1');
+    expect(loadingGrid).toHaveClass(
+      'grid',
+      'grid-cols-2',
+      'gap-px',
+      'bg-border-neutral-base',
+      'max-[760px]:grid-cols-1',
+    );
     expect(loadingGrid.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4);
     for (const placeholder of loadingGrid.querySelectorAll(':scope > div')) {
-      expect(placeholder).toHaveClass(
-        'h-50',
-        'rounded-8',
-        'border',
-        'border-border-neutral-base',
-        'bg-background-neutral-base',
-        'p-[14px]',
-      );
+      expect(placeholder).toHaveClass('h-50', 'bg-background-neutral-base', 'p-[14px]');
+      expect(placeholder).not.toHaveClass('rounded-8', 'border');
     }
   });
 });
