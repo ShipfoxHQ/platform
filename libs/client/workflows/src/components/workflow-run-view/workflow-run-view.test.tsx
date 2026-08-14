@@ -63,6 +63,9 @@ describe('WorkflowRunView', () => {
     const allJobsSummary = screen.getByRole('region', {name: 'All jobs summary'});
     expect(allJobsSummary).toBeInTheDocument();
     expect(allJobsSummary.querySelector('[data-slot="panel"]')).not.toBeNull();
+    expect(allJobsSummary.querySelector('[data-slot="panel-body"]')).toHaveClass(
+      'bg-background-components-base',
+    );
     expect(screen.getByRole('region', {name: 'Workflow jobs'})).toBeInTheDocument();
     expect(container.querySelector('[data-run-workspace-content]')).toHaveClass('flex-1');
     expect(container.querySelector('[data-run-workspace-content]')).not.toHaveClass(

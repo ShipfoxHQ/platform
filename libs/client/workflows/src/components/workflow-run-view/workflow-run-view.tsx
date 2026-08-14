@@ -403,7 +403,7 @@ function RunSectionContent({
             All jobs summary
           </Text>
           <Panel className="min-h-160">
-            <PanelBody className="min-h-160 p-0">
+            <PanelBody className="min-h-160 bg-background-components-base p-0">
               <JobGraph
                 run={run}
                 selectedJobId={selectedJobId}
