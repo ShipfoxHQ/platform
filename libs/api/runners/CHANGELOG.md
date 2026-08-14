@@ -1,5 +1,17 @@
 # @shipfox/api-runners
 
+## 13.0.0
+
+### Major Changes
+
+- af6b31e: Expose ordered queued and terminal workflow job-execution facts, and release terminal runner reservations once no uncancelled lease remains.
+
+### Patch Changes
+
+- Updated dependencies [af6b31e]
+  - @shipfox/api-runners-dto@13.0.0
+  - @shipfox/api-workflows-dto@13.0.0
+
 ## 12.7.0
 
 ### Patch Changes
