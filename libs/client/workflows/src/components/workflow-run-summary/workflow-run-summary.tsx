@@ -206,9 +206,8 @@ function WorkflowRunActionSlot({
     return (
       <Button
         type="button"
-        variant="secondary"
+        variant="danger"
         size="xs"
-        className={NEUTRAL_ACTION_SURFACE_CLASS_NAME}
         isLoading={cancelling}
         disabled={cancelling}
         onClick={onCancel}

@@ -300,8 +300,12 @@ describe('WorkflowRunSummary', () => {
     renderSummary({}, {onCancel});
 
     const button = await screen.findByRole('button', {name: 'Cancel workflow'});
-    expect(button).toHaveClass('bg-background-neutral-base');
-    expect(button).not.toHaveClass('bg-background-button-danger-default');
+    expect(button).toHaveClass(
+      'bg-background-button-danger-default',
+      'text-foreground-neutral-on-color',
+      'shadow-button-danger',
+    );
+    expect(button).not.toHaveClass('bg-background-neutral-base');
 
     await user.click(button);
 

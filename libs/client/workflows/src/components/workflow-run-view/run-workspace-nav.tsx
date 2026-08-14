@@ -23,6 +23,9 @@ import {JobExecutionTimeText} from '../job-detail/job-execution-time-text.js';
 
 type RunWorkspaceSection = Exclude<WorkflowRunTab, 'jobs'>;
 
+const RUN_WORKSPACE_LINK_CLASS_NAME =
+  'relative flex min-h-32 items-center gap-inline rounded-4 px-tight outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44';
+
 export interface RunWorkspaceNavProps {
   workspaceSlug: string;
   projectSlug: string;
@@ -48,7 +51,9 @@ export function RunWorkspaceNav({
 }: RunWorkspaceNavProps) {
   const jobs = useMemo(() => [...run.jobs].sort(compareJobs), [run.jobs]);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const currentJob = jobs.find((job) => job.id === currentJobId);
+  const currentJob =
+    jobs.find((job) => job.id === currentJobId) ?? (currentJobId ? jobs[0] : undefined);
+  const resolvedCurrentJobId = currentJob?.id;
   const currentLabel = currentJob?.displayName ?? sectionLabel(activeSection);
 
   return (
@@ -96,7 +101,7 @@ export function RunWorkspaceNav({
               run={run}
               jobs={jobs}
               activeSection={activeSection}
-              currentJobId={currentJobId}
+              currentJobId={resolvedCurrentJobId}
               jobSearch={jobSearch}
               annotationSummary={annotationSummary}
               mobileOpen={mobileOpen}
@@ -141,7 +146,7 @@ function RunWorkspaceNavContent({
 
   return (
     <nav aria-label="Run workspace" className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <ul className="border-b border-border-neutral-base pb-[12px]">
+      <ul className="border-b border-border-neutral-base pb-row">
         <li>
           <RunSectionLink
             workspaceSlug={workspaceSlug}
@@ -157,7 +162,7 @@ function RunWorkspaceNavContent({
 
       <section
         aria-labelledby="run-workspace-jobs-heading"
-        className="flex min-h-0 min-w-0 flex-1 flex-col border-b border-border-neutral-base py-[12px]"
+        className="flex min-h-0 min-w-0 flex-1 flex-col border-b border-border-neutral-base py-row"
       >
         <div className="flex items-center justify-between gap-inline px-tight pb-[6px]">
           <Text
@@ -189,17 +194,12 @@ function RunWorkspaceNavContent({
                   onClick={onNavigate}
                   aria-current={current ? 'page' : undefined}
                   className={cn(
-                    'relative flex min-h-32 min-w-0 items-center gap-inline rounded-4 px-tight text-left outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',
+                    RUN_WORKSPACE_LINK_CLASS_NAME,
+                    'min-w-0 text-left',
                     current && 'bg-background-neutral-hover',
                   )}
                 >
-                  {current ? (
-                    <span
-                      aria-hidden="true"
-                      data-run-workspace-active-bar
-                      className="absolute inset-y-0 left-0 w-2 rounded-l-4 bg-border-highlights-interactive"
-                    />
-                  ) : null}
+                  {current ? <RunWorkspaceActiveBar /> : null}
                   <WorkflowStatusIcon
                     status={deriveJobDisplayStatus(job)}
                     size={12}
@@ -218,7 +218,7 @@ function RunWorkspaceNavContent({
         </ol>
       </section>
 
-      <section aria-labelledby="run-workspace-details-heading" className="pt-[12px]">
+      <section aria-labelledby="run-workspace-details-heading" className="pt-row">
         <Text
           as="h2"
           id="run-workspace-details-heading"
@@ -299,17 +299,12 @@ function RunSectionLink({
           : undefined
       }
       className={cn(
-        'relative flex min-h-32 items-center gap-inline rounded-4 px-tight text-xs font-medium text-foreground-neutral-base outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44',
+        RUN_WORKSPACE_LINK_CLASS_NAME,
+        'text-xs font-medium text-foreground-neutral-base',
         current && 'bg-background-neutral-hover',
       )}
     >
-      {current ? (
-        <span
-          aria-hidden="true"
-          data-run-workspace-active-bar
-          className="absolute inset-y-0 left-0 w-2 rounded-l-4 bg-border-highlights-interactive"
-        />
-      ) : null}
+      {current ? <RunWorkspaceActiveBar /> : null}
       {sectionLabel(section)}
       {count ? (
         <span
@@ -321,6 +316,16 @@ function RunSectionLink({
         </span>
       ) : null}
     </Link>
+  );
+}
+
+function RunWorkspaceActiveBar() {
+  return (
+    <span
+      aria-hidden="true"
+      data-run-workspace-active-bar
+      className="absolute inset-y-0 left-0 w-2 rounded-l-4 bg-border-highlights-interactive"
+    />
   );
 }
 
