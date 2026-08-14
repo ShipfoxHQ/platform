@@ -12,6 +12,20 @@ const output = (data: string): LogRecord => ({
   stream: 'stdout',
   data,
 });
+const groupStart = (groupId: string, name: string): LogRecord => ({
+  v: 1,
+  ts,
+  type: 'group_start',
+  groupId,
+  parentGroupId: null,
+  name,
+});
+const groupEnd = (groupId: string): LogRecord => ({
+  v: 1,
+  ts,
+  type: 'group_end',
+  groupId,
+});
 type AgentSessionRow = Extract<LogRecord, {type: 'agent_session'}>['row'];
 
 const agentSession = (row: AgentSessionRow, offsetMs = 0): LogRecord => ({
@@ -83,6 +97,91 @@ describe('LogView', () => {
     expect(screen.getByText('hello')).toBeDefined();
     expect(screen.queryByText('Step produced no output')).toBeNull();
     expect(screen.queryByText('No output yet')).toBeNull();
+  });
+
+  test('filters output and session rows by the log search term', () => {
+    render(
+      <LogView
+        search="failure"
+        records={[
+          output('setup complete\n'),
+          output('failure: test failed\n'),
+          agentSession({
+            kind: 'message',
+            timestamp: ts,
+            role: 'assistant',
+            label: 'assistant',
+            meta: [],
+            text: 'The failure is in the validation step.',
+            terminalFailure: false,
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('failure: test failed')).toBeDefined();
+    expect(screen.getByText('The failure is in the validation step.')).toBeDefined();
+    expect(screen.queryByText('setup complete')).toBeNull();
+    expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'off');
+    expect(screen.getByRole('status')).toHaveTextContent('Log search updated for “failure”.');
+  });
+
+  test('opens matching groups and filters their children', () => {
+    render(
+      <LogView
+        search="success"
+        records={[
+          groupStart('build', 'Build'),
+          output('setup complete\n'),
+          output('Success: compiled\n'),
+          groupEnd('build'),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('Success: compiled')).toBeInTheDocument();
+    expect(screen.queryByText('setup complete')).not.toBeInTheDocument();
+    expect(screen.getByText('1 line')).toBeInTheDocument();
+  });
+
+  test('normalizes search text and restores all rows when search is cleared', async () => {
+    const records = [output('Failure: validation failed\n'), output('success: recovered\n')];
+    const {rerender} = render(<LogView search="  FAILURE  " records={records} />);
+
+    await waitFor(() => expect(screen.getByText('Failure: validation failed')).toBeInTheDocument());
+    expect(screen.queryByText('success: recovered')).not.toBeInTheDocument();
+
+    rerender(<LogView search="" records={records} />);
+
+    await waitFor(() => expect(screen.getByText('success: recovered')).toBeInTheDocument());
+  });
+
+  test('searches marker labels and drops groups without matching descendants', () => {
+    render(
+      <LogView
+        search="missing"
+        records={[
+          groupStart('build', 'Build'),
+          output('build succeeded\n'),
+          groupEnd('build'),
+          groupStart('deploy', 'Deploy'),
+          output('deploy started\n'),
+          groupEnd('deploy'),
+          {v: 1, ts, type: 'gap', droppedBytes: 64},
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('Output missing')).toBeInTheDocument();
+    expect(screen.queryByText('Build')).not.toBeInTheDocument();
+    expect(screen.queryByText('Deploy')).not.toBeInTheDocument();
+  });
+
+  test('shows a message when the log search has no matches', () => {
+    render(<LogView search="missing" records={[output('hello\n')]} />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('No log lines match “missing”.');
+    expect(screen.queryByText('hello')).toBeNull();
   });
 
   test('allows terminal logs to opt out of live announcements', () => {
@@ -190,6 +289,34 @@ describe('LogView', () => {
     expect(screen.getByText('awaiting result')).toBeDefined();
   });
 
+  test('keeps tool relationships when search matches only one side', () => {
+    const records = [
+      agentSession({
+        kind: 'tool-call',
+        timestamp: ts,
+        id: 'call-1',
+        name: 'edit_file',
+        input: '{}',
+      }),
+      agentSession({
+        kind: 'tool-result',
+        timestamp: ts + 1,
+        toolCallId: 'call-1',
+        toolName: 'edit_file',
+        output: 'patched',
+        isError: false,
+      }),
+    ];
+
+    const {unmount} = render(<LogView search="{}" records={records} />);
+    expect(screen.queryByText('awaiting result')).not.toBeInTheDocument();
+
+    unmount();
+    render(<LogView search="patched" records={records} />);
+    expect(screen.getByText('result edit_file')).toBeInTheDocument();
+    expect(screen.queryByText('result (unmatched)')).not.toBeInTheDocument();
+  });
+
   test('renders unknown session entries without crashing', () => {
     render(
       <LogView
@@ -234,7 +361,7 @@ describe('LogView', () => {
     );
   });
 
-  test('anchors terminal failures when requested', async () => {
+  test('anchors terminal failures once while search changes', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);
       return 1;
@@ -255,25 +382,26 @@ describe('LogView', () => {
       .spyOn(HTMLElement.prototype, 'scrollIntoView')
       .mockImplementation(() => undefined);
 
-    render(
-      <LogView
-        anchorToFailure
-        records={[
-          output('setup\n'),
-          agentSession({
-            kind: 'message',
-            timestamp: ts,
-            role: 'assistant',
-            label: 'assistant',
-            meta: [],
-            text: 'I cannot continue.',
-            terminalFailure: true,
-          }),
-        ]}
-      />,
-    );
+    const records = [
+      output('setup\n'),
+      agentSession({
+        kind: 'message',
+        timestamp: ts,
+        role: 'assistant',
+        label: 'assistant',
+        meta: [],
+        text: 'I cannot continue.',
+        terminalFailure: true,
+      }),
+    ];
+    const {rerender} = render(<LogView anchorToFailure records={records} search="cannot" />);
 
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({block: 'center'}));
+    scrollIntoView.mockClear();
+
+    rerender(<LogView anchorToFailure records={records} search="missing" />);
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });
 

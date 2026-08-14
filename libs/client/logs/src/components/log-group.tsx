@@ -3,7 +3,7 @@
 import {Icon} from '@shipfox/react-ui/icon';
 import {LogDisclosure, LogDisclosureContent, LogDisclosureTrigger} from '@shipfox/react-ui/log';
 import {cn, formatDuration} from '@shipfox/react-ui/utils';
-import type {ReactNode} from 'react';
+import {type ReactNode, useEffect, useState} from 'react';
 import type {GroupLogNode} from '#core/log-tree.js';
 
 export interface LogGroupProps {
@@ -12,13 +12,26 @@ export interface LogGroupProps {
   terminated: boolean;
   children: ReactNode;
   defaultOpen?: boolean;
+  forceOpen?: boolean;
 }
 
-export function LogGroup({node, depth, terminated, children, defaultOpen = false}: LogGroupProps) {
+export function LogGroup({
+  node,
+  depth,
+  terminated,
+  children,
+  defaultOpen = false,
+  forceOpen = false,
+}: LogGroupProps) {
   const lineLabel = `${node.lineCount} ${node.lineCount === 1 ? 'line' : 'lines'}`;
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
 
   return (
-    <LogDisclosure indent={depth} defaultOpen={defaultOpen}>
+    <LogDisclosure indent={depth} open={forceOpen || open} onOpenChange={setOpen}>
       <LogDisclosureTrigger
         summary={lineLabel}
         trailing={<GroupStatus node={node} terminated={terminated} />}

@@ -218,6 +218,48 @@ describe('useStepAttemptLogsQuery', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
+  test('does not spend the bounded missing-stream budget on manual refreshes', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({code: 'not-found'}, {status: 404}));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderStepLogsHook(
+      {stepId: STEP_ID, attempt: 1},
+      {retryMissingStream: true, missingStreamRetryCount: 1, missingStreamRetryDelayMs: 60_000},
+    );
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const refresh = await result.current.refetchLogs();
+
+    expect(refresh.error).toBeTruthy();
+    expect(refresh.data).toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test('does not mark a reused initial request as a manual refresh', async () => {
+    let resolveInitialRequest!: (response: Response) => void;
+    const initialRequest = new Promise<Response>((resolve) => {
+      resolveInitialRequest = resolve;
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockReturnValueOnce(initialRequest)
+      .mockResolvedValue(jsonResponse({code: 'not-found'}, {status: 404}));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderStepLogsHook(
+      {stepId: STEP_ID, attempt: 1},
+      {retryMissingStream: true, missingStreamRetryCount: 1, missingStreamRetryDelayMs: 10},
+    );
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+
+    const refresh = result.current.refetchLogs();
+    resolveInitialRequest(jsonResponse({code: 'not-found'}, {status: 404}));
+    await refresh;
+
+    await waitFor(() => expect(result.current.data?.complete).toBe(true));
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   test('starts a fresh bounded window after unbounded missing-stream polling', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({code: 'not-found'}, {status: 404}));
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});

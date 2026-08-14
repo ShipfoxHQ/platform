@@ -3,13 +3,24 @@
 
 import {ApiError} from '@shipfox/client-api';
 import {QueryLoadError} from '@shipfox/client-ui';
+import {Badge} from '@shipfox/react-ui/badge';
+import {IconButton} from '@shipfox/react-ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@shipfox/react-ui/dropdown-menu';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Icon} from '@shipfox/react-ui/icon';
+import {Panel, PanelActions, PanelBody, PanelHeader} from '@shipfox/react-ui/panel';
+import {SearchInline} from '@shipfox/react-ui/search';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
-import {type RefObject, useEffect, useRef, useState} from 'react';
+import {type RefObject, useCallback, useEffect, useRef, useState} from 'react';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {summarizeJobAnnotations} from '#core/run-annotation.js';
 import {isWorkflowRunTerminal, type Job, type JobExecution} from '#core/workflow-run.js';
@@ -22,6 +33,11 @@ import {
   workflowRunSearchParams,
 } from '#routes/inputs.js';
 import {type StepExpandedContext, StepList} from '../step-list/index.js';
+import {
+  buildStepListModel,
+  getStepStatusVisual,
+  type StepListModel,
+} from '../step-list/step-list-model.js';
 import {
   WorkflowRunNotFound,
   WorkflowRunStaleError,
@@ -71,6 +87,12 @@ export function JobDetailView({
   const rootRef = useRef<HTMLDivElement>(null);
   const pageScrollRef = useRef<HTMLDivElement>(null);
   const landingSelectionRef = useRef<FrozenLandingSelection | undefined>(undefined);
+  const [logSearch, setLogSearch] = useState('');
+  const [wrapLogs, setWrapLogs] = useState(false);
+  const [showLineNumbers, setShowLineNumbers] = useState(true);
+  const [expandedLogAttemptIds, setExpandedLogAttemptIds] = useState<readonly string[]>([]);
+  const [logRefreshTokens, setLogRefreshTokens] = useState<Record<string, number>>({});
+  const [logFetchingByAttemptId, setLogFetchingByAttemptId] = useState<Record<string, boolean>>({});
   const hasLoadedData = query.data !== undefined;
   // Reuse the run workspace's bounded annotation read for the job header chip. The separate
   // summary query below stays counts-only and is scoped to the inspector's selected execution.
@@ -112,6 +134,13 @@ export function JobDetailView({
     heading?.focus({preventScroll: true});
   }, [hasLoadedData, jobId]);
 
+  const handleLogFetchingChange = useCallback((attemptId: string, isFetching: boolean) => {
+    setLogFetchingByAttemptId((current) => {
+      if (current[attemptId] === isFetching) return current;
+      return {...current, [attemptId]: isFetching};
+    });
+  }, []);
+
   if (query.isPending) return <JobDetailSkeleton />;
 
   if (query.isError && query.data === undefined) {
@@ -139,6 +168,7 @@ export function JobDetailView({
   const resolvedSelection = resolveWorkflowJobSelection({job, selection: search});
   const selectedJobExecution = resolvedSelection.jobExecution;
   const hasExplicitStep = Boolean(search.stepId && resolvedSelection.step);
+  const stepListModel = buildStepListModel({job, jobExecution: selectedJobExecution});
   const currentLandingSelection = workflowJobLandingSelection(selectedJobExecution);
   if (selectedJobExecution) {
     const frozenLanding = landingSelectionRef.current;
@@ -165,11 +195,22 @@ export function JobDetailView({
   }
   const landingSelection = landingSelectionRef.current?.selection;
   const selectedAttemptId = hasExplicitStep ? resolvedSelection.selectedAttemptId : undefined;
-  const runningSelection = runningStepSelection(selectedJobExecution);
+  const runningSelection = runningStepSelection(selectedJobExecution, stepListModel);
   const selectedStepId = resolvedSelection.step?.id ?? landingSelection?.stepId;
   const selectedAttemptForNotice = hasExplicitStep
     ? resolvedSelection.selectedAttemptId
     : landingSelection?.attemptId;
+  const expandedLogSelection = findExpandedLogSelection(
+    selectedJobExecution,
+    expandedLogAttemptIds,
+    stepListModel,
+  );
+  const selectedLogStep = expandedLogSelection?.step;
+  const selectedLogAttempt = expandedLogSelection?.attempt;
+  const selectedLogStatus = selectedLogAttempt?.status ?? selectedLogStep?.status;
+  const logIsFetching = Boolean(
+    selectedLogAttempt && logFetchingByAttemptId[selectedLogAttempt.id],
+  );
   const showRetargetNotice =
     runningSelection !== undefined &&
     (selectedStepId !== runningSelection.stepId ||
@@ -224,6 +265,14 @@ export function JobDetailView({
     });
   }
 
+  function refreshLogs() {
+    if (!selectedLogAttempt) return;
+    setLogRefreshTokens((current) => ({
+      ...current,
+      [selectedLogAttempt.id]: (current[selectedLogAttempt.id] ?? 0) + 1,
+    }));
+  }
+
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
       <div ref={rootRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -255,49 +304,77 @@ export function JobDetailView({
                   ) : undefined
                 }
               />
-              <Text as="h2" className="sr-only">
-                Logs
-              </Text>
-              {selectedJobExecution ? (
-                <>
-                  <MaterializedOutputFailureNotice jobExecution={selectedJobExecution} />
-                  <StepList
-                    job={job}
-                    jobExecution={selectedJobExecution}
-                    selectedAttemptId={selectedAttemptId}
-                    defaultSelectedAttemptId={landingSelection?.attemptId}
-                    onSelectedAttemptChange={selectAttempt}
-                    inspectorOpenAttemptId={inspectorOpenAttemptId}
-                    onInspectorOpenChange={onInspectorOpenChange}
-                    autoSelectActiveAttempt
-                    emptyState={emptyStateForJob(job, selectedJobExecution)}
-                    showHeader={false}
-                    className="rounded-none border-0 bg-transparent"
-                    renderExpandedStep={(context) => (
-                      <ExpandedStep context={context} pageScrollRef={pageScrollRef} />
-                    )}
-                    renderInspector={(entry) => (
-                      <StepInspectorSheet
-                        entry={entry}
-                        open
-                        onOpenChange={(open) => onInspectorOpenChange(open ? entry.id : null)}
-                        workspaceSlug={workspaceSlug}
-                        projectSlug={projectSlug}
-                        workflowRunId={run.id}
-                        runAttempt={run.runAttempt.attempt}
-                        jobId={job.id}
-                        annotationCount={annotationCountForStep(
-                          annotationSummaryQuery.data,
-                          entry.step.id,
-                          entry.attempt,
+              <Panel data-job-log-panel className="min-w-0">
+                <JobLogPanelHeader
+                  stepLabel={expandedLogSelection?.stepLabel}
+                  attempt={selectedLogAttempt?.attempt}
+                  status={selectedLogStatus}
+                  search={logSearch}
+                  onSearchChange={setLogSearch}
+                  onRefresh={refreshLogs}
+                  refreshing={logIsFetching}
+                  showLineNumbers={showLineNumbers}
+                  onShowLineNumbersChange={setShowLineNumbers}
+                  wrap={wrapLogs}
+                  onWrapChange={setWrapLogs}
+                  disabled={!selectedLogAttempt}
+                />
+                <PanelBody className="min-w-0 p-0">
+                  <Text as="h2" className="sr-only">
+                    Logs
+                  </Text>
+                  {selectedJobExecution ? (
+                    <>
+                      <MaterializedOutputFailureNotice jobExecution={selectedJobExecution} />
+                      <StepList
+                        job={job}
+                        jobExecution={selectedJobExecution}
+                        selectedAttemptId={selectedAttemptId}
+                        defaultSelectedAttemptId={landingSelection?.attemptId}
+                        onSelectedAttemptChange={selectAttempt}
+                        onExpandedAttemptIdsChange={setExpandedLogAttemptIds}
+                        inspectorOpenAttemptId={inspectorOpenAttemptId}
+                        onInspectorOpenChange={onInspectorOpenChange}
+                        autoSelectActiveAttempt
+                        emptyState={emptyStateForJob(job, selectedJobExecution)}
+                        showHeader={false}
+                        className="rounded-none border-0 bg-transparent shadow-none"
+                        renderExpandedStep={(context) => (
+                          <ExpandedStep
+                            context={context}
+                            pageScrollRef={pageScrollRef}
+                            search={logSearch}
+                            wrap={wrapLogs}
+                            showLineNumbers={showLineNumbers}
+                            attemptId={context.attemptId}
+                            refreshToken={logRefreshTokens[context.attemptId] ?? 0}
+                            onFetchingChange={handleLogFetchingChange}
+                          />
+                        )}
+                        renderInspector={(entry) => (
+                          <StepInspectorSheet
+                            entry={entry}
+                            open
+                            onOpenChange={(open) => onInspectorOpenChange(open ? entry.id : null)}
+                            workspaceSlug={workspaceSlug}
+                            projectSlug={projectSlug}
+                            workflowRunId={run.id}
+                            runAttempt={run.runAttempt.attempt}
+                            jobId={job.id}
+                            annotationCount={annotationCountForStep(
+                              annotationSummaryQuery.data,
+                              entry.step.id,
+                              entry.attempt,
+                            )}
+                          />
                         )}
                       />
-                    )}
-                  />
-                </>
-              ) : (
-                <EmptyStateForMissingExecution job={job} />
-              )}
+                    </>
+                  ) : (
+                    <EmptyStateForMissingExecution job={job} />
+                  )}
+                </PanelBody>
+              </Panel>
             </section>
             {showRetargetNotice && runningSelection ? (
               <div
@@ -336,9 +413,21 @@ export function JobDetailView({
 function ExpandedStep({
   context,
   pageScrollRef,
+  search,
+  wrap,
+  showLineNumbers,
+  attemptId,
+  refreshToken,
+  onFetchingChange,
 }: {
   context: StepExpandedContext;
   pageScrollRef: RefObject<HTMLDivElement | null>;
+  search: string;
+  wrap: boolean;
+  showLineNumbers: boolean;
+  attemptId: string;
+  refreshToken: number;
+  onFetchingChange: (attemptId: string, isFetching: boolean) => void;
 }) {
   if (context.carriedOver) return <CarriedOverStepPanel />;
 
@@ -347,7 +436,7 @@ function ExpandedStep({
       role="region"
       tabIndex={0}
       aria-label={`${context.stepLabel} output, attempt ${context.attempt}`}
-      className="flex min-w-0 flex-col border-t border-border-neutral-base bg-background-contrast-subtle outline-none focus-visible:shadow-border-interactive-with-active"
+      className="flex min-w-0 flex-col border-t border-border-neutral-base bg-background-contrast-base outline-none focus-visible:shadow-border-interactive-with-active"
     >
       <StepAttemptLogPanel
         stepId={context.stepId}
@@ -355,9 +444,113 @@ function ExpandedStep({
         attemptStatus={context.attemptStatus}
         attemptStartedAt={context.attemptStartedAt}
         pageScrollRef={pageScrollRef}
-        surfaceClassName="rounded-none border-0 bg-transparent shadow-none"
+        search={search}
+        wrap={wrap}
+        showLineNumbers={showLineNumbers}
+        attemptId={attemptId}
+        refreshToken={refreshToken}
+        onFetchingChange={onFetchingChange}
       />
     </section>
+  );
+}
+
+function JobLogPanelHeader({
+  stepLabel,
+  attempt,
+  status,
+  search,
+  onSearchChange,
+  onRefresh,
+  refreshing,
+  showLineNumbers,
+  onShowLineNumbersChange,
+  wrap,
+  onWrapChange,
+  disabled,
+}: {
+  stepLabel: string | undefined;
+  attempt: number | undefined;
+  status: string | undefined;
+  search: string;
+  onSearchChange: (value: string) => void;
+  onRefresh: () => void;
+  refreshing: boolean;
+  showLineNumbers: boolean;
+  onShowLineNumbersChange: (value: boolean) => void;
+  wrap: boolean;
+  onWrapChange: (value: boolean) => void;
+  disabled: boolean;
+}) {
+  const statusVisual = status ? getStepStatusVisual(status) : undefined;
+
+  return (
+    <PanelHeader className="flex flex-wrap items-center gap-group">
+      <div className="min-w-0 flex-1">
+        <Text size="sm" bold className="truncate text-foreground-neutral-base">
+          {stepLabel ?? 'Logs'}
+        </Text>
+        {statusVisual ? (
+          <div className="flex min-w-0 items-center gap-inline text-foreground-neutral-muted">
+            <Badge variant={statusVisual.badge} size="2xs" radius="rounded">
+              {statusVisual.label}
+            </Badge>
+            {attempt ? (
+              <span className="font-code text-xs leading-20 tabular-nums">attempt {attempt}</span>
+            ) : null}
+          </div>
+        ) : (
+          <Text size="xs" className="text-foreground-neutral-muted">
+            Select a step to view its logs.
+          </Text>
+        )}
+      </div>
+      <PanelActions className="min-w-0 flex-wrap justify-end">
+        <SearchInline
+          value={search}
+          onChange={(event) => onSearchChange(event.target.value)}
+          aria-label="Search logs"
+          placeholder="Search logs"
+          size="small"
+          className="w-180 max-w-full"
+          disabled={disabled}
+        />
+        <IconButton
+          type="button"
+          variant="transparent"
+          size="sm"
+          icon="refreshLine"
+          aria-label="Refresh logs"
+          onClick={onRefresh}
+          disabled={disabled || refreshing}
+          isLoading={refreshing}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <IconButton
+              type="button"
+              variant="transparent"
+              size="sm"
+              icon="settings3Line"
+              aria-label="Log settings"
+              disabled={disabled}
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" size="sm">
+            <DropdownMenuLabel>Log display</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem
+              checked={showLineNumbers}
+              onCheckedChange={onShowLineNumbersChange}
+            >
+              Line numbers
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={wrap} onCheckedChange={onWrapChange}>
+              Wrap long lines
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </PanelActions>
+    </PanelHeader>
   );
 }
 
@@ -442,7 +635,7 @@ function NewerAttemptNotice({
   );
 }
 
-function runningStepSelection(jobExecution: JobExecution | undefined) {
+function runningStepSelection(jobExecution: JobExecution | undefined, model: StepListModel) {
   if (!jobExecution) return undefined;
   const steps = [...jobExecution.steps].sort(
     (left, right) => left.position - right.position || left.id.localeCompare(right.id),
@@ -455,7 +648,11 @@ function runningStepSelection(jobExecution: JobExecution | undefined) {
       .reverse()
       .find((candidate) => candidate.status === 'running');
     if (attempt)
-      return {stepId: step.id, attemptId: attempt.id, stepLabel: step.name || step.key || step.id};
+      return {
+        stepId: step.id,
+        attemptId: attempt.id,
+        stepLabel: model.entries.find((entry) => entry.id === attempt.id)?.step.label ?? 'Step',
+      };
   }
   return undefined;
 }
@@ -465,6 +662,25 @@ function findAttempt(jobExecution: JobExecution, attemptId: string) {
     const attempt = step.attempts.find((candidate) => candidate.id === attemptId);
     if (attempt) return {step, attemptId: attempt.id};
   }
+  return undefined;
+}
+
+function findExpandedLogSelection(
+  jobExecution: JobExecution | undefined,
+  attemptIds: readonly string[],
+  model: StepListModel,
+) {
+  if (!jobExecution) return undefined;
+
+  for (let index = attemptIds.length - 1; index >= 0; index -= 1) {
+    const attemptId = attemptIds[index];
+    if (!attemptId) continue;
+    const match = findAttempt(jobExecution, attemptId);
+    const attempt = match?.step.attempts.find((candidate) => candidate.id === attemptId);
+    const entry = model.entries.find((candidate) => candidate.id === attemptId);
+    if (match && attempt && entry) return {step: match.step, attempt, stepLabel: entry.step.label};
+  }
+
   return undefined;
 }
 

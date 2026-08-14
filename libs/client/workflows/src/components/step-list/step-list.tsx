@@ -58,6 +58,7 @@ export interface StepListProps {
   selectedAttemptId?: string | null | undefined;
   defaultSelectedAttemptId?: string | undefined;
   onSelectedAttemptChange?: ((attemptId: string | undefined) => void) | undefined;
+  onExpandedAttemptIdsChange?: ((attemptIds: readonly string[]) => void) | undefined;
   inspectorOpenAttemptId?: string | null | undefined;
   onInspectorOpenChange?: ((attemptId: string | null) => void) | undefined;
   autoSelectActiveAttempt?: boolean | undefined;
@@ -74,6 +75,7 @@ export function StepList({
   selectedAttemptId,
   defaultSelectedAttemptId,
   onSelectedAttemptChange,
+  onExpandedAttemptIdsChange,
   inspectorOpenAttemptId = null,
   onInspectorOpenChange,
   autoSelectActiveAttempt = false,
@@ -96,6 +98,7 @@ export function StepList({
       selectedAttemptId={selectedAttemptId}
       defaultSelectedAttemptId={defaultSelectedAttemptId}
       onSelectedAttemptChange={onSelectedAttemptChange}
+      onExpandedAttemptIdsChange={onExpandedAttemptIdsChange}
       inspectorOpenAttemptId={inspectorOpenAttemptId}
       onInspectorOpenChange={onInspectorOpenChange}
       autoSelectActiveAttempt={autoSelectActiveAttempt}
@@ -113,6 +116,7 @@ function StepListContent({
   selectedAttemptId,
   defaultSelectedAttemptId,
   onSelectedAttemptChange,
+  onExpandedAttemptIdsChange,
   inspectorOpenAttemptId = null,
   onInspectorOpenChange,
   autoSelectActiveAttempt,
@@ -134,19 +138,34 @@ function StepListContent({
   const lastNotifiedSelectedAttemptId = useRef<string | null>(null);
   const autoSelectedAttemptIdRef = useRef<string | undefined>(undefined);
   const previousSelectedAttemptIdRef = useRef<string | null | undefined>(selectedAttemptId);
+  const lastReportedExpandedAttemptIdsKeyRef = useRef<string | null>(null);
   const shouldUseControlledCollapsedState =
     selectedAttemptId === null && lastNotifiedSelectedAttemptId.current === null;
   const autoSelectedAttemptId =
     selectedAttemptId === undefined && autoSelectActiveAttempt && !userSelectedAttempt
       ? (autoSelectedAttemptIdRef.current ?? model.activeEntryId)
       : undefined;
-  const autoSelectedAttemptIds = autoSelectedAttemptId ? [autoSelectedAttemptId] : [];
-  const selectedAttemptIds = shouldUseControlledCollapsedState
-    ? []
-    : localSelectedAttemptIds.length > 0
-      ? localSelectedAttemptIds
-      : autoSelectedAttemptIds;
+  const autoSelectedAttemptIds = useMemo(
+    () => (autoSelectedAttemptId ? [autoSelectedAttemptId] : []),
+    [autoSelectedAttemptId],
+  );
+  const selectedAttemptIds = useMemo(
+    () =>
+      shouldUseControlledCollapsedState
+        ? []
+        : localSelectedAttemptIds.length > 0
+          ? localSelectedAttemptIds
+          : autoSelectedAttemptIds,
+    [autoSelectedAttemptIds, localSelectedAttemptIds, shouldUseControlledCollapsedState],
+  );
   const hasExpandedContent = renderExpandedStep !== undefined;
+
+  useEffect(() => {
+    const key = selectedAttemptIds.join('|');
+    if (lastReportedExpandedAttemptIdsKeyRef.current === key) return;
+    lastReportedExpandedAttemptIdsKeyRef.current = key;
+    onExpandedAttemptIdsChange?.(selectedAttemptIds);
+  }, [onExpandedAttemptIdsChange, selectedAttemptIds]);
 
   useEffect(() => {
     if (selectedAttemptId !== undefined) {
@@ -223,7 +242,7 @@ function StepListContent({
       <section
         aria-labelledby={showHeader ? titleId : undefined}
         className={cn(
-          'flex min-h-0 flex-col rounded-8 border border-border-neutral-base bg-background-components-base',
+          'flex min-h-0 flex-col rounded-8 border border-border-neutral-base bg-background-neutral-base',
           className,
         )}
       >
@@ -425,8 +444,8 @@ function StepRow({
     <>
       <div
         className={cn(
-          'group flex min-w-0 items-center gap-inline pr-[8px] transition-colors hover:bg-background-components-hover active:bg-background-components-pressed',
-          selected && 'bg-background-components-hover',
+          'group flex min-w-0 items-center gap-inline bg-background-neutral-base pr-[8px] transition-colors hover:bg-background-neutral-hover active:bg-background-neutral-pressed',
+          selected && 'bg-background-neutral-hover',
           !hasExpandedContent && ['border-b border-border-neutral-base', isLast && 'border-b-0'],
         )}
       >

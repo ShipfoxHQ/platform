@@ -10,7 +10,7 @@ import {
 } from '@shipfox/react-ui/log';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {cn} from '@shipfox/react-ui/utils';
-import {Fragment, useState} from 'react';
+import {Fragment, useEffect, useState} from 'react';
 import type {SessionViewRow, SessionViewRowMeta} from '#core/log-model.js';
 
 const PREVIEW_CHAR_LIMIT = 1200;
@@ -23,6 +23,7 @@ export interface AgentSessionRowsProps {
   resolvedToolCallIds: ReadonlySet<string>;
   toolCallNames: ReadonlyMap<string, string>;
   indent: number;
+  forceOpen?: boolean;
 }
 
 export function AgentSessionRows({
@@ -30,6 +31,7 @@ export function AgentSessionRows({
   resolvedToolCallIds,
   toolCallNames,
   indent,
+  forceOpen = false,
 }: AgentSessionRowsProps) {
   return rows.map((row, index) => (
     <AgentSessionRowView
@@ -39,6 +41,7 @@ export function AgentSessionRows({
       resolvedToolCallIds={resolvedToolCallIds}
       toolCallNames={toolCallNames}
       indent={indent}
+      forceOpen={forceOpen}
     />
   ));
 }
@@ -48,12 +51,20 @@ function AgentSessionRowView({
   resolvedToolCallIds,
   toolCallNames,
   indent,
+  forceOpen,
 }: {
   row: SessionViewRow;
   resolvedToolCallIds: ReadonlySet<string>;
   toolCallNames: ReadonlyMap<string, string>;
   indent: number;
+  forceOpen: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
+  const disclosureProps = {open: forceOpen || open, onOpenChange: setOpen};
+
   switch (row.kind) {
     case 'message':
       return (
@@ -82,7 +93,7 @@ function AgentSessionRowView({
       );
     case 'thinking':
       return (
-        <LogDisclosure indent={indent}>
+        <LogDisclosure indent={indent} {...disclosureProps}>
           <LogDisclosureTrigger
             summary={wordSummary(row.text)}
             timestamp={new Date(row.timestamp)}
@@ -100,7 +111,7 @@ function AgentSessionRowView({
     case 'tool-call': {
       const awaitingResult = row.id != null && !resolvedToolCallIds.has(row.id);
       return (
-        <LogDisclosure indent={indent}>
+        <LogDisclosure indent={indent} {...disclosureProps}>
           <LogDisclosureTrigger
             timestamp={new Date(row.timestamp)}
             summary={compactPreview(row.summary ?? row.input)}
@@ -148,7 +159,7 @@ function AgentSessionRowView({
             '(unmatched)')
           : row.toolName;
       return (
-        <LogDisclosure indent={indent}>
+        <LogDisclosure indent={indent} {...disclosureProps}>
           <LogDisclosureTrigger
             timestamp={new Date(row.timestamp)}
             summary={compactPreview(row.output)}
@@ -213,7 +224,7 @@ function AgentSessionRowView({
       );
     case 'raw':
       return (
-        <LogDisclosure indent={indent}>
+        <LogDisclosure indent={indent} {...disclosureProps}>
           <LogDisclosureTrigger
             timestamp={new Date(row.timestamp)}
             summary={compactPreview(row.raw)}

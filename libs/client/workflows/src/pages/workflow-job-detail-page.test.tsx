@@ -101,6 +101,7 @@ describe('WorkflowJobDetailPage', () => {
   });
 
   test('resolves an exact job execution and step attempt from a deep link', async () => {
+    const user = userEvent.setup();
     configureApiClient({fetchImpl: vi.fn(jobDetailFetch)});
 
     renderJobPath(
@@ -117,6 +118,24 @@ describe('WorkflowJobDetailPage', () => {
       await screen.findByRole('region', {name: 'tests output, attempt 2'}),
     ).toBeInTheDocument();
     expect(screen.getByRole('region', {name: 'release logs'})).toBeInTheDocument();
+    expect(screen.getByRole('textbox', {name: 'Search logs'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Refresh logs'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Log settings'})).toBeInTheDocument();
+    const testsAttempt = screen.getByRole('button', {name: 'tests, Succeeded, attempt 2'});
+    await user.click(testsAttempt);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('region', {name: 'tests output, attempt 2'}),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('textbox', {name: 'Search logs'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Refresh logs'})).toBeDisabled();
+
+    await user.click(testsAttempt);
+    expect(
+      await screen.findByRole('region', {name: 'tests output, attempt 2'}),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('textbox', {name: 'Search logs'})).not.toBeDisabled();
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     expect(screen.getByRole('img', {name: 'Job status: Succeeded'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'deploy-web'})).toBeInTheDocument();

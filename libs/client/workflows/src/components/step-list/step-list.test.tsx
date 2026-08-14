@@ -145,6 +145,34 @@ describe('StepList', () => {
     expect(screen.getByText(`logs for ${deployAttempt.id}`)).toBeInTheDocument();
   });
 
+  test('reports the expanded attempt ids as rows change', async () => {
+    const user = userEvent.setup();
+    const onExpandedAttemptIdsChange = vi.fn();
+    const buildAttempt = makeAttempt({status: 'succeeded'});
+    const deployAttempt = makeAttempt({status: 'running'});
+    const build = makeStep({name: 'build', attempts: [buildAttempt]});
+    const deploy = makeStep({name: 'deploy', position: 1, attempts: [deployAttempt]});
+    render(
+      <StepList
+        job={makeJob({steps: [build, deploy]})}
+        onExpandedAttemptIdsChange={onExpandedAttemptIdsChange}
+        renderExpandedStep={({attemptId}) => <Text size="sm">logs for {attemptId}</Text>}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', {name: 'build, Succeeded, attempt 1'}));
+    expect(onExpandedAttemptIdsChange).toHaveBeenLastCalledWith([buildAttempt.id]);
+
+    await user.click(screen.getByRole('button', {name: 'deploy, Running, attempt 1'}));
+    expect(onExpandedAttemptIdsChange).toHaveBeenLastCalledWith([
+      buildAttempt.id,
+      deployAttempt.id,
+    ]);
+
+    await user.click(screen.getByRole('button', {name: 'build, Succeeded, attempt 1'}));
+    expect(onExpandedAttemptIdsChange).toHaveBeenLastCalledWith([deployAttempt.id]);
+  });
+
   test('keeps multiple expanded rows open when external attempt selection is singular', async () => {
     const user = userEvent.setup();
     const buildAttempt = makeAttempt({status: 'succeeded'});
@@ -210,7 +238,7 @@ describe('StepList', () => {
     await user.click(deployRow);
 
     expect(buildRow.parentElement?.parentElement).not.toHaveClass('bg-background-components-hover');
-    expect(deployRow.parentElement?.parentElement).toHaveClass('bg-background-components-hover');
+    expect(deployRow.parentElement?.parentElement).toHaveClass('bg-background-neutral-hover');
   });
 
   test('opens a default selected attempt', () => {

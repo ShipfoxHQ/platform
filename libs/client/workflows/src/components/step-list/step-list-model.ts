@@ -132,7 +132,7 @@ function toStepModel(step: Step, index: number): StepModel {
   };
 }
 
-function stepLabel(step: Step, index: number): string {
+export function stepLabel(step: Step, index: number): string {
   const name = step.name.trim();
   if (name) return name;
 
