@@ -71,11 +71,13 @@ async function releaseReservationsForTerminalRunningRows(
     providerRunnerIdsByProvisionerId.set(row.provisionerId, providerRunnerIds);
   }
 
-  for (const [provisionerId, providerRunnerIds] of providerRunnerIdsByProvisionerId) {
+  for (const provisionerId of [...providerRunnerIdsByProvisionerId.keys()].sort()) {
+    const providerRunnerIds = providerRunnerIdsByProvisionerId.get(provisionerId);
+    if (!providerRunnerIds) continue;
     await releaseTerminalRunnerInstanceReservationsByIds(tx, {
       workspaceId: null,
       provisionerId,
-      providerRunnerIds: [...providerRunnerIds],
+      providerRunnerIds: [...providerRunnerIds].sort(),
       requireUnlinkedSession: false,
       // Lock and re-check the runner row locally so lease finalization remains retryable
       // without a workflow/runner scope lock.

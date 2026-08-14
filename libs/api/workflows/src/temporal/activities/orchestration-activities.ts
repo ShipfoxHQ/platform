@@ -209,8 +209,15 @@ export async function queueJobExecutionActivity(params: {
   jobId: string;
   jobExecutionId: string;
 }): Promise<{newVersion: number; status: Exclude<JobStatus, 'skipped'>}> {
-  const execution = await queueJobExecution({jobExecutionId: params.jobExecutionId});
-  return {newVersion: execution.version, status: execution.status};
+  try {
+    const execution = await queueJobExecution({jobExecutionId: params.jobExecutionId});
+    return {newVersion: execution.version, status: execution.status};
+  } catch (err) {
+    if (err instanceof JobNotFoundError) {
+      throw ApplicationFailure.nonRetryable(err.message, err.name);
+    }
+    throw err;
+  }
 }
 
 export async function failJobExecutionAsTimedOutActivity(

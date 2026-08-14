@@ -1037,6 +1037,49 @@ describe('reconcileTerminalJobExecution', () => {
     expect(rows[0]?.cancellationRequestedAt).not.toBeNull();
   });
 
+  it('releases an already-terminal runner reservation after cancelling its last lease', async () => {
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = crypto.randomUUID();
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: sessionLabels,
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!reservation) throw new Error('Expected reservation');
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      reservationId: reservation.id,
+      runnerSessionId,
+      state: 'terminated',
+      terminatedAt: new Date(),
+    });
+    const pending = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+    await db()
+      .update(runningJobExecutions)
+      .set({provisionerId, providerRunnerId})
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+
+    await reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
+
+    expect(
+      await db().select().from(reservations).where(eq(reservations.id, reservation.id)),
+    ).toHaveLength(0);
+    const [runner] = await db()
+      .select({reservationReleasedAt: providerRunners.reservationReleasedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.reservationReleasedAt).toBeInstanceOf(Date);
+  });
+
   it('is idempotent: second call preserves the first timestamp', async () => {
     const pending = await pendingJobFactory.create({workspaceId});
     const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});

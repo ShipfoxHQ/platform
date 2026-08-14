@@ -115,7 +115,13 @@ async function terminateRunAttempt(
           notInArray(jobExecutions.status, TERMINAL_EXECUTION_STATUSES),
         ),
       )
-      .returning();
+      .returning({
+        id: jobExecutions.id,
+        jobId: jobExecutions.jobId,
+        status: jobExecutions.status,
+        statusReason: jobExecutions.statusReason,
+        statusReasonMessage: jobExecutions.statusReasonMessage,
+      });
     for (const jobExecution of terminatedExecutions) {
       await writeJobExecutionTerminatedOutbox(tx, {
         jobId: jobExecution.jobId,

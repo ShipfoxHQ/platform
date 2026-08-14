@@ -5,4 +5,4 @@
 "@shipfox/api-workflows-dto": major
 ---
 
-Replace synchronous runner scheduling and lease-finalization commands with ordered job-execution queue and terminal facts, then converge terminal runner reservations from the resulting lease state.
+Expose ordered queued and terminal workflow job-execution facts, and release terminal runner reservations once no uncancelled lease remains.

@@ -8,7 +8,11 @@ import {
 import {createTestSecretsClient} from '#test/fixtures/secrets-inter-module.js';
 import {stripSetupStep} from '#test/fixtures/strip-setup-step.js';
 import {workflowModel} from '#test/index.js';
-import {resolveLeaseExpiredJobExecutionActivity, setJobStatus} from './orchestration-activities.js';
+import {
+  queueJobExecutionActivity,
+  resolveLeaseExpiredJobExecutionActivity,
+  setJobStatus,
+} from './orchestration-activities.js';
 
 let workspaceId: string;
 let projectId: string;
@@ -71,6 +75,18 @@ describe('resolveLeaseExpiredJobExecutionActivity', () => {
     );
 
     expect(result.status).toBe('failed');
+  });
+});
+
+describe('queueJobExecutionActivity', () => {
+  test('a missing execution fails non-retryably', async () => {
+    const error = await queueJobExecutionActivity({
+      jobId: crypto.randomUUID(),
+      jobExecutionId: crypto.randomUUID(),
+    }).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ApplicationFailure);
+    expect((error as ApplicationFailure).nonRetryable).toBe(true);
   });
 });
 
