@@ -1,6 +1,7 @@
 import type {Meta, StoryObj} from '@storybook/react';
 import {useState} from 'react';
 import {Label} from '#components/label/index.js';
+import {Panel, PanelBody, PanelHeader, PanelTitle} from '#components/panel/index.js';
 import {Text} from '#components/typography/index.js';
 import {RadioGroup, RadioGroupItem, RadioGroupItemSkeleton} from './radio-group.js';
 
@@ -124,6 +125,31 @@ export const SingleOption: Story = {
       </RadioGroup>
     </div>
   ),
+};
+
+export const InsidePanel: Story = {
+  render: () => {
+    function CellRadioGroup() {
+      const [value, setValue] = useState<string>('conn-1');
+      return (
+        <Panel className="w-[560px]">
+          <PanelHeader>
+            <PanelTitle>Source integration</PanelTitle>
+          </PanelHeader>
+          <PanelBody>
+            <RadioGroup variant="cell" value={value} onValueChange={setValue}>
+              {SAMPLE_CONNECTIONS.map((connection) => (
+                <RadioGroupItem key={connection.id} value={connection.id}>
+                  <Option name={connection.name} subtitle={connection.subtitle} />
+                </RadioGroupItem>
+              ))}
+            </RadioGroup>
+          </PanelBody>
+        </Panel>
+      );
+    }
+    return <CellRadioGroup />;
+  },
 };
 
 export const Loading: Story = {

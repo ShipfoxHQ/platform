@@ -86,9 +86,11 @@ describe('RepositoryPicker', () => {
     const loadingGrid = container.querySelector('[aria-hidden="true"]');
     if (!loadingGrid) throw new Error('Repository loading grid was not rendered');
 
-    // The placeholders sit in the same gap grid as the loaded cards, so the list
-    // does not change shape when the fetch resolves.
-    expect(loadingGrid).toHaveClass('grid', 'grid-cols-2', 'gap-inline', 'max-[760px]:grid-cols-1');
+    // The placeholders sit in the same hairline cell grid as the loaded cards,
+    // so the list does not change shape when the fetch resolves.
+    expect(loadingGrid).toHaveClass('grid', 'grid-cols-2', 'max-[760px]:grid-cols-1');
+    expect(loadingGrid).toHaveClass('min-[760px]:[&>*:nth-child(even)]:border-l');
+    expect(loadingGrid).not.toHaveClass('gap-inline');
     expect(loadingGrid.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4);
     // The placeholder box belongs to `RadioGroupItemSkeleton`, so this only
     // checks that each slot carries the indicator and one bar. react-ui owns

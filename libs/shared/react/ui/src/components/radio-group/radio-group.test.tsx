@@ -85,6 +85,61 @@ const SURFACE_TOKENS = [
   'gap-cluster',
 ];
 
+describe('RadioGroup variant="cell"', () => {
+  test('drops the tile frame so it does not repeat the panel it sits in', () => {
+    render(
+      <RadioGroup variant="cell" defaultValue="a">
+        <RadioGroupItem value="a">One</RadioGroupItem>
+        <RadioGroupItem value="b">Two</RadioGroupItem>
+      </RadioGroup>,
+    );
+
+    const item = screen.getByRole('radio', {name: 'One'});
+
+    // Panel already owns these four; repeating them is a frame inside a frame.
+    expect(item.classList.contains('rounded-8')).toBe(false);
+    expect(item.classList.contains('border')).toBe(false);
+    expect(item.classList.contains('shadow-button-neutral')).toBe(false);
+    expect(item.classList.contains('bg-background-neutral-base')).toBe(true);
+  });
+
+  test('marks selection with an outline, leaving box-shadow to mean focus', () => {
+    render(
+      <RadioGroup variant="cell" defaultValue="a">
+        <RadioGroupItem value="a">One</RadioGroupItem>
+      </RadioGroup>,
+    );
+
+    const item = screen.getByRole('radio', {name: 'One'});
+
+    expect(
+      item.classList.contains('data-[state=checked]:outline-border-highlights-interactive'),
+    ).toBe(true);
+    expect(item.classList.contains('focus-visible:shadow-focus-inset')).toBe(true);
+    expect(
+      [...item.classList].some((token) => token.startsWith('data-[state=checked]:shadow-')),
+    ).toBe(false);
+  });
+
+  test('is the grid itself, so the radio buttons are the cells', () => {
+    const {container} = render(
+      <RadioGroup variant="cell" defaultValue="a">
+        <RadioGroupItem value="a">One</RadioGroupItem>
+        <RadioGroupItem value="b">Two</RadioGroupItem>
+        <RadioGroupItem value="c">Three</RadioGroupItem>
+      </RadioGroup>,
+    );
+
+    const grid = container.querySelector('[data-slot="panel-grid"]');
+
+    // A Radix item is a button, which cannot be a child of a `ul`.
+    expect(grid?.tagName).toBe('DIV');
+    expect(grid?.getAttribute('role')).toBe('radiogroup');
+    // The odd count is padded, as in any other panel grid.
+    expect(grid?.querySelector('[data-slot="panel-cell-filler"]')?.tagName).toBe('DIV');
+  });
+});
+
 describe('RadioGroupItemSkeleton', () => {
   test('mirrors the item surface so a loading grid cannot drift from it', () => {
     const {container} = render(<RadioGroupItemSkeleton labelClassName="w-64" />);

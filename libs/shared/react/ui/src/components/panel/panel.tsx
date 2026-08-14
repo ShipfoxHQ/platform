@@ -1,5 +1,12 @@
 import {Slot, Slottable} from '@radix-ui/react-slot';
-import {Children, type ComponentProps, type ReactNode} from 'react';
+import {
+  Children,
+  type ComponentProps,
+  type ElementType,
+  type HTMLAttributes,
+  type PropsWithChildren,
+  type ReactNode,
+} from 'react';
 import {cn} from '#utils/cn.js';
 import {Icon} from '../icon/index.js';
 import {Header, Text} from '../typography/index.js';
@@ -133,25 +140,33 @@ const PANEL_GRID_CLASS = [
   'max-[760px]:[&>*:nth-child(n+2)]:border-t',
 ].join(' ');
 
-export interface PanelGridProps extends ComponentProps<'ul'> {}
+export type PanelGridProps = PropsWithChildren<HTMLAttributes<HTMLElement>> & {
+  /**
+   * Render as a `div` for a grid whose cells are not list items, such as a
+   * radio group whose cells are the radio buttons themselves.
+   */
+  as?: ElementType;
+};
 
-export function PanelGrid({className, children, ...props}: PanelGridProps) {
+export function PanelGrid({className, children, as, ...props}: PanelGridProps) {
+  const Component = as ?? 'ul';
+  const Filler = Component === 'ul' ? 'li' : 'div';
   // An odd cell count leaves the last row half wide, and its dividers would stop
   // at the middle of the panel. Pad it with an inert cell that completes both
   // rules. At one column every row is already full, so the filler hides.
   const hasRaggedLastRow = Children.toArray(children).length % 2 === 1;
 
   return (
-    <ul data-slot="panel-grid" className={cn(PANEL_GRID_CLASS, className)} {...props}>
+    <Component data-slot="panel-grid" className={cn(PANEL_GRID_CLASS, className)} {...props}>
       {children}
       {hasRaggedLastRow ? (
-        <li
+        <Filler
           aria-hidden="true"
           data-slot="panel-cell-filler"
           className="hidden bg-background-neutral-base min-[760px]:block"
         />
       ) : null}
-    </ul>
+    </Component>
   );
 }
 
