@@ -62,6 +62,11 @@ describe('RedirectInstallPage', () => {
 
     // Alert mounts via framer-motion (opacity 0 in jsdom), so assert presence.
     expect(await screen.findByText('Sentry app not configured')).toBeInTheDocument();
+    expect(screen.getByRole('alert').parentElement).toHaveClass(
+      'mx-auto',
+      'w-full',
+      'max-w-[640px]',
+    );
     expect(screen.getByRole('link', {name: 'Back to integrations'})).toBeVisible();
   });
 
