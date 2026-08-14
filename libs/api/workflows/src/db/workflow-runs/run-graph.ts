@@ -10,6 +10,7 @@ import {
 } from '../schema/job-executions.js';
 import {type JobCreateDb, type JobDb, jobs} from '../schema/jobs.js';
 import {type StepCreateDb, steps} from '../schema/steps.js';
+import {writeJobExecutionTerminatedOutbox} from './outbox.js';
 
 type MaterializedRunGraphJobExecution = Omit<JobExecutionCreateDb, 'finishedAt' | 'jobId'> & {
   readonly finishedAt?: JobExecutionCreateDb['finishedAt'] | SQL | undefined;
@@ -58,6 +59,22 @@ export async function persistMaterializedRunGraph(
     jobExecutionValues.length === 0
       ? []
       : await tx.insert(jobExecutions).values(jobExecutionValues).returning();
+
+  for (const jobExecution of jobExecutionRows) {
+    if (
+      jobExecution.status === 'succeeded' ||
+      jobExecution.status === 'failed' ||
+      jobExecution.status === 'cancelled'
+    ) {
+      await writeJobExecutionTerminatedOutbox(tx, {
+        jobId: jobExecution.jobId,
+        jobExecutionId: jobExecution.id,
+        status: jobExecution.status,
+        statusReason: jobExecution.statusReason,
+        statusReasonMessage: jobExecution.statusReasonMessage,
+      });
+    }
+  }
 
   const jobById = new Map(jobRows.map((job) => [job.id, job]));
   const materializedJobByJobId = new Map(

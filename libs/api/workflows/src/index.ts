@@ -9,7 +9,6 @@ import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module'
 import {
   RUNNER_JOB_CLAIMED,
   RUNNER_JOB_LEASE_EXPIRED,
-  RUNNER_JOB_QUEUED,
   type RunnersEventMap,
 } from '@shipfox/api-runners-dto';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
@@ -35,7 +34,6 @@ import {
   onJobTerminatedFailureAnnotation,
   onRunnerJobClaimed,
   onRunnerJobLeaseExpired,
-  onRunnerJobQueued,
   onStepAttemptTerminatedFailureAnnotation,
   onWorkflowRunAttemptCreated,
   onWorkflowRunCancelled,
@@ -128,15 +126,13 @@ export function createWorkflowsModule({
       ),
       subscriber(WORKFLOWS_JOB_TERMINATED, onJobTerminatedFailureAnnotation(annotations)),
       subscriber(RUNNER_JOB_LEASE_EXPIRED, onRunnerJobLeaseExpired),
-      subscriber(RUNNER_JOB_QUEUED, onRunnerJobQueued),
       subscriber(RUNNER_JOB_CLAIMED, onRunnerJobClaimed),
     ],
     workers: [
       {
         taskQueue: WORKFLOWS_TASK_QUEUE,
         workflowsPath,
-        activities: () =>
-          createOrchestrationActivities({agent, integrations, projects, runners, secrets}),
+        activities: () => createOrchestrationActivities({agent, integrations, projects, secrets}),
         workflows: [],
       },
     ],

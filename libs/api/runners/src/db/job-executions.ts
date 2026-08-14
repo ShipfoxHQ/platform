@@ -1,7 +1,6 @@
 import {
   RUNNER_JOB_CLAIMED,
   RUNNER_JOB_LEASE_EXPIRED,
-  RUNNER_JOB_QUEUED,
   type RunnersEventMap,
   type RunnerToolCapabilitiesDto,
 } from '@shipfox/api-runners-dto';
@@ -54,6 +53,39 @@ async function lockJobExecution(tx: Tx, jobExecutionId: string): Promise<void> {
   );
 }
 
+async function releaseReservationsForTerminalRunningRows(
+  tx: Tx,
+  rows: ReadonlyArray<{
+    provisionerId: string | null;
+    providerRunnerId: string | null;
+  }>,
+): Promise<void> {
+  // Converge after the lease fact changes. The reservation helper locks each provider runner
+  // and releases only when the runner is terminal and no uncancelled lease remains.
+  const providerRunnerIdsByProvisionerId = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (row.provisionerId === null || row.providerRunnerId === null) continue;
+    const providerRunnerIds =
+      providerRunnerIdsByProvisionerId.get(row.provisionerId) ?? new Set<string>();
+    providerRunnerIds.add(row.providerRunnerId);
+    providerRunnerIdsByProvisionerId.set(row.provisionerId, providerRunnerIds);
+  }
+
+  for (const provisionerId of [...providerRunnerIdsByProvisionerId.keys()].sort()) {
+    const providerRunnerIds = providerRunnerIdsByProvisionerId.get(provisionerId);
+    if (!providerRunnerIds) continue;
+    await releaseTerminalRunnerInstanceReservationsByIds(tx, {
+      workspaceId: null,
+      provisionerId,
+      providerRunnerIds: [...providerRunnerIds].sort(),
+      requireUnlinkedSession: false,
+      // Lock and re-check the runner row locally so lease finalization remains retryable
+      // without a workflow/runner scope lock.
+      requireTerminalState: false,
+    });
+  }
+}
+
 export interface EnqueueJobExecutionParams {
   workspaceId: string;
   workflowRunId: string;
@@ -62,6 +94,7 @@ export interface EnqueueJobExecutionParams {
   jobExecutionId: string;
   projectId: string;
   requiredLabels: string[];
+  queuedAt: Date;
 }
 
 export async function getWorkspaceJobCounts(params: {
@@ -92,17 +125,22 @@ export async function getWorkspaceJobCounts(params: {
   }));
 }
 
-// Idempotent while the job execution is still pending: a duplicate jobExecutionId already in
-// `runners_pending_jobs` is a no-op. Temporal retries the enqueue activity at-least-once, so a
-// unique-violation throw on a retry-after-lost-result would permanently fail a healthy execution.
-// The per-execution advisory lock serializes retries with lease expiry/reconciliation, and the
-// durable lease-expired event prevents a retry from re-queueing an execution already reaped.
+// The workflows outbox delivers queue facts at least once. The per-execution advisory lock and
+// pending/running checks make replay a no-op across the claim transition. A durable lease-expired
+// event also prevents a delayed replay from resurrecting an execution already reaped locally.
 export async function enqueueJobExecution(params: EnqueueJobExecutionParams): Promise<void> {
   const requiredLabels = [...canonicalizeLabels(params.requiredLabels)];
   if (requiredLabels.length === 0) throw new EmptyRequiredLabelsError();
 
   const enqueued = await db().transaction(async (tx) => {
     await lockJobExecution(tx, params.jobExecutionId);
+
+    const [running] = await tx
+      .select({jobExecutionId: runningJobExecutions.jobExecutionId})
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId))
+      .limit(1);
+    if (running) return false;
 
     const [leaseExpired] = await tx
       .select({id: runnersOutbox.id})
@@ -126,26 +164,12 @@ export async function enqueueJobExecution(params: EnqueueJobExecutionParams): Pr
         jobExecutionId: params.jobExecutionId,
         projectId: params.projectId,
         requiredLabels,
+        createdAt: params.queuedAt,
       })
       .onConflictDoNothing({target: pendingJobExecutions.jobExecutionId})
       .returning({createdAt: pendingJobExecutions.createdAt});
 
-    // A retry that hits the conflict inserts nothing: the first enqueue already
-    // emitted the queued event (durably, in the outbox), so re-emitting would
-    // only add a redundant row the subscriber coalesces away. Skip it.
-    if (!inserted) return false;
-
-    await writeOutboxEvent<RunnersEventMap>(tx, runnersOutbox, {
-      type: RUNNER_JOB_QUEUED,
-      payload: {
-        workflowRunId: params.workflowRunId,
-        workflowRunAttemptId: params.workflowRunAttemptId,
-        jobId: params.jobId,
-        jobExecutionId: params.jobExecutionId,
-        queuedAt: inserted.createdAt.toISOString(),
-      },
-    });
-    return true;
+    return inserted !== undefined;
   });
 
   if (enqueued) jobExecutionEnqueuedCount.add(1);
@@ -404,63 +428,17 @@ async function touchRunnerSessionLiveness(params: {
 }
 
 /**
- * Releases a job execution's lease when the orchestration workflow finalizes it: deletes the
- * running-job-execution row AND any lingering pending row for the same execution, in one tx.
- * When the deleted lease was the last one for a terminal provider runner, it also releases the
- * runner's reservation in the same runner-owned transaction. Terminal reports and workflow lease
- * finalization remain independently retryable; they do not share a cross-module scope lock.
- * Idempotent (0-row no-op), no token scope (the workflow is authoritative), and
- * emits no event: the workflow already owns the outcome. Sweeping the pending row
- * too closes the at-least-once window where an enqueue retry left an orphan that a
- * later claim would otherwise pick up for an already-finished job execution.
- */
-export async function releaseJobExecution(params: {jobExecutionId: string}): Promise<void> {
-  await db().transaction(async (tx) => {
-    await lockJobExecution(tx, params.jobExecutionId);
-
-    // Delete pending before running to match `claimPendingJobExecution`'s lock-acquisition
-    // order (it locks the pending row first, then the running row). A concurrent
-    // claim picking up an orphan pending row for this same job execution would otherwise
-    // deadlock against the reverse order here.
-    await tx
-      .delete(pendingJobExecutions)
-      .where(eq(pendingJobExecutions.jobExecutionId, params.jobExecutionId));
-    const deletedRunningRows = await tx
-      .delete(runningJobExecutions)
-      .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId))
-      .returning({
-        workspaceId: runningJobExecutions.workspaceId,
-        provisionerId: runningJobExecutions.provisionerId,
-        providerRunnerId: runningJobExecutions.providerRunnerId,
-      });
-
-    const deletedRunningRow = deletedRunningRows[0];
-    if (deletedRunningRow?.provisionerId && deletedRunningRow.providerRunnerId) {
-      await releaseTerminalRunnerInstanceReservationsByIds(tx, {
-        workspaceId: null,
-        provisionerId: deletedRunningRow.provisionerId,
-        providerRunnerIds: [deletedRunningRow.providerRunnerId],
-        requireUnlinkedSession: false,
-        // Lock and re-check the runner row locally so terminal reporting remains retryable
-        // without a workflow/runner scope lock.
-        requireTerminalState: false,
-      });
-    }
-  });
-}
-
-/**
  * Reaps stale leases (bounded by `limit`), emitting one
  * `runners.job.lease_expired` event per reaped job execution.
  *
  * The cutoff is re-checked in the DELETE, not just the locking subquery, so a
  * heartbeat landing mid-call spares the live row. Each reaped execution also sweeps its
- * pending row: a failed best-effort `releaseJobExecution` would otherwise leave an orphan
- * that a later claim re-runs as an already-finished job execution.
+ * pending row so an at-least-once queue replay cannot leave an orphan.
  *
- * Locks pending-then-running to match `claimPendingJobExecution`, `releaseJobExecution`, and
- * `reconcileTerminalJobExecution`. The stale candidate scan intentionally does not lock running
- * rows first; the running-row DELETE re-checks the stale predicate after the pending-row sweep.
+ * Locks pending-then-running to match `claimPendingJobExecution` and
+ * `reconcileTerminalJobExecution`. The stale candidate scan intentionally does not lock
+ * running rows first; the running-row DELETE re-checks the stale predicate after the
+ * pending-row sweep.
  */
 export async function expireStuckJobExecutions(params: {
   thresholdSeconds: number;
@@ -537,9 +515,13 @@ export async function expireStuckJobExecutions(params: {
         workflowRunAttemptId: runningJobExecutions.workflowRunAttemptId,
         jobId: runningJobExecutions.jobId,
         jobExecutionId: runningJobExecutions.jobExecutionId,
+        provisionerId: runningJobExecutions.provisionerId,
+        providerRunnerId: runningJobExecutions.providerRunnerId,
       });
 
     if (deleted.length === 0) return [];
+
+    await releaseReservationsForTerminalRunningRows(tx, deleted);
 
     await writeOutboxEvents<RunnersEventMap>(
       tx,
@@ -555,7 +537,12 @@ export async function expireStuckJobExecutions(params: {
       })),
     );
 
-    return deleted;
+    return deleted.map(({workflowRunId, workflowRunAttemptId, jobId, jobExecutionId}) => ({
+      workflowRunId,
+      workflowRunAttemptId,
+      jobId,
+      jobExecutionId,
+    }));
   });
 
   if (reaped.length > 0) jobExecutionLeaseExpiredCount.add(reaped.length);
@@ -803,8 +790,8 @@ export async function recordHeartbeat(params: {
 
 /**
  * Reconciles a terminal job execution with runner state in one transaction: removes its pending
- * queue row and requests cancellation on its running lease, if either exists. The operation is
- * idempotent and preserves the first cancellation-request timestamp.
+ * queue row, requests cancellation on its running lease, and converges any linked reservation.
+ * The operation is idempotent and preserves the first cancellation-request timestamp.
  */
 export async function reconcileTerminalJobExecution(params: {
   jobExecutionId: string;
@@ -818,25 +805,17 @@ export async function reconcileTerminalJobExecution(params: {
     await tx
       .delete(pendingJobExecutions)
       .where(eq(pendingJobExecutions.jobExecutionId, params.jobExecutionId));
-    await tx
+    const cancelledRunningRows = await tx
       .update(runningJobExecutions)
       .set({
         cancellationRequestedAt: sql`COALESCE(${runningJobExecutions.cancellationRequestedAt}, now())`,
       })
-      .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId));
-  });
-}
+      .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId))
+      .returning({
+        provisionerId: runningJobExecutions.provisionerId,
+        providerRunnerId: runningJobExecutions.providerRunnerId,
+      });
 
-export async function cancelRunnerJobs(params: {jobIds: string[]}): Promise<void> {
-  if (params.jobIds.length === 0) return;
-
-  await db().transaction(async (tx) => {
-    await tx.delete(pendingJobExecutions).where(inArray(pendingJobExecutions.jobId, params.jobIds));
-    await tx
-      .update(runningJobExecutions)
-      .set({
-        cancellationRequestedAt: sql`COALESCE(${runningJobExecutions.cancellationRequestedAt}, now())`,
-      })
-      .where(inArray(runningJobExecutions.jobId, params.jobIds));
+    await releaseReservationsForTerminalRunningRows(tx, cancelledRunningRows);
   });
 }

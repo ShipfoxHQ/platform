@@ -4,4 +4,5 @@ export {
   createRunnerRegistrationTokenAuthMethod,
 } from './auth/index.js';
 export {createRunnerRoutes, createRunnerRoutes as routes} from './routes/index.js';
-export {onWorkflowsJobExecutionTimedOut} from './subscribers/on-workflows-job-execution-timed-out.js';
+export {onWorkflowsJobExecutionQueued} from './subscribers/on-workflows-job-execution-queued.js';
+export {onWorkflowsJobExecutionTerminated} from './subscribers/on-workflows-job-execution-terminated.js';

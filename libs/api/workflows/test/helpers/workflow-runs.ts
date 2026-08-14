@@ -1,4 +1,5 @@
 import {
+  WORKFLOWS_JOB_EXECUTION_TERMINATED,
   WORKFLOWS_JOB_TERMINATED,
   WORKFLOWS_STEP_ATTEMPT_TERMINATED,
   WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
@@ -130,6 +131,30 @@ export async function jobTerminatedEvents(jobId: string) {
       row.payload as {
         jobId: string;
         workflowRunId: string;
+        status: string;
+        statusReason: string | null;
+        statusReasonMessage?: string | null;
+      },
+  );
+}
+
+export async function jobExecutionTerminatedEvents(jobExecutionId: string) {
+  const rows = await db()
+    .select({payload: workflowsOutbox.payload})
+    .from(workflowsOutbox)
+    .where(
+      and(
+        eq(workflowsOutbox.eventType, WORKFLOWS_JOB_EXECUTION_TERMINATED),
+        sql`${workflowsOutbox.payload}->>'jobExecutionId' = ${jobExecutionId}`,
+      ),
+    );
+  return rows.map(
+    (row) =>
+      row.payload as {
+        jobId: string;
+        jobExecutionId: string;
+        workflowRunId: string;
+        workflowRunAttemptId: string;
         status: string;
         statusReason: string | null;
         statusReasonMessage?: string | null;

@@ -63,9 +63,6 @@ describe('listener continue-as-new guard', () => {
 
   it('carries listener loop state into the continued run', () => {
     const input: JobListenerOrchestrationInput = {
-      workspaceId: 'workspace-1',
-      workflowRunId: 'run-1',
-      projectId: 'project-1',
       runAttemptId: 'attempt-1',
       jobId: 'job-1',
       jobVersion: 3,

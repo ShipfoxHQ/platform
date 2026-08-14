@@ -1,4 +1,4 @@
-import {WORKFLOWS_JOB_EXECUTION_TIMED_OUT} from '@shipfox/api-workflows-dto';
+import {WORKFLOWS_JOB_EXECUTION_QUEUED} from '@shipfox/api-workflows-dto';
 import {and, eq, sql} from 'drizzle-orm';
 import {
   InterpolationUnresolvableError,
@@ -10,18 +10,23 @@ import {
   MAX_JOB_OUTPUT_ENTRIES,
   MAX_JOB_OUTPUT_VALUE_BYTES,
 } from '#core/step-config/job-output-limits.js';
-import {buildModel, template, workflowRunAttemptId} from '#test/helpers/workflow-runs.js';
+import {
+  buildModel,
+  jobExecutionTerminatedEvents,
+  template,
+  workflowRunAttemptId,
+} from '#test/helpers/workflow-runs.js';
 import {db} from '../db.js';
 import {workflowsOutbox} from '../schema/outbox.js';
 import {
   applyStepResult,
   createWorkflowRun,
-  failJobExecutionAsTimedOut,
   finishStepAttempt,
   getFirstJobExecutionByJobId,
   getJobsByWorkflowRunId,
   getStepsByJobId,
   markStepRunning,
+  queueJobExecution,
   resolveJobExecutionAfterLeaseExpiry,
   updateJobExecutionStatus,
 } from '../workflow-runs.js';
@@ -38,7 +43,7 @@ describe('workflow run job executions', () => {
     definitionId = crypto.randomUUID();
   });
 
-  test('derives timeout outbox attempt identity from the job execution', async () => {
+  test('records and publishes the queue fact once', async () => {
     const run = await createWorkflowRun({
       workspaceId,
       projectId,
@@ -57,26 +62,119 @@ describe('workflow run job executions', () => {
     if (!execution) throw new Error('Expected job execution');
     const actualAttemptId = await workflowRunAttemptId(run.id);
 
-    await failJobExecutionAsTimedOut({
-      jobExecutionId: execution.id,
-      workflowRunAttemptId: crypto.randomUUID(),
-      expectedVersion: execution.version,
-    });
+    const queued = await queueJobExecution({jobExecutionId: execution.id});
+    await queueJobExecution({jobExecutionId: execution.id});
 
-    const [event] = await db()
+    const events = await db()
       .select({payload: workflowsOutbox.payload})
       .from(workflowsOutbox)
       .where(
         and(
-          eq(workflowsOutbox.eventType, WORKFLOWS_JOB_EXECUTION_TIMED_OUT),
+          eq(workflowsOutbox.eventType, WORKFLOWS_JOB_EXECUTION_QUEUED),
           sql`${workflowsOutbox.payload}->>'jobExecutionId' = ${execution.id}`,
         ),
       );
-    expect(event?.payload).toMatchObject({
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({
       jobId: job.id,
       jobExecutionId: execution.id,
+      workflowRunId: run.id,
       workflowRunAttemptId: actualAttemptId,
+      workspaceId,
+      projectId,
+      requiredLabels: ['ubuntu-latest'],
+      queuedAt: queued.queuedAt?.toISOString(),
     });
+  });
+
+  test('writes one terminal fact when a job execution becomes terminal', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+
+    const running = await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'running',
+      expectedVersion: execution.version,
+    });
+    expect(await jobExecutionTerminatedEvents(execution.id)).toHaveLength(0);
+
+    await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'cancelled',
+      expectedVersion: running.version,
+      statusReason: 'run_cancelled',
+    });
+    await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'failed',
+      expectedVersion: running.version + 1,
+      statusReason: 'unknown',
+    });
+
+    expect(await jobExecutionTerminatedEvents(execution.id)).toEqual([
+      expect.objectContaining({
+        jobId: job.id,
+        jobExecutionId: execution.id,
+        workflowRunId: run.id,
+        status: 'cancelled',
+        statusReason: 'run_cancelled',
+      }),
+    ]);
+  });
+
+  test('does not publish a queue fact after the execution is terminal', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+
+    await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'cancelled',
+      expectedVersion: execution.version,
+      statusReason: 'run_cancelled',
+    });
+    const after = await queueJobExecution({jobExecutionId: execution.id});
+
+    expect(after.status).toBe('cancelled');
+    expect(after.queuedAt).toBeNull();
+    expect(
+      await db()
+        .select()
+        .from(workflowsOutbox)
+        .where(
+          and(
+            eq(workflowsOutbox.eventType, WORKFLOWS_JOB_EXECUTION_QUEUED),
+            sql`${workflowsOutbox.payload}->>'jobExecutionId' = ${execution.id}`,
+          ),
+        ),
+    ).toHaveLength(0);
   });
 
   test('does not cancel steps when lease expiry loses the execution version race', async () => {

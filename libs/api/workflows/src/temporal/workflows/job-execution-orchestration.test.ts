@@ -107,7 +107,7 @@ async function expectEmptyRequiredLabelsFailure(input: typeof defaultJobInput): 
 }
 
 describe('jobExecutionOrchestration', () => {
-  test('runner claim flips status to running, then finished releases the lease', async () => {
+  test('runner claim flips status to running, then the terminal fact finishes the execution', async () => {
     setCfg({
       dag: makeDag([dagJob('job-1', 'build')]),
       jobResults: new Map([['job-1', 'succeeded']]),
@@ -117,7 +117,6 @@ describe('jobExecutionOrchestration', () => {
 
     expect(result.status).toBe('succeeded');
     expect(finalStatusesFor('job-1')).toEqual(['running', 'succeeded']);
-    expect(callsNamed('releaseLeaseActivity')).toHaveLength(1);
     expect(callsNamed('resolveLeaseExpiredJobExecutionActivity')).toHaveLength(0);
     expect(callsNamed('bulkSetStepStatuses')).toHaveLength(0);
   });
@@ -238,7 +237,7 @@ describe('jobExecutionOrchestration', () => {
     });
 
     expect(setExecutionStatusCalls()).toHaveLength(0);
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(0);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(0);
   });
 
   test('whitespace-only required labels fail before the job is marked running', async () => {
@@ -254,7 +253,7 @@ describe('jobExecutionOrchestration', () => {
     });
 
     expect(setExecutionStatusCalls()).toHaveLength(0);
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(0);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(0);
   });
 
   test('finished signal (failed) flips status without sweeping steps', async () => {
@@ -265,7 +264,6 @@ describe('jobExecutionOrchestration', () => {
     expect(result.status).toBe('failed');
     expect(finalStatusesFor('job-2')).toEqual(['running', 'failed']);
     expect(terminalSetJobCall('job-2')?.params.statusReason).toBe('step_failed');
-    expect(callsNamed('releaseLeaseActivity')).toHaveLength(1);
     expect(callsNamed('bulkSetStepStatuses')).toHaveLength(0);
   });
 
@@ -289,10 +287,9 @@ describe('jobExecutionOrchestration', () => {
         statusReason: 'step_failed',
       },
     });
-    expect(callsNamed('releaseLeaseActivity')).toHaveLength(1);
   });
 
-  test('lease-expired signal resolves via the activity and releases the lease', async () => {
+  test('lease-expired signal resolves via the activity', async () => {
     setCfg({
       dag: makeDag([]),
       jobResults: new Map(),
@@ -304,7 +301,6 @@ describe('jobExecutionOrchestration', () => {
 
     expect(result.status).toBe('failed');
     expect(callsNamed('resolveLeaseExpiredJobExecutionActivity')).toHaveLength(1);
-    expect(callsNamed('releaseLeaseActivity')).toHaveLength(1);
     expect(callsNamed('failJobExecutionAsTimedOutActivity')).toHaveLength(0);
   });
 
@@ -400,24 +396,10 @@ describe('jobExecutionOrchestration', () => {
     const result = await executeJob({...defaultJobInput, jobId: 'job-cancelled'});
 
     expect(result).toMatchObject({status: 'cancelled'});
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(1);
-    expect(callsNamed('releaseLeaseActivity')).toHaveLength(0);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(1);
   });
 
-  test('releaseLease failure does not block the result (best-effort)', async () => {
-    setCfg({
-      dag: makeDag([]),
-      jobResults: new Map([['job-rl', 'succeeded']]),
-      releaseLeaseError: 'runners db down',
-    });
-
-    const result = await executeJob({...defaultJobInput, jobId: 'job-rl'});
-
-    expect(result.status).toBe('succeeded');
-    expect(callsNamed('releaseLeaseActivity').length).toBeGreaterThanOrEqual(1);
-  });
-
-  test('times out after the execution deadline and fails its steps without releasing the lease', async () => {
+  test('times out after the execution deadline and fails its steps', async () => {
     setCfg({
       dag: makeDag([dagJob('job-timeout', 'build')]),
       jobResults: new Map(),
@@ -437,7 +419,6 @@ describe('jobExecutionOrchestration', () => {
       name: 'bulkSetStepStatuses',
       params: {jobExecutionId: 'job-timeout', status: 'failed'},
     });
-    expect(callsNamed('releaseLeaseActivity')).toHaveLength(0);
     expect(callsNamed('resolveLeaseExpiredJobExecutionActivity')).toHaveLength(0);
   });
 

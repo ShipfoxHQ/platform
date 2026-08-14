@@ -197,7 +197,7 @@ describe('jobListenerOrchestration', () => {
 
       expect(listenerFiringOutcomeCalls()).toHaveLength(0);
       expect(resolveJobListenerCalls().map((c) => c.params.reason)).toEqual(['until']);
-      expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(0);
+      expect(callsNamed('queueJobExecutionActivity')).toHaveLength(0);
     });
 
     test('resolves with timeout when the listening deadline elapses', async () => {
@@ -233,9 +233,10 @@ describe('jobListenerOrchestration', () => {
 
       await runListener({maxExecutions: 1});
 
-      expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(1);
-      expect(callsNamed('enqueueJobExecutionForRunner')[0]?.params).toMatchObject({
-        requiredLabels: ['gpu', 'linux'],
+      expect(callsNamed('queueJobExecutionActivity')).toHaveLength(1);
+      expect(callsNamed('queueJobExecutionActivity')[0]?.params).toMatchObject({
+        jobId,
+        jobExecutionId: 'exec-1',
       });
       expect(listenerFiringOutcomeCalls().map((c) => c.params.outcome)).toEqual(['succeeded']);
     });
@@ -250,7 +251,7 @@ describe('jobListenerOrchestration', () => {
       await runListener({maxExecutions: 1});
 
       // The child actually ran (enqueued), then returned failed.
-      expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(1);
+      expect(callsNamed('queueJobExecutionActivity')).toHaveLength(1);
       expect(listenerFiringOutcomeCalls().map((c) => c.params.outcome)).toEqual(['failed']);
       expect(resolveJobListenerCalls().map((c) => c.params.reason)).toEqual(['max_executions']);
     });
@@ -265,7 +266,7 @@ describe('jobListenerOrchestration', () => {
       await runListener({maxExecutions: 2});
 
       // Sequence 1 failed at materialization (no child enqueued); sequence 2 ran and succeeded.
-      expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(1);
+      expect(callsNamed('queueJobExecutionActivity')).toHaveLength(1);
       expect(listenerFiringOutcomeCalls().map((c) => c.params.outcome)).toEqual([
         'failed',
         'succeeded',
@@ -369,15 +370,12 @@ describe('jobListenerOrchestration', () => {
       });
 
       const handle = await startListener({onResolve: 'cancel'});
-      await waitForActivity('enqueueJobExecutionForRunner');
+      await waitForActivity('queueJobExecutionActivity');
       await handle.signal(LISTENER_RESOLVE_SIGNAL);
       await handle.result();
 
       expect(settleListenerCalls().map((c) => c.params.status)).toEqual(['cancelled']);
       expect(listenerFiringOutcomeCalls().map((c) => c.params.outcome)).toEqual(['cancelled']);
-      expect(callsNamed('cancelRunnerJobsActivity')).toEqual([
-        {name: 'cancelRunnerJobsActivity', params: {jobIds: [jobId]}},
-      ]);
       expect(resolveJobListenerCalls().map((c) => c.params.reason)).toEqual(['until']);
     });
 
@@ -390,7 +388,7 @@ describe('jobListenerOrchestration', () => {
       });
 
       const handle = await startListener({onResolve: 'finish'});
-      await waitForActivity('enqueueJobExecutionForRunner');
+      await waitForActivity('queueJobExecutionActivity');
       // Resolution arrives mid-firing; finish mode must wait for the child, not cancel it.
       await handle.signal(LISTENER_RESOLVE_SIGNAL);
       const child = testEnv.client.workflow.getHandle(`job:${jobId}`);
@@ -398,7 +396,6 @@ describe('jobListenerOrchestration', () => {
       await handle.result();
 
       expect(settleListenerCalls()).toHaveLength(0);
-      expect(callsNamed('cancelRunnerJobsActivity')).toHaveLength(0);
       expect(listenerFiringOutcomeCalls().map((c) => c.params.outcome)).toEqual(['succeeded']);
       expect(resolveJobListenerCalls().map((c) => c.params.reason)).toEqual(['until']);
     });

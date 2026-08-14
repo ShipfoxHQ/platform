@@ -1145,6 +1145,106 @@ describe('reportRunnerInstances', () => {
     expect(reservation?.count).toBe(1);
   });
 
+  it('keeps a reservation when a terminal runner has cancelled and uncancelled jobs', async () => {
+    const reservationId = await createReservation(1);
+    const runnerSession = await runnerSessionFactory.create({workspaceId});
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'mixed-terminal-runner',
+      reservationId,
+      runnerSessionId: runnerSession.id,
+      state: 'running',
+    });
+    await insertRunningJobRow({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'mixed-terminal-runner',
+      startedAt: new Date('2025-01-01T00:00:00.000Z'),
+      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+    });
+    await insertRunningJobRow({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'mixed-terminal-runner',
+      startedAt: new Date('2025-01-01T00:02:00.000Z'),
+    });
+
+    const result = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: 'mixed-terminal-runner',
+          reservationId,
+          state: 'terminated',
+          runnerSessionId: runnerSession.id,
+        }),
+      ],
+    });
+
+    const [providerRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+    const [reservation] = await reservationRowsFor({workspaceId, provisionerId});
+    expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
+    expect(providerRunner).toMatchObject({state: 'terminated', reservationReleasedAt: null});
+    expect(reservation?.count).toBe(1);
+  });
+
+  it('releases a reservation when a terminal runner only has a cancelled job', async () => {
+    const reservationId = await createReservation(1);
+    const runnerSession = await runnerSessionFactory.create({workspaceId});
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'cancelled-terminal-runner',
+      reservationId,
+      runnerSessionId: runnerSession.id,
+      state: 'running',
+    });
+    await insertRunningJobRow({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'cancelled-terminal-runner',
+      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+    });
+
+    const result = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: 'cancelled-terminal-runner',
+          reservationId,
+          state: 'terminated',
+          runnerSessionId: runnerSession.id,
+        }),
+      ],
+    });
+
+    const [providerRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+    const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
+    const runningJobRows = await db()
+      .select()
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.providerRunnerId, 'cancelled-terminal-runner'));
+    expect(result).toEqual({
+      accepted: 1,
+      reservationsReleased: 1,
+      terminateIntentsHonored: [
+        {providerRunnerId: 'cancelled-terminal-runner', reason: 'job-cancelled'},
+      ],
+    });
+    expect(providerRunner).toMatchObject({
+      state: 'terminated',
+      reservationReleasedAt: expect.any(Date),
+    });
+    expect(reservationRows).toHaveLength(0);
+    expect(runningJobRows).toHaveLength(1);
+    expect(runningJobRows[0]?.cancellationRequestedAt).toBeInstanceOf(Date);
+  });
+
   it('uses the consumed ephemeral token session before releasing a terminal report', async () => {
     const reservationId = await createReservation(1);
     const token = await ephemeralRegistrationTokenFactory.create({

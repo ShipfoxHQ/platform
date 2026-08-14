@@ -25,11 +25,11 @@ export interface TestConfig {
   dag: RunDag;
   /** Map of jobId → status the mock runner should signal back */
   jobResults: Map<string, RuntimeCompletionStatus>;
-  /** If set, enqueueJobExecutionForRunner will throw with this message instead of signaling */
-  enqueueError?: string;
-  /** If true, enqueueJobExecutionForRunner sends two job-finished signals (for dedup testing) */
+  /** If set, queueJobExecutionActivity will throw with this message instead of signaling */
+  queueError?: string;
+  /** If true, queueJobExecutionActivity sends two job-finished signals (for dedup testing) */
   duplicateSignal?: boolean;
-  /** If true, enqueueJobExecutionForRunner does nothing without a signal for timeout testing */
+  /** If true, queueJobExecutionActivity does nothing without a signal for timeout testing */
   skipSignal?: boolean;
   /** If true, emit the claim but hold back the terminal outcome (for deadline testing) */
   skipOutcomeSignal?: boolean;
@@ -43,8 +43,6 @@ export interface TestConfig {
   leaseExpiredStatus?: RuntimeCompletionStatus;
   /** If set, resolveJobStatusFromJobExecutionsActivity throws with this message */
   resolveJobStatusError?: string;
-  /** If set, releaseLeaseActivity throws (non-retryable) to prove the workflow still returns */
-  releaseLeaseError?: string;
   /** Scripted job activation decisions keyed by job id; defaults to start */
   activationDecisions?: Map<string, JobActivationDecision>;
   /** If set, failJobExecutionAsTimedOutActivity throws (for timeout error-path testing) */
@@ -289,30 +287,19 @@ function createMockActivities() {
       calls.push({name: 'bulkSetStepStatuses', params});
     },
 
-    cancelRunnerJobsActivity: (params: {jobIds: string[]}) => {
-      calls.push({name: 'cancelRunnerJobsActivity', params});
-    },
-
     // Scheduling is step-less. The mock runner reports the job outcome by signalling
     // the per-step terminal-completion signal (job-finished) and/or the lease-expiry
     // signal, reproducing the outbox → subscriber → signal rail.
-    enqueueJobExecutionForRunner: async (params: {
-      workspaceId: string;
-      workflowRunId: string;
-      runAttemptId: string;
-      jobId: string;
-      jobExecutionId: string;
-      projectId: string;
-      requiredLabels: string[];
-    }) => {
-      calls.push({name: 'enqueueJobExecutionForRunner', params});
+    queueJobExecutionActivity: async (params: {jobId: string; jobExecutionId: string}) => {
+      calls.push({name: 'queueJobExecutionActivity', params});
 
-      if (cfg.enqueueError) {
+      if (cfg.queueError) {
         const {ApplicationFailure} = await import('@temporalio/common');
-        throw ApplicationFailure.nonRetryable(cfg.enqueueError);
+        throw ApplicationFailure.nonRetryable(cfg.queueError);
       }
 
-      if (cfg.skipSignal) return;
+      const queued = {newVersion: nextVersion(), status: 'pending' as const};
+      if (cfg.skipSignal) return queued;
 
       const status = cfg.jobResults.get(params.jobId) ?? 'succeeded';
       const handle = testEnv.client.workflow.getHandle(`job:${params.jobId}`);
@@ -321,17 +308,17 @@ function createMockActivities() {
         claimedAt: cfg.claimedAt ?? '2026-06-22T10:05:00.000Z',
       });
 
-      if (cfg.skipOutcomeSignal) return;
+      if (cfg.skipOutcomeSignal) return queued;
 
       if (cfg.signalLeaseExpired) {
         await handle.signal(JOB_LEASE_EXPIRED_SIGNAL, {jobExecutionId: params.jobExecutionId});
-        return;
+        return queued;
       }
 
       if (cfg.signalBoth) {
         await handle.signal(JOB_FINISHED_SIGNAL, {status, jobExecutionId: params.jobExecutionId});
         await handle.signal(JOB_LEASE_EXPIRED_SIGNAL, {jobExecutionId: params.jobExecutionId});
-        return;
+        return queued;
       }
 
       // The terminal outbox is independent from the claim, but the mock delivers it from the
@@ -342,6 +329,7 @@ function createMockActivities() {
         status,
         duplicateSignal: cfg.duplicateSignal ?? false,
       });
+      return queued;
     },
 
     resolveLeaseExpiredJobExecutionActivity: (params: {
@@ -367,14 +355,6 @@ function createMockActivities() {
         status: cfg.leaseExpiredStatus ?? terminalExecutionStatus ?? 'succeeded',
         jobVersion: nextVersion(),
       };
-    },
-
-    releaseLeaseActivity: async (params: {jobExecutionId: string}) => {
-      calls.push({name: 'releaseLeaseActivity', params});
-      if (cfg.releaseLeaseError) {
-        const {ApplicationFailure} = await import('@temporalio/common');
-        throw ApplicationFailure.nonRetryable(cfg.releaseLeaseError);
-      }
     },
 
     failJobExecutionAsTimedOutActivity: async (params: {

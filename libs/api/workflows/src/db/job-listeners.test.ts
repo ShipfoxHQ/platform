@@ -15,6 +15,7 @@ import {
   drainListenerEventsIntoExecution,
   peekListenerBuffer,
   resolveJobListener,
+  settleListenerJobExecution,
 } from '#db/job-listeners.js';
 import {jobExecutions} from '#db/schema/job-executions.js';
 import {jobListenerEvents} from '#db/schema/job-listener-events.js';
@@ -22,6 +23,7 @@ import {jobs} from '#db/schema/jobs.js';
 import {workflowsOutbox} from '#db/schema/outbox.js';
 import {steps} from '#db/schema/steps.js';
 import {workflowRunAttempts} from '#db/schema/workflow-run-attempts.js';
+import {jobExecutionTerminatedEvents} from '#test/helpers/workflow-runs.js';
 import {jobFactory, workflowModel, workflowRunFactory} from '#test/index.js';
 import {getJobsByWorkflowRunId, updateJobExecutionStatus} from './workflow-runs.js';
 
@@ -126,6 +128,25 @@ function expectListeningPayload(
 ): asserts payload is Extract<WorkflowsJobActivatedEventDto, {mode: 'listening'}> {
   expect(payload.mode).toBe('listening');
 }
+
+describe('settleListenerJobExecution', () => {
+  it('writes a terminal job-execution fact for a cancelled listener firing', async () => {
+    const job = await createListeningJob();
+    const execution = await insertExecution(job.id, 1, 'running');
+
+    await settleListenerJobExecution({jobExecutionId: execution.id, status: 'cancelled'});
+    await settleListenerJobExecution({jobExecutionId: execution.id, status: 'cancelled'});
+
+    expect(await jobExecutionTerminatedEvents(execution.id)).toEqual([
+      expect.objectContaining({
+        jobId: job.id,
+        jobExecutionId: execution.id,
+        status: 'cancelled',
+        statusReason: 'run_cancelled',
+      }),
+    ]);
+  });
+});
 
 async function createInactiveListeningJobWithMatchers(params: {
   readonly on: readonly JobListeningTrigger[];

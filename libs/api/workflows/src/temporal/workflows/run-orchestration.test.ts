@@ -59,17 +59,13 @@ describe('runOrchestration', () => {
 
     const runAttemptStatuses = setRunAttemptStatusCalls().map((c) => c.params.status);
     expect(runAttemptStatuses).toEqual(['running', 'succeeded']);
-    const enqueueCalls = callsNamed('enqueueJobExecutionForRunner');
+    const enqueueCalls = callsNamed('queueJobExecutionActivity');
     expect(enqueueCalls).toHaveLength(3);
-    // The lease tuple is sourced from the loaded dag (workspace/project/run together).
-    for (const call of enqueueCalls) {
-      expect(call.params).toMatchObject({
-        workspaceId: 'workspace-1',
-        projectId: 'project-1',
-        runAttemptId: 'r1-attempt-1',
-        requiredLabels: ['ubuntu22'],
-      });
-    }
+    expect(enqueueCalls.map((call) => call.params)).toEqual([
+      {jobId: 'j1', jobExecutionId: 'j1'},
+      {jobId: 'j2', jobExecutionId: 'j2'},
+      {jobId: 'j3', jobExecutionId: 'j3'},
+    ]);
   });
 
   test('already-succeeded upstream jobs are not re-enqueued', async () => {
@@ -83,7 +79,7 @@ describe('runOrchestration', () => {
 
     const runAttemptStatuses = setRunAttemptStatusCalls().map((c) => c.params.status);
     expect(runAttemptStatuses).toEqual(['running', 'succeeded']);
-    const enqueueCalls = callsNamed('enqueueJobExecutionForRunner');
+    const enqueueCalls = callsNamed('queueJobExecutionActivity');
     expect(enqueueCalls).toHaveLength(1);
     expect(enqueueCalls[0]?.params).toMatchObject({jobId: 'j2'});
   });
@@ -99,7 +95,7 @@ describe('runOrchestration', () => {
 
     const runAttemptStatuses = setRunAttemptStatusCalls().map((c) => c.params.status);
     expect(runAttemptStatuses).toEqual(['running', 'failed']);
-    const enqueueCalls = callsNamed('enqueueJobExecutionForRunner');
+    const enqueueCalls = callsNamed('queueJobExecutionActivity');
     expect(enqueueCalls).toHaveLength(1);
     expect(enqueueCalls[0]?.params).toMatchObject({jobId: 'j2'});
   });
@@ -116,7 +112,7 @@ describe('runOrchestration', () => {
 
     const runAttemptStatuses = setRunAttemptStatusCalls().map((c) => c.params.status);
     expect(runAttemptStatuses).toEqual(['running', 'succeeded']);
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(3);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(3);
   });
 
   test('single job fails, dependents are skipped', async () => {
@@ -132,7 +128,7 @@ describe('runOrchestration', () => {
     const runAttemptStatuses = setRunAttemptStatusCalls().map((c) => c.params.status);
     expect(runAttemptStatuses).toEqual(['running', 'failed']);
 
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(1);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(1);
     const jobStatuses = setJobStatusCalls().map((c) => ({
       id: c.params.jobId,
       status: c.params.status,
@@ -162,7 +158,7 @@ describe('runOrchestration', () => {
 
     const runAttemptStatuses = setRunAttemptStatusCalls().map((c) => c.params.status);
     expect(runAttemptStatuses).toEqual(['running', 'failed']);
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(1);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(1);
 
     const jobStatuses = setJobStatusCalls().map((c) => ({
       id: c.params.jobId,
@@ -199,7 +195,7 @@ describe('runOrchestration', () => {
         },
       },
     ]);
-    expect(callsNamed('enqueueJobExecutionForRunner').map((call) => call.params)).toEqual([
+    expect(callsNamed('queueJobExecutionActivity').map((call) => call.params)).toEqual([
       expect.objectContaining({jobId: 'j1'}),
       expect.objectContaining({jobId: 'j2'}),
     ]);
@@ -221,7 +217,7 @@ describe('runOrchestration', () => {
 
     await executeRun();
 
-    expect(callsNamed('enqueueJobExecutionForRunner').map((call) => call.params)).toEqual([
+    expect(callsNamed('queueJobExecutionActivity').map((call) => call.params)).toEqual([
       expect.objectContaining({jobId: 'j1'}),
     ]);
     expect(setRunAttemptStatusCalls().map((c) => c.params.status)).toEqual([
@@ -249,7 +245,7 @@ describe('runOrchestration', () => {
         },
       },
     ]);
-    const enqueuedJobs = callsNamed('enqueueJobExecutionForRunner').map((call) => call.params);
+    const enqueuedJobs = callsNamed('queueJobExecutionActivity').map((call) => call.params);
     expect(enqueuedJobs).toHaveLength(3);
     expect(enqueuedJobs).toEqual(
       expect.arrayContaining([
@@ -273,7 +269,7 @@ describe('runOrchestration', () => {
 
     await executeRun();
 
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(0);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(0);
     expect(setRunAttemptStatusCalls().map((c) => c.params.status)).toEqual([
       'running',
       'succeeded',
@@ -310,7 +306,7 @@ describe('runOrchestration', () => {
     expect(finalRunAttemptStatus?.params.version).toBeGreaterThan(0);
   });
 
-  test('cancel signal stops scheduling and fans out runner cancellation', async () => {
+  test('cancel signal stops scheduling without calling runners directly', async () => {
     const jobs = [dagJob('j1', 'build'), dagJob('j2', 'deploy', ['build'])];
     setCfg({dag: makeDag(jobs, 'r-cancel'), jobResults: new Map(), skipSignal: true});
 
@@ -319,16 +315,13 @@ describe('runOrchestration', () => {
       workflowId: `run:${workflowRunId}`,
       args: [{workflowRunId, workspaceId}],
     });
-    await waitForActivity('enqueueJobExecutionForRunner');
+    await waitForActivity('queueJobExecutionActivity');
 
     await handle.signal('run-cancel');
     await handle.result();
 
     expect(setRunAttemptStatusCalls().map((c) => c.params.status)).toEqual(['running']);
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(1);
-    expect(callsNamed('cancelRunnerJobsActivity')).toEqual([
-      {name: 'cancelRunnerJobsActivity', params: {jobIds: ['j1', 'j2']}},
-    ]);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(1);
   });
 
   test('starts listening jobs and cancels them with the run', async () => {
@@ -347,10 +340,7 @@ describe('runOrchestration', () => {
     await handle.result();
 
     expect(setRunAttemptStatusCalls().map((c) => c.params.status)).toEqual(['running']);
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(0);
-    expect(callsNamed('cancelRunnerJobsActivity')).toEqual([
-      {name: 'cancelRunnerJobsActivity', params: {jobIds: ['j1']}},
-    ]);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(0);
   });
 
   test('aborts early when the initial running write reports an already-terminal run', async () => {
@@ -364,8 +354,7 @@ describe('runOrchestration', () => {
     await executeRun();
 
     expect(setRunAttemptStatusCalls().map((c) => c.params.status)).toEqual(['running']);
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(0);
-    expect(callsNamed('cancelRunnerJobsActivity')).toHaveLength(0);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(0);
   });
 
   test('diamond DAG with partial failure', async () => {
@@ -383,7 +372,7 @@ describe('runOrchestration', () => {
     expect(runAttemptStatuses).toEqual(['running', 'failed']);
 
     // A, B, C enqueued: D skipped because B failed
-    expect(callsNamed('enqueueJobExecutionForRunner')).toHaveLength(3);
+    expect(callsNamed('queueJobExecutionActivity')).toHaveLength(3);
     const jobStatuses = setJobStatusCalls().map((c) => ({
       id: c.params.jobId,
       status: c.params.status,
@@ -401,7 +390,7 @@ describe('runOrchestration', () => {
     setCfg({
       dag: makeDag(jobs, 'r7'),
       jobResults: new Map(),
-      enqueueError: 'Runner service unavailable',
+      queueError: 'Runner service unavailable',
     });
 
     await expect(executeRun()).rejects.toThrow();

@@ -9,7 +9,7 @@ export {
   getJobExecutionsByJobId,
   getJobExecutionsByWorkflowRunAttemptId,
   getLatestJobExecutionByJobId,
-  recordJobExecutionQueuedAt,
+  queueJobExecution,
   recordJobExecutionStartedAt,
   resolveJobExecutionAfterLeaseExpiry,
   updateJobExecutionStatus,
@@ -35,6 +35,8 @@ export {
   updateJobStatusAtVersion,
 } from './workflow-runs/jobs.js';
 export {
+  writeJobExecutionQueuedOutbox,
+  writeJobExecutionTerminatedOutbox,
   writeJobStepsSettledOutbox,
   writeStepAttemptTerminatedOutbox,
   writeStepRestartEnqueuedOutbox,

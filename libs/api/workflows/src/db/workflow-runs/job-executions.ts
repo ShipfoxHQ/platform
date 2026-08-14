@@ -1,6 +1,6 @@
 import {readPersistedWorkflowModel} from '@shipfox/api-definitions-dto';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
-import {WORKFLOWS_JOB_EXECUTION_TIMED_OUT} from '@shipfox/api-workflows-dto';
+import {canonicalizeLabels} from '@shipfox/runner-labels';
 import {and, asc, desc, eq, isNull, notInArray, sql} from 'drizzle-orm';
 import type {JobStatusReason} from '#core/entities/job.js';
 import type {JobExecution, JobExecutionStatus} from '#core/entities/job-execution.js';
@@ -22,7 +22,6 @@ import {
   recordWorkflowJobExecutionTimedOut,
 } from '#metrics/instance.js';
 import {db, type Tx} from '../db.js';
-import {writeWorkflowsOutboxEvent} from '../outbox-writes.js';
 import {jobExecutions, toJobExecution} from '../schema/job-executions.js';
 import {jobs, toJob} from '../schema/jobs.js';
 import {stepAttempts, toStepAttempt} from '../schema/step-attempts.js';
@@ -30,12 +29,9 @@ import {steps, toStep} from '../schema/steps.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
 import {getDirectDependencyJobContexts} from './jobs.js';
+import {writeJobExecutionQueuedOutbox, writeJobExecutionTerminatedOutbox} from './outbox.js';
 import {loadReferencedVariables} from './runs.js';
-import {
-  getWorkflowContextForJob,
-  optimisticLockRetry,
-  TERMINAL_EXECUTION_STATUSES,
-} from './shared.js';
+import {optimisticLockRetry, TERMINAL_EXECUTION_STATUSES} from './shared.js';
 import {bulkUpdateStepStatuses, getStepsByJobExecutionIdForUpdate} from './steps.js';
 
 async function getJobExecutionFallbackName(tx: Tx, jobExecutionId: string): Promise<string> {
@@ -282,6 +278,15 @@ async function updateJobExecutionStatusAtVersion(
 
   const row = rows[0];
   if (!row) return null;
+  if (TERMINAL_EXECUTION_STATUSES.includes(row.status)) {
+    await writeJobExecutionTerminatedOutbox(tx, {
+      jobId: row.jobId,
+      jobExecutionId: row.id,
+      status: row.status,
+      statusReason: row.statusReason,
+      statusReasonMessage: row.statusReasonMessage,
+    });
+  }
   return {
     execution: toJobExecution(row, await getJobExecutionFallbackName(tx, row.id)),
     changed: true,
@@ -336,17 +341,49 @@ export async function updateJobExecutionStatus(
   return result.execution;
 }
 
-export async function recordJobExecutionQueuedAt(params: {
-  jobExecutionId: string;
-  queuedAt: Date;
-}): Promise<void> {
-  const updated = await db()
-    .update(jobExecutions)
-    .set({queuedAt: params.queuedAt})
-    .where(and(eq(jobExecutions.id, params.jobExecutionId), isNull(jobExecutions.queuedAt)))
-    .returning({id: jobExecutions.id});
+export async function queueJobExecution(params: {jobExecutionId: string}): Promise<JobExecution> {
+  const result = await db().transaction(async (tx) => {
+    const [row] = await tx
+      .select({jobExecution: jobExecutions, job: jobs})
+      .from(jobExecutions)
+      .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+      .where(eq(jobExecutions.id, params.jobExecutionId))
+      .limit(1)
+      .for('update');
+    if (!row) throw new JobNotFoundError(params.jobExecutionId);
 
-  if (updated.length > 0) recordWorkflowJobExecutionQueued();
+    const existing = toJobExecution(row.jobExecution, row.job.name ?? row.job.key);
+    if (existing.queuedAt !== null || TERMINAL_EXECUTION_STATUSES.includes(existing.status)) {
+      return {execution: existing, changed: false};
+    }
+
+    const requiredLabels = [...canonicalizeLabels(existing.runner ?? row.job.runner ?? [])];
+    if (requiredLabels.length === 0) {
+      throw new Error(`Job execution ${params.jobExecutionId} has no required runner labels`);
+    }
+
+    const [queued] = await tx
+      .update(jobExecutions)
+      .set({queuedAt: sql`now()`})
+      .where(eq(jobExecutions.id, params.jobExecutionId))
+      .returning();
+    if (!queued?.queuedAt) throw new Error(`Cannot queue job execution ${params.jobExecutionId}`);
+
+    await writeJobExecutionQueuedOutbox(tx, {
+      jobId: queued.jobId,
+      jobExecutionId: queued.id,
+      requiredLabels,
+      queuedAt: queued.queuedAt,
+    });
+
+    return {
+      execution: toJobExecution(queued, row.job.name ?? row.job.key),
+      changed: true,
+    };
+  });
+
+  if (result.changed) recordWorkflowJobExecutionQueued();
+  return result.execution;
 }
 
 export async function recordJobExecutionStartedAt(params: {
@@ -392,18 +429,6 @@ export async function failJobExecutionAsTimedOut(params: {
       matchFn: (execution) => (execution.timedOutAt !== null ? {execution, changed: false} : null),
       failureMessage: `Optimistic lock failure: job execution ${params.jobExecutionId} version ${params.expectedVersion}`,
     });
-
-    if (updated.changed) {
-      const identity = await getWorkflowContextForJob(updated.execution.jobId, tx);
-      await writeWorkflowsOutboxEvent(tx, {
-        type: WORKFLOWS_JOB_EXECUTION_TIMED_OUT,
-        payload: {
-          jobId: identity.jobId,
-          jobExecutionId: params.jobExecutionId,
-          workflowRunAttemptId: identity.workflowRunAttemptId,
-        },
-      });
-    }
 
     return updated;
   });

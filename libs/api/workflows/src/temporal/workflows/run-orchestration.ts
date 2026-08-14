@@ -9,7 +9,6 @@ import {
 } from '@temporalio/workflow';
 import {
   createRuntimeRunProgress,
-  nonCompletedRuntimeJobIds,
   type RuntimeRunProgress,
   recordRuntimeJobResult,
   recordSkippedRuntimeJob,
@@ -26,15 +25,10 @@ import {deadlineReached, remainingMs} from './deadline.js';
 import {jobExecutionOrchestration} from './job-execution-orchestration.js';
 import {jobListenerOrchestration} from './job-listener-orchestration.js';
 
-const {
-  loadRunAttemptDag,
-  evaluateJobActivationsActivity,
-  setRunAttemptStatus,
-  setJobStatus,
-  cancelRunnerJobsActivity,
-} = proxyActivities<ReturnType<typeof createOrchestrationActivities>>({
-  startToCloseTimeout: '30s',
-});
+const {loadRunAttemptDag, evaluateJobActivationsActivity, setRunAttemptStatus, setJobStatus} =
+  proxyActivities<ReturnType<typeof createOrchestrationActivities>>({
+    startToCloseTimeout: '30s',
+  });
 
 const {failRunAsTimedOutActivity} = proxyActivities<
   ReturnType<typeof createOrchestrationActivities>
@@ -74,12 +68,10 @@ export async function runOrchestration(input: RunOrchestrationInput): Promise<vo
 
   while (true) {
     if (cancelRequested) {
-      await cancelNonCompletedRunnerJobs(dag, progress);
       return;
     }
     if (deadlineReached(runDeadline)) {
       await failRunAsTimedOutActivity({runAttemptId: input.runAttemptId});
-      await cancelNonCompletedRunnerJobs(dag, progress);
       return;
     }
 
@@ -144,12 +136,10 @@ export async function runOrchestration(input: RunOrchestrationInput): Promise<vo
 
     const settled = await waitForNextSettlement(inFlight, () => cancelRequested, runDeadline);
     if (settled.kind === 'cancelled') {
-      await cancelNonCompletedRunnerJobs(dag, progress);
       return;
     }
     if (settled.kind === 'timed-out') {
       await failRunAsTimedOutActivity({runAttemptId: input.runAttemptId});
-      await cancelNonCompletedRunnerJobs(dag, progress);
       return;
     }
     inFlight.delete(settled.job.key);
@@ -187,9 +177,6 @@ function launchJob(
       workflowId: `job-listener:${job.id}`,
       args: [
         {
-          workspaceId: run.workspaceId,
-          workflowRunId: run.workflowRunId,
-          projectId: run.projectId,
           jobId: job.id,
           runAttemptId: run.runAttemptId,
           jobVersion: runtimeJobVersion(job, progress),
@@ -235,9 +222,6 @@ function launchJob(
     workflowId: `job:${job.id}`,
     args: [
       {
-        workspaceId: run.workspaceId,
-        workflowRunId: run.workflowRunId,
-        projectId: run.projectId,
         jobId: job.id,
         jobExecutionId: job.jobExecutionId,
         runAttemptId: run.runAttemptId,
@@ -272,12 +256,4 @@ async function waitForNextSettlement(
     woke ? {kind: 'cancelled' as const} : {kind: 'timed-out' as const},
   );
   return await Promise.race([childSettled, cancel]);
-}
-
-async function cancelNonCompletedRunnerJobs(
-  dag: RunDag,
-  progress: RuntimeRunProgress,
-): Promise<void> {
-  const jobIds = nonCompletedRuntimeJobIds(dag.jobs, progress);
-  await cancelRunnerJobsActivity({jobIds});
 }

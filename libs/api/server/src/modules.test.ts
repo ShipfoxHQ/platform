@@ -210,12 +210,9 @@ describe('defaultModules', () => {
         {
           contract: runnersInterModuleContract,
           handlers: {
-            cancelJobs: vi.fn(),
-            enqueueJobExecution: vi.fn(),
             getEffectiveRunnerToolCapabilities: vi.fn(),
             getWorkspaceJobCounts: vi.fn(),
             getLeaseState: vi.fn(),
-            releaseJobExecution: vi.fn(),
           },
         },
       ],

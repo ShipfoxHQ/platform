@@ -19,6 +19,7 @@ import {steps} from '../schema/steps.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
 import {updateJobStatusAtVersion} from './jobs.js';
+import {writeJobExecutionTerminatedOutbox} from './outbox.js';
 import {
   lockWorkflowRun,
   TERMINAL_EXECUTION_STATUSES,
@@ -114,8 +115,21 @@ async function terminateRunAttempt(
           notInArray(jobExecutions.status, TERMINAL_EXECUTION_STATUSES),
         ),
       )
-      .returning({id: jobExecutions.id});
+      .returning({
+        id: jobExecutions.id,
+        jobId: jobExecutions.jobId,
+        status: jobExecutions.status,
+        statusReason: jobExecutions.statusReason,
+        statusReasonMessage: jobExecutions.statusReasonMessage,
+      });
     for (const jobExecution of terminatedExecutions) {
+      await writeJobExecutionTerminatedOutbox(tx, {
+        jobId: jobExecution.jobId,
+        jobExecutionId: jobExecution.id,
+        status: jobExecution.status,
+        statusReason: jobExecution.statusReason,
+        statusReasonMessage: jobExecution.statusReasonMessage,
+      });
       await bulkUpdateStepStatuses(
         {jobExecutionId: jobExecution.id, status: spec.terminalStatus},
         tx,
