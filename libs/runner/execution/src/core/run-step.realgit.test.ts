@@ -45,8 +45,12 @@ function readCapture(): Promise<string> {
 
 async function listen(server: Server): Promise<number> {
   await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
+    const onError = (error: Error): void => reject(error);
+    server.once('error', onError);
+    server.listen(0, '127.0.0.1', () => {
+      server.removeListener('error', onError);
+      resolve();
+    });
   });
   const address = server.address();
   if (address === null || typeof address === 'string') {
