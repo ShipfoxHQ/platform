@@ -1,5 +1,17 @@
 # @shipfox/react-ui
 
+## 2.1.0
+
+### Minor Changes
+
+- 00c1cb8: Add `PanelGrid`, `PanelCell`, and `PanelCellAction` for a two-column grid of cells divided by hairlines, collapsing to one column at 760px and padding an odd cell count so the last row's dividers span the panel. `PanelGrid` takes an `as` prop for a grid whose cells are not list items. `PanelCellAction` renders a trailing verb and chevron from an `action` prop. Add a `--shadow-focus-inset` token for controls whose parent clips the outset focus ring. `Panel`, `PanelBody`, and `PanelRow` accept `asChild`, so a panel can render as an `aside` and a row list can keep `ul` and `li` semantics.
+- 7693eb3: Render empty and load-error states inside bordered panel bodies and keep loading placeholders aligned with their data regions.
+- 00c1cb8: Radio choice tiles show a selected indicator dot, keep a visible focus ring when the checked item receives keyboard focus, and rest on an opaque fill that no longer changes shade with the surface behind them. Add a `variant` prop: `cell` renders the group as a hairline-divided grid whose options carry no frame of their own, for a picker inside a panel. Add `RadioGroupItemSkeleton`, a loading placeholder matching either variant, with a `labelClassName` prop to vary the bar width.
+
+### Patch Changes
+
+- 56f4526: Project settings and project creation now use shared panels, with source integrations presented as button-style radio choices.
+
 ## 2.0.0
 
 ### Major Changes

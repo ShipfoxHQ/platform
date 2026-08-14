@@ -1,5 +1,19 @@
 # @shipfox/api-server
 
+## 13.0.0
+
+### Patch Changes
+
+- Updated dependencies [af6b31e]
+  - @shipfox/api-runners@13.0.0
+  - @shipfox/api-runners-dto@13.0.0
+  - @shipfox/api-workflows@13.0.0
+  - @shipfox/api-workflows-dto@13.0.0
+  - @shipfox/api-workspaces@13.0.0
+  - @shipfox/api-integration-core@13.0.0
+  - @shipfox/api-logs@13.0.0
+  - @shipfox/api-triggers@13.0.0
+
 ## 12.7.0
 
 ### Patch Changes

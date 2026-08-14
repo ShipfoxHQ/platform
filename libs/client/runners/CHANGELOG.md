@@ -1,5 +1,21 @@
 # @shipfox/client-runners
 
+## 22.0.0
+
+### Patch Changes
+
+- 7693eb3: Render empty and load-error states inside bordered panel bodies and keep loading placeholders aligned with their data regions.
+- Updated dependencies [50b3867]
+- Updated dependencies [00c1cb8]
+- Updated dependencies [7693eb3]
+- Updated dependencies [00c1cb8]
+- Updated dependencies [56f4526]
+- Updated dependencies [af6b31e]
+  - @shipfox/client-shell@22.0.0
+  - @shipfox/react-ui@2.1.0
+  - @shipfox/client-ui@22.0.0
+  - @shipfox/api-runners-dto@13.0.0
+
 ## 21.0.0
 
 ### Patch Changes

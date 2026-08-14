@@ -1,5 +1,21 @@
 # Changelog
 
+## 22.0.0
+
+### Minor Changes
+
+- 50b3867: Consolidate authentication, onboarding, integration-install, and callback surfaces onto the shared focused frame.
+
+### Patch Changes
+
+- Updated dependencies [00c1cb8]
+- Updated dependencies [7693eb3]
+- Updated dependencies [00c1cb8]
+- Updated dependencies [56f4526]
+  - @shipfox/react-ui@2.1.0
+  - @shipfox/client-ui@22.0.0
+  - @shipfox/client-config@22.0.0
+
 ## 21.0.0
 
 ### Major Changes
