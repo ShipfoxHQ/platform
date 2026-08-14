@@ -129,15 +129,20 @@ export function PanelRow({className, asChild = false, ...props}: PanelRowProps) 
 // `max-[760px]` compiles to `width<760` and `min-[760px]` to `width>=760`, so the
 // two halves meet exactly. Pairing it with `min-[761px]` would leave 760px itself
 // matching neither rule, and the row of cells would lose its dividers.
+// `of :not(input)` because a Radix radio item inside a form renders a hidden
+// bubble input beside its button. Those inputs are siblings in the grid, so a
+// plain `nth-child` counts them and the dividers land on the wrong cells.
+// These are written out in full: Tailwind scans source text, so a class built
+// by interpolation never reaches the stylesheet.
 const PANEL_GRID_CLASS = [
   'grid grid-cols-2 max-[760px]:grid-cols-1',
   '[&>*]:border-border-neutral-base',
-  'min-[760px]:[&>*:nth-child(n+3)]:border-t',
+  'min-[760px]:[&>*:nth-child(n+3_of_:not(input))]:border-t',
   // The filler takes this too, so the column rule runs the full height and a
   // half-full last row reads as a grid with an empty cell rather than one wide
   // row.
-  'min-[760px]:[&>*:nth-child(even)]:border-l',
-  'max-[760px]:[&>*:nth-child(n+2)]:border-t',
+  'min-[760px]:[&>*:nth-child(2n_of_:not(input))]:border-l',
+  'max-[760px]:[&>*:nth-child(n+2_of_:not(input))]:border-t',
 ].join(' ');
 
 export type PanelGridProps = PropsWithChildren<HTMLAttributes<HTMLElement>> & {

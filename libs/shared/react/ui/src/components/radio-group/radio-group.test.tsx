@@ -121,6 +121,49 @@ describe('RadioGroup variant="cell"', () => {
     ).toBe(false);
   });
 
+  test('keeps its dividers when a form makes Radix add hidden bubble inputs', () => {
+    // Radix's bubble input measures itself, which jsdom cannot do.
+    const originalResizeObserver = window.ResizeObserver;
+    window.ResizeObserver = class {
+      observe() {
+        return undefined;
+      }
+      unobserve() {
+        return undefined;
+      }
+      disconnect() {
+        return undefined;
+      }
+    } as unknown as typeof ResizeObserver;
+
+    const {container} = render(
+      <form>
+        <RadioGroup variant="cell" defaultValue="a">
+          <RadioGroupItem value="a">One</RadioGroupItem>
+          <RadioGroupItem value="b">Two</RadioGroupItem>
+        </RadioGroup>
+      </form>,
+    );
+
+    const grid = container.querySelector('[data-slot="panel-grid"]');
+
+    // Inside a form each item renders a button plus a hidden input, so the DOM
+    // children are BUTTON,INPUT,BUTTON,INPUT. A plain `nth-child(2n)` would put
+    // the column divider on the invisible inputs and the second cell would show
+    // no separator at all.
+    expect([...(grid?.children ?? [])].map((child) => child.tagName)).toEqual([
+      'BUTTON',
+      'INPUT',
+      'BUTTON',
+      'INPUT',
+    ]);
+    expect(
+      grid?.classList.contains('min-[760px]:[&>*:nth-child(2n_of_:not(input))]:border-l'),
+    ).toBe(true);
+
+    window.ResizeObserver = originalResizeObserver;
+  });
+
   test('is the grid itself, so the radio buttons are the cells', () => {
     const {container} = render(
       <RadioGroup variant="cell" defaultValue="a">

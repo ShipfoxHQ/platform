@@ -103,9 +103,15 @@ describe('PanelGrid', () => {
     }
     // The wide and collapsed rules must share the 760px boundary, or that exact
     // viewport matches neither and the cells lose their dividers.
-    expect(grid?.classList.contains('min-[760px]:[&>*:nth-child(n+3)]:border-t')).toBe(true);
-    expect(grid?.classList.contains('min-[760px]:[&>*:nth-child(even)]:border-l')).toBe(true);
-    expect(grid?.classList.contains('max-[760px]:[&>*:nth-child(n+2)]:border-t')).toBe(true);
+    expect(
+      grid?.classList.contains('min-[760px]:[&>*:nth-child(n+3_of_:not(input))]:border-t'),
+    ).toBe(true);
+    expect(
+      grid?.classList.contains('min-[760px]:[&>*:nth-child(2n_of_:not(input))]:border-l'),
+    ).toBe(true);
+    expect(
+      grid?.classList.contains('max-[760px]:[&>*:nth-child(n+2_of_:not(input))]:border-t'),
+    ).toBe(true);
     expect(grid?.classList.contains('[&>*]:border-border-neutral-base')).toBe(true);
   });
 
@@ -128,7 +134,9 @@ describe('PanelGrid', () => {
     // The filler sits in the even slot, so the column rule reaches it and the
     // half-full row reads as a grid with an empty cell, not one wide row.
     expect(grid?.children[3]).toBe(filler);
-    expect(grid?.classList.contains('min-[760px]:[&>*:nth-child(even)]:border-l')).toBe(true);
+    expect(
+      grid?.classList.contains('min-[760px]:[&>*:nth-child(2n_of_:not(input))]:border-l'),
+    ).toBe(true);
     // One column never leaves a row half full, so the filler must not add a row.
     expect(filler?.classList.contains('hidden')).toBe(true);
     expect(filler?.classList.contains('min-[760px]:block')).toBe(true);
