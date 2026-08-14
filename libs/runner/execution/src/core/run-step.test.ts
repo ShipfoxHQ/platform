@@ -202,6 +202,42 @@ describe('executeRunStep', () => {
     expect(JSON.parse(output.text())).toEqual({SHIPFOX_WORKSPACE: '/runner/workspace'});
   });
 
+  it('exposes the ambient git config as GIT_CONFIG_GLOBAL and overrides user env', async () => {
+    const step = buildStep({
+      config: {
+        run: nodeEnvDumpCommand(['GIT_CONFIG_GLOBAL']),
+        env: {GIT_CONFIG_GLOBAL: '/tmp/user.gitconfig'},
+      },
+    });
+
+    const output = collectOutput();
+    const result = await executeRunStep(step, {
+      gitConfigGlobal: '/runner-cred/job-1/git-cred.config',
+      onOutput: output.sink,
+    });
+
+    expect(result.success).toBe(true);
+    expect(JSON.parse(output.text())).toEqual({
+      GIT_CONFIG_GLOBAL: '/runner-cred/job-1/git-cred.config',
+    });
+  });
+
+  it('leaves GIT_CONFIG_GLOBAL unset when the checkout persisted no credentials', async () => {
+    const previous = process.env.GIT_CONFIG_GLOBAL;
+    delete process.env.GIT_CONFIG_GLOBAL;
+    try {
+      const step = buildStep({config: {run: nodeEnvDumpCommand(['GIT_CONFIG_GLOBAL'])}});
+      const output = collectOutput();
+
+      const result = await executeRunStep(step, {onOutput: output.sink});
+
+      expect(result.success).toBe(true);
+      expect(JSON.parse(output.text())).toEqual({GIT_CONFIG_GLOBAL: null});
+    } finally {
+      if (previous !== undefined) process.env.GIT_CONFIG_GLOBAL = previous;
+    }
+  });
+
   it('collects SHIPFOX_STEP_SUMMARY as a default annotation', async () => {
     const step = buildStep({
       config: {run: 'echo "### Summary" >> "$SHIPFOX_STEP_SUMMARY"'},
@@ -540,6 +576,23 @@ describe('executeRunStep', () => {
     expect(stderr).toContain('***');
     expect(stdout).not.toContain(secret);
     expect(stderr).not.toContain(hex);
+  });
+
+  it('redacts persisted Git credential forms from a config dump', async () => {
+    const token = 'ghs-persisted-token-for-redaction';
+    const credential = Buffer.from(`x-access-token:${token}`).toString('base64');
+    const header = `Authorization: Basic ${credential}`;
+    const step = buildStep({config: {run: `printf '%s\\n' ${JSON.stringify(header)}`}});
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true as never);
+
+    const result = await executeRunStep(step, {secretValues: [token, credential]});
+
+    const stdout = stdoutWrite.mock.calls.map((call) => String(call[0])).join('');
+    expect(result.success).toBe(true);
+    expect(stdout).toContain('Authorization: Basic ***');
+    expect(stdout).not.toContain(header);
+    expect(stdout).not.toContain(token);
+    expect(stdout).not.toContain(credential);
   });
 
   it('redacts env and command secret output from the runner stdout tee', async () => {

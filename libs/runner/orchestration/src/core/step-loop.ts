@@ -95,6 +95,7 @@ export async function runJobSteps(params: {
   let workspacePrepared = false;
   let logsPrepared = false;
   let ambientGitConfigPath: string | undefined;
+  let ambientGitConfigSecrets: string[] = [];
   const checkoutDestinations: CheckoutDestinations = new Map();
 
   // The most recent step's stream, kept until the next
@@ -140,6 +141,7 @@ export async function runJobSteps(params: {
         workspacePrepared,
         checkoutDestinations,
         ambientGitConfigPath,
+        ambientGitConfigSecrets,
         jobId,
         stepLabel,
         logsDir,
@@ -150,6 +152,11 @@ export async function runJobSteps(params: {
       activeStream = execution.stream;
       if (execution.preparedWorkspace) workspacePrepared = true;
       if (execution.ambientGitConfigPath) ambientGitConfigPath = execution.ambientGitConfigPath;
+      if (execution.ambientGitConfigSecrets) {
+        ambientGitConfigSecrets = [
+          ...new Set([...ambientGitConfigSecrets, ...execution.ambientGitConfigSecrets]),
+        ];
+      }
       if (execution.result.success && execution.result.checkout) {
         rememberCheckoutDestination(checkoutDestinations, execution.result.checkout);
       }
@@ -248,6 +255,7 @@ export interface StepExecution {
   /** True when a setup step succeeded, unlocking the run steps that follow it. */
   preparedWorkspace: boolean;
   ambientGitConfigPath?: string | undefined;
+  ambientGitConfigSecrets?: string[] | undefined;
 }
 
 // Runs one step and always yields a StepResult, never throws: a crash before a result
@@ -268,6 +276,7 @@ export async function executeStep(params: {
   workspacePrepared: boolean;
   checkoutDestinations?: CheckoutDestinations | undefined;
   ambientGitConfigPath?: string | undefined;
+  ambientGitConfigSecrets?: string[] | undefined;
   gitConfigPath: string;
   jobId: string;
   stepLabel: string;
@@ -287,6 +296,7 @@ export async function executeStep(params: {
     workspacePrepared,
     checkoutDestinations = new Map(),
     ambientGitConfigPath,
+    ambientGitConfigSecrets = [],
     gitConfigPath,
     jobId,
     stepLabel,
@@ -374,6 +384,9 @@ export async function executeStep(params: {
         logOutcome: setupStream ? undefined : 'abandoned',
         preparedWorkspace: setup.result.success,
         ...(setup.ambientGitConfigPath ? {ambientGitConfigPath: setup.ambientGitConfigPath} : {}),
+        ...(setup.ambientGitConfigSecrets
+          ? {ambientGitConfigSecrets: setup.ambientGitConfigSecrets}
+          : {}),
       };
     }
 
@@ -428,6 +441,9 @@ export async function executeStep(params: {
         preparedWorkspace: false,
         ...(checkout.ambientGitConfigPath
           ? {ambientGitConfigPath: checkout.ambientGitConfigPath}
+          : {}),
+        ...(checkout.ambientGitConfigSecrets
+          ? {ambientGitConfigSecrets: checkout.ambientGitConfigSecrets}
           : {}),
       };
     }
@@ -530,7 +546,15 @@ export async function executeStep(params: {
     // Log capture is best-effort: if the spool cannot be opened (e.g. a broken logs dir),
     // abandon capture and run the step without a stream rather than failing the step itself.
     let stepStream: StepLogStream | undefined;
-    const runSecrets = [...secrets, ...(runSecretMaterial?.secretValues ?? [])];
+    const runSecrets = [
+      ...secrets,
+      ...ambientGitConfigSecrets,
+      ...(runSecretMaterial?.secretValues ?? []),
+    ];
+    const runSecretValues = [
+      ...ambientGitConfigSecrets,
+      ...(runSecretMaterial?.secretValues ?? []),
+    ];
     const runSecretVariants = buildSecretVariants(runSecrets);
     crashSecretVariants = runSecretVariants;
     try {
@@ -555,8 +579,9 @@ export async function executeStep(params: {
       signal,
       cwd: stepCwd,
       workspace: cwd,
+      ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
       ...(runSecretMaterial?.secretEnv ? {secretEnv: runSecretMaterial.secretEnv} : {}),
-      ...(runSecretMaterial?.secretValues ? {secretValues: runSecretMaterial.secretValues} : {}),
+      ...(runSecretValues.length > 0 ? {secretValues: runSecretValues} : {}),
       onCommandStart: (metadata) => writeCommandMetadata(stepStream, metadata),
       onOutput: (chunk, source) => stepStream?.write(chunk, source),
     });

@@ -231,8 +231,6 @@ export function writeAmbientGitCredential(params: {
           ...(includePath ? ['[include]', `\tpath = ${gitConfigQuotedValue(includePath)}`] : []),
           ...userLines,
           ...repositoryLines,
-          '[http]',
-          '\tfollowRedirects = false',
           '',
         ];
         await writeFile(temporaryConfigPath, lines.join('\n'), {flag: 'wx', mode: 0o600});
@@ -258,6 +256,12 @@ export function writeAmbientGitCredential(params: {
     }
     await chmod(configPath, 0o600);
   });
+}
+
+/** Returns every persisted credential form that can appear in the ambient Git config. */
+export function ambientGitCredentialSecrets(auth: CheckoutTokenAuthDto): string[] {
+  if (auth.kind === 'bearer') return [auth.token];
+  return [auth.token, basicCredential(auth)];
 }
 
 async function withAmbientGitConfigLock<T>(
@@ -313,9 +317,7 @@ function isGitConfigKeyMissing(error: unknown): boolean {
 // not a substring of the base64 the header carries, so redacting only the token would
 // leak the base64; include it explicitly.
 function secretsOf(auth: CheckoutTokenAuthDto | undefined): string[] {
-  if (!auth) return [];
-  if (auth.kind === 'bearer') return [auth.token];
-  return [auth.token, basicCredential(auth)];
+  return auth === undefined ? [] : ambientGitCredentialSecrets(auth);
 }
 
 function classifyCheckoutError(

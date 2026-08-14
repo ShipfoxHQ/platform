@@ -1591,6 +1591,100 @@ describe('runJobSteps', () => {
     );
   });
 
+  it('passes the setup ambient git config path to run steps', async () => {
+    const setup = buildSetupStep();
+    const run = buildRunStep();
+    executeSetupStepMock.mockResolvedValueOnce({
+      result: {success: true, error: null, exit_code: 0},
+      ambientGitConfigPath: GIT_CONFIG_PATH,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeRunStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(executeRunStepMock).toHaveBeenCalledWith(
+      run,
+      expect.objectContaining({gitConfigGlobal: GIT_CONFIG_PATH}),
+    );
+  });
+
+  it('passes persisted checkout secrets to run steps for output redaction', async () => {
+    const setup = buildSetupStep();
+    const run = buildRunStep();
+    executeSetupStepMock.mockResolvedValueOnce({
+      result: {success: true, error: null, exit_code: 0},
+      ambientGitConfigPath: GIT_CONFIG_PATH,
+      ambientGitConfigSecrets: ['checkout-token', 'basic-credential'],
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeRunStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(executeRunStepMock).toHaveBeenCalledWith(
+      run,
+      expect.objectContaining({
+        secretValues: expect.arrayContaining(['checkout-token', 'basic-credential']),
+      }),
+    );
+    expect(createStepLogStreamMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        secrets: expect.arrayContaining(['checkout-token', 'basic-credential']),
+      }),
+    );
+  });
+
+  it('passes a checkout step ambient git config path to later run steps', async () => {
+    const setup = buildSetupStep();
+    const checkout = buildCheckoutStep({config: {checkout: {path: 'repo'}}});
+    const run = buildRunStep();
+    executeCheckoutStepMock.mockResolvedValueOnce({
+      result: {success: true, error: null, exit_code: 0},
+      ambientGitConfigPath: GIT_CONFIG_PATH,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(checkout, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeRunStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(executeRunStepMock).toHaveBeenCalledWith(
+      run,
+      expect.objectContaining({gitConfigGlobal: GIT_CONFIG_PATH}),
+    );
+  });
+
+  it('omits the git config path from run steps when no prior step produced an ambient git config', async () => {
+    const setup = buildSetupStep();
+    const run = buildRunStep();
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeRunStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(executeRunStepMock).toHaveBeenCalledWith(
+      run,
+      expect.not.objectContaining({gitConfigGlobal: expect.anything()}),
+    );
+  });
+
   it('uses provider, model, and thinking from runtime config instead of stale step config', async () => {
     const setup = buildSetupStep();
     const agent = buildAgentStep({
