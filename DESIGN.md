@@ -359,6 +359,10 @@ same gutters at every width. Data surfaces run edge to edge on purpose, because 
 wide log or run table shows more per screen. The panel border supplies the edge
 the eye tracks against.
 
+The run workspace is a nested exception inside the `data` frame. At wide
+viewports, its 240px rail joins a 1120px run-level content measure. Dedicated job
+views keep their log content full width within the surrounding data surface.
+
 Marketing sits outside this model. It keeps a single content column up to about
 1280px, generous vertical rhythm, and full-bleed background panels.
 

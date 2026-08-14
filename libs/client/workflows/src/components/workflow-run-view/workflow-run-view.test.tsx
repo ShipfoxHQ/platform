@@ -49,11 +49,17 @@ describe('WorkflowRunView', () => {
     const summary = await screen.findByRole('region', {name: 'deploy-web'});
     expect(within(summary).getByRole('heading', {name: 'deploy-web'})).toBeInTheDocument();
     expect(screen.getByRole('navigation', {name: 'Run workspace'})).toBeInTheDocument();
-    expect(
-      screen
-        .getByRole('navigation', {name: 'Run workspace'})
-        .closest('[data-run-workspace-layout]'),
-    ).toHaveClass('border-t', 'border-border-neutral-base', 'min-[768px]:flex-row');
+    const workspaceLayout = screen
+      .getByRole('navigation', {name: 'Run workspace'})
+      .closest('[data-run-workspace-layout]');
+    expect(workspaceLayout).toHaveClass('border-t', 'border-border-neutral-base');
+    expect(workspaceLayout).not.toHaveClass('max-w-[1360px]');
+    expect(workspaceLayout?.querySelector('[data-run-workspace-frame]')).toHaveClass(
+      'mx-auto',
+      'w-full',
+      'max-w-[calc(240px_+_1120px)]',
+      'min-[768px]:flex-row',
+    );
     expect(screen.getByRole('link', {name: 'Summary'})).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('heading', {name: 'Jobs'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'Run details'})).toBeInTheDocument();
@@ -77,6 +83,18 @@ describe('WorkflowRunView', () => {
 
     const section = await screen.findByRole('region', {name: region});
     expect(section.firstElementChild).not.toHaveClass('max-w-[1120px]');
+  });
+
+  test('keeps dedicated job content on the full-width data surface', async () => {
+    configureRunFetch();
+
+    renderView({jobContent: <div>Job logs</div>});
+
+    const jobContent = await screen.findByText('Job logs');
+    const workspaceFrame = jobContent.closest('[data-run-workspace-frame]');
+
+    expect(workspaceFrame).toHaveClass('w-full', 'min-[768px]:flex-row');
+    expect(workspaceFrame).not.toHaveClass('max-w-[calc(240px_+_1120px)]');
   });
 
   test('treats the removed Jobs tab URL as the graph Summary', async () => {
