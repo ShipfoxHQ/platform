@@ -1,5 +1,5 @@
 import {Slot, Slottable} from '@radix-ui/react-slot';
-import type {ComponentProps, ReactNode} from 'react';
+import {Children, type ComponentProps, type ReactNode} from 'react';
 import {cn} from '#utils/cn.js';
 import {Icon} from '../icon/index.js';
 import {Header, Text} from '../typography/index.js';
@@ -125,14 +125,33 @@ export function PanelRow({className, asChild = false, ...props}: PanelRowProps) 
 const PANEL_GRID_CLASS = [
   'grid grid-cols-2 max-[760px]:grid-cols-1',
   '[&>*]:border-border-neutral-base',
-  'min-[760px]:[&>*:nth-child(n+3)]:border-t min-[760px]:[&>*:nth-child(even)]:border-l',
+  'min-[760px]:[&>*:nth-child(n+3)]:border-t',
+  // The filler is excluded so the column rule stops at the last full row rather
+  // than boxing an empty slot.
+  'min-[760px]:[&>*:nth-child(even):not([data-slot=panel-cell-filler])]:border-l',
   'max-[760px]:[&>*:nth-child(n+2)]:border-t',
 ].join(' ');
 
 export interface PanelGridProps extends ComponentProps<'ul'> {}
 
-export function PanelGrid({className, ...props}: PanelGridProps) {
-  return <ul data-slot="panel-grid" className={cn(PANEL_GRID_CLASS, className)} {...props} />;
+export function PanelGrid({className, children, ...props}: PanelGridProps) {
+  // An odd cell count leaves the last row half wide, and its divider would stop
+  // at the middle of the panel. Pad it with an inert cell so the rule runs the
+  // full width. At one column every row is already full, so the filler hides.
+  const hasRaggedLastRow = Children.toArray(children).length % 2 === 1;
+
+  return (
+    <ul data-slot="panel-grid" className={cn(PANEL_GRID_CLASS, className)} {...props}>
+      {children}
+      {hasRaggedLastRow ? (
+        <li
+          aria-hidden="true"
+          data-slot="panel-cell-filler"
+          className="hidden bg-background-neutral-base min-[760px]:block"
+        />
+      ) : null}
+    </ul>
+  );
 }
 
 export interface PanelCellProps extends ComponentProps<'li'> {}

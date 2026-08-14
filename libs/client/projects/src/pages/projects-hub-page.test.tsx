@@ -122,7 +122,7 @@ describe('ProjectsHubPage', () => {
     expect(projectsList).toHaveClass('grid-cols-2', 'max-[760px]:grid-cols-1');
     expect(projectsList).not.toHaveClass('gap-px');
     expect(projectsList).not.toHaveClass('bg-border-neutral-base');
-    expect(projectsList.querySelectorAll(':scope > li')).toHaveLength(1);
+    expect(projectsList.querySelectorAll('[data-slot="panel-cell"]')).toHaveLength(1);
     const projectLink = screen.getByText('Platform').closest('a');
     // The whole cell is the link, carrying an inset neutral focus ring.
     expect(projectLink).toHaveClass('focus-visible:shadow-focus-inset');
@@ -150,8 +150,13 @@ describe('ProjectsHubPage', () => {
     renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     const projectsList = await screen.findByRole('list', {name: 'Projects list'});
-    expect(projectsList.querySelectorAll(':scope > li')).toHaveLength(3);
+    expect(projectsList.querySelectorAll('[data-slot="panel-cell"]')).toHaveLength(3);
     expect(projectsList).not.toHaveClass('gap-px', 'bg-border-neutral-base');
+    // The odd count is padded so the last row's divider still spans the panel,
+    // and the pad carries the panel fill rather than the border colour.
+    const filler = projectsList.querySelector('[data-slot="panel-cell-filler"]');
+    expect(filler).not.toBeNull();
+    expect(filler).toHaveClass('bg-background-neutral-base');
   });
 
   test('keeps existing projects and the load-more retry after a cursor failure', async () => {

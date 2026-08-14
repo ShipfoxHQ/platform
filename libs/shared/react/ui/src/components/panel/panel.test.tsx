@@ -104,9 +104,57 @@ describe('PanelGrid', () => {
     // The wide and collapsed rules must share the 760px boundary, or that exact
     // viewport matches neither and the cells lose their dividers.
     expect(grid?.classList.contains('min-[760px]:[&>*:nth-child(n+3)]:border-t')).toBe(true);
-    expect(grid?.classList.contains('min-[760px]:[&>*:nth-child(even)]:border-l')).toBe(true);
+    expect(
+      grid?.classList.contains(
+        'min-[760px]:[&>*:nth-child(even):not([data-slot=panel-cell-filler])]:border-l',
+      ),
+    ).toBe(true);
     expect(grid?.classList.contains('max-[760px]:[&>*:nth-child(n+2)]:border-t')).toBe(true);
     expect(grid?.classList.contains('[&>*]:border-border-neutral-base')).toBe(true);
+  });
+
+  test('pads a ragged last row so its divider spans the full panel', () => {
+    const {container} = render(
+      <PanelGrid>
+        <PanelCell>One</PanelCell>
+        <PanelCell>Two</PanelCell>
+        <PanelCell>Three</PanelCell>
+      </PanelGrid>,
+    );
+
+    const filler = container.querySelector('[data-slot="panel-cell-filler"]');
+
+    // Without it the rule above the third cell would stop at the middle.
+    expect(filler).not.toBeNull();
+    expect(filler?.getAttribute('aria-hidden')).toBe('true');
+    expect(filler?.textContent).toBe('');
+    // One column never leaves a row half full, so the filler must not add a row.
+    expect(filler?.classList.contains('hidden')).toBe(true);
+    expect(filler?.classList.contains('min-[760px]:block')).toBe(true);
+  });
+
+  test('adds no filler when the last row is already full', () => {
+    const {container} = render(
+      <PanelGrid>
+        <PanelCell>One</PanelCell>
+        <PanelCell>Two</PanelCell>
+      </PanelGrid>,
+    );
+
+    expect(container.querySelector('[data-slot="panel-cell-filler"]')).toBeNull();
+  });
+
+  test('ignores conditional gaps when counting cells', () => {
+    const showTrailing = false;
+    const {container} = render(
+      <PanelGrid>
+        {[<PanelCell key="a">One</PanelCell>, <PanelCell key="b">Two</PanelCell>]}
+        {showTrailing ? <PanelCell>Three</PanelCell> : null}
+      </PanelGrid>,
+    );
+
+    // A `null` slot is not a cell, so two real cells still fill the row.
+    expect(container.querySelector('[data-slot="panel-cell-filler"]')).toBeNull();
   });
 });
 

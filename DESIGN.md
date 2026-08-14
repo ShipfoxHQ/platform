@@ -571,8 +571,10 @@ composes `PanelHeader`, `PanelTitle`, `PanelActions`, `PanelBody`, `PanelRow`,
   compact).
 - **Grid:** `PanelGrid` lays `PanelCell` children out in two columns divided by
   hairlines, collapsing to one column at 760px. The dividers come from
-  `nth-child` rules on the grid, so no caller passes an index. Never build a grid
-  of tiles by giving each tile its own border.
+  `nth-child` rules on the grid, so no caller passes an index. An odd cell count
+  is padded with an inert cell, so the rule above a half-full last row still
+  spans the panel; the column rule stops at the last full row rather than boxing
+  an empty slot. Never build a grid of tiles by giving each tile its own border.
 - **States:** empty, error, and loading states render inside the body. A list with
   zero rows keeps the same footprint and border as a list with rows.
 - **`asChild`:** `Panel`, `PanelBody`, `PanelRow`, and `PanelCellAction` accept
