@@ -1,4 +1,4 @@
-import {Card, CardTitle} from '@shipfox/react-ui/card';
+import {Panel, PanelTitle} from '@shipfox/react-ui/panel';
 import {Code, Header, Text} from '@shipfox/react-ui/typography';
 import {useEffect, useState} from 'react';
 import {storybookLinks} from '../preview-manifest.js';
@@ -130,9 +130,9 @@ export function IntroductionPage() {
                 href={storybook.url}
                 key={storybook.id}
               >
-                <Card className="h-full">
-                  <CardTitle>{storybook.title}</CardTitle>
-                </Card>
+                <Panel className="h-full p-panel-compact">
+                  <PanelTitle title={storybook.title}>{storybook.title}</PanelTitle>
+                </Panel>
               </a>
             ))}
           </div>

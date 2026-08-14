@@ -3,8 +3,8 @@ import {useRouteSearch} from '@shipfox/client-shell/runtime';
 import {sessionStorageOrUndefined} from '@shipfox/client-ui';
 import {Button, ButtonLink} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
-import {Card} from '@shipfox/react-ui/card';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
+import {Panel} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useQueryClient} from '@tanstack/react-query';
@@ -317,7 +317,7 @@ function JiraSiteSelectionPage({
 
         <section className="flex flex-col gap-inline" aria-label="Choose a Jira site">
           {sites.map((site) => (
-            <Card key={site.cloudId} className="p-panel-compact">
+            <Panel key={site.cloudId} className="p-panel-compact">
               <div className="flex items-center justify-between gap-cluster">
                 <div className="min-w-0">
                   <Text size="md" bold className="truncate">
@@ -336,7 +336,7 @@ function JiraSiteSelectionPage({
                   Connect
                 </Button>
               </div>
-            </Card>
+            </Panel>
           ))}
         </section>
 

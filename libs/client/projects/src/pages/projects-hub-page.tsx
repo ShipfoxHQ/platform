@@ -8,10 +8,10 @@ import {
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
-import {Card} from '@shipfox/react-ui/card';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Input} from '@shipfox/react-ui/input';
+import {Panel} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {Link, useNavigate} from '@tanstack/react-router';
@@ -140,12 +140,12 @@ function ProjectsSkeleton() {
     >
       {[0, 1, 2, 3, 4, 5].map((row) => (
         <li key={row}>
-          <Card className="h-full p-panel-compact">
+          <Panel className="h-full p-panel-compact">
             <div className="flex items-center gap-cluster">
               <Skeleton className="size-24 shrink-0" />
               <Skeleton className="h-16 w-1/2" />
             </div>
-          </Card>
+          </Panel>
         </li>
       ))}
     </ul>
@@ -209,7 +209,7 @@ function ProjectCard({
         params={{workspaceSlug, projectSlug: project.slug}}
         className="block h-full rounded-8 focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
       >
-        <Card className="h-full p-panel-compact transition-colors hover:bg-background-components-hover">
+        <Panel className="h-full p-panel-compact transition-colors hover:bg-background-components-hover">
           <div className="flex min-w-0 items-center gap-cluster">
             {/* Settle on success or error: a failed fetch falls back to the
                 neutral provider icon rather than spinning forever. */}
@@ -229,7 +229,7 @@ function ProjectCard({
               {status ? <ConnectionStatusBadge status={status} className="shrink-0" /> : null}
             </div>
           </div>
-        </Card>
+        </Panel>
       </Link>
     </li>
   );

@@ -3,9 +3,9 @@ import {createWorkspaceBodySchema} from '@shipfox/api-workspaces-dto';
 import {displayNameFieldError, SlugField} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
-import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@shipfox/react-ui/card';
 import {FormField, FormFieldInput, fieldError} from '@shipfox/react-ui/form-field';
 import {Icon} from '@shipfox/react-ui/icon';
+import {Panel, PanelBody, PanelHeader, PanelTitle} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
 import {Text} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
@@ -102,103 +102,111 @@ export function WorkspaceOnboardingPage() {
               void form.handleSubmit();
             }}
           >
-            <Card className="gap-section p-panel shadow-button-neutral">
-              <CardHeader className="gap-inline">
-                <CardTitle id="workspace-onboarding-title" variant="h1">
+            <Panel>
+              <PanelHeader variant="plain" className="flex-col items-start gap-inline">
+                <PanelTitle id="workspace-onboarding-title" variant="h1">
                   Create your workspace
-                </CardTitle>
-                <CardDescription>Give your team a place to collaborate.</CardDescription>
-              </CardHeader>
+                </PanelTitle>
+                <Text size="sm" className="text-foreground-neutral-muted">
+                  Give your team a place to collaborate.
+                </Text>
+              </PanelHeader>
 
-              {formError ? (
-                <Callout role="alert" type="error">
-                  {formError}
-                </Callout>
-              ) : null}
+              <PanelBody className="flex flex-col gap-section p-panel">
+                {formError ? (
+                  <Callout role="alert" type="error">
+                    {formError}
+                  </Callout>
+                ) : null}
 
-              <CardContent className="flex flex-col gap-inline">
-                <form.Field
-                  name="name"
-                  validators={{
-                    onBlur: ({value}) =>
-                      displayNameFieldError(
-                        value,
-                        'Workspace name',
-                        createWorkspaceBodySchema.shape.name,
-                      ),
-                    onSubmit: ({value}) =>
-                      displayNameFieldError(
-                        value,
-                        'Workspace name',
-                        createWorkspaceBodySchema.shape.name,
-                      ),
-                  }}
-                >
-                  {(field) => (
-                    <FormField label="Workspace name" id="workspace-name" error={fieldError(field)}>
-                      <FormFieldInput
-                        autoComplete="organization"
-                        name="name"
-                        placeholder="Acme"
-                        type="text"
+                <div className="flex flex-col gap-inline">
+                  <form.Field
+                    name="name"
+                    validators={{
+                      onBlur: ({value}) =>
+                        displayNameFieldError(
+                          value,
+                          'Workspace name',
+                          createWorkspaceBodySchema.shape.name,
+                        ),
+                      onSubmit: ({value}) =>
+                        displayNameFieldError(
+                          value,
+                          'Workspace name',
+                          createWorkspaceBodySchema.shape.name,
+                        ),
+                    }}
+                  >
+                    {(field) => (
+                      <FormField
+                        label="Workspace name"
+                        id="workspace-name"
+                        error={fieldError(field)}
+                      >
+                        <FormFieldInput
+                          autoComplete="organization"
+                          name="name"
+                          placeholder="Acme"
+                          type="text"
+                          value={field.state.value}
+                          onChange={(event) => {
+                            const name = event.target.value;
+                            field.handleChange(name);
+                            if (!slugTouched) {
+                              form.setFieldValue(
+                                'slug',
+                                name ? slugifyName(name, {fallback: 'workspace'}) : '',
+                              );
+                            }
+                          }}
+                          onBlur={field.handleBlur}
+                        />
+                      </FormField>
+                    )}
+                  </form.Field>
+                  <form.Field
+                    name="slug"
+                    validators={{
+                      onBlur: createWorkspaceBodySchema.shape.slug,
+                      onSubmit: createWorkspaceBodySchema.shape.slug,
+                    }}
+                  >
+                    {(field) => (
+                      <SlugField
+                        id="workspace-slug"
+                        label="Workspace slug"
+                        name="slug"
                         value={field.state.value}
-                        onChange={(event) => {
-                          const name = event.target.value;
-                          field.handleChange(name);
-                          if (!slugTouched) {
-                            form.setFieldValue(
-                              'slug',
-                              name ? slugifyName(name, {fallback: 'workspace'}) : '',
-                            );
-                          }
+                        onChange={(value) => {
+                          setSlugTouched(true);
+                          field.handleChange(value);
                         }}
                         onBlur={field.handleBlur}
+                        error={fieldError(field)}
+                        description={
+                          <span className="break-all font-code">
+                            {`${window.location.origin}/w/${field.state.value || 'acme'}`}
+                          </span>
+                        }
+                        placeholder="acme"
+                        checkEnabled={slugTouched}
+                        isValid={isSlugValid}
+                        checkAvailability={checkWorkspaceSlugAvailability}
                       />
-                    </FormField>
-                  )}
-                </form.Field>
-                <form.Field
-                  name="slug"
-                  validators={{
-                    onBlur: createWorkspaceBodySchema.shape.slug,
-                    onSubmit: createWorkspaceBodySchema.shape.slug,
-                  }}
-                >
-                  {(field) => (
-                    <SlugField
-                      id="workspace-slug"
-                      label="Workspace slug"
-                      name="slug"
-                      value={field.state.value}
-                      onChange={(value) => {
-                        setSlugTouched(true);
-                        field.handleChange(value);
-                      }}
-                      onBlur={field.handleBlur}
-                      error={fieldError(field)}
-                      description={
-                        <span className="break-all font-code">
-                          {`${window.location.origin}/w/${field.state.value || 'acme'}`}
-                        </span>
-                      }
-                      placeholder="acme"
-                      checkEnabled={slugTouched}
-                      isValid={isSlugValid}
-                      checkAvailability={checkWorkspaceSlugAvailability}
-                    />
-                  )}
-                </form.Field>
-              </CardContent>
+                    )}
+                  </form.Field>
+                </div>
 
-              <Button
-                className="w-full"
-                iconRight="chevronRight"
-                isLoading={createWorkspace.isPending}
-                type="submit"
-              >
-                {createWorkspace.isPending ? 'Creating workspace...' : 'Create workspace'}
-              </Button>
-            </Card>
+                <Button
+                  className="w-full"
+                  iconRight="chevronRight"
+                  isLoading={createWorkspace.isPending}
+                  type="submit"
+                >
+                  {createWorkspace.isPending ? 'Creating workspace...' : 'Create workspace'}
+                </Button>
+              </PanelBody>
+            </Panel>
           </form>
 
           <div className="hidden flex-col gap-group lg:flex" aria-hidden="true">

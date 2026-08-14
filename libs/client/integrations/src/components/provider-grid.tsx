@@ -1,8 +1,8 @@
 import {QueryLoadError} from '@shipfox/client-ui';
 import {IntegrationIcon} from '@shipfox/integration-icons';
-import {Card} from '@shipfox/react-ui/card';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Icon} from '@shipfox/react-ui/icon';
+import {Panel} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
@@ -106,7 +106,7 @@ function ProviderCard({
         type="button"
         aria-label={`Add ${provider.displayName}`}
         onClick={() => onOpenProvider?.(provider.provider)}
-        className="group flex h-full w-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact text-left transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
+        className="group flex h-full w-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact text-left shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
       >
         <ProviderCardContent provider={provider} action="Add" />
       </button>
@@ -118,7 +118,7 @@ function ProviderCard({
       to={catalog.setupPath}
       params={{workspaceSlug}}
       aria-label={`Install ${provider.displayName}`}
-      className="group flex h-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
+      className="group flex h-full min-w-0 items-center justify-between gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact shadow-button-neutral transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
     >
       <ProviderCardContent provider={provider} action="Install" />
     </Link>
@@ -159,7 +159,7 @@ function ProviderGridSkeleton({label}: {label: string}) {
     <ul role="status" aria-label={label} className={PROVIDER_GRID_CLASS}>
       {[0, 1, 2, 3].map((tile) => (
         <li key={tile}>
-          <Card className="h-full p-panel-compact">
+          <Panel className="h-full p-panel-compact">
             <div className="flex items-center justify-between gap-cluster">
               <div className="flex min-w-0 items-center gap-cluster">
                 <Skeleton className="size-24 shrink-0" />
@@ -167,7 +167,7 @@ function ProviderGridSkeleton({label}: {label: string}) {
               </div>
               <Skeleton className="h-16 w-64 shrink-0" />
             </div>
-          </Card>
+          </Panel>
         </li>
       ))}
     </ul>

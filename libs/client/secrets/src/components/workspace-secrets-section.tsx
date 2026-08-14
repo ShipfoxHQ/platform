@@ -1,6 +1,5 @@
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button, IconButton} from '@shipfox/react-ui/button';
-import {Card} from '@shipfox/react-ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +8,7 @@ import {
 } from '@shipfox/react-ui/dropdown-menu';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Modal, ModalContent, ModalHeader, ModalTitle} from '@shipfox/react-ui/modal';
+import {Panel} from '@shipfox/react-ui/panel';
 import {RelativeTime, RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
 import {
   Table,
@@ -92,7 +92,7 @@ export function WorkspaceSecretsSection({workspaceId}: {workspaceId: string}) {
         ) : null}
 
         {secrets.length > 0 ? (
-          <Card className="overflow-hidden p-0">
+          <Panel>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -115,7 +115,7 @@ export function WorkspaceSecretsSection({workspaceId}: {workspaceId: string}) {
                 ))}
               </TableBody>
             </Table>
-          </Card>
+          </Panel>
         ) : null}
       </section>
 
