@@ -45,8 +45,8 @@ export function ManualRegistrationTokenList({
   tokens: ManualRegistrationToken[];
 }) {
   return (
-    <>
-      <Panel className="max-[760px]:hidden">
+    <Panel>
+      <div className="max-[760px]:hidden">
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
@@ -81,16 +81,13 @@ export function ManualRegistrationTokenList({
             ))}
           </TableBody>
         </Table>
-      </Panel>
+      </div>
       <ul
-        className="hidden flex-col gap-inline max-[760px]:flex"
+        className="hidden flex-col divide-y divide-border-neutral-base max-[760px]:flex"
         aria-label="Manual registration tokens"
       >
         {tokens.map((token) => (
-          <li
-            key={token.id}
-            className="flex flex-col gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact"
-          >
+          <li key={token.id} className="flex flex-col gap-cluster p-panel-compact">
             <div className="flex items-start justify-between gap-cluster">
               <div className="min-w-0 flex-1">
                 <TokenName name={tokenDisplayName(token)} />
@@ -117,7 +114,7 @@ export function ManualRegistrationTokenList({
           </li>
         ))}
       </ul>
-    </>
+    </Panel>
   );
 }
 
@@ -219,20 +216,17 @@ export function EmptyManualRegistrationTokens() {
       icon="key2Line"
       title="No usable manual registration tokens"
       description="Create a token to connect a runner to this workspace."
+      variant="panel"
     />
   );
 }
 
 export function ManualRegistrationTokenTableSkeleton() {
   return (
-    <div
-      role="status"
-      aria-label="Loading manual registration tokens"
-      className="flex flex-col gap-inline"
-    >
+    <Panel role="status" aria-label="Loading manual registration tokens" className="divide-y">
       {[0, 1, 2].map((row) => (
-        <Skeleton key={row} className="h-44 w-full" />
+        <Skeleton key={row} className="h-44 w-full rounded-none" />
       ))}
-    </div>
+    </Panel>
   );
 }

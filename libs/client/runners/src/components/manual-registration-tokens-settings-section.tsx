@@ -9,6 +9,7 @@ import {
   ModalTitle,
   ModalTrigger,
 } from '@shipfox/react-ui/modal';
+import {Panel} from '@shipfox/react-ui/panel';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useState} from 'react';
 import type {CreatedManualRegistrationToken} from '#core/token.js';
@@ -92,11 +93,19 @@ export function WorkspaceManualRegistrationTokensSettingsSection({
         {tokensQuery.isPending ? <ManualRegistrationTokenTableSkeleton /> : null}
 
         {tokensQuery.isError && tokensQuery.data === undefined ? (
-          <QueryLoadError query={tokensQuery} subject="manual registration tokens" />
+          <Panel>
+            <QueryLoadError
+              query={tokensQuery}
+              subject="manual registration tokens"
+              variant="panel"
+            />
+          </Panel>
         ) : null}
 
         {tokensQuery.data !== undefined && tokens.length === 0 ? (
-          <EmptyManualRegistrationTokens />
+          <Panel>
+            <EmptyManualRegistrationTokens />
+          </Panel>
         ) : null}
 
         {tokens.length > 0 ? (

@@ -4,13 +4,13 @@ import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Modal, ModalContent, ModalHeader, ModalTitle} from '@shipfox/react-ui/modal';
-import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {useEffect, useMemo, useReducer} from 'react';
 import {AvailableProvidersGrid, PROVIDER_GRID_CLASS} from '#components/available-providers-grid.js';
 import {modelProviderConfigErrorToFormError} from '#components/form-errors.js';
+import {ModelProviderGridSkeleton} from '#components/model-provider-grid-skeleton.js';
 import {ModelProviderTestAndSaveForm} from '#components/test-and-save-form.js';
 import {DEFAULT_HARNESS, harnessSupportsProvider, listHarnesses} from '#core/harness-policy.js';
 import type {HarnessDescriptor, HarnessId, SupportedProvider} from '#core/models.js';
@@ -265,11 +265,7 @@ function ModelProviderPicker({
   onSelect: (entry: SupportedProvider) => void;
 }) {
   if (catalogQuery.isPending) {
-    return (
-      <div role="status" aria-busy="true" aria-label="Loading model providers">
-        <ModelProviderGridSkeleton />
-      </div>
-    );
+    return <ModelProviderGridSkeleton label="Loading model providers" />;
   }
 
   if (catalogQuery.isError && catalogQuery.data === undefined) {
@@ -287,14 +283,4 @@ function ModelProviderPicker({
   }
 
   return <AvailableProvidersGrid entries={supportedProviders} onSelect={onSelect} />;
-}
-
-function ModelProviderGridSkeleton() {
-  return (
-    <div className={PROVIDER_GRID_CLASS}>
-      {[0, 1, 2, 3].map((card) => (
-        <Skeleton key={card} className="h-136 w-full" />
-      ))}
-    </div>
-  );
 }

@@ -71,17 +71,18 @@ export function WorkspaceSecretsSection({workspaceId}: {workspaceId: string}) {
         {secretsQuery.isPending ? <StoreRowsSkeleton label="Loading secrets" /> : null}
 
         {secretsQuery.isError && secretsQuery.data === undefined ? (
-          <StoreSurface className="px-row">
-            <QueryLoadError query={secretsQuery} subject="secrets" />
+          <StoreSurface>
+            <QueryLoadError query={secretsQuery} subject="secrets" variant="panel" />
           </StoreSurface>
         ) : null}
 
         {secretsQuery.data !== undefined && secrets.length === 0 ? (
-          <StoreSurface className="px-row">
+          <StoreSurface>
             <EmptyState
               icon="keyLine"
               title="No secrets yet"
               description={EMPTY_SECRETS_DESCRIPTION}
+              variant="panel"
               action={
                 <Button size="sm" onClick={() => setFormState({mode: 'create'})}>
                   Create secret

@@ -71,17 +71,18 @@ export function WorkspaceVariablesSection({workspaceId}: {workspaceId: string}) 
         {variablesQuery.isPending ? <StoreRowsSkeleton label="Loading variables" /> : null}
 
         {variablesQuery.isError && variablesQuery.data === undefined ? (
-          <StoreSurface className="px-row">
-            <QueryLoadError query={variablesQuery} subject="variables" />
+          <StoreSurface>
+            <QueryLoadError query={variablesQuery} subject="variables" variant="panel" />
           </StoreSurface>
         ) : null}
 
         {variablesQuery.data !== undefined && variables.length === 0 ? (
-          <StoreSurface className="px-row">
+          <StoreSurface>
             <EmptyState
               icon="bracesLine"
               title="No variables yet"
               description={EMPTY_VARIABLES_DESCRIPTION}
+              variant="panel"
               action={
                 <Button size="sm" onClick={() => setFormState({mode: 'create'})}>
                   Create variable

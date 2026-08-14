@@ -256,11 +256,11 @@ function humanizeFailureReason(reason: string): string {
 export function CarriedOverStepPanel() {
   return (
     <EmptyState
-      className="min-h-120 rounded-8 border border-border-neutral-base bg-background-components-base p-panel"
+      className="rounded-8 border border-border-neutral-base bg-background-components-base"
       icon="componentLine"
       title="Carried over from a previous attempt"
       description="Not executed in this run."
-      variant="compact"
+      variant="panel"
     />
   );
 }

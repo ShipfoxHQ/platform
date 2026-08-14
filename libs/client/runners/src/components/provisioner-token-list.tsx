@@ -53,8 +53,8 @@ export function ProvisionerTokenList({
   activeIds: ReadonlySet<string>;
 }) {
   return (
-    <>
-      <Panel className="max-[760px]:hidden">
+    <Panel>
+      <div className="max-[760px]:hidden">
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
@@ -93,13 +93,13 @@ export function ProvisionerTokenList({
             ))}
           </TableBody>
         </Table>
-      </Panel>
-      <ul className="hidden flex-col gap-inline max-[760px]:flex" aria-label="Provisioner tokens">
+      </div>
+      <ul
+        className="hidden flex-col divide-y divide-border-neutral-base max-[760px]:flex"
+        aria-label="Provisioner tokens"
+      >
         {tokens.map((token) => (
-          <li
-            key={token.id}
-            className="flex flex-col gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base p-panel-compact"
-          >
+          <li key={token.id} className="flex flex-col gap-cluster p-panel-compact">
             <div className="flex items-start justify-between gap-cluster">
               <div className="min-w-0 flex-1">
                 <TokenName name={provisionerTokenDisplayName(token)} />
@@ -132,7 +132,7 @@ export function ProvisionerTokenList({
           </li>
         ))}
       </ul>
-    </>
+    </Panel>
   );
 }
 
@@ -257,16 +257,17 @@ export function EmptyProvisionerTokens() {
       icon="key2Line"
       title="No usable provisioner registration tokens"
       description="Create a token to connect a provisioner that provisions runners on demand."
+      variant="panel"
     />
   );
 }
 
 export function ProvisionerTokenTableSkeleton() {
   return (
-    <div role="status" aria-label="Loading provisioner tokens" className="flex flex-col gap-inline">
+    <Panel role="status" aria-label="Loading provisioner tokens" className="divide-y">
       {[0, 1, 2].map((row) => (
-        <Skeleton key={row} className="h-44 w-full" />
+        <Skeleton key={row} className="h-44 w-full rounded-none" />
       ))}
-    </div>
+    </Panel>
   );
 }

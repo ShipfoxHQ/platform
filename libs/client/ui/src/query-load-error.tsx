@@ -1,3 +1,4 @@
+import type {EmptyStateVariant} from '@shipfox/react-ui/empty-state';
 import type {IconName} from '@shipfox/react-ui/icon';
 import {LoadErrorState} from '@shipfox/react-ui/load-error-state';
 import {loadErrorCopy} from './load-error-copy.js';
@@ -21,6 +22,8 @@ export interface QueryLoadErrorProps {
   /** Lowercase noun for the resource, e.g. "integrations". Drives copy + aria. */
   subject: string;
   icon?: IconName;
+  /** Layout variant for the state when it is rendered inside a data-region panel. */
+  variant?: EmptyStateVariant;
 }
 
 /**
@@ -29,7 +32,7 @@ export interface QueryLoadErrorProps {
  * success) it renders nothing, so the caller keeps showing that data instead of
  * wiping it. Returns null otherwise.
  */
-export function QueryLoadError({query, subject, icon}: QueryLoadErrorProps) {
+export function QueryLoadError({query, subject, icon, variant}: QueryLoadErrorProps) {
   if (!query.isError || query.data !== undefined) return null;
 
   const copy = loadErrorCopy(query.error, {subject});
@@ -44,6 +47,7 @@ export function QueryLoadError({query, subject, icon}: QueryLoadErrorProps) {
       }}
       retrying={query.isFetching}
       retryLabel={`Retry loading ${subject}`}
+      {...(variant ? {variant} : {})}
     />
   );
 }

@@ -37,11 +37,11 @@ export function JobGraphContent({
   if (model.nodes.length === 0) {
     return (
       <EmptyState
-        className="min-h-160 p-panel"
+        className="min-h-160"
         icon="componentLine"
         title="No jobs yet"
         description="This run has not materialized jobs."
-        variant="compact"
+        variant="panel"
       />
     );
   }

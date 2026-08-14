@@ -82,10 +82,12 @@ function MembersSection({
         </Text>
       </div>
 
-      {query.isPending ? <TableSkeleton rows={3} cols={3} /> : null}
+      {query.isPending ? <TableSkeleton rows={3} cols={3} label="Loading members" /> : null}
 
       {query.isError && query.data === undefined ? (
-        <QueryLoadError query={query} subject="members" />
+        <Panel>
+          <QueryLoadError query={query} subject="members" variant="panel" />
+        </Panel>
       ) : null}
 
       {members.length > 0 ? (
@@ -227,13 +229,19 @@ function PendingInvitationsSection({
         />
       </div>
 
-      {query.isPending ? <TableSkeleton rows={2} cols={3} /> : null}
+      {query.isPending ? <TableSkeleton rows={2} cols={3} label="Loading invitations" /> : null}
 
       {query.isError && query.data === undefined ? (
-        <QueryLoadError query={query} subject="invitations" />
+        <Panel>
+          <QueryLoadError query={query} subject="invitations" variant="panel" />
+        </Panel>
       ) : null}
 
-      {query.data !== undefined && invitations.length === 0 ? <EmptyInvitations /> : null}
+      {query.data !== undefined && invitations.length === 0 ? (
+        <Panel>
+          <EmptyInvitations />
+        </Panel>
+      ) : null}
 
       {invitations.length > 0 ? (
         <Panel>
@@ -458,22 +466,26 @@ function EmptyInvitations() {
       icon="mailLine"
       title="No pending invitations."
       description="Invite someone above to grow your workspace."
+      variant="panel"
     />
   );
 }
 
-function TableSkeleton({rows, cols}: {rows: number; cols: number}) {
+function TableSkeleton({rows, cols, label}: {rows: number; cols: number; label: string}) {
   return (
-    <div className="flex flex-col gap-cluster">
+    <Panel role="status" aria-label={label} className="divide-y">
       {Array.from({length: rows}).map((_, rowIdx) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder rows
-        <div key={rowIdx} className="grid grid-cols-3 gap-group">
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder rows
+          key={rowIdx}
+          className="grid min-h-44 grid-cols-3 gap-group px-row py-row"
+        >
           {Array.from({length: cols}).map((__, colIdx) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder cells
             <Skeleton key={colIdx} className="h-20" />
           ))}
         </div>
       ))}
-    </div>
+    </Panel>
   );
 }

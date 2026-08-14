@@ -38,3 +38,17 @@ export const Retrying: Story = {
     retryLabel: 'Retry loading members',
   },
 };
+
+export const Panel: Story = {
+  render: (args) => (
+    <div className="w-640 rounded-8 border border-border-neutral-base bg-background-neutral-base">
+      <LoadErrorState {...args} />
+    </div>
+  ),
+  args: {
+    title: "Couldn't load runs",
+    description: 'Something went wrong. Check your connection and try again.',
+    retryLabel: 'Retry loading runs',
+    variant: 'panel',
+  },
+};

@@ -558,11 +558,10 @@ function EmptyStateForMissingExecution({job}: {job: Job}) {
   const emptyState = emptyStateForMissingExecution(job);
   return (
     <EmptyState
-      className="min-h-120 p-panel"
       icon="componentLine"
       title={emptyState.title}
       description={emptyState.description}
-      variant="compact"
+      variant="panel"
     />
   );
 }

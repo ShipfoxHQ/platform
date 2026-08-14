@@ -46,10 +46,11 @@ import {
   useSetDefaultModelProviderMutation,
 } from '#hooks/api/model-providers.js';
 import {AddCustomProviderCard} from './add-custom-provider-card.js';
-import {AvailableProvidersGrid, PROVIDER_GRID_CLASS} from './available-providers-grid.js';
+import {AvailableProvidersGrid} from './available-providers-grid.js';
 import {ChangeDefaultModelForm} from './change-default-model-form.js';
 import {CustomModelProviderForm} from './custom-model-provider-form.js';
 import {modelProviderConfigErrorToFormError} from './form-errors.js';
+import {ModelProviderGridSkeleton} from './model-provider-grid-skeleton.js';
 import {ModelProviderUsageModal} from './model-provider-usage-modal.js';
 import {
   type ModelProviderUsageTarget,
@@ -132,17 +133,18 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
         ) : null}
 
         {configsQuery.isError && configsQuery.data === undefined ? (
-          <div className={cn(SURFACE_CLASS, 'px-row')}>
-            <QueryLoadError query={configsQuery} subject="model provider configs" />
+          <div className={SURFACE_CLASS}>
+            <QueryLoadError query={configsQuery} subject="model provider configs" variant="panel" />
           </div>
         ) : null}
 
         {configsQuery.data !== undefined && configs.length === 0 ? (
-          <div className={cn(SURFACE_CLASS, 'px-row')}>
+          <div className={SURFACE_CLASS}>
             <EmptyState
               icon="key2Line"
               title="No providers configured"
               description="Configure a provider below to run agent steps with workspace-managed credentials."
+              variant="panel"
             />
           </div>
         ) : null}
@@ -211,11 +213,13 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
           </Text>
         </div>
 
-        {catalogQuery.isPending || configsQuery.isPending ? <ModelProviderGridSkeleton /> : null}
+        {catalogQuery.isPending || configsQuery.isPending ? (
+          <ModelProviderGridSkeleton label="Loading available providers" />
+        ) : null}
 
         {catalogQuery.isError && catalogQuery.data === undefined ? (
-          <div className={cn(SURFACE_CLASS, 'px-row')}>
-            <QueryLoadError query={catalogQuery} subject="model provider catalog" />
+          <div className={SURFACE_CLASS}>
+            <QueryLoadError query={catalogQuery} subject="model provider catalog" variant="panel" />
           </div>
         ) : null}
 
@@ -618,15 +622,5 @@ function ModelProviderRowsSkeleton({label}: {label: string}) {
         </li>
       ))}
     </ul>
-  );
-}
-
-function ModelProviderGridSkeleton() {
-  return (
-    <div role="status" aria-label="Loading available providers" className={PROVIDER_GRID_CLASS}>
-      {[0, 1, 2, 3].map((card) => (
-        <Skeleton key={card} className="h-136 w-full" />
-      ))}
-    </div>
   );
 }

@@ -1,7 +1,10 @@
 import type {ComponentProps, ReactNode} from 'react';
 import {cn} from '#utils/cn.js';
 import {Icon, type IconName} from '../icon/index.js';
+import {PanelEmpty} from '../panel/index.js';
 import {Text} from '../typography/index.js';
+
+export type EmptyStateVariant = 'default' | 'compact' | 'panel';
 
 export interface EmptyStateProps extends ComponentProps<'div'> {
   icon?: IconName;
@@ -11,7 +14,8 @@ export interface EmptyStateProps extends ComponentProps<'div'> {
   description?: ReactNode;
   /** Single primary action (a Button/Link) rendered below the text. */
   action?: ReactNode;
-  variant?: 'default' | 'compact';
+  /** Fills the body of a bordered data-region panel. */
+  variant?: EmptyStateVariant;
 }
 
 export function EmptyState({
@@ -27,15 +31,24 @@ export function EmptyState({
   const containerClasses =
     variant === 'compact'
       ? 'flex flex-col items-center justify-center gap-10'
-      : 'flex flex-col items-center justify-center gap-12 py-48';
+      : variant === 'panel'
+        ? 'w-full flex-1 flex-col gap-12'
+        : 'flex flex-col items-center justify-center gap-12 py-48';
 
   const iconContainerClasses =
     variant === 'compact'
       ? 'flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong bg-background-neutral-base p-8'
       : 'flex size-32 items-center justify-center rounded-6 border border-border-neutral-strong';
 
+  const EmptyStateContainer = variant === 'panel' ? PanelEmpty : 'div';
+
   return (
-    <div className={cn(containerClasses, className)} {...props}>
+    <EmptyStateContainer
+      data-slot="empty-state"
+      data-variant={variant}
+      className={cn(containerClasses, className)}
+      {...props}
+    >
       <div className={iconContainerClasses}>
         <Icon
           name={icon}
@@ -47,7 +60,7 @@ export function EmptyState({
           )}
         />
       </div>
-      <div className={cn('text-center', variant === 'default' && 'space-y-4')}>
+      <div className={cn('text-center', variant !== 'compact' && 'space-y-4')}>
         {title ? (
           <Text
             size="sm"
@@ -67,6 +80,6 @@ export function EmptyState({
         ) : null}
       </div>
       {action ? <div>{action}</div> : null}
-    </div>
+    </EmptyStateContainer>
   );
 }

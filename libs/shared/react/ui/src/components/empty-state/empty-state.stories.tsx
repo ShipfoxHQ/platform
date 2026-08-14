@@ -74,3 +74,17 @@ export const Compact: Story = {
     variant: 'compact',
   },
 };
+
+export const Panel: Story = {
+  render: (args) => (
+    <div className="w-640 rounded-8 border border-border-neutral-base bg-background-neutral-base">
+      <EmptyState {...args} />
+    </div>
+  ),
+  args: {
+    icon: 'inboxLine',
+    title: 'No runs yet',
+    description: 'Runs from this project will appear here once one is launched.',
+    variant: 'panel',
+  },
+};
