@@ -255,7 +255,7 @@ export function CreateProjectPage() {
                   ) : null}
                 </PanelHeader>
 
-                <PanelBody className="p-panel">
+                <PanelBody>
                   <ConnectionPicker
                     connections={connections}
                     selectedConnectionId={effectiveSelectedConnectionId}
@@ -282,7 +282,7 @@ export function CreateProjectPage() {
                     />
                   </PanelActions>
                 </PanelHeader>
-                <PanelBody className="p-panel">
+                <PanelBody>
                   <RepositoryPicker
                     repositories={repositories}
                     selectedRepositoryId={selectedRepositoryId}

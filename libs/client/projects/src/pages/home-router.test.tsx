@@ -18,7 +18,8 @@ describe('HomeRouter', () => {
 
     renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <HomeRouter />);
 
-    expect(await screen.findByRole('heading', {name: 'Projects'})).toBeInTheDocument();
+    expect(await screen.findByRole('region', {name: 'Projects'})).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', {name: 'Search projects'})).toBeInTheDocument();
     const calledUrls = fetchImpl.mock.calls.map(([input]) =>
       input instanceof Request ? input.url : String(input),
     );

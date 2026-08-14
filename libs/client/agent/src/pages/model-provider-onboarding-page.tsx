@@ -2,13 +2,12 @@ import {QueryLoadError} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
-import {Icon} from '@shipfox/react-ui/icon';
 import {Modal, ModalContent, ModalHeader, ModalTitle} from '@shipfox/react-ui/modal';
+import {Panel, PanelBody, PanelCell, PanelCellAction, PanelGrid} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
-import {cn} from '@shipfox/react-ui/utils';
 import {useEffect, useMemo, useReducer} from 'react';
-import {AvailableProvidersGrid, PROVIDER_GRID_CLASS} from '#components/available-providers-grid.js';
+import {AvailableProvidersGrid} from '#components/available-providers-grid.js';
 import {modelProviderConfigErrorToFormError} from '#components/form-errors.js';
 import {ModelProviderGridSkeleton} from '#components/model-provider-grid-skeleton.js';
 import {ModelProviderTestAndSaveForm} from '#components/test-and-save-form.js';
@@ -21,9 +20,6 @@ import {
   useSetDefaultHarnessMutation,
 } from '#hooks/api/model-providers.js';
 import {dismissModelProviderOnboarding} from '#state/model-provider-onboarding.js';
-
-const SURFACE_CLASS =
-  'overflow-hidden rounded-8 border border-border-neutral-base bg-background-neutral-base';
 
 export function ModelProviderOnboardingPage({
   workspaceId,
@@ -216,42 +212,32 @@ export function ModelProviderOnboardingPage({
 
 function HarnessPicker({onSelect}: {onSelect: (harness: HarnessId) => void}) {
   return (
-    <ul className={PROVIDER_GRID_CLASS} aria-label="Agent harnesses">
-      {listHarnesses().map((harness) => (
-        <HarnessCard key={harness.id} harness={harness} onChoose={() => onSelect(harness.id)} />
-      ))}
-    </ul>
+    <Panel>
+      <PanelBody>
+        <PanelGrid aria-label="Agent harnesses">
+          {listHarnesses().map((harness) => (
+            <HarnessCard key={harness.id} harness={harness} onChoose={() => onSelect(harness.id)} />
+          ))}
+        </PanelGrid>
+      </PanelBody>
+    </Panel>
   );
 }
 
 function HarnessCard({harness, onChoose}: {harness: HarnessDescriptor; onChoose: () => void}) {
   return (
-    <li>
-      <button
-        type="button"
-        className={cn(
-          'group block w-full cursor-pointer p-panel-compact text-left outline-none transition-colors hover:bg-background-components-hover focus-visible:shadow-button-neutral-focus',
-          SURFACE_CLASS,
-        )}
-        aria-label={`Choose ${harness.label}`}
-        onClick={onChoose}
-      >
-        <div className="flex min-w-0 items-center justify-between gap-cluster">
-          <div className="flex min-w-0 flex-col gap-tight">
-            <Text size="md" bold className="min-w-0 truncate">
-              {harness.label}
-            </Text>
-            <Text size="sm" className="text-foreground-neutral-muted">
-              {harness.description}
-            </Text>
-          </div>
-          <div className="flex shrink-0 items-center gap-tight text-foreground-neutral-muted transition-colors group-hover:text-foreground-highlight-interactive">
-            <Text size="sm">Choose</Text>
-            <Icon name="chevronRight" className="size-16" />
-          </div>
-        </div>
-      </button>
-    </li>
+    <PanelCell>
+      <PanelCellAction action="Choose" aria-label={`Choose ${harness.label}`} onClick={onChoose}>
+        <span className="flex min-w-0 flex-col gap-tight">
+          <Text as="span" size="md" bold className="min-w-0 truncate">
+            {harness.label}
+          </Text>
+          <Text as="span" size="sm" className="text-foreground-neutral-muted">
+            {harness.description}
+          </Text>
+        </span>
+      </PanelCellAction>
+    </PanelCell>
   );
 }
 

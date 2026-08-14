@@ -11,9 +11,17 @@ import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Input} from '@shipfox/react-ui/input';
-import {Panel} from '@shipfox/react-ui/panel';
+import {
+  Panel,
+  PanelActions,
+  PanelBody,
+  PanelCell,
+  PanelCellAction,
+  PanelGrid,
+  PanelHeader,
+} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
-import {Header, Text} from '@shipfox/react-ui/typography';
+import {Text} from '@shipfox/react-ui/typography';
 import {Link, useNavigate} from '@tanstack/react-router';
 import {ModelProviderReminderBanner} from '#components/model-provider-reminder-banner.js';
 import type {Project} from '#core/project.js';
@@ -41,122 +49,118 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
 
   return (
     <div className="flex w-full flex-col gap-section">
-      <header className="flex flex-col gap-group">
-        <div className="flex items-start justify-between gap-section max-[640px]:flex-col">
-          <Header variant="h2">Projects</Header>
-        </div>
-        <div className="flex items-center gap-cluster max-[640px]:flex-col max-[640px]:items-stretch">
-          <Input
-            type="search"
-            value={search}
-            onChange={(event) => {
-              const next = event.target.value.trim();
-              navigate({search: (next ? {search: next} : {}) as never, replace: true});
-            }}
-            placeholder="Search projects…"
-            aria-label="Search projects"
-            className="flex-1"
-            iconLeft={<Icon name="searchLine" className="size-16" />}
-            iconRight={
-              isSearching ? (
-                <Icon
-                  name="spinner"
-                  size={16}
-                  className="text-foreground-neutral-muted"
-                  aria-hidden="true"
-                />
-              ) : undefined
-            }
-          />
-          <Button asChild iconLeft="addLine" className="shrink-0 max-[640px]:w-full">
-            <Link to="/w/$workspaceSlug/projects/new" params={{workspaceSlug: workspace.slug}}>
-              New project
-            </Link>
-          </Button>
-        </div>
-      </header>
-
       <ModelProviderReminderBanner workspaceId={workspace.id} />
 
-      {isInitialLoading || (search && hasNoData && query.isFetching) ? <ProjectsSkeleton /> : null}
-
-      {query.isError && hasNoData ? (
+      <section aria-label="Projects">
         <Panel>
-          <QueryLoadError query={query} subject="projects" variant="panel" />
-        </Panel>
-      ) : null}
-
-      {!isInitialLoading && !query.isError && projects.length === 0 && !search ? (
-        <Panel>
-          <EmptyProjects workspaceSlug={workspace.slug} />
-        </Panel>
-      ) : null}
-
-      {!query.isFetching && !query.isError && projects.length === 0 && search ? (
-        <Panel>
-          <NoSearchResults
-            search={search}
-            onClear={() => navigate({search: {} as never, replace: true})}
-          />
-        </Panel>
-      ) : null}
-
-      {projects.length > 0 ? (
-        <section className="flex flex-col gap-group" aria-label="Projects list">
-          <ul className="grid grid-cols-2 gap-cluster max-[760px]:grid-cols-1">
-            {projects.map((project) => (
-              <ProjectCard
-                project={project}
-                connection={connectionsById.get(project.source.connectionId)}
-                connectionsResolved={connectionsQuery.isSuccess}
-                connectionsSettled={connectionsQuery.isSuccess || connectionsQuery.isError}
-                key={project.id}
-                workspaceSlug={workspace.slug}
+          <PanelHeader className="flex-wrap max-[640px]:items-stretch">
+            <div className="min-w-0 flex-1 max-[640px]:basis-full">
+              <Input
+                type="search"
+                value={search}
+                onChange={(event) => {
+                  const next = event.target.value.trim();
+                  navigate({search: (next ? {search: next} : {}) as never, replace: true});
+                }}
+                placeholder="Search projects…"
+                aria-label="Search projects"
+                iconLeft={<Icon name="searchLine" className="size-16" />}
+                iconRight={
+                  isSearching ? (
+                    <Icon
+                      name="spinner"
+                      size={16}
+                      className="text-foreground-neutral-muted"
+                      aria-hidden="true"
+                    />
+                  ) : undefined
+                }
               />
-            ))}
-          </ul>
-          {query.error && query.data ? (
-            <Callout role="alert" type="error">
-              <Text size="sm">
-                Could not load the next page. Existing projects are still shown.
-              </Text>
-            </Callout>
-          ) : null}
-          {query.hasNextPage ? (
-            <div className="flex justify-center">
-              <Button
-                variant="secondary"
-                isLoading={query.isFetchingNextPage}
-                onClick={() => query.fetchNextPage()}
-              >
-                Load more
-              </Button>
             </div>
-          ) : null}
-        </section>
-      ) : null}
+            <PanelActions className="max-[640px]:ml-0 max-[640px]:w-full">
+              <Button asChild iconLeft="addLine" className="max-[640px]:w-full">
+                <Link to="/w/$workspaceSlug/projects/new" params={{workspaceSlug: workspace.slug}}>
+                  New project
+                </Link>
+              </Button>
+            </PanelActions>
+          </PanelHeader>
+
+          <PanelBody>
+            {isInitialLoading || (search && hasNoData && query.isFetching) ? (
+              <ProjectsSkeleton />
+            ) : null}
+
+            {query.isError && hasNoData ? (
+              <QueryLoadError query={query} subject="projects" variant="panel" />
+            ) : null}
+
+            {!isInitialLoading && !query.isError && projects.length === 0 && !search ? (
+              <EmptyProjects workspaceSlug={workspace.slug} />
+            ) : null}
+
+            {!query.isFetching && !query.isError && projects.length === 0 && search ? (
+              <NoSearchResults
+                search={search}
+                onClear={() => navigate({search: {} as never, replace: true})}
+              />
+            ) : null}
+
+            {projects.length > 0 ? (
+              <>
+                <PanelGrid aria-label="Projects list">
+                  {projects.map((project) => (
+                    <ProjectCell
+                      project={project}
+                      connection={connectionsById.get(project.source.connectionId)}
+                      connectionsResolved={connectionsQuery.isSuccess}
+                      connectionsSettled={connectionsQuery.isSuccess || connectionsQuery.isError}
+                      key={project.id}
+                      workspaceSlug={workspace.slug}
+                    />
+                  ))}
+                </PanelGrid>
+                {query.error && query.data ? (
+                  <div className="border-t border-border-neutral-base p-panel-compact">
+                    <Callout role="alert" type="error">
+                      <Text size="sm">
+                        Could not load the next page. Existing projects are still shown.
+                      </Text>
+                    </Callout>
+                  </div>
+                ) : null}
+                {query.hasNextPage ? (
+                  <div className="flex justify-center border-t border-border-neutral-base p-panel-compact">
+                    <Button
+                      variant="secondary"
+                      isLoading={query.isFetchingNextPage}
+                      onClick={() => query.fetchNextPage()}
+                    >
+                      Load more
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </PanelBody>
+        </Panel>
+      </section>
     </div>
   );
 }
 
 function ProjectsSkeleton() {
   return (
-    <ul
-      role="status"
-      aria-label="Loading projects"
-      className="grid grid-cols-2 gap-cluster max-[760px]:grid-cols-1"
-    >
+    <PanelGrid role="status" aria-label="Loading projects">
       {[0, 1, 2, 3, 4, 5].map((row) => (
-        <li key={row}>
-          <Panel className="h-full p-panel-compact">
-            <div className="flex items-center gap-cluster">
-              <Skeleton className="size-24 shrink-0" />
-              <Skeleton className="h-16 w-1/2" />
-            </div>
-          </Panel>
-        </li>
+        <PanelCell key={row}>
+          <div className="flex items-center gap-cluster px-row py-row">
+            <Skeleton className="size-24 shrink-0" />
+            <Skeleton className="h-16 w-1/2" />
+          </div>
+        </PanelCell>
       ))}
-    </ul>
+    </PanelGrid>
   );
 }
 
@@ -194,7 +198,7 @@ function NoSearchResults({search, onClear}: {search: string; onClear: () => void
   );
 }
 
-function ProjectCard({
+function ProjectCell({
   project,
   connection,
   connectionsResolved,
@@ -213,34 +217,31 @@ function ProjectCard({
   const status = connectionsResolved ? (connection?.lifecycleStatus ?? 'error') : undefined;
 
   return (
-    <li>
-      <Link
-        to="/w/$workspaceSlug/p/$projectSlug"
-        params={{workspaceSlug, projectSlug: project.slug}}
-        className="block h-full rounded-8 focus-visible:shadow-button-neutral-focus focus-visible:outline-none"
-      >
-        <Panel className="h-full p-panel-compact transition-colors hover:bg-background-components-hover">
-          <div className="flex min-w-0 items-center gap-cluster">
-            {/* Settle on success or error: a failed fetch falls back to the
-                neutral provider icon rather than spinning forever. */}
-            {connectionsSettled ? (
-              <IntegrationIcon
-                source={connection?.provider}
-                aria-hidden
-                className="size-24 shrink-0 text-foreground-neutral-base"
-              />
-            ) : (
-              <Skeleton className="size-24 shrink-0" />
-            )}
-            <div className="flex min-w-0 flex-1 items-center gap-inline">
-              <Text size="md" bold className="truncate">
-                {project.name}
-              </Text>
-              {status ? <ConnectionStatusBadge status={status} className="shrink-0" /> : null}
-            </div>
-          </div>
-        </Panel>
-      </Link>
-    </li>
+    <PanelCell>
+      <PanelCellAction asChild>
+        <Link
+          to="/w/$workspaceSlug/p/$projectSlug"
+          params={{workspaceSlug, projectSlug: project.slug}}
+        >
+          {/* Settle on success or error: a failed fetch falls back to the
+              neutral provider icon rather than spinning forever. */}
+          {connectionsSettled ? (
+            <IntegrationIcon
+              source={connection?.provider}
+              aria-hidden
+              className="size-24 shrink-0 text-foreground-neutral-base"
+            />
+          ) : (
+            <Skeleton className="size-24 shrink-0" />
+          )}
+          <span className="flex min-w-0 flex-1 items-center gap-inline">
+            <Text as="span" size="md" bold className="truncate">
+              {project.name}
+            </Text>
+            {status ? <ConnectionStatusBadge status={status} className="shrink-0" /> : null}
+          </span>
+        </Link>
+      </PanelCellAction>
+    </PanelCell>
   );
 }

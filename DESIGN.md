@@ -481,6 +481,8 @@ are theme-aware inside the token, so a component never sets a raw shadow.
 - **`--shadow-button-*-focus`**: the same stack plus a 2px halo and a 4px
   `--color-primary-500` ring. This is the button focus affordance; fields and
   inputs compose their own `--shadow-border-interactive-with-active` ring.
+- **`--shadow-focus-inset`**: the inset focus ring, in `--color-primary-500` and
+  theme-invariant, for a control whose parent clips an outset ring.
 - **`--shadow-tooltip`**: the lifted stack for tooltips and popovers.
 - **`--shadow-separator-inset`**: an inset top-highlight / bottom-shadow pair for
   hairline dividers inside dark panels.
@@ -493,9 +495,10 @@ tokens carry. If you need a new elevation, add a token.
 stripped, though the exact token differs by family: buttons compose
 `--shadow-button-*-focus` (a `--color-primary-500` ring) and fields compose
 `--shadow-border-interactive-with-active`. If a container's `overflow-hidden`
-would clip the standard outset ring (as inside a log row frame), switch that one
-control to an inset ring in `--color-primary-500` (theme-invariant), never remove
-it.
+would clip the standard outset ring (as inside a log row frame or a panel cell),
+switch that one control to `--shadow-focus-inset`, never remove it. A state that
+is not focus never consumes the focus `box-shadow`: encode it in the border, a
+fill, or a glyph instead, or the focused element stops announcing itself.
 
 ## Shapes
 
@@ -555,7 +558,7 @@ building anything: `accordion`, `alert`, `avatar`, `badge`, `button`, `calendar`
 
 `Panel` is the only container for a data region, replacing `Card`. It
 composes `PanelHeader`, `PanelTitle`, `PanelActions`, `PanelBody`, `PanelRow`,
-and `PanelEmpty`.
+`PanelGrid`, `PanelCell`, `PanelCellAction`, and `PanelEmpty`.
 
 - **Shell:** `rounded-8`, panel fill, hairline border, elevation from the shadow
   tokens.
@@ -566,10 +569,61 @@ and `PanelEmpty`.
 - **Body:** rows use `px-row` and `py-row` with hairline dividers, and the last row
   drops its divider. A panel without rows uses `p-panel` (`p-panel-compact` when
   compact).
+- **Grid:** `PanelGrid` lays `PanelCell` children out in two columns divided by
+  hairlines, collapsing to one column at 760px. The dividers come from
+  `nth-child` rules on the grid, so no caller passes an index. An odd cell count
+  is padded with an inert cell, so both rules reach the last row and a half-full
+  row reads as a grid with one empty cell rather than a single wide row. Never
+  build a grid of tiles by giving each tile its own border.
 - **States:** empty, error, and loading states render inside the body. A list with
   zero rows keeps the same footprint and border as a list with rows.
+- **`asChild`:** `Panel`, `PanelBody`, `PanelRow`, and `PanelCellAction` accept
+  `asChild`, so a panel can be an `aside`, a row list can keep `ul` and `li`
+  semantics, and a cell action can be a router `Link`.
 
-Never tint a panel or a row background to match a status.
+Never tint a panel or a row background to match a status. Never hand-roll the
+panel class string: a bordered surface that is not a `Panel` drifts from it
+within one release.
+
+### The three interactive surface roles
+
+A rounded, bordered tile with a hover wash can mean three different things, and
+the product uses all three. They share one surface vocabulary and are told apart
+by their affordance, never by their silhouette alone.
+
+| Role | Primitive | Affordance | Persists |
+| --- | --- | --- | --- |
+| Choose one of N | `RadioGroupItem` | leading radio dot | yes |
+| Navigate or open | `PanelCell` + `PanelCellAction` | trailing verb and chevron | no |
+| Row with inline actions | `PanelRow` | hover wash, actions revealed on hover | no |
+
+A picker carries its own frame only on the canvas. A radio tile and a panel share
+four properties: radius, border, fill, and shadow. Inside a panel the picker
+takes `RadioGroup variant="cell"`, which drops the radius, the border, and the
+shadow, since repeating the panel's own frame is a frame inside a frame. Only the
+fill stays, because a cell still has to paint over the surface behind it. A cell
+has no resting outline, so selection draws one only when checked, using `outline`
+rather than `box-shadow` so the focus ring stays readable underneath it.
+
+The leading dot and the trailing chevron are a matched pair of opposites: one
+says this becomes selected, the other says this takes you elsewhere. Dropping
+either one makes a choice and a link indistinguishable.
+
+Each primitive owns its own affordance, so no caller draws either mark by hand:
+`RadioGroupItem` renders its dot, and `PanelCellAction` renders the verb and
+chevron from its `action` prop. A cell that navigates without an `action` is
+missing the mark that tells it apart from a choice.
+
+Selection is carried by the dot **and** the border together, never by border
+colour alone: orange is also the focus ring, so a colour-only selected state
+collides with focus and fails the use-of-colour rule. Because the dot carries
+selection, `box-shadow` on a radio item is free to mean focus and only focus,
+which is what keeps the already-checked item (the first tab stop under a roving
+tabindex) visibly focusable.
+
+Navigation never wears a standalone bordered tile. A grid of openable things is
+`PanelCell`s inside one `PanelGrid`, exactly as a list of openable things is
+`PanelRow`s inside one `PanelBody`.
 
 ### Inputs / Fields
 

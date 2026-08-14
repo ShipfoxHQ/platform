@@ -1,16 +1,13 @@
 import {Button} from '@shipfox/react-ui/button';
 import {useIsTextTruncated} from '@shipfox/react-ui/hooks';
 import {Label} from '@shipfox/react-ui/label';
-import {RadioGroup, RadioGroupItem} from '@shipfox/react-ui/radio-group';
-import {Skeleton} from '@shipfox/react-ui/skeleton';
+import {PanelGrid} from '@shipfox/react-ui/panel';
+import {RadioGroup, RadioGroupItem, RadioGroupItemSkeleton} from '@shipfox/react-ui/radio-group';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Text} from '@shipfox/react-ui/typography';
 import {useId} from 'react';
 import type {Repository} from '#core/models.js';
 
-const REPOSITORY_GRID_CLASS_NAME = 'grid grid-cols-2 gap-inline max-[760px]:grid-cols-1';
-const REPOSITORY_SKELETON_GRID_CLASS_NAME =
-  'grid grid-cols-2 gap-px bg-border-neutral-base max-[760px]:grid-cols-1';
 const REPOSITORY_SKELETON_WIDTHS = ['w-64', 'w-96', 'w-80', 'w-112'] as const;
 
 export function RepositoryPicker({
@@ -35,21 +32,25 @@ export function RepositoryPicker({
   const labelId = useId();
 
   return (
-    <div className="flex flex-col gap-inline">
+    <div className="flex min-w-0 flex-col">
       <Label id={labelId} className="sr-only">
         Repository
       </Label>
 
       {isLoading ? <RepositoryLoadingState /> : null}
 
-      {!isLoading && repositories.length === 0 ? <Text size="sm">{emptyMessage}</Text> : null}
+      {!isLoading && repositories.length === 0 ? (
+        <Text size="sm" className="px-row py-row">
+          {emptyMessage}
+        </Text>
+      ) : null}
 
       {repositories.length > 0 ? (
         <RadioGroup
+          variant="cell"
           aria-labelledby={labelId}
           value={selectedRepositoryId ?? ''}
           onValueChange={onSelect}
-          className={REPOSITORY_GRID_CLASS_NAME}
         >
           {repositories.map((repository) => (
             <RepositoryCard key={repository.externalRepositoryId} repository={repository} />
@@ -58,15 +59,17 @@ export function RepositoryPicker({
       ) : null}
 
       {hasNextPage && onLoadMore ? (
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          isLoading={isFetchingNextPage ?? false}
-          onClick={onLoadMore}
-        >
-          Load more
-        </Button>
+        <div className="flex justify-center border-t border-border-neutral-base p-panel-compact">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            isLoading={isFetchingNextPage ?? false}
+            onClick={onLoadMore}
+          >
+            Load more
+          </Button>
+        </div>
       ) : null}
     </div>
   );
@@ -78,7 +81,7 @@ function RepositoryCard({repository}: {repository: Repository}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <RadioGroupItem value={repository.externalRepositoryId} className="min-w-0">
+        <RadioGroupItem value={repository.externalRepositoryId}>
           <span ref={nameRef} className="block min-w-0 truncate">
             <Text as="span" size="sm" bold>
               {repository.name}
@@ -97,15 +100,11 @@ function RepositoryLoadingState() {
       <div role="status" className="sr-only">
         Loading repositories.
       </div>
-      <div aria-hidden="true" className={REPOSITORY_SKELETON_GRID_CLASS_NAME}>
-        {/* The skeleton mirrors RadioGroupItem's own 14px padding contract so the
-            placeholder and the loaded card stay the same height. */}
+      <PanelGrid as="div" aria-hidden="true">
         {REPOSITORY_SKELETON_WIDTHS.map((width) => (
-          <div key={width} className="h-50 min-w-0 bg-background-neutral-base p-[14px]">
-            <Skeleton className={`h-20 ${width}`} />
-          </div>
+          <RadioGroupItemSkeleton key={width} variant="cell" labelClassName={width} />
         ))}
-      </div>
+      </PanelGrid>
     </>
   );
 }

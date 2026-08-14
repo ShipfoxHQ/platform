@@ -19,15 +19,15 @@ export function ConnectionPicker({
   const labelId = useId();
 
   return (
-    <div className="flex flex-col gap-inline">
+    <div className="flex min-w-0 flex-col">
       <Label id={labelId} className="sr-only">
         Source integration
       </Label>
       <RadioGroup
+        variant="cell"
         aria-labelledby={labelId}
         value={selectedConnectionId ?? ''}
         onValueChange={onSelect}
-        className="grid grid-cols-2 gap-inline max-[760px]:grid-cols-1"
       >
         {connections.map((connection) => (
           <RadioGroupItem key={connection.id} value={connection.id}>

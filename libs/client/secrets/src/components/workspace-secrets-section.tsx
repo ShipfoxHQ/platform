@@ -27,7 +27,7 @@ import {copyKeyName} from './copy-key.js';
 import {DeleteEntryDialog} from './delete-entry-dialog.js';
 import {secretsErrorToFormError} from './form-errors.js';
 import {SecretForm} from './secret-form.js';
-import {StoreRowsSkeleton, StoreSurface} from './store-section-shell.js';
+import {StoreRowsSkeleton} from './store-section-shell.js';
 
 const SECRETS_DESCRIPTION =
   'Encrypted, write-only values for sensitive data like API keys, tokens, and passwords.';
@@ -71,13 +71,13 @@ export function WorkspaceSecretsSection({workspaceId}: {workspaceId: string}) {
         {secretsQuery.isPending ? <StoreRowsSkeleton label="Loading secrets" /> : null}
 
         {secretsQuery.isError && secretsQuery.data === undefined ? (
-          <StoreSurface>
+          <Panel>
             <QueryLoadError query={secretsQuery} subject="secrets" variant="panel" />
-          </StoreSurface>
+          </Panel>
         ) : null}
 
         {secretsQuery.data !== undefined && secrets.length === 0 ? (
-          <StoreSurface>
+          <Panel>
             <EmptyState
               icon="keyLine"
               title="No secrets yet"
@@ -89,7 +89,7 @@ export function WorkspaceSecretsSection({workspaceId}: {workspaceId: string}) {
                 </Button>
               }
             />
-          </StoreSurface>
+          </Panel>
         ) : null}
 
         {secrets.length > 0 ? (

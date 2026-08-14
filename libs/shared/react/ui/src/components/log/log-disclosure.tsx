@@ -90,7 +90,7 @@ export function LogDisclosureTrigger({
             // outset focus ring top and bottom. Draw it inset (never clipped) and
             // force it: tailwind-merge can't strip the base `shadow-button-neutral-focus`
             // (it misreads the token as a shadow color), so `!` wins the cascade.
-            'focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)]!',
+            'focus-visible:shadow-focus-inset!',
             className,
           )}
         >

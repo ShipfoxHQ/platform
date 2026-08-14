@@ -2,13 +2,12 @@ import {Button} from '@shipfox/react-ui/button';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Input} from '@shipfox/react-ui/input';
+import {Panel, PanelBody, PanelGrid, PanelHeader} from '@shipfox/react-ui/panel';
 import type {ReactNode} from 'react';
 import {useMemo, useRef, useState} from 'react';
 import type {SupportedProvider} from '#core/models.js';
 import {providerMatchesSearch} from '#core/provider-policy.js';
 import {AvailableProviderCard} from './available-provider-card.js';
-
-export const PROVIDER_GRID_CLASS = 'grid grid-cols-2 gap-cluster max-[760px]:grid-cols-1';
 
 const SEARCH_VISIBILITY_THRESHOLD = 8;
 const MAX_ECHOED_QUERY_LENGTH = 40;
@@ -45,38 +44,46 @@ export function AvailableProvidersGrid<TEntry extends SupportedProvider>({
   }
 
   return (
-    <div className="flex flex-col gap-cluster">
-      {showSearch ? (
-        <Input
-          ref={inputRef}
-          type="search"
-          aria-label="Search providers"
-          placeholder="Search providers..."
-          value={search}
-          iconLeft={<Icon name="searchLine" className="size-16 text-foreground-neutral-muted" />}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-      ) : null}
-
-      {visibleCount > 0 ? (
-        <ul className={PROVIDER_GRID_CLASS} aria-label={providerListLabel}>
-          {filteredEntries.map((entry) => (
-            <AvailableProviderCard
-              key={entry.id}
-              entry={entry}
-              onConfigure={() => onSelect(entry)}
+    <>
+      <Panel>
+        {showSearch ? (
+          <PanelHeader>
+            <Input
+              ref={inputRef}
+              type="search"
+              aria-label="Search providers"
+              placeholder="Search providers..."
+              value={search}
+              iconLeft={
+                <Icon name="searchLine" className="size-16 text-foreground-neutral-muted" />
+              }
+              onChange={(event) => setSearch(event.target.value)}
             />
-          ))}
-          {trailingCardVisible ? trailingCard : null}
-        </ul>
-      ) : (
-        <NoProviderSearchResults search={trimmedSearch} onClear={clearSearch} />
-      )}
+          </PanelHeader>
+        ) : null}
+
+        <PanelBody>
+          {visibleCount > 0 ? (
+            <PanelGrid aria-label={providerListLabel}>
+              {filteredEntries.map((entry) => (
+                <AvailableProviderCard
+                  key={entry.id}
+                  entry={entry}
+                  onConfigure={() => onSelect(entry)}
+                />
+              ))}
+              {trailingCardVisible ? trailingCard : null}
+            </PanelGrid>
+          ) : (
+            <NoProviderSearchResults search={trimmedSearch} onClear={clearSearch} />
+          )}
+        </PanelBody>
+      </Panel>
 
       <p role="status" aria-live="polite" className="sr-only">
         {resultCountText}
       </p>
-    </div>
+    </>
   );
 }
 

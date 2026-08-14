@@ -1,5 +1,5 @@
 import {configureApiClient} from '@shipfox/client-api';
-import {fireEvent, screen, waitFor} from '@testing-library/react';
+import {fireEvent, screen, waitFor, within} from '@testing-library/react';
 import {
   jsonResponse,
   PROJECT_TEST_WID,
@@ -17,7 +17,7 @@ describe('ProjectsHubPage', () => {
     window.sessionStorage.clear();
   });
 
-  test('renders Projects H2 + New project button + empty state with create CTA', async () => {
+  test('renders the Projects panel controls and empty state with create CTA', async () => {
     configureApiClient({
       fetchImpl: createHubFetch({
         projects: jsonResponse({projects: [], next_cursor: null}),
@@ -28,10 +28,17 @@ describe('ProjectsHubPage', () => {
     renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     expect(await screen.findByText('Create your first project')).toBeInTheDocument();
-    // The page-level "Projects" title belongs in content because the top nav owns
-    // workspace identity.
-    expect(screen.getByRole('heading', {name: 'Projects'})).toBeInTheDocument();
-    expect(screen.getByRole('link', {name: NEW_PROJECT_REGEX})).toHaveAttribute(
+    const projectsRegion = screen.getByRole('region', {name: 'Projects'});
+    expect(projectsRegion.querySelectorAll('[data-slot="panel"]')).toHaveLength(1);
+    const panelHeader = projectsRegion.querySelector<HTMLElement>('[data-slot="panel-header"]');
+    if (!panelHeader) throw new Error('Projects panel header was not rendered');
+    expect(panelHeader).toBeInTheDocument();
+    expect(projectsRegion.querySelector('[data-slot="panel-body"]')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: 'Projects'})).not.toBeInTheDocument();
+    expect(
+      within(panelHeader).getByRole('searchbox', {name: 'Search projects'}),
+    ).toBeInTheDocument();
+    expect(within(panelHeader).getByRole('link', {name: NEW_PROJECT_REGEX})).toHaveAttribute(
       'href',
       WORKSPACE_PROJECTS_NEW_HREF,
     );
@@ -111,15 +118,88 @@ describe('ProjectsHubPage', () => {
 
     renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
     expect(await screen.findByText('Platform')).toBeInTheDocument();
+    const projectsList = screen.getByRole('list', {name: 'Projects list'});
+    expect(projectsList).toHaveClass('grid-cols-2', 'max-[760px]:grid-cols-1');
+    expect(projectsList).not.toHaveClass('gap-px');
+    expect(projectsList).not.toHaveClass('bg-border-neutral-base');
+    expect(projectsList.querySelectorAll('[data-slot="panel-cell"]')).toHaveLength(1);
     const projectLink = screen.getByText('Platform').closest('a');
-    // The whole card is the link, carrying the neutral focus ring (matching the
-    // integration gallery cards).
-    expect(projectLink).toHaveClass('focus-visible:shadow-button-neutral-focus');
-    expect(projectLink?.className).not.toContain('shadow-button-secondary');
+    // The whole cell is the link, carrying an inset neutral focus ring.
+    expect(projectLink).toHaveClass('focus-visible:shadow-focus-inset');
+    expect(projectLink).toHaveClass('hover:bg-background-neutral-hover');
 
     fireEvent.click(screen.getByRole('button', {name: 'Load more'}));
 
     expect(await screen.findByText('API')).toBeInTheDocument();
+  });
+
+  test('renders an odd project count without an empty border-colored cell', async () => {
+    configureApiClient({
+      fetchImpl: createHubFetch({
+        projects: jsonResponse({
+          projects: [
+            projectDto({id: '11111111-1111-4111-8111-111111111112', name: 'Platform'}),
+            projectDto({id: '11111111-1111-4111-8111-111111111113', name: 'Agent'}),
+            projectDto({id: '11111111-1111-4111-8111-111111111114', name: 'Workflows'}),
+          ],
+          next_cursor: null,
+        }),
+      }),
+    });
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
+
+    const projectsList = await screen.findByRole('list', {name: 'Projects list'});
+    expect(projectsList.querySelectorAll('[data-slot="panel-cell"]')).toHaveLength(3);
+    expect(projectsList).not.toHaveClass('gap-px', 'bg-border-neutral-base');
+    // The odd count is padded so the last row's divider still spans the panel,
+    // and the pad carries the panel fill rather than the border colour.
+    const filler = projectsList.querySelector('[data-slot="panel-cell-filler"]');
+    expect(filler).not.toBeNull();
+    expect(filler).toHaveClass('bg-background-neutral-base');
+  });
+
+  test('keeps existing projects and the load-more retry after a cursor failure', async () => {
+    let cursorRequests = 0;
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(requestInputUrl(input));
+      if (url.pathname.endsWith('/agent/model-providers')) {
+        return Promise.resolve(jsonResponse(modelProviderConfigsDto()));
+      }
+      if (url.pathname === '/integration-connections') {
+        return Promise.resolve(jsonResponse(connectionsDto()));
+      }
+      if (url.pathname === '/projects') {
+        if (url.searchParams.get('cursor') === 'cursor-1') {
+          cursorRequests += 1;
+          return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
+        }
+        return Promise.resolve(
+          jsonResponse({
+            projects: [projectDto({id: '11111111-1111-4111-8111-111111111112', name: 'Platform'})],
+            next_cursor: 'cursor-1',
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
+    expect(await screen.findByText('Platform')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Load more'}));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not load the next page. Existing projects are still shown.',
+    );
+    expect(screen.getByText('Platform')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Load more'})).toBeInTheDocument();
+    expect(cursorRequests).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', {name: 'Load more'}));
+
+    await waitFor(() => expect(cursorRequests).toBe(2));
   });
 
   test('renders an error alert with retry', async () => {

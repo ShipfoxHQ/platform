@@ -128,7 +128,7 @@ export function WorkflowRunRow({
   // Rows run edge to edge inside the list's scroll container, which would clip the standard
   // outset focus ring, so this one is inset per the design system's focus-ring rule.
   const rowClassName =
-    'flex w-full min-w-0 items-center gap-inline px-row py-row text-left transition-colors hover:bg-background-neutral-hover focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary-500)] focus-visible:outline-none @min-[976px]:h-44 @min-[976px]:py-0';
+    'flex w-full min-w-0 items-center gap-inline px-row py-row text-left transition-colors hover:bg-background-neutral-hover focus-visible:shadow-focus-inset focus-visible:outline-none @min-[976px]:h-44 @min-[976px]:py-0';
 
   // Optimistic manual runs (temp-<uuid>) have no detail page until the canonical row
   // replaces them on the next poll, so they render non-interactively instead of as a link
