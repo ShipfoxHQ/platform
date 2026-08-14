@@ -126,18 +126,19 @@ const PANEL_GRID_CLASS = [
   'grid grid-cols-2 max-[760px]:grid-cols-1',
   '[&>*]:border-border-neutral-base',
   'min-[760px]:[&>*:nth-child(n+3)]:border-t',
-  // The filler is excluded so the column rule stops at the last full row rather
-  // than boxing an empty slot.
-  'min-[760px]:[&>*:nth-child(even):not([data-slot=panel-cell-filler])]:border-l',
+  // The filler takes this too, so the column rule runs the full height and a
+  // half-full last row reads as a grid with an empty cell rather than one wide
+  // row.
+  'min-[760px]:[&>*:nth-child(even)]:border-l',
   'max-[760px]:[&>*:nth-child(n+2)]:border-t',
 ].join(' ');
 
 export interface PanelGridProps extends ComponentProps<'ul'> {}
 
 export function PanelGrid({className, children, ...props}: PanelGridProps) {
-  // An odd cell count leaves the last row half wide, and its divider would stop
-  // at the middle of the panel. Pad it with an inert cell so the rule runs the
-  // full width. At one column every row is already full, so the filler hides.
+  // An odd cell count leaves the last row half wide, and its dividers would stop
+  // at the middle of the panel. Pad it with an inert cell that completes both
+  // rules. At one column every row is already full, so the filler hides.
   const hasRaggedLastRow = Children.toArray(children).length % 2 === 1;
 
   return (

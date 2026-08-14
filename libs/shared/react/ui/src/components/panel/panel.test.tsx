@@ -104,16 +104,12 @@ describe('PanelGrid', () => {
     // The wide and collapsed rules must share the 760px boundary, or that exact
     // viewport matches neither and the cells lose their dividers.
     expect(grid?.classList.contains('min-[760px]:[&>*:nth-child(n+3)]:border-t')).toBe(true);
-    expect(
-      grid?.classList.contains(
-        'min-[760px]:[&>*:nth-child(even):not([data-slot=panel-cell-filler])]:border-l',
-      ),
-    ).toBe(true);
+    expect(grid?.classList.contains('min-[760px]:[&>*:nth-child(even)]:border-l')).toBe(true);
     expect(grid?.classList.contains('max-[760px]:[&>*:nth-child(n+2)]:border-t')).toBe(true);
     expect(grid?.classList.contains('[&>*]:border-border-neutral-base')).toBe(true);
   });
 
-  test('pads a ragged last row so its divider spans the full panel', () => {
+  test('pads a ragged last row so its dividers span the full panel', () => {
     const {container} = render(
       <PanelGrid>
         <PanelCell>One</PanelCell>
@@ -122,12 +118,17 @@ describe('PanelGrid', () => {
       </PanelGrid>,
     );
 
+    const grid = container.querySelector('[data-slot="panel-grid"]');
     const filler = container.querySelector('[data-slot="panel-cell-filler"]');
 
     // Without it the rule above the third cell would stop at the middle.
     expect(filler).not.toBeNull();
     expect(filler?.getAttribute('aria-hidden')).toBe('true');
     expect(filler?.textContent).toBe('');
+    // The filler sits in the even slot, so the column rule reaches it and the
+    // half-full row reads as a grid with an empty cell, not one wide row.
+    expect(grid?.children[3]).toBe(filler);
+    expect(grid?.classList.contains('min-[760px]:[&>*:nth-child(even)]:border-l')).toBe(true);
     // One column never leaves a row half full, so the filler must not add a row.
     expect(filler?.classList.contains('hidden')).toBe(true);
     expect(filler?.classList.contains('min-[760px]:block')).toBe(true);
