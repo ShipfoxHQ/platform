@@ -1,5 +1,27 @@
 # @shipfox/client-triggers
 
+## 21.0.0
+
+### Patch Changes
+
+- fd15e1f: Recomposes the events page onto the data frame and shared panel surfaces.
+- f1d127e: Use dark contrast surfaces with readable semantic foregrounds across code and log views, preserve status on log-row edge accents, and add shared highlight and tooltip tokens for code and keyboard affordances.
+- Updated dependencies [0f4abe4]
+- Updated dependencies [71d0c44]
+- Updated dependencies [9c21429]
+- Updated dependencies [30beb8f]
+- Updated dependencies [16733a7]
+- Updated dependencies [163c40a]
+- Updated dependencies [c4376a1]
+- Updated dependencies [6703982]
+- Updated dependencies [f1d127e]
+- Updated dependencies [0e860d7]
+  - @shipfox/react-ui@2.0.0
+  - @shipfox/client-shell@21.0.0
+  - @shipfox/client-projects@21.0.0
+  - @shipfox/client-ui@21.0.0
+  - @shipfox/integration-icons@0.3.4
+
 ## 17.0.0
 
 ### Patch Changes

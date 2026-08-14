@@ -1,5 +1,29 @@
 # Changelog
 
+## 21.0.0
+
+### Major Changes
+
+- c4376a1: Require composed route implementations to declare `staticData.frame` as `content`, `data`, or `focused`.
+- 0e860d7: Requires composed route implementations to declare `staticData.frame` as `content`, `data`, or `focused`.
+
+### Minor Changes
+
+- 9c21429: Adds declared content, data, and focused page frames while preserving legacy full-bleed route metadata during migration.
+
+### Patch Changes
+
+- Updated dependencies [0f4abe4]
+- Updated dependencies [71d0c44]
+- Updated dependencies [30beb8f]
+- Updated dependencies [16733a7]
+- Updated dependencies [163c40a]
+- Updated dependencies [6703982]
+- Updated dependencies [f1d127e]
+  - @shipfox/react-ui@2.0.0
+  - @shipfox/client-config@21.0.0
+  - @shipfox/client-ui@21.0.0
+
 ## 17.0.0
 
 ### Patch Changes

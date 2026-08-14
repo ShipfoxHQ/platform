@@ -1,5 +1,12 @@
 # @shipfox/runner-agent
 
+## 0.2.11
+
+### Patch Changes
+
+- Updated dependencies [7f186cf]
+  - @shipfox/runner-execution@0.1.24
+
 ## 0.2.10
 
 ### Patch Changes

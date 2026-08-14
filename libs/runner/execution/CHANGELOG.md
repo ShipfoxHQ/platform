@@ -1,5 +1,11 @@
 # @shipfox/runner-execution
 
+## 0.1.24
+
+### Patch Changes
+
+- 7f186cf: Forward the ambient Git config a persisted checkout writes to shell run steps. A later `run` step then commits and pushes with the checkout author identity and repository-scoped credential.
+
 ## 0.1.23
 
 ### Patch Changes

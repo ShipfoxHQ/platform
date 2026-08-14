@@ -1,5 +1,17 @@
 # @shipfox/client-onboarding
 
+## 21.0.0
+
+### Patch Changes
+
+- Updated dependencies [9c21429]
+- Updated dependencies [c4376a1]
+- Updated dependencies [0e860d7]
+  - @shipfox/client-shell@21.0.0
+  - @shipfox/client-agent@21.0.0
+  - @shipfox/client-integrations@21.0.0
+  - @shipfox/client-projects@21.0.0
+
 ## 17.0.0
 
 ### Patch Changes
