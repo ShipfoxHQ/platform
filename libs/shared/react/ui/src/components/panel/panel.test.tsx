@@ -142,6 +142,25 @@ describe('PanelGrid', () => {
     expect(filler?.classList.contains('min-[760px]:block')).toBe(true);
   });
 
+  test('matches the filler element to the grid element when rendered as a div', () => {
+    const {container} = render(
+      <PanelGrid as="div">
+        <div>One</div>
+        <div>Two</div>
+        <div>Three</div>
+      </PanelGrid>,
+    );
+
+    const grid = container.querySelector('[data-slot="panel-grid"]');
+    const filler = container.querySelector('[data-slot="panel-cell-filler"]');
+
+    // An `li` here would be invalid markup, and the odd count still needs
+    // padding for the last row's dividers to reach across.
+    expect(grid?.tagName).toBe('DIV');
+    expect(filler?.tagName).toBe('DIV');
+    expect(grid?.children[3]).toBe(filler);
+  });
+
   test('adds no filler when the last row is already full', () => {
     const {container} = render(
       <PanelGrid>

@@ -597,12 +597,13 @@ by their affordance, never by their silhouette alone.
 | Navigate or open | `PanelCell` + `PanelCellAction` | trailing verb and chevron | no |
 | Row with inline actions | `PanelRow` | hover wash, actions revealed on hover | no |
 
-A picker carries its own frame only on the canvas. Inside a panel it takes
-`RadioGroup variant="cell"`, which drops the tile's radius, border, and shadow,
-because those are the panel's own four properties and repeating them is a frame
-inside a frame. A cell has no resting outline, so selection draws one only when
-checked, using `outline` rather than `box-shadow` so the focus ring stays
-readable underneath it.
+A picker carries its own frame only on the canvas. A radio tile and a panel share
+four properties: radius, border, fill, and shadow. Inside a panel the picker
+takes `RadioGroup variant="cell"`, which drops the radius, the border, and the
+shadow, since repeating the panel's own frame is a frame inside a frame. Only the
+fill stays, because a cell still has to paint over the surface behind it. A cell
+has no resting outline, so selection draws one only when checked, using `outline`
+rather than `box-shadow` so the focus ring stays readable underneath it.
 
 The leading dot and the trailing chevron are a matched pair of opposites: one
 says this becomes selected, the other says this takes you elsewhere. Dropping

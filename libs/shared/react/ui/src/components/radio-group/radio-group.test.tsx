@@ -1,6 +1,27 @@
 import {fireEvent, render, screen} from '@testing-library/react';
 import {RadioGroup, RadioGroupItem, RadioGroupItemSkeleton} from './radio-group.js';
 
+const originalResizeObserver = window.ResizeObserver;
+
+afterEach(() => {
+  window.ResizeObserver = originalResizeObserver;
+});
+
+/** Radix's bubble input measures itself, which jsdom cannot do. */
+function stubResizeObserver() {
+  window.ResizeObserver = class {
+    observe() {
+      return undefined;
+    }
+    unobserve() {
+      return undefined;
+    }
+    disconnect() {
+      return undefined;
+    }
+  } as unknown as typeof ResizeObserver;
+}
+
 function renderGroup(defaultValue: string) {
   return render(
     <RadioGroup defaultValue={defaultValue}>
@@ -96,10 +117,11 @@ describe('RadioGroup variant="cell"', () => {
 
     const item = screen.getByRole('radio', {name: 'One'});
 
-    // Panel already owns these four; repeating them is a frame inside a frame.
+    // Panel already draws the frame; repeating it is a frame inside a frame.
     expect(item.classList.contains('rounded-8')).toBe(false);
     expect(item.classList.contains('border')).toBe(false);
     expect(item.classList.contains('shadow-button-neutral')).toBe(false);
+    // The fill stays: a cell still paints over the surface behind it.
     expect(item.classList.contains('bg-background-neutral-base')).toBe(true);
   });
 
@@ -122,19 +144,7 @@ describe('RadioGroup variant="cell"', () => {
   });
 
   test('keeps its dividers when a form makes Radix add hidden bubble inputs', () => {
-    // Radix's bubble input measures itself, which jsdom cannot do.
-    const originalResizeObserver = window.ResizeObserver;
-    window.ResizeObserver = class {
-      observe() {
-        return undefined;
-      }
-      unobserve() {
-        return undefined;
-      }
-      disconnect() {
-        return undefined;
-      }
-    } as unknown as typeof ResizeObserver;
+    stubResizeObserver();
 
     const {container} = render(
       <form>
@@ -160,8 +170,6 @@ describe('RadioGroup variant="cell"', () => {
     expect(
       grid?.classList.contains('min-[760px]:[&>*:nth-child(2n_of_:not(input))]:border-l'),
     ).toBe(true);
-
-    window.ResizeObserver = originalResizeObserver;
   });
 
   test('is the grid itself, so the radio buttons are the cells', () => {
