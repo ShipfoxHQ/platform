@@ -54,7 +54,10 @@ export const Playground: Story = {
         </TableHeader>
         <TableBody>
           {workflows.map((workflow) => (
-            <TableRow key={workflow.path}>
+            <TableRow
+              key={workflow.path}
+              data-selected={workflow.name === 'Nightly verification' ? 'true' : undefined}
+            >
               <TableCell className="font-medium">{workflow.name}</TableCell>
               <TableCell>
                 <Code>{workflow.path}</Code>

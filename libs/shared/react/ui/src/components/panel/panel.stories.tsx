@@ -1,7 +1,10 @@
 import type {Meta, StoryObj} from '@storybook/react';
 import {StatusBadge} from '#components/badge/index.js';
 import {Button} from '#components/button/index.js';
+import {EmptyState} from '#components/empty-state/index.js';
 import {Icon} from '#components/icon/index.js';
+import {LoadErrorState} from '#components/load-error-state/index.js';
+import {Skeleton} from '#components/skeleton/index.js';
 import {Code, Text} from '#components/typography/index.js';
 import {
   Panel,
@@ -9,7 +12,6 @@ import {
   PanelBody,
   PanelCell,
   PanelCellAction,
-  PanelEmpty,
   PanelGrid,
   PanelHeader,
   PanelRow,
@@ -103,6 +105,120 @@ export const Variants: Story = {
           </PanelBody>
         </Panel>
       ))}
+      <Panel>
+        <PanelBody>
+          <PanelRow>
+            <Text size="sm">This panel has no header and starts directly with its body.</Text>
+          </PanelRow>
+        </PanelBody>
+      </Panel>
+    </div>
+  ),
+};
+
+export const RowStates: Story = {
+  render: () => (
+    <Panel className="w-640">
+      <PanelHeader>
+        <PanelTitle>Workflow runs</PanelTitle>
+      </PanelHeader>
+      <PanelBody>
+        <PanelRow className="panel-row-hover">
+          <div className="min-w-0">
+            <Text size="sm" bold>
+              Hovered row
+            </Text>
+            <Text size="xs" className="text-foreground-neutral-muted">
+              The row hover surface stays one step from the panel.
+            </Text>
+          </div>
+          <StatusBadge variant="info">Running</StatusBadge>
+        </PanelRow>
+        <PanelRow
+          data-selected="true"
+          className="data-[selected=true]:bg-background-neutral-pressed data-[selected=true]:hover:bg-background-neutral-pressed"
+        >
+          <div className="min-w-0">
+            <Text size="sm" bold>
+              Selected row
+            </Text>
+            <Text size="xs" className="text-foreground-neutral-muted">
+              Selection uses the pressed neutral surface.
+            </Text>
+          </div>
+          <StatusBadge variant="success">Succeeded</StatusBadge>
+        </PanelRow>
+        <PanelRow>
+          <Text size="sm">Default row</Text>
+        </PanelRow>
+      </PanelBody>
+    </Panel>
+  ),
+  parameters: {
+    pseudo: {
+      hover: '.panel-row-hover',
+    },
+  },
+};
+
+export const States: Story = {
+  render: () => (
+    <div className="flex w-640 flex-col gap-24">
+      <Panel>
+        <PanelHeader>
+          <PanelTitle>Empty body</PanelTitle>
+        </PanelHeader>
+        <PanelBody>
+          <EmptyState
+            variant="panel"
+            icon="inboxLine"
+            title="No workflow runs yet"
+            description="Runs from this project will appear here once one is launched."
+          />
+        </PanelBody>
+      </Panel>
+      <Panel>
+        <PanelHeader>
+          <PanelTitle>Error body</PanelTitle>
+        </PanelHeader>
+        <PanelBody>
+          <LoadErrorState
+            variant="panel"
+            title="Couldn't load workflow runs"
+            description="Something went wrong. Check your connection and try again."
+            onRetry={() => undefined}
+            retryLabel="Retry loading workflow runs"
+          />
+        </PanelBody>
+      </Panel>
+      <Panel>
+        <PanelHeader>
+          <PanelTitle>Loading body</PanelTitle>
+        </PanelHeader>
+        <PanelBody>
+          <PanelRow className="justify-start gap-group">
+            <div className="flex min-w-0 flex-1 flex-col gap-8">
+              <Skeleton className="h-16 w-240" />
+              <Skeleton className="h-12 w-160" />
+            </div>
+            <Skeleton className="h-20 w-80 shrink-0" />
+          </PanelRow>
+          <PanelRow className="justify-start gap-group">
+            <div className="flex min-w-0 flex-1 flex-col gap-8">
+              <Skeleton className="h-16 w-200" />
+              <Skeleton className="h-12 w-120" />
+            </div>
+            <Skeleton className="h-20 w-80 shrink-0" />
+          </PanelRow>
+          <PanelRow className="justify-start gap-group">
+            <div className="flex min-w-0 flex-1 flex-col gap-8">
+              <Skeleton className="h-16 w-280" />
+              <Skeleton className="h-12 w-144" />
+            </div>
+            <Skeleton className="h-20 w-80 shrink-0" />
+          </PanelRow>
+        </PanelBody>
+      </Panel>
     </div>
   ),
 };
@@ -128,30 +244,5 @@ export const Grid: Story = {
         </PanelGrid>
       </PanelBody>
     </Panel>
-  ),
-};
-
-export const Compositions: Story = {
-  render: () => (
-    <div className="flex w-640 flex-col gap-24">
-      <Panel>
-        <PanelHeader variant="plain">
-          <PanelTitle>Recent deployments</PanelTitle>
-          <PanelActions>
-            <Button size="sm" variant="secondary">
-              View all
-            </Button>
-          </PanelActions>
-        </PanelHeader>
-        <PanelBody>
-          <PanelEmpty>No deployments yet</PanelEmpty>
-        </PanelBody>
-      </Panel>
-      <Panel>
-        <PanelBody>
-          <PanelEmpty compact>No filtered results</PanelEmpty>
-        </PanelBody>
-      </Panel>
-    </div>
   ),
 };
