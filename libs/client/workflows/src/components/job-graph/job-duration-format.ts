@@ -8,7 +8,7 @@ import type {
 export function formatJobExecutionTimeLabel(time: JobExecutionTime): string {
   switch (time.state) {
     case 'live':
-      return humanDuration(time.fromIso);
+      return humanDuration(time.fromIso) || '0s';
     case 'fixed':
       return formatFixedDurationLabel(time.elapsed);
     default: {
