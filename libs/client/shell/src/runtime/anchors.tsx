@@ -5,7 +5,7 @@ import {MainLayout} from '#components/main-layout.js';
 import {NotFoundPage} from '#components/not-found-page.js';
 import {SettingsNav} from '#components/settings-nav.js';
 import type {NavTabEntry, SettingsSectionEntry} from '#contract.js';
-import {useActiveWorkspace, useMaybeActiveWorkspace} from './active-workspace.js';
+import {useMaybeActiveWorkspace} from './active-workspace.js';
 import {anchorPaths} from './anchor-paths.js';
 import {rememberLastWorkspaceId} from './last-workspace.js';
 import {parseWorkspaceParams, parseWorkspaceProjectParams, useRouteParams} from './route-inputs.js';
@@ -126,15 +126,7 @@ export function buildAnchorSkeleton({
     getParentRoute: () => workspaceLayout,
     path: '/settings',
     component: () => {
-      const workspace = useActiveWorkspace();
-      return (
-        <SettingsAnchorLayout
-          scope="workspace"
-          title="Workspace settings"
-          description={`Configure ${workspace.name}.`}
-          settingsSections={settingsSections}
-        />
-      );
+      return <SettingsAnchorLayout scope="workspace" settingsSections={settingsSections} />;
     },
   });
   return {
@@ -154,8 +146,8 @@ function SettingsAnchorLayout({
   settingsSections,
 }: {
   scope: 'workspace' | 'project';
-  title: string;
-  description: string;
+  title?: string;
+  description?: string;
   settingsSections: readonly SettingsSectionEntry[];
 }) {
   const params = useRouteParams((input): {workspaceSlug?: string; projectSlug?: string} =>
@@ -164,13 +156,15 @@ function SettingsAnchorLayout({
   if (!params.workspaceSlug || (scope === 'project' && !params.projectSlug)) return null;
 
   return (
-    <div className="flex w-full flex-col gap-section">
-      <header className="flex flex-col gap-inline">
-        <Header variant="h2">{title}</Header>
-        <Text size="sm" className="text-foreground-neutral-muted">
-          {description}
-        </Text>
-      </header>
+    <div className={title ? 'flex w-full flex-col gap-section' : 'w-full'}>
+      {title && description ? (
+        <header className="flex flex-col gap-inline">
+          <Header variant="h2">{title}</Header>
+          <Text size="sm" className="text-foreground-neutral-muted">
+            {description}
+          </Text>
+        </header>
+      ) : null}
 
       <div className="grid grid-cols-[180px_minmax(0,1fr)] gap-region max-[760px]:grid-cols-1">
         <SettingsNav entries={settingsSections} scope={scope} />

@@ -75,7 +75,8 @@ describe('composition registries', () => {
         defineRoute({staticData: {frame: 'content'}, component: () => <h1>Settings page</h1>}),
     });
 
-    expect(await screen.findByRole('heading', {name: 'Workspace settings'})).toBeVisible();
+    expect(await screen.findByRole('heading', {name: 'Settings page'})).toBeVisible();
+    expect(screen.queryByRole('heading', {name: 'Workspace settings'})).not.toBeInTheDocument();
     expect((await screen.findAllByRole('tab')).map((tab) => tab.textContent)).toEqual([
       'First A',
       'First B',
@@ -93,6 +94,11 @@ describe('composition registries', () => {
       'Second setting',
     ]);
     expect(firstSettingsLink).toHaveClass('w-full', 'justify-start');
+    expect(firstSettingsLink).toHaveAttribute('aria-current', 'page');
+    expect(firstSettingsLink).toHaveClass('bg-background-neutral-hover');
+    expect(firstSettingsLink.querySelector('[aria-hidden="true"]')).toHaveClass(
+      'bg-border-highlights-interactive',
+    );
     expect(firstSettingsLink.querySelector('svg')).toHaveClass('size-16');
   });
 });

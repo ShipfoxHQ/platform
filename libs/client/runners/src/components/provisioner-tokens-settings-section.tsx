@@ -52,10 +52,6 @@ export function WorkspaceProvisionerTokensSettingsSection({workspaceId}: {worksp
         <div className="flex items-center justify-between gap-group max-[640px]:items-start">
           <div className="flex flex-col gap-tight">
             <Header variant="h3">Runner provisioner registration tokens</Header>
-            <Text size="sm" className="text-foreground-neutral-muted">
-              Register runner provisioners that connect to this workspace and create runners
-              dynamically based on demand.
-            </Text>
           </div>
           <div className="flex items-center gap-cluster">
             {(tokensQuery.isFetching && !tokensQuery.isPending) ||

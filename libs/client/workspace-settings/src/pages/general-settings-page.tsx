@@ -8,8 +8,9 @@ import {displayNameFieldError, SlugChangeWarning, SlugField} from '@shipfox/clie
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {FormField, FormFieldInput, fieldError} from '@shipfox/react-ui/form-field';
+import {Panel, PanelBody} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
-import {Header, Text} from '@shipfox/react-ui/typography';
+import {Header} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
 import {useNavigate} from '@tanstack/react-router';
 import {useState} from 'react';
@@ -95,93 +96,94 @@ function WorkspaceGeneralForm({workspace}: {workspace: ReturnType<typeof useActi
   return (
     <>
       <div className="flex min-w-0 flex-col gap-section">
-        <header className="flex flex-col gap-inline">
-          <Header variant="h1">General</Header>
-          <Text size="sm" className="text-foreground-neutral-muted">
-            Update the workspace name and the slug used in its URLs.
-          </Text>
-        </header>
+        <Header variant="h1">General</Header>
 
-        {formError ? (
-          <Callout role="alert" type="error">
-            {formError}
-          </Callout>
-        ) : null}
+        <Panel>
+          <PanelBody className="gap-group p-panel">
+            {formError ? (
+              <Callout role="alert" type="error">
+                {formError}
+              </Callout>
+            ) : null}
 
-        <form
-          className="flex max-w-[560px] flex-col gap-group"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
-          <form.Field
-            name="name"
-            validators={{
-              onBlur: ({value}) =>
-                displayNameFieldError(
-                  value,
-                  'Workspace name',
-                  createWorkspaceBodySchema.shape.name,
-                ),
-              onSubmit: ({value}) =>
-                displayNameFieldError(
-                  value,
-                  'Workspace name',
-                  createWorkspaceBodySchema.shape.name,
-                ),
-            }}
-          >
-            {(field) => (
-              <FormField
-                label="Workspace name"
-                id="workspace-settings-name"
-                error={fieldError(field)}
+            <form
+              className="flex w-full max-w-[560px] flex-col gap-group"
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void form.handleSubmit();
+              }}
+            >
+              <form.Field
+                name="name"
+                validators={{
+                  onBlur: ({value}) =>
+                    displayNameFieldError(
+                      value,
+                      'Workspace name',
+                      createWorkspaceBodySchema.shape.name,
+                    ),
+                  onSubmit: ({value}) =>
+                    displayNameFieldError(
+                      value,
+                      'Workspace name',
+                      createWorkspaceBodySchema.shape.name,
+                    ),
+                }}
               >
-                <FormFieldInput
-                  name="name"
-                  type="text"
-                  value={field.state.value}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  onBlur={field.handleBlur}
-                />
-              </FormField>
-            )}
-          </form.Field>
+                {(field) => (
+                  <FormField
+                    label="Workspace name"
+                    id="workspace-settings-name"
+                    error={fieldError(field)}
+                  >
+                    <FormFieldInput
+                      name="name"
+                      type="text"
+                      value={field.state.value}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      onBlur={field.handleBlur}
+                    />
+                  </FormField>
+                )}
+              </form.Field>
 
-          <form.Field
-            name="slug"
-            validators={{
-              onBlur: createWorkspaceBodySchema.shape.slug,
-              onSubmit: createWorkspaceBodySchema.shape.slug,
-            }}
-          >
-            {(field) => (
-              <SlugField
-                id="workspace-settings-slug"
-                label="Workspace slug"
+              <form.Field
                 name="slug"
-                value={field.state.value}
-                onChange={(value) => field.handleChange(value)}
-                onBlur={field.handleBlur}
-                error={fieldError(field)}
-                description={<span className="break-all font-code">/w/{field.state.value}</span>}
-                placeholder="acme"
-                className="font-code"
-                currentSlug={workspace.slug}
-                checkEnabled
-                isValid={isSlugValid}
-                checkAvailability={checkWorkspaceSlugAvailability}
-              />
-            )}
-          </form.Field>
+                validators={{
+                  onBlur: createWorkspaceBodySchema.shape.slug,
+                  onSubmit: createWorkspaceBodySchema.shape.slug,
+                }}
+              >
+                {(field) => (
+                  <SlugField
+                    id="workspace-settings-slug"
+                    label="Workspace slug"
+                    name="slug"
+                    value={field.state.value}
+                    onChange={(value) => field.handleChange(value)}
+                    onBlur={field.handleBlur}
+                    error={fieldError(field)}
+                    description={
+                      <span className="break-all font-code">/w/{field.state.value}</span>
+                    }
+                    placeholder="acme"
+                    className="font-code"
+                    currentSlug={workspace.slug}
+                    checkEnabled
+                    isValid={isSlugValid}
+                    checkAvailability={checkWorkspaceSlugAvailability}
+                  />
+                )}
+              </form.Field>
 
-          <Button type="submit" isLoading={updateWorkspace.isPending} className="self-start">
-            Save changes
-          </Button>
-        </form>
+              <Button type="submit" isLoading={updateWorkspace.isPending} className="self-start">
+                Save changes
+              </Button>
+            </form>
+          </PanelBody>
+        </Panel>
       </div>
 
       <SlugChangeWarning

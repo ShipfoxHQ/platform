@@ -34,7 +34,6 @@ import {useState} from 'react';
 import {
   getInvitationExpiry,
   getMemberRemovalRestriction,
-  memberCount,
   type PendingInvitation,
   type WorkspaceMember,
 } from '#core/membership.js';
@@ -75,11 +74,6 @@ function MembersSection({
     <section className="flex flex-col gap-group">
       <div className="flex flex-col gap-tight">
         <Header variant="h3">Members</Header>
-        <Text size="sm" className="text-foreground-neutral-muted">
-          {query.isPending
-            ? 'Loading members…'
-            : `${memberCount(members)} ${memberCount(members) === 1 ? 'member' : 'members'}`}
-        </Text>
       </div>
 
       {query.isPending ? <TableSkeleton rows={3} cols={3} label="Loading members" /> : null}
@@ -215,11 +209,6 @@ function PendingInvitationsSection({
       <div className="flex items-center justify-between gap-group">
         <div className="flex flex-col gap-tight">
           <Header variant="h3">Pending invitations</Header>
-          <Text size="sm" className="text-foreground-neutral-muted">
-            {query.isPending
-              ? 'Loading invitations…'
-              : `${invitations.length} ${invitations.length === 1 ? 'invitation' : 'invitations'}`}
-          </Text>
         </div>
         <InviteMemberModal
           open={inviteOpen}

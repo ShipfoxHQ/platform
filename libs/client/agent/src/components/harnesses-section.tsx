@@ -84,9 +84,6 @@ export function WorkspaceHarnessesSection({workspaceId}: {workspaceId: string}) 
     <section className="flex flex-col gap-group" aria-label="Harnesses">
       <div className="flex flex-col gap-tight">
         <Header variant="h3">Harnesses</Header>
-        <Text size="sm" className="text-foreground-neutral-muted">
-          Harnesses available to run agent steps in this workspace.
-        </Text>
       </div>
 
       {configsQuery.isPending ? <HarnessRowsSkeleton /> : null}

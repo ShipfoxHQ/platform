@@ -49,9 +49,6 @@ export function InstalledIntegrationsSection({
     <section className="flex flex-col gap-group" aria-label="Installed integrations">
       <div className="flex flex-col gap-tight">
         <Header variant="h3">Installed integrations</Header>
-        <Text size="sm" className="text-foreground-neutral-muted">
-          Provider accounts installed in this workspace.
-        </Text>
       </div>
 
       {isPending ? <InstalledSkeleton label="Loading integrations" /> : null}

@@ -89,8 +89,8 @@ describe('WorkspaceModelProvidersSection', () => {
     expect(screen.getByText('Default provider')).toHaveClass('sr-only');
     expect(screen.getByText('Available providers')).toBeVisible();
     expect(
-      screen.getByText('Providers that can be configured for agent steps in this workspace.'),
-    ).toBeVisible();
+      screen.queryByText('Providers that can be configured for agent steps in this workspace.'),
+    ).not.toBeInTheDocument();
     expect(screen.getByText('OpenAI')).toBeVisible();
     const customProviderButton = screen.getByRole('button', {name: 'Configure custom provider'});
     expect(within(customProviderButton).getByText('Custom')).toBeVisible();

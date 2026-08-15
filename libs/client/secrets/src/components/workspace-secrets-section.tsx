@@ -19,7 +19,7 @@ import {
   TableRow,
 } from '@shipfox/react-ui/table';
 import {toast} from '@shipfox/react-ui/toast';
-import {Code, Header, Text} from '@shipfox/react-ui/typography';
+import {Code, Header} from '@shipfox/react-ui/typography';
 import {useMemo, useState} from 'react';
 import {type SecretMetadata, workspaceStoreScope} from '#core/store.js';
 import {useDeleteSecretMutation, useSecretsQuery} from '#hooks/api/secrets.js';
@@ -29,8 +29,6 @@ import {secretsErrorToFormError} from './form-errors.js';
 import {SecretForm} from './secret-form.js';
 import {StoreRowsSkeleton} from './store-section-shell.js';
 
-const SECRETS_DESCRIPTION =
-  'Encrypted, write-only values for sensitive data like API keys, tokens, and passwords.';
 const EMPTY_SECRETS_DESCRIPTION =
   'Create a secret to store sensitive values like API keys, tokens, and passwords.';
 
@@ -59,9 +57,6 @@ export function WorkspaceSecretsSection({workspaceId}: {workspaceId: string}) {
         <div className="flex items-start justify-between gap-group">
           <div className="flex flex-col gap-tight">
             <Header variant="h3">Secrets</Header>
-            <Text size="sm" className="text-foreground-neutral-muted">
-              {SECRETS_DESCRIPTION}
-            </Text>
           </div>
           <Button size="sm" onClick={() => setFormState({mode: 'create'})}>
             Create secret

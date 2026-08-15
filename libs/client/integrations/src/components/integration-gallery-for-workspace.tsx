@@ -148,9 +148,6 @@ export function IntegrationGalleryForWorkspace({
       <section className="flex flex-col gap-group" aria-label="Available integrations">
         <div className="flex flex-col gap-tight">
           <Header variant="h3">Available integrations</Header>
-          <Text size="sm" className="text-foreground-neutral-muted">
-            Providers available to install in this workspace.
-          </Text>
         </div>
 
         {workspaceSlug ? (

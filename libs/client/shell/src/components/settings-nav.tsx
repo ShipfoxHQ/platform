@@ -1,5 +1,5 @@
-import {Button} from '@shipfox/react-ui/button';
 import {Icon} from '@shipfox/react-ui/icon';
+import {cn} from '@shipfox/react-ui/utils';
 import {Link, useMatchRoute} from '@tanstack/react-router';
 import type {SettingsSectionEntry} from '#contract.js';
 import {
@@ -33,29 +33,36 @@ export function SettingsNav({
   return (
     <nav
       aria-label={`${scope === 'workspace' ? 'Workspace' : 'Project'} settings`}
-      className="flex flex-col gap-tight"
+      className="flex min-w-0 flex-col"
     >
-      {scopedEntries.map((entry) => {
-        const to = `${settingsPath}/${entry.pathSegment}`;
-        const active = Boolean(matchRoute({to: to as never, params: paramsForLink as never}));
-        return (
-          <Button
-            key={entry.id}
-            asChild
-            variant={active ? 'secondary' : 'transparent'}
-            className="w-full justify-start"
-          >
-            <Link
-              to={to as never}
-              params={paramsForLink as never}
-              aria-current={active ? 'page' : undefined}
-            >
-              <Icon name={entry.icon} className="size-16" />
-              {entry.label}
-            </Link>
-          </Button>
-        );
-      })}
+      <ul className="divide-y divide-border-neutral-base">
+        {scopedEntries.map((entry) => {
+          const to = `${settingsPath}/${entry.pathSegment}`;
+          const active = Boolean(matchRoute({to: to as never, params: paramsForLink as never}));
+          return (
+            <li key={entry.id} className="py-tight first:pt-0 last:pb-0">
+              <Link
+                to={to as never}
+                params={paramsForLink as never}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'relative flex min-h-32 w-full items-center justify-start gap-inline rounded-4 px-tight text-left text-sm font-medium text-foreground-neutral-base outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active',
+                  active && 'bg-background-neutral-hover',
+                )}
+              >
+                {active ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-0 left-0 w-2 rounded-l-4 bg-border-highlights-interactive"
+                  />
+                ) : null}
+                <Icon name={entry.icon} className="size-16" aria-hidden="true" />
+                {entry.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </nav>
   );
 }
