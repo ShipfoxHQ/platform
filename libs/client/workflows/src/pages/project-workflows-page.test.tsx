@@ -12,15 +12,21 @@ const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
 const CONNECTION_ID = '33333333-3333-4333-8333-333333333333';
 
 describe('ProjectWorkflowsPage', () => {
-  test('renders workflow definitions and the source strip', async () => {
+  test('renders workflow definitions and their panel regions', async () => {
     configureApiClient({fetchImpl: createProjectDetailFetch()});
 
     renderWorkflowsPage();
 
-    expect(await screen.findByRole('heading', {name: 'Workflows'})).toBeInTheDocument();
-    expect(screen.getAllByText('Deploy production')[0]).toBeInTheDocument();
+    expect((await screen.findAllByText('Deploy production'))[0]).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: 'Workflows'})).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Synced workflow definitions for this project source.'),
+    ).not.toBeInTheDocument();
     expect(screen.getAllByText('.shipfox/workflows/deploy.yml')[0]).toBeInTheDocument();
-    expect(screen.getByRole('region', {name: 'Project source'})).toBeInTheDocument();
+    expect(
+      screen.getByRole('region', {name: 'Project source'}).closest('[data-slot="panel"]'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('table').closest('[data-slot="panel"]')).toBeInTheDocument();
     // Source strip resolves connection display_name from the integrations
     // workspace cache; external_repository_id renders as a Code chip.
     expect(await screen.findByText('Acme GitHub')).toBeInTheDocument();

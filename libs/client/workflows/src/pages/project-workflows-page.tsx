@@ -32,7 +32,7 @@ import {
   TableRow,
 } from '@shipfox/react-ui/table';
 import {toast} from '@shipfox/react-ui/toast';
-import {Code, Header, Text} from '@shipfox/react-ui/typography';
+import {Code, Text} from '@shipfox/react-ui/typography';
 import {useState} from 'react';
 import {useFireManualWorkflowMutation} from '#hooks/api/workflow-runs.js';
 
@@ -89,13 +89,6 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
 
       {projectQuery.data ? (
         <>
-          <header className="flex flex-col gap-tight">
-            <Header variant="h2">Workflows</Header>
-            <Text size="sm" className="text-foreground-neutral-muted">
-              Synced workflow definitions for this project source.
-            </Text>
-          </header>
-
           <SourceStrip
             connectionId={projectQuery.data.source.connectionId}
             externalRepositoryId={projectQuery.data.source.externalRepositoryId}
