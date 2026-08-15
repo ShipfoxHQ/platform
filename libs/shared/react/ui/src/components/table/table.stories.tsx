@@ -63,13 +63,7 @@ export const Playground: Story = {
             <TableRow
               key={workflow.path}
               data-selected={workflow.path === selectedWorkflowPath ? 'true' : undefined}
-              className={
-                workflow.path === selectedWorkflowPath
-                  ? 'table-row-selected'
-                  : workflow.path === hoveredWorkflowPath
-                    ? 'table-row-hover'
-                    : undefined
-              }
+              className={workflow.path === hoveredWorkflowPath ? 'table-row-hover' : undefined}
             >
               <TableCell className="w-40">
                 <input
