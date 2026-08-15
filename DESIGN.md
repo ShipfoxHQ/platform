@@ -373,8 +373,9 @@ Two things follow:
 - **Object identity is not a page title.** A run header keeps its status pill,
   name, trigger, and duration, because those name the object rather than the page.
 
-Settings sub-pages are the exception and keep a bare title. The settings nav does
-not name the active section anywhere else.
+Settings sub-pages are the exception and keep a bare title. The settings nav
+provides the navigation context and active state, but it is not a content
+heading, so the title stays in the page content.
 
 ### Spacing
 

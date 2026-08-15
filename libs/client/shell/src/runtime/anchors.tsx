@@ -157,12 +157,14 @@ function SettingsAnchorLayout({
 
   return (
     <div className={title ? 'flex w-full flex-col gap-section' : 'w-full'}>
-      {title && description ? (
+      {title ? (
         <header className="flex flex-col gap-inline">
           <Header variant="h2">{title}</Header>
-          <Text size="sm" className="text-foreground-neutral-muted">
-            {description}
-          </Text>
+          {description ? (
+            <Text size="sm" className="text-foreground-neutral-muted">
+              {description}
+            </Text>
+          ) : null}
         </header>
       ) : null}
 
