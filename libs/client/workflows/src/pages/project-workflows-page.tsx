@@ -68,6 +68,10 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
 
   return (
     <div className="flex w-full flex-col gap-section">
+      <Header variant="h1" className="sr-only">
+        Workflows
+      </Header>
+
       {projectQuery.isPending ? (
         <div className="flex flex-col gap-cluster">
           <Skeleton className="h-28 w-1/3" />
@@ -89,13 +93,6 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
 
       {projectQuery.data ? (
         <>
-          <header className="flex flex-col gap-tight">
-            <Header variant="h2">Workflows</Header>
-            <Text size="sm" className="text-foreground-neutral-muted">
-              Synced workflow definitions for this project source.
-            </Text>
-          </header>
-
           <SourceStrip
             connectionId={projectQuery.data.source.connectionId}
             externalRepositoryId={projectQuery.data.source.externalRepositoryId}
@@ -181,7 +178,7 @@ function WorkflowDefinitionsList({
 
   if (isError && definitions.length === 0) {
     return (
-      <Panel>
+      <Panel role="region" aria-label="Workflow definitions">
         <LoadErrorState
           title="Couldn't load workflows"
           description="Definitions could not be loaded. Source metadata remains visible."
@@ -195,7 +192,7 @@ function WorkflowDefinitionsList({
 
   if (definitions.length === 0) {
     return (
-      <Panel>
+      <Panel role="region" aria-label="Workflow definitions">
         <WorkflowEmptyState sync={sync} />
       </Panel>
     );
@@ -203,7 +200,7 @@ function WorkflowDefinitionsList({
 
   return (
     <>
-      <Panel>
+      <Panel role="region" aria-label="Workflow definitions">
         <div className="hidden md:block">
           <Table>
             <TableHeader>
