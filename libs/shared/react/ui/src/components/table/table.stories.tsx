@@ -47,6 +47,9 @@ export const Playground: Story = {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead>
+              <span className="sr-only">Select workflow</span>
+            </TableHead>
             <TableHead>Workflow</TableHead>
             <TableHead>Path</TableHead>
             <TableHead>Status</TableHead>
@@ -61,6 +64,14 @@ export const Playground: Story = {
               data-selected={workflow.path === selectedWorkflowPath ? 'true' : undefined}
               className={workflow.path === selectedWorkflowPath ? 'table-row-selected' : undefined}
             >
+              <TableCell className="w-40">
+                <input
+                  type="checkbox"
+                  checked={workflow.path === selectedWorkflowPath}
+                  readOnly
+                  aria-label={`Select ${workflow.name}`}
+                />
+              </TableCell>
               <TableCell className="font-medium">{workflow.name}</TableCell>
               <TableCell>
                 <Code>{workflow.path}</Code>

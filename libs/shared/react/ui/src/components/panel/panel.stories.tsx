@@ -125,13 +125,16 @@ export const RowStates: Story = {
       </PanelHeader>
       <PanelBody>
         <PanelRow className="panel-row-hover">
-          <div className="min-w-0">
-            <Text size="sm" bold>
-              Hovered row
-            </Text>
-            <Text size="xs" className="text-foreground-neutral-base">
-              The row hover surface stays one step from the panel.
-            </Text>
+          <div className="flex min-w-0 items-center gap-inline">
+            <input type="checkbox" readOnly aria-label="Select hovered row" />
+            <div className="min-w-0">
+              <Text size="sm" bold>
+                Hovered row
+              </Text>
+              <Text size="xs" className="text-foreground-neutral-base">
+                The row hover surface stays one step from the panel.
+              </Text>
+            </div>
           </div>
           <StatusBadge variant="info">Running</StatusBadge>
         </PanelRow>
@@ -139,18 +142,24 @@ export const RowStates: Story = {
           data-selected="true"
           className="data-[selected=true]:bg-background-neutral-pressed data-[selected=true]:hover:bg-background-neutral-pressed"
         >
-          <div className="min-w-0">
-            <Text size="sm" bold>
-              Selected row
-            </Text>
-            <Text size="xs" className="text-foreground-neutral-base">
-              Selection uses the pressed neutral surface.
-            </Text>
+          <div className="flex min-w-0 items-center gap-inline">
+            <input type="checkbox" checked readOnly aria-label="Select selected row" />
+            <div className="min-w-0">
+              <Text size="sm" bold>
+                Selected row
+              </Text>
+              <Text size="xs" className="text-foreground-neutral-base">
+                Selection uses the pressed neutral surface.
+              </Text>
+            </div>
           </div>
           <StatusBadge variant="success">Succeeded</StatusBadge>
         </PanelRow>
         <PanelRow>
-          <Text size="sm">Default row</Text>
+          <div className="flex min-w-0 items-center gap-inline">
+            <input type="checkbox" readOnly aria-label="Select default row" />
+            <Text size="sm">Default row</Text>
+          </div>
         </PanelRow>
       </PanelBody>
     </Panel>
