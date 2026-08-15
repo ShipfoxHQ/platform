@@ -73,7 +73,7 @@ function MembersSection({
   return (
     <section className="flex flex-col gap-group">
       <div className="flex flex-col gap-tight">
-        <Header variant="h3">Members</Header>
+        <Header variant="h1">Members</Header>
       </div>
 
       {query.isPending ? <TableSkeleton rows={3} cols={3} label="Loading members" /> : null}

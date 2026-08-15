@@ -47,6 +47,9 @@ export function WorkspaceManualRegistrationTokensSettingsSection({
         <div className="flex items-center justify-between gap-group max-[640px]:items-start">
           <div className="flex flex-col gap-tight">
             <Header variant="h3">Runner registration tokens</Header>
+            <Text size="sm" className="text-foreground-neutral-muted">
+              Tokens are reusable until revoked.
+            </Text>
           </div>
           <div className="flex items-center gap-cluster">
             {tokensQuery.isFetching && !tokensQuery.isPending ? (

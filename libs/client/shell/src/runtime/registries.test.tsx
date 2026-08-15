@@ -86,8 +86,10 @@ describe('composition registries', () => {
     const settingsNavigation = screen.getByRole('navigation', {name: 'Workspace settings'});
     expect(settingsNavigation.parentElement).toHaveClass('grid', 'grid-cols-[180px_minmax(0,1fr)]');
     const settingsLinks = within(settingsNavigation).getAllByRole('link');
-    const [firstSettingsLink] = settingsLinks;
-    if (!firstSettingsLink) throw new Error('Expected at least one settings link.');
+    const [firstSettingsLink, secondSettingsLink] = settingsLinks;
+    if (!firstSettingsLink || !secondSettingsLink) {
+      throw new Error('Expected at least two settings links.');
+    }
 
     expect(settingsLinks.map((link) => link.textContent)).toEqual([
       'First setting',
@@ -100,5 +102,44 @@ describe('composition registries', () => {
       'bg-border-highlights-interactive',
     );
     expect(firstSettingsLink.querySelector('svg')).toHaveClass('size-16');
+    expect(secondSettingsLink).not.toHaveAttribute('aria-current');
+    expect(secondSettingsLink).not.toHaveClass('bg-background-neutral-hover');
+    expect(secondSettingsLink.querySelector('[data-settings-active-bar]')).not.toBeInTheDocument();
+  });
+
+  test('keeps the project settings heading and project-scoped navigation', async () => {
+    const feature = defineClientFeature({
+      id: 'acme.project-settings',
+      settingsSections: [
+        {
+          id: 'project.general',
+          pathSegment: 'general',
+          label: 'General',
+          icon: 'settings3Line',
+          scope: 'project',
+        },
+      ],
+      routes: [
+        {
+          path: '/w/$workspaceSlug/p/$projectSlug/settings/general',
+          parent: 'projectSettings',
+          impl: 'project-general',
+        },
+      ],
+    });
+
+    await renderComposedShell({
+      features: [feature],
+      initialPath: '/w/workspace/p/project/settings/general',
+      resolveImpl: () =>
+        defineRoute({staticData: {frame: 'content'}, component: () => <h1>General</h1>}),
+    });
+
+    expect(await screen.findByRole('heading', {name: 'Project settings'})).toBeVisible();
+    expect(screen.getByText('Configure this project.')).toBeVisible();
+    const projectNavigation = screen.getByRole('navigation', {name: 'Project settings'});
+    const projectLink = within(projectNavigation).getByRole('link', {name: 'General'});
+    expect(projectLink).toHaveAttribute('href', '/w/workspace/p/project/settings/general');
+    expect(projectLink).toHaveAttribute('aria-current', 'page');
   });
 });

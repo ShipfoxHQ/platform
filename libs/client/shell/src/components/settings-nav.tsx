@@ -53,6 +53,7 @@ export function SettingsNav({
                 {active ? (
                   <span
                     aria-hidden="true"
+                    data-settings-active-bar
                     className="absolute inset-y-0 left-0 w-2 rounded-l-4 bg-border-highlights-interactive"
                   />
                 ) : null}

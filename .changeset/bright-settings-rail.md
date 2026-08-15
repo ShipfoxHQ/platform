@@ -8,4 +8,4 @@
 "@shipfox/client-workspace-settings": patch
 ---
 
-Recomposes workspace settings with a content-frame layout, panel-backed sections, and a compact settings rail.
+Reorganizes workspace settings into a compact sidebar rail with section panels and moves Events settings into the shared content frame.

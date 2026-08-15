@@ -1,4 +1,5 @@
 import {defineRoute, useActiveWorkspace} from '@shipfox/client-shell/runtime';
+import {Header} from '@shipfox/react-ui/typography';
 import {getRouteApi} from '@tanstack/react-router';
 import type {TriggerEventFilters} from '#core/trigger-event.js';
 import {EventsPage} from '#pages/events-page.js';
@@ -25,12 +26,15 @@ export default defineRoute({
       void navigate({search: {...search, ...patch}, replace: true});
     };
     return (
-      <EventsPage
-        workspaceId={workspace.id}
-        workspaceSlug={workspace.slug}
-        filters={search}
-        onFiltersChange={onFiltersChange}
-      />
+      <div className="flex min-w-0 flex-col gap-section">
+        <Header variant="h1">Events</Header>
+        <EventsPage
+          workspaceId={workspace.id}
+          workspaceSlug={workspace.slug}
+          filters={search}
+          onFiltersChange={onFiltersChange}
+        />
+      </div>
     );
   },
 });

@@ -56,7 +56,7 @@ export function WorkspaceVariablesSection({workspaceId}: {workspaceId: string}) 
       <section className="flex flex-col gap-group" aria-label="Variables">
         <div className="flex items-start justify-between gap-group">
           <div className="flex flex-col gap-tight">
-            <Header variant="h3">Variables</Header>
+            <Header variant="h1">Variables</Header>
           </div>
           <Button size="sm" onClick={() => setFormState({mode: 'create'})}>
             Create variable
