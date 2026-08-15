@@ -1,5 +1,5 @@
 import {useTimeTick} from '@shipfox/react-ui/time-ticker';
-import {formatDuration} from '@shipfox/react-ui/utils';
+import {humanDuration} from '@shipfox/react-ui/utils';
 import type {JobExecutionTime} from '#core/workflow-run.js';
 
 export function JobExecutionTimeText({time}: {time: JobExecutionTime}) {
@@ -10,7 +10,7 @@ export function JobExecutionTimeText({time}: {time: JobExecutionTime}) {
 
 export function formatJobExecutionTime(time: JobExecutionTime): string {
   if (time.state === 'live') {
-    return formatDuration(Date.now() - Date.parse(time.fromIso));
+    return humanDuration(time.fromIso);
   }
 
   return formatElapsedDuration(time.elapsed);
