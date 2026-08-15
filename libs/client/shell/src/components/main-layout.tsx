@@ -1,5 +1,5 @@
 import {FullPageLoader} from '@shipfox/react-ui/loader';
-import {Navigate, Outlet, useMatches} from '@tanstack/react-router';
+import {Navigate, Outlet, useLocation, useMatches} from '@tanstack/react-router';
 import type {NavTabEntry} from '#contract.js';
 import {useMaybeActiveWorkspace} from '#runtime/active-workspace.js';
 import {useAuthState} from '#runtime/auth.js';
@@ -31,10 +31,15 @@ export function MainLayout({
 }) {
   const auth = useAuthState();
   const workspace = useMaybeActiveWorkspace();
+  const location = useLocation();
   const {projectSlug} = useRouteParams(parseWorkspaceProjectParams);
   const matches = useMatches();
   if (auth.isLoading) return <FullPageLoader />;
-  if (!auth.isAuthenticated) return <Navigate to={'/auth/login' as never} replace />;
+  if (!auth.isAuthenticated) {
+    return (
+      <Navigate to={'/auth/login' as never} search={{redirect: location.href} as never} replace />
+    );
+  }
   if (!workspace) return <WorkspaceUnavailablePage />;
   const frame = matches.reduce<RouteFrame>(
     (current, match) => match.staticData.frame ?? current,
