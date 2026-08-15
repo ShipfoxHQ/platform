@@ -32,7 +32,7 @@ import {
   TableRow,
 } from '@shipfox/react-ui/table';
 import {toast} from '@shipfox/react-ui/toast';
-import {Code, Text} from '@shipfox/react-ui/typography';
+import {Code, Header, Text} from '@shipfox/react-ui/typography';
 import {useState} from 'react';
 import {useFireManualWorkflowMutation} from '#hooks/api/workflow-runs.js';
 
@@ -68,6 +68,10 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
 
   return (
     <div className="flex w-full flex-col gap-section">
+      <Header variant="h1" className="sr-only">
+        Workflows
+      </Header>
+
       {projectQuery.isPending ? (
         <div className="flex flex-col gap-cluster">
           <Skeleton className="h-28 w-1/3" />
@@ -174,7 +178,7 @@ function WorkflowDefinitionsList({
 
   if (isError && definitions.length === 0) {
     return (
-      <Panel>
+      <Panel role="region" aria-label="Workflow definitions">
         <LoadErrorState
           title="Couldn't load workflows"
           description="Definitions could not be loaded. Source metadata remains visible."
@@ -188,7 +192,7 @@ function WorkflowDefinitionsList({
 
   if (definitions.length === 0) {
     return (
-      <Panel>
+      <Panel role="region" aria-label="Workflow definitions">
         <WorkflowEmptyState sync={sync} />
       </Panel>
     );
@@ -196,7 +200,7 @@ function WorkflowDefinitionsList({
 
   return (
     <>
-      <Panel>
+      <Panel role="region" aria-label="Workflow definitions">
         <div className="hidden md:block">
           <Table>
             <TableHeader>

@@ -18,15 +18,19 @@ describe('ProjectWorkflowsPage', () => {
     renderWorkflowsPage();
 
     expect((await screen.findAllByText('Deploy production'))[0]).toBeInTheDocument();
-    expect(screen.queryByRole('heading', {name: 'Workflows'})).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Workflows'})).toHaveClass('sr-only');
     expect(
       screen.queryByText('Synced workflow definitions for this project source.'),
     ).not.toBeInTheDocument();
     expect(screen.getAllByText('.shipfox/workflows/deploy.yml')[0]).toBeInTheDocument();
-    expect(
-      screen.getByRole('region', {name: 'Project source'}).closest('[data-slot="panel"]'),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('table').closest('[data-slot="panel"]')).toBeInTheDocument();
+    const sourcePanel = screen
+      .getByRole('region', {name: 'Project source'})
+      .closest('[data-slot="panel"]');
+    const definitionsPanel = screen.getByRole('region', {name: 'Workflow definitions'});
+    expect(sourcePanel).toBeInTheDocument();
+    expect(definitionsPanel).toBeInTheDocument();
+    expect(sourcePanel).not.toBe(definitionsPanel);
+    expect(screen.getByRole('table').closest('[data-slot="panel"]')).toBe(definitionsPanel);
     // Source strip resolves connection display_name from the integrations
     // workspace cache; external_repository_id renders as a Code chip.
     expect(await screen.findByText('Acme GitHub')).toBeInTheDocument();
