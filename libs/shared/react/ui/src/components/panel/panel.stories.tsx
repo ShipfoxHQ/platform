@@ -12,6 +12,7 @@ import {
   PanelBody,
   PanelCell,
   PanelCellAction,
+  PanelEmpty,
   PanelGrid,
   PanelHeader,
   PanelRow,
@@ -128,7 +129,7 @@ export const RowStates: Story = {
             <Text size="sm" bold>
               Hovered row
             </Text>
-            <Text size="xs" className="text-foreground-neutral-muted">
+            <Text size="xs" className="text-foreground-neutral-base">
               The row hover surface stays one step from the panel.
             </Text>
           </div>
@@ -142,7 +143,7 @@ export const RowStates: Story = {
             <Text size="sm" bold>
               Selected row
             </Text>
-            <Text size="xs" className="text-foreground-neutral-muted">
+            <Text size="xs" className="text-foreground-neutral-base">
               Selection uses the pressed neutral surface.
             </Text>
           </div>
@@ -193,9 +194,24 @@ export const States: Story = {
       </Panel>
       <Panel>
         <PanelHeader>
-          <PanelTitle>Loading body</PanelTitle>
+          <PanelTitle>Compact empty body</PanelTitle>
         </PanelHeader>
         <PanelBody>
+          <PanelEmpty compact>
+            <Text size="sm" className="text-foreground-neutral-subtle">
+              No filtered results
+            </Text>
+          </PanelEmpty>
+        </PanelBody>
+      </Panel>
+      <Panel>
+        <PanelHeader>
+          <PanelTitle>Loading body</PanelTitle>
+        </PanelHeader>
+        <PanelBody aria-busy="true">
+          <span className="sr-only" role="status" aria-live="polite">
+            Loading workflow runs
+          </span>
           <PanelRow className="justify-start gap-group">
             <div className="flex min-w-0 flex-1 flex-col gap-8">
               <Skeleton className="h-16 w-240" />

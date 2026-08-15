@@ -39,6 +39,8 @@ const workflows = [
   },
 ];
 
+const selectedWorkflowPath = '.shipfox/workflows/nightly.yml';
+
 export const Playground: Story = {
   render: () => (
     <Panel className="w-760">
@@ -56,7 +58,8 @@ export const Playground: Story = {
           {workflows.map((workflow) => (
             <TableRow
               key={workflow.path}
-              data-selected={workflow.name === 'Nightly verification' ? 'true' : undefined}
+              data-selected={workflow.path === selectedWorkflowPath ? 'true' : undefined}
+              className={workflow.path === selectedWorkflowPath ? 'table-row-selected' : undefined}
             >
               <TableCell className="font-medium">{workflow.name}</TableCell>
               <TableCell>
@@ -77,4 +80,9 @@ export const Playground: Story = {
       </Table>
     </Panel>
   ),
+  parameters: {
+    pseudo: {
+      hover: '.table-row-selected',
+    },
+  },
 };
