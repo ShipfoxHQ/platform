@@ -29,10 +29,9 @@ import {secretsErrorToFormError} from './form-errors.js';
 import {SecretForm} from './secret-form.js';
 import {StoreRowsSkeleton} from './store-section-shell.js';
 
-const SECRETS_DESCRIPTION =
-  'Encrypted, write-only values for sensitive data like API keys, tokens, and passwords.';
 const EMPTY_SECRETS_DESCRIPTION =
   'Create a secret to store sensitive values like API keys, tokens, and passwords.';
+const SECRETS_SECURITY_NOTE = 'Encrypted, write-only values for sensitive data.';
 
 type FormState = {mode: 'create'} | {mode: 'edit'; key: string} | null;
 
@@ -58,9 +57,9 @@ export function WorkspaceSecretsSection({workspaceId}: {workspaceId: string}) {
       <section className="flex flex-col gap-group" aria-label="Secrets">
         <div className="flex items-start justify-between gap-group">
           <div className="flex flex-col gap-tight">
-            <Header variant="h3">Secrets</Header>
+            <Header variant="h1">Secrets</Header>
             <Text size="sm" className="text-foreground-neutral-muted">
-              {SECRETS_DESCRIPTION}
+              {SECRETS_SECURITY_NOTE}
             </Text>
           </div>
           <Button size="sm" onClick={() => setFormState({mode: 'create'})}>

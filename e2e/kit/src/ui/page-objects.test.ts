@@ -128,7 +128,7 @@ describe('ui page objects', () => {
     const pageObject = page();
     const nav = locator('nav');
     const link = locator('link');
-    pageObject.getByRole.mockReturnValueOnce(locator('heading')).mockReturnValueOnce(nav);
+    pageObject.getByRole.mockReturnValue(nav);
     nav.getByRole.mockReturnValue(link);
     const {SettingsShell} = await import('./page-objects.js');
     const shell = new SettingsShell(pageObject as never);

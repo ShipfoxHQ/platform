@@ -244,7 +244,9 @@ describe('IntegrationGallery — installed section', () => {
 
     expect(await screen.findByText('acme-one')).toBeVisible();
     expect(screen.getByText('acme-two')).toBeVisible();
-    expect(screen.getByText('Provider accounts installed in this workspace.')).toBeVisible();
+    expect(
+      screen.queryByText('Provider accounts installed in this workspace.'),
+    ).not.toBeInTheDocument();
   });
 
   test('sorts stably by provider name then created_at regardless of input order', async () => {
@@ -592,7 +594,9 @@ describe('IntegrationGallery: available section', () => {
     expect(await screen.findByRole('link', {name: 'Install GitHub'})).toBeVisible();
     expect(screen.getByRole('link', {name: 'Install Sentry'})).toBeVisible();
     expect(screen.getByRole('button', {name: 'Add Webhook'})).toBeVisible();
-    expect(screen.getByText('Providers available to install in this workspace.')).toBeVisible();
+    expect(
+      screen.queryByText('Providers available to install in this workspace.'),
+    ).not.toBeInTheDocument();
   });
 
   test('exposes each available tile as a single link with no nested button', async () => {

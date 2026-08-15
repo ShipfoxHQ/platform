@@ -120,9 +120,6 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
       >
         <div className="flex flex-col gap-tight">
           <Header variant="h3">Configured providers</Header>
-          <Text size="sm" className="text-foreground-neutral-muted">
-            Workspace credentials available to agent steps.
-          </Text>
         </div>
 
         {configsQuery.isPending ? (
@@ -213,9 +210,6 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
       <section className="flex flex-col gap-group" aria-label="Available providers">
         <div className="flex flex-col gap-tight">
           <Header variant="h3">Available providers</Header>
-          <Text size="sm" className="text-foreground-neutral-muted">
-            Providers that can be configured for agent steps in this workspace.
-          </Text>
         </div>
 
         {catalogQuery.isPending || configsQuery.isPending ? (
@@ -243,9 +237,6 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
       <section className="flex flex-col gap-group" aria-label="Unsupported providers">
         <div className="flex flex-col gap-tight">
           <Header variant="h3">Unsupported providers</Header>
-          <Text size="sm" className="text-foreground-neutral-muted">
-            Providers that cannot be configured in this workspace yet.
-          </Text>
         </div>
 
         {catalogQuery.isPending ? (

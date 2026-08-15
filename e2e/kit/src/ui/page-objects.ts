@@ -142,12 +142,7 @@ export class SettingsShell {
   async goto(workspaceSlug: string, tab: SettingsTab): Promise<void> {
     await this.page.goto(settingsPath(workspaceSlug, tab));
     await expect(this.page).toHaveURL(new RegExp(`${settingsPath(workspaceSlug, tab)}/?$`, 'u'));
-    await expect(this.heading()).toBeVisible();
     await expect(this.activeNavLink(tab)).toHaveAttribute('aria-current', 'page');
-  }
-
-  heading(): AppLocator {
-    return this.page.getByRole('heading', {name: 'Workspace settings'});
   }
 
   nav(): AppLocator {

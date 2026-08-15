@@ -1,9 +1,11 @@
 import {FullPageLoader} from '@shipfox/react-ui/loader';
-import {Outlet, useMatches} from '@tanstack/react-router';
+import {Navigate, Outlet, useLocation, useMatches} from '@tanstack/react-router';
 import type {NavTabEntry} from '#contract.js';
 import {useMaybeActiveWorkspace} from '#runtime/active-workspace.js';
+import {useAuthState} from '#runtime/auth.js';
 import type {RouteFrame} from '#runtime/route-frame.js';
 import {parseWorkspaceProjectParams, useRouteParams} from '#runtime/route-inputs.js';
+import {WorkspaceUnavailablePage} from '#runtime/workspace-setup.js';
 import {FOCUSED_FRAME_CONTENT_CLASS_NAME} from './focused-frame.js';
 import {NavBar} from './nav-bar.js';
 import {NavTabs} from './nav-tabs.js';
@@ -27,10 +29,18 @@ export function MainLayout({
   navigation: readonly NavTabEntry[];
   hideProjectNavigation?: boolean;
 }) {
+  const auth = useAuthState();
   const workspace = useMaybeActiveWorkspace();
+  const location = useLocation();
   const {projectSlug} = useRouteParams(parseWorkspaceProjectParams);
   const matches = useMatches();
-  if (!workspace) return <FullPageLoader />;
+  if (auth.isLoading) return <FullPageLoader />;
+  if (!auth.isAuthenticated) {
+    return (
+      <Navigate to={'/auth/login' as never} search={{redirect: location.href} as never} replace />
+    );
+  }
+  if (!workspace) return <WorkspaceUnavailablePage />;
   const frame = matches.reduce<RouteFrame>(
     (current, match) => match.staticData.frame ?? current,
     'content',

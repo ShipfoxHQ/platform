@@ -19,7 +19,7 @@ import {
   TableRow,
 } from '@shipfox/react-ui/table';
 import {toast} from '@shipfox/react-ui/toast';
-import {Code, Header, Text} from '@shipfox/react-ui/typography';
+import {Code, Header} from '@shipfox/react-ui/typography';
 import {useMemo, useState} from 'react';
 import {type VariablePreview, workspaceStoreScope} from '#core/store.js';
 import {useDeleteVariableMutation, useVariablesQuery} from '#hooks/api/variables.js';
@@ -29,8 +29,6 @@ import {secretsErrorToFormError} from './form-errors.js';
 import {StoreRowsSkeleton} from './store-section-shell.js';
 import {VariableForm} from './variable-form.js';
 
-const VARIABLES_DESCRIPTION =
-  'Plaintext configuration values for non-sensitive data like regions, flags, and log levels.';
 const EMPTY_VARIABLES_DESCRIPTION =
   'Create a variable to store non-sensitive configuration like regions, flags, and log levels.';
 
@@ -58,10 +56,7 @@ export function WorkspaceVariablesSection({workspaceId}: {workspaceId: string}) 
       <section className="flex flex-col gap-group" aria-label="Variables">
         <div className="flex items-start justify-between gap-group">
           <div className="flex flex-col gap-tight">
-            <Header variant="h3">Variables</Header>
-            <Text size="sm" className="text-foreground-neutral-muted">
-              {VARIABLES_DESCRIPTION}
-            </Text>
+            <Header variant="h1">Variables</Header>
           </div>
           <Button size="sm" onClick={() => setFormState({mode: 'create'})}>
             Create variable
