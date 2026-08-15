@@ -1,4 +1,7 @@
 import {execFileSync} from 'node:child_process';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 import {
   type RunnerBootstrapUserDataOptions,
@@ -43,12 +46,16 @@ describe('renderRunnerBootstrapUserData', () => {
     expect(userData).not.toContain('WORKSPACE_ID');
   });
 
-  it('keeps the rendered environment shell-compatible', () => {
-    expect(() =>
-      execFileSync('sh', ['-c', 'set -a; . /dev/stdin'], {
-        input: renderRunnerBootstrapUserData(options),
-      }),
-    ).not.toThrow();
+  it('keeps the rendered environment shell-compatible', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'shipfox-user-data-'));
+    const envPath = join(directory, 'runner.env');
+
+    try {
+      await writeFile(envPath, renderRunnerBootstrapUserData(options));
+      expect(() => execFileSync('sh', ['-c', 'set -a; . "$1"', 'sh', envPath])).not.toThrow();
+    } finally {
+      await rm(directory, {force: true, recursive: true});
+    }
   });
 
   it('rejects unsafe environment values', () => {
