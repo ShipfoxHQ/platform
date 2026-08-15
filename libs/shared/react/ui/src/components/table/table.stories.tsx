@@ -40,6 +40,7 @@ const workflows = [
 ];
 
 const selectedWorkflowPath = '.shipfox/workflows/nightly.yml';
+const hoveredWorkflowPath = '.shipfox/workflows/deploy.yml';
 
 export const Playground: Story = {
   render: () => (
@@ -62,7 +63,13 @@ export const Playground: Story = {
             <TableRow
               key={workflow.path}
               data-selected={workflow.path === selectedWorkflowPath ? 'true' : undefined}
-              className={workflow.path === selectedWorkflowPath ? 'table-row-selected' : undefined}
+              className={
+                workflow.path === selectedWorkflowPath
+                  ? 'table-row-selected'
+                  : workflow.path === hoveredWorkflowPath
+                    ? 'table-row-hover'
+                    : undefined
+              }
             >
               <TableCell className="w-40">
                 <input
@@ -93,7 +100,7 @@ export const Playground: Story = {
   ),
   parameters: {
     pseudo: {
-      hover: '.table-row-selected',
+      hover: '.table-row-hover',
     },
   },
 };
