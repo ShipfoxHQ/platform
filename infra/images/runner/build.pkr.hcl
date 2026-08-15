@@ -31,20 +31,17 @@ build {
 
   provisioner "shell" {
     inline = [
-      "sudo install -d -m 0755 /etc/systemd/network/10-netplan-ens5.network.d",
-      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-ens5.network.d/99-shipfox-runner.conf"
+      "sudo install -d -m 0755 /etc/netplan",
+      "sudo rm -f /etc/netplan/50-cloud-init.yaml",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/01-shipfox.yaml /etc/netplan/01-shipfox.yaml"
     ]
-    only = ["amazon-ebs.build_image"]
   }
 
   provisioner "shell" {
     inline = [
-      "sudo install -d -m 0755 /etc/systemd/network/10-netplan-ens3.network.d /etc/systemd/network/10-netplan-enp1s0.network.d /etc/systemd/network/10-netplan-eth0.network.d",
-      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-ens3.network.d/99-shipfox-runner.conf",
-      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-enp1s0.network.d/99-shipfox-runner.conf",
-      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-eth0.network.d/99-shipfox-runner.conf"
+      "sudo install -d -m 0755 /etc/systemd/network/10-netplan-primary.network.d",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-primary.network.d/99-shipfox-runner.conf"
     ]
-    only = ["qemu.build_image"]
   }
 
   provisioner "shell" {
@@ -60,8 +57,10 @@ build {
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-env.service /etc/systemd/system/shipfox-runner-env.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner-boot-complete.service /etc/systemd/system/shipfox-runner-boot-complete.service",
       "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-max-lifetime.service /etc/systemd/system/shipfox-max-lifetime.service",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-bootstrap.service /etc/systemd/system/shipfox-bootstrap.service",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/start-max-lifetime.sh /opt/shipfox-runner/scripts/runtime/start-max-lifetime.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/record-boot-io.sh /opt/shipfox-runner/scripts/runtime/record-boot-io.sh",
+      "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/shipfox-bootstrap.sh /opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/verify-workspace-mount.sh /opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/helpers/logger.sh /opt/shipfox-runner/scripts/runtime/helpers/logger.sh",
       "sudo systemctl daemon-reload",
@@ -86,6 +85,7 @@ build {
       "sudo install -m 0644 /tmp/shipfox-spot-watchdog.service /etc/systemd/system/shipfox-spot-watchdog.service",
       "sudo install -m 0755 /tmp/spot-watchdog.sh /opt/shipfox-runner/scripts/runtime/spot-watchdog.sh",
       "sudo systemctl daemon-reload",
+      "sudo systemctl enable shipfox-bootstrap.service",
       "sudo systemctl enable shipfox-spot-watchdog.service"
     ]
     only = ["amazon-ebs.build_image"]
@@ -96,7 +96,11 @@ build {
     inline = [
       "sudo passwd --lock ubuntu",
       "sudo rm -f /home/ubuntu/.ssh/authorized_keys",
-      "sudo test ! -e /home/ubuntu/.ssh/authorized_keys"
+      "sudo test ! -e /home/ubuntu/.ssh/authorized_keys",
+      "sudo rm -f /etc/hostname",
+      "sudo test ! -e /etc/hostname",
+      "sudo rm -f /etc/ssh/ssh_host_*",
+      "sudo test -z \"$(find /etc/ssh -maxdepth 1 -type f -name 'ssh_host_*' -print -quit)\""
     ]
   }
 

@@ -1,6 +1,6 @@
 [Unit]
 Description=Start the Shipfox runner lifecycle when its environment is ready
-After=network-online.target
+After=network-online.target shipfox-bootstrap.service
 Wants=network-online.target
 
 [Path]

@@ -6,7 +6,11 @@ root_dir=${RUNNER_IMAGE_ROOT:-/}
 apt-get update
 apt-get install --yes --no-install-recommends \
   ca-certificates curl wget git openssh-client tar gzip xz-utils bzip2 zip unzip jq \
-  build-essential python3 pkg-config ripgrep fd-find sudo amazon-ec2-utils
+  build-essential cloud-guest-utils python3 pkg-config ripgrep fd-find sudo amazon-ec2-utils
+# The final image reads its one user-data payload directly from IMDSv2. Keep cloud-init
+# only long enough for Packer's initial NoCloud SSH bootstrap, then remove its package and state.
+apt-get purge --yes cloud-init
+rm -rf "$root_dir/etc/cloud"
 # Runner instances have no host-management credentials. Remove snapd and its seeded
 # snaps instead of carrying a failed host-management path into every boot.
 # Stop snapd before unmounting its seeded loop-backed squashfs filesystems. The base
