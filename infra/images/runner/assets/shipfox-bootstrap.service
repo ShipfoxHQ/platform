@@ -1,0 +1,15 @@
+[Unit]
+Description=Fetch and publish the Shipfox runner bootstrap environment
+After=network.target
+Before=shipfox-runner-env.path shipfox-runner-env.service
+Wants=network.target
+FailureAction=poweroff
+
+[Service]
+Type=oneshot
+TimeoutStartSec=6min
+ExecStart=/opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

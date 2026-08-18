@@ -1,6 +1,6 @@
 [Unit]
 Description=Validate Shipfox runner environment file
-After=network-online.target
+After=network-online.target shipfox-bootstrap.service
 Wants=network-online.target shipfox-runner.target
 
 [Service]

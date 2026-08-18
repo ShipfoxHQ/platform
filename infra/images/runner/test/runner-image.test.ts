@@ -1021,7 +1021,9 @@ describe('systemd boot activation', () => {
   it('keeps the environment gate as a persistent non-empty-file check', async () => {
     const unit = await readUnit('shipfox-runner-env.service');
 
-    expect(systemdDirective(unit, 'Unit', 'After')).toBe('network-online.target');
+    expect(systemdDirective(unit, 'Unit', 'After')).toBe(
+      'network-online.target shipfox-bootstrap.service',
+    );
     expect(systemdDirective(unit, 'Unit', 'Wants')).toBe(
       'network-online.target shipfox-runner.target',
     );
@@ -1036,6 +1038,44 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(unit, 'Install', 'WantedBy')).toBeUndefined();
     expect(unit).not.toContain('cloud-config.service');
     expect(unit).not.toContain('cloud-final.service');
+  });
+
+  it('fetches and publishes EC2 user data before the environment gate', async () => {
+    const bootstrapUnit = await readUnit('shipfox-bootstrap.service');
+    const script = new URL('../scripts/runtime/shipfox-bootstrap.sh', import.meta.url);
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+    const source = await readFile(script, 'utf8');
+
+    execFileSync('sh', ['-n', script.pathname], {stdio: 'pipe'});
+
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'After')).toBe('network.target');
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'Wants')).toBe('network.target');
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'FailureAction')).toBe('poweroff');
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'Before')).toBe(
+      'shipfox-runner-env.path shipfox-runner-env.service',
+    );
+    expect(systemdDirective(bootstrapUnit, 'Service', 'Type')).toBe('oneshot');
+    expect(systemdDirective(bootstrapUnit, 'Service', 'TimeoutStartSec')).toBe('6min');
+    expect(systemdDirective(bootstrapUnit, 'Service', 'ExecStart')).toBe(
+      '/opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh',
+    );
+    expect(systemdDirective(bootstrapUnit, 'Install', 'WantedBy')).toBe('multi-user.target');
+    expect(source).toContain('X-aws-ec2-metadata-token-ttl-seconds: 21600');
+    expect(source).toContain('--request PUT');
+    expect(source).toContain('/latest/user-data');
+    expect(source).toContain('growpart "$root_disk" "$root_partition_number"');
+    expect(source).toContain('resize2fs "$root_source"');
+    expect(source).toContain('mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1');
+    expect(source).toContain('install -m 0600 -o root -g root');
+    expect(source).toContain('mv -- "$runner_env_temp_path" "$runner_env_path"');
+    expect(build).toContain(
+      'shipfox-bootstrap.sh /opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh',
+    );
+    expect(build).toContain(
+      'shipfox-bootstrap.service /etc/systemd/system/shipfox-bootstrap.service',
+    );
+    expect(build).toContain('systemctl enable shipfox-bootstrap.service');
+    expect(build).toContain('rm -f /etc/hostname');
   });
 
   it('resolves the root device and publishes a boot I/O sample', async () => {
@@ -1234,13 +1274,16 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
       new URL('../assets/shipfox-runner.networkd.conf', import.meta.url),
       'utf8',
     );
+    const netplan = await readFile(new URL('../assets/01-shipfox.yaml', import.meta.url), 'utf8');
     const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
 
     expect(network).toBe('[Network]\nIPv6DuplicateAddressDetection=0\n');
-    expect(build).toContain('10-netplan-ens5.network.d/99-shipfox-runner.conf');
-    expect(build).toContain('10-netplan-ens3.network.d/99-shipfox-runner.conf');
-    expect(build).toContain('10-netplan-enp1s0.network.d/99-shipfox-runner.conf');
-    expect(build).toContain('10-netplan-eth0.network.d/99-shipfox-runner.conf');
+    expect(netplan).toContain('name: "e*"');
+    expect(netplan).toContain('dhcp4: true');
+    expect(netplan).toContain('optional: false');
+    expect(build).toContain('10-netplan-primary.network.d/99-shipfox-runner.conf');
+    expect(build).toContain('01-shipfox.yaml /etc/netplan/01-shipfox.yaml');
+    expect(build).toContain('rm -f /etc/netplan/50-cloud-init.yaml');
     expect(build).not.toContain('DHCP=yes');
     expect(build).not.toContain('RequiredForOnline=yes');
     expect(build).not.toContain('05-shipfox-runner.network');
@@ -1272,12 +1315,14 @@ describe('runner image composition', () => {
       expect(build).toContain('scripts/build/setup-runner.sh');
       expect(stopIndex).toBeGreaterThanOrEqual(0);
       expect(purgeIndex).toBeGreaterThan(stopIndex);
+      expect(events).toContain('apt-get purge --yes cloud-init');
       expect(unmountEvents).toHaveLength(5);
       expect(unmountEvents).toContain(`umount -l ${join(fixture.root, 'snap/amazon-ssm-agent')}`);
       expect(unmountEvents.every((event) => events.indexOf(event) < purgeIndex)).toBe(true);
       expect(await pathExists(join(fixture.root, 'snap'))).toBe(false);
       expect(await pathExists(join(fixture.root, 'snap/amazon-ssm-agent'))).toBe(false);
       expect(await pathExists(join(fixture.root, 'var/lib/snapd'))).toBe(false);
+      expect(await pathExists(join(fixture.root, 'etc/cloud'))).toBe(false);
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
@@ -1296,7 +1341,9 @@ describe('runner image composition', () => {
       ).toThrow();
 
       expect(await pathExists(join(fixture.root, 'snap'))).toBe(true);
-      expect(await readFile(fixture.commandLog, 'utf8')).not.toContain('rm -rf');
+      expect(await readFile(fixture.commandLog, 'utf8')).not.toContain(
+        `rm -rf ${join(fixture.root, 'snap')}`,
+      );
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
@@ -1440,6 +1487,7 @@ async function createRunnerImageSetupFixture() {
   await mkdir(join(root, 'snap/snapd'), {recursive: true});
   await mkdir(join(root, 'var/lib/snapd'), {recursive: true});
   await mkdir(join(root, 'var/lib/apt/lists'), {recursive: true});
+  await mkdir(join(root, 'etc/cloud'), {recursive: true});
   await mkdir(join(root, 'usr/bin'), {recursive: true});
   await mkdir(join(root, 'usr/local/bin'), {recursive: true});
   await mkdir(join(root, 'etc/default'), {recursive: true});
@@ -1451,7 +1499,7 @@ async function createRunnerImageSetupFixture() {
     `#!/bin/sh
 set -eu
 printf 'apt-get %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
-if [ "$1" = purge ] && [ -n "\${RUNNER_IMAGE_FAIL_PURGE:-}" ]; then
+if [ "$1" = purge ] && [ "\${3:-}" = snapd ] && [ -n "\${RUNNER_IMAGE_FAIL_PURGE:-}" ]; then
   exit 1
 fi
 `,

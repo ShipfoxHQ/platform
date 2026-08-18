@@ -11,6 +11,12 @@ lifetime_seconds="$default_lifetime_seconds"
 if [ -r /etc/shipfox/runner.env ]; then
   configured_lifetime="$(sed -n 's/^SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS=//p' /etc/shipfox/runner.env | tail -n 1)"
   case "$configured_lifetime" in
+    \"*\")
+      configured_lifetime="${configured_lifetime#\"}"
+      configured_lifetime="${configured_lifetime%\"}"
+      ;;
+  esac
+  case "$configured_lifetime" in
     ''|*[!0-9]*) ;;
     *)
       if [ "$configured_lifetime" -gt 0 ]; then

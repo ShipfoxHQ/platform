@@ -11,7 +11,7 @@ BUILD_ARCH=amd64 BUILD_ATTEMPT=1 BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS=1234567890
 BUILD_ARCH=amd64 BUILD_ATTEMPT=1 BUILD_NUMBER=42 BUILD_RUNNER_VERSION=0.1.0 pnpm --filter=@shipfox/runner-image exec node ./bin/build-runner-image.js ubuntu24 qemu
 ```
 
-The AMI source uses Canonical Ubuntu 24.04 and requires AWS credentials in `eu-central-1`. The QEMU build defaults to a pinned Canonical Ubuntu 24.04 release image and configures its temporary Packer SSH access through a NoCloud seed; the final image locks that bootstrap account. To use a different QEMU source, set both `SHIPFOX_QEMU_SOURCE_IMAGE` and `SHIPFOX_QEMU_SOURCE_CHECKSUM` (for example, `sha256:<digest>`). Relative source paths resolve from the repository root.
+The AMI source uses Canonical Ubuntu 24.04 and requires AWS credentials in `eu-central-1`. The QEMU build uses a pinned Canonical Ubuntu 24.04 release image. Packer accesses QEMU through a temporary NoCloud seed. The seed is consumed during the build and is not part of the runtime contract. To use a different QEMU source, set `SHIPFOX_QEMU_SOURCE_IMAGE` and `SHIPFOX_QEMU_SOURCE_CHECKSUM` (for example, `sha256:<digest>`). Relative source paths resolve from the repository root.
 
 Packer is pinned in `mise.toml`. Install QEMU and `xorriso` through the host operating system before running a QEMU build.
 
@@ -23,7 +23,7 @@ The fstab entries for `/boot` and `/boot/efi` use `noauto` and pass 0. The parti
 
 `fsck.mode=skip` also suppresses checks for other filesystems with a non-zero pass number. Do not add a durable filesystem with a non-zero pass number without revisiting this image contract.
 
-The IPv6 duplicate-address detection setting is a drop-in for the netplan-generated primary interface configuration. Netplan remains responsible for DHCP, addresses, routes, and online requirements.
+The image ships `/etc/netplan/01-shipfox.yaml`, which matches the primary Ethernet interface and enables DHCP. The IPv6 duplicate-address detection setting is a systemd-networkd drop-in for that generated interface configuration.
 
 The image is built for one job and one instance lifetime. The bake applies
 filesystem and network boot policy in `configure-boot.sh`, and disposable
@@ -70,14 +70,14 @@ an older image.
 
 ## Environment contract
 
-The provider owns the values and must never bake them into the image. It must publish
-`/etc/shipfox/runner.env` atomically: stage the complete file at
-`/etc/shipfox/runner.env.tmp`, then rename it into place on the same filesystem. The
-image watches the final path and starts the lifecycle target when it appears, so this
-contract does not depend on cloud-init's systemd units or stage ordering. The path unit
-pulls the environment gate, which in turn pulls the lifecycle target after its check
-passes. Cloud-init uses `write_files` for the temporary file and a final-stage `runcmd`
-rename; an off-cloud provisioner must provide the same temp-plus-rename behavior.
+The provider owns the values and must never bake them into the image. On EC2,
+`shipfox-bootstrap.service` reads the raw user data from IMDSv2, validates it, and stages
+the complete file at `/etc/shipfox/runner.env.tmp` with mode `0600` and root ownership.
+The bootstrap grows the root filesystem when the launch volume exceeds the AMI snapshot.
+It prepares the disposable workspace volume. It atomically renames the file into
+`/etc/shipfox/runner.env` on the same filesystem. The image watches the final path and
+starts the lifecycle target when it appears. Invalid or unavailable user data therefore
+never reaches the runner environment gate.
 
 The provider-rendered environment contains:
 

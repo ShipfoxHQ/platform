@@ -15,19 +15,20 @@ Copy [`templates.example.yaml`](templates.example.yaml). Set
 `SHIPFOX_PROVISIONER_TEMPLATES_FILE` to that copy. Set `target_concurrency` above
 zero to keep ready runners without demand.
 
-The AMI must include the Shipfox runner and its shutdown watchdog. Cloud-init writes
-`/etc/shipfox/runner.env` with the API URL, one-use token, labels, workspace root, poll time,
-and maximum lifetime. It formats and mounts the separate workspace volume at
-`/var/lib/shipfox/workspaces` before the runner starts. The AMI reads that file and shuts
-down when its watchdog exits.
+The AMI must include the Shipfox runner and its shutdown watchdog. `shipfox-bootstrap.service`
+reads IMDSv2 user data and writes `/etc/shipfox/runner.env`. It formats and mounts the separate
+workspace volume at `/var/lib/shipfox/workspaces` before the runner starts. The AMI reads that
+file and shuts down when its watchdog exits.
 
 ### AMI migration
 
 The split-volume launch contract requires AMIs to be rebuilt before using the 30 GB boot
 volume in the example defaults. An older AMI can contain more root data than the smaller
-volume accepts, which makes the launch fail. Deploy the provider change before publishing
-the replacement AMI. During the transition, keep `root_volume_gb` at or above the old AMI's
-root snapshot size until every template uses a rebuilt AMI.
+volume accepts, which makes the launch fail. Publish and repoint the replacement AMI before
+deploying the provider change. The old AMI expects cloud-init YAML; the new image expects a
+raw environment file. A rollback requires a provider and AMI from the same contract. During
+the transition, keep `root_volume_gb` at or above the old AMI's root snapshot size until every
+template uses a rebuilt AMI.
 
 ## Template families
 

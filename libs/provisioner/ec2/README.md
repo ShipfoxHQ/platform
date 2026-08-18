@@ -9,13 +9,14 @@ control loop.
 - `loadEc2Templates(filePath)` reads, parses, and validates EC2 template YAML.
 - `Ec2TemplateSpec` describes the EC2 launch details for a template.
 - `Ec2TemplateConfigError` identifies a missing, malformed, or invalid template file.
-- `renderRunnerBootstrapUserData(options)` renders cloud-init for the prebaked managed-runner image.
+- `renderRunnerBootstrapUserData(options)` renders the raw IMDS user-data environment for the prebaked managed-runner image.
 - `redactRunnerBootstrapUserData(options)` returns launch metadata that is safe to log.
 
 The user-data renderer writes the API URL, one-use bootstrap token, runner-declared labels,
 managed-runner protocol metadata, the managed workspace root, poll deadline, and watchdog
-lifetime. It formats and mounts the non-root EBS volume before the runner starts. It never
-renders a workspace ID, workspace registration token, or activation token.
+lifetime. The image's EC2 bootstrap service formats and mounts the non-root EBS volume before
+the runner starts. It never renders a workspace ID, workspace registration token, or
+activation token.
 
 ## Template config
 
@@ -104,9 +105,9 @@ equivalent so the planner prefers Spot before spilling to on-demand capacity.
 `root_volume_gb` is the boot volume size. `workspace_volume_gb` is a separate, encrypted gp3
 volume created for per-job checkouts, logs, and credentials. The provider deletes both
 volumes with the instance. `workspace_device_name` is the EC2 block-device mapping name;
-cloud-init resolves the attached EBS disk to its runtime device before formatting and
-mounting it at `/var/lib/shipfox/workspaces`. It fails closed when the mapping is absent and
-the non-root EBS disk is not unique.
+the EC2 bootstrap service resolves the attached EBS disk to its runtime device before
+formatting and mounting it at `/var/lib/shipfox/workspaces`. It fails closed when the
+non-root EBS disk is absent or not unique.
 
 The example defaults change general runner capacity from one 100 GB EBS volume to a 30 GB
 boot volume plus a 100 GB workspace volume (130 GB total). The GPU example uses 30 GB plus
