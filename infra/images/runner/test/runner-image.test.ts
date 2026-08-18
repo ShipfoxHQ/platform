@@ -1050,7 +1050,7 @@ describe('systemd boot activation', () => {
 
     expect(systemdDirective(bootstrapUnit, 'Unit', 'After')).toBe('network.target');
     expect(systemdDirective(bootstrapUnit, 'Unit', 'Wants')).toBe('network.target');
-    expect(systemdDirective(bootstrapUnit, 'Unit', 'FailureAction')).toBe('poweroff-immediate');
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'FailureAction')).toBe('poweroff');
     expect(systemdDirective(bootstrapUnit, 'Unit', 'Before')).toBe(
       'shipfox-runner-env.path shipfox-runner-env.service',
     );
