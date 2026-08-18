@@ -1,5 +1,14 @@
 # @shipfox/client-workspace-settings
 
+## 22.0.1
+
+### Patch Changes
+
+- e92517f: Reorganizes workspace settings into a compact sidebar rail with section panels and relocates Events settings into the new workspace layout.
+- Updated dependencies [e92517f]
+  - @shipfox/client-shell@22.0.1
+  - @shipfox/client-auth@22.0.1
+
 ## 22.0.0
 
 ### Patch Changes

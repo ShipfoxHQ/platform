@@ -1,5 +1,16 @@
 # @shipfox/client-workflows
 
+## 22.0.1
+
+### Patch Changes
+
+- 50adc12: Displays live job duration timers in whole seconds.
+- e99205b: Removes the redundant page heading and description from the workflows page.
+- Updated dependencies [e92517f]
+  - @shipfox/client-shell@22.0.1
+  - @shipfox/client-triggers@22.0.1
+  - @shipfox/client-projects@22.0.1
+
 ## 22.0.0
 
 ### Patch Changes

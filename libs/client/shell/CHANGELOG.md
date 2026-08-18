@@ -1,5 +1,11 @@
 # Changelog
 
+## 22.0.1
+
+### Patch Changes
+
+- e92517f: Reorganizes workspace settings into a compact sidebar rail with section panels and relocates Events settings into the new workspace layout.
+
 ## 22.0.0
 
 ### Minor Changes
