@@ -1,11 +1,12 @@
 [Unit]
 Description=Fetch and publish the Shipfox runner bootstrap environment
-After=network.target
+After=network-online.target
 Before=shipfox-runner-env.path shipfox-runner-env.service
-Wants=network.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=6min
 ExecStart=/opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh
 RemainAfterExit=yes
 

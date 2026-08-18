@@ -11,7 +11,7 @@ BUILD_ARCH=amd64 BUILD_ATTEMPT=1 BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS=1234567890
 BUILD_ARCH=amd64 BUILD_ATTEMPT=1 BUILD_NUMBER=42 BUILD_RUNNER_VERSION=0.1.0 pnpm --filter=@shipfox/runner-image exec node ./bin/build-runner-image.js ubuntu24 qemu
 ```
 
-The AMI source uses Canonical Ubuntu 24.04 and requires AWS credentials in `eu-central-1`. The QEMU build defaults to a pinned Canonical Ubuntu 24.04 release image and configures its temporary Packer SSH access through a NoCloud seed; that seed is consumed during the build and is not part of the final runtime contract. To use a different QEMU source, set both `SHIPFOX_QEMU_SOURCE_IMAGE` and `SHIPFOX_QEMU_SOURCE_CHECKSUM` (for example, `sha256:<digest>`). Relative source paths resolve from the repository root.
+The AMI source uses Canonical Ubuntu 24.04 and requires AWS credentials in `eu-central-1`. The QEMU build uses a pinned Canonical Ubuntu 24.04 release image. Packer accesses QEMU through a temporary NoCloud seed. The seed is consumed during the build and is not part of the runtime contract. To use a different QEMU source, set `SHIPFOX_QEMU_SOURCE_IMAGE` and `SHIPFOX_QEMU_SOURCE_CHECKSUM` (for example, `sha256:<digest>`). Relative source paths resolve from the repository root.
 
 Packer is pinned in `mise.toml`. Install QEMU and `xorriso` through the host operating system before running a QEMU build.
 
@@ -73,8 +73,8 @@ an older image.
 The provider owns the values and must never bake them into the image. On EC2,
 `shipfox-bootstrap.service` reads the raw user data from IMDSv2, validates it, and stages
 the complete file at `/etc/shipfox/runner.env.tmp` with mode `0600` and root ownership.
-It grows the root filesystem when the launch volume is larger than the AMI snapshot,
-prepares the disposable workspace volume, and then atomically renames the file into
+The bootstrap grows the root filesystem when the launch volume exceeds the AMI snapshot.
+It prepares the disposable workspace volume. It atomically renames the file into
 `/etc/shipfox/runner.env` on the same filesystem. The image watches the final path and
 starts the lifecycle target when it appears. Invalid or unavailable user data therefore
 never reaches the runner environment gate.

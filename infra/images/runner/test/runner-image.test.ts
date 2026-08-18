@@ -959,9 +959,7 @@ describe('systemd boot activation', () => {
     const pathUnit = await readUnit('shipfox-runner-env.path');
     const targetUnit = await readUnit('shipfox-runner.target');
 
-    expect(systemdDirective(pathUnit, 'Unit', 'After')).toBe(
-      'network-online.target shipfox-bootstrap.service',
-    );
+    expect(systemdDirective(pathUnit, 'Unit', 'After')).toBe('network-online.target');
     expect(systemdDirective(pathUnit, 'Unit', 'Wants')).toBe('network-online.target');
     expect(systemdDirective(pathUnit, 'Path', 'PathExists')).toBe('/etc/shipfox/runner.env');
     expect(systemdDirective(pathUnit, 'Path', 'Unit')).toBe('shipfox-runner-env.service');
@@ -1050,11 +1048,12 @@ describe('systemd boot activation', () => {
 
     execFileSync('sh', ['-n', script.pathname], {stdio: 'pipe'});
 
-    expect(systemdDirective(bootstrapUnit, 'Unit', 'After')).toBe('network.target');
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'After')).toBe('network-online.target');
     expect(systemdDirective(bootstrapUnit, 'Unit', 'Before')).toBe(
       'shipfox-runner-env.path shipfox-runner-env.service',
     );
     expect(systemdDirective(bootstrapUnit, 'Service', 'Type')).toBe('oneshot');
+    expect(systemdDirective(bootstrapUnit, 'Service', 'TimeoutStartSec')).toBe('6min');
     expect(systemdDirective(bootstrapUnit, 'Service', 'ExecStart')).toBe(
       '/opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh',
     );

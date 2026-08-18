@@ -21,11 +21,6 @@ abort_boot() {
   exit 1
 }
 
-fail_boot() {
-  printf 'shipfox bootstrap: %s\n' "$1" >&2
-  exit 1
-}
-
 validate_runner_env() {
   awk '
   BEGIN {
@@ -244,14 +239,14 @@ if ! /usr/bin/ssh-keygen -A; then
 fi
 
 if ! fetch_user_data; then
-  fail_boot 'Unable to read runner user data from IMDSv2 after retries.'
+  abort_boot 'Unable to read runner user data from IMDSv2 after retries.'
 fi
 if ! install -m 0600 -o root -g root "$user_data_fetch_path" "$runner_env_temp_path"; then
-  fail_boot 'Unable to stage runner user data.'
+  abort_boot 'Unable to stage runner user data.'
 fi
 if ! validate_runner_env "$runner_env_temp_path"; then
   rm -f "$runner_env_temp_path"
-  fail_boot 'Runner user data is not a valid environment file.'
+  abort_boot 'Runner user data is not a valid environment file.'
 fi
 
 grow_root_filesystem
