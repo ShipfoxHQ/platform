@@ -10,11 +10,19 @@ based on the repository's files.
 
 ## Before you begin
 
+This lesson starts from a workspace you can already sign in to. In that
+workspace, you need:
+
+- A [source integration connection](/integrations) that can read the test
+  repository.
+- A configured [model provider and workspace agent
+  defaults](/how-to/set-up-work/configure-model-providers).
+- Runner capacity that matches the `runner:` value in the workflow below. See
+  [Runners](/operations/runners).
+
 <Callout type="info">
-  This lesson requires a workspace login, a source integration connection that
-  can read the test repository, an online `ubuntu-latest` runner, and configured
-  agent [defaults](/how-to/set-up-work/configure-model-providers). See
-  [Installation](/installation) if Shipfox is not running yet.
+  No workspace yet? Getting one is a separate task. See
+  [Installation](/installation).
 </Callout>
 
 ## Connect your project
@@ -82,7 +90,7 @@ hello world
 *A run detail page: status, the job graph, and every step with its duration.*
 
 <Callout type="info">
-  A run stuck in `pending` means no online runner matches the `runner:` label in your workflow. Check that a runner with the label `ubuntu-latest` is online. See [Resolve pending jobs](/how-to/run-and-troubleshoot/pending-jobs).
+  A run stuck in `pending` means no online runner matches the `runner:` value in your workflow. See [Resolve pending jobs](/how-to/run-and-troubleshoot/pending-jobs).
 </Callout>
 
 ## Verify the result

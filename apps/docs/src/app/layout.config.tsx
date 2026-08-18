@@ -1,5 +1,22 @@
+import {buttonVariants} from 'fumadocs-ui/components/ui/button';
 import type {BaseLayoutProps} from 'fumadocs-ui/layouts/shared';
 import {basePath} from '@/url';
+
+export function ShipfoxDashboardButton() {
+  return (
+    <a
+      href="https://app.shipfox.io"
+      target="_blank"
+      rel="noreferrer"
+      className={buttonVariants({
+        color: 'primary',
+        className: 'w-full md:order-first md:mb-2',
+      })}
+    >
+      Go to dashboard
+    </a>
+  );
+}
 
 /**
  * Shared layout configurations
