@@ -1291,6 +1291,32 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
 });
 
 describe('runner image composition', () => {
+  it('creates and enables a 4 GiB swap file', async () => {
+    const script = new URL('../scripts/build/setup-runner.sh', import.meta.url);
+    const fixture = await createRunnerImageSetupFixture();
+
+    try {
+      execFileSync('/bin/sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+
+      const events = (await readFile(fixture.commandLog, 'utf8')).trim().split('\n');
+      const fallocateIndex = events.indexOf(`fallocate -l 4G ${join(fixture.root, 'swapfile')}`);
+      const chmodIndex = events.indexOf(`chmod 600 ${join(fixture.root, 'swapfile')}`);
+      const mkswapIndex = events.indexOf(`mkswap ${join(fixture.root, 'swapfile')}`);
+      const swaponIndex = events.indexOf(`swapon ${join(fixture.root, 'swapfile')}`);
+
+      expect(fallocateIndex).toBeGreaterThanOrEqual(0);
+      expect(chmodIndex).toBeGreaterThan(fallocateIndex);
+      expect(mkswapIndex).toBeGreaterThan(chmodIndex);
+      expect(swaponIndex).toBeGreaterThan(mkswapIndex);
+      expect((await stat(join(fixture.root, 'swapfile'))).mode & 0o777).toBe(0o600);
+      expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toContain(
+        '/swapfile none swap sw 0 0\n',
+      );
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
   it('unmounts seeded snaps, purges snapd, and removes its image state', async () => {
     const script = new URL('../scripts/build/setup-runner.sh', import.meta.url);
     const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
@@ -1493,6 +1519,7 @@ async function createRunnerImageSetupFixture() {
   await mkdir(join(root, 'etc/default'), {recursive: true});
   await mkdir(join(root, 'etc/sudoers.d'), {recursive: true});
   await mkdir(commandDirectory, {recursive: true});
+  await writeFile(join(root, 'etc/fstab'), '# fstab\n');
 
   await writeExecutable(
     join(commandDirectory, 'apt-get'),
@@ -1502,6 +1529,18 @@ printf 'apt-get %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
 if [ "$1" = purge ] && [ "\${3:-}" = snapd ] && [ -n "\${RUNNER_IMAGE_FAIL_PURGE:-}" ]; then
   exit 1
 fi
+`,
+  );
+  await writeExecutable(
+    join(commandDirectory, 'fallocate'),
+    `#!/bin/sh
+set -eu
+printf 'fallocate %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+last=''
+for argument; do
+  last="$argument"
+done
+: > "$last"
 `,
   );
   await writeExecutable(
@@ -1542,7 +1581,28 @@ done
 `,
   );
   await writeExecutable(join(commandDirectory, 'ln'), '#!/bin/sh\nexec /bin/ln "$@"\n');
-  await writeExecutable(join(commandDirectory, 'chmod'), '#!/bin/sh\nexec /bin/chmod "$@"\n');
+  await writeExecutable(
+    join(commandDirectory, 'chmod'),
+    `#!/bin/sh
+set -eu
+printf 'chmod %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+exec /bin/chmod "$@"
+`,
+  );
+  await writeExecutable(
+    join(commandDirectory, 'mkswap'),
+    `#!/bin/sh
+set -eu
+printf 'mkswap %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+`,
+  );
+  await writeExecutable(
+    join(commandDirectory, 'swapon'),
+    `#!/bin/sh
+set -eu
+printf 'swapon %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+`,
+  );
   await writeExecutable(join(commandDirectory, 'groupadd'), '#!/bin/sh\nexit 0\n');
   await writeExecutable(join(commandDirectory, 'id'), '#!/bin/sh\nexit 1\n');
   await writeExecutable(join(commandDirectory, 'useradd'), '#!/bin/sh\nexit 0\n');
