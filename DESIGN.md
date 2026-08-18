@@ -24,27 +24,27 @@ colors:
   meta: "#8b5cf6"
 typography:
   display:
-    fontFamily: "Inter, sans-serif"
+    fontFamily: "IBM Plex Sans, sans-serif"
     fontSize: "56px"
     fontWeight: 500
     lineHeight: "64px"
   headline:
-    fontFamily: "Inter, sans-serif"
+    fontFamily: "IBM Plex Sans, sans-serif"
     fontSize: "28px"
     fontWeight: 500
     lineHeight: "44px"
   title:
-    fontFamily: "Inter, sans-serif"
+    fontFamily: "IBM Plex Sans, sans-serif"
     fontSize: "18px"
     fontWeight: 500
     lineHeight: "28px"
   body:
-    fontFamily: "Inter, sans-serif"
+    fontFamily: "IBM Plex Sans, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: "24px"
   label:
-    fontFamily: "Inter, sans-serif"
+    fontFamily: "IBM Plex Sans, sans-serif"
     fontSize: "12px"
     fontWeight: 500
     lineHeight: "20px"
@@ -284,26 +284,27 @@ fill (which fights zebra rhythm and dark mode).
 
 ## Typography
 
-**Display and UI Font:** Inter (self-hosted variable, weights 100 to 900, latin +
-latin-ext, with italics). Fallback `sans-serif`.
+**Display and UI Font:** IBM Plex Sans (self-hosted variable, weights 100 to 700,
+Latin subsets, with italics). Fallback `sans-serif`.
 **Code Font:** Commit Mono (self-hosted, weights 400 and 700). Fallback `monospace`.
 
-**Character:** Inter is the dev-tool default for legibility at 13 to 14px; Commit
-Mono carries warmth across the heavy log, YAML, and SHA surfaces. `html` enables
-OpenType `rlig`, `calt`, and `lnum`, so digits are tabular by default in both
-families: durations, run numbers, and counters do not jitter when they update.
+**Character:** IBM Plex Sans adds a restrained technical character while staying
+legible at 13 to 14px; Commit Mono carries warmth across the heavy log, YAML, and
+SHA surfaces. `html` enables OpenType `rlig`, `calt`, and `lnum`, so digits are
+tabular by default in both families: durations, run numbers, and counters do not
+jitter when they update.
 
 ### Hierarchy
 
-- **Display** (Inter Medium, `text-4xl` 40px / `text-5xl` 56px): marketing hero
+- **Display** (IBM Plex Sans Medium, `text-4xl` 40px / `text-5xl` 56px): marketing hero
   only.
-- **Headline** (Inter Medium, `text-3xl` 28px/44, `text-2xl` 24px/32): page titles
+- **Headline** (IBM Plex Sans Medium, `text-3xl` 28px/44, `text-2xl` 24px/32): page titles
   and sub-headings.
-- **Title** (Inter Medium, `text-xl` 18px/28, `text-lg` 16px/24): section headings
+- **Title** (IBM Plex Sans Medium, `text-xl` 18px/28, `text-lg` 16px/24): section headings
   and panel headings.
-- **Body** (Inter Regular, `text-md` 14px/24): default copy, form labels, button
+- **Body** (IBM Plex Sans Regular, `text-md` 14px/24): default copy, form labels, button
   labels at md. `text-sm` 13px/20 for table body and helper text.
-- **Label** (Inter Medium, `text-xs` 12px/20): tags, metadata, table footers.
+- **Label** (IBM Plex Sans Medium, `text-xs` 12px/20): tags, metadata, table footers.
 - **Code** (Commit Mono, `text-sm` 13px/20): everything monospace.
 
 Weights are regular (400) by default, medium (500) for headings and emphasized
