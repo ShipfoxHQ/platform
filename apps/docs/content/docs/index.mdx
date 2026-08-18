@@ -1,96 +1,89 @@
 ---
-title: "Shipfox: Your AI software factory"
+title: "Shipfox · Your AI Software Factory"
 sidebarTitle: "Home"
-description: "Shipfox is your AI software factory. Build workflows that run shell and AI agent steps, start them from the tools you already use, and run them on compute you control."
+description: "The agent platform for engineering teams. Define agents in git, trigger them on any event from your stack, and give them secure access to your tools and teammates."
 ---
 
-**Your AI software factory.**
+## Agent platform for engineering teams
 
-Shipfox turns your engineering work into workflows that AI agents can run. You write each workflow as YAML in your repository. A matching event can start a run, such as a code push or an alert. An agent can read context, use selected tools, and act within the workflow's permissions. Every step streams to the dashboard as it runs.
+Shipfox lets you automate real engineering work with agents you trust in production.
 
-<DocsVideo
-  lightSrc="/img/job-run-light.mp4"
-  lightPoster="/img/job-run-light-poster.jpg"
-  darkSrc="/img/job-run-dark.mp4"
-  darkPoster="/img/job-run-dark-poster.jpg"
-  width={1920}
-  height={1080}
-  label="A Shipfox run: the fix, verify_fix, and deploy_fix workflow with the claude-opus-4-8 agent step streaming its thinking and tool calls live in the dashboard."
-/>
+You describe what the agent does. Shipfox handles everything around it: orchestration, secure access to your tools, execution next to your code, monitoring, and central control.
 
-<Cards>
-  <Card title="Get started" href="/getting-started">
-    Connect a repository and run your first workflow in a few minutes.
-  </Card>
-  <Card title="Browse integrations" href="/integrations">
-    Find a provider in the catalog and connect it.
-  </Card>
-  <Card title="See how it works" href="/understand">
-    The run model in one page: triggers, jobs, steps, agents, and runners.
-  </Card>
-</Cards>
-
-## Anatomy of a workflow
-
-A workflow starts with a trigger, then runs one or more jobs. Each job is an ordered list of steps, and a step is a shell command or an AI agent. Larger workflows chain many jobs and run them in parallel.
-
-This fragment adds a Sentry trigger and a job below the top-level `name` and
-`runner` fields of an existing workflow:
+Agents live in your repository as [YAML](/reference/workflow-schema). This workflow runs your tests on every push, then puts an agent on the result:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
+name: Review on push
+runner: ubuntu-latest
+
 triggers:
-  on_alert:                        # Define any trigger from your integrations
-    source: sentry_prod              # Replace with the slug of your Sentry integration connection.
-    event: issue.created
+  on_push:
+    source: github_acme # the slug of your GitHub integration connection
+    event: push
+
 jobs:
-  fix:
+  review:
     steps:
-      - run: npm install           # a shell step
-      - prompt: |                  # an agent step uses workspace defaults
-          Investigate the alert in the repository and report the likely cause.
-          Do not change files.
+      - run: npm test
+      - prompt: |
+          Review the changes in this push and report the highest-risk findings.
 ```
 
-## What to build
+Your first agent runs in minutes with Shipfox cloud.
 
 <Cards>
-  <Card title="Respond to alerts" href="/how-to/recipes/triage-sentry-issues">
-    A Sentry issue starts a run, and an agent reports the likely cause.
+  <Card title="Get started" href="/getting-started">
+    Connect a repository and run your first workflow in minutes.
   </Card>
-  <Card title="Check every push" href="/how-to/recipes/checks-on-push">
-    Run tests, lint, and an AI review on every commit, in one workflow.
-  </Card>
-  <Card title="Run parallel CI" href="/how-to/recipes/parallel-ci-agent-review">
-    Run checks in parallel and fan in to an agent review.
-  </Card>
-  <Card title="Let agents fix code" href="/how-to/author-workflows/build-feedback-loop">
-    Pair an agent with a gate so it retries until the check passes.
+  <Card title="Browse integrations" href="/integrations">
+    Connect source control, monitoring, tickets, chat, and other tools.
   </Card>
 </Cards>
 
-## Why Shipfox
+## Agents that stay under control
 
-- **Agents automate your process.** Any step can be an AI agent that reads your repository, runs tools, and acts on the result.
-- **Watch every run.** Runs, jobs, and steps stream live to the dashboard. Agent steps show their messages, thinking, tool calls, tokens, and cost. See [Workflows and runs](/understand/workflows-and-runs).
-- **Works with your daily tools.** Start runs from GitHub, Sentry, or any custom webhook. See [Integrations](/integrations).
-- **Your harness, your models.** Pick your agent harness and any of the supported [model providers](/reference/model-providers).
-- **Run on your compute.** Jobs run on isolated [runners](/understand/runners-and-execution-environments) you control. Use long-lived capacity or provision a runner for each job.
-- **Open source, MIT.** Self-host the whole platform. [Shipfox on GitHub](https://github.com/ShipfoxHQ/shipfox).
+You decide how much freedom each agent gets. Workflows combine [agent steps](/understand/agents), where a model decides what to do, with [shell steps](/how-to/author-workflows/run-shell-commands) that run your exact commands. You set the structure. The model works inside it.
+
+## Loops that run until the result is correct
+
+A [feedback loop](/understand/feedback-loops) repeats an agent until your condition is met. The agent keeps working until the output is right, without a person in the loop.
+
+## Secure by design
+
+Agents run next to your code in [ephemeral runners](/understand/runners-and-execution-environments). Each runner starts in isolation and stops at the end of the job. No data stays between two runs. Each agent reaches only the [tools that you allow](/understand/integrations-connections-and-tools).
+
+## Open source and self-hostable
+
+The whole platform is open source under the MIT license. Read it on [GitHub](https://github.com/ShipfoxHQ/shipfox), or [run Shipfox on your own infrastructure](/installation) so that your code and your credentials never leave it.
+
+## One place to control everything
+
+You monitor and manage every agent from one place. Every [run](/understand/workflows-and-runs) streams its jobs, steps, agent messages, tool calls, tokens, and cost while it happens.
+
+## What teams build with Shipfox
+
+Teams use Shipfox for work such as:
+
+- **Triage monitoring errors.** A new error starts an agent that produces a fix
+  and opens a pull request.
+- **Turn tickets into code.** An assigned ticket starts an agent that opens a
+  pull request and responds to review comments.
+- **Fix failing CI.** A failing check starts an agent that produces a fix and
+  makes the check pass again.
+- **Review pull requests.** Each new pull request gets an agent review based on
+  the team's guidelines, with follow-up on later changes.
 
 ## Where to go next
 
 <Cards>
   <Card title="Get started" href="/getting-started">
-    Connect a repository, add a workflow, and fire your first run.
+    Connect a repository and run your first workflow in minutes.
   </Card>
   <Card title="Understand Shipfox" href="/understand">
-    Events, jobs, agents, feedback loops, and asynchronous interaction.
+    Learn how events, jobs, agents, runners, and feedback loops work together.
   </Card>
-  <Card title="Integrations" href="/integrations">
-    Connect your monitoring, ticketing, and chat tools, and webhooks.
-  </Card>
-  <Card title="Installation" href="/installation">
-    Self-host Shipfox for your team.
+  <Card title="Browse integrations" href="/integrations">
+    See which tools can start workflows and which operations agents can use.
   </Card>
 </Cards>

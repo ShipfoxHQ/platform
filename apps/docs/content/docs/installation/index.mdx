@@ -1,13 +1,17 @@
 ---
 title: "Installing Shipfox"
 sidebarTitle: "Overview"
-description: "How to run Shipfox: evaluate locally or self-host on your own infrastructure. An overview of the components and the setup paths."
+description: "How to get a Shipfox workspace: use Shipfox Cloud, evaluate locally, or self-host on your own infrastructure. An overview of the components and the setup paths."
 ---
 
-Shipfox has two parts to stand up: a **control plane** and one or more **runners**.
-The control plane contains the API and dashboard, backed by PostgreSQL, Temporal,
-and S3-compatible object storage. Runners execute jobs on compute you own. This section is for whoever operates that
-infrastructure, typically a platform, DevEx, or SRE team.
+Shipfox runs as a **control plane** and one or more **runners**. On [Shipfox
+Cloud](https://app.shipfox.io) both are provided and there is nothing to install:
+create a workspace and go straight to [Quick Start](/getting-started).
+
+To run Shipfox yourself, you stand up both parts. The control plane contains the
+API and dashboard, backed by PostgreSQL, Temporal, and S3-compatible object
+storage. Runners execute jobs on compute you own. The rest of this section is for
+whoever operates that infrastructure, typically a platform, DevEx, or SRE team.
 
 <Callout type="info">
   Configuring projects and authoring workflows needs none of this. If Shipfox is
@@ -27,6 +31,9 @@ infrastructure, typically a platform, DevEx, or SRE team.
 ## Choose a path
 
 <Cards>
+  <Card title="Shipfox Cloud" href="https://app.shipfox.io">
+    Create a workspace on managed infrastructure. Runner capacity is provided.
+  </Card>
   <Card title="Local evaluation" href="/installation/local">
     Run the whole stack on your machine with Docker Compose to try Shipfox out.
   </Card>
