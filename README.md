@@ -4,8 +4,8 @@
 
 <p align="center">
   <a href="https://www.shipfox.io/docs"><b>Docs</b></a> ·
-  <a href="#getting-started"><b>Getting started</b></a> ·
-  <a href="#core-concepts"><b>Concepts</b></a> ·
+  <a href="https://www.shipfox.io/docs/getting-started"><b>Getting started</b></a> ·
+  <a href="https://www.shipfox.io/docs/understand"><b>Concepts</b></a> ·
   <a href="https://join.slack.com/t/shipfoxcommunity/shared_invite/zt-42wdu4lvl-KiYxEKCzzHUCafiC0EjbVA"><b>Slack community</b></a> ·
   <a href="CONTRIBUTING.md"><b>Contributing</b></a>
 </p>
@@ -14,85 +14,64 @@
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome" />
 </p>
 
-**Build your software factory.**
+**The agent platform for engineering teams.**
 
-Shipfox is a continuous shipping platform for workflows that reason and react:
-every step is a shell command or an AI agent, and events drive the run from start
-to finish. A software factory that assembles itself in your repo.
+Shipfox turns engineering work into automated workflows built from AI agents and
+shell commands. Workflows live as YAML in your repository and react to events
+across your stack. Shipfox handles orchestration, secure tool access, isolated
+execution, and monitoring.
 
-```yaml
-name: Fix new Sentry issues
-runner: ubuntu-latest
-triggers:
-  on_issue:
-    source: sentry_acme            # a new Sentry issue starts the run
-    event: issue.created
-jobs:
-  fix:
-    steps:
-      - run: npm install
-      - key: fix                    # an agent step
-        model: claude-opus-4-8
-        prompt: >
-          Sentry reported "${{ event.title }}" (${{ event.webUrl }}).
-          Reproduce it in this repository, find the root cause, and fix it.
-      - run: npm test               # verify the fix
-        gate:
-          on_failure:
-            restart_from: fix        # send the agent back until the tests pass
-            feedback: Unit tests are failing
-```
-
-If you have written GitHub Actions, you already know how to read this file, and
-that is deliberate. What is different is what a step can be and the control flow
-around it: a Sentry issue starts the run, an agent reproduces and fixes the cause,
-then a `gate` reruns the tests and sends the agent back until they pass.
+[Get your first workflow running now](https://www.shipfox.io/docs/getting-started).
 
 ## Highlights
 
-- **Workflows as code.** YAML under `.shipfox/workflows/`, versioned and reviewed
-  like the rest of your repo. No plugin, no action, no glue.
-- **Trigger from your whole stack.** Start runs from GitHub, Sentry, Slack, Linear,
-  and more through integrations. Missing one? Point it at the generic webhook
-  integration and trigger on its events too. Connect several of the same provider
-  and target each independently.
-- **Automatic retry loops.** Guard a step with a check (a *gate*): when it fails,
-  the workflow loops back to an earlier step and tries again, up to a safe limit.
-  That is how an agent keeps going until the tests pass, with no scripting.
-- **Long-running, event-driven agents.** A listening job stays alive across a run
-  and runs an agent on each new batch of events (PR review comments, new issues)
-  until a resolution condition is met. Asynchronous agent loops, not one-shot runs.
-- **See the agent think.** Agent steps stream structured events (messages,
-  thinking, tool calls, token usage, and cost), rather than raw text.
-- **Pick the agent, not the model.** Run an agent step on the `pi` harness
-  (any of 30+ providers) or the `claude` harness (the Claude Agent SDK on your
+- **Agents that stay under control.** Agent steps, where a model decides what to
+  do, sit next to shell steps that run your exact commands. You set the
+  structure. The model works inside it.
+- **Loops that run until the result is correct.** A
+  [gate](https://www.shipfox.io/docs/understand/feedback-loops) is a pass/fail
+  check on a step. When it fails, the workflow loops back to an earlier step and
+  tries again, up to a safe limit. That is how an agent keeps going until the
+  tests pass, with no scripting.
+- **Long-running, event-driven agents.** A [listening
+  job](https://www.shipfox.io/docs/understand/listening-jobs) stays alive across
+  a run and runs an agent on each new batch of events (PR review comments, new
+  issues) until a resolution condition is met. Asynchronous agent loops, not
+  one-shot runs.
+- **Triggers from your whole stack.** Start runs from GitHub, Sentry, Slack,
+  Linear, and more through integrations. Missing one? Point it at the [generic
+  webhook](https://www.shipfox.io/docs/integrations/webhooks) and trigger on its
+  events too. Connect several of the same provider and target each independently.
+- **Secure by design.** Each job runs isolated in a runner next to your code that
+  polls outbound for work, so nothing connects in. No data stays between two
+  runs, and each agent reaches only the tools you allow.
+- **One place to control everything.** Every run streams its jobs, steps, agent
+  messages, thinking, tool calls, tokens, and cost while it happens.
+- **Your harness, your keys.** Run an agent step on the `pi` harness (any of 30+
+  model providers) or the `claude` harness (the Claude Agent SDK on your
   Anthropic key), chosen per step.
-- **Isolated, outbound-only runs.** Each job runs isolated in a runner that polls
-  outbound for work, so nothing connects in. Bring your own keys across 30+ model
-  providers.
+- **Open source and self-hostable.** The whole platform is MIT licensed. Run it
+  on your own infrastructure so that your code and your credentials never leave
+  it.
 
-## Core concepts
+## What teams build with Shipfox
 
-| Concept | Summary |
-|---|---|
-| **Workflow** | A YAML file under `.shipfox/workflows/`, versioned and reviewed like code. One file, one workflow. |
-| **Trigger** | What starts a run: an event from a connected integration, or an on-demand fire. |
-| **Integration** | A connection to an external tool (GitHub, Sentry, Slack, Linear, ...) whose events start runs. Use the [generic webhook](apps/docs/content/docs/integrations/webhooks/index.mdx) to connect anything not built in. |
-| **Job** | A group of steps on one runner. Jobs form a DAG via `needs` and are isolated, so each re-clones the repo. |
-| **Step** | A `run` shell command or an agent (`model` + `prompt`, on the `pi` or `claude` harness). Runs in order within a job. |
-| **Gate** | A pass/fail [check on a step](apps/docs/content/docs/understand/feedback-loops.mdx) that retries from an earlier step when it fails. Bounded retry loops, no scripting. |
-| **Listening job** | A [job that waits on events](apps/docs/content/docs/understand/listening-jobs.mdx) and runs again per batch inside the same run, until a resolution condition. Drives event-driven, asynchronous workflows. |
-| **Runner** | The application that runs a job's steps. |
+- **Triage monitoring errors.** A new error starts an agent that produces a fix
+  and opens a pull request.
+- **Turn tickets into code.** An assigned ticket starts an agent that opens a
+  pull request and responds to review comments.
+- **Fix failing CI.** A failing check starts an agent that produces a fix and
+  makes the check pass again.
+- **Review pull requests.** Each new pull request gets an agent review based on
+  the team's guidelines, with follow-up on later changes.
 
 ## Getting started
 
-Try Shipfox on your machine with the
-[Local Evaluation guide](https://www.shipfox.io/docs/installation/local): it runs
-the full stack locally, then walks you through connecting a project, registering a
-runner, and firing your first run. To run Shipfox for your team, see the
+Start with the [Getting Started guide](https://www.shipfox.io/docs/getting-started).
+Self-hosting Shipfox? See the
 [installation docs](https://www.shipfox.io/docs/installation).
 
-Working on Shipfox itself? See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributing to Shipfox? Read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Documentation
 
@@ -119,4 +98,4 @@ map links to the engineering guide for each change.
 
 ## License
 
-[MIT](LICENSE) © Shipfox
+[MIT License](LICENSE)
