@@ -7,6 +7,15 @@ apt-get update
 apt-get install --yes --no-install-recommends \
   ca-certificates curl wget git openssh-client tar gzip xz-utils bzip2 zip unzip jq \
   build-essential cloud-guest-utils python3 pkg-config ripgrep fd-find sudo amazon-ec2-utils
+
+# Keep a disk-backed memory reserve available while jobs run.
+swapfile="$root_dir/swapfile"
+fallocate -l 4G "$swapfile"
+chmod 600 "$swapfile"
+mkswap "$swapfile"
+swapon "$swapfile"
+printf '%s\n' '/swapfile none swap sw 0 0' >> "$root_dir/etc/fstab"
+
 # The final image reads its one user-data payload directly from IMDSv2. Keep cloud-init
 # only long enough for Packer's initial NoCloud SSH bootstrap, then remove its package and state.
 apt-get purge --yes cloud-init
