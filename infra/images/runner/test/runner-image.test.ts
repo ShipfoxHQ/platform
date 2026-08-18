@@ -1048,7 +1048,9 @@ describe('systemd boot activation', () => {
 
     execFileSync('sh', ['-n', script.pathname], {stdio: 'pipe'});
 
-    expect(systemdDirective(bootstrapUnit, 'Unit', 'After')).toBe('network-online.target');
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'After')).toBe('network.target');
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'Wants')).toBe('network.target');
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'FailureAction')).toBe('poweroff-immediate');
     expect(systemdDirective(bootstrapUnit, 'Unit', 'Before')).toBe(
       'shipfox-runner-env.path shipfox-runner-env.service',
     );
