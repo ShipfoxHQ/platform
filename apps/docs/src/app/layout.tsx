@@ -1,15 +1,9 @@
 import '@/app/global.css';
 import {RootProvider} from 'fumadocs-ui/provider/next';
-import {Inter} from 'next/font/google';
 import localFont from 'next/font/local';
 import type {ReactNode} from 'react';
 import {DocsAnalyticsTracker} from '@/app/components/docs-analytics-tracker';
 import {basePath} from '@/url';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-});
 
 // Commit Mono is self-hosted (the same woff2 the product ships in @shipfox/react-ui)
 // so code, logs, YAML, and refs render exactly as they do in the app.
@@ -23,7 +17,7 @@ const commitMono = localFont({
 
 export default function Layout({children}: {children: ReactNode}) {
   return (
-    <html lang="en" className={`${inter.variable} ${commitMono.variable}`} suppressHydrationWarning>
+    <html lang="en" className={commitMono.variable} suppressHydrationWarning>
       <head>
         <link rel="alternate" type="text/markdown" href="/llms.txt" />
       </head>
