@@ -1,5 +1,4 @@
 import {QueryLoadError} from '@shipfox/client-ui';
-import {Panel} from '@shipfox/react-ui/panel';
 import type {WorkflowRunListItem} from '#core/workflow-run.js';
 import type {WorkflowRunListQuery} from './types.js';
 import {
@@ -53,18 +52,14 @@ export function WorkflowRunListContent({
   const showNoMatches = hasLoaded && runs.length === 0 && !showEmptyState;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <>
       {isPending ? <WorkflowRunListSkeleton /> : null}
       {!isPending ? (
-        <Panel>
-          <QueryLoadError query={query} subject="workflow runs" icon="pulseLine" variant="panel" />
-        </Panel>
+        <QueryLoadError query={query} subject="workflow runs" icon="pulseLine" variant="panel" />
       ) : null}
       {!isPending && refreshFailed ? <WorkflowRunListStaleError query={query} /> : null}
       {showEmptyState ? (
-        <Panel>
-          <WorkflowRunListEmpty workspaceSlug={workspaceSlug} projectSlug={projectSlug} />
-        </Panel>
+        <WorkflowRunListEmpty workspaceSlug={workspaceSlug} projectSlug={projectSlug} />
       ) : null}
       {showNoMatches ? (
         <WorkflowRunListNoMatches
@@ -86,6 +81,6 @@ export function WorkflowRunListContent({
           />
         </>
       ) : null}
-    </div>
+    </>
   );
 }

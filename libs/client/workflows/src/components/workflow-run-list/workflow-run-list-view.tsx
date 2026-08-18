@@ -77,7 +77,7 @@ export function WorkflowRunListView({
               hasActiveFilters={hasActiveFilters}
             />
           </PanelHeader>
-          <PanelBody className="min-h-0 flex-1">
+          <PanelBody className="min-h-0 flex-1 overflow-y-auto">
             <WorkflowRunListContent
               query={query}
               totalRuns={runs.length}

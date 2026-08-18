@@ -48,6 +48,7 @@ describe('WorkflowRunListView', () => {
       const body = panel?.querySelector<HTMLElement>('[data-slot="panel-body"]');
 
       expect(panel).not.toBeNull();
+      expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(1);
       expect(header).not.toBeNull();
       expect(body).not.toBeNull();
       expect(within(header as HTMLElement).getByLabelText('Search runs')).toBeInTheDocument();
@@ -204,6 +205,7 @@ describe('WorkflowRunListView', () => {
       renderListView([], {query: loadedQuery({isPending: true, data: undefined})});
 
       expect(await screen.findByLabelText('Loading runs')).toBeInTheDocument();
+      expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(1);
       expect(screen.queryByText('No runs yet')).not.toBeInTheDocument();
     });
 
@@ -217,6 +219,7 @@ describe('WorkflowRunListView', () => {
       renderListView([]);
 
       expect(await screen.findByText('No runs yet')).toBeInTheDocument();
+      expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(1);
       expect(screen.getByRole('link', {name: 'View workflows'})).toBeInTheDocument();
       expect(screen.queryByRole('button', {name: 'Show all runs'})).not.toBeInTheDocument();
     });
@@ -228,6 +231,7 @@ describe('WorkflowRunListView', () => {
       await user.type(await screen.findByLabelText('Search runs'), 'no-such-run');
 
       expect(screen.getByText('No matching runs')).toBeInTheDocument();
+      expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(1);
       expect(screen.queryByText('No runs yet')).not.toBeInTheDocument();
       expect(screen.getByRole('button', {name: 'Show all runs'})).toBeInTheDocument();
     });
@@ -248,6 +252,7 @@ describe('WorkflowRunListView', () => {
       });
 
       expect(await screen.findByLabelText('Search runs')).toBeInTheDocument();
+      expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(1);
       expect(screen.queryByText('No runs yet')).not.toBeInTheDocument();
       expect(screen.queryByText('No matching runs')).not.toBeInTheDocument();
     });
