@@ -5,3 +5,5 @@ reviews:
   ignore:
     files:
       - '**/drizzle/meta/**'
+    head_branches:
+      - changeset-release/main
