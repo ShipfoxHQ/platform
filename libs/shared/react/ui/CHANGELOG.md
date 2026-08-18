@@ -1,5 +1,11 @@
 # @shipfox/react-ui
 
+## 2.1.1
+
+### Patch Changes
+
+- 87d9bd8: Replace the shared UI font with self-hosted IBM Plex Sans while retaining Commit Mono for code and log surfaces.
+
 ## 2.1.0
 
 ### Minor Changes

@@ -1,5 +1,18 @@
 # @shipfox/client-workflows
 
+## 22.0.2
+
+### Patch Changes
+
+- 383b9dd: Remove nested panel borders from workflow run list content and states.
+- Updated dependencies [87d9bd8]
+  - @shipfox/react-ui@2.1.1
+  - @shipfox/client-logs@22.0.2
+  - @shipfox/client-projects@22.0.2
+  - @shipfox/client-shell@22.0.2
+  - @shipfox/client-triggers@22.0.2
+  - @shipfox/client-ui@22.0.2
+
 ## 22.0.1
 
 ### Patch Changes
