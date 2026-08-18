@@ -1308,6 +1308,7 @@ describe('runner image composition', () => {
       expect(chmodIndex).toBeGreaterThan(fallocateIndex);
       expect(mkswapIndex).toBeGreaterThan(chmodIndex);
       expect(swaponIndex).toBeGreaterThan(mkswapIndex);
+      expect((await stat(join(fixture.root, 'swapfile'))).mode & 0o777).toBe(0o600);
       expect(await readFile(join(fixture.root, 'etc/fstab'), 'utf8')).toContain(
         '/swapfile none swap sw 0 0\n',
       );
