@@ -2,7 +2,6 @@ import type {QueryLoadErrorQuery} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
-import {Panel} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
@@ -16,7 +15,7 @@ const SKELETON_ROW_COUNT = 8;
  */
 export function WorkflowRunListSkeleton() {
   return (
-    <Panel role="status" aria-label="Loading runs" className="@container divide-y">
+    <div role="status" aria-label="Loading runs" className="@container divide-y">
       {Array.from({length: SKELETON_ROW_COUNT}).map((_, index) => (
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: skeleton row, stable position
@@ -30,7 +29,7 @@ export function WorkflowRunListSkeleton() {
           <Skeleton className="h-12 w-48" />
         </div>
       ))}
-    </Panel>
+    </div>
   );
 }
 
@@ -114,43 +113,41 @@ export function WorkflowRunListNoMatches({
   onLoadMore?: () => void;
 }) {
   return (
-    <Panel>
-      <div className="flex flex-col gap-inline">
-        {isFetchNextPageError ? (
-          <Callout role="alert" type="error">
-            Could not load more workflow runs. Try again to continue searching older runs.
-          </Callout>
-        ) : null}
-        <EmptyState
-          icon="filterOffLine"
-          title={hasNextPage ? 'No matches in loaded history' : 'No matching runs'}
-          description={
-            hasNextPage
-              ? 'No loaded run matches these filters. Load more to search further back.'
-              : 'No run matches these filters.'
-          }
-          action={
-            <div className="flex flex-wrap justify-center gap-inline">
-              {hasNextPage && onLoadMore ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="primary"
-                  isLoading={isFetchingNextPage}
-                  onClick={onLoadMore}
-                >
-                  Load more runs
-                </Button>
-              ) : null}
-              <Button type="button" size="sm" variant="secondary" onClick={onClear}>
-                Show all runs
+    <div className="flex flex-col gap-inline">
+      {isFetchNextPageError ? (
+        <Callout role="alert" type="error">
+          Could not load more workflow runs. Try again to continue searching older runs.
+        </Callout>
+      ) : null}
+      <EmptyState
+        icon="filterOffLine"
+        title={hasNextPage ? 'No matches in loaded history' : 'No matching runs'}
+        description={
+          hasNextPage
+            ? 'No loaded run matches these filters. Load more to search further back.'
+            : 'No run matches these filters.'
+        }
+        action={
+          <div className="flex flex-wrap justify-center gap-inline">
+            {hasNextPage && onLoadMore ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                isLoading={isFetchingNextPage}
+                onClick={onLoadMore}
+              >
+                Load more runs
               </Button>
-            </div>
-          }
-          variant="panel"
-        />
-      </div>
-    </Panel>
+            ) : null}
+            <Button type="button" size="sm" variant="secondary" onClick={onClear}>
+              Show all runs
+            </Button>
+          </div>
+        }
+        variant="panel"
+      />
+    </div>
   );
 }
 
