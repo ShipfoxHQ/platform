@@ -117,8 +117,12 @@ for package in snapd cloud-init amazon-ssm-agent; do
   fi
 done
 
-[ "$(package_state ec2-instance-connect)" = 'install ok installed' ] ||
-  fail 'required package is missing: ec2-instance-connect'
+for package in cloud-guest-utils ec2-instance-connect; do
+  [ "$(package_state "$package")" = 'install ok installed' ] ||
+    fail "required package is missing: $package"
+done
+
+command -v growpart >/dev/null 2>&1 || fail 'required command is missing: growpart'
 
 for unit in ssh.socket ec2-instance-connect-harvest-hostkeys.service; do
   systemctl cat "$unit" >/dev/null 2>&1 || fail "required unit is missing: $unit"

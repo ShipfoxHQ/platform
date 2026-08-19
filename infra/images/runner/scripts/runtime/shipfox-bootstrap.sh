@@ -3,6 +3,8 @@ set -eu
 
 umask 077
 
+. /opt/shipfox-runner/scripts/runtime/helpers/resolve-root-partition.sh
+
 imds_base_url='http://169.254.169.254'
 runner_env_dir='/etc/shipfox'
 runner_env_path="$runner_env_dir/runner.env"
@@ -30,9 +32,18 @@ emit_boot_phase() {
 abort_boot() {
   emit_boot_phase "$boot_phase" fail
   printf 'shipfox bootstrap: %s\n' "$1" >&2
-  printf '%s\n' 'shipfox bootstrap: link and route state at abort:' >&2
-  ip -brief address >&2 || true
-  ip route >&2 || true
+  case "$boot_phase" in
+    root-grow|workspace-mount)
+      printf '%s\n' 'shipfox bootstrap: block and mount state at abort:' >&2
+      lsblk -o NAME,TYPE,SIZE,PKNAME,PARTN,MOUNTPOINT >&2 || true
+      findmnt / >&2 || true
+      ;;
+    *)
+      printf '%s\n' 'shipfox bootstrap: link and route state at abort:' >&2
+      ip -brief address >&2 || true
+      ip route >&2 || true
+      ;;
+  esac
   if ! systemctl poweroff --no-wall; then
     /sbin/poweroff -f || true
   fi
@@ -104,10 +115,36 @@ fetch_user_data() {
   return 1
 }
 
-grow_root_filesystem() {
+resolve_root_source() {
   root_source="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
   root_source="$(readlink -f "$root_source" 2>/dev/null || true)"
-  if [ -z "$root_source" ] || [ ! -b "$root_source" ]; then
+  [ -n "$root_source" ] && [ -b "$root_source" ]
+}
+
+verify_root_partition() {
+  if ! resolve_root_source; then
+    printf '%s\n' 'shipfox bootstrap verification: unable to resolve the root filesystem' >&2
+    return 1
+  fi
+
+  root_type="$(lsblk -ndo TYPE "$root_source" 2>/dev/null || true)"
+  if [ "$root_type" = 'disk' ]; then
+    printf 'shipfox bootstrap whole-disk root verified: %s\n' "$root_source"
+    return 0
+  fi
+
+  if ! resolve_root_partition "$root_source"; then
+    printf 'shipfox bootstrap verification: unable to resolve root partition for %s\n' \
+      "$root_source" >&2
+    return 1
+  fi
+
+  printf 'shipfox bootstrap root partition verified: /dev/%s partition %s\n' \
+    "$root_disk_name" "$root_partition_number"
+}
+
+grow_root_filesystem() {
+  if ! resolve_root_source; then
     abort_boot 'Unable to identify the root filesystem.'
   fi
 
@@ -127,9 +164,7 @@ grow_root_filesystem() {
     return
   fi
 
-  root_disk_name="$(lsblk -ndo PKNAME "$root_source" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
-  root_partition_number="$(lsblk -ndo PARTNUM "$root_source" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
-  if [ -z "$root_disk_name" ] || [ -z "$root_partition_number" ]; then
+  if ! resolve_root_partition "$root_source"; then
     abort_boot 'Unable to identify the root partition.'
   fi
   root_disk="/dev/$root_disk_name"
@@ -257,39 +292,54 @@ configure_workspace_mount() {
   fi
 }
 
-install -d -m 0755 "$runner_env_dir"
-rm -f "$runner_env_path" "$runner_env_temp_path"
-user_data_fetch_path="$(mktemp "$runner_env_dir/runner.env.fetch.XXXXXX")"
-trap 'rm -f "$user_data_fetch_path" "$runner_env_temp_path"' EXIT
+main() {
+  install -d -m 0755 "$runner_env_dir"
+  rm -f "$runner_env_path" "$runner_env_temp_path"
+  user_data_fetch_path="$(mktemp "$runner_env_dir/runner.env.fetch.XXXXXX")"
+  trap 'rm -f "$user_data_fetch_path" "$runner_env_temp_path"' EXIT
 
-# Cloud-init used to create these keys on each boot. Remove them from the AMI during
-# the bake and recreate them here so EC2 Instance Connect never sees shared keys.
-if ! /usr/bin/ssh-keygen -A; then
-  abort_boot 'Unable to generate SSH host keys.'
-fi
+  # Cloud-init used to create these keys on each boot. Remove them from the AMI during
+  # the bake and recreate them here so EC2 Instance Connect never sees shared keys.
+  if ! /usr/bin/ssh-keygen -A; then
+    abort_boot 'Unable to generate SSH host keys.'
+  fi
 
-if ! fetch_user_data; then
-  abort_boot 'Unable to read runner user data from IMDSv2 after retries.'
-fi
-boot_phase='validate-env'
-if ! install -m 0600 -o root -g root "$user_data_fetch_path" "$runner_env_temp_path"; then
-  abort_boot 'Unable to stage runner user data.'
-fi
-if ! validate_runner_env "$runner_env_temp_path"; then
-  rm -f "$runner_env_temp_path"
-  abort_boot 'Runner user data is not a valid environment file.'
-fi
-emit_boot_phase 'validate-env' ok
+  if ! fetch_user_data; then
+    abort_boot 'Unable to read runner user data from IMDSv2 after retries.'
+  fi
+  boot_phase='validate-env'
+  if ! install -m 0600 -o root -g root "$user_data_fetch_path" "$runner_env_temp_path"; then
+    abort_boot 'Unable to stage runner user data.'
+  fi
+  if ! validate_runner_env "$runner_env_temp_path"; then
+    rm -f "$runner_env_temp_path"
+    abort_boot 'Runner user data is not a valid environment file.'
+  fi
+  emit_boot_phase 'validate-env' ok
 
-boot_phase='root-grow'
-grow_root_filesystem
-emit_boot_phase 'root-grow' ok
-boot_phase='workspace-mount'
-configure_workspace_mount
-emit_boot_phase 'workspace-mount' ok
+  boot_phase='root-grow'
+  grow_root_filesystem
+  emit_boot_phase 'root-grow' ok
+  boot_phase='workspace-mount'
+  configure_workspace_mount
+  emit_boot_phase 'workspace-mount' ok
 
-boot_phase='env-published'
-if ! mv -- "$runner_env_temp_path" "$runner_env_path"; then
-  abort_boot 'Unable to publish the runner environment after boot setup.'
-fi
-emit_boot_phase 'env-published' ok
+  boot_phase='env-published'
+  if ! mv -- "$runner_env_temp_path" "$runner_env_path"; then
+    abort_boot 'Unable to publish the runner environment after boot setup.'
+  fi
+  emit_boot_phase 'env-published' ok
+}
+
+case "${1:-}" in
+  '')
+    main
+    ;;
+  --verify-root-partition)
+    verify_root_partition
+    ;;
+  *)
+    printf 'shipfox bootstrap: unsupported argument: %s\n' "$1" >&2
+    exit 2
+    ;;
+esac

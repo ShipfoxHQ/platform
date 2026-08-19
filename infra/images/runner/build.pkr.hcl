@@ -96,8 +96,16 @@ build {
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/shipfox-bootstrap.sh /opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/verify-workspace-mount.sh /opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/helpers/logger.sh /opt/shipfox-runner/scripts/runtime/helpers/logger.sh",
+      "sudo install -m 0644 /tmp/shipfox-runner-image-scripts/runtime/helpers/resolve-root-partition.sh /opt/shipfox-runner/scripts/runtime/helpers/resolve-root-partition.sh",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable shipfox-runner-env.path"
+    ]
+  }
+
+  # Exercise the installed bootstrap against the live Packer root after all runtime files exist.
+  provisioner "shell" {
+    inline = [
+      "sudo /opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh --verify-root-partition"
     ]
   }
 
