@@ -15,6 +15,6 @@ export default function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|api|llms\\.txt|llms-full\\.txt|llms\\.mdx|docs-og|sitemap\\.xml|robots\\.txt|img).*)',
+    '/((?!_next/static|_next/image|api|llms\\.txt|llms-full\\.txt|llms\\.mdx|shipfox-og\\.jpg|sitemap\\.xml|robots\\.txt|img).*)',
   ],
 };

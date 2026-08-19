@@ -41,11 +41,10 @@ export async function generateMetadata(props: {
   const page = source.getPage(params.slug);
   if (!page) notFound();
 
-  // Built here (not in the parent layout) because only the page segment sees the
-  // real slug, so each page gets its own OG image. toUrl carries the /docs
-  // basePath, which Next does not apply to manually built metadata URLs.
   const title = `${page.data.title} | Shipfox`;
-  const image = toUrl(['/docs-og', ...(params.slug ?? []), 'image.png'].join('/'));
+  // toUrl carries the /docs basePath, which Next does not apply to manually
+  // built metadata URLs.
+  const image = toUrl('/shipfox-og.jpg');
   return {
     title,
     description: page.data.description,
@@ -53,14 +52,28 @@ export async function generateMetadata(props: {
     openGraph: {
       title,
       description: page.data.description,
-      images: image,
+      images: [
+        {
+          url: image,
+          width: 1200,
+          height: 630,
+          alt: 'Shipfox: Your AI software factory',
+        },
+      ],
       siteName: 'Shipfox',
       type: 'website',
       locale: 'en_US',
     },
     twitter: {
       card: 'summary_large_image',
-      images: image,
+      images: [
+        {
+          url: image,
+          width: 1200,
+          height: 630,
+          alt: 'Shipfox: Your AI software factory',
+        },
+      ],
     },
   };
 }
