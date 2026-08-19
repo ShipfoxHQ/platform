@@ -1,6 +1,6 @@
 'use client';
 
-import {Search, Webhook, X} from 'lucide-react';
+import {ArrowRight, Search, Webhook, X} from 'lucide-react';
 import Link from 'next/link';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {siGithub, siJira, siLinear, siSentry, siSlack} from 'simple-icons';
@@ -9,13 +9,11 @@ import {nextCatalogSearchState, normalizeCatalogQuery} from '@/lib/docs-analytic
 import {
   type CatalogIcon,
   type CatalogProvider,
-  catalogAvailabilityLabels,
   catalogCapabilityLabels,
   catalogCategoryLabels,
   countFacetValues,
   emptyCatalogFilters,
   filterProviders,
-  INTEGRATION_CATALOG_AVAILABILITIES,
   INTEGRATION_CATALOG_CAPABILITIES,
   INTEGRATION_CATALOG_CATEGORIES,
 } from '@/lib/integration-catalog';
@@ -24,8 +22,6 @@ import {
   catalogResultClickedProperties,
   catalogSearchProperties,
 } from '@/lib/integration-catalog-analytics';
-
-const availabilitySections = INTEGRATION_CATALOG_AVAILABILITIES;
 
 interface IntegrationCatalogProps {
   providers: CatalogProvider[];
@@ -263,48 +259,20 @@ export function IntegrationCatalog({providers}: IntegrationCatalogProps) {
             ) : null}
           </div>
         ) : (
-          <div className="flex flex-col gap-region">
-            {availabilitySections.map((availability) => {
-              const sectionProviders = filteredProviders.filter(
-                (provider) => provider.availability === availability,
-              );
-              if (sectionProviders.length === 0) return null;
-
-              return (
-                <section
-                  key={availability}
-                  aria-labelledby={`${availability}-integrations`}
-                  className="flex flex-col gap-cluster"
-                >
-                  <h2
-                    id={`${availability}-integrations`}
-                    className="text-lg font-semibold text-fd-foreground"
-                  >
-                    {catalogAvailabilityLabels[availability]}
-                  </h2>
-                  <div className="grid gap-group sm:grid-cols-2">
-                    {sectionProviders.map((provider) => (
-                      <IntegrationCard
-                        key={provider.slug}
-                        provider={provider}
-                        onNavigate={(target) =>
-                          captureDocsEvent(
-                            'docs_catalog_result_clicked',
-                            catalogResultClickedProperties(
-                              filters,
-                              filteredProviders,
-                              provider,
-                              target,
-                            ),
-                          )
-                        }
-                      />
-                    ))}
-                  </div>
-                </section>
-              );
-            })}
-          </div>
+          <ul className="divide-y divide-fd-border border-y border-fd-border">
+            {filteredProviders.map((provider) => (
+              <IntegrationDirectoryItem
+                key={provider.slug}
+                provider={provider}
+                onNavigate={(target) =>
+                  captureDocsEvent(
+                    'docs_catalog_result_clicked',
+                    catalogResultClickedProperties(filters, filteredProviders, provider, target),
+                  )
+                }
+              />
+            ))}
+          </ul>
         )}
       </div>
     </section>
@@ -379,62 +347,45 @@ function FilterChip({label, onRemove}: {label: string; onRemove: () => void}) {
   );
 }
 
-function IntegrationCard({
+function IntegrationDirectoryItem({
   provider,
   onNavigate,
 }: {
   provider: CatalogProvider;
   onNavigate: (target: 'overview' | 'setup') => void;
 }) {
+  const details = [
+    provider.capabilities.includes('source_control') && 'Code checkout',
+    provider.eventCount > 0 &&
+      `${provider.eventCount} ${provider.eventCount === 1 ? 'event' : 'events'}`,
+    provider.toolCount > 0 &&
+      `${provider.toolCount} ${provider.toolCount === 1 ? 'agent tool' : 'agent tools'}`,
+  ].filter(Boolean);
+
   return (
-    <article className="flex min-h-56 flex-col gap-group rounded-lg border border-fd-border bg-fd-card p-panel">
-      <div className="flex items-start justify-between gap-group">
-        <div className="flex min-w-0 flex-col gap-inline">
-          <Link
-            href={provider.overviewHref}
-            onClick={() => onNavigate('overview')}
-            className="flex items-start gap-cluster font-semibold text-fd-foreground outline-none hover:text-fd-primary hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
-          >
-            <ProviderIcon icon={provider.icon} />
-            <span>{provider.name}</span>
-          </Link>
-          <p className="text-sm leading-6 text-fd-muted-foreground">{provider.summary}</p>
-        </div>
-        {provider.setupHref ? (
-          <Link
-            href={provider.setupHref}
-            onClick={() => onNavigate('setup')}
-            className="-mr-inline -mt-inline inline-flex min-h-11 shrink-0 items-center rounded-md px-tight text-sm font-medium text-fd-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
-          >
-            Set up
-          </Link>
-        ) : null}
-      </div>
-
-      <div className="flex flex-col gap-cluster">
-        <div className="flex flex-wrap items-center gap-inline">
-          {provider.capabilities.map((capability) => (
-            <span
-              key={capability}
-              className="rounded border border-fd-border bg-fd-muted p-tight py-0 text-[9px] font-medium uppercase tracking-wide text-fd-muted-foreground"
-            >
-              {catalogCapabilityLabels[capability]}
-            </span>
-          ))}
-        </div>
-
-        {provider.eventCount > 0 || provider.toolCount > 0 ? (
-          <p className="text-xs text-fd-muted-foreground">
-            {[
-              provider.eventCount > 0 && `${provider.eventCount} events`,
-              provider.toolCount > 0 && `${provider.toolCount} agent tools`,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
-        ) : null}
-      </div>
-    </article>
+    <li className="flex min-w-0 items-center gap-group py-row">
+      <Link
+        href={provider.overviewHref}
+        onClick={() => onNavigate('overview')}
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-cluster rounded-md text-fd-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
+      >
+        <ProviderIcon icon={provider.icon} />
+        <span className="flex min-w-0 flex-col gap-tight">
+          <span className="font-semibold">{provider.name}</span>
+          <span className="text-xs leading-4 text-fd-muted-foreground">{details.join(' · ')}</span>
+        </span>
+      </Link>
+      {provider.setupHref ? (
+        <Link
+          href={provider.setupHref}
+          onClick={() => onNavigate('setup')}
+          className="inline-flex min-h-11 shrink-0 items-center gap-tight rounded-md px-tight text-sm font-medium text-fd-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-fd-ring"
+        >
+          Set up
+          <ArrowRight aria-hidden="true" className="size-4" />
+        </Link>
+      ) : null}
+    </li>
   );
 }
 

@@ -1,19 +1,13 @@
-import type {
-  CatalogAvailability,
-  CatalogCapability,
-  CatalogCategory,
-} from '@/lib/integration-catalog';
+import type {CatalogCapability} from '@/lib/integration-catalog';
 import type {RegisteredIntegrationProvider} from '@/lib/registered-integration-providers';
 
 export interface GeneratedIntegrationCatalogEntry {
-  availability: CatalogAvailability;
   capabilities: readonly CatalogCapability[];
   eventCount: number;
   toolCount: number;
 }
 
 interface IntegrationCatalogFrontmatter {
-  availability?: unknown;
   capabilities?: unknown;
   categories?: unknown;
   aliases?: unknown;
@@ -25,7 +19,6 @@ export interface IntegrationDocsDirectory {
   pageBodies: Readonly<Record<string, string>>;
   overview?: {
     catalog?: IntegrationCatalogFrontmatter;
-    status?: unknown;
     body: string;
   };
 }
@@ -34,7 +27,6 @@ export interface IntegrationDocsCompletenessInput {
   providers: readonly RegisteredIntegrationProvider[];
   generatedCatalog: Readonly<Record<string, GeneratedIntegrationCatalogEntry>>;
   integrationDirectories: Readonly<Record<string, IntegrationDocsDirectory>>;
-  categoryLabels: Readonly<Record<CatalogCategory, string>>;
   triggerSources?: string;
 }
 
@@ -99,15 +91,6 @@ function collectCatalogProviderIssues(
     );
   } else {
     const catalog = overview.catalog;
-    if (catalog.availability !== provider.availability)
-      issues.push(`${prefix}: set catalog availability to "${provider.availability}".`);
-
-    const expectedSoonStatus = provider.availability === 'coming-soon';
-    if ((overview.status === 'soon') !== expectedSoonStatus)
-      issues.push(
-        `${prefix}: ${expectedSoonStatus ? 'set status to "soon"' : 'remove status "soon"'} so it matches availability.`,
-      );
-
     const actualCapabilities = strings(catalog.capabilities);
     for (const capability of provider.capabilities) {
       if (!actualCapabilities.includes(capability))
@@ -119,37 +102,12 @@ function collectCatalogProviderIssues(
           `${prefix}: remove the stale "${capability}" capability from catalog frontmatter.`,
         );
     }
-
-    const overviewProse = overview.body.toLocaleLowerCase();
-    for (const category of strings(catalog.categories)) {
-      const label = input.categoryLabels[category as CatalogCategory];
-      if (label && !overviewProse.includes(label.toLocaleLowerCase()))
-        issues.push(`${prefix}: mention category label "${label}" in overview prose for search.`);
-    }
-  }
-
-  if (overview) {
-    for (const alias of strings(overview.catalog?.aliases)) {
-      if (!overview.body.toLocaleLowerCase().includes(alias.toLocaleLowerCase()))
-        issues.push(`${prefix}: mention alias "${alias}" in overview prose for search.`);
-    }
   }
 
   collectReferencePageIssues(directory, provider, generated, 'events', issues);
   collectReferencePageIssues(directory, provider, generated, 'tools', issues);
 
-  if (provider.availability === 'coming-soon') {
-    if (provider.capabilities.length > 0)
-      issues.push(
-        `${prefix}: coming-soon providers must not declare capabilities in the manifest.`,
-      );
-    for (const page of canonicalPages.slice(1)) {
-      if (directory.pages.includes(page))
-        issues.push(
-          `${prefix}: remove ${page}.mdx because coming-soon providers have no shipped reference pages.`,
-        );
-    }
-  } else if (!directory.pages.includes('setup')) {
+  if (!directory.pages.includes('setup')) {
     issues.push(`${prefix}: add setup.mdx for the connectable provider.`);
   }
 

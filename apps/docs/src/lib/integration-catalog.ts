@@ -1,4 +1,3 @@
-export const INTEGRATION_CATALOG_AVAILABILITIES = ['available', 'preview', 'coming-soon'] as const;
 export const INTEGRATION_CATALOG_CAPABILITIES = [
   'source_control',
   'events',
@@ -20,16 +19,9 @@ export const INTEGRATION_CATALOG_ICONS = [
   'jira',
 ] as const;
 
-export type CatalogAvailability = (typeof INTEGRATION_CATALOG_AVAILABILITIES)[number];
 export type CatalogCapability = (typeof INTEGRATION_CATALOG_CAPABILITIES)[number];
 export type CatalogCategory = (typeof INTEGRATION_CATALOG_CATEGORIES)[number];
 export type CatalogIcon = (typeof INTEGRATION_CATALOG_ICONS)[number];
-
-export const catalogAvailabilityLabels: Record<CatalogAvailability, string> = {
-  available: 'Available',
-  preview: 'Preview',
-  'coming-soon': 'Coming soon',
-};
 
 export const catalogCapabilityLabels: Record<CatalogCapability, string> = {
   source_control: 'Code checkout',
@@ -49,7 +41,6 @@ export interface CatalogProvider {
   slug: string;
   name: string;
   summary: string;
-  availability: CatalogAvailability;
   capabilities: CatalogCapability[];
   categories: CatalogCategory[];
   aliases: string[];

@@ -2,7 +2,6 @@ import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {load} from 'js-yaml';
-import {catalogCategoryLabels} from '@/lib/integration-catalog';
 import {collectIntegrationDocIssues} from '@/lib/integration-docs-completeness';
 import {registeredIntegrationProviders} from '@/lib/registered-integration-providers';
 
@@ -28,7 +27,6 @@ const issues = collectIntegrationDocIssues({
   providers: registeredIntegrationProviders,
   generatedCatalog: JSON.parse(readFileSync(generatedCatalogPath, 'utf8')),
   integrationDirectories: readIntegrationDirectories(),
-  categoryLabels: catalogCategoryLabels,
   triggerSources: readIfExists(triggerSourcesPath),
 });
 
@@ -73,7 +71,7 @@ function parseOverview(content) {
   if (!match) return {body: content};
   const frontmatter = load(match[1]);
   const data = typeof frontmatter === 'object' && frontmatter !== null ? frontmatter : {};
-  return {catalog: data.catalog, status: data.status, body: match[2]};
+  return {catalog: data.catalog, body: match[2]};
 }
 
 function readIfExists(file) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {type CatalogCategory, catalogCategoryLabels} from '@/lib/integration-catalog';
+import type {CatalogCategory} from '@/lib/integration-catalog';
 import {
   collectIntegrationDocIssues,
   type IntegrationDocsCompletenessInput,
@@ -8,13 +8,9 @@ import {
 import {registeredIntegrationProviders} from '@/lib/registered-integration-providers';
 
 const githubToolsIssuePattern = /Integration provider "github": add tools\.mdx/;
-const linearAvailabilityIssuePattern =
-  /Integration provider "linear": set catalog availability to "available"/;
 const sentryCapabilitiesIssuePattern =
   /Integration provider "sentry": remove the stale "agent_tools" capability/;
 const cronSectionIssuePattern = /Built-in source "cron": add a "## cron" section/;
-const linearSoonStatusIssuePattern =
-  /Integration provider "linear": remove status "soon" so it matches availability\./;
 const linearMissingSetupIssuePattern =
   /Integration provider "linear": add setup\.mdx for the connectable provider\./;
 
@@ -22,17 +18,23 @@ const validInput: IntegrationDocsCompletenessInput = {
   providers: registeredIntegrationProviders,
   generatedCatalog: {
     github: {
-      availability: 'available',
       capabilities: ['source_control', 'events', 'agent_tools'],
       eventCount: 1,
       toolCount: 1,
     },
-    sentry: {availability: 'available', capabilities: ['events'], eventCount: 1, toolCount: 0},
-    webhooks: {availability: 'available', capabilities: ['events'], eventCount: 1, toolCount: 0},
-    linear: {availability: 'available', capabilities: ['agent_tools'], eventCount: 0, toolCount: 1},
-    slack: {availability: 'available', capabilities: ['agent_tools'], eventCount: 0, toolCount: 1},
+    sentry: {capabilities: ['events'], eventCount: 1, toolCount: 0},
+    webhooks: {capabilities: ['events'], eventCount: 1, toolCount: 0},
+    linear: {
+      capabilities: ['events', 'agent_tools'],
+      eventCount: 17,
+      toolCount: 1,
+    },
+    slack: {
+      capabilities: ['events', 'agent_tools'],
+      eventCount: 4,
+      toolCount: 1,
+    },
     jira: {
-      availability: 'available',
       capabilities: ['events', 'agent_tools'],
       eventCount: 6,
       toolCount: 11,
@@ -44,49 +46,52 @@ const validInput: IntegrationDocsCompletenessInput = {
       ['index', 'setup', 'events', 'tools'],
       ['index', 'setup', 'events', 'tools'],
       {
-        availability: 'available',
         capabilities: ['source_control', 'events', 'agent_tools'],
         categories: ['source-control'],
         aliases: ['git'],
       },
     ),
     sentry: directory('sentry', ['index', 'setup', 'events'], ['index', 'setup', 'events'], {
-      availability: 'available',
       capabilities: ['events'],
       categories: ['observability'],
       aliases: ['errors'],
     }),
     webhooks: directory('webhooks', ['index', 'setup', 'events'], ['index', 'setup', 'events'], {
-      availability: 'available',
       capabilities: ['events'],
       categories: ['custom'],
       aliases: ['hooks'],
     }),
-    linear: directory('linear', ['index', 'setup', 'tools'], ['index', 'setup', 'tools'], {
-      availability: 'available',
-      capabilities: ['agent_tools'],
-      categories: ['issue-tracking'],
-      aliases: ['issues'],
-    }),
-    slack: directory('slack', ['index', 'setup', 'tools'], ['index', 'setup', 'tools'], {
-      availability: 'available',
-      capabilities: ['agent_tools'],
-      categories: ['messaging'],
-      aliases: ['chat'],
-    }),
+    linear: directory(
+      'linear',
+      ['index', 'setup', 'events', 'tools'],
+      ['index', 'setup', 'events', 'tools'],
+      {
+        capabilities: ['events', 'agent_tools'],
+        categories: ['issue-tracking'],
+        aliases: ['issues'],
+      },
+    ),
+    slack: directory(
+      'slack',
+      ['index', 'setup', 'events', 'tools'],
+      ['index', 'setup', 'events', 'tools'],
+      {
+        capabilities: ['events', 'agent_tools'],
+        categories: ['messaging'],
+        aliases: ['chat'],
+      },
+    ),
     jira: directory(
       'jira',
       ['index', 'setup', 'events', 'tools'],
       ['index', 'setup', 'events', 'tools'],
       {
-        availability: 'available',
         capabilities: ['events', 'agent_tools'],
         categories: ['issue-tracking'],
         aliases: ['issues', 'tickets'],
       },
     ),
   },
-  categoryLabels: catalogCategoryLabels,
   triggerSources: '## Sources at a glance\n| Cron | `cron` | `tick` |\n\n## cron',
 };
 
@@ -96,9 +101,7 @@ test('accepts complete integration documentation', () => {
 
 test('reports provider-named fixes for missing and stale documentation', () => {
   const github = validInput.integrationDirectories.github;
-  const linear = validInput.integrationDirectories.linear;
   const sentry = validInput.integrationDirectories.sentry;
-  const linearOverview = catalogOverview(linear);
   const sentryOverview = catalogOverview(sentry);
   const input: IntegrationDocsCompletenessInput = {
     ...validInput,
@@ -108,13 +111,6 @@ test('reports provider-named fixes for missing and stale documentation', () => {
         ...github,
         pages: ['index', 'setup', 'events'],
         pageBodies: {...github.pageBodies, tools: ''},
-      },
-      linear: {
-        ...linear,
-        overview: {
-          ...linearOverview,
-          catalog: {...linearOverview.catalog, availability: 'preview'},
-        },
       },
       sentry: {
         ...sentry,
@@ -130,72 +126,26 @@ test('reports provider-named fixes for missing and stale documentation', () => {
   const issues = collectIntegrationDocIssues(input);
 
   assert.match(issues.join('\n'), githubToolsIssuePattern);
-  assert.match(issues.join('\n'), linearAvailabilityIssuePattern);
   assert.match(issues.join('\n'), sentryCapabilitiesIssuePattern);
   assert.match(issues.join('\n'), cronSectionIssuePattern);
 });
 
-test('reports status "soon" and a missing setup page for a catalog provider', () => {
+test('reports a missing setup page for a catalog provider', () => {
   const input: IntegrationDocsCompletenessInput = {
     ...validInput,
     integrationDirectories: {
       ...validInput.integrationDirectories,
-      linear: directory(
-        'linear',
-        ['index', 'tools'],
-        ['index', 'tools'],
-        {
-          availability: 'available',
-          capabilities: ['agent_tools'],
-          categories: ['issue-tracking'],
-          aliases: ['issues'],
-        },
-        'soon',
-      ),
+      linear: directory('linear', ['index', 'events', 'tools'], ['index', 'events', 'tools'], {
+        capabilities: ['events', 'agent_tools'],
+        categories: ['issue-tracking'],
+        aliases: ['issues'],
+      }),
     },
   };
 
   const issues = collectIntegrationDocIssues(input);
 
-  assert.match(issues.join('\n'), linearSoonStatusIssuePattern);
   assert.match(issues.join('\n'), linearMissingSetupIssuePattern);
-});
-
-test('accepts a coming-soon provider with only an overview', () => {
-  const input: IntegrationDocsCompletenessInput = {
-    ...validInput,
-    providers: validInput.providers.map((provider) =>
-      provider.kind === 'catalog' && provider.slug === 'linear'
-        ? {...provider, availability: 'coming-soon' as const, capabilities: []}
-        : provider,
-    ),
-    generatedCatalog: {
-      ...validInput.generatedCatalog,
-      linear: {
-        availability: 'coming-soon',
-        capabilities: [],
-        eventCount: 0,
-        toolCount: 0,
-      },
-    },
-    integrationDirectories: {
-      ...validInput.integrationDirectories,
-      linear: directory(
-        'linear',
-        ['index'],
-        ['index'],
-        {
-          availability: 'coming-soon',
-          capabilities: [],
-          categories: ['issue-tracking'],
-          aliases: ['issues'],
-        },
-        'soon',
-      ),
-    },
-  };
-
-  assert.deepEqual(collectIntegrationDocIssues(input), []);
 });
 
 test('uses the built-in source identifier for the source table row', () => {
@@ -213,7 +163,6 @@ test('reports only the built-in-source diagnostic for its integration directory'
     integrationDirectories: {
       ...validInput.integrationDirectories,
       cron: directory('cron', ['index'], ['index'], {
-        availability: 'available',
         capabilities: [],
         categories: ['custom'],
         aliases: ['schedule'],
@@ -236,7 +185,6 @@ function catalogOverview(directory: (typeof validInput.integrationDirectories)[s
   return {
     body: directory.overview.body,
     catalog: directory.overview.catalog,
-    status: directory.overview.status,
   };
 }
 
@@ -245,26 +193,20 @@ function directory(
   pages: string[],
   metaPages: string[],
   catalog: {
-    availability: string;
     capabilities: string[];
     categories: CatalogCategory[];
     aliases: string[];
   },
-  status?: string,
 ) {
-  const categoryProse = catalog.categories
-    .map((category) => catalogCategoryLabels[category])
-    .join(' ');
-  const aliasProse = catalog.aliases.join(' ');
   return {
     pages,
     metaPages,
     pageBodies: {
-      index: `${categoryProse} ${aliasProse}`,
+      index: 'Integration overview.',
       setup: 'Set up the integration.',
       events: `generated/integrations/${slug}/events.mdx`,
       tools: `generated/integrations/${slug}/tools.mdx`,
     },
-    overview: {catalog, status, body: `${categoryProse} ${aliasProse}`},
+    overview: {catalog, body: 'Integration overview.'},
   };
 }

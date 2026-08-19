@@ -1,4 +1,4 @@
 {
   "title": "Slack",
-  "pages": ["index", "setup", "tools"]
+  "pages": ["index", "setup", "events", "tools"]
 }

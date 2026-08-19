@@ -1,26 +1,15 @@
 ---
 title: "Slack integration"
-sidebarTitle: "Slack"
-description: "Look up the Slack integration's availability, OAuth access, integration connection identity, and agent tools."
+sidebarTitle: "Overview"
+description: "Connect Slack to trigger workflows from messages, reactions, mentions, or slash commands, and give agents Slack tools."
 catalog:
-  summary: "Connect a Slack workspace and give agents scoped Slack tools."
-  availability: "available"
-  capabilities: ["agent_tools"]
+  name: "Slack"
+  summary: "Connect a Slack workspace, receive events, and give agents scoped Slack tools."
+  capabilities: ["events", "agent_tools"]
   categories: ["messaging"]
   aliases: ["chatops", "notifications"]
   icon: "slack"
 ---
-
-Slack connects a Slack workspace to Shipfox. Agent steps can use selected Slack
-tools through the integration connection.
-
-## Categories and related terms
-
-**Category:** Messaging.
-
-**Related terms:** ChatOps, notifications.
-
-**Availability:** Available.
 
 ## Authentication
 
@@ -46,22 +35,24 @@ The slug of a Slack integration connection defaults to `slack_<workspace>`,
 where `<workspace>` is the normalized Slack team name. For example,
 `slack_acme`. Shipfox uses the team ID when the team name is unavailable, falls
 back to `slack` when neither is available, and makes the slug unique within the
-workspace. Use it as `connection` in an agent integration selection.
+workspace. Use it as a trigger `source` or as `connection` in an agent
+integration selection.
 
 ```yaml
-integrations:
-  - connection: slack_acme
-    include: [read_channel]
+triggers:
+  on_mention:
+    source: slack_acme
+    event: app_mention
 ```
 
-For the agent integration contract, see the [workflow schema reference](/reference/workflow-schema#agent-integration-fields).
+For trigger and agent integration fields, see the
+[workflow schema reference](/reference/workflow-schema).
 
 ## Capabilities
 
-| Capability | Availability |
+| Capability | Details |
 | --- | --- |
-| Source control | **Not available.** |
-| Events | **Not available.** |
-| Agent tools | Available. [View Slack agent tools](/integrations/slack/tools). |
+| Events | [View Slack events](/integrations/slack/events). |
+| Agent tools | [View Slack agent tools](/integrations/slack/tools). |
 
 [Connect Slack](/integrations/slack/setup) to create an integration connection.

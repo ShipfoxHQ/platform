@@ -1,26 +1,15 @@
 ---
 title: "Linear integration"
-sidebarTitle: "Linear"
-description: "Look up the Linear integration's availability, OAuth access, integration connection identity, and agent tools."
+sidebarTitle: "Overview"
+description: "Connect Linear to trigger workflows from workspace events and give agents Linear tools."
 catalog:
-  summary: "Connect a Linear workspace and give agents scoped Linear tools."
-  availability: "available"
-  capabilities: ["agent_tools"]
+  name: "Linear"
+  summary: "Connect a Linear workspace, receive events, and give agents scoped Linear tools."
+  capabilities: ["events", "agent_tools"]
   categories: ["issue-tracking"]
   aliases: ["issues", "tickets"]
   icon: "linear"
 ---
-
-Linear connects a Linear workspace to Shipfox. Agent steps can use selected
-Linear tools through the integration connection.
-
-## Categories and related terms
-
-**Category:** Issue tracking.
-
-**Related terms:** Issues, tickets.
-
-**Availability:** Available.
 
 ## Authentication
 
@@ -34,22 +23,24 @@ The slug of a Linear integration connection defaults to
 `linear_<organization>`, where `<organization>` is the Linear organization URL
 key. For example, `linear_acme`. Shipfox normalizes the key, falls back to
 `linear` when it is unavailable, and makes the slug unique within the workspace.
-Use it as `connection` in an agent integration selection.
+Use it as a trigger `source` or as `connection` in an agent integration
+selection.
 
 ```yaml
-integrations:
-  - connection: linear_acme
-    include: [list_issues]
+triggers:
+  on_linear_issue:
+    source: linear_acme
+    event: Issue.update
 ```
 
-For the agent integration contract, see the [workflow schema reference](/reference/workflow-schema#agent-integration-fields).
+For trigger and agent integration fields, see the
+[workflow schema reference](/reference/workflow-schema).
 
 ## Capabilities
 
-| Capability | Availability |
+| Capability | Details |
 | --- | --- |
-| Source control | **Not available.** |
-| Events | **Not available.** |
-| Agent tools | Available. [View Linear agent tools](/integrations/linear/tools). |
+| Events | [View Linear events](/integrations/linear/events). |
+| Agent tools | [View Linear agent tools](/integrations/linear/tools). |
 
 [Connect Linear](/integrations/linear/setup) to create an integration connection.
