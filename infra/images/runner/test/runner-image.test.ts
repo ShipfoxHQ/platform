@@ -2030,8 +2030,15 @@ async function createCompositionFixture() {
     'ec2-instance-connect-harvest-hostkeys.service enabled',
     'ssh.socket enabled',
   ].join('\n');
-  const enabledInventory = enabledRequirements;
-  const maskedInventory = 'maintenance.service masked';
+  const maskedRequirements = 'maintenance.service masked';
+  // A live base image enables and masks many units the image never requires, so the
+  // fixture inventories stay supersets of the committed requirements.
+  const enabledInventory = [
+    enabledRequirements,
+    'getty@.service enabled',
+    'systemd-pstore.service enabled',
+  ].join('\n');
+  const maskedInventory = [maskedRequirements, 'plymouth-quit.service masked'].join('\n');
 
   await mkdir(commandDirectory, {recursive: true});
   await mkdir(compositionDirectory, {recursive: true});
@@ -2046,7 +2053,7 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
 `,
   );
   await writeFile(join(compositionDirectory, 'required-enabled.txt'), `${enabledRequirements}\n`);
-  await writeFile(join(compositionDirectory, 'required-masked.txt'), `${maskedInventory}\n`);
+  await writeFile(join(compositionDirectory, 'required-masked.txt'), `${maskedRequirements}\n`);
   await writeFile(
     join(compositionDirectory, 'limits.env'),
     'initramfs_max_bytes=33554432\nfull_snapshot_size_max_bytes=17179869184\n',
@@ -2146,6 +2153,9 @@ describe('ephemeral boot configuration', () => {
         '--now',
         ...EPHEMERAL_BOOT_MASKED_UNITS,
       ]);
+      expect((await readFile(fixture.catLog, 'utf8')).trim().split('\n')).toEqual([
+        ...EPHEMERAL_BOOT_MASKED_UNITS,
+      ]);
       expect(await readFile(fixture.journalDropIn, 'utf8')).toBe(
         '[Journal]\nStorage=volatile\nRuntimeMaxUse=64M\nRateLimitIntervalSec=30s\nRateLimitBurst=1000\n',
       );
@@ -2161,6 +2171,22 @@ describe('ephemeral boot configuration', () => {
         'shipfox-runner-boot-complete.service /etc/systemd/system/shipfox-runner-boot-complete.service',
       );
       expect(build).toContain('systemctl enable shipfox-runner-env.path');
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails before masking when a boot-policy unit disappears', async () => {
+    const script = new URL('../scripts/build/configure-ephemeral-boot.sh', import.meta.url);
+    const fixture = await createEphemeralBootFixture();
+
+    try {
+      expect(() =>
+        execFileSync('sh', [script.pathname], {
+          env: {...fixture.environment, SYSTEMCTL_MISSING_UNIT: 'udisks2.service'},
+          stdio: 'pipe',
+        }),
+      ).toThrow('udisks2.service');
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
@@ -2188,6 +2214,7 @@ async function createEphemeralBootFixture() {
   const commandDirectory = join(root, 'commands');
   const journalDropIn = join(root, 'etc/systemd/journald.conf.d/shipfox-volatile.conf');
   const maskLog = join(root, 'systemctl-mask.log');
+  const catLog = join(root, 'systemctl-cat.log');
 
   await mkdir(commandDirectory, {recursive: true});
   await writeExecutable(
@@ -2197,6 +2224,13 @@ set -eu
 command="$1"
 shift
 case "$command" in
+  cat)
+    unit="$1"
+    printf '%s\\n' "$unit" >> "$SYSTEMCTL_CAT_LOG"
+    if [ "\${SYSTEMCTL_MISSING_UNIT:-}" = "$unit" ]; then
+      exit 1
+    fi
+    ;;
   mask)
     printf '%s\\n' "$*" >> "$SYSTEMCTL_MASK_LOG"
     ;;
@@ -2242,10 +2276,12 @@ fi
   );
 
   return {
+    catLog,
     environment: {
       ...process.env,
       PATH: `${commandDirectory}:${process.env.PATH ?? ''}`,
       SHIPFOX_JOURNAL_DROP_IN: journalDropIn,
+      SYSTEMCTL_CAT_LOG: catLog,
       SYSTEMCTL_MASK_LOG: maskLog,
     },
     journalDropIn,

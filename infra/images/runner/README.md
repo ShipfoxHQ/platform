@@ -39,12 +39,12 @@ service and journal policy in
 ### Boot composition gate
 
 The bake checks the default systemd target and re-reads the installed fstab to
-confirm that both boot entries use `noauto` and pass 0. It applies the complete
-mask policy even when a unit is absent, so a later package change cannot restore
-that boot work. It checks the effective `systemd` state after masking and the
-effective journald configuration after writing the drop-in. A change that
-alters a boot entry, a required unit state, or the journald override fails the
-image build.
+confirm that both boot entries use `noauto` and pass 0. It requires every unit
+in the targeted mask policy to exist before masking, so removing or renaming a
+boot-work writer requires an explicit policy review. It then checks the
+effective `systemd` state after masking and the effective journald configuration
+after writing the drop-in. A change that alters a boot entry, a required unit
+state, or the journald override fails the image build.
 
 Before provider-specific runtime units are installed, the shared
 `verify-composition.sh` provisioner checks the enabled and masked unit

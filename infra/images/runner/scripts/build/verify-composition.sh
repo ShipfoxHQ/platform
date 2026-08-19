@@ -41,9 +41,9 @@ require_inventory() {
   missing=$(awk 'FILENAME == ARGV[1] {actual[$0] = 1; next} !($0 in actual) {print}' \
     "$actual" "$requirements")
   if [ -n "$missing" ]; then
-    printf '%s\n' "$missing" >&2
+    printf 'missing required %s units:\n%s\n' "$state" "$missing" >&2
     rm -f "$actual"
-    fail "required $state systemd units are missing from $requirements"
+    fail "the baked image does not satisfy $requirements"
   fi
   rm -f "$actual"
 }
