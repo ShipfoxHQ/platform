@@ -1063,6 +1063,9 @@ describe('systemd boot activation', () => {
     expect(source).toContain('X-aws-ec2-metadata-token-ttl-seconds: 21600');
     expect(source).toContain('--request PUT');
     expect(source).toContain('/latest/user-data');
+    expect(source).toContain("awk '{print int($1)}' /proc/uptime");
+    expect(source).toContain('while [ "$(uptime_seconds)" -lt "$deadline" ]');
+    expect(source).not.toContain('date +%s');
     expect(source).toContain('growpart "$root_disk" "$root_partition_number"');
     expect(source).toContain('resize2fs "$root_source"');
     expect(source).toContain('mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1');
