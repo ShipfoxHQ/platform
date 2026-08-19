@@ -30,9 +30,18 @@ emit_boot_phase() {
 abort_boot() {
   emit_boot_phase "$boot_phase" fail
   printf 'shipfox bootstrap: %s\n' "$1" >&2
-  printf '%s\n' 'shipfox bootstrap: link and route state at abort:' >&2
-  ip -brief address >&2 || true
-  ip route >&2 || true
+  case "$boot_phase" in
+    root-grow|workspace-mount)
+      printf '%s\n' 'shipfox bootstrap: block and mount state at abort:' >&2
+      lsblk -o NAME,TYPE,SIZE,PKNAME,PARTN,MOUNTPOINT >&2 || true
+      findmnt / >&2 || true
+      ;;
+    *)
+      printf '%s\n' 'shipfox bootstrap: link and route state at abort:' >&2
+      ip -brief address >&2 || true
+      ip route >&2 || true
+      ;;
+  esac
   if ! systemctl poweroff --no-wall; then
     /sbin/poweroff -f || true
   fi
@@ -105,15 +114,31 @@ fetch_user_data() {
 }
 
 resolve_root_partition() {
+  root_partition_name="$(basename "$1")"
   root_disk_name="$(lsblk -ndo PKNAME "$1" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
-  root_partition_number="$(lsblk -ndo PARTN "$1" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
+  root_partition_number="$(cat "/sys/class/block/$root_partition_name/partition" 2>/dev/null | tr -d '[:space:]')"
   [ -n "$root_disk_name" ] && [ -n "$root_partition_number" ]
 }
 
-grow_root_filesystem() {
+resolve_root_source() {
   root_source="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
   root_source="$(readlink -f "$root_source" 2>/dev/null || true)"
-  if [ -z "$root_source" ] || [ ! -b "$root_source" ]; then
+  [ -n "$root_source" ] && [ -b "$root_source" ]
+}
+
+verify_root_partition() {
+  if ! resolve_root_source || ! resolve_root_partition "$root_source"; then
+    printf 'shipfox bootstrap verification: unable to resolve root partition for %s\n' \
+      "${root_source:-unknown}" >&2
+    return 1
+  fi
+
+  printf 'shipfox bootstrap root partition verified: /dev/%s partition %s\n' \
+    "$root_disk_name" "$root_partition_number"
+}
+
+grow_root_filesystem() {
+  if ! resolve_root_source; then
     abort_boot 'Unable to identify the root filesystem.'
   fi
 
@@ -300,6 +325,15 @@ main() {
   emit_boot_phase 'env-published' ok
 }
 
-if [ "${SHIPFOX_BOOTSTRAP_LIBRARY:-}" != '1' ]; then
-  main
-fi
+case "${1:-}" in
+  '')
+    main
+    ;;
+  --verify-root-partition)
+    verify_root_partition
+    ;;
+  *)
+    printf 'shipfox bootstrap: unsupported argument: %s\n' "$1" >&2
+    exit 2
+    ;;
+esac

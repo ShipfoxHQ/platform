@@ -1175,6 +1175,12 @@ describe('systemd boot activation', () => {
       'printf \'shipfox-boot phase=%s status=%s uptime=%s\\n\' "$1" "$2" "$(uptime_seconds)"',
     );
     expect(source).toContain('emit_boot_phase "$boot_phase" fail');
+    expect(source).toContain('lsblk -o NAME,TYPE,SIZE,PKNAME,PARTN,MOUNTPOINT');
+    expect(source).toContain('findmnt /');
+    expect(source).toContain('cat "/sys/class/block/$root_partition_name/partition"');
+    expect(source).not.toContain('lsblk -ndo PARTN');
+    expect(source).toContain('--verify-root-partition');
+    expect(source).not.toContain('SHIPFOX_BOOTSTRAP_LIBRARY');
     expect(source).toContain('growpart "$root_disk" "$root_partition_number"');
     expect(source).toContain('resize2fs "$root_source"');
     expect(source).toContain('mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1');
@@ -1189,37 +1195,6 @@ describe('systemd boot activation', () => {
     expect(build).toContain('systemctl enable shipfox-bootstrap.service');
     expect(build).toMatch(DEDICATED_SYSTEMD_VERIFY_PROVISIONER_PATTERN);
     expect(build).toContain('rm -f /etc/hostname');
-  });
-
-  it('resolves a partitioned NVMe root with the util-linux partition-number column', () => {
-    const script = new URL('../scripts/runtime/shipfox-bootstrap.sh', import.meta.url);
-    const result = execFileSync(
-      'sh',
-      [
-        '-c',
-        `lsblk() {
-  [ "$1" = '-ndo' ]
-  [ "$3" = '/dev/nvme0n1p1' ]
-  case "$2" in
-    PKNAME) printf '%s\\n' nvme0n1 ;;
-    PARTN) printf '%s\\n' 1 ;;
-    *) exit 2 ;;
-  esac
-}
-. "$1"
-resolve_root_partition /dev/nvme0n1p1
-printf '%s %s\\n' "$root_disk_name" "$root_partition_number"
-`,
-        'sh',
-        script.pathname,
-      ],
-      {
-        encoding: 'utf8',
-        env: {...process.env, SHIPFOX_BOOTSTRAP_LIBRARY: '1'},
-      },
-    );
-
-    expect(result).toBe('nvme0n1 1\n');
   });
 
   it('resolves the root device and publishes a boot I/O sample', async () => {
@@ -1488,11 +1463,20 @@ describe('runner image composition', () => {
       expect(source).toContain('systemctl get-default');
       expect(source).toContain('fsck.mode=skip');
       expect(source).toContain('dpkg-query');
+      expect(source).toContain('cloud-guest-utils');
+      expect(source).toContain('command -v growpart');
+      expect(source).toContain('"$bootstrap_script" --verify-root-partition');
+      expect(await readFile(fixture.bootstrapLog, 'utf8')).toBe('--verify-root-partition\n');
       expect(build).toContain(`composition/\${var.image_os}/\${var.architecture}`);
       expect(build).toContain('scripts/build/verify-composition.sh');
       expect(build.indexOf('scripts/build/configure-ephemeral-boot.sh')).toBeLessThan(
         build.indexOf('scripts/build/verify-composition.sh'),
       );
+      expect(
+        build.indexOf(
+          'shipfox-bootstrap.sh /opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh',
+        ),
+      ).toBeLessThan(build.indexOf('scripts/build/verify-composition.sh'));
       expect(build.indexOf('sudo passwd --lock ubuntu')).toBeGreaterThan(
         build.indexOf('scripts/build/verify-composition.sh'),
       );
@@ -1537,10 +1521,48 @@ describe('runner image composition', () => {
 
       expect(() =>
         execFileSync('/bin/sh', [script.pathname], {
-          env: {...fixture.environment, RUNNER_IMAGE_INSTALLED_PACKAGE: 'snapd'},
+          env: {
+            ...fixture.environment,
+            RUNNER_IMAGE_INSTALLED_PACKAGES: 'cloud-guest-utils ec2-instance-connect snapd',
+          },
           stdio: 'pipe',
         }),
       ).toThrow('snapd');
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when required disk tooling is missing', async () => {
+    const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
+    const fixture = await createCompositionFixture();
+
+    try {
+      expect(() =>
+        execFileSync('/bin/sh', [script.pathname], {
+          env: {
+            ...fixture.environment,
+            RUNNER_IMAGE_INSTALLED_PACKAGES: 'ec2-instance-connect',
+          },
+          stdio: 'pipe',
+        }),
+      ).toThrow('cloud-guest-utils');
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when the installed bootstrap cannot resolve the live root', async () => {
+    const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
+    const fixture = await createCompositionFixture();
+
+    try {
+      expect(() =>
+        execFileSync('/bin/sh', [script.pathname], {
+          env: {...fixture.environment, RUNNER_IMAGE_BOOTSTRAP_FAIL: '1'},
+          stdio: 'pipe',
+        }),
+      ).toThrow('bootstrap root partition verification failed');
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
@@ -1941,11 +1963,14 @@ async function createCompositionFixture() {
   const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-composition-'));
   const commandDirectory = join(root, 'commands');
   const compositionDirectory = join(root, 'composition');
+  const bootstrapLog = join(root, 'bootstrap.log');
+  const bootstrapScript = join(root, 'shipfox-bootstrap.sh');
   const enabledInventory = [
     'apparmor.service enabled',
     'ec2-instance-connect-harvest-hostkeys.service enabled',
     'getty@.service enabled',
     'remote-fs.target enabled',
+    'shipfox-runner-env.path enabled',
     'ssh.socket enabled',
     'systemd-pstore.service enabled',
   ].join('\n');
@@ -2012,11 +2037,22 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
       'set -eu',
       "package=''",
       'for argument; do package="$argument"; done',
-      `if [ "\${RUNNER_IMAGE_INSTALLED_PACKAGE:-}" = "$package" ]; then`,
-      '  printf "%s\\n" "install ok installed"',
-      'else',
-      '  printf "%s\\n" "unknown ok not-installed"',
-      'fi',
+      `case " \${RUNNER_IMAGE_INSTALLED_PACKAGES:-} " in`,
+      '  *" $package "*) printf "%s\\n" "install ok installed" ;;',
+      '  *) printf "%s\\n" "unknown ok not-installed" ;;',
+      'esac',
+    ].join('\n'),
+  );
+  await writeExecutable(join(commandDirectory, 'growpart'), '#!/bin/sh\nexit 0\n');
+  await writeExecutable(
+    bootstrapScript,
+    [
+      '#!/bin/sh',
+      'set -eu',
+      '[ "$#" -eq 1 ]',
+      '[ "$1" = --verify-root-partition ]',
+      `[ "\${RUNNER_IMAGE_BOOTSTRAP_FAIL:-0}" != 1 ]`,
+      'printf "%s\\n" "$1" >> "$RUNNER_IMAGE_BOOTSTRAP_LOG"',
     ].join('\n'),
   );
   await writeExecutable(
@@ -2030,13 +2066,16 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
   );
 
   return {
+    bootstrapLog,
     enabledInventory,
     environment: {
       ...process.env,
       PATH: `${commandDirectory}:${process.env.PATH ?? ''}`,
+      RUNNER_IMAGE_BOOTSTRAP_LOG: bootstrapLog,
       RUNNER_IMAGE_ENABLED_INVENTORY: enabledInventory,
-      RUNNER_IMAGE_INSTALLED_PACKAGE: 'ec2-instance-connect',
+      RUNNER_IMAGE_INSTALLED_PACKAGES: 'cloud-guest-utils ec2-instance-connect',
       RUNNER_IMAGE_MASKED_INVENTORY: maskedInventory,
+      SHIPFOX_BOOTSTRAP_SCRIPT: bootstrapScript,
       SHIPFOX_FSTAB: join(root, 'fstab'),
       SHIPFOX_GRUB_CONFIG: join(root, 'grub.cfg'),
       SHIPFOX_INITRAMFS_PATH: join(root, 'boot/initrd.img-test'),

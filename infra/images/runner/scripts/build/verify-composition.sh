@@ -117,8 +117,17 @@ for package in snapd cloud-init amazon-ssm-agent; do
   fi
 done
 
-[ "$(package_state ec2-instance-connect)" = 'install ok installed' ] ||
-  fail 'required package is missing: ec2-instance-connect'
+for package in cloud-guest-utils ec2-instance-connect; do
+  [ "$(package_state "$package")" = 'install ok installed' ] ||
+    fail "required package is missing: $package"
+done
+
+command -v growpart >/dev/null 2>&1 || fail 'required command is missing: growpart'
+
+bootstrap_script=${SHIPFOX_BOOTSTRAP_SCRIPT:-/opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh}
+[ -x "$bootstrap_script" ] || fail "bootstrap script is missing or not executable: $bootstrap_script"
+"$bootstrap_script" --verify-root-partition ||
+  fail "bootstrap root partition verification failed: $bootstrap_script"
 
 for unit in ssh.socket ec2-instance-connect-harvest-hostkeys.service; do
   systemctl cat "$unit" >/dev/null 2>&1 || fail "required unit is missing: $unit"

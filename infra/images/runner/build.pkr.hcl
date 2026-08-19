@@ -24,21 +24,10 @@ build {
     ]
   }
 
-  # Verify the shared base composition before provider-specific runtime units are installed.
-  # This keeps one architecture/OS golden contract for both the AWS and QEMU image sources.
+  # Stage the shared composition contract for verification after the runtime is installed.
   provisioner "file" {
     destination = "/tmp/shipfox-runner-image-composition"
     source      = abspath("${path.root}/composition/${var.image_os}/${var.architecture}")
-  }
-
-  provisioner "shell" {
-    environment_vars = [
-      "SHIPFOX_RUNNER_COMPOSITION_DIR=/tmp/shipfox-runner-image-composition",
-      "SHIPFOX_RUNNER_IMAGE_ARCHITECTURE=${var.architecture}",
-      "SHIPFOX_RUNNER_IMAGE_OS=${var.image_os}",
-    ]
-    execute_command = "sudo -E sh -c '{{ .Vars }} {{ .Path }}'"
-    scripts         = ["${path.root}/scripts/build/verify-composition.sh"]
   }
 
   provisioner "file" {
@@ -99,6 +88,18 @@ build {
       "sudo systemctl daemon-reload",
       "sudo systemctl enable shipfox-runner-env.path"
     ]
+  }
+
+  # Verify the baked shared composition and the installed bootstrap against the live root
+  # device before provider-specific runtime units are enabled.
+  provisioner "shell" {
+    environment_vars = [
+      "SHIPFOX_RUNNER_COMPOSITION_DIR=/tmp/shipfox-runner-image-composition",
+      "SHIPFOX_RUNNER_IMAGE_ARCHITECTURE=${var.architecture}",
+      "SHIPFOX_RUNNER_IMAGE_OS=${var.image_os}",
+    ]
+    execute_command = "sudo -E sh -c '{{ .Vars }} {{ .Path }}'"
+    scripts         = ["${path.root}/scripts/build/verify-composition.sh"]
   }
 
   provisioner "file" {

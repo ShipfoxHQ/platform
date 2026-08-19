@@ -2,5 +2,6 @@ apparmor.service enabled
 ec2-instance-connect-harvest-hostkeys.service enabled
 getty@.service enabled
 remote-fs.target enabled
+shipfox-runner-env.path enabled
 ssh.socket enabled
 systemd-pstore.service enabled
