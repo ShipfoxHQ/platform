@@ -514,7 +514,7 @@ tool needs sensitive handling; it is not a separate approval policy.
 1. Read the provider registry's `capabilities[]` and enabled flag, then confirm
    that the provider is shipped before documenting it.
 2. Write `index.mdx` with purpose, authentication method, required access,
-   integration connection slug behavior, the fixed capability block, and links
+   integration connection slug behavior, the shipped capability rows, and links
    to every sibling page.
 3. Write `setup.mdx` when the provider is connectable.
 4. Write `events.mdx` only when the provider emits Shipfox-named events.
