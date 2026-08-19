@@ -1,7 +1,7 @@
 [Unit]
 Description=Fetch and publish the Shipfox runner bootstrap environment
 After=network.target
-Before=shipfox-runner-env.path shipfox-runner-env.service
+Before=shipfox-runner-env.service
 Wants=network.target
 FailureAction=poweroff
 

@@ -91,6 +91,13 @@ build {
     only = ["amazon-ebs.build_image"]
   }
 
+  provisioner "shell" {
+    inline = [
+      "sudo systemd-analyze verify multi-user.target"
+    ]
+    only = ["amazon-ebs.build_image"]
+  }
+
   # Harden the build user only after every provisioner that needs Packer's SSH access has run.
   provisioner "shell" {
     inline = [

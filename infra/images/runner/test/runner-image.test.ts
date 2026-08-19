@@ -8,6 +8,8 @@ import {buildRunnerImageCandidate, parseRunnerImageCandidateArgs} from '#candida
 import {packerBuildArgs, readMiseNodeVersion} from '#runner-image.js';
 
 const WHITESPACE_PATTERN = /\s+/u;
+const DEDICATED_SYSTEMD_VERIFY_PROVISIONER_PATTERN =
+  /provisioner "shell" \{\s+inline = \[\s+"sudo systemd-analyze verify multi-user\.target"\s+\]\s+only = \["amazon-ebs\.build_image"\]\s+\}/u;
 const EPHEMERAL_BOOT_MASKED_UNITS = [
   'apt-daily.service',
   'apt-daily-upgrade.service',
@@ -955,12 +957,12 @@ describe('systemd boot activation', () => {
     expect(build).not.toContain('var-lib-shipfox-workspaces.mount');
   });
 
-  it('starts the lifecycle target when the complete environment file appears', async () => {
+  it('watches for the complete environment without blocking basic boot on network readiness', async () => {
     const pathUnit = await readUnit('shipfox-runner-env.path');
     const targetUnit = await readUnit('shipfox-runner.target');
 
-    expect(systemdDirective(pathUnit, 'Unit', 'After')).toBe('network-online.target');
-    expect(systemdDirective(pathUnit, 'Unit', 'Wants')).toBe('network-online.target');
+    expect(systemdDirective(pathUnit, 'Unit', 'After')).toBeUndefined();
+    expect(systemdDirective(pathUnit, 'Unit', 'Wants')).toBeUndefined();
     expect(systemdDirective(pathUnit, 'Path', 'PathExists')).toBe('/etc/shipfox/runner.env');
     expect(systemdDirective(pathUnit, 'Path', 'Unit')).toBe('shipfox-runner-env.service');
     expect(systemdDirective(pathUnit, 'Install', 'WantedBy')).toBe('multi-user.target');
@@ -1051,9 +1053,7 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(bootstrapUnit, 'Unit', 'After')).toBe('network.target');
     expect(systemdDirective(bootstrapUnit, 'Unit', 'Wants')).toBe('network.target');
     expect(systemdDirective(bootstrapUnit, 'Unit', 'FailureAction')).toBe('poweroff');
-    expect(systemdDirective(bootstrapUnit, 'Unit', 'Before')).toBe(
-      'shipfox-runner-env.path shipfox-runner-env.service',
-    );
+    expect(systemdDirective(bootstrapUnit, 'Unit', 'Before')).toBe('shipfox-runner-env.service');
     expect(systemdDirective(bootstrapUnit, 'Service', 'Type')).toBe('oneshot');
     expect(systemdDirective(bootstrapUnit, 'Service', 'TimeoutStartSec')).toBe('6min');
     expect(systemdDirective(bootstrapUnit, 'Service', 'ExecStart')).toBe(
@@ -1075,6 +1075,7 @@ describe('systemd boot activation', () => {
       'shipfox-bootstrap.service /etc/systemd/system/shipfox-bootstrap.service',
     );
     expect(build).toContain('systemctl enable shipfox-bootstrap.service');
+    expect(build).toMatch(DEDICATED_SYSTEMD_VERIFY_PROVISIONER_PATTERN);
     expect(build).toContain('rm -f /etc/hostname');
   });
 

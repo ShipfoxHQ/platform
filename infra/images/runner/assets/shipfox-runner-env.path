@@ -1,7 +1,5 @@
 [Unit]
 Description=Start the Shipfox runner lifecycle when its environment is ready
-After=network-online.target
-Wants=network-online.target
 
 [Path]
 PathExists=/etc/shipfox/runner.env
