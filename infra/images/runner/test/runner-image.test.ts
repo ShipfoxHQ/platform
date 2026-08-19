@@ -2187,6 +2187,7 @@ describe('ephemeral boot configuration', () => {
           stdio: 'pipe',
         }),
       ).toThrow('udisks2.service');
+      await expect(readFile(fixture.maskLog, 'utf8')).rejects.toThrow();
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }

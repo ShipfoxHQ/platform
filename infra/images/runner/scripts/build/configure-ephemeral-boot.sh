@@ -7,7 +7,7 @@ set -eu
 # includes the image's package, bootloader, and firmware writers so they cannot
 # update the root-volume shadow directories behind those detached mounts.
 # Keep the policy explicit. The bake fails when a base image no longer contains
-# one of these units, so a renamed writer cannot silently weaken the gate.
+# one of these units, so a removed or renamed writer cannot silently weaken the gate.
 
 # apt-daily.service: package indexes are installed and cleaned during the image bake.
 apt_daily_service='apt-daily.service'
