@@ -108,6 +108,52 @@ describe('resolveAgentConfig', () => {
     expect(invalidModel).toThrow(InvalidAgentModelError);
   });
 
+  test('resolves managed provider models by harness API family', () => {
+    const provider = managedProvider();
+    const context = {managedProvider: provider};
+
+    const pi = resolveAgentConfig({provider: 'shipfox', model: 'completion-model'}, context);
+    const claude = resolveAgentConfig({harness: 'claude', provider: 'shipfox'}, context);
+    const incompatible = () =>
+      resolveAgentConfig(
+        {harness: 'claude', provider: 'shipfox', model: 'responses-model'},
+        context,
+      );
+
+    expect(pi).toEqual({
+      harness: 'pi',
+      provider: 'shipfox',
+      model: 'completion-model',
+      thinking: 'low',
+    });
+    expect(claude).toEqual({
+      harness: 'claude',
+      provider: 'shipfox',
+      model: 'claude-model',
+      thinking: 'low',
+    });
+    expect(incompatible).toThrow(InvalidAgentModelError);
+  });
+
+  test('instance model and thinking overrides win over managed provider defaults', () => {
+    const resolved = resolveAgentConfig(
+      {provider: 'shipfox'},
+      {
+        managedProvider: managedProvider(),
+        instanceDefaultProvider: 'shipfox',
+        instanceDefaultModel: 'claude-model',
+        instanceDefaultThinking: 'high',
+      },
+    );
+
+    expect(resolved).toEqual({
+      harness: 'pi',
+      provider: 'shipfox',
+      model: 'claude-model',
+      thinking: 'high',
+    });
+  });
+
   test('uses instance model and thinking only for the resolved instance model provider', () => {
     const resolved = resolveAgentConfig(
       {provider: 'openai'},
@@ -437,5 +483,24 @@ function createModelProviderConfigParams(params: {
     providerId: params.providerId,
     defaultModel: params.defaultModel,
     defaultThinking: params.defaultThinking,
+  };
+}
+
+function managedProvider() {
+  return {
+    id: 'shipfox',
+    label: 'Shipfox',
+    models: [
+      {id: 'claude-model', label: 'Claude model', api: 'anthropic-messages' as const},
+      {id: 'responses-model', label: 'Responses model', api: 'openai-responses' as const},
+      {id: 'completion-model', label: 'Completions model', api: 'openai-completions' as const},
+    ],
+    defaultModel: 'responses-model',
+    defaultThinking: 'low' as const,
+    resolveCredentials: async () => ({
+      api: 'anthropic-messages' as const,
+      baseUrl: 'https://gateway.example.com',
+      credentials: {api_key: 'token'},
+    }),
   };
 }

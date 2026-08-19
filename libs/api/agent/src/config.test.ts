@@ -1,3 +1,5 @@
+import type {ManagedModelEntry, ManagedModelProvider} from '@shipfox/api-agent-dto';
+
 describe('agent config', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -19,9 +21,9 @@ describe('agent config', () => {
     vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'azure-openai-responses');
     vi.stubEnv('AGENT_DEFAULT_PROVIDER_API_KEY', 'sk-instance-secret');
 
-    const importConfig = import('./config.js');
+    const module = await import('./config.js');
 
-    await expect(importConfig).rejects.toThrow(
+    expect(() => module.assertAgentConfig()).toThrow(
       'AGENT_DEFAULT_PROVIDER_API_KEY requires AGENT_DEFAULT_PROVIDER',
     );
   });
@@ -30,11 +32,112 @@ describe('agent config', () => {
     vi.resetModules();
     vi.stubEnv('AGENT_DEFAULT_PROVIDER_API_KEY', 'sk-instance-secret');
 
-    const importConfig = import('./config.js');
+    const module = await import('./config.js');
 
-    await expect(importConfig).rejects.toThrow(
+    expect(() => module.assertAgentConfig()).toThrow(
       'AGENT_DEFAULT_PROVIDER_API_KEY requires AGENT_DEFAULT_PROVIDER',
     );
+  });
+
+  it('accepts an injected managed provider as the instance default', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'shipfox');
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig(managedProvider())).not.toThrow();
+  });
+
+  it('rejects an instance API key for an injected managed provider', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'shipfox');
+    vi.stubEnv('AGENT_DEFAULT_PROVIDER_API_KEY', 'sk-instance-secret');
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig(managedProvider())).toThrow(
+      'AGENT_DEFAULT_PROVIDER_API_KEY cannot be used with a managed model provider',
+    );
+  });
+
+  it('rejects an instance default that is not a registered provider', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'not-registered');
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig()).toThrow(
+      'AGENT_DEFAULT_PROVIDER must name a supported registered provider',
+    );
+  });
+
+  it.each([
+    ['invalid provider ID', managedProvider({id: 'bad_id'}), 'valid provider slug'],
+    ['reserved provider ID', managedProvider({id: 'openai'}), 'provider ID is reserved'],
+    ['empty provider label', managedProvider({label: ''}), 'label must not be empty'],
+    ['empty model list', managedProvider({models: []}), 'at least one model'],
+    [
+      'empty model ID',
+      managedProvider({
+        models: [{id: '', label: 'Managed model', api: 'anthropic-messages'}],
+      }),
+      'models must have IDs and labels',
+    ],
+    [
+      'empty model label',
+      managedProvider({
+        models: [{id: 'managed-model', label: '', api: 'anthropic-messages'}],
+      }),
+      'models must have IDs and labels',
+    ],
+    [
+      'duplicate model IDs',
+      managedProvider({
+        models: [
+          {id: 'managed-model', label: 'Managed model', api: 'anthropic-messages'},
+          {id: 'managed-model', label: 'Managed model 2', api: 'openai-responses'},
+        ],
+      }),
+      'models must have unique IDs',
+    ],
+    [
+      'invalid model API',
+      managedProvider({
+        models: [
+          {
+            id: 'managed-model',
+            label: 'Managed model',
+            api: 'invalid' as unknown as ManagedModelEntry['api'],
+          },
+        ],
+      }),
+      'model API is invalid',
+    ],
+    [
+      'unregistered default model',
+      managedProvider({defaultModel: 'missing-model'}),
+      'default model is not registered',
+    ],
+    [
+      'invalid default thinking',
+      managedProvider({
+        defaultThinking: 'invalid' as unknown as ManagedModelProvider['defaultThinking'],
+      }),
+      'default thinking is invalid',
+    ],
+    [
+      'missing credential resolver',
+      managedProvider({
+        resolveCredentials: undefined as unknown as ManagedModelProvider['resolveCredentials'],
+      }),
+      'must resolve credentials',
+    ],
+  ] as const)('rejects a managed provider with %s', async (_name, provider, message) => {
+    vi.resetModules();
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig(provider)).toThrow(message);
   });
 
   it('imports without an instance key', async () => {
@@ -116,3 +219,19 @@ describe('agent config', () => {
     await expect(importConfig).rejects.toThrow('AGENT_PI_ENABLED_TOOL_PACKAGES');
   });
 });
+
+function managedProvider(overrides: Partial<ManagedModelProvider> = {}): ManagedModelProvider {
+  return {
+    id: 'shipfox',
+    label: 'Shipfox',
+    models: [{id: 'claude-opus-4-8', label: 'Claude Opus 4.8', api: 'anthropic-messages' as const}],
+    defaultModel: 'claude-opus-4-8',
+    defaultThinking: 'high' as const,
+    resolveCredentials: async () => ({
+      api: 'anthropic-messages' as const,
+      baseUrl: 'https://gateway.example.com',
+      credentials: {api_key: 'token'},
+    }),
+    ...overrides,
+  };
+}

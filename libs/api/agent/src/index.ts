@@ -1,4 +1,6 @@
+import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
 import type {ShipfoxModule} from '@shipfox/node-module';
+import {assertAgentConfig} from '#config.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
 import {db, migrationsPath} from '#db/index.js';
 import {createAgentE2eRoutes} from '#presentation/e2eRoutes/index.js';
@@ -42,7 +44,12 @@ export {
   upsertModelProviderConfig,
 } from '#db/index.js';
 
-export function createAgentModule(params: {secrets: AgentSecretsClient}): ShipfoxModule {
+export function createAgentModule(params: {
+  secrets: AgentSecretsClient;
+  managedProvider?: ManagedModelProvider | undefined;
+}): ShipfoxModule {
+  assertAgentConfig(params.managedProvider);
+
   return {
     name: 'agent',
     database: {db, migrationsPath, databaseNamespace: 'agent'},

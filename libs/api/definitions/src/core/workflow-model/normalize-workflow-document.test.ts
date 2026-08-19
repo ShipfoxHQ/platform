@@ -1,3 +1,4 @@
+import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
 import type {WorkflowDocument} from '@shipfox/workflow-document';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
 import type {IntegrationValidationContext} from '../entities/integration-context.js';
@@ -4983,6 +4984,55 @@ describe('normalizeWorkflowDocument', () => {
           path: ['jobs', 'fix', 'steps', 0, 'provider'],
         }),
       ]);
+    });
+
+    it('accepts a managed provider on Claude when the catalog exposes an Anthropic model', () => {
+      const providerId = 'shipfox-managed';
+      const managedCatalog: AgentValidationCatalog = {
+        ...agentValidationCatalog,
+        providers: [
+          ...agentValidationCatalog.providers,
+          {id: providerId, support_status: 'supported'},
+        ],
+        harnesses: agentValidationCatalog.harnesses.map((harness) =>
+          harness.id === 'claude'
+            ? {
+                ...harness,
+                supported_provider_ids: [...harness.supported_provider_ids, providerId],
+                model_ids_by_provider: {
+                  ...harness.model_ids_by_provider,
+                  [providerId]: ['managed-claude'],
+                },
+              }
+            : harness,
+        ),
+      };
+
+      const model = normalizeWorkflowDocument(
+        {
+          name: 'managed Claude provider',
+          jobs: {
+            fix: {
+              steps: [
+                {
+                  harness: 'claude',
+                  provider: providerId,
+                  model: 'managed-claude',
+                  prompt: 'Fix it.',
+                },
+              ],
+            },
+          },
+        },
+        {agentValidationCatalog: managedCatalog},
+      );
+
+      expect(model.jobs[0]?.steps[0]).toMatchObject({
+        kind: 'agent',
+        harness: 'claude',
+        provider: providerId,
+        model: 'managed-claude',
+      });
     });
 
     it('reports typed interpolation expression errors for trusted known contexts', () => {
