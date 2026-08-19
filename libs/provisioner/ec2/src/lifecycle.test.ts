@@ -932,6 +932,50 @@ describe('createEc2Lifecycle', () => {
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
+  it('logs EC2 termination state details when the instance carries them', async () => {
+    const launchTime = new Date('2026-01-01T00:00:00.000Z');
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'running',
+          launchTime,
+          ami: 'ami-actual',
+          availabilityZone: 'eu-west-3a',
+          stateTransitionReason: 'User initiated (2026-01-01 00:05:00 GMT)',
+          stateReasonCode: 'Client.UserInitiatedShutdown',
+          stateReasonMessage: 'Instance shutdown from the guest.',
+        }),
+      ],
+    });
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      {
+        provisioned_runner_id: 'runner-1',
+        runner_instance_id: RUNNER_INSTANCE_ID,
+        instance_id: 'i-123',
+        aws_instance_id: 'i-123',
+        template_key: 'spot-small',
+        ami: 'ami-actual',
+        launch_time: launchTime.toISOString(),
+        reason: 'backend-terminate',
+        state_transition_reason: 'User initiated (2026-01-01 00:05:00 GMT)',
+        state_reason_code: 'Client.UserInitiatedShutdown',
+        state_reason_message: 'Instance shutdown from the guest.',
+        availability_zone: 'eu-west-3a',
+      },
+      'Terminated EC2 runner instance',
+    );
+  });
+
   it('keeps successful termination actions when a later instance fails', async () => {
     const engine = fakeEngine({
       instances: [
@@ -1236,6 +1280,8 @@ function instance(args: {
   architecture?: Ec2InstanceView['architecture'];
   availabilityZone?: string;
   stateTransitionReason?: string;
+  stateReasonCode?: string;
+  stateReasonMessage?: string;
   launchTime?: Date;
   ami?: string;
   instanceId?: string;
@@ -1261,6 +1307,8 @@ function instance(args: {
       'shipfox.labels': args.labels ?? 'ubuntu22',
     },
     ...(args.stateTransitionReason ? {stateTransitionReason: args.stateTransitionReason} : {}),
+    ...(args.stateReasonCode ? {stateReasonCode: args.stateReasonCode} : {}),
+    ...(args.stateReasonMessage ? {stateReasonMessage: args.stateReasonMessage} : {}),
     ...(args.launchTime ? {launchTime: args.launchTime} : {}),
   };
 }
