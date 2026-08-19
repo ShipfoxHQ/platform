@@ -17,6 +17,7 @@ export const INTEGRATION_CATALOG_ICONS = [
   'webhooks',
   'linear',
   'slack',
+  'jira',
 ] as const;
 
 export type CatalogAvailability = (typeof INTEGRATION_CATALOG_AVAILABILITIES)[number];

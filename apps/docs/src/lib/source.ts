@@ -4,10 +4,11 @@ import {loader} from 'fumadocs-core/source';
 import {statusBadgesPlugin} from 'fumadocs-core/source/status-badges';
 import {icons} from 'lucide-react';
 import {createElement} from 'react';
-import {siGithub, siLinear, siSentry, siSlack} from 'simple-icons';
+import {siGithub, siJira, siLinear, siSentry, siSlack} from 'simple-icons';
 
 const simpleIcons = {
   github: siGithub,
+  jira: siJira,
   sentry: siSentry,
   linear: siLinear,
   slack: siSlack,
@@ -53,8 +54,8 @@ export const source = loader({
   icon(icon) {
     if (!icon) return;
     if (icon in icons) return createElement(icons[icon as keyof typeof icons]);
-    if (icon.startsWith('si:')) {
-      const key = icon.slice(3) as keyof typeof simpleIcons;
+    if (icon.startsWith('si:') || icon in simpleIcons) {
+      const key = (icon.startsWith('si:') ? icon.slice(3) : icon) as keyof typeof simpleIcons;
       const si = simpleIcons[key];
       if (si)
         return createElement(

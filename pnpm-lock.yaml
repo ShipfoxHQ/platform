@@ -719,6 +719,12 @@ importers:
       '@shipfox/api-integration-github-dto':
         specifier: workspace:*
         version: link:../../libs/api/integration/github-dto
+      '@shipfox/api-integration-jira':
+        specifier: workspace:*
+        version: link:../../libs/api/integration/jira
+      '@shipfox/api-integration-jira-dto':
+        specifier: workspace:*
+        version: link:../../libs/api/integration/jira-dto
       '@shipfox/api-integration-linear':
         specifier: workspace:*
         version: link:../../libs/api/integration/linear

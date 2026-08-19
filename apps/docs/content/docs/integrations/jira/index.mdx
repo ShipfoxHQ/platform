@@ -1,0 +1,57 @@
+---
+title: "Jira integration"
+sidebarTitle: "Jira"
+description: "Look up Jira OAuth access, integration connection identity, issue events, and agent tools."
+catalog:
+  summary: "Connect a Jira site, receive issue events, and give agents scoped Jira tools."
+  availability: "available"
+  capabilities: ["events", "agent_tools"]
+  categories: ["issue-tracking"]
+  aliases: ["issues", "tickets"]
+  icon: "jira"
+---
+
+Jira connects a Jira Cloud site to Shipfox. It sends issue and comment events
+and provides scoped tools for agent steps.
+
+## Categories and related terms
+
+**Category:** Issue tracking.
+
+**Related terms:** Issues, tickets.
+
+**Availability:** Available.
+
+## Authentication
+
+Shipfox uses Jira OAuth authorization. The flow requests
+`read:jira-work`, `write:jira-work`, `read:jira-user`, `manage:jira-webhook`, and
+`offline_access`.
+
+## Integration connection identity
+
+The slug of a Jira integration connection defaults to `jira_<site>`, where
+`<site>` is the normalized Jira site name. For example, `jira_acme`. If the site
+name is unavailable, Shipfox uses the Jira cloud ID. Shipfox makes the slug
+unique within the workspace.
+
+Use the slug as `source` for Jira events:
+
+```yaml
+triggers:
+  on_jira:
+    source: jira_acme
+    event: jira:issue_updated
+```
+
+For trigger field rules, see the [workflow schema reference](/reference/workflow-schema#trigger-fields).
+
+## Capabilities
+
+| Capability | Availability |
+| --- | --- |
+| Source control | **Not available.** |
+| Events | Available. [View Jira events](/integrations/jira/events). |
+| Agent tools | Available. [View Jira agent tools](/integrations/jira/tools). |
+
+[Connect Jira](/integrations/jira/setup) to create an integration connection.
