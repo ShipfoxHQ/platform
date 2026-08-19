@@ -3,6 +3,8 @@ set -eu
 
 umask 077
 
+. /opt/shipfox-runner/scripts/runtime/helpers/resolve-root-partition.sh
+
 imds_base_url='http://169.254.169.254'
 runner_env_dir='/etc/shipfox'
 runner_env_path="$runner_env_dir/runner.env"
@@ -113,13 +115,6 @@ fetch_user_data() {
   return 1
 }
 
-resolve_root_partition() {
-  root_partition_name="$(basename "$1")"
-  root_disk_name="$(lsblk -ndo PKNAME "$1" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
-  root_partition_number="$(cat "/sys/class/block/$root_partition_name/partition" 2>/dev/null | tr -d '[:space:]')"
-  [ -n "$root_disk_name" ] && [ -n "$root_partition_number" ]
-}
-
 resolve_root_source() {
   root_source="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
   root_source="$(readlink -f "$root_source" 2>/dev/null || true)"
@@ -127,9 +122,20 @@ resolve_root_source() {
 }
 
 verify_root_partition() {
-  if ! resolve_root_source || ! resolve_root_partition "$root_source"; then
+  if ! resolve_root_source; then
+    printf '%s\n' 'shipfox bootstrap verification: unable to resolve the root filesystem' >&2
+    return 1
+  fi
+
+  root_type="$(lsblk -ndo TYPE "$root_source" 2>/dev/null || true)"
+  if [ "$root_type" = 'disk' ]; then
+    printf 'shipfox bootstrap whole-disk root verified: %s\n' "$root_source"
+    return 0
+  fi
+
+  if ! resolve_root_partition "$root_source"; then
     printf 'shipfox bootstrap verification: unable to resolve root partition for %s\n' \
-      "${root_source:-unknown}" >&2
+      "$root_source" >&2
     return 1
   fi
 

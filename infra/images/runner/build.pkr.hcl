@@ -24,10 +24,21 @@ build {
     ]
   }
 
-  # Stage the shared composition contract for verification after the runtime is installed.
+  # Verify the shared base composition before provider-specific runtime units are installed.
+  # This keeps one architecture/OS golden contract for both the AWS and QEMU image sources.
   provisioner "file" {
     destination = "/tmp/shipfox-runner-image-composition"
     source      = abspath("${path.root}/composition/${var.image_os}/${var.architecture}")
+  }
+
+  provisioner "shell" {
+    environment_vars = [
+      "SHIPFOX_RUNNER_COMPOSITION_DIR=/tmp/shipfox-runner-image-composition",
+      "SHIPFOX_RUNNER_IMAGE_ARCHITECTURE=${var.architecture}",
+      "SHIPFOX_RUNNER_IMAGE_OS=${var.image_os}",
+    ]
+    execute_command = "sudo -E sh -c '{{ .Vars }} {{ .Path }}'"
+    scripts         = ["${path.root}/scripts/build/verify-composition.sh"]
   }
 
   provisioner "file" {
@@ -85,21 +96,17 @@ build {
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/shipfox-bootstrap.sh /opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/verify-workspace-mount.sh /opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/helpers/logger.sh /opt/shipfox-runner/scripts/runtime/helpers/logger.sh",
+      "sudo install -m 0644 /tmp/shipfox-runner-image-scripts/runtime/helpers/resolve-root-partition.sh /opt/shipfox-runner/scripts/runtime/helpers/resolve-root-partition.sh",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable shipfox-runner-env.path"
     ]
   }
 
-  # Verify the baked shared composition and the installed bootstrap against the live root
-  # device before provider-specific runtime units are enabled.
+  # Exercise the installed bootstrap against the live Packer root after all runtime files exist.
   provisioner "shell" {
-    environment_vars = [
-      "SHIPFOX_RUNNER_COMPOSITION_DIR=/tmp/shipfox-runner-image-composition",
-      "SHIPFOX_RUNNER_IMAGE_ARCHITECTURE=${var.architecture}",
-      "SHIPFOX_RUNNER_IMAGE_OS=${var.image_os}",
+    inline = [
+      "sudo /opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh --verify-root-partition"
     ]
-    execute_command = "sudo -E sh -c '{{ .Vars }} {{ .Path }}'"
-    scripts         = ["${path.root}/scripts/build/verify-composition.sh"]
   }
 
   provisioner "file" {
