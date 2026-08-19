@@ -1,0 +1,52 @@
+---
+title: "Connect Jira to a Shipfox workspace"
+sidebarTitle: "Setup"
+description: "Authorize a Jira site, copy the integration connection slug, and verify event and agent-tool access."
+---
+
+Connect Jira when a workflow needs Jira events or an agent step needs Jira
+tools. See the [Jira overview](/integrations/jira) for its capabilities.
+
+## Before you begin
+
+You need access to workspace integration settings. You also need permission to
+authorize Shipfox in the target Jira Cloud site.
+
+If your Atlassian account can access multiple Jira sites, identify the site that
+the workspace should use.
+
+## Authorize Jira
+
+<Steps>
+  <Step>
+
+    **Start the integration connection**
+
+    Open **Settings → Integrations** in the workspace. Select **Jira**, then
+    start the integration connection.
+  </Step>
+  <Step>
+
+    **Authorize the Jira site**
+
+    Sign in to Atlassian and authorize Shipfox. If Jira lists multiple sites,
+    select the site to connect to this Shipfox workspace.
+  </Step>
+  <Step>
+
+    **Record the integration connection slug**
+
+    Open the new integration connection's menu. Select **Use this integration**.
+    Copy the slug from the event or tool-selection example. Workflows use the
+    slug as `source`, and agent steps use it as `connection`.
+  </Step>
+</Steps>
+
+## Verify the integration connection
+
+Open **Settings → Integrations** and check that the Jira integration connection
+is active and advertises Events and Agent tools.
+
+To test `jira:issue_updated`, `comment_created`, or `comment_updated`, use a
+Jira account other than the account that authorized the integration. Shipfox
+discards those self-authored events.

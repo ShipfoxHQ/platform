@@ -31,6 +31,12 @@ const validInput: IntegrationDocsCompletenessInput = {
     webhooks: {availability: 'available', capabilities: ['events'], eventCount: 1, toolCount: 0},
     linear: {availability: 'available', capabilities: ['agent_tools'], eventCount: 0, toolCount: 1},
     slack: {availability: 'available', capabilities: ['agent_tools'], eventCount: 0, toolCount: 1},
+    jira: {
+      availability: 'available',
+      capabilities: ['events', 'agent_tools'],
+      eventCount: 6,
+      toolCount: 11,
+    },
   },
   integrationDirectories: {
     github: directory(
@@ -68,6 +74,17 @@ const validInput: IntegrationDocsCompletenessInput = {
       categories: ['messaging'],
       aliases: ['chat'],
     }),
+    jira: directory(
+      'jira',
+      ['index', 'setup', 'events', 'tools'],
+      ['index', 'setup', 'events', 'tools'],
+      {
+        availability: 'available',
+        capabilities: ['events', 'agent_tools'],
+        categories: ['issue-tracking'],
+        aliases: ['issues', 'tickets'],
+      },
+    ),
   },
   categoryLabels: catalogCategoryLabels,
   triggerSources: '## Sources at a glance\n| Cron | `cron` | `tick` |\n\n## cron',

@@ -9,6 +9,10 @@ import {
 } from '@shipfox/api-integration-github/agent-tools';
 import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import {
+  jiraAgentToolCatalog,
+  jiraAgentToolSelectionCatalog,
+} from '@shipfox/api-integration-jira/agent-tools';
+import {
   linearAgentToolCatalog,
   linearAgentToolSelectionCatalog,
 } from '@shipfox/api-integration-linear/agent-tools';
@@ -31,6 +35,7 @@ import {
   contextRootShape,
   WORKFLOW_FIELD_YAML_KEYS,
 } from './lib/context-reference.mjs';
+import {jiraEventCatalog} from './lib/jira-event-catalog.mjs';
 import {slugForHeading} from './lib/slug.mjs';
 
 const docsRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -40,6 +45,11 @@ const dtoCatalogBySlug = {
     eventCatalog: githubEventCatalog,
     toolCatalog: githubAgentToolCatalog,
     toolSelectionCatalog: githubAgentToolSelectionCatalog,
+  },
+  jira: {
+    eventCatalog: jiraEventCatalog,
+    toolCatalog: jiraAgentToolCatalog,
+    toolSelectionCatalog: jiraAgentToolSelectionCatalog,
   },
   linear: {
     toolCatalog: linearAgentToolCatalog,
@@ -273,12 +283,15 @@ function renderFields(schema) {
       : conditional.has(name)
         ? 'Conditional'
         : 'Optional';
+    const propertyType = Array.isArray(property.type)
+      ? property.type.join(' | ')
+      : (property.type ?? 'value');
     const type =
       strings(property.enum).length > 0
-        ? `${property.type}: ${strings(property.enum)
+        ? `${propertyType}: ${strings(property.enum)
             .map((item) => `\`${item}\``)
             .join(', ')}`
-        : (property.type ?? 'value');
+        : propertyType;
     return `| \`${name}\` | ${escapeTableCell(type)} | ${requirement} | ${escapeTableCell(property.description ?? '')} |`;
   });
   if (rows.length === 0) return ['This schema accepts an object with provider-defined fields.'];

@@ -40,6 +40,8 @@
     "@shipfox/expression": "workspace:*",
     "@shipfox/api-integration-github": "workspace:*",
     "@shipfox/api-integration-github-dto": "workspace:*",
+    "@shipfox/api-integration-jira": "workspace:*",
+    "@shipfox/api-integration-jira-dto": "workspace:*",
     "@shipfox/api-integration-linear": "workspace:*",
     "@shipfox/api-integration-sentry-dto": "workspace:*",
     "@shipfox/api-integration-slack": "workspace:*",

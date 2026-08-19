@@ -42,6 +42,12 @@ export const registeredIntegrationProviders: readonly RegisteredIntegrationProvi
   {slug: 'linear', kind: 'catalog', availability: 'available', capabilities: ['agent_tools']},
   {slug: 'slack', kind: 'catalog', availability: 'available', capabilities: ['agent_tools']},
   {
+    slug: 'jira',
+    kind: 'catalog',
+    availability: 'available',
+    capabilities: ['events', 'agent_tools'],
+  },
+  {
     slug: 'cron',
     kind: 'built-in-source',
     availability: 'available',
