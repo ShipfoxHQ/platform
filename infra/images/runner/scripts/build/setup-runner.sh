@@ -6,7 +6,8 @@ root_dir=${RUNNER_IMAGE_ROOT:-/}
 apt-get update
 apt-get install --yes --no-install-recommends \
   ca-certificates curl wget git openssh-client tar gzip xz-utils bzip2 zip unzip jq \
-  build-essential cloud-guest-utils python3 pkg-config ripgrep fd-find sudo amazon-ec2-utils
+  build-essential cloud-guest-utils python3 pkg-config ripgrep fd-find sudo amazon-ec2-utils \
+  ec2-instance-connect
 
 # Keep a disk-backed memory reserve available while jobs run.
 swapfile="$root_dir/swapfile"

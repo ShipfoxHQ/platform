@@ -44,6 +44,11 @@ interface CandidateImageMetadata {
   owner: string;
 }
 
+interface CandidateImage {
+  image: Image;
+  metadata: CandidateImageMetadata;
+}
+
 interface Ec2ClientLike {
   send(command: DescribeImagesCommand): Promise<{Images?: Image[]}>;
   send(command: DescribeImageAttributeCommand): Promise<DescribeImageAttributeCommandOutput>;
@@ -76,8 +81,9 @@ export async function buildRunnerImageCandidate(
     candidateId,
   );
   if (existingImage) {
-    await reshareRunnerImageCandidate(client, existingImage.amiId, build);
-    return candidateResult('reused', existingImage, build, candidateId, region);
+    await verifyRootSnapshotSize(client, existingImage.image, build);
+    await reshareRunnerImageCandidate(client, existingImage.metadata.amiId, build);
+    return candidateResult('reused', existingImage.metadata, build, candidateId, region);
   }
 
   const result = await (options.build ?? buildRunnerImage)(build);
@@ -152,7 +158,7 @@ async function findRunnerImageCandidate(
   revision: string,
   architecture: 'amd64' | 'arm64',
   candidateId: string,
-): Promise<CandidateImageMetadata | null> {
+): Promise<CandidateImage | null> {
   const output = await client.send(
     new DescribeImagesCommand({
       Owners: ['self'],
@@ -174,7 +180,7 @@ async function findRunnerImageCandidate(
     );
   }
   const image = images[0];
-  return image ? candidateImageMetadata(image) : null;
+  return image ? {image, metadata: candidateImageMetadata(image)} : null;
 }
 
 async function describeBuiltCandidate(

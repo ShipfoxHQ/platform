@@ -34,6 +34,9 @@ const EPHEMERAL_BOOT_MASKED_UNITS = [
   'grub-initrd-fallback.service',
   'keyboard-setup.service',
   'console-setup.service',
+  'cryptdisks-early.service',
+  'cryptdisks.service',
+  'hwclock.service',
   'setvtrgb.service',
   'getty@tty1.service',
   'motd-news.timer',
@@ -47,6 +50,8 @@ const EPHEMERAL_BOOT_MASKED_UNITS = [
   'dpkg-db-backup.timer',
   'sysstat-collect.timer',
   'sysstat-summary.timer',
+  'sudo.service',
+  'x11-common.service',
 ] as const;
 
 afterEach(() => {
@@ -540,6 +545,7 @@ describe('runner image candidates', () => {
     const send = vi
       .fn()
       .mockResolvedValueOnce({Images: [availableImage('ami-0fedcba9876543210', 'arm64')]})
+      .mockResolvedValueOnce(snapshotResponse())
       .mockResolvedValueOnce({
         LaunchPermissions: [
           {UserId: '123456789012'},
@@ -617,6 +623,38 @@ describe('runner image candidates', () => {
     const candidate = buildRunnerImageCandidate(build, {client: {send}});
 
     await expect(candidate).rejects.toThrow('Expected at most one amd64 candidate AMI');
+  });
+
+  it('rejects a reused AMI whose root snapshot exceeds its committed ceiling', async () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'arm64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      },
+      '24.17.0',
+    );
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({Images: [availableImage('ami-0fedcba9876543210', 'arm64')]})
+      .mockResolvedValueOnce(snapshotResponse(17 * 1024 * 1024 * 1024));
+    const buildImage = vi.fn();
+
+    const candidate = buildRunnerImageCandidate(build, {
+      build: buildImage,
+      client: {send},
+    });
+
+    await expect(candidate).rejects.toThrow('exceeding committed ceiling');
+    expect(buildImage).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it('rejects a built AMI that is not available yet', async () => {
@@ -1514,6 +1552,9 @@ describe('runner image composition', () => {
       expect(build).toContain('scripts/build/setup-runner.sh');
       expect(stopIndex).toBeGreaterThanOrEqual(0);
       expect(purgeIndex).toBeGreaterThan(stopIndex);
+      expect(
+        events.find((event) => event.startsWith('apt-get install --yes --no-install-recommends ')),
+      ).toContain('amazon-ec2-utils ec2-instance-connect');
       expect(events).toContain('apt-get purge --yes cloud-init');
       expect(unmountEvents).toHaveLength(5);
       expect(unmountEvents).toContain(`umount -l ${join(fixture.root, 'snap/amazon-ssm-agent')}`);
