@@ -2,8 +2,8 @@
 set -eu
 
 composition_dir=${SHIPFOX_RUNNER_COMPOSITION_DIR:-/tmp/shipfox-runner-image-composition}
-enabled_golden="$composition_dir/enabled.txt"
-masked_golden="$composition_dir/masked.txt"
+enabled_requirements="$composition_dir/required-enabled.txt"
+masked_requirements="$composition_dir/required-masked.txt"
 limits_file="$composition_dir/limits.env"
 image_identity="${SHIPFOX_RUNNER_IMAGE_OS:-unknown}/${SHIPFOX_RUNNER_IMAGE_ARCHITECTURE:-unknown}"
 
@@ -12,7 +12,7 @@ fail() {
   exit 1
 }
 
-for required_file in "$enabled_golden" "$masked_golden" "$limits_file"; do
+for required_file in "$enabled_requirements" "$masked_requirements" "$limits_file"; do
   [ -r "$required_file" ] || fail "required composition file is missing: $required_file"
 done
 
@@ -33,20 +33,23 @@ inventory() {
     LC_ALL=C sort
 }
 
-compare_inventory() {
+require_inventory() {
   state=$1
-  expected=$2
+  requirements=$2
   actual=$(mktemp)
   inventory "$state" > "$actual"
-  if ! diff -u "$expected" "$actual" >&2; then
+  missing=$(awk 'FILENAME == ARGV[1] {actual[$0] = 1; next} !($0 in actual) {print}' \
+    "$actual" "$requirements")
+  if [ -n "$missing" ]; then
+    printf '%s\n' "$missing" >&2
     rm -f "$actual"
-    fail "$state systemd unit inventory differs from $expected"
+    fail "required $state systemd units are missing from $requirements"
   fi
   rm -f "$actual"
 }
 
-compare_inventory enabled "$enabled_golden"
-compare_inventory masked "$masked_golden"
+require_inventory enabled "$enabled_requirements"
+require_inventory masked "$masked_requirements"
 
 default_target=$(systemctl get-default)
 [ "$default_target" = 'multi-user.target' ] ||

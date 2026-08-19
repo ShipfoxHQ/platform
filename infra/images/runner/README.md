@@ -39,32 +39,34 @@ service and journal policy in
 ### Boot composition gate
 
 The bake checks the default systemd target and re-reads the installed fstab to
-confirm that both boot entries use `noauto` and pass 0. It checks that every unit
-in the mask inventory exists before it masks the unit. It checks the effective
-`systemd` state after masking. It also checks the effective journald configuration
-after writing the drop-in. A base-image change that removes a unit, changes a
-boot entry, or overrides the drop-in fails the image build.
+confirm that both boot entries use `noauto` and pass 0. It applies the complete
+mask policy even when a unit is absent, so a later package change cannot restore
+that boot work. It checks the effective `systemd` state after masking and the
+effective journald configuration after writing the drop-in. A change that
+alters a boot entry, a required unit state, or the journald override fails the
+image build.
 
-At the post-boot-trimming seam, before provider-specific runtime units are
-installed, the shared `verify-composition.sh` provisioner compares the enabled and
-masked unit inventories from `systemctl list-unit-files --state=enabled` and
-`--state=masked` with the committed files in
-`composition/<image_os>/<architecture>/`. The inventories contain normalized
-unit and state pairs, so adding an enabled unit or unmasking a unit fails the
-bake with the diff. The same gate checks `multi-user.target`, the generated
-GRUB command line for `fsck.mode=skip`, `/` and `/boot` fstab options, volatile
-journald storage, the absence of `snapd`, `cloud-init`, and
-`amazon-ssm-agent`, and the presence of `ssh.socket` and the EC2 Instance
-Connect host-key harvester. It also enforces the committed initramfs ceiling
-from `limits.env`.
+Before provider-specific runtime units are installed, the shared
+`verify-composition.sh` provisioner checks the enabled and masked unit
+inventories from `systemctl list-unit-files --state=enabled` and
+`--state=masked` against the requirements in
+`composition/<image_os>/<architecture>/required-{enabled,masked}.txt`. Every
+committed unit and state pair must be present, but unrelated inventory entries
+are allowed. This keeps the gate focused on required image capabilities instead
+of making routine package or base-image changes update a complete snapshot.
+The same gate checks `multi-user.target`, the generated GRUB command line for
+`fsck.mode=skip`, `/` and `/boot` fstab options, volatile journald storage, the
+absence of `snapd`, `cloud-init`, and `amazon-ssm-agent`, and enabled AppArmor,
+`ssh.socket`, and the EC2 Instance Connect host-key harvester. It also enforces
+the committed initramfs ceiling from `limits.env`.
 
 The candidate publisher describes the registered AMI and its root EBS snapshot
 before publishing candidate metadata. It compares `FullSnapshotSizeInBytes`
 with the same architecture and OS scoped `limits.env` ceiling. QEMU uses the
-composition gate during its bake, while the AWS-only snapshot check remains in
-the existing candidate publication path. Update the golden inventories and
-limits together when intentionally changing the base image composition, and
-review the resulting diff as part of the image change.
+same capability gate during its bake, while the AWS-only snapshot check remains
+in the existing candidate publication path. Update a requirement or limit only
+when intentionally changing that capability contract, and review the resulting
+diff as part of the image change.
 
 `verify-network.sh` removes the base image's generated network configuration,
 reconfigures the live link from the shipped `.network` file, and waits for it to

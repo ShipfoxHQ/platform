@@ -24,8 +24,7 @@ build {
     ]
   }
 
-  # Verify the shared base composition before provider-specific runtime units are installed.
-  # This keeps one architecture/OS golden contract for both the AWS and QEMU image sources.
+  # Verify the shared base capabilities before provider-specific runtime units are installed.
   provisioner "file" {
     destination = "/tmp/shipfox-runner-image-composition"
     source      = abspath("${path.root}/composition/${var.image_os}/${var.architecture}")
