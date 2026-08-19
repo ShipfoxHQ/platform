@@ -14,6 +14,8 @@ runner_mount_dropin_dir='/etc/systemd/system/shipfox-runner.service.d'
 # provider. Bound the wait by time instead, below the unit's own TimeoutStartSec.
 retry_deadline_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DEADLINE_SECONDS:-240}"
 retry_delay_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DELAY_SECONDS:-1}"
+boot_phase='imds-token'
+imds_token_succeeded=0
 
 # chrony starts alongside this unit and steps the clock on its first updates, so a wall-clock
 # bound can move under the retry loop. /proc/uptime cannot.
@@ -21,7 +23,12 @@ uptime_seconds() {
   awk '{print int($1)}' /proc/uptime
 }
 
+emit_boot_phase() {
+  printf 'shipfox-boot phase=%s status=%s uptime=%s\n' "$1" "$2" "$(uptime_seconds)"
+}
+
 abort_boot() {
+  emit_boot_phase "$boot_phase" fail
   printf 'shipfox bootstrap: %s\n' "$1" >&2
   printf '%s\n' 'shipfox bootstrap: link and route state at abort:' >&2
   ip -brief address >&2 || true
@@ -63,6 +70,7 @@ validate_runner_env() {
 
 fetch_user_data() {
   token=''
+  boot_phase='imds-token'
   # Each attempt can block in curl for longer than the delay, so the bound reads a clock rather
   # than counting iterations. Testing it before the attempt keeps a sleep that crosses the
   # deadline from buying one more full attempt.
@@ -72,14 +80,25 @@ fetch_user_data() {
       --request PUT \
       --header 'X-aws-ec2-metadata-token-ttl-seconds: 21600' \
       "$imds_base_url/latest/api/token" 2>/dev/null || true)"
-    if [ -n "$token" ] && curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 5 \
-      --header "X-aws-ec2-metadata-token: $token" \
-      --output "$user_data_fetch_path" \
-      "$imds_base_url/latest/user-data"; then
-      return 0
+    if [ -n "$token" ]; then
+      if [ "$imds_token_succeeded" -eq 0 ]; then
+        emit_boot_phase 'imds-token' ok
+        imds_token_succeeded=1
+      fi
+      boot_phase='imds-userdata'
+      if curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 5 \
+        --header "X-aws-ec2-metadata-token: $token" \
+        --output "$user_data_fetch_path" \
+        "$imds_base_url/latest/user-data"; then
+        emit_boot_phase 'imds-userdata' ok
+        return 0
+      fi
     fi
 
     rm -f "$user_data_fetch_path"
+    if [ "$imds_token_succeeded" -eq 0 ]; then
+      boot_phase='imds-token'
+    fi
     sleep "$retry_delay_seconds"
   done
   return 1
@@ -252,6 +271,7 @@ fi
 if ! fetch_user_data; then
   abort_boot 'Unable to read runner user data from IMDSv2 after retries.'
 fi
+boot_phase='validate-env'
 if ! install -m 0600 -o root -g root "$user_data_fetch_path" "$runner_env_temp_path"; then
   abort_boot 'Unable to stage runner user data.'
 fi
@@ -259,10 +279,17 @@ if ! validate_runner_env "$runner_env_temp_path"; then
   rm -f "$runner_env_temp_path"
   abort_boot 'Runner user data is not a valid environment file.'
 fi
+emit_boot_phase 'validate-env' ok
 
+boot_phase='root-grow'
 grow_root_filesystem
+emit_boot_phase 'root-grow' ok
+boot_phase='workspace-mount'
 configure_workspace_mount
+emit_boot_phase 'workspace-mount' ok
 
+boot_phase='env-published'
 if ! mv -- "$runner_env_temp_path" "$runner_env_path"; then
   abort_boot 'Unable to publish the runner environment after boot setup.'
 fi
+emit_boot_phase 'env-published' ok
