@@ -34,6 +34,9 @@ const EPHEMERAL_BOOT_MASKED_UNITS = [
   'grub-initrd-fallback.service',
   'keyboard-setup.service',
   'console-setup.service',
+  'cryptdisks-early.service',
+  'cryptdisks.service',
+  'hwclock.service',
   'setvtrgb.service',
   'getty@tty1.service',
   'motd-news.timer',
@@ -47,6 +50,8 @@ const EPHEMERAL_BOOT_MASKED_UNITS = [
   'dpkg-db-backup.timer',
   'sysstat-collect.timer',
   'sysstat-summary.timer',
+  'sudo.service',
+  'x11-common.service',
 ] as const;
 
 afterEach(() => {
@@ -457,17 +462,23 @@ describe('parseBuildRunnerImageArgs', () => {
 
 describe('runner image candidates', () => {
   const revision = '0123456789abcdef0123456789abcdef01234567';
+  const rootSnapshotId = 'snap-0123456789abcdef0';
   const availableImage = (amiId: string, architecture: 'amd64' | 'arm64') => ({
     ImageId: amiId,
     State: 'available' as const,
     OwnerId: '123456789012',
     CreationDate: '2026-07-19T10:15:00Z',
+    RootDeviceName: '/dev/sda1',
+    BlockDeviceMappings: [{DeviceName: '/dev/sda1', Ebs: {SnapshotId: rootSnapshotId}}],
     Tags: [
       {Key: 'shipfox.candidate_id', Value: `main-${revision}`},
       {Key: 'shipfox.revision', Value: revision},
       {Key: 'shipfox.architecture', Value: architecture},
       {Key: 'shipfox.expires_at', Value: '2026-08-03T10:00:00Z'},
     ],
+  });
+  const snapshotResponse = (fullSnapshotSizeInBytes = 8 * 1024 * 1024 * 1024) => ({
+    Snapshots: [{SnapshotId: rootSnapshotId, FullSnapshotSizeInBytes: fullSnapshotSizeInBytes}],
   });
 
   it('builds a candidate when no matching AMI exists', async () => {
@@ -491,7 +502,8 @@ describe('runner image candidates', () => {
       .mockResolvedValueOnce({Images: []})
       .mockResolvedValueOnce({
         Images: [availableImage('ami-0123abc456def7890', 'amd64')],
-      });
+      })
+      .mockResolvedValueOnce(snapshotResponse());
     const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
 
     const candidate = await buildRunnerImageCandidate(build, {
@@ -533,6 +545,7 @@ describe('runner image candidates', () => {
     const send = vi
       .fn()
       .mockResolvedValueOnce({Images: [availableImage('ami-0fedcba9876543210', 'arm64')]})
+      .mockResolvedValueOnce(snapshotResponse())
       .mockResolvedValueOnce({
         LaunchPermissions: [
           {UserId: '123456789012'},
@@ -612,6 +625,38 @@ describe('runner image candidates', () => {
     await expect(candidate).rejects.toThrow('Expected at most one amd64 candidate AMI');
   });
 
+  it('rejects a reused AMI whose root snapshot exceeds its committed ceiling', async () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'arm64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      },
+      '24.17.0',
+    );
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({Images: [availableImage('ami-0fedcba9876543210', 'arm64')]})
+      .mockResolvedValueOnce(snapshotResponse(17 * 1024 * 1024 * 1024));
+    const buildImage = vi.fn();
+
+    const candidate = buildRunnerImageCandidate(build, {
+      build: buildImage,
+      client: {send},
+    });
+
+    await expect(candidate).rejects.toThrow('exceeding committed ceiling');
+    expect(buildImage).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects a built AMI that is not available yet', async () => {
     const build = parseBuildRunnerImageArgs(
       ['ubuntu24', 'aws'],
@@ -669,7 +714,8 @@ describe('runner image candidates', () => {
       })
       .mockResolvedValueOnce({
         Images: [availableImage('ami-0123abc456def7890', 'amd64')],
-      });
+      })
+      .mockResolvedValueOnce(snapshotResponse());
     const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
 
     const candidate = await buildRunnerImageCandidate(build, {
@@ -681,6 +727,39 @@ describe('runner image candidates', () => {
 
     expect(candidate.status).toBe('built');
     expect(candidate.amiId).toBe('ami-0123abc456def7890');
+  });
+
+  it('rejects a built AMI whose root snapshot exceeds its committed ceiling', async () => {
+    const build = parseBuildRunnerImageArgs(
+      ['ubuntu24', 'aws'],
+      {
+        BUILD_ARCH: 'amd64',
+        BUILD_ATTEMPT: '1',
+        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
+        BUILD_CANDIDATE_ID: `main-${revision}`,
+        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
+        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
+        BUILD_IMAGE_LIFECYCLE: 'candidate',
+        BUILD_NUMBER: '42',
+        BUILD_REVISION: revision,
+      },
+      '24.17.0',
+    );
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({Images: []})
+      .mockResolvedValueOnce({
+        Images: [availableImage('ami-0123abc456def7890', 'amd64')],
+      })
+      .mockResolvedValueOnce(snapshotResponse(17 * 1024 * 1024 * 1024));
+    const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
+
+    const candidate = buildRunnerImageCandidate(build, {
+      build: buildImage,
+      client: {send},
+    });
+
+    await expect(candidate).rejects.toThrow('exceeding committed ceiling');
   });
 
   it('retries a transient AMI-not-found response during availability checks', async () => {
@@ -708,7 +787,8 @@ describe('runner image candidates', () => {
       .mockRejectedValueOnce(notFound)
       .mockResolvedValueOnce({
         Images: [availableImage('ami-0123abc456def7890', 'amd64')],
-      });
+      })
+      .mockResolvedValueOnce(snapshotResponse());
     const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
 
     const candidate = await buildRunnerImageCandidate(build, {
@@ -719,7 +799,7 @@ describe('runner image candidates', () => {
     });
 
     expect(candidate.status).toBe('built');
-    expect(send).toHaveBeenCalledTimes(3);
+    expect(send).toHaveBeenCalledTimes(4);
   });
 
   it('rejects a built AMI whose tags do not match the requested build', async () => {
@@ -1358,6 +1438,99 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
 });
 
 describe('runner image composition', () => {
+  it('verifies the baked system composition against architecture-specific goldens', async () => {
+    const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+    const source = await readFile(script, 'utf8');
+    const fixture = await createCompositionFixture();
+
+    try {
+      execFileSync('/bin/sh', ['-n', script.pathname], {stdio: 'pipe'});
+      execFileSync('/bin/sh', [script.pathname], {env: fixture.environment, stdio: 'pipe'});
+
+      expect(source).toContain(
+        'systemctl list-unit-files --state=enabled --no-legend --no-pager --plain',
+      );
+      expect(source).toContain(
+        'systemctl list-unit-files --state=masked --no-legend --no-pager --plain',
+      );
+      expect(source).toContain('systemctl get-default');
+      expect(source).toContain('fsck.mode=skip');
+      expect(source).toContain('dpkg-query');
+      expect(build).toContain(`composition/\${var.image_os}/\${var.architecture}`);
+      expect(build).toContain('scripts/build/verify-composition.sh');
+      expect(build.indexOf('scripts/build/configure-ephemeral-boot.sh')).toBeLessThan(
+        build.indexOf('scripts/build/verify-composition.sh'),
+      );
+      expect(build.indexOf('sudo passwd --lock ubuntu')).toBeGreaterThan(
+        build.indexOf('scripts/build/verify-composition.sh'),
+      );
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when an enabled unit is added', async () => {
+    const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
+    const fixture = await createCompositionFixture();
+
+    try {
+      expect(() =>
+        execFileSync('/bin/sh', [script.pathname], {
+          env: {
+            ...fixture.environment,
+            RUNNER_IMAGE_ENABLED_INVENTORY: `${fixture.enabledInventory}\nunexpected.service enabled`,
+          },
+          stdio: 'pipe',
+        }),
+      ).toThrow('unexpected.service');
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when a masked unit is unmasked or a forbidden package remains', async () => {
+    const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
+    const fixture = await createCompositionFixture();
+
+    try {
+      expect(() =>
+        execFileSync('/bin/sh', [script.pathname], {
+          env: {
+            ...fixture.environment,
+            RUNNER_IMAGE_MASKED_INVENTORY: 'maintenance.service enabled',
+          },
+          stdio: 'pipe',
+        }),
+      ).toThrow('maintenance.service');
+
+      expect(() =>
+        execFileSync('/bin/sh', [script.pathname], {
+          env: {...fixture.environment, RUNNER_IMAGE_INSTALLED_PACKAGE: 'snapd'},
+          stdio: 'pipe',
+        }),
+      ).toThrow('snapd');
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when the initramfs exceeds its committed ceiling', async () => {
+    const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
+    const fixture = await createCompositionFixture();
+
+    try {
+      expect(() =>
+        execFileSync('/bin/sh', [script.pathname], {
+          env: {...fixture.environment, RUNNER_IMAGE_INITRAMFS_SIZE: '33554433'},
+          stdio: 'pipe',
+        }),
+      ).toThrow('exceeding ceiling');
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
   it('creates and enables a 4 GiB swap file', async () => {
     const script = new URL('../scripts/build/setup-runner.sh', import.meta.url);
     const fixture = await createRunnerImageSetupFixture();
@@ -1408,6 +1581,9 @@ describe('runner image composition', () => {
       expect(build).toContain('scripts/build/setup-runner.sh');
       expect(stopIndex).toBeGreaterThanOrEqual(0);
       expect(purgeIndex).toBeGreaterThan(stopIndex);
+      expect(
+        events.find((event) => event.startsWith('apt-get install --yes --no-install-recommends ')),
+      ).toContain('amazon-ec2-utils ec2-instance-connect');
       expect(events).toContain('apt-get purge --yes cloud-init');
       expect(unmountEvents).toHaveLength(5);
       expect(unmountEvents).toContain(`umount -l ${join(fixture.root, 'snap/amazon-ssm-agent')}`);
@@ -1729,6 +1905,118 @@ async function pathExists(path: string): Promise<boolean> {
     return false;
   }
 }
+
+async function createCompositionFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-composition-'));
+  const commandDirectory = join(root, 'commands');
+  const compositionDirectory = join(root, 'composition');
+  const enabledInventory = [
+    'apparmor.service enabled',
+    'ec2-instance-connect-harvest-hostkeys.service enabled',
+    'getty@.service enabled',
+    'remote-fs.target enabled',
+    'ssh.socket enabled',
+    'systemd-pstore.service enabled',
+  ].join('\n');
+  const maskedInventory = 'maintenance.service masked';
+
+  await mkdir(commandDirectory, {recursive: true});
+  await mkdir(compositionDirectory, {recursive: true});
+  await mkdir(join(root, 'boot'), {recursive: true});
+  await writeFile(join(root, 'boot/initrd.img-test'), 'initramfs');
+  await writeFile(join(root, 'grub.cfg'), 'linux /vmlinuz fsck.mode=skip\n');
+  await writeFile(
+    join(root, 'fstab'),
+    `UUID=root / ext4 defaults,noatime 0 1
+UUID=boot /boot ext4 defaults,noatime,noauto 0 0
+UUID=efi /boot/efi vfat defaults,noauto 0 0
+`,
+  );
+  await writeFile(join(compositionDirectory, 'enabled.txt'), `${enabledInventory}\n`);
+  await writeFile(join(compositionDirectory, 'masked.txt'), `${maskedInventory}\n`);
+  await writeFile(
+    join(compositionDirectory, 'limits.env'),
+    'initramfs_max_bytes=33554432\nfull_snapshot_size_max_bytes=17179869184\n',
+  );
+
+  await writeExecutable(
+    join(commandDirectory, 'systemctl'),
+    [
+      '#!/bin/sh',
+      'set -eu',
+      'case "$1" in',
+      '  list-unit-files)',
+      '    case "$2" in',
+      '      --state=enabled) printf "%s\\n" "$RUNNER_IMAGE_ENABLED_INVENTORY" ;;',
+      '      --state=masked) printf "%s\\n" "$RUNNER_IMAGE_MASKED_INVENTORY" ;;',
+      '      *) exit 2 ;;',
+      '    esac',
+      '    ;;',
+      '  get-default)',
+      `    printf "%s\\n" "\${RUNNER_IMAGE_DEFAULT_TARGET:-multi-user.target}"`,
+      '    ;;',
+      '  cat)',
+      `    [ "\${SYSTEMCTL_MISSING_UNIT:-}" != "$2" ]`,
+      '    ;;',
+      '  is-enabled)',
+      '    printf "%s\\n" enabled',
+      '    ;;',
+      '  *) exit 2 ;;',
+      'esac',
+    ].join('\n'),
+  );
+  await writeExecutable(
+    join(commandDirectory, 'systemd-analyze'),
+    [
+      '#!/bin/sh',
+      'set -eu',
+      '[ "$1" = cat-config ]',
+      `printf "[Journal]\\nStorage=%s\\n" "\${RUNNER_IMAGE_JOURNAL_STORAGE:-volatile}"`,
+    ].join('\n'),
+  );
+  await writeExecutable(
+    join(commandDirectory, 'dpkg-query'),
+    [
+      '#!/bin/sh',
+      'set -eu',
+      "package=''",
+      'for argument; do package="$argument"; done',
+      `if [ "\${RUNNER_IMAGE_INSTALLED_PACKAGE:-}" = "$package" ]; then`,
+      '  printf "%s\\n" "install ok installed"',
+      'else',
+      '  printf "%s\\n" "unknown ok not-installed"',
+      'fi',
+    ].join('\n'),
+  );
+  await writeExecutable(
+    join(commandDirectory, 'stat'),
+    [
+      '#!/bin/sh',
+      'set -eu',
+      '[ "$1" = -c ]',
+      `printf "%s\\n" "\${RUNNER_IMAGE_INITRAMFS_SIZE:-1024}"`,
+    ].join('\n'),
+  );
+
+  return {
+    enabledInventory,
+    environment: {
+      ...process.env,
+      PATH: `${commandDirectory}:${process.env.PATH ?? ''}`,
+      RUNNER_IMAGE_ENABLED_INVENTORY: enabledInventory,
+      RUNNER_IMAGE_INSTALLED_PACKAGE: 'ec2-instance-connect',
+      RUNNER_IMAGE_MASKED_INVENTORY: maskedInventory,
+      SHIPFOX_FSTAB: join(root, 'fstab'),
+      SHIPFOX_GRUB_CONFIG: join(root, 'grub.cfg'),
+      SHIPFOX_INITRAMFS_PATH: join(root, 'boot/initrd.img-test'),
+      SHIPFOX_RUNNER_COMPOSITION_DIR: compositionDirectory,
+      SHIPFOX_RUNNER_IMAGE_ARCHITECTURE: 'amd64',
+      SHIPFOX_RUNNER_IMAGE_OS: 'ubuntu24',
+    },
+    root,
+  };
+}
+
 describe('ephemeral boot configuration', () => {
   it('masks disposable boot services and stores the journal in memory', async () => {
     const script = new URL('../scripts/build/configure-ephemeral-boot.sh', import.meta.url);

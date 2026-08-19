@@ -55,6 +55,12 @@ grub_initrd_fallback_service='grub-initrd-fallback.service'
 keyboard_setup_service='keyboard-setup.service'
 # console-setup.service: runners are headless and do not need a local console layout.
 console_setup_service='console-setup.service'
+# cryptdisks-early.service: runner root volumes do not use encrypted block devices.
+cryptdisks_early_service='cryptdisks-early.service'
+# cryptdisks.service: runner root volumes do not use encrypted block devices.
+cryptdisks_service='cryptdisks.service'
+# hwclock.service: runner instances receive time from the provider instead of a hardware clock.
+hwclock_service='hwclock.service'
 # setvtrgb.service: runners are headless and do not need virtual-terminal colors.
 setvtrgb_service='setvtrgb.service'
 # getty@tty1.service: runners are headless and expose no interactive local login.
@@ -81,6 +87,10 @@ dpkg_db_backup_timer='dpkg-db-backup.timer'
 sysstat_collect_timer='sysstat-collect.timer'
 # sysstat-summary.timer: ephemeral runner accounting has no value after instance termination.
 sysstat_summary_timer='sysstat-summary.timer'
+# sudo.service: the image does not need a boot-time sudo helper.
+sudo_service='sudo.service'
+# x11-common.service: runners do not run an X11 session.
+x11_common_service='x11-common.service'
 
 masked_units="
   $apt_daily_service
@@ -106,6 +116,9 @@ masked_units="
   $grub_initrd_fallback_service
   $keyboard_setup_service
   $console_setup_service
+  $cryptdisks_early_service
+  $cryptdisks_service
+  $hwclock_service
   $setvtrgb_service
   $getty_tty1_service
   $motd_news_timer
@@ -119,6 +132,8 @@ masked_units="
   $dpkg_db_backup_timer
   $sysstat_collect_timer
   $sysstat_summary_timer
+  $sudo_service
+  $x11_common_service
 "
 
 # systemctl mask creates a /dev/null alias even for a unit that does not exist.

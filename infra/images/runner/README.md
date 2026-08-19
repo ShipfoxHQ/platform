@@ -45,6 +45,27 @@ in the mask inventory exists before it masks the unit. It checks the effective
 after writing the drop-in. A base-image change that removes a unit, changes a
 boot entry, or overrides the drop-in fails the image build.
 
+At the post-boot-trimming seam, before provider-specific runtime units are
+installed, the shared `verify-composition.sh` provisioner compares the enabled and
+masked unit inventories from `systemctl list-unit-files --state=enabled` and
+`--state=masked` with the committed files in
+`composition/<image_os>/<architecture>/`. The inventories contain normalized
+unit and state pairs, so adding an enabled unit or unmasking a unit fails the
+bake with the diff. The same gate checks `multi-user.target`, the generated
+GRUB command line for `fsck.mode=skip`, `/` and `/boot` fstab options, volatile
+journald storage, the absence of `snapd`, `cloud-init`, and
+`amazon-ssm-agent`, and the presence of `ssh.socket` and the EC2 Instance
+Connect host-key harvester. It also enforces the committed initramfs ceiling
+from `limits.env`.
+
+The candidate publisher describes the registered AMI and its root EBS snapshot
+before publishing candidate metadata. It compares `FullSnapshotSizeInBytes`
+with the same architecture and OS scoped `limits.env` ceiling. QEMU uses the
+composition gate during its bake, while the AWS-only snapshot check remains in
+the existing candidate publication path. Update the golden inventories and
+limits together when intentionally changing the base image composition, and
+review the resulting diff as part of the image change.
+
 `verify-network.sh` removes the base image's generated network configuration,
 reconfigures the live link from the shipped `.network` file, and waits for it to
 become routable. AWS builds then reach IMDSv2 over that link. A build instance
