@@ -1,8 +1,10 @@
 import {
   agentThinkingSchema,
   buildHarnessToolDeploymentConfig,
-  SUPPORTED_MODEL_PROVIDER_IDS,
-  type SupportedModelProviderId,
+  isReservedModelProviderId,
+  type ManagedModelProvider,
+  managedModelApiSchema,
+  modelProviderRefSchema,
 } from '@shipfox/api-agent-dto';
 import {bool, createConfig, num, str} from '@shipfox/config';
 import {getModelProviderEntry} from '#core/model-provider-policy.js';
@@ -11,8 +13,7 @@ const AGENT_THINKING_CHOICES = agentThinkingSchema.options;
 
 export const config = createConfig({
   AGENT_DEFAULT_PROVIDER: str({
-    desc: 'Instance-wide default model provider ID used when a workflow and workspace do not choose one. Optional. Use one of the supported model provider IDs from the model provider catalog.',
-    choices: SUPPORTED_MODEL_PROVIDER_IDS,
+    desc: 'Instance-wide default model provider ID used when a workflow and workspace do not choose one. Optional. Use a supported provider from the model provider catalog or the injected managed provider.',
     default: undefined,
   }),
   AGENT_DEFAULT_PROVIDER_MODEL: str({
@@ -50,26 +51,84 @@ export const config = createConfig({
   }),
 });
 
-assertInstanceDefaultModelProviderApiKeyConfig();
-
 export const harnessToolDeploymentConfig = buildHarnessToolDeploymentConfig({
   piEnabledToolPackages: config.AGENT_PI_ENABLED_TOOL_PACKAGES,
   piWebSearchEnabled: config.AGENT_PI_WEB_SEARCH_ENABLED,
 });
 
-function assertInstanceDefaultModelProviderApiKeyConfig(): void {
-  if (!config.AGENT_DEFAULT_PROVIDER_API_KEY) return;
-  if (!config.AGENT_DEFAULT_PROVIDER) {
-    throw new Error('AGENT_DEFAULT_PROVIDER_API_KEY requires AGENT_DEFAULT_PROVIDER to be set.');
+export function assertAgentConfig(managedProvider?: ManagedModelProvider): void {
+  if (managedProvider !== undefined) assertManagedProvider(managedProvider);
+
+  const defaultProvider = config.AGENT_DEFAULT_PROVIDER;
+  if (defaultProvider !== undefined && !isRegisteredProvider(defaultProvider, managedProvider)) {
+    throw new Error(
+      `AGENT_DEFAULT_PROVIDER must name a supported registered provider: ${defaultProvider}.`,
+    );
   }
 
-  const credentialFields =
-    getModelProviderEntry(config.AGENT_DEFAULT_PROVIDER as SupportedModelProviderId)
-      ?.credential_fields ?? [];
+  if (!config.AGENT_DEFAULT_PROVIDER_API_KEY) return;
+  if (!defaultProvider) {
+    throw new Error('AGENT_DEFAULT_PROVIDER_API_KEY requires AGENT_DEFAULT_PROVIDER to be set.');
+  }
+  if (managedProvider?.id === defaultProvider) {
+    throw new Error('AGENT_DEFAULT_PROVIDER_API_KEY cannot be used with a managed model provider.');
+  }
+
+  const credentialFields = getModelProviderEntry(defaultProvider)?.credential_fields ?? [];
   const field = credentialFields[0];
   if (credentialFields.length === 1 && field?.key === 'api_key' && field.secret) return;
 
   throw new Error(
     'AGENT_DEFAULT_PROVIDER_API_KEY requires AGENT_DEFAULT_PROVIDER to use exactly one secret api_key credential field.',
   );
+}
+
+function isRegisteredProvider(
+  providerId: string,
+  managedProvider: ManagedModelProvider | undefined,
+): boolean {
+  if (managedProvider?.id === providerId) return true;
+  return getModelProviderEntry(providerId)?.support_status === 'supported';
+}
+
+function assertManagedProvider(provider: ManagedModelProvider): void {
+  if (!modelProviderRefSchema.safeParse(provider.id).success) {
+    throw new Error(`Managed model provider ID must be a valid provider slug: ${provider.id}.`);
+  }
+  if (isReservedModelProviderId(provider.id)) {
+    throw new Error(`Managed model provider ID is reserved: ${provider.id}.`);
+  }
+  if (provider.label.length === 0) {
+    throw new Error(`Managed model provider label must not be empty: ${provider.id}.`);
+  }
+  if (provider.models.length === 0) {
+    throw new Error(`Managed model provider must define at least one model: ${provider.id}.`);
+  }
+
+  const modelIds = new Set<string>();
+  for (const model of provider.models) {
+    if (model.id.length === 0 || model.label.length === 0) {
+      throw new Error(`Managed model provider models must have IDs and labels: ${provider.id}.`);
+    }
+    if (modelIds.has(model.id)) {
+      throw new Error(`Managed model provider models must have unique IDs: ${provider.id}.`);
+    }
+    modelIds.add(model.id);
+    if (!managedModelApiSchema.safeParse(model.api).success) {
+      throw new Error(`Managed model provider model API is invalid: ${provider.id}/${model.id}.`);
+    }
+  }
+
+  if (!modelIds.has(provider.defaultModel)) {
+    throw new Error(`Managed model provider default model is not registered: ${provider.id}.`);
+  }
+  if (
+    provider.defaultThinking !== undefined &&
+    !agentThinkingSchema.safeParse(provider.defaultThinking).success
+  ) {
+    throw new Error(`Managed model provider default thinking is invalid: ${provider.id}.`);
+  }
+  if (typeof provider.resolveCredentials !== 'function') {
+    throw new Error(`Managed model provider must resolve credentials: ${provider.id}.`);
+  }
 }

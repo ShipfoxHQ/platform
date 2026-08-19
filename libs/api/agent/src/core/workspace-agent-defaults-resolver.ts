@@ -1,8 +1,4 @@
-import type {
-  AgentThinking,
-  ModelProviderRef,
-  SupportedModelProviderId,
-} from '@shipfox/api-agent-dto';
+import type {AgentThinking, ManagedModelProvider, ModelProviderRef} from '@shipfox/api-agent-dto';
 import {config} from '#config.js';
 import {getAgentWorkspaceDefaultsSnapshot} from '#db/index.js';
 import type {AgentConfigResolutionContext, AgentDefaultsResolver} from './resolve-agent-config.js';
@@ -10,6 +6,7 @@ import {resolveAgentConfig} from './resolve-agent-config.js';
 
 export async function createWorkspaceAgentDefaultsResolver(
   workspaceId: string,
+  managedProvider?: ManagedModelProvider | undefined,
 ): Promise<AgentDefaultsResolver> {
   const snapshot = await getAgentWorkspaceDefaultsSnapshot(workspaceId);
   const workspaceProviderConfigs = new Map<
@@ -33,9 +30,10 @@ export async function createWorkspaceAgentDefaultsResolver(
     workspaceDefaultHarnessId: snapshot.defaultHarnessId ?? null,
     workspaceDefaultProviderId: snapshot.defaultProviderId ?? null,
     workspaceProviderConfigs,
-    instanceDefaultProvider: config.AGENT_DEFAULT_PROVIDER as SupportedModelProviderId | undefined,
+    instanceDefaultProvider: config.AGENT_DEFAULT_PROVIDER as ModelProviderRef | undefined,
     instanceDefaultModel: config.AGENT_DEFAULT_PROVIDER_MODEL,
     instanceDefaultThinking: config.AGENT_DEFAULT_PROVIDER_THINKING as AgentThinking | undefined,
+    managedProvider,
   };
 
   return (step) => resolveAgentConfig(step, ctx);

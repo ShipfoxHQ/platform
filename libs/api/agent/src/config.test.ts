@@ -19,9 +19,9 @@ describe('agent config', () => {
     vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'azure-openai-responses');
     vi.stubEnv('AGENT_DEFAULT_PROVIDER_API_KEY', 'sk-instance-secret');
 
-    const importConfig = import('./config.js');
+    const module = await import('./config.js');
 
-    await expect(importConfig).rejects.toThrow(
+    expect(() => module.assertAgentConfig()).toThrow(
       'AGENT_DEFAULT_PROVIDER_API_KEY requires AGENT_DEFAULT_PROVIDER',
     );
   });
@@ -30,10 +30,42 @@ describe('agent config', () => {
     vi.resetModules();
     vi.stubEnv('AGENT_DEFAULT_PROVIDER_API_KEY', 'sk-instance-secret');
 
-    const importConfig = import('./config.js');
+    const module = await import('./config.js');
 
-    await expect(importConfig).rejects.toThrow(
+    expect(() => module.assertAgentConfig()).toThrow(
       'AGENT_DEFAULT_PROVIDER_API_KEY requires AGENT_DEFAULT_PROVIDER',
+    );
+  });
+
+  it('accepts an injected managed provider as the instance default', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'shipfox');
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig(managedProvider())).not.toThrow();
+  });
+
+  it('rejects an instance API key for an injected managed provider', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'shipfox');
+    vi.stubEnv('AGENT_DEFAULT_PROVIDER_API_KEY', 'sk-instance-secret');
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig(managedProvider())).toThrow(
+      'AGENT_DEFAULT_PROVIDER_API_KEY cannot be used with a managed model provider',
+    );
+  });
+
+  it('rejects an instance default that is not a registered provider', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'not-registered');
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig()).toThrow(
+      'AGENT_DEFAULT_PROVIDER must name a supported registered provider',
     );
   });
 
@@ -116,3 +148,18 @@ describe('agent config', () => {
     await expect(importConfig).rejects.toThrow('AGENT_PI_ENABLED_TOOL_PACKAGES');
   });
 });
+
+function managedProvider() {
+  return {
+    id: 'shipfox',
+    label: 'Shipfox',
+    models: [{id: 'claude-opus-4-8', label: 'Claude Opus 4.8', api: 'anthropic-messages' as const}],
+    defaultModel: 'claude-opus-4-8',
+    defaultThinking: 'high' as const,
+    resolveCredentials: async () => ({
+      api: 'anthropic-messages' as const,
+      baseUrl: 'https://gateway.example.com',
+      credentials: {api_key: 'token'},
+    }),
+  };
+}

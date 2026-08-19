@@ -29,7 +29,7 @@ export interface ResolveRuntimeCredentialsParams {
 }
 
 interface RuntimeCredentialsConfig {
-  AGENT_DEFAULT_PROVIDER?: SupportedModelProviderId | undefined;
+  AGENT_DEFAULT_PROVIDER?: ModelProviderRef | undefined;
   AGENT_DEFAULT_PROVIDER_API_KEY?: string | undefined;
 }
 

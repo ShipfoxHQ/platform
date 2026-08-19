@@ -1,3 +1,4 @@
+import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
 import {secretsInterModuleContract} from '@shipfox/api-secrets-dto/inter-module';
 import {
@@ -21,6 +22,7 @@ import {createWorkspaceAgentDefaultsResolver} from '#core/workspace-agent-defaul
 
 export function createAgentInterModulePresentation(params: {
   secrets: AgentSecretsClient;
+  managedProvider?: ManagedModelProvider | undefined;
 }): InterModulePresentation<typeof agentInterModuleContract> {
   return defineInterModulePresentation(agentInterModuleContract, {
     getValidationCatalog: () => getAgentValidationCatalog(),
@@ -28,8 +30,9 @@ export function createAgentInterModulePresentation(params: {
       try {
         const resolve =
           workspaceId === null
-            ? resolveAgentConfig
-            : await createWorkspaceAgentDefaultsResolver(workspaceId);
+            ? (step: Parameters<typeof resolveAgentConfig>[0]) =>
+                resolveAgentConfig(step, {managedProvider: params.managedProvider})
+            : await createWorkspaceAgentDefaultsResolver(workspaceId, params.managedProvider);
         return await resolve(config);
       } catch (error) {
         throw toResolveAgentConfigKnownError(error);

@@ -80,6 +80,13 @@ export {
   parsePiEnabledToolPackages,
 } from './harness.js';
 export {
+  type ManagedModelApi,
+  type ManagedModelEntry,
+  type ManagedModelProvider,
+  type ManagedProviderRuntimeConfig,
+  managedModelApiSchema,
+} from './managed-provider.js';
+export {
   AGENT_INTEGRATION_MCP_AUTH,
   AGENT_INTEGRATION_MCP_ENDPOINT,
   AGENT_INTEGRATION_MCP_SERVER_NAME,
