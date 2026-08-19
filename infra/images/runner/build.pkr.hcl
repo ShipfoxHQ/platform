@@ -29,19 +29,35 @@ build {
     source      = abspath("${path.root}/assets")
   }
 
+  # Nothing owns netplan once the bake removes cloud-init, so the image configures
+  # systemd-networkd directly. Leaving netplan configuration in place would re-introduce a
+  # generated unit that shadows this one by sort order.
   provisioner "shell" {
     inline = [
-      "sudo install -d -m 0755 /etc/netplan",
-      "sudo rm -f /etc/netplan/50-cloud-init.yaml",
-      "sudo install -m 0644 /tmp/shipfox-runner-assets/01-shipfox.yaml /etc/netplan/01-shipfox.yaml"
+      "sudo rm -f /etc/netplan/*.yaml",
+      "sudo install -d -m 0755 /etc/systemd/network",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-primary.network /etc/systemd/network/10-shipfox-primary.network",
+      "sudo install -d -m 0755 /etc/systemd/system/systemd-networkd-wait-online.service.d",
+      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-networkd-wait-online.conf /etc/systemd/system/systemd-networkd-wait-online.service.d/10-shipfox.conf",
+      "sudo test -x /usr/lib/systemd/systemd-networkd-wait-online",
+      "sudo systemctl enable systemd-networkd.service systemd-resolved.service",
+      "test \"$(systemctl is-enabled systemd-networkd.service)\" = enabled",
+      "test \"$(systemctl is-enabled systemd-resolved.service)\" = enabled"
     ]
   }
 
   provisioner "shell" {
+    execute_command = "sudo -E sh -c '{{ .Vars }} {{ .Path }}'"
+    scripts         = ["${path.root}/scripts/build/verify-network.sh"]
+  }
+
+  # The runner environment arrives over IMDSv2 and the instance powers itself off when that
+  # fetch fails, so the reconfigured link has to reach the metadata service before the snapshot.
+  provisioner "shell" {
     inline = [
-      "sudo install -d -m 0755 /etc/systemd/network/10-netplan-primary.network.d",
-      "sudo install -m 0644 /tmp/shipfox-runner-assets/shipfox-runner.networkd.conf /etc/systemd/network/10-netplan-primary.network.d/99-shipfox-runner.conf"
+      "curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 5 --request PUT --header 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token > /dev/null"
     ]
+    only = ["amazon-ebs.build_image"]
   }
 
   provisioner "shell" {

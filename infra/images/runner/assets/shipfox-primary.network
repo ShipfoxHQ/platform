@@ -1,0 +1,35 @@
+# The image owns its primary network configuration directly rather than through netplan.
+# A netplan definition is addressed by its identifier, and that identifier reaches both the
+# generated unit file name and the systemd-networkd-wait-online interface list, so a definition
+# that matches by glob names an interface that never exists. A .network file has no identifier:
+# the match below is the only thing that selects a link.
+#
+# The match is by interface-name family so one file covers ENA on EC2, virtio and gVNIC on GCP,
+# hv_netvsc on Azure, and virtio on the QEMU build. Predictable naming gives every Ethernet
+# device an en* name, and eth* covers the net.ifnames=0 fallback and alternative names.
+#
+# Type=ether keeps container and overlay links out: networkctl reports docker0 as bridge, a
+# container pair as veth, and a VLAN as vlan, so none of them are matched or configured here.
+#
+# The match selects an interface family rather than one interface, so a machine with more than
+# one Ethernet link configures all of them. Each takes a DHCP lease with the same route metric,
+# which leaves the default route between them undefined. The EC2 provisioner attaches exactly
+# one interface at device index 0, so that case does not arise today. A provider that needs
+# several interfaces needs per-interface policy routing, not a different match.
+[Match]
+Name=en* eth*
+Type=ether
+
+[Link]
+RequiredForOnline=routable
+
+[Network]
+DHCP=ipv4
+# Runner subnets carry no IPv6, so duplicate-address detection is dead boot latency.
+IPv6DuplicateAddressDetection=0
+
+[DHCPv4]
+# Providers disagree on link MTU: 9001 inside an AWS VPC, 1460 on GCP. Take it from the lease
+# instead of pinning a value that is wrong on every provider but one.
+UseMTU=true
+RouteMetric=100
