@@ -1076,6 +1076,21 @@ describe('systemd boot activation', () => {
     ]) {
       expect(source).toContain(phase);
     }
+    expect(source).toContain("boot_phase='ssh-keygen'");
+    let previousSuccessMarkerIndex = -1;
+    for (const marker of [
+      "emit_boot_phase 'imds-token' ok",
+      "emit_boot_phase 'imds-userdata' ok",
+      "emit_boot_phase 'validate-env' ok",
+      "emit_boot_phase 'root-grow' ok",
+      "emit_boot_phase 'workspace-mount' ok",
+      "emit_boot_phase 'env-published' ok",
+    ]) {
+      const successMarkerIndex = source.indexOf(marker);
+
+      expect(successMarkerIndex).toBeGreaterThan(previousSuccessMarkerIndex);
+      previousSuccessMarkerIndex = successMarkerIndex;
+    }
     expect(source).toContain(
       'printf \'shipfox-boot phase=%s status=%s uptime=%s\\n\' "$1" "$2" "$(uptime_seconds)"',
     );

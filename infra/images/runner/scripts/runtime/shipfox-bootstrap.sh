@@ -14,7 +14,7 @@ runner_mount_dropin_dir='/etc/systemd/system/shipfox-runner.service.d'
 # provider. Bound the wait by time instead, below the unit's own TimeoutStartSec.
 retry_deadline_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DEADLINE_SECONDS:-240}"
 retry_delay_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DELAY_SECONDS:-1}"
-boot_phase='imds-token'
+boot_phase='ssh-keygen'
 imds_token_succeeded=0
 
 # chrony starts alongside this unit and steps the clock on its first updates, so a wall-clock
