@@ -1191,6 +1191,37 @@ describe('systemd boot activation', () => {
     expect(build).toContain('rm -f /etc/hostname');
   });
 
+  it('resolves a partitioned NVMe root with the util-linux partition-number column', () => {
+    const script = new URL('../scripts/runtime/shipfox-bootstrap.sh', import.meta.url);
+    const result = execFileSync(
+      'sh',
+      [
+        '-c',
+        `lsblk() {
+  [ "$1" = '-ndo' ]
+  [ "$3" = '/dev/nvme0n1p1' ]
+  case "$2" in
+    PKNAME) printf '%s\\n' nvme0n1 ;;
+    PARTN) printf '%s\\n' 1 ;;
+    *) exit 2 ;;
+  esac
+}
+. "$1"
+resolve_root_partition /dev/nvme0n1p1
+printf '%s %s\\n' "$root_disk_name" "$root_partition_number"
+`,
+        'sh',
+        script.pathname,
+      ],
+      {
+        encoding: 'utf8',
+        env: {...process.env, SHIPFOX_BOOTSTRAP_LIBRARY: '1'},
+      },
+    );
+
+    expect(result).toBe('nvme0n1 1\n');
+  });
+
   it('resolves the root device and publishes a boot I/O sample', async () => {
     const script = new URL('../scripts/runtime/record-boot-io.sh', import.meta.url);
     const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');

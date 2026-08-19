@@ -104,6 +104,12 @@ fetch_user_data() {
   return 1
 }
 
+resolve_root_partition() {
+  root_disk_name="$(lsblk -ndo PKNAME "$1" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
+  root_partition_number="$(lsblk -ndo PARTN "$1" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
+  [ -n "$root_disk_name" ] && [ -n "$root_partition_number" ]
+}
+
 grow_root_filesystem() {
   root_source="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
   root_source="$(readlink -f "$root_source" 2>/dev/null || true)"
@@ -127,9 +133,7 @@ grow_root_filesystem() {
     return
   fi
 
-  root_disk_name="$(lsblk -ndo PKNAME "$root_source" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
-  root_partition_number="$(lsblk -ndo PARTNUM "$root_source" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
-  if [ -z "$root_disk_name" ] || [ -z "$root_partition_number" ]; then
+  if ! resolve_root_partition "$root_source"; then
     abort_boot 'Unable to identify the root partition.'
   fi
   root_disk="/dev/$root_disk_name"
@@ -257,39 +261,45 @@ configure_workspace_mount() {
   fi
 }
 
-install -d -m 0755 "$runner_env_dir"
-rm -f "$runner_env_path" "$runner_env_temp_path"
-user_data_fetch_path="$(mktemp "$runner_env_dir/runner.env.fetch.XXXXXX")"
-trap 'rm -f "$user_data_fetch_path" "$runner_env_temp_path"' EXIT
+main() {
+  install -d -m 0755 "$runner_env_dir"
+  rm -f "$runner_env_path" "$runner_env_temp_path"
+  user_data_fetch_path="$(mktemp "$runner_env_dir/runner.env.fetch.XXXXXX")"
+  trap 'rm -f "$user_data_fetch_path" "$runner_env_temp_path"' EXIT
 
-# Cloud-init used to create these keys on each boot. Remove them from the AMI during
-# the bake and recreate them here so EC2 Instance Connect never sees shared keys.
-if ! /usr/bin/ssh-keygen -A; then
-  abort_boot 'Unable to generate SSH host keys.'
-fi
+  # Cloud-init used to create these keys on each boot. Remove them from the AMI during
+  # the bake and recreate them here so EC2 Instance Connect never sees shared keys.
+  if ! /usr/bin/ssh-keygen -A; then
+    abort_boot 'Unable to generate SSH host keys.'
+  fi
 
-if ! fetch_user_data; then
-  abort_boot 'Unable to read runner user data from IMDSv2 after retries.'
-fi
-boot_phase='validate-env'
-if ! install -m 0600 -o root -g root "$user_data_fetch_path" "$runner_env_temp_path"; then
-  abort_boot 'Unable to stage runner user data.'
-fi
-if ! validate_runner_env "$runner_env_temp_path"; then
-  rm -f "$runner_env_temp_path"
-  abort_boot 'Runner user data is not a valid environment file.'
-fi
-emit_boot_phase 'validate-env' ok
+  if ! fetch_user_data; then
+    abort_boot 'Unable to read runner user data from IMDSv2 after retries.'
+  fi
+  boot_phase='validate-env'
+  if ! install -m 0600 -o root -g root "$user_data_fetch_path" "$runner_env_temp_path"; then
+    abort_boot 'Unable to stage runner user data.'
+  fi
+  if ! validate_runner_env "$runner_env_temp_path"; then
+    rm -f "$runner_env_temp_path"
+    abort_boot 'Runner user data is not a valid environment file.'
+  fi
+  emit_boot_phase 'validate-env' ok
 
-boot_phase='root-grow'
-grow_root_filesystem
-emit_boot_phase 'root-grow' ok
-boot_phase='workspace-mount'
-configure_workspace_mount
-emit_boot_phase 'workspace-mount' ok
+  boot_phase='root-grow'
+  grow_root_filesystem
+  emit_boot_phase 'root-grow' ok
+  boot_phase='workspace-mount'
+  configure_workspace_mount
+  emit_boot_phase 'workspace-mount' ok
 
-boot_phase='env-published'
-if ! mv -- "$runner_env_temp_path" "$runner_env_path"; then
-  abort_boot 'Unable to publish the runner environment after boot setup.'
+  boot_phase='env-published'
+  if ! mv -- "$runner_env_temp_path" "$runner_env_path"; then
+    abort_boot 'Unable to publish the runner environment after boot setup.'
+  fi
+  emit_boot_phase 'env-published' ok
+}
+
+if [ "${SHIPFOX_BOOTSTRAP_LIBRARY:-}" != '1' ]; then
+  main
 fi
-emit_boot_phase 'env-published' ok
