@@ -25,7 +25,11 @@ The fstab entries for `/boot` and `/boot/efi` use `noauto` and pass 0. The parti
 
 `fsck.mode=skip` also suppresses checks for other filesystems with a non-zero pass number. Do not add a durable filesystem with a non-zero pass number without revisiting this image contract.
 
-The image ships `/etc/netplan/01-shipfox.yaml`, which matches the primary Ethernet interface and enables DHCP. The IPv6 duplicate-address detection setting is a systemd-networkd drop-in for that generated interface configuration.
+The image ships `/etc/systemd/network/10-shipfox-primary.network` and carries no netplan configuration. It matches the `en*` and `eth*` interface families, so one file covers ENA on EC2, virtio and gVNIC on GCP, and virtio on the QEMU build without a per-provider variant. Container and overlay links fall outside both families and stay unmanaged. The file takes DHCPv4, the link MTU from the lease, and disables IPv6 duplicate-address detection.
+
+netplan is not the network configuration owner. A netplan definition is addressed by its identifier, and that identifier reaches both the generated unit file name and the `systemd-networkd-wait-online` interface list, so a definition that matches by glob names an interface that never exists. `.network` files have no identifier and the match is the only interface selector.
+
+The match selects an interface family, so a machine with more than one Ethernet link configures all of them. Each takes its own lease at the same route metric, which leaves the default route between them undefined. The EC2 provisioner attaches exactly one interface at device index 0, so that case does not arise today; a provider that needs several interfaces needs per-interface policy routing rather than a narrower match. `10-shipfox.conf` makes `systemd-networkd-wait-online` succeed on the first routable link and bounds it at 30 seconds, so a second link that never configures cannot hold the boot open or wedge the shutdown.
 
 The image is built for one job and one instance lifetime. The bake applies
 filesystem and network boot policy in `configure-boot.sh`, and disposable
@@ -40,6 +44,23 @@ in the mask inventory exists before it masks the unit. It checks the effective
 `systemd` state after masking. It also checks the effective journald configuration
 after writing the drop-in. A base-image change that removes a unit, changes a
 boot entry, or overrides the drop-in fails the image build.
+
+`verify-network.sh` removes the base image's generated network configuration,
+reconfigures the live link from the shipped `.network` file, and waits for it to
+become routable. AWS builds then reach IMDSv2 over that link. A build instance
+otherwise keeps running on the base image's own configuration for the whole
+bake, so an image-provided file that matches no interface passes every text
+assertion and strands each launched instance without an address. The check reads
+the applied network file back from `networkctl` rather than settling for a
+routable link, because a leftover configuration would also report routable.
+
+Both checks run against the link Packer is connected through. The build instance
+is a `t3.large` and a launched runner is whatever its template asks for, so this
+proves the shipped file selects a real interface and takes a lease, not that it
+selects an interface on every instance type. Predictable naming gives every
+Ethernet device an `en*` name, which is what makes that gap small rather than
+absent. Closing it needs a boot test of the built image on the target instance
+types, tracked in ENG-1525.
 
 ### AppArmor decision
 

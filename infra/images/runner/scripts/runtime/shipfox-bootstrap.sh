@@ -10,11 +10,22 @@ runner_env_temp_path="$runner_env_dir/runner.env.tmp"
 workspace_root='/var/lib/shipfox/workspaces'
 workspace_mount_unit='var-lib-shipfox-workspaces.mount'
 runner_mount_dropin_dir='/etc/systemd/system/shipfox-runner.service.d'
-retry_count="${SHIPFOX_BOOTSTRAP_RETRY_COUNT:-30}"
+# A fixed attempt count spends a different amount of wall clock on every instance type and
+# provider. Bound the wait by time instead, below the unit's own TimeoutStartSec.
+retry_deadline_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DEADLINE_SECONDS:-240}"
 retry_delay_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DELAY_SECONDS:-1}"
+
+# chrony starts alongside this unit and steps the clock on its first updates, so a wall-clock
+# bound can move under the retry loop. /proc/uptime cannot.
+uptime_seconds() {
+  awk '{print int($1)}' /proc/uptime
+}
 
 abort_boot() {
   printf 'shipfox bootstrap: %s\n' "$1" >&2
+  printf '%s\n' 'shipfox bootstrap: link and route state at abort:' >&2
+  ip -brief address >&2 || true
+  ip route >&2 || true
   if ! systemctl poweroff --no-wall; then
     /sbin/poweroff -f || true
   fi
@@ -52,8 +63,11 @@ validate_runner_env() {
 
 fetch_user_data() {
   token=''
-  attempt=1
-  while [ "$attempt" -le "$retry_count" ]; do
+  # Each attempt can block in curl for longer than the delay, so the bound reads a clock rather
+  # than counting iterations. Testing it before the attempt keeps a sleep that crosses the
+  # deadline from buying one more full attempt.
+  deadline=$(($(uptime_seconds) + retry_deadline_seconds))
+  while [ "$(uptime_seconds)" -lt "$deadline" ]; do
     token="$(curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 5 \
       --request PUT \
       --header 'X-aws-ec2-metadata-token-ttl-seconds: 21600' \
@@ -66,10 +80,7 @@ fetch_user_data() {
     fi
 
     rm -f "$user_data_fetch_path"
-    if [ "$attempt" -lt "$retry_count" ]; then
-      sleep "$retry_delay_seconds"
-    fi
-    attempt=$((attempt + 1))
+    sleep "$retry_delay_seconds"
   done
   return 1
 }

@@ -1063,6 +1063,9 @@ describe('systemd boot activation', () => {
     expect(source).toContain('X-aws-ec2-metadata-token-ttl-seconds: 21600');
     expect(source).toContain('--request PUT');
     expect(source).toContain('/latest/user-data');
+    expect(source).toContain("awk '{print int($1)}' /proc/uptime");
+    expect(source).toContain('while [ "$(uptime_seconds)" -lt "$deadline" ]');
+    expect(source).not.toContain('date +%s');
     expect(source).toContain('growpart "$root_disk" "$root_partition_number"');
     expect(source).toContain('resize2fs "$root_source"');
     expect(source).toContain('mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1');
@@ -1270,24 +1273,58 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
     }
   });
 
-  it('installs IPv6 tuning as primary-interface netplan drop-ins', async () => {
+  it('configures the primary link by interface family rather than through netplan', async () => {
     const network = await readFile(
-      new URL('../assets/shipfox-runner.networkd.conf', import.meta.url),
+      new URL('../assets/shipfox-primary.network', import.meta.url),
       'utf8',
     );
-    const netplan = await readFile(new URL('../assets/01-shipfox.yaml', import.meta.url), 'utf8');
     const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
 
-    expect(network).toBe('[Network]\nIPv6DuplicateAddressDetection=0\n');
-    expect(netplan).toContain('name: "e*"');
-    expect(netplan).toContain('dhcp4: true');
-    expect(netplan).toContain('optional: false');
-    expect(build).toContain('10-netplan-primary.network.d/99-shipfox-runner.conf');
-    expect(build).toContain('01-shipfox.yaml /etc/netplan/01-shipfox.yaml');
-    expect(build).toContain('rm -f /etc/netplan/50-cloud-init.yaml');
-    expect(build).not.toContain('DHCP=yes');
-    expect(build).not.toContain('RequiredForOnline=yes');
-    expect(build).not.toContain('05-shipfox-runner.network');
+    expect(systemdDirective(network, 'Match', 'Name')).toBe('en* eth*');
+    expect(systemdDirective(network, 'Match', 'Type')).toBe('ether');
+    expect(systemdDirective(network, 'Link', 'RequiredForOnline')).toBe('routable');
+    expect(systemdDirective(network, 'Network', 'DHCP')).toBe('ipv4');
+    expect(systemdDirective(network, 'Network', 'IPv6DuplicateAddressDetection')).toBe('0');
+    expect(systemdDirective(network, 'DHCPv4', 'UseMTU')).toBe('true');
+    expect(build).toContain(
+      'shipfox-primary.network /etc/systemd/network/10-shipfox-primary.network',
+    );
+    expect(build).toContain('systemctl enable systemd-networkd.service systemd-resolved.service');
+    expect(build).toContain('rm -f /etc/netplan/*.yaml');
+    expect(build).not.toContain('/etc/netplan/01-shipfox.yaml');
+    expect(build).not.toContain('10-netplan-primary.network.d');
+  });
+
+  it('keeps a second interface from holding the online wait open', async () => {
+    const dropIn = await readFile(
+      new URL('../assets/shipfox-networkd-wait-online.conf', import.meta.url),
+      'utf8',
+    );
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+
+    expect(dropIn).toContain('ExecStart=\n');
+    expect(dropIn).toContain(
+      'ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --timeout=30\n',
+    );
+    expect(build).toContain(
+      'shipfox-networkd-wait-online.conf /etc/systemd/system/systemd-networkd-wait-online.service.d/10-shipfox.conf',
+    );
+    expect(build).toContain('test -x /usr/lib/systemd/systemd-networkd-wait-online');
+  });
+
+  it('proves the shipped network configuration against the live link during the bake', async () => {
+    const script = new URL('../scripts/build/verify-network.sh', import.meta.url);
+    const source = await readFile(script, 'utf8');
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+
+    execFileSync('sh', ['-n', script.pathname], {stdio: 'pipe'});
+
+    expect(source).toContain('rm -f /run/systemd/network/*-netplan-*.network');
+    expect(source).toContain('networkctl reconfigure "$primary_interface"');
+    expect(source).toContain('*"Network File: $network_unit"*)');
+    expect(source).toContain("*'State: routable'*)");
+    expect(build).toContain('scripts/build/verify-network.sh');
+    expect(build).toContain('http://169.254.169.254/latest/api/token');
   });
 });
 

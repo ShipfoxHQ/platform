@@ -10,6 +10,10 @@ Type=oneshot
 TimeoutStartSec=6min
 ExecStart=/opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh
 RemainAfterExit=yes
+# This unit powers the instance off when it fails, and the journal is volatile, so the serial
+# console is the only channel that survives to explain why.
+StandardOutput=journal+console
+StandardError=journal+console
 
 [Install]
 WantedBy=multi-user.target
