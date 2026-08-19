@@ -6,8 +6,8 @@ set -eu
 # configure-boot.sh leaves /boot and /boot/efi detached at runtime. This inventory
 # includes the image's package, bootloader, and firmware writers so they cannot
 # update the root-volume shadow directories behind those detached mounts.
-# Keep the inventory explicit. The bake fails when a base image no longer contains
-# one of these units, so a renamed or removed unit cannot silently weaken the gate.
+# Keep the policy explicit. The bake fails when a base image no longer contains
+# one of these units, so a removed or renamed writer cannot silently weaken the gate.
 
 # apt-daily.service: package indexes are installed and cleaned during the image bake.
 apt_daily_service='apt-daily.service'
@@ -137,7 +137,7 @@ masked_units="
 "
 
 # systemctl mask creates a /dev/null alias even for a unit that does not exist.
-# Check the composition before masking so a base-image change fails the bake.
+# Check the targeted policy before masking so a removed or renamed writer needs review.
 for unit in $masked_units; do
   if ! systemctl cat "$unit" >/dev/null 2>&1; then
     echo "Runner image boot policy requires unit $unit, but it is not installed." >&2

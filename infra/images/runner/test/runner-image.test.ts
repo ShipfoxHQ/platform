@@ -1489,7 +1489,7 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
 });
 
 describe('runner image composition', () => {
-  it('verifies the baked system composition against architecture-specific goldens', async () => {
+  it('verifies the baked system capabilities against architecture-specific requirements', async () => {
     const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
     const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
     const source = await readFile(script, 'utf8');
@@ -1542,7 +1542,25 @@ describe('runner image composition', () => {
     }
   });
 
-  it('fails the image bake when an enabled unit is added', async () => {
+  it('allows unrelated unit inventory changes', async () => {
+    const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
+    const fixture = await createCompositionFixture();
+
+    try {
+      execFileSync('/bin/sh', [script.pathname], {
+        env: {
+          ...fixture.environment,
+          RUNNER_IMAGE_ENABLED_INVENTORY: `${fixture.enabledInventory}\nunrelated.service enabled`,
+          RUNNER_IMAGE_MASKED_INVENTORY: `${fixture.maskedInventory}\nunrelated.timer masked`,
+        },
+        stdio: 'pipe',
+      });
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it('fails the image bake when a required enabled unit is missing', async () => {
     const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
     const fixture = await createCompositionFixture();
 
@@ -1551,11 +1569,14 @@ describe('runner image composition', () => {
         execFileSync('/bin/sh', [script.pathname], {
           env: {
             ...fixture.environment,
-            RUNNER_IMAGE_ENABLED_INVENTORY: `${fixture.enabledInventory}\nunexpected.service enabled`,
+            RUNNER_IMAGE_ENABLED_INVENTORY: fixture.enabledInventory.replace(
+              'ssh.socket enabled',
+              'ssh.socket disabled',
+            ),
           },
           stdio: 'pipe',
         }),
-      ).toThrow('unexpected.service');
+      ).toThrow('ssh.socket enabled');
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
@@ -2004,15 +2025,20 @@ async function createCompositionFixture() {
   const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-composition-'));
   const commandDirectory = join(root, 'commands');
   const compositionDirectory = join(root, 'composition');
-  const enabledInventory = [
+  const enabledRequirements = [
     'apparmor.service enabled',
     'ec2-instance-connect-harvest-hostkeys.service enabled',
-    'getty@.service enabled',
-    'remote-fs.target enabled',
     'ssh.socket enabled',
+  ].join('\n');
+  const maskedRequirements = 'maintenance.service masked';
+  // A live base image enables and masks many units the image never requires, so the
+  // fixture inventories stay supersets of the committed requirements.
+  const enabledInventory = [
+    enabledRequirements,
+    'getty@.service enabled',
     'systemd-pstore.service enabled',
   ].join('\n');
-  const maskedInventory = 'maintenance.service masked';
+  const maskedInventory = [maskedRequirements, 'plymouth-quit.service masked'].join('\n');
 
   await mkdir(commandDirectory, {recursive: true});
   await mkdir(compositionDirectory, {recursive: true});
@@ -2026,8 +2052,8 @@ UUID=boot /boot ext4 defaults,noatime,noauto 0 0
 UUID=efi /boot/efi vfat defaults,noauto 0 0
 `,
   );
-  await writeFile(join(compositionDirectory, 'enabled.txt'), `${enabledInventory}\n`);
-  await writeFile(join(compositionDirectory, 'masked.txt'), `${maskedInventory}\n`);
+  await writeFile(join(compositionDirectory, 'required-enabled.txt'), `${enabledRequirements}\n`);
+  await writeFile(join(compositionDirectory, 'required-masked.txt'), `${maskedRequirements}\n`);
   await writeFile(
     join(compositionDirectory, 'limits.env'),
     'initramfs_max_bytes=33554432\nfull_snapshot_size_max_bytes=17179869184\n',
@@ -2107,6 +2133,7 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
       SHIPFOX_RUNNER_IMAGE_ARCHITECTURE: 'amd64',
       SHIPFOX_RUNNER_IMAGE_OS: 'ubuntu24',
     },
+    maskedInventory,
     root,
   };
 }
@@ -2149,7 +2176,7 @@ describe('ephemeral boot configuration', () => {
     }
   });
 
-  it('fails the image bake when a masked unit is missing', async () => {
+  it('fails before masking when a boot-policy unit disappears', async () => {
     const script = new URL('../scripts/build/configure-ephemeral-boot.sh', import.meta.url);
     const fixture = await createEphemeralBootFixture();
 
@@ -2159,7 +2186,8 @@ describe('ephemeral boot configuration', () => {
           env: {...fixture.environment, SYSTEMCTL_MISSING_UNIT: 'udisks2.service'},
           stdio: 'pipe',
         }),
-      ).toThrow();
+      ).toThrow('udisks2.service');
+      await expect(readFile(fixture.maskLog, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
