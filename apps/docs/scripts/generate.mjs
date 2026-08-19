@@ -36,6 +36,8 @@ import {
   WORKFLOW_FIELD_YAML_KEYS,
 } from './lib/context-reference.mjs';
 import {jiraEventCatalog} from './lib/jira-event-catalog.mjs';
+import {linearEventCatalog} from './lib/linear-event-catalog.mjs';
+import {slackEventCatalog} from './lib/slack-event-catalog.mjs';
 import {slugForHeading} from './lib/slug.mjs';
 
 const docsRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -52,6 +54,7 @@ const dtoCatalogBySlug = {
     toolSelectionCatalog: jiraAgentToolSelectionCatalog,
   },
   linear: {
+    eventCatalog: linearEventCatalog,
     toolCatalog: linearAgentToolCatalog,
     toolSelectionCatalog: linearAgentToolSelectionCatalog,
   },
@@ -59,6 +62,7 @@ const dtoCatalogBySlug = {
     eventCatalog: sentryEventCatalog,
   },
   slack: {
+    eventCatalog: slackEventCatalog,
     toolCatalog: slackAgentToolCatalog,
     toolSelectionCatalog: slackAgentToolSelectionCatalog,
   },
@@ -153,7 +157,6 @@ function renderIntegrationCatalogData() {
       integrationCatalogProviders.map((provider) => [
         provider.slug,
         {
-          availability: provider.availability,
           capabilities: provider.capabilities,
           eventCount: provider.eventCatalog?.events.length ?? 0,
           toolCount: provider.toolCatalog?.length ?? 0,

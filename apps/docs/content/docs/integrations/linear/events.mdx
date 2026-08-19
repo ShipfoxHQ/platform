@@ -1,0 +1,42 @@
+---
+title: "Linear events"
+sidebarTitle: "Events"
+description: "Look up the Linear event names Shipfox delivers and the raw webhook payload available to workflows."
+---
+
+import LinearEvents from '../../../generated/integrations/linear/events.mdx';
+
+This reference lists Linear data and agent-session events that Shipfox delivers
+to a Linear integration connection. See the
+[Linear overview](/integrations/linear) for authentication and setup.
+
+## Payload
+
+Shipfox passes the raw Linear webhook body to a run as `event`. Linear owns the
+payload schema and can add fields.
+
+Data events include the resource `type`, the `action`, and the resource under
+`data`. See the [Linear webhook reference](https://linear.app/developers/webhooks)
+for the full payload.
+
+Agent-session events include the session and prompt context supplied to the
+connected app. See [Linear agent interaction](https://linear.app/developers/agent-interaction)
+for those fields.
+
+## Trigger fragment
+
+Replace `linear_acme` with the slug of your Linear integration connection:
+
+```yaml
+triggers:
+  on_linear_issue:
+    source: linear_acme
+    event: Issue.update
+```
+
+For trigger field rules, see the
+[workflow schema reference](/reference/workflow-schema#trigger-fields).
+
+## Event catalog
+
+<LinearEvents />

@@ -6,7 +6,6 @@ const providers = [
     slug: 'github',
     name: 'GitHub',
     summary: 'Connect repositories and automation.',
-    availability: 'available',
     capabilities: ['source_control', 'events', 'agent_tools'],
     categories: ['source-control'],
     aliases: ['git', 'vcs', 'ci'],
@@ -20,7 +19,6 @@ const providers = [
     slug: 'sentry',
     name: 'Sentry',
     summary: 'Route error monitoring events.',
-    availability: 'available',
     capabilities: ['events'],
     categories: ['observability'],
     aliases: ['errors', 'monitoring', 'crash'],
@@ -34,7 +32,6 @@ const providers = [
     slug: 'linear',
     name: 'Linear',
     summary: 'Planned issue tracking integration.',
-    availability: 'preview',
     capabilities: [],
     categories: ['issue-tracking'],
     aliases: ['issues', 'tickets'],
@@ -63,23 +60,9 @@ assert.doesNotThrow(() =>
     },
   ]),
 );
-assert.doesNotThrow(() =>
-  validateIntegrationCatalog([{...providers[2], availability: 'coming-soon'}]),
-);
-assert.throws(
-  () =>
-    validateIntegrationCatalog([
-      {...providers[2], availability: 'coming-soon', capabilities: ['agent_tools'], toolCount: 1},
-    ]),
-  /coming soon but declares capabilities/,
-);
 assert.throws(
   () => validateIntegrationCatalog([{...providers[0], setupHref: undefined}]),
-  /available but has no setup page/,
-);
-assert.throws(
-  () => validateIntegrationCatalog([{...providers[2], setupHref: undefined}]),
-  /preview but has no setup page/,
+  /has no setup page/,
 );
 assert.throws(
   () => validateIntegrationCatalog([providers[1]], {sentry: ['events', 'agent_tools']}),

@@ -14,12 +14,6 @@ interface GeneratedCatalogData {
   toolCount: number;
 }
 
-const availabilityOrder = {
-  available: 0,
-  preview: 1,
-  'coming-soon': 2,
-} as const;
-
 export function getIntegrationCatalog(): CatalogProvider[] {
   const generatedCatalogData = getGeneratedCatalogData();
   const providers: CatalogProvider[] = source
@@ -30,21 +24,14 @@ export function getIntegrationCatalog(): CatalogProvider[] {
       const slug = page.slugs[1];
       if (!catalog)
         throw new Error(`Integration catalog metadata is missing for provider "${slug}".`);
-      if (!page.data.sidebarTitle)
-        throw new Error(`Integration catalog name is missing for provider "${slug}".`);
-      if ((page.data.status === 'soon') !== (catalog.availability === 'coming-soon'))
-        throw new Error(
-          `Integration catalog provider "${slug}" has status "${page.data.status ?? 'none'}" but availability "${catalog.availability}".`,
-        );
 
       const generatedData = generatedCatalogData[slug];
       const setupPage = source.getPage([...page.slugs, 'setup']);
 
       return {
         slug,
-        name: page.data.sidebarTitle,
+        name: catalog.name,
         summary: catalog.summary,
-        availability: catalog.availability,
         capabilities: catalog.capabilities,
         categories: catalog.categories,
         aliases: catalog.aliases,
@@ -63,11 +50,7 @@ export function getIntegrationCatalog(): CatalogProvider[] {
     ),
   );
 
-  return providers.toSorted(
-    (left, right) =>
-      availabilityOrder[left.availability] - availabilityOrder[right.availability] ||
-      left.name.localeCompare(right.name),
-  );
+  return providers.toSorted((left, right) => left.name.localeCompare(right.name));
 }
 
 function getGeneratedCatalogData(): Record<string, GeneratedCatalogData> {

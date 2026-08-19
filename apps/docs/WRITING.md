@@ -282,7 +282,7 @@ facts in the reference pages.
 | File | Route | Type | Create it when |
 | --- | --- | --- | --- |
 | `index.mdx` | `/integrations/<provider>` | Reference | Always. |
-| `setup.mdx` | `/integrations/<provider>/setup` | How-to | The provider is connectable, including an available preview. |
+| `setup.mdx` | `/integrations/<provider>/setup` | How-to | The provider is connectable. |
 | `events.mdx` | `/integrations/<provider>/events` | Reference | The provider stamps Shipfox event names into deliveries. |
 | `tools.mdx` | `/integrations/<provider>/tools` | Reference | Its registry-derived `capabilities[]` includes `agent_tools`. |
 | `meta.json` | None | None | Always. List only the pages that exist, in the order `index`, `setup`, `events`, `tools`. |
@@ -296,16 +296,13 @@ Provider pages use `integrations/<provider>/{index,setup,events,tools}.mdx`.
 The canonical `events.mdx` and `tools.mdx` pages import generated event and tool
 fragments.
 
-### Capabilities and availability
+### Capabilities
 
 Do not create an empty capability page. Create `events.mdx` only when Shipfox
 assigns an event name to the provider's deliveries. Create `tools.mdx` only
-when the provider advertises `agent_tools`. The overview's fixed
-`## Capabilities` block states every absent capability as **Not available**.
-Never omit a row silently.
-
-A connectable Preview provider may have a setup page, but its overview must make
-the Preview status clear. Follow
+when the provider advertises `agent_tools`. The overview's `## Capabilities`
+block lists only the provider's shipped capabilities. Omit capabilities that
+are not shipped. Follow
 [Schema fields: document only shipped surface](#schema-fields-document-only-shipped-surface)
 when deciding what to document.
 
@@ -316,7 +313,7 @@ these provider-specific homes:
 
 | Fact | Canonical page | Source of truth |
 | --- | --- | --- |
-| Availability, purpose, authentication method, required access, integration connection slug pattern, and capability summary | Provider overview (`index.mdx`) | Provider registry capabilities, provider `src/config.ts`, and `libs/api/integration/core/src/config.ts` availability flags. |
+| Purpose, authentication method, required access, integration connection slug pattern, and capability summary | Provider overview (`index.mdx`) | Provider registry capabilities and provider `src/config.ts`. |
 | Shipfox event names, emission conditions, and fields Shipfox normalizes or exposes on `event` | Provider events page (`events.mdx`) | `libs/api/integration/core-dto/src/events.ts`, each provider's `src/core/webhook.ts`, and its webhook DTO schemas. |
 | Raw pass-through webhook payload fields | The provider's upstream webhook reference | The provider owns and versions this schema. Link to it from `events.mdx`; do not reproduce it. |
 | Tool selectors, methods, sensitivity, sensitive status, required provider permissions, scope, inputs, and outputs | Provider tools page (`tools.mdx`) | The provider's `src/core/agent-tools.ts` catalog and its schemas. |
@@ -330,19 +327,15 @@ drifting or implying false ownership.
 
 ### Provider overview template (Reference)
 
-Use the overview to answer what the provider is, whether it is available, and
-what it can do. It is the hub for all provider pages.
+Use the overview to answer what the provider is and what it can do. It is the
+hub for all provider pages.
 
 ````mdx
 ---
 title: "<Provider> integration"
-sidebarTitle: "<Provider>"
-description: "<State the provider surface this reference describes.>"
+sidebarTitle: "Overview"
+description: "<State what the provider connects and how workflows use it.>"
 ---
-
-<One sentence that states the provider's purpose.>
-
-**Availability:** Available | Preview.
 
 ## Authentication
 
@@ -361,21 +354,20 @@ triggers:
 
 ## Capabilities
 
-| Capability | Availability |
+| Capability | Details |
 | --- | --- |
-| Source control | <Link to the relevant reference, or **Not available**.> |
-| Events | [View events](/integrations/<provider>/events) or **Not available**. |
-| Agent tools | [View agent tools](/integrations/<provider>/tools) or **Not available**. |
+| Source control | <Link to the relevant reference.> |
+| Events | [View events](/integrations/<provider>/events). |
+| Agent tools | [View agent tools](/integrations/<provider>/tools). |
 
 <If `setup.mdx` exists, link to [Set up this integration](/integrations/<provider>/setup).
 Otherwise, omit this line.>
 ````
 
-For a Preview provider, select Preview in the availability statement. The fixed
-capability rows make every missing capability a deliberate answer. The overview
-always covers purpose, availability, authentication method, required access,
+The capability section includes only rows that apply to the provider. The
+overview always covers purpose, authentication method, required access,
 integration connection slug behavior, capability summary, and links to its
-available pages.
+sibling pages.
 
 ### Provider setup template (How-to)
 
@@ -520,15 +512,15 @@ tool needs sensitive handling; it is not a separate approval policy.
 ### New provider checklist
 
 1. Read the provider registry's `capabilities[]` and enabled flag, then confirm
-   that the provider is Available or Preview before documenting it.
-2. Write `index.mdx` with purpose, availability, authentication method, required
-   access, integration connection slug behavior, the fixed capability block, and
-   links to every available sibling page.
+   that the provider is shipped before documenting it.
+2. Write `index.mdx` with purpose, authentication method, required access,
+   integration connection slug behavior, the shipped capability rows, and links
+   to every sibling page.
 3. Write `setup.mdx` when the provider is connectable.
 4. Write `events.mdx` only when the provider emits Shipfox-named events.
-   Otherwise, make the Events row in the overview say **Not available**.
+   Otherwise, omit Events from the overview capability table.
 5. Write `tools.mdx` only when `capabilities[]` includes `agent_tools`.
-   Otherwise, make the Agent tools row in the overview say **Not available**.
+   Otherwise, omit Agent tools from the overview capability table.
 6. Add the provider `meta.json`, list only the existing pages in order, and
    register the provider directory in `integrations/meta.json`.
 7. Run the docs checks before review.

@@ -728,12 +728,18 @@ importers:
       '@shipfox/api-integration-linear':
         specifier: workspace:*
         version: link:../../libs/api/integration/linear
+      '@shipfox/api-integration-linear-dto':
+        specifier: workspace:*
+        version: link:../../libs/api/integration/linear-dto
       '@shipfox/api-integration-sentry-dto':
         specifier: workspace:*
         version: link:../../libs/api/integration/sentry-dto
       '@shipfox/api-integration-slack':
         specifier: workspace:*
         version: link:../../libs/api/integration/slack
+      '@shipfox/api-integration-slack-dto':
+        specifier: workspace:*
+        version: link:../../libs/api/integration/slack-dto
       '@shipfox/api-integration-webhook-dto':
         specifier: workspace:*
         version: link:../../libs/api/integration/webhook-dto
