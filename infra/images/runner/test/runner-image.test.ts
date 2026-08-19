@@ -8,6 +8,8 @@ import {buildRunnerImageCandidate, parseRunnerImageCandidateArgs} from '#candida
 import {packerBuildArgs, readMiseNodeVersion} from '#runner-image.js';
 
 const WHITESPACE_PATTERN = /\s+/u;
+const DEDICATED_SYSTEMD_VERIFY_PROVISIONER_PATTERN =
+  /provisioner "shell" \{\s+inline = \[\s+"sudo systemd-analyze verify multi-user\.target"\s+\]\s+only = \["amazon-ebs\.build_image"\]\s+\}/u;
 const EPHEMERAL_BOOT_MASKED_UNITS = [
   'apt-daily.service',
   'apt-daily-upgrade.service',
@@ -1073,7 +1075,7 @@ describe('systemd boot activation', () => {
       'shipfox-bootstrap.service /etc/systemd/system/shipfox-bootstrap.service',
     );
     expect(build).toContain('systemctl enable shipfox-bootstrap.service');
-    expect(build).toContain('systemd-analyze verify multi-user.target');
+    expect(build).toMatch(DEDICATED_SYSTEMD_VERIFY_PROVISIONER_PATTERN);
     expect(build).toContain('rm -f /etc/hostname');
   });
 
