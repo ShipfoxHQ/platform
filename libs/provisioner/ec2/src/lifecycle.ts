@@ -718,6 +718,18 @@ function terminationLogFields(
     ami: instance.ami ?? fallbackAmi ?? template?.spec.ami ?? 'unknown',
     launch_time: instance.launchTime?.toISOString() ?? null,
     reason,
+    ...(instance.stateTransitionReason !== undefined
+      ? {state_transition_reason: instance.stateTransitionReason}
+      : {}),
+    ...(instance.stateReasonCode !== undefined
+      ? {state_reason_code: instance.stateReasonCode}
+      : {}),
+    ...(instance.stateReasonMessage !== undefined
+      ? {state_reason_message: instance.stateReasonMessage}
+      : {}),
+    ...(instance.availabilityZone !== undefined
+      ? {availability_zone: instance.availabilityZone}
+      : {}),
   };
 }
 
