@@ -1066,6 +1066,35 @@ describe('systemd boot activation', () => {
     expect(source).toContain("awk '{print int($1)}' /proc/uptime");
     expect(source).toContain('while [ "$(uptime_seconds)" -lt "$deadline" ]');
     expect(source).not.toContain('date +%s');
+    for (const phase of [
+      'imds-token',
+      'imds-userdata',
+      'validate-env',
+      'root-grow',
+      'workspace-mount',
+      'env-published',
+    ]) {
+      expect(source).toContain(phase);
+    }
+    expect(source).toContain("boot_phase='ssh-keygen'");
+    let previousSuccessMarkerIndex = -1;
+    for (const marker of [
+      "emit_boot_phase 'imds-token' ok",
+      "emit_boot_phase 'imds-userdata' ok",
+      "emit_boot_phase 'validate-env' ok",
+      "emit_boot_phase 'root-grow' ok",
+      "emit_boot_phase 'workspace-mount' ok",
+      "emit_boot_phase 'env-published' ok",
+    ]) {
+      const successMarkerIndex = source.indexOf(marker);
+
+      expect(successMarkerIndex).toBeGreaterThan(previousSuccessMarkerIndex);
+      previousSuccessMarkerIndex = successMarkerIndex;
+    }
+    expect(source).toContain(
+      'printf \'shipfox-boot phase=%s status=%s uptime=%s\\n\' "$1" "$2" "$(uptime_seconds)"',
+    );
+    expect(source).toContain('emit_boot_phase "$boot_phase" fail');
     expect(source).toContain('growpart "$root_disk" "$root_partition_number"');
     expect(source).toContain('resize2fs "$root_source"');
     expect(source).toContain('mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1');
