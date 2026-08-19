@@ -10,10 +10,6 @@
   <a href="CONTRIBUTING.md"><b>Contributing</b></a>
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome" />
-</p>
-
 **The agent platform for engineering teams.**
 
 Shipfox turns engineering work into automated workflows built from AI agents and
