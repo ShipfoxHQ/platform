@@ -3,4 +3,4 @@
 "@shipfox/api-agent-dto": minor
 ---
 
-Adds the instance-managed model provider seam and harness-aware agent configuration resolution.
+Adds support for injecting a managed hosted-inference model provider into agent configuration, with harness-compatible models and instance overrides taking precedence.

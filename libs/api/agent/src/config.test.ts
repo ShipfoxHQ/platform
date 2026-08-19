@@ -1,3 +1,5 @@
+import type {ManagedModelEntry, ManagedModelProvider} from '@shipfox/api-agent-dto';
+
 describe('agent config', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -67,6 +69,75 @@ describe('agent config', () => {
     expect(() => module.assertAgentConfig()).toThrow(
       'AGENT_DEFAULT_PROVIDER must name a supported registered provider',
     );
+  });
+
+  it.each([
+    ['invalid provider ID', managedProvider({id: 'bad_id'}), 'valid provider slug'],
+    ['reserved provider ID', managedProvider({id: 'openai'}), 'provider ID is reserved'],
+    ['empty provider label', managedProvider({label: ''}), 'label must not be empty'],
+    ['empty model list', managedProvider({models: []}), 'at least one model'],
+    [
+      'empty model ID',
+      managedProvider({
+        models: [{id: '', label: 'Managed model', api: 'anthropic-messages'}],
+      }),
+      'models must have IDs and labels',
+    ],
+    [
+      'empty model label',
+      managedProvider({
+        models: [{id: 'managed-model', label: '', api: 'anthropic-messages'}],
+      }),
+      'models must have IDs and labels',
+    ],
+    [
+      'duplicate model IDs',
+      managedProvider({
+        models: [
+          {id: 'managed-model', label: 'Managed model', api: 'anthropic-messages'},
+          {id: 'managed-model', label: 'Managed model 2', api: 'openai-responses'},
+        ],
+      }),
+      'models must have unique IDs',
+    ],
+    [
+      'invalid model API',
+      managedProvider({
+        models: [
+          {
+            id: 'managed-model',
+            label: 'Managed model',
+            api: 'invalid' as unknown as ManagedModelEntry['api'],
+          },
+        ],
+      }),
+      'model API is invalid',
+    ],
+    [
+      'unregistered default model',
+      managedProvider({defaultModel: 'missing-model'}),
+      'default model is not registered',
+    ],
+    [
+      'invalid default thinking',
+      managedProvider({
+        defaultThinking: 'invalid' as unknown as ManagedModelProvider['defaultThinking'],
+      }),
+      'default thinking is invalid',
+    ],
+    [
+      'missing credential resolver',
+      managedProvider({
+        resolveCredentials: undefined as unknown as ManagedModelProvider['resolveCredentials'],
+      }),
+      'must resolve credentials',
+    ],
+  ] as const)('rejects a managed provider with %s', async (_name, provider, message) => {
+    vi.resetModules();
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig(provider)).toThrow(message);
   });
 
   it('imports without an instance key', async () => {
@@ -149,7 +220,7 @@ describe('agent config', () => {
   });
 });
 
-function managedProvider() {
+function managedProvider(overrides: Partial<ManagedModelProvider> = {}): ManagedModelProvider {
   return {
     id: 'shipfox',
     label: 'Shipfox',
@@ -161,5 +232,6 @@ function managedProvider() {
       baseUrl: 'https://gateway.example.com',
       credentials: {api_key: 'token'},
     }),
+    ...overrides,
   };
 }

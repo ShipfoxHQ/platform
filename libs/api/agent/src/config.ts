@@ -5,15 +5,17 @@ import {
   type ManagedModelProvider,
   managedModelApiSchema,
   modelProviderRefSchema,
+  SUPPORTED_MODEL_PROVIDER_IDS,
 } from '@shipfox/api-agent-dto';
 import {bool, createConfig, num, str} from '@shipfox/config';
 import {getModelProviderEntry} from '#core/model-provider-policy.js';
 
 const AGENT_THINKING_CHOICES = agentThinkingSchema.options;
+const SUPPORTED_PROVIDER_IDS_DESCRIPTION = SUPPORTED_MODEL_PROVIDER_IDS.join(', ');
 
 export const config = createConfig({
   AGENT_DEFAULT_PROVIDER: str({
-    desc: 'Instance-wide default model provider ID used when a workflow and workspace do not choose one. Optional. Use a supported provider from the model provider catalog or the injected managed provider.',
+    desc: `Instance-wide default model provider ID used when a workflow and workspace do not choose one. Optional. Use one of the supported model catalog IDs (${SUPPORTED_PROVIDER_IDS_DESCRIPTION}) or the injected managed provider.`,
     default: undefined,
   }),
   AGENT_DEFAULT_PROVIDER_MODEL: str({

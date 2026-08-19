@@ -25,7 +25,7 @@ export function createAgentInterModulePresentation(params: {
   managedProvider?: ManagedModelProvider | undefined;
 }): InterModulePresentation<typeof agentInterModuleContract> {
   return defineInterModulePresentation(agentInterModuleContract, {
-    getValidationCatalog: () => getAgentValidationCatalog(),
+    getValidationCatalog: () => getAgentValidationCatalog(params.managedProvider),
     resolveAgentConfig: async ({workspaceId, config}) => {
       try {
         const resolve =

@@ -30,7 +30,7 @@ export async function createWorkspaceAgentDefaultsResolver(
     workspaceDefaultHarnessId: snapshot.defaultHarnessId ?? null,
     workspaceDefaultProviderId: snapshot.defaultProviderId ?? null,
     workspaceProviderConfigs,
-    instanceDefaultProvider: config.AGENT_DEFAULT_PROVIDER as ModelProviderRef | undefined,
+    instanceDefaultProvider: config.AGENT_DEFAULT_PROVIDER,
     instanceDefaultModel: config.AGENT_DEFAULT_PROVIDER_MODEL,
     instanceDefaultThinking: config.AGENT_DEFAULT_PROVIDER_THINKING as AgentThinking | undefined,
     managedProvider,

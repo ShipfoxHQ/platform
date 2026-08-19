@@ -8,7 +8,6 @@ import {
   type ManagedModelEntry,
   type ManagedModelProvider,
   type ModelProviderRef,
-  type SupportedModelProviderId,
 } from '@shipfox/api-agent-dto';
 import {
   InvalidAgentModelError,
@@ -125,7 +124,7 @@ function resolveSupportedProvider(
   provider: string,
   ctx: AgentConfigResolutionContext,
 ): ModelProviderRef {
-  if (ctx.managedProvider?.id === provider) return provider as ModelProviderRef;
+  if (ctx.managedProvider?.id === provider) return provider;
 
   const workspaceProviderConfig = ctx.workspaceProviderConfigs?.get(provider);
   if (workspaceProviderConfig?.kind === 'custom') return provider;
@@ -134,7 +133,7 @@ function resolveSupportedProvider(
   if (entry === undefined || entry.support_status !== 'supported') {
     throw new UnsupportedModelProviderError(provider);
   }
-  return provider as SupportedModelProviderId;
+  return provider;
 }
 
 function resolveModel(params: {
@@ -161,7 +160,7 @@ function resolveModel(params: {
     candidates.push(
       () => instanceDefaultModel(params.provider, params.ctx),
       () => providerConfig.defaultModel,
-      () => managedDefaultModel(params.harness, params.provider, providerConfig),
+      () => managedDefaultModel(params.harness, providerConfig),
     );
   } else {
     candidates.push(
@@ -221,12 +220,9 @@ function customDefaultModel(providerConfig: ProviderDefaults | undefined): strin
 
 function managedDefaultModel(
   harness: Harness,
-  provider: ModelProviderRef,
   providerConfig: ManagedProviderDefaults,
-): string {
-  const model = listManagedProviderModels(harness, providerConfig)[0];
-  if (model === undefined) throw new InvalidAgentModelError(harness, provider, '');
-  return model.id;
+): string | undefined {
+  return listManagedProviderModels(harness, providerConfig)[0]?.id;
 }
 
 function validateModel(
