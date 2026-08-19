@@ -10,8 +10,8 @@ import {ThemeProvider} from '#components/theme/index.js';
 // flips status to "loading", which Argos then correctly waits on.
 if (typeof document !== 'undefined' && document.fonts) {
   void Promise.all([
-    document.fonts.load("16px 'Inter'"),
-    document.fonts.load("italic 16px 'Inter'"),
+    document.fonts.load("16px 'IBM Plex Sans'"),
+    document.fonts.load("italic 16px 'IBM Plex Sans'"),
     document.fonts.load("16px 'Commit Mono'"),
     document.fonts.load("bold 16px 'Commit Mono'"),
   ]);
