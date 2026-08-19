@@ -86,7 +86,8 @@ build {
       "sudo install -m 0755 /tmp/spot-watchdog.sh /opt/shipfox-runner/scripts/runtime/spot-watchdog.sh",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable shipfox-bootstrap.service",
-      "sudo systemctl enable shipfox-spot-watchdog.service"
+      "sudo systemctl enable shipfox-spot-watchdog.service",
+      "sudo systemd-analyze verify multi-user.target"
     ]
     only = ["amazon-ebs.build_image"]
   }
