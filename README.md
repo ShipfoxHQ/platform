@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://www.shipfox.io/og-image.png" alt="Shipfox" width="640" />
+  <img width="1200" height="630" alt="shipfox-og" src="https://github.com/user-attachments/assets/4a977e17-c81d-4ab5-b815-7f4439b320ef" />
 </div>
 
 <p align="center">
