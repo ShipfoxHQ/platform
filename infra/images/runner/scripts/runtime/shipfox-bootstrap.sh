@@ -57,6 +57,13 @@ configure_root_readahead() {
     return 0
   fi
 
+  if [ "$root_readahead_after" != "$root_readahead_sectors" ]; then
+    printf 'shipfox-boot phase=readahead status=fail uptime=%s root_source=%s before_sectors=%s target_sectors=%s after_sectors=%s reason=clamped\n' \
+      "$(uptime_seconds)" "$root_source" "$root_readahead_before" "$root_readahead_sectors" \
+      "$root_readahead_after"
+    return 0
+  fi
+
   printf 'shipfox-boot phase=readahead status=ok uptime=%s root_source=%s before_sectors=%s target_sectors=%s after_sectors=%s\n' \
     "$(uptime_seconds)" "$root_source" "$root_readahead_before" "$root_readahead_sectors" \
     "$root_readahead_after"

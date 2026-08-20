@@ -320,6 +320,7 @@ async function initializeManagedRunnerSession(
   });
   logger().info(
     {
+      console_marker: 'runner_boot_timeline',
       ...bootTimeline.createEvent(bootTimeline.captureEnrollment()),
       ...runnerBootPhaseTimeline.snapshot(),
       provider_kind: enrollmentConfig.providerKind,

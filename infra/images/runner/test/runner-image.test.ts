@@ -1,4 +1,4 @@
-import {execFileSync} from 'node:child_process';
+import {execFileSync, spawnSync} from 'node:child_process';
 import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -921,10 +921,44 @@ describe('systemd boot activation', () => {
     );
     expect(unit).not.toContain('RequiresMountsFor=');
     expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
-      '/usr/local/bin/node dist/index.js',
+      '/opt/shipfox-runner/scripts/runtime/run-runner.sh /usr/local/bin/node dist/index.js',
     );
     expect(systemdDirective(unit, 'Service', 'StandardOutput')).toBe('journal+console');
     expect(unit).not.toContain('--enable-source-maps');
+  });
+
+  it('forwards only the marked boot timeline to the EC2 console', async () => {
+    const unit = await readUnit('shipfox-runner.service');
+    const script = new URL('../scripts/runtime/run-runner.sh', import.meta.url);
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+    const source = await readFile(script, 'utf8');
+
+    execFileSync('/bin/bash', ['-n', script.pathname], {stdio: 'pipe'});
+
+    const result = spawnSync(
+      '/bin/bash',
+      [
+        script.pathname,
+        process.execPath,
+        '-e',
+        [
+          "process.stdout.write('ordinary stdout\\n');",
+          "process.stderr.write('ordinary stderr\\n');",
+          'process.stdout.write(\'{"console_marker":"runner_boot_timeline"}\\n\');',
+          'process.exitCode = 7;',
+        ].join(''),
+      ],
+      {encoding: 'utf8'},
+    );
+
+    expect(result.status).toBe(7);
+    expect(result.stdout).toBe('{"console_marker":"runner_boot_timeline"}\n');
+    expect(result.stderr).toContain('ordinary stdout');
+    expect(result.stderr).toContain('ordinary stderr');
+    expect(source).toContain('console_marker');
+    expect(source).toContain('PIPESTATUS');
+    expect(build).toContain('run-runner.sh /opt/shipfox-runner/scripts/runtime/run-runner.sh');
+    expect(unit).toContain('StandardError=journal');
   });
 
   it('ships the provider-gated workspace preflight separately from the runner app', async () => {
@@ -1083,6 +1117,8 @@ describe('systemd boot activation', () => {
     expect(source).toContain('configure_root_readahead() {');
     expect(source).toContain('blockdev --getra "$root_source"');
     expect(source).toContain('blockdev --setra "$root_readahead_sectors" "$root_source"');
+    expect(source).toContain('root_readahead_after" != "$root_readahead_sectors"');
+    expect(source).toContain('reason=clamped');
     expect(source).toContain('phase=readahead status=ok');
     expect(source).toContain('phase=readahead status=fail');
     expect(source).toContain('configure_root_readahead');

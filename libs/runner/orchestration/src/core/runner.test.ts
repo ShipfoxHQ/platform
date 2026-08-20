@@ -522,6 +522,7 @@ describe('startRunner', () => {
     expect(bootTimelineCalls).toHaveLength(1);
     expect(bootTimelineCalls[0]?.[0]).toEqual(
       expect.objectContaining({
+        console_marker: 'runner_boot_timeline',
         boot_timeline_version: 2,
         telemetry_state: expect.any(String),
         process_entry_uptime_seconds: expect.any(Number),

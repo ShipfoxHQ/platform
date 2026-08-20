@@ -93,6 +93,7 @@ build {
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/start-max-lifetime.sh /opt/shipfox-runner/scripts/runtime/start-max-lifetime.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/record-boot-io.sh /opt/shipfox-runner/scripts/runtime/record-boot-io.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/shipfox-bootstrap.sh /opt/shipfox-runner/scripts/runtime/shipfox-bootstrap.sh",
+      "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/run-runner.sh /opt/shipfox-runner/scripts/runtime/run-runner.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/verify-workspace-mount.sh /opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh",
       "sudo install -m 0755 /tmp/shipfox-runner-image-scripts/runtime/helpers/logger.sh /opt/shipfox-runner/scripts/runtime/helpers/logger.sh",
       "sudo install -m 0644 /tmp/shipfox-runner-image-scripts/runtime/helpers/resolve-root-partition.sh /opt/shipfox-runner/scripts/runtime/helpers/resolve-root-partition.sh",
