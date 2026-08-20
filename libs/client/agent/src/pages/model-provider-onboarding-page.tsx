@@ -5,8 +5,8 @@ import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Modal, ModalContent, ModalHeader, ModalTitle} from '@shipfox/react-ui/modal';
 import {Panel, PanelBody, PanelCell, PanelCellAction, PanelGrid} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
-import {Code, Header, Text} from '@shipfox/react-ui/typography';
-import {useEffect, useMemo, useReducer} from 'react';
+import {Header, Text} from '@shipfox/react-ui/typography';
+import {useEffect, useMemo, useReducer, useRef} from 'react';
 import {AvailableProvidersGrid} from '#components/available-providers-grid.js';
 import {modelProviderConfigErrorToFormError} from '#components/form-errors.js';
 import {ModelProviderGridSkeleton} from '#components/model-provider-grid-skeleton.js';
@@ -14,11 +14,7 @@ import {ModelProviderTestAndSaveForm} from '#components/test-and-save-form.js';
 import {DEFAULT_HARNESS, harnessSupportsProvider, listHarnesses} from '#core/harness-policy.js';
 import type {HarnessDescriptor, HarnessId, SupportedProvider} from '#core/models.js';
 import {initialOnboardingState, onboardingReducer} from '#core/onboarding-reducer.js';
-import {
-  isManagedOnlyCatalog,
-  isSupportedProvider,
-  managedProviderFromCatalog,
-} from '#core/provider-policy.js';
+import {isManagedOnlyCatalog, isSupportedProvider} from '#core/provider-policy.js';
 import {
   useModelProviderCatalogQuery,
   useSetDefaultHarnessMutation,
@@ -39,7 +35,7 @@ export function ModelProviderOnboardingPage({
   const [onboarding, dispatch] = useReducer(onboardingReducer, initialOnboardingState);
   const supportedProviders = catalogQuery.data?.providers.filter(isSupportedProvider) ?? [];
   const managedOnly = isManagedOnlyCatalog(catalogQuery.data);
-  const managedProvider = managedProviderFromCatalog(catalogQuery.data);
+  const managedOnlyForwarded = useRef(false);
   const filteredProviders = useMemo(() => {
     if (onboarding.step === 'choose-harness') return [];
     return supportedProviders.filter((provider) =>
@@ -48,20 +44,23 @@ export function ModelProviderOnboardingPage({
   }, [onboarding, supportedProviders]);
 
   useEffect(() => {
+    if (!managedOnly || managedOnlyForwarded.current) return;
+    managedOnlyForwarded.current = true;
+    onConfigured();
+  }, [managedOnly, onConfigured]);
+
+  useEffect(() => {
+    if (managedOnly) return;
     document
       .getElementById(
-        managedOnly
-          ? 'managed-provider-ready'
-          : onboarding.step === 'choose-harness'
-            ? 'model-provider-harness-step'
-            : 'model-provider-provider-step',
+        onboarding.step === 'choose-harness'
+          ? 'model-provider-harness-step'
+          : 'model-provider-provider-step',
       )
       ?.focus();
   }, [managedOnly, onboarding.step]);
 
-  if (managedOnly) {
-    return <ManagedOnlyOnboarding provider={managedProvider} onContinue={onConfigured} />;
-  }
+  if (managedOnly) return null;
 
   function handleSkip() {
     try {
@@ -218,89 +217,6 @@ export function ModelProviderOnboardingPage({
           ) : null}
         </ModalContent>
       </Modal>
-    </div>
-  );
-}
-
-function ManagedOnlyOnboarding({
-  provider,
-  onContinue,
-}: {
-  provider: SupportedProvider | undefined;
-  onContinue: () => void;
-}) {
-  return (
-    <div className="flex w-full flex-col gap-section">
-      <header className="flex flex-col gap-cluster">
-        <div className="flex items-start justify-between gap-group max-[520px]:flex-col max-[520px]:gap-inline">
-          <Header id="managed-provider-ready" variant="h1" tabIndex={-1} className="outline-none">
-            Managed inference is ready
-          </Header>
-          <Button type="button" variant="secondary" onClick={onContinue} className="shrink-0">
-            Continue
-          </Button>
-        </div>
-        <Text size="md" className="text-foreground-neutral-muted">
-          This instance manages model access for your workspace. No provider credentials or setup
-          are required.
-        </Text>
-      </header>
-
-      {provider ? (
-        <Panel>
-          <PanelBody className="gap-group p-panel">
-            <div className="flex min-w-0 flex-col gap-tight">
-              <Text size="md" bold>
-                {provider.label}
-              </Text>
-              <Text size="sm" className="text-foreground-neutral-muted">
-                Available for agent steps in this workspace.
-              </Text>
-            </div>
-            <div className="flex flex-col gap-inline">
-              <Text size="sm" bold>
-                Available models ({provider.models.length})
-              </Text>
-              <ul
-                aria-label={`${provider.label} models`}
-                className="rounded-8 border border-border-neutral-base"
-              >
-                {provider.models.map((model) => (
-                  <li
-                    key={model.id}
-                    className="flex min-w-0 items-center justify-between gap-inline border-b border-border-neutral-base px-row py-row last:border-b-0"
-                  >
-                    <Text as="span" size="sm" bold className="min-w-0 truncate">
-                      {model.label}
-                    </Text>
-                    <Code
-                      as="span"
-                      variant="label"
-                      className="min-w-0 truncate text-foreground-neutral-muted"
-                    >
-                      {model.id}
-                    </Code>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <Button type="button" onClick={onContinue}>
-              Continue to project setup
-            </Button>
-          </PanelBody>
-        </Panel>
-      ) : (
-        <EmptyState
-          icon="errorWarningLine"
-          title="Managed provider unavailable"
-          description="This instance is configured without workspace providers, but no managed provider was returned."
-          action={
-            <Button type="button" onClick={onContinue}>
-              Continue to project setup
-            </Button>
-          }
-        />
-      )}
     </div>
   );
 }

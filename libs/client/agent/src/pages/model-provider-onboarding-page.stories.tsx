@@ -9,13 +9,7 @@ import {ModelProviderOnboardingPage} from './model-provider-onboarding-page.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 
-type Scenario =
-  | 'available'
-  | 'loading'
-  | 'catalog-error'
-  | 'managed-only'
-  | 'no-providers'
-  | 'long-names';
+type Scenario = 'available' | 'loading' | 'catalog-error' | 'no-providers' | 'long-names';
 
 interface ModelProviderOnboardingStoryProps {
   scenario: Scenario;
@@ -135,15 +129,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Playground: Story = {};
 
-export const ManagedOnly: Story = {
-  args: {scenario: 'managed-only'},
-  play: async ({canvasElement}) => {
-    const canvas = within(canvasElement);
-    await canvas.findByRole('heading', {name: 'Managed inference is ready'});
-    await canvas.findByRole('button', {name: 'Continue to project setup'});
-  },
-};
-
 export const Loading: Story = {
   args: {scenario: 'loading'},
   play: async ({canvasElement}) => {
@@ -222,7 +207,6 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
       return Promise.resolve(
         jsonResponse({
           providers: catalogForScenario(scenario),
-          ...(scenario === 'managed-only' ? {workspace_providers: 'disabled'} : {}),
         }),
       );
     }
@@ -240,20 +224,6 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
 }
 
 function catalogForScenario(scenario: Scenario): ModelProviderCatalogEntryDto[] {
-  if (scenario === 'managed-only') {
-    return [
-      providerEntry({
-        id: 'shipfox',
-        label: 'Shipfox Managed',
-        default_model: 'claude-opus-4-8',
-        credential_fields: [],
-        models: [
-          {id: 'claude-opus-4-8', label: 'Claude Opus 4.8', api: 'anthropic-messages'},
-          {id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro', api: 'openai-responses'},
-        ],
-      }),
-    ];
-  }
   if (scenario === 'no-providers') return [];
   if (scenario !== 'long-names') return CATALOG;
   return [

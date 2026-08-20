@@ -43,7 +43,7 @@ describe('ModelProviderOnboardingPage', () => {
     window.localStorage.clear();
   });
 
-  test('shows managed provider models without asking for workspace credentials', async () => {
+  test('continues directly when workspace providers are managed by the instance', async () => {
     const onConfigured = vi.fn();
     const fetchImpl = vi
       .fn()
@@ -60,19 +60,12 @@ describe('ModelProviderOnboardingPage', () => {
       />,
     );
 
-    const heading = await screen.findByRole('heading', {name: 'Managed inference is ready'});
-    expect(heading).toBeVisible();
-    await waitFor(() => expect(heading).toHaveFocus());
-    expect(screen.getByText('Shipfox Managed')).toBeVisible();
-    expect(screen.getByRole('list', {name: 'Shipfox Managed models'})).toHaveTextContent(
-      'GPT-5.5 Pro',
-    );
+    await waitFor(() => expect(onConfigured).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByRole('heading', {name: 'Managed inference is ready'}),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Choose pi'})).not.toBeInTheDocument();
     expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
-
-    await userEvent.setup().click(screen.getByRole('button', {name: 'Continue to project setup'}));
-
-    expect(onConfigured).toHaveBeenCalledTimes(1);
   });
 
   test('skips setup, records the dismissed flag, and does not save a provider or harness', async () => {
