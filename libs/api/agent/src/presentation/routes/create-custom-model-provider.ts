@@ -5,12 +5,19 @@ import {
 import {requireWorkspaceAccess} from '@shipfox/api-auth-context';
 import {defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
-import {createCustomModelProviderConfig} from '#core/index.js';
+import {
+  assertWorkspaceProviderConfigurationEnabled,
+  createCustomModelProviderConfig,
+} from '#core/index.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
+import type {WorkspaceProviderPolicyOptions} from '#core/workspace-provider-policy.js';
 import {toCustomModelProviderConfigDto} from '#presentation/dto/index.js';
 import {translateModelProviderRouteError} from './errors.js';
 
-export function createCustomModelProviderRoute(secrets: AgentSecretsClient) {
+export function createCustomModelProviderRoute(
+  secrets: AgentSecretsClient,
+  workspaceProviderPolicy: WorkspaceProviderPolicyOptions = {workspaceProviders: 'enabled'},
+) {
   return defineRoute({
     method: 'POST',
     path: '/custom-model-providers',
@@ -35,6 +42,7 @@ export function createCustomModelProviderRoute(secrets: AgentSecretsClient) {
       });
 
       requireWorkspaceAccess({request, workspaceId});
+      assertWorkspaceProviderConfigurationEnabled(workspaceProviderPolicy);
 
       const config = await createCustomModelProviderConfig(
         {

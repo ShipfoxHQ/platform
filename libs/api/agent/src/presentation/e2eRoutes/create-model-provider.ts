@@ -3,9 +3,14 @@ import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
 import {agentSystemNamespace} from '#core/credential-fingerprints.js';
 import {listHarnessProviderModels} from '#core/harness/registry.js';
+import {
+  assertWorkspaceProviderConfigurationEnabled,
+  type WorkspaceProviderPolicyOptions,
+} from '#core/index.js';
 import {getModelProviderEntry} from '#core/model-provider-policy.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
 import {upsertModelProviderConfig} from '#db/index.js';
+import {translateModelProviderRouteError} from '#presentation/routes/errors.js';
 
 const createE2eModelProviderBodySchema = z.object({
   workspace_id: z.string().uuid(),
@@ -19,7 +24,10 @@ const createE2eModelProviderResponseSchema = z.object({
   provider_id: z.literal('anthropic'),
 });
 
-export function createE2eModelProviderRoute(secrets: AgentSecretsClient) {
+export function createE2eModelProviderRoute(
+  secrets: AgentSecretsClient,
+  workspaceProviderPolicy: WorkspaceProviderPolicyOptions = {workspaceProviders: 'enabled'},
+) {
   return defineRoute({
     method: 'POST',
     path: '/model-provider',
@@ -28,7 +36,9 @@ export function createE2eModelProviderRoute(secrets: AgentSecretsClient) {
       body: createE2eModelProviderBodySchema,
       response: {201: createE2eModelProviderResponseSchema},
     },
+    errorHandler: translateModelProviderRouteError,
     handler: async (request, reply) => {
+      assertWorkspaceProviderConfigurationEnabled(workspaceProviderPolicy);
       const entry = getModelProviderEntry(request.body.provider_id);
       if (entry === undefined || entry.default_model === null) {
         throw new ClientError('Unsupported E2E model provider', 'unsupported-model-provider', {

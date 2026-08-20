@@ -1,6 +1,6 @@
 import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
 import type {ShipfoxModule} from '@shipfox/node-module';
-import {assertAgentConfig} from '#config.js';
+import {assertAgentConfig, workspaceProvidersPolicy} from '#config.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
 import {db, migrationsPath} from '#db/index.js';
 import {createAgentE2eRoutes} from '#presentation/e2eRoutes/index.js';
@@ -35,6 +35,7 @@ export {
   testAndSaveModelProviderConfig,
   UnsupportedModelProviderError,
   updateCustomModelProviderConfig,
+  WorkspaceProvidersDisabledError,
 } from '#core/index.js';
 export {
   getAgentWorkspaceSettings,
@@ -53,8 +54,21 @@ export function createAgentModule(params: {
   return {
     name: 'agent',
     database: {db, migrationsPath, databaseNamespace: 'agent'},
-    routes: createAgentRoutes(params.secrets),
-    e2eRoutes: [createAgentE2eRoutes(params.secrets)],
-    interModulePresentations: [createAgentInterModulePresentation(params)],
+    routes: createAgentRoutes(params.secrets, {
+      managedProvider: params.managedProvider,
+      workspaceProviders: workspaceProvidersPolicy,
+    }),
+    e2eRoutes: [
+      createAgentE2eRoutes(params.secrets, {
+        managedProviderId: params.managedProvider?.id,
+        workspaceProviders: workspaceProvidersPolicy,
+      }),
+    ],
+    interModulePresentations: [
+      createAgentInterModulePresentation({
+        ...params,
+        workspaceProviders: workspaceProvidersPolicy,
+      }),
+    ],
   };
 }

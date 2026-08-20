@@ -8,12 +8,14 @@ import {
   type ManagedModelEntry,
   type ManagedModelProvider,
   type ModelProviderRef,
+  type WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
 import {
   InvalidAgentModelError,
   UnsupportedHarnessProviderError,
   UnsupportedHarnessThinkingError,
   UnsupportedModelProviderError,
+  WorkspaceProvidersDisabledError,
 } from './errors.js';
 import {listHarnessProviderModels} from './harness/index.js';
 import {getModelProviderEntry} from './model-provider-policy.js';
@@ -43,6 +45,7 @@ export interface AgentConfigResolutionContext {
   readonly instanceDefaultModel?: string | undefined;
   readonly instanceDefaultThinking?: AgentThinking | undefined;
   readonly managedProvider?: ManagedModelProvider | undefined;
+  readonly workspaceProviders?: WorkspaceProvidersPolicy | undefined;
 }
 
 interface WorkspaceProviderDefaults {
@@ -91,6 +94,28 @@ function resolveProvider(
   harness: Harness,
 ): ModelProviderRef {
   const descriptor = getHarnessDescriptor(harness);
+  if (ctx.workspaceProviders === 'disabled') {
+    const managedProvider = ctx.managedProvider;
+    if (managedProvider === undefined) {
+      throw new Error(
+        'workspace provider configuration is disabled but no managed provider is registered',
+      );
+    }
+    if (step.provider !== undefined && step.provider !== managedProvider.id) {
+      throw new WorkspaceProvidersDisabledError(managedProvider.id);
+    }
+
+    const providerConfig = getProviderConfig(managedProvider.id, ctx);
+    if (!isHarnessCompatible(harness, managedProvider.id, providerConfig)) {
+      throw new UnsupportedHarnessProviderError(
+        harness,
+        managedProvider.id,
+        supportedProviderIds(harness, descriptor, ctx),
+      );
+    }
+    return managedProvider.id;
+  }
+
   if (step.provider !== undefined) {
     const provider = resolveSupportedProvider(step.provider, ctx);
     if (!isHarnessCompatible(harness, provider, getProviderConfig(provider, ctx))) {

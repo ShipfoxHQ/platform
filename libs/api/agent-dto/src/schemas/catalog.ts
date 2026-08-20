@@ -12,6 +12,7 @@ import {
 import {z} from 'zod';
 import {
   type ModelProviderId,
+  modelProviderRefSchema,
   providerIdSchema,
   SUPPORTED_MODEL_PROVIDER_IDS,
   type SupportedModelProviderId,
@@ -50,6 +51,10 @@ export const modelProviderSupportStatusSchema = z.enum(['supported', 'unsupporte
 
 export type ModelProviderSupportStatus = z.infer<typeof modelProviderSupportStatusSchema>;
 
+export const workspaceProvidersPolicySchema = z.enum(['enabled', 'disabled']);
+
+export type WorkspaceProvidersPolicy = z.infer<typeof workspaceProvidersPolicySchema>;
+
 const supportedModelProviderIds = new Set<string>(SUPPORTED_MODEL_PROVIDER_IDS);
 const unsupportedModelProviderIds = new Set<string>(UNSUPPORTED_MODEL_PROVIDER_IDS);
 
@@ -67,12 +72,24 @@ export const modelProviderCatalogSeedSchema =
 
 export type ModelProviderCatalogSeedDto = z.infer<typeof modelProviderCatalogSeedSchema>;
 
-export const modelProviderCatalogEntrySchema = modelProviderCatalogSeedBaseSchema
+const modelProviderCatalogEntryBaseSchema = z.object({
+  id: modelProviderRefSchema,
+  label: z.string().min(1),
+  support_status: modelProviderSupportStatusSchema,
+  default_model: z.string().min(1).nullable(),
+  credential_fields: z.array(modelProviderCredentialFieldSchema),
+  unsupported_reason: z.string().min(1).nullable(),
+});
+
+export const modelProviderCatalogEntrySchema = modelProviderCatalogEntryBaseSchema
   .extend({
     models: z.array(agentModelOptionSchema),
   })
   .superRefine((entry, ctx) => {
-    validateCatalogSeedEntry(entry, ctx);
+    const seedId = providerIdSchema.safeParse(entry.id);
+    if (seedId.success) {
+      validateCatalogSeedEntry({...entry, id: seedId.data}, ctx);
+    }
 
     if (entry.support_status === 'supported') {
       if (entry.models.length === 0) {
@@ -105,6 +122,7 @@ export type ModelProviderCatalogEntryDto = z.infer<typeof modelProviderCatalogEn
 
 export const modelProviderCatalogResponseSchema = z.object({
   providers: z.array(modelProviderCatalogEntrySchema),
+  workspace_providers: workspaceProvidersPolicySchema.optional(),
 });
 
 export type ModelProviderCatalogResponseDto = z.infer<typeof modelProviderCatalogResponseSchema>;

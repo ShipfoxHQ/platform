@@ -1,7 +1,8 @@
+import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
 import {AUTH_USER, buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {AuthMethod, FastifyRequest} from '@shipfox/node-fastify';
 import {ClientError, closeApp, createApp} from '@shipfox/node-fastify';
-import {agentRoutes} from './index.js';
+import {agentRoutes, createAgentRoutes} from './index.js';
 
 const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
@@ -69,5 +70,52 @@ describe('model provider catalog route', () => {
         }
       }
     });
+
+    it('returns only the managed provider and the disabled policy when configured', async () => {
+      await closeApp();
+      app = await createApp({
+        auth: [fakeUserAuth],
+        routes: createAgentRoutes(undefined as never, {
+          managedProvider: managedProvider(),
+          workspaceProviders: 'disabled',
+        }),
+        swagger: false,
+      });
+      await app.ready();
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/agent/model-provider-catalog',
+        headers: {authorization: 'Bearer user'},
+      });
+
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({
+        workspace_providers: 'disabled',
+        providers: [
+          expect.objectContaining({
+            id: 'shipfox',
+            support_status: 'supported',
+            default_model: 'managed-claude',
+            credential_fields: [],
+            models: [{id: 'managed-claude', label: 'Managed Claude'}],
+          }),
+        ],
+      });
+    });
   });
 });
+
+function managedProvider(): ManagedModelProvider {
+  return {
+    id: 'shipfox',
+    label: 'Shipfox',
+    models: [{id: 'managed-claude', label: 'Managed Claude', api: 'anthropic-messages'}],
+    defaultModel: 'managed-claude',
+    resolveCredentials: async () => ({
+      api: 'anthropic-messages',
+      baseUrl: 'https://gateway.example.com',
+      credentials: {api_key: 'token'},
+    }),
+  };
+}

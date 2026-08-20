@@ -12,6 +12,7 @@ import {
   UnsupportedHarnessProviderError,
   UnsupportedHarnessThinkingError,
   UnsupportedModelProviderError,
+  WorkspaceProvidersDisabledError,
 } from './errors.js';
 import * as harnessCatalog from './harness/index.js';
 import {catalogDefaultAgentResolver, resolveAgentConfig} from './resolve-agent-config.js';
@@ -152,6 +153,32 @@ describe('resolveAgentConfig', () => {
       model: 'claude-model',
       thinking: 'high',
     });
+  });
+
+  test('defaults to the managed provider when workspace providers are disabled', () => {
+    const resolved = resolveAgentConfig(
+      {},
+      {
+        workspaceProviders: 'disabled',
+        workspaceDefaultProviderId: 'openai',
+        instanceDefaultProvider: 'openai',
+        managedProvider: managedProvider(),
+      },
+    );
+
+    expect(resolved.provider).toBe('shipfox');
+    expect(resolved.model).toBe('responses-model');
+  });
+
+  test('rejects foreign provider references when workspace providers are disabled', () => {
+    const resolve = () =>
+      resolveAgentConfig(
+        {provider: 'openai'},
+        {workspaceProviders: 'disabled', managedProvider: managedProvider()},
+      );
+
+    expect(resolve).toThrow(WorkspaceProvidersDisabledError);
+    expect(resolve).toThrow('This instance only supports provider `shipfox`');
   });
 
   test('uses instance model and thinking only for the resolved instance model provider', () => {

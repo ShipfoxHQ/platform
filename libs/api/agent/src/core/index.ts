@@ -19,6 +19,7 @@ export {
   UnsupportedHarnessProviderError,
   UnsupportedHarnessThinkingError,
   UnsupportedModelProviderError,
+  WorkspaceProvidersDisabledError,
 } from './errors.js';
 export {
   getHarnessDescriptor,
@@ -61,3 +62,7 @@ export {
   resolveRuntimeCredentials,
 } from './resolve-runtime-credentials.js';
 export {createWorkspaceAgentDefaultsResolver} from './workspace-agent-defaults-resolver.js';
+export {
+  assertWorkspaceProviderConfigurationEnabled,
+  type WorkspaceProviderPolicyOptions,
+} from './workspace-provider-policy.js';

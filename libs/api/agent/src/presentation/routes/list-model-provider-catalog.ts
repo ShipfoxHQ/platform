@@ -1,15 +1,36 @@
-import {modelProviderCatalogResponseSchema} from '@shipfox/api-agent-dto';
+import {
+  type ManagedModelProvider,
+  modelProviderCatalogResponseSchema,
+  type WorkspaceProvidersPolicy,
+} from '@shipfox/api-agent-dto';
 import {defineRoute} from '@shipfox/node-fastify';
 import {buildModelProviderCatalog} from '#core/index.js';
 
-export const listModelProviderCatalogRoute = defineRoute({
-  method: 'GET',
-  path: '/model-provider-catalog',
-  description: 'List available model providers and models',
-  schema: {
-    response: {
-      200: modelProviderCatalogResponseSchema,
+export function createListModelProviderCatalogRoute(
+  options: {
+    managedProvider?: ManagedModelProvider | undefined;
+    workspaceProviders?: WorkspaceProvidersPolicy | undefined;
+  } = {},
+) {
+  const workspaceProviders = options.workspaceProviders ?? 'enabled';
+
+  return defineRoute({
+    method: 'GET',
+    path: '/model-provider-catalog',
+    description: 'List available model providers and models',
+    schema: {
+      response: {
+        200: modelProviderCatalogResponseSchema,
+      },
     },
-  },
-  handler: () => ({providers: buildModelProviderCatalog()}),
-});
+    handler: () => ({
+      providers: buildModelProviderCatalog({
+        managedProvider: options.managedProvider,
+        workspaceProviders,
+      }),
+      workspace_providers: workspaceProviders,
+    }),
+  });
+}
+
+export const listModelProviderCatalogRoute = createListModelProviderCatalogRoute();

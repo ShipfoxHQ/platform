@@ -1,4 +1,8 @@
-import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
+import type {
+  HarnessDescriptor,
+  ManagedModelProvider,
+  WorkspaceProvidersPolicy,
+} from '@shipfox/api-agent-dto';
 import {
   listEnabledHarnessTools,
   listHarnessDescriptors,
@@ -9,52 +13,121 @@ import {harnessToolDeploymentConfig} from '#config.js';
 import {listHarnessProviderModels} from './harness/index.js';
 import {getModelProviderEntry} from './model-provider-policy.js';
 
+type HarnessValidationCatalog = AgentValidationCatalog['harnesses'][number];
+
 /** Produces the versioned, JSON-safe policy snapshot consumed by Definitions. */
 export function getAgentValidationCatalog(
   managedProvider?: ManagedModelProvider | undefined,
+  workspaceProviders: WorkspaceProvidersPolicy = 'enabled',
 ): AgentValidationCatalog {
-  const providers = [
-    ...MODEL_PROVIDER_IDS.map((id) => ({
-      id,
-      support_status: getModelProviderEntry(id)?.support_status ?? 'unsupported',
-    })),
-    ...(managedProvider === undefined
-      ? []
-      : [{id: managedProvider.id, support_status: 'supported' as const}]),
-  ];
+  const managedOnly = workspaceProviders === 'disabled';
 
   return {
     version: 1,
-    providers,
-    harnesses: listHarnessDescriptors().map((harness) => ({
-      id: harness.id,
-      supported_provider_ids: [
-        ...harness.supportedProviderIds,
-        ...(managedProvider !== undefined &&
-        managedModelsForHarness(harness.id, managedProvider).length > 0
-          ? [managedProvider.id]
-          : []),
-      ],
-      model_ids_by_provider: Object.fromEntries([
-        ...harness.supportedProviderIds.map((providerId) => [
-          providerId,
-          listHarnessProviderModels(harness.id, providerId).map((model) => model.id),
-        ]),
-        ...(managedProvider === undefined
-          ? []
-          : [
-              [
-                managedProvider.id,
-                managedModelsForHarness(harness.id, managedProvider).map((model) => model.id),
-              ],
-            ]),
-      ]),
-      thinking_levels: [...harness.thinkingLevels],
-      effective_tools: listEnabledHarnessTools(harness.id, harnessToolDeploymentConfig).map(
-        (tool) => tool.name,
-      ),
-    })),
+    providers: buildValidationProviders(managedProvider, managedOnly),
+    harnesses: listHarnessDescriptors().map((harness) =>
+      buildHarnessValidationCatalog(harness, managedProvider, managedOnly),
+    ),
   };
+}
+
+function buildValidationProviders(
+  managedProvider: ManagedModelProvider | undefined,
+  managedOnly: boolean,
+): AgentValidationCatalog['providers'] {
+  const providers: AgentValidationCatalog['providers'] = [];
+
+  if (!managedOnly) {
+    providers.push(
+      ...MODEL_PROVIDER_IDS.map((id) => ({
+        id,
+        support_status: getModelProviderEntry(id)?.support_status ?? 'unsupported',
+      })),
+    );
+  }
+
+  if (managedProvider !== undefined) {
+    providers.push({id: managedProvider.id, support_status: 'supported'});
+  }
+
+  return providers;
+}
+
+function buildHarnessValidationCatalog(
+  harness: HarnessDescriptor,
+  managedProvider: ManagedModelProvider | undefined,
+  managedOnly: boolean,
+): HarnessValidationCatalog {
+  const managedModels = getManagedModelsForHarness(harness, managedProvider);
+
+  return {
+    id: harness.id,
+    supported_provider_ids: buildSupportedProviderIds(
+      harness,
+      managedProvider,
+      managedModels,
+      managedOnly,
+    ),
+    model_ids_by_provider: buildModelIdsByProvider(
+      harness,
+      managedProvider,
+      managedModels,
+      managedOnly,
+    ),
+    thinking_levels: [...harness.thinkingLevels],
+    effective_tools: listEnabledHarnessTools(harness.id, harnessToolDeploymentConfig).map(
+      (tool) => tool.name,
+    ),
+  };
+}
+
+function buildSupportedProviderIds(
+  harness: HarnessDescriptor,
+  managedProvider: ManagedModelProvider | undefined,
+  managedModels: ManagedModelProvider['models'],
+  managedOnly: boolean,
+): string[] {
+  if (managedOnly) {
+    if (managedProvider === undefined || managedModels.length === 0) return [];
+    return [managedProvider.id];
+  }
+
+  const providerIds = [...harness.supportedProviderIds];
+  if (managedProvider !== undefined && managedModels.length > 0) {
+    providerIds.push(managedProvider.id);
+  }
+  return providerIds;
+}
+
+function buildModelIdsByProvider(
+  harness: HarnessDescriptor,
+  managedProvider: ManagedModelProvider | undefined,
+  managedModels: ManagedModelProvider['models'],
+  managedOnly: boolean,
+): Record<string, string[]> {
+  const modelIdsByProvider: Record<string, string[]> = {};
+
+  if (!managedOnly) {
+    for (const providerId of harness.supportedProviderIds) {
+      modelIdsByProvider[providerId] = listHarnessProviderModels(harness.id, providerId).map(
+        (model) => model.id,
+      );
+    }
+  }
+
+  if (managedProvider !== undefined) {
+    modelIdsByProvider[managedProvider.id] = managedModels.map((model) => model.id);
+  }
+
+  return modelIdsByProvider;
+}
+
+function getManagedModelsForHarness(
+  harness: HarnessDescriptor,
+  managedProvider: ManagedModelProvider | undefined,
+): ManagedModelProvider['models'] {
+  if (managedProvider === undefined) return [];
+  return managedModelsForHarness(harness.id, managedProvider);
 }
 
 function managedModelsForHarness(

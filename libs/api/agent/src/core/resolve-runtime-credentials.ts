@@ -6,10 +6,11 @@ import type {
   ManagedProviderRuntimeConfig,
   ModelProviderRef,
   SupportedModelProviderId,
+  WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
 import {secretsInterModuleContract} from '@shipfox/api-secrets-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
-import {config} from '#config.js';
+import {config, workspaceProvidersPolicy} from '#config.js';
 import {getModelProviderConfig} from '#db/index.js';
 import {agentRuntimeConfigResolvedCount} from '#metrics/index.js';
 import {
@@ -39,6 +40,7 @@ interface RuntimeCredentialsConfig {
 
 interface ResolveRuntimeCredentialsOptions {
   runtimeConfig?: RuntimeCredentialsConfig | undefined;
+  workspaceProviders?: WorkspaceProvidersPolicy | undefined;
   secrets?: AgentSecretsClient | undefined;
   managedProvider?: ManagedModelProvider | undefined;
   getCredentialBag?:
@@ -51,6 +53,7 @@ export async function resolveRuntimeCredentials(
   options?: ResolveRuntimeCredentialsOptions,
 ): Promise<AgentRuntimeCredentialsResponseDto> {
   const runtimeConfig = options?.runtimeConfig ?? config;
+  const configuredWorkspaceProviders = options?.workspaceProviders ?? workspaceProvidersPolicy;
   const secrets = options?.secrets;
   const managedProvider = options?.managedProvider;
   if (managedProvider?.id === params.provider) {
@@ -65,6 +68,14 @@ export async function resolveRuntimeCredentials(
       provider: managedProvider,
       runtimeConfig: managedRuntimeConfig,
     });
+  }
+
+  if (configuredWorkspaceProviders === 'disabled') {
+    agentRuntimeConfigResolvedCount.add(1, {
+      source: params.provider === runtimeConfig.AGENT_DEFAULT_PROVIDER ? 'instance' : 'workspace',
+      outcome: 'unavailable',
+    });
+    throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
   }
 
   const providerConfig = await getModelProviderConfig({

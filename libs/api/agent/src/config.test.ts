@@ -16,6 +16,48 @@ describe('agent config', () => {
     expect(module.config.AGENT_DEFAULT_PROVIDER_API_KEY).toBe('sk-instance-secret');
   });
 
+  it('defaults workspace provider configuration to enabled', async () => {
+    vi.resetModules();
+
+    const module = await import('./config.js');
+
+    expect(module.config.AGENT_WORKSPACE_PROVIDERS).toBe('enabled');
+    expect(module.workspaceProvidersPolicy).toBe('enabled');
+  });
+
+  it('accepts disabled workspace provider configuration with a managed provider', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_WORKSPACE_PROVIDERS', 'disabled');
+
+    const module = await import('./config.js');
+
+    expect(module.workspaceProvidersPolicy).toBe('disabled');
+    expect(() => module.assertAgentConfig(managedProvider())).not.toThrow();
+  });
+
+  it('requires a managed provider when workspace provider configuration is disabled', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_WORKSPACE_PROVIDERS', 'disabled');
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig()).toThrow(
+      'AGENT_WORKSPACE_PROVIDERS=disabled requires an injected managed model provider',
+    );
+  });
+
+  it('rejects a foreign instance default when workspace provider configuration is disabled', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_WORKSPACE_PROVIDERS', 'disabled');
+    vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'openai');
+
+    const module = await import('./config.js');
+
+    expect(() => module.assertAgentConfig(managedProvider())).toThrow(
+      'This instance only supports provider `shipfox`',
+    );
+  });
+
   it('throws when an instance key is set for a multi-field provider', async () => {
     vi.resetModules();
     vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'azure-openai-responses');
