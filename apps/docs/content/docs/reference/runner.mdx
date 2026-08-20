@@ -30,6 +30,9 @@ heartbeat remains healthy.
 
 A job is dispatched to a runner only when the runner's labels include **all** labels the job's `runner:` field requires. A runner may carry several labels; one machine may run several runner processes with different label sets.
 
+For the Shipfox-hosted labels available in Shipfox Cloud, see [Runner
+labels](/reference/runner-labels).
+
 ## Token types
 
 | Prefix | Name | Created by | Lifetime |
@@ -74,6 +77,9 @@ Model provider credentials are **workspace configuration**, delivered to the run
 ## Related pages
 
 <Cards>
+  <Card title="Runner labels" href="/reference/runner-labels">
+    Compare Shipfox-hosted runner CPU, memory, and workspace storage.
+  </Card>
   <Card title="Runners and execution" href="/understand/runners-and-execution-environments">
     Understand placement, labels, capacity, and checkout isolation.
   </Card>

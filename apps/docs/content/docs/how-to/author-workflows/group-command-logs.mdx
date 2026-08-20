@@ -9,7 +9,7 @@ Use groups when one command step produces a long stream that is hard to scan.
 ## Before you begin
 
 You need a project that can sync workflows, an online runner with the
-`ubuntu-latest` label, and a Node.js repository with a lockfile and tests.
+`shipfox` label, and a Node.js repository with a lockfile and tests.
 
 ## Add the workflow
 
@@ -18,7 +18,7 @@ Create `.shipfox/workflows/grouped-checks.yml`. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Run grouped checks
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:

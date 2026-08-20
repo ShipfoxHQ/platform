@@ -13,7 +13,7 @@ any integration tool.
 You need:
 
 - A GitHub-backed project whose source integration connection can write repository contents.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - Configured agent defaults.
 - A repository with `README.md`.
 - A repository where a temporary `shipfox/docs-*` branch is safe.
@@ -26,7 +26,7 @@ workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Push a README update
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:

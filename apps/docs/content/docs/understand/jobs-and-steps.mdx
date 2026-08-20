@@ -51,7 +51,7 @@ This complete workflow shows the boundary:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Check and review a change
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:
@@ -76,6 +76,10 @@ jobs:
 `lint` and `test` can run in parallel. Each installs its own dependencies.
 `review` waits for both, but receives neither job's files nor logs. It reviews
 its own fresh checkout.
+
+The `shipfox` label selects the default Shipfox-hosted runner, which is
+available to every Shipfox Cloud workspace. The [Runner labels
+reference](/reference/runner-labels) lists the other hosted sizes.
 
 The [parallel CI
 recipe](/how-to/recipes/parallel-ci-agent-review) applies this shape to a GitHub

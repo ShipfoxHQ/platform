@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "workflow-schema",
+    "runner-labels",
     "contexts",
     "expressions",
     "trigger-sources",

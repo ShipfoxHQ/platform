@@ -15,7 +15,7 @@ You need:
 - A project connected to GitHub.
 - Its integration connection slug. This guide uses `github_acme` as a placeholder.
 - A GitHub integration connection that can read and write pull-request reviews.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - Configured agent defaults.
 - A test branch that is ready to open as a pull request. Do not open it until
   the workflow has synced.
@@ -28,7 +28,7 @@ Create `.shipfox/workflows/post-pull-request-review.yml`. Replace
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Post a pull request review
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_pull_request:

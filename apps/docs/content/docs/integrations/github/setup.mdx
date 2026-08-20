@@ -13,7 +13,7 @@ integration connection can give selected GitHub tools to an agent. See the
 You need access to workspace integration settings. You must also be able to
 install a GitHub App on the target account or organization.
 
-To verify a run, you also need an online runner with the `ubuntu-latest` label.
+To verify a run, you also need an online runner with the `shipfox` label.
 
 ## Install the GitHub App
 
@@ -57,7 +57,7 @@ workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Check the GitHub integration connection
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_push:

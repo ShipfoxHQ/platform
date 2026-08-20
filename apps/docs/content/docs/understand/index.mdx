@@ -8,8 +8,9 @@ Shipfox stores engineering work as **workflows** beside the code they act on.
 An event starts a run. Jobs divide the work. Runners provide the compute, and
 steps perform fixed commands or work that needs an agent's judgment.
 
-Shipfox plans and records the work. Runners do it in an environment that the
-team controls.
+Shipfox plans and records the work. Runners execute it in an isolated
+environment. Every Shipfox Cloud workspace can use Shipfox-hosted runners.
+Teams can also connect self-managed runners for environments they control.
 
 The same model appears in the workflow file and in the run view.
 
@@ -52,7 +53,7 @@ Read these pages in order when the model is new.
    boundary and what that boundary isolates.
 5. [Runners and execution
    environments](/understand/runners-and-execution-environments) explains how
-   labels and capacity place each job.
+   hosted and self-managed capacity place each job.
 6. [Context and templating](/understand/data-and-templating) explains when data
    becomes available and how results move forward.
 7. [Integrations, integration connections, and

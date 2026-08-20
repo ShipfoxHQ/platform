@@ -12,7 +12,7 @@ should start only after both checks pass.
 You need:
 
 - A project [connected to GitHub](/integrations/github/setup). Find its integration connection slug in **Settings → Integrations**.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - A configured model provider and workspace agent defaults.
 - A Node.js repository with `lint` and `test` scripts.
 
@@ -24,7 +24,7 @@ the slug of your GitHub integration connection. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Parallel CI and agent review
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_push:

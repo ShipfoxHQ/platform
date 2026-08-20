@@ -37,13 +37,15 @@ that decides whether the next action is safe. A unit test can guard behavior
 before a commit. A policy check can guard a deploy. A read-back can confirm an
 external write.
 
-In a project with `npm test`, an online `ubuntu-latest` runner, and configured
-agent defaults, this complete workflow shows the loop:
+Every Shipfox Cloud workspace can run this example on the hosted
+[`shipfox` runner](/reference/runner-labels). The project also needs an
+`npm test` command and configured agent defaults. This complete workflow shows
+the loop:
 
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Fix failing tests
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:

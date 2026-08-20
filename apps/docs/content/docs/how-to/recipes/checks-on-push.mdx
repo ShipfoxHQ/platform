@@ -13,7 +13,7 @@ You need:
 
 - A Shipfox project [connected to GitHub](/integrations/github/setup).
 - The slug of the GitHub integration connection. This recipe uses `github_acme` as a placeholder.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - A configured model provider and workspace agent defaults.
 - A Node.js repository with a lockfile and an `npm test` command.
 
@@ -25,7 +25,7 @@ the slug of your GitHub integration connection. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Checks on push
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_push:

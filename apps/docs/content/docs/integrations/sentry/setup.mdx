@@ -13,7 +13,7 @@ You need access to workspace integration settings. You must also be able to
 install an App in the target Sentry organization.
 
 To verify a run, you also need a project that can sync workflows and an online
-runner with the `ubuntu-latest` label.
+runner with the `shipfox` label.
 
 ## Install the Sentry App
 
@@ -49,7 +49,7 @@ with the integration connection slug. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Check the Sentry integration connection
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_issue:

@@ -11,7 +11,7 @@ the agent's final response.
 ## Before you begin
 
 You need a project that can sync workflows, an online runner with the
-`ubuntu-latest` label, and configured agent defaults.
+`shipfox` label, and configured agent defaults.
 
 ## Add the workflow
 
@@ -21,7 +21,7 @@ workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Classify release risk
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:

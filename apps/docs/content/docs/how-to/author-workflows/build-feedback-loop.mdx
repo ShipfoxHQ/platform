@@ -10,7 +10,7 @@ decides whether another attempt is needed.
 ## Before you begin
 
 You need a test project that can sync workflows, an online runner with the
-`ubuntu-latest` label, configured agent defaults, and an `npm test` command with
+`shipfox` label, configured agent defaults, and an `npm test` command with
 a safe failure that the agent can repair.
 
 ## Add the workflow
@@ -20,7 +20,7 @@ Create `.shipfox/workflows/fix-tests.yml`. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Fix failing tests
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:
