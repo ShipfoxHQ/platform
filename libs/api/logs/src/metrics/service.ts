@@ -1,4 +1,5 @@
 import {getServiceMetricsProvider} from '@shipfox/node-opentelemetry';
+import {getUncompactedChunkBytes} from '#db/chunks.js';
 import {getOpenStreamCount} from '#db/streams.js';
 
 export function registerLogsServiceMetrics(): void {
@@ -8,11 +9,20 @@ export function registerLogsServiceMetrics(): void {
     description: 'Log streams currently open for appends',
   });
 
+  // Hot-storage volume on the service plane: the chunk rows live in shared Postgres, so every
+  // pod would report the same sum and Prometheus must not add them together.
+  const openChunkBytes = meter.createObservableGauge('logs_open_chunk_bytes', {
+    description:
+      'Bytes in un-compacted hot log chunks (open streams plus closed streams awaiting compaction)',
+    unit: 'By',
+  });
+
   meter.addBatchObservableCallback(
     async (observer) => {
       observer.observe(openStreams, toSafeGaugeNumber(await getOpenStreamCount()));
+      observer.observe(openChunkBytes, toSafeGaugeNumber(await getUncompactedChunkBytes()));
     },
-    [openStreams],
+    [openStreams, openChunkBytes],
   );
 }
 

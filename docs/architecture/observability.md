@@ -29,6 +29,30 @@ refreshes `reported_at` with each running report. A warm-pool runner that
 remains stale after five minutes indicates a reporting or provisioner failure
 and is intentionally included in the alert.
 
+## Logs byte volume
+
+The logs service exposes four byte-volume instruments, all with OpenTelemetry
+byte units (`By`). `logs_bytes_ingested`, `logs_bytes_stored`, and
+`logs_compacted_bytes` are instance-plane counters (port 9464).
+`logs_open_chunk_bytes` is the service-plane gauge (port 9474).
+
+The two ingest counters measure different axes and are not equivalents:
+
+* `logs_bytes_ingested` counts raw runner body bytes accepted by the offset-CAS
+  as an in-order extension. Retries, gaps, closed-stream appends, and empty
+  heartbeats never extend the CAS, so each accepted body counts exactly once,
+  including a capped job's accept-and-drop stragglers.
+* `logs_bytes_stored` counts normalized durable bytes written to chunk rows:
+  before storage, the pipeline parses `agent_session` records into view rows,
+  and server-injected `capped`/`runner_lost` tombstones and cap-dropped bodies
+  never count. `ingested - stored` is the normalization delta plus
+  cap/close drops.
+* `logs_compacted_bytes` counts uncompressed log bytes on the single-winner
+  compaction publish, so idempotent re-runs never double-count.
+* `logs_open_chunk_bytes` is the un-compacted hot volume in Postgres: chunk rows
+  of open streams plus closed streams still awaiting compaction. It lives on
+  the service plane because the rows sit in shared Postgres, not per-pod state.
+
 ## Initialize in the required order
 
 Create instance instruments at module load in `src/metrics/instance.ts`. Record

@@ -22,6 +22,8 @@ import {
   setDeclaredTotalBytes,
 } from '#db/streams.js';
 import {
+  bytesIngestedCount,
+  bytesStoredCount,
   type LogRecordMetricKind,
   recordAppendedCount,
   streamClosedCount,
@@ -427,6 +429,12 @@ export async function appendLogs(
     recordCounts: {} as Partial<Record<LogRecordMetricKind, number>>,
     streamClosedReason: undefined as 'declared' | undefined,
     streamOpened: false,
+    // Raw runner body bytes accepted by the in-order CAS; normalized durable bytes written
+    // to chunk rows. Both are accumulated inside the transaction and recorded only after it
+    // commits, so a rolled-back append never counts. See the semantics on the metric
+    // definitions in `#metrics/instance.js`.
+    ingestedBytes: 0,
+    storedBytes: 0,
   };
 
   const result = await db().transaction(async (tx) => {
@@ -458,6 +466,9 @@ export async function appendLogs(
     if (cas.outcome === 'retry') {
       return {committedLength: cas.committedLength, capped: await isJobCapped(tx, params.jobId)};
     }
+    // In-order CAS extension: the raw body is accepted. Retries and gaps returned above, and
+    // closed streams / empty heartbeats never reach the CAS, so each body is counted once.
+    metrics.ingestedBytes += commitByteLen;
 
     const parseHarness =
       sessionHarness === 'claude' ||
@@ -491,6 +502,8 @@ export async function appendLogs(
       declaredTotalBytes,
     });
     if (chunkStored) {
+      // Normalized durable bytes; a cap-dropped straggler never reaches this branch.
+      metrics.storedBytes += stored.body.length;
       addRecordCounts(metrics.recordCounts, stored.recordCounts);
       if (stored.claudeParseContext !== undefined) {
         await setClaudeParseContext(tx, {
@@ -520,6 +533,8 @@ export async function appendLogs(
   });
 
   if (metrics.streamOpened) streamOpenedCount.add(1);
+  if (metrics.ingestedBytes > 0) bytesIngestedCount.add(metrics.ingestedBytes);
+  if (metrics.storedBytes > 0) bytesStoredCount.add(metrics.storedBytes);
   for (const [kind, count] of Object.entries(metrics.recordCounts)) {
     if (count > 0) recordAppendedCount.add(count, {kind: kind as LogRecordMetricKind});
   }

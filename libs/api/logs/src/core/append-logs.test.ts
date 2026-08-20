@@ -16,6 +16,24 @@ import {
 } from '#test/fixtures/ndjson.js';
 import {findAccounting, findStream, listChunks, listStreamClosedEvents} from '#test/queries.js';
 
+const metricsMocks = vi.hoisted(() => {
+  const counters = new Map<string, {add: ReturnType<typeof vi.fn>}>();
+  const add = (name: string) => {
+    const counter = {add: vi.fn()};
+    counters.set(name, counter);
+    return counter;
+  };
+  return {counters, add};
+});
+
+vi.mock('#metrics/instance.js', () => ({
+  bytesIngestedCount: metricsMocks.add('bytesIngestedCount'),
+  bytesStoredCount: metricsMocks.add('bytesStoredCount'),
+  recordAppendedCount: metricsMocks.add('recordAppendedCount'),
+  streamClosedCount: metricsMocks.add('streamClosedCount'),
+  streamOpenedCount: metricsMocks.add('streamOpenedCount'),
+}));
+
 interface Ctx {
   jobId: string;
   stepId: string;
@@ -724,6 +742,141 @@ describe('appendLogs', () => {
       expect(streamA?.id).not.toBe(streamB?.id);
       expect(streamA?.committedLength).toBe(bodyA.length);
       expect(streamB?.committedLength).toBe(bodyB.length);
+    });
+  });
+
+  describe('byte volume metrics', () => {
+    beforeEach(() => {
+      for (const counter of metricsMocks.counters.values()) counter.add.mockClear();
+    });
+
+    function ingestedAdd() {
+      return metricsMocks.counters.get('bytesIngestedCount')?.add;
+    }
+
+    function storedAdd() {
+      return metricsMocks.counters.get('bytesStoredCount')?.add;
+    }
+
+    it('counts raw ingested and normalized stored bytes on an in-order append', async () => {
+      const ctx = newCtx();
+      const body = ndjsonBody(outputLine('hello\n'));
+
+      await appendLogs({...ctx, attempt: 1, offset: 0, body});
+
+      expect(ingestedAdd()).toHaveBeenCalledTimes(1);
+      expect(ingestedAdd()).toHaveBeenCalledWith(body.length);
+      expect(storedAdd()).toHaveBeenCalledTimes(1);
+      expect(storedAdd()).toHaveBeenCalledWith(body.length);
+    });
+
+    it('counts normalized stored bytes separately from raw ingested bytes', async () => {
+      const ctx = newCtx();
+      await allowLargeLogBudget(ctx);
+      // A session line is parsed into a view row before storage, so the durable chunk is
+      // byte-different from the raw body: the exact point of the raw-vs-normalized split.
+      const body = ndjsonBody(sessionLine('{"type":"x"}'));
+
+      await appendLogs({...ctx, attempt: 1, offset: 0, body});
+
+      expect(ingestedAdd()).toHaveBeenCalledTimes(1);
+      expect(ingestedAdd()).toHaveBeenCalledWith(body.length);
+      const storedAddMock = storedAdd();
+      if (!storedAddMock) throw new Error('Expected bytesStoredCount mock');
+      const storedBytes = storedAddMock.mock.calls[0]?.[0];
+      expect(typeof storedBytes).toBe('number');
+      expect(storedBytes).not.toBe(body.length);
+      const stream = await findStream({...ctx, attempt: 1});
+      const chunks = await listChunks(stream?.id as string);
+      expect(storedBytes).toBe(chunks[0]?.byteLen);
+    });
+
+    it('does not re-count bytes on a retried append', async () => {
+      const ctx = newCtx();
+      const body = ndjsonBody(outputLine('hello\n'));
+      await appendLogs({...ctx, attempt: 1, offset: 0, body});
+
+      await appendLogs({...ctx, attempt: 1, offset: 0, body});
+
+      expect(ingestedAdd()).toHaveBeenCalledTimes(1);
+      expect(ingestedAdd()).toHaveBeenCalledWith(body.length);
+      expect(storedAdd()).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not count bytes for a rejected gap append', async () => {
+      const ctx = newCtx();
+      const body = ndjsonBody(outputLine('hello\n'));
+      await appendLogs({...ctx, attempt: 1, offset: 0, body});
+
+      await appendLogs({
+        ...ctx,
+        attempt: 1,
+        offset: body.length + 5,
+        body: ndjsonBody(outputLine('more\n')),
+      }).catch(() => undefined);
+
+      expect(ingestedAdd()).toHaveBeenCalledTimes(1);
+      expect(storedAdd()).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not count bytes dropped on a closed stream', async () => {
+      const ctx = newCtx();
+      // End-only body so the single stored chunk stays under the 100-byte test budget.
+      const end = ndjsonBody(endLine(4));
+      await appendLogs({...ctx, attempt: 1, offset: 0, body: end});
+
+      await appendLogs({
+        ...ctx,
+        attempt: 1,
+        offset: end.length,
+        body: ndjsonBody(outputLine('late\n')),
+      });
+
+      expect(ingestedAdd()).toHaveBeenCalledTimes(1);
+      expect(storedAdd()).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts control records in both ingested and stored byte totals', async () => {
+      const ctx = newCtx();
+      const body = ndjsonBody(outputLine('hello\n'), groupStartLine('g1', 'Build'), endLine(42));
+
+      await appendLogs({...ctx, attempt: 1, offset: 0, body});
+
+      expect(ingestedAdd()).toHaveBeenCalledTimes(1);
+      expect(ingestedAdd()).toHaveBeenCalledWith(body.length);
+      expect(storedAdd()).toHaveBeenCalledTimes(1);
+      expect(storedAdd()).toHaveBeenCalledWith(body.length);
+    });
+
+    it('counts a cap-crossing append once and a dropped straggler as ingested only', async () => {
+      const ctx = newCtx();
+      // 150 payload bytes cross the 100-byte test budget, but the crossing chunk is stored in
+      // full; the straggler is accepted-and-dropped, so it must not count as stored.
+      const crossing = outputOfBytes(150);
+      await appendLogs({...ctx, attempt: 1, offset: 0, body: crossing});
+      const straggler = ndjsonBody(outputLine('late\n'));
+
+      await appendLogs({...ctx, attempt: 1, offset: crossing.length, body: straggler});
+
+      expect(ingestedAdd()).toHaveBeenCalledTimes(2);
+      expect(ingestedAdd()).toHaveBeenCalledWith(crossing.length);
+      expect(ingestedAdd()).toHaveBeenCalledWith(straggler.length);
+      // The server-injected `capped` tombstone chunk never counts as stored bytes either.
+      expect(storedAdd()).toHaveBeenCalledTimes(1);
+      expect(storedAdd()).toHaveBeenCalledWith(crossing.length);
+    });
+
+    it('does not re-count a capped-job straggler when the runner retries it', async () => {
+      const ctx = newCtx();
+      const crossing = outputOfBytes(150);
+      await appendLogs({...ctx, attempt: 1, offset: 0, body: crossing});
+      const straggler = ndjsonBody(outputLine('late\n'));
+      await appendLogs({...ctx, attempt: 1, offset: crossing.length, body: straggler});
+
+      await appendLogs({...ctx, attempt: 1, offset: crossing.length, body: straggler});
+
+      expect(ingestedAdd()).toHaveBeenCalledTimes(2);
+      expect(storedAdd()).toHaveBeenCalledTimes(1);
     });
   });
 

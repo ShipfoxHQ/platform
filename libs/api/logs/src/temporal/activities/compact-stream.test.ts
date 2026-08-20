@@ -20,6 +20,21 @@ import {
   createCompactStreamActivity,
 } from './compact-stream.js';
 
+const metricsMocks = vi.hoisted(() => {
+  const counters = new Map<string, {add: ReturnType<typeof vi.fn>}>();
+  const add = (name: string) => {
+    const counter = {add: vi.fn()};
+    counters.set(name, counter);
+    return counter;
+  };
+  return {counters, add};
+});
+
+vi.mock('#metrics/instance.js', () => ({
+  compactedBytesCount: metricsMocks.add('compactedBytesCount'),
+  compactionCount: metricsMocks.add('compactionCount'),
+}));
+
 const compactedGzipStreamMock = vi.fn<typeof compactedGzipStream>();
 const setObjectKeyAndDeleteChunksMock = vi.fn<typeof setObjectKeyAndDeleteChunks>();
 const compactStreamActivityWithMocks = createCompactStreamActivity({
@@ -217,5 +232,74 @@ describe('compactStreamActivity', () => {
 
     expect(result.outcome).toBe('retention-raced');
     expect(await listKeysUnderStream(identity)).toEqual([]);
+  });
+
+  describe('byte volume metrics', () => {
+    beforeEach(() => {
+      for (const counter of metricsMocks.counters.values()) counter.add.mockClear();
+    });
+
+    function compactedBytesAdd() {
+      return metricsMocks.counters.get('compactedBytesCount')?.add;
+    }
+
+    it('counts uncompressed bytes once on a successful compaction', async () => {
+      const chunks = [outputLine('one\n'), outputLine('two\n')].map((l) => ndjsonBody(l));
+      const identity = newIdentity();
+      const stream = await arrangeClosedStream(identity, {chunks});
+
+      const result = await runCompaction(stream.id);
+
+      expect(result.outcome).toBe('compacted');
+      expect(compactedBytesAdd()).toHaveBeenCalledTimes(1);
+      expect(compactedBytesAdd()).toHaveBeenCalledWith(
+        chunks.reduce((total, chunk) => total + chunk.length, 0),
+      );
+      expect(metricsMocks.counters.get('compactionCount')?.add).toHaveBeenCalledWith(1, {
+        outcome: 'compacted',
+      });
+
+      await deleteObject(compactedKey(result));
+    });
+
+    it('does not count bytes on an idempotent re-run of an already-compacted stream', async () => {
+      const stream = await arrangeClosedStream(newIdentity(), {
+        chunks: [ndjsonBody(outputLine('x\n'))],
+      });
+      await runCompaction(stream.id);
+      const add = compactedBytesAdd();
+      if (!add) throw new Error('Expected compactedBytesCount mock');
+      add.mockClear();
+
+      const result = await runCompaction(stream.id);
+
+      expect(result.outcome).toBe('already-compacted');
+      expect(compactedBytesAdd()).not.toHaveBeenCalled();
+    });
+
+    it('does not count bytes when the stream is gone', async () => {
+      const result = await runCompaction(crypto.randomUUID());
+
+      expect(result.outcome).toBe('gone');
+      expect(compactedBytesAdd()).not.toHaveBeenCalled();
+    });
+
+    it('does not count bytes when the integrity check fails', async () => {
+      const identity = newIdentity();
+      const stream = await arrangeClosedStream(identity, {
+        chunks: [ndjsonBody(outputLine('a\n')), ndjsonBody(outputLine('b\n'))],
+      });
+      // Upload a (wrong) empty body whose stats claim zero chunks; the table has two.
+      compactedGzipStreamMock.mockReturnValueOnce({
+        body: Readable.from([]).pipe(createGzip()),
+        stats: {chunkCount: 0, lastSeq: 0, uncompressedBytes: 0},
+      });
+
+      await expect(runCompaction(stream.id, compactStreamActivityWithMocks)).rejects.toThrow(
+        'integrity check',
+      );
+
+      expect(compactedBytesAdd()).not.toHaveBeenCalled();
+    });
   });
 });

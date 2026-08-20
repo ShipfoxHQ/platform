@@ -114,6 +114,20 @@ export async function readChunkPageBySeq(params: {
   return {data: Buffer.concat(rows.map((row) => row.data)), nextSeq, hasMore};
 }
 
+/**
+ * Total bytes held in hot chunk rows across all streams, runner and server-injected
+ * control chunks alike. Chunks are only deleted by compaction, so this is exactly the
+ * un-compacted hot volume the service gauge reports (open streams plus closed streams
+ * still awaiting compaction).
+ */
+export async function getUncompactedChunkBytes(): Promise<bigint> {
+  const [row] = await db()
+    .select({value: sql<bigint>`coalesce(sum(${logChunks.byteLen}), 0)`.mapWith(BigInt)})
+    .from(logChunks);
+
+  return row?.value ?? 0n;
+}
+
 export interface ChunkStats {
   count: number;
   maxSeq: number;
