@@ -1,4 +1,4 @@
-import {execFileSync} from 'node:child_process';
+import {execFileSync, spawnSync} from 'node:child_process';
 import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -921,9 +921,44 @@ describe('systemd boot activation', () => {
     );
     expect(unit).not.toContain('RequiresMountsFor=');
     expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
-      '/usr/local/bin/node dist/index.js',
+      '/opt/shipfox-runner/scripts/runtime/run-runner.sh /usr/local/bin/node dist/index.js',
     );
+    expect(systemdDirective(unit, 'Service', 'StandardOutput')).toBe('journal+console');
     expect(unit).not.toContain('--enable-source-maps');
+  });
+
+  it('forwards only the marked boot timeline to the EC2 console', async () => {
+    const unit = await readUnit('shipfox-runner.service');
+    const script = new URL('../scripts/runtime/run-runner.sh', import.meta.url);
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+    const source = await readFile(script, 'utf8');
+
+    execFileSync('/bin/sh', ['-n', script.pathname], {stdio: 'pipe'});
+
+    const result = spawnSync(
+      '/bin/bash',
+      [
+        script.pathname,
+        process.execPath,
+        '-e',
+        [
+          "process.stdout.write('ordinary stdout\\n');",
+          "process.stderr.write('ordinary stderr\\n');",
+          'require(\'node:fs\').writeSync(Number(process.env.SHIPFOX_BOOT_CONSOLE_FD), \'{"console_marker":"runner_boot_timeline"}\\n\');',
+          'process.exitCode = 7;',
+        ].join(''),
+      ],
+      {encoding: 'utf8'},
+    );
+
+    expect(result.status).toBe(7);
+    expect(result.stdout).toBe('{"console_marker":"runner_boot_timeline"}\n');
+    expect(result.stderr).toContain('ordinary stdout');
+    expect(result.stderr).toContain('ordinary stderr');
+    expect(source).toContain('SHIPFOX_BOOT_CONSOLE_FD=3');
+    expect(source).toContain('exec "$@" 1>&2');
+    expect(build).toContain('run-runner.sh /opt/shipfox-runner/scripts/runtime/run-runner.sh');
+    expect(unit).toContain('StandardError=journal');
   });
 
   it('ships the provider-gated workspace preflight separately from the runner app', async () => {
@@ -1078,6 +1113,24 @@ describe('systemd boot activation', () => {
     expect(source).toContain("awk '{print int($1)}' /proc/uptime");
     expect(source).toContain('while [ "$(uptime_seconds)" -lt "$deadline" ]');
     expect(source).not.toContain('date +%s');
+    expect(source).toContain('root_readahead_sectors="$' + '{SHIPFOX_ROOT_READAHEAD_SECTORS:-}"');
+    expect(source).toContain('configure_root_readahead() {');
+    expect(source).toContain('blockdev --getra "$root_source"');
+    expect(source).toContain('blockdev --setra "$root_readahead_sectors" "$root_source"');
+    expect(source).toContain('phase=readahead status=skipped');
+    expect(source).toContain('reason=invalid-target');
+    expect(source).toContain('root_readahead_after" != "$root_readahead_sectors"');
+    expect(source).toContain('reason=clamped');
+    expect(source).toContain(
+      "printf 'shipfox-boot phase=readahead status=ok uptime=%s root_source=%s before_sectors=%s target_sectors=%s after_sectors=%s\\n' \\",
+    );
+    expect(source).toContain(
+      "printf 'shipfox-boot phase=readahead status=fail uptime=%s root_source=%s before_sectors=%s target_sectors=%s after_sectors=%s reason=clamped\\n' \\",
+    );
+    const readaheadCallIndex = source.indexOf('\n  configure_root_readahead\n');
+    const sshKeygenIndex = source.indexOf('\n  if ! /usr/bin/ssh-keygen -A;');
+    expect(readaheadCallIndex).toBeGreaterThanOrEqual(0);
+    expect(readaheadCallIndex).toBeLessThan(sshKeygenIndex);
     for (const phase of [
       'imds-token',
       'imds-userdata',
@@ -1142,6 +1195,91 @@ describe('systemd boot activation', () => {
     expect(build).toContain('systemctl enable shipfox-bootstrap.service');
     expect(build).toMatch(DEDICATED_SYSTEMD_VERIFY_PROVISIONER_PATTERN);
     expect(build).toContain('rm -f /etc/hostname');
+  });
+
+  it('classifies every readahead outcome without aborting bootstrap', async () => {
+    const script = new URL('../scripts/runtime/shipfox-bootstrap.sh', import.meta.url);
+    const source = await readFile(script, 'utf8');
+    const functionStart = source.indexOf('configure_root_readahead() {');
+    const functionEnd = source.indexOf('\nabort_boot() {', functionStart);
+    expect(functionStart).toBeGreaterThanOrEqual(0);
+    expect(functionEnd).toBeGreaterThan(functionStart);
+
+    const harness = `set -eu
+${source.slice(functionStart, functionEnd)}
+uptime_seconds() {
+  printf '%s\\n' 12
+}
+resolve_root_source() {
+  if [ "$RUNNER_IMAGE_READAHEAD_SCENARIO" = root-source-unavailable ]; then
+    return 1
+  fi
+  root_source='/dev/nvme0n1'
+}
+blockdev() {
+  case "$1" in
+    --getra)
+      if [ "$RUNNER_IMAGE_READAHEAD_SCENARIO" = read-failed ]; then
+          return 1
+      fi
+      if [ "$getra_after" = verify-failed ]; then
+        return 1
+      fi
+      if [ -n "$getra_after" ]; then
+        printf '%s\\n' "$getra_after"
+      else
+        printf '%s\\n' 256
+      fi
+      ;;
+    --setra)
+      [ "$2" = 2048 ]
+      [ "$3" = /dev/nvme0n1 ]
+      if [ "$RUNNER_IMAGE_READAHEAD_SCENARIO" = set-failed ]; then
+        return 1
+      fi
+      case "$RUNNER_IMAGE_READAHEAD_SCENARIO" in
+        verify-failed) getra_after=verify-failed ;;
+        clamped) getra_after=1024 ;;
+        applied) getra_after=2048 ;;
+        *) return 2 ;;
+      esac
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+}
+run_scenario() {
+  RUNNER_IMAGE_READAHEAD_SCENARIO="$1"
+  root_readahead_sectors="$2"
+  getra_after=''
+  configure_root_readahead
+}
+run_scenario not-configured ''
+run_scenario invalid-target '1MiB'
+run_scenario root-source-unavailable 2048
+run_scenario read-failed 2048
+run_scenario set-failed 2048
+run_scenario verify-failed 2048
+run_scenario clamped 2048
+run_scenario applied 2048
+`;
+
+    const output = execFileSync('/bin/sh', ['-c', harness], {encoding: 'utf8'});
+
+    expect(output).toBe(
+      [
+        'shipfox-boot phase=readahead status=skipped uptime=12 reason=not-configured',
+        'shipfox-boot phase=readahead status=fail uptime=12 target_sectors=1MiB reason=invalid-target',
+        'shipfox-boot phase=readahead status=fail uptime=12 reason=root-source-unavailable',
+        'shipfox-boot phase=readahead status=fail uptime=12 root_source=/dev/nvme0n1 reason=read-failed',
+        'shipfox-boot phase=readahead status=fail uptime=12 root_source=/dev/nvme0n1 before_sectors=256 target_sectors=2048 reason=set-failed',
+        'shipfox-boot phase=readahead status=fail uptime=12 root_source=/dev/nvme0n1 before_sectors=256 target_sectors=2048 reason=verify-failed',
+        'shipfox-boot phase=readahead status=fail uptime=12 root_source=/dev/nvme0n1 before_sectors=256 target_sectors=2048 after_sectors=1024 reason=clamped',
+        'shipfox-boot phase=readahead status=ok uptime=12 root_source=/dev/nvme0n1 before_sectors=256 target_sectors=2048 after_sectors=2048',
+        '',
+      ].join('\n'),
+    );
   });
 
   it('resolves a partitioned NVMe root from the kernel partition attribute', () => {

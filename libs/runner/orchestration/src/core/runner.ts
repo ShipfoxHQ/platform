@@ -1,3 +1,4 @@
+import {writeSync} from 'node:fs';
 import {join} from 'node:path';
 import {logger} from '@shipfox/node-opentelemetry';
 import {
@@ -52,6 +53,21 @@ let bootPhaseTimeline: RunnerBootPhaseTimeline | undefined;
 // controller; locally-scoped capture isn't possible from a process-global handler.
 let currentJobAbortController: AbortController | undefined;
 type RunnerSession = Awaited<ReturnType<typeof registerRunnerSession>>;
+
+function emitBootTimelineToConsole(fields: Record<string, number | string>): void {
+  const consoleFd = config.SHIPFOX_BOOT_CONSOLE_FD;
+  if (consoleFd === undefined) return;
+
+  try {
+    writeSync(
+      consoleFd,
+      `${JSON.stringify({level: 30, time: Date.now(), ...fields, msg: 'runner.boot_timeline'})}\n`,
+    );
+  } catch {
+    // The journal event below remains the fallback when the console descriptor is unavailable.
+  }
+}
+
 const shutdownController = createGracefulShutdownController({
   onFirstSignal: (signal) => {
     running = false;
@@ -318,14 +334,14 @@ async function initializeManagedRunnerSession(
     providerKind: enrollmentConfig.providerKind,
     protocolVersion: enrollmentConfig.protocolVersion,
   });
-  logger().info(
-    {
-      ...bootTimeline.createEvent(bootTimeline.captureEnrollment()),
-      ...runnerBootPhaseTimeline.snapshot(),
-      provider_kind: enrollmentConfig.providerKind,
-    },
-    'runner.boot_timeline',
-  );
+  const bootTimelineFields = {
+    console_marker: 'runner_boot_timeline',
+    ...bootTimeline.createEvent(bootTimeline.captureEnrollment()),
+    ...runnerBootPhaseTimeline.snapshot(),
+    provider_kind: enrollmentConfig.providerKind,
+  };
+  emitBootTimelineToConsole(bootTimelineFields);
+  logger().info(bootTimelineFields, 'runner.boot_timeline');
   const activationToken =
     enrollmentActivationToken ?? (await waitForRunnerActivation(controlSessionToken));
   if (!activationToken) return undefined;

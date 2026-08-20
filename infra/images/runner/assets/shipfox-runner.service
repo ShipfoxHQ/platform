@@ -13,11 +13,11 @@ EnvironmentFile=/etc/shipfox/runner.env
 Environment=AGENT_CUSTOM_PROVIDER_ALLOW_PRIVATE_NETWORKS=false
 ExecStartPre=/opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh
 WorkingDirectory=/opt/runner
-ExecStart=/usr/local/bin/node dist/index.js
+ExecStart=/opt/shipfox-runner/scripts/runtime/run-runner.sh /usr/local/bin/node dist/index.js
 Restart=no
 KillSignal=SIGTERM
 KillMode=control-group
 TimeoutStopSec=90s
-StandardOutput=journal
+StandardOutput=journal+console
 StandardError=journal
 SyslogIdentifier=shipfox-runner
