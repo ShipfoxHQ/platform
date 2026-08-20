@@ -1114,7 +1114,18 @@ describe('systemd boot activation', () => {
     expect(source).toContain('--verify-root-partition');
     expect(source).toContain('shipfox bootstrap whole-disk root verified: %s');
     expect(source).not.toContain('SHIPFOX_BOOTSTRAP_LIBRARY');
+    expect(source).toContain('root_disk_size="$(cat "/sys/block/$root_disk_name/size"');
+    expect(source).toContain(
+      'root_partition_start="$(cat "/sys/block/$root_disk_name/$root_partition_name/start"',
+    );
+    expect(source).toContain(
+      'root_partition_size="$(cat "/sys/block/$root_disk_name/$root_partition_name/size"',
+    );
+    expect(source).toContain('root_partition_end=$((root_partition_start + root_partition_size))');
+    expect(source).toContain('if [ $((root_disk_size - root_partition_end)) -lt 2048 ]; then');
     expect(source).toContain('growpart "$root_disk" "$root_partition_number"');
+    expect(source).toContain('2>&1)"; then');
+    expect(source).toContain('*NOCHANGE*)');
     expect(source).toContain('resize2fs "$root_source"');
     expect(source).toContain('mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1');
     expect(source).toContain('install -m 0600 -o root -g root');
@@ -1166,6 +1177,112 @@ printf '%s %s\\n' "$root_disk_name" "$root_partition_number"
     );
 
     expect(result).toBe('nvme0n1 4\n');
+  });
+
+  it('skips a maximal root partition and tolerates growpart NOCHANGE', async () => {
+    const script = new URL('../scripts/runtime/shipfox-bootstrap.sh', import.meta.url);
+    const source = await readFile(script, 'utf8');
+    const functionStart = source.indexOf('grow_root_filesystem() {');
+    const functionEnd = source.indexOf('\nresolve_workspace_device() {', functionStart);
+    expect(functionStart).toBeGreaterThanOrEqual(0);
+    expect(functionEnd).toBeGreaterThan(functionStart);
+
+    const root = await mkdtemp(join(tmpdir(), 'shipfox-root-growth-'));
+    const commandDirectory = join(root, 'commands');
+    const commandLog = join(root, 'command.log');
+    await mkdir(commandDirectory, {recursive: true});
+    await writeExecutable(
+      join(commandDirectory, 'growpart'),
+      `#!/bin/sh
+set -eu
+printf 'growpart %s\\n' "$RUNNER_IMAGE_GROW_SCENARIO" >> "$RUNNER_IMAGE_GROW_LOG"
+case "$RUNNER_IMAGE_GROW_SCENARIO" in
+  nochange)
+    printf '%s\\n' 'NOCHANGE: partition 1 is already at maximum size' >&2
+    exit 1
+    ;;
+  grow)
+    printf '%s\\n' 'CHANGED: partition 1 grown'
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`,
+    );
+    await writeExecutable(
+      join(commandDirectory, 'resize2fs'),
+      `#!/bin/sh
+set -eu
+printf 'resize2fs %s %s\\n' "$RUNNER_IMAGE_GROW_SCENARIO" "$1" >> "$RUNNER_IMAGE_GROW_LOG"
+`,
+    );
+
+    const harness = `set -eu
+${source.slice(functionStart, functionEnd)}
+resolve_root_source() {
+  root_source='/dev/nvme0n1p1'
+}
+resolve_root_partition() {
+  root_disk_name='nvme0n1'
+  root_partition_name='nvme0n1p1'
+  root_partition_number='1'
+}
+abort_boot() {
+  printf 'abort %s\\n' "$1" >> "$RUNNER_IMAGE_GROW_LOG"
+  exit 1
+}
+lsblk() {
+  [ "$1" = '-ndo' ]
+  [ "$2" = 'TYPE' ]
+  printf '%s\\n' part
+}
+cat() {
+  case "$1" in
+    /sys/block/nvme0n1/size)
+      printf '%s\\n' 100000
+      ;;
+    /sys/block/nvme0n1/nvme0n1p1/start)
+      printf '%s\\n' 2048
+      ;;
+    /sys/block/nvme0n1/nvme0n1p1/size)
+      case "$RUNNER_IMAGE_GROW_SCENARIO" in
+        equal) printf '%s\\n' 97919 ;;
+        nochange|grow) printf '%s\\n' 90000 ;;
+        *) exit 2 ;;
+      esac
+      ;;
+    *)
+      exit 2
+      ;;
+  esac
+}
+run_scenario() {
+  export RUNNER_IMAGE_GROW_SCENARIO="$1"
+  grow_root_filesystem
+}
+run_scenario equal
+run_scenario nochange
+run_scenario grow
+`;
+
+    try {
+      const output = execFileSync('/bin/sh', ['-c', harness], {
+        env: {
+          ...process.env,
+          PATH: `${commandDirectory}:${process.env.PATH ?? ''}`,
+          RUNNER_IMAGE_GROW_LOG: commandLog,
+        },
+        encoding: 'utf8',
+      });
+
+      expect(output).toContain('NOCHANGE: partition 1 is already at maximum size');
+      expect(await readFile(commandLog, 'utf8')).toBe(
+        'growpart nochange\nresize2fs nochange /dev/nvme0n1p1\ngrowpart grow\nresize2fs grow /dev/nvme0n1p1\n',
+      );
+    } finally {
+      await rm(root, {force: true, recursive: true});
+    }
   });
 
   it('resolves the root device and publishes a boot I/O sample', async () => {
