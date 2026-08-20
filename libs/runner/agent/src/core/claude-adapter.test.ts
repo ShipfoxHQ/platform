@@ -316,6 +316,40 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions().mcpServers).toBeUndefined();
   });
 
+  it('uses per-step Claude runtime credentials before the instance-wide override', async () => {
+    configMock.AGENT_CLAUDE_ANTHROPIC_BASE_URL = 'http://127.0.0.1:11434';
+    configMock.AGENT_CLAUDE_ANTHROPIC_MODEL = 'instance-model';
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(
+      invocation({
+        credentials: {api_key: 'workspace-token'},
+        claude: {
+          base_url: 'https://gateway.example.test/v1',
+          auth_token: 'managed-token',
+        },
+      }),
+    );
+
+    expect(assertEgressAllowedMock).toHaveBeenCalledWith(
+      'https://gateway.example.test/v1',
+      expect.objectContaining({allowPrivateNetworks: true}),
+    );
+    expect(queryMock).toHaveBeenCalledWith({
+      prompt: expect.any(Object),
+      options: expect.objectContaining({
+        model: 'claude-opus-4-8',
+        env: expect.objectContaining({
+          ANTHROPIC_API_KEY: '',
+          ANTHROPIC_AUTH_TOKEN: 'managed-token',
+          ANTHROPIC_BASE_URL: 'https://gateway.example.test/v1',
+        }),
+      }),
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('tools');
+    expect(lastQueryOptions().env).not.toHaveProperty('ANTHROPIC_MODEL');
+  });
+
   it('keeps integration bridges available with the Anthropic base URL override', async () => {
     configMock.AGENT_CLAUDE_ANTHROPIC_BASE_URL = 'http://127.0.0.1:11434';
     const bridge = mcpBridge();
@@ -378,6 +412,30 @@ describe('claudeHarnessAdapter', () => {
     await expect(result).rejects.toThrow(
       new AgentConfigError(
         'Claude Anthropic base URL override blocked by egress policy: host-denied (blocked.example.test).',
+        'step_config_invalid',
+      ),
+    );
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('maps per-step endpoint egress denial to AgentConfigError', async () => {
+    assertEgressAllowedMock.mockRejectedValue(
+      new EgressDeniedErrorMock('host-denied', 'gateway.example.test'),
+    );
+
+    const result = claudeHarnessAdapter.run(
+      invocation({
+        credentials: {},
+        claude: {
+          base_url: 'https://gateway.example.test/v1',
+          auth_token: 'managed-token',
+        },
+      }),
+    );
+
+    await expect(result).rejects.toThrow(
+      new AgentConfigError(
+        'Claude Anthropic per-step endpoint blocked by egress policy: host-denied (gateway.example.test).',
         'step_config_invalid',
       ),
     );

@@ -517,6 +517,7 @@ export async function executeStep(params: {
           ...(runtimeConfig.custom_provider
             ? {custom_provider: runtimeConfig.custom_provider}
             : {}),
+          ...(runtimeConfig.claude !== undefined ? {claude: runtimeConfig.claude} : {}),
         },
         leaseToken,
         integrationToolsGatewayUrl: integrationToolsGatewayUrl(),

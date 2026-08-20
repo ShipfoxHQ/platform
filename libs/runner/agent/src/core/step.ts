@@ -1,6 +1,7 @@
 import {
   type AgentIntegrationMcpServerConfigDto,
   agentIntegrationMcpServerSchema,
+  type ClaudeRuntimeConfigDto,
   type CustomModelProviderRuntimeConfigDto,
   type Harness,
 } from '@shipfox/api-agent-dto';
@@ -45,6 +46,7 @@ export async function executeAgentStep(
       thinking: string;
       credentials: Record<string, string>;
       custom_provider?: CustomModelProviderRuntimeConfigDto | undefined;
+      claude?: ClaudeRuntimeConfigDto | undefined;
     };
     gitConfigGlobal?: string | undefined;
     onSessionEntry?: (line: string) => void;
@@ -110,6 +112,7 @@ export async function executeAgentStep(
       provider: options.runtime.provider,
       credentials: options.runtime.credentials,
       customProvider: options.runtime.custom_provider,
+      ...(options.runtime.claude === undefined ? {} : {claude: options.runtime.claude}),
       signal: options.signal,
       gitConfigGlobal: options.gitConfigGlobal,
       onSessionEntry: options.onSessionEntry,
@@ -135,6 +138,7 @@ async function runSelectedHarness(params: {
   provider: string;
   credentials: Record<string, string>;
   customProvider: CustomModelProviderRuntimeConfigDto | undefined;
+  claude?: ClaudeRuntimeConfigDto | undefined;
   signal: AbortSignal | undefined;
   gitConfigGlobal: string | undefined;
   onSessionEntry: ((line: string) => void) | undefined;
@@ -155,6 +159,7 @@ async function runSelectedHarness(params: {
     provider,
     credentials,
     customProvider,
+    claude,
     gitConfigGlobal,
     onSessionEntry,
   } = params;
@@ -175,6 +180,7 @@ async function runSelectedHarness(params: {
         outputs,
         credentials,
         customProvider,
+        ...(claude === undefined ? {} : {claude}),
         signal,
         ...(gitConfigGlobal ? {gitConfigGlobal} : {}),
         ...(onSessionEntry ? {onSessionEntry} : {}),

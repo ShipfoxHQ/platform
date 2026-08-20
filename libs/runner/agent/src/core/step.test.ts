@@ -319,6 +319,24 @@ describe('executeAgentStep', () => {
     );
   });
 
+  it('forwards Claude runtime config to the agent invocation', async () => {
+    runClaudeMock.mockResolvedValue({});
+    const claude = {
+      base_url: 'https://gateway.example.test/v1',
+      auth_token: 'managed-token',
+    };
+
+    await executeAgentStep(buildAgentStep({config: {prompt: 'p'}}), {
+      runtime: {
+        ...RUNTIME,
+        harness: 'claude',
+        claude,
+      },
+    });
+
+    expect(runClaudeMock).toHaveBeenCalledWith(expect.objectContaining({claude}));
+  });
+
   it('forwards the ambient git config path to the agent invocation', async () => {
     runAgentMock.mockResolvedValue({});
 

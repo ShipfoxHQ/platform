@@ -37,6 +37,8 @@ interface ClaudeAnthropicOverride {
   readonly baseUrl: string;
   readonly model: string | undefined;
   readonly smallFastModel: string | undefined;
+  readonly authToken: string;
+  readonly disableDefaultTools: boolean;
 }
 
 interface ClaudeAuth {
@@ -76,11 +78,15 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     );
   }
 
-  const override = claudeAnthropicOverride();
+  const override = claudeAnthropicOverride(invocation.claude);
   const auth = claudeAuth(credentials, override);
   const targetUrl = override?.baseUrl ?? ANTHROPIC_API_URL;
   const targetLabel =
-    override === undefined ? 'Claude Anthropic API endpoint' : 'Claude Anthropic base URL override';
+    invocation.claude !== undefined
+      ? 'Claude Anthropic per-step endpoint'
+      : override === undefined
+        ? 'Claude Anthropic API endpoint'
+        : 'Claude Anthropic base URL override';
   const hasDeclaredOutputs =
     invocation.outputs !== undefined && Object.keys(invocation.outputs).length > 0;
   const useOutputTools = hasDeclaredOutputs;
@@ -192,7 +198,7 @@ function claudeToolsOption(
   override: ClaudeAnthropicOverride | undefined,
 ): {readonly tools?: string[]} {
   if (tools !== undefined) return {tools: [...tools]};
-  return override === undefined ? {} : {tools: []};
+  return override?.disableDefaultTools === true ? {tools: []} : {};
 }
 
 function setOutputTool(collector: OutputCollector) {
@@ -443,13 +449,27 @@ function claudeEnvironment(
   };
 }
 
-function claudeAnthropicOverride(): ClaudeAnthropicOverride | undefined {
+function claudeAnthropicOverride(
+  runtimeConfig: HarnessInvocation['claude'],
+): ClaudeAnthropicOverride | undefined {
+  if (runtimeConfig !== undefined) {
+    return {
+      baseUrl: runtimeConfig.base_url,
+      model: undefined,
+      smallFastModel: undefined,
+      authToken: runtimeConfig.auth_token,
+      disableDefaultTools: false,
+    };
+  }
+
   if (config.AGENT_CLAUDE_ANTHROPIC_BASE_URL === undefined) return undefined;
 
   return {
     baseUrl: config.AGENT_CLAUDE_ANTHROPIC_BASE_URL,
     model: config.AGENT_CLAUDE_ANTHROPIC_MODEL,
     smallFastModel: config.AGENT_CLAUDE_ANTHROPIC_SMALL_FAST_MODEL,
+    authToken: OLLAMA_ANTHROPIC_AUTH_TOKEN,
+    disableDefaultTools: true,
   };
 }
 
@@ -458,7 +478,7 @@ function claudeAuth(
   override: ClaudeAnthropicOverride | undefined,
 ): ClaudeAuth {
   if (override !== undefined) {
-    return {apiKey: '', authToken: OLLAMA_ANTHROPIC_AUTH_TOKEN};
+    return {apiKey: '', authToken: override.authToken};
   }
 
   const apiKey = credentials.api_key;
