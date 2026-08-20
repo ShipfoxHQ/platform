@@ -5,6 +5,10 @@ export const config = createConfig({
     desc: 'Optional image revision reported by runners that do not have baked image metadata. Leave it empty when no revision is available.',
     default: '',
   }),
+  SHIPFOX_BOOT_CONSOLE_FD: num({
+    desc: 'Internal file descriptor used by the runner image to write the sanitized boot timeline to the EC2 console. Leave it unset outside the image service wrapper.',
+    default: undefined,
+  }),
   SHIPFOX_POLL_INTERVAL_MS: num({
     desc: 'How often the runner asks the API for new jobs, in milliseconds. The runner backs off toward SHIPFOX_POLL_MAX_INTERVAL_MS while idle or after errors.',
     default: 1000,

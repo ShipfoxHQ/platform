@@ -16,7 +16,8 @@ runner_mount_dropin_dir='/etc/systemd/system/shipfox-runner.service.d'
 # provider. Bound the wait by time instead, below the unit's own TimeoutStartSec.
 retry_deadline_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DEADLINE_SECONDS:-240}"
 retry_delay_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DELAY_SECONDS:-1}"
-root_readahead_sectors=2048
+# Leave this unset for baseline boots. Set it to 1024 or 2048 only for a controlled experiment.
+root_readahead_sectors="${SHIPFOX_ROOT_READAHEAD_SECTORS:-}"
 boot_phase='ssh-keygen'
 imds_token_succeeded=0
 
@@ -31,6 +32,20 @@ emit_boot_phase() {
 }
 
 configure_root_readahead() {
+  if [ -z "$root_readahead_sectors" ]; then
+    printf 'shipfox-boot phase=readahead status=skipped uptime=%s reason=not-configured\n' \
+      "$(uptime_seconds)"
+    return 0
+  fi
+
+  case "$root_readahead_sectors" in
+    *[!0-9]*)
+      printf 'shipfox-boot phase=readahead status=fail uptime=%s target_sectors=%s reason=invalid-target\n' \
+        "$(uptime_seconds)" "$root_readahead_sectors"
+      return 0
+      ;;
+  esac
+
   if ! resolve_root_source; then
     printf 'shipfox-boot phase=readahead status=fail uptime=%s reason=root-source-unavailable\n' \
       "$(uptime_seconds)"

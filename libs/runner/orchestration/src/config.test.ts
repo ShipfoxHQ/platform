@@ -40,5 +40,6 @@ describe('poll config validation', () => {
     expect(config.SHIPFOX_POLL_INTERVAL_MS).toBe(1000);
     expect(config.SHIPFOX_POLL_MAX_INTERVAL_MS).toBe(5000);
     expect(config.SHIPFOX_POLL_MAX_DURATION_MS).toBe(300_000);
+    expect(config.SHIPFOX_BOOT_CONSOLE_FD).toBeUndefined();
   });
 });
