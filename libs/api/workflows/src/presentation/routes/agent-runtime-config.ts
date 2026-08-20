@@ -71,17 +71,14 @@ export function createAgentRuntimeConfigRoute(params: {
         ) &&
         error.code === 'workspace-providers-disabled'
       ) {
-        throw new ClientError(
-          error.details.message ?? 'Workspace provider configuration is disabled',
-          'workspace-providers-disabled',
-          {
-            status: 422,
-            details: {
-              managed_provider_id: error.details.managed_provider_id,
-              ...(error.details.message === undefined ? {} : {message: error.details.message}),
-            },
+        const message = error.details.message ?? 'Workspace provider configuration is disabled';
+        throw new ClientError(message, 'workspace-providers-disabled', {
+          status: 422,
+          details: {
+            managed_provider_id: error.details.managed_provider_id,
+            message,
           },
-        );
+        });
       }
       throw error;
     },
