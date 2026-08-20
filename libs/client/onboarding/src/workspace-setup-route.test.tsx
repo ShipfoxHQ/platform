@@ -82,6 +82,7 @@ interface SetupFetchOptions {
   projectsFail?: boolean;
   connectionsFail?: boolean;
   providerConfigsFail?: boolean;
+  workspaceProviders?: 'enabled' | 'disabled';
   projectsPending?: boolean;
   workspaceStatus?: 'active' | 'suspended' | 'deleted';
 }
@@ -95,6 +96,7 @@ function setupFetch(options: SetupFetchOptions = {}) {
     projectsFail = false,
     connectionsFail = false,
     providerConfigsFail = false,
+    workspaceProviders,
     projectsPending = false,
     workspaceStatus = 'active',
   } = options;
@@ -137,6 +139,14 @@ function setupFetch(options: SetupFetchOptions = {}) {
           configs: providerConfigs,
           default_provider_id: defaultProviderId,
           default_harness_id: null,
+        }),
+      );
+    }
+    if (url.endsWith('/agent/model-provider-catalog')) {
+      return Promise.resolve(
+        jsonResponse({
+          providers: [],
+          ...(workspaceProviders === undefined ? {} : {workspace_providers: workspaceProviders}),
         }),
       );
     }
@@ -351,6 +361,20 @@ describe('workspace setup route hook', () => {
 
     expect(await screen.findByText('Model provider onboarding')).toBeInTheDocument();
     expect(screen.getByTestId('project-navigation')).toHaveTextContent('hidden');
+  });
+
+  test('skips provider onboarding when workspace providers are managed by the instance', async () => {
+    const fetchImpl = setupFetch({
+      connections: [sourceConnection()],
+      providerConfigs: [],
+      defaultProviderId: null,
+      workspaceProviders: 'disabled',
+    });
+
+    renderSetupRoute(`/w/${WORKSPACE_SLUG}/integrations`, fetchImpl);
+
+    expect(await screen.findByText('Create project')).toBeInTheDocument();
+    expect(calledUrls(fetchImpl).some((url) => url.endsWith('/agent/model-providers'))).toBe(false);
   });
 
   test('keeps the provider onboarding route available while provider setup is pending', async () => {

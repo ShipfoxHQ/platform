@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 import type {ReactElement} from 'react';
 import {
   AGENT_TEST_WORKSPACE_ID,
+  managedModelProviderEntry,
   modelProviderCatalogResponse,
   modelProviderConfig,
   modelProviderConfigsResponse,
@@ -60,6 +61,46 @@ function customProviderConfig(): CustomModelProviderConfigDto {
 }
 
 describe('WorkspaceModelProvidersSection', () => {
+  test('renders managed provider models without exposing workspace provider setup', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      if (requestPath(input).endsWith('/agent/model-provider-catalog')) {
+        return Promise.resolve(
+          jsonResponse(modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled')),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(modelProviderConfigsResponse({configs: [], default_provider_id: null})),
+      );
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    renderModelProviders(<WorkspaceModelProvidersSection workspaceId={AGENT_TEST_WORKSPACE_ID} />);
+
+    expect(await screen.findByText('Managed provider')).toBeVisible();
+    expect(screen.getByText('Shipfox Managed')).toBeVisible();
+    expect(screen.getByRole('list', {name: 'Shipfox Managed models'})).toHaveTextContent(
+      'Claude Opus 4.8',
+    );
+    expect(screen.getByRole('list', {name: 'Shipfox Managed models'})).toHaveTextContent(
+      'GPT-5.5 Pro',
+    );
+    expect(screen.queryByText('Available providers')).not.toBeInTheDocument();
+    expect(screen.queryByText('Unsupported providers')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {name: 'Configure custom provider'}),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Use in a workflow'}));
+
+    const usageDialog = await screen.findByRole('dialog', {
+      name: 'Use Shipfox Managed in a workflow',
+    });
+    expect(usageDialog).toHaveTextContent('provider: shipfox');
+    expect(usageDialog).toHaveTextContent('model: claude-opus-4-8');
+  });
+
   test('renders configured, available, and unsupported providers', async () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       if (requestPath(input).endsWith('/agent/model-provider-catalog')) {

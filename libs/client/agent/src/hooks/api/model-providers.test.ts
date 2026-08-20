@@ -40,6 +40,17 @@ describe('model provider transport', () => {
     expect(request.method).toBe('GET');
   });
 
+  test('preserves the managed-only workspace policy from the catalog', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(modelProviderCatalogResponse(undefined, 'disabled')));
+    configureApiClient({fetchImpl});
+
+    const result = await getModelProviderCatalog();
+
+    expect(result.workspaceProviders).toBe('disabled');
+  });
+
   test('fetches workspace model provider configs', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(modelProviderConfigsResponse()));
     configureApiClient({fetchImpl});

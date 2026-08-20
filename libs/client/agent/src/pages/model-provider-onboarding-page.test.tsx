@@ -7,6 +7,7 @@ import type {ReactElement} from 'react';
 import {isModelProviderOnboardingDismissed} from '#state/model-provider-onboarding.js';
 import {
   AGENT_TEST_WORKSPACE_ID,
+  managedModelProviderEntry,
   modelProviderCatalogResponse,
   modelProviderConfig,
   modelProviderEntry,
@@ -40,6 +41,36 @@ function renderOnboarding(element: ReactElement) {
 describe('ModelProviderOnboardingPage', () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  test('shows managed provider models without asking for workspace credentials', async () => {
+    const onConfigured = vi.fn();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled')),
+      );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    renderOnboarding(
+      <ModelProviderOnboardingPage
+        workspaceId={AGENT_TEST_WORKSPACE_ID}
+        onSkip={vi.fn()}
+        onConfigured={onConfigured}
+      />,
+    );
+
+    expect(await screen.findByRole('heading', {name: 'Managed inference is ready'})).toBeVisible();
+    expect(screen.getByText('Shipfox Managed')).toBeVisible();
+    expect(screen.getByRole('list', {name: 'Shipfox Managed models'})).toHaveTextContent(
+      'GPT-5.5 Pro',
+    );
+    expect(screen.queryByRole('button', {name: 'Choose pi'})).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole('button', {name: 'Continue to project setup'}));
+
+    expect(onConfigured).toHaveBeenCalledTimes(1);
   });
 
   test('skips setup, records the dismissed flag, and does not save a provider or harness', async () => {

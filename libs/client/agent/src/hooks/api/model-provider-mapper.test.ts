@@ -1,4 +1,5 @@
 import {
+  managedModelProviderEntry,
   modelProviderCatalogResponse,
   modelProviderConfigsResponse,
   modelProviderEntry,
@@ -15,6 +16,23 @@ test('maps provider catalog entries before they reach the client domain', () => 
       credentialFields: [{key: 'api_key', label: 'API key', secret: true}],
     }),
   ]);
+});
+
+test('maps the managed-only workspace policy and managed provider models', () => {
+  const catalog = toProviderCatalog(
+    modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled'),
+  );
+
+  expect(catalog.workspaceProviders).toBe('disabled');
+  expect(catalog.providers[0]).toEqual(
+    expect.objectContaining({
+      id: 'shipfox',
+      models: [
+        {id: 'claude-opus-4-8', label: 'Claude Opus 4.8'},
+        {id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro'},
+      ],
+    }),
+  );
 });
 
 test('maps configuration response defaults and provider config fields', () => {

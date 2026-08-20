@@ -17,6 +17,7 @@ import {useRef, useState} from 'react';
 import {DEFAULT_HARNESS, listHarnesses} from '#core/harness-policy.js';
 import type {HarnessDescriptor, HarnessId} from '#core/models.js';
 import {
+  useModelProviderCatalogQuery,
   useModelProviderConfigsQuery,
   useSetDefaultHarnessMutation,
 } from '#hooks/api/model-providers.js';
@@ -24,6 +25,7 @@ import {modelProviderConfigErrorToFormError} from './form-errors.js';
 import {isHarnessAvailable} from './harness-availability.js';
 
 export function WorkspaceHarnessesSection({workspaceId}: {workspaceId: string}) {
+  const catalogQuery = useModelProviderCatalogQuery();
   const configsQuery = useModelProviderConfigsQuery(workspaceId);
   const setDefaultHarness = useSetDefaultHarnessMutation();
   const activeWorkspaceIdRef = useRef(workspaceId);
@@ -37,6 +39,7 @@ export function WorkspaceHarnessesSection({workspaceId}: {workspaceId: string}) 
     {workspaceId: string; harnessId: HarnessId; message: string} | undefined
   >();
   const configs = configsQuery.data?.configs ?? [];
+  const catalog = catalogQuery.data;
   const defaultHarnessId = configsQuery.data?.defaultHarnessId ?? DEFAULT_HARNESS;
   activeWorkspaceIdRef.current = workspaceId;
 
@@ -103,7 +106,7 @@ export function WorkspaceHarnessesSection({workspaceId}: {workspaceId: string}) 
                   key={harness.id}
                   harness={harness}
                   isDefault={harness.id === defaultHarnessId}
-                  isAvailable={isHarnessAvailable(harness, configs)}
+                  isAvailable={isHarnessAvailable(harness, configs, catalog)}
                   isSettingDefault={pendingDefaultHarness?.workspaceId === workspaceId}
                   defaultError={
                     defaultError?.workspaceId === workspaceId &&

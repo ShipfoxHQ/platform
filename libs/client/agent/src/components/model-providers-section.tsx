@@ -21,7 +21,7 @@ import {Panel, PanelBody, PanelRow} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {toast} from '@shipfox/react-ui/toast';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
-import {Header, Text} from '@shipfox/react-ui/typography';
+import {Code, Header, Text} from '@shipfox/react-ui/typography';
 import {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {
   type ManagementModal,
@@ -36,7 +36,9 @@ import type {
 } from '#core/models.js';
 import {
   customProviderCardMatchesSearch,
+  isManagedOnlyCatalog,
   isSupportedProvider,
+  managedProviderFromCatalog,
   availableProviders as selectAvailableProviders,
 } from '#core/provider-policy.js';
 import {
@@ -67,6 +69,82 @@ type UsageTarget = {
 
 const USAGE_MODAL_OPEN_DELAY_MS = 250;
 
+function ManagedProviderSection({
+  provider,
+  onShowUsage,
+}: {
+  provider: SupportedProvider | undefined;
+  onShowUsage: () => void;
+}) {
+  return (
+    <section className="flex flex-col gap-group" aria-label="Managed provider">
+      <div className="flex flex-col gap-tight">
+        <Header variant="h3">Managed provider</Header>
+      </div>
+
+      {provider ? (
+        <Panel>
+          <PanelBody asChild>
+            <PanelRow asChild className="flex-col items-stretch gap-group">
+              <li>
+                <div className="flex min-w-0 flex-col gap-tight">
+                  <Text size="md" bold>
+                    {provider.label}
+                  </Text>
+                  <Text size="sm" className="text-foreground-neutral-muted">
+                    Managed by this instance. No workspace credentials are required.
+                  </Text>
+                </div>
+
+                <div className="flex flex-col gap-inline">
+                  <Text size="sm" bold>
+                    Available models ({provider.models.length})
+                  </Text>
+                  <ul
+                    aria-label={`${provider.label} models`}
+                    className="rounded-8 border border-border-neutral-base"
+                  >
+                    {provider.models.map((model) => (
+                      <li
+                        key={model.id}
+                        className="flex min-w-0 items-center justify-between gap-inline border-b border-border-neutral-base px-row py-row last:border-b-0"
+                      >
+                        <Text as="span" size="sm" bold className="min-w-0 truncate">
+                          {model.label}
+                        </Text>
+                        <Code
+                          as="span"
+                          variant="label"
+                          className="min-w-0 truncate text-foreground-neutral-muted"
+                        >
+                          {model.id}
+                        </Code>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <Button type="button" size="sm" variant="secondary" onClick={onShowUsage}>
+                  Use in a workflow
+                </Button>
+              </li>
+            </PanelRow>
+          </PanelBody>
+        </Panel>
+      ) : (
+        <Panel>
+          <EmptyState
+            icon="errorWarningLine"
+            title="Managed provider unavailable"
+            description="This instance is configured without workspace providers, but no managed provider was returned."
+            variant="panel"
+          />
+        </Panel>
+      )}
+    </section>
+  );
+}
+
 export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: string}) {
   const catalogQuery = useModelProviderCatalogQuery();
   const configsQuery = useModelProviderConfigsQuery(workspaceId);
@@ -78,6 +156,8 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
   const configs = configsQuery.data?.configs ?? [];
   const configsLoaded = configsQuery.data !== undefined;
   const defaultProviderId = configsQuery.data?.defaultProviderId ?? null;
+  const managedOnly = isManagedOnlyCatalog(catalogQuery.data);
+  const managedProvider = managedProviderFromCatalog(catalogQuery.data);
   const providerById = useMemo(
     () =>
       new Map<string, ProviderCatalogEntry>(providers.map((provider) => [provider.id, provider])),
@@ -107,174 +187,207 @@ export function WorkspaceModelProvidersSection({workspaceId}: {workspaceId: stri
     const config = configs.find((item) => item.providerId === modal.providerId);
     if (config?.kind === 'custom') return usageTargetFromCustomConfig(config);
     const entry = providerById.get(modal.providerId);
-    return entry && isSupportedProvider(entry) ? usageTargetFromCatalogEntry(entry) : null;
-  }, [configs, modal, providerById]);
+    return entry && isSupportedProvider(entry)
+      ? usageTargetFromCatalogEntry(entry, {isManaged: managedOnly})
+      : null;
+  }, [configs, managedOnly, modal, providerById]);
 
   return (
     <div className="flex min-w-0 flex-col gap-region">
-      <section
-        ref={configuredProvidersRegionRef}
-        className="flex flex-col gap-group outline-none"
-        aria-label="Configured providers"
-        tabIndex={-1}
-      >
-        <div className="flex flex-col gap-tight">
-          <Header variant="h3">Configured providers</Header>
-        </div>
+      {managedOnly ? (
+        <ManagedProviderSection
+          provider={managedProvider}
+          onShowUsage={() => {
+            if (!managedProvider) return;
+            dispatchModal({
+              type: 'show-usage',
+              providerId: managedProvider.id,
+              initialModel: managedProvider.defaultModel,
+              restoreFocusToConfiguredProviders: false,
+            });
+          }}
+        />
+      ) : (
+        <>
+          <section
+            ref={configuredProvidersRegionRef}
+            className="flex flex-col gap-group outline-none"
+            aria-label="Configured providers"
+            tabIndex={-1}
+          >
+            <div className="flex flex-col gap-tight">
+              <Header variant="h3">Configured providers</Header>
+            </div>
 
-        {configsQuery.isPending ? (
-          <ModelProviderRowsSkeleton label="Loading configured providers" />
-        ) : null}
+            {configsQuery.isPending ? (
+              <ModelProviderRowsSkeleton label="Loading configured providers" />
+            ) : null}
 
-        {configsQuery.isError && configsQuery.data === undefined ? (
-          <Panel>
-            <QueryLoadError query={configsQuery} subject="model provider configs" variant="panel" />
-          </Panel>
-        ) : null}
+            {configsQuery.isError && configsQuery.data === undefined ? (
+              <Panel>
+                <QueryLoadError
+                  query={configsQuery}
+                  subject="model provider configs"
+                  variant="panel"
+                />
+              </Panel>
+            ) : null}
 
-        {configsQuery.data !== undefined && configs.length === 0 ? (
-          <Panel>
-            <EmptyState
-              icon="key2Line"
-              title="No providers configured"
-              description="Configure a provider below to run agent steps with workspace-managed credentials."
-              variant="panel"
-            />
-          </Panel>
-        ) : null}
+            {configsQuery.data !== undefined && configs.length === 0 ? (
+              <Panel>
+                <EmptyState
+                  icon="key2Line"
+                  title="No providers configured"
+                  description="Configure a provider below to run agent steps with workspace-managed credentials."
+                  variant="panel"
+                />
+              </Panel>
+            ) : null}
 
-        {configs.length > 0 ? (
-          <Panel>
-            <PanelBody asChild>
-              <ul>
-                {configs.map((config) => {
-                  const catalogEntry = providerById.get(config.providerId);
-                  const entry =
-                    catalogEntry && isSupportedProvider(catalogEntry) ? catalogEntry : undefined;
-                  const builtinConfig = isBuiltinModelProviderConfig(config) ? config : undefined;
-                  const customConfig = isCustomModelProviderConfig(config) ? config : undefined;
-                  return (
-                    <ConfiguredProviderRow
-                      key={config.providerId}
-                      workspaceId={workspaceId}
-                      config={config}
-                      entry={entry}
-                      isDefault={config.providerId === defaultProviderId}
-                      onEdit={() => {
-                        if (entry && builtinConfig) {
-                          dispatchModal({
-                            type: 'edit-builtin',
-                            provider: entry,
-                            config: builtinConfig,
-                          });
-                        } else if (customConfig) {
-                          dispatchModal({type: 'edit-custom', config: customConfig});
-                        }
-                      }}
-                      onChangeDefaultModel={() => {
-                        if (entry && builtinConfig)
-                          dispatchModal({
-                            type: 'change-default-model',
-                            provider: entry,
-                            config: builtinConfig,
-                          });
-                      }}
-                      onShowUsage={() => {
-                        if (entry && builtinConfig) {
-                          setPendingUsageTarget(null);
-                          dispatchModal({
-                            type: 'show-usage',
-                            providerId: entry.id,
-                            initialModel: builtinConfig.defaultModel,
-                            restoreFocusToConfiguredProviders: false,
-                          });
-                        } else if (customConfig) {
-                          setPendingUsageTarget(null);
-                          dispatchModal({
-                            type: 'show-usage',
-                            providerId: customConfig.providerId,
-                            initialModel: customConfig.defaultModel,
-                            restoreFocusToConfiguredProviders: false,
-                          });
-                        }
-                      }}
-                    />
-                  );
-                })}
-              </ul>
-            </PanelBody>
-          </Panel>
-        ) : null}
-      </section>
+            {configs.length > 0 ? (
+              <Panel>
+                <PanelBody asChild>
+                  <ul>
+                    {configs.map((config) => {
+                      const catalogEntry = providerById.get(config.providerId);
+                      const entry =
+                        catalogEntry && isSupportedProvider(catalogEntry)
+                          ? catalogEntry
+                          : undefined;
+                      const builtinConfig = isBuiltinModelProviderConfig(config)
+                        ? config
+                        : undefined;
+                      const customConfig = isCustomModelProviderConfig(config) ? config : undefined;
+                      return (
+                        <ConfiguredProviderRow
+                          key={config.providerId}
+                          workspaceId={workspaceId}
+                          config={config}
+                          entry={entry}
+                          isDefault={config.providerId === defaultProviderId}
+                          onEdit={() => {
+                            if (entry && builtinConfig) {
+                              dispatchModal({
+                                type: 'edit-builtin',
+                                provider: entry,
+                                config: builtinConfig,
+                              });
+                            } else if (customConfig) {
+                              dispatchModal({type: 'edit-custom', config: customConfig});
+                            }
+                          }}
+                          onChangeDefaultModel={() => {
+                            if (entry && builtinConfig)
+                              dispatchModal({
+                                type: 'change-default-model',
+                                provider: entry,
+                                config: builtinConfig,
+                              });
+                          }}
+                          onShowUsage={() => {
+                            if (entry && builtinConfig) {
+                              setPendingUsageTarget(null);
+                              dispatchModal({
+                                type: 'show-usage',
+                                providerId: entry.id,
+                                initialModel: builtinConfig.defaultModel,
+                                restoreFocusToConfiguredProviders: false,
+                              });
+                            } else if (customConfig) {
+                              setPendingUsageTarget(null);
+                              dispatchModal({
+                                type: 'show-usage',
+                                providerId: customConfig.providerId,
+                                initialModel: customConfig.defaultModel,
+                                restoreFocusToConfiguredProviders: false,
+                              });
+                            }
+                          }}
+                        />
+                      );
+                    })}
+                  </ul>
+                </PanelBody>
+              </Panel>
+            ) : null}
+          </section>
 
-      <section className="flex flex-col gap-group" aria-label="Available providers">
-        <div className="flex flex-col gap-tight">
-          <Header variant="h3">Available providers</Header>
-        </div>
+          <section className="flex flex-col gap-group" aria-label="Available providers">
+            <div className="flex flex-col gap-tight">
+              <Header variant="h3">Available providers</Header>
+            </div>
 
-        {catalogQuery.isPending || configsQuery.isPending ? (
-          <ModelProviderGridSkeleton label="Loading available providers" />
-        ) : null}
+            {catalogQuery.isPending || configsQuery.isPending ? (
+              <ModelProviderGridSkeleton label="Loading available providers" />
+            ) : null}
 
-        {catalogQuery.isError && catalogQuery.data === undefined ? (
-          <Panel>
-            <QueryLoadError query={catalogQuery} subject="model provider catalog" variant="panel" />
-          </Panel>
-        ) : null}
+            {catalogQuery.isError && catalogQuery.data === undefined ? (
+              <Panel>
+                <QueryLoadError
+                  query={catalogQuery}
+                  subject="model provider catalog"
+                  variant="panel"
+                />
+              </Panel>
+            ) : null}
 
-        {configsLoaded ? (
-          <AvailableProvidersGrid
-            entries={availableProviders}
-            onSelect={(entry) => dispatchModal({type: 'configure-builtin', provider: entry})}
-            trailingCard={
-              <AddCustomProviderCard onConfigure={() => dispatchModal({type: 'create-custom'})} />
-            }
-            trailingCardMatchesSearch={customProviderCardMatchesSearch}
-          />
-        ) : null}
-      </section>
+            {configsLoaded ? (
+              <AvailableProvidersGrid
+                entries={availableProviders}
+                onSelect={(entry) => dispatchModal({type: 'configure-builtin', provider: entry})}
+                trailingCard={
+                  <AddCustomProviderCard
+                    onConfigure={() => dispatchModal({type: 'create-custom'})}
+                  />
+                }
+                trailingCardMatchesSearch={customProviderCardMatchesSearch}
+              />
+            ) : null}
+          </section>
 
-      <section className="flex flex-col gap-group" aria-label="Unsupported providers">
-        <div className="flex flex-col gap-tight">
-          <Header variant="h3">Unsupported providers</Header>
-        </div>
+          <section className="flex flex-col gap-group" aria-label="Unsupported providers">
+            <div className="flex flex-col gap-tight">
+              <Header variant="h3">Unsupported providers</Header>
+            </div>
 
-        {catalogQuery.isPending ? (
-          <ModelProviderRowsSkeleton label="Loading unsupported providers" />
-        ) : null}
+            {catalogQuery.isPending ? (
+              <ModelProviderRowsSkeleton label="Loading unsupported providers" />
+            ) : null}
 
-        {unsupportedProviders.length > 0 ? (
-          <Panel>
-            <PanelBody asChild>
-              <ul>
-                {unsupportedProviders.map((entry) => (
-                  <PanelRow
-                    asChild
-                    className="items-start justify-start gap-cluster opacity-70 hover:bg-background-neutral-base"
-                    key={entry.id}
-                  >
-                    <li>
-                      <Icon
-                        name="forbid2Line"
-                        className="mt-[2px] size-18 shrink-0 text-foreground-neutral-muted"
-                        aria-hidden
-                      />
-                      <div className="flex min-w-0 flex-1 flex-col gap-tight">
-                        <Text size="md" bold className="truncate">
-                          {entry.label}
-                        </Text>
-                        <Text size="sm" className="text-foreground-neutral-muted">
-                          {entry.unsupportedReason}
-                        </Text>
-                      </div>
-                    </li>
-                  </PanelRow>
-                ))}
-              </ul>
-            </PanelBody>
-          </Panel>
-        ) : null}
-      </section>
+            {unsupportedProviders.length > 0 ? (
+              <Panel>
+                <PanelBody asChild>
+                  <ul>
+                    {unsupportedProviders.map((entry) => (
+                      <PanelRow
+                        asChild
+                        className="items-start justify-start gap-cluster opacity-70 hover:bg-background-neutral-base"
+                        key={entry.id}
+                      >
+                        <li>
+                          <Icon
+                            name="forbid2Line"
+                            className="mt-[2px] size-18 shrink-0 text-foreground-neutral-muted"
+                            aria-hidden
+                          />
+                          <div className="flex min-w-0 flex-1 flex-col gap-tight">
+                            <Text size="md" bold className="truncate">
+                              {entry.label}
+                            </Text>
+                            <Text size="sm" className="text-foreground-neutral-muted">
+                              {entry.unsupportedReason}
+                            </Text>
+                          </div>
+                        </li>
+                      </PanelRow>
+                    ))}
+                  </ul>
+                </PanelBody>
+              </Panel>
+            ) : null}
+          </section>
+        </>
+      )}
 
       <Modal
         open={modal.kind === 'configure-builtin' || modal.kind === 'edit-builtin'}

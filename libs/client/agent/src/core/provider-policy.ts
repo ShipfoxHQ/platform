@@ -1,5 +1,6 @@
 import type {
   HarnessDescriptor,
+  ProviderCatalog,
   ProviderCatalogEntry,
   ProviderConfig,
   SupportedProvider,
@@ -11,6 +12,17 @@ export function isSupportedProvider(entry: ProviderCatalogEntry): entry is Suppo
 
 export function supportsProvider(harness: HarnessDescriptor, providerId: string): boolean {
   return harness.supportedProviderIds.includes(providerId);
+}
+
+export function isManagedOnlyCatalog(catalog: ProviderCatalog | undefined): boolean {
+  return catalog?.workspaceProviders === 'disabled';
+}
+
+export function managedProviderFromCatalog(
+  catalog: ProviderCatalog | undefined,
+): SupportedProvider | undefined {
+  if (!isManagedOnlyCatalog(catalog)) return undefined;
+  return catalog?.providers.find(isSupportedProvider);
 }
 
 export function availableProviders(

@@ -73,12 +73,15 @@ export function configSupportsHarness(config: ProviderConfig, harness: HarnessDe
 
 export function compatibleHarnessIds({
   isCustom,
+  isManaged = false,
   providerId,
 }: {
   isCustom: boolean;
+  isManaged?: boolean;
   providerId: string;
 }): HarnessId[] {
   if (isCustom) return [DEFAULT_HARNESS];
+  if (isManaged) return harnesses.map((harness) => harness.id);
   return harnesses
     .filter((harness) => harness.supportedProviderIds.includes(providerId))
     .map((harness) => harness.id);

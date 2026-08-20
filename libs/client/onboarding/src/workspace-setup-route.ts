@@ -1,5 +1,6 @@
 import {
   isModelProviderOnboardingDismissed,
+  modelProviderCatalogQueryOptions,
   modelProviderConfigsQueryOptions,
 } from '@shipfox/client-agent';
 import {
@@ -139,6 +140,14 @@ async function hasHandledModelProviderOnboarding(
   workspaceId: string,
 ): Promise<boolean> {
   if (isModelProviderOnboardingDismissed(workspaceId)) return true;
+
+  try {
+    const catalog = await queryClient.fetchQuery(modelProviderCatalogQueryOptions());
+    if (catalog.workspaceProviders === 'disabled') return true;
+  } catch {
+    // Keep the existing provider-config fallback when older or unavailable APIs
+    // do not expose the workspace provider policy yet.
+  }
 
   const options = modelProviderConfigsQueryOptions(workspaceId);
   try {

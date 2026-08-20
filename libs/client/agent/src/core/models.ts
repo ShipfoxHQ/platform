@@ -1,4 +1,5 @@
 export type HarnessId = 'pi' | 'claude';
+export type WorkspaceProvidersPolicy = 'enabled' | 'disabled';
 export type ProviderApi =
   | 'openai-completions'
   | 'openai-responses'
@@ -76,6 +77,7 @@ export type ProviderConfig = BuiltinProviderConfig | CustomProviderConfig;
 
 export interface ProviderCatalog {
   readonly providers: readonly ProviderCatalogEntry[];
+  readonly workspaceProviders: WorkspaceProvidersPolicy;
 }
 
 export interface ProviderConfiguration {

@@ -59,6 +59,7 @@ export function ModelProviderUsageModal({
     if (!target) return;
     const nextCompatibleHarnessIds = compatibleHarnessIds({
       isCustom: target.isCustom,
+      isManaged: target.isManaged,
       providerId: target.id,
     });
     setSelectedHarness(selectInitialHarness(nextCompatibleHarnessIds, workspaceDefaultHarnessId));
@@ -67,7 +68,11 @@ export function ModelProviderUsageModal({
   const compatibleIds = useMemo(
     () =>
       target
-        ? compatibleHarnessIds({isCustom: target.isCustom, providerId: target.id})
+        ? compatibleHarnessIds({
+            isCustom: target.isCustom,
+            isManaged: target.isManaged,
+            providerId: target.id,
+          })
         : ([] as HarnessId[]),
     [target],
   );

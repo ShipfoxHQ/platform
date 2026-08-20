@@ -21,7 +21,10 @@ import type {
 } from '#core/models.js';
 
 export function toProviderCatalog(response: ModelProviderCatalogResponseDto): ProviderCatalog {
-  return {providers: response.providers.map(toProviderCatalogEntry)};
+  return {
+    providers: response.providers.map(toProviderCatalogEntry),
+    workspaceProviders: response.workspace_providers ?? 'enabled',
+  };
 }
 
 export function toProviderCatalogEntry(entry: ModelProviderCatalogEntryDto): ProviderCatalogEntry {
