@@ -16,6 +16,7 @@ runner_mount_dropin_dir='/etc/systemd/system/shipfox-runner.service.d'
 # provider. Bound the wait by time instead, below the unit's own TimeoutStartSec.
 retry_deadline_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DEADLINE_SECONDS:-240}"
 retry_delay_seconds="${SHIPFOX_BOOTSTRAP_RETRY_DELAY_SECONDS:-1}"
+root_readahead_sectors=2048
 boot_phase='ssh-keygen'
 imds_token_succeeded=0
 
@@ -27,6 +28,38 @@ uptime_seconds() {
 
 emit_boot_phase() {
   printf 'shipfox-boot phase=%s status=%s uptime=%s\n' "$1" "$2" "$(uptime_seconds)"
+}
+
+configure_root_readahead() {
+  if ! resolve_root_source; then
+    printf 'shipfox-boot phase=readahead status=fail uptime=%s reason=root-source-unavailable\n' \
+      "$(uptime_seconds)"
+    return 0
+  fi
+
+  root_readahead_before="$(blockdev --getra "$root_source" 2>/dev/null || true)"
+  if [ -z "$root_readahead_before" ]; then
+    printf 'shipfox-boot phase=readahead status=fail uptime=%s root_source=%s reason=read-failed\n' \
+      "$(uptime_seconds)" "$root_source"
+    return 0
+  fi
+
+  if ! blockdev --setra "$root_readahead_sectors" "$root_source"; then
+    printf 'shipfox-boot phase=readahead status=fail uptime=%s root_source=%s before_sectors=%s target_sectors=%s reason=set-failed\n' \
+      "$(uptime_seconds)" "$root_source" "$root_readahead_before" "$root_readahead_sectors"
+    return 0
+  fi
+
+  root_readahead_after="$(blockdev --getra "$root_source" 2>/dev/null || true)"
+  if [ -z "$root_readahead_after" ]; then
+    printf 'shipfox-boot phase=readahead status=fail uptime=%s root_source=%s before_sectors=%s target_sectors=%s reason=verify-failed\n' \
+      "$(uptime_seconds)" "$root_source" "$root_readahead_before" "$root_readahead_sectors"
+    return 0
+  fi
+
+  printf 'shipfox-boot phase=readahead status=ok uptime=%s root_source=%s before_sectors=%s target_sectors=%s after_sectors=%s\n' \
+    "$(uptime_seconds)" "$root_source" "$root_readahead_before" "$root_readahead_sectors" \
+    "$root_readahead_after"
 }
 
 abort_boot() {
@@ -315,6 +348,8 @@ main() {
   rm -f "$runner_env_path" "$runner_env_temp_path"
   user_data_fetch_path="$(mktemp "$runner_env_dir/runner.env.fetch.XXXXXX")"
   trap 'rm -f "$user_data_fetch_path" "$runner_env_temp_path"' EXIT
+
+  configure_root_readahead
 
   # Cloud-init used to create these keys on each boot. Remove them from the AMI during
   # the bake and recreate them here so EC2 Instance Connect never sees shared keys.

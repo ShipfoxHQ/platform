@@ -18,6 +18,6 @@ Restart=no
 KillSignal=SIGTERM
 KillMode=control-group
 TimeoutStopSec=90s
-StandardOutput=journal
+StandardOutput=journal+console
 StandardError=journal
 SyslogIdentifier=shipfox-runner

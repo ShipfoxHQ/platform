@@ -923,6 +923,7 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
       '/usr/local/bin/node dist/index.js',
     );
+    expect(systemdDirective(unit, 'Service', 'StandardOutput')).toBe('journal+console');
     expect(unit).not.toContain('--enable-source-maps');
   });
 
@@ -1078,6 +1079,13 @@ describe('systemd boot activation', () => {
     expect(source).toContain("awk '{print int($1)}' /proc/uptime");
     expect(source).toContain('while [ "$(uptime_seconds)" -lt "$deadline" ]');
     expect(source).not.toContain('date +%s');
+    expect(source).toContain('root_readahead_sectors=2048');
+    expect(source).toContain('configure_root_readahead() {');
+    expect(source).toContain('blockdev --getra "$root_source"');
+    expect(source).toContain('blockdev --setra "$root_readahead_sectors" "$root_source"');
+    expect(source).toContain('phase=readahead status=ok');
+    expect(source).toContain('phase=readahead status=fail');
+    expect(source).toContain('configure_root_readahead');
     for (const phase of [
       'imds-token',
       'imds-userdata',
