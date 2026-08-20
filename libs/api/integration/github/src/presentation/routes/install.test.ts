@@ -40,6 +40,7 @@ const fakeUserAuth: AuthMethod = {
 function githubClient(overrides: Partial<GithubApiClient> = {}): GithubApiClient {
   return {
     exchangeOAuthCode: vi.fn(() => Promise.resolve('user-token')),
+    getBotUser: vi.fn(() => Promise.reject(new Error('not used'))),
     listUserInstallations: vi.fn(() => Promise.resolve({installationIds: [123], nextCursor: null})),
     getInstallation: vi.fn(() =>
       Promise.resolve({

@@ -7,36 +7,126 @@ import {createGithubApiClient, mapGithubError} from './client.js';
 
 const GITHUB_INSTALLATION_TOKEN_PATTERN = /^ghs_[A-Za-z0-9._-]{36,}$/u;
 
-const {createInstallationAccessTokenMock, RequestErrorMock} = vi.hoisted(() => {
-  class RequestErrorMock extends Error {
-    constructor(
-      message: string,
-      public readonly status: number,
-    ) {
-      super(message);
-      this.name = 'HttpError';
+const {createInstallationAccessTokenMock, getByUsernameMock, octokitOptionsMock, RequestErrorMock} =
+  vi.hoisted(() => {
+    class RequestErrorMock extends Error {
+      constructor(
+        message: string,
+        public readonly status: number,
+      ) {
+        super(message);
+        this.name = 'HttpError';
+      }
     }
-  }
 
-  return {createInstallationAccessTokenMock: vi.fn(), RequestErrorMock};
-});
+    return {
+      createInstallationAccessTokenMock: vi.fn(),
+      getByUsernameMock: vi.fn(),
+      octokitOptionsMock: vi.fn(),
+      RequestErrorMock,
+    };
+  });
 
 vi.mock('octokit', () => ({
   App: class App {
     octokit = {
-      rest: {apps: {createInstallationAccessToken: createInstallationAccessTokenMock}},
+      rest: {
+        apps: {createInstallationAccessToken: createInstallationAccessTokenMock},
+        users: {getByUsername: getByUsernameMock},
+      },
     };
   },
-  Octokit: {
-    plugin() {
-      return this;
-    },
-    defaults(options: unknown) {
+  Octokit: class Octokit {
+    rest = {users: {getByUsername: getByUsernameMock}};
+
+    constructor(options: unknown) {
+      octokitOptionsMock(options);
+    }
+
+    static plugin() {
+      return Octokit;
+    }
+
+    static defaults(options: unknown) {
       return {defaults: options};
-    },
+    }
   },
   RequestError: RequestErrorMock,
 }));
+
+describe('OctokitGithubApiClient.getBotUser', () => {
+  beforeEach(() => {
+    getByUsernameMock.mockReset();
+    octokitOptionsMock.mockReset();
+  });
+
+  it('shares one lookup for concurrent requests and caches the bot for the process', async () => {
+    getByUsernameMock.mockResolvedValue({
+      data: {id: 307_629_549, login: 'shipfox-ai[bot]', type: 'Bot'},
+    });
+    const client = createGithubApiClient();
+
+    const firstLookup = client.getBotUser({
+      username: 'shipfox-ai[bot]',
+      installationAccessToken: 'ghs_first',
+    });
+    const secondLookup = client.getBotUser({
+      username: 'SHIPFOX-AI[BOT]',
+      installationAccessToken: 'ghs_second',
+    });
+    const [first, second] = await Promise.all([firstLookup, secondLookup]);
+    const cached = await client.getBotUser({
+      username: 'shipfox-ai[bot]',
+      installationAccessToken: 'ghs_third',
+    });
+
+    expect(first).toEqual({id: 307_629_549, login: 'shipfox-ai[bot]'});
+    expect(second).toEqual(first);
+    expect(cached).toEqual(first);
+    expect(getByUsernameMock).toHaveBeenCalledTimes(1);
+    expect(getByUsernameMock).toHaveBeenCalledWith({username: 'shipfox-ai[bot]'});
+    expect(octokitOptionsMock).toHaveBeenCalledWith({
+      auth: 'ghs_first',
+      baseUrl: 'https://api.github.com',
+    });
+  });
+
+  it('evicts a failed lookup so a later request can retry', async () => {
+    getByUsernameMock
+      .mockRejectedValueOnce(new RequestErrorMock('GitHub unavailable', 503))
+      .mockResolvedValueOnce({
+        data: {id: 307_629_549, login: 'shipfox-ai[bot]', type: 'Bot'},
+      });
+    const client = createGithubApiClient();
+
+    const failed = client.getBotUser({
+      username: 'shipfox-ai[bot]',
+      installationAccessToken: 'ghs_first',
+    });
+    await expect(failed).rejects.toMatchObject({reason: 'provider-unavailable'});
+    const retried = await client.getBotUser({
+      username: 'shipfox-ai[bot]',
+      installationAccessToken: 'ghs_second',
+    });
+
+    expect(retried).toEqual({id: 307_629_549, login: 'shipfox-ai[bot]'});
+    expect(getByUsernameMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a response that does not identify a bot user', async () => {
+    getByUsernameMock.mockResolvedValue({
+      data: {id: 307_629_549, login: 'shipfox-ai[bot]', type: 'User'},
+    });
+    const client = createGithubApiClient();
+
+    const result = client.getBotUser({
+      username: 'shipfox-ai[bot]',
+      installationAccessToken: 'ghs_installationtoken',
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'malformed-provider-response'});
+  });
+});
 
 describe('mapGithubError', () => {
   it.each([400, 409, 422])('maps HTTP %i to a terminal provider rejection', async (status) => {

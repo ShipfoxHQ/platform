@@ -204,7 +204,7 @@ export class GithubSourceControlProvider
       repositoryId,
       permissions: input.permissions,
     });
-    const gitAuthor = githubAppGitAuthor();
+    const gitAuthor = await githubAppGitAuthor(this.github, token);
 
     return {
       repositoryUrl: repository.cloneUrl,
@@ -250,13 +250,20 @@ function sameGithubRepository(
   return Boolean(firstName && secondName && firstName.toLowerCase() === secondName.toLowerCase());
 }
 
-function githubAppGitAuthor(): CheckoutSpec['gitAuthor'] {
+async function githubAppGitAuthor(
+  github: GithubApiClient,
+  installationAccessToken: string,
+): Promise<CheckoutSpec['gitAuthor']> {
   const appUsername = config.GITHUB_APP_USERNAME?.trim();
   if (!appUsername) return undefined;
   const name = appUsername.endsWith(GITHUB_APP_BOT_SUFFIX)
     ? appUsername
     : `${appUsername}${GITHUB_APP_BOT_SUFFIX}`;
-  return {name, email: `${config.GITHUB_APP_ID}+${name}@users.noreply.github.com`};
+  const botUser = await github.getBotUser({username: name, installationAccessToken});
+  return {
+    name: botUser.login,
+    email: `${botUser.id}+${botUser.login}@users.noreply.github.com`,
+  };
 }
 
 function toRepositorySnapshot(repository: GithubRepository): RepositorySnapshot {

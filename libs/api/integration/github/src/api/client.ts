@@ -66,8 +66,14 @@ export interface GithubUserInstallationPage {
   nextCursor: string | null;
 }
 
+export interface GithubBotUser {
+  id: number;
+  login: string;
+}
+
 export interface GithubApiClient {
   exchangeOAuthCode(code: string): Promise<string>;
+  getBotUser(input: {username: string; installationAccessToken: string}): Promise<GithubBotUser>;
   listUserInstallations(input: {
     userAccessToken: string;
     cursor?: string | undefined;
@@ -112,6 +118,7 @@ export function createGithubApiClient(): GithubApiClient {
 
 class OctokitGithubApiClient implements GithubApiClient {
   private app: App | undefined;
+  private readonly botUsers = new Map<string, Promise<GithubBotUser>>();
 
   async exchangeOAuthCode(code: string): Promise<string> {
     const body = await mapGithubOAuthError(() =>
@@ -134,6 +141,20 @@ class OctokitGithubApiClient implements GithubApiClient {
       );
     }
     return body.access_token;
+  }
+
+  getBotUser(input: {username: string; installationAccessToken: string}): Promise<GithubBotUser> {
+    const cacheKey = input.username.toLowerCase();
+    const cached = this.botUsers.get(cacheKey);
+    if (cached) return cached;
+
+    const lookup = this.fetchBotUser(input);
+    const retryableLookup = lookup.catch((error: unknown) => {
+      if (this.botUsers.get(cacheKey) === retryableLookup) this.botUsers.delete(cacheKey);
+      throw error;
+    });
+    this.botUsers.set(cacheKey, retryableLookup);
+    return retryableLookup;
   }
 
   async listUserInstallations(input: {
@@ -405,6 +426,28 @@ class OctokitGithubApiClient implements GithubApiClient {
     }
     return this.app;
   }
+
+  private async fetchBotUser(input: {
+    username: string;
+    installationAccessToken: string;
+  }): Promise<GithubBotUser> {
+    const octokit = new Octokit({
+      auth: input.installationAccessToken,
+      baseUrl: normalizedGithubApiBaseUrl(),
+    });
+    const response = await mapGithubError(
+      () => octokit.rest.users.getByUsername({username: input.username}),
+      'provider-rejected',
+    );
+    const {id, login, type} = response.data;
+    if (!Number.isSafeInteger(id) || id <= 0 || !login || type !== 'Bot') {
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        'GitHub bot user response is missing required fields',
+      );
+    }
+    return {id, login};
+  }
 }
 
 async function mapGithubOAuthError<T>(operation: () => Promise<T>): Promise<T> {
@@ -442,7 +485,8 @@ export async function mapGithubError<T>(
   notFoundReason:
     | 'repository-not-found'
     | 'installation-not-found'
-    | 'file-not-found' = 'repository-not-found',
+    | 'file-not-found'
+    | 'provider-rejected' = 'repository-not-found',
 ): Promise<T> {
   try {
     return await operation();

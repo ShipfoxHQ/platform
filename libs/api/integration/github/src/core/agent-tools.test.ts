@@ -1728,6 +1728,7 @@ function createProvider() {
 function githubClient(): GithubApiClient {
   return {
     exchangeOAuthCode: vi.fn(() => Promise.reject(new Error('not used'))),
+    getBotUser: vi.fn(() => Promise.reject(new Error('not used'))),
     listUserInstallations: vi.fn(() => Promise.reject(new Error('not used'))),
     getInstallation: vi.fn(() => Promise.reject(new Error('not used'))),
     listInstallationRepositories: vi.fn(() => Promise.reject(new Error('not used'))),

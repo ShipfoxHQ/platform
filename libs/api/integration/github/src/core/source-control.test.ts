@@ -8,6 +8,7 @@ const VALID_COMMIT = 'a'.repeat(40);
 function githubClient(overrides: Partial<GithubApiClient> = {}): GithubApiClient {
   return {
     exchangeOAuthCode: vi.fn(() => Promise.resolve('token')),
+    getBotUser: vi.fn(() => Promise.resolve({id: 12_345, login: 'shipfox-test[bot]'})),
     listUserInstallations: vi.fn(() => Promise.resolve({installationIds: [], nextCursor: null})),
     getInstallation: vi.fn(() => {
       throw new Error('not used');
@@ -349,7 +350,7 @@ describe('GithubSourceControlProvider', () => {
       },
       gitAuthor: {
         name: 'shipfox-test[bot]',
-        email: '1+shipfox-test[bot]@users.noreply.github.com',
+        email: '12345+shipfox-test[bot]@users.noreply.github.com',
       },
     });
     expect(result.repositoryUrl).not.toContain('ghs_installationtoken');
@@ -357,6 +358,10 @@ describe('GithubSourceControlProvider', () => {
       installationId,
       repositoryId: 42,
       permissions: {contents: 'write'},
+    });
+    expect(github.getBotUser).toHaveBeenCalledWith({
+      username: 'shipfox-test[bot]',
+      installationAccessToken: 'ghs_installationtoken',
     });
   });
 
