@@ -204,7 +204,11 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
     if (scenario === 'loading') return new Promise<Response>(() => undefined);
     if (url.pathname.endsWith('/agent/model-provider-catalog')) {
       if (scenario === 'catalog-error') return Promise.resolve(errorResponse());
-      return Promise.resolve(jsonResponse({providers: catalogForScenario(scenario)}));
+      return Promise.resolve(
+        jsonResponse({
+          providers: catalogForScenario(scenario),
+        }),
+      );
     }
     if (request?.method === 'PUT' && url.pathname.includes('/agent/model-providers/')) {
       return Promise.resolve(

@@ -22,7 +22,12 @@ import {
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {DEFAULT_HARNESS, getHarness, listHarnesses} from '#core/harness-policy.js';
+import {
+  DEFAULT_HARNESS,
+  getHarness,
+  listHarnesses,
+  managedModelSupportsHarness,
+} from '#core/harness-policy.js';
 import type {HarnessId} from '#core/models.js';
 import {buildAgentWorkflowExample} from './agent-workflow-example.js';
 import {compatibleHarnessIds} from './harness-availability.js';
@@ -59,6 +64,8 @@ export function ModelProviderUsageModal({
     if (!target) return;
     const nextCompatibleHarnessIds = compatibleHarnessIds({
       isCustom: target.isCustom,
+      isManaged: target.isManaged,
+      models: target.models,
       providerId: target.id,
     });
     setSelectedHarness(selectInitialHarness(nextCompatibleHarnessIds, workspaceDefaultHarnessId));
@@ -67,7 +74,12 @@ export function ModelProviderUsageModal({
   const compatibleIds = useMemo(
     () =>
       target
-        ? compatibleHarnessIds({isCustom: target.isCustom, providerId: target.id})
+        ? compatibleHarnessIds({
+            isCustom: target.isCustom,
+            isManaged: target.isManaged,
+            models: target.models,
+            providerId: target.id,
+          })
         : ([] as HarnessId[]),
     [target],
   );
@@ -79,10 +91,24 @@ export function ModelProviderUsageModal({
       })),
     [compatibleIds],
   );
+  const compatibleModels = useMemo(() => {
+    if (!target) return [];
+    return target.isManaged
+      ? target.models.filter((model) => managedModelSupportsHarness(selectedHarness, model))
+      : target.models;
+  }, [selectedHarness, target]);
   const modelOptions = useMemo(
-    () => target?.models.map((model) => ({value: model.id, label: model.label})) ?? [],
-    [target],
+    () => compatibleModels.map((model) => ({value: model.id, label: model.label})),
+    [compatibleModels],
   );
+  useEffect(() => {
+    if (!target || compatibleModels.length === 0) return;
+    setSelectedModel((current) =>
+      compatibleModels.some((model) => model.id === current)
+        ? current
+        : (compatibleModels[0]?.id ?? ''),
+    );
+  }, [compatibleModels, target]);
   const example = target
     ? buildAgentWorkflowExample({
         harness: selectedHarness,
@@ -212,10 +238,10 @@ export function ModelProviderUsageModal({
 
                 <div className="flex flex-col gap-inline">
                   <Text size="sm" bold>
-                    Available models ({target.models.length})
+                    Available models ({compatibleModels.length})
                   </Text>
                   <ul className="rounded-8 border border-border-neutral-base">
-                    {target.models.map((model) => (
+                    {compatibleModels.map((model) => (
                       <ModelProviderModelRow key={model.id} label={model.label} id={model.id} />
                     ))}
                   </ul>

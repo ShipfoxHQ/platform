@@ -448,6 +448,33 @@ describe('api-client auth contexts', () => {
     );
   });
 
+  it('preserves the managed provider identity from a policy error response', async () => {
+    stubFetch(() =>
+      jsonResponse(
+        {
+          code: 'workspace-providers-disabled',
+          details: {managed_provider_id: 'shipfox'},
+        },
+        422,
+      ),
+    );
+    const leaseClient = createLeaseClient('lease-runtime');
+
+    const request = requestAgentRuntimeConfig(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 2,
+    });
+
+    await expect(request).rejects.toMatchObject(
+      new AgentRuntimeConfigRequestError(
+        422,
+        'workspace-providers-disabled',
+        'provider_unsupported',
+        'shipfox',
+      ),
+    );
+  });
+
   it('requestAgentRuntimeConfig retries transient 429 and 5xx responses', async () => {
     const responses = [
       new Response(null, {status: 429}),

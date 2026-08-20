@@ -1,4 +1,4 @@
-import type {HarnessDescriptor, HarnessId, ProviderConfig} from './models.js';
+import type {AgentModel, HarnessDescriptor, HarnessId, ProviderConfig} from './models.js';
 
 export const DEFAULT_HARNESS: HarnessId = 'pi';
 
@@ -71,14 +71,34 @@ export function configSupportsHarness(config: ProviderConfig, harness: HarnessDe
     : harness.supportedProviderIds.includes(config.providerId);
 }
 
+export function managedModelSupportsHarness(
+  harnessId: HarnessId,
+  model: Pick<AgentModel, 'api'>,
+): boolean {
+  return harnessId === 'pi' || model.api === undefined || model.api === 'anthropic-messages';
+}
+
 export function compatibleHarnessIds({
   isCustom,
+  isManaged = false,
+  models,
   providerId,
 }: {
   isCustom: boolean;
+  isManaged?: boolean;
+  models?: readonly Pick<AgentModel, 'api'>[];
   providerId: string;
 }): HarnessId[] {
   if (isCustom) return [DEFAULT_HARNESS];
+  if (isManaged) {
+    return harnesses
+      .filter(
+        (harness) =>
+          models === undefined ||
+          models.some((model) => managedModelSupportsHarness(harness.id, model)),
+      )
+      .map((harness) => harness.id);
+  }
   return harnesses
     .filter((harness) => harness.supportedProviderIds.includes(providerId))
     .map((harness) => harness.id);

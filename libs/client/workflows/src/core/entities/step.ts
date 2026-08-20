@@ -51,6 +51,8 @@ export interface StepSourceLocation {
 
 export interface StepError {
   message: string;
+  code?: string | undefined;
+  managedProviderId?: string | undefined;
   exitCode: number | null;
   signal: string | undefined;
   reason: StepErrorReason | undefined;

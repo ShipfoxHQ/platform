@@ -292,8 +292,18 @@ export function toSelectedAttemptError(
 
   if (resolvedReason === undefined) return null;
 
+  const code = typeof error.code === 'string' ? error.code : undefined;
+  const managedProviderId =
+    typeof error.managedProviderId === 'string'
+      ? error.managedProviderId
+      : typeof error.managed_provider_id === 'string'
+        ? error.managed_provider_id
+        : undefined;
+
   return {
     message: typeof error.message === 'string' ? error.message : '',
+    ...(code === undefined ? {} : {code}),
+    ...(managedProviderId === undefined ? {} : {managedProviderId}),
     exitCode: exitCode === null || typeof exitCode === 'number' ? exitCode : null,
     signal: typeof error.signal === 'string' ? error.signal : undefined,
     reason: resolvedReason,

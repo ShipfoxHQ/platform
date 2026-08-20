@@ -4,6 +4,7 @@ import type {
   ModelProviderCatalogEntryDto,
   ModelProviderCatalogResponseDto,
   ModelProviderConfigDto,
+  WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
 
 export const AGENT_TEST_WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
@@ -33,6 +34,22 @@ export function modelProviderEntry(
     models: [{id: 'claude-opus-4-8', label: 'Claude Opus 4.8'}],
     ...overrides,
   };
+}
+
+export function managedModelProviderEntry(
+  overrides: Partial<ModelProviderCatalogEntryDto> = {},
+): ModelProviderCatalogEntryDto {
+  return modelProviderEntry({
+    id: 'shipfox',
+    label: 'Shipfox Managed',
+    default_model: 'claude-opus-4-8',
+    credential_fields: [],
+    models: [
+      {id: 'claude-opus-4-8', label: 'Claude Opus 4.8', api: 'anthropic-messages'},
+      {id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro', api: 'openai-responses'},
+    ],
+    ...overrides,
+  });
 }
 
 export function unsupportedModelProviderEntry(
@@ -95,8 +112,12 @@ export function customModelProviderConfig(
 
 export function modelProviderCatalogResponse(
   modelProviders: ModelProviderCatalogEntryDto[] = [modelProviderEntry()],
+  workspaceProviders?: WorkspaceProvidersPolicy,
 ): ModelProviderCatalogResponseDto {
-  return {providers: modelProviders};
+  return {
+    providers: modelProviders,
+    ...(workspaceProviders === undefined ? {} : {workspace_providers: workspaceProviders}),
+  };
 }
 
 export function modelProviderConfigsResponse(

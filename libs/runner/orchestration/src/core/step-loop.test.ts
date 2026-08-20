@@ -10,6 +10,7 @@ const {AgentRuntimeConfigRequestError, StepSecretsRequestError, resolveWorkingDi
         public readonly status: number,
         public readonly code: string | undefined,
         public readonly agentConfigIssue: AgentConfigIssueDto | undefined = undefined,
+        public readonly managedProviderId: string | undefined = undefined,
       ) {
         super(
           code === undefined
@@ -2018,6 +2019,37 @@ describe('runJobSteps', () => {
         error: expect.objectContaining({
           reason: 'agent_config_invalid',
           agent_config_issue: 'provider_not_configured',
+        }),
+      }),
+    );
+  });
+
+  it('reports managed-only runtime policy errors with their stable code and provider', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep();
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'failed'});
+    requestAgentRuntimeConfigMock.mockRejectedValueOnce(
+      new AgentRuntimeConfigRequestError(
+        422,
+        'workspace-providers-disabled',
+        'provider_unsupported',
+        'shipfox',
+      ),
+    );
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: agent.id,
+        error: expect.objectContaining({
+          code: 'workspace-providers-disabled',
+          managed_provider_id: 'shipfox',
         }),
       }),
     );

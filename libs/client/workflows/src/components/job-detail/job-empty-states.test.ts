@@ -1,3 +1,4 @@
+import type {Step} from '#core/workflow-run.js';
 import {
   workflowJob,
   workflowJobExecutionDto,
@@ -9,6 +10,7 @@ import {
   jobSucceededSummary,
   outputFailureDescriptionForExecution,
   skippedJobDescription,
+  toSelectedAttemptError,
 } from './job-empty-states.js';
 
 describe('jobSucceededSummary', () => {
@@ -29,6 +31,25 @@ describe('jobSucceededSummary', () => {
     if (!execution) throw new Error('Expected a job execution');
 
     expect(jobSucceededSummary(job, execution)).toBe('1 step succeeded');
+  });
+});
+
+describe('toSelectedAttemptError', () => {
+  test('preserves managed-provider metadata from a historical attempt', () => {
+    const error = toSelectedAttemptError({type: 'agent'} as Step, {
+      message: 'This instance only supports provider `shipfox`.',
+      code: 'workspace-providers-disabled',
+      managedProviderId: 'shipfox',
+      reason: 'agent_config_invalid',
+      agentConfigIssue: 'provider_unsupported',
+    });
+
+    expect(error).toMatchObject({
+      code: 'workspace-providers-disabled',
+      managedProviderId: 'shipfox',
+      reason: 'agent_config_invalid',
+      agentConfigIssue: 'provider_unsupported',
+    });
   });
 });
 

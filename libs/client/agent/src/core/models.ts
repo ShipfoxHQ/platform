@@ -1,4 +1,5 @@
 export type HarnessId = 'pi' | 'claude';
+export type WorkspaceProvidersPolicy = 'enabled' | 'disabled';
 export type ProviderApi =
   | 'openai-completions'
   | 'openai-responses'
@@ -15,6 +16,7 @@ export interface HarnessDescriptor {
 export interface AgentModel {
   readonly id: string;
   readonly label: string;
+  readonly api?: ProviderApi | undefined;
   readonly contextWindow?: number | undefined;
   readonly maxOutputTokens?: number | undefined;
   readonly inputImage?: boolean | undefined;
@@ -76,6 +78,7 @@ export type ProviderConfig = BuiltinProviderConfig | CustomProviderConfig;
 
 export interface ProviderCatalog {
   readonly providers: readonly ProviderCatalogEntry[];
+  readonly workspaceProviders: WorkspaceProvidersPolicy;
 }
 
 export interface ProviderConfiguration {

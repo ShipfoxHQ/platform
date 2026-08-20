@@ -10,6 +10,7 @@ import {
   thinkingLevelsForHarness,
 } from '@shipfox/workflow-document';
 import {z} from 'zod';
+import {managedModelApiSchema} from './managed-provider.js';
 import {
   type ModelProviderId,
   modelProviderRefSchema,
@@ -35,6 +36,7 @@ export {
 export const agentModelOptionSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
+  api: managedModelApiSchema.optional(),
 });
 
 export type AgentModelOptionDto = z.infer<typeof agentModelOptionSchema>;

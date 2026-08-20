@@ -1,4 +1,8 @@
 import {
+  type AgentInterModuleClient,
+  agentInterModuleContract,
+} from '@shipfox/api-agent-dto/inter-module';
+import {
   WORKFLOWS_JOB_STEPS_SETTLED,
   WORKFLOWS_STEP_ATTEMPT_TERMINATED,
   WORKFLOWS_STEP_RESTART_ENQUEUED,
@@ -10,6 +14,7 @@ import {
   parseWorkflowTemplate,
   planInterpolationField,
 } from '@shipfox/expression';
+import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {and, eq, sql} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {workflowsOutbox} from '#db/schema/outbox.js';
@@ -319,6 +324,55 @@ describe('nextStepForJob', () => {
         source: 'steps.build.outputs.sha',
       },
       logOutcome: 'abandoned',
+    });
+  });
+
+  test('reports managed provider policy failures as agent config errors', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(1);
+    const pending = steps[0];
+    if (!pending) throw new Error('Expected pending step');
+    await db()
+      .update(stepsTable)
+      .set({
+        config: {},
+        configPlan: {
+          agent: {
+            prompt: {segments: [{kind: 'literal', value: 'Review the change.'}]},
+          },
+        },
+      })
+      .where(eq(stepsTable.id, pending.id));
+
+    const agent = {
+      getValidationCatalog: vi.fn(),
+      resolveAgentConfig: vi.fn().mockRejectedValue(
+        createInterModuleKnownError(
+          agentInterModuleContract.methods.resolveAgentConfig,
+          'agent-config-invalid',
+          {
+            message: 'This instance only supports provider `shipfox`.',
+            managed_provider_id: 'shipfox',
+          },
+        ),
+      ),
+      resolveRuntimeCredentials: vi.fn(),
+    } as unknown as AgentInterModuleClient;
+
+    const next = await nextStepForJob(jobId, agent);
+
+    expect(next).toEqual({kind: 'done', status: 'failed'});
+    const after = await getStepsByJobId(jobId);
+    expect(after[0]).toMatchObject({
+      status: 'failed',
+      error: {
+        message: 'This instance only supports provider `shipfox`.',
+        reason: 'agent_config_invalid',
+        field: 'agent',
+        source: 'agent',
+        code: 'workspace-providers-disabled',
+        managedProviderId: 'shipfox',
+        agentConfigIssue: 'provider_unsupported',
+      },
     });
   });
 

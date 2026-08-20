@@ -9,6 +9,8 @@ import {Button} from '@shipfox/react-ui/button';
 import {Link} from '@tanstack/react-router';
 import type {AgentStepConfig, StepError} from '#core/workflow-run.js';
 
+const MANAGED_ONLY_PROVIDER_CODE = 'workspace-providers-disabled';
+
 export function AgentConfigFailureCallout({
   workspaceSlug,
   config,
@@ -47,6 +49,15 @@ function agentConfigFailureCopy(
   config: AgentStepConfig | null,
   error: StepError | null,
 ): {title: string; description: string; showProviderCta: boolean} {
+  const managedOnlyProvider = managedOnlyProviderFromError(error);
+  if (managedOnlyProvider) {
+    return {
+      title: `Use ${managedOnlyProvider} for this instance`,
+      description: `This instance only supports provider \`${managedOnlyProvider}\`. Update this step to use \`${managedOnlyProvider}\`, or remove its provider field to use the managed default.`,
+      showProviderCta: false,
+    };
+  }
+
   const provider = configValue(config?.provider, 'the selected provider');
   const model = configValue(config?.model, 'the selected model');
 
@@ -90,6 +101,13 @@ function agentConfigFailureCopy(
         showProviderCta: true,
       };
   }
+}
+
+function managedOnlyProviderFromError(error: StepError | null): string | undefined {
+  if (error?.code !== MANAGED_ONLY_PROVIDER_CODE && error?.managedProviderId === undefined) {
+    return undefined;
+  }
+  return error.managedProviderId ?? 'the managed provider';
 }
 
 function configValue(value: string | null | undefined, fallback: string): string {

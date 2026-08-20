@@ -1,19 +1,24 @@
-import type {CustomProviderConfig, SupportedProvider} from '#core/models.js';
+import type {AgentModel, CustomProviderConfig, SupportedProvider} from '#core/models.js';
 
 export interface ModelProviderUsageTarget {
   id: string;
   label: string;
   isCustom: boolean;
-  models: ReadonlyArray<{id: string; label: string}>;
+  isManaged: boolean;
+  models: ReadonlyArray<AgentModel>;
   defaultModel: string | null;
 }
 
-export function usageTargetFromCatalogEntry(entry: SupportedProvider): ModelProviderUsageTarget {
+export function usageTargetFromCatalogEntry(
+  entry: SupportedProvider,
+  options: {isManaged?: boolean} = {},
+): ModelProviderUsageTarget {
   const provider = entry;
   return {
     id: provider.id,
     label: provider.label,
     isCustom: false,
+    isManaged: options.isManaged ?? false,
     models: provider.models,
     defaultModel: provider.defaultModel,
   };
@@ -27,6 +32,7 @@ export function usageTargetFromCustomConfig(
     id: provider.providerId,
     label: provider.displayName,
     isCustom: true,
+    isManaged: false,
     models: provider.models,
     defaultModel: provider.defaultModel,
   };

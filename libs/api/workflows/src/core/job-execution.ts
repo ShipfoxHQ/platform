@@ -339,11 +339,16 @@ function dispatchConfigError(error: DispatchConfigError): Record<string, unknown
     };
   }
 
+  const isManagedProviderPolicyFailure =
+    error.code === 'workspace-providers-disabled' && error.managedProviderId !== undefined;
   return {
     message: error.message,
-    reason: 'config_unresolvable',
+    reason: isManagedProviderPolicyFailure ? 'agent_config_invalid' : 'config_unresolvable',
     field: 'agent',
     source: 'agent',
+    ...(error.code === undefined ? {} : {code: error.code}),
+    ...(error.managedProviderId === undefined ? {} : {managedProviderId: error.managedProviderId}),
+    ...(isManagedProviderPolicyFailure ? {agentConfigIssue: 'provider_unsupported'} : {}),
   };
 }
 

@@ -83,6 +83,19 @@ const errorCases: Array<{
       category: 'user',
     },
   },
+  {
+    label: 'Managed-only policy',
+    error: {
+      message: 'This instance only supports provider `shipfox`.',
+      code: 'workspace-providers-disabled',
+      managedProviderId: 'shipfox',
+      exitCode: null,
+      signal: undefined,
+      reason: 'agent_config_invalid',
+      agentConfigIssue: 'provider_unsupported',
+      category: 'user',
+    },
+  },
 ];
 
 export const Playground: Story = {};
@@ -111,6 +124,22 @@ export const TestProviderUnsupported: Story = {
     error: makeError('provider_unsupported'),
   },
   play: assertCallout('Choose a supported model provider', false),
+};
+
+export const TestManagedOnlyPolicy: Story = {
+  args: {
+    error: {
+      message: 'This instance only supports provider `shipfox`.',
+      code: 'workspace-providers-disabled',
+      managedProviderId: 'shipfox',
+      exitCode: null,
+      signal: undefined,
+      reason: 'agent_config_invalid',
+      agentConfigIssue: 'provider_unsupported',
+      category: 'user',
+    },
+  },
+  play: assertCallout('Use shipfox for this instance', false),
 };
 
 function makeError(agentConfigIssue: AgentConfigIssueValue): StepError {

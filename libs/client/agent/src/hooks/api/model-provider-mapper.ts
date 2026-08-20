@@ -21,7 +21,10 @@ import type {
 } from '#core/models.js';
 
 export function toProviderCatalog(response: ModelProviderCatalogResponseDto): ProviderCatalog {
-  return {providers: response.providers.map(toProviderCatalogEntry)};
+  return {
+    providers: response.providers.map(toProviderCatalogEntry),
+    workspaceProviders: response.workspace_providers ?? 'enabled',
+  };
 }
 
 export function toProviderCatalogEntry(entry: ModelProviderCatalogEntryDto): ProviderCatalogEntry {
@@ -104,6 +107,7 @@ export function toCustomProviderConfig(config: CustomModelProviderConfigDto): Cu
 function toAgentModel(model: {
   id: string;
   label: string;
+  api?: AgentModel['api'];
   context_window?: number | undefined;
   max_output_tokens?: number | undefined;
   input_image?: boolean | undefined;
@@ -112,6 +116,7 @@ function toAgentModel(model: {
   return {
     id: model.id,
     label: model.label,
+    ...(model.api === undefined ? {} : {api: model.api}),
     ...(model.context_window === undefined ? {} : {contextWindow: model.context_window}),
     ...(model.max_output_tokens === undefined ? {} : {maxOutputTokens: model.max_output_tokens}),
     ...(model.input_image === undefined ? {} : {inputImage: model.input_image}),

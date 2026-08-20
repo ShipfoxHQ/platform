@@ -19,7 +19,7 @@ import {
   storeValuesToRuntimeCredentials,
 } from './credential-fingerprints.js';
 import type {ModelProviderConfig} from './entities/model-provider-config.js';
-import {ModelProviderConfigNotFoundError} from './errors.js';
+import {ModelProviderConfigNotFoundError, WorkspaceProvidersDisabledError} from './errors.js';
 import {getModelProviderEntry, modelProviderCredentialKeysMatch} from './model-provider-policy.js';
 import {type AgentSecretsClient, requireAgentSecretsClient} from './secrets-client.js';
 
@@ -75,6 +75,9 @@ export async function resolveRuntimeCredentials(
       source: params.provider === runtimeConfig.AGENT_DEFAULT_PROVIDER ? 'instance' : 'workspace',
       outcome: 'unavailable',
     });
+    if (managedProvider !== undefined) {
+      throw new WorkspaceProvidersDisabledError(managedProvider.id);
+    }
     throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
   }
 

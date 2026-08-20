@@ -1,6 +1,11 @@
 import {getHarness} from '#core/harness-policy.js';
-import {toProviderConfig} from '#hooks/api/model-provider-mapper.js';
-import {customModelProviderConfig, modelProviderConfig} from '#test/fixtures/model-providers.js';
+import {toProviderCatalog, toProviderConfig} from '#hooks/api/model-provider-mapper.js';
+import {
+  customModelProviderConfig,
+  managedModelProviderEntry,
+  modelProviderCatalogResponse,
+  modelProviderConfig,
+} from '#test/fixtures/model-providers.js';
 import {compatibleHarnessIds, isHarnessAvailable} from './harness-availability.js';
 
 describe('harness availability', () => {
@@ -37,6 +42,32 @@ describe('harness availability', () => {
     expect(isHarnessAvailable(getHarness('claude'), [])).toBe(false);
   });
 
+  test('marks harnesses available from a managed-only catalog without workspace configs', () => {
+    const catalog = toProviderCatalog(
+      modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled'),
+    );
+
+    expect(isHarnessAvailable(getHarness('pi'), [], catalog)).toBe(true);
+    expect(isHarnessAvailable(getHarness('claude'), [], catalog)).toBe(true);
+  });
+
+  test('does not mark Claude available when managed models do not support Anthropic messages', () => {
+    const catalog = toProviderCatalog(
+      modelProviderCatalogResponse(
+        [
+          managedModelProviderEntry({
+            default_model: 'gpt-5.5-pro',
+            models: [{id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro', api: 'openai-responses'}],
+          }),
+        ],
+        'disabled',
+      ),
+    );
+
+    expect(isHarnessAvailable(getHarness('pi'), [], catalog)).toBe(true);
+    expect(isHarnessAvailable(getHarness('claude'), [], catalog)).toBe(false);
+  });
+
   test('returns compatible harnesses for builtin and custom providers', () => {
     expect(compatibleHarnessIds({isCustom: false, providerId: 'anthropic'})).toEqual([
       'pi',
@@ -44,5 +75,21 @@ describe('harness availability', () => {
     ]);
     expect(compatibleHarnessIds({isCustom: false, providerId: 'openai'})).toEqual(['pi']);
     expect(compatibleHarnessIds({isCustom: true, providerId: 'custom-provider'})).toEqual(['pi']);
+    expect(
+      compatibleHarnessIds({
+        isCustom: false,
+        isManaged: true,
+        models: [{api: 'openai-responses'}, {api: 'anthropic-messages'}],
+        providerId: 'shipfox',
+      }),
+    ).toEqual(['pi', 'claude']);
+    expect(
+      compatibleHarnessIds({
+        isCustom: false,
+        isManaged: true,
+        models: [{api: 'openai-responses'}],
+        providerId: 'shipfox',
+      }),
+    ).toEqual(['pi']);
   });
 });

@@ -1,5 +1,6 @@
 import {
   isModelProviderOnboardingDismissed,
+  modelProviderCatalogQueryOptions,
   modelProviderConfigsQueryOptions,
 } from '@shipfox/client-agent';
 import {
@@ -140,14 +141,27 @@ async function hasHandledModelProviderOnboarding(
 ): Promise<boolean> {
   if (isModelProviderOnboardingDismissed(workspaceId)) return true;
 
-  const options = modelProviderConfigsQueryOptions(workspaceId);
-  try {
-    const configs = await queryClient.fetchQuery(options);
-    return configs.configs.length > 0;
-  } catch {
-    const cached = queryClient.getQueryData<{configs: unknown[]}>(options.queryKey);
-    return cached?.configs.length !== 0;
+  const catalogOptions = modelProviderCatalogQueryOptions();
+  const configOptions = modelProviderConfigsQueryOptions(workspaceId);
+  const [catalogResult, configsResult] = await Promise.allSettled([
+    queryClient.fetchQuery(catalogOptions),
+    queryClient.fetchQuery(configOptions),
+  ]);
+
+  if (
+    catalogResult.status === 'fulfilled' &&
+    catalogResult.value.workspaceProviders === 'disabled'
+  ) {
+    return true;
   }
+
+  if (configsResult.status === 'fulfilled') {
+    const configs = configsResult.value;
+    return configs.configs.length > 0;
+  }
+
+  const cached = queryClient.getQueryData<{configs: unknown[]}>(configOptions.queryKey);
+  return cached?.configs.length !== 0;
 }
 
 function normalizePath(pathname: string) {

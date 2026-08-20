@@ -196,6 +196,29 @@ describe('resolveRuntimeCredentials', () => {
     await expect(result).rejects.toThrow(ModelProviderConfigNotFoundError);
   });
 
+  it('reports the managed provider when a foreign runtime provider is requested', async () => {
+    const result = resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'pi',
+        provider: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'high',
+      },
+      {
+        workspaceProviders: 'disabled',
+        managedProvider: managedProvider(vi.fn()),
+      },
+    );
+
+    await expect(result).rejects.toMatchObject({
+      name: 'WorkspaceProvidersDisabledError',
+      managedProviderId: 'shipfox',
+    });
+  });
+
   it('returns custom provider runtime descriptors for custom rows', async () => {
     await saveProviderConfig({
       workspaceId,

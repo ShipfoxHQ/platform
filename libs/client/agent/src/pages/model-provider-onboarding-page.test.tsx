@@ -7,6 +7,7 @@ import type {ReactElement} from 'react';
 import {isModelProviderOnboardingDismissed} from '#state/model-provider-onboarding.js';
 import {
   AGENT_TEST_WORKSPACE_ID,
+  managedModelProviderEntry,
   modelProviderCatalogResponse,
   modelProviderConfig,
   modelProviderEntry,
@@ -40,6 +41,31 @@ function renderOnboarding(element: ReactElement) {
 describe('ModelProviderOnboardingPage', () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  test('continues directly when workspace providers are managed by the instance', async () => {
+    const onConfigured = vi.fn();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled')),
+      );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    renderOnboarding(
+      <ModelProviderOnboardingPage
+        workspaceId={AGENT_TEST_WORKSPACE_ID}
+        onSkip={vi.fn()}
+        onConfigured={onConfigured}
+      />,
+    );
+
+    await waitFor(() => expect(onConfigured).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByRole('heading', {name: 'Managed inference is ready'}),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Choose pi'})).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
   });
 
   test('skips setup, records the dismissed flag, and does not save a provider or harness', async () => {

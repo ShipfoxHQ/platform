@@ -125,6 +125,7 @@ export class AgentRuntimeConfigRequestError extends Error {
     public readonly agentConfigIssue: AgentConfigIssueDto | undefined = agentConfigIssueForCode(
       code,
     ),
+    public readonly managedProviderId: string | undefined = undefined,
   ) {
     super(
       code === undefined
@@ -434,7 +435,13 @@ export async function requestAgentRuntimeConfig(
     });
   } catch (error) {
     if (error instanceof HTTPError) {
-      throw new AgentRuntimeConfigRequestError(error.response.status, codeFromBody(error.data));
+      const info = errorInfoFromBody(error.data);
+      throw new AgentRuntimeConfigRequestError(
+        error.response.status,
+        info.code,
+        agentConfigIssueForCode(info.code),
+        info.managedProviderId,
+      );
     }
     throw error;
   }
@@ -454,7 +461,13 @@ export async function requestAgentRuntimeConfig(
     return parsed.data;
   }
 
-  throw new AgentRuntimeConfigRequestError(response.status, await errorCode(response));
+  const info = await runtimeConfigErrorInfo(response);
+  throw new AgentRuntimeConfigRequestError(
+    response.status,
+    info.code,
+    agentConfigIssueForCode(info.code),
+    info.managedProviderId,
+  );
 }
 
 export async function requestStepSecrets(
@@ -626,9 +639,41 @@ async function errorCode(response: Response): Promise<string | undefined> {
   }
 }
 
+async function runtimeConfigErrorInfo(
+  response: Response,
+): Promise<{code: string | undefined; managedProviderId: string | undefined}> {
+  try {
+    return errorInfoFromBody((await response.json()) as unknown);
+  } catch {
+    return {code: undefined, managedProviderId: undefined};
+  }
+}
+
+function errorInfoFromBody(body: unknown): {
+  code: string | undefined;
+  managedProviderId: string | undefined;
+} {
+  if (typeof body !== 'object' || body === null) {
+    return {code: undefined, managedProviderId: undefined};
+  }
+
+  const code = 'code' in body && typeof body.code === 'string' ? body.code : undefined;
+  const details =
+    'details' in body && typeof body.details === 'object' && body.details !== null
+      ? body.details
+      : undefined;
+  const managedProviderId =
+    details !== undefined &&
+    'managed_provider_id' in details &&
+    typeof details.managed_provider_id === 'string'
+      ? details.managed_provider_id
+      : undefined;
+
+  return {code, managedProviderId};
+}
+
 function codeFromBody(body: unknown): string | undefined {
-  if (typeof body !== 'object' || body === null || !('code' in body)) return undefined;
-  return typeof body.code === 'string' ? body.code : undefined;
+  return errorInfoFromBody(body).code;
 }
 
 function agentConfigIssueForCode(code: string | undefined): AgentConfigIssueDto | undefined {
@@ -637,6 +682,8 @@ function agentConfigIssueForCode(code: string | undefined): AgentConfigIssueDto 
     case 'agent-step-config-invalid':
     case 'agent-runtime-config-invalid':
       return 'step_config_invalid';
+    case 'workspace-providers-disabled':
+      return 'provider_unsupported';
     case 'model-provider-not-configured':
       return 'provider_not_configured';
     case 'model-provider-unsupported':

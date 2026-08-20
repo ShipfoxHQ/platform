@@ -77,6 +77,29 @@ describe('ModelProviderUsageModal', () => {
     );
   });
 
+  test('does not offer Claude when managed models do not support Anthropic messages', async () => {
+    const onOpenChange = vi.fn();
+    const entry = supportedProvider({
+      id: 'shipfox',
+      label: 'Shipfox Managed',
+      defaultModel: 'gpt-5.5-pro',
+      models: [{id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro', api: 'openai-responses'}],
+    });
+
+    render(
+      <ModelProviderUsageModal
+        target={usageTargetFromCatalogEntry(entry, {isManaged: true})}
+        initialModel="gpt-5.5-pro"
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    const dialog = await screen.findByRole('dialog', {name: 'Use Shipfox Managed in a workflow'});
+    expect(dialog).toHaveTextContent('harness: pi');
+    expect(screen.queryByRole('button', {name: 'Harness'})).not.toBeInTheDocument();
+  });
+
   test('uses the workspace default harness when it is compatible', async () => {
     const onOpenChange = vi.fn();
     const entry = supportedProvider();

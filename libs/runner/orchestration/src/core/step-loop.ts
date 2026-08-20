@@ -788,6 +788,10 @@ function agentRuntimeConfigFailure(error: unknown): StepResult {
         message: error.message,
         reason: agentConfigIssue ? 'agent_config_invalid' : 'agent_invocation_failed',
         ...(agentConfigIssue ? {agent_config_issue: agentConfigIssue} : {}),
+        ...(error.code === undefined ? {} : {code: error.code}),
+        ...(error.managedProviderId === undefined
+          ? {}
+          : {managed_provider_id: error.managedProviderId}),
       },
       exit_code: null,
     };

@@ -185,7 +185,14 @@ export async function completeAgentDefaults(params: {
       isInterModuleKnownError(agentInterModuleContract.methods.resolveAgentConfig, error) &&
       error.code === 'agent-config-invalid'
     ) {
-      throw new AgentConfigUnresolvableError(params.definitionId, {cause: error});
+      const managedProviderId = error.details.managed_provider_id;
+      throw new AgentConfigUnresolvableError(params.definitionId, {
+        cause: error,
+        ...(error.details.message === undefined ? {} : {message: error.details.message}),
+        ...(managedProviderId === undefined
+          ? {}
+          : {code: 'workspace-providers-disabled', managedProviderId}),
+      });
     }
     throw error;
   }

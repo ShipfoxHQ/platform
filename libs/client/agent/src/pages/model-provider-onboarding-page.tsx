@@ -6,7 +6,7 @@ import {Modal, ModalContent, ModalHeader, ModalTitle} from '@shipfox/react-ui/mo
 import {Panel, PanelBody, PanelCell, PanelCellAction, PanelGrid} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
-import {useEffect, useMemo, useReducer} from 'react';
+import {useEffect, useMemo, useReducer, useRef} from 'react';
 import {AvailableProvidersGrid} from '#components/available-providers-grid.js';
 import {modelProviderConfigErrorToFormError} from '#components/form-errors.js';
 import {ModelProviderGridSkeleton} from '#components/model-provider-grid-skeleton.js';
@@ -14,7 +14,7 @@ import {ModelProviderTestAndSaveForm} from '#components/test-and-save-form.js';
 import {DEFAULT_HARNESS, harnessSupportsProvider, listHarnesses} from '#core/harness-policy.js';
 import type {HarnessDescriptor, HarnessId, SupportedProvider} from '#core/models.js';
 import {initialOnboardingState, onboardingReducer} from '#core/onboarding-reducer.js';
-import {isSupportedProvider} from '#core/provider-policy.js';
+import {isManagedOnlyCatalog, isSupportedProvider} from '#core/provider-policy.js';
 import {
   useModelProviderCatalogQuery,
   useSetDefaultHarnessMutation,
@@ -34,6 +34,8 @@ export function ModelProviderOnboardingPage({
   const setDefaultHarness = useSetDefaultHarnessMutation();
   const [onboarding, dispatch] = useReducer(onboardingReducer, initialOnboardingState);
   const supportedProviders = catalogQuery.data?.providers.filter(isSupportedProvider) ?? [];
+  const managedOnly = isManagedOnlyCatalog(catalogQuery.data);
+  const managedOnlyForwarded = useRef(false);
   const filteredProviders = useMemo(() => {
     if (onboarding.step === 'choose-harness') return [];
     return supportedProviders.filter((provider) =>
@@ -42,6 +44,13 @@ export function ModelProviderOnboardingPage({
   }, [onboarding, supportedProviders]);
 
   useEffect(() => {
+    if (!managedOnly || managedOnlyForwarded.current) return;
+    managedOnlyForwarded.current = true;
+    onConfigured();
+  }, [managedOnly, onConfigured]);
+
+  useEffect(() => {
+    if (managedOnly) return;
     document
       .getElementById(
         onboarding.step === 'choose-harness'
@@ -49,7 +58,9 @@ export function ModelProviderOnboardingPage({
           : 'model-provider-provider-step',
       )
       ?.focus();
-  }, [onboarding.step]);
+  }, [managedOnly, onboarding.step]);
+
+  if (managedOnly) return null;
 
   function handleSkip() {
     try {

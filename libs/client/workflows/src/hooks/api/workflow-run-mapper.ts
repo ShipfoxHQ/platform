@@ -217,6 +217,10 @@ export function toStep(dto: WorkflowRunStepDetailDto): Step {
     error: dto.error
       ? {
           message: dto.error.message,
+          ...(dto.error.code === undefined ? {} : {code: dto.error.code}),
+          ...(dto.error.managed_provider_id === undefined
+            ? {}
+            : {managedProviderId: dto.error.managed_provider_id}),
           exitCode: dto.error.exit_code ?? null,
           signal: dto.error.signal,
           reason: dto.error.reason,

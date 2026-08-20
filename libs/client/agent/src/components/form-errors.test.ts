@@ -81,6 +81,15 @@ describe('modelProviderConfigErrorToFormError', () => {
       'Configure this provider before setting it as the default.',
     ],
     [
+      new ApiError({
+        code: 'workspace-providers-disabled',
+        message: 'Provider policy rejected the request.',
+        status: 422,
+        details: {message: 'This instance only supports provider `shipfox`.'},
+      }),
+      'This instance only supports provider `shipfox`.',
+    ],
+    [
       new ApiError({code: 'not-found', message: 'Provider config not found', status: 404}),
       'This custom provider no longer exists. Refresh and try again.',
     ],

@@ -453,6 +453,43 @@ describe('completeStepDispatchConfig', () => {
     await expect(act()).rejects.toThrow(AgentConfigUnresolvableError);
   });
 
+  it('preserves managed provider policy details in unresolvable agent config errors', async () => {
+    const pending = step({
+      type: 'agent',
+      config: {},
+      configPlan: {
+        agent: {
+          prompt: plannedField('Review the change.'),
+        },
+      },
+    });
+    const failingResolver: AgentDefaultsResolver = () => {
+      throw createInterModuleKnownError(
+        agentInterModuleContract.methods.resolveAgentConfig,
+        'agent-config-invalid',
+        {
+          message: 'This instance only supports provider `shipfox`.',
+          managed_provider_id: 'shipfox',
+        },
+      );
+    };
+
+    const act = () =>
+      completeStepDispatchConfig({
+        step: pending,
+        context,
+        resolveAgentDefaults: failingResolver,
+        definitionId: 'def-1',
+      });
+
+    await expect(act()).rejects.toMatchObject({
+      name: 'AgentConfigUnresolvableError',
+      message: 'This instance only supports provider `shipfox`.',
+      code: 'workspace-providers-disabled',
+      managedProviderId: 'shipfox',
+    });
+  });
+
   it('throws when a server-side segment still survives dispatch', async () => {
     const pending = step({
       config: {},

@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import type {ReactElement} from 'react';
 import {
   AGENT_TEST_WORKSPACE_ID,
+  modelProviderCatalogResponse,
   modelProviderConfig,
   modelProviderConfigsResponse,
 } from '#test/fixtures/model-providers.js';
@@ -17,6 +18,13 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
     headers: {'content-type': 'application/json'},
     ...init,
   });
+}
+
+function harnessRequestResponse(input: RequestInfo | URL, body: unknown) {
+  const url = new URL(input instanceof Request ? input.url : input.toString());
+  return url.pathname.endsWith('/agent/model-provider-catalog')
+    ? jsonResponse(modelProviderCatalogResponse())
+    : jsonResponse(body);
 }
 
 function renderHarnesses(element: ReactElement) {
@@ -48,7 +56,11 @@ describe('WorkspaceHarnessesSection', () => {
     const user = userEvent.setup();
     configureApiClient({
       baseUrl: 'https://api.example.test',
-      fetchImpl: vi.fn().mockResolvedValue(jsonResponse(modelProviderConfigsResponse())),
+      fetchImpl: vi
+        .fn()
+        .mockImplementation((input: RequestInfo | URL) =>
+          Promise.resolve(harnessRequestResponse(input, modelProviderConfigsResponse())),
+        ),
     });
 
     renderHarnesses(<WorkspaceHarnessesSection workspaceId={AGENT_TEST_WORKSPACE_ID} />);
@@ -69,11 +81,14 @@ describe('WorkspaceHarnessesSection', () => {
     const user = userEvent.setup();
     configureApiClient({
       baseUrl: 'https://api.example.test',
-      fetchImpl: vi.fn().mockResolvedValue(
-        jsonResponse(
-          modelProviderConfigsResponse({
-            configs: [modelProviderConfig({provider_id: 'openai'})],
-          }),
+      fetchImpl: vi.fn().mockImplementation((input: RequestInfo | URL) =>
+        Promise.resolve(
+          harnessRequestResponse(
+            input,
+            modelProviderConfigsResponse({
+              configs: [modelProviderConfig({provider_id: 'openai'})],
+            }),
+          ),
         ),
       ),
     });
@@ -91,6 +106,33 @@ describe('WorkspaceHarnessesSection', () => {
     expect(screen.getByRole('menuitem', {name: 'Set as default'})).toHaveAttribute('data-disabled');
   });
 
+  test('keeps harnesses unavailable when the catalog fails and no providers are configured', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString());
+        if (url.pathname.endsWith('/agent/model-provider-catalog')) {
+          return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
+        }
+        return Promise.resolve(
+          harnessRequestResponse(input, modelProviderConfigsResponse({configs: []})),
+        );
+      }),
+    });
+
+    renderHarnesses(<WorkspaceHarnessesSection workspaceId={AGENT_TEST_WORKSPACE_ID} />);
+
+    const claudeRow = (await screen.findByText('Claude')).closest('li');
+    if (claudeRow === null) throw new Error('Expected Claude row');
+    expect(
+      within(claudeRow).getByText('Configure a compatible model provider to use this harness.'),
+    ).toHaveClass('sr-only');
+
+    await openHarnessActions(user, 'Claude');
+    expect(screen.getByRole('menuitem', {name: 'Set as default'})).toHaveAttribute('data-disabled');
+  });
+
   test('sets the default harness and shows a success toast', async () => {
     const user = userEvent.setup();
     let requestBody: unknown;
@@ -101,7 +143,7 @@ describe('WorkspaceHarnessesSection', () => {
         requestBody = await request.clone().json();
         return await updateResponse.promise;
       }
-      return jsonResponse(modelProviderConfigsResponse());
+      return harnessRequestResponse(input, modelProviderConfigsResponse());
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
@@ -128,7 +170,7 @@ describe('WorkspaceHarnessesSection', () => {
       if (request.method === 'PUT') {
         return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
       }
-      return Promise.resolve(jsonResponse(modelProviderConfigsResponse()));
+      return Promise.resolve(harnessRequestResponse(input, modelProviderConfigsResponse()));
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
@@ -154,7 +196,7 @@ describe('WorkspaceHarnessesSection', () => {
       if (request.method === 'PUT') {
         return updateResponse.promise;
       }
-      return Promise.resolve(jsonResponse(modelProviderConfigsResponse()));
+      return Promise.resolve(harnessRequestResponse(input, modelProviderConfigsResponse()));
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     const nextWorkspaceId = '22222222-2222-4222-8222-222222222222';

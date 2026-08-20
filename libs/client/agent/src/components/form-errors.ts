@@ -76,6 +76,9 @@ function apiErrorMessage(error: ApiError): string {
   if (error.code === 'provider-not-configured') {
     return 'Configure this provider before setting it as the default.';
   }
+  if (error.code === 'workspace-providers-disabled') {
+    return typeof details.message === 'string' ? details.message : error.message;
+  }
   return error.message;
 }
 

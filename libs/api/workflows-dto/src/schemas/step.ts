@@ -59,6 +59,8 @@ export const STEP_ERROR_MESSAGE_MAX_LENGTH = 2048;
 export const stepErrorDtoSchema = z
   .object({
     message: z.string().max(STEP_ERROR_MESSAGE_MAX_LENGTH),
+    code: z.string().min(1).optional(),
+    managed_provider_id: z.string().min(1).optional(),
     exit_code: z.number().int().nullable().optional(),
     signal: z.string().optional(),
     reason: stepErrorReasonSchema.optional(),
