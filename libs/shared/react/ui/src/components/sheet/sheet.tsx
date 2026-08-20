@@ -2,21 +2,25 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {cva, type VariantProps} from 'class-variance-authority';
-import type {ComponentProps} from 'react';
+import {type ComponentProps, useState} from 'react';
+import {useBodyPointerEventsRelease} from '#hooks/useBodyPointerEventsRelease.js';
 import {useMediaQuery} from '#hooks/useMediaQuery.js';
 import {cn} from '#utils/cn.js';
 import {Button} from '../button/index.js';
 import {Icon} from '../icon/index.js';
 import {Kbd} from '../kbd/index.js';
 
+// See modal.tsx: a closing overlay keeps covering the page for the length of its
+// exit animation, so it must stop catching clicks as soon as it starts closing.
 const sheetOverlayVariants = cva(
-  'fixed inset-0 z-40 bg-background-backdrop-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+  'fixed inset-0 z-40 bg-background-backdrop-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:pointer-events-none!',
 );
 
 const sheetContentVariants = cva(
   [
     'fixed z-50 gap-4 bg-background-neutral-base shadow-tooltip transition ease-in-out',
     'data-[state=open]:animate-in data-[state=closed]:animate-out',
+    'data-[state=closed]:pointer-events-none!',
     'data-[state=closed]:duration-300 data-[state=open]:duration-500',
     'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
   ],
@@ -47,8 +51,18 @@ const sheetContentVariants = cva(
   },
 );
 
-function Sheet({...props}: ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="sheet" {...props} />;
+function Sheet({onOpenChange, ...props}: ComponentProps<typeof DialogPrimitive.Root>) {
+  // Mirrors the open state so uncontrolled callers are covered too.
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(props.defaultOpen ?? false);
+
+  useBodyPointerEventsRelease(props.open ?? uncontrolledOpen);
+
+  function handleOpenChange(nextOpen: boolean) {
+    setUncontrolledOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  }
+
+  return <DialogPrimitive.Root data-slot="sheet" {...props} onOpenChange={handleOpenChange} />;
 }
 
 function SheetTrigger({className, ...props}: ComponentProps<typeof DialogPrimitive.Trigger>) {

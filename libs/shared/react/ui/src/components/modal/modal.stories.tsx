@@ -19,6 +19,7 @@ import {
 
 const OPEN_MODAL_REGEX = /open modal/i;
 const ACCOUNT_SETTINGS_REGEX = /account settings/i;
+const CANCEL_REGEX = /cancel/i;
 
 const meta = {
   title: 'Components/Modal',
@@ -62,6 +63,28 @@ export const Playground: Story = {
         </Modal>
       </div>
     );
+  },
+};
+
+/**
+ * The overlay outlives the modal by the length of its exit animation. While it
+ * is still on screen it must not catch clicks meant for the page behind it,
+ * otherwise a stalled exit leaves the page silently inert.
+ */
+export const ClosingOverlayStopsCatchingClicks: Story = {
+  ...Playground,
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole('button', {name: OPEN_MODAL_REGEX}));
+    await screen.findByRole('dialog');
+
+    await userEvent.click(await screen.findByRole('button', {name: CANCEL_REGEX}));
+
+    const overlay = document.querySelector('[data-state="closed"].fixed.inset-0');
+    if (overlay === null) throw new Error('overlay left the DOM before it could be checked');
+    if (window.getComputedStyle(overlay).pointerEvents !== 'none') {
+      throw new Error('closing overlay still catches pointer events');
+    }
   },
 };
 
