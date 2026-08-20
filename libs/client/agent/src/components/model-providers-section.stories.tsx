@@ -22,6 +22,7 @@ type Scenario =
   | 'loading'
   | 'configs-error'
   | 'catalog-error'
+  | 'managed-only'
   | 'long-names';
 
 interface ModelProvidersStoryProps {
@@ -138,6 +139,15 @@ type Story = StoryObj<typeof meta>;
 
 export const Playground: Story = {};
 
+export const ManagedOnly: Story = {
+  args: {scenario: 'managed-only'},
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    await canvas.findByText('Managed by this instance. No workspace credentials are required.');
+    await canvas.findByRole('button', {name: 'Use in a workflow'});
+  },
+};
+
 export const EmptyConfigured: Story = {
   args: {scenario: 'empty-configured'},
 };
@@ -226,7 +236,12 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
     if (scenario === 'loading') return new Promise<Response>(() => undefined);
     if (url.pathname.endsWith('/agent/model-provider-catalog')) {
       if (scenario === 'catalog-error') return Promise.resolve(errorResponse());
-      return Promise.resolve(jsonResponse({providers: catalogForScenario(scenario)}));
+      return Promise.resolve(
+        jsonResponse({
+          providers: catalogForScenario(scenario),
+          ...(scenario === 'managed-only' ? {workspace_providers: 'disabled'} : {}),
+        }),
+      );
     }
     if (url.pathname.endsWith('/agent/model-providers')) {
       if (scenario === 'configs-error') return Promise.resolve(errorResponse());
@@ -237,6 +252,20 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
 }
 
 function catalogForScenario(scenario: Scenario): ModelProviderCatalogEntryDto[] {
+  if (scenario === 'managed-only') {
+    return [
+      providerEntry({
+        id: 'shipfox',
+        label: 'Shipfox Managed',
+        default_model: 'claude-opus-4-8',
+        credential_fields: [],
+        models: [
+          {id: 'claude-opus-4-8', label: 'Claude Opus 4.8', api: 'anthropic-messages'},
+          {id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro', api: 'openai-responses'},
+        ],
+      }),
+    ];
+  }
   if (scenario !== 'long-names') return CATALOG;
   return [
     providerEntry({
@@ -254,6 +283,9 @@ function catalogForScenario(scenario: Scenario): ModelProviderCatalogEntryDto[] 
 }
 
 function configsForScenario(scenario: Scenario) {
+  if (scenario === 'managed-only') {
+    return {configs: [], default_provider_id: null, default_harness_id: null};
+  }
   if (scenario === 'empty-configured' || scenario === 'configs-error') {
     return {configs: [], default_provider_id: null, default_harness_id: null};
   }
