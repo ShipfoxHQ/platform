@@ -482,6 +482,79 @@ describe('claimPendingJobExecution', () => {
     expect(runner?.firstClaimedAt).toBeInstanceOf(Date);
   });
 
+  it('releases a provisioned runner reservation on its first claim only', async () => {
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: sessionLabels,
+        count: 2,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!reservation) throw new Error('Expected reservation');
+
+    const runner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      reservationId: reservation.id,
+      runnerSessionId,
+      state: 'running',
+      labels: sessionLabels,
+    });
+    await db()
+      .update(runnerSessions)
+      .set({
+        registrationTokenKind: 'ephemeral',
+        maxClaims: 2,
+        provisionerId,
+        providerRunnerId,
+      })
+      .where(eq(runnerSessions.id, runnerSessionId));
+
+    const firstPending = await pendingJobFactory.create({workspaceId});
+    const firstClaim = await claimPendingJobExecution({
+      workspaceId,
+      runnerSessionId,
+      maxClaims: 2,
+    });
+    const [afterFirstClaim] = await db()
+      .select({count: reservations.count})
+      .from(reservations)
+      .where(eq(reservations.id, reservation.id));
+    const [runnerAfterFirstClaim] = await db()
+      .select({reservationReleasedAt: providerRunners.reservationReleasedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    const firstReleaseAt = runnerAfterFirstClaim?.reservationReleasedAt;
+
+    const secondPending = await pendingJobFactory.create({workspaceId});
+    const secondClaim = await claimPendingJobExecution({
+      workspaceId,
+      runnerSessionId,
+      maxClaims: 2,
+    });
+    const [afterSecondClaim] = await db()
+      .select({count: reservations.count})
+      .from(reservations)
+      .where(eq(reservations.id, reservation.id));
+    const [runnerAfterSecondClaim] = await db()
+      .select({reservationReleasedAt: providerRunners.reservationReleasedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+
+    expect(firstClaim?.jobExecutionId).toBe(firstPending.jobExecutionId);
+    expect(afterFirstClaim?.count).toBe(1);
+    expect(firstReleaseAt).toBeInstanceOf(Date);
+    expect(secondClaim?.jobExecutionId).toBe(secondPending.jobExecutionId);
+    expect(afterSecondClaim?.count).toBe(1);
+    expect(runnerAfterSecondClaim?.reservationReleasedAt).toEqual(firstReleaseAt);
+  });
+
   it('allows a manual session to claim repeatedly', async () => {
     const first = await pendingJobFactory.create({workspaceId});
     const second = await pendingJobFactory.create({workspaceId});
@@ -1037,7 +1110,7 @@ describe('reconcileTerminalJobExecution', () => {
     expect(rows[0]?.cancellationRequestedAt).not.toBeNull();
   });
 
-  it('releases an already-terminal runner reservation after cancelling its last lease', async () => {
+  it('does not double-release a reservation when a claimed runner becomes terminal', async () => {
     const provisionerId = crypto.randomUUID();
     const providerRunnerId = crypto.randomUUID();
     const [reservation] = await db()
@@ -1046,7 +1119,7 @@ describe('reconcileTerminalJobExecution', () => {
         workspaceId,
         provisionerId,
         requiredLabels: sessionLabels,
-        count: 1,
+        count: 2,
         expiresAt: new Date(Date.now() + 60_000),
       })
       .returning({id: reservations.id});
@@ -1057,12 +1130,29 @@ describe('reconcileTerminalJobExecution', () => {
       providerRunnerId,
       reservationId: reservation.id,
       runnerSessionId,
-      state: 'terminated',
-      terminatedAt: new Date(),
+      state: 'running',
     });
+    await db()
+      .update(runnerSessions)
+      .set({registrationTokenKind: 'ephemeral', maxClaims: 1, provisionerId, providerRunnerId})
+      .where(eq(runnerSessions.id, runnerSessionId));
     const pending = await pendingJobFactory.create({workspaceId});
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
     expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+    const [afterClaim] = await db()
+      .select({count: reservations.count})
+      .from(reservations)
+      .where(eq(reservations.id, reservation.id));
+    const [runnerAfterClaim] = await db()
+      .select({reservationReleasedAt: providerRunners.reservationReleasedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(afterClaim?.count).toBe(1);
+    expect(runnerAfterClaim?.reservationReleasedAt).toBeInstanceOf(Date);
+    await db()
+      .update(providerRunners)
+      .set({state: 'terminated', terminatedAt: new Date()})
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
     await db()
       .update(runningJobExecutions)
       .set({provisionerId, providerRunnerId})
@@ -1070,9 +1160,11 @@ describe('reconcileTerminalJobExecution', () => {
 
     await reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
 
-    expect(
-      await db().select().from(reservations).where(eq(reservations.id, reservation.id)),
-    ).toHaveLength(0);
+    const [afterTerminal] = await db()
+      .select({count: reservations.count})
+      .from(reservations)
+      .where(eq(reservations.id, reservation.id));
+    expect(afterTerminal?.count).toBe(1);
     const [runner] = await db()
       .select({reservationReleasedAt: providerRunners.reservationReleasedAt})
       .from(providerRunners)
