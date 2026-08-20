@@ -57,14 +57,9 @@ of making routine package or base-image changes update a complete snapshot.
 The same gate checks `multi-user.target`, the generated GRUB command line for
 `fsck.mode=skip`, `/` and `/boot` fstab options, volatile journald storage, the
 absence of `snapd`, `cloud-init`, and `amazon-ssm-agent`, and enabled AppArmor,
-`ssh.socket`, and the EC2 Instance Connect host-key harvester. It also enforces
-the committed initramfs ceiling from `limits.env`.
+`ssh.socket`, and the EC2 Instance Connect host-key harvester.
 
-The candidate publisher describes the registered AMI and its root EBS snapshot
-before publishing candidate metadata. It compares `FullSnapshotSizeInBytes`
-with the same architecture and OS scoped `limits.env` ceiling. QEMU uses the
-same capability gate during its bake, while the AWS-only snapshot check remains
-in the existing candidate publication path. Update a requirement or limit only
+QEMU uses the same capability gate during its bake. Update a requirement only
 when intentionally changing that capability contract, and review the resulting
 diff as part of the image change.
 

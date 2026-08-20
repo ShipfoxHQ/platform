@@ -462,23 +462,17 @@ describe('parseBuildRunnerImageArgs', () => {
 
 describe('runner image candidates', () => {
   const revision = '0123456789abcdef0123456789abcdef01234567';
-  const rootSnapshotId = 'snap-0123456789abcdef0';
   const availableImage = (amiId: string, architecture: 'amd64' | 'arm64') => ({
     ImageId: amiId,
     State: 'available' as const,
     OwnerId: '123456789012',
     CreationDate: '2026-07-19T10:15:00Z',
-    RootDeviceName: '/dev/sda1',
-    BlockDeviceMappings: [{DeviceName: '/dev/sda1', Ebs: {SnapshotId: rootSnapshotId}}],
     Tags: [
       {Key: 'shipfox.candidate_id', Value: `main-${revision}`},
       {Key: 'shipfox.revision', Value: revision},
       {Key: 'shipfox.architecture', Value: architecture},
       {Key: 'shipfox.expires_at', Value: '2026-08-03T10:00:00Z'},
     ],
-  });
-  const snapshotResponse = (fullSnapshotSizeInBytes = 8 * 1024 * 1024 * 1024) => ({
-    Snapshots: [{SnapshotId: rootSnapshotId, FullSnapshotSizeInBytes: fullSnapshotSizeInBytes}],
   });
 
   it('builds a candidate when no matching AMI exists', async () => {
@@ -502,8 +496,7 @@ describe('runner image candidates', () => {
       .mockResolvedValueOnce({Images: []})
       .mockResolvedValueOnce({
         Images: [availableImage('ami-0123abc456def7890', 'amd64')],
-      })
-      .mockResolvedValueOnce(snapshotResponse());
+      });
     const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
 
     const candidate = await buildRunnerImageCandidate(build, {
@@ -545,7 +538,6 @@ describe('runner image candidates', () => {
     const send = vi
       .fn()
       .mockResolvedValueOnce({Images: [availableImage('ami-0fedcba9876543210', 'arm64')]})
-      .mockResolvedValueOnce(snapshotResponse())
       .mockResolvedValueOnce({
         LaunchPermissions: [
           {UserId: '123456789012'},
@@ -625,38 +617,6 @@ describe('runner image candidates', () => {
     await expect(candidate).rejects.toThrow('Expected at most one amd64 candidate AMI');
   });
 
-  it('rejects a reused AMI whose root snapshot exceeds its committed ceiling', async () => {
-    const build = parseBuildRunnerImageArgs(
-      ['ubuntu24', 'aws'],
-      {
-        BUILD_ARCH: 'arm64',
-        BUILD_ATTEMPT: '1',
-        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
-        BUILD_CANDIDATE_ID: `main-${revision}`,
-        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
-        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
-        BUILD_IMAGE_LIFECYCLE: 'candidate',
-        BUILD_NUMBER: '42',
-        BUILD_REVISION: revision,
-      },
-      '24.17.0',
-    );
-    const send = vi
-      .fn()
-      .mockResolvedValueOnce({Images: [availableImage('ami-0fedcba9876543210', 'arm64')]})
-      .mockResolvedValueOnce(snapshotResponse(17 * 1024 * 1024 * 1024));
-    const buildImage = vi.fn();
-
-    const candidate = buildRunnerImageCandidate(build, {
-      build: buildImage,
-      client: {send},
-    });
-
-    await expect(candidate).rejects.toThrow('exceeding committed ceiling');
-    expect(buildImage).not.toHaveBeenCalled();
-    expect(send).toHaveBeenCalledTimes(2);
-  });
-
   it('rejects a built AMI that is not available yet', async () => {
     const build = parseBuildRunnerImageArgs(
       ['ubuntu24', 'aws'],
@@ -714,8 +674,7 @@ describe('runner image candidates', () => {
       })
       .mockResolvedValueOnce({
         Images: [availableImage('ami-0123abc456def7890', 'amd64')],
-      })
-      .mockResolvedValueOnce(snapshotResponse());
+      });
     const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
 
     const candidate = await buildRunnerImageCandidate(build, {
@@ -727,39 +686,6 @@ describe('runner image candidates', () => {
 
     expect(candidate.status).toBe('built');
     expect(candidate.amiId).toBe('ami-0123abc456def7890');
-  });
-
-  it('rejects a built AMI whose root snapshot exceeds its committed ceiling', async () => {
-    const build = parseBuildRunnerImageArgs(
-      ['ubuntu24', 'aws'],
-      {
-        BUILD_ARCH: 'amd64',
-        BUILD_ATTEMPT: '1',
-        BUILD_CANDIDATE_EXPIRES_AT: '2026-08-03T10:00:00Z',
-        BUILD_CANDIDATE_ID: `main-${revision}`,
-        BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS: '123456789012,210987654321',
-        BUILD_CANDIDATE_KMS_KEY_ID: 'alias/shipfox-runner-image-candidate',
-        BUILD_IMAGE_LIFECYCLE: 'candidate',
-        BUILD_NUMBER: '42',
-        BUILD_REVISION: revision,
-      },
-      '24.17.0',
-    );
-    const send = vi
-      .fn()
-      .mockResolvedValueOnce({Images: []})
-      .mockResolvedValueOnce({
-        Images: [availableImage('ami-0123abc456def7890', 'amd64')],
-      })
-      .mockResolvedValueOnce(snapshotResponse(17 * 1024 * 1024 * 1024));
-    const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
-
-    const candidate = buildRunnerImageCandidate(build, {
-      build: buildImage,
-      client: {send},
-    });
-
-    await expect(candidate).rejects.toThrow('exceeding committed ceiling');
   });
 
   it('retries a transient AMI-not-found response during availability checks', async () => {
@@ -787,8 +713,7 @@ describe('runner image candidates', () => {
       .mockRejectedValueOnce(notFound)
       .mockResolvedValueOnce({
         Images: [availableImage('ami-0123abc456def7890', 'amd64')],
-      })
-      .mockResolvedValueOnce(snapshotResponse());
+      });
     const buildImage = vi.fn().mockResolvedValue({amiId: 'ami-0123abc456def7890'});
 
     const candidate = await buildRunnerImageCandidate(build, {
@@ -799,7 +724,7 @@ describe('runner image candidates', () => {
     });
 
     expect(candidate.status).toBe('built');
-    expect(send).toHaveBeenCalledTimes(4);
+    expect(send).toHaveBeenCalledTimes(3);
   });
 
   it('rejects a built AMI whose tags do not match the requested build', async () => {
@@ -1630,22 +1555,6 @@ describe('runner image composition', () => {
     }
   });
 
-  it('fails the image bake when the initramfs exceeds its committed ceiling', async () => {
-    const script = new URL('../scripts/build/verify-composition.sh', import.meta.url);
-    const fixture = await createCompositionFixture();
-
-    try {
-      expect(() =>
-        execFileSync('/bin/sh', [script.pathname], {
-          env: {...fixture.environment, RUNNER_IMAGE_INITRAMFS_SIZE: '33554433'},
-          stdio: 'pipe',
-        }),
-      ).toThrow('exceeding ceiling');
-    } finally {
-      await rm(fixture.root, {force: true, recursive: true});
-    }
-  });
-
   it('creates and enables a 4 GiB swap file', async () => {
     const script = new URL('../scripts/build/setup-runner.sh', import.meta.url);
     const fixture = await createRunnerImageSetupFixture();
@@ -2042,8 +1951,6 @@ async function createCompositionFixture() {
 
   await mkdir(commandDirectory, {recursive: true});
   await mkdir(compositionDirectory, {recursive: true});
-  await mkdir(join(root, 'boot'), {recursive: true});
-  await writeFile(join(root, 'boot/initrd.img-test'), 'initramfs');
   await writeFile(join(root, 'grub.cfg'), 'linux /vmlinuz fsck.mode=skip\n');
   await writeFile(
     join(root, 'fstab'),
@@ -2054,10 +1961,6 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
   );
   await writeFile(join(compositionDirectory, 'required-enabled.txt'), `${enabledRequirements}\n`);
   await writeFile(join(compositionDirectory, 'required-masked.txt'), `${maskedRequirements}\n`);
-  await writeFile(
-    join(compositionDirectory, 'limits.env'),
-    'initramfs_max_bytes=33554432\nfull_snapshot_size_max_bytes=17179869184\n',
-  );
 
   await writeExecutable(
     join(commandDirectory, 'systemctl'),
@@ -2108,15 +2011,6 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
     ].join('\n'),
   );
   await writeExecutable(join(commandDirectory, 'growpart'), '#!/bin/sh\nexit 0\n');
-  await writeExecutable(
-    join(commandDirectory, 'stat'),
-    [
-      '#!/bin/sh',
-      'set -eu',
-      '[ "$1" = -c ]',
-      `printf "%s\\n" "\${RUNNER_IMAGE_INITRAMFS_SIZE:-1024}"`,
-    ].join('\n'),
-  );
 
   return {
     enabledInventory,
@@ -2128,7 +2022,6 @@ UUID=efi /boot/efi vfat defaults,noauto 0 0
       RUNNER_IMAGE_MASKED_INVENTORY: maskedInventory,
       SHIPFOX_FSTAB: join(root, 'fstab'),
       SHIPFOX_GRUB_CONFIG: join(root, 'grub.cfg'),
-      SHIPFOX_INITRAMFS_PATH: join(root, 'boot/initrd.img-test'),
       SHIPFOX_RUNNER_COMPOSITION_DIR: compositionDirectory,
       SHIPFOX_RUNNER_IMAGE_ARCHITECTURE: 'amd64',
       SHIPFOX_RUNNER_IMAGE_OS: 'ubuntu24',

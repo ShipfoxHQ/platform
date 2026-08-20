@@ -4,7 +4,6 @@ set -eu
 composition_dir=${SHIPFOX_RUNNER_COMPOSITION_DIR:-/tmp/shipfox-runner-image-composition}
 enabled_requirements="$composition_dir/required-enabled.txt"
 masked_requirements="$composition_dir/required-masked.txt"
-limits_file="$composition_dir/limits.env"
 image_identity="${SHIPFOX_RUNNER_IMAGE_OS:-unknown}/${SHIPFOX_RUNNER_IMAGE_ARCHITECTURE:-unknown}"
 
 fail() {
@@ -12,7 +11,7 @@ fail() {
   exit 1
 }
 
-for required_file in "$enabled_requirements" "$masked_requirements" "$limits_file"; do
+for required_file in "$enabled_requirements" "$masked_requirements"; do
   [ -r "$required_file" ] || fail "required composition file is missing: $required_file"
 done
 
@@ -133,32 +132,4 @@ for unit in ssh.socket ec2-instance-connect-harvest-hostkeys.service; do
   [ "$unit_state" != 'masked' ] || fail "required unit is masked: $unit"
 done
 
-read_limit() {
-  key=$1
-  sed -n "s/^${key}=//p" "$limits_file" | tail -n 1
-}
-
-initramfs_ceiling=$(read_limit initramfs_max_bytes)
-snapshot_ceiling=$(read_limit full_snapshot_size_max_bytes)
-case "$initramfs_ceiling" in
-  ''|*[!0-9]*) fail 'limits.env has no numeric initramfs_max_bytes' ;;
-esac
-case "$snapshot_ceiling" in
-  ''|*[!0-9]*) fail 'limits.env has no numeric full_snapshot_size_max_bytes' ;;
-esac
-
-initramfs_path=${SHIPFOX_INITRAMFS_PATH:-}
-if [ -z "$initramfs_path" ]; then
-  initramfs_path=$(find /boot -maxdepth 1 -type f -name 'initrd.img-*' -print | LC_ALL=C sort | tail -n 1)
-fi
-[ -n "$initramfs_path" ] || fail 'no initramfs was found under /boot'
-
-initramfs_size=$(stat -c '%s' "$initramfs_path")
-case "$initramfs_size" in
-  ''|*[!0-9]*) fail "could not read initramfs size for $initramfs_path" ;;
-esac
-[ "$initramfs_size" -le "$initramfs_ceiling" ] ||
-  fail "initramfs $initramfs_path is $initramfs_size bytes, exceeding ceiling $initramfs_ceiling"
-
-printf 'runner image composition verified: %s, initramfs %s bytes, snapshot ceiling %s bytes\n' \
-  "$image_identity" "$initramfs_size" "$snapshot_ceiling"
+printf 'runner image composition verified: %s\n' "$image_identity"
