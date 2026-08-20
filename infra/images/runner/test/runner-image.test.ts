@@ -1038,6 +1038,7 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(unit, 'Service', 'ExecStartPre')).toBe(
       "/bin/sh -c '/usr/bin/timeout 5s /opt/shipfox-runner/scripts/runtime/record-boot-io.sh || true'",
     );
+    expect(systemdDirective(unit, 'Service', 'StandardOutput')).toBe('journal+console');
     expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
       '/usr/bin/test -s /etc/shipfox/runner.env',
     );
@@ -1181,6 +1182,16 @@ printf '%s %s\\n' "$root_disk_name" "$root_partition_number"
     expect(source).toContain('read -r read_ops _ read_sectors _');
     expect(source).toContain('/sys/block/$root_device/stat');
     expect(source).toContain('/run/shipfox/boot-io');
+    expect(source).toContain('trap on_exit EXIT');
+    expect(source).toContain('trap on_signal HUP INT TERM');
+    expect(source).toContain('emit_boot_io_marker ok');
+    expect(source).toContain('emit_boot_io_marker fail');
+    expect(source).toContain(
+      "printf 'shipfox-boot phase=boot-io status=ok uptime=%s root_device=%s read_ops=%s read_sectors=%s\\n'",
+    );
+    expect(source).toContain(
+      'printf \'shipfox-boot phase=boot-io status=fail uptime=%s\\n\' "$uptime_seconds"',
+    );
     expect(build).toContain(
       'record-boot-io.sh /opt/shipfox-runner/scripts/runtime/record-boot-io.sh',
     );
