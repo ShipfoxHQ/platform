@@ -365,6 +365,87 @@ describe('GithubSourceControlProvider', () => {
     });
   });
 
+  it('propagates bot identity resolution failures for write checkouts', async () => {
+    await createInstallation();
+    const github = githubClient({
+      getBotUser: vi.fn(() =>
+        Promise.reject(
+          new GithubIntegrationProviderError('provider-rejected', 'bot user not found'),
+        ),
+      ),
+    });
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = provider.createCheckoutSpec({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      permissions: {contents: 'write'},
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'provider-rejected'});
+  });
+
+  it('propagates unexpected bot lookup errors', async () => {
+    await createInstallation();
+    const github = githubClient({
+      getBotUser: vi.fn(() => Promise.reject(new Error('unexpected lookup failure'))),
+    });
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = provider.createCheckoutSpec({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      permissions: {contents: 'write'},
+    });
+
+    await expect(result).rejects.toThrow('unexpected lookup failure');
+  });
+
+  it('rejects write checkout when the bot identity resolver is unavailable', async () => {
+    await createInstallation();
+    const github = githubClient();
+    delete github.getBotUser;
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = provider.createCheckoutSpec({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      permissions: {contents: 'write'},
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'provider-unavailable'});
+  });
+
+  it('omits the author and bot lookup for read-only checkouts', async () => {
+    await createInstallation();
+    const github = githubClient();
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = await provider.createCheckoutSpec({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      permissions: {contents: 'read'},
+    });
+
+    expect(result.gitAuthor).toBeUndefined();
+    expect(github.getBotUser).not.toHaveBeenCalled();
+  });
+
+  it('omits the author and bot lookup when the App username is unset', async () => {
+    await createInstallation();
+    const github = githubClient();
+    const provider = new GithubSourceControlProvider(github, () => undefined);
+
+    const result = await provider.createCheckoutSpec({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      permissions: {contents: 'write'},
+    });
+
+    expect(result.gitAuthor).toBeUndefined();
+    expect(github.getBotUser).not.toHaveBeenCalled();
+  });
+
   it('defaults the checkout ref to the repository default branch', async () => {
     await createInstallation();
     const github = githubClient();

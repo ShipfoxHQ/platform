@@ -11,7 +11,6 @@ import {signGithubInstallState} from './state.js';
 function githubClient(overrides: Partial<GithubApiClient> = {}): GithubApiClient {
   return {
     exchangeOAuthCode: vi.fn(() => Promise.resolve('user-token')),
-    getBotUser: vi.fn(() => Promise.reject(new Error('not used'))),
     listUserInstallations: vi.fn(({cursor}) =>
       Promise.resolve({
         installationIds: cursor ? [123] : [999],

@@ -60,7 +60,7 @@ describe('OctokitGithubApiClient.getBotUser', () => {
     octokitOptionsMock.mockReset();
   });
 
-  it('shares one lookup for concurrent requests and caches the bot for the process', async () => {
+  it('shares one lookup for concurrent requests with the same token and caches the bot', async () => {
     getByUsernameMock.mockResolvedValue({
       data: {id: 307_629_549, login: 'shipfox-ai[bot]', type: 'Bot'},
     });
@@ -72,7 +72,7 @@ describe('OctokitGithubApiClient.getBotUser', () => {
     });
     const secondLookup = client.getBotUser({
       username: 'SHIPFOX-AI[BOT]',
-      installationAccessToken: 'ghs_second',
+      installationAccessToken: 'ghs_first',
     });
     const [first, second] = await Promise.all([firstLookup, secondLookup]);
     const cached = await client.getBotUser({
@@ -84,11 +84,36 @@ describe('OctokitGithubApiClient.getBotUser', () => {
     expect(second).toEqual(first);
     expect(cached).toEqual(first);
     expect(getByUsernameMock).toHaveBeenCalledTimes(1);
-    expect(getByUsernameMock).toHaveBeenCalledWith({username: 'shipfox-ai[bot]'});
+    expect(getByUsernameMock).toHaveBeenCalledWith({
+      username: 'shipfox-ai[bot]',
+      request: {signal: expect.any(AbortSignal)},
+    });
     expect(octokitOptionsMock).toHaveBeenCalledWith({
       auth: 'ghs_first',
       baseUrl: 'https://api.github.com',
     });
+  });
+
+  it('does not share an in-flight lookup across installation tokens', async () => {
+    getByUsernameMock.mockResolvedValue({
+      data: {id: 307_629_549, login: 'shipfox-ai[bot]', type: 'Bot'},
+    });
+    const client = createGithubApiClient();
+
+    const firstLookup = client.getBotUser({
+      username: 'shipfox-ai[bot]',
+      installationAccessToken: 'ghs_first',
+    });
+    const secondLookup = client.getBotUser({
+      username: 'shipfox-ai[bot]',
+      installationAccessToken: 'ghs_second',
+    });
+
+    await expect(Promise.all([firstLookup, secondLookup])).resolves.toEqual([
+      {id: 307_629_549, login: 'shipfox-ai[bot]'},
+      {id: 307_629_549, login: 'shipfox-ai[bot]'},
+    ]);
+    expect(getByUsernameMock).toHaveBeenCalledTimes(2);
   });
 
   it('evicts a failed lookup so a later request can retry', async () => {
@@ -113,10 +138,69 @@ describe('OctokitGithubApiClient.getBotUser', () => {
     expect(getByUsernameMock).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects a response that does not identify a bot user', async () => {
-    getByUsernameMock.mockResolvedValue({
-      data: {id: 307_629_549, login: 'shipfox-ai[bot]', type: 'User'},
+  it('maps a missing configured bot and retries after the username becomes available', async () => {
+    getByUsernameMock
+      .mockRejectedValueOnce(new RequestErrorMock('Not Found', 404))
+      .mockResolvedValueOnce({
+        data: {id: 307_629_549, login: 'shipfox-ai[bot]', type: 'Bot'},
+      });
+    const client = createGithubApiClient();
+
+    const missing = client.getBotUser({
+      username: 'shipfox-ai[bot]',
+      installationAccessToken: 'ghs_installationtoken',
     });
+    await expect(missing).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message: 'Configured GitHub bot user shipfox-ai[bot] was not found',
+      status: 404,
+    });
+    const corrected = client.getBotUser({
+      username: 'shipfox-ai[bot]',
+      installationAccessToken: 'ghs_installationtoken',
+    });
+
+    await expect(corrected).resolves.toEqual({
+      id: 307_629_549,
+      login: 'shipfox-ai[bot]',
+    });
+    expect(getByUsernameMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['a null body', null, 'GitHub bot user response is missing required fields'],
+    [
+      'an empty login',
+      {id: 307_629_549, login: '', type: 'Bot'},
+      'GitHub bot user response is missing required fields',
+    ],
+    [
+      'a zero id',
+      {id: 0, login: 'shipfox-ai[bot]', type: 'Bot'},
+      'GitHub bot user response is missing required fields',
+    ],
+    [
+      'a negative id',
+      {id: -1, login: 'shipfox-ai[bot]', type: 'Bot'},
+      'GitHub bot user response is missing required fields',
+    ],
+    [
+      'a fractional id',
+      {id: 1.5, login: 'shipfox-ai[bot]', type: 'Bot'},
+      'GitHub bot user response is missing required fields',
+    ],
+    [
+      'a non-bot account',
+      {id: 307_629_549, login: 'shipfox-ai[bot]', type: 'User'},
+      'Configured GitHub username is not a bot account',
+    ],
+    [
+      'a different bot account',
+      {id: 307_629_549, login: 'another-app[bot]', type: 'Bot'},
+      'GitHub bot user response did not match the configured username',
+    ],
+  ])('rejects %s', async (_label, data, message) => {
+    getByUsernameMock.mockResolvedValue({data});
     const client = createGithubApiClient();
 
     const result = client.getBotUser({
@@ -124,7 +208,7 @@ describe('OctokitGithubApiClient.getBotUser', () => {
       installationAccessToken: 'ghs_installationtoken',
     });
 
-    await expect(result).rejects.toMatchObject({reason: 'malformed-provider-response'});
+    await expect(result).rejects.toMatchObject({reason: 'malformed-provider-response', message});
   });
 });
 
@@ -150,6 +234,20 @@ describe('mapGithubError', () => {
       reason: 'provider-unavailable',
       message: 'GitHub is unavailable',
       status: 503,
+    });
+  });
+
+  it('maps a request timeout cause to timeout', async () => {
+    const timeout = new Error('The operation was aborted due to timeout');
+    timeout.name = 'TimeoutError';
+    const error = new RequestErrorMock('fetch failed', 500);
+    error.cause = timeout;
+
+    const result = mapGithubError(() => Promise.reject(error));
+
+    await expect(result).rejects.toMatchObject({
+      reason: 'timeout',
+      message: 'GitHub request timed out',
     });
   });
 });

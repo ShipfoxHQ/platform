@@ -5,7 +5,6 @@ import {createGithubIntegrationProvider} from '#index.js';
 function githubClient(): GithubApiClient {
   return {
     exchangeOAuthCode: vi.fn(() => Promise.resolve('user-token')),
-    getBotUser: vi.fn(() => Promise.reject(new Error('not used'))),
     listUserInstallations: vi.fn(() => Promise.resolve({installationIds: [], nextCursor: null})),
     getInstallation: vi.fn(() => Promise.reject(new Error('not used'))),
     listInstallationRepositories: vi.fn(() => Promise.reject(new Error('not used'))),

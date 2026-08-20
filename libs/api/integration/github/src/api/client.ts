@@ -1,5 +1,6 @@
 import {Buffer} from 'node:buffer';
-import {MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
+import {isRecord, MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
+import {logger} from '@shipfox/node-opentelemetry';
 import ky, {HTTPError, TimeoutError} from 'ky';
 import {App, Octokit, RequestError} from 'octokit';
 import {config, normalizedGithubApiBaseUrl, normalizedGithubPrivateKey} from '#config.js';
@@ -13,6 +14,7 @@ import {
 const NEXT_PAGE_RE = /[?&]page=(\d+)/;
 const TRAILING_SLASHES_RE = /\/+$/;
 const MAX_TREE_WALK_DEPTH = 10;
+const GITHUB_API_TIMEOUT_MS = 10_000;
 
 export interface GithubAccount {
   login: string;
@@ -71,9 +73,12 @@ export interface GithubBotUser {
   login: string;
 }
 
-export interface GithubApiClient {
-  exchangeOAuthCode(code: string): Promise<string>;
+export interface GithubBotUserClient {
   getBotUser(input: {username: string; installationAccessToken: string}): Promise<GithubBotUser>;
+}
+
+export interface GithubApiClient extends Partial<GithubBotUserClient> {
+  exchangeOAuthCode(code: string): Promise<string>;
   listUserInstallations(input: {
     userAccessToken: string;
     cursor?: string | undefined;
@@ -112,13 +117,17 @@ export interface GithubInstallationAccessToken {
   permissions?: Record<string, 'read' | 'write' | 'admin'> | undefined;
 }
 
-export function createGithubApiClient(): GithubApiClient {
+export function createGithubApiClient(): GithubApiClient & GithubBotUserClient {
   return new OctokitGithubApiClient();
 }
 
-class OctokitGithubApiClient implements GithubApiClient {
+class OctokitGithubApiClient implements GithubApiClient, GithubBotUserClient {
   private app: App | undefined;
-  private readonly botUsers = new Map<string, Promise<GithubBotUser>>();
+  private readonly botUsers = new Map<string, GithubBotUser>();
+  private readonly botUserLookups = new Map<
+    string,
+    {installationAccessToken: string; promise: Promise<GithubBotUser>}
+  >();
 
   async exchangeOAuthCode(code: string): Promise<string> {
     const body = await mapGithubOAuthError(() =>
@@ -144,17 +153,36 @@ class OctokitGithubApiClient implements GithubApiClient {
   }
 
   getBotUser(input: {username: string; installationAccessToken: string}): Promise<GithubBotUser> {
-    const cacheKey = input.username.toLowerCase();
+    const cacheKey = input.username.trim().toLowerCase();
     const cached = this.botUsers.get(cacheKey);
-    if (cached) return cached;
+    if (cached) return Promise.resolve(cached);
 
-    const lookup = this.fetchBotUser(input);
-    const retryableLookup = lookup.catch((error: unknown) => {
-      if (this.botUsers.get(cacheKey) === retryableLookup) this.botUsers.delete(cacheKey);
-      throw error;
+    const pending = this.botUserLookups.get(cacheKey);
+    if (pending?.installationAccessToken === input.installationAccessToken) {
+      return pending.promise;
+    }
+
+    const lookup = this.fetchBotUser(input).then((botUser) => {
+      const resolved = this.botUsers.get(cacheKey);
+      if (resolved) return resolved;
+
+      this.botUsers.set(cacheKey, botUser);
+      logger().info(
+        {githubAppBotLogin: botUser.login, githubAppBotUserId: botUser.id},
+        'Resolved GitHub App bot identity',
+      );
+      return botUser;
     });
-    this.botUsers.set(cacheKey, retryableLookup);
-    return retryableLookup;
+    const trackedLookup = lookup.finally(() => {
+      if (this.botUserLookups.get(cacheKey)?.promise === trackedLookup) {
+        this.botUserLookups.delete(cacheKey);
+      }
+    });
+    this.botUserLookups.set(cacheKey, {
+      installationAccessToken: input.installationAccessToken,
+      promise: trackedLookup,
+    });
+    return trackedLookup;
   }
 
   async listUserInstallations(input: {
@@ -435,18 +463,62 @@ class OctokitGithubApiClient implements GithubApiClient {
       auth: input.installationAccessToken,
       baseUrl: normalizedGithubApiBaseUrl(),
     });
-    const response = await mapGithubError(
-      () => octokit.rest.users.getByUsername({username: input.username}),
-      'provider-rejected',
-    );
-    const {id, login, type} = response.data;
-    if (!Number.isSafeInteger(id) || id <= 0 || !login || type !== 'Bot') {
+    let response: Awaited<ReturnType<typeof octokit.rest.users.getByUsername>>;
+    try {
+      response = await mapGithubError(
+        () =>
+          octokit.rest.users.getByUsername({
+            username: input.username,
+            request: {signal: AbortSignal.timeout(GITHUB_API_TIMEOUT_MS)},
+          }),
+        'provider-rejected',
+      );
+    } catch (error) {
+      if (error instanceof GithubIntegrationProviderError && error.status === 404) {
+        throw new GithubIntegrationProviderError(
+          'provider-rejected',
+          `Configured GitHub bot user ${input.username} was not found`,
+          undefined,
+          error.status,
+        );
+      }
+      throw error;
+    }
+
+    const data: unknown = response.data;
+    if (!isRecord(data)) {
       throw new GithubIntegrationProviderError(
         'malformed-provider-response',
         'GitHub bot user response is missing required fields',
       );
     }
-    return {id, login};
+    const {id, login, type} = data;
+    if (
+      typeof id !== 'number' ||
+      !Number.isSafeInteger(id) ||
+      id <= 0 ||
+      typeof login !== 'string' ||
+      login.trim().length === 0
+    ) {
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        'GitHub bot user response is missing required fields',
+      );
+    }
+    if (type !== 'Bot') {
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        'Configured GitHub username is not a bot account',
+      );
+    }
+    const canonicalLogin = login.trim();
+    if (canonicalLogin.toLowerCase() !== input.username.trim().toLowerCase()) {
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        'GitHub bot user response did not match the configured username',
+      );
+    }
+    return {id, login: canonicalLogin};
   }
 }
 
@@ -492,6 +564,9 @@ export async function mapGithubError<T>(
     return await operation();
   } catch (error) {
     if (error instanceof GithubIntegrationProviderError) throw error;
+    if (isGithubTimeoutError(error)) {
+      throw new GithubIntegrationProviderError('timeout', 'GitHub request timed out');
+    }
     if (error instanceof RequestError) {
       if (error.status === 404) {
         throw new GithubIntegrationProviderError(
@@ -534,11 +609,14 @@ export async function mapGithubError<T>(
         );
       }
     }
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new GithubIntegrationProviderError('timeout', 'GitHub request timed out');
-    }
     throw error;
   }
+}
+
+function isGithubTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'AbortError' || error.name === 'TimeoutError') return true;
+  return error.cause instanceof Error && isGithubTimeoutError(error.cause);
 }
 
 function isGithubRateLimitError(error: RequestError): boolean {

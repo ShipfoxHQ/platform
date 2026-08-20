@@ -1,5 +1,5 @@
 ---
-"@shipfox/api-integration-github": patch
+"@shipfox/api-integration-github": minor
 ---
 
-Attributes runner commits to the GitHub App bot account.
+Attributes new runner commits to the GitHub App bot account. Existing runner workspaces keep their first configured author until recreated.

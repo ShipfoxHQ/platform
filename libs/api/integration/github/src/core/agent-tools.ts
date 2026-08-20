@@ -13,8 +13,9 @@ import {
   createGithubInstallationTokenProvider,
   type GithubInstallationTokenProvider,
 } from '#api/installation-token-provider.js';
-import {config, normalizedGithubApiBaseUrl} from '#config.js';
+import {normalizedGithubApiBaseUrl} from '#config.js';
 import type {GithubInstallation} from '#db/installations.js';
+import {githubAppBotLogin} from './bot-identity.js';
 import {GithubIntegrationProviderError} from './errors.js';
 import {
   type GithubAgentToolCatalogEntry,
@@ -59,7 +60,6 @@ const GITHUB_GRAPHQL_ROUTE = 'POST /graphql';
 const GITHUB_ARTIFACT_ARCHIVE_FORMAT = 'zip';
 const GITHUB_ARTIFACT_DOWNLOAD_ROUTE = `GET /repos/{owner}/{repo}/actions/artifacts/{resource_id}/${GITHUB_ARTIFACT_ARCHIVE_FORMAT}`;
 const GITHUB_ARTIFACT_DOWNLOAD_TIMEOUT_MS = 30_000;
-const GITHUB_APP_BOT_SUFFIX = '[bot]';
 const PENDING_REVIEW_PAGE_SIZE = 100;
 const PENDING_REVIEW_MAX_PAGE_REQUESTS = 5;
 const PENDING_REVIEW_LOOKUP_TIMEOUT_MS = 15_000;
@@ -723,13 +723,6 @@ function latestPendingReviewOnPage(
   }
 
   return {malformed};
-}
-
-function githubAppBotLogin(): string {
-  const configuredUsername = config.GITHUB_APP_USERNAME?.trim() || config.GITHUB_APP_SLUG.trim();
-  return configuredUsername.toLowerCase().endsWith(GITHUB_APP_BOT_SUFFIX)
-    ? configuredUsername
-    : `${configuredUsername}${GITHUB_APP_BOT_SUFFIX}`;
 }
 
 function githubToolResult(

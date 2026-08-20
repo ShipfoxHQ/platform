@@ -25,21 +25,23 @@ import {
   type TriggerReference,
 } from '@shipfox/api-integration-spi';
 import type {GithubApiClient, GithubRepository} from '#api/client.js';
-import {config} from '#config.js';
 import {getGithubInstallationByConnectionId} from '#db/installations.js';
+import {configuredGithubAppBotLogin} from './bot-identity.js';
 import {GithubIntegrationProviderError} from './errors.js';
 
 type GithubIntegrationConnection = IntegrationConnection<'github'>;
 
 const GITHUB_PROVIDER = 'github';
-const GITHUB_APP_BOT_SUFFIX = '[bot]';
 const SEARCH_PAGE_SIZE = 100;
 const SEARCH_MAX_PAGES_PER_REQUEST = 5;
 
 export class GithubSourceControlProvider
   implements SourceControlProvider<GithubIntegrationConnection>
 {
-  constructor(private readonly github: GithubApiClient) {}
+  constructor(
+    private readonly github: GithubApiClient,
+    private readonly appBotLogin: () => string | undefined = configuredGithubAppBotLogin,
+  ) {}
 
   async listRepositories(
     input: ListRepositoriesInput<GithubIntegrationConnection>,
@@ -204,7 +206,11 @@ export class GithubSourceControlProvider
       repositoryId,
       permissions: input.permissions,
     });
-    const gitAuthor = await githubAppGitAuthor(this.github, token);
+    const botLogin = this.appBotLogin();
+    const gitAuthor =
+      botLogin && input.permissions?.contents === 'write'
+        ? await githubAppGitAuthor(this.github, token, botLogin)
+        : undefined;
 
     return {
       repositoryUrl: repository.cloneUrl,
@@ -253,12 +259,15 @@ function sameGithubRepository(
 async function githubAppGitAuthor(
   github: GithubApiClient,
   installationAccessToken: string,
+  name: string,
 ): Promise<CheckoutSpec['gitAuthor']> {
-  const appUsername = config.GITHUB_APP_USERNAME?.trim();
-  if (!appUsername) return undefined;
-  const name = appUsername.endsWith(GITHUB_APP_BOT_SUFFIX)
-    ? appUsername
-    : `${appUsername}${GITHUB_APP_BOT_SUFFIX}`;
+  if (!github.getBotUser) {
+    throw new GithubIntegrationProviderError(
+      'provider-unavailable',
+      'GitHub bot identity resolution is unavailable',
+    );
+  }
+
   const botUser = await github.getBotUser({username: name, installationAccessToken});
   return {
     name: botUser.login,
