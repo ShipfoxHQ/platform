@@ -6,12 +6,19 @@ import {
 import {requireWorkspaceAccess} from '@shipfox/api-auth-context';
 import {defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
-import {testAndSaveModelProviderConfig} from '#core/index.js';
+import {
+  assertWorkspaceProviderConfigurationEnabled,
+  testAndSaveModelProviderConfig,
+} from '#core/index.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
+import type {WorkspaceProviderPolicyOptions} from '#core/workspace-provider-policy.js';
 import {toModelProviderConfigDto} from '#presentation/dto/index.js';
 import {translateModelProviderRouteError} from './errors.js';
 
-export function createUpsertModelProviderConfigRoute(secrets: AgentSecretsClient) {
+export function createUpsertModelProviderConfigRoute(
+  secrets: AgentSecretsClient,
+  workspaceProviderPolicy: WorkspaceProviderPolicyOptions = {workspaceProviders: 'enabled'},
+) {
   return defineRoute({
     method: 'PUT',
     path: '/model-providers/:providerId',
@@ -39,6 +46,7 @@ export function createUpsertModelProviderConfigRoute(secrets: AgentSecretsClient
       });
 
       const membership = requireWorkspaceAccess({request, workspaceId});
+      assertWorkspaceProviderConfigurationEnabled(workspaceProviderPolicy);
 
       const config = await testAndSaveModelProviderConfig(
         {

@@ -32,6 +32,13 @@ export class UnsupportedModelProviderError extends Error {
   }
 }
 
+export class WorkspaceProvidersDisabledError extends Error {
+  constructor(public readonly managedProviderId: string) {
+    super(`This instance only supports provider \`${managedProviderId}\`.`);
+    this.name = 'WorkspaceProvidersDisabledError';
+  }
+}
+
 export class UnsupportedHarnessProviderError extends Error {
   constructor(
     public readonly harness: Harness,

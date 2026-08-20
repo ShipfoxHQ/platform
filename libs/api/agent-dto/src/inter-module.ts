@@ -55,7 +55,12 @@ export const agentInterModuleContract = defineInterModuleContract({
     resolveAgentConfig: {
       input: z.object({workspaceId: z.string().uuid().nullable(), config: agentConfigInputSchema}),
       output: resolvedAgentConfigSchema,
-      errors: {'agent-config-invalid': z.object({})},
+      errors: {
+        'agent-config-invalid': z.object({
+          message: z.string().min(1).optional(),
+          managed_provider_id: modelProviderRefSchema.optional(),
+        }),
+      },
     },
     resolveRuntimeCredentials: {
       input: z.object({

@@ -170,6 +170,32 @@ describe('resolveRuntimeCredentials', () => {
     await expect(mismatched).rejects.toMatchObject({name: 'ModelProviderConfigNotFoundError'});
   });
 
+  it('refuses workspace credentials and instance fallback when workspace providers are disabled', async () => {
+    await saveProviderConfig({
+      workspaceId,
+      providerId: 'anthropic',
+      credentials: {api_key: 'sk-workspace-secret'},
+    });
+
+    const result = resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'pi',
+        provider: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'high',
+      },
+      {
+        workspaceProviders: 'disabled',
+        runtimeConfig: instanceConfig(),
+      },
+    );
+
+    await expect(result).rejects.toThrow(ModelProviderConfigNotFoundError);
+  });
+
   it('returns custom provider runtime descriptors for custom rows', async () => {
     await saveProviderConfig({
       workspaceId,

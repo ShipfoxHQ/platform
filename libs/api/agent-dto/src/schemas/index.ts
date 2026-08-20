@@ -25,6 +25,8 @@ export {
   modelProviderSupportStatusSchema,
   piAgentThinkingSchema,
   thinkingLevelsForHarness,
+  type WorkspaceProvidersPolicy,
+  workspaceProvidersPolicySchema,
 } from './catalog.js';
 export {
   type CreateCustomModelProviderBodyDto,

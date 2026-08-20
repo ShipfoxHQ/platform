@@ -6,14 +6,21 @@ import {
   managedModelApiSchema,
   modelProviderRefSchema,
   SUPPORTED_MODEL_PROVIDER_IDS,
+  type WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
 import {bool, createConfig, num, str} from '@shipfox/config';
+import {WorkspaceProvidersDisabledError} from '#core/errors.js';
 import {getModelProviderEntry} from '#core/model-provider-policy.js';
 
 const AGENT_THINKING_CHOICES = agentThinkingSchema.options;
 const SUPPORTED_PROVIDER_IDS_DESCRIPTION = SUPPORTED_MODEL_PROVIDER_IDS.join(', ');
 
 export const config = createConfig({
+  AGENT_WORKSPACE_PROVIDERS: str({
+    desc: 'Controls whether workspaces can configure model providers. Use enabled to preserve the default workspace provider behavior, or disabled when the injected managed provider is the only provider for this instance.',
+    choices: ['enabled', 'disabled'],
+    default: 'enabled',
+  }),
   AGENT_DEFAULT_PROVIDER: str({
     desc: `Instance-wide default model provider ID used when a workflow and workspace do not choose one. Optional. Use one of the supported model catalog IDs (${SUPPORTED_PROVIDER_IDS_DESCRIPTION}) or the injected managed provider.`,
     default: undefined,
@@ -53,6 +60,9 @@ export const config = createConfig({
   }),
 });
 
+export const workspaceProvidersPolicy =
+  config.AGENT_WORKSPACE_PROVIDERS as WorkspaceProvidersPolicy;
+
 export const harnessToolDeploymentConfig = buildHarnessToolDeploymentConfig({
   piEnabledToolPackages: config.AGENT_PI_ENABLED_TOOL_PACKAGES,
   piWebSearchEnabled: config.AGENT_PI_WEB_SEARCH_ENABLED,
@@ -60,6 +70,20 @@ export const harnessToolDeploymentConfig = buildHarnessToolDeploymentConfig({
 
 export function assertAgentConfig(managedProvider?: ManagedModelProvider): void {
   if (managedProvider !== undefined) assertManagedProvider(managedProvider);
+
+  if (workspaceProvidersPolicy === 'disabled') {
+    if (managedProvider === undefined) {
+      throw new Error(
+        'AGENT_WORKSPACE_PROVIDERS=disabled requires an injected managed model provider.',
+      );
+    }
+    if (
+      config.AGENT_DEFAULT_PROVIDER !== undefined &&
+      config.AGENT_DEFAULT_PROVIDER !== managedProvider.id
+    ) {
+      throw new WorkspaceProvidersDisabledError(managedProvider.id);
+    }
+  }
 
   const defaultProvider = config.AGENT_DEFAULT_PROVIDER;
   if (defaultProvider !== undefined && !isRegisteredProvider(defaultProvider, managedProvider)) {

@@ -1,4 +1,4 @@
-import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
+import type {ManagedModelProvider, WorkspaceProvidersPolicy} from '@shipfox/api-agent-dto';
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
 import {secretsInterModuleContract} from '@shipfox/api-secrets-dto/inter-module';
 import {
@@ -13,6 +13,7 @@ import {
   UnsupportedHarnessProviderError,
   UnsupportedHarnessThinkingError,
   UnsupportedModelProviderError,
+  WorkspaceProvidersDisabledError,
 } from '#core/errors.js';
 import {resolveAgentConfig} from '#core/resolve-agent-config.js';
 import {resolveRuntimeCredentials} from '#core/resolve-runtime-credentials.js';
@@ -23,16 +24,25 @@ import {createWorkspaceAgentDefaultsResolver} from '#core/workspace-agent-defaul
 export function createAgentInterModulePresentation(params: {
   secrets: AgentSecretsClient;
   managedProvider?: ManagedModelProvider | undefined;
+  workspaceProviders?: WorkspaceProvidersPolicy | undefined;
 }): InterModulePresentation<typeof agentInterModuleContract> {
   return defineInterModulePresentation(agentInterModuleContract, {
-    getValidationCatalog: () => getAgentValidationCatalog(params.managedProvider),
+    getValidationCatalog: () =>
+      getAgentValidationCatalog(params.managedProvider, params.workspaceProviders),
     resolveAgentConfig: async ({workspaceId, config}) => {
       try {
         const resolve =
           workspaceId === null
             ? (step: Parameters<typeof resolveAgentConfig>[0]) =>
-                resolveAgentConfig(step, {managedProvider: params.managedProvider})
-            : await createWorkspaceAgentDefaultsResolver(workspaceId, params.managedProvider);
+                resolveAgentConfig(step, {
+                  managedProvider: params.managedProvider,
+                  workspaceProviders: params.workspaceProviders,
+                })
+            : await createWorkspaceAgentDefaultsResolver(
+                workspaceId,
+                params.managedProvider,
+                params.workspaceProviders,
+              );
         return await resolve(config);
       } catch (error) {
         throw toResolveAgentConfigKnownError(error);
@@ -43,6 +53,7 @@ export function createAgentInterModulePresentation(params: {
         return await resolveRuntimeCredentials(input, {
           managedProvider: params.managedProvider,
           secrets: params.secrets,
+          workspaceProviders: params.workspaceProviders,
         });
       } catch (error) {
         throw toResolveRuntimeCredentialsKnownError(error);
@@ -56,12 +67,17 @@ function toResolveAgentConfigKnownError(error: unknown): unknown {
     error instanceof InvalidAgentModelError ||
     error instanceof UnsupportedHarnessProviderError ||
     error instanceof UnsupportedHarnessThinkingError ||
-    error instanceof UnsupportedModelProviderError
+    error instanceof UnsupportedModelProviderError ||
+    error instanceof WorkspaceProvidersDisabledError
   ) {
     return createInterModuleKnownError(
       agentInterModuleContract.methods.resolveAgentConfig,
       'agent-config-invalid',
-      {},
+      {
+        ...(error instanceof WorkspaceProvidersDisabledError
+          ? {message: error.message, managed_provider_id: error.managedProviderId}
+          : {}),
+      },
     );
   }
   return error;

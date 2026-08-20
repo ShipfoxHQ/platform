@@ -126,4 +126,6 @@ export {
   updateCustomModelProviderHeaderRequestSchema,
   updateModelProviderConfigBodySchema,
   updateModelProviderDefaultModelBodySchema,
+  type WorkspaceProvidersPolicy,
+  workspaceProvidersPolicySchema,
 } from '#schemas/index.js';

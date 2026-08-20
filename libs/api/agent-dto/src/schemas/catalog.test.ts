@@ -6,6 +6,7 @@ import {
   MODEL_PROVIDER_CATALOG_SEED,
   modelProviderCatalogEntrySchema,
   modelProviderCatalogSeedSchema,
+  workspaceProvidersPolicySchema,
 } from './catalog.js';
 import {
   MODEL_PROVIDER_IDS,
@@ -150,6 +151,21 @@ describe('model provider catalog', () => {
     const parsed = modelProviderCatalogEntrySchema.array().parse(responseEntries);
 
     expect(parsed).toHaveLength(37);
+  });
+
+  it('parses a managed provider response entry and workspace provider policy', () => {
+    const parsed = modelProviderCatalogEntrySchema.parse({
+      id: 'shipfox-managed',
+      label: 'Shipfox Managed',
+      support_status: 'supported',
+      default_model: 'managed-claude',
+      credential_fields: [],
+      unsupported_reason: null,
+      models: [{id: 'managed-claude', label: 'Managed Claude'}],
+    });
+
+    expect(parsed.id).toBe('shipfox-managed');
+    expect(workspaceProvidersPolicySchema.parse('disabled')).toBe('disabled');
   });
 
   it('rejects a supported response entry without models', () => {

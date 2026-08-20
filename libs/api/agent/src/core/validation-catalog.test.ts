@@ -44,4 +44,27 @@ describe('getAgentValidationCatalog', () => {
     expect(claude?.supported_provider_ids).toContain(managedProvider.id);
     expect(claude?.model_ids_by_provider?.[managedProvider.id]).toEqual(['managed-claude']);
   });
+
+  it('exposes only the managed provider when workspace providers are disabled', () => {
+    const managedProvider = {
+      id: 'shipfox-managed',
+      label: 'Shipfox Managed',
+      models: [{id: 'managed-claude', label: 'Managed Claude', api: 'anthropic-messages' as const}],
+      defaultModel: 'managed-claude',
+      resolveCredentials: async () => ({
+        api: 'anthropic-messages' as const,
+        baseUrl: 'https://gateway.example.com',
+        credentials: {api_key: 'token'},
+      }),
+    } satisfies ManagedModelProvider;
+
+    const catalog = getAgentValidationCatalog(managedProvider, 'disabled');
+
+    expect(catalog.providers).toEqual([{id: managedProvider.id, support_status: 'supported'}]);
+    expect(
+      catalog.harnesses.every((harness) =>
+        harness.supported_provider_ids.every((providerId) => providerId === managedProvider.id),
+      ),
+    ).toBe(true);
+  });
 });

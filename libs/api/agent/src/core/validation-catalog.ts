@@ -1,4 +1,4 @@
-import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
+import type {ManagedModelProvider, WorkspaceProvidersPolicy} from '@shipfox/api-agent-dto';
 import {
   listEnabledHarnessTools,
   listHarnessDescriptors,
@@ -12,12 +12,16 @@ import {getModelProviderEntry} from './model-provider-policy.js';
 /** Produces the versioned, JSON-safe policy snapshot consumed by Definitions. */
 export function getAgentValidationCatalog(
   managedProvider?: ManagedModelProvider | undefined,
+  workspaceProviders: WorkspaceProvidersPolicy = 'enabled',
 ): AgentValidationCatalog {
+  const managedOnly = workspaceProviders === 'disabled';
   const providers = [
-    ...MODEL_PROVIDER_IDS.map((id) => ({
-      id,
-      support_status: getModelProviderEntry(id)?.support_status ?? 'unsupported',
-    })),
+    ...(managedOnly
+      ? []
+      : MODEL_PROVIDER_IDS.map((id) => ({
+          id,
+          support_status: getModelProviderEntry(id)?.support_status ?? 'unsupported',
+        }))),
     ...(managedProvider === undefined
       ? []
       : [{id: managedProvider.id, support_status: 'supported' as const}]),
@@ -28,18 +32,25 @@ export function getAgentValidationCatalog(
     providers,
     harnesses: listHarnessDescriptors().map((harness) => ({
       id: harness.id,
-      supported_provider_ids: [
-        ...harness.supportedProviderIds,
-        ...(managedProvider !== undefined &&
-        managedModelsForHarness(harness.id, managedProvider).length > 0
+      supported_provider_ids: managedOnly
+        ? managedProvider !== undefined &&
+          managedModelsForHarness(harness.id, managedProvider).length > 0
           ? [managedProvider.id]
-          : []),
-      ],
+          : []
+        : [
+            ...harness.supportedProviderIds,
+            ...(managedProvider !== undefined &&
+            managedModelsForHarness(harness.id, managedProvider).length > 0
+              ? [managedProvider.id]
+              : []),
+          ],
       model_ids_by_provider: Object.fromEntries([
-        ...harness.supportedProviderIds.map((providerId) => [
-          providerId,
-          listHarnessProviderModels(harness.id, providerId).map((model) => model.id),
-        ]),
+        ...(managedOnly
+          ? []
+          : harness.supportedProviderIds.map((providerId) => [
+              providerId,
+              listHarnessProviderModels(harness.id, providerId).map((model) => model.id),
+            ])),
         ...(managedProvider === undefined
           ? []
           : [

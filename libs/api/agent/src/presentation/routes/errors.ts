@@ -12,6 +12,7 @@ import {
   ModelProviderConfigNotFoundError,
   ModelProviderValidationError,
   UnsupportedModelProviderError,
+  WorkspaceProvidersDisabledError,
 } from '#core/index.js';
 import {getModelProviderCredentialKeys} from '#core/model-provider-policy.js';
 
@@ -93,6 +94,16 @@ export function translateModelProviderRouteError(error: unknown): never {
     throw new ClientError('Provider is not supported', 'provider-unsupported', {
       status: 422,
       details: {provider_id: error.providerId},
+    });
+  }
+
+  if (error instanceof WorkspaceProvidersDisabledError) {
+    throw new ClientError(error.message, 'workspace-providers-disabled', {
+      status: 422,
+      details: {
+        managed_provider_id: error.managedProviderId,
+        message: error.message,
+      },
     });
   }
 

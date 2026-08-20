@@ -20,7 +20,7 @@ import {
 } from '#db/index.js';
 import {modelProviderConfigs} from '#db/schema/model-provider-configs.js';
 import {getSecretsByNamespace, setSecrets} from '#test/fixtures/secrets-client.js';
-import {agentRoutes} from './index.js';
+import {agentRoutes, createAgentRoutes} from './index.js';
 
 vi.mock('@earendil-works/pi-ai/compat', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@earendil-works/pi-ai/compat')>();
@@ -390,6 +390,53 @@ describe('model provider config routes', () => {
       });
 
       expect(res.statusCode).toBe(400);
+    });
+
+    it('rejects catalog and custom provider writes when workspace providers are disabled', async () => {
+      await closeApp();
+      app = await createApp({
+        auth: [fakeUserAuth],
+        routes: createAgentRoutes(undefined as never, {
+          managedProvider: managedProvider(),
+          workspaceProviders: 'disabled',
+        }),
+        swagger: false,
+      });
+      await app.ready();
+
+      const catalogWrite = await app.inject({
+        method: 'PUT',
+        url: `/workspaces/${workspaceId}/agent/model-providers/anthropic`,
+        headers: {authorization: 'Bearer user'},
+        payload: {credentials: {api_key: 'sk-secret'}},
+      });
+      const customWrite = await app.inject({
+        method: 'POST',
+        url: `/workspaces/${workspaceId}/agent/custom-model-providers`,
+        headers: {authorization: 'Bearer user'},
+        payload: {
+          slug: 'local-vllm',
+          display_name: 'Local vLLM',
+          api: 'openai-responses',
+          base_url: 'http://127.0.0.1:11434/v1',
+          models: [{id: 'llama-3.1', label: 'Llama 3.1'}],
+        },
+      });
+
+      expect(catalogWrite.statusCode).toBe(422);
+      expect(customWrite.statusCode).toBe(422);
+      expect(catalogWrite.json()).toMatchObject({
+        code: 'workspace-providers-disabled',
+        details: {
+          message: 'This instance only supports provider `shipfox`.',
+        },
+      });
+      expect(customWrite.json()).toMatchObject({
+        code: 'workspace-providers-disabled',
+        details: {
+          message: 'This instance only supports provider `shipfox`.',
+        },
+      });
     });
   });
 
@@ -803,5 +850,19 @@ describe('model provider config routes', () => {
       values: {API_KEY: 'seeded-secret'},
     });
     expect(rows).toHaveLength(1);
+  }
+
+  function managedProvider() {
+    return {
+      id: 'shipfox',
+      label: 'Shipfox',
+      models: [{id: 'managed-claude', label: 'Managed Claude', api: 'anthropic-messages' as const}],
+      defaultModel: 'managed-claude',
+      resolveCredentials: async () => ({
+        api: 'anthropic-messages' as const,
+        baseUrl: 'https://gateway.example.com',
+        credentials: {api_key: 'token'},
+      }),
+    };
   }
 });
