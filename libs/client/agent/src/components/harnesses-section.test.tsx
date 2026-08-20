@@ -106,6 +106,33 @@ describe('WorkspaceHarnessesSection', () => {
     expect(screen.getByRole('menuitem', {name: 'Set as default'})).toHaveAttribute('data-disabled');
   });
 
+  test('keeps harnesses unavailable when the catalog fails and no providers are configured', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString());
+        if (url.pathname.endsWith('/agent/model-provider-catalog')) {
+          return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
+        }
+        return Promise.resolve(
+          harnessRequestResponse(input, modelProviderConfigsResponse({configs: []})),
+        );
+      }),
+    });
+
+    renderHarnesses(<WorkspaceHarnessesSection workspaceId={AGENT_TEST_WORKSPACE_ID} />);
+
+    const claudeRow = (await screen.findByText('Claude')).closest('li');
+    if (claudeRow === null) throw new Error('Expected Claude row');
+    expect(
+      within(claudeRow).getByText('Configure a compatible model provider to use this harness.'),
+    ).toHaveClass('sr-only');
+
+    await openHarnessActions(user, 'Claude');
+    expect(screen.getByRole('menuitem', {name: 'Set as default'})).toHaveAttribute('data-disabled');
+  });
+
   test('sets the default harness and shows a success toast', async () => {
     const user = userEvent.setup();
     let requestBody: unknown;

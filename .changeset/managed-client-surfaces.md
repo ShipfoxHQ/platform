@@ -9,4 +9,5 @@
 ---
 
 Shows managed inference providers in client surfaces without exposing workspace credential setup,
-including harness-compatible models and stable managed-policy failures.
+keeps workflow examples limited to supported models, and explains managed-provider failures in
+workflow runs.
