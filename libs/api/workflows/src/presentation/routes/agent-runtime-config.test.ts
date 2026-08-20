@@ -300,6 +300,36 @@ describe('GET /runs/jobs/current/agent-runtime-config', () => {
     expect(res.json().code).toBe('model-provider-not-configured');
   });
 
+  test('returns managed provider policy details when workspace providers are disabled', async () => {
+    const {job, step} = await createRunningAgentStep();
+    resolveRuntimeCredentials.mockRejectedValueOnce(
+      createInterModuleKnownError(
+        agentInterModuleContract.methods.resolveRuntimeCredentials,
+        'workspace-providers-disabled',
+        {
+          message: 'This instance only supports provider `shipfox`.',
+          managed_provider_id: 'shipfox',
+        },
+      ),
+    );
+    const token = await mintActiveLeaseToken({jobId: job.id});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: runtimeConfigUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({
+      code: 'workspace-providers-disabled',
+      details: {
+        message: 'This instance only supports provider `shipfox`.',
+        managed_provider_id: 'shipfox',
+      },
+    });
+  });
+
   test('returns 409 and reports when workspace credentials cannot be decrypted', async () => {
     const {job, step} = await createRunningAgentStep();
     resolveRuntimeCredentials.mockRejectedValueOnce(

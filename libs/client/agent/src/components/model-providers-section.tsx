@@ -84,51 +84,47 @@ function ManagedProviderSection({
 
       {provider ? (
         <Panel>
-          <PanelBody asChild>
-            <PanelRow asChild className="flex-col items-stretch gap-group">
-              <li>
-                <div className="flex min-w-0 flex-col gap-tight">
-                  <Text size="md" bold>
-                    {provider.label}
-                  </Text>
-                  <Text size="sm" className="text-foreground-neutral-muted">
-                    Managed by this instance. No workspace credentials are required.
-                  </Text>
-                </div>
+          <PanelBody className="gap-group p-panel">
+            <div className="flex min-w-0 flex-col gap-tight">
+              <Text size="md" bold>
+                {provider.label}
+              </Text>
+              <Text size="sm" className="text-foreground-neutral-muted">
+                Managed by this instance. No workspace credentials are required.
+              </Text>
+            </div>
 
-                <div className="flex flex-col gap-inline">
-                  <Text size="sm" bold>
-                    Available models ({provider.models.length})
-                  </Text>
-                  <ul
-                    aria-label={`${provider.label} models`}
-                    className="rounded-8 border border-border-neutral-base"
+            <div className="flex flex-col gap-inline">
+              <Text size="sm" bold>
+                Available models ({provider.models.length})
+              </Text>
+              <ul
+                aria-label={`${provider.label} models`}
+                className="rounded-8 border border-border-neutral-base"
+              >
+                {provider.models.map((model) => (
+                  <li
+                    key={model.id}
+                    className="flex min-w-0 items-center justify-between gap-inline border-b border-border-neutral-base px-row py-row last:border-b-0"
                   >
-                    {provider.models.map((model) => (
-                      <li
-                        key={model.id}
-                        className="flex min-w-0 items-center justify-between gap-inline border-b border-border-neutral-base px-row py-row last:border-b-0"
-                      >
-                        <Text as="span" size="sm" bold className="min-w-0 truncate">
-                          {model.label}
-                        </Text>
-                        <Code
-                          as="span"
-                          variant="label"
-                          className="min-w-0 truncate text-foreground-neutral-muted"
-                        >
-                          {model.id}
-                        </Code>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                    <Text as="span" size="sm" bold className="min-w-0 truncate">
+                      {model.label}
+                    </Text>
+                    <Code
+                      as="span"
+                      variant="label"
+                      className="min-w-0 truncate text-foreground-neutral-muted"
+                    >
+                      {model.id}
+                    </Code>
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-                <Button type="button" size="sm" variant="secondary" onClick={onShowUsage}>
-                  Use in a workflow
-                </Button>
-              </li>
-            </PanelRow>
+            <Button type="button" size="sm" variant="secondary" onClick={onShowUsage}>
+              Use in a workflow
+            </Button>
           </PanelBody>
         </Panel>
       ) : (

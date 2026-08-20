@@ -64,6 +64,25 @@ export function createAgentRuntimeConfigRoute(params: {
           },
         );
       }
+      if (
+        isInterModuleKnownError(
+          agentInterModuleContract.methods.resolveRuntimeCredentials,
+          error,
+        ) &&
+        error.code === 'workspace-providers-disabled'
+      ) {
+        throw new ClientError(
+          error.details.message ?? 'Workspace provider configuration is disabled',
+          'workspace-providers-disabled',
+          {
+            status: 422,
+            details: {
+              managed_provider_id: error.details.managed_provider_id,
+              ...(error.details.message === undefined ? {} : {message: error.details.message}),
+            },
+          },
+        );
+      }
       throw error;
     },
     handler: async (request, reply) => {

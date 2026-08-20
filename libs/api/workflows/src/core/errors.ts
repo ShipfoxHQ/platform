@@ -38,13 +38,28 @@ export class WorkspaceNotFoundError extends Error {
   }
 }
 
+export interface AgentConfigUnresolvableErrorOptions {
+  readonly cause?: unknown;
+  readonly message?: string;
+  readonly code?: string;
+  readonly managedProviderId?: string;
+}
+
 export class AgentConfigUnresolvableError extends Error {
+  readonly code?: string | undefined;
+  readonly managedProviderId?: string | undefined;
+
   constructor(
     readonly definitionId: string,
-    options?: ErrorOptions | undefined,
+    options?: AgentConfigUnresolvableErrorOptions | undefined,
   ) {
-    super(`Agent configuration cannot be resolved for definition ${definitionId}`, options);
+    super(
+      options?.message ?? `Agent configuration cannot be resolved for definition ${definitionId}`,
+      options?.cause === undefined ? undefined : {cause: options.cause},
+    );
     this.name = 'AgentConfigUnresolvableError';
+    this.code = options?.code;
+    this.managedProviderId = options?.managedProviderId;
   }
 }
 

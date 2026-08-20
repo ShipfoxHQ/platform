@@ -84,6 +84,16 @@ function toResolveAgentConfigKnownError(error: unknown): unknown {
 }
 
 function toResolveRuntimeCredentialsKnownError(error: unknown): unknown {
+  if (error instanceof WorkspaceProvidersDisabledError) {
+    return createInterModuleKnownError(
+      agentInterModuleContract.methods.resolveRuntimeCredentials,
+      'workspace-providers-disabled',
+      {
+        message: error.message,
+        managed_provider_id: error.managedProviderId,
+      },
+    );
+  }
   if (error instanceof ModelProviderConfigNotFoundError) {
     return createInterModuleKnownError(
       agentInterModuleContract.methods.resolveRuntimeCredentials,
