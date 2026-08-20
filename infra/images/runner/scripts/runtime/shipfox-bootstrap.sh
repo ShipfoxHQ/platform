@@ -168,20 +168,38 @@ grow_root_filesystem() {
     abort_boot 'Unable to identify the root partition.'
   fi
   root_disk="/dev/$root_disk_name"
-  root_disk_size="$(blockdev --getsize64 "$root_disk" 2>/dev/null || true)"
-  root_partition_size="$(blockdev --getsize64 "$root_source" 2>/dev/null || true)"
-  if [ -z "$root_disk_size" ] || [ -z "$root_partition_size" ]; then
+  root_disk_size="$(cat "/sys/block/$root_disk_name/size" 2>/dev/null || true)"
+  root_partition_start="$(cat "/sys/block/$root_disk_name/$root_partition_name/start" 2>/dev/null || true)"
+  root_partition_size="$(cat "/sys/block/$root_disk_name/$root_partition_name/size" 2>/dev/null || true)"
+  if [ -z "$root_disk_size" ] || [ -z "$root_partition_start" ] || [ -z "$root_partition_size" ]; then
     abort_boot 'Unable to measure the root partition.'
   fi
-  if [ "$root_disk_size" -le "$root_partition_size" ]; then
+  root_partition_end=$((root_partition_start + root_partition_size))
+  if [ $((root_disk_size - root_partition_end)) -lt 2048 ]; then
     return
   fi
 
   if ! command -v growpart >/dev/null 2>&1; then
     abort_boot 'growpart is not installed.'
   fi
-  if ! growpart "$root_disk" "$root_partition_number"; then
-    abort_boot 'Unable to grow the root partition.'
+  growpart_output=''
+  growpart_status=0
+  if growpart_output="$(growpart "$root_disk" "$root_partition_number" 2>&1)"; then
+    growpart_status=0
+  else
+    growpart_status=$?
+  fi
+  if [ -n "$growpart_output" ]; then
+    printf '%s\n' "$growpart_output"
+  fi
+  if [ "$growpart_status" -ne 0 ]; then
+    case "$growpart_output" in
+      *NOCHANGE*)
+        ;;
+      *)
+        abort_boot 'Unable to grow the root partition.'
+        ;;
+    esac
   fi
   if ! resize2fs "$root_source"; then
     abort_boot 'Unable to grow the root filesystem.'
