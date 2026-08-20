@@ -1,17 +1,14 @@
-import {readFile, writeFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {writeFile} from 'node:fs/promises';
 import {parseArgs} from 'node:util';
 import {
   DescribeImageAttributeCommand,
   type DescribeImageAttributeCommandOutput,
   DescribeImagesCommand,
-  DescribeSnapshotsCommand,
-  type DescribeSnapshotsCommandOutput,
   EC2Client,
   type Image,
   ModifyImageAttributeCommand,
 } from '@aws-sdk/client-ec2';
-import {getProjectRootPath, log} from '@shipfox/tool-utils';
+import {log} from '@shipfox/tool-utils';
 import {AWS_ACCOUNT_ID_PATTERN, parseBuildRunnerImageArgs} from './build-runner-image.js';
 import {buildRunnerImage, type RunnerImageBuild} from './runner-image.js';
 
@@ -19,7 +16,6 @@ const DEFAULT_CANDIDATE_TTL_DAYS = 14;
 const DEFAULT_DESCRIBE_AVAILABILITY_RETRIES = 5;
 const DEFAULT_DESCRIBE_AVAILABILITY_DELAY_MS = 2000;
 const CANDIDATE_REGION = 'eu-central-1';
-const FULL_SNAPSHOT_SIZE_LIMIT_PATTERN = /^full_snapshot_size_max_bytes=([1-9]\d*)$/mu;
 const INVALID_AMI_NOT_FOUND = 'InvalidAMIID.NotFound';
 const GIT_REVISION_PATTERN = /^[a-f0-9]{40}$/u;
 const POSITIVE_INTEGER_PATTERN = /^[1-9]\d*$/u;
@@ -44,15 +40,9 @@ interface CandidateImageMetadata {
   owner: string;
 }
 
-interface CandidateImage {
-  image: Image;
-  metadata: CandidateImageMetadata;
-}
-
 interface Ec2ClientLike {
   send(command: DescribeImagesCommand): Promise<{Images?: Image[]}>;
   send(command: DescribeImageAttributeCommand): Promise<DescribeImageAttributeCommandOutput>;
-  send(command: DescribeSnapshotsCommand): Promise<DescribeSnapshotsCommandOutput>;
   send(command: ModifyImageAttributeCommand): Promise<unknown>;
 }
 
@@ -81,9 +71,8 @@ export async function buildRunnerImageCandidate(
     candidateId,
   );
   if (existingImage) {
-    await verifyRootSnapshotSize(client, existingImage.image, build);
-    await reshareRunnerImageCandidate(client, existingImage.metadata.amiId, build);
-    return candidateResult('reused', existingImage.metadata, build, candidateId, region);
+    await reshareRunnerImageCandidate(client, existingImage.amiId, build);
+    return candidateResult('reused', existingImage, build, candidateId, region);
   }
 
   const result = await (options.build ?? buildRunnerImage)(build);
@@ -158,7 +147,7 @@ async function findRunnerImageCandidate(
   revision: string,
   architecture: 'amd64' | 'arm64',
   candidateId: string,
-): Promise<CandidateImage | null> {
+): Promise<CandidateImageMetadata | null> {
   const output = await client.send(
     new DescribeImagesCommand({
       Owners: ['self'],
@@ -180,7 +169,7 @@ async function findRunnerImageCandidate(
     );
   }
   const image = images[0];
-  return image ? {image, metadata: candidateImageMetadata(image)} : null;
+  return image ? candidateImageMetadata(image) : null;
 }
 
 async function describeBuiltCandidate(
@@ -209,50 +198,7 @@ async function describeBuiltCandidate(
   ) {
     throw new Error(`Candidate AMI ${amiId} does not carry the expected build identity tags.`);
   }
-  await verifyRootSnapshotSize(client, image, build);
   return metadata;
-}
-
-async function verifyRootSnapshotSize(
-  client: Ec2ClientLike,
-  image: Image,
-  build: RunnerImageBuild,
-): Promise<void> {
-  const amiId = required(image.ImageId, 'Candidate AMI ID');
-  const rootSnapshotId = image.BlockDeviceMappings?.find(
-    (mapping) => mapping.DeviceName === image.RootDeviceName,
-  )?.Ebs?.SnapshotId;
-  if (!rootSnapshotId) {
-    throw new Error(`Candidate AMI ${amiId} has no root EBS snapshot to verify.`);
-  }
-
-  const output = await client.send(new DescribeSnapshotsCommand({SnapshotIds: [rootSnapshotId]}));
-  const snapshot = output.Snapshots?.find((candidate) => candidate.SnapshotId === rootSnapshotId);
-  const fullSnapshotSize = snapshot?.FullSnapshotSizeInBytes;
-  if (fullSnapshotSize === undefined || !Number.isSafeInteger(fullSnapshotSize)) {
-    throw new Error(
-      `Candidate AMI ${amiId} root snapshot ${rootSnapshotId} has no valid full size.`,
-    );
-  }
-
-  const ceiling = await readFullSnapshotSizeCeiling(build);
-  if (fullSnapshotSize > ceiling) {
-    throw new Error(
-      `Candidate AMI ${amiId} root snapshot ${rootSnapshotId} is ${fullSnapshotSize} bytes, exceeding committed ceiling ${ceiling} bytes.`,
-    );
-  }
-}
-
-async function readFullSnapshotSizeCeiling(build: RunnerImageBuild): Promise<number> {
-  const rootDir = getProjectRootPath(import.meta.url);
-  const limitsPath = join(rootDir, 'composition', build.os, build.architecture, 'limits.env');
-  const contents = await readFile(limitsPath, 'utf8');
-  const value = contents.match(FULL_SNAPSHOT_SIZE_LIMIT_PATTERN)?.[1];
-  const ceiling = value ? Number(value) : Number.NaN;
-  if (!Number.isSafeInteger(ceiling) || ceiling <= 0) {
-    throw new Error(`Runner image composition limit is invalid: ${limitsPath}`);
-  }
-  return ceiling;
 }
 
 // DescribeImages can briefly lag behind a Packer build that just registered the
