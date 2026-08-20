@@ -38,9 +38,14 @@ import {
 } from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
-import {releaseTerminalRunnerInstanceReservationsByIds} from './reservations.js';
+import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
+import {
+  releaseReservationUnits,
+  releaseTerminalRunnerInstanceReservationsByIds,
+} from './reservations.js';
 import {runnersOutbox} from './schema/outbox.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
+import {reservations} from './schema/reservations.js';
 import {providerRunners} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
@@ -262,6 +267,32 @@ export async function claimPendingJobExecution(params: {
       providerRunnerId = session.providerRunnerId;
     }
 
+    const runnerInstanceCondition = runnerInstanceId
+      ? eq(providerRunners.id, runnerInstanceId)
+      : provisionerId && providerRunnerId
+        ? and(
+            eq(providerRunners.provisionerId, provisionerId),
+            eq(providerRunners.providerRunnerId, providerRunnerId),
+          )
+        : null;
+    if (runnerInstanceCondition && provisionerId) {
+      const [runner] = await tx
+        .select({
+          reservationId: providerRunners.reservationId,
+          intendedReservationId: providerRunners.intendedReservationId,
+        })
+        .from(providerRunners)
+        .where(runnerInstanceCondition)
+        .limit(1);
+      await lockRunnerReservationAdvisoryKeysTx(tx, {
+        provisionerId,
+        reservationIds: [runner?.reservationId, runner?.intendedReservationId].filter(
+          (reservationId): reservationId is string =>
+            reservationId !== null && reservationId !== undefined,
+        ),
+      });
+    }
+
     // `id` is a uuidv7 (time-ordered), so it is a deterministic FIFO tiebreaker
     // for rows sharing a created_at within a batch. Lock only the FIFO candidate before
     // attempting its execution advisory lock; putting pg_try_advisory_xact_lock in this
@@ -328,14 +359,6 @@ export async function claimPendingJobExecution(params: {
       launchKind: params.maxClaims === null ? 'manual' : 'unknown',
     };
 
-    const runnerInstanceCondition = runnerInstanceId
-      ? eq(providerRunners.id, runnerInstanceId)
-      : provisionerId && providerRunnerId
-        ? and(
-            eq(providerRunners.provisionerId, provisionerId),
-            eq(providerRunners.providerRunnerId, providerRunnerId),
-          )
-        : null;
     if (runnerInstanceCondition) {
       const [claimedRunner] = await tx
         .update(providerRunners)
@@ -350,6 +373,8 @@ export async function claimPendingJobExecution(params: {
           provider: providerRunners.providerKind,
           launchKind: providerRunners.launchKind,
           runnerInstanceId: providerRunners.id,
+          reservationId: providerRunners.reservationId,
+          intendedReservationId: providerRunners.intendedReservationId,
           sessionCreatedAtEpochMs: sql<number | null>`(
             select extract(epoch from ${runnerSessions.createdAt})::double precision * 1000
             from ${runnerSessions}
@@ -359,6 +384,47 @@ export async function claimPendingJobExecution(params: {
       if (claimedRunner && queueTimeObservation) {
         queueTimeObservation.provider = claimedRunner.provider;
         queueTimeObservation.launchKind = claimedRunner.launchKind;
+      }
+      if (claimedRunner?.isFirstClaim) {
+        const [releasedRunner] = await tx
+          .update(providerRunners)
+          .set({
+            intendedReservationId: null,
+            reservationReleasedAt: sql`now()`,
+            updatedAt: sql`now()`,
+          })
+          .where(
+            and(
+              eq(providerRunners.id, claimedRunner.runnerInstanceId),
+              or(
+                isNotNull(providerRunners.reservationId),
+                isNotNull(providerRunners.intendedReservationId),
+              ),
+              isNull(providerRunners.reservationReleasedAt),
+            ),
+          )
+          .returning({
+            provisionerId: providerRunners.provisionerId,
+          });
+        const reservationId = claimedRunner.intendedReservationId ?? claimedRunner.reservationId;
+        if (releasedRunner?.provisionerId && reservationId) {
+          const [reservation] = await tx
+            .select({workspaceId: reservations.workspaceId})
+            .from(reservations)
+            .where(
+              and(
+                eq(reservations.id, reservationId),
+                eq(reservations.provisionerId, releasedRunner.provisionerId),
+              ),
+            )
+            .limit(1);
+          if (reservation)
+            await releaseReservationUnits(tx, {
+              workspaceId: reservation.workspaceId,
+              provisionerId: releasedRunner.provisionerId,
+              releases: [{reservationId, count: 1}],
+            });
+        }
       }
       if (
         claimedRunner?.isFirstClaim &&
