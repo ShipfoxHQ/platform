@@ -1779,6 +1779,45 @@ describe('runJobSteps', () => {
     );
   });
 
+  it('forwards Claude per-step runtime config to the agent step', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep();
+    const claude = {
+      base_url: 'https://gateway.example.test/v1',
+      auth_token: 'managed-token',
+    };
+    requestAgentRuntimeConfigMock.mockResolvedValueOnce({
+      harness: 'claude',
+      provider_id: 'shipfox',
+      model: 'claude-opus-4-8',
+      thinking: 'high',
+      credentials: {api_key: 'managed-token'},
+      claude,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeAgentStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal});
+
+    expect(executeAgentStepMock).toHaveBeenCalledWith(
+      agent,
+      expect.objectContaining({
+        runtime: {
+          harness: 'claude',
+          provider: 'shipfox',
+          model: 'claude-opus-4-8',
+          thinking: 'high',
+          credentials: {api_key: 'managed-token'},
+          claude,
+        },
+      }),
+    );
+  });
+
   it('opens a session stream for an agent step, forwards entries, and settles it', async () => {
     const setup = buildSetupStep();
     const agent = buildAgentStep();
