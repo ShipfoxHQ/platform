@@ -24,6 +24,7 @@ describe('buildModelProviderCatalog', () => {
       expect(Object.isFrozen(managedEntry)).toBe(true);
       expect(Object.isFrozen(managedEntry.models)).toBe(true);
       expect(Object.isFrozen(managedEntry.models[0])).toBe(true);
+      expect(managedEntry.models[0]?.api).toBe('anthropic-messages');
     }
   });
 });

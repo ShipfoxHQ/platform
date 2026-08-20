@@ -50,12 +50,14 @@ export function ModelProviderOnboardingPage({
   useEffect(() => {
     document
       .getElementById(
-        onboarding.step === 'choose-harness'
-          ? 'model-provider-harness-step'
-          : 'model-provider-provider-step',
+        managedOnly
+          ? 'managed-provider-ready'
+          : onboarding.step === 'choose-harness'
+            ? 'model-provider-harness-step'
+            : 'model-provider-provider-step',
       )
       ?.focus();
-  }, [onboarding.step]);
+  }, [managedOnly, onboarding.step]);
 
   if (managedOnly) {
     return <ManagedOnlyOnboarding provider={managedProvider} onContinue={onConfigured} />;

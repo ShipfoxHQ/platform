@@ -374,7 +374,7 @@ describe('workspace setup route hook', () => {
     renderSetupRoute(`/w/${WORKSPACE_SLUG}/integrations`, fetchImpl);
 
     expect(await screen.findByText('Create project')).toBeInTheDocument();
-    expect(calledUrls(fetchImpl).some((url) => url.endsWith('/agent/model-providers'))).toBe(false);
+    expect(calledUrls(fetchImpl).some((url) => url.endsWith('/agent/model-providers'))).toBe(true);
   });
 
   test('keeps the provider onboarding route available while provider setup is pending', async () => {

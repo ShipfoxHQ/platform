@@ -16,6 +16,7 @@ export interface HarnessDescriptor {
 export interface AgentModel {
   readonly id: string;
   readonly label: string;
+  readonly api?: ProviderApi | undefined;
   readonly contextWindow?: number | undefined;
   readonly maxOutputTokens?: number | undefined;
   readonly inputImage?: boolean | undefined;

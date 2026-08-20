@@ -45,8 +45,8 @@ export function managedModelProviderEntry(
     default_model: 'claude-opus-4-8',
     credential_fields: [],
     models: [
-      {id: 'claude-opus-4-8', label: 'Claude Opus 4.8'},
-      {id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro'},
+      {id: 'claude-opus-4-8', label: 'Claude Opus 4.8', api: 'anthropic-messages'},
+      {id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro', api: 'openai-responses'},
     ],
     ...overrides,
   });

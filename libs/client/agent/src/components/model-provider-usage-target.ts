@@ -1,11 +1,11 @@
-import type {CustomProviderConfig, SupportedProvider} from '#core/models.js';
+import type {AgentModel, CustomProviderConfig, SupportedProvider} from '#core/models.js';
 
 export interface ModelProviderUsageTarget {
   id: string;
   label: string;
   isCustom: boolean;
   isManaged: boolean;
-  models: ReadonlyArray<{id: string; label: string}>;
+  models: ReadonlyArray<AgentModel>;
   defaultModel: string | null;
 }
 

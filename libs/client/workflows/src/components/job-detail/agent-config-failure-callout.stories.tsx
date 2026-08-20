@@ -87,6 +87,8 @@ const errorCases: Array<{
     label: 'Managed-only policy',
     error: {
       message: 'This instance only supports provider `shipfox`.',
+      code: 'workspace-providers-disabled',
+      managedProviderId: 'shipfox',
       exitCode: null,
       signal: undefined,
       reason: 'agent_config_invalid',
@@ -128,6 +130,8 @@ export const TestManagedOnlyPolicy: Story = {
   args: {
     error: {
       message: 'This instance only supports provider `shipfox`.',
+      code: 'workspace-providers-disabled',
+      managedProviderId: 'shipfox',
       exitCode: null,
       signal: undefined,
       reason: 'agent_config_invalid',

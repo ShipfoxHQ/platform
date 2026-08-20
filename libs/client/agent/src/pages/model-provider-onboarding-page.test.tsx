@@ -60,7 +60,9 @@ describe('ModelProviderOnboardingPage', () => {
       />,
     );
 
-    expect(await screen.findByRole('heading', {name: 'Managed inference is ready'})).toBeVisible();
+    const heading = await screen.findByRole('heading', {name: 'Managed inference is ready'});
+    expect(heading).toBeVisible();
+    await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.getByText('Shipfox Managed')).toBeVisible();
     expect(screen.getByRole('list', {name: 'Shipfox Managed models'})).toHaveTextContent(
       'GPT-5.5 Pro',

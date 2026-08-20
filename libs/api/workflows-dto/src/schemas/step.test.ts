@@ -53,6 +53,21 @@ describe('stepErrorDtoSchema', () => {
     });
   });
 
+  it('accepts a stable runtime error code and managed provider identity', () => {
+    const result = stepErrorDtoSchema.parse({
+      message: 'Agent runtime config request failed with status 422: workspace-providers-disabled.',
+      code: 'workspace-providers-disabled',
+      managed_provider_id: 'shipfox',
+      reason: 'agent_config_invalid',
+      agent_config_issue: 'provider_unsupported',
+    });
+
+    expect(result).toMatchObject({
+      code: 'workspace-providers-disabled',
+      managed_provider_id: 'shipfox',
+    });
+  });
+
   it('accepts typed output validation failures', () => {
     const result = stepErrorDtoSchema.parse({
       message: 'Output "count" must be a finite number or numeric string.',

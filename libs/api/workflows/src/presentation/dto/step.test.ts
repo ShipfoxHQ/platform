@@ -43,12 +43,16 @@ describe('fromStepErrorDto', () => {
   it('persists the machine-readable agent config issue in camelCase', () => {
     const persisted = fromStepErrorDto({
       message: 'Missing credentials',
+      code: 'workspace-providers-disabled',
+      managed_provider_id: 'shipfox',
       reason: 'agent_config_invalid',
       agent_config_issue: 'provider_not_configured',
     });
 
     expect(persisted).toEqual({
       message: 'Missing credentials',
+      code: 'workspace-providers-disabled',
+      managedProviderId: 'shipfox',
       reason: 'agent_config_invalid',
       agentConfigIssue: 'provider_not_configured',
     });
@@ -180,6 +184,8 @@ describe('toStepDto error category', () => {
         type: 'agent',
         error: {
           message: 'Unknown provider "foo" for agent step.',
+          code: 'workspace-providers-disabled',
+          managedProviderId: 'shipfox',
           reason: 'agent_config_invalid',
           agentConfigIssue: 'provider_unsupported',
         },
@@ -188,6 +194,8 @@ describe('toStepDto error category', () => {
 
     expect(dto.error).toEqual({
       message: 'Unknown provider "foo" for agent step.',
+      code: 'workspace-providers-disabled',
+      managed_provider_id: 'shipfox',
       reason: 'agent_config_invalid',
       agent_config_issue: 'provider_unsupported',
       category: 'user',

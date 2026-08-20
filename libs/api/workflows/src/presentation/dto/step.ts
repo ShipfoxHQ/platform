@@ -22,6 +22,9 @@ function toStepErrorDto(
 ): StepErrorDto {
   if (error === null) return null;
   const message = typeof error.message === 'string' ? error.message : '';
+  const code = typeof error.code === 'string' ? error.code : undefined;
+  const managedProviderId =
+    typeof error.managedProviderId === 'string' ? error.managedProviderId : undefined;
   const exitCode = error.exitCode;
   const signal = typeof error.signal === 'string' ? error.signal : undefined;
   const field = typeof error.field === 'string' ? error.field : undefined;
@@ -30,6 +33,8 @@ function toStepErrorDto(
   const agentConfigIssue = agentConfigIssueSchema.safeParse(error.agentConfigIssue);
   return {
     message,
+    ...(code === undefined ? {} : {code}),
+    ...(managedProviderId === undefined ? {} : {managed_provider_id: managedProviderId}),
     ...(exitCode === null || typeof exitCode === 'number' ? {exit_code: exitCode} : {}),
     ...(signal === undefined ? {} : {signal}),
     ...(reason.success ? {reason: reason.data} : {}),
@@ -48,6 +53,10 @@ export function fromStepErrorDto(error: StepErrorDto | undefined): Record<string
   if (!error) return null;
   return {
     message: error.message,
+    ...(error.code === undefined ? {} : {code: error.code}),
+    ...(error.managed_provider_id === undefined
+      ? {}
+      : {managedProviderId: error.managed_provider_id}),
     ...(error.exit_code === null || typeof error.exit_code === 'number'
       ? {exitCode: error.exit_code}
       : {}),

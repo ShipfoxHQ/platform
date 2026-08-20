@@ -106,7 +106,9 @@ export function WorkspaceHarnessesSection({workspaceId}: {workspaceId: string}) 
                   key={harness.id}
                   harness={harness}
                   isDefault={harness.id === defaultHarnessId}
-                  isAvailable={isHarnessAvailable(harness, configs, catalog)}
+                  isAvailable={
+                    catalog === undefined || isHarnessAvailable(harness, configs, catalog)
+                  }
                   isSettingDefault={pendingDefaultHarness?.workspaceId === workspaceId}
                   defaultError={
                     defaultError?.workspaceId === workspaceId &&

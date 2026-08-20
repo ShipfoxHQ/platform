@@ -98,7 +98,7 @@ describe('model provider catalog route', () => {
             support_status: 'supported',
             default_model: 'managed-claude',
             credential_fields: [],
-            models: [{id: 'managed-claude', label: 'Managed Claude'}],
+            models: [{id: 'managed-claude', label: 'Managed Claude', api: 'anthropic-messages'}],
           }),
         ],
       });
