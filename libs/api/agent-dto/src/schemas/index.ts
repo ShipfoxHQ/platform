@@ -134,6 +134,8 @@ export {
 export {
   type AgentRuntimeCredentialsResponseDto,
   agentRuntimeCredentialsResponseSchema,
+  type ClaudeRuntimeConfigDto,
+  claudeRuntimeConfigSchema,
 } from './runtime-config.js';
 export {
   type SetDefaultHarnessBodyDto,

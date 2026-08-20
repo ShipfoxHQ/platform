@@ -34,6 +34,25 @@ describe('agentRuntimeCredentialsResponseSchema', () => {
     expect(parsed.custom_provider?.api).toBe('openai-responses');
   });
 
+  it('parses managed Claude runtime credentials without a custom provider descriptor', () => {
+    const parsed = agentRuntimeCredentialsResponseSchema.parse({
+      harness: 'claude',
+      provider_id: 'shipfox',
+      model: 'managed-claude',
+      thinking: 'high',
+      credentials: {api_key: 'managed-token'},
+      claude: {
+        base_url: 'https://gateway.example.test',
+        auth_token: 'managed-token',
+      },
+    });
+
+    expect(parsed.claude).toEqual({
+      base_url: 'https://gateway.example.test',
+      auth_token: 'managed-token',
+    });
+  });
+
   it('rejects a custom model provider descriptor without key intent', () => {
     const parse = () =>
       agentRuntimeCredentialsResponseSchema.parse({

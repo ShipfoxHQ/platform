@@ -40,7 +40,10 @@ export function createAgentInterModulePresentation(params: {
     },
     resolveRuntimeCredentials: async (input) => {
       try {
-        return await resolveRuntimeCredentials(input, {secrets: params.secrets});
+        return await resolveRuntimeCredentials(input, {
+          managedProvider: params.managedProvider,
+          secrets: params.secrets,
+        });
       } catch (error) {
         throw toResolveRuntimeCredentialsKnownError(error);
       }
