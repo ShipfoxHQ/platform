@@ -8,6 +8,6 @@
 "@shipfox/client-workflows": patch
 ---
 
-Shows managed inference providers in client surfaces without exposing workspace credential setup,
-keeps workflow examples limited to supported models, and explains managed-provider failures in
-workflow runs.
+Updates @shipfox/client-agent, @shipfox/client-onboarding, and @shipfox/client-workflows to show
+managed inference providers without exposing workspace credential setup, keep workflow examples
+limited to supported models, and explain managed-provider failures in workflow runs.
