@@ -49,15 +49,17 @@ function getCatalog(): readonly ModelProviderCatalogEntryDto[] {
 function toManagedProviderCatalogEntry(
   managedProvider: ManagedModelProvider,
 ): ModelProviderCatalogEntryDto {
-  return modelProviderCatalogEntrySchema.parse({
-    id: managedProvider.id,
-    label: managedProvider.label,
-    support_status: 'supported',
-    default_model: managedProvider.defaultModel,
-    credential_fields: [],
-    unsupported_reason: null,
-    models: managedProvider.models.map(({id, label}) => ({id, label})),
-  });
+  return deepFreeze(
+    modelProviderCatalogEntrySchema.parse({
+      id: managedProvider.id,
+      label: managedProvider.label,
+      support_status: 'supported',
+      default_model: managedProvider.defaultModel,
+      credential_fields: [],
+      unsupported_reason: null,
+      models: managedProvider.models.map(({id, label}) => ({id, label})),
+    }),
+  );
 }
 
 function deepFreeze<T>(value: T): T {

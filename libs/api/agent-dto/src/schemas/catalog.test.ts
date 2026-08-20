@@ -5,14 +5,24 @@ import {
   listSupportedModelProviders,
   MODEL_PROVIDER_CATALOG_SEED,
   modelProviderCatalogEntrySchema,
+  modelProviderCatalogResponseSchema,
   modelProviderCatalogSeedSchema,
-  workspaceProvidersPolicySchema,
 } from './catalog.js';
 import {
   MODEL_PROVIDER_IDS,
   SUPPORTED_MODEL_PROVIDER_IDS,
   UNSUPPORTED_MODEL_PROVIDER_IDS,
 } from './model-provider-id.js';
+
+const managedProviderCatalogEntry = {
+  id: 'shipfox-managed',
+  label: 'Shipfox Managed',
+  support_status: 'supported',
+  default_model: 'managed-claude',
+  credential_fields: [],
+  unsupported_reason: null,
+  models: [{id: 'managed-claude', label: 'Managed Claude'}],
+};
 
 describe('model provider catalog', () => {
   it('parses the catalog seed', () => {
@@ -153,19 +163,31 @@ describe('model provider catalog', () => {
     expect(parsed).toHaveLength(37);
   });
 
-  it('parses a managed provider response entry and workspace provider policy', () => {
-    const parsed = modelProviderCatalogEntrySchema.parse({
-      id: 'shipfox-managed',
-      label: 'Shipfox Managed',
-      support_status: 'supported',
-      default_model: 'managed-claude',
-      credential_fields: [],
-      unsupported_reason: null,
-      models: [{id: 'managed-claude', label: 'Managed Claude'}],
-    });
+  it('parses a managed provider response entry', () => {
+    const parsed = modelProviderCatalogEntrySchema.parse(managedProviderCatalogEntry);
 
     expect(parsed.id).toBe('shipfox-managed');
-    expect(workspaceProvidersPolicySchema.parse('disabled')).toBe('disabled');
+  });
+
+  it('parses enabled and disabled policies through the full catalog response', () => {
+    for (const workspaceProviders of ['enabled', 'disabled'] as const) {
+      const parsed = modelProviderCatalogResponseSchema.parse({
+        providers: [managedProviderCatalogEntry],
+        workspace_providers: workspaceProviders,
+      });
+
+      expect(parsed.workspace_providers).toBe(workspaceProviders);
+    }
+  });
+
+  it('rejects an invalid workspace provider policy in the full catalog response', () => {
+    const parse = () =>
+      modelProviderCatalogResponseSchema.parse({
+        providers: [managedProviderCatalogEntry],
+        workspace_providers: 'invalid',
+      });
+
+    expect(parse).toThrow();
   });
 
   it('rejects a supported response entry without models', () => {
