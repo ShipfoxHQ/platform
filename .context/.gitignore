@@ -1,0 +1,3 @@
+# Keep Conductor workspace context local.
+*
+!.gitignore

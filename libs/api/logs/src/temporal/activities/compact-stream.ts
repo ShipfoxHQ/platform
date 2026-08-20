@@ -6,7 +6,11 @@ import {compactedGzipStream} from '#core/compaction.js';
 import {chunkStats} from '#db/chunks.js';
 import {db, type Transaction} from '#db/db.js';
 import {getAttemptStreamById, setObjectKeyAndDeleteChunks} from '#db/streams.js';
-import {type CompactionMetricOutcome, compactionCount} from '#metrics/instance.js';
+import {
+  type CompactionMetricOutcome,
+  compactedBytesCount,
+  compactionCount,
+} from '#metrics/instance.js';
 
 export type CompactStreamResult =
   | {outcome: 'gone'}
@@ -125,6 +129,12 @@ export function createCompactStreamActivity(
     try {
       const result = await compactStream(params, dependencies);
       outcome = result.outcome;
+      // Count uncompressed log bytes only on the single-winner publish: idempotent re-runs
+      // (`already-compacted`) and failed attempts never reach this branch, so the counter
+      // tracks exactly the bytes durably moved to object storage.
+      if (result.outcome === 'compacted') {
+        compactedBytesCount.add(result.uncompressedBytes);
+      }
       return result;
     } finally {
       compactionCount.add(1, {outcome});

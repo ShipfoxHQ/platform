@@ -16,18 +16,9 @@ Use service metrics only for a point-in-time value from shared storage, such as
 a queue depth. Observable gauges use port 9474. This stops Prometheus from
 summing the same shared value from every pod.
 
-## Stale enrolled runner signal
-
-The runners service exposes `runners_enrolled_without_recent_report` on port
-9474. It counts running runners with a live control session, no workspace, no
-runner session, and a `reported_at` older than the stale-runner grace window.
-
-The gauge uses `RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS` as its grace
-window. The default is five minutes. Alert when the value is greater than zero.
-Healthy warm-pool runners stay below the threshold because their provisioner
-refreshes `reported_at` with each running report. A warm-pool runner that
-remains stale after five minutes indicates a reporting or provisioner failure
-and is intentionally included in the alert.
+Package-specific metric names, semantics, thresholds, and alert rules belong in
+the owning package documentation or an operational runbook. This guide defines
+the shared architecture and conventions without cataloging individual metrics.
 
 ## Initialize in the required order
 
