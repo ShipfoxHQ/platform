@@ -14,7 +14,7 @@ You need:
 
 - The provider's API key. The form asks for any other provider values.
 - A project that can sync workflow files.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 
 ## Configure the agent runtime
 
@@ -78,7 +78,7 @@ the workspace settings you checked above.
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Check agent defaults
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:

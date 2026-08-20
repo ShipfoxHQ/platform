@@ -36,7 +36,7 @@ each placeholder with a value from your deployment:
 ```bash
 SHIPFOX_API_URL='<YOUR_SHIPFOX_API_URL>' \
 SHIPFOX_RUNNER_REGISTRATION_TOKEN='<YOUR_REGISTRATION_TOKEN>' \
-SHIPFOX_RUNNER_LABELS='ubuntu-latest' \
+SHIPFOX_RUNNER_LABELS='shipfox' \
 SHIPFOX_POLL_MAX_DURATION_MS=0 \
 mise exec -- pnpm --filter=@shipfox/runner dev
 ```

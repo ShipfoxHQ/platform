@@ -9,8 +9,9 @@ job needs.
 
 ## Before you begin
 
-You need a project that can sync workflows and access to the runner process or
-provisioner template whose labels should claim the job.
+You need a project that can sync workflows. Use the [hosted runner
+reference](/reference/runner-labels) for Shipfox Cloud. For a runner you manage,
+you also need access to its process or provisioner template.
 
 ## Match a workflow to a runner
 
@@ -19,20 +20,24 @@ provisioner template whose labels should claim the job.
 
     **Find the runner's labels**
 
-    Check `SHIPFOX_RUNNER_LABELS` in the runner process. For a provisioner, check
-    its matching template. The dashboard does not list online runner labels yet.
+    Use `shipfox` for the default Shipfox-hosted runner. To choose a different size,
+    compare the [available labels](/reference/runner-labels#available-labels).
+
+    For a runner you manage, check `SHIPFOX_RUNNER_LABELS` in the runner process
+    or its matching provisioner template. The dashboard does not list online
+    runner labels yet.
   </Step>
   <Step>
 
     **Set the workflow default**
 
-    Add labels to the top-level `runner` field. Replace the example with labels
-    from the runner. This is a complete workflow:
+    Set the top-level `runner` field. This is a complete workflow using the
+    default Shipfox-hosted runner:
 
     ```yaml
     # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
     name: Verify on Linux
-    runner: [linux, x64] # Replace with labels from your runner.
+    runner: shipfox
 
     triggers:
       manual:
@@ -51,8 +56,10 @@ provisioner template whose labels should claim the job.
     **Override one job when needed**
 
     A job-level `runner` value replaces the workflow default. For example, add
-    `runner: [linux, gpu]` to a job that needs both labels. One runner must have
-    the full set.
+    `runner: shipfox-8cpu` to a build job that needs more capacity.
+
+    For a runner you manage, the value can be a list such as `[linux, gpu]`.
+    One runner must have the full set.
   </Step>
   <Step>
 

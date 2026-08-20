@@ -10,7 +10,7 @@ needs. The workflow derives a version from Git and prints it in a later job.
 ## Before you begin
 
 You need a project that can sync workflows and an online runner with the
-`ubuntu-latest` label. The repository must contain at least one Git commit.
+`shipfox` label. The repository must contain at least one Git commit.
 
 ## Add the workflow
 
@@ -19,7 +19,7 @@ Create `.shipfox/workflows/release-version.yml`. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Preview a release version
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:

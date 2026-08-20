@@ -18,7 +18,7 @@ You need:
   placeholder.
 - A GitHub integration connection used as the project source. It must be able
   to push repository contents and use the `create_pull_request` agent tool.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - A configured model provider and workspace agent defaults.
 - A Node.js repository with a lockfile and an `npm test` command.
 - A safe Sentry project and repository where an automated test branch is
@@ -32,7 +32,7 @@ with the slug of your Sentry integration connection. This is a complete workflow
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Turn a Sentry issue into a verified pull request
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_issue:

@@ -13,7 +13,7 @@ trigger to the full test suite.
 You need:
 
 - A project that can sync workflow files.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - A Node.js repository with `test:smoke` and `test` scripts.
 
 ## Add the workflow
@@ -23,7 +23,7 @@ Create `.shipfox/workflows/test-suites.yml`. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Run the right test suite
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual_smoke:

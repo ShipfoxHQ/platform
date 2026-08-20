@@ -10,7 +10,7 @@ need an integration connection.
 ## Before you begin
 
 You need a project that can sync workflows, an online runner with the
-`ubuntu-latest` label, and a command or script for the scheduled task.
+`shipfox` label, and a command or script for the scheduled task.
 
 ## Add a scheduled trigger
 
@@ -25,7 +25,7 @@ You need a project that can sync workflows, an online runner with the
     ```yaml
     # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
     name: Nightly maintenance
-    runner: ubuntu-latest
+    runner: shipfox
 
     triggers:
       nightly:

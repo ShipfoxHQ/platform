@@ -14,7 +14,7 @@ You need:
 - A project [connected to GitHub](/integrations/github/setup).
 - Its integration connection slug. This guide uses `github_acme` as a placeholder.
 - A GitHub integration connection that supports agent tools.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - Configured agent defaults.
 - A test branch that is ready to open as a pull request. Do not open it until
   the workflow has synced.
@@ -27,7 +27,7 @@ the slug of your GitHub integration connection. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Read a new pull request
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_pull_request:

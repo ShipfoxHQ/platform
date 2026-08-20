@@ -14,7 +14,7 @@ You need access to workspace integration settings. You also need a terminal or
 system that can send an HTTP `POST` request.
 
 To verify a run, you need a project that can sync workflows and an online runner
-with the `ubuntu-latest` label.
+with the `shipfox` label.
 
 ## Create the integration connection
 
@@ -62,7 +62,7 @@ the integration connection slug. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Check the custom webhook
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_deploy_event:

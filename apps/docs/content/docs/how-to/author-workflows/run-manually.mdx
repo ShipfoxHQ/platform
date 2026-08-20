@@ -10,7 +10,7 @@ testing a new workflow, or repeating a task without waiting for an outside event
 ## Before you begin
 
 You need a project that can sync workflows and an online runner with the
-`ubuntu-latest` label.
+`shipfox` label.
 
 ## Add and use a manual trigger
 
@@ -25,7 +25,7 @@ You need a project that can sync workflows and an online runner with the
     ```yaml
     # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
     name: On-demand checks
-    runner: ubuntu-latest
+    runner: shipfox
 
     triggers:
       manual:

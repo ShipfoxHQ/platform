@@ -18,7 +18,7 @@ workspace, you need:
 - A configured [model provider and workspace agent
   defaults](/how-to/set-up-work/configure-model-providers).
 - Runner capacity that matches the `runner:` value in the workflow below. See
-  [Runners](/operations/runners).
+  [Runner labels](/reference/runner-labels).
 
 <Callout type="info">
   No workspace yet? Getting one is a separate task. See
@@ -53,7 +53,7 @@ run (`runner`), and what to do (`jobs` and `steps`). Create
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Inspect the repository
-runner: ubuntu-latest      # label of the runner that executes the jobs
+runner: shipfox      # label of the runner that executes the jobs
 triggers:
   on_demand:
     source: manual         # fires when you click Run in the dashboard

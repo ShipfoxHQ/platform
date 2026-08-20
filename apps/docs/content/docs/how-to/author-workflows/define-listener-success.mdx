@@ -17,7 +17,7 @@ You need:
 - A [custom webhook](/integrations/webhooks) integration connection and its ingest URL.
 - The integration connection slug. This guide uses `task_hook` as a placeholder.
 - A project that can sync workflow files.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 
 ## Add the workflow
 
@@ -27,7 +27,7 @@ slug of the integration connection for the custom webhook. This is a complete wo
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Require a task check
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   task_started:

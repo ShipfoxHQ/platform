@@ -12,7 +12,7 @@ job. The workflow uses fixed shell commands, not an agent.
 You need:
 
 - A project that can sync workflows.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - A Node.js repository with a lockfile and an `npm test` command.
 
 ## Add the workflow
@@ -22,7 +22,7 @@ Create `.shipfox/workflows/project-checks.yml`. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Run project checks
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:

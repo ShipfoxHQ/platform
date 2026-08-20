@@ -14,7 +14,7 @@ You need:
 
 - A project connected to GitHub.
 - The slug of its GitHub integration connection. This guide uses `github_acme` as a placeholder.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - A Node.js repository with a lockfile and an `npm test` command.
 
 Replace `main` below if the repository uses another default branch.
@@ -27,7 +27,7 @@ Create `.shipfox/workflows/ready-pull-request-checks.yml`. Replace
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Check ready pull requests
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   opened_ready:

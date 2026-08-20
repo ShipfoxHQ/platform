@@ -12,7 +12,7 @@ describes what it finds. It does not change any files.
 You need:
 
 - A project that can sync workflow files.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - [Configured agent
   defaults](/how-to/set-up-work/configure-model-providers).
 
@@ -24,7 +24,7 @@ workflow. It uses the workspace's default harness, provider, and model:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Summarize the repository
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   manual:

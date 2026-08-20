@@ -27,7 +27,7 @@ Use a test repository, not production work. The repository must have:
 - A GitHub integration connection that can read pull requests and post review-comment
   replies.
 - The integration connection slug. This lesson uses `github_acme` as a placeholder.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - A configured model provider and workspace agent defaults.
 - Permission to open and close a pull request and add a review comment.
 
@@ -43,7 +43,7 @@ complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Respond to pull request feedback
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_pull_request:

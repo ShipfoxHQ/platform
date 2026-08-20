@@ -15,7 +15,7 @@ You need:
 - A Shipfox project whose repository contains the affected code.
 - A Sentry integration connection in the workspace.
 - The slug of the Sentry integration connection. This recipe uses `sentry_acme` as a placeholder.
-- An online runner with the `ubuntu-latest` label.
+- An online runner with the `shipfox` label.
 - A configured model provider and workspace agent defaults.
 
 ## Add the workflow
@@ -26,7 +26,7 @@ the slug of your Sentry integration connection. This is a complete workflow:
 ```yaml
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Triage new Sentry issues
-runner: ubuntu-latest
+runner: shipfox
 
 triggers:
   on_issue:
