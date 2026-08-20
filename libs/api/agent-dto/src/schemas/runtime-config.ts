@@ -6,6 +6,13 @@ import {isReservedModelProviderId, modelProviderRefSchema} from './model-provide
 const credentialKeySchema = z.string().min(1);
 const credentialValueSchema = z.string().min(1);
 
+export const claudeRuntimeConfigSchema = z.object({
+  base_url: z.string().url().max(2048),
+  auth_token: credentialValueSchema,
+});
+
+export type ClaudeRuntimeConfigDto = z.infer<typeof claudeRuntimeConfigSchema>;
+
 /**
  * Lease-scoped runtime credentials. The credential values are secrets and must
  * never be written to logs, traces, client state, or generic catalog surfaces.
@@ -18,9 +25,14 @@ export const agentRuntimeCredentialsResponseSchema = z
     thinking: agentThinkingSchema,
     credentials: z.record(credentialKeySchema, credentialValueSchema),
     custom_provider: customModelProviderRuntimeConfigSchema.optional(),
+    claude: claudeRuntimeConfigSchema.optional(),
   })
   .superRefine((response, ctx) => {
-    if (isReservedModelProviderId(response.provider_id) || response.custom_provider !== undefined) {
+    if (
+      isReservedModelProviderId(response.provider_id) ||
+      response.custom_provider !== undefined ||
+      response.claude !== undefined
+    ) {
       return;
     }
 

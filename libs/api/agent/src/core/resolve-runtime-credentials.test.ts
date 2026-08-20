@@ -1,4 +1,4 @@
-import type {ModelProviderRef} from '@shipfox/api-agent-dto';
+import type {ManagedModelProvider, ModelProviderRef} from '@shipfox/api-agent-dto';
 import {deleteModelProviderConfig, upsertModelProviderConfig} from '#db/index.js';
 import {setSecrets} from '#test/fixtures/secrets-client.js';
 import {agentSystemNamespace, customCredentialsToStoreValues} from './credential-fingerprints.js';
@@ -21,6 +21,8 @@ describe('resolveRuntimeCredentials', () => {
 
     const result = await resolveRuntimeCredentials({
       workspaceId,
+      runId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
       harness: 'pi',
       provider: 'anthropic',
       model: 'claude-opus-4-8',
@@ -36,6 +38,86 @@ describe('resolveRuntimeCredentials', () => {
     });
   });
 
+  it('resolves managed provider credentials into the pi custom provider contract', async () => {
+    const runId = crypto.randomUUID();
+    const stepAttemptId = crypto.randomUUID();
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'openai-responses',
+      baseUrl: 'https://gateway.example.test',
+      credentials: {api_key: 'managed-token'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId,
+        stepAttemptId,
+        harness: 'pi',
+        provider: 'shipfox',
+        model: 'responses-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(resolveCredentials).toHaveBeenCalledWith({
+      workspaceId,
+      runId,
+      stepAttemptId,
+      model: 'responses-model',
+    });
+    expect(result).toEqual({
+      harness: 'pi',
+      provider_id: 'shipfox',
+      model: 'responses-model',
+      thinking: 'high',
+      credentials: {api_key: 'managed-token'},
+      custom_provider: {
+        api: 'openai-responses',
+        base_url: 'https://gateway.example.test',
+        headers: [],
+        secret_header_names: [],
+        models: [{id: 'responses-model', label: 'Responses model'}],
+        requires_api_key: true,
+      },
+    });
+  });
+
+  it('resolves managed provider credentials into the Claude per-step contract', async () => {
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'anthropic-messages',
+      baseUrl: 'https://gateway.example.test',
+      credentials: {api_key: 'managed-token'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'claude',
+        provider: 'shipfox',
+        model: 'claude-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(result).toEqual({
+      harness: 'claude',
+      provider_id: 'shipfox',
+      model: 'claude-model',
+      thinking: 'high',
+      credentials: {api_key: 'managed-token'},
+      claude: {
+        base_url: 'https://gateway.example.test',
+        auth_token: 'managed-token',
+      },
+    });
+  });
+
   it('prefers workspace credentials over the instance fallback', async () => {
     await saveProviderConfig({
       workspaceId,
@@ -45,6 +127,8 @@ describe('resolveRuntimeCredentials', () => {
     const result = await resolveRuntimeCredentials(
       {
         workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
         harness: 'pi',
         provider: 'anthropic',
         model: 'claude-opus-4-8',
@@ -60,6 +144,8 @@ describe('resolveRuntimeCredentials', () => {
     const matching = await resolveRuntimeCredentials(
       {
         workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
         harness: 'pi',
         provider: 'anthropic',
         model: 'claude-opus-4-8',
@@ -70,6 +156,8 @@ describe('resolveRuntimeCredentials', () => {
     const mismatched = resolveRuntimeCredentials(
       {
         workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
         harness: 'pi',
         provider: 'openai',
         model: 'gpt-5.5-pro',
@@ -98,6 +186,8 @@ describe('resolveRuntimeCredentials', () => {
 
     const result = await resolveRuntimeCredentials({
       workspaceId,
+      runId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
       harness: 'pi',
       provider: 'local-vllm',
       model: 'llama-3.1',
@@ -137,6 +227,8 @@ describe('resolveRuntimeCredentials', () => {
 
     const result = await resolveRuntimeCredentials({
       workspaceId,
+      runId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
       harness: 'pi',
       provider: 'local-ollama',
       model: 'llama-3.1',
@@ -155,6 +247,8 @@ describe('resolveRuntimeCredentials', () => {
   it('throws when no workspace or instance credential is available', async () => {
     const result = resolveRuntimeCredentials({
       workspaceId,
+      runId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
       harness: 'pi',
       provider: 'anthropic',
       model: 'claude-opus-4-8',
@@ -174,6 +268,8 @@ describe('resolveRuntimeCredentials', () => {
 
     const result = resolveRuntimeCredentials({
       workspaceId,
+      runId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
       harness: 'pi',
       provider: 'anthropic',
       model: 'claude-opus-4-8',
@@ -193,6 +289,8 @@ describe('resolveRuntimeCredentials', () => {
 
     const result = resolveRuntimeCredentials({
       workspaceId,
+      runId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
       harness: 'pi',
       provider: 'anthropic',
       model: 'claude-opus-4-8',
@@ -217,6 +315,8 @@ describe('resolveRuntimeCredentials', () => {
 
     const result = resolveRuntimeCredentials({
       workspaceId,
+      runId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
       harness: 'pi',
       provider: 'cloudflare-ai-gateway',
       model: '@cf/meta/llama-3.1-8b-instruct',
@@ -235,6 +335,8 @@ describe('resolveRuntimeCredentials', () => {
 
     const result = resolveRuntimeCredentials({
       workspaceId,
+      runId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
       harness: 'pi',
       provider: 'anthropic',
       model: 'claude-opus-4-8',
@@ -256,6 +358,8 @@ describe('resolveRuntimeCredentials', () => {
     const result = resolveRuntimeCredentials(
       {
         workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
         harness: 'pi',
         provider: 'anthropic',
         model: 'claude-opus-4-8',
@@ -312,5 +416,20 @@ function instanceConfig() {
   return {
     AGENT_DEFAULT_PROVIDER: 'anthropic' as const,
     AGENT_DEFAULT_PROVIDER_API_KEY: 'sk-instance-secret',
+  };
+}
+
+function managedProvider(
+  resolveCredentials: ManagedModelProvider['resolveCredentials'],
+): ManagedModelProvider {
+  return {
+    id: 'shipfox',
+    label: 'Shipfox',
+    models: [
+      {id: 'claude-model', label: 'Claude model', api: 'anthropic-messages'},
+      {id: 'responses-model', label: 'Responses model', api: 'openai-responses'},
+    ],
+    defaultModel: 'responses-model',
+    resolveCredentials,
   };
 }

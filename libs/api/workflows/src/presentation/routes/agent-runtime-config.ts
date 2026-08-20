@@ -13,6 +13,7 @@ import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {captureException} from '@shipfox/node-error-monitoring';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {ZodError} from 'zod';
+import {getStepAttemptDetail} from '#db/index.js';
 import {loadRunningLeasedStep} from './leased-step.js';
 
 export function createAgentRuntimeConfigRoute(params: {
@@ -91,8 +92,15 @@ export function createAgentRuntimeConfigRoute(params: {
         throw error;
       }
 
+      const stepAttempt = await getStepAttemptDetail({stepId, attempt});
+      if (!stepAttempt) {
+        throw new ClientError('Step attempt not found', 'step-attempt-not-found', {status: 409});
+      }
+
       const runtimeConfig = await params.agent.resolveRuntimeCredentials({
         workspaceId,
+        runId: stepAttempt.workflowRunId,
+        stepAttemptId: stepAttempt.attempt.id,
         harness: agentConfig.harness,
         provider: agentConfig.provider,
         model: agentConfig.model,

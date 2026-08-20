@@ -60,6 +60,8 @@ export const agentInterModuleContract = defineInterModuleContract({
     resolveRuntimeCredentials: {
       input: z.object({
         workspaceId: z.string().uuid(),
+        runId: z.string().uuid(),
+        stepAttemptId: z.string().uuid(),
         harness: harnessSchema,
         provider: modelProviderRefSchema,
         model: z.string(),

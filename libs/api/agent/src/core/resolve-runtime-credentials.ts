@@ -2,6 +2,8 @@ import type {
   AgentRuntimeCredentialsResponseDto,
   AgentThinking,
   Harness,
+  ManagedModelProvider,
+  ManagedProviderRuntimeConfig,
   ModelProviderRef,
   SupportedModelProviderId,
 } from '@shipfox/api-agent-dto';
@@ -22,6 +24,8 @@ import {type AgentSecretsClient, requireAgentSecretsClient} from './secrets-clie
 
 export interface ResolveRuntimeCredentialsParams {
   workspaceId: string;
+  runId: string;
+  stepAttemptId: string;
   harness: Harness;
   provider: ModelProviderRef;
   model: string;
@@ -36,6 +40,7 @@ interface RuntimeCredentialsConfig {
 interface ResolveRuntimeCredentialsOptions {
   runtimeConfig?: RuntimeCredentialsConfig | undefined;
   secrets?: AgentSecretsClient | undefined;
+  managedProvider?: ManagedModelProvider | undefined;
   getCredentialBag?:
     | ((params: {workspaceId: string; namespace: string}) => Promise<Record<string, string>>)
     | undefined;
@@ -47,6 +52,21 @@ export async function resolveRuntimeCredentials(
 ): Promise<AgentRuntimeCredentialsResponseDto> {
   const runtimeConfig = options?.runtimeConfig ?? config;
   const secrets = options?.secrets;
+  const managedProvider = options?.managedProvider;
+  if (managedProvider?.id === params.provider) {
+    const managedRuntimeConfig = await managedProvider.resolveCredentials({
+      workspaceId: params.workspaceId,
+      runId: params.runId,
+      stepAttemptId: params.stepAttemptId,
+      model: params.model,
+    });
+    agentRuntimeConfigResolvedCount.add(1, {source: 'instance', outcome: 'resolved'});
+    return toResponse(params, managedRuntimeConfig.credentials, undefined, {
+      provider: managedProvider,
+      runtimeConfig: managedRuntimeConfig,
+    });
+  }
+
   const providerConfig = await getModelProviderConfig({
     workspaceId: params.workspaceId,
     providerId: params.provider,
@@ -133,6 +153,12 @@ function toResponse(
   params: ResolveRuntimeCredentialsParams,
   credentials: Record<string, string>,
   providerConfig?: ModelProviderConfig | undefined,
+  managed?:
+    | {
+        provider: ManagedModelProvider;
+        runtimeConfig: ManagedProviderRuntimeConfig;
+      }
+    | undefined,
 ): AgentRuntimeCredentialsResponseDto {
   const response: AgentRuntimeCredentialsResponseDto = {
     harness: params.harness,
@@ -154,6 +180,31 @@ function toResponse(
       models: providerConfig.models ?? [],
       requires_api_key: providerConfig.requiresApiKey,
     };
+  }
+
+  if (managed !== undefined) {
+    const model = managed.provider.models.find((candidate) => candidate.id === params.model);
+    const modelDescriptor = {id: params.model, label: model?.label ?? params.model};
+
+    if (params.harness === 'pi') {
+      response.custom_provider = {
+        api: managed.runtimeConfig.api,
+        base_url: managed.runtimeConfig.baseUrl,
+        headers: [],
+        secret_header_names: [],
+        models: [modelDescriptor],
+        requires_api_key: true,
+      };
+    } else {
+      const authToken = managed.runtimeConfig.credentials.api_key;
+      if (authToken === undefined) {
+        throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
+      }
+      response.claude = {
+        base_url: managed.runtimeConfig.baseUrl,
+        auth_token: authToken,
+      };
+    }
   }
 
   return response;

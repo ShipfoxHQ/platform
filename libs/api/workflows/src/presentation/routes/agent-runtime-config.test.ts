@@ -8,10 +8,15 @@ import {closeApp, createApp, type FastifyInstance} from '@shipfox/node-fastify';
 import {createCapturingLogger} from '@shipfox/node-log/test';
 import {eq} from 'drizzle-orm';
 import type {StepStatus} from '#core/entities/step.js';
-import {db} from '#db/db.js';
+import {db, withTransaction} from '#db/db.js';
 import {jobs} from '#db/schema/jobs.js';
 import {steps as stepsTable} from '#db/schema/steps.js';
-import {createWorkflowRun, getJobsByWorkflowRunId, getStepsByJobId} from '#db/workflow-runs.js';
+import {
+  createWorkflowRun,
+  getJobsByWorkflowRunId,
+  getStepsByJobId,
+  insertRunningStepAttempt,
+} from '#db/workflow-runs.js';
 import {workflowModel} from '#test/factories/workflow-model.js';
 import {insertRunningJobLease, mintActiveLeaseToken} from '#test/fixtures/active-lease-token.js';
 import {resolveTestAgentDefaults} from '#test/fixtures/agent-inter-module.js';
@@ -115,6 +120,13 @@ describe('GET /runs/jobs/current/agent-runtime-config', () => {
       thinking: 'xhigh',
       credentials: {api_key: 'sk-workspace-secret'},
     });
+    expect(resolveRuntimeCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: run.workspaceId,
+        runId: run.id,
+        stepAttemptId: expect.any(String),
+      }),
+    );
   });
 
   test('derives the credential workspace from the leased job instead of hostile lease claims', async () => {
@@ -420,6 +432,19 @@ async function createStep(params: {
   const step = stepRows.find((candidate) => candidate.type === params.targetType);
   if (!step) throw new Error(`createStep: ${params.targetType} step not found`);
   await db().update(stepsTable).set({status: params.status}).where(eq(stepsTable.id, step.id));
+  if (params.status === 'running') {
+    await withTransaction((tx) =>
+      insertRunningStepAttempt(
+        {
+          jobExecutionId: step.jobExecutionId,
+          stepId: step.id,
+          attempt: step.currentAttempt,
+          config: step.config,
+        },
+        tx,
+      ),
+    );
+  }
 
   return {
     run,
