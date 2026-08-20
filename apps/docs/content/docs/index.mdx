@@ -10,25 +10,29 @@ Shipfox lets you automate real engineering work with agents you trust in product
 
 You describe what the agent does. Shipfox handles everything around it: orchestration, secure access to your tools, execution next to your code, monitoring, and central control.
 
-Agents live in your repository as [YAML](/reference/workflow-schema). This workflow runs your tests on every push, then puts an agent on the result:
+Agents live in your repository as [YAML](/reference/workflow-schema). Copy this
+workflow into your repository, push it, then start it from the dashboard:
 
-```yaml
+```yaml title=".shipfox/workflows/hello.yaml"
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
-name: Review on push
+name: Hello world
 runner: ubuntu-latest
 
 triggers:
-  on_push:
-    source: github_acme # the slug of your GitHub integration connection
-    event: push
+  on_demand:
+    source: manual # fires when you select Run in the dashboard
+    event: fire
 
 jobs:
-  review:
+  hello:
     steps:
-      - run: npm test
-      - prompt: |
-          Review the changes in this push and report the highest-risk findings.
+      - run: echo "Hello from Shipfox"
+      - prompt: Reply with a one-sentence hello.
 ```
+
+Shipfox picks up every file in `.shipfox/workflows/`. Swap the manual trigger
+for a push, a new ticket, or an alert when you want the agent to start on its
+own.
 
 Your first agent runs in minutes with Shipfox cloud.
 

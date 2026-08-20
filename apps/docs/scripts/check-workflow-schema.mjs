@@ -31,7 +31,11 @@ for (const anchor of requiredAnchors) {
 for (const file of await filesUnder(contentRoot)) {
   if (!file.endsWith('.mdx')) continue;
   const content = await readFile(file, 'utf8');
-  for (const match of content.matchAll(/^([ \t]*)```yaml[ \t]*\n([\s\S]*?)^\1```[ \t]*$/gm)) {
+  // The optional trailer keeps blocks with code-block meta, such as
+  // `title="..."`, inside the check instead of silently skipping them.
+  for (const match of content.matchAll(
+    /^([ \t]*)```yaml(?:[ \t][^\n]*)?\n([\s\S]*?)^\1```[ \t]*$/gm,
+  )) {
     const body = dedent(match[2] ?? '', match[1] ?? '');
     if (!/^(?:name|jobs):/m.test(body)) continue;
     if (!body.startsWith(`${schemaHeader}\n`)) {
