@@ -34,6 +34,7 @@ export function ModelProviderOnboardingPage({
   const setDefaultHarness = useSetDefaultHarnessMutation();
   const [onboarding, dispatch] = useReducer(onboardingReducer, initialOnboardingState);
   const supportedProviders = catalogQuery.data?.providers.filter(isSupportedProvider) ?? [];
+  const catalogLoaded = catalogQuery.data !== undefined;
   const managedOnly = isManagedOnlyCatalog(catalogQuery.data);
   const managedOnlyForwarded = useRef(false);
   const filteredProviders = useMemo(() => {
@@ -50,7 +51,7 @@ export function ModelProviderOnboardingPage({
   }, [managedOnly, onConfigured]);
 
   useEffect(() => {
-    if (managedOnly) return;
+    if (managedOnly || !catalogLoaded) return;
     document
       .getElementById(
         onboarding.step === 'choose-harness'
@@ -58,7 +59,15 @@ export function ModelProviderOnboardingPage({
           : 'model-provider-provider-step',
       )
       ?.focus();
-  }, [managedOnly, onboarding.step]);
+  }, [catalogLoaded, managedOnly, onboarding.step]);
+
+  if (catalogQuery.isPending) {
+    return <ModelProviderGridSkeleton label="Loading model providers" />;
+  }
+
+  if (catalogQuery.isError && catalogQuery.data === undefined) {
+    return <QueryLoadError query={catalogQuery} subject="model provider catalog" />;
+  }
 
   if (managedOnly) return null;
 
