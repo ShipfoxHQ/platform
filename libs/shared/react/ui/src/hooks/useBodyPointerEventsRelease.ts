@@ -1,64 +1,79 @@
 'use client';
 
-import {useEffect, useRef} from 'react';
+import {useCallback, useEffect, useRef} from 'react';
 
 // Radix's dismissable layer locks `body { pointer-events: none }` while a modal
-// layer is mounted and restores the previous value when that layer unregisters.
-// The restore runs in a passive effect, so a layer torn down in the same commit
+// layer is open and restores the previous value when the last layer unregisters.
+// That restore runs in a passive effect, so a layer torn down in the same commit
 // that closed it leaves no slack: a click landing in that window is swallowed,
-// and a restore that never runs leaves the whole page inert until a reload.
-// Releasing the lock here bounds that failure to a few hundred milliseconds.
+// and a restore that never runs leaves the page inert until a reload.
 
-// Anything Radix renders that may still hold the lock legitimately. While one of
-// these is in the document the lock is somebody else's to release.
-const ACTIVE_LAYER_SELECTOR = [
-  '[role="dialog"]',
-  '[role="alertdialog"]',
-  '[role="menu"]',
-  '[role="listbox"]',
-  '[data-radix-popper-content-wrapper]',
+// Only an open layer can hold the lock. Radix hands it back the moment a surface
+// closes, so a closed node still playing its exit animation owns nothing.
+const OPEN_LAYER_SELECTOR = [
+  '[data-state="open"][role="dialog"]',
+  '[data-state="open"][role="alertdialog"]',
+  '[data-state="open"][role="menu"]',
+  '[data-state="open"][role="listbox"]',
 ].join(',');
 
-// Re-checked across the window in which Radix and its exit animations settle.
-const CHECKPOINTS_MS = [0, 120, 400];
+// Spread across the window in which Radix and its exit animations settle.
+const CHECKPOINTS_MS = [0, 120, 400, 1000];
 
-function releaseBodyPointerEvents(): void {
+function releaseBodyPointerEvents(inheritedPointerEvents: string): void {
   if (typeof document === 'undefined') return;
+  // The page was already locked before this surface opened, so the lock belongs
+  // to someone else and stays untouched.
+  if (inheritedPointerEvents === 'none') return;
   if (document.body.style.pointerEvents !== 'none') return;
-  if (document.querySelector(ACTIVE_LAYER_SELECTOR) !== null) return;
+  if (document.querySelector(OPEN_LAYER_SELECTOR) !== null) return;
 
   document.body.style.removeProperty('pointer-events');
 }
 
-function scheduleRelease(): void {
+function scheduleRelease(inheritedPointerEvents: string): void {
   if (typeof window === 'undefined') return;
 
   for (const delay of CHECKPOINTS_MS) {
-    window.setTimeout(releaseBodyPointerEvents, delay);
+    window.setTimeout(() => releaseBodyPointerEvents(inheritedPointerEvents), delay);
   }
 }
 
 /**
  * Guarantees the body pointer-events lock is released once a modal surface has
  * closed, including when it unmounts while still open.
+ *
+ * Pass `open` for controlled surfaces. The returned callback covers uncontrolled
+ * ones and should be called from the surface's `onOpenChange`.
  */
-export function useBodyPointerEventsRelease(open: boolean): void {
+export function useBodyPointerEventsRelease(open?: boolean): (nextOpen: boolean) => void {
+  const inheritedPointerEvents = useRef('');
   const wasOpen = useRef(false);
 
-  useEffect(() => {
-    if (open) {
+  const trackOpenChange = useCallback((nextOpen: boolean) => {
+    if (nextOpen) {
+      if (!wasOpen.current && typeof document !== 'undefined') {
+        inheritedPointerEvents.current = document.body.style.pointerEvents;
+      }
       wasOpen.current = true;
       return;
     }
     if (!wasOpen.current) return;
 
     wasOpen.current = false;
-    scheduleRelease();
-  }, [open]);
+    scheduleRelease(inheritedPointerEvents.current);
+  }, []);
+
+  useEffect(() => {
+    if (open === undefined) return;
+    trackOpenChange(open);
+  }, [open, trackOpenChange]);
 
   useEffect(() => {
     return () => {
-      if (wasOpen.current) scheduleRelease();
+      if (wasOpen.current) scheduleRelease(inheritedPointerEvents.current);
     };
   }, []);
+
+  return trackOpenChange;
 }

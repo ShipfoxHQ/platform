@@ -1,8 +1,9 @@
 import {argosScreenshot} from '@argos-ci/storybook/vitest';
 import type {Meta, StoryObj} from '@storybook/react';
-import {screen, within} from '@testing-library/react';
+import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
+import {expect} from 'storybook/test';
 import {Button} from '../button/index.js';
 import {Input} from '../input/index.js';
 import {Label} from '../label/index.js';
@@ -63,28 +64,6 @@ export const Playground: Story = {
         </Modal>
       </div>
     );
-  },
-};
-
-/**
- * The overlay outlives the modal by the length of its exit animation. While it
- * is still on screen it must not catch clicks meant for the page behind it,
- * otherwise a stalled exit leaves the page silently inert.
- */
-export const ClosingOverlayStopsCatchingClicks: Story = {
-  ...Playground,
-  play: async ({canvasElement}) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByRole('button', {name: OPEN_MODAL_REGEX}));
-    await screen.findByRole('dialog');
-
-    await userEvent.click(await screen.findByRole('button', {name: CANCEL_REGEX}));
-
-    const overlay = document.querySelector('[data-state="closed"].fixed.inset-0');
-    if (overlay === null) throw new Error('overlay left the DOM before it could be checked');
-    if (window.getComputedStyle(overlay).pointerEvents !== 'none') {
-      throw new Error('closing overlay still catches pointer events');
-    }
   },
 };
 
@@ -216,5 +195,35 @@ export const SettingsForm: Story = {
         </Modal>
       </div>
     );
+  },
+};
+
+const CLOSING_SURFACE_SELECTOR =
+  '[data-state="closed"][role="dialog"], [data-state="closed"].fixed.inset-0';
+
+/**
+ * Overlay and content both outlive the modal by the length of the exit
+ * animation. While they are on screen they must not catch clicks meant for the
+ * page behind them, otherwise a stalled exit leaves the page silently inert.
+ * The body pointer-events lock has to come off in the same window.
+ */
+export const TestClosingSurfaceStopsCatchingClicks: Story = {
+  ...Playground,
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole('button', {name: OPEN_MODAL_REGEX}));
+    await screen.findByRole('dialog');
+
+    await userEvent.click(await screen.findByRole('button', {name: CANCEL_REGEX}));
+
+    const closing = document.querySelectorAll(CLOSING_SURFACE_SELECTOR);
+    expect(closing.length).toBeGreaterThan(0);
+    for (const node of closing) {
+      expect(window.getComputedStyle(node).pointerEvents).toBe('none');
+    }
+
+    await waitFor(() => {
+      expect(document.body.style.pointerEvents).not.toBe('none');
+    });
   },
 };

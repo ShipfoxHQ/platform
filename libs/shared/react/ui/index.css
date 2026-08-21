@@ -1235,6 +1235,13 @@
   * {
     @apply border-border-neutral-base font-display;
   }
+  /* Radix positions every popper surface (dropdown menu, submenu, select,
+     popover) inside this wrapper and keeps it mounted for the exit animation.
+     The wrapper, not the content, is what a click hits, so it has to go inert
+     as soon as its surface starts closing. */
+  [data-radix-popper-content-wrapper]:has([data-state="closed"]) {
+    pointer-events: none;
+  }
   html {
     @apply bg-background-neutral-base text-foreground-neutral-base;
     font-feature-settings:

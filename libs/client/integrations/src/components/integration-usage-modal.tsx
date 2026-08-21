@@ -26,7 +26,7 @@ import {
 } from '@shipfox/react-ui/select';
 import {Text} from '@shipfox/react-ui/typography';
 import type {ReactNode} from 'react';
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {ConnectionStatusBadge} from '#connection-status-badge.js';
 import type {IntegrationConnection} from '#core/models.js';
 
@@ -62,14 +62,20 @@ export function IntegrationUsageModal({
     );
   }, [eventValuesKey]);
 
-  const workflowExample = connection
-    ? buildWorkflowExample({source: connection.slug, event: selectedEvent})
+  // The caller clears the connection in the same render that closes the modal,
+  // so keep the last one to render against while the surface animates out.
+  const lastConnection = useRef(connection);
+  if (connection !== null) lastConnection.current = connection;
+  const shownConnection = connection ?? lastConnection.current;
+
+  const workflowExample = shownConnection
+    ? buildWorkflowExample({source: shownConnection.slug, event: selectedEvent})
     : '';
   const data = useMemo(
     () => [{language: 'yaml', filename: WORKFLOW_FILENAME, code: workflowExample}],
     [workflowExample],
   );
-  const title = connection ? `Use ${connection.displayName}` : 'Use integration';
+  const title = shownConnection ? `Use ${shownConnection.displayName}` : 'Use integration';
 
   return (
     <Modal open={open && connection !== null} onOpenChange={onOpenChange}>
@@ -81,8 +87,11 @@ export function IntegrationUsageModal({
               <Text size="lg" aria-hidden="true" className="truncate">
                 {title}
               </Text>
-              {connection ? (
-                <ConnectionStatusBadge status={connection.lifecycleStatus} className="shrink-0" />
+              {shownConnection ? (
+                <ConnectionStatusBadge
+                  status={shownConnection.lifecycleStatus}
+                  className="shrink-0"
+                />
               ) : null}
             </div>
             <Text size="sm" className="text-foreground-neutral-muted">
@@ -90,7 +99,7 @@ export function IntegrationUsageModal({
             </Text>
           </div>
         </ModalHeader>
-        {connection ? (
+        {shownConnection ? (
           <>
             <ModalBody className="min-h-0 flex-1 gap-section overflow-y-auto overflow-x-clip scrollbar">
               <section className="flex w-full flex-col gap-cluster">

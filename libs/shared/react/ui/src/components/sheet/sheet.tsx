@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {cva, type VariantProps} from 'class-variance-authority';
-import {type ComponentProps, useState} from 'react';
+import type {ComponentProps} from 'react';
 import {useBodyPointerEventsRelease} from '#hooks/useBodyPointerEventsRelease.js';
 import {useMediaQuery} from '#hooks/useMediaQuery.js';
 import {cn} from '#utils/cn.js';
@@ -52,13 +52,10 @@ const sheetContentVariants = cva(
 );
 
 function Sheet({onOpenChange, ...props}: ComponentProps<typeof DialogPrimitive.Root>) {
-  // Mirrors the open state so uncontrolled callers are covered too.
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(props.defaultOpen ?? false);
-
-  useBodyPointerEventsRelease(props.open ?? uncontrolledOpen);
+  const trackOpenChange = useBodyPointerEventsRelease(props.open);
 
   function handleOpenChange(nextOpen: boolean) {
-    setUncontrolledOpen(nextOpen);
+    trackOpenChange(nextOpen);
     onOpenChange?.(nextOpen);
   }
 

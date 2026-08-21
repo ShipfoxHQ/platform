@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {cva} from 'class-variance-authority';
-import {type ComponentProps, createContext, type ReactNode, useContext, useState} from 'react';
+import {type ComponentProps, createContext, type ReactNode, useContext} from 'react';
 import {Drawer as VaulDrawer} from 'vaul';
 import {useBodyPointerEventsRelease} from '#hooks/useBodyPointerEventsRelease.js';
 import {useMediaQuery} from '#hooks/useMediaQuery.js';
@@ -28,9 +28,9 @@ function useModalContext() {
 }
 
 // A closing surface outlives its dialog: the overlay keeps covering the page for
-// the length of its exit animation, and Radix gives it `pointer-events: auto`.
-// Dropping pointer events on `data-state=closed` keeps a fading — or stuck —
-// overlay from eating clicks meant for the page behind it.
+// the length of its exit animation, and Radix gives it `pointer-events: auto`
+// inline. Dropping pointer events on `data-state=closed` keeps a fading (or
+// stuck) overlay from eating clicks meant for the page behind it.
 const modalOverlayVariants = cva(
   'fixed inset-0 z-40 bg-background-backdrop-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:pointer-events-none!',
 );
@@ -46,10 +46,7 @@ function Modal({
   ...props
 }: ComponentProps<typeof DialogPrimitive.Root> & {breakpoint?: string}) {
   const isDesktop = useMediaQuery(breakpoint);
-  // Mirrors the open state so uncontrolled callers are covered too.
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(props.defaultOpen ?? false);
-
-  useBodyPointerEventsRelease(props.open ?? uncontrolledOpen);
+  const trackOpenChange = useBodyPointerEventsRelease(props.open);
 
   const contextValue: ModalContextValue = {
     breakpoint,
@@ -59,7 +56,7 @@ function Modal({
   const Root = isDesktop ? DialogPrimitive.Root : VaulDrawer.Root;
 
   function handleOpenChange(nextOpen: boolean) {
-    setUncontrolledOpen(nextOpen);
+    trackOpenChange(nextOpen);
     onOpenChange?.(nextOpen);
   }
 
