@@ -1,7 +1,9 @@
 import {argosScreenshot} from '@argos-ci/storybook/vitest';
 import type {Meta, StoryObj} from '@storybook/react';
-import {screen} from '@testing-library/react';
+import {screen, waitFor} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
+import {expect} from 'storybook/test';
 import {Avatar} from '../avatar/index.js';
 import {Button} from '../button/index.js';
 import {
@@ -423,5 +425,32 @@ export const CompleteExample: Story = {
         )}
       </div>
     );
+  },
+};
+
+/**
+ * Radix keeps the menu mounted inside its popper wrapper for the exit animation,
+ * and the wrapper is what a click hits. Both have to go inert as soon as the
+ * menu starts closing, or the first click after a dismissal is swallowed.
+ */
+export const TestClosingMenuStopsCatchingClicks: Story = {
+  ...Playground,
+  play: async () => {
+    await userEvent.click(await screen.findByRole('button', {name: 'Open Menu'}));
+    await userEvent.click(await screen.findByRole('menuitem', {name: 'Edit'}));
+
+    await waitFor(() => {
+      const menu = document.querySelector('[role="menu"][data-state="closed"]');
+      expect(menu).not.toBeNull();
+      expect(window.getComputedStyle(menu as Element).pointerEvents).toBe('none');
+
+      const wrapper = (menu as Element).closest('[data-radix-popper-content-wrapper]');
+      expect(wrapper).not.toBeNull();
+      expect(window.getComputedStyle(wrapper as Element).pointerEvents).toBe('none');
+    });
+
+    await waitFor(() => {
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+    });
   },
 };

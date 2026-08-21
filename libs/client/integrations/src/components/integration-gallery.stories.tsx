@@ -161,12 +161,24 @@ export const UsageModalCloseRestoresInteraction: Story = {
     await user.click(await screen.findByRole('menuitem', {name: 'Use this integration'}));
     await screen.findByRole('dialog', {name: 'Use acme-corp'});
     await user.click(await screen.findByRole('button', {name: 'Done'}));
-    expect(screen.queryByRole('dialog', {name: 'Use acme-corp'})).not.toBeInTheDocument();
-    // The dialog unmounts before its dismissable layer releases the body, so
-    // wait for the release rather than asserting it on the same tick: clicking
-    // while `pointer-events: none` is still set is swallowed silently.
+    // The dialog stays mounted while it animates out, which is what keeps the
+    // close from being an abrupt unmount.
     await waitFor(() => {
+      expect(screen.queryByRole('dialog', {name: 'Use acme-corp'})).toHaveAttribute(
+        'data-state',
+        'closed',
+      );
+    });
+    // Both the removal and the body pointer-events release therefore land after
+    // the click rather than on the same tick.
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', {name: 'Use acme-corp'})).not.toBeInTheDocument();
       expect(document.body.style.pointerEvents).not.toBe('none');
+    });
+    // Radix dismisses on the first outside pointerdown while the previous menu is
+    // still mounted, so let it finish leaving before reopening.
+    await waitFor(() => {
+      expect(document.querySelectorAll('[role="menu"]')).toHaveLength(0);
     });
     await user.click(actionsButton);
     await screen.findByRole('menuitem', {name: 'Use this integration'});

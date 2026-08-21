@@ -1,7 +1,9 @@
 import {argosScreenshot} from '@argos-ci/storybook/vitest';
 import type {Meta, StoryObj} from '@storybook/react';
-import {screen} from '@testing-library/react';
+import {screen, waitFor, within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
+import {expect} from 'storybook/test';
 import {Button} from '../button/index.js';
 import {Input} from '../input/index.js';
 import {Label} from '../label/index.js';
@@ -300,5 +302,45 @@ export const LongContent: Story = {
         </Sheet>
       </div>
     );
+  },
+};
+
+const CLOSING_SURFACE_SELECTOR =
+  '[data-state="closed"][role="dialog"], [data-state="closed"].fixed.inset-0';
+
+/**
+ * Closing an uncontrolled sheet must leave the page usable straight away: the
+ * overlay and content stop catching clicks while they slide out, and the body
+ * pointer-events lock comes off. Uncontrolled is the case with no other
+ * coverage, since every visual story above drives `open` itself.
+ */
+export const TestClosingSurfaceStopsCatchingClicks: Story = {
+  render: () => (
+    <Sheet defaultOpen>
+      <SheetContent>
+        <SheetHeader>
+          <SheetTitle>Sheet Title</SheetTitle>
+        </SheetHeader>
+        <SheetBody>
+          <Text size="sm">Body</Text>
+        </SheetBody>
+      </SheetContent>
+    </Sheet>
+  ),
+  play: async () => {
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getAllByRole('button')[0] as HTMLElement);
+
+    await waitFor(() => {
+      const closing = document.querySelectorAll(CLOSING_SURFACE_SELECTOR);
+      expect(closing.length).toBeGreaterThan(0);
+      for (const node of closing) {
+        expect(window.getComputedStyle(node).pointerEvents).toBe('none');
+      }
+    });
+
+    await waitFor(() => {
+      expect(document.body.style.pointerEvents).not.toBe('none');
+    });
   },
 };

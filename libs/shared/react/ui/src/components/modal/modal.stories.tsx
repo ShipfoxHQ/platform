@@ -1,8 +1,9 @@
 import {argosScreenshot} from '@argos-ci/storybook/vitest';
 import type {Meta, StoryObj} from '@storybook/react';
-import {screen, within} from '@testing-library/react';
+import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
+import {expect} from 'storybook/test';
 import {Button} from '../button/index.js';
 import {Input} from '../input/index.js';
 import {Label} from '../label/index.js';
@@ -19,6 +20,7 @@ import {
 
 const OPEN_MODAL_REGEX = /open modal/i;
 const ACCOUNT_SETTINGS_REGEX = /account settings/i;
+const CANCEL_REGEX = /cancel/i;
 
 const meta = {
   title: 'Components/Modal',
@@ -193,5 +195,37 @@ export const SettingsForm: Story = {
         </Modal>
       </div>
     );
+  },
+};
+
+const CLOSING_SURFACE_SELECTOR =
+  '[data-state="closed"][role="dialog"], [data-state="closed"].fixed.inset-0';
+
+/**
+ * Overlay and content both outlive the modal by the length of the exit
+ * animation. While they are on screen they must not catch clicks meant for the
+ * page behind them, otherwise a stalled exit leaves the page silently inert.
+ * The body pointer-events lock has to come off in the same window.
+ */
+export const TestClosingSurfaceStopsCatchingClicks: Story = {
+  ...Playground,
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole('button', {name: OPEN_MODAL_REGEX}));
+    await screen.findByRole('dialog');
+
+    await userEvent.click(await screen.findByRole('button', {name: CANCEL_REGEX}));
+
+    await waitFor(() => {
+      const closing = document.querySelectorAll(CLOSING_SURFACE_SELECTOR);
+      expect(closing.length).toBeGreaterThan(0);
+      for (const node of closing) {
+        expect(window.getComputedStyle(node).pointerEvents).toBe('none');
+      }
+    });
+
+    await waitFor(() => {
+      expect(document.body.style.pointerEvents).not.toBe('none');
+    });
   },
 };
