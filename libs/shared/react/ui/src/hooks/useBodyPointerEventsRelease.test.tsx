@@ -1,4 +1,5 @@
 import {act, render} from '@testing-library/react';
+import {useEffect} from 'react';
 import {useBodyPointerEventsRelease} from './useBodyPointerEventsRelease.js';
 
 function Probe({open}: {open: boolean}) {
@@ -8,7 +9,12 @@ function Probe({open}: {open: boolean}) {
 
 /** Mirrors an uncontrolled surface, which reports its state through the callback. */
 function CallbackProbe({onReady}: {onReady: (track: (next: boolean) => void) => void}) {
-  onReady(useBodyPointerEventsRelease());
+  const track = useBodyPointerEventsRelease();
+
+  useEffect(() => {
+    onReady(track);
+  }, [onReady, track]);
+
   return null;
 }
 
