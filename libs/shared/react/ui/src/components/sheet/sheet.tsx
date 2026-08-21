@@ -52,7 +52,7 @@ const sheetContentVariants = cva(
 );
 
 function Sheet({onOpenChange, ...props}: ComponentProps<typeof DialogPrimitive.Root>) {
-  const trackOpenChange = useBodyPointerEventsRelease(props.open);
+  const trackOpenChange = useBodyPointerEventsRelease(props.open ?? props.defaultOpen);
 
   function handleOpenChange(nextOpen: boolean) {
     trackOpenChange(nextOpen);

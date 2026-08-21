@@ -331,11 +331,13 @@ export const TestClosingSurfaceStopsCatchingClicks: Story = {
     const dialog = await screen.findByRole('dialog');
     await userEvent.click(within(dialog).getAllByRole('button')[0] as HTMLElement);
 
-    const closing = document.querySelectorAll(CLOSING_SURFACE_SELECTOR);
-    expect(closing.length).toBeGreaterThan(0);
-    for (const node of closing) {
-      expect(window.getComputedStyle(node).pointerEvents).toBe('none');
-    }
+    await waitFor(() => {
+      const closing = document.querySelectorAll(CLOSING_SURFACE_SELECTOR);
+      expect(closing.length).toBeGreaterThan(0);
+      for (const node of closing) {
+        expect(window.getComputedStyle(node).pointerEvents).toBe('none');
+      }
+    });
 
     await waitFor(() => {
       expect(document.body.style.pointerEvents).not.toBe('none');

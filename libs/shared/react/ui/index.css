@@ -1239,7 +1239,7 @@
      popover) inside this wrapper and keeps it mounted for the exit animation.
      The wrapper, not the content, is what a click hits, so it has to go inert
      as soon as its surface starts closing. */
-  [data-radix-popper-content-wrapper]:has([data-state="closed"]) {
+  [data-radix-popper-content-wrapper]:has(> [data-state="closed"]) {
     pointer-events: none;
   }
   html {

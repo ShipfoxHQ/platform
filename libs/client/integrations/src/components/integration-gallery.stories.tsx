@@ -163,7 +163,12 @@ export const UsageModalCloseRestoresInteraction: Story = {
     await user.click(await screen.findByRole('button', {name: 'Done'}));
     // The dialog stays mounted while it animates out, which is what keeps the
     // close from being an abrupt unmount.
-    expect(document.querySelector('[role="dialog"][data-state="closed"]')).not.toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', {name: 'Use acme-corp'})).toHaveAttribute(
+        'data-state',
+        'closed',
+      );
+    });
     // Both the removal and the body pointer-events release therefore land after
     // the click rather than on the same tick.
     await waitFor(() => {

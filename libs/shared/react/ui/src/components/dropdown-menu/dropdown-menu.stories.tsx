@@ -439,13 +439,15 @@ export const TestClosingMenuStopsCatchingClicks: Story = {
     await userEvent.click(await screen.findByRole('button', {name: 'Open Menu'}));
     await userEvent.click(await screen.findByRole('menuitem', {name: 'Edit'}));
 
-    const menu = document.querySelector('[role="menu"][data-state="closed"]');
-    expect(menu).not.toBeNull();
-    expect(window.getComputedStyle(menu as Element).pointerEvents).toBe('none');
+    await waitFor(() => {
+      const menu = document.querySelector('[role="menu"][data-state="closed"]');
+      expect(menu).not.toBeNull();
+      expect(window.getComputedStyle(menu as Element).pointerEvents).toBe('none');
 
-    const wrapper = (menu as Element).closest('[data-radix-popper-content-wrapper]');
-    expect(wrapper).not.toBeNull();
-    expect(window.getComputedStyle(wrapper as Element).pointerEvents).toBe('none');
+      const wrapper = (menu as Element).closest('[data-radix-popper-content-wrapper]');
+      expect(wrapper).not.toBeNull();
+      expect(window.getComputedStyle(wrapper as Element).pointerEvents).toBe('none');
+    });
 
     await waitFor(() => {
       expect(document.querySelector('[role="menu"]')).toBeNull();

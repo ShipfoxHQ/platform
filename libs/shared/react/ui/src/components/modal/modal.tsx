@@ -46,7 +46,7 @@ function Modal({
   ...props
 }: ComponentProps<typeof DialogPrimitive.Root> & {breakpoint?: string}) {
   const isDesktop = useMediaQuery(breakpoint);
-  const trackOpenChange = useBodyPointerEventsRelease(props.open);
+  const trackOpenChange = useBodyPointerEventsRelease(props.open ?? props.defaultOpen);
 
   const contextValue: ModalContextValue = {
     breakpoint,

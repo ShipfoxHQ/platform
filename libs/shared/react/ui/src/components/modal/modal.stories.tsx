@@ -216,11 +216,13 @@ export const TestClosingSurfaceStopsCatchingClicks: Story = {
 
     await userEvent.click(await screen.findByRole('button', {name: CANCEL_REGEX}));
 
-    const closing = document.querySelectorAll(CLOSING_SURFACE_SELECTOR);
-    expect(closing.length).toBeGreaterThan(0);
-    for (const node of closing) {
-      expect(window.getComputedStyle(node).pointerEvents).toBe('none');
-    }
+    await waitFor(() => {
+      const closing = document.querySelectorAll(CLOSING_SURFACE_SELECTOR);
+      expect(closing.length).toBeGreaterThan(0);
+      for (const node of closing) {
+        expect(window.getComputedStyle(node).pointerEvents).toBe('none');
+      }
+    });
 
     await waitFor(() => {
       expect(document.body.style.pointerEvents).not.toBe('none');

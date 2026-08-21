@@ -6,6 +6,12 @@ function Probe({open}: {open: boolean}) {
   return null;
 }
 
+/** Mirrors an uncontrolled surface, which reports its state through the callback. */
+function CallbackProbe({onReady}: {onReady: (track: (next: boolean) => void) => void}) {
+  onReady(useBodyPointerEventsRelease());
+  return null;
+}
+
 /** Stands in for the lock Radix's dismissable layer puts on the body. */
 function lockBody() {
   document.body.style.pointerEvents = 'none';
@@ -107,5 +113,23 @@ describe('useBodyPointerEventsRelease', () => {
     settleCheckpoints();
 
     expect(document.body.style.pointerEvents).toBe('none');
+  });
+
+  test('releases the lock for a surface that reports through the callback', () => {
+    let track: (next: boolean) => void = () => undefined;
+    render(
+      <CallbackProbe
+        onReady={(next) => {
+          track = next;
+        }}
+      />,
+    );
+
+    track(true);
+    lockBody();
+    track(false);
+    settleCheckpoints();
+
+    expect(document.body.style.pointerEvents).toBe('');
   });
 });
