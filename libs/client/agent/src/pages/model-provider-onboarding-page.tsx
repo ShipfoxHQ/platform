@@ -35,6 +35,8 @@ export function ModelProviderOnboardingPage({
   const [onboarding, dispatch] = useReducer(onboardingReducer, initialOnboardingState);
   const supportedProviders = catalogQuery.data?.providers.filter(isSupportedProvider) ?? [];
   const catalogLoaded = catalogQuery.data !== undefined;
+  const catalogLoading = catalogQuery.isPending;
+  const catalogLoadError = catalogQuery.isError && catalogQuery.data === undefined;
   const managedOnly = isManagedOnlyCatalog(catalogQuery.data);
   const managedOnlyForwarded = useRef(false);
   const filteredProviders = useMemo(() => {
@@ -60,14 +62,6 @@ export function ModelProviderOnboardingPage({
       )
       ?.focus();
   }, [catalogLoaded, managedOnly, onboarding.step]);
-
-  if (catalogQuery.isPending) {
-    return <ModelProviderGridSkeleton label="Loading model providers" />;
-  }
-
-  if (catalogQuery.isError && catalogQuery.data === undefined) {
-    return <QueryLoadError query={catalogQuery} subject="model provider catalog" />;
-  }
 
   if (managedOnly) return null;
 
@@ -140,27 +134,36 @@ export function ModelProviderOnboardingPage({
       </header>
 
       <section aria-labelledby={headingId} className="flex flex-col gap-group">
-        {onboarding.step === 'choose-harness' ? (
-          <HarnessPicker
-            onSelect={(harnessId) => dispatch({type: 'harness-selected', harnessId})}
-          />
-        ) : (
-          <>
-            <div>
-              <Button type="button" variant="transparent" onClick={() => dispatch({type: 'back'})}>
-                Back
-              </Button>
-            </div>
-            <ModelProviderPicker
-              key={onboarding.harnessId}
-              catalogQuery={catalogQuery}
-              supportedProviders={filteredProviders}
-              onSelect={(entry) => {
-                dispatch({type: 'provider-selected', provider: entry});
-              }}
+        {catalogLoading ? <ModelProviderGridSkeleton label="Loading model providers" /> : null}
+        {catalogLoadError ? (
+          <QueryLoadError query={catalogQuery} subject="model provider catalog" />
+        ) : null}
+        {!catalogLoading && !catalogLoadError ? (
+          onboarding.step === 'choose-harness' ? (
+            <HarnessPicker
+              onSelect={(harnessId) => dispatch({type: 'harness-selected', harnessId})}
             />
-          </>
-        )}
+          ) : (
+            <>
+              <div>
+                <Button
+                  type="button"
+                  variant="transparent"
+                  onClick={() => dispatch({type: 'back'})}
+                >
+                  Back
+                </Button>
+              </div>
+              <ModelProviderPicker
+                key={onboarding.harnessId}
+                supportedProviders={filteredProviders}
+                onSelect={(entry) => {
+                  dispatch({type: 'provider-selected', provider: entry});
+                }}
+              />
+            </>
+          )
+        ) : null}
       </section>
 
       <Modal
@@ -262,23 +265,13 @@ function HarnessCard({harness, onChoose}: {harness: HarnessDescriptor; onChoose:
 }
 
 function ModelProviderPicker({
-  catalogQuery,
   supportedProviders,
   onSelect,
 }: {
-  catalogQuery: ReturnType<typeof useModelProviderCatalogQuery>;
   supportedProviders: SupportedProvider[];
   onSelect: (entry: SupportedProvider) => void;
 }) {
-  if (catalogQuery.isPending) {
-    return <ModelProviderGridSkeleton label="Loading model providers" />;
-  }
-
-  if (catalogQuery.isError && catalogQuery.data === undefined) {
-    return <QueryLoadError query={catalogQuery} subject="model provider catalog" />;
-  }
-
-  if (catalogQuery.data !== undefined && supportedProviders.length === 0) {
+  if (supportedProviders.length === 0) {
     return (
       <EmptyState
         icon="componentLine"

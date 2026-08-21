@@ -2,4 +2,4 @@
 "@shipfox/client-agent": patch
 ---
 
-Keep agent provider onboarding behind the model provider catalog loading and error states.
+Agent provider onboarding now waits for the model provider catalog before showing provider and harness selection, with a loading state and a retryable error state when the catalog cannot be loaded.
