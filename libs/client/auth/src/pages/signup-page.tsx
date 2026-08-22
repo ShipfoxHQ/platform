@@ -7,9 +7,10 @@ import {
 } from '@shipfox/client-shell/runtime';
 import {displayNameFieldError} from '@shipfox/client-ui';
 import {Button, ButtonLink} from '@shipfox/react-ui/button';
-import {Callout} from '@shipfox/react-ui/callout';
+import {Callout, CalloutContent} from '@shipfox/react-ui/callout';
 import {FormField, FormFieldInput, fieldError} from '@shipfox/react-ui/form-field';
 import {Icon} from '@shipfox/react-ui/icon';
+import {Markdown} from '@shipfox/react-ui/markdown';
 import {toast} from '@shipfox/react-ui/toast';
 import {Text} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
@@ -45,7 +46,7 @@ export function SignupPage() {
   const [authFormDraft, setAuthFormDraft] = useAtom(authFormDraftAtom);
   const [emailChallenge, setEmailChallenge] = useState<{email: string; id: string} | undefined>();
   const [nextResendAvailableAt, setNextResendAvailableAt] = useState<string | undefined>();
-  const [formError, setFormError] = useState<string | undefined>();
+  const [formError, setFormError] = useState<{message: string; format?: 'markdown'} | undefined>();
   const [resendError, setResendError] = useState<string | undefined>();
   const [invitationRefreshFailure, setInvitationRefreshFailure] = useState<{
     workspaceId: string;
@@ -138,7 +139,7 @@ export function SignupPage() {
             errorMap: {...prev.errorMap, onServer: mapped.message},
           }));
         } else {
-          setFormError(mapped.message);
+          setFormError(mapped);
         }
       }
     },
@@ -295,7 +296,13 @@ export function SignupPage() {
       >
         {formError ? (
           <Callout role="alert" type="error">
-            {formError}
+            <CalloutContent>
+              {formError.format === 'markdown' ? (
+                <Markdown className="[&>*:last-child]:mb-0">{formError.message}</Markdown>
+              ) : (
+                formError.message
+              )}
+            </CalloutContent>
           </Callout>
         ) : null}
         <form.Field

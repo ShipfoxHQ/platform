@@ -46,7 +46,7 @@ export const config = createConfig({
     default: '',
   }),
   AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: str({
-    desc: 'Description returned when the signup gate blocks an account. Optional. The default is This Shipfox deployment does not accept new accounts right now.',
+    desc: 'Markdown message returned when the signup gate blocks an account. Optional. The default is This Shipfox deployment does not accept new accounts right now.',
     default: undefined,
   }),
   CLIENT_BASE_URL: str({

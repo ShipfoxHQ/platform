@@ -1,5 +1,5 @@
 import {configureApiClient} from '@shipfox/client-api';
-import {act, fireEvent, screen, waitFor} from '@testing-library/react';
+import {act, fireEvent, screen, waitFor, within} from '@testing-library/react';
 import {pageUserFactory} from '#test/factories/user.js';
 import {renderAuthPage} from '#test/pages.js';
 import {jsonResponse, requestUrl} from '#test/utils.js';
@@ -7,6 +7,7 @@ import {SignupPage} from './signup-page.js';
 
 const SUBMITTED_EMAIL_RE = /new@example.com/;
 const RESEND_COUNTDOWN_RE = /^Resend in \d+s$/;
+const ACCESS_POLICY_RE = /access policy/i;
 function emailChallenge() {
   return {
     id: '019f814f-3cfd-779a-82f2-6588eefd572c',
@@ -257,6 +258,42 @@ describe('SignupPage', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Create account'}));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Email already exists');
+  });
+
+  test('renders configured signup denial messages as Markdown', async () => {
+    const message = [
+      '## Signups require approval',
+      '',
+      '- Review the [access policy](https://example.test/access).',
+    ].join('\n');
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({code: 'unauthorized', message: 'Unauthorized'}, {status: 401}),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {code: 'signup-not-allowed', message: 'Forbidden', details: {message}},
+          {status: 403},
+        ),
+      );
+    configureApiClient({fetchImpl});
+
+    renderAuthPage('/auth/signup', <SignupPage />);
+    fireEvent.change(await screen.findByLabelText('Name'), {target: {value: 'New User'}});
+    fireEvent.change(screen.getByLabelText('Email'), {target: {value: 'new@example.com'}});
+    fireEvent.change(screen.getByLabelText('Password'), {target: {value: 'long secure password'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Create account'}));
+
+    const alert = await screen.findByRole('alert');
+    expect(
+      within(alert).getByRole('heading', {level: 2, name: 'Signups require approval'}),
+    ).toBeInTheDocument();
+    expect(within(alert).getByRole('listitem')).toBeInTheDocument();
+    expect(within(alert).getByRole('link', {name: ACCESS_POLICY_RE})).toHaveAttribute(
+      'href',
+      'https://example.test/access',
+    );
   });
 
   test('validates the name locally', async () => {

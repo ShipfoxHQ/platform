@@ -66,7 +66,7 @@ Required environment:
 | `AUTH_SIGNUP_GATE_ENABLED` | `false` | Restricts new account creation to the configured signup email allowlist. Requires `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` or `AUTH_SIGNUP_ALLOWED_EMAILS` to be set. |
 | `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` | none | Comma-separated email domains allowed to create accounts, such as `shipfox.io,acme.com`. |
 | `AUTH_SIGNUP_ALLOWED_EMAILS` | none | Comma-separated exact email addresses allowed to create accounts. |
-| `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE` | none | Description returned when the signup gate blocks an account. Defaults to "This Shipfox deployment does not accept new accounts right now." |
+| `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE` | none | Markdown message returned when the signup gate blocks an account. Defaults to "This Shipfox deployment does not accept new accounts right now." |
 | `CLIENT_BASE_URL` | `http://localhost:5173` | Base URL used in email verification and password reset links. |
 | `ADMIN_BOOTSTRAP_TOKEN` | none | Deployment secret accepted once to create the first administrator owner. Set it before bootstrap and remove or rotate it after successful bootstrap. |
 
@@ -89,6 +89,14 @@ Startup fails when both lists are empty. Values are trimmed and lowercased.
 The policy matches exact email addresses or exact domains. It does not match
 subdomains or wildcards. `createAuthModule` applies these settings by default;
 pass a `signupPolicy` to replace the environment-backed policy.
+
+The Shipfox client renders `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE` as sanitized
+Markdown. The signup response limits the message to 500 characters. Use an
+absolute HTTP or HTTPS URL for a link:
+
+```sh
+AUTH_SIGNUP_NOT_ALLOWED_MESSAGE='New accounts require approval. [Request access](https://example.com/access).'
+```
 
 When `AUTH_PASSWORD_ENABLED=false`, the module does not register signup, login, password-reset, password-change, or email-verification routes. Refresh, logout, and current-session routes stay available. Another module must contribute a login method before the API server starts.
 
