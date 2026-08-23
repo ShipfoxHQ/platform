@@ -24,31 +24,44 @@ const sanitizeSchema = {
   },
 };
 
+type MarkdownHeadingTag = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+type MarkdownHeadingComponent = NonNullable<Components['h1']>;
+
+const headingClassNames = {
+  1: 'mb-8 text-lg font-medium text-foreground-neutral-base',
+  2: 'mb-8 text-md font-medium text-foreground-neutral-base',
+  3: 'mb-8 text-sm font-medium text-foreground-neutral-base',
+  4: 'mb-8 text-sm font-medium text-foreground-neutral-base',
+} as const;
+
+function createMarkdownHeading(
+  tag: MarkdownHeadingTag,
+  baseClassName: string,
+): MarkdownHeadingComponent {
+  const Heading = tag;
+  return ({className, node: _node, ...props}) => (
+    <Heading className={cn(baseClassName, className)} {...props} />
+  );
+}
+
+const markdownHeadingComponents = {
+  h1: createMarkdownHeading('h1', headingClassNames[1]),
+  h2: createMarkdownHeading('h2', headingClassNames[2]),
+  h3: createMarkdownHeading('h3', headingClassNames[3]),
+  h4: createMarkdownHeading('h4', headingClassNames[4]),
+} satisfies Components;
+
+const nestedMarkdownHeadingComponents = {
+  h1: createMarkdownHeading('h2', headingClassNames[1]),
+  h2: createMarkdownHeading('h3', headingClassNames[2]),
+  h3: createMarkdownHeading('h4', headingClassNames[3]),
+  h4: createMarkdownHeading('h5', headingClassNames[4]),
+  h5: createMarkdownHeading('h6', headingClassNames[4]),
+  h6: createMarkdownHeading('h6', headingClassNames[4]),
+} satisfies Components;
+
 const markdownComponents = {
-  h1: ({className, node: _node, ...props}) => (
-    <h1
-      className={cn('mb-8 text-lg font-medium text-foreground-neutral-base', className)}
-      {...props}
-    />
-  ),
-  h2: ({className, node: _node, ...props}) => (
-    <h2
-      className={cn('mb-8 text-md font-medium text-foreground-neutral-base', className)}
-      {...props}
-    />
-  ),
-  h3: ({className, node: _node, ...props}) => (
-    <h3
-      className={cn('mb-8 text-sm font-medium text-foreground-neutral-base', className)}
-      {...props}
-    />
-  ),
-  h4: ({className, node: _node, ...props}) => (
-    <h4
-      className={cn('mb-8 text-sm font-medium text-foreground-neutral-base', className)}
-      {...props}
-    />
-  ),
+  ...markdownHeadingComponents,
   p: ({className, node: _node, ...props}) => (
     <p
       className={cn('mb-8 text-sm leading-20 text-foreground-neutral-base', className)}
@@ -180,12 +193,18 @@ const markdownComponents = {
   },
 } satisfies Components;
 
+const nestedMarkdownComponents = {
+  ...markdownComponents,
+  ...nestedMarkdownHeadingComponents,
+} satisfies Components;
+
 type MarkdownProps = {
   children: string;
   className?: string | undefined;
+  headingLevelOffset?: 0 | 1 | undefined;
 };
 
-function MarkdownImpl({children, className}: MarkdownProps) {
+function MarkdownImpl({children, className, headingLevelOffset = 0}: MarkdownProps) {
   if (!children.trim()) return null;
 
   return (
@@ -194,7 +213,7 @@ function MarkdownImpl({children, className}: MarkdownProps) {
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[[rehypeSanitize, sanitizeSchema]]}
-          components={markdownComponents}
+          components={headingLevelOffset === 1 ? nestedMarkdownComponents : markdownComponents}
         >
           {children}
         </ReactMarkdown>

@@ -78,6 +78,34 @@ describe('signupErrorToFormError', () => {
       message: 'We could not reach the API. Check your connection and try again.',
     });
   });
+
+  test('marks configured signup denial messages as Markdown', () => {
+    const message = 'Read the [access policy](https://example.test/access).';
+    const error = new ApiError({
+      code: 'signup-not-allowed',
+      message: 'Forbidden',
+      status: 403,
+      details: {code: 'signup-not-allowed', details: {message, format: 'markdown'}},
+    });
+
+    const result = signupErrorToFormError(error);
+
+    expect(result).toEqual({kind: 'form', message, format: 'markdown'});
+  });
+
+  test('keeps unformatted signup policy messages as plain text', () => {
+    const message = 'Email <admin>@example.test for access.';
+    const error = new ApiError({
+      code: 'signup-not-allowed',
+      message: 'Forbidden',
+      status: 403,
+      details: {code: 'signup-not-allowed', details: {message}},
+    });
+
+    const result = signupErrorToFormError(error);
+
+    expect(result).toEqual({kind: 'form', message});
+  });
 });
 
 describe('passwordResetRequestErrorToFormError', () => {

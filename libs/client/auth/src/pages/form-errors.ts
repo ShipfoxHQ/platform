@@ -1,9 +1,9 @@
 import {ApiError} from '@shipfox/client-api';
-import {authErrorMessage} from './form-utils.js';
+import {authErrorMessage, authErrorMessageFormat} from './form-utils.js';
 
 export type FormErrorMapping<TField extends string> =
   | {kind: 'field'; field: TField; message: string}
-  | {kind: 'form'; message: string};
+  | {kind: 'form'; message: string; format?: 'markdown'};
 
 type LoginField = 'email' | 'password';
 type SignupField = 'email' | 'password' | 'name';
@@ -24,6 +24,14 @@ export function loginErrorToFormError(error: unknown): FormErrorMapping<LoginFie
 export function signupErrorToFormError(error: unknown): FormErrorMapping<SignupField> {
   if (apiCode(error) === 'email-taken') {
     return {kind: 'field', field: 'email', message: authErrorMessage(error)};
+  }
+  if (apiCode(error) === 'signup-not-allowed') {
+    const format = authErrorMessageFormat(error);
+    return {
+      kind: 'form',
+      message: authErrorMessage(error),
+      ...(format ? {format} : {}),
+    };
   }
   return {kind: 'form', message: authErrorMessage(error)};
 }

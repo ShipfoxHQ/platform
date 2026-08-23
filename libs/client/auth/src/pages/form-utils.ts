@@ -4,12 +4,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function signupNotAllowedMessage(error: ApiError): string | undefined {
+function signupNotAllowedDetails(error: ApiError): Record<string, unknown> | undefined {
   if (error.code !== 'signup-not-allowed') return undefined;
   if (!isRecord(error.details)) return undefined;
   const details = error.details.details;
-  if (!isRecord(details)) return undefined;
-  return typeof details.message === 'string' ? details.message : undefined;
+  return isRecord(details) ? details : undefined;
+}
+
+function signupNotAllowedMessage(error: ApiError): string | undefined {
+  const details = signupNotAllowedDetails(error);
+  return typeof details?.message === 'string' ? details.message : undefined;
+}
+
+export function authErrorMessageFormat(error: unknown): 'markdown' | undefined {
+  if (!(error instanceof ApiError)) return undefined;
+  return signupNotAllowedDetails(error)?.format === 'markdown' ? 'markdown' : undefined;
 }
 
 export function authErrorMessage(error: unknown): string {

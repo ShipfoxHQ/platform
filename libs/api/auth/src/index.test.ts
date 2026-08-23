@@ -94,6 +94,7 @@ describe('authModule', () => {
     ).resolves.toEqual({
       allowed: false,
       message: 'This Shipfox deployment does not accept new accounts right now.',
+      format: 'markdown',
     });
   });
 

@@ -71,7 +71,10 @@ async function assertSignupAllowed(params: {
   });
 
   if (!result.allowed) {
-    throw new SignupNotAllowedError(result.message ?? DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE);
+    throw new SignupNotAllowedError(
+      result.message ?? DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE,
+      result.format,
+    );
   }
 }
 

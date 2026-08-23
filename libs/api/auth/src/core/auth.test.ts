@@ -202,6 +202,7 @@ describe('auth core', () => {
       expect.objectContaining({
         name: 'SignupNotAllowedError',
         message: 'This Shipfox deployment does not accept new accounts right now.',
+        format: undefined,
       }),
     );
     expect(await findUserByEmail({email})).toBeUndefined();

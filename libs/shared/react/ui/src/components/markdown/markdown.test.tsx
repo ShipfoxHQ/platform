@@ -127,6 +127,13 @@ describe('Markdown', () => {
     expect(container.querySelector('[dir="auto"]')).not.toBeNull();
   });
 
+  test('offsets headings when Markdown is nested below a page title', () => {
+    const {getByRole} = renderMarkdown('# Primary\n\n## Secondary', 1);
+
+    expect(getByRole('heading', {level: 2, name: 'Primary'})).not.toBeNull();
+    expect(getByRole('heading', {level: 3, name: 'Secondary'})).not.toBeNull();
+  });
+
   test('falls back to escaped plain text when rendering throws', () => {
     const body = '<script>alert(1)</script>';
 
@@ -141,10 +148,10 @@ describe('Markdown', () => {
   });
 });
 
-function renderMarkdown(body: string) {
+function renderMarkdown(body: string, headingLevelOffset: 0 | 1 = 0) {
   return render(
     <MarkdownTestHost>
-      <Markdown>{body}</Markdown>
+      <Markdown headingLevelOffset={headingLevelOffset}>{body}</Markdown>
     </MarkdownTestHost>,
   );
 }
