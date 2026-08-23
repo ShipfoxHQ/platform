@@ -285,7 +285,7 @@ describe('deriveSetupChecklist', () => {
 
     expect(checklist.items.find((item) => item.id === 'tools')).toMatchObject({
       purpose:
-        'Connect Slack, Linear, Jira, Sentry, or a webhook so workflows can react to your tools and agents can use them',
+        'Connect issue tracking, messaging, observability, or a webhook so workflows can react to events and agents can use them',
       action: {href: '/settings/integrations'},
     });
   });
