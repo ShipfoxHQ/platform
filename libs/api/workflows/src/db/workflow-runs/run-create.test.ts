@@ -401,6 +401,49 @@ describe('workflow run queries', () => {
       expect(counter?.nextNumber).toBe(3);
     });
 
+    test('continues a legacy row-id counter after lineage backfill', async () => {
+      await db()
+        .insert(workflowRuns)
+        .values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId,
+          definitionId,
+          number: 3,
+          workflowName: 'Legacy workflow',
+          triggerSource: 'manual',
+          triggerEvent: 'fire',
+          triggerPayload: {
+            source: 'manual',
+            event: 'fire',
+            subscriptionId: crypto.randomUUID(),
+            userId: crypto.randomUUID(),
+          },
+        });
+      await db().insert(workflowRunCounters).values({definitionId, nextNumber: 4});
+
+      // The definitions migration uses the existing row id as the initial lineage id.
+      const next = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      expect(next.number).toBe(4);
+      const [counter] = await db()
+        .select()
+        .from(workflowRunCounters)
+        .where(eq(workflowRunCounters.definitionId, definitionId));
+      expect(counter?.nextNumber).toBe(5);
+    });
+
     test('makes the allocated number available to run-creation expressions', async () => {
       const run = await createWorkflowRun({
         workspaceId,
