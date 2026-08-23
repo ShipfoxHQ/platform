@@ -223,7 +223,11 @@ describe('defaultModules', () => {
       interModulePresentations: [
         {
           contract: definitionsInterModuleContract,
-          handlers: {getDefinitionForWorkflowRun: vi.fn()},
+          handlers: {
+            getDefinitionForWorkflowRun: vi.fn(),
+            listDefinitionsAtRef: vi.fn(),
+            resolveDefinitionAtRef: vi.fn(),
+          },
         },
       ],
     });

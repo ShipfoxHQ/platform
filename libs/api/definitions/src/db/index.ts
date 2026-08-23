@@ -12,6 +12,7 @@ export type {
 } from './definitions.js';
 export {
   applyVcsDefinitionsBatch,
+  findOrCreateWorkflowLineage,
   getDefinitionById,
   invalidateCache,
   listDefinitions,

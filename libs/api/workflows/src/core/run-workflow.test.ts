@@ -23,6 +23,12 @@ type DefinitionForWorkflowRun = NonNullable<
 let definitionResponse: DefinitionForWorkflowRun | null = null;
 const definitions: DefinitionsInterModuleClient = {
   getDefinitionForWorkflowRun: async () => ({definition: definitionResponse}),
+  resolveDefinitionAtRef: () => {
+    throw new Error('resolveDefinitionAtRef is not used by runWorkflow');
+  },
+  listDefinitionsAtRef: () => {
+    throw new Error('listDefinitionsAtRef is not used by runWorkflow');
+  },
 };
 
 function buildDefinition(
