@@ -7,6 +7,7 @@
 - **Implementation issue:** [ENG-938](https://linear.app/shipfox/issue/ENG-938/implement-and-publish-the-client-composition-seam)
 - **Amended by:** [ADR 0009: Client URLs and resource identity](0009-client-urls-resource-identity.md)
 - **Amended by:** [ADR 0012: Client route frames](0012-client-route-frames.md)
+- **Amended by:** [ADR 0013: Workspace setup composition seams](0013-workspace-setup-composition-seams.md)
 
 ## Context
 
@@ -259,17 +260,6 @@ the shell-owned logout action; the component may return nothing based on the cur
 slot cannot replace the user identity, theme controls, logout action, or authentication runtime.
 These slots are not feature providers or manifest data, so Node-safe manifest evaluation never
 imports browser chrome or creates a shell-to-feature dependency.
-
-An application may additionally provide two optional workspace-setup slots: `WorkspaceSetupChecklist`
-and `WorkspaceSetupIndicator`. The projects hub renders the checklist slot as its first panel. The nav
-bar renders the indicator slot right of the breadcrumbs on every in-shell page, and never on the
-pre-project gate pages (while `hideProjectNavigation` is true). The shell renders nothing for an
-absent slot, so a composition without the onboarding feature is unaffected.
-
-UI analytics reach features through a `ClientAnalytics` seam provided alongside `ChromeSlots` in
-`composeClientApp()`: `capture(event, properties)` with a no-op default. The open-source client never
-sends telemetry unless an application injects an implementation (for example PostHog in the cloud
-client).
 
 ## Composition rules
 

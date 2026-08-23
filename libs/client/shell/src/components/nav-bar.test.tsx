@@ -21,8 +21,15 @@ function StubWorkspaceSetupIndicator() {
   return <button type="button">Get started</button>;
 }
 
+function StubProjectBreadcrumb() {
+  return <span>Project breadcrumb</span>;
+}
+
 function chromeWithIndicator(): Partial<ChromeSlots> {
-  return {WorkspaceSetupIndicator: StubWorkspaceSetupIndicator};
+  return {
+    ProjectBreadcrumb: StubProjectBreadcrumb,
+    WorkspaceSetupIndicator: StubWorkspaceSetupIndicator,
+  };
 }
 
 async function renderWorkspacePage(options: {
@@ -55,7 +62,18 @@ describe('NavBar workspace-setup indicator', () => {
       chrome: chromeWithIndicator(),
     });
 
-    expect(await screen.findByRole('button', {name: 'Get started'})).toBeVisible();
+    const indicator = await screen.findByRole('button', {name: 'Get started'});
+    const breadcrumb = screen.getByText('Project breadcrumb');
+    const header = indicator.closest('header');
+
+    expect(indicator).toBeVisible();
+    expect(breadcrumb).toBeVisible();
+    expect(header).not.toBeNull();
+    expect(header?.contains(breadcrumb)).toBe(true);
+    expect(header?.contains(indicator)).toBe(true);
+    expect(breadcrumb.compareDocumentPosition(indicator) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   test.each([

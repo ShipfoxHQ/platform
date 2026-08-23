@@ -1,5 +1,6 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {type AuthState, authStateAtom} from '@shipfox/client-auth';
+import {ChromeProvider, type ChromeSlots} from '@shipfox/client-shell/runtime';
 import {Toaster} from '@shipfox/react-ui/toast';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
@@ -122,19 +123,27 @@ export function renderProjectPage(
   path: string,
   element: ReactElement,
   queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}}),
+  chromeOverrides: Partial<ChromeSlots> = {},
 ): RenderResult {
   const router = createTestRouter(path, element);
   const store = createStore();
   store.set(authStateAtom, authState);
+  const chrome: ChromeSlots = {
+    ProjectBreadcrumb: () => null,
+    projectSlugResolver: async () => undefined,
+    ...chromeOverrides,
+  };
 
   configureApiClient({baseUrl: 'https://api.example.test'});
 
   return render(
-    <QueryClientProvider client={queryClient}>
-      <JotaiProvider store={store}>
-        <RouterProvider router={router} />
-        <Toaster />
-      </JotaiProvider>
-    </QueryClientProvider>,
+    <ChromeProvider chrome={chrome}>
+      <QueryClientProvider client={queryClient}>
+        <JotaiProvider store={store}>
+          <RouterProvider router={router} />
+          <Toaster />
+        </JotaiProvider>
+      </QueryClientProvider>
+    </ChromeProvider>,
   );
 }

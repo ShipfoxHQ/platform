@@ -7,11 +7,7 @@ import type {ClientFeature} from '#contract.js';
 import {assembleRouteTree, type ResolveRouteImpl} from '#runtime/assemble-route-tree.js';
 import {type AuthStateValue, authStateAtom} from '#runtime/auth.js';
 import {ChromeProvider, type ChromeSlots} from '#runtime/chrome-context.js';
-import {
-  type ClientAnalytics,
-  ClientAnalyticsProvider,
-  noopClientAnalytics,
-} from '#runtime/client-analytics.js';
+import {type ClientAnalytics, ClientAnalyticsProvider} from '#runtime/client-analytics.js';
 import {ShellProviderStack} from '#runtime/provider-stack.js';
 import {navigationEntries, settingsEntries} from '#runtime/registries.js';
 import type {WorkspaceSetupGate} from '#runtime/workspace-setup.js';
@@ -71,7 +67,7 @@ export async function renderComposedShell({
   });
   render(
     <ChromeProvider chrome={chrome}>
-      <ClientAnalyticsProvider analytics={clientAnalytics ?? noopClientAnalytics}>
+      <ClientAnalyticsProvider {...(clientAnalytics ? {analytics: clientAnalytics} : {})}>
         <ShellProviderStack
           features={features}
           queryClient={queryClient}

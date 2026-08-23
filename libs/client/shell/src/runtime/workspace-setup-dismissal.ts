@@ -19,7 +19,10 @@ const workspaceSetupChecklistDismissalKey = {
   },
 } satisfies BrowserStorageKey<boolean>;
 
-/** Whether the workspace setup checklist was dismissed on this device. */
+/**
+ * Reads whether the checklist was dismissed on this device at call time.
+ * Consumers that mount the value as UI state own any re-read or subscription.
+ */
 export function isWorkspaceSetupChecklistDismissed(workspaceId: string): boolean {
   return workspaceSetupChecklistDismissalStorage(workspaceId).read() === true;
 }

@@ -17,11 +17,7 @@ import {composeClientFeatures} from '#compose/compose-client-features.js';
 import type {ClientFeature} from '#contract.js';
 import {useAuthState} from './auth.js';
 import {ChromeProvider, type ChromeSlots} from './chrome-context.js';
-import {
-  type ClientAnalytics,
-  ClientAnalyticsProvider,
-  noopClientAnalytics,
-} from './client-analytics.js';
+import {type ClientAnalytics, ClientAnalyticsProvider} from './client-analytics.js';
 import {ShellProviderStack} from './provider-stack.js';
 import type {WorkspaceSetupGate} from './workspace-setup.js';
 
@@ -66,7 +62,7 @@ export function composeClientApp({
       root.render(
         <StrictMode>
           <ChromeProvider chrome={chrome}>
-            <ClientAnalyticsProvider analytics={clientAnalytics ?? noopClientAnalytics}>
+            <ClientAnalyticsProvider {...(clientAnalytics ? {analytics: clientAnalytics} : {})}>
               <ShellProviderStack
                 features={features}
                 queryClient={queryClient}

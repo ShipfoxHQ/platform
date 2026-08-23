@@ -22,6 +22,7 @@ documentation model and other engineering sources, start with the
 | [0010: Prose standard and enforcement](0010-prose-standard-and-enforcement.md) | Accepted | The repository prose standard, its sources, accepted divergences, and enforcement model. |
 | [0011: Semantic spacing layer](0011-semantic-spacing-layer.md) | Accepted | Semantic spacing roles, the component boundary, the sizing exclusion, and density posture. |
 | [0012: Client route frames](0012-client-route-frames.md) | Accepted; amends ADR 0001 | Shell-owned content, data, and focused frame declarations and validation for composed routes. |
+| [0013: Workspace setup composition seams](0013-workspace-setup-composition-seams.md) | Accepted; amends ADR 0001 | Workspace-setup chrome slots, client analytics isolation, and shared dismissal ownership. |
 
 When a decision changes, add a new ADR that supersedes or amends the earlier
 record. Keep the original record intact so readers can understand why the

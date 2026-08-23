@@ -1,6 +1,10 @@
 import type {PropsWithChildren} from 'react';
-import {createContext, useContext} from 'react';
+import {createContext, useContext, useMemo} from 'react';
 
+/**
+ * Application-provided UI analytics. Call `capture` from an effect or event
+ * handler, not during render. The provider isolates implementation failures.
+ */
 export interface ClientAnalytics {
   capture(event: string, properties?: Record<string, unknown>): void;
 }
@@ -18,8 +22,13 @@ export function ClientAnalyticsProvider({
   analytics,
   children,
 }: PropsWithChildren<{analytics?: ClientAnalytics}>) {
+  const safeAnalytics = useMemo(
+    () => (analytics ? createSafeClientAnalytics(analytics) : noopClientAnalytics),
+    [analytics],
+  );
+
   return (
-    <ClientAnalyticsContext.Provider value={analytics ?? noopClientAnalytics}>
+    <ClientAnalyticsContext.Provider value={safeAnalytics}>
       {children}
     </ClientAnalyticsContext.Provider>
   );
@@ -27,4 +36,16 @@ export function ClientAnalyticsProvider({
 
 export function useClientAnalytics(): ClientAnalytics {
   return useContext(ClientAnalyticsContext);
+}
+
+function createSafeClientAnalytics(analytics: ClientAnalytics): ClientAnalytics {
+  return {
+    capture(event, properties) {
+      try {
+        analytics.capture(event, properties);
+      } catch {
+        // Optional analytics must not interrupt a feature render or user action.
+      }
+    },
+  };
 }
