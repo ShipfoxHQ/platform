@@ -51,7 +51,7 @@ export const triggerEventDtoSchema = triggerEventListItemDtoSchema.extend({
 });
 export type TriggerEventDto = z.infer<typeof triggerEventDtoSchema>;
 
-export const triggerDecisionDtoSchema = z.object({
+const triggerDecisionDtoBaseSchema = z.object({
   id: z.string().uuid(),
   received_event_id: z.string().uuid(),
   subscription_kind: triggerDecisionSubscriptionKindSchema,
@@ -69,6 +69,20 @@ export const triggerDecisionDtoSchema = z.object({
   run_name: z.string().nullable(),
   reason: z.string().nullable(),
   created_at: z.string(),
+});
+
+export const triggerDecisionDtoSchema = triggerDecisionDtoBaseSchema.superRefine((value, ctx) => {
+  const isDevDecision = value.subscription_kind === 'dev';
+  const hasNullSubscriptionId = value.subscription_id === null;
+  if (isDevDecision !== hasNullSubscriptionId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: isDevDecision
+        ? 'dev decisions must have a null subscription_id'
+        : 'trigger and listener decisions must have a subscription_id',
+      path: ['subscription_id'],
+    });
+  }
 });
 export type TriggerDecisionDto = z.infer<typeof triggerDecisionDtoSchema>;
 

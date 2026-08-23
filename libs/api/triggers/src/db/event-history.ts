@@ -292,25 +292,12 @@ export interface UpsertDevTriggeredDecisionParams {
 export async function upsertDevTriggeredDecision(
   params: UpsertDevTriggeredDecisionParams,
 ): Promise<void> {
-  await db()
-    .insert(triggersDecisions)
-    .values({
-      receivedEventId: params.receivedEventId,
-      subscriptionKind: 'dev',
-      subscriptionId: null,
-      subscriptionName: params.triggerKey,
-      workflowDefinitionId: params.workflowDefinitionId,
-      projectId: null,
-      decision: 'triggered',
-      runId: params.run.id,
-      runName: params.run.name,
-      reason: null,
-    })
-    .onConflictDoUpdate({
-      target: triggersDecisions.receivedEventId,
-      targetWhere: sql`"subscription_kind" = 'dev'`,
-      set: {decision: 'triggered', runId: params.run.id, runName: params.run.name, reason: null},
-    });
+  await upsertDevDecision(params, {
+    decision: 'triggered',
+    runId: params.run.id,
+    runName: params.run.name,
+    reason: null,
+  });
 }
 
 export interface UpsertDevFilterErrorDecisionParams {
@@ -324,6 +311,34 @@ export interface UpsertDevFilterErrorDecisionParams {
 export async function upsertDevFilterErrorDecision(
   params: UpsertDevFilterErrorDecisionParams,
 ): Promise<void> {
+  await upsertDevDecision(
+    params,
+    {
+      decision: 'filter-error',
+      runId: null,
+      runName: null,
+      reason: params.reason,
+    },
+    {preserveTriggered: true},
+  );
+}
+
+type DevDecisionValues = {
+  decision: 'triggered' | 'filter-error';
+  runId: string | null;
+  runName: string | null;
+  reason: string | null;
+};
+
+async function upsertDevDecision(
+  params: {
+    receivedEventId: string;
+    triggerKey: string;
+    workflowDefinitionId: string;
+  },
+  values: DevDecisionValues,
+  options: {preserveTriggered?: boolean} = {},
+): Promise<void> {
   await db()
     .insert(triggersDecisions)
     .values({
@@ -333,15 +348,15 @@ export async function upsertDevFilterErrorDecision(
       subscriptionName: params.triggerKey,
       workflowDefinitionId: params.workflowDefinitionId,
       projectId: null,
-      decision: 'filter-error',
-      runId: null,
-      runName: null,
-      reason: params.reason,
+      decision: values.decision,
+      runId: values.runId,
+      runName: values.runName,
+      reason: values.reason,
     })
     .onConflictDoUpdate({
       target: triggersDecisions.receivedEventId,
       targetWhere: sql`"subscription_kind" = 'dev'`,
-      set: {decision: 'filter-error', runId: null, runName: null, reason: params.reason},
-      setWhere: ne(triggersDecisions.decision, 'triggered'),
+      set: values,
+      ...(options.preserveTriggered ? {setWhere: ne(triggersDecisions.decision, 'triggered')} : {}),
     });
 }

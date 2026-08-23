@@ -181,6 +181,28 @@ describe('trigger event DTO contract', () => {
     ).toBe(true);
   });
 
+  test('requires subscription ids for trigger and listener decisions', () => {
+    for (const subscription_kind of ['trigger', 'listener'] as const) {
+      expect(
+        triggerDecisionDtoSchema.safeParse({
+          ...baseDecision,
+          subscription_kind,
+          subscription_id: null,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  test('requires dev decisions to omit a subscription id', () => {
+    expect(
+      triggerDecisionDtoSchema.safeParse({
+        ...baseDecision,
+        subscription_kind: 'dev',
+        subscription_id: baseDecision.subscription_id,
+      }).success,
+    ).toBe(false);
+  });
+
   test('rejects unknown origin and decision kinds', () => {
     expect(triggerEventOriginSchema.safeParse('unknown').success).toBe(false);
     expect(triggerDecisionSubscriptionKindSchema.safeParse('unknown').success).toBe(false);
