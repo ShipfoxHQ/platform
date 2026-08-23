@@ -8,7 +8,6 @@ import type {WorkflowDocument} from '@shipfox/workflow-document';
 import {
   and,
   asc,
-  desc,
   eq,
   gt,
   inArray,
@@ -322,27 +321,40 @@ export async function getDefinitionById(id: string): Promise<WorkflowDefinition 
       return toDefinition({...row, workflowId});
     }
 
-    // The id may also be a workflow lineage id (run detail pages link by it).
-    // Resolve it to the synced row for that lineage: the row synced from the
-    // default branch (ref set, not deleted). A lineage whose file is not on
-    // the default branch has no such row and resolves to nothing.
-    const syncedRows = await tx
-      .select()
-      .from(workflowDefinitions)
-      .where(
-        and(
-          eq(workflowDefinitions.workflowId, id),
-          isNotNull(workflowDefinitions.ref),
-          isNull(workflowDefinitions.deletedAt),
-        ),
-      )
-      .orderBy(desc(workflowDefinitions.updatedAt), desc(workflowDefinitions.id))
-      .limit(1);
-    const syncedRow = syncedRows[0];
-    if (!syncedRow) return undefined;
-
-    return toDefinition({...syncedRow, workflowId: id});
+    return undefined;
   });
+}
+
+export async function getWorkflowLineageById(
+  id: string,
+): Promise<{id: string; projectId: string} | undefined> {
+  const rows = await db()
+    .select({id: workflowWorkflows.id, projectId: workflowWorkflows.projectId})
+    .from(workflowWorkflows)
+    .where(eq(workflowWorkflows.id, id))
+    .limit(1);
+
+  return rows[0];
+}
+
+export async function getDefinitionByWorkflowId(params: {
+  workflowId: string;
+  ref: string;
+}): Promise<WorkflowDefinition | undefined> {
+  const rows = await db()
+    .select()
+    .from(workflowDefinitions)
+    .where(
+      and(
+        eq(workflowDefinitions.workflowId, params.workflowId),
+        eq(workflowDefinitions.ref, params.ref),
+        isNull(workflowDefinitions.deletedAt),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+
+  return row ? toDefinition({...row, workflowId: params.workflowId}) : undefined;
 }
 
 export interface DefinitionCursor {

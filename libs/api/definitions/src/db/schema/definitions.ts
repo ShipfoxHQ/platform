@@ -44,6 +44,9 @@ export const workflowDefinitions = pgTable(
     index('definitions_wd_project_name_id_idx')
       .on(table.projectId, table.name, table.id)
       .where(sql`"deleted_at" IS NULL`),
+    index('definitions_wd_workflow_ref_lookup')
+      .on(table.workflowId, table.ref)
+      .where(sql`"ref" IS NOT NULL AND "deleted_at" IS NULL`),
     // Binds source to its git coordinates so the partial indexes above stay
     // unambiguous: vcs rows carry a ref or sha; manual rows carry neither.
     check(
