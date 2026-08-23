@@ -19,7 +19,7 @@ import {
   IntegrationProviderError,
   IntegrationProviderUnavailableError,
 } from '#core/errors.js';
-import {buildProviderEventCatalogs, FIXED_EVENT_PROVIDERS} from '#core/event-catalogs.js';
+import {buildFixedEventProviders, buildProviderEventCatalogs} from '#core/event-catalogs.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
 import type {IntegrationSourceControlService} from '#core/source-control-service.js';
 import {getIntegrationConnectionById, getIntegrationConnectionBySlug} from '#db/connections.js';
@@ -113,7 +113,7 @@ export function createIntegrationsInterModulePresentation(params: {
             capabilities: [...value.capabilities],
           })),
           eventCatalogs: buildProviderEventCatalogs(params.registry),
-          fixedEventProviders: [...FIXED_EVENT_PROVIDERS],
+          fixedEventProviders: buildFixedEventProviders(params.registry),
           defaultConnection: defaultConnection
             ? {
                 id: defaultConnection.id,

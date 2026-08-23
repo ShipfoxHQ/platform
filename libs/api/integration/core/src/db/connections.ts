@@ -227,7 +227,8 @@ export async function resolveUniqueConnectionSlug(
 }
 
 function assertConnectionSlugIsNotReserved(slug: string): void {
-  if (!(RESERVED_CONNECTION_SLUGS as readonly string[]).includes(slug)) return;
+  const normalizedSlug = slug.toLowerCase().replaceAll(/[_-]+$/g, '');
+  if (!(RESERVED_CONNECTION_SLUGS as readonly string[]).includes(normalizedSlug)) return;
   throw new ConnectionSlugConflictError(
     new Error(`Slug "${slug}" is reserved for a built-in trigger source`),
   );

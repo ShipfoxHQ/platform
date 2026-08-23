@@ -189,6 +189,21 @@ describe('integration connection queries', () => {
   });
 
   it.each([
+    'manual_',
+    'MANUAL',
+    'cron-',
+  ] as const)('refuses slugs that normalize to a reserved source slug: %s', async (baseSlug) => {
+    await expect(
+      resolveUniqueConnectionSlug({
+        workspaceId,
+        provider: 'github',
+        externalAccountId: `normalized-${baseSlug}`,
+        baseSlug,
+      }),
+    ).rejects.toBeInstanceOf(ConnectionSlugConflictError);
+  });
+
+  it.each([
     'manual',
     'cron',
   ] as const)('refuses direct writes for reserved slug %s', async (slug) => {

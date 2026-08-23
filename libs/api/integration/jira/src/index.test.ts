@@ -1,3 +1,4 @@
+import {jiraEventCatalog} from '@shipfox/api-integration-jira-dto';
 import {createOutboxRegistry} from '@shipfox/node-module';
 import {createJiraIntegrationProvider} from '#index.js';
 import {createJiraMaintenanceWorker} from '#temporal/worker.js';
@@ -12,6 +13,7 @@ describe('createJiraIntegrationProvider', () => {
       adapters: {},
       routes: [],
     });
+    expect(provider.eventCatalog).toBe(jiraEventCatalog);
   });
 
   it('mounts the in-process agent-tools adapter and advertises its capability', () => {

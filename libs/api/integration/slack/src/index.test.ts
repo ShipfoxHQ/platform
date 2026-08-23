@@ -1,3 +1,4 @@
+import {slackEventCatalog} from '@shipfox/api-integration-slack-dto';
 import {createSlackIntegrationProvider, slackAgentToolCatalog} from '#index.js';
 
 describe('createSlackIntegrationProvider', () => {
@@ -5,6 +6,7 @@ describe('createSlackIntegrationProvider', () => {
     const provider = createSlackIntegrationProvider();
 
     expect(provider.routes).toEqual([]);
+    expect(provider.eventCatalog).toBe(slackEventCatalog);
   });
 
   it('rejects incomplete webhook route options', () => {

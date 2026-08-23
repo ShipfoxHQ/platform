@@ -8,7 +8,7 @@ import {
   ConnectionSlugConflictError,
   type IntegrationConnection,
 } from '@shipfox/api-integration-spi';
-import {WEBHOOK_RESERVED_SLUGS} from '@shipfox/api-integration-webhook-dto';
+import {WEBHOOK_RESERVED_SLUGS, webhookEventCatalog} from '@shipfox/api-integration-webhook-dto';
 import {type AuthMethod, ClientError, closeApp, createApp} from '@shipfox/node-fastify';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import type {CreateWebhookIntegrationProviderOptions} from '#index.js';
@@ -130,6 +130,7 @@ async function createTestApp(store = createStore()): Promise<{
     publishIntegrationEventReceived: vi.fn(() => Promise.resolve({published: true})),
     ...store,
   } satisfies CreateWebhookIntegrationProviderOptions);
+  expect(provider.eventCatalog).toBe(webhookEventCatalog);
   const app = await createApp({
     auth: [fakeUserAuth],
     routes: provider.routes,

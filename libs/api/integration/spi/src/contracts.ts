@@ -239,10 +239,10 @@ export interface IntegrationProvider<
   provider: ProviderKind;
   displayName: string;
   /**
-   * The event names this provider's handler forwards in this version.
-   * Provider-minted names are never treated as a closed set by validation;
-   * the catalog only improves diagnostics. Providers without a documented
-   * catalog omit it.
+   * The event names this provider documents for its handler.
+   * Provider-minted names are never treated as a closed set by validation; the
+   * catalog is a curated diagnostic aid and may omit provider events. Providers
+   * without a documented catalog, including built-in trigger sources, omit it.
    */
   eventCatalog?: import('@shipfox/api-integration-core-dto').IntegrationEventCatalog | undefined;
   adapters?: IntegrationProviderAdapters<Connection> | undefined;
