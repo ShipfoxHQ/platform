@@ -2,6 +2,7 @@ import {
   type GiteaPushPayloadDto,
   giteaProviderKind,
   giteaPushPayloadSchema,
+  giteaWebhookEventNames,
 } from '@shipfox/api-integration-gitea-dto';
 import {
   buildProviderRepositoryId,
@@ -67,7 +68,7 @@ function isBranchDeletion(after: string): boolean {
 export async function handleGiteaWebhook(
   params: HandleGiteaWebhookParams,
 ): Promise<{outcome: HandleGiteaWebhookOutcome}> {
-  if (params.event !== 'push') {
+  if (!giteaWebhookEventNames.some((eventName) => eventName === params.event)) {
     await params.recordDeliveryOnly({
       tx: params.tx,
       provider: giteaProviderKind,

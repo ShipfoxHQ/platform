@@ -1,4 +1,5 @@
-import {slackEventNames} from '@shipfox/api-integration-slack-dto';
+import type {IntegrationEventCatalog} from '@shipfox/api-integration-core-dto';
+import {slackEventNames} from './schemas/index.js';
 
 const eventDetails = {
   app_mention: {
@@ -21,13 +22,20 @@ const eventDetails = {
     emittedWhen: 'Slack sends a slash-command request to the installed app.',
     payloadDocUrl: 'https://docs.slack.dev/interactivity/implementing-slash-commands/',
   },
-};
+} as const satisfies Record<
+  (typeof slackEventNames)[number],
+  {
+    summary: string;
+    emittedWhen: string;
+    payloadDocUrl: string;
+  }
+>;
 
 export const slackEventCatalog = {
   provider: 'Slack',
   events: slackEventNames.map((name) => ({
     name,
     ...eventDetails[name],
-    payloadKind: 'shipfox-normalized',
+    payloadKind: 'shipfox-normalized' as const,
   })),
-};
+} as const satisfies IntegrationEventCatalog;
