@@ -1,5 +1,13 @@
 # @shipfox/client-auth
 
+## 23.0.0
+
+### Patch Changes
+
+- Updated dependencies [693e656]
+  - @shipfox/client-shell@23.0.0
+  - @shipfox/client-invitations@23.0.0
+
 ## 22.0.3
 
 ### Patch Changes

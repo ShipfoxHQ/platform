@@ -1,5 +1,17 @@
 # @shipfox/client-workspace-settings
 
+## 23.0.0
+
+### Minor Changes
+
+- 8f6b6e5: Exports the membership and invitation query options (and their query keys) from the package surface, and adds a "Show the setup guide" re-entry link to the general settings page that clears the shell-owned setup-checklist dismissal flag.
+
+### Patch Changes
+
+- Updated dependencies [693e656]
+  - @shipfox/client-shell@23.0.0
+  - @shipfox/client-auth@23.0.0
+
 ## 22.0.3
 
 ### Patch Changes

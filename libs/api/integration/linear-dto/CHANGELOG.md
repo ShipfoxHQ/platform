@@ -1,5 +1,18 @@
 # @shipfox/api-integration-linear-dto
 
+## 14.0.0
+
+### Minor Changes
+
+- 2323e2e: Adds event catalog exports to the Linear, Slack, and Jira DTO packages.
+
+### Patch Changes
+
+- Updated dependencies [18e9bad]
+- Updated dependencies [c44641f]
+- Updated dependencies [1b71a66]
+  - @shipfox/api-integration-core-dto@14.0.0
+
 ## 12.2.0
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @shipfox/api-projects
 
+## 14.0.0
+
+### Patch Changes
+
+- Updated dependencies [18e9bad]
+- Updated dependencies [a4df8d9]
+- Updated dependencies [c44641f]
+- Updated dependencies [1b71a66]
+  - @shipfox/api-integration-core-dto@14.0.0
+  - @shipfox/api-projects-dto@14.0.0
+
 ## 12.2.0
 
 ### Patch Changes

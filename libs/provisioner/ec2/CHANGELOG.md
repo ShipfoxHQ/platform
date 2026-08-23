@@ -1,5 +1,13 @@
 # @shipfox/provisioner-ec2-provider
 
+## 1.0.15
+
+### Patch Changes
+
+- Updated dependencies [69a92c4]
+  - @shipfox/api-runners-dto@14.0.0
+  - @shipfox/provisioner-core@1.2.2
+
 ## 1.0.14
 
 ### Patch Changes

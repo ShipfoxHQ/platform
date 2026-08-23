@@ -1,5 +1,14 @@
 # @shipfox/api-integration-sentry-dto
 
+## 14.0.0
+
+### Patch Changes
+
+- Updated dependencies [18e9bad]
+- Updated dependencies [c44641f]
+- Updated dependencies [1b71a66]
+  - @shipfox/api-integration-core-dto@14.0.0
+
 ## 12.2.0
 
 ### Patch Changes

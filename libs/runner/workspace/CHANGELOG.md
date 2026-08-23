@@ -1,5 +1,13 @@
 # @shipfox/runner-workspace
 
+## 0.0.22
+
+### Patch Changes
+
+- Updated dependencies [4f30864]
+- Updated dependencies [b766ee3]
+  - @shipfox/api-workflows-dto@14.0.0
+
 ## 0.0.21
 
 ### Patch Changes

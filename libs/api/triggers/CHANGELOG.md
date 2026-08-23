@@ -1,5 +1,32 @@
 # @shipfox/api-triggers
 
+## 14.0.0
+
+### Minor Changes
+
+- 05c7c4d: Adds dev-run and replay-link support to trigger journal interfaces and client types.
+- b6c7871: Adds `origin` and `replayable` filters to the trigger events list, an `origins` facet, and `replay_of_event_id` with a `replays` list on the event detail response.
+
+### Patch Changes
+
+- 4f30864: Trigger `event` is now optional end to end. An omitted event subscribes to every event from its source. Explicit events continue to work unchanged. Built-in manual and scheduled triggers use `fire` and `tick`, respectively.
+- Updated dependencies [c0fc35b]
+- Updated dependencies [05c7c4d]
+- Updated dependencies [f7b3db8]
+- Updated dependencies [4f30864]
+- Updated dependencies [18e9bad]
+- Updated dependencies [aeaa0de]
+- Updated dependencies [c44641f]
+- Updated dependencies [b6c7871]
+- Updated dependencies [1b71a66]
+- Updated dependencies [b766ee3]
+  - @shipfox/api-definitions-dto@14.0.0
+  - @shipfox/api-triggers-dto@14.0.0
+  - @shipfox/workflow-document@3.1.0
+  - @shipfox/api-workflows-dto@14.0.0
+  - @shipfox/api-integration-core-dto@14.0.0
+  - @shipfox/expression@2.2.1
+
 ## 13.1.0
 
 ### Patch Changes

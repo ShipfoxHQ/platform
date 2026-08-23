@@ -1,5 +1,11 @@
 # @shipfox/api-runners-dto
 
+## 14.0.0
+
+### Minor Changes
+
+- 69a92c4: Adds `installation_runners` (`managed` or `none`) to the active-provisioners response. The value is `managed` when reserved runner labels are configured or an installation-scope provisioner token is active, so client consumers can determine whether the installation provides runner capacity.
+
 ## 13.0.0
 
 ### Major Changes

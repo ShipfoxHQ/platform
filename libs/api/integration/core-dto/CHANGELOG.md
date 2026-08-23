@@ -1,5 +1,16 @@
 # @shipfox/api-integration-core-dto
 
+## 14.0.0
+
+### Major Changes
+
+- 18e9bad: Adds source-control ref resolution that pins branch and tag names to commits.
+
+### Minor Changes
+
+- c44641f: Adds provider capabilities to the `integrations.connection.available` event, so subscribers can tell a tool connection from a source-control connection. The publisher now carries the capabilities the connection DTO already exposes.
+- 1b71a66: Exposes each provider's event catalog and the fixed-event providers on the integration validation context. Every provider now refuses the reserved `manual` and `cron` connection slugs.
+
 ## 12.2.0
 
 ### Minor Changes

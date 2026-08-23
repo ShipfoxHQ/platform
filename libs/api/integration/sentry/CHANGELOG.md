@@ -1,5 +1,18 @@
 # @shipfox/api-integration-sentry
 
+## 14.0.0
+
+### Minor Changes
+
+- 1b71a66: Exposes each provider's event catalog and the fixed-event providers on the integration validation context. Every provider now refuses the reserved `manual` and `cron` connection slugs.
+
+### Patch Changes
+
+- Updated dependencies [18e9bad]
+- Updated dependencies [1b71a66]
+  - @shipfox/api-integration-spi@2.0.0
+  - @shipfox/api-integration-sentry-dto@14.0.0
+
 ## 12.5.0
 
 ### Patch Changes
