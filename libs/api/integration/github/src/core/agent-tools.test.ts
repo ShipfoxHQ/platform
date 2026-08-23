@@ -1734,6 +1734,7 @@ function githubClient(): GithubApiClient {
     getRepository: vi.fn(() => Promise.reject(new Error('not used'))),
     listRepositoryFiles: vi.fn(() => Promise.reject(new Error('not used'))),
     fetchRepositoryFile: vi.fn(() => Promise.reject(new Error('not used'))),
+    listRepositoryCommits: vi.fn(() => Promise.reject(new Error('not used'))),
     createInstallationAccessToken: vi.fn(() => Promise.reject(new Error('not used'))),
   };
 }

@@ -65,6 +65,26 @@ describe('integrationsInterModuleContract', () => {
     expect(integrationsInterModuleContract.methods.resolveConnection.output.parse(null)).toBeNull();
   });
 
+  test('accepts a resolved source ref through the producer contract', () => {
+    const result = integrationsInterModuleContract.methods.resolveSourceRef.output.parse({
+      ref: 'refs/heads/fix-triage-prompt',
+      commit: 'a'.repeat(40),
+    });
+
+    expect(result).toEqual({ref: 'refs/heads/fix-triage-prompt', commit: 'a'.repeat(40)});
+  });
+
+  test('parses a ref-bearing input through the producer contract', () => {
+    const input = integrationsInterModuleContract.methods.resolveSourceRef.input.parse({
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      connectionId: '00000000-0000-4000-8000-000000000002',
+      externalRepositoryId: 'github:42',
+      ref: 'refs/heads/main',
+    });
+
+    expect(input.ref).toBe('refs/heads/main');
+  });
+
   test.each([
     ['connection-not-found', {connectionId: '00000000-0000-4000-8000-000000000001'}],
     ['provider-unavailable', {provider: 'github'}],
@@ -73,6 +93,18 @@ describe('integrationsInterModuleContract', () => {
     const schema =
       integrationsInterModuleContract.methods.resolveSourceRepository.errors[
         code as keyof typeof integrationsInterModuleContract.methods.resolveSourceRepository.errors
+      ];
+
+    expect(schema.parse(details)).toEqual(details);
+  });
+
+  test.each([
+    ['ref-not-found', {ref: 'refs/heads/missing'}],
+    ['ref-invalid', {ref: 'a'.repeat(40)}],
+  ] as const)('defines the %s ref failure', (code, details) => {
+    const schema =
+      integrationsInterModuleContract.methods.resolveSourceRef.errors[
+        code as keyof typeof integrationsInterModuleContract.methods.resolveSourceRef.errors
       ];
 
     expect(schema.parse(details)).toEqual(details);

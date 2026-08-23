@@ -115,6 +115,64 @@ describe('HttpGiteaApiClient', () => {
     await expect(result).rejects.toMatchObject({reason: 'repository-not-found'});
   });
 
+  it('gets a branch head commit', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({name: 'main', commit: {id: 'abc123', message: 'hi'}}),
+    );
+    const client = createGiteaApiClient();
+
+    const result = await client.getBranch({owner: 'shipfox', repo: 'platform', branch: 'main'});
+
+    expect(result).toEqual({commitSha: 'abc123'});
+    expect(requestedUrl().pathname).toBe('/api/v1/repos/shipfox/platform/branches/main');
+  });
+
+  it('gets a tag head commit', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({name: 'v1.0.0', commit: {sha: 'abc123'}}));
+    const client = createGiteaApiClient();
+
+    const result = await client.getTag({owner: 'shipfox', repo: 'platform', tag: 'v1.0.0'});
+
+    expect(result).toEqual({commitSha: 'abc123'});
+    expect(requestedUrl().pathname).toBe('/api/v1/repos/shipfox/platform/tags/v1.0.0');
+  });
+
+  it('maps a missing branch to ref-not-found', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({message: 'not found'}, {status: 404}));
+    const client = createGiteaApiClient();
+
+    const result = client.getBranch({owner: 'shipfox', repo: 'platform', branch: 'missing'});
+
+    await expect(result).rejects.toMatchObject({reason: 'ref-not-found'});
+  });
+
+  it('maps a missing tag to ref-not-found', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({message: 'not found'}, {status: 404}));
+    const client = createGiteaApiClient();
+
+    const result = client.getTag({owner: 'shipfox', repo: 'platform', tag: 'missing'});
+
+    await expect(result).rejects.toMatchObject({reason: 'ref-not-found'});
+  });
+
+  it('rejects a branch response without a head commit', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({name: 'main', commit: {}}));
+    const client = createGiteaApiClient();
+
+    const result = client.getBranch({owner: 'shipfox', repo: 'platform', branch: 'main'});
+
+    await expect(result).rejects.toMatchObject({reason: 'malformed-provider-response'});
+  });
+
+  it('rejects a tag response without a head commit', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({name: 'v1.0.0', commit: {}}));
+    const client = createGiteaApiClient();
+
+    const result = client.getTag({owner: 'shipfox', repo: 'platform', tag: 'v1.0.0'});
+
+    await expect(result).rejects.toMatchObject({reason: 'malformed-provider-response'});
+  });
+
   it('lists the recursive tree, keeping blobs and dropping subtrees', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({

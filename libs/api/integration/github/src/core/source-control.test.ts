@@ -57,6 +57,9 @@ function githubClient(overrides: Partial<GithubApiClient> = {}): GithubApiClient
         size: 58,
       }),
     ),
+    listRepositoryCommits: vi.fn(() =>
+      Promise.resolve([{sha: 'a'.repeat(40)}, {sha: 'b'.repeat(40)}]),
+    ),
     createInstallationAccessToken: vi.fn(() =>
       Promise.resolve({
         token: 'ghs_installationtoken',
@@ -257,6 +260,77 @@ describe('GithubSourceControlProvider', () => {
       limit: 100,
       cursor: undefined,
     });
+  });
+
+  it('resolves a branch ref to the commit it points at', async () => {
+    await createInstallation();
+    const github = githubClient();
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = await provider.resolveRef({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      ref: 'refs/heads/main',
+    });
+
+    expect(result).toEqual({ref: 'refs/heads/main', commit: VALID_COMMIT});
+    expect(github.listRepositoryCommits).toHaveBeenCalledWith({
+      installationId,
+      repositoryId: 42,
+      ref: 'refs/heads/main',
+    });
+  });
+
+  it('resolves a tag ref to the commit it points at', async () => {
+    await createInstallation();
+    const github = githubClient({
+      listRepositoryCommits: vi.fn(() => Promise.resolve([{sha: 'c'.repeat(40)}])),
+    });
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = await provider.resolveRef({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      ref: 'refs/tags/v1.0.0',
+    });
+
+    expect(result).toEqual({ref: 'refs/tags/v1.0.0', commit: 'c'.repeat(40)});
+  });
+
+  it('maps a ref with no commits to ref-not-found', async () => {
+    await createInstallation();
+    const github = githubClient({
+      listRepositoryCommits: vi.fn(() => Promise.resolve([])),
+    });
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = provider.resolveRef({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      ref: 'refs/heads/missing',
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'ref-not-found'});
+  });
+
+  it.each([
+    'a'.repeat(40),
+    'refs/pull/17/head',
+    'main',
+    '-evil',
+  ])('rejects ref %s as ref-invalid', async (ref) => {
+    await createInstallation();
+    const github = githubClient();
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = provider.resolveRef({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      ref,
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'ref-invalid'});
+    expect(github.listRepositoryCommits).not.toHaveBeenCalled();
   });
 
   it('fetches repository file contents using the provider-owned repository id', async () => {

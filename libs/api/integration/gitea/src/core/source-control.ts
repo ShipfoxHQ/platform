@@ -11,6 +11,7 @@ import {
   type IntegrationConnection,
   isRecord,
   isValidGitObjectId,
+  isValidResolvableRef,
   isValidTriggerRef,
   type ListFilesInput,
   type ListRepositoriesInput,
@@ -21,6 +22,8 @@ import {
   type RepositoryPage,
   type RepositorySnapshot,
   type RepositoryVisibility,
+  type ResolvedRef,
+  type ResolveRefInput,
   type ResolveRepositoryInput,
   type SourceControlProvider,
   type TriggerReference,
@@ -183,6 +186,40 @@ export class GiteaSourceControlProvider
     };
   }
 
+  async resolveRef(input: ResolveRefInput<GiteaIntegrationConnection>): Promise<ResolvedRef> {
+    if (!isValidResolvableRef(input.ref)) {
+      throw new GiteaIntegrationProviderError(
+        'ref-invalid',
+        `Gitea ref ${input.ref} is not a resolvable branch or tag name`,
+      );
+    }
+    const {owner, repo} = parseGiteaRepositoryLocator(
+      input.externalRepositoryId,
+      input.connection.externalAccountId,
+    );
+
+    // A branch and a tag can share a name; the branch wins, as a pushed branch
+    // is the more recent intent. Only a 404 on both maps to a missing ref.
+    try {
+      const branch = await this.gitea.getBranch({owner, repo, branch: input.ref});
+      return {ref: input.ref, commit: branch.commitSha};
+    } catch (error) {
+      if (!isRefNotFound(error)) throw error;
+    }
+
+    try {
+      const tag = await this.gitea.getTag({owner, repo, tag: input.ref});
+      return {ref: input.ref, commit: tag.commitSha};
+    } catch (error) {
+      if (!isRefNotFound(error)) throw error;
+    }
+
+    throw new GiteaIntegrationProviderError(
+      'ref-not-found',
+      `Gitea ref ${input.ref} does not resolve to a branch or tag`,
+    );
+  }
+
   async createCheckoutSpec(
     input: CreateCheckoutSpecInput<GiteaIntegrationConnection>,
   ): Promise<CheckoutSpec> {
@@ -223,6 +260,10 @@ function giteaRepositoryId(repository: Record<string, unknown> | null): string |
 function giteaEventActor(payload: Record<string, unknown>): string | null {
   const sender = asRecord(payload.sender);
   return nonEmptyString(sender?.login) ?? nonEmptyString(sender?.username);
+}
+
+function isRefNotFound(error: unknown): boolean {
+  return error instanceof GiteaIntegrationProviderError && error.reason === 'ref-not-found';
 }
 
 function sameGiteaRepository(

@@ -51,6 +51,12 @@ export function createIntegrationsInterModulePresentation(params: {
         input,
         async () => await params.sourceControl.resolveTriggerReference(input),
       ),
+    resolveSourceRef: async (input) =>
+      await known(
+        contract.methods.resolveSourceRef,
+        input,
+        async () => await params.sourceControl.resolveSourceRef(input),
+      ),
     listSourceFiles: async (input) =>
       await known(
         contract.methods.listSourceFiles,
@@ -119,7 +125,7 @@ export function createIntegrationsInterModulePresentation(params: {
 
 async function known<Output>(
   method: InterModuleMethodContract,
-  input: {connectionId?: string; defaultConnectionId?: string},
+  input: {connectionId?: string; defaultConnectionId?: string; ref?: string | undefined},
   operation: () => Promise<Output>,
 ): Promise<Output> {
   try {
@@ -130,7 +136,7 @@ async function known<Output>(
 }
 function mapError(
   method: InterModuleMethodContract,
-  input: {connectionId?: string; defaultConnectionId?: string},
+  input: {connectionId?: string; defaultConnectionId?: string; ref?: string | undefined},
   error: unknown,
 ): unknown {
   if (error instanceof IntegrationConnectionNotFoundError)
@@ -154,12 +160,21 @@ function mapError(
     });
   if (error instanceof IntegrationCheckoutUnsupportedError)
     return createInterModuleKnownError(method, 'checkout-unsupported', {provider: error.provider});
-  if (error instanceof IntegrationProviderError)
+  if (error instanceof IntegrationProviderError) {
+    // Only methods that resolve refs declare these codes; other methods keep
+    // seeing the failure as a generic provider failure.
+    if (error.reason === 'ref-not-found' && 'ref-not-found' in method.errors) {
+      return createInterModuleKnownError(method, 'ref-not-found', {ref: input.ref ?? ''});
+    }
+    if (error.reason === 'ref-invalid' && 'ref-invalid' in method.errors) {
+      return createInterModuleKnownError(method, 'ref-invalid', {ref: input.ref ?? ''});
+    }
     return createInterModuleKnownError(method, 'provider-failure', {
       reason: error.reason,
       ...(error.retryAfterSeconds === undefined
         ? {}
         : {retryAfterSeconds: error.retryAfterSeconds}),
     });
+  }
   return error;
 }

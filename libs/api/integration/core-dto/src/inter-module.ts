@@ -36,6 +36,12 @@ const sourceErrors = {
   'provider-failure': providerError,
 };
 
+const refErrors = {
+  ...sourceErrors,
+  'ref-not-found': z.object({ref: z.string()}),
+  'ref-invalid': z.object({ref: z.string()}),
+};
+
 /** Producer-owned synchronous operations for the Integrations bounded context. */
 export const integrationsInterModuleContract = defineInterModuleContract({
   module: 'integrations',
@@ -53,6 +59,11 @@ export const integrationsInterModuleContract = defineInterModuleContract({
       input: z.object({workspaceId: id, connectionId: id, payload: z.unknown()}),
       output: triggerReference.nullable(),
       errors: sourceErrors,
+    },
+    resolveSourceRef: {
+      input: sourceInput.extend({ref: z.string()}),
+      output: z.object({ref: z.string(), commit: z.string()}),
+      errors: refErrors,
     },
     listSourceFiles: {
       input: sourceInput.extend({

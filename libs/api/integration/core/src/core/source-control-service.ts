@@ -13,6 +13,7 @@ import type {
   FileSnapshot,
   RepositoryPage,
   RepositorySnapshot,
+  ResolvedRef,
   TriggerReference,
 } from './providers/source-control.js';
 
@@ -21,6 +22,7 @@ export interface IntegrationSourceControlService {
   listRepositories(input: ListSourceRepositoriesInput): Promise<RepositoryPage>;
   resolveRepository(input: ResolveSourceRepositoryInput): Promise<ResolvedSourceRepository>;
   resolveTriggerReference(input: ResolveTriggerReferenceInput): Promise<TriggerReference | null>;
+  resolveSourceRef(input: ResolveSourceRefInput): Promise<ResolvedRef>;
   listFiles(input: ListSourceFilesInput): Promise<FilePage>;
   fetchFile(input: FetchSourceFileInput): Promise<FileSnapshot>;
   createCheckoutSpec(input: CreateSourceCheckoutSpecInput): Promise<CheckoutSpec>;
@@ -43,6 +45,10 @@ export interface ResolveTriggerReferenceInput {
   workspaceId: string;
   connectionId: string;
   payload: unknown;
+}
+
+export interface ResolveSourceRefInput extends ResolveSourceRepositoryInput {
+  ref: string;
 }
 
 export interface ListSourceFilesInput extends ResolveSourceRepositoryInput {
@@ -127,6 +133,16 @@ export function createSourceControlIntegrationService({
       // than a failed run creation.
       const sourceControl = registry.get(connection.provider).adapters.source_control;
       return sourceControl?.resolveTriggerReference(payload) ?? null;
+    },
+
+    async resolveSourceRef({workspaceId, connectionId, externalRepositoryId, ref}) {
+      const connection = await getConnection(connectionId);
+      if (connection.workspaceId !== workspaceId) {
+        throw new IntegrationConnectionWorkspaceMismatchError(connectionId);
+      }
+      const sourceControl = registry.getAdapter(connection.provider, 'source_control');
+
+      return await sourceControl.resolveRef({connection, externalRepositoryId, ref});
     },
 
     async listFiles({workspaceId, connectionId, externalRepositoryId, ref, prefix, limit, cursor}) {

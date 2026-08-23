@@ -61,6 +61,9 @@ function githubClient(overrides: Partial<GithubApiClient> = {}): GithubApiClient
     fetchRepositoryFile: vi.fn(() => {
       throw new Error('not used');
     }),
+    listRepositoryCommits: vi.fn(() => {
+      throw new Error('not used');
+    }),
     createInstallationAccessToken: vi.fn(() =>
       Promise.resolve({
         token: 'ghs_installationtoken',

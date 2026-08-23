@@ -6,6 +6,8 @@ function giteaClient(): GiteaApiClient {
     listOrgRepositories: vi.fn(() => Promise.reject(new Error('not used'))),
     getRepository: vi.fn(() => Promise.reject(new Error('not used'))),
     resolveRef: vi.fn(() => Promise.reject(new Error('not used'))),
+    getBranch: vi.fn(() => Promise.reject(new Error('not used'))),
+    getTag: vi.fn(() => Promise.reject(new Error('not used'))),
     listTree: vi.fn(() => Promise.reject(new Error('not used'))),
     fetchFileContent: vi.fn(() => Promise.reject(new Error('not used'))),
     organizationExists: vi.fn(() => Promise.reject(new Error('not used'))),

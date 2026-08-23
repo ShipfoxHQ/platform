@@ -10,6 +10,7 @@ import {
   type IntegrationConnection,
   isRecord,
   isValidGitObjectId,
+  isValidResolvableRef,
   isValidTriggerRef,
   type ListFilesInput,
   type ListRepositoriesInput,
@@ -20,6 +21,8 @@ import {
   type RepositoryPage,
   type RepositorySnapshot,
   type RepositoryVisibility,
+  type ResolvedRef,
+  type ResolveRefInput,
   type ResolveRepositoryInput,
   type SourceControlProvider,
   type TriggerReference,
@@ -192,6 +195,31 @@ export class GithubSourceControlProvider
       commit,
       actor,
     };
+  }
+
+  async resolveRef(input: ResolveRefInput<GithubIntegrationConnection>): Promise<ResolvedRef> {
+    if (!isValidResolvableRef(input.ref)) {
+      throw new GithubIntegrationProviderError(
+        'ref-invalid',
+        `GitHub ref ${input.ref} is not a resolvable branch or tag name`,
+      );
+    }
+    const installationId = await this.installationId(input.connection.id);
+    const {repositoryId} = parseGithubRepositoryLocator(input.externalRepositoryId);
+    const commits = await this.github.listRepositoryCommits({
+      installationId,
+      repositoryId,
+      ref: input.ref,
+    });
+    const commit = commits[0]?.sha;
+    if (!commit) {
+      throw new GithubIntegrationProviderError(
+        'ref-not-found',
+        `GitHub ref ${input.ref} does not resolve to a commit`,
+      );
+    }
+
+    return {ref: input.ref, commit};
   }
 
   async createCheckoutSpec(

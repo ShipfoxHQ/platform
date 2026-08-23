@@ -41,6 +41,10 @@ export interface GiteaFileContent {
   size: number;
 }
 
+export interface GiteaRefCommit {
+  commitSha: string;
+}
+
 export interface GiteaApiClient {
   listOrgRepositories(input: {
     org: string;
@@ -49,6 +53,8 @@ export interface GiteaApiClient {
   }): Promise<GiteaRepositoryPage>;
   getRepository(input: {owner: string; repo: string}): Promise<GiteaRepository>;
   resolveRef(input: {owner: string; repo: string; ref: string}): Promise<string>;
+  getBranch(input: {owner: string; repo: string; branch: string}): Promise<GiteaRefCommit>;
+  getTag(input: {owner: string; repo: string; tag: string}): Promise<GiteaRefCommit>;
   listTree(input: {owner: string; repo: string; sha: string}): Promise<GiteaTree>;
   fetchFileContent(input: {
     owner: string;
@@ -111,6 +117,40 @@ class HttpGiteaApiClient implements GiteaApiClient {
       );
     }
     return head.sha;
+  }
+
+  async getBranch(input: {owner: string; repo: string; branch: string}): Promise<GiteaRefCommit> {
+    const response = await this.request(
+      `repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/branches/${encodeURIComponent(input.branch)}`,
+      {},
+      {notFoundReason: 'ref-not-found'},
+    );
+    const data = await response.json();
+    const commit = isRecord(data) ? data.commit : undefined;
+    if (!isRecord(commit) || typeof commit.id !== 'string') {
+      throw new GiteaIntegrationProviderError(
+        'malformed-provider-response',
+        `Gitea branch ${input.branch} response is missing the head commit`,
+      );
+    }
+    return {commitSha: commit.id};
+  }
+
+  async getTag(input: {owner: string; repo: string; tag: string}): Promise<GiteaRefCommit> {
+    const response = await this.request(
+      `repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/tags/${encodeURIComponent(input.tag)}`,
+      {},
+      {notFoundReason: 'ref-not-found'},
+    );
+    const data = await response.json();
+    const commit = isRecord(data) ? data.commit : undefined;
+    if (!isRecord(commit) || typeof commit.sha !== 'string') {
+      throw new GiteaIntegrationProviderError(
+        'malformed-provider-response',
+        `Gitea tag ${input.tag} response is missing the head commit`,
+      );
+    }
+    return {commitSha: commit.sha};
   }
 
   async listTree(input: {owner: string; repo: string; sha: string}): Promise<GiteaTree> {
@@ -264,7 +304,7 @@ class HttpGiteaApiClient implements GiteaApiClient {
   }
 }
 
-type NotFoundReason = 'repository-not-found' | 'file-not-found';
+type NotFoundReason = 'repository-not-found' | 'file-not-found' | 'ref-not-found';
 
 function giteaHttpError(
   response: Response,

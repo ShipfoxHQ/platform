@@ -37,9 +37,11 @@ const terminalMintErrorReasons = new Set<IntegrationProviderErrorReason>([
   'malformed-provider-response',
 ]);
 
+// Ref reasons describe ref-resolution failures, which a token mint never
+// observes; keep them out of the envelope schema and acknowledge them here.
 type MissingProviderErrorReason = Exclude<
   IntegrationProviderErrorReason,
-  (typeof providerErrorReasons)[number]
+  (typeof providerErrorReasons)[number] | 'ref-not-found' | 'ref-invalid'
 >;
 const providerErrorReasonSchemaCoversUnion: Record<MissingProviderErrorReason, never> = {};
 void providerErrorReasonSchemaCoversUnion;
