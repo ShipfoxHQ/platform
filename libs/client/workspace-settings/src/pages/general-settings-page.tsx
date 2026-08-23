@@ -4,10 +4,6 @@ import {
   type useActiveWorkspace,
   useUpdateWorkspaceMutation,
 } from '@shipfox/client-auth';
-import {
-  clearWorkspaceSetupChecklistDismissal,
-  isWorkspaceSetupChecklistDismissed,
-} from '@shipfox/client-shell/runtime';
 import {displayNameFieldError, SlugChangeWarning, SlugField} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -19,6 +15,7 @@ import {useForm} from '@tanstack/react-form';
 import {useNavigate} from '@tanstack/react-router';
 import {useState} from 'react';
 import {workspaceGeneralErrorToFormError} from '#components/general/form-errors.js';
+import {ShowSetupGuideLink} from '#components/show-setup-guide-link.js';
 import {WorkspaceSettingsShell} from '#components/workspace-settings-shell.js';
 
 interface WorkspaceGeneralValues {
@@ -202,24 +199,5 @@ function WorkspaceGeneralForm({workspace}: {workspace: ReturnType<typeof useActi
         }}
       />
     </>
-  );
-}
-
-function ShowSetupGuideLink({workspaceId}: {workspaceId: string}) {
-  const [dismissed, setDismissed] = useState(() => isWorkspaceSetupChecklistDismissed(workspaceId));
-
-  if (!dismissed) return null;
-
-  return (
-    <button
-      type="button"
-      className="inline-flex w-fit cursor-pointer rounded-4 border-none bg-transparent p-0 font-medium text-foreground-highlight-interactive underline-offset-2 outline-none transition-colors hover:underline focus-visible:shadow-border-interactive-with-active"
-      onClick={() => {
-        clearWorkspaceSetupChecklistDismissal(workspaceId);
-        setDismissed(false);
-      }}
-    >
-      Show the setup guide
-    </button>
   );
 }
