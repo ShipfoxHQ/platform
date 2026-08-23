@@ -1,5 +1,21 @@
 # @shipfox/client-projects
 
+## 22.0.3
+
+### Patch Changes
+
+- Updated dependencies [a7fb52d]
+- Updated dependencies [0d3c2e3]
+- Updated dependencies [ddcc546]
+- Updated dependencies [b734450]
+- Updated dependencies [ddcc546]
+  - @shipfox/client-auth@22.0.3
+  - @shipfox/react-ui@2.2.0
+  - @shipfox/client-agent@22.0.3
+  - @shipfox/client-integrations@22.0.3
+  - @shipfox/client-shell@22.0.3
+  - @shipfox/client-ui@22.0.3
+
 ## 22.0.2
 
 ### Patch Changes

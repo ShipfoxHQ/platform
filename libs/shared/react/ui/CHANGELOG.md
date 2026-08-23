@@ -1,5 +1,17 @@
 # @shipfox/react-ui
 
+## 2.2.0
+
+### Minor Changes
+
+- a7fb52d: Supports server-declared Markdown in signup denial messages while keeping custom policy messages plain by default.
+
+  Existing environment-backed messages now interpret Markdown syntax. Older clients display the Markdown source as plain text.
+
+### Patch Changes
+
+- ddcc546: Stops closing Modal, Sheet, and popper surfaces from catching clicks while they animate out. Modal and Sheet also release a body pointer-events lock left behind by a missed dismissal.
+
 ## 2.1.1
 
 ### Patch Changes

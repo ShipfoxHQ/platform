@@ -1,5 +1,19 @@
 # @shipfox/api-auth
 
+## 13.1.0
+
+### Minor Changes
+
+- a7fb52d: Supports server-declared Markdown in signup denial messages while keeping custom policy messages plain by default.
+
+  Existing environment-backed messages now interpret Markdown syntax. Older clients display the Markdown source as plain text.
+
+### Patch Changes
+
+- Updated dependencies [6366319]
+  - @shipfox/node-email@0.3.5
+  - @shipfox/api-email-challenges@1.1.9
+
 ## 12.2.0
 
 ### Patch Changes

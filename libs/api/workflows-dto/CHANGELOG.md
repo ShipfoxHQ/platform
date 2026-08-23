@@ -1,5 +1,21 @@
 # @shipfox/api-workflows-dto
 
+## 13.1.0
+
+### Minor Changes
+
+- 0d3c2e3: Updates @shipfox/client-agent, @shipfox/client-onboarding, and @shipfox/client-workflows to show
+  managed inference providers without exposing workspace credential setup, keep workflow examples
+  limited to supported models, and explain managed-provider failures in workflow runs.
+
+### Patch Changes
+
+- Updated dependencies [0d3c2e3]
+- Updated dependencies [5c100d6]
+- Updated dependencies [ca91dc3]
+- Updated dependencies [67aab38]
+  - @shipfox/api-agent-dto@13.1.0
+
 ## 13.0.0
 
 ### Major Changes

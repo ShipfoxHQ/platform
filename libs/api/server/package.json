@@ -2,7 +2,7 @@
   "name": "@shipfox/api-server",
   "license": "MIT",
   "private": false,
-  "version": "13.0.0",
+  "version": "13.1.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

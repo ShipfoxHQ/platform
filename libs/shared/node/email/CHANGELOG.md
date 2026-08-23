@@ -1,5 +1,11 @@
 # @shipfox/node-email
 
+## 0.3.5
+
+### Patch Changes
+
+- 6366319: Uses IBM Plex Sans for transactional emails with Inter, Helvetica, and Arial fallbacks.
+
 ## 0.3.4
 
 ### Patch Changes

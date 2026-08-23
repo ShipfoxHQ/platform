@@ -1,5 +1,16 @@
 # @shipfox/api-agent-dto
 
+## 13.1.0
+
+### Minor Changes
+
+- 0d3c2e3: Updates @shipfox/client-agent, @shipfox/client-onboarding, and @shipfox/client-workflows to show
+  managed inference providers without exposing workspace credential setup, keep workflow examples
+  limited to supported models, and explain managed-provider failures in workflow runs.
+- 5c100d6: Adds support for injecting a managed hosted-inference model provider into agent configuration, with harness-compatible models and instance overrides taking precedence.
+- ca91dc3: Adds managed-provider runtime credential resolution and lease-scoped wire fields for pi and Claude harnesses.
+- 67aab38: Adds an instance policy that can restrict workspace model-provider configuration to an injected managed provider.
+
 ## 12.2.0
 
 ### Patch Changes

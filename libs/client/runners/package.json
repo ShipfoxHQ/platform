@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/client-runners",
   "license": "MIT",
-  "version": "22.0.2",
+  "version": "22.0.3",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

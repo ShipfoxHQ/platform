@@ -1,5 +1,20 @@
 # @shipfox/client-onboarding
 
+## 22.0.3
+
+### Patch Changes
+
+- 0d3c2e3: Updates @shipfox/client-agent, @shipfox/client-onboarding, and @shipfox/client-workflows to show
+  managed inference providers without exposing workspace credential setup, keep workflow examples
+  limited to supported models, and explain managed-provider failures in workflow runs.
+- Updated dependencies [0d3c2e3]
+- Updated dependencies [b734450]
+- Updated dependencies [ddcc546]
+  - @shipfox/client-agent@22.0.3
+  - @shipfox/client-integrations@22.0.3
+  - @shipfox/client-projects@22.0.3
+  - @shipfox/client-shell@22.0.3
+
 ## 22.0.2
 
 ### Patch Changes

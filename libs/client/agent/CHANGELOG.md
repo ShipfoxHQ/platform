@@ -1,5 +1,24 @@
 # @shipfox/client-agent
 
+## 22.0.3
+
+### Patch Changes
+
+- 0d3c2e3: Updates @shipfox/client-agent, @shipfox/client-onboarding, and @shipfox/client-workflows to show
+  managed inference providers without exposing workspace credential setup, keep workflow examples
+  limited to supported models, and explain managed-provider failures in workflow runs.
+- b734450: Agent provider onboarding now waits for the model provider catalog before showing provider and harness selection, with a loading state and a retryable error state when the catalog cannot be loaded.
+- Updated dependencies [a7fb52d]
+- Updated dependencies [0d3c2e3]
+- Updated dependencies [5c100d6]
+- Updated dependencies [ca91dc3]
+- Updated dependencies [ddcc546]
+- Updated dependencies [67aab38]
+  - @shipfox/react-ui@2.2.0
+  - @shipfox/api-agent-dto@13.1.0
+  - @shipfox/client-shell@22.0.3
+  - @shipfox/client-ui@22.0.3
+
 ## 22.0.2
 
 ### Patch Changes

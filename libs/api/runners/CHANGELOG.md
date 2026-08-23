@@ -1,5 +1,13 @@
 # @shipfox/api-runners
 
+## 13.1.0
+
+### Patch Changes
+
+- 7de2e30: Release runner reservation units when a provisioned runner claims its first job.
+- Updated dependencies [0d3c2e3]
+  - @shipfox/api-workflows-dto@13.1.0
+
 ## 13.0.0
 
 ### Major Changes
