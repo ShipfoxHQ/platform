@@ -79,6 +79,7 @@ describe('toDefinitionDto', () => {
     };
     const definition: WorkflowDefinition = {
       id: '019e98ab-6656-7ca1-b9ad-1ca4442c479d',
+      workflowId: '019e98ab-6656-7ca1-b9ad-1ca4442c479e',
       projectId: '019e98ab-b90f-7265-b13c-8b441c991381',
       configPath: '.shipfox/workflows/manual.yml',
       source: 'manual',
