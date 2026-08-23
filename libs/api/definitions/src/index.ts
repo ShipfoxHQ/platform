@@ -98,6 +98,8 @@ export function createDefinitionsModule({
         workflows: [],
       },
     ],
-    interModulePresentations: [createDefinitionsInterModulePresentation()],
+    interModulePresentations: [
+      createDefinitionsInterModulePresentation({projects, agent, integrations}),
+    ],
   };
 }

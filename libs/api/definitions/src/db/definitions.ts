@@ -307,6 +307,20 @@ export async function upsertDefinition(
   });
 }
 
+/**
+ * Finds or creates the workflow lineage for (projectId, configPath) outside a
+ * sync. A dev definition uses the lineage for run numbering without ever
+ * persisting a definition row or publishing a resolution event.
+ */
+export async function findOrCreateWorkflowLineage(params: {
+  projectId: string;
+  configPath: string;
+}): Promise<string> {
+  return await db().transaction(async (tx) => {
+    return await findOrCreateWorkflow(tx, params);
+  });
+}
+
 export async function getDefinitionById(id: string): Promise<WorkflowDefinition | undefined> {
   return await db().transaction(async (tx) => {
     const rows = await tx

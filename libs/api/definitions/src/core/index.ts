@@ -1,9 +1,21 @@
 export type * from './entities/index.js';
 export {
+  DefinitionAtRefError,
+  type DefinitionAtRefErrorCode,
   DefinitionParseError,
   DefinitionSyncPermanentError,
 } from './errors.js';
 export {parseDefinition} from './parse-definition.js';
+export {
+  type DefinitionAtRefFile,
+  type DefinitionsAtRefListing,
+  type ListDefinitionsAtRefParams,
+  listDefinitionsAtRef,
+  type ResolveDefinitionAtRefParams,
+  type ResolvedDefinitionAtRef,
+  resolveDefinitionAtRef,
+  type ValidationWarning,
+} from './resolve-definition-at-ref.js';
 export {
   classifySyncFailure,
   DEFAULT_WORKFLOW_PATH,
