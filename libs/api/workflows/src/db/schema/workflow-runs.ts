@@ -111,25 +111,6 @@ export const workflowRuns = pgTable(
           ${table.origin} = 'dev'
           and ${table.devSource} is not null
           and jsonb_typeof(${table.devSource}) = 'object'
-          and ${table.devSource} ?& array[
-            'ref',
-            'commit',
-            'config_path',
-            'initiated_by_user_id',
-            'replay_of_event_id'
-          ]
-          and jsonb_typeof(${table.devSource}->'ref') = 'string'
-          and jsonb_typeof(${table.devSource}->'commit') = 'string'
-          and jsonb_typeof(${table.devSource}->'config_path') = 'string'
-          and jsonb_typeof(${table.devSource}->'initiated_by_user_id') = 'string'
-          and ${table.devSource}->>'initiated_by_user_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          and (
-            jsonb_typeof(${table.devSource}->'replay_of_event_id') = 'null'
-            or (
-              jsonb_typeof(${table.devSource}->'replay_of_event_id') = 'string'
-              and ${table.devSource}->>'replay_of_event_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-            )
-          )
         )
       )`,
     ),
