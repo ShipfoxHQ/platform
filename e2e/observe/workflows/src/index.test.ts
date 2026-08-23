@@ -29,6 +29,8 @@ function run(params: Partial<WorkflowRunListItemDto> = {}): WorkflowRunListItemD
     name: params.name ?? 'Build',
     workflow_name: params.workflow_name ?? 'Build',
     status: params.status ?? 'pending',
+    origin: params.origin ?? 'synced',
+    dev_source: params.dev_source ?? null,
     current_attempt: params.current_attempt ?? 1,
     latest_attempt: params.latest_attempt ?? 1,
     trigger_provider: params.trigger_provider ?? 'gitea',

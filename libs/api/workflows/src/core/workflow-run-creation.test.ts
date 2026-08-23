@@ -144,6 +144,8 @@ function workflowRun(params: {inputs?: Record<string, unknown> | null} = {}): Wo
     workflowName: 'Test workflow',
     nameOverride: null,
     status: 'pending',
+    origin: 'synced',
+    devSource: null,
     currentAttempt: 1,
     triggerProvider: null,
     triggerSource: triggerPayload.source,

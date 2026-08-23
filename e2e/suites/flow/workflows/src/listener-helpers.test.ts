@@ -101,6 +101,8 @@ function runDetail(
     name: 'Listener workflow',
     workflow_name: 'Listener workflow',
     status: 'succeeded',
+    origin: 'synced',
+    dev_source: null,
     current_attempt: 1,
     latest_attempt: 1,
     trigger_provider: 'manual',

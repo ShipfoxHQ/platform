@@ -30,6 +30,7 @@ export function listRunsRoute(projects: ProjectsModuleClient) {
         status,
         definition_id: definitionId,
         trigger_source: triggerSource,
+        origin,
         created_from: createdFrom,
         created_to: createdTo,
       } = request.query;
@@ -44,6 +45,7 @@ export function listRunsRoute(projects: ProjectsModuleClient) {
         status,
         definitionId,
         triggerSource,
+        origin,
         createdFrom: createdFrom ? new Date(createdFrom) : undefined,
         createdTo: createdTo ? new Date(createdTo) : undefined,
       };

@@ -121,6 +121,8 @@ function workflowRun(): WorkflowRun {
     workflowName: 'Run',
     nameOverride: null,
     status: 'pending',
+    origin: 'synced',
+    devSource: null,
     currentAttempt: 1,
     triggerProvider: null,
     triggerSource: 'manual',

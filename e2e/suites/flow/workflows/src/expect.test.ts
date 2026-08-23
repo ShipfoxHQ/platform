@@ -118,6 +118,8 @@ function makeDetail(
     name: 'Hello world',
     workflow_name: 'Hello world',
     status: 'succeeded',
+    origin: 'synced',
+    dev_source: null,
     current_attempt: 1,
     latest_attempt: 1,
     trigger_provider: 'gitea',

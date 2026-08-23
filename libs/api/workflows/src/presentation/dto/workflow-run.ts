@@ -1,10 +1,15 @@
 import type {
   WorkflowRunAttemptDto,
+  WorkflowRunDevSourceDto,
   WorkflowRunDto,
   WorkflowRunListItemDto,
   WorkflowRunTriggerReferenceDto,
 } from '@shipfox/api-workflows-dto';
-import type {WorkflowRun, WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
+import type {
+  WorkflowRun,
+  WorkflowRunDevSource,
+  WorkflowRunTriggerReference,
+} from '#core/entities/workflow-run.js';
 import type {WorkflowRunAttempt} from '#core/entities/workflow-run-attempt.js';
 import type {WorkflowRunJobsSummary} from '#db/index.js';
 
@@ -17,6 +22,8 @@ export function toRunDto(run: WorkflowRun, latestAttempt = run.currentAttempt): 
     name: run.name,
     workflow_name: run.workflowName,
     status: run.status,
+    origin: run.origin,
+    dev_source: toDevSourceDto(run.devSource),
     current_attempt: run.currentAttempt,
     latest_attempt: latestAttempt,
     trigger_provider: run.triggerProvider,
@@ -73,6 +80,21 @@ function toTriggerReferenceDto(
     ref: reference.ref ?? null,
     commit: reference.commit ?? null,
     actor: reference.actor ?? null,
+  };
+}
+
+// The persisted dev source uses camelCase field names while the API contract is snake_case,
+// so each field is mapped explicitly rather than spread onto the response.
+function toDevSourceDto(
+  devSource: WorkflowRunDevSource | null | undefined,
+): WorkflowRunDevSourceDto | null {
+  if (!devSource) return null;
+  return {
+    ref: devSource.ref,
+    commit: devSource.commit,
+    config_path: devSource.configPath,
+    initiated_by_user_id: devSource.initiatedByUserId,
+    replay_of_event_id: devSource.replayOfEventId,
   };
 }
 

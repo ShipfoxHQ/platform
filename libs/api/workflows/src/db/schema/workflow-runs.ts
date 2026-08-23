@@ -16,6 +16,7 @@ import {
 import type {
   TriggerPayload,
   WorkflowRun,
+  WorkflowRunOriginState,
   WorkflowRunTriggerReference,
   WorkflowSourceSnapshot,
 } from '#core/entities/workflow-run.js';
@@ -31,6 +32,14 @@ export const workflowRunStatusEnum = pgEnum('workflows_run_status', [
 
 export const workflowRunRerunModeEnum = pgEnum('workflows_rerun_mode', ['all', 'failed']);
 
+export interface WorkflowRunDevSourceDb {
+  ref: string;
+  commit: string;
+  config_path: string;
+  initiated_by_user_id: string;
+  replay_of_event_id: string | null;
+}
+
 export const workflowRuns = pgTable(
   'workflow_runs',
   {
@@ -42,6 +51,8 @@ export const workflowRuns = pgTable(
     name: text('name'),
     workflowName: text('workflow_name').notNull(),
     status: workflowRunStatusEnum('status').notNull().default('pending'),
+    origin: text('origin').notNull().default('synced'),
+    devSource: jsonb('dev_source').$type<WorkflowRunDevSourceDb>(),
     currentAttempt: integer('current_attempt').notNull().default(1),
     triggerProvider: text('trigger_provider'),
     triggerSource: text('trigger_source').notNull(),
@@ -62,6 +73,12 @@ export const workflowRuns = pgTable(
     uniqueIndex('workflows_wr_trigger_idempotency_key_unique').on(table.triggerIdempotencyKey),
     uniqueIndex('workflows_wr_definition_number_unique').on(table.definitionId, table.number),
     index('workflows_wr_project_created_id_idx').on(table.projectId, table.createdAt, table.id),
+    index('workflows_wr_project_origin_created_id_idx').on(
+      table.projectId,
+      table.origin,
+      table.createdAt,
+      table.id,
+    ),
     index('workflows_wr_project_status_created_id_idx').on(
       table.projectId,
       table.status,
@@ -85,6 +102,37 @@ export const workflowRuns = pgTable(
     // historical table grows.
     index('workflows_wr_running_idx').on(table.status).where(sql`${table.status} = 'running'`),
     check('workflows_wr_current_attempt_positive_ck', sql`${table.currentAttempt} > 0`),
+    check('workflows_wr_origin_ck', sql`${table.origin} in ('synced', 'dev')`),
+    check(
+      'workflows_wr_dev_source_ck',
+      sql`(
+        (${table.origin} = 'synced' and ${table.devSource} is null)
+        or (
+          ${table.origin} = 'dev'
+          and ${table.devSource} is not null
+          and jsonb_typeof(${table.devSource}) = 'object'
+          and ${table.devSource} ?& array[
+            'ref',
+            'commit',
+            'config_path',
+            'initiated_by_user_id',
+            'replay_of_event_id'
+          ]
+          and jsonb_typeof(${table.devSource}->'ref') = 'string'
+          and jsonb_typeof(${table.devSource}->'commit') = 'string'
+          and jsonb_typeof(${table.devSource}->'config_path') = 'string'
+          and jsonb_typeof(${table.devSource}->'initiated_by_user_id') = 'string'
+          and ${table.devSource}->>'initiated_by_user_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          and (
+            jsonb_typeof(${table.devSource}->'replay_of_event_id') = 'null'
+            or (
+              jsonb_typeof(${table.devSource}->'replay_of_event_id') = 'string'
+              and ${table.devSource}->>'replay_of_event_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            )
+          )
+        )
+      )`,
+    ),
   ],
 );
 
@@ -92,6 +140,7 @@ export type WorkflowRunDb = typeof workflowRuns.$inferSelect;
 export type WorkflowRunCreateDb = typeof workflowRuns.$inferInsert;
 
 export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
+  const originState = toWorkflowRunOriginState(row);
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -102,6 +151,7 @@ export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
     workflowName: row.workflowName,
     nameOverride: row.name,
     status: row.status,
+    ...originState,
     currentAttempt: row.currentAttempt,
     triggerProvider: row.triggerProvider,
     triggerSource: row.triggerSource,
@@ -117,5 +167,32 @@ export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
     updatedAt: row.updatedAt,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
+  };
+}
+
+function toWorkflowRunOriginState(
+  row: Pick<WorkflowRunDb, 'origin' | 'devSource'>,
+): WorkflowRunOriginState {
+  if (row.origin === 'synced') {
+    if (row.devSource !== null) {
+      throw new Error(`Synced workflow run has unexpected dev source`);
+    }
+    return {origin: 'synced', devSource: null};
+  }
+  if (row.origin !== 'dev') {
+    throw new Error(`Unknown workflow run origin: ${row.origin}`);
+  }
+  if (!row.devSource) {
+    throw new Error('Dev workflow run is missing its source');
+  }
+  return {
+    origin: 'dev',
+    devSource: {
+      ref: row.devSource.ref,
+      commit: row.devSource.commit,
+      configPath: row.devSource.config_path,
+      initiatedByUserId: row.devSource.initiated_by_user_id,
+      replayOfEventId: row.devSource.replay_of_event_id,
+    },
   };
 }

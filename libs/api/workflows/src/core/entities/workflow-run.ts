@@ -5,6 +5,24 @@ import type {WorkflowRunAttempt} from './workflow-run-attempt.js';
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+export type WorkflowRunOrigin = 'synced' | 'dev';
+
+/**
+ * Why a dev run was created: the ref and pinned commit the definition came from, the
+ * file that ran, the user who started it, and the journaled event it replays when any.
+ */
+export interface WorkflowRunDevSource {
+  ref: string;
+  commit: string;
+  configPath: string;
+  initiatedByUserId: string;
+  replayOfEventId: string | null;
+}
+
+export type WorkflowRunOriginState =
+  | {origin: 'synced'; devSource: null}
+  | {origin: 'dev'; devSource: WorkflowRunDevSource};
+
 export type TerminalWorkflowRunStatus = Extract<
   WorkflowRunStatus,
   'succeeded' | 'failed' | 'cancelled'
@@ -60,7 +78,7 @@ export type TriggerPayload =
       data: unknown;
     };
 
-export interface WorkflowRun {
+export type WorkflowRun = WorkflowRunOriginState & {
   id: string;
   workspaceId: string;
   projectId: string;
@@ -89,7 +107,7 @@ export interface WorkflowRun {
   updatedAt: Date;
   startedAt: Date | null;
   finishedAt: Date | null;
-}
+};
 
 export interface StepDetail extends Step {
   attempts: StepAttempt[];
@@ -103,11 +121,11 @@ export interface WorkflowJobDetail extends Job {
   jobExecutions: JobExecutionDetail[];
 }
 
-export interface WorkflowRunDetail extends WorkflowRun {
+export type WorkflowRunDetail = WorkflowRun & {
   runAttempt: WorkflowRunAttempt;
   latestAttempt: number;
   jobs: WorkflowJobDetail[];
   /** Whether any job execution of this attempt reached its runner, decided here so the detail
    * and the list cannot answer it differently. */
   hasStartedJobExecution: boolean;
-}
+};
