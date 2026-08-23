@@ -1,7 +1,8 @@
-import type {
-  IntegrationCapability,
-  IntegrationConnection,
-  IntegrationProvider,
+import {
+  type IntegrationCapability,
+  type IntegrationConnection,
+  type IntegrationProvider,
+  isUsableConnection,
 } from '@shipfox/client-integrations';
 
 /**
@@ -13,6 +14,7 @@ import type {
  */
 export interface IntegrationProviderReadiness {
   provider: string;
+  displayName: string;
   capabilities: ReadonlyArray<IntegrationCapability>;
   connected: boolean;
   attention: boolean;
@@ -46,11 +48,10 @@ export function deriveIntegrationReadiness({
     const providerConnections = connections.filter(
       (connection) => connection.provider === provider.provider,
     );
-    const connected = providerConnections.some(
-      (connection) => connection.lifecycleStatus === 'active',
-    );
+    const connected = providerConnections.some(isUsableConnection);
     return {
       provider: provider.provider,
+      displayName: provider.displayName,
       capabilities: provider.capabilities,
       connected,
       attention: providerConnections.length > 0 && !connected,

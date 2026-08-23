@@ -137,17 +137,20 @@ export function deriveSetupChecklist({
 
 function toolsTitle(readiness: WorkspaceIntegrationReadiness): string {
   if (!readiness.hasToolIntegration) {
-    const {attentionProviders} = readiness;
-    if (attentionProviders.length === 1 && attentionProviders[0] !== undefined) {
-      return `${capitalize(attentionProviders[0])} needs attention`;
+    const attentionToolProviders = readiness.attentionProviders
+      .map((providerKey) => readiness.providers.find(({provider}) => provider === providerKey))
+      .filter(
+        (provider) => provider !== undefined && !provider.capabilities.includes('source_control'),
+      );
+    if (attentionToolProviders.length === 1) {
+      const provider = attentionToolProviders[0];
+      if (provider !== undefined) {
+        return `${provider.displayName || provider.provider} needs attention`;
+      }
     }
-    if (attentionProviders.length > 1) {
-      return `${attentionProviders.length} integrations need attention`;
+    if (attentionToolProviders.length > 1) {
+      return `${attentionToolProviders.length} integrations need attention`;
     }
   }
   return TOOLS_TITLE;
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }

@@ -6,8 +6,12 @@ import type {
 import {describe, expect, test} from '@shipfox/vitest/vi';
 import {deriveIntegrationReadiness} from './integration-readiness.js';
 
-function provider(key: string, capabilities: IntegrationCapability[] = []): IntegrationProvider {
-  return {provider: key, displayName: key, capabilities};
+function provider(
+  key: string,
+  capabilities: IntegrationCapability[] = [],
+  displayName = key,
+): IntegrationProvider {
+  return {provider: key, displayName, capabilities};
 }
 
 function connection(
@@ -29,9 +33,9 @@ function connection(
   };
 }
 
-const GITHUB = provider('github', ['source_control', 'agent_tools']);
-const LINEAR = provider('linear', ['agent_tools']);
-const WEBHOOK = provider('webhook', []);
+const GITHUB = provider('github', ['source_control', 'agent_tools'], 'GitHub');
+const LINEAR = provider('linear', ['agent_tools'], 'Linear');
+const WEBHOOK = provider('webhook', [], 'Webhook');
 
 describe('deriveIntegrationReadiness', () => {
   test('reports a provider as connected when at least one connection is active', () => {
@@ -44,7 +48,13 @@ describe('deriveIntegrationReadiness', () => {
     });
 
     expect(readiness.providers).toEqual([
-      {provider: 'linear', capabilities: ['agent_tools'], connected: true, attention: false},
+      {
+        provider: 'linear',
+        displayName: 'Linear',
+        capabilities: ['agent_tools'],
+        connected: true,
+        attention: false,
+      },
     ]);
   });
 
@@ -58,7 +68,13 @@ describe('deriveIntegrationReadiness', () => {
     });
 
     expect(readiness.providers).toEqual([
-      {provider: 'linear', capabilities: ['agent_tools'], connected: false, attention: true},
+      {
+        provider: 'linear',
+        displayName: 'Linear',
+        capabilities: ['agent_tools'],
+        connected: false,
+        attention: true,
+      },
     ]);
     expect(readiness.attentionProviders).toEqual(['linear']);
   });
@@ -70,9 +86,16 @@ describe('deriveIntegrationReadiness', () => {
     });
 
     expect(readiness.providers).toEqual([
-      {provider: 'linear', capabilities: ['agent_tools'], connected: false, attention: false},
+      {
+        provider: 'linear',
+        displayName: 'Linear',
+        capabilities: ['agent_tools'],
+        connected: false,
+        attention: false,
+      },
       {
         provider: 'github',
+        displayName: 'GitHub',
         capabilities: ['source_control', 'agent_tools'],
         connected: true,
         attention: false,
@@ -87,7 +110,13 @@ describe('deriveIntegrationReadiness', () => {
     });
 
     expect(readiness.providers).toEqual([
-      {provider: 'linear', capabilities: ['agent_tools'], connected: false, attention: false},
+      {
+        provider: 'linear',
+        displayName: 'Linear',
+        capabilities: ['agent_tools'],
+        connected: false,
+        attention: false,
+      },
     ]);
     expect(readiness.hasToolIntegration).toBe(false);
   });

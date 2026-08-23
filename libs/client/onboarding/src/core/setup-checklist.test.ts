@@ -16,6 +16,7 @@ function readiness(overrides: Partial<ReturnType<typeof deriveIntegrationReadine
           capabilities: ['source_control', 'agent_tools'],
         },
         {provider: 'linear', displayName: 'Linear', capabilities: ['agent_tools']},
+        {provider: 'webhook', displayName: 'Webhook', capabilities: []},
       ],
       connections: [],
     }),
@@ -203,6 +204,43 @@ describe('deriveSetupChecklist', () => {
       status: 'open',
       title: 'Linear needs attention',
     });
+  });
+
+  test('uses the provider display name for a key with brand capitalization', () => {
+    const checklist = deriveSetupChecklist(
+      input({
+        readiness: readiness({
+          providers: [
+            {
+              provider: 'github',
+              displayName: 'GitHub',
+              capabilities: ['agent_tools'],
+              connected: false,
+              attention: true,
+            },
+          ],
+          attentionProviders: ['github'],
+          hasToolIntegration: false,
+        }),
+      }),
+    );
+
+    expect(checklist.items.find((item) => item.id === 'tools')?.title).toBe(
+      'GitHub needs attention',
+    );
+  });
+
+  test('does not name a source-control provider in the tools title', () => {
+    const checklist = deriveSetupChecklist(
+      input({
+        readiness: readiness({
+          attentionProviders: ['github'],
+          hasToolIntegration: false,
+        }),
+      }),
+    );
+
+    expect(checklist.items.find((item) => item.id === 'tools')?.title).toBe('Connect your tools');
   });
 
   test('counts several attention providers in the tools title', () => {

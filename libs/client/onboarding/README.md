@@ -31,9 +31,8 @@ output without re-deriving anything.
 pnpm add @shipfox/client-onboarding
 ```
 
-The package is part of the `libs/client` workspace. It depends on the client
-feature packages whose queries feed the derivations: `client-integrations`,
-`client-agent`, `client-runners`, `client-projects`, and `client-shell`.
+The package is part of the `libs/client` workspace. Its runtime dependencies
+are `client-agent`, `client-integrations`, `client-projects`, and `client-shell`.
 
 ## Usage
 
@@ -43,7 +42,13 @@ import {
   deriveSetupChecklist,
 } from '@shipfox/client-onboarding';
 
-const readiness = deriveIntegrationReadiness({providers, connections});
+const readiness = deriveIntegrationReadiness({
+  providers: [
+    {provider: 'github', displayName: 'GitHub', capabilities: ['source_control']},
+    {provider: 'linear', displayName: 'Linear', capabilities: ['agent_tools']},
+  ],
+  connections: [],
+});
 
 const checklist = deriveSetupChecklist({
   readiness,
@@ -60,14 +65,15 @@ checklist.openCount; // 3
 checklist.complete; // false
 ```
 
-Feed the derivations with the option factories from the feature packages:
+The caller maps its own query results to the derivation inputs:
 
-- providers and connections from `@shipfox/client-integrations`
-  (`integrationProvidersQueryOptions`, `integrationConnectionsQueryOptions`)
-- active provisioners with `installation_runners` from
-  `@shipfox/client-runners`
-- the model-provider catalog and configs from `@shipfox/client-agent`
-- members and invitations from `@shipfox/client-workspace-settings`
+- `providers` and `connections` use the plain values from
+  `@shipfox/client-integrations`.
+- `installationRunners` is `'managed'` or `'none'`.
+- `workspaceRunnerCapacity` reports whether the workspace has runner capacity.
+- `modelProvider` reports installation-provided inference and workspace
+  configuration.
+- `membership` reports the member and pending-invitation counts.
 
 ## Behavior notes
 
@@ -93,11 +99,11 @@ Feed the derivations with the option factories from the feature packages:
 turbo check --filter=@shipfox/client-onboarding
 turbo type --filter=@shipfox/client-onboarding
 turbo test --filter=@shipfox/client-onboarding
+turbo build --filter=@shipfox/client-onboarding
 ```
 
 The package runs Storybook per the per-package recipe (`pnpm storybook` on
-port 6015). Storybook is set up for the checklist components; the package has
-no stories until the component work lands.
+port 6015). The Storybook test project activates when checklist stories land.
 
 ## License
 

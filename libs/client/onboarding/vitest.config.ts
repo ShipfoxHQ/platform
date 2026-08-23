@@ -1,3 +1,4 @@
+import {readdirSync} from 'node:fs';
 import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {argosVitestPlugin} from '@argos-ci/storybook/vitest-plugin';
@@ -9,6 +10,50 @@ import {playwright} from '@vitest/browser-playwright';
 
 const dirname =
   typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+const storybookFilePattern = /\.stories\.(?:[cm]?[jt]sx?|mdx)$/;
+
+function hasStorybookStories(directory: string): boolean {
+  return readdirSync(directory, {withFileTypes: true}).some((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) return hasStorybookStories(entryPath);
+    return entry.isFile() && storybookFilePattern.test(entry.name);
+  });
+}
+
+function createStorybookProject() {
+  return {
+    extends: true as const,
+    plugins: [
+      storybookTest({configDir: path.join(dirname, '.storybook')}),
+      argosVitestPlugin({
+        uploadToArgos: !!process.env.CI,
+        ...(process.env.ARGOS_TOKEN ? {token: process.env.ARGOS_TOKEN} : {}),
+        buildName: 'client-onboarding',
+        argosCSS: `
+          *, *::before, *::after {
+            animation-delay: 0s !important;
+            animation-duration: 0s !important;
+            transition-delay: 0s !important;
+            transition-duration: 0s !important;
+          }
+        `,
+      }),
+    ],
+    test: {
+      name: 'storybook',
+      browser: {
+        enabled: true,
+        headless: true,
+        provider: playwright({
+          launchOptions: {
+            args: ['--disable-lcd-text', '--font-render-hinting=none'],
+          },
+        }),
+        instances: [{browser: 'chromium' as const}],
+      },
+    },
+  };
+}
 
 export default defineConfig(
   {
@@ -35,34 +80,7 @@ export default defineConfig(
             setupFiles: ['test/setup.ts'],
           },
         },
-        {
-          extends: true,
-          plugins: [
-            storybookTest({configDir: path.join(dirname, '.storybook')}),
-            argosVitestPlugin({
-              uploadToArgos: !!process.env.CI,
-              ...(process.env.ARGOS_TOKEN ? {token: process.env.ARGOS_TOKEN} : {}),
-              buildName: 'client-onboarding',
-              argosCSS: `
-                *, *::before, *::after {
-                  animation-delay: 0s !important;
-                  animation-duration: 0s !important;
-                  transition-delay: 0s !important;
-                  transition-duration: 0s !important;
-                }
-              `,
-            }),
-          ],
-          test: {
-            name: 'storybook',
-            browser: {
-              enabled: true,
-              headless: true,
-              provider: playwright(),
-              instances: [{browser: 'chromium'}],
-            },
-          },
-        },
+        ...(hasStorybookStories(path.join(dirname, 'src')) ? [createStorybookProject()] : []),
       ],
     },
   },
