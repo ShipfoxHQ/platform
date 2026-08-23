@@ -20,9 +20,6 @@ import {workflowWorkflows} from './schema/workflows.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
-// Reserved in the lineage table for manual definitions without a config path.
-const PATHLESS_WORKFLOW_CONFIG_PATH = '__shipfox_internal_pathless__';
-
 export interface UpsertDefinitionParams {
   projectId: string;
   workspaceId: string;
@@ -67,7 +64,7 @@ async function findOrCreateWorkflow(
 
     const inserted = await tx
       .insert(workflowWorkflows)
-      .values({projectId: params.projectId, configPath: PATHLESS_WORKFLOW_CONFIG_PATH})
+      .values({projectId: params.projectId, configPath: null})
       .onConflictDoNothing()
       .returning({id: workflowWorkflows.id});
     const insertedRow = inserted[0];
@@ -79,7 +76,7 @@ async function findOrCreateWorkflow(
       .where(
         and(
           eq(workflowWorkflows.projectId, params.projectId),
-          eq(workflowWorkflows.configPath, PATHLESS_WORKFLOW_CONFIG_PATH),
+          isNull(workflowWorkflows.configPath),
         ),
       )
       .limit(1);
@@ -140,7 +137,10 @@ async function findOrCreateWorkflows(
         inArray(workflowWorkflows.configPath, configPaths),
       ),
     );
-  const workflowIds = new Map(rows.map((row) => [row.configPath, row.id]));
+  const workflowIds = new Map<string, string>();
+  for (const row of rows) {
+    if (row.configPath !== null) workflowIds.set(row.configPath, row.id);
+  }
   for (const configPath of configPaths) {
     if (!workflowIds.has(configPath)) {
       throw new Error(

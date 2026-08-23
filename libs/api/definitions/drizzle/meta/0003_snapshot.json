@@ -526,7 +526,7 @@
           "name": "config_path",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -554,6 +554,22 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "definitions_workflows_project_pathless_unique": {
+          "name": "definitions_workflows_project_pathless_unique",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"config_path\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

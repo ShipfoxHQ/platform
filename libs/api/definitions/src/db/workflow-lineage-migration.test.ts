@@ -133,7 +133,7 @@ describe('workflow lineage backfill migration (0003)', () => {
         )
       ).rows;
       const workflows = (
-        await target.query<{id: string; config_path: string}>(
+        await target.query<{id: string; config_path: string | null}>(
           `SELECT "id", "config_path" FROM "definitions_workflows" ORDER BY "id"`,
         )
       ).rows;
