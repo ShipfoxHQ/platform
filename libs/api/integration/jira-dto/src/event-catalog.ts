@@ -1,4 +1,5 @@
-import {jiraWebhookEventNames} from '@shipfox/api-integration-jira-dto';
+import type {IntegrationEventCatalog} from '@shipfox/api-integration-core-dto';
+import {jiraWebhookEventNames} from './schemas/index.js';
 
 const eventDetails = {
   'jira:issue_created': {
@@ -25,13 +26,19 @@ const eventDetails = {
     summary: 'A comment is deleted from a Jira issue.',
     emittedWhen: 'Jira sends a comment-deleted webhook.',
   },
-};
+} as const satisfies Record<
+  (typeof jiraWebhookEventNames)[number],
+  {
+    summary: string;
+    emittedWhen: string;
+  }
+>;
 
 export const jiraEventCatalog = {
   provider: 'Jira',
   events: jiraWebhookEventNames.map((name) => ({
     name,
     ...eventDetails[name],
-    payloadKind: 'shipfox-normalized',
+    payloadKind: 'shipfox-normalized' as const,
   })),
-};
+} as const satisfies IntegrationEventCatalog;

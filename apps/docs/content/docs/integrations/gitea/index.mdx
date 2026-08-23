@@ -1,0 +1,46 @@
+---
+title: "Gitea integration"
+sidebarTitle: "Overview"
+description: "Connect a Gitea organization to trigger workflows from repository pushes."
+catalog:
+  name: "Gitea"
+  summary: "Connect a Gitea organization and receive push events."
+  capabilities: ["events"]
+  categories: ["source-control"]
+  aliases: ["git", "vcs", "forge"]
+  icon: "gitea"
+---
+
+## Authentication
+
+Shipfox connects to a Gitea instance through a read-only service account. The
+integration connection is scoped to one Gitea organization. An instance admin
+provisions push delivery to Shipfox out of band, because the service account
+cannot manage organization hooks.
+
+Gitea is the local stand-in for GitHub in the evaluation stack. Deployed
+installations (self-hosted or cloud) connect GitHub.
+
+## Integration connection identity
+
+The slug of a Gitea integration connection defaults to `gitea_<organization>`,
+where `<organization>` is the connected Gitea organization. For example,
+`gitea_shipfox`. Use the slug of the workspace integration connection as a
+workflow trigger `source`.
+
+```yaml
+triggers:
+  on_push:
+    source: gitea_shipfox
+    event: push
+```
+
+For trigger field rules, see the [workflow schema reference](/reference/workflow-schema#trigger-fields).
+
+## Capabilities
+
+| Capability | Details |
+| --- | --- |
+| Events | [View Gitea events](/integrations/gitea/events). |
+
+[Connect Gitea](/integrations/gitea/setup) to create an integration connection.

@@ -713,6 +713,9 @@ importers:
       '@shipfox/api-integration-core-dto':
         specifier: workspace:*
         version: link:../../libs/api/integration/core-dto
+      '@shipfox/api-integration-gitea-dto':
+        specifier: workspace:*
+        version: link:../../libs/api/integration/gitea-dto
       '@shipfox/api-integration-github':
         specifier: workspace:*
         version: link:../../libs/api/integration/github

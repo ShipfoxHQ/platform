@@ -50,6 +50,11 @@ export const registeredIntegrationProviders: readonly RegisteredIntegrationProvi
     capabilities: ['events', 'agent_tools'],
   },
   {
+    slug: 'gitea',
+    kind: 'catalog',
+    capabilities: ['events'],
+  },
+  {
     slug: 'cron',
     kind: 'built-in-source',
     events: ['tick'],

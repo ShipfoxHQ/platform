@@ -3,6 +3,7 @@ import {mkdirSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {listHarnessDescriptors, MODEL_PROVIDER_CATALOG_SEED} from '@shipfox/api-agent-dto';
+import {giteaEventCatalog} from '@shipfox/api-integration-gitea-dto';
 import {
   githubAgentToolCatalog,
   githubAgentToolSelectionCatalog,
@@ -12,15 +13,18 @@ import {
   jiraAgentToolCatalog,
   jiraAgentToolSelectionCatalog,
 } from '@shipfox/api-integration-jira/agent-tools';
+import {jiraEventCatalog} from '@shipfox/api-integration-jira-dto';
 import {
   linearAgentToolCatalog,
   linearAgentToolSelectionCatalog,
 } from '@shipfox/api-integration-linear/agent-tools';
+import {linearEventCatalog} from '@shipfox/api-integration-linear-dto';
 import {sentryEventCatalog} from '@shipfox/api-integration-sentry-dto';
 import {
   slackAgentToolCatalog,
   slackAgentToolSelectionCatalog,
 } from '@shipfox/api-integration-slack/agent-tools';
+import {slackEventCatalog} from '@shipfox/api-integration-slack-dto';
 import {webhookEventCatalog} from '@shipfox/api-integration-webhook-dto';
 import {
   buildTypedRootsEnvironment,
@@ -35,9 +39,6 @@ import {
   contextRootShape,
   WORKFLOW_FIELD_YAML_KEYS,
 } from './lib/context-reference.mjs';
-import {jiraEventCatalog} from './lib/jira-event-catalog.mjs';
-import {linearEventCatalog} from './lib/linear-event-catalog.mjs';
-import {slackEventCatalog} from './lib/slack-event-catalog.mjs';
 import {slugForHeading} from './lib/slug.mjs';
 
 const docsRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,6 +48,9 @@ const dtoCatalogBySlug = {
     eventCatalog: githubEventCatalog,
     toolCatalog: githubAgentToolCatalog,
     toolSelectionCatalog: githubAgentToolSelectionCatalog,
+  },
+  gitea: {
+    eventCatalog: giteaEventCatalog,
   },
   jira: {
     eventCatalog: jiraEventCatalog,
