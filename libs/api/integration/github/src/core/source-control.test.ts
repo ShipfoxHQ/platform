@@ -313,6 +313,25 @@ describe('GithubSourceControlProvider', () => {
     await expect(result).rejects.toMatchObject({reason: 'ref-not-found'});
   });
 
+  it('rejects a commit response with an invalid object id', async () => {
+    await createInstallation();
+    const github = githubClient({
+      listRepositoryCommits: vi.fn(() => Promise.resolve([{sha: 'not-a-commit'}])),
+    });
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = provider.resolveRef({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      ref: 'refs/heads/main',
+    });
+
+    await expect(result).rejects.toMatchObject({
+      reason: 'malformed-provider-response',
+      message: 'GitHub ref "refs/heads/main" resolved to an invalid commit',
+    });
+  });
+
   it.each([
     'a'.repeat(40),
     'refs/pull/17/head',

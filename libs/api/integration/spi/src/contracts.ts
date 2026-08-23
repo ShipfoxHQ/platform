@@ -384,13 +384,14 @@ export function isValidTriggerRef(ref: string): boolean {
 
 /**
  * Validates a ref the platform may resolve to a commit: any safe git ref name
- * except pull-request refs and raw object ids. `refs/pull/N/head` can point at
- * a fork and providers serve any commit in the repository network by SHA, so
- * accepting names only keeps resolutions on refs a member pushed to the
- * project repository.
+ * except pull-request refs. Raw object ids do not satisfy the safe git ref
+ * name rules because valid refs must contain a slash. `refs/pull/N/head` can
+ * point at a fork and providers serve any commit in the repository network by
+ * SHA, so accepting names only keeps resolutions on refs a member pushed to
+ * the project repository.
  */
 export function isValidResolvableRef(ref: string): boolean {
-  return isValidTriggerRef(ref) && !ref.startsWith('refs/pull/') && !isValidGitObjectId(ref);
+  return isValidTriggerRef(ref) && !ref.startsWith('refs/pull/');
 }
 
 export function isValidGitObjectId(value: string): boolean {

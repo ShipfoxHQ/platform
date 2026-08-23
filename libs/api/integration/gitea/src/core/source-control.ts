@@ -200,20 +200,17 @@ export class GiteaSourceControlProvider
       input.connection.externalAccountId,
     );
 
-    // A branch and a tag can share a name. Probe the requested namespace first,
-    // then the other namespace, and map only two not-found responses to a missing ref.
     const providerRef = providerRefName(input.ref);
+    const branchLookup = () => this.gitea.getBranch({owner, repo, branch: providerRef});
+    const tagLookup = () => this.gitea.getTag({owner, repo, tag: providerRef});
     const lookups: Array<() => Promise<{commitSha: string}>> = input.ref.startsWith(
       REFS_TAGS_PREFIX,
     )
-      ? [
-          () => this.gitea.getTag({owner, repo, tag: providerRef}),
-          () => this.gitea.getBranch({owner, repo, branch: providerRef}),
-        ]
-      : [
-          () => this.gitea.getBranch({owner, repo, branch: providerRef}),
-          () => this.gitea.getTag({owner, repo, tag: providerRef}),
-        ];
+      ? [tagLookup]
+      : input.ref.startsWith(REFS_HEADS_PREFIX)
+        ? [branchLookup]
+        : [branchLookup, tagLookup];
+    let repositoryChecked = false;
 
     for (const lookup of lookups) {
       try {
@@ -221,6 +218,10 @@ export class GiteaSourceControlProvider
         return {ref: input.ref, commit: resolved.commitSha};
       } catch (error) {
         if (!isRefNotFound(error)) throw error;
+        if (!repositoryChecked) {
+          await this.gitea.getRepository({owner, repo});
+          repositoryChecked = true;
+        }
       }
     }
 

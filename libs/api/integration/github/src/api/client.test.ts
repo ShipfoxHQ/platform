@@ -274,7 +274,11 @@ describe('OctokitGithubApiClient.listRepositoryCommits', () => {
     requestMock.mockReset();
   });
 
-  it.each([409, 422])('maps HTTP %i ref failures to ref-not-found', async (status) => {
+  it.each([
+    [404, 'repository-not-found'],
+    [409, 'ref-not-found'],
+    [422, 'ref-not-found'],
+  ] as const)('maps HTTP %i commit lookup failures to %s', async (status, reason) => {
     authMock.mockResolvedValue({token: 'ghs_installationtoken'});
     requestMock.mockResolvedValue({
       data: {
@@ -300,7 +304,7 @@ describe('OctokitGithubApiClient.listRepositoryCommits', () => {
     });
 
     await expect(result).rejects.toMatchObject({
-      reason: 'ref-not-found',
+      reason,
       status,
       message: 'No commit found for SHA',
     });

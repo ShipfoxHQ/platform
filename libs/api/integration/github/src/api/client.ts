@@ -615,7 +615,7 @@ export async function mapGithubError<T>(
     if (error instanceof RequestError) {
       if (error.status === 404) {
         throw new GithubIntegrationProviderError(
-          notFoundReason,
+          notFoundReason === 'ref-not-found' ? 'repository-not-found' : notFoundReason,
           error.message,
           undefined,
           error.status,

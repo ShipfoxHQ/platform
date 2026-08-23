@@ -30,6 +30,9 @@ describe('git ref names', () => {
     'refs/heads/.foo',
     'refs/heads/foo.',
     'refs/heads/foo@{bar',
+    'a'.repeat(40),
+    'b'.repeat(64),
+    '0'.repeat(40),
   ])('rejects %s', (ref) => {
     expect(isValidGitRefName(ref)).toBe(false);
   });
@@ -48,12 +51,7 @@ describe('resolvable refs', () => {
     expect(isValidResolvableRef(ref)).toBe(true);
   });
 
-  it.each([
-    'refs/pull/17/head',
-    'a'.repeat(40),
-    'b'.repeat(64),
-    '0'.repeat(40),
-  ])('rejects %s', (ref) => {
+  it.each(['refs/pull/17/head'])('rejects %s', (ref) => {
     expect(isValidResolvableRef(ref)).toBe(false);
   });
 

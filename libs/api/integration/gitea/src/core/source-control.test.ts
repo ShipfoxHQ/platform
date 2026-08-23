@@ -189,7 +189,7 @@ describe('GiteaSourceControlProvider', () => {
     expect(gitea.getTag).not.toHaveBeenCalled();
   });
 
-  it('falls back to a tag when a branch ref names no branch', async () => {
+  it('does not cross namespaces for a missing namespaced branch ref', async () => {
     const gitea = giteaClient({
       getBranch: vi.fn(() =>
         Promise.reject(new GiteaIntegrationProviderError('ref-not-found', 'no branch')),
@@ -198,23 +198,19 @@ describe('GiteaSourceControlProvider', () => {
     });
     const provider = new GiteaSourceControlProvider(gitea);
 
-    const result = await provider.resolveRef({
+    const result = provider.resolveRef({
       connection: connection(),
       externalRepositoryId: 'gitea:shipfox/platform',
       ref: 'refs/heads/release',
     });
 
-    expect(result).toEqual({ref: 'refs/heads/release', commit: VALID_COMMIT});
+    await expect(result).rejects.toMatchObject({reason: 'ref-not-found'});
     expect(gitea.getBranch).toHaveBeenCalledWith({
       owner: 'shipfox',
       repo: 'platform',
       branch: 'release',
     });
-    expect(gitea.getTag).toHaveBeenCalledWith({
-      owner: 'shipfox',
-      repo: 'platform',
-      tag: 'release',
-    });
+    expect(gitea.getTag).not.toHaveBeenCalled();
   });
 
   it('uses the tag endpoint first for a tag ref', async () => {
@@ -252,10 +248,59 @@ describe('GiteaSourceControlProvider', () => {
     const result = provider.resolveRef({
       connection: connection(),
       externalRepositoryId: 'gitea:shipfox/platform',
-      ref: 'refs/heads/missing',
+      ref: 'feature/missing',
     });
 
     await expect(result).rejects.toMatchObject({reason: 'ref-not-found'});
+  });
+
+  it('falls back to a tag for an unnamespaced ref', async () => {
+    const gitea = giteaClient({
+      getBranch: vi.fn(() =>
+        Promise.reject(new GiteaIntegrationProviderError('ref-not-found', 'no branch')),
+      ),
+      getTag: vi.fn(() => Promise.resolve({commitSha: VALID_COMMIT})),
+    });
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    const result = await provider.resolveRef({
+      connection: connection(),
+      externalRepositoryId: 'gitea:shipfox/platform',
+      ref: 'feature/release',
+    });
+
+    expect(result).toEqual({ref: 'feature/release', commit: VALID_COMMIT});
+    expect(gitea.getBranch).toHaveBeenCalledWith({
+      owner: 'shipfox',
+      repo: 'platform',
+      branch: 'feature/release',
+    });
+    expect(gitea.getTag).toHaveBeenCalledWith({
+      owner: 'shipfox',
+      repo: 'platform',
+      tag: 'feature/release',
+    });
+  });
+
+  it('preserves repository-not-found when the repository is missing', async () => {
+    const gitea = giteaClient({
+      getBranch: vi.fn(() =>
+        Promise.reject(new GiteaIntegrationProviderError('ref-not-found', 'no branch')),
+      ),
+      getRepository: vi.fn(() =>
+        Promise.reject(new GiteaIntegrationProviderError('repository-not-found', 'no repo')),
+      ),
+    });
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    const result = provider.resolveRef({
+      connection: connection(),
+      externalRepositoryId: 'gitea:shipfox/platform',
+      ref: 'refs/heads/main',
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'repository-not-found'});
+    expect(gitea.getTag).not.toHaveBeenCalled();
   });
 
   it.each([

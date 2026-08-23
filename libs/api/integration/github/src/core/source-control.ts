@@ -218,6 +218,12 @@ export class GithubSourceControlProvider
         `GitHub ref ${formatRefForMessage(input.ref)} does not resolve to a commit`,
       );
     }
+    if (!isValidGitObjectId(commit)) {
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        `GitHub ref ${formatRefForMessage(input.ref)} resolved to an invalid commit`,
+      );
+    }
 
     return {ref: input.ref, commit};
   }
