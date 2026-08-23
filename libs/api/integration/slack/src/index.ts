@@ -1,4 +1,4 @@
-import {SLACK_PROVIDER} from '@shipfox/api-integration-slack-dto';
+import {SLACK_PROVIDER, slackEventCatalog} from '@shipfox/api-integration-slack-dto';
 import type {RouteGroup} from '@shipfox/node-fastify';
 import {createSlackApiClient, type SlackApiClient} from '#api/client.js';
 import {config} from '#config.js';
@@ -181,6 +181,7 @@ export function createSlackIntegrationProvider(
   return {
     provider: SLACK_PROVIDER,
     displayName: 'Slack',
+    eventCatalog: slackEventCatalog,
     adapters,
     async connectionExternalUrl(connection: {id: string}): Promise<string | undefined> {
       const installation = await getInstallationByConnectionId(connection.id);

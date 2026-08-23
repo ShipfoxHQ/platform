@@ -149,6 +149,8 @@ jobs:
             capabilities: ['agent_tools' as const],
           },
         ],
+        eventCatalogs: [],
+        fixedEventProviders: [],
         defaultConnection: {
           id: sourceConnectionId,
           slug: 'github-main',

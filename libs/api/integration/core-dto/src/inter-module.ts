@@ -147,6 +147,8 @@ export const integrationsInterModuleContract = defineInterModuleContract({
         workspaceConnections: z.array(
           z.object({slug: z.string(), id, provider, capabilities: z.array(capability)}),
         ),
+        eventCatalogs: z.array(z.object({provider, events: z.array(z.string())})),
+        fixedEventProviders: z.array(provider),
         defaultConnection: z.object({id, slug: z.string(), provider}).nullable(),
       }),
       errors: sourceErrors,

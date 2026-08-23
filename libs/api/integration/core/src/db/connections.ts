@@ -2,6 +2,7 @@ import {
   CONNECTION_SLUG_MAX_LENGTH,
   INTEGRATION_CONNECTION_AVAILABLE,
   type IntegrationsEventMap,
+  RESERVED_CONNECTION_SLUGS,
 } from '@shipfox/api-integration-core-dto';
 import {ConnectionSlugConflictError} from '@shipfox/api-integration-spi';
 import {writeOutboxEvent} from '@shipfox/node-outbox';
@@ -33,6 +34,7 @@ export async function upsertIntegrationConnection(
   params: UpsertIntegrationConnectionParams,
   options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<IntegrationConnection> {
+  assertConnectionSlugIsNotReserved(params.slug);
   if (options.tx === undefined) {
     return await db().transaction((tx) => upsertIntegrationConnection(params, {tx}));
   }
@@ -142,6 +144,7 @@ export async function createIntegrationConnection(
   params: CreateIntegrationConnectionParams,
   options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<IntegrationConnection> {
+  assertConnectionSlugIsNotReserved(params.slug);
   if (options.tx === undefined) {
     return await db().transaction((tx) => createIntegrationConnection(params, {tx}));
   }
@@ -194,6 +197,7 @@ export async function resolveUniqueConnectionSlug(
   params: ResolveUniqueConnectionSlugParams,
   options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<string> {
+  assertConnectionSlugIsNotReserved(params.baseSlug);
   const executor = options.tx ?? db();
   const [existing] = await executor
     .select({slug: integrationConnections.slug})
@@ -220,6 +224,14 @@ export async function resolveUniqueConnectionSlug(
     const candidate = `${params.baseSlug.slice(0, baseBudget).replaceAll(/[_-]+$/g, '')}${suffix}`;
     if (!used.has(candidate)) return candidate;
   }
+}
+
+function assertConnectionSlugIsNotReserved(slug: string): void {
+  const normalizedSlug = slug.toLowerCase().replaceAll(/[_-]+$/g, '');
+  if (!(RESERVED_CONNECTION_SLUGS as readonly string[]).includes(normalizedSlug)) return;
+  throw new ConnectionSlugConflictError(
+    new Error(`Slug "${slug}" is reserved for a built-in trigger source`),
+  );
 }
 
 export type CreateIntegrationConnectionFn = typeof createIntegrationConnection;

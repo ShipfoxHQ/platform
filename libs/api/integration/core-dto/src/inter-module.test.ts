@@ -120,4 +120,37 @@ describe('integrationsInterModuleContract', () => {
 
     expect(schema.parse(details)).toEqual(details);
   });
+
+  test('accepts provider event catalogs and fixed event providers on the validation context', () => {
+    const output = integrationsInterModuleContract.methods.getAgentToolsContext.output.parse({
+      selectionCatalogs: [],
+      catalogs: [],
+      workspaceConnections: [],
+      eventCatalogs: [
+        {provider: 'github', events: ['push']},
+        {provider: 'webhook', events: ['received']},
+      ],
+      fixedEventProviders: ['webhook'],
+      defaultConnection: null,
+    });
+
+    expect(output.eventCatalogs).toEqual([
+      {provider: 'github', events: ['push']},
+      {provider: 'webhook', events: ['received']},
+    ]);
+    expect(output.fixedEventProviders).toEqual(['webhook']);
+  });
+
+  test('rejects empty fixed event provider identifiers', () => {
+    expect(() =>
+      integrationsInterModuleContract.methods.getAgentToolsContext.output.parse({
+        selectionCatalogs: [],
+        catalogs: [],
+        workspaceConnections: [],
+        eventCatalogs: [],
+        fixedEventProviders: [''],
+        defaultConnection: null,
+      }),
+    ).toThrow();
+  });
 });

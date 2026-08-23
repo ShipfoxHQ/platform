@@ -1,5 +1,6 @@
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {sentryEventCatalog} from '@shipfox/api-integration-sentry-dto';
 import type {
   GetIntegrationConnectionByIdFn,
   PublishIntegrationEventReceivedFn,
@@ -97,6 +98,7 @@ export function createSentryIntegrationProvider(options: CreateSentryIntegration
   return {
     provider: 'sentry' as const,
     displayName: 'Sentry',
+    eventCatalog: sentryEventCatalog,
     async connectionExternalUrl(connection: {id: string}): Promise<string | undefined> {
       const installation = await getInstallationByConnectionId(connection.id);
       if (!installation?.orgSlug) return undefined;

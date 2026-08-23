@@ -7,7 +7,7 @@ import type {
   PublishIntegrationEventReceivedFn,
   UpdateIntegrationConnectionLifecycleStatusFn,
 } from '@shipfox/api-integration-spi';
-import {WEBHOOK_PROVIDER} from '@shipfox/api-integration-webhook-dto';
+import {WEBHOOK_PROVIDER, webhookEventCatalog} from '@shipfox/api-integration-webhook-dto';
 import {config} from '#config.js';
 import {createGenericWebhookProcessor} from '#core/webhook-processor.js';
 import {createWebhookConnectionRoutes} from '#presentation/routes/connections.js';
@@ -39,6 +39,7 @@ export function createWebhookIntegrationProvider(options: CreateWebhookIntegrati
   return {
     provider: WEBHOOK_PROVIDER,
     displayName: 'Webhook',
+    eventCatalog: webhookEventCatalog,
     routes: [
       createWebhookConnectionRoutes({
         baseUrl,

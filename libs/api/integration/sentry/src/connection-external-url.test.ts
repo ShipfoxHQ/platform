@@ -1,3 +1,4 @@
+import {sentryEventCatalog} from '@shipfox/api-integration-sentry-dto';
 import type {SentryApiClient} from '#api/client.js';
 import type {SentryInstallation} from '#db/installations.js';
 import {createSentryIntegrationProvider} from '#index.js';
@@ -44,6 +45,12 @@ function createProvider(lookup: (connectionId: string) => Promise<SentryInstalla
 }
 
 describe('sentry connectionExternalUrl', () => {
+  it('exposes the Sentry event catalog', () => {
+    const provider = createProvider(() => Promise.resolve(undefined));
+
+    expect(provider.eventCatalog).toBe(sentryEventCatalog);
+  });
+
   it('resolves the org URL from the installation row', async () => {
     const connectionId = crypto.randomUUID();
     const provider = createProvider(() => Promise.resolve(installation({orgSlug: 'acme-corp'})));

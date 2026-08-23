@@ -25,6 +25,7 @@ export {
   listRepositoriesParamsSchema,
   listRepositoriesQuerySchema,
   listRepositoriesResponseSchema,
+  RESERVED_CONNECTION_SLUGS,
   type RepositoryDto,
   type RepositoryVisibilityDto,
   repositoryDtoSchema,

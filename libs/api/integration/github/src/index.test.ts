@@ -1,3 +1,4 @@
+import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import {githubInstallationTokenNamespace} from '#api/installation-token-envelope.js';
 import {createGithubIntegrationProvider} from '#index.js';
 
@@ -19,7 +20,7 @@ vi.mock('#core/webhook-processor.js', () => ({
 describe('createGithubIntegrationProvider', () => {
   it('shares installation-token cleanup with the direct and composed processors', async () => {
     const deleteSecrets = vi.fn(() => Promise.resolve(1));
-    createGithubIntegrationProvider({
+    const provider = createGithubIntegrationProvider({
       github: {} as never,
       getExistingGithubConnection: vi.fn(() => Promise.resolve(undefined)),
       connectGithubInstallation: vi.fn() as never,
@@ -31,6 +32,7 @@ describe('createGithubIntegrationProvider', () => {
       getIntegrationConnectionById: vi.fn(() => Promise.resolve(undefined)),
       deleteSecrets,
     });
+    expect(provider.eventCatalog).toBe(githubEventCatalog);
     const processorOptions = state.processorOptions as {
       deleteInstallationTokenSecret: (params: {
         workspaceId: string;

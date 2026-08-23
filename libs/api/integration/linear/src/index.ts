@@ -1,4 +1,4 @@
-import {LINEAR_PROVIDER} from '@shipfox/api-integration-linear-dto';
+import {LINEAR_PROVIDER, linearEventCatalog} from '@shipfox/api-integration-linear-dto';
 import {createLinearApiClient, type LinearApiClient} from '#api/client.js';
 import {config} from '#config.js';
 import {LinearAgentToolsProvider} from '#core/agent-tools-provider.js';
@@ -151,6 +151,7 @@ export function createLinearIntegrationProvider(
   return {
     provider: LINEAR_PROVIDER,
     displayName: 'Linear',
+    eventCatalog: linearEventCatalog,
     adapters,
     async connectionExternalUrl(connection: {id: string}): Promise<string | undefined> {
       const installation = await getInstallationByConnectionId(connection.id);

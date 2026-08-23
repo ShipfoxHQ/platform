@@ -156,4 +156,64 @@ describe('integrations inter-module presentation', () => {
       throw error;
     }
   });
+
+  it('serves provider event catalogs and fixed event providers on the validation context', async () => {
+    const transport = createInMemoryInterModuleTransport();
+    const client = transport.createClient(integrationsInterModuleContract);
+
+    const sourceControl = createSourceControlIntegrationService({
+      registry: createIntegrationProviderRegistry([]),
+      getIntegrationConnectionById: async () => undefined,
+    });
+    transport.register(
+      createIntegrationsInterModulePresentation({
+        registry: createIntegrationProviderRegistry([
+          {
+            provider: 'github',
+            displayName: 'GitHub',
+            eventCatalog: {
+              provider: 'GitHub',
+              events: [
+                {
+                  name: 'push',
+                  summary: 'A push.',
+                  emittedWhen: 'GitHub sends a push webhook.',
+                  payloadKind: 'raw-provider',
+                },
+              ],
+            },
+          },
+          {
+            provider: 'webhook',
+            displayName: 'Webhook',
+            eventCatalog: {
+              provider: 'Custom webhook',
+              events: [
+                {
+                  name: 'received',
+                  summary: 'A webhook request is accepted.',
+                  emittedWhen: 'Shipfox accepts a request.',
+                  payloadKind: 'shipfox-normalized',
+                },
+              ],
+            },
+          },
+          {provider: 'gitea', displayName: 'Gitea'},
+        ]),
+        sourceControl,
+      }),
+    );
+    transport.seal();
+
+    const context = await client.getAgentToolsContext({
+      workspaceId,
+      defaultConnectionId: connectionId,
+    });
+
+    expect(context.eventCatalogs).toEqual([
+      {provider: 'github', events: ['push']},
+      {provider: 'webhook', events: ['received']},
+    ]);
+    expect(context.fixedEventProviders).toEqual(['webhook']);
+  });
 });

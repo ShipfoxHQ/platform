@@ -1,3 +1,4 @@
+import {linearEventCatalog} from '@shipfox/api-integration-linear-dto';
 import {linearAgentToolCatalog} from '#core/agent-tools.js';
 import {createLinearIntegrationProvider} from '#index.js';
 
@@ -6,6 +7,7 @@ describe('createLinearIntegrationProvider', () => {
     const provider = createLinearIntegrationProvider();
 
     expect(provider.adapters.agent_tools).toBeUndefined();
+    expect(provider.eventCatalog).toBe(linearEventCatalog);
   });
 
   it('wires the Linear agent tools adapter when a token store is provided', () => {

@@ -32,6 +32,10 @@ export async function loadIntegrationValidationContext(
     workspaceConnectionSnapshot: new Map(
       context.workspaceConnections.map(({slug, ...connection}) => [slug, connection]),
     ),
+    eventCatalogs: new Map(
+      context.eventCatalogs.map(({provider, events}) => [provider, new Set(events)]),
+    ),
+    fixedEventProviders: new Set(context.fixedEventProviders),
     defaultConnectionSlug: context.defaultConnection?.slug,
   };
 }
