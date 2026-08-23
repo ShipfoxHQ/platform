@@ -1,7 +1,8 @@
 import {INTEGRATION_CONNECTION_AVAILABLE} from '@shipfox/api-integration-core-dto';
 import {closeApp, createApp} from '@shipfox/node-fastify';
-import {sql} from 'drizzle-orm';
+import {eq, sql} from 'drizzle-orm';
 import {db} from '#db/db.js';
+import {integrationConnections} from '#db/schema/connections.js';
 import {integrationsOutbox} from '#db/schema/outbox.js';
 
 describe('loadEnabledProviderModules', () => {
@@ -84,36 +85,45 @@ describe('loadEnabledProviderModules', () => {
 
     const workspaceId = crypto.randomUUID();
     const installationId = Number.parseInt(crypto.randomUUID().replaceAll('-', '').slice(0, 8), 16);
-    const app = await createApp({routes: githubPart.e2eRoutes, swagger: false});
-    const response = await app.inject({
-      method: 'POST',
-      url: '/integrations/github-connections',
-      payload: {
-        workspace_id: workspaceId,
-        installation_id: installationId,
-        account_login: 'shipfox-e2e',
-        display_name: 'GitHub E2E',
-        installer_user_id: crypto.randomUUID(),
-      },
-    });
-    const connection = response.json();
+    try {
+      const app = await createApp({routes: githubPart.e2eRoutes, swagger: false});
+      const response = await app.inject({
+        method: 'POST',
+        url: '/integrations/github-connections',
+        payload: {
+          workspace_id: workspaceId,
+          installation_id: installationId,
+          account_login: 'shipfox-e2e',
+          display_name: 'GitHub E2E',
+          installer_user_id: crypto.randomUUID(),
+        },
+      });
+      const connection = response.json();
 
-    expect(response.statusCode).toBe(201);
-    expect(connection).toMatchObject({id: expect.any(String)});
+      expect(response.statusCode).toBe(201);
+      expect(connection).toMatchObject({id: expect.any(String)});
 
-    const [event] = await db()
-      .select({payload: integrationsOutbox.payload})
-      .from(integrationsOutbox)
-      .where(
-        sql`${integrationsOutbox.eventType} = ${INTEGRATION_CONNECTION_AVAILABLE} AND ${integrationsOutbox.payload}->>'connectionId' = ${connection.id}`,
-      );
+      const [event] = await db()
+        .select({payload: integrationsOutbox.payload})
+        .from(integrationsOutbox)
+        .where(
+          sql`${integrationsOutbox.eventType} = ${INTEGRATION_CONNECTION_AVAILABLE} AND ${integrationsOutbox.payload}->>'connectionId' = ${connection.id}`,
+        );
 
-    expect(event?.payload).toEqual({
-      provider: 'github',
-      workspaceId,
-      connectionId: connection.id,
-      slug: 'github_shipfox_e2e',
-      capabilities: ['source_control', 'agent_tools'],
-    });
+      expect(event?.payload).toEqual({
+        provider: 'github',
+        workspaceId,
+        connectionId: connection.id,
+        slug: 'github_shipfox_e2e',
+        capabilities: ['source_control', 'agent_tools'],
+      });
+    } finally {
+      await db()
+        .delete(integrationsOutbox)
+        .where(sql`${integrationsOutbox.payload}->>'workspaceId' = ${workspaceId}`);
+      await db()
+        .delete(integrationConnections)
+        .where(eq(integrationConnections.workspaceId, workspaceId));
+    }
   });
 });
