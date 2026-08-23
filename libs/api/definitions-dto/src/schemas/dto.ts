@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {triggerDtoSchema} from './trigger.js';
 
 export const DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT = 100;
 export const DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH = 128;
@@ -134,3 +135,37 @@ export const definitionListResponseSchema = z.object({
 });
 
 export type DefinitionListResponseDto = z.infer<typeof definitionListResponseSchema>;
+
+export const definitionValidationWarningSchema = z.object({
+  code: z.string().max(DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
+  message: z.string().max(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
+  path: z.string().max(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH).optional(),
+});
+
+export type DefinitionValidationWarningDto = z.infer<typeof definitionValidationWarningSchema>;
+
+export const definitionAtRefQuerySchema = z.object({
+  project_id: z.string().uuid(),
+  ref: z.string().min(1),
+});
+
+export type DefinitionAtRefQueryDto = z.infer<typeof definitionAtRefQuerySchema>;
+
+export const definitionAtRefFileSchema = z.object({
+  config_path: z.string().min(1),
+  name: z.string().nullable(),
+  valid: z.boolean(),
+  errors: z.array(definitionValidationErrorSchema),
+  warnings: z.array(definitionValidationWarningSchema),
+  triggers: z.record(z.string(), triggerDtoSchema),
+});
+
+export type DefinitionAtRefFileDto = z.infer<typeof definitionAtRefFileSchema>;
+
+export const definitionAtRefResponseSchema = z.object({
+  ref: z.string(),
+  commit: z.string(),
+  files: z.array(definitionAtRefFileSchema),
+});
+
+export type DefinitionAtRefResponseDto = z.infer<typeof definitionAtRefResponseSchema>;

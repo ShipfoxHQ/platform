@@ -6,6 +6,9 @@ export {
   DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
+  type DefinitionAtRefFileDto,
+  type DefinitionAtRefQueryDto,
+  type DefinitionAtRefResponseDto,
   type DefinitionDto,
   type DefinitionListQueryDto,
   type DefinitionListResponseDto,
@@ -13,6 +16,10 @@ export {
   type DefinitionSyncSummaryDto,
   type DefinitionValidationDiagnosticDto,
   type DefinitionValidationErrorDto,
+  type DefinitionValidationWarningDto,
+  definitionAtRefFileSchema,
+  definitionAtRefQuerySchema,
+  definitionAtRefResponseSchema,
   definitionDtoSchema,
   definitionListQuerySchema,
   definitionListResponseSchema,
@@ -20,5 +27,6 @@ export {
   definitionSyncSummarySchema,
   definitionValidationDiagnosticSchema,
   definitionValidationErrorSchema,
+  definitionValidationWarningSchema,
 } from './dto.js';
 export type {TriggerDto} from './trigger.js';

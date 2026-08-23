@@ -12,6 +12,7 @@ const projects = {
 const definitionRoutes = createDefinitionRoutes({
   projects,
   agent: {getValidationCatalog: vi.fn(() => agentValidationCatalog)} as never,
+  integrations: {} as never,
 });
 
 const fakeUserAuth: AuthMethod = {
