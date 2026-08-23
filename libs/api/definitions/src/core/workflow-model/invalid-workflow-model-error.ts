@@ -34,6 +34,7 @@ export type WorkflowModelValidationIssueCode =
   | 'invalid-step-if'
   | 'job-dependency-cycle'
   | 'listening-job-missing-resolution-source'
+  | 'listening-job-no-active-matcher'
   | 'listening-timeout-exceeds-run-timeout'
   | 'missing-harness-for-tools'
   | 'missing-connection-for-integration'

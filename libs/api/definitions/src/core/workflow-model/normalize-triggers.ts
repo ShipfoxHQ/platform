@@ -22,17 +22,7 @@ export function normalizeTriggers(
     .filter(([, trigger]) => trigger.source === manualTriggerSource)
     .map(([sourceKey]) => sourceKey);
   const usedTriggerIds = new Map<string, string>();
-
-  if (manualTriggerKeys.length > 1) {
-    issues.push(
-      issue({
-        code: 'multiple-manual-triggers',
-        message: `A workflow may declare at most one manual trigger; found ${manualTriggerKeys.length}: ${manualTriggerKeys.join(', ')}.`,
-        path: ['triggers'],
-        details: {manualTriggerKeys},
-      }),
-    );
-  }
+  let activeManualTriggerSeen = false;
 
   return Object.entries(triggers).flatMap(([sourceKey, trigger]) => {
     const id = stableId(sourceKey);
@@ -44,16 +34,37 @@ export function normalizeTriggers(
           message: `Trigger keys "${existingSourceKey}" and "${sourceKey}" resolve to the same stable id "${id}".`,
           path: ['triggers', sourceKey],
           details: {id, sourceKeys: [existingSourceKey, sourceKey]},
+          scope: 'trigger',
         }),
       );
       return [];
     }
     usedTriggerIds.set(id, sourceKey);
 
-    validateTriggerFilter({sourceKey, trigger, issues});
+    if (trigger.source === manualTriggerSource) {
+      if (activeManualTriggerSeen) {
+        issues.push(
+          issue({
+            code: 'multiple-manual-triggers',
+            message: `A workflow may declare at most one manual trigger; found ${manualTriggerKeys.length}: ${manualTriggerKeys.join(', ')}. This trigger is inert because it is not the first manual trigger in document order.`,
+            path: ['triggers', sourceKey],
+            details: {manualTriggerKeys},
+            scope: 'trigger',
+          }),
+        );
+        return [];
+      }
+    }
+
+    const triggerIssues: WorkflowModelValidationIssue[] = [];
+    validateTriggerFilter({sourceKey, trigger, issues: triggerIssues});
+    issues.push(...triggerIssues);
 
     const normalizedTrigger = normalizeTriggerEntry(trigger);
+    const triggerIsInert = triggerIssues.some((candidate) => candidate.scope === 'trigger');
     if (trigger.source !== cronTriggerSource) {
+      if (triggerIsInert) return [];
+      if (trigger.source === manualTriggerSource) activeManualTriggerSeen = true;
       return [
         {
           id,
@@ -70,7 +81,12 @@ export function normalizeTriggers(
       timezone: cronConfig.timezone ?? cronTriggerDefaultTimezone,
     };
 
-    validateCronTrigger({config: cronConfig, sourceKey, trigger, issues});
+    const cronIssues: WorkflowModelValidationIssue[] = [];
+    validateCronTrigger({trigger, config: cronConfig, sourceKey, issues: cronIssues});
+    issues.push(...cronIssues);
+
+    const cronIsInert = cronIssues.some((candidate) => candidate.scope === 'trigger');
+    if (triggerIsInert || cronIsInert) return [];
 
     return [
       {
@@ -99,6 +115,7 @@ function validateTriggerFilter(params: {
         message: `A ${trigger.source} trigger cannot define a filter because it does not receive an event payload.`,
         path,
         details: {source: trigger.filter, triggerSource: trigger.source},
+        scope: 'trigger',
       }),
     );
     return;
@@ -111,6 +128,7 @@ function validateTriggerFilter(params: {
     invalidCode: 'invalid-trigger-filter',
     invalidMessage: 'Trigger filter must be a valid boolean predicate.',
     issues,
+    scope: 'trigger',
   });
 }
 

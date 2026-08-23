@@ -59,6 +59,52 @@ describe('toDefinitionDto', () => {
       updated_at: '2026-06-09T10:00:02.000Z',
     });
   });
+
+  it('computes manual_trigger from the model so an inert manual trigger hides the Run button', () => {
+    const document = {
+      name: 'Manual workflow',
+      runner: 'ubuntu-latest',
+      triggers: {
+        run_now: {
+          source: 'manual',
+          event: 'fire',
+          filter: 'event.ref == "refs/heads/main"',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'pnpm build'}],
+        },
+      },
+    };
+    const definition: WorkflowDefinition = {
+      id: '019e98ab-6656-7ca1-b9ad-1ca4442c479d',
+      workflowId: '019e98ab-6656-7ca1-b9ad-1ca4442c479e',
+      projectId: '019e98ab-b90f-7265-b13c-8b441c991381',
+      configPath: '.shipfox/workflows/manual.yml',
+      source: 'manual',
+      sha: null,
+      ref: null,
+      name: document.name,
+      definition: document,
+      document,
+      // The manual trigger is inert: it carries a trigger-scoped error and is
+      // excluded from the model, while the document keeps the authored entry.
+      model: normalizeWorkflowDocument(document, {agentValidationCatalog}),
+      sourceSnapshot: null,
+      contentHash: null,
+      fetchedAt: new Date('2026-06-09T10:00:00.000Z'),
+      createdAt: new Date('2026-06-09T10:00:01.000Z'),
+      updatedAt: new Date('2026-06-09T10:00:02.000Z'),
+      deletedAt: null,
+    };
+
+    const result = toDefinitionDto(definition);
+
+    expect(result.workflow_document).toEqual(document);
+    expect((result.workflow_model as {triggers: readonly unknown[]}).triggers).toEqual([]);
+    expect(result.manual_trigger).toBeNull();
+  });
 });
 
 describe('toDefinitionSyncSummaryDto', () => {

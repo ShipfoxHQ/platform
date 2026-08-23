@@ -21,6 +21,7 @@ import type {
   WorkflowModelValidationIssue,
   WorkflowModelValidationIssueCode,
   WorkflowModelValidationIssuePathSegment,
+  WorkflowModelValidationIssueScope,
 } from './invalid-workflow-model-error.js';
 import {validateDirectJobReferences} from './validate-job-references.js';
 import {issue} from './validation-issue.js';
@@ -35,6 +36,8 @@ export function validatePredicateExpression(params: {
   issues: WorkflowModelValidationIssue[];
   allowedJobReferences?: ReadonlySet<string>;
   typeOverlay?: ExpressionTypeEnvironment | undefined;
+  /** Scope for the invalidCode issue; other issues keep the definition scope. */
+  scope?: WorkflowModelValidationIssueScope | undefined;
 }): WorkflowExpression | undefined {
   const site = getWorkflowPredicateFieldMinimumFillTarget(params.field);
   const syntaxExpression = createSyntaxExpression(params);
@@ -150,6 +153,7 @@ function createSyntaxExpression(params: {
   invalidCode: WorkflowModelValidationIssueCode;
   invalidMessage: string;
   issues: WorkflowModelValidationIssue[];
+  scope?: WorkflowModelValidationIssueScope | undefined;
 }): WorkflowExpression | undefined {
   try {
     return createWorkflowExpression({
@@ -179,6 +183,7 @@ function invalidPredicateIssue(params: {
   invalidMessage: string;
   contextRoots: readonly string[];
   reason?: string;
+  scope?: WorkflowModelValidationIssueScope | undefined;
 }): WorkflowModelValidationIssue {
   return issue({
     code: params.invalidCode,
@@ -190,6 +195,7 @@ function invalidPredicateIssue(params: {
       contextRoots: params.contextRoots,
       reason: params.reason ?? 'Expression source did not parse or type-check.',
     },
+    ...(params.scope === undefined ? {} : {scope: params.scope}),
   });
 }
 

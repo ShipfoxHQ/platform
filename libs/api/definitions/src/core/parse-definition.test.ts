@@ -3,12 +3,19 @@ import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
 import {DefinitionParseError} from './errors.js';
-import {parseDefinition as parseDefinitionBase} from './parse-definition.js';
+import {
+  parseDefinition as parseDefinitionBase,
+  parseDefinitionWithDiagnostics as parseDefinitionWithDiagnosticsBase,
+} from './parse-definition.js';
 
 const fixturesDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../test/fixtures');
 
 function parseDefinition(yaml: string, options = {}) {
   return parseDefinitionBase(yaml, {agentValidationCatalog, ...options});
+}
+
+function parseDefinitionWithDiagnostics(yaml: string, options = {}) {
+  return parseDefinitionWithDiagnosticsBase(yaml, {agentValidationCatalog, ...options});
 }
 
 function readFixture(name: string): string {
@@ -201,7 +208,7 @@ jobs:
     ]);
   });
 
-  test('declaring more than one manual trigger throws DefinitionParseError', () => {
+  test('keeps the first manual trigger active and makes later ones inert', () => {
     const yaml = `name: Multi manual
 runner: ubuntu-latest
 triggers:
@@ -215,6 +222,14 @@ jobs:
       - run: echo hello
 `;
 
-    expect(() => parseDefinition(yaml)).toThrow(DefinitionParseError);
+    const definition = parseDefinitionWithDiagnostics(yaml);
+
+    expect(definition.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'multiple-manual-triggers',
+        path: 'triggers.rollback',
+      }),
+    ]);
+    expect(definition.model.triggers.map((trigger) => trigger.key)).toEqual(['deploy']);
   });
 });

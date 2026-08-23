@@ -4,9 +4,9 @@ import type {WorkflowDefinition} from '#core/entities/workflow-definition.js';
 import {UNRESOLVED_SYNC_REF} from '#core/sync-definitions.js';
 
 export function toDefinitionDto(definition: WorkflowDefinition): DefinitionDto {
-  const manualEntry = Object.entries(definition.document.triggers ?? {}).find(
-    ([, trigger]) => trigger.source === 'manual',
-  );
+  // The model excludes inert triggers, so an inert manual trigger yields no Run
+  // button instead of a fire-route 404. The document keeps the authored entry.
+  const manualTrigger = definition.model.triggers.find((trigger) => trigger.source === 'manual');
   return {
     id: definition.id,
     project_id: definition.projectId,
@@ -17,7 +17,7 @@ export function toDefinitionDto(definition: WorkflowDefinition): DefinitionDto {
     name: definition.name,
     workflow_document: definition.document,
     workflow_model: definition.model,
-    manual_trigger: manualEntry ? {name: manualEntry[0]} : null,
+    manual_trigger: manualTrigger ? {name: manualTrigger.key} : null,
     fetched_at: definition.fetchedAt.toISOString(),
     created_at: definition.createdAt.toISOString(),
     updated_at: definition.updatedAt.toISOString(),
