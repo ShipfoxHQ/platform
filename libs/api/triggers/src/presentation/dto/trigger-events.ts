@@ -6,10 +6,10 @@ import type {
 } from '@shipfox/api-triggers-dto';
 import type {TriggerDecision} from '#core/entities/decision.js';
 import type {
+  TriggerEventReplay,
   TriggerReceivedEvent,
   TriggerReceivedEventSummary,
 } from '#core/entities/received-event.js';
-import type {TriggerEventReplay} from '#db/event-queries.js';
 
 export function toTriggerEventListItemDto(
   event: TriggerReceivedEventSummary,

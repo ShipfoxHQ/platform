@@ -316,6 +316,20 @@ describe('GET /trigger-events/:id', () => {
     expect(res.json().replays).toEqual([]);
   });
 
+  test('does not surface non-dev events with a replay link', async () => {
+    const source = await receivedEventFactory.create({workspaceId});
+    await receivedEventFactory.create({
+      workspaceId,
+      origin: 'integration',
+      replayOfEventId: source.id,
+    });
+
+    const res = await app.inject({method: 'GET', url: `/trigger-events/${source.id}`});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().replays).toEqual([]);
+  });
+
   test('returns an empty decisions list for a discarded event', async () => {
     const event = await receivedEventFactory.create({
       workspaceId,

@@ -22,7 +22,6 @@ export {
   type TriggerEventCursor,
   type TriggerEventFacet,
   type TriggerEventListFilters,
-  type TriggerEventReplay,
 } from './event-queries.js';
 export {
   type FindMatchingJobListenerSubscriptionsParams,

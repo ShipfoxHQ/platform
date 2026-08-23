@@ -53,8 +53,11 @@ export const triggerEventDtoSchema = triggerEventListItemDtoSchema.extend({
 });
 export type TriggerEventDto = z.infer<typeof triggerEventDtoSchema>;
 
-// A dev journal entry that replayed this event. `run_id` is null for refusals
-// that never created a run (filter false or filter evaluation error).
+/**
+ * A dev journal entry that replayed this event. `run_id` is null when the
+ * replay has no recorded workflow run, including refusals and incomplete or
+ * failed dev decision writes.
+ */
 export const triggerEventReplayDtoSchema = z.object({
   id: z.string().uuid(),
   received_at: z.string(),

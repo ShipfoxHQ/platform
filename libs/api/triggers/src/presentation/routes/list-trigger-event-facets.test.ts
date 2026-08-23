@@ -74,6 +74,12 @@ describe('GET /trigger-events/facets', () => {
     });
     await receivedEventFactory.create({
       workspaceId,
+      origin: 'dev',
+      source: 'github',
+      event: 'push',
+    });
+    await receivedEventFactory.create({
+      workspaceId,
       origin: 'manual',
       source: 'manual',
       event: 'fire',
@@ -85,7 +91,7 @@ describe('GET /trigger-events/facets', () => {
     });
 
     expect(facets(res).origins).toEqual([
-      {value: 'dev', count: 1},
+      {value: 'dev', count: 2},
       {value: 'integration', count: 1},
       {value: 'manual', count: 1},
     ]);

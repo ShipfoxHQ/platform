@@ -5,6 +5,7 @@ import type {TriggerDecision} from '#core/entities/decision.js';
 import type {
   TriggerEventOrigin,
   TriggerEventOutcome,
+  TriggerEventReplay,
   TriggerReceivedEvent,
   TriggerReceivedEventSummary,
 } from '#core/entities/received-event.js';
@@ -139,16 +140,6 @@ export async function listTriggerEventFacets(params: {
   return {sources, events, origins};
 }
 
-// A dev journal entry that replayed a given source event. `run_id` comes from
-// the entry's single `dev` decision and is null when the replay was refused
-// before a run was created (filter false or filter evaluation error).
-export interface TriggerEventReplay {
-  id: string;
-  receivedAt: Date;
-  outcome: TriggerEventOutcome;
-  runId: string | null;
-}
-
 // The workspace predicate mirrors the route's workspace gate: replay links are
 // deliberately FK-less, so the back-direction lookup must not surface a replay
 // row that another workspace's writer pointed at this event id.
@@ -175,6 +166,7 @@ export async function listReplaysOfTriggerEvent(
       and(
         eq(triggersReceivedEvents.replayOfEventId, eventId),
         eq(triggersReceivedEvents.workspaceId, workspaceId),
+        eq(triggersReceivedEvents.origin, 'dev'),
       ),
     )
     .orderBy(desc(triggersReceivedEvents.receivedAt), desc(triggersReceivedEvents.id));
