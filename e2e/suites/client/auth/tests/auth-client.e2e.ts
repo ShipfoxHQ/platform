@@ -39,7 +39,7 @@ test('logs in through the UI with an E2E-created verified user', async ({
 test('keeps an unlisted password signup on the signup form', async ({page, signup}) => {
   await signup.goto();
   await signup.submit({
-    email: `blocked-${randomUUID()}@example.test`,
+    email: 'blocked@example.test',
     name: 'Blocked Signup',
     password: 'correct horse battery staple',
   });
