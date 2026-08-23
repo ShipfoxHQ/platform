@@ -50,6 +50,8 @@ export {
 export {
   type ActiveProvisionerDto,
   activeProvisionerDtoSchema,
+  type InstallationRunnersStatus,
+  installationRunnersStatusSchema,
   type ListActiveProvisionersResponseDto,
   listActiveProvisionersResponseSchema,
 } from './list-active-provisioners.js';

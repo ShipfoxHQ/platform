@@ -15,6 +15,7 @@ import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {createProvisionerTokenAuthMethod} from '#presentation/auth/index.js';
 import {provisionerTokenFactory} from '#test/index.js';
 import {provisionerRoutes} from './index.js';
+import {createListActiveProvisionersRoute} from './list-active-provisioners.js';
 
 const userId = crypto.randomUUID();
 let authenticatedMemberships: ReadonlyArray<UserContextMembership> = [];
@@ -141,7 +142,50 @@ describe('provisioner token routes', () => {
             last_seen_at: expect.any(String),
           }),
         ],
+        // The test environment configures RUNNER_RESERVED_LABELS, so the
+        // installation always reports managed runner capacity.
+        installation_runners: 'managed',
       });
+    });
+
+    it('reports managed installation runners from the reserved labels signal alone', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/workspaces/${workspaceId}/provisioners/active`,
+        headers: {authorization: 'Bearer user'},
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().installation_runners).toBe('managed');
+    });
+
+    it('keeps active provisioners available when installation status is unavailable', async () => {
+      await closeApp();
+      app = await createApp({
+        auth: [fakeUserAuth, createProvisionerTokenAuthMethod()],
+        routes: [
+          {
+            prefix: '/workspaces/:workspaceId/provisioners/active',
+            auth: AUTH_USER,
+            routes: [
+              createListActiveProvisionersRoute(() =>
+                Promise.reject(new Error('status lookup unavailable')),
+              ),
+            ],
+          },
+        ],
+        swagger: false,
+      });
+      await app.ready();
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/workspaces/${workspaceId}/provisioners/active`,
+        headers: {authorization: 'Bearer user'},
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({provisioners: [], installation_runners: 'none'});
     });
   });
 

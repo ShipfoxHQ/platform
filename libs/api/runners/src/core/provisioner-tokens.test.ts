@@ -6,6 +6,7 @@ import {provisionerTokenFactory} from '#test/index.js';
 import {
   createInstallationProvisionerToken,
   createWorkspaceProvisionerToken,
+  installationRunnersStatus,
   listUsableProvisionerTokens,
   revokeInstallationProvisionerToken,
   revokeWorkspaceProvisionerToken,
@@ -77,5 +78,50 @@ describe('provisioner token core', () => {
     });
 
     await expect(result).rejects.toThrow(`Provisioner token not found: ${token.id}`);
+  });
+});
+
+describe('installationRunnersStatus', () => {
+  beforeEach(async () => {
+    await db().delete(provisionerTokens).where(eq(provisionerTokens.scope, 'installation'));
+  });
+
+  it('reports managed when reserved labels are configured, without any token', async () => {
+    await expect(installationRunnersStatus(['linux'])).resolves.toBe('managed');
+  });
+
+  it('reports none without reserved labels and without installation tokens', async () => {
+    await expect(installationRunnersStatus([])).resolves.toBe('none');
+  });
+
+  it('reports managed when an installation token is active', async () => {
+    await provisionerTokenFactory.create({scope: 'installation'});
+
+    await expect(installationRunnersStatus([])).resolves.toBe('managed');
+  });
+
+  it('reports none when the only installation token has expired', async () => {
+    await provisionerTokenFactory.create({
+      scope: 'installation',
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+
+    await expect(installationRunnersStatus([])).resolves.toBe('none');
+  });
+
+  it('reports none when the only installation token is revoked', async () => {
+    const token = await provisionerTokenFactory.create({scope: 'installation'});
+    await revokeInstallationProvisionerToken({
+      tokenId: token.id,
+      revokedByUserId: crypto.randomUUID(),
+    });
+
+    await expect(installationRunnersStatus([])).resolves.toBe('none');
+  });
+
+  it('ignores workspace-scope tokens', async () => {
+    await provisionerTokenFactory.create({workspaceId: crypto.randomUUID()});
+
+    await expect(installationRunnersStatus([])).resolves.toBe('none');
   });
 });

@@ -14,7 +14,7 @@ import {
   revokeInstallationProvisionerTokenWithAudit,
   revokeProvisionerToken,
 } from '#db/provisioner-tokens.js';
-import {config} from '../config.js';
+import {config, runnerReservedLabels} from '../config.js';
 import type {ActiveProvisionerToken, ProvisionerToken} from './entities/provisioner-token.js';
 import {
   ProvisionerAdminIdempotencyReplayUnavailableError,
@@ -165,6 +165,22 @@ export function installationProvisionerTokenStatus(
   if (token.revokedAt) return 'revoked';
   if (token.expiresAt && token.expiresAt <= now) return 'expired';
   return 'active';
+}
+
+export type InstallationRunnersStatus = 'managed' | 'none';
+
+/**
+ * Whether the installation itself provides runner capacity. Both signals are
+ * declarations of intent, not heartbeats: a quiet hosted fleet must not flip
+ * the value. Reserved labels dominate even when every installation token has
+ * expired or been revoked.
+ */
+export async function installationRunnersStatus(
+  reservedLabels: readonly string[] = runnerReservedLabels,
+): Promise<InstallationRunnersStatus> {
+  if (reservedLabels.length > 0) return 'managed';
+  const {tokens} = await listInstallationProvisionerTokens({limit: 1, status: 'active'});
+  return tokens.length > 0 ? 'managed' : 'none';
 }
 
 export async function listAdministratorInstallationProvisionerTokens(params: {

@@ -22,6 +22,15 @@ export interface ActiveProvisioner {
   lastSeenAt: string;
 }
 
+export type InstallationRunnersStatus = 'managed' | 'none';
+
+export type ActiveProvisioners = ActiveProvisioner[];
+
+export interface ActiveProvisionersResponse {
+  provisioners: ActiveProvisioners;
+  installationRunners: InstallationRunnersStatus;
+}
+
 export interface CreatedManualRegistrationToken {
   token: string;
   id: string;

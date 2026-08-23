@@ -6,20 +6,22 @@ import {
 } from '@shipfox/api-runners-dto';
 import {checkedApiRequest} from '@shipfox/client-api';
 import {
-  type FetchQueryOptions,
   queryOptions,
+  type UseQueryOptions,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
 import type {
-  ActiveProvisioner,
+  ActiveProvisioners,
+  ActiveProvisionersResponse,
   CreatedProvisionerToken,
   CreateTokenCommand,
+  InstallationRunnersStatus,
   ProvisionerToken,
 } from '#core/token.js';
 import {
-  toActiveProvisioner,
+  toActiveProvisionersResponse,
   toCreatedProvisionerToken,
   toCreateTokenBody,
   toProvisionerToken,
@@ -34,17 +36,24 @@ export const provisionerTokenQueryKeys = {
     [...provisionerTokenQueryKeys.all, 'provisioners', workspaceId] as const,
 };
 
-type ProvisionerTokensQueryOptions = FetchQueryOptions<
+type ProvisionerTokensQueryOptions = UseQueryOptions<
   ProvisionerToken[],
   Error,
   ProvisionerToken[],
   ReturnType<typeof provisionerTokenQueryKeys.list>
 >;
 
-type ActiveProvisionersQueryOptions = FetchQueryOptions<
-  ActiveProvisioner[],
+type ActiveProvisionersQueryOptions = UseQueryOptions<
+  ActiveProvisionersResponse,
   Error,
-  ActiveProvisioner[],
+  ActiveProvisioners,
+  ReturnType<typeof provisionerTokenQueryKeys.active>
+>;
+
+type InstallationRunnersStatusQueryOptions = UseQueryOptions<
+  ActiveProvisionersResponse,
+  Error,
+  InstallationRunnersStatus,
   ReturnType<typeof provisionerTokenQueryKeys.active>
 >;
 
@@ -93,19 +102,33 @@ export async function revokeProvisionerToken({
   return toProvisionerToken(response);
 }
 
+export async function listActiveProvisionersResponse({
+  workspaceId,
+  signal,
+}: {
+  workspaceId: string;
+  signal?: AbortSignal;
+}): Promise<ActiveProvisionersResponse> {
+  const response = await checkedApiRequest(
+    listActiveProvisionersResponseSchema,
+    `/workspaces/${workspaceId}/provisioners/active`,
+    {signal},
+  );
+  return toActiveProvisionersResponse(response);
+}
+
 export async function listActiveProvisioners({
   workspaceId,
   signal,
 }: {
   workspaceId: string;
   signal?: AbortSignal;
-}): Promise<ActiveProvisioner[]> {
-  const response = await checkedApiRequest(
-    listActiveProvisionersResponseSchema,
-    `/workspaces/${workspaceId}/provisioners/active`,
-    {signal},
-  );
-  return response.provisioners.map(toActiveProvisioner);
+}): Promise<ActiveProvisioners> {
+  const response = await listActiveProvisionersResponse({
+    workspaceId,
+    ...(signal ? {signal} : {}),
+  });
+  return response.provisioners;
 }
 
 export function provisionerTokensQueryOptions(workspaceId: string): ProvisionerTokensQueryOptions {
@@ -120,12 +143,27 @@ export function provisionerTokensQueryOptions(workspaceId: string): ProvisionerT
 export function activeProvisionersQueryOptions(
   workspaceId: string,
 ): ActiveProvisionersQueryOptions {
-  return queryOptions({
+  return {
     queryKey: provisionerTokenQueryKeys.active(workspaceId),
-    queryFn: ({signal}) => listActiveProvisioners({workspaceId, signal}),
+    queryFn: ({signal}) =>
+      listActiveProvisionersResponse({workspaceId, ...(signal ? {signal} : {})}),
+    select: (response) => response.provisioners,
     refetchInterval: PROVISIONER_TOKEN_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
-  });
+  };
+}
+
+export function installationRunnersStatusQueryOptions(
+  workspaceId: string,
+): InstallationRunnersStatusQueryOptions {
+  return {
+    queryKey: provisionerTokenQueryKeys.active(workspaceId),
+    queryFn: ({signal}) =>
+      listActiveProvisionersResponse({workspaceId, ...(signal ? {signal} : {})}),
+    select: (response) => response.installationRunners,
+    refetchInterval: PROVISIONER_TOKEN_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+  };
 }
 
 export function useProvisionerTokensQuery(workspaceId: string | undefined) {
@@ -136,8 +174,25 @@ export function useProvisionerTokensQuery(workspaceId: string | undefined) {
 }
 
 export function useActiveProvisionersQuery(workspaceId: string | undefined) {
-  return useQuery({
+  return useQuery<
+    ActiveProvisionersResponse,
+    Error,
+    ActiveProvisioners,
+    ReturnType<typeof provisionerTokenQueryKeys.active>
+  >({
     ...activeProvisionersQueryOptions(workspaceId ?? ''),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+export function useInstallationRunnersStatusQuery(workspaceId: string | undefined) {
+  return useQuery<
+    ActiveProvisionersResponse,
+    Error,
+    InstallationRunnersStatus,
+    ReturnType<typeof provisionerTokenQueryKeys.active>
+  >({
+    ...installationRunnersStatusQueryOptions(workspaceId ?? ''),
     enabled: Boolean(workspaceId),
   });
 }

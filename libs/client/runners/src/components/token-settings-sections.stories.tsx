@@ -278,6 +278,7 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
                     last_seen_at: NOW,
                   },
                 ],
+          installation_runners: 'none',
         }),
       );
     }
