@@ -155,6 +155,23 @@ describe('agent config', () => {
       }),
       'model API is invalid',
     ],
+    ...(
+      [
+        ['null context window', {context_window: null}],
+        ['zero max output tokens', {max_output_tokens: 0}],
+        ['fractional context window', {context_window: 1.5}],
+        ['string context window', {context_window: '128000'}],
+        ['non-boolean reasoning', {reasoning: 'true'}],
+        ['non-boolean input image', {input_image: 1}],
+      ] as const
+    ).map(
+      ([name, metadata]) =>
+        [
+          `invalid ${name}`,
+          managedProviderWithModelMetadata(metadata),
+          'model metadata is invalid',
+        ] as const,
+    ),
     [
       'unregistered default model',
       managedProvider({defaultModel: 'missing-model'}),
@@ -276,4 +293,18 @@ function managedProvider(overrides: Partial<ManagedModelProvider> = {}): Managed
     }),
     ...overrides,
   };
+}
+
+function managedProviderWithModelMetadata(metadata: object): ManagedModelProvider {
+  return managedProvider({
+    models: [
+      {
+        id: 'managed-model',
+        label: 'Managed model',
+        api: 'anthropic-messages',
+        ...metadata,
+      } as ManagedModelEntry,
+    ],
+    defaultModel: 'managed-model',
+  });
 }

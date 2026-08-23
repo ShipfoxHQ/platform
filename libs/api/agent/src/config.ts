@@ -4,6 +4,7 @@ import {
   isReservedModelProviderId,
   type ManagedModelProvider,
   managedModelApiSchema,
+  managedModelMetadataSchema,
   modelProviderRefSchema,
   SUPPORTED_MODEL_PROVIDER_IDS,
   type WorkspaceProvidersPolicy,
@@ -142,6 +143,11 @@ function assertManagedProvider(provider: ManagedModelProvider): void {
     modelIds.add(model.id);
     if (!managedModelApiSchema.safeParse(model.api).success) {
       throw new Error(`Managed model provider model API is invalid: ${provider.id}/${model.id}.`);
+    }
+    if (!managedModelMetadataSchema.safeParse(model).success) {
+      throw new Error(
+        `Managed model provider model metadata is invalid: ${provider.id}/${model.id}.`,
+      );
     }
   }
 

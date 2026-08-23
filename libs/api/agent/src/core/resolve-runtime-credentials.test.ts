@@ -78,10 +78,113 @@ describe('resolveRuntimeCredentials', () => {
         base_url: 'https://gateway.example.test',
         headers: [],
         secret_header_names: [],
-        models: [{id: 'responses-model', label: 'Responses model'}],
+        models: [
+          {
+            id: 'responses-model',
+            label: 'Responses model',
+            context_window: 1_000_000,
+            max_output_tokens: 65_536,
+            reasoning: true,
+            input_image: true,
+          },
+        ],
         requires_api_key: true,
       },
     });
+  });
+
+  it('omits optional model metadata when the managed model entry does not carry it', async () => {
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'openai-completions',
+      baseUrl: 'https://gateway.example.test',
+      credentials: {api_key: 'managed-token'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'pi',
+        provider: 'shipfox',
+        model: 'plain-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(result).toEqual({
+      harness: 'pi',
+      provider_id: 'shipfox',
+      model: 'plain-model',
+      thinking: 'high',
+      credentials: {api_key: 'managed-token'},
+      custom_provider: {
+        api: 'openai-completions',
+        base_url: 'https://gateway.example.test',
+        headers: [],
+        secret_header_names: [],
+        models: [{id: 'plain-model', label: 'Plain model'}],
+        requires_api_key: true,
+      },
+    });
+  });
+
+  it('forwards partial managed model metadata, including false values', async () => {
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'openai-completions',
+      baseUrl: 'https://gateway.example.test',
+      credentials: {api_key: 'managed-token'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'pi',
+        provider: 'shipfox',
+        model: 'partial-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(result.custom_provider?.models).toEqual([
+      {
+        id: 'partial-model',
+        label: 'Partial model',
+        max_output_tokens: 8_192,
+        reasoning: false,
+        input_image: false,
+      },
+    ]);
+  });
+
+  it('falls back to an unregistered managed model descriptor', async () => {
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'openai-completions',
+      baseUrl: 'https://gateway.example.test',
+      credentials: {api_key: 'managed-token'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'pi',
+        provider: 'shipfox',
+        model: 'missing-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(result.custom_provider?.models).toEqual([{id: 'missing-model', label: 'missing-model'}]);
   });
 
   it('resolves managed provider credentials into the Claude per-step contract', async () => {
@@ -476,7 +579,24 @@ function managedProvider(
     label: 'Shipfox',
     models: [
       {id: 'claude-model', label: 'Claude model', api: 'anthropic-messages'},
-      {id: 'responses-model', label: 'Responses model', api: 'openai-responses'},
+      {
+        id: 'responses-model',
+        label: 'Responses model',
+        api: 'openai-responses',
+        context_window: 1_000_000,
+        max_output_tokens: 65_536,
+        reasoning: true,
+        input_image: true,
+      },
+      {
+        id: 'partial-model',
+        label: 'Partial model',
+        api: 'openai-completions',
+        max_output_tokens: 8_192,
+        reasoning: false,
+        input_image: false,
+      },
+      {id: 'plain-model', label: 'Plain model', api: 'openai-completions'},
     ],
     defaultModel: 'responses-model',
     resolveCredentials,

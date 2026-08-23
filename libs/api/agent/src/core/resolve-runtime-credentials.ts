@@ -8,6 +8,7 @@ import type {
   SupportedModelProviderId,
   WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
+import {toCustomAgentModelDto} from '@shipfox/api-agent-dto';
 import {secretsInterModuleContract} from '@shipfox/api-secrets-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {config, workspaceProvidersPolicy} from '#config.js';
@@ -198,7 +199,7 @@ function toResponse(
 
   if (managed !== undefined) {
     const model = managed.provider.models.find((candidate) => candidate.id === params.model);
-    const modelDescriptor = {id: params.model, label: model?.label ?? params.model};
+    const modelDescriptor = toCustomAgentModelDto(model ?? {id: params.model, label: params.model});
 
     if (params.harness === 'pi') {
       response.custom_provider = {
