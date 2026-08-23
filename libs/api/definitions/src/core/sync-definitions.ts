@@ -5,12 +5,12 @@ import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {boundedMap} from '@shipfox/node-module';
 import type {IntegrationValidationContext} from './entities/integration-context.js';
 import type {DefinitionSyncErrorCode} from './entities/sync-state.js';
-import type {ValidationWarning} from './entities/validation-warning.js';
+import type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 import type {WorkflowDefinitionPayload} from './entities/workflow-definition.js';
 import {DefinitionParseError, DefinitionSyncPermanentError} from './errors.js';
 import {hasAgentStepIntegrations} from './has-agent-step-integrations.js';
 import type {DefinitionsSourceControl} from './integrations.js';
-import {parseDefinitionWithWarnings, stripDefinitionWarnings} from './parse-definition.js';
+import {parseDefinitionWithDiagnostics, stripDefinitionDiagnostics} from './parse-definition.js';
 
 export const DEFAULT_WORKFLOW_PATH = '.shipfox/workflows/';
 export const MAX_WORKFLOW_FILES = 100;
@@ -80,7 +80,7 @@ export interface ParsedWorkflow {
   name: string;
   definition: WorkflowDefinitionPayload;
   contentHash: string;
-  warnings: ValidationWarning[];
+  diagnostics: ValidationDiagnostic[];
 }
 
 export interface FetchAndParseWorkflowsParams extends SyncSourceContext {
@@ -154,10 +154,10 @@ function parseWorkflowSnapshot(params: {
   try {
     const definition =
       params.integrationValidationContext === undefined
-        ? parseDefinitionWithWarnings(params.content, {
+        ? parseDefinitionWithDiagnostics(params.content, {
             agentValidationCatalog: params.agentValidationCatalog,
           })
-        : parseDefinitionWithWarnings(params.content, {
+        : parseDefinitionWithDiagnostics(params.content, {
             agentValidationCatalog: params.agentValidationCatalog,
             integrationValidationContext: params.integrationValidationContext,
           });
@@ -165,9 +165,9 @@ function parseWorkflowSnapshot(params: {
     return {
       path: params.path,
       name: definition.document.name,
-      definition: stripDefinitionWarnings(definition),
+      definition: stripDefinitionDiagnostics(definition),
       contentHash,
-      warnings: definition.warnings,
+      diagnostics: definition.diagnostics,
     };
   } catch (error) {
     if (error instanceof DefinitionParseError) {

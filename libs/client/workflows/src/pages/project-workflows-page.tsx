@@ -1,6 +1,7 @@
 import {ApiError} from '@shipfox/client-api';
 import {
   type Definition,
+  type DefinitionSyncDiagnostic,
   type DefinitionSyncSummary,
   SourceStrip,
   useDefinitionsInfiniteQuery,
@@ -101,7 +102,7 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
           />
 
           <WorkflowSyncAlert sync={sync} />
-          <WorkflowSyncWarnings sync={sync} />
+          <WorkflowSyncDiagnostics sync={sync} />
 
           <WorkflowDefinitionsList
             definitions={definitions}
@@ -382,36 +383,89 @@ function WorkflowSyncAlert({sync}: {sync: DefinitionSyncSummary | null | undefin
   );
 }
 
-function WorkflowSyncWarnings({sync}: {sync: DefinitionSyncSummary | null | undefined}) {
-  if (sync?.status !== 'succeeded' || sync.warnings.length === 0) return null;
+function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | undefined}) {
+  if (sync?.status !== 'succeeded' || sync.diagnostics.length === 0) return null;
 
-  const seenKeys = new Map<string, number>();
-  const warningItems = sync.warnings.map((warning) => {
-    const baseKey = `${warning.code}-${warning.path ?? 'workflow'}-${warning.message}`;
-    const occurrence = seenKeys.get(baseKey) ?? 0;
-    seenKeys.set(baseKey, occurrence + 1);
-    return {key: `${baseKey}-${occurrence}`, warning};
-  });
+  const hasErrors = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+  const hasWarnings = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'warning');
+  const groups = groupDiagnosticsByFilePath(sync.diagnostics);
+  const title =
+    hasErrors && hasWarnings
+      ? 'Workflow definition diagnostics'
+      : hasErrors
+        ? 'Workflow definition errors'
+        : 'Workflow definition warnings';
 
   return (
-    <Callout role="status" type="warning">
+    <Callout role="status" type={hasErrors ? 'error' : 'warning'}>
       <div className="flex flex-col gap-inline">
         <Text size="sm" bold>
-          Workflow definition warnings
+          {title}
         </Text>
         <ul className="flex flex-col gap-tight">
-          {warningItems.map(({key, warning}) => (
-            <li key={key}>
-              <Text size="sm">{warning.message}</Text>
-              {warning.path ? (
-                <Code className="text-foreground-neutral-muted">{warning.path}</Code>
+          {groups.map((group) => (
+            <li key={group.key} className="flex flex-col gap-tight">
+              {group.filePath ? (
+                <Code className="text-foreground-neutral-muted">{group.filePath}</Code>
               ) : null}
+              <ul className="flex flex-col gap-tight">
+                {group.items.map(({key, diagnostic}) => {
+                  const severityLabel = diagnostic.severity === 'error' ? 'Error' : 'Warning';
+
+                  return (
+                    <li key={key}>
+                      {diagnostic.path ? (
+                        <Code className="text-foreground-neutral-muted">{diagnostic.path}</Code>
+                      ) : null}
+                      <Text size="sm">
+                        <span className="font-medium">{severityLabel}:</span>{' '}
+                        <span
+                          className={
+                            diagnostic.severity === 'error' ? 'text-tag-error-text' : undefined
+                          }
+                        >
+                          {diagnostic.message}
+                        </span>
+                      </Text>
+                    </li>
+                  );
+                })}
+              </ul>
             </li>
           ))}
         </ul>
       </div>
     </Callout>
   );
+}
+
+interface DiagnosticGroup {
+  key: string;
+  filePath: string | undefined;
+  items: {key: string; diagnostic: DefinitionSyncDiagnostic}[];
+}
+
+function groupDiagnosticsByFilePath(
+  diagnostics: readonly DefinitionSyncDiagnostic[],
+): DiagnosticGroup[] {
+  const groups: DiagnosticGroup[] = [];
+  const indexByFilePath = new Map<string, number>();
+  for (const diagnostic of diagnostics) {
+    const filePathKey = diagnostic.filePath ?? '';
+    const groupIndex = indexByFilePath.get(filePathKey);
+    if (groupIndex === undefined) {
+      indexByFilePath.set(filePathKey, groups.length);
+      groups.push({
+        key: `${filePathKey}-${groups.length}`,
+        filePath: diagnostic.filePath,
+        items: [{key: `${filePathKey}-0`, diagnostic}],
+      });
+    } else {
+      const group = groups[groupIndex];
+      if (group) group.items.push({key: `${filePathKey}-${group.items.length}`, diagnostic});
+    }
+  }
+  return groups;
 }
 
 function DefinitionSheet({

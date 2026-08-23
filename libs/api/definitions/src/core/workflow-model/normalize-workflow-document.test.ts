@@ -779,6 +779,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Provider "github-copilot" is not supported.',
         path: ['jobs', 'fix', 'steps', 0, 'provider'],
         details: {provider: 'github-copilot'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -829,6 +831,8 @@ describe('normalizeWorkflowDocument', () => {
           'Agent model "not-a-model" is not available for harness "pi" and provider "anthropic".',
         path: ['jobs', 'fix', 'steps', 0, 'model'],
         details: {harness: 'pi', provider: 'anthropic', model: 'not-a-model'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -902,6 +906,8 @@ describe('normalizeWorkflowDocument', () => {
           'Harness "claude" does not support provider: openai. Supported providers: anthropic.',
         path: ['jobs', 'fix', 'steps', 0, 'provider'],
         details: {harness: 'claude', provider: 'openai', supportedProviders: ['anthropic']},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -940,6 +946,8 @@ describe('normalizeWorkflowDocument', () => {
             'get_search_content',
           ],
         },
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -982,6 +990,8 @@ describe('normalizeWorkflowDocument', () => {
           'Agent step tools require an explicit harness because tool names are harness-specific.',
         path: ['jobs', 'fix', 'steps', 0, 'tools'],
         details: {tools: ['Read']},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -1069,6 +1079,8 @@ describe('normalizeWorkflowDocument', () => {
         thinking: 'off',
         supportedLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
       },
+      severity: 'error',
+      scope: 'definition',
     });
   });
 
@@ -3175,6 +3187,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Duration must be an integer followed by ms, s, m, h, or d.',
         path: ['jobs', 'build', 'execution_timeout'],
         details: {source: 'ten minutes'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3198,6 +3212,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Duration must be between 1s and 24h.',
         path: ['jobs', 'build', 'execution_timeout'],
         details: {source: '999ms', min_ms: 1000, max_ms: 24 * 60 * 60 * 1000},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3221,6 +3237,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Duration must be between 1s and 24h.',
         path: ['jobs', 'build', 'execution_timeout'],
         details: {source: '25h', min_ms: 1000, max_ms: 24 * 60 * 60 * 1000},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3244,6 +3262,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Duration must be between 1s and 24h.',
         path: ['jobs', 'build', 'execution_timeout'],
         details: {source: '30d', min_ms: 1000, max_ms: 24 * 60 * 60 * 1000},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3336,6 +3356,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Step "build-review" must restart from an earlier keyed step; found "producer".',
         path: ['jobs', 'build', 'steps', 0, 'gate', 'on_failure'],
         details: {stepId: 'build-review', restartFrom: 'producer'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3364,6 +3386,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Step "build-review" must restart from an earlier keyed step; found "review".',
         path: ['jobs', 'build', 'steps', 0, 'gate', 'on_failure'],
         details: {stepId: 'build-review', restartFrom: 'review'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3393,6 +3417,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Step "build-review" must restart from an earlier keyed step; found "producer".',
         path: ['jobs', 'build', 'steps', 0, 'gate', 'on_failure'],
         details: {stepId: 'build-review', restartFrom: 'producer'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3416,6 +3442,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Job "test" depends on unknown job "build".',
         path: ['jobs', 'test', 'needs'],
         details: {job: 'test', dependency: 'build'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3439,6 +3467,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Job "test" depends on itself.',
         path: ['jobs', 'test', 'needs'],
         details: {job: 'test'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3466,6 +3496,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Circular dependency detected among jobs: build, test.',
         path: ['jobs'],
         details: {cycleSourceNames: ['build', 'test'], cycleJobIds: ['build', 'test']},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3497,6 +3529,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Circular dependency detected among jobs: build, test.',
         path: ['jobs'],
         details: {cycleSourceNames: ['build', 'test'], cycleJobIds: ['build', 'test']},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3522,6 +3556,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Job keys "build app" and "build-app" resolve to the same stable id "build-app".',
         path: ['jobs', 'build-app'],
         details: {id: 'build-app', sourceKeys: ['build app', 'build-app']},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3570,6 +3606,8 @@ describe('normalizeWorkflowDocument', () => {
           'Trigger keys "main_push" and "main push" resolve to the same stable id "main-push".',
         path: ['triggers', 'main push'],
         details: {id: 'main-push', sourceKeys: ['main_push', 'main push']},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3592,6 +3630,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Steps 0 and 1 in job "build" resolve to the same stable id "build-step-1".',
         path: ['jobs', 'build', 'steps', 1],
         details: {id: 'build-step-1', indexes: [0, 1]},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3711,6 +3751,8 @@ describe('normalizeWorkflowDocument', () => {
         message: expect.any(String),
         path: ['triggers', 'main', 'filter'],
         details,
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3741,6 +3783,8 @@ describe('normalizeWorkflowDocument', () => {
         message: `A ${source} trigger cannot define a filter because it does not receive an event payload.`,
         path: ['triggers', 'main', 'filter'],
         details: {source: 'event.ref == "refs/heads/main"', triggerSource: source},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3869,6 +3913,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'A cron trigger must use event "tick"; found "push".',
         path: ['triggers', 'nightly', 'event'],
         details: {event: 'push'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3896,6 +3942,8 @@ describe('normalizeWorkflowDocument', () => {
         code: 'missing-cron-schedule',
         message: 'A cron trigger requires a schedule.',
         path: ['triggers', 'nightly', 'config', 'schedule'],
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3929,6 +3977,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Cron trigger schedule must be a valid 5-field cron expression.',
         path: ['triggers', 'nightly', 'config', 'schedule'],
         details: {schedule},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -3961,6 +4011,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'Cron trigger timezone must be a valid IANA time zone.',
         path: ['triggers', 'nightly', 'config', 'timezone'],
         details: {timezone: 'Not/A/Zone'},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });
@@ -4032,6 +4084,8 @@ describe('normalizeWorkflowDocument', () => {
         message: 'A workflow may declare at most one manual trigger; found 2: one, two.',
         path: ['triggers'],
         details: {manualTriggerKeys: ['one', 'two']},
+        severity: 'error',
+        scope: 'definition',
       },
     ]);
   });

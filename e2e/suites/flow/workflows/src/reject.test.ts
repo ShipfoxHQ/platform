@@ -13,7 +13,7 @@ function sync(overrides: Partial<DefinitionSyncSummaryDto> = {}): DefinitionSync
     finished_at: timestamp,
     last_error_code: 'invalid-definition',
     last_error_message: 'Invalid workflow definition: unknown-interpolation-context',
-    warnings: [],
+    diagnostics: [],
     ...overrides,
   };
 }

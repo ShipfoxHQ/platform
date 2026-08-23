@@ -26,6 +26,18 @@ jobs:
       - run: pnpm test
 `;
 
+const warningEventInterpolation = '$'.concat('{{ event.x }}');
+const warningYaml = [
+  'name: Warning only',
+  'runner: ubuntu-latest',
+  'jobs:',
+  '  build:',
+  '    steps:',
+  '      - env:',
+  `          MSG: '${warningEventInterpolation}'`,
+  '        run: eval "$MSG"',
+].join('\n');
+
 function sourceControl(
   overrides: Partial<DefinitionsSourceControl> = {},
 ): DefinitionsSourceControl {
@@ -224,7 +236,37 @@ describe('definition sync activities', () => {
 
       expect(result.appliedCount).toBe(1);
       expect(result.deletedCount).toBe(0);
-      expect(result.warnings).toEqual([]);
+      expect(result.diagnostics).toEqual([]);
+    });
+
+    it('adds the workflow file path to persisted diagnostics', async () => {
+      const source = sourceControl({
+        fetchFile: vi.fn(() =>
+          Promise.resolve({
+            path: '.shipfox/workflows/warning.yml',
+            ref: 'main',
+            content: warningYaml,
+          }),
+        ),
+      });
+      const activities = createDefinitionSyncActivities(source, agent);
+
+      const result = await activities.fetchAndApplyDefinitionWorkflows({
+        projectId,
+        workspaceId: crypto.randomUUID(),
+        sourceConnectionId,
+        sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
+        sourceRef: 'main',
+        paths: ['.shipfox/workflows/warning.yml'],
+      });
+
+      expect(result.diagnostics).toHaveLength(1);
+      expect(result.diagnostics[0]).toMatchObject({
+        code: 're-evaluating-command',
+        path: 'jobs.build.steps.0.run',
+        severity: 'warning',
+        filePath: '.shipfox/workflows/warning.yml',
+      });
     });
 
     it('translates DefinitionSyncPermanentError into a non-retryable ApplicationFailure', async () => {
@@ -364,11 +406,12 @@ describe('definition sync activities', () => {
         sourceConnectionId,
         sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
         sourceRef: 'main',
-        warnings: [
+        diagnostics: [
           {
             code: 're-evaluating-command',
             message: 'Workflow data is re-executed as shell code.',
             path: 'jobs.build.steps.0.run',
+            severity: 'warning',
           },
         ],
       });
@@ -386,6 +429,7 @@ describe('definition sync activities', () => {
           code: 're-evaluating-command',
           message: 'Workflow data is re-executed as shell code.',
           path: 'jobs.build.steps.0.run',
+          severity: 'warning',
         },
       ]);
     });

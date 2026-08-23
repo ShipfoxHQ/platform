@@ -1,8 +1,8 @@
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {
   definitionDtoSchema,
+  definitionValidationDiagnosticSchema,
   definitionValidationErrorSchema,
-  definitionValidationWarningSchema,
 } from '@shipfox/api-definitions-dto';
 import {defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
@@ -17,7 +17,7 @@ const validationResultSchema = z.union([
     valid: z.literal(true),
     workflow_document: definitionDtoSchema.shape.workflow_document,
     workflow_model: definitionDtoSchema.shape.workflow_model,
-    warnings: z.array(definitionValidationWarningSchema),
+    diagnostics: z.array(definitionValidationDiagnosticSchema),
   }),
   z.object({
     valid: z.literal(false),
@@ -47,7 +47,7 @@ export function buildValidateDefinitionRoute(agent: AgentInterModuleClient) {
           valid: true as const,
           workflow_document: result.definition.document,
           workflow_model: result.definition.model,
-          warnings: result.warnings,
+          diagnostics: result.diagnostics,
         };
       }
 

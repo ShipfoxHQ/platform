@@ -26,10 +26,10 @@ import {
 import type {WorkflowFieldTemplate} from '../entities/workflow-model.js';
 import type {
   WorkflowModelValidationIssue,
-  WorkflowModelValidationIssueCode,
   WorkflowModelValidationIssuePathSegment,
 } from './invalid-workflow-model-error.js';
 import {validateDirectJobReferences} from './validate-job-references.js';
+import {issue} from './validation-issue.js';
 
 export type StoredInterpolationField =
   | 'run'
@@ -512,26 +512,4 @@ function formatList(values: readonly string[]): string {
 
 function fieldLabel(field: WorkflowInterpolationField): string {
   return `Workflow ${field}`;
-}
-
-function issue(params: {
-  code: WorkflowModelValidationIssueCode;
-  message: string;
-  path: readonly WorkflowModelValidationIssuePathSegment[];
-  details?: Readonly<Record<string, unknown>>;
-}): WorkflowModelValidationIssue {
-  if (params.details === undefined) {
-    return {
-      code: params.code,
-      message: params.message,
-      path: params.path,
-    };
-  }
-
-  return {
-    code: params.code,
-    message: params.message,
-    path: params.path,
-    details: params.details,
-  };
 }

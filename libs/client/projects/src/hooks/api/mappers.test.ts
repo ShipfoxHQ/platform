@@ -1,7 +1,7 @@
 import {toDefinitionSyncSummary} from './mappers.js';
 
 describe('toDefinitionSyncSummary', () => {
-  it('preserves warnings without manufacturing a missing path', () => {
+  it('maps diagnostics with severity and file path while preserving an absent path', () => {
     const summary = toDefinitionSyncSummary({
       ref: 'main',
       status: 'succeeded',
@@ -10,10 +10,28 @@ describe('toDefinitionSyncSummary', () => {
       finished_at: '2026-05-07T01:00:00.000Z',
       last_error_code: null,
       last_error_message: null,
-      warnings: [{code: 'warning-code', message: 'Warning without a path'}],
+      diagnostics: [
+        {code: 'warning-code', message: 'Warning without a path', severity: 'warning'},
+        {
+          code: 'error-code',
+          message: 'Trigger error with a path',
+          path: 'triggers.on_demand',
+          file_path: '.shipfox/workflows/deploy.yml',
+          severity: 'error',
+        },
+      ],
     });
 
-    expect(summary.warnings).toEqual([{code: 'warning-code', message: 'Warning without a path'}]);
-    expect(summary.warnings[0]).not.toHaveProperty('path');
+    expect(summary.diagnostics).toEqual([
+      {code: 'warning-code', message: 'Warning without a path', severity: 'warning'},
+      {
+        code: 'error-code',
+        message: 'Trigger error with a path',
+        path: 'triggers.on_demand',
+        filePath: '.shipfox/workflows/deploy.yml',
+        severity: 'error',
+      },
+    ]);
+    expect(summary.diagnostics[0]).not.toHaveProperty('path');
   });
 });

@@ -243,7 +243,7 @@ describe('fetchAndParseWorkflows', () => {
     expect(result[0]?.name).toBe('CI');
     expect(result[0]?.path).toBe('.shipfox/workflows/ci.yml');
     expect(result[0]?.contentHash).toMatch(LOWERCASE_SHA256_HEX_RE);
-    expect(result[0]?.warnings).toEqual([]);
+    expect(result[0]?.diagnostics).toEqual([]);
   });
 
   it('keeps warning-only definitions available to the sync path', async () => {
@@ -262,10 +262,11 @@ describe('fetchAndParseWorkflows', () => {
       }),
     });
 
-    expect(result[0]?.warnings).toMatchObject([
+    expect(result[0]?.diagnostics).toMatchObject([
       {
         code: 're-evaluating-command',
         path: 'jobs.build.steps.0.run',
+        severity: 'warning',
       },
     ]);
     expect(result[0]?.definition.model.jobs[0]?.steps).toHaveLength(1);

@@ -1,24 +1,47 @@
 import {
+  DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH,
+  DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT,
   DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
-  DEFINITION_SYNC_WARNINGS_MAX_COUNT,
 } from '@shipfox/api-definitions-dto';
-import type {ValidationWarning} from './validation-warning.js';
+import type {ValidationDiagnostic} from './validation-diagnostic.js';
 
 export type DefinitionSyncStatus = 'pending' | 'syncing' | 'succeeded' | 'failed';
 
-export type DefinitionSyncWarning = ValidationWarning;
+export interface DefinitionSyncDiagnostic extends ValidationDiagnostic {
+  filePath?: string | undefined;
+}
 
-export function limitDefinitionSyncWarnings(
-  warnings: readonly DefinitionSyncWarning[],
-): DefinitionSyncWarning[] {
-  return warnings.slice(0, DEFINITION_SYNC_WARNINGS_MAX_COUNT).map((warning) => ({
-    code: warning.code.slice(0, DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
-    message: warning.message.slice(0, DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
-    ...(warning.path === undefined
+/**
+ * Orders errors before warnings and bounds the list so truncation at
+ * `DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT` drops warnings first.
+ */
+export function limitDefinitionSyncDiagnostics(
+  diagnostics: readonly DefinitionSyncDiagnostic[],
+): DefinitionSyncDiagnostic[] {
+  const ordered: DefinitionSyncDiagnostic[] = [];
+  for (const severity of ['error', 'warning'] as const) {
+    for (const diagnostic of diagnostics) {
+      if (diagnostic.severity !== severity) continue;
+      ordered.push(diagnostic);
+      if (ordered.length === DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT) break;
+    }
+    if (ordered.length === DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT) break;
+  }
+
+  return ordered.map((diagnostic) => ({
+    code: diagnostic.code.slice(0, DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
+    message: diagnostic.message.slice(0, DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
+    severity: diagnostic.severity,
+    ...(diagnostic.path === undefined
       ? {}
-      : {path: warning.path.slice(0, DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}),
+      : {path: diagnostic.path.slice(0, DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}),
+    ...(diagnostic.filePath === undefined
+      ? {}
+      : {
+          filePath: diagnostic.filePath.slice(0, DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH),
+        }),
   }));
 }
 
@@ -55,7 +78,7 @@ export interface DefinitionSyncState {
   status: DefinitionSyncStatus;
   lastErrorCode: DefinitionSyncErrorCode | null;
   lastErrorMessage: string | null;
-  warnings: DefinitionSyncWarning[];
+  diagnostics: DefinitionSyncDiagnostic[];
   startedAt: Date | null;
   finishedAt: Date | null;
   createdAt: Date;

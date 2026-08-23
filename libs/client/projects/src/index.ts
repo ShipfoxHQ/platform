@@ -1,4 +1,9 @@
-export type {Definition, DefinitionList, DefinitionSyncSummary} from '#core/definition.js';
+export type {
+  Definition,
+  DefinitionList,
+  DefinitionSyncDiagnostic,
+  DefinitionSyncSummary,
+} from '#core/definition.js';
 export {
   type CreateProjectCommand,
   type Project,

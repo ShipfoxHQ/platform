@@ -23,7 +23,7 @@ export function normalizeWorkflowDocument(
     integrationValidationContext?: IntegrationValidationContext | undefined;
     stepSourceLocations?: WorkflowStepSourceLocationMap | undefined;
     /** Provide a fresh array for each call to collect non-fatal validation issues. */
-    warnings?: WorkflowModelValidationIssue[] | undefined;
+    diagnostics?: WorkflowModelValidationIssue[] | undefined;
   },
 ): WorkflowModel {
   const issues: WorkflowModelValidationIssue[] = [];
@@ -65,10 +65,14 @@ export function normalizeWorkflowDocument(
 
   validateCycles(document.jobs, jobIdBySourceName, issues);
 
-  const warnings = issues.filter((issue) => issue.severity === 'warning');
-  options.warnings?.push(...warnings);
+  const diagnostics = issues.filter(
+    (issue) => !(issue.severity === 'error' && issue.scope === 'definition'),
+  );
+  options.diagnostics?.push(...diagnostics);
 
-  const errors = issues.filter((issue) => issue.severity !== 'warning');
+  const errors = issues.filter(
+    (issue) => issue.severity === 'error' && issue.scope === 'definition',
+  );
   if (errors.length > 0) throw new InvalidWorkflowModelError(errors);
 
   return {
