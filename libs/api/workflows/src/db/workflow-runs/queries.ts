@@ -13,6 +13,7 @@ import type {
   WorkflowJobDetail,
   WorkflowRun,
   WorkflowRunDetail,
+  WorkflowRunOrigin,
   WorkflowRunStatus,
 } from '#core/entities/workflow-run.js';
 import {db} from '../db.js';
@@ -29,6 +30,7 @@ export interface WorkflowRunFilters {
   status?: WorkflowRunStatus | undefined;
   definitionId?: string | undefined;
   triggerSource?: string | undefined;
+  origin?: WorkflowRunOrigin | undefined;
   createdFrom?: Date | undefined;
   createdTo?: Date | undefined;
 }
@@ -145,7 +147,7 @@ export function buildWorkflowRunListConditions(params: {
   projectId: string;
   filters?: WorkflowRunFilters | undefined;
   cursor?: WorkflowRunCursor | undefined;
-  omit?: 'status' | 'definitionId' | 'triggerSource' | undefined;
+  omit?: 'status' | 'definitionId' | 'triggerSource' | 'origin' | undefined;
 }): SQL[] {
   const filters = params.filters;
   const conditions: SQL[] = [eq(workflowRuns.projectId, params.projectId)];
@@ -163,6 +165,9 @@ export function buildWorkflowRunListConditions(params: {
   }
   if (filters?.triggerSource && params.omit !== 'triggerSource') {
     conditions.push(eq(workflowRuns.triggerSource, filters.triggerSource));
+  }
+  if (filters?.origin && params.omit !== 'origin') {
+    conditions.push(eq(workflowRuns.origin, filters.origin));
   }
   if (filters?.createdFrom) {
     conditions.push(gte(workflowRuns.createdAt, filters.createdFrom));

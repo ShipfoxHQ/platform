@@ -24,6 +24,22 @@ export const workflowRunRerunModeSchema = z.enum(['all', 'failed']);
 
 export type WorkflowRunRerunModeDto = z.infer<typeof workflowRunRerunModeSchema>;
 
+export const workflowRunOriginSchema = z.enum(['synced', 'dev']);
+
+export type WorkflowRunOriginDto = z.infer<typeof workflowRunOriginSchema>;
+
+// Dev-run provenance: the ref and pinned commit the definition came from, the file that
+// ran, the user who started the run, and the journaled event it replays when any.
+export const workflowRunDevSourceSchema = z.object({
+  ref: z.string(),
+  commit: z.string(),
+  config_path: z.string(),
+  initiated_by_user_id: z.string().uuid(),
+  replay_of_event_id: z.string().uuid().nullable(),
+});
+
+export type WorkflowRunDevSourceDto = z.infer<typeof workflowRunDevSourceSchema>;
+
 export const rerunWorkflowRunBodySchema = z.object({
   mode: workflowRunRerunModeSchema,
 });
@@ -38,6 +54,7 @@ const runListQueryBaseSchema = z.object({
   status: workflowRunStatusSchema.optional(),
   definition_id: z.string().uuid().optional(),
   trigger_source: z.string().optional(),
+  origin: workflowRunOriginSchema.optional(),
   created_from: isoDateTimeSchema.optional(),
   created_to: isoDateTimeSchema.optional(),
 });
@@ -105,6 +122,8 @@ export const workflowRunDtoSchema = z.object({
   name: z.string(),
   workflow_name: z.string(),
   status: workflowRunStatusSchema,
+  origin: workflowRunOriginSchema,
+  dev_source: workflowRunDevSourceSchema.nullable(),
   current_attempt: z.number().int().positive(),
   latest_attempt: z.number().int().positive(),
   trigger_provider: z.string().nullable(),

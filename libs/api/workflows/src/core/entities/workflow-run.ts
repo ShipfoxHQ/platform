@@ -5,6 +5,20 @@ import type {WorkflowRunAttempt} from './workflow-run-attempt.js';
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+export type WorkflowRunOrigin = 'synced' | 'dev';
+
+/**
+ * Why a dev run was created: the ref and pinned commit the definition came from, the
+ * file that ran, the user who started it, and the journaled event it replays when any.
+ */
+export interface WorkflowRunDevSource {
+  ref: string;
+  commit: string;
+  configPath: string;
+  initiatedByUserId: string;
+  replayOfEventId: string | null;
+}
+
 export type TerminalWorkflowRunStatus = Extract<
   WorkflowRunStatus,
   'succeeded' | 'failed' | 'cancelled'
@@ -73,6 +87,10 @@ export interface WorkflowRun {
   /** Nullable resolved override retained for rerun fidelity. */
   nameOverride: string | null;
   status: WorkflowRunStatus;
+  /** Where the run's definition came from: a synced default-branch file or a dev ref. */
+  origin: WorkflowRunOrigin;
+  /** Dev provenance; null for synced runs. */
+  devSource: WorkflowRunDevSource | null;
   currentAttempt: number;
   triggerProvider: string | null;
   triggerSource: string;

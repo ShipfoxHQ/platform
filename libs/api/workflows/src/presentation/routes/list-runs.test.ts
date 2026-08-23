@@ -164,6 +164,94 @@ describe('GET /api/workflows/runs', () => {
     expect(res.json().runs[0].trigger_reference).toBeNull();
   });
 
+  test('labels runs with the synced origin and no dev source by default', async () => {
+    await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId: crypto.randomUUID(),
+      name: 'Manual',
+      model: workflowModel({name: 'Manual'}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs?project_id=${projectId}`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().runs[0]).toMatchObject({origin: 'synced', dev_source: null});
+  });
+
+  test('filters runs by origin', async () => {
+    const synced = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId: crypto.randomUUID(),
+      name: 'Synced',
+      model: workflowModel({name: 'Synced'}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const devRun = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId: crypto.randomUUID(),
+      name: 'Dev',
+      model: workflowModel({name: 'Dev'}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const initiatedByUserId = crypto.randomUUID();
+    await db()
+      .update(workflowRuns)
+      .set({
+        origin: 'dev',
+        devSource: {
+          ref: 'fix-triage-prompt',
+          commit: 'abc123',
+          configPath: '.shipfox/workflows/triage-sentry.yml',
+          initiatedByUserId,
+          replayOfEventId: null,
+        },
+      })
+      .where(eq(workflowRuns.id, devRun.id));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs?project_id=${projectId}&origin=dev`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.runs.map((run: {id: string}) => run.id)).toEqual([devRun.id]);
+    expect(body.filtered_total_count).toBe(1);
+    expect(body.runs[0]).toMatchObject({
+      origin: 'dev',
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abc123',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: initiatedByUserId,
+        replay_of_event_id: null,
+      },
+    });
+    expect(synced.id).not.toBe(devRun.id);
+  });
+
   test('returns empty array for project with no runs', async () => {
     const res = await app.inject({
       method: 'GET',

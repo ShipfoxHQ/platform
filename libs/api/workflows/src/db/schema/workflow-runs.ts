@@ -16,6 +16,8 @@ import {
 import type {
   TriggerPayload,
   WorkflowRun,
+  WorkflowRunDevSource,
+  WorkflowRunOrigin,
   WorkflowRunTriggerReference,
   WorkflowSourceSnapshot,
 } from '#core/entities/workflow-run.js';
@@ -42,6 +44,8 @@ export const workflowRuns = pgTable(
     name: text('name'),
     workflowName: text('workflow_name').notNull(),
     status: workflowRunStatusEnum('status').notNull().default('pending'),
+    origin: text('origin').notNull().default('synced'),
+    devSource: jsonb('dev_source').$type<WorkflowRunDevSource>(),
     currentAttempt: integer('current_attempt').notNull().default(1),
     triggerProvider: text('trigger_provider'),
     triggerSource: text('trigger_source').notNull(),
@@ -62,6 +66,12 @@ export const workflowRuns = pgTable(
     uniqueIndex('workflows_wr_trigger_idempotency_key_unique').on(table.triggerIdempotencyKey),
     uniqueIndex('workflows_wr_definition_number_unique').on(table.definitionId, table.number),
     index('workflows_wr_project_created_id_idx').on(table.projectId, table.createdAt, table.id),
+    index('workflows_wr_project_origin_created_id_idx').on(
+      table.projectId,
+      table.origin,
+      table.createdAt,
+      table.id,
+    ),
     index('workflows_wr_project_status_created_id_idx').on(
       table.projectId,
       table.status,
@@ -102,6 +112,8 @@ export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
     workflowName: row.workflowName,
     nameOverride: row.name,
     status: row.status,
+    origin: row.origin as WorkflowRunOrigin,
+    devSource: row.devSource ?? null,
     currentAttempt: row.currentAttempt,
     triggerProvider: row.triggerProvider,
     triggerSource: row.triggerSource,

@@ -1,8 +1,11 @@
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
+import {db} from '#db/db.js';
+import {workflowRuns} from '#db/schema/workflow-runs.js';
 import {createWorkflowRun, updateWorkflowRunStatus} from '#db/workflow-runs.js';
 import {workflowModel} from '#test/index.js';
 import {getRunAggregatesRoute} from './get-run-aggregates.js';
@@ -116,5 +119,58 @@ describe('GET /api/workflows/runs/aggregates', () => {
     );
     expect(body.trigger_source).toEqual([{value: 'manual', count: 1}]);
     expect(body.workflow).toEqual([{value: deployDefinitionId, count: 1}]);
+  });
+
+  test('filters faceted counts by origin so the Runs tab facet follows', async () => {
+    await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId: crypto.randomUUID(),
+      name: 'Synced',
+      model: workflowModel({name: 'Synced'}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const devRun = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId: crypto.randomUUID(),
+      name: 'Dev',
+      model: workflowModel({name: 'Dev'}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    await db()
+      .update(workflowRuns)
+      .set({
+        origin: 'dev',
+        devSource: {
+          ref: 'fix-triage-prompt',
+          commit: 'abc123',
+          configPath: '.shipfox/workflows/triage-sentry.yml',
+          initiatedByUserId: crypto.randomUUID(),
+          replayOfEventId: null,
+        },
+      })
+      .where(eq(workflowRuns.id, devRun.id));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/aggregates?project_id=${projectId}&origin=dev`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toEqual([{value: 'pending', count: 1}]);
+    expect(body.trigger_source).toEqual([{value: 'manual', count: 1}]);
+    expect(body.workflow).toEqual([{value: devRun.definitionId, count: 1}]);
   });
 });

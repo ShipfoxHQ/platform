@@ -66,6 +66,8 @@ export function workflowRunDto(
     name: 'deploy-web',
     workflow_name: 'deploy-web',
     status: 'running',
+    origin: 'synced',
+    dev_source: null,
     current_attempt: 1,
     latest_attempt: 1,
     trigger_provider: null,
