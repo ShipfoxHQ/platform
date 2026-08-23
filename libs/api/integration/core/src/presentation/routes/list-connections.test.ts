@@ -13,6 +13,7 @@ describe('GET /integration-connections', () => {
       externalAccountId: 'debug-active',
       slug: 'debug_active',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
     await upsertIntegrationConnection({
       workspaceId: context.workspaceId,
@@ -20,6 +21,7 @@ describe('GET /integration-connections', () => {
       externalAccountId: 'debug-error',
       slug: 'debug_error',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
       lifecycleStatus: 'error',
     });
 
@@ -38,13 +40,17 @@ describe('GET /integration-connections', () => {
   });
 
   it('drops connections whose provider misses the capability filter', async () => {
-    const app = await createTestApp([sourceProvider()]);
+    const app = await createTestApp([
+      sourceProvider(),
+      {provider: 'github', displayName: 'GitHub', adapters: {}},
+    ]);
     await upsertIntegrationConnection({
       workspaceId: context.workspaceId,
       provider: 'gitea',
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
     await upsertIntegrationConnection({
       workspaceId: context.workspaceId,
@@ -52,6 +58,7 @@ describe('GET /integration-connections', () => {
       externalAccountId: 'team-1',
       slug: 'github_team_1',
       displayName: 'GitHub',
+      capabilities: ['source_control', 'agent_tools'],
     });
 
     const res = await app.inject({
@@ -94,6 +101,7 @@ describe('GET /integration-connections', () => {
       externalAccountId: 'team-1',
       slug: 'github_team_1',
       displayName: 'GitHub',
+      capabilities: ['source_control', 'agent_tools'],
     });
 
     const res = await app.inject({
@@ -119,6 +127,7 @@ describe('GET /integration-connections', () => {
       externalAccountId: 'org-1',
       slug: 'linear_org_1',
       displayName: 'Linear Org',
+      capabilities: ['agent_tools'],
     });
 
     const res = await app.inject({
@@ -145,6 +154,7 @@ describe('GET /integration-connections', () => {
       externalAccountId: 'org-1',
       slug: 'linear_org_1',
       displayName: 'Linear Org',
+      capabilities: ['agent_tools'],
     });
 
     const res = await app.inject({
@@ -174,6 +184,7 @@ describe('GET /integration-connections', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
 
     const res = await app.inject({
@@ -198,6 +209,7 @@ describe('GET /integration-connections', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
 
     const res = await app.inject({

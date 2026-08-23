@@ -15,6 +15,7 @@ const validConnectionAvailable = {
   workspaceId: 'ws-1',
   connectionId: 'conn-1',
   slug: 'linear_shipfox',
+  capabilities: ['agent_tools'],
 };
 
 const validEventReceived = {
@@ -63,6 +64,51 @@ describe('integrationConnectionAvailableSchema', () => {
     expect(integrationConnectionAvailableSchema.parse(validConnectionAvailable)).toEqual(
       validConnectionAvailable,
     );
+  });
+
+  it('carries both capabilities for a source-control and tool provider', () => {
+    const input = {...validConnectionAvailable, capabilities: ['source_control', 'agent_tools']};
+
+    expect(integrationConnectionAvailableSchema.parse(input)).toEqual(input);
+  });
+
+  it('carries an empty capabilities array for a connection without adapters', () => {
+    const input = {...validConnectionAvailable, capabilities: []};
+
+    expect(integrationConnectionAvailableSchema.parse(input)).toEqual(input);
+  });
+
+  it('defaults capabilities for an event written before the field existed', () => {
+    const {capabilities: _capabilities, ...withoutCapabilities} = validConnectionAvailable;
+
+    expect(integrationConnectionAvailableSchema.parse(withoutCapabilities)).toEqual({
+      ...withoutCapabilities,
+      capabilities: [],
+    });
+  });
+
+  it('rejects unknown or empty capability values', () => {
+    expect(() =>
+      integrationConnectionAvailableSchema.parse({
+        ...validConnectionAvailable,
+        capabilities: [''],
+      }),
+    ).toThrow();
+    expect(() =>
+      integrationConnectionAvailableSchema.parse({
+        ...validConnectionAvailable,
+        capabilities: ['agent-tools'],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects capability arrays above the contract bound', () => {
+    expect(() =>
+      integrationConnectionAvailableSchema.parse({
+        ...validConnectionAvailable,
+        capabilities: Array.from({length: 17}, () => 'agent_tools'),
+      }),
+    ).toThrow();
   });
 
   it('rejects a payload without a connection slug', () => {

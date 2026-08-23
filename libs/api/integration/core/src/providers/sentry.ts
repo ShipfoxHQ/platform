@@ -1,6 +1,7 @@
 import type {ConnectSentryInstallationInput} from '@shipfox/api-integration-sentry';
 import type {IntegrationConnection as CoreIntegrationConnection} from '@shipfox/api-integration-spi';
 import {config} from '#config.js';
+import type {IntegrationCapability} from '#core/entities/provider.js';
 import {
   getIntegrationConnectionById,
   resolveUniqueConnectionSlug,
@@ -22,6 +23,7 @@ async function loadSentryModuleParts(): Promise<IntegrationModuleParts> {
     db: sentryDb,
     migrationsPath: sentryMigrationsPath,
   } = await import('@shipfox/api-integration-sentry');
+  const providerCapabilities: IntegrationCapability[] = [];
 
   async function getConnectionById(
     id: string,
@@ -54,6 +56,7 @@ async function loadSentryModuleParts(): Promise<IntegrationModuleParts> {
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
+            capabilities: providerCapabilities,
           },
           {tx},
         );

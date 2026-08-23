@@ -4,6 +4,8 @@ import type {
 } from '@shipfox/api-integration-slack';
 import type {IntegrationConnection as CoreIntegrationConnection} from '@shipfox/api-integration-spi';
 import {config} from '#config.js';
+import type {IntegrationCapability} from '#core/entities/provider.js';
+import {getIntegrationProviderCapabilities} from '#core/providers/registry.js';
 import {
   deleteIntegrationConnection,
   getIntegrationConnectionById,
@@ -39,6 +41,7 @@ async function loadSlackModuleParts(
     slackSecretsNamespace,
     upsertSlackInstallation,
   } = await import('@shipfox/api-integration-slack');
+  let providerCapabilities: IntegrationCapability[] = [];
 
   async function getExistingSlackConnection(input: {
     teamId: string;
@@ -75,6 +78,7 @@ async function loadSlackModuleParts(
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
+            capabilities: providerCapabilities,
           },
           {tx},
         );
@@ -163,6 +167,7 @@ async function loadSlackModuleParts(
         : {}),
     },
   });
+  providerCapabilities = getIntegrationProviderCapabilities(integrationProvider.adapters);
 
   return {
     provider: integrationProvider,
@@ -173,7 +178,7 @@ async function loadSlackModuleParts(
         getExistingSlackConnection,
         connectSlackInstallation,
         disconnectSlackInstallation,
-        connectionCapabilities: ['agent_tools'],
+        connectionCapabilities: providerCapabilities,
       }),
     ],
     database: {

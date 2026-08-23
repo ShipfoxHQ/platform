@@ -36,6 +36,7 @@ describe('linearProviderModule', () => {
       externalAccountId: organizationId,
       slug: 'linear_acme',
       displayName: 'Linear Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertLinearInstallation({
       connectionId: connection.id,
@@ -67,6 +68,7 @@ describe('linearProviderModule', () => {
       externalAccountId: organizationId,
       slug: 'linear_acme_again',
       displayName: 'Linear Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertLinearInstallation({
       connectionId: replacement.id,
@@ -107,6 +109,7 @@ describe('linearProviderModule', () => {
       externalAccountId: organizationId,
       slug: 'linear_acme',
       displayName: 'Linear Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertLinearInstallation({
       connectionId: connection.id,

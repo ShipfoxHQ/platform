@@ -13,6 +13,7 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
 
     const res = await app.inject({
@@ -46,6 +47,7 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
       lifecycleStatus: 'disabled',
     });
 
@@ -73,6 +75,7 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       externalAccountId: 'team-1',
       slug: 'github_team_1',
       displayName: 'GitHub',
+      capabilities: ['source_control', 'agent_tools'],
     });
 
     const res = await app.inject({
@@ -93,6 +96,7 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       externalAccountId: 'installation-1',
       slug: 'github_installation_1',
       displayName: 'GitHub',
+      capabilities: ['source_control', 'agent_tools'],
     });
 
     const res = await app.inject({
@@ -137,6 +141,7 @@ describe('GET /integration-connections/:connectionId/repositories', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
 
     const res = await app.inject({

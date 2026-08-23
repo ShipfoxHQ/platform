@@ -107,6 +107,7 @@ async function createCleanupConnection(overrides: {externalAccountId?: string} =
     externalAccountId: overrides.externalAccountId ?? crypto.randomUUID(),
     slug: `slack_${crypto.randomUUID()}`,
     displayName: 'Slack',
+    capabilities: ['agent_tools'],
   });
   await enqueueIntegrationSecretCleanup({connection});
   return connection;

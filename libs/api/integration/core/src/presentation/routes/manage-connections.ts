@@ -40,16 +40,20 @@ export function createUpdateIntegrationConnectionRoute(registry: IntegrationProv
       }
 
       requireWorkspaceAccess({request, workspaceId: connection.workspaceId});
+      const provider = registry
+        .list()
+        .find((candidate) => candidate.provider === connection.provider);
+      const capabilities = provider?.capabilities ?? [];
       const updated = await updateIntegrationConnectionLifecycleStatus({
         id: connection.id,
         lifecycleStatus: request.body.lifecycle_status,
+        ...(request.body.lifecycle_status === 'active' ? {capabilities} : {}),
       });
       if (!updated) {
         throw new ClientError('Integration connection not found', 'not-found', {status: 404});
       }
 
-      const provider = registry.list().find((candidate) => candidate.provider === updated.provider);
-      return toIntegrationConnectionDto(updated, {capabilities: provider?.capabilities ?? []});
+      return toIntegrationConnectionDto(updated, {capabilities});
     },
   });
 }

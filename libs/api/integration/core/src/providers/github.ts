@@ -1,6 +1,8 @@
 import type {ConnectGithubInstallationInput} from '@shipfox/api-integration-github';
 import type {IntegrationConnection as CoreIntegrationConnection} from '@shipfox/api-integration-spi';
 import {config} from '#config.js';
+import type {IntegrationCapability} from '#core/entities/provider.js';
+import {getIntegrationProviderCapabilities} from '#core/providers/registry.js';
 import {
   getIntegrationConnectionById,
   resolveUniqueConnectionSlug,
@@ -55,6 +57,7 @@ async function loadGithubModuleParts(
         }
       : undefined,
   });
+  let providerCapabilities: IntegrationCapability[] = [];
 
   async function getExistingGithubConnection(input: {
     installationId: string;
@@ -91,6 +94,7 @@ async function loadGithubModuleParts(
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
+            capabilities: providerCapabilities,
           },
           {tx},
         );
@@ -123,6 +127,7 @@ async function loadGithubModuleParts(
       ? {requireActiveWorkspaceMembership: options.requireActiveWorkspaceMembership}
       : {}),
   });
+  providerCapabilities = getIntegrationProviderCapabilities(integrationProvider.adapters);
 
   return {
     provider: integrationProvider,
@@ -131,7 +136,7 @@ async function loadGithubModuleParts(
       createGithubE2eRoutes({
         getExistingGithubConnection,
         connectGithubInstallation,
-        connectionCapabilities: ['source_control', 'agent_tools'],
+        connectionCapabilities: providerCapabilities,
       }),
     ],
     database: {
