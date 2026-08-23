@@ -1,15 +1,15 @@
-import type {ValidationWarning} from './entities/validation-warning.js';
+import type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 import type {WorkflowDefinitionPayload} from './entities/workflow-definition.js';
 import {DefinitionParseError} from './errors.js';
 import {type DefinitionValidationOptions, validateDefinition} from './validate-definition.js';
 
 export interface ParsedDefinition extends WorkflowDefinitionPayload {
-  warnings: ValidationWarning[];
+  diagnostics: ValidationDiagnostic[];
 }
 
 export type ParseDefinitionOptions = DefinitionValidationOptions;
 
-export function parseDefinitionWithWarnings(
+export function parseDefinitionWithDiagnostics(
   yamlString: string,
   options: ParseDefinitionOptions,
 ): ParsedDefinition {
@@ -25,7 +25,7 @@ export function parseDefinitionWithWarnings(
   return {
     ...result.definition,
     sourceSnapshot: {content: yamlString, format: 'yaml'},
-    warnings: result.warnings,
+    diagnostics: result.diagnostics,
   };
 }
 
@@ -33,11 +33,11 @@ export function parseDefinition(
   yamlString: string,
   options: ParseDefinitionOptions,
 ): WorkflowDefinitionPayload {
-  const parsed = parseDefinitionWithWarnings(yamlString, options);
-  return stripDefinitionWarnings(parsed);
+  const parsed = parseDefinitionWithDiagnostics(yamlString, options);
+  return stripDefinitionDiagnostics(parsed);
 }
 
-export function stripDefinitionWarnings(parsed: ParsedDefinition): WorkflowDefinitionPayload {
+export function stripDefinitionDiagnostics(parsed: ParsedDefinition): WorkflowDefinitionPayload {
   return {
     document: parsed.document,
     model: parsed.model,

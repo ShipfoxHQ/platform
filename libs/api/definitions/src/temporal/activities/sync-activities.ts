@@ -3,7 +3,7 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import {markErrorReported} from '@shipfox/node-error-monitoring';
 import {Context} from '@temporalio/activity';
 import {ApplicationFailure} from '@temporalio/common';
-import type {DefinitionSyncErrorCode, DefinitionSyncWarning} from '#core/entities/sync-state.js';
+import type {DefinitionSyncDiagnostic, DefinitionSyncErrorCode} from '#core/entities/sync-state.js';
 import {
   classifySyncFailure,
   discoverWorkflowFiles,
@@ -50,11 +50,11 @@ export interface DiscoverWorkflowsActivityResult {
 export interface FetchAndApplyActivityResult {
   appliedCount: number;
   deletedCount: number;
-  warnings: DefinitionSyncWarning[];
+  diagnostics: DefinitionSyncDiagnostic[];
 }
 
 export interface MarkSyncSucceededActivityInput extends SyncRefScopedInput {
-  warnings?: readonly DefinitionSyncWarning[] | undefined;
+  diagnostics?: readonly DefinitionSyncDiagnostic[] | undefined;
 }
 
 export interface DefinitionSyncActivityOptions {
@@ -98,7 +98,7 @@ function createPrepareDefinitionSyncActivity(sourceControl: DefinitionsSourceCon
         status: 'syncing',
         lastErrorCode: null,
         lastErrorMessage: null,
-        warnings: [],
+        diagnostics: [],
         startedAt: new Date(),
         finishedAt: null,
       });
@@ -169,7 +169,7 @@ function createFetchAndApplyActivity(
 
       return {
         ...result,
-        warnings: definitions.flatMap((entry) => entry.warnings),
+        diagnostics: definitions.flatMap((entry) => entry.diagnostics),
       };
     });
   };
@@ -187,7 +187,7 @@ function createMarkSyncSucceededActivity() {
       status: 'succeeded',
       lastErrorCode: null,
       lastErrorMessage: null,
-      warnings: input.warnings ?? [],
+      diagnostics: input.diagnostics ?? [],
       finishedAt: new Date(),
     });
   };
@@ -205,7 +205,7 @@ function createMarkSyncFailedActivity() {
       status: 'failed',
       lastErrorCode: input.code,
       lastErrorMessage: input.message,
-      warnings: [],
+      diagnostics: [],
       finishedAt: new Date(),
     });
   };

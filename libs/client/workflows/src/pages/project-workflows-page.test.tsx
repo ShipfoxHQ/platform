@@ -69,11 +69,12 @@ describe('ProjectWorkflowsPage', () => {
               finished_at: null,
               last_error_code: 'no-workflow-files',
               last_error_message: 'No workflow files found',
-              warnings: [
+              diagnostics: [
                 {
                   code: 're-evaluating-command',
                   message: 'Workflow data is re-executed as shell code.',
                   path: 'jobs.build.steps.0.run',
+                  severity: 'warning',
                 },
               ],
             },
@@ -104,16 +105,18 @@ describe('ProjectWorkflowsPage', () => {
               finished_at: '2026-05-07T01:00:00.000Z',
               last_error_code: null,
               last_error_message: null,
-              warnings: [
+              diagnostics: [
                 {
                   code: 're-evaluating-command',
                   message: 'Workflow data is re-executed as shell code.',
                   path: 'jobs.build.steps.0.run',
+                  severity: 'warning',
                 },
                 {
                   code: 're-evaluating-command',
                   message: 'Workflow data is re-executed as shell code.',
                   path: 'jobs.build.steps.0.run',
+                  severity: 'warning',
                 },
               ],
             },
@@ -125,10 +128,64 @@ describe('ProjectWorkflowsPage', () => {
     renderWorkflowsPage();
 
     expect(await screen.findByText('Workflow definition warnings')).toBeInTheDocument();
+    // Both warnings group under the shared path; the path label renders once.
     expect(screen.getAllByText('Workflow data is re-executed as shell code.')).toHaveLength(2);
-    expect(screen.getAllByRole('listitem')).toHaveLength(2);
-    expect(screen.getAllByText('jobs.build.steps.0.run')).toHaveLength(2);
+    expect(screen.getAllByText('jobs.build.steps.0.run')).toHaveLength(1);
+    expect(screen.getByRole('status')).toBeInTheDocument();
     expect(screen.queryByText('Workflow sync failed')).not.toBeInTheDocument();
+  });
+
+  test('shows errors and warnings together with error styling, grouped by path', async () => {
+    configureApiClient({
+      fetchImpl: createProjectDetailFetch({
+        definitions: jsonResponse(
+          definitionsDto({
+            sync: {
+              ref: 'main',
+              status: 'succeeded',
+              last_sync_at: '2026-05-07T01:00:00.000Z',
+              started_at: '2026-05-07T00:59:55.000Z',
+              finished_at: '2026-05-07T01:00:00.000Z',
+              last_error_code: null,
+              last_error_message: null,
+              diagnostics: [
+                {
+                  code: 'invalid-trigger-event',
+                  message: 'Trigger event is never delivered by this source.',
+                  path: 'triggers.on_deploy',
+                  severity: 'error',
+                },
+                {
+                  code: 'unknown-trigger-source',
+                  message: 'No connection matches this source slug.',
+                  path: 'triggers.on_deploy',
+                  severity: 'warning',
+                },
+                {
+                  code: 're-evaluating-command',
+                  message: 'Workflow data is re-executed as shell code.',
+                  path: 'jobs.build.steps.0.run',
+                  severity: 'warning',
+                },
+              ],
+            },
+          }),
+        ),
+      }),
+    });
+
+    renderWorkflowsPage();
+
+    expect(await screen.findByText('Workflow definition errors')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    // Two groups: the trigger path and the job path.
+    expect(screen.getAllByText('triggers.on_deploy')).toHaveLength(1);
+    expect(screen.getAllByText('jobs.build.steps.0.run')).toHaveLength(1);
+    const errorRow = screen.getByText('Trigger event is never delivered by this source.');
+    const warningRow = screen.getByText('No connection matches this source slug.');
+    expect(errorRow).toHaveClass('text-tag-error-text');
+    expect(warningRow).not.toHaveClass('text-tag-error-text');
+    expect(screen.getByText('Workflow data is re-executed as shell code.')).toBeInTheDocument();
   });
 
   test('opens and closes the definition drawer by clicking the row', async () => {
@@ -301,7 +358,7 @@ function baseDefinitionsDto() {
       finished_at: '2026-05-07T01:00:00.000Z',
       last_error_code: null,
       last_error_message: null,
-      warnings: [],
+      diagnostics: [],
     },
   };
 }

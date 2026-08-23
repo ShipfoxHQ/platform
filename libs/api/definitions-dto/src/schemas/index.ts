@@ -10,14 +10,14 @@ export {
   type DefinitionListResponseDto,
   type DefinitionResponseDto,
   type DefinitionSyncSummaryDto,
+  type DefinitionValidationDiagnosticDto,
   type DefinitionValidationErrorDto,
-  type DefinitionValidationWarningDto,
   definitionDtoSchema,
   definitionListQuerySchema,
   definitionListResponseSchema,
   definitionResponseSchema,
   definitionSyncSummarySchema,
+  definitionValidationDiagnosticSchema,
   definitionValidationErrorSchema,
-  definitionValidationWarningSchema,
 } from './dto.js';
 export type {TriggerDto} from './trigger.js';

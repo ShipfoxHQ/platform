@@ -75,13 +75,16 @@ export const definitionValidationErrorSchema = z.object({
 
 export type DefinitionValidationErrorDto = z.infer<typeof definitionValidationErrorSchema>;
 
-export const definitionValidationWarningSchema = z.object({
+export const definitionValidationDiagnosticSchema = z.object({
   code: z.string().max(DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
   message: z.string().max(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
   path: z.string().max(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH).optional(),
+  severity: z.enum(['error', 'warning']),
 });
 
-export type DefinitionValidationWarningDto = z.infer<typeof definitionValidationWarningSchema>;
+export type DefinitionValidationDiagnosticDto = z.infer<
+  typeof definitionValidationDiagnosticSchema
+>;
 
 export const definitionListQuerySchema = z.object({
   project_id: z.string().uuid(),
@@ -115,7 +118,9 @@ export const definitionSyncSummarySchema = z.object({
     ])
     .nullable(),
   last_error_message: z.string().nullable(),
-  warnings: z.array(definitionValidationWarningSchema).max(DEFINITION_SYNC_WARNINGS_MAX_COUNT),
+  diagnostics: z
+    .array(definitionValidationDiagnosticSchema)
+    .max(DEFINITION_SYNC_WARNINGS_MAX_COUNT),
 });
 
 export type DefinitionSyncSummaryDto = z.infer<typeof definitionSyncSummarySchema>;

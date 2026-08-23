@@ -22,13 +22,14 @@ export interface DefinitionSyncSummary {
   finishedAt: string | null;
   lastErrorCode: string | null;
   lastErrorMessage: string | null;
-  warnings: DefinitionSyncWarning[];
+  diagnostics: DefinitionSyncDiagnostic[];
 }
 
-export interface DefinitionSyncWarning {
+export interface DefinitionSyncDiagnostic {
   code: string;
   message: string;
   path?: string | undefined;
+  severity: 'error' | 'warning';
 }
 
 export interface DefinitionList {

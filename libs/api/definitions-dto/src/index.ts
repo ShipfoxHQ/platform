@@ -10,15 +10,15 @@ export {
   type DefinitionListResponseDto,
   type DefinitionResponseDto,
   type DefinitionSyncSummaryDto,
+  type DefinitionValidationDiagnosticDto,
   type DefinitionValidationErrorDto,
-  type DefinitionValidationWarningDto,
   definitionDtoSchema,
   definitionListQuerySchema,
   definitionListResponseSchema,
   definitionResponseSchema,
   definitionSyncSummarySchema,
+  definitionValidationDiagnosticSchema,
   definitionValidationErrorSchema,
-  definitionValidationWarningSchema,
   type TriggerDto,
 } from '#schemas/index.js';
 export {

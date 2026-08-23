@@ -224,7 +224,7 @@ describe('definition sync activities', () => {
 
       expect(result.appliedCount).toBe(1);
       expect(result.deletedCount).toBe(0);
-      expect(result.warnings).toEqual([]);
+      expect(result.diagnostics).toEqual([]);
     });
 
     it('translates DefinitionSyncPermanentError into a non-retryable ApplicationFailure', async () => {
@@ -364,11 +364,12 @@ describe('definition sync activities', () => {
         sourceConnectionId,
         sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
         sourceRef: 'main',
-        warnings: [
+        diagnostics: [
           {
             code: 're-evaluating-command',
             message: 'Workflow data is re-executed as shell code.',
             path: 'jobs.build.steps.0.run',
+            severity: 'warning',
           },
         ],
       });
@@ -386,6 +387,7 @@ describe('definition sync activities', () => {
           code: 're-evaluating-command',
           message: 'Workflow data is re-executed as shell code.',
           path: 'jobs.build.steps.0.run',
+          severity: 'warning',
         },
       ]);
     });

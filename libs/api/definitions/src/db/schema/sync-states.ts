@@ -2,10 +2,10 @@ import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {sql} from 'drizzle-orm';
 import {index, jsonb, pgEnum, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
 import type {
+  DefinitionSyncDiagnostic,
   DefinitionSyncErrorCode,
   DefinitionSyncState,
   DefinitionSyncStatus,
-  DefinitionSyncWarning,
 } from '#core/entities/sync-state.js';
 import {pgTable} from './common.js';
 
@@ -43,7 +43,7 @@ export const definitionSyncStates = pgTable(
     status: definitionSyncStatusEnum('status').notNull().default('pending'),
     lastErrorCode: definitionSyncErrorCodeEnum('last_error_code'),
     lastErrorMessage: text('last_error_message'),
-    warnings: jsonb('warnings').notNull().default([]).$type<DefinitionSyncWarning[]>(),
+    warnings: jsonb('warnings').notNull().default([]).$type<DefinitionSyncDiagnostic[]>(),
     startedAt: timestamp('started_at', {withTimezone: true}),
     finishedAt: timestamp('finished_at', {withTimezone: true}),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
@@ -73,7 +73,7 @@ export function toDefinitionSyncState(row: DefinitionSyncStateDb): DefinitionSyn
     status: row.status as DefinitionSyncStatus,
     lastErrorCode: row.lastErrorCode as DefinitionSyncErrorCode | null,
     lastErrorMessage: row.lastErrorMessage,
-    warnings: row.warnings ?? [],
+    diagnostics: row.warnings ?? [],
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
     createdAt: row.createdAt,

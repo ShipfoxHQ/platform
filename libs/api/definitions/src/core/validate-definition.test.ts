@@ -24,7 +24,7 @@ jobs:
 
     expect(result.valid).toBe(true);
     if (result.valid) {
-      expect(result.warnings).toEqual([]);
+      expect(result.diagnostics).toEqual([]);
       expect(result.definition.document.name).toBe('Test');
       expect(result.definition.document.jobs.build?.steps).toHaveLength(1);
       expect(result.definition.model.jobs[0]?.id).toBe('build');
@@ -36,7 +36,7 @@ jobs:
 
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result).not.toHaveProperty('warnings');
+      expect(result).not.toHaveProperty('diagnostics');
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]?.message).toContain('Invalid workflow YAML syntax');
     }
@@ -159,14 +159,15 @@ jobs:
 
     expect(result.valid).toBe(true);
     if (result.valid) {
-      expect(result.warnings).toHaveLength(1);
-      expect(result.warnings[0]).toMatchObject({
+      expect(result.diagnostics).toHaveLength(1);
+      expect(result.diagnostics[0]).toMatchObject({
         code: 're-evaluating-command',
         path: 'jobs.build.steps.0.run',
+        severity: 'warning',
       });
-      expect(result.warnings[0]?.message).toContain(`$${valueName}`);
-      expect(result.warnings[0]?.message).toContain('eval');
-      expect(result.warnings[0]?.message).toContain('re-executed as code');
+      expect(result.diagnostics[0]?.message).toContain(`$${valueName}`);
+      expect(result.diagnostics[0]?.message).toContain('eval');
+      expect(result.diagnostics[0]?.message).toContain('re-executed as code');
       expect(result.definition.model.jobs[0]?.steps).toHaveLength(1);
     }
   });
@@ -189,7 +190,7 @@ jobs:
           ${run}
 `);
 
-    expect(result).toMatchObject({valid: true, warnings: []});
+    expect(result).toMatchObject({valid: true, diagnostics: []});
   });
 
   test.each([
@@ -209,13 +210,14 @@ jobs:
 
     expect(result.valid).toBe(true);
     if (result.valid) {
-      expect(result.warnings).toHaveLength(1);
-      expect(result.warnings[0]).toMatchObject({
+      expect(result.diagnostics).toHaveLength(1);
+      expect(result.diagnostics[0]).toMatchObject({
         code: 're-evaluating-command',
         path: 'jobs.build.steps.0.run',
+        severity: 'warning',
       });
-      expect(result.warnings[0]?.message).toContain('event.ref');
-      expect(result.warnings[0]?.message).toContain(construct);
+      expect(result.diagnostics[0]?.message).toContain('event.ref');
+      expect(result.diagnostics[0]?.message).toContain(construct);
     }
   });
 
@@ -234,18 +236,25 @@ jobs:
 
     expect(result.valid).toBe(true);
     if (result.valid) {
-      expect(result.warnings).toHaveLength(5);
-      expect(result.warnings.every((warning) => warning.code === 're-evaluating-command')).toBe(
+      expect(result.diagnostics).toHaveLength(5);
+      expect(
+        result.diagnostics.every((diagnostic) => diagnostic.code === 're-evaluating-command'),
+      ).toBe(true);
+      expect(
+        result.diagnostics.every((diagnostic) => diagnostic.path === 'jobs.build.steps.0.run'),
+      ).toBe(true);
+      expect(result.diagnostics.every((diagnostic) => diagnostic.severity === 'warning')).toBe(
         true,
       );
-      expect(result.warnings.every((warning) => warning.path === 'jobs.build.steps.0.run')).toBe(
-        true,
-      );
-      expect(result.warnings.filter((warning) => warning.message.includes('eval'))).toHaveLength(3);
-      expect(result.warnings.some((warning) => warning.message.includes('event.first'))).toBe(true);
-      expect(result.warnings.some((warning) => warning.message.includes('event.second'))).toBe(
-        true,
-      );
+      expect(
+        result.diagnostics.filter((diagnostic) => diagnostic.message.includes('eval')),
+      ).toHaveLength(3);
+      expect(
+        result.diagnostics.some((diagnostic) => diagnostic.message.includes('event.first')),
+      ).toBe(true);
+      expect(
+        result.diagnostics.some((diagnostic) => diagnostic.message.includes('event.second')),
+      ).toBe(true);
     }
   });
 

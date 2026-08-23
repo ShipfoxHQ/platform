@@ -1,6 +1,7 @@
 import {ApiError} from '@shipfox/client-api';
 import {
   type Definition,
+  type DefinitionSyncDiagnostic,
   type DefinitionSyncSummary,
   SourceStrip,
   useDefinitionsInfiniteQuery,
@@ -101,7 +102,7 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
           />
 
           <WorkflowSyncAlert sync={sync} />
-          <WorkflowSyncWarnings sync={sync} />
+          <WorkflowSyncDiagnostics sync={sync} />
 
           <WorkflowDefinitionsList
             definitions={definitions}
@@ -382,36 +383,73 @@ function WorkflowSyncAlert({sync}: {sync: DefinitionSyncSummary | null | undefin
   );
 }
 
-function WorkflowSyncWarnings({sync}: {sync: DefinitionSyncSummary | null | undefined}) {
-  if (sync?.status !== 'succeeded' || sync.warnings.length === 0) return null;
+function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | undefined}) {
+  if (sync?.status !== 'succeeded' || sync.diagnostics.length === 0) return null;
 
-  const seenKeys = new Map<string, number>();
-  const warningItems = sync.warnings.map((warning) => {
-    const baseKey = `${warning.code}-${warning.path ?? 'workflow'}-${warning.message}`;
-    const occurrence = seenKeys.get(baseKey) ?? 0;
-    seenKeys.set(baseKey, occurrence + 1);
-    return {key: `${baseKey}-${occurrence}`, warning};
-  });
+  const hasErrors = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+  const groups = groupDiagnosticsByPath(sync.diagnostics);
 
   return (
-    <Callout role="status" type="warning">
+    <Callout role={hasErrors ? 'alert' : 'status'} type={hasErrors ? 'error' : 'warning'}>
       <div className="flex flex-col gap-inline">
         <Text size="sm" bold>
-          Workflow definition warnings
+          {hasErrors ? 'Workflow definition errors' : 'Workflow definition warnings'}
         </Text>
         <ul className="flex flex-col gap-tight">
-          {warningItems.map(({key, warning}) => (
-            <li key={key}>
-              <Text size="sm">{warning.message}</Text>
-              {warning.path ? (
-                <Code className="text-foreground-neutral-muted">{warning.path}</Code>
+          {groups.map((group) => (
+            <li key={group.key} className="flex flex-col gap-tight">
+              {group.path ? (
+                <Code className="text-foreground-neutral-muted">{group.path}</Code>
               ) : null}
+              <ul className="flex flex-col gap-tight">
+                {group.items.map(({key, diagnostic}) => (
+                  <li key={key}>
+                    <Text
+                      size="sm"
+                      className={
+                        diagnostic.severity === 'error' ? 'text-tag-error-text' : undefined
+                      }
+                    >
+                      {diagnostic.message}
+                    </Text>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>
       </div>
     </Callout>
   );
+}
+
+interface DiagnosticGroup {
+  key: string;
+  path: string | undefined;
+  items: {key: string; diagnostic: DefinitionSyncDiagnostic}[];
+}
+
+function groupDiagnosticsByPath(
+  diagnostics: readonly DefinitionSyncDiagnostic[],
+): DiagnosticGroup[] {
+  const groups: DiagnosticGroup[] = [];
+  const indexByPath = new Map<string, number>();
+  for (const diagnostic of diagnostics) {
+    const pathKey = diagnostic.path ?? '';
+    const groupIndex = indexByPath.get(pathKey);
+    if (groupIndex === undefined) {
+      indexByPath.set(pathKey, groups.length);
+      groups.push({
+        key: `${pathKey}-${groups.length}`,
+        path: diagnostic.path,
+        items: [{key: `${pathKey}-0`, diagnostic}],
+      });
+    } else {
+      const group = groups[groupIndex];
+      if (group) group.items.push({key: `${pathKey}-${group.items.length}`, diagnostic});
+    }
+  }
+  return groups;
 }
 
 function DefinitionSheet({

@@ -2,7 +2,7 @@ import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
 import {InvalidWorkflowDocumentError} from '@shipfox/workflow-document';
 import {definitionDefaultRunnerLabels} from '../config.js';
 import type {IntegrationValidationContext} from './entities/integration-context.js';
-import type {ValidationWarning} from './entities/validation-warning.js';
+import type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 import type {WorkflowDefinitionPayload} from './entities/workflow-definition.js';
 import {
   InvalidWorkflowModelError,
@@ -12,7 +12,7 @@ import {
 import {InvalidWorkflowYamlError, parseWorkflowYamlWithLocations} from './workflow-yaml/index.js';
 
 export type ValidationError = {message: string; path?: string | undefined};
-export type {ValidationWarning} from './entities/validation-warning.js';
+export type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 
 export interface DefinitionValidationOptions {
   defaultRunnerLabels?: readonly string[];
@@ -21,7 +21,7 @@ export interface DefinitionValidationOptions {
 }
 
 export type ValidationResult =
-  | {valid: true; definition: WorkflowDefinitionPayload; warnings: ValidationWarning[]}
+  | {valid: true; definition: WorkflowDefinitionPayload; diagnostics: ValidationDiagnostic[]}
   | {valid: false; errors: ValidationError[]};
 
 export function validateDefinition(
@@ -30,28 +30,33 @@ export function validateDefinition(
 ): ValidationResult {
   try {
     const {document, stepSourceLocations} = parseWorkflowYamlWithLocations(yamlContent);
-    const warnings: WorkflowModelValidationIssue[] = [];
+    const diagnostics: WorkflowModelValidationIssue[] = [];
     const model = normalizeWorkflowDocument(document, {
       defaultRunnerLabels: options.defaultRunnerLabels ?? definitionDefaultRunnerLabels,
       agentValidationCatalog: options.agentValidationCatalog,
       integrationValidationContext: options.integrationValidationContext,
       stepSourceLocations,
-      warnings,
+      diagnostics,
     });
-    return {valid: true, definition: {document, model}, warnings: validationWarningsFor(warnings)};
+    return {
+      valid: true,
+      definition: {document, model},
+      diagnostics: validationDiagnosticsFor(diagnostics),
+    };
   } catch (error) {
     return {valid: false, errors: validationErrorsFor(error)};
   }
 }
 
-function validationWarningsFor(
+function validationDiagnosticsFor(
   issues: readonly WorkflowModelValidationIssue[],
-): ValidationWarning[] {
+): ValidationDiagnostic[] {
   return issues.map((issue) =>
-    validationWarning({
+    validationDiagnostic({
       code: issue.code,
       message: issue.message,
       path: issue.path.join('.') || undefined,
+      severity: issue.severity,
     }),
   );
 }
@@ -92,11 +97,14 @@ function validationError(params: {message: string; path?: string | undefined}): 
   return {message: params.message, path: params.path};
 }
 
-function validationWarning(params: {
+function validationDiagnostic(params: {
   code: string;
   message: string;
   path?: string | undefined;
-}): ValidationWarning {
-  if (params.path === undefined) return {code: params.code, message: params.message};
-  return {code: params.code, message: params.message, path: params.path};
+  severity: 'error' | 'warning';
+}): ValidationDiagnostic {
+  if (params.path === undefined) {
+    return {code: params.code, message: params.message, severity: params.severity};
+  }
+  return {code: params.code, message: params.message, path: params.path, severity: params.severity};
 }
