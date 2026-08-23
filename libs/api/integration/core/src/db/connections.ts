@@ -26,7 +26,7 @@ export interface UpsertIntegrationConnectionParams {
   slug: string;
   displayName: string;
   lifecycleStatus?: IntegrationConnectionLifecycleStatus | undefined;
-  capabilities: IntegrationCapability[];
+  capabilities?: IntegrationCapability[] | undefined;
 }
 
 export async function upsertIntegrationConnection(
@@ -104,7 +104,7 @@ export interface CreateIntegrationConnectionParams {
   slug: string;
   displayName: string;
   lifecycleStatus?: IntegrationConnectionLifecycleStatus | undefined;
-  capabilities: IntegrationCapability[];
+  capabilities?: IntegrationCapability[] | undefined;
 }
 
 const INTEGRATION_CONNECTION_EXTERNAL_UNIQUE_CONSTRAINT =
@@ -269,7 +269,7 @@ export type GetIntegrationConnectionBySlugFn = typeof getIntegrationConnectionBy
 export interface UpdateIntegrationConnectionLifecycleStatusParams {
   id: string;
   lifecycleStatus: IntegrationConnectionLifecycleStatus;
-  capabilities: IntegrationCapability[];
+  capabilities?: IntegrationCapability[] | undefined;
 }
 
 export async function updateIntegrationConnectionLifecycleStatus(
@@ -308,7 +308,7 @@ export type UpdateIntegrationConnectionLifecycleStatusFn =
 async function writeConnectionAvailableEvent(
   executor: IntegrationDb | IntegrationTx,
   connection: IntegrationConnection,
-  capabilities: IntegrationCapability[],
+  capabilities: IntegrationCapability[] | undefined,
 ): Promise<void> {
   await writeOutboxEvent<IntegrationsEventMap>(executor, integrationsOutbox, {
     type: INTEGRATION_CONNECTION_AVAILABLE,
@@ -317,7 +317,7 @@ async function writeConnectionAvailableEvent(
       workspaceId: connection.workspaceId,
       connectionId: connection.id,
       slug: connection.slug,
-      capabilities,
+      capabilities: capabilities ?? [],
     },
   });
 }

@@ -78,10 +78,37 @@ describe('integrationConnectionAvailableSchema', () => {
     expect(integrationConnectionAvailableSchema.parse(input)).toEqual(input);
   });
 
-  it('rejects a payload without capabilities', () => {
+  it('defaults capabilities for an event written before the field existed', () => {
     const {capabilities: _capabilities, ...withoutCapabilities} = validConnectionAvailable;
 
-    expect(() => integrationConnectionAvailableSchema.parse(withoutCapabilities)).toThrow();
+    expect(integrationConnectionAvailableSchema.parse(withoutCapabilities)).toEqual({
+      ...withoutCapabilities,
+      capabilities: [],
+    });
+  });
+
+  it('rejects unknown or empty capability values', () => {
+    expect(() =>
+      integrationConnectionAvailableSchema.parse({
+        ...validConnectionAvailable,
+        capabilities: [''],
+      }),
+    ).toThrow();
+    expect(() =>
+      integrationConnectionAvailableSchema.parse({
+        ...validConnectionAvailable,
+        capabilities: ['agent-tools'],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects capability arrays above the contract bound', () => {
+    expect(() =>
+      integrationConnectionAvailableSchema.parse({
+        ...validConnectionAvailable,
+        capabilities: Array.from({length: 17}, () => 'agent_tools'),
+      }),
+    ).toThrow();
   });
 
   it('rejects a payload without a connection slug', () => {

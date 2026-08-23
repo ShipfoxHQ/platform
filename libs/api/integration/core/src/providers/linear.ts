@@ -4,6 +4,8 @@ import type {
 } from '@shipfox/api-integration-linear';
 import type {IntegrationConnection as CoreIntegrationConnection} from '@shipfox/api-integration-spi';
 import {config} from '#config.js';
+import type {IntegrationCapability} from '#core/entities/provider.js';
+import {getIntegrationProviderCapabilities} from '#core/providers/registry.js';
 import {
   deleteIntegrationConnection,
   getIntegrationConnectionById,
@@ -36,6 +38,7 @@ async function loadLinearModuleParts(
     migrationsPath: linearMigrationsPath,
     upsertLinearInstallation,
   } = await import('@shipfox/api-integration-linear');
+  let providerCapabilities: IntegrationCapability[] = [];
 
   async function getExistingLinearConnection(input: {
     organizationId: string;
@@ -72,7 +75,7 @@ async function loadLinearModuleParts(
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
-            capabilities: ['agent_tools'],
+            capabilities: providerCapabilities,
           },
           {tx},
         );
@@ -161,6 +164,7 @@ async function loadLinearModuleParts(
         : {}),
     },
   });
+  providerCapabilities = getIntegrationProviderCapabilities(integrationProvider.adapters);
 
   return {
     provider: integrationProvider,
@@ -171,7 +175,7 @@ async function loadLinearModuleParts(
         getExistingLinearConnection,
         connectLinearInstallation,
         disconnectLinearInstallation,
-        connectionCapabilities: ['agent_tools'],
+        connectionCapabilities: providerCapabilities,
       }),
     ],
     database: {

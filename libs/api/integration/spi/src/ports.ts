@@ -3,11 +3,7 @@ import type {
   SourcePushPayload,
   SourceRepositoryIdentity,
 } from '@shipfox/api-integration-core-dto';
-import type {
-  IntegrationCapability,
-  IntegrationConnection,
-  IntegrationConnectionLifecycleStatus,
-} from '#contracts.js';
+import type {IntegrationConnection, IntegrationConnectionLifecycleStatus} from '#contracts.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: cross-package transaction handles stay opaque to provider packages
 export type IntegrationTx = any;
@@ -25,7 +21,6 @@ export type CreateIntegrationConnectionFn = (
     slug: string;
     displayName: string;
     lifecycleStatus?: IntegrationConnectionLifecycleStatus | undefined;
-    capabilities: IntegrationCapability[];
   },
   options?: {tx?: IntegrationTx},
 ) => Promise<IntegrationConnection>;
@@ -75,11 +70,7 @@ export type GetIntegrationConnectionByIdFn = (
 ) => Promise<IntegrationConnection | undefined>;
 
 export type UpdateIntegrationConnectionLifecycleStatusFn = (
-  params: {
-    id: string;
-    lifecycleStatus: IntegrationConnectionLifecycleStatus;
-    capabilities: IntegrationCapability[];
-  },
+  params: {id: string; lifecycleStatus: IntegrationConnectionLifecycleStatus},
   options?: {tx?: IntegrationTx},
 ) => Promise<IntegrationConnection | undefined>;
 

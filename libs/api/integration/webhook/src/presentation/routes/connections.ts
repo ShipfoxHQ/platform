@@ -87,7 +87,6 @@ export function createWebhookConnectionRoutes(
         externalAccountId: slug,
         slug,
         displayName: name,
-        capabilities: [],
       });
 
       reply.status(201);
@@ -142,7 +141,6 @@ export function createWebhookConnectionRoutes(
       const updated = await options.updateIntegrationConnectionLifecycleStatus({
         id: connection.id,
         lifecycleStatus: request.body.lifecycle_status,
-        capabilities: [],
       });
       if (!updated) {
         throw new ClientError('Webhook connection not found', 'not-found', {status: 404});

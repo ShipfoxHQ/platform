@@ -47,7 +47,7 @@ export function createUpdateIntegrationConnectionRoute(registry: IntegrationProv
       const updated = await updateIntegrationConnectionLifecycleStatus({
         id: connection.id,
         lifecycleStatus: request.body.lifecycle_status,
-        capabilities,
+        ...(request.body.lifecycle_status === 'active' ? {capabilities} : {}),
       });
       if (!updated) {
         throw new ClientError('Integration connection not found', 'not-found', {status: 404});

@@ -83,8 +83,14 @@ function normalizeProvider(provider: IntegrationProvider): RegisteredIntegration
   return {
     ...provider,
     adapters,
-    capabilities: Object.entries(adapters)
-      .filter(([, adapter]) => Boolean(adapter))
-      .map(([capability]) => capability as IntegrationCapability),
+    capabilities: getIntegrationProviderCapabilities(adapters),
   };
+}
+
+export function getIntegrationProviderCapabilities(
+  adapters: IntegrationProvider['adapters'],
+): IntegrationCapability[] {
+  return Object.entries(adapters ?? {})
+    .filter(([, adapter]) => Boolean(adapter))
+    .map(([capability]) => capability as IntegrationCapability);
 }

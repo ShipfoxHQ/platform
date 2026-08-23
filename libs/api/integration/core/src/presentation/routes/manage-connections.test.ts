@@ -1,6 +1,10 @@
+import {INTEGRATION_CONNECTION_AVAILABLE} from '@shipfox/api-integration-core-dto';
+import {sql} from 'drizzle-orm';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
 import {processIntegrationSecretCleanups} from '#core/secret-cleanup.js';
 import {getIntegrationConnectionById, upsertIntegrationConnection} from '#db/connections.js';
+import {db} from '#db/db.js';
+import {integrationsOutbox} from '#db/schema/outbox.js';
 import {listIntegrationSecretCleanups} from '#db/secret-cleanups.js';
 import {createTestApp, sourceProvider, useIntegrationRouteTest} from '#test/route-utils.js';
 
@@ -30,6 +34,41 @@ describe('PATCH /integration-connections/:connectionId', () => {
     expect(res.json().lifecycle_status).toBe('disabled');
     expect(res.json().capabilities).toEqual(['source_control']);
     expect(reloaded?.lifecycleStatus).toBe('disabled');
+  });
+
+  it('publishes provider capabilities when reactivating a connection', async () => {
+    const app = await createTestApp([sourceProvider()]);
+    const connection = await upsertIntegrationConnection({
+      workspaceId: context.workspaceId,
+      provider: 'gitea',
+      externalAccountId: 'gitea-owner',
+      slug: 'gitea_owner',
+      displayName: 'Gitea',
+      lifecycleStatus: 'disabled',
+    });
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/integration-connections/${connection.id}`,
+      headers: {authorization: 'Bearer user'},
+      payload: {lifecycle_status: 'active'},
+    });
+
+    const [event] = await db()
+      .select({payload: integrationsOutbox.payload})
+      .from(integrationsOutbox)
+      .where(
+        sql`${integrationsOutbox.eventType} = ${INTEGRATION_CONNECTION_AVAILABLE} AND ${integrationsOutbox.payload}->>'connectionId' = ${connection.id}`,
+      );
+
+    expect(res.statusCode).toBe(200);
+    expect(event?.payload).toEqual({
+      provider: 'gitea',
+      workspaceId: context.workspaceId,
+      connectionId: connection.id,
+      slug: 'gitea_owner',
+      capabilities: ['source_control'],
+    });
   });
 
   it('returns not-found for a missing connection', async () => {

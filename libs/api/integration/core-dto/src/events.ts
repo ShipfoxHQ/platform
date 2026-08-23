@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {integrationCapabilitySchema} from './schemas/integrations.js';
 
 export const INTEGRATION_EVENT_RECEIVED = 'integrations.event.received' as const;
 export const INTEGRATION_CONNECTION_AVAILABLE = 'integrations.connection.available' as const;
@@ -30,7 +31,9 @@ export const integrationConnectionAvailableSchema = z.object({
   slug: nonEmptyStringSchema,
   // Provider registry capabilities, so subscribers can tell a tool connection
   // from a source-control connection without their own provider table.
-  capabilities: z.array(nonEmptyStringSchema),
+  // Defaulting keeps availability events written before this field existed
+  // deliverable while every new event is still constrained to known capabilities.
+  capabilities: z.array(integrationCapabilitySchema).max(16).default([]),
 });
 export type IntegrationConnectionAvailableEvent = z.infer<
   typeof integrationConnectionAvailableSchema

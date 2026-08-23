@@ -1,6 +1,8 @@
 import type {ConnectGiteaConnectionInput} from '@shipfox/api-integration-gitea';
 import type {IntegrationConnection as CoreIntegrationConnection} from '@shipfox/api-integration-spi';
 import {config} from '#config.js';
+import type {IntegrationCapability} from '#core/entities/provider.js';
+import {getIntegrationProviderCapabilities} from '#core/providers/registry.js';
 import {
   getIntegrationConnectionById,
   resolveUniqueConnectionSlug,
@@ -19,6 +21,7 @@ async function loadGiteaModuleParts(): Promise<IntegrationModuleParts> {
     db: giteaDb,
     migrationsPath: giteaMigrationsPath,
   } = await import('@shipfox/api-integration-gitea');
+  let providerCapabilities: IntegrationCapability[] = [];
 
   async function getExistingGiteaConnection(input: {
     org: string;
@@ -53,7 +56,7 @@ async function loadGiteaModuleParts(): Promise<IntegrationModuleParts> {
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
-            capabilities: ['source_control'],
+            capabilities: providerCapabilities,
           },
           {tx},
         );
@@ -79,6 +82,7 @@ async function loadGiteaModuleParts(): Promise<IntegrationModuleParts> {
     getIntegrationConnectionById,
     coreDb: db,
   });
+  providerCapabilities = getIntegrationProviderCapabilities(integrationProvider.adapters);
 
   return {
     provider: integrationProvider,

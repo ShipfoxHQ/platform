@@ -5,6 +5,8 @@ import type {
 } from '@shipfox/api-integration-jira';
 import type {IntegrationConnection as CoreIntegrationConnection} from '@shipfox/api-integration-spi';
 import {config} from '#config.js';
+import type {IntegrationCapability} from '#core/entities/provider.js';
+import {getIntegrationProviderCapabilities} from '#core/providers/registry.js';
 import {
   deleteIntegrationConnection,
   getIntegrationConnectionById,
@@ -45,6 +47,7 @@ async function loadJiraModuleParts(
     withJiraWebhookRegistrationLock,
   } = await import('@shipfox/api-integration-jira');
   const jira = createJiraApiClient();
+  let providerCapabilities: IntegrationCapability[] = [];
 
   async function getExistingJiraConnection(input: {
     cloudId: string;
@@ -80,7 +83,7 @@ async function loadJiraModuleParts(
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
-            capabilities: ['agent_tools'],
+            capabilities: providerCapabilities,
           },
           {tx},
         );
@@ -170,7 +173,6 @@ async function loadJiraModuleParts(
       await updateIntegrationConnectionLifecycleStatus({
         id: connectionId,
         lifecycleStatus: 'error',
-        capabilities: ['agent_tools'],
       });
     },
   });
@@ -224,7 +226,7 @@ async function loadJiraModuleParts(
           {
             id: connectionId,
             lifecycleStatus: 'active',
-            capabilities: ['agent_tools'],
+            capabilities: providerCapabilities,
           },
           tx === undefined ? {} : {tx: tx as IntegrationTx},
         );
@@ -234,7 +236,6 @@ async function loadJiraModuleParts(
           {
             id: connectionId,
             lifecycleStatus: 'error',
-            capabilities: ['agent_tools'],
           },
           tx === undefined ? {} : {tx: tx as IntegrationTx},
         );
@@ -244,6 +245,7 @@ async function loadJiraModuleParts(
         : {}),
     },
   });
+  providerCapabilities = getIntegrationProviderCapabilities(integrationProvider.adapters);
 
   return {
     provider: integrationProvider,
