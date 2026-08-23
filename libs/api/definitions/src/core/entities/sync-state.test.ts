@@ -1,4 +1,4 @@
-import {DEFINITION_SYNC_WARNINGS_MAX_COUNT} from '@shipfox/api-definitions-dto';
+import {DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT} from '@shipfox/api-definitions-dto';
 import {type DefinitionSyncDiagnostic, limitDefinitionSyncDiagnostics} from './sync-state.js';
 
 describe('limitDefinitionSyncDiagnostics', () => {
@@ -20,7 +20,7 @@ describe('limitDefinitionSyncDiagnostics', () => {
 
   it('drops warnings first when the list exceeds the maximum count', () => {
     const diagnostics: DefinitionSyncDiagnostic[] = [
-      ...Array.from({length: DEFINITION_SYNC_WARNINGS_MAX_COUNT}, (_, index) => ({
+      ...Array.from({length: DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT}, (_, index) => ({
         code: `warning-${index}`,
         message: `warning ${index}`,
         severity: 'warning' as const,
@@ -30,12 +30,14 @@ describe('limitDefinitionSyncDiagnostics', () => {
 
     const limited = limitDefinitionSyncDiagnostics(diagnostics);
 
-    expect(limited).toHaveLength(DEFINITION_SYNC_WARNINGS_MAX_COUNT);
+    expect(limited).toHaveLength(DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT);
     expect(limited[0]?.code).toBe('error-last');
     expect(limited.filter((entry) => entry.severity === 'error')).toHaveLength(1);
     expect(limited.some((entry) => entry.code === 'warning-0')).toBe(true);
     expect(
-      limited.some((entry) => entry.code === `warning-${DEFINITION_SYNC_WARNINGS_MAX_COUNT - 1}`),
+      limited.some(
+        (entry) => entry.code === `warning-${DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT - 1}`,
+      ),
     ).toBe(false);
   });
 

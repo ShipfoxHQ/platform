@@ -1,8 +1,8 @@
 import {
+  DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT,
   DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
-  DEFINITION_SYNC_WARNINGS_MAX_COUNT,
 } from '@shipfox/api-definitions-dto';
 import {eq} from 'drizzle-orm';
 import {db} from './db.js';
@@ -122,7 +122,7 @@ describe('definition sync state queries', () => {
           filePath: '.shipfox/workflows/deploy.yml',
           severity: 'error',
         },
-        ...Array.from({length: DEFINITION_SYNC_WARNINGS_MAX_COUNT}, (_, index) => ({
+        ...Array.from({length: DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT}, (_, index) => ({
           code: `${index}-${'c'.repeat(DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH)}`,
           message: `${index}-${'m'.repeat(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH)}`,
           path: `${index}-${'p'.repeat(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}`,
@@ -131,7 +131,7 @@ describe('definition sync state queries', () => {
       ],
     });
 
-    expect(state.diagnostics).toHaveLength(DEFINITION_SYNC_WARNINGS_MAX_COUNT);
+    expect(state.diagnostics).toHaveLength(DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT);
     expect(state.diagnostics[0]).toEqual({
       code: 'error-first',
       message: 'error first',

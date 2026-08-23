@@ -1,6 +1,6 @@
 import {z} from 'zod';
 
-export const DEFINITION_SYNC_WARNINGS_MAX_COUNT = 100;
+export const DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT = 100;
 export const DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH = 128;
 export const DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH = 2048;
 export const DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH = 512;
@@ -122,7 +122,7 @@ export const definitionSyncSummarySchema = z.object({
   last_error_message: z.string().nullable(),
   diagnostics: z
     .array(definitionValidationDiagnosticSchema)
-    .max(DEFINITION_SYNC_WARNINGS_MAX_COUNT),
+    .max(DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT),
 });
 
 export type DefinitionSyncSummaryDto = z.infer<typeof definitionSyncSummarySchema>;

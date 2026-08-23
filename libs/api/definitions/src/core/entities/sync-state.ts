@@ -1,9 +1,9 @@
 import {
   DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH,
+  DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT,
   DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
-  DEFINITION_SYNC_WARNINGS_MAX_COUNT,
 } from '@shipfox/api-definitions-dto';
 import type {ValidationDiagnostic} from './validation-diagnostic.js';
 
@@ -15,7 +15,7 @@ export interface DefinitionSyncDiagnostic extends ValidationDiagnostic {
 
 /**
  * Orders errors before warnings and bounds the list so truncation at
- * `DEFINITION_SYNC_WARNINGS_MAX_COUNT` drops warnings first.
+ * `DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT` drops warnings first.
  */
 export function limitDefinitionSyncDiagnostics(
   diagnostics: readonly DefinitionSyncDiagnostic[],
@@ -25,9 +25,9 @@ export function limitDefinitionSyncDiagnostics(
     for (const diagnostic of diagnostics) {
       if (diagnostic.severity !== severity) continue;
       ordered.push(diagnostic);
-      if (ordered.length === DEFINITION_SYNC_WARNINGS_MAX_COUNT) break;
+      if (ordered.length === DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT) break;
     }
-    if (ordered.length === DEFINITION_SYNC_WARNINGS_MAX_COUNT) break;
+    if (ordered.length === DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT) break;
   }
 
   return ordered.map((diagnostic) => ({
