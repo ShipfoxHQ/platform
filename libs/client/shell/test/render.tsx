@@ -7,19 +7,29 @@ import type {ClientFeature} from '#contract.js';
 import {assembleRouteTree, type ResolveRouteImpl} from '#runtime/assemble-route-tree.js';
 import {type AuthStateValue, authStateAtom} from '#runtime/auth.js';
 import {ChromeProvider, type ChromeSlots} from '#runtime/chrome-context.js';
+import {
+  type ClientAnalytics,
+  ClientAnalyticsProvider,
+  noopClientAnalytics,
+} from '#runtime/client-analytics.js';
 import {ShellProviderStack} from '#runtime/provider-stack.js';
 import {navigationEntries, settingsEntries} from '#runtime/registries.js';
+import type {WorkspaceSetupGate} from '#runtime/workspace-setup.js';
 
 export async function renderComposedShell({
   features,
   initialPath,
   resolveImpl,
   chrome: chromeOverrides,
+  workspaceSetup,
+  clientAnalytics,
 }: {
   features: readonly ClientFeature[];
   initialPath: string;
   resolveImpl: ResolveRouteImpl;
   chrome?: Partial<ChromeSlots>;
+  workspaceSetup?: WorkspaceSetupGate;
+  clientAnalytics?: ClientAnalytics;
 }): Promise<{
   router: unknown;
   queryClient: QueryClient;
@@ -55,20 +65,22 @@ export async function renderComposedShell({
     context: {
       auth,
       queryClient,
-      workspaceSetup: async () => ({hideProjectNavigation: false}),
+      workspaceSetup: workspaceSetup ?? (async () => ({hideProjectNavigation: false})),
       projectSlugResolver: chrome.projectSlugResolver,
     },
   });
   render(
     <ChromeProvider chrome={chrome}>
-      <ShellProviderStack
-        features={features}
-        queryClient={queryClient}
-        store={store}
-        auth={{effects: false}}
-      >
-        <RouterProvider router={router} />
-      </ShellProviderStack>
+      <ClientAnalyticsProvider analytics={clientAnalytics ?? noopClientAnalytics}>
+        <ShellProviderStack
+          features={features}
+          queryClient={queryClient}
+          store={store}
+          auth={{effects: false}}
+        >
+          <RouterProvider router={router} />
+        </ShellProviderStack>
+      </ClientAnalyticsProvider>
     </ChromeProvider>,
   );
   return {router, queryClient, store};

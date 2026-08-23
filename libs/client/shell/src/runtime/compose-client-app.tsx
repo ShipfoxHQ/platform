@@ -17,6 +17,11 @@ import {composeClientFeatures} from '#compose/compose-client-features.js';
 import type {ClientFeature} from '#contract.js';
 import {useAuthState} from './auth.js';
 import {ChromeProvider, type ChromeSlots} from './chrome-context.js';
+import {
+  type ClientAnalytics,
+  ClientAnalyticsProvider,
+  noopClientAnalytics,
+} from './client-analytics.js';
 import {ShellProviderStack} from './provider-stack.js';
 import type {WorkspaceSetupGate} from './workspace-setup.js';
 
@@ -25,11 +30,13 @@ export function composeClientApp({
   router,
   chrome,
   workspaceSetup,
+  clientAnalytics,
 }: {
   features: readonly ClientFeature[];
   router: AnyRouter;
   chrome?: ChromeSlots;
   workspaceSetup?: WorkspaceSetupGate;
+  clientAnalytics?: ClientAnalytics;
 }) {
   const composition = composeClientFeatures(features);
   const config = loadConfig(composition.configShape, {
@@ -59,15 +66,21 @@ export function composeClientApp({
       root.render(
         <StrictMode>
           <ChromeProvider chrome={chrome}>
-            <ShellProviderStack features={features} queryClient={queryClient} store={createStore()}>
-              <RoutedApp
-                router={router}
+            <ClientAnalyticsProvider analytics={clientAnalytics ?? noopClientAnalytics}>
+              <ShellProviderStack
+                features={features}
                 queryClient={queryClient}
-                workspaceSetup={workspaceSetup}
-                projectSlugResolver={chrome?.projectSlugResolver}
-              />
-              <Toaster />
-            </ShellProviderStack>
+                store={createStore()}
+              >
+                <RoutedApp
+                  router={router}
+                  queryClient={queryClient}
+                  workspaceSetup={workspaceSetup}
+                  projectSlugResolver={chrome?.projectSlugResolver}
+                />
+                <Toaster />
+              </ShellProviderStack>
+            </ClientAnalyticsProvider>
           </ChromeProvider>
         </StrictMode>,
       );

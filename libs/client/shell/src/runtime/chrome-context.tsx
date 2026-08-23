@@ -11,6 +11,18 @@ export interface ChromeSlots {
    * null, and owns whether this content renders from the current session.
    */
   AccountMenuEntry?: ComponentType;
+  /**
+   * Optional component the projects hub renders as its first panel. The hub
+   * renders nothing when the slot is absent, so a consumer that composes
+   * without the onboarding feature is unaffected.
+   */
+  WorkspaceSetupChecklist?: ComponentType;
+  /**
+   * Optional component the nav bar renders right of the breadcrumbs. The bar
+   * renders nothing when the slot is absent, and never on the pre-project gate
+   * pages (while hideProjectNavigation is true).
+   */
+  WorkspaceSetupIndicator?: ComponentType;
 }
 
 const ChromeContext = createContext<ChromeSlots | undefined>(undefined);
