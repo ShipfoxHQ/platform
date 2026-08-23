@@ -21,8 +21,8 @@ import {
   type DefinitionAtRefErrorCode,
   DefinitionParseError,
 } from './errors.js';
-import {hasAgentStepIntegrations} from './has-agent-step-integrations.js';
 import {loadIntegrationValidationContext} from './integrations.js';
+import {needsIntegrationValidationContext} from './needs-integration-validation-context.js';
 import type {ParsedDefinition} from './parse-definition.js';
 import {parseDefinitionWithDiagnostics} from './parse-definition.js';
 import {
@@ -230,7 +230,8 @@ async function listDefinitionsAtRefUnsafe(
   });
 
   const needsIntegrationContext = entries.some(
-    (entry) => 'definition' in entry && hasAgentStepIntegrations(entry.definition.document),
+    (entry) =>
+      'definition' in entry && needsIntegrationValidationContext(entry.definition.document),
   );
   if (needsIntegrationContext) {
     const integrationValidationContext = await loadAtRefIntegrationValidationContext({
@@ -239,7 +240,7 @@ async function listDefinitionsAtRefUnsafe(
       signal: params.signal,
     });
     entries = entries.map((entry) =>
-      'definition' in entry && hasAgentStepIntegrations(entry.definition.document)
+      'definition' in entry && needsIntegrationValidationContext(entry.definition.document)
         ? parseListingEntry(
             {path: entry.path, content: entry.content},
             {agentValidationCatalog, integrationValidationContext},
@@ -404,7 +405,7 @@ async function parseDefinitionAtRef(params: {
   );
   throwIfAborted(params.signal);
   const firstPass = parseWorkflowDefinition(params.content, {agentValidationCatalog});
-  if (!hasAgentStepIntegrations(firstPass.document)) return firstPass;
+  if (!needsIntegrationValidationContext(firstPass.document)) return firstPass;
 
   const integrationValidationContext = await loadAtRefIntegrationValidationContext({
     integrations: params.integrations,

@@ -206,12 +206,15 @@ describe('resolveDefinitionAtRef', () => {
       event: 'push',
       filter: 'event.ref == "refs/heads/main"',
     });
-    expect(result.warnings).toEqual([]);
+    expect(result.warnings).toEqual([
+      expect.objectContaining({code: 'unknown-trigger-source', path: 'triggers.on_push'}),
+    ]);
 
     // The file is fetched at the commit, never at the name.
     expect(clients.integrations.fetchSourceFile).toHaveBeenCalledWith(
       expect.objectContaining({ref: COMMIT, path: CONFIG_PATH}),
     );
+    expect(clients.integrations.getAgentToolsContext).toHaveBeenCalled();
 
     // Only the lineage row exists: no definition row and no outbox event.
     const lineages = await countLineageRows(projectId);
@@ -597,12 +600,15 @@ describe('listDefinitionsAtRef', () => {
       name: 'CI',
       valid: true,
       errors: [],
-      warnings: [],
+      warnings: [
+        expect.objectContaining({code: 'unknown-trigger-source', path: 'triggers.on_push'}),
+      ],
       triggers: expect.objectContaining({on_demand: {source: 'manual', event: 'fire'}}),
     });
     expect(clients.integrations.listSourceFiles).toHaveBeenCalledWith(
       expect.objectContaining({ref: COMMIT, prefix: '.shipfox/workflows/', limit: 100}),
     );
+    expect(clients.integrations.getAgentToolsContext).toHaveBeenCalled();
   });
 
   test('reports an invalid file without failing the listing', async () => {
