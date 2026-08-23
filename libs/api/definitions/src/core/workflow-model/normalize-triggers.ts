@@ -195,6 +195,17 @@ export function validateTriggerSourceEvent(params: {
   const {source, path, issues} = params;
   const event = params.event?.trim();
   const eventPath: readonly WorkflowModelValidationIssuePathSegment[] = [...path, 'event'];
+  const integrationValidationContext = params.integrationValidationContext;
+
+  // Integration-source checks are intentionally skipped when the caller has
+  // no workspace context. Keep that contract even for blank event values.
+  if (
+    source !== manualTriggerSource &&
+    source !== cronTriggerSource &&
+    integrationValidationContext === undefined
+  ) {
+    return;
+  }
 
   if (event === '') {
     issues.push(
@@ -241,7 +252,6 @@ export function validateTriggerSourceEvent(params: {
 
   // Integration sources: slug resolution and event catalogs only exist when
   // the document was parsed with an integration context.
-  const integrationValidationContext = params.integrationValidationContext;
   if (integrationValidationContext === undefined) return;
 
   const connection = integrationValidationContext.workspaceConnectionSnapshot.get(source);

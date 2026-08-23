@@ -8,6 +8,7 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
+import {limitDefinitionSyncDiagnostics} from '#core/entities/sync-state.js';
 import {DefinitionParseError} from '#core/errors.js';
 import {loadIntegrationValidationContext} from '#core/integrations.js';
 import {needsIntegrationValidationContext} from '#core/needs-integration-validation-context.js';
@@ -84,7 +85,10 @@ export function buildCreateDefinitionRoute(options: CreateDefinitionRouteOptions
         ref,
       });
 
-      return {...toDefinitionDto(definition), diagnostics: parsed.diagnostics};
+      return {
+        ...toDefinitionDto(definition),
+        diagnostics: limitDefinitionSyncDiagnostics(parsed.diagnostics),
+      };
     },
   });
 }

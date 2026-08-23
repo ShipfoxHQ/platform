@@ -85,7 +85,10 @@ export const definitionDtoSchema = z.object({
 export type DefinitionDto = z.infer<typeof definitionDtoSchema>;
 
 export const definitionResponseSchema = definitionDtoSchema.extend({
-  diagnostics: z.array(definitionValidationDiagnosticSchema).optional(),
+  diagnostics: z
+    .array(definitionValidationDiagnosticSchema)
+    .max(DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT)
+    .optional(),
 });
 
 export type DefinitionResponseDto = z.infer<typeof definitionResponseSchema>;

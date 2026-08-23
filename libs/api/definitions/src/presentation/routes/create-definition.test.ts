@@ -1,4 +1,8 @@
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
+import {
+  DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
+  DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
+} from '@shipfox/api-definitions-dto';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {FastifyInstance} from 'fastify';
@@ -274,6 +278,36 @@ jobs:
       manual_trigger: null,
       workflow_model: {triggers: []},
     });
+  });
+
+  test('bounds oversized trigger diagnostics in the create response', async () => {
+    const triggerKey = `broken_${'x'.repeat(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}`;
+    const event = 'e'.repeat(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/definitions',
+      payload: {
+        project_id: projectId,
+        config_path: 'oversized-trigger.yml',
+        yaml: `
+name: Oversized trigger diagnostic
+runner: ubuntu-latest
+triggers:
+  ${triggerKey}:
+    source: manual
+    event: ${JSON.stringify(event)}
+jobs:
+  build:
+    steps:
+      - run: echo hello
+`,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const diagnostic = res.json().diagnostics[0];
+    expect(diagnostic.message).toHaveLength(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH);
+    expect(diagnostic.path).toHaveLength(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH);
   });
 
   test('loads trigger context and returns unknown-source warnings on create', async () => {

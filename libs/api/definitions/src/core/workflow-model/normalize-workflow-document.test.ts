@@ -4576,6 +4576,30 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
+  it('keeps a blank integration event active when parsed without context', () => {
+    const document: WorkflowDocument = {
+      name: 'blank event without context',
+      triggers: {
+        on_deploy: {
+          source: 'unknown_slug',
+          event: '   ',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model.triggers).toEqual([
+      {id: 'on-deploy', key: 'on_deploy', source: 'unknown_slug', event: ''},
+    ]);
+  });
+
   it('keeps the event absent for integration triggers with the event omitted', () => {
     const document: WorkflowDocument = {
       name: 'source subscriptions',
