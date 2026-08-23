@@ -99,13 +99,17 @@ describe('toActiveProvisionersResponse', () => {
       installation_runners: 'none',
     });
 
-    expect(result[0]).toEqual({
-      id: '33333333-3333-4333-8333-333333333333',
-      name: 'Docker provisioner',
-      prefix: 'sf_pt_test',
-      lastSeenAt: '2026-07-22T09:00:00.000Z',
+    expect(result).toEqual({
+      provisioners: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          name: 'Docker provisioner',
+          prefix: 'sf_pt_test',
+          lastSeenAt: '2026-07-22T09:00:00.000Z',
+        },
+      ],
+      installationRunners: 'none',
     });
-    expect(result.installationRunners).toBe('none');
   });
 });
 

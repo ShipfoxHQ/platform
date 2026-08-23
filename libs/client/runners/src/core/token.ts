@@ -24,7 +24,10 @@ export interface ActiveProvisioner {
 
 export type InstallationRunnersStatus = 'managed' | 'none';
 
-export interface ActiveProvisioners extends Array<ActiveProvisioner> {
+export type ActiveProvisioners = ActiveProvisioner[];
+
+export interface ActiveProvisionersResponse {
+  provisioners: ActiveProvisioners;
   installationRunners: InstallationRunnersStatus;
 }
 

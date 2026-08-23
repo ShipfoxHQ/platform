@@ -2,6 +2,7 @@ import {configureApiClient} from '@shipfox/client-api';
 import {
   createProvisionerToken,
   listActiveProvisioners,
+  listActiveProvisionersResponse,
   listProvisionerTokens,
   revokeProvisionerToken,
 } from './provisioner-tokens.js';
@@ -105,7 +106,7 @@ describe('provisioner token transports', () => {
     expect(request.method).toBe('POST');
   });
 
-  test('lists active provisioners with their installation runners status', async () => {
+  test('keeps listActiveProvisioners array-compatible', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
         provisioners: [
@@ -126,10 +127,20 @@ describe('provisioner token transports', () => {
     const request = fetchImpl.mock.calls[0]?.[0] as Request;
     expect(result).toHaveLength(1);
     expect(result[0]?.name).toBe('Docker provisioner');
-    expect(result.installationRunners).toBe('managed');
     expect(request.url).toBe(
       `https://api.example.test/workspaces/${workspaceId}/provisioners/active`,
     );
     expect(request.method).toBe('GET');
+  });
+
+  test('exposes installation runners status through the response adapter', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({provisioners: [], installation_runners: 'managed'}));
+    configureApiClient({fetchImpl});
+
+    const result = await listActiveProvisionersResponse({workspaceId});
+
+    expect(result).toEqual({provisioners: [], installationRunners: 'managed'});
   });
 });

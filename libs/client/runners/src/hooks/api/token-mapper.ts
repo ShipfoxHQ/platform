@@ -8,7 +8,7 @@ import type {
 } from '@shipfox/api-runners-dto';
 import type {
   ActiveProvisioner,
-  ActiveProvisioners,
+  ActiveProvisionersResponse,
   CreatedManualRegistrationToken,
   CreatedProvisionerToken,
   CreateTokenCommand,
@@ -54,10 +54,11 @@ export function toActiveProvisioner(dto: ActiveProvisionerDto): ActiveProvisione
 
 export function toActiveProvisionersResponse(
   dto: ListActiveProvisionersResponseDto,
-): ActiveProvisioners {
-  return Object.assign(dto.provisioners.map(toActiveProvisioner), {
+): ActiveProvisionersResponse {
+  return {
+    provisioners: dto.provisioners.map(toActiveProvisioner),
     installationRunners: dto.installation_runners,
-  });
+  };
 }
 
 export function toCreatedManualRegistrationToken(
