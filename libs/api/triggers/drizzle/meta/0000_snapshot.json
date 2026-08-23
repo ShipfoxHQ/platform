@@ -225,6 +225,22 @@
           "method": "btree",
           "with": {}
         },
+        "triggers_decisions_dev_event_unique": {
+          "name": "triggers_decisions_dev_event_unique",
+          "columns": [
+            {
+              "expression": "received_event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"triggers_decisions\".\"subscription_kind\" = 'dev'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "triggers_decisions_run_idx": {
           "name": "triggers_decisions_run_idx",
           "columns": [
@@ -259,6 +275,10 @@
         "triggers_decisions_subscription_kind_ck": {
           "name": "triggers_decisions_subscription_kind_ck",
           "value": "\"triggers_decisions\".\"subscription_kind\" IN ('trigger', 'listener', 'dev')"
+        },
+        "triggers_decisions_subscription_id_ck": {
+          "name": "triggers_decisions_subscription_id_ck",
+          "value": "(\"triggers_decisions\".\"subscription_kind\" = 'dev' AND \"triggers_decisions\".\"subscription_id\" IS NULL) OR (\"triggers_decisions\".\"subscription_kind\" IN ('trigger', 'listener') AND \"triggers_decisions\".\"subscription_id\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -753,6 +773,7 @@
             }
           ],
           "isUnique": false,
+          "where": "\"triggers_received_events\".\"replay_of_event_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

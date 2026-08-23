@@ -1,4 +1,5 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
+import {sql} from 'drizzle-orm';
 import {index, integer, jsonb, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
 import {
   type TriggerReceivedEvent,
@@ -45,7 +46,9 @@ export const triggersReceivedEvents = pgTable(
     index('triggers_received_events_workspace_source_idx').on(table.workspaceId, table.source),
     index('triggers_received_events_workspace_event_idx').on(table.workspaceId, table.event),
     // Back the replay link direction: which events replayed a given source event.
-    index('triggers_received_events_replay_of_event_id_idx').on(table.replayOfEventId),
+    index('triggers_received_events_replay_of_event_id_idx')
+      .on(table.replayOfEventId)
+      .where(sql`${table.replayOfEventId} IS NOT NULL`),
   ],
 );
 

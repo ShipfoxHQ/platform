@@ -312,6 +312,62 @@ describe('dev decision inserts', () => {
       reason: 'filter is false',
     });
   });
+
+  it('converges repeated dev triggered writes to one decision', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const workflowDefinitionId = crypto.randomUUID();
+    const firstRun = {id: crypto.randomUUID(), name: 'First dev run'};
+    const secondRun = {id: crypto.randomUUID(), name: 'Second dev run'};
+
+    await upsertDevTriggeredDecision({
+      receivedEventId,
+      triggerKey: 'on_issue',
+      workflowDefinitionId,
+      run: firstRun,
+    });
+    await upsertDevTriggeredDecision({
+      receivedEventId,
+      triggerKey: 'on_issue',
+      workflowDefinitionId,
+      run: secondRun,
+    });
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      decision: 'triggered',
+      runId: secondRun.id,
+      runName: secondRun.name,
+    });
+  });
+
+  it('does not downgrade a dev triggered decision on a filter-error replay', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const workflowDefinitionId = crypto.randomUUID();
+    const run = {id: crypto.randomUUID(), name: 'Dev run'};
+
+    await upsertDevTriggeredDecision({
+      receivedEventId,
+      triggerKey: 'on_issue',
+      workflowDefinitionId,
+      run,
+    });
+    await upsertDevFilterErrorDecision({
+      receivedEventId,
+      triggerKey: 'on_issue',
+      workflowDefinitionId,
+      reason: 'late filter failure',
+    });
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      decision: 'triggered',
+      runId: run.id,
+      runName: run.name,
+      reason: null,
+    });
+  });
 });
 
 describe('decision upserts', () => {

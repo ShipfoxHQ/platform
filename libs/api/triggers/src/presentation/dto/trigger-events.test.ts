@@ -1,3 +1,8 @@
+import {
+  triggerDecisionDtoSchema,
+  triggerDecisionSubscriptionKindSchema,
+  triggerEventOriginSchema,
+} from '@shipfox/api-triggers-dto';
 import type {TriggerDecision} from '#core/entities/decision.js';
 import type {
   TriggerReceivedEvent,
@@ -141,5 +146,43 @@ describe('trigger-events mappers', () => {
       matcher_ordinal: 0,
       decision: 'triggered',
     });
+  });
+});
+
+describe('trigger event DTO contract', () => {
+  const baseDecision = {
+    id: '33333333-3333-4333-8333-333333333333',
+    received_event_id: '11111111-1111-4111-8111-111111111111',
+    subscription_kind: 'trigger',
+    subscription_id: '44444444-4444-4444-4444-444444444444',
+    subscription_name: 'Deploy production',
+    workflow_definition_id: '55555555-5555-5555-8555-555555555555',
+    project_id: '66666666-6666-6666-8666-666666666666',
+    workflow_run_id: null,
+    job_id: null,
+    matcher_kind: null,
+    matcher_ordinal: null,
+    decision: 'triggered',
+    run_id: '77777777-7777-4777-8777-777777777777',
+    run_name: 'Dev run',
+    reason: null,
+    created_at: '2026-05-07T00:00:02.000Z',
+  };
+
+  test('accepts dev origins and decisions with a null subscription id', () => {
+    expect(triggerEventOriginSchema.safeParse('dev').success).toBe(true);
+    expect(triggerDecisionSubscriptionKindSchema.safeParse('dev').success).toBe(true);
+    expect(
+      triggerDecisionDtoSchema.safeParse({
+        ...baseDecision,
+        subscription_kind: 'dev',
+        subscription_id: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  test('rejects unknown origin and decision kinds', () => {
+    expect(triggerEventOriginSchema.safeParse('unknown').success).toBe(false);
+    expect(triggerDecisionSubscriptionKindSchema.safeParse('unknown').success).toBe(false);
   });
 });

@@ -286,25 +286,31 @@ export interface UpsertDevTriggeredDecisionParams {
   run: {id: string; name: string};
 }
 
-// A dev journal entry has exactly one decision. The unique index
-// (received_event_id, subscription_kind, subscription_id) treats NULL
-// subscription ids as distinct, so there is no conflict target to upsert on;
-// the caller writes the single decision per entry.
+// A dev journal entry has exactly one decision. Its partial unique index uses
+// received_event_id because NULL subscription ids do not conflict in the
+// regular subscription identity index.
 export async function upsertDevTriggeredDecision(
   params: UpsertDevTriggeredDecisionParams,
 ): Promise<void> {
-  await db().insert(triggersDecisions).values({
-    receivedEventId: params.receivedEventId,
-    subscriptionKind: 'dev',
-    subscriptionId: null,
-    subscriptionName: params.triggerKey,
-    workflowDefinitionId: params.workflowDefinitionId,
-    projectId: null,
-    decision: 'triggered',
-    runId: params.run.id,
-    runName: params.run.name,
-    reason: null,
-  });
+  await db()
+    .insert(triggersDecisions)
+    .values({
+      receivedEventId: params.receivedEventId,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: params.triggerKey,
+      workflowDefinitionId: params.workflowDefinitionId,
+      projectId: null,
+      decision: 'triggered',
+      runId: params.run.id,
+      runName: params.run.name,
+      reason: null,
+    })
+    .onConflictDoUpdate({
+      target: triggersDecisions.receivedEventId,
+      targetWhere: sql`"subscription_kind" = 'dev'`,
+      set: {decision: 'triggered', runId: params.run.id, runName: params.run.name, reason: null},
+    });
 }
 
 export interface UpsertDevFilterErrorDecisionParams {
@@ -318,16 +324,24 @@ export interface UpsertDevFilterErrorDecisionParams {
 export async function upsertDevFilterErrorDecision(
   params: UpsertDevFilterErrorDecisionParams,
 ): Promise<void> {
-  await db().insert(triggersDecisions).values({
-    receivedEventId: params.receivedEventId,
-    subscriptionKind: 'dev',
-    subscriptionId: null,
-    subscriptionName: params.triggerKey,
-    workflowDefinitionId: params.workflowDefinitionId,
-    projectId: null,
-    decision: 'filter-error',
-    runId: null,
-    runName: null,
-    reason: params.reason,
-  });
+  await db()
+    .insert(triggersDecisions)
+    .values({
+      receivedEventId: params.receivedEventId,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: params.triggerKey,
+      workflowDefinitionId: params.workflowDefinitionId,
+      projectId: null,
+      decision: 'filter-error',
+      runId: null,
+      runName: null,
+      reason: params.reason,
+    })
+    .onConflictDoUpdate({
+      target: triggersDecisions.receivedEventId,
+      targetWhere: sql`"subscription_kind" = 'dev'`,
+      set: {decision: 'filter-error', runId: null, runName: null, reason: params.reason},
+      setWhere: ne(triggersDecisions.decision, 'triggered'),
+    });
 }
