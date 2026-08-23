@@ -194,6 +194,51 @@ describe('routeEventToJobListeners', () => {
     );
   });
 
+  it('delivers on and until NULL-event source subscriptions for any event from their source', async () => {
+    const workspaceId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      jobId,
+      kind: 'on',
+      matcherOrdinal: 0,
+      source: 'github',
+      event: null,
+    });
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      jobId,
+      kind: 'until',
+      matcherOrdinal: 0,
+      source: 'github',
+      event: null,
+    });
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      jobId: crypto.randomUUID(),
+      kind: 'on',
+      matcherOrdinal: 0,
+      source: 'sentry',
+      event: null,
+    });
+
+    const result = await route({workspaceId, event: 'pull_request'});
+
+    expect(deliverEventToListener).toHaveBeenCalledTimes(1);
+    expect(deliverEventToListener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId,
+        source: 'github',
+        event: 'pull_request',
+        disposition: 'resolve',
+      }),
+    );
+    expect(listenerTriggered).toHaveBeenCalledWith(
+      expect.objectContaining({jobId, kind: 'until', source: 'github', event: null}),
+    );
+    expect(result).toMatchObject({engagedCount: 1, matchedJobCount: 1, acceptedJobCount: 1});
+  });
+
   it('does not deliver when no listener subscription matches', async () => {
     const workspaceId = crypto.randomUUID();
     await jobListenerSubscriptionFactory.create({

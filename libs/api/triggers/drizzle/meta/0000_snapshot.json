@@ -315,7 +315,7 @@
           "name": "event",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "config": {
           "name": "config",
@@ -789,7 +789,7 @@
           "name": "event",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "config": {
           "name": "config",

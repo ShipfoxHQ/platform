@@ -47,7 +47,9 @@ export async function fireCronSubscription(
     workspaceId: subscription.workspaceId,
     provider: null,
     source: subscription.source,
-    event: subscription.event,
+    // The normalizer always writes `tick` for cron; fall back so a bad NULL
+    // row cannot crash the fire path.
+    event: subscription.event ?? 'tick',
     deliveryId: null,
     connectionId: null,
     connectionName: null,

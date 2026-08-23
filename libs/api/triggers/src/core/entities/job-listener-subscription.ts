@@ -8,7 +8,8 @@ export interface JobListenerSubscription {
   kind: JobListenerMatcherKind;
   matcherOrdinal: number;
   source: string;
-  event: string;
+  /** NULL is a source subscription: matches every event the source delivers. */
+  event: string | null;
   config: Record<string, unknown>;
   createdAt: Date;
 }

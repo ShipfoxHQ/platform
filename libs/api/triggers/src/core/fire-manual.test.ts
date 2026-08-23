@@ -132,6 +132,31 @@ describe('fireManualSubscription (trigger history)', () => {
     expect(decisions[0]?.reason).toContain('definition-not-found');
   });
 
+  test('falls back to fire in history when a bad row stores a NULL event', async () => {
+    const subscription = await triggerSubscriptionFactory.create({
+      source: 'manual',
+      event: null,
+      config: {},
+    });
+    const run = {id: crypto.randomUUID(), name: 'Manual run'};
+    runWorkflow.mockResolvedValue(run);
+
+    await fireManualSubscription({
+      workflows,
+      subscriptionId: subscription.id,
+      callerWorkspaceId: subscription.workspaceId,
+      userId: crypto.randomUUID(),
+    });
+
+    const [event] = await db()
+      .select()
+      .from(triggersReceivedEvents)
+      .where(eq(triggersReceivedEvents.eventRef, run.id));
+    if (!event) throw new Error('received event not found');
+    expect(event.event).toBe('fire');
+    expect(event.outcome).toBe('routed');
+  });
+
   test('does not record a received event when the subscription is not a manual trigger', async () => {
     const subscription = await triggerSubscriptionFactory.create({
       source: 'github',

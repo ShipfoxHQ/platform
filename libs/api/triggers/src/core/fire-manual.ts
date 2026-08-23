@@ -46,7 +46,9 @@ export async function fireManualSubscription(
     workspaceId: subscription.workspaceId,
     provider: null,
     source: subscription.source,
-    event: subscription.event,
+    // The normalizer always writes `fire` for manual; fall back so a bad NULL
+    // row cannot crash the fire path.
+    event: subscription.event ?? 'fire',
     deliveryId: null,
     connectionId: null,
     connectionName: null,

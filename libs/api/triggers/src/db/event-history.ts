@@ -275,5 +275,6 @@ function listenerDecisionIdentity(params: {
 }
 
 function listenerSubscriptionName(subscription: JobListenerSubscription): string {
-  return `listener ${subscription.kind}[${subscription.matcherOrdinal}] ${subscription.source}/${subscription.event}`;
+  // A NULL event is a source subscription; `*` keeps the audit name unambiguous.
+  return `listener ${subscription.kind}[${subscription.matcherOrdinal}] ${subscription.source}/${subscription.event ?? '*'}`;
 }

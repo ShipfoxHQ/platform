@@ -1,4 +1,4 @@
-import {and, eq, notInArray} from 'drizzle-orm';
+import {and, eq, isNull, notInArray, or} from 'drizzle-orm';
 import type {
   JobListenerMatcherKind,
   JobListenerSubscription,
@@ -13,7 +13,9 @@ type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
 export interface ListenerMatcher {
   source: string;
-  event: string;
+  // An absent event is stored as NULL: a source subscription matching every
+  // event the source delivers.
+  event?: string | undefined;
   inputs?: Readonly<Record<string, unknown>> | undefined;
   filter?: string | undefined;
   filter_snapshot?: Readonly<Record<string, unknown>> | undefined;
@@ -57,7 +59,9 @@ export async function projectJobListenerSubscriptions(
             kind,
             matcherOrdinal,
             source: matcher.source,
-            event: matcher.event,
+            // An absent event is stored as NULL: a source subscription matching
+            // every event the source delivers.
+            event: matcher.event ?? null,
             config,
           })
           .onConflictDoUpdate({
@@ -70,7 +74,7 @@ export async function projectJobListenerSubscriptions(
               workspaceId: params.workspaceId,
               workflowRunId: params.workflowRunId,
               source: matcher.source,
-              event: matcher.event,
+              event: matcher.event ?? null,
               config,
             },
           });
@@ -130,7 +134,10 @@ export async function findMatchingJobListenerSubscriptions(
       and(
         eq(jobListenerSubscriptions.workspaceId, params.workspaceId),
         eq(jobListenerSubscriptions.source, params.source),
-        eq(jobListenerSubscriptions.event, params.event),
+        or(
+          eq(jobListenerSubscriptions.event, params.event),
+          isNull(jobListenerSubscriptions.event),
+        ),
       ),
     );
   return rows.map(toJobListenerSubscription);

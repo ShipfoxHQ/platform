@@ -5,7 +5,10 @@ import {jobListenerSubscriptions} from '#db/schema/job-listener-subscriptions.js
 import {onJobActivated} from '#presentation/subscribers/on-job-activated.js';
 import {onJobTerminated} from '#presentation/subscribers/on-job-terminated.js';
 import {jobListenerSubscriptionFactory} from '#test/index.js';
-import {findMatchingJobListenerSubscriptions} from './job-listener-subscriptions.js';
+import {
+  findMatchingJobListenerSubscriptions,
+  projectJobListenerSubscriptions,
+} from './job-listener-subscriptions.js';
 
 function buildActivatedPayload(
   overrides: Partial<WorkflowsJobActivatedEventDto> = {},
@@ -51,6 +54,46 @@ describe('job listener subscriptions', () => {
     expect(rows.find((row) => row.matcherOrdinal === 0 && row.kind === 'on')?.config).toEqual({
       inputs: {state: 'approved'},
     });
+  });
+
+  it('stores NULL for activated matchers with no event', async () => {
+    const jobId = crypto.randomUUID();
+    const workflowRunId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+
+    await projectJobListenerSubscriptions({
+      workspaceId,
+      workflowRunId,
+      jobId,
+      on: [{source: 'github'}],
+      until: [{source: 'github'}],
+    });
+
+    const rows = await listJobSubscriptions(jobId);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.event)).toEqual([null, null]);
+  });
+
+  it('clears an exact matcher event to NULL when the matcher drops its event', async () => {
+    const jobId = crypto.randomUUID();
+    const workflowRunId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+    const base = {workspaceId, workflowRunId, jobId};
+
+    await projectJobListenerSubscriptions({
+      ...base,
+      on: [{source: 'github', event: 'push'}],
+      until: null,
+    });
+    await projectJobListenerSubscriptions({
+      ...base,
+      on: [{source: 'github'}],
+      until: null,
+    });
+
+    const rows = await listJobSubscriptions(jobId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.event).toBeNull();
   });
 
   it('does not project subscriptions for one-shot jobs', async () => {
@@ -252,6 +295,81 @@ describe('job listener subscriptions', () => {
     });
 
     expect(rows.map((row) => row.id)).toEqual([matching.id]);
+  });
+
+  it('matches any event from the source for NULL-event on and until rows', async () => {
+    const workspaceId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      jobId,
+      kind: 'on',
+      matcherOrdinal: 0,
+      source: 'github',
+      event: null,
+    });
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      jobId,
+      kind: 'until',
+      matcherOrdinal: 0,
+      source: 'github',
+      event: null,
+    });
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      jobId,
+      kind: 'on',
+      matcherOrdinal: 1,
+      source: 'sentry',
+      event: null,
+    });
+
+    const rows = await findMatchingJobListenerSubscriptions({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+    });
+
+    expect(rows.map((row) => [row.kind, row.matcherOrdinal]).sort()).toEqual([
+      ['on', 0],
+      ['until', 0],
+    ]);
+  });
+
+  it('keeps exact-event rows matching only their own event alongside NULL rows', async () => {
+    const workspaceId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      jobId,
+      kind: 'on',
+      matcherOrdinal: 0,
+      source: 'github',
+      event: null,
+    });
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      jobId,
+      kind: 'on',
+      matcherOrdinal: 1,
+      source: 'github',
+      event: 'push',
+    });
+
+    const pushRows = await findMatchingJobListenerSubscriptions({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+    });
+    const prRows = await findMatchingJobListenerSubscriptions({
+      workspaceId,
+      source: 'github',
+      event: 'pull_request',
+    });
+
+    expect(pushRows.map((row) => row.matcherOrdinal).sort()).toEqual([0, 1]);
+    expect(prRows.map((row) => row.matcherOrdinal)).toEqual([0]);
   });
 
   it('returns no subscriptions for a negative match', async () => {
