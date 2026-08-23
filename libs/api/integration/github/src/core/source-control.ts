@@ -201,7 +201,7 @@ export class GithubSourceControlProvider
     if (!isValidResolvableRef(input.ref)) {
       throw new GithubIntegrationProviderError(
         'ref-invalid',
-        `GitHub ref ${input.ref} is not a resolvable branch or tag name`,
+        `GitHub ref ${formatRefForMessage(input.ref)} is not a resolvable branch or tag name`,
       );
     }
     const installationId = await this.installationId(input.connection.id);
@@ -215,7 +215,7 @@ export class GithubSourceControlProvider
     if (!commit) {
       throw new GithubIntegrationProviderError(
         'ref-not-found',
-        `GitHub ref ${input.ref} does not resolve to a commit`,
+        `GitHub ref ${formatRefForMessage(input.ref)} does not resolve to a commit`,
       );
     }
 
@@ -282,6 +282,10 @@ function sameGithubRepository(
   const firstName = nonEmptyString(first.full_name);
   const secondName = nonEmptyString(second.full_name);
   return Boolean(firstName && secondName && firstName.toLowerCase() === secondName.toLowerCase());
+}
+
+function formatRefForMessage(ref: string): string {
+  return JSON.stringify(ref);
 }
 
 async function githubAppGitAuthor(

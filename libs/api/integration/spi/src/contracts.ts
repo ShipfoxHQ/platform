@@ -139,7 +139,10 @@ export interface SourceControlProvider<
   listFiles(input: ListFilesInput<Connection>): Promise<FilePage>;
   fetchFile(input: FetchFileInput<Connection>): Promise<FileSnapshot>;
   resolveTriggerReference(payload: unknown): TriggerReference | null;
-  /** Pins a branch or tag name to the commit it currently points at. */
+  /**
+   * Pins a branch or tag name to the commit it currently points at.
+   * The snapshot can become unreachable before a caller uses it.
+   */
   resolveRef(input: ResolveRefInput<Connection>): Promise<ResolvedRef>;
   createCheckoutSpec?(input: CreateCheckoutSpecInput<Connection>): Promise<CheckoutSpec>;
 }

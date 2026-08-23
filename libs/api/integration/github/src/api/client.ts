@@ -276,6 +276,7 @@ class OctokitGithubApiClient implements GithubApiClient, GithubBotUserClient {
     const response = await mapGithubError(() =>
       octokit.request('GET /repositories/{repository_id}', {
         repository_id: input.repositoryId,
+        request: {signal: AbortSignal.timeout(GITHUB_API_TIMEOUT_MS)},
       }),
     );
 
@@ -426,13 +427,16 @@ class OctokitGithubApiClient implements GithubApiClient, GithubBotUserClient {
       installationId: input.installationId,
       repositoryId: input.repositoryId,
     });
-    const response = await mapGithubError(() =>
-      octokit.rest.repos.listCommits({
-        owner: repository.ownerLogin,
-        repo: repository.name,
-        sha: input.ref,
-        per_page: 1,
-      }),
+    const response = await mapGithubError(
+      () =>
+        octokit.rest.repos.listCommits({
+          owner: repository.ownerLogin,
+          repo: repository.name,
+          sha: input.ref,
+          per_page: 1,
+          request: {signal: AbortSignal.timeout(GITHUB_API_TIMEOUT_MS)},
+        }),
+      'ref-not-found',
     );
     return response.data.map((commit) => {
       if (typeof commit.sha !== 'string') {
@@ -598,6 +602,7 @@ export async function mapGithubError<T>(
     | 'repository-not-found'
     | 'installation-not-found'
     | 'file-not-found'
+    | 'ref-not-found'
     | 'provider-rejected' = 'repository-not-found',
 ): Promise<T> {
   try {
@@ -611,6 +616,14 @@ export async function mapGithubError<T>(
       if (error.status === 404) {
         throw new GithubIntegrationProviderError(
           notFoundReason,
+          error.message,
+          undefined,
+          error.status,
+        );
+      }
+      if (notFoundReason === 'ref-not-found' && (error.status === 409 || error.status === 422)) {
+        throw new GithubIntegrationProviderError(
+          'ref-not-found',
           error.message,
           undefined,
           error.status,

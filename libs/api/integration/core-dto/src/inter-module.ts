@@ -4,6 +4,7 @@ import {z} from 'zod';
 const id = z.string().uuid();
 const provider = z.string().min(1);
 const capability = z.enum(['source_control', 'agent_tools']);
+const safeRef = z.string().refine(isSafeRefInput, 'Ref contains a control character');
 const connection = z.object({id, provider, slug: z.string().min(1)});
 const repository = z.object({
   externalRepositoryId: z.string(),
@@ -38,8 +39,8 @@ const sourceErrors = {
 
 const refErrors = {
   ...sourceErrors,
-  'ref-not-found': z.object({ref: z.string()}),
-  'ref-invalid': z.object({ref: z.string()}),
+  'ref-not-found': z.object({ref: safeRef}),
+  'ref-invalid': z.object({ref: safeRef}),
 };
 
 /** Producer-owned synchronous operations for the Integrations bounded context. */
@@ -61,7 +62,7 @@ export const integrationsInterModuleContract = defineInterModuleContract({
       errors: sourceErrors,
     },
     resolveSourceRef: {
-      input: sourceInput.extend({ref: z.string()}),
+      input: sourceInput.extend({ref: safeRef}),
       output: z.object({ref: z.string(), commit: z.string()}),
       errors: refErrors,
     },
@@ -152,5 +153,12 @@ export const integrationsInterModuleContract = defineInterModuleContract({
     },
   },
 });
+
+function isSafeRefInput(value: string): boolean {
+  return [...value].every((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return !(code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029);
+  });
+}
 
 export type IntegrationsModuleClient = InterModuleClient<typeof integrationsInterModuleContract>;

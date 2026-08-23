@@ -3,6 +3,7 @@ import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {createInMemoryInterModuleTransport} from '@shipfox/node-module/inter-module';
 import {IntegrationProviderError} from '#core/errors.js';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
+import type {SourceControlProvider} from '#core/providers/source-control.js';
 import {createSourceControlIntegrationService} from '#core/source-control-service.js';
 import {createIntegrationsInterModulePresentation} from './inter-module.js';
 
@@ -11,6 +12,9 @@ const connectionId = crypto.randomUUID();
 
 function createClient(
   resolveRef: (input: {ref: string}) => Promise<{ref: string; commit: string}>,
+  resolveRepository: SourceControlProvider['resolveRepository'] = () => {
+    throw new Error('not used');
+  },
 ) {
   const transport = createInMemoryInterModuleTransport();
   const client = transport.createClient(integrationsInterModuleContract);
@@ -23,7 +27,7 @@ function createClient(
         adapters: {
           source_control: {
             listRepositories: vi.fn(),
-            resolveRepository: vi.fn(),
+            resolveRepository: vi.fn(resolveRepository),
             listFiles: vi.fn(),
             fetchFile: vi.fn(),
             resolveTriggerReference: () => null,
@@ -125,6 +129,29 @@ describe('integrations inter-module presentation', () => {
     if (isInterModuleKnownError(integrationsInterModuleContract.methods.resolveSourceRef, error)) {
       expect(error.code).toBe('provider-failure');
       expect(error.details).toEqual({reason: 'rate-limited', retryAfterSeconds: 60});
+    } else {
+      throw error;
+    }
+  });
+
+  it('keeps ref reasons generic for methods that do not declare ref errors', async () => {
+    const client = createClient(
+      async (input) => ({ref: input.ref, commit: 'a'.repeat(40)}),
+      () => {
+        throw new IntegrationProviderError('ref-not-found', 'Ref not found');
+      },
+    );
+
+    const error = await client.resolveSourceRepository(input).catch((caught: unknown) => caught);
+
+    if (
+      isInterModuleKnownError(
+        integrationsInterModuleContract.methods.resolveSourceRepository,
+        error,
+      )
+    ) {
+      expect(error.code).toBe('provider-failure');
+      expect(error.details).toEqual({reason: 'ref-not-found'});
     } else {
       throw error;
     }

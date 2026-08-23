@@ -85,6 +85,17 @@ describe('integrationsInterModuleContract', () => {
     expect(input.ref).toBe('refs/heads/main');
   });
 
+  test('rejects control characters in a ref-bearing input', () => {
+    expect(() =>
+      integrationsInterModuleContract.methods.resolveSourceRef.input.parse({
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        connectionId: '00000000-0000-4000-8000-000000000002',
+        externalRepositoryId: 'github:42',
+        ref: 'refs/heads/unsafe\nname',
+      }),
+    ).toThrow();
+  });
+
   test.each([
     ['connection-not-found', {connectionId: '00000000-0000-4000-8000-000000000001'}],
     ['provider-unavailable', {provider: 'github'}],

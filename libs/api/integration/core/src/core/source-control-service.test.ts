@@ -151,6 +151,19 @@ describe('integration source-control service', () => {
     await expect(result).rejects.toMatchObject({reason: 'ref-not-found'});
   });
 
+  it('rejects source ref resolution for a connection in another workspace', async () => {
+    const service = createService();
+
+    const result = service.resolveSourceRef({
+      workspaceId: crypto.randomUUID(),
+      connectionId: connection.id,
+      externalRepositoryId: 'gitea:gitea-owner/platform',
+      ref: 'refs/heads/main',
+    });
+
+    await expect(result).rejects.toThrow('requested workspace');
+  });
+
   it('rejects a missing connection', async () => {
     const service = createService();
 

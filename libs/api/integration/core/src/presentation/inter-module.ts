@@ -164,10 +164,10 @@ function mapError(
     // Only methods that resolve refs declare these codes; other methods keep
     // seeing the failure as a generic provider failure.
     if (error.reason === 'ref-not-found' && 'ref-not-found' in method.errors) {
-      return createInterModuleKnownError(method, 'ref-not-found', {ref: input.ref ?? ''});
+      return createInterModuleKnownError(method, 'ref-not-found', refDetails(input));
     }
     if (error.reason === 'ref-invalid' && 'ref-invalid' in method.errors) {
-      return createInterModuleKnownError(method, 'ref-invalid', {ref: input.ref ?? ''});
+      return createInterModuleKnownError(method, 'ref-invalid', refDetails(input));
     }
     return createInterModuleKnownError(method, 'provider-failure', {
       reason: error.reason,
@@ -177,4 +177,11 @@ function mapError(
     });
   }
   return error;
+}
+
+function refDetails(input: {ref?: string | undefined}): {ref: string} {
+  if (input.ref === undefined) {
+    throw new Error('Ref error mapping requires a ref input');
+  }
+  return {ref: input.ref};
 }
