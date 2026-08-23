@@ -37,6 +37,9 @@ export function toDefinitionSyncSummaryDto(
     finished_at: syncState.finishedAt?.toISOString() ?? null,
     last_error_code: syncState.lastErrorCode,
     last_error_message: syncState.lastErrorMessage,
-    diagnostics: syncState.diagnostics,
+    diagnostics: syncState.diagnostics.map(({filePath, ...diagnostic}) => ({
+      ...diagnostic,
+      ...(filePath === undefined ? {} : {file_path: filePath}),
+    })),
   };
 }

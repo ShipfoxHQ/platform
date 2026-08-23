@@ -29,6 +29,7 @@ export interface DefinitionSyncDiagnostic {
   code: string;
   message: string;
   path?: string | undefined;
+  filePath?: string | undefined;
   severity: 'error' | 'warning';
 }
 

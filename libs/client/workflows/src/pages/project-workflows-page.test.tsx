@@ -1,5 +1,5 @@
 import {configureApiClient} from '@shipfox/client-api';
-import {fireEvent, screen, waitFor} from '@testing-library/react';
+import {fireEvent, screen, waitFor, within} from '@testing-library/react';
 import {
   jsonResponse,
   PROJECT_TEST_WID,
@@ -110,12 +110,14 @@ describe('ProjectWorkflowsPage', () => {
                   code: 're-evaluating-command',
                   message: 'Workflow data is re-executed as shell code.',
                   path: 'jobs.build.steps.0.run',
+                  file_path: '.shipfox/workflows/warning.yml',
                   severity: 'warning',
                 },
                 {
                   code: 're-evaluating-command',
                   message: 'Workflow data is re-executed as shell code.',
                   path: 'jobs.build.steps.0.run',
+                  file_path: '.shipfox/workflows/warning.yml',
                   severity: 'warning',
                 },
               ],
@@ -128,14 +130,15 @@ describe('ProjectWorkflowsPage', () => {
     renderWorkflowsPage();
 
     expect(await screen.findByText('Workflow definition warnings')).toBeInTheDocument();
-    // Both warnings group under the shared path; the path label renders once.
+    // Both warnings group under the shared workflow file; the file label renders once.
     expect(screen.getAllByText('Workflow data is re-executed as shell code.')).toHaveLength(2);
-    expect(screen.getAllByText('jobs.build.steps.0.run')).toHaveLength(1);
+    expect(screen.getAllByText('.shipfox/workflows/warning.yml')).toHaveLength(1);
+    expect(screen.getAllByText('jobs.build.steps.0.run')).toHaveLength(2);
     expect(screen.getByRole('status')).toBeInTheDocument();
     expect(screen.queryByText('Workflow sync failed')).not.toBeInTheDocument();
   });
 
-  test('shows errors and warnings together with error styling, grouped by path', async () => {
+  test('shows errors and warnings together with severity labels, grouped by file path', async () => {
     configureApiClient({
       fetchImpl: createProjectDetailFetch({
         definitions: jsonResponse(
@@ -153,18 +156,21 @@ describe('ProjectWorkflowsPage', () => {
                   code: 'invalid-trigger-event',
                   message: 'Trigger event is never delivered by this source.',
                   path: 'triggers.on_deploy',
+                  file_path: '.shipfox/workflows/deploy.yml',
                   severity: 'error',
                 },
                 {
                   code: 'unknown-trigger-source',
                   message: 'No connection matches this source slug.',
                   path: 'triggers.on_deploy',
+                  file_path: '.shipfox/workflows/deploy.yml',
                   severity: 'warning',
                 },
                 {
                   code: 're-evaluating-command',
                   message: 'Workflow data is re-executed as shell code.',
                   path: 'jobs.build.steps.0.run',
+                  file_path: '.shipfox/workflows/build.yml',
                   severity: 'warning',
                 },
               ],
@@ -176,16 +182,33 @@ describe('ProjectWorkflowsPage', () => {
 
     renderWorkflowsPage();
 
-    expect(await screen.findByText('Workflow definition errors')).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toBeInTheDocument();
-    // Two groups: the trigger path and the job path.
-    expect(screen.getAllByText('triggers.on_deploy')).toHaveLength(1);
-    expect(screen.getAllByText('jobs.build.steps.0.run')).toHaveLength(1);
-    const errorRow = screen.getByText('Trigger event is never delivered by this source.');
-    const warningRow = screen.getByText('No connection matches this source slug.');
+    expect(await screen.findByText('Workflow definition diagnostics')).toBeInTheDocument();
+    const diagnosticsCallout = screen.getByRole('status');
+    expect(diagnosticsCallout).toBeInTheDocument();
+    // Two groups: the deploy workflow file and the build workflow file.
+    expect(within(diagnosticsCallout).getAllByText('.shipfox/workflows/deploy.yml')).toHaveLength(
+      1,
+    );
+    expect(within(diagnosticsCallout).getAllByText('.shipfox/workflows/build.yml')).toHaveLength(1);
+    expect(within(diagnosticsCallout).getAllByText('triggers.on_deploy')).toHaveLength(2);
+    expect(within(diagnosticsCallout).getAllByText('jobs.build.steps.0.run')).toHaveLength(1);
+    const errorRow = within(diagnosticsCallout).getByText(
+      'Trigger event is never delivered by this source.',
+    );
+    const warningRow = within(diagnosticsCallout).getByText(
+      'No connection matches this source slug.',
+    );
     expect(errorRow).toHaveClass('text-tag-error-text');
     expect(warningRow).not.toHaveClass('text-tag-error-text');
-    expect(screen.getByText('Workflow data is re-executed as shell code.')).toBeInTheDocument();
+    expect(
+      within(diagnosticsCallout).getByText('Error:', {selector: 'span.font-medium'}),
+    ).toBeInTheDocument();
+    expect(
+      within(diagnosticsCallout).getAllByText('Warning:', {selector: 'span.font-medium'}),
+    ).toHaveLength(2);
+    expect(
+      within(diagnosticsCallout).getByText('Workflow data is re-executed as shell code.'),
+    ).toBeInTheDocument();
   });
 
   test('opens and closes the definition drawer by clicking the row', async () => {

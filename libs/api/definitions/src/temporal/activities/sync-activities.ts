@@ -169,7 +169,9 @@ function createFetchAndApplyActivity(
 
       return {
         ...result,
-        diagnostics: definitions.flatMap((entry) => entry.diagnostics),
+        diagnostics: definitions.flatMap((entry) =>
+          entry.diagnostics.map((diagnostic) => ({...diagnostic, filePath: entry.path})),
+        ),
       };
     });
   };

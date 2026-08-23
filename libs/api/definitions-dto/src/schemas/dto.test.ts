@@ -15,6 +15,7 @@ describe('definitionSyncSummarySchema', () => {
           code: 'invalid-trigger-event',
           message: 'Trigger event is never delivered.',
           path: 'triggers.on_deploy',
+          file_path: '.shipfox/workflows/deploy.yml',
           severity: 'error',
         },
         {

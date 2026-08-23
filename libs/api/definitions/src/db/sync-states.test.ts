@@ -7,7 +7,7 @@ import {
 import {eq} from 'drizzle-orm';
 import {db} from './db.js';
 import {definitionSyncStates} from './schema/sync-states.js';
-import {markDefinitionSyncState} from './sync-states.js';
+import {getLatestDefinitionSyncState, markDefinitionSyncState} from './sync-states.js';
 
 describe('definition sync state queries', () => {
   let projectId: string;
@@ -119,6 +119,7 @@ describe('definition sync state queries', () => {
         {
           code: 'error-first',
           message: 'error first',
+          filePath: '.shipfox/workflows/deploy.yml',
           severity: 'error',
         },
         ...Array.from({length: DEFINITION_SYNC_WARNINGS_MAX_COUNT}, (_, index) => ({
@@ -134,6 +135,7 @@ describe('definition sync state queries', () => {
     expect(state.diagnostics[0]).toEqual({
       code: 'error-first',
       message: 'error first',
+      filePath: '.shipfox/workflows/deploy.yml',
       severity: 'error',
     });
     expect(state.diagnostics[1]).toEqual({
@@ -147,6 +149,40 @@ describe('definition sync state queries', () => {
     // The two sentinel diagnostics survive truncation; overflow warnings drop first.
     expect(state.diagnostics[0]?.severity).toBe('error');
     expect(state.diagnostics[1]?.severity).toBe('warning');
+  });
+
+  it('normalizes legacy stored warnings without a severity', async () => {
+    await db()
+      .insert(definitionSyncStates)
+      .values({
+        projectId,
+        sourceConnectionId,
+        sourceExternalRepositoryId: 'gitea-owner/platform',
+        ref: 'main',
+        status: 'succeeded',
+        warnings: [
+          {
+            code: 'legacy-warning',
+            message: 'Written before diagnostics had severity.',
+            path: 'jobs.build.steps.0.run',
+          },
+        ],
+      });
+
+    const state = await getLatestDefinitionSyncState({
+      projectId,
+      sourceConnectionId,
+      sourceExternalRepositoryId: 'gitea-owner/platform',
+    });
+
+    expect(state?.diagnostics).toEqual([
+      {
+        code: 'legacy-warning',
+        message: 'Written before diagnostics had severity.',
+        path: 'jobs.build.steps.0.run',
+        severity: 'warning',
+      },
+    ]);
   });
 
   it('clears stale finish data when a sync starts again', async () => {

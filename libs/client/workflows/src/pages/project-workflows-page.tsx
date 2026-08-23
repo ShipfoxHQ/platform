@@ -387,33 +387,49 @@ function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | u
   if (sync?.status !== 'succeeded' || sync.diagnostics.length === 0) return null;
 
   const hasErrors = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
-  const groups = groupDiagnosticsByPath(sync.diagnostics);
+  const hasWarnings = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'warning');
+  const groups = groupDiagnosticsByFilePath(sync.diagnostics);
+  const title =
+    hasErrors && hasWarnings
+      ? 'Workflow definition diagnostics'
+      : hasErrors
+        ? 'Workflow definition errors'
+        : 'Workflow definition warnings';
 
   return (
-    <Callout role={hasErrors ? 'alert' : 'status'} type={hasErrors ? 'error' : 'warning'}>
+    <Callout role="status" type={hasErrors ? 'error' : 'warning'}>
       <div className="flex flex-col gap-inline">
         <Text size="sm" bold>
-          {hasErrors ? 'Workflow definition errors' : 'Workflow definition warnings'}
+          {title}
         </Text>
         <ul className="flex flex-col gap-tight">
           {groups.map((group) => (
             <li key={group.key} className="flex flex-col gap-tight">
-              {group.path ? (
-                <Code className="text-foreground-neutral-muted">{group.path}</Code>
+              {group.filePath ? (
+                <Code className="text-foreground-neutral-muted">{group.filePath}</Code>
               ) : null}
               <ul className="flex flex-col gap-tight">
-                {group.items.map(({key, diagnostic}) => (
-                  <li key={key}>
-                    <Text
-                      size="sm"
-                      className={
-                        diagnostic.severity === 'error' ? 'text-tag-error-text' : undefined
-                      }
-                    >
-                      {diagnostic.message}
-                    </Text>
-                  </li>
-                ))}
+                {group.items.map(({key, diagnostic}) => {
+                  const severityLabel = diagnostic.severity === 'error' ? 'Error' : 'Warning';
+
+                  return (
+                    <li key={key}>
+                      {diagnostic.path ? (
+                        <Code className="text-foreground-neutral-muted">{diagnostic.path}</Code>
+                      ) : null}
+                      <Text size="sm">
+                        <span className="font-medium">{severityLabel}:</span>{' '}
+                        <span
+                          className={
+                            diagnostic.severity === 'error' ? 'text-tag-error-text' : undefined
+                          }
+                        >
+                          {diagnostic.message}
+                        </span>
+                      </Text>
+                    </li>
+                  );
+                })}
               </ul>
             </li>
           ))}
@@ -425,28 +441,28 @@ function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | u
 
 interface DiagnosticGroup {
   key: string;
-  path: string | undefined;
+  filePath: string | undefined;
   items: {key: string; diagnostic: DefinitionSyncDiagnostic}[];
 }
 
-function groupDiagnosticsByPath(
+function groupDiagnosticsByFilePath(
   diagnostics: readonly DefinitionSyncDiagnostic[],
 ): DiagnosticGroup[] {
   const groups: DiagnosticGroup[] = [];
-  const indexByPath = new Map<string, number>();
+  const indexByFilePath = new Map<string, number>();
   for (const diagnostic of diagnostics) {
-    const pathKey = diagnostic.path ?? '';
-    const groupIndex = indexByPath.get(pathKey);
+    const filePathKey = diagnostic.filePath ?? '';
+    const groupIndex = indexByFilePath.get(filePathKey);
     if (groupIndex === undefined) {
-      indexByPath.set(pathKey, groups.length);
+      indexByFilePath.set(filePathKey, groups.length);
       groups.push({
-        key: `${pathKey}-${groups.length}`,
-        path: diagnostic.path,
-        items: [{key: `${pathKey}-0`, diagnostic}],
+        key: `${filePathKey}-${groups.length}`,
+        filePath: diagnostic.filePath,
+        items: [{key: `${filePathKey}-0`, diagnostic}],
       });
     } else {
       const group = groups[groupIndex];
-      if (group) group.items.push({key: `${pathKey}-${group.items.length}`, diagnostic});
+      if (group) group.items.push({key: `${filePathKey}-${group.items.length}`, diagnostic});
     }
   }
   return groups;

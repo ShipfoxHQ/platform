@@ -57,6 +57,7 @@ export function toDefinitionSyncSummary(dto: DefinitionSyncSummaryDto): Definiti
       message: diagnostic.message,
       severity: diagnostic.severity,
       ...(diagnostic.path === undefined ? {} : {path: diagnostic.path}),
+      ...(diagnostic.file_path === undefined ? {} : {filePath: diagnostic.file_path}),
     })),
   };
 }

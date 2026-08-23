@@ -1,4 +1,5 @@
 import {
+  DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
@@ -8,9 +9,9 @@ import type {ValidationDiagnostic} from './validation-diagnostic.js';
 
 export type DefinitionSyncStatus = 'pending' | 'syncing' | 'succeeded' | 'failed';
 
-export type DefinitionSyncDiagnostic = ValidationDiagnostic;
-
-const severityRank = {error: 0, warning: 1} as const;
+export interface DefinitionSyncDiagnostic extends ValidationDiagnostic {
+  filePath?: string | undefined;
+}
 
 /**
  * Orders errors before warnings and bounds the list so truncation at
@@ -19,17 +20,29 @@ const severityRank = {error: 0, warning: 1} as const;
 export function limitDefinitionSyncDiagnostics(
   diagnostics: readonly DefinitionSyncDiagnostic[],
 ): DefinitionSyncDiagnostic[] {
-  return [...diagnostics]
-    .sort((left, right) => severityRank[left.severity] - severityRank[right.severity])
-    .slice(0, DEFINITION_SYNC_WARNINGS_MAX_COUNT)
-    .map((diagnostic) => ({
-      code: diagnostic.code.slice(0, DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
-      message: diagnostic.message.slice(0, DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
-      severity: diagnostic.severity,
-      ...(diagnostic.path === undefined
-        ? {}
-        : {path: diagnostic.path.slice(0, DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}),
-    }));
+  const ordered: DefinitionSyncDiagnostic[] = [];
+  for (const severity of ['error', 'warning'] as const) {
+    for (const diagnostic of diagnostics) {
+      if (diagnostic.severity !== severity) continue;
+      ordered.push(diagnostic);
+      if (ordered.length === DEFINITION_SYNC_WARNINGS_MAX_COUNT) break;
+    }
+    if (ordered.length === DEFINITION_SYNC_WARNINGS_MAX_COUNT) break;
+  }
+
+  return ordered.map((diagnostic) => ({
+    code: diagnostic.code.slice(0, DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
+    message: diagnostic.message.slice(0, DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
+    severity: diagnostic.severity,
+    ...(diagnostic.path === undefined
+      ? {}
+      : {path: diagnostic.path.slice(0, DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}),
+    ...(diagnostic.filePath === undefined
+      ? {}
+      : {
+          filePath: diagnostic.filePath.slice(0, DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH),
+        }),
+  }));
 }
 
 export const DEFINITION_SYNC_ERROR_CODES = [

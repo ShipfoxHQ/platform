@@ -1,7 +1,7 @@
 import {toDefinitionSyncSummary} from './mappers.js';
 
 describe('toDefinitionSyncSummary', () => {
-  it('maps diagnostics with severity and preserves an absent path', () => {
+  it('maps diagnostics with severity and file path while preserving an absent path', () => {
     const summary = toDefinitionSyncSummary({
       ref: 'main',
       status: 'succeeded',
@@ -16,6 +16,7 @@ describe('toDefinitionSyncSummary', () => {
           code: 'error-code',
           message: 'Trigger error with a path',
           path: 'triggers.on_demand',
+          file_path: '.shipfox/workflows/deploy.yml',
           severity: 'error',
         },
       ],
@@ -27,6 +28,7 @@ describe('toDefinitionSyncSummary', () => {
         code: 'error-code',
         message: 'Trigger error with a path',
         path: 'triggers.on_demand',
+        filePath: '.shipfox/workflows/deploy.yml',
         severity: 'error',
       },
     ]);

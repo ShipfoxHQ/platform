@@ -4,6 +4,7 @@ export const DEFINITION_SYNC_WARNINGS_MAX_COUNT = 100;
 export const DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH = 128;
 export const DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH = 2048;
 export const DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH = 512;
+export const DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH = 512;
 
 export const createDefinitionBodySchema = z
   .object({
@@ -79,6 +80,7 @@ export const definitionValidationDiagnosticSchema = z.object({
   code: z.string().max(DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
   message: z.string().max(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
   path: z.string().max(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH).optional(),
+  file_path: z.string().max(DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH).optional(),
   severity: z.enum(['error', 'warning']),
 });
 
