@@ -5,6 +5,7 @@ Runs a Shipfox API server.
 ## What it does
 
 - **`defaultModules()`**: Returns the standard module list.
+- **`DefaultAgentModuleFactory`**: Builds the Agent module with a scoped Secrets client.
 - **`DefaultAuthModuleFactory`**: Builds the Auth module with the composed Workspaces client.
 - **`createServer()`**: Builds an API server. The caller owns process signals.
 - **`runServer()`**: Starts the server. It listens for SIGTERM and SIGINT.
@@ -45,6 +46,25 @@ const modules = await defaultModules({
   authModule: ({workspaces}) => createAuthModule({workspaces, signupPolicy}),
 });
 ```
+
+To replace the Agent module, use the Agent factory. It receives the composed
+Secrets operations used by Agent, and its returned module is included in the
+standard composition before presentation registration and transport sealing:
+
+```ts
+import {createAgentModule} from '@shipfox/api-agent';
+
+const modules = await defaultModules({
+  agentModule: ({secrets}) => createAgentModule({secrets, managedProvider}),
+});
+```
+
+The standard `createAgentModule` validates Agent configuration during
+composition. A custom factory that does not call it owns equivalent validation.
+Its module must declare the `agent` database namespace and present the canonical
+Agent inter-module contract. The scoped Secrets client exposes only the
+operations used by Agent. Treat a custom module as trusted code with access to
+those operations.
 
 Load the instrumentation entry before feature modules:
 

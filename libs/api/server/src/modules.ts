@@ -20,7 +20,10 @@ import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-modul
 import {createRunnersModule} from '@shipfox/api-runners';
 import {runnersInterModuleContract} from '@shipfox/api-runners-dto/inter-module';
 import {createSecretsModule} from '@shipfox/api-secrets';
-import {secretsInterModuleContract} from '@shipfox/api-secrets-dto/inter-module';
+import {
+  type SecretsInterModuleClient,
+  secretsInterModuleContract,
+} from '@shipfox/api-secrets-dto/inter-module';
 import {createTriggersModule} from '@shipfox/api-triggers';
 import {createWorkflowsModule} from '@shipfox/api-workflows';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
@@ -41,12 +44,24 @@ import {logger} from '@shipfox/node-opentelemetry';
 export interface DefaultModulesOptions {
   webhookDeliverySource?: WebhookDeliverySource | undefined;
   authModule?: DefaultAuthModuleFactory | undefined;
+  agentModule?: DefaultAgentModuleFactory | undefined;
   runnersModule?: DefaultRunnersModuleFactory | undefined;
   extension?: DefaultModulesExtension | undefined;
 }
 
 export type DefaultAuthModuleFactory = (options: {
   workspaces: WorkspacesInterModuleClient;
+}) => ShipfoxModule;
+
+/**
+ * Builds the Agent module in the standard composition slot. The default
+ * factory validates Agent configuration through `createAgentModule`; a custom
+ * factory owns equivalent validation when it does not delegate to that
+ * factory. Custom modules must preserve the `agent` database namespace and
+ * canonical Agent presentation required by the composed clients.
+ */
+export type DefaultAgentModuleFactory = (options: {
+  secrets: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecretsByNamespace' | 'setSecrets'>;
 }) => ShipfoxModule;
 export type DefaultRunnersModuleFactory = (options: {auth: AuthInterModuleClient}) => ShipfoxModule;
 export type DefaultModulesExtension = (options: {
@@ -166,13 +181,17 @@ export async function defaultModules(
     integrations: integrationsClient,
   });
   const extensionModules = options.extension?.({workspaces: workspacesClient}) ?? [];
+  const agentModule = (options.agentModule ?? createAgentModule)({
+    secrets: createAgentSecretsClient(secretsClient),
+  });
+  if (options.agentModule) validateCustomAgentModule(agentModule);
 
   const modules = [
     emailChallengesModule,
     (options.authModule ?? createAuthModule)({workspaces: workspacesClient}),
     createWorkspacesModule({auth: authClient, projects: projectsClient, runners: runnersClient}),
     createSecretsModule(projectsClient),
-    createAgentModule({secrets: secretsClient}),
+    agentModule,
     integrations.module,
     projectsModule,
     definitionsModule,
@@ -200,4 +219,40 @@ export async function defaultModules(
   registerInterModulePresentations({transport: interModuleTransport, modules});
   interModuleTransport.seal();
   return modules;
+}
+
+type AgentModuleSecretsClient = Pick<
+  SecretsInterModuleClient,
+  'deleteSecrets' | 'getSecretsByNamespace' | 'setSecrets'
+>;
+
+function createAgentSecretsClient(
+  secretsClient: SecretsInterModuleClient,
+): AgentModuleSecretsClient {
+  return {
+    deleteSecrets: (input, options) => secretsClient.deleteSecrets(input, options),
+    getSecretsByNamespace: (input, options) => secretsClient.getSecretsByNamespace(input, options),
+    setSecrets: (input, options) => secretsClient.setSecrets(input, options),
+  };
+}
+
+function validateCustomAgentModule(module: ShipfoxModule): void {
+  const databases = module.database
+    ? Array.isArray(module.database)
+      ? module.database
+      : [module.database]
+    : [];
+  if (
+    !databases.some(({databaseNamespace}) => databaseNamespace === agentInterModuleContract.module)
+  ) {
+    throw new Error(
+      'Custom agentModule must declare database namespace "agent" for the Agent module.',
+    );
+  }
+
+  if (
+    !module.interModulePresentations?.some(({contract}) => contract === agentInterModuleContract)
+  ) {
+    throw new Error('Custom agentModule must present the canonical "agent" inter-module contract.');
+  }
 }

@@ -14,7 +14,8 @@ import {
   type WorkspacesInterModuleClient,
   workspacesInterModuleContract,
 } from '@shipfox/api-workspaces-dto/inter-module';
-import {defineInterModulePresentation} from '@shipfox/inter-module';
+import {defineInterModuleContract, defineInterModulePresentation} from '@shipfox/inter-module';
+import type {DefaultAgentModuleFactory} from './modules.js';
 import {defaultModules} from './modules.js';
 
 const mocks = vi.hoisted(() => ({
@@ -35,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   deleteSecrets: vi.fn(),
   getIntegrationConnectionById: vi.fn(),
   getSecret: vi.fn(),
+  getSecretsByNamespace: vi.fn(),
   getWorkspaceCreator: vi.fn(),
   getWorkspaceOperatingState: vi.fn(),
   listMembershipsForTokenClaims: vi.fn(),
@@ -109,6 +111,7 @@ describe('defaultModules', () => {
     mocks.deleteSecrets.mockReset();
     mocks.getIntegrationConnectionById.mockReset();
     mocks.getSecret.mockReset();
+    mocks.getSecretsByNamespace.mockReset();
     mocks.getWorkspaceCreator.mockReset();
     mocks.listMembershipsForTokenClaims.mockReset();
     mocks.setSecrets.mockReset();
@@ -152,6 +155,7 @@ describe('defaultModules', () => {
     });
     mocks.deleteSecrets.mockResolvedValue({deleted: 1});
     mocks.getSecret.mockResolvedValue({value: 'secret'});
+    mocks.getSecretsByNamespace.mockResolvedValue({values: {}});
     mocks.listMembershipsForTokenClaims.mockResolvedValue({memberships: []});
     mocks.getWorkspaceCreator.mockResolvedValue({creatorUserId: null});
     mocks.setSecrets.mockResolvedValue({});
@@ -186,7 +190,7 @@ describe('defaultModules', () => {
         defineInterModulePresentation(secretsInterModuleContract, {
           deleteSecrets: mocks.deleteSecrets,
           getSecret: mocks.getSecret,
-          getSecretsByNamespace: vi.fn(),
+          getSecretsByNamespace: mocks.getSecretsByNamespace,
           getVariablesByNamespace: vi.fn(),
           setSecrets: mocks.setSecrets,
         }),
@@ -194,6 +198,7 @@ describe('defaultModules', () => {
     });
     mocks.createAgentModule.mockReturnValue({
       name: 'agent',
+      database: {db: () => undefined as never, migrationsPath: 'test', databaseNamespace: 'agent'},
       interModulePresentations: [
         {
           contract: agentInterModuleContract,
@@ -313,6 +318,129 @@ describe('defaultModules', () => {
     await defaultModules();
 
     expect(mocks.createAuthModule).toHaveBeenCalledWith({workspaces: expect.any(Object)});
+  });
+
+  it('uses the default Agent module factory when none is supplied', async () => {
+    await defaultModules();
+
+    expect(mocks.createAgentModule).toHaveBeenCalledWith({secrets: expect.any(Object)});
+    expect(mocks.createAgentModule.mock.calls[0]?.[0].secrets).not.toHaveProperty('getSecret');
+  });
+
+  it('composes Agent with the shared Secrets client and registers the supplied module', async () => {
+    const customAgentModule = mocks.createAgentModule();
+    mocks.createAgentModule.mockClear();
+    const agentModule = vi.fn<DefaultAgentModuleFactory>(({secrets}) =>
+      mocks.createAgentModule({secrets}),
+    );
+
+    const modules = await defaultModules({agentModule});
+    const agentFactoryCall = agentModule.mock.calls[0];
+    expect(agentFactoryCall).toBeDefined();
+    if (!agentFactoryCall) throw new Error('Agent module factory was not called.');
+    const agentSecrets = agentFactoryCall[0].secrets;
+    const scope = {
+      workspaceId: crypto.randomUUID(),
+      projectId: null,
+      namespace: 'agent',
+    };
+    const secretValues = await agentSecrets.getSecretsByNamespace(scope);
+
+    expect(agentModule).toHaveBeenCalledWith({secrets: expect.any(Object)});
+    expect(secretValues).toEqual({values: {}});
+    expect(mocks.getSecretsByNamespace).toHaveBeenCalledWith(
+      scope,
+      expect.objectContaining({signal: expect.any(AbortSignal)}),
+    );
+    expect(agentSecrets).not.toHaveProperty('getSecret');
+    expect(agentSecrets).not.toHaveProperty('getVariablesByNamespace');
+    expect(mocks.createAgentModule).toHaveBeenCalledWith({secrets: agentSecrets});
+    expect(mocks.createAgentModule).toHaveBeenCalledTimes(1);
+    expect(modules.filter((module) => module.name === 'agent')).toEqual([customAgentModule]);
+    expect(
+      modules
+        .flatMap((module) =>
+          (module.interModulePresentations ?? []).map(({contract}) => contract.module),
+        )
+        .filter((module) => module === agentInterModuleContract.module),
+    ).toEqual([agentInterModuleContract.module]);
+    expect(modules.map((module) => module.name)).toEqual([
+      'email-challenges',
+      'auth',
+      'workspaces',
+      'secrets',
+      'agent',
+      'integrations',
+      'projects',
+      'definitions',
+      'workflows',
+      'annotations',
+      'runners',
+      'logs',
+      'triggers',
+      'dispatcher',
+    ]);
+  });
+
+  it('rejects a custom Agent module without the Agent database namespace', async () => {
+    const customAgentModule = {
+      ...mocks.createAgentModule(),
+      database: {
+        db: () => undefined as never,
+        migrationsPath: 'test',
+        databaseNamespace: 'custom_agent',
+      },
+    };
+
+    await expect(defaultModules({agentModule: () => customAgentModule})).rejects.toThrow(
+      'Custom agentModule must declare database namespace "agent"',
+    );
+  });
+
+  it('rejects a custom Agent module without the canonical Agent presentation', async () => {
+    const customAgentModule = {
+      ...mocks.createAgentModule(),
+      interModulePresentations: [],
+    };
+
+    await expect(defaultModules({agentModule: () => customAgentModule})).rejects.toThrow(
+      'Custom agentModule must present the canonical "agent" inter-module contract',
+    );
+  });
+
+  it('rejects a custom Agent module with a mismatched Agent contract', async () => {
+    const defaultAgentModule = mocks.createAgentModule();
+    const defaultPresentation = defaultAgentModule.interModulePresentations?.[0];
+    if (!defaultPresentation) throw new Error('Default Agent presentation is not configured.');
+    const mismatchedAgentContract = defineInterModuleContract({
+      module: agentInterModuleContract.module,
+      methods: Object.fromEntries(
+        Object.entries(agentInterModuleContract.methods).map(([method, contract]) => [
+          method,
+          {input: contract.input, output: contract.output, errors: contract.errors},
+        ]),
+      ),
+    });
+    const customAgentModule = {
+      ...defaultAgentModule,
+      interModulePresentations: [{...defaultPresentation, contract: mismatchedAgentContract}],
+    };
+
+    await expect(defaultModules({agentModule: () => customAgentModule})).rejects.toThrow(
+      'Custom agentModule must present the canonical "agent" inter-module contract',
+    );
+  });
+
+  it('rejects an extension that duplicates the Agent presentation', async () => {
+    const defaultAgentModule = mocks.createAgentModule();
+    const agentPresentation = defaultAgentModule.interModulePresentations?.[0];
+    if (!agentPresentation) throw new Error('Default Agent presentation is not configured.');
+
+    await expect(
+      defaultModules({
+        extension: () => [{name: 'duplicate-agent', interModulePresentations: [agentPresentation]}],
+      }),
+    ).rejects.toThrow('Module "agent" already has a registered presentation');
   });
 
   it('composes Auth with the shared Workspaces client and registers the supplied module', async () => {
