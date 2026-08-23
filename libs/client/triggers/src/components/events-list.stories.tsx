@@ -53,6 +53,7 @@ function makeEvent(
     provider,
     source,
     event,
+    replay_of_event_id: null,
     delivery_id: `delivery-${String(seq).padStart(6, '0')}`,
     connection_id: 'conn-demo',
     outcome,
@@ -82,6 +83,7 @@ const SAMPLE_FACETS: TriggerEventFacetsResponseDto = {
     {value: 'pull_request', count: 1},
     {value: 'issue_comment', count: 1},
   ],
+  origins: [{value: 'integration', count: 5}],
 };
 
 const meta = {

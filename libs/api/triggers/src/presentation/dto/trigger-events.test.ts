@@ -1,7 +1,11 @@
 import {
   triggerDecisionDtoSchema,
   triggerDecisionSubscriptionKindSchema,
+  triggerEventDetailResponseSchema,
+  triggerEventFacetsResponseSchema,
+  triggerEventListQuerySchema,
   triggerEventOriginSchema,
+  triggerEventReplayDtoSchema,
 } from '@shipfox/api-triggers-dto';
 import type {TriggerDecision} from '#core/entities/decision.js';
 import type {
@@ -12,6 +16,7 @@ import {
   toTriggerDecisionDto,
   toTriggerEventDto,
   toTriggerEventListItemDto,
+  toTriggerEventReplayDto,
 } from './trigger-events.js';
 
 const baseSummary: TriggerReceivedEventSummary = {
@@ -45,6 +50,7 @@ describe('trigger-events mappers', () => {
       provider: null,
       source: 'manual',
       event: 'fire',
+      replay_of_event_id: null,
       delivery_id: null,
       connection_id: null,
       outcome: 'discarded',
@@ -54,6 +60,13 @@ describe('trigger-events mappers', () => {
       created_at: '2026-05-07T00:00:01.000Z',
     });
     expect(dto).not.toHaveProperty('payload');
+  });
+
+  test('toTriggerEventListItemDto maps replay_of_event_id', () => {
+    const replayOfEventId = '99999999-9999-4999-8999-999999999999';
+    const dto = toTriggerEventListItemDto({...baseSummary, replayOfEventId});
+
+    expect(dto.replay_of_event_id).toBe(replayOfEventId);
   });
 
   test('toTriggerEventDto carries the payload (including null)', () => {
@@ -147,6 +160,30 @@ describe('trigger-events mappers', () => {
       decision: 'triggered',
     });
   });
+
+  test('toTriggerEventReplayDto maps null run ids and ISO dates', () => {
+    expect(
+      toTriggerEventReplayDto({
+        id: '99999999-9999-4999-8999-999999999999',
+        receivedAt: new Date('2026-05-07T00:00:02.000Z'),
+        outcome: 'routed',
+        runId: '77777777-7777-4777-8777-777777777777',
+      }),
+    ).toEqual({
+      id: '99999999-9999-4999-8999-999999999999',
+      received_at: '2026-05-07T00:00:02.000Z',
+      outcome: 'routed',
+      run_id: '77777777-7777-4777-8777-777777777777',
+    });
+    expect(
+      toTriggerEventReplayDto({
+        id: '99999999-9999-4999-8999-999999999999',
+        receivedAt: new Date('2026-05-07T00:00:02.000Z'),
+        outcome: 'discarded',
+        runId: null,
+      }).run_id,
+    ).toBeNull();
+  });
 });
 
 describe('trigger event DTO contract', () => {
@@ -206,5 +243,95 @@ describe('trigger event DTO contract', () => {
   test('rejects unknown origin and decision kinds', () => {
     expect(triggerEventOriginSchema.safeParse('unknown').success).toBe(false);
     expect(triggerDecisionSubscriptionKindSchema.safeParse('unknown').success).toBe(false);
+  });
+
+  const baseQuery = {
+    workspace_id: '22222222-2222-4222-8222-222222222222',
+  };
+
+  test('list query accepts origin as a single, repeated, or comma-separated filter', () => {
+    expect(triggerEventListQuerySchema.parse({...baseQuery, origin: 'dev'}).origin).toEqual([
+      'dev',
+    ]);
+    expect(
+      triggerEventListQuerySchema.parse({...baseQuery, origin: ['dev', 'manual']}).origin,
+    ).toEqual(['dev', 'manual']);
+    expect(triggerEventListQuerySchema.parse({...baseQuery, origin: 'dev,manual'}).origin).toEqual([
+      'dev',
+      'manual',
+    ]);
+  });
+
+  test('list query rejects an unknown origin filter value', () => {
+    expect(triggerEventListQuerySchema.safeParse({...baseQuery, origin: 'bogus'}).success).toBe(
+      false,
+    );
+  });
+
+  test('list query accepts replayable=true only', () => {
+    expect(triggerEventListQuerySchema.parse({...baseQuery, replayable: 'true'})).toMatchObject({
+      replayable: true,
+    });
+    expect(triggerEventListQuerySchema.parse(baseQuery).replayable).toBeUndefined();
+    expect(triggerEventListQuerySchema.safeParse({...baseQuery, replayable: 'false'}).success).toBe(
+      false,
+    );
+    expect(triggerEventListQuerySchema.safeParse({...baseQuery, replayable: 'yes'}).success).toBe(
+      false,
+    );
+  });
+
+  test('detail response accepts replay_of_event_id and a replays list', () => {
+    const detail = {
+      id: '11111111-1111-4111-8111-111111111111',
+      event_ref: 'event-ref',
+      origin: 'dev',
+      workspace_id: '22222222-2222-4222-8222-222222222222',
+      provider: null,
+      source: 'github',
+      event: 'push',
+      replay_of_event_id: '99999999-9999-4999-8999-999999999999',
+      delivery_id: null,
+      connection_id: null,
+      connection_name: null,
+      outcome: 'routed',
+      matched_count: 1,
+      payload: {ref: 'refs/heads/main'},
+      received_at: '2026-05-07T00:00:00.000Z',
+      processed_at: null,
+      created_at: '2026-05-07T00:00:01.000Z',
+      decisions: [],
+      replays: [
+        {
+          id: '99999999-9999-4999-8999-999999999999',
+          received_at: '2026-05-07T00:00:02.000Z',
+          outcome: 'routed',
+          run_id: '77777777-7777-4777-8777-777777777777',
+        },
+      ],
+    };
+
+    const parsed = triggerEventDetailResponseSchema.parse(detail);
+    expect(parsed.replay_of_event_id).toBe(detail.replay_of_event_id);
+    expect(parsed.replays).toEqual(detail.replays);
+    expect(triggerEventReplayDtoSchema.safeParse(detail.replays[0]).success).toBe(true);
+    expect(
+      triggerEventReplayDtoSchema.safeParse({...detail.replays[0], run_id: null}).success,
+    ).toBe(true);
+  });
+
+  test('facets response accepts origins', () => {
+    const parsed = triggerEventFacetsResponseSchema.parse({
+      sources: [{value: 'github', count: 2}],
+      events: [{value: 'push', count: 2}],
+      origins: [
+        {value: 'integration', count: 2},
+        {value: 'dev', count: 1},
+      ],
+    });
+    expect(parsed.origins).toEqual([
+      {value: 'integration', count: 2},
+      {value: 'dev', count: 1},
+    ]);
   });
 });

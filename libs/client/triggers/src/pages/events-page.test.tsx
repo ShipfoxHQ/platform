@@ -28,6 +28,7 @@ function makeEvent(overrides: Partial<TriggerEventListItemDto> = {}): TriggerEve
     provider: 'github',
     source: 'github',
     event: 'push',
+    replay_of_event_id: null,
     delivery_id: 'delivery-179',
     connection_id: '33333333-3333-4333-8333-333333333333',
     outcome: 'routed',
@@ -45,6 +46,7 @@ function makeDetail(overrides: Partial<TriggerEventDetailResponseDto> = {}) {
     connection_name: 'ShipfoxHQ Production',
     payload: {ref: 'refs/heads/main'},
     decisions: [],
+    replays: [],
     ...overrides,
   };
 }

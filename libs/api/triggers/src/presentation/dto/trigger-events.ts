@@ -2,12 +2,14 @@ import type {
   TriggerDecisionDto,
   TriggerEventDto,
   TriggerEventListItemDto,
+  TriggerEventReplayDto,
 } from '@shipfox/api-triggers-dto';
 import type {TriggerDecision} from '#core/entities/decision.js';
 import type {
   TriggerReceivedEvent,
   TriggerReceivedEventSummary,
 } from '#core/entities/received-event.js';
+import type {TriggerEventReplay} from '#db/event-queries.js';
 
 export function toTriggerEventListItemDto(
   event: TriggerReceivedEventSummary,
@@ -20,6 +22,7 @@ export function toTriggerEventListItemDto(
     provider: event.provider,
     source: event.source,
     event: event.event,
+    replay_of_event_id: event.replayOfEventId,
     delivery_id: event.deliveryId,
     connection_id: event.connectionId,
     outcome: event.outcome,
@@ -35,6 +38,15 @@ export function toTriggerEventDto(event: TriggerReceivedEvent): TriggerEventDto 
     ...toTriggerEventListItemDto(event),
     connection_name: event.connectionName,
     payload: event.payload,
+  };
+}
+
+export function toTriggerEventReplayDto(replay: TriggerEventReplay): TriggerEventReplayDto {
+  return {
+    id: replay.id,
+    received_at: replay.receivedAt.toISOString(),
+    outcome: replay.outcome,
+    run_id: replay.runId,
   };
 }
 

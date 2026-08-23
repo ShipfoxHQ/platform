@@ -7,7 +7,11 @@ import {receivedEventFactory} from '#test/index.js';
 import {listTriggerEventFacetsRoute} from './list-trigger-event-facets.js';
 
 const facets = (res: {
-  json: () => {sources: TriggerEventFacetItemDto[]; events: TriggerEventFacetItemDto[]};
+  json: () => {
+    sources: TriggerEventFacetItemDto[];
+    events: TriggerEventFacetItemDto[];
+    origins: TriggerEventFacetItemDto[];
+  };
 }) => res.json();
 
 describe('GET /trigger-events/facets', () => {
@@ -60,6 +64,33 @@ describe('GET /trigger-events/facets', () => {
     ]);
   });
 
+  test('returns distinct origins with counts, ordered by count desc', async () => {
+    await receivedEventFactory.create({workspaceId, source: 'github', event: 'push'});
+    await receivedEventFactory.create({
+      workspaceId,
+      origin: 'dev',
+      source: 'github',
+      event: 'push',
+    });
+    await receivedEventFactory.create({
+      workspaceId,
+      origin: 'manual',
+      source: 'manual',
+      event: 'fire',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/trigger-events/facets?workspace_id=${workspaceId}`,
+    });
+
+    expect(facets(res).origins).toEqual([
+      {value: 'dev', count: 1},
+      {value: 'integration', count: 1},
+      {value: 'manual', count: 1},
+    ]);
+  });
+
   test('caps each facet at the top 50 values by count', async () => {
     await Promise.all(
       Array.from({length: 51}, (_, index) =>
@@ -94,7 +125,7 @@ describe('GET /trigger-events/facets', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({sources: [], events: []});
+    expect(res.json()).toEqual({sources: [], events: [], origins: []});
   });
 
   test('returns workspace-suspended for a suspended membership claim', async () => {

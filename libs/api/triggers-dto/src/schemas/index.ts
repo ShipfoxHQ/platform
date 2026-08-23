@@ -20,6 +20,7 @@ export {
   type TriggerEventListResponseDto,
   type TriggerEventOriginDto,
   type TriggerEventOutcomeDto,
+  type TriggerEventReplayDto,
   triggerDecisionDtoSchema,
   triggerDecisionOutcomeSchema,
   triggerDecisionSubscriptionKindSchema,
@@ -33,4 +34,5 @@ export {
   triggerEventListResponseSchema,
   triggerEventOriginSchema,
   triggerEventOutcomeSchema,
+  triggerEventReplayDtoSchema,
 } from './trigger-events.js';

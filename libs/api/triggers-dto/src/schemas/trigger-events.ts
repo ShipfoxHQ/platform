@@ -35,6 +35,8 @@ export const triggerEventListItemDtoSchema = z.object({
   provider: z.string().nullable(),
   source: z.string(),
   event: z.string(),
+  // Source event this entry replays (dev runs only).
+  replay_of_event_id: z.string().uuid().nullable(),
   delivery_id: z.string().nullable(),
   connection_id: z.string().uuid().nullable(),
   outcome: triggerEventOutcomeSchema,
@@ -50,6 +52,16 @@ export const triggerEventDtoSchema = triggerEventListItemDtoSchema.extend({
   payload: z.record(z.string(), z.unknown()).nullable(),
 });
 export type TriggerEventDto = z.infer<typeof triggerEventDtoSchema>;
+
+// A dev journal entry that replayed this event. `run_id` is null for refusals
+// that never created a run (filter false or filter evaluation error).
+export const triggerEventReplayDtoSchema = z.object({
+  id: z.string().uuid(),
+  received_at: z.string(),
+  outcome: triggerEventOutcomeSchema,
+  run_id: z.string().uuid().nullable(),
+});
+export type TriggerEventReplayDto = z.infer<typeof triggerEventReplayDtoSchema>;
 
 const triggerDecisionDtoBaseSchema = z.object({
   id: z.string().uuid(),
@@ -102,12 +114,24 @@ const outcomeFilterSchema = z.preprocess(
   normalizeListFilter,
   z.array(triggerEventOutcomeSchema).optional(),
 );
+const originFilterSchema = z.preprocess(
+  normalizeListFilter,
+  z.array(triggerEventOriginSchema).optional(),
+);
 
 const triggerEventListQueryBaseSchema = z.object({
   workspace_id: z.string().uuid(),
   source: stringListFilterSchema,
   event: stringListFilterSchema,
+  origin: originFilterSchema,
   outcome: outcomeFilterSchema,
+  // Convenience filter: only events that can be replayed through a dev run
+  // (integration origin with a stored payload). `replayable=false` is not a
+  // supported query; the picker only ever asks for the true side.
+  replayable: z
+    .literal('true')
+    .transform(() => true)
+    .optional(),
   from: isoDateTimeSchema.optional(),
   to: isoDateTimeSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -140,6 +164,7 @@ export type TriggerEventListResponseDto = z.infer<typeof triggerEventListRespons
 
 export const triggerEventDetailResponseSchema = triggerEventDtoSchema.extend({
   decisions: z.array(triggerDecisionDtoSchema),
+  replays: z.array(triggerEventReplayDtoSchema),
 });
 export type TriggerEventDetailResponseDto = z.infer<typeof triggerEventDetailResponseSchema>;
 
@@ -157,5 +182,6 @@ export type TriggerEventFacetItemDto = z.infer<typeof triggerEventFacetItemSchem
 export const triggerEventFacetsResponseSchema = z.object({
   sources: z.array(triggerEventFacetItemSchema),
   events: z.array(triggerEventFacetItemSchema),
+  origins: z.array(triggerEventFacetItemSchema),
 });
 export type TriggerEventFacetsResponseDto = z.infer<typeof triggerEventFacetsResponseSchema>;
