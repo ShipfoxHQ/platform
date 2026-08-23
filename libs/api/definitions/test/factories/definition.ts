@@ -48,6 +48,7 @@ export const definitionFactory = Factory.define<WorkflowDefinition, DefinitionTr
 
     return {
       id: crypto.randomUUID(),
+      workflowId: crypto.randomUUID(),
       projectId,
       configPath: `.shipfox/workflows/test-${sequence}.yml`,
       source: 'manual',

@@ -14,6 +14,7 @@ export function createDefinitionsInterModulePresentation(): InterModulePresentat
       return {
         definition: {
           id: definition.id,
+          workflowId: definition.workflowId,
           projectId: definition.projectId,
           name: definition.name,
           model: createWorkflowModelSnapshot(definition.model),

@@ -13,6 +13,8 @@ export interface WorkflowDefinitionPayload {
 
 export interface WorkflowDefinition {
   id: string;
+  /** Workflow lineage id: stable identity per (projectId, configPath). */
+  workflowId: string;
   projectId: string;
   configPath: string | null;
   source: 'manual' | 'vcs';

@@ -2531,6 +2531,9 @@ importers:
       fishery:
         specifier: 'catalog:'
         version: 2.4.0
+      pg:
+        specifier: 'catalog:'
+        version: 8.21.0
 
   libs/api/definitions-dto:
     dependencies:

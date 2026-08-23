@@ -6,6 +6,7 @@ import type {
   WorkflowDefinitionPayload,
 } from '#core/entities/workflow-definition.js';
 import {pgTable} from './common.js';
+import {workflowWorkflows} from './workflows.js';
 
 export const definitionSourceEnum = pgEnum('definitions_source', ['manual', 'vcs']);
 
@@ -13,6 +14,9 @@ export const workflowDefinitions = pgTable(
   'workflow_definitions',
   {
     id: uuidv7PrimaryKey(),
+    workflowId: uuid('workflow_id')
+      .notNull()
+      .references(() => workflowWorkflows.id),
     projectId: uuid('project_id').notNull(),
     configPath: text('config_path'),
     source: definitionSourceEnum('source').notNull().default('manual'),
@@ -57,6 +61,7 @@ export type DefinitionUpdateDb = Partial<DefinitionCreateDb>;
 export function toDefinition(row: DefinitionDb): WorkflowDefinition {
   return {
     id: row.id,
+    workflowId: row.workflowId,
     projectId: row.projectId,
     configPath: row.configPath,
     source: row.source,

@@ -31,6 +31,7 @@ function buildDefinition(
   const {model = workflowModel(), ...definitionOverrides} = overrides;
   return {
     id: crypto.randomUUID(),
+    workflowId: crypto.randomUUID(),
     projectId: crypto.randomUUID(),
     name: 'Test Workflow',
     model: createWorkflowModelSnapshot(model),

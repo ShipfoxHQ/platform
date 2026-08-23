@@ -3,8 +3,14 @@ import {pgClient} from '@shipfox/node-postgres';
 import {workflowDefinitions} from './schema/definitions.js';
 import {definitionsOutbox} from './schema/outbox.js';
 import {definitionSyncStates} from './schema/sync-states.js';
+import {workflowWorkflows} from './schema/workflows.js';
 
-export const schema = {workflowDefinitions, definitionsOutbox, definitionSyncStates};
+export const schema = {
+  workflowDefinitions,
+  definitionsOutbox,
+  definitionSyncStates,
+  workflowWorkflows,
+};
 
 let _db: NodePgDatabase<typeof schema> | undefined;
 

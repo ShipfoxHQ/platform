@@ -85,6 +85,7 @@
     "drizzle-kit": "catalog:",
     "fastify": "catalog:",
     "fastify-type-provider-zod": "catalog:",
-    "fishery": "catalog:"
+    "fishery": "catalog:",
+    "pg": "catalog:"
   }
 }

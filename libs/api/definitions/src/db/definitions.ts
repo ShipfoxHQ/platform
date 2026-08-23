@@ -16,6 +16,7 @@ import {db} from './db.js';
 import {definitionTriggersFor} from './definition-triggers.js';
 import {toDefinition, workflowDefinitions} from './schema/definitions.js';
 import {definitionsOutbox} from './schema/outbox.js';
+import {workflowWorkflows} from './schema/workflows.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
@@ -33,7 +34,50 @@ export interface UpsertDefinitionParams {
   ref?: string | undefined;
 }
 
-function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams) {
+/**
+ * Finds or creates the workflow lineage for (projectId, configPath) and returns
+ * its id. A definition without a config path has no stable key, so it gets its
+ * own lineage keyed by the lineage id; such rows have no unique arbiter today
+ * and each upsert already inserts a fresh row.
+ */
+async function findOrCreateWorkflow(
+  tx: Tx,
+  params: {projectId: string; configPath: string | null},
+): Promise<string> {
+  if (params.configPath === null) {
+    const id = crypto.randomUUID();
+    await tx.insert(workflowWorkflows).values({
+      id,
+      projectId: params.projectId,
+      configPath: id,
+    });
+    return id;
+  }
+
+  const inserted = await tx
+    .insert(workflowWorkflows)
+    .values({projectId: params.projectId, configPath: params.configPath})
+    .onConflictDoNothing()
+    .returning({id: workflowWorkflows.id});
+  const insertedRow = inserted[0];
+  if (insertedRow) return insertedRow.id;
+
+  const existing = await tx
+    .select({id: workflowWorkflows.id})
+    .from(workflowWorkflows)
+    .where(
+      and(
+        eq(workflowWorkflows.projectId, params.projectId),
+        eq(workflowWorkflows.configPath, params.configPath),
+      ),
+    )
+    .limit(1);
+  const existingRow = existing[0];
+  if (!existingRow) throw new Error('Workflow lineage upsert returned no row');
+  return existingRow.id;
+}
+
+function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams & {workflowId: string}) {
   const source = params.source ?? 'manual';
   if (source === 'vcs' && !params.configPath) {
     throw new Error('configPath is required for VCS definitions');
@@ -65,6 +109,7 @@ function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams) {
 
   const values = {
     projectId: params.projectId,
+    workflowId: params.workflowId,
     configPath: params.configPath ?? null,
     source,
     sha: params.sha ?? null,
@@ -121,7 +166,11 @@ export async function upsertDefinition(
   params: UpsertDefinitionParams,
 ): Promise<WorkflowDefinition> {
   return await db().transaction(async (tx) => {
-    const rows = await buildUpsertQuery(tx, params);
+    const workflowId = await findOrCreateWorkflow(tx, {
+      projectId: params.projectId,
+      configPath: params.configPath ?? null,
+    });
+    const rows = await buildUpsertQuery(tx, {...params, workflowId});
     const row = rows[0];
     if (!row) throw new Error('Upsert returned no rows');
 
@@ -303,9 +352,14 @@ export async function applyVcsDefinitionsBatch(
         previous.deletedAt === null &&
         previous.contentHash === item.contentHash;
 
+      const workflowId = await findOrCreateWorkflow(tx, {
+        projectId: params.projectId,
+        configPath: item.configPath,
+      });
       const rows = await buildUpsertQuery(tx, {
         projectId: params.projectId,
         workspaceId: params.workspaceId,
+        workflowId,
         configPath: item.configPath,
         source: 'vcs',
         ref: params.ref,
