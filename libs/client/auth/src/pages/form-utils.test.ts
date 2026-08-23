@@ -1,5 +1,5 @@
 import {ApiError} from '@shipfox/client-api';
-import {authErrorMessage} from './form-utils.js';
+import {authErrorMessage, authErrorMessageFormat} from './form-utils.js';
 
 describe('authErrorMessage', () => {
   test.each([
@@ -40,5 +40,46 @@ describe('authErrorMessage', () => {
     const result = authErrorMessage(new Error('boom'));
 
     expect(result).toBe('Something went wrong. Try again.');
+  });
+});
+
+describe('authErrorMessageFormat', () => {
+  test('returns Markdown for signup denial errors that declare it', () => {
+    const error = new ApiError({
+      code: 'signup-not-allowed',
+      message: 'Forbidden',
+      status: 403,
+      details: {details: {format: 'markdown'}},
+    });
+
+    const result = authErrorMessageFormat(error);
+
+    expect(result).toBe('markdown');
+  });
+
+  test.each([
+    [
+      'a different error code',
+      new ApiError({
+        code: 'unknown-api-code',
+        message: 'Try later',
+        status: 400,
+        details: {details: {format: 'markdown'}},
+      }),
+    ],
+    [
+      'an unsupported signup denial format',
+      new ApiError({
+        code: 'signup-not-allowed',
+        message: 'Forbidden',
+        status: 403,
+        details: {details: {format: 'html'}},
+      }),
+    ],
+    ['a non-API error', new Error('boom')],
+  ])('returns undefined for %s', (_case, error) => {
+    const result = authErrorMessageFormat(error);
+
+    expect(result).toBeUndefined();
   });
 });
