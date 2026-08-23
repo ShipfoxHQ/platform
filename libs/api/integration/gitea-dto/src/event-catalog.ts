@@ -1,18 +1,25 @@
 import type {IntegrationEventCatalog} from '@shipfox/api-integration-core-dto';
+import {giteaWebhookEventNames} from './schemas/index.js';
 
 const giteaWebhookDocsUrl = 'https://docs.gitea.com/usage/repository/webhooks/';
 
-// The Gitea webhook handler accepts and publishes only the `push` event; any
-// other Gitea webhook event name is recorded and dropped.
+const eventDetails = {
+  push: {
+    summary: 'A Git reference receives one or more commits.',
+    emittedWhen:
+      'Gitea sends a push webhook for a non-deleted branch in the connected organization.',
+  },
+} as const satisfies Record<
+  (typeof giteaWebhookEventNames)[number],
+  {summary: string; emittedWhen: string}
+>;
+
 export const giteaEventCatalog = {
   provider: 'Gitea',
-  events: [
-    {
-      name: 'push',
-      summary: 'A Git reference receives one or more commits.',
-      emittedWhen: 'Gitea sends a push webhook to the connected organization.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: giteaWebhookDocsUrl,
-    },
-  ],
+  events: giteaWebhookEventNames.map((name) => ({
+    name,
+    ...eventDetails[name],
+    payloadKind: 'raw-provider' as const,
+    payloadDocUrl: giteaWebhookDocsUrl,
+  })),
 } as const satisfies IntegrationEventCatalog;

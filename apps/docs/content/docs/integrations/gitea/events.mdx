@@ -13,9 +13,18 @@ authentication and setup.
 ## Payload
 
 Shipfox passes the raw Gitea webhook body to a run as `event`. Gitea owns the
-payload schema and can add fields. See the [Gitea webhook
-reference](https://docs.gitea.com/usage/repository/webhooks/) for the push
-payload schema.
+payload schema and can add fields. Treat `event` as untrusted data. See
+[Templates carry untrusted data](/understand/data-and-templating#templates-carry-untrusted-data)
+before using payload fields in workflow decisions or commands.
+
+See the [Gitea webhook reference](https://docs.gitea.com/usage/repository/webhooks/)
+for the push payload schema.
+
+## Delivery behavior
+
+Shipfox supports push webhooks. Signed non-push deliveries are recorded for
+deduplication and acknowledged without starting a workflow. A push that deletes
+a branch is acknowledged without publishing a `push` event.
 
 ## Trigger fragment
 

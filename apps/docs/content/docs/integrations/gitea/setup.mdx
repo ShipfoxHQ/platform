@@ -29,8 +29,9 @@ runner with the `shipfox` label.
 
     **Enter the organization name**
 
-    Enter the Gitea organization to connect. Shipfox verifies the organization
-    and creates the integration connection.
+    Enter the Gitea organization to connect. Shipfox checks that the
+    organization exists and is not already linked to another workspace.
+    It does not verify that the workspace user administers the organization.
   </Step>
   <Step>
 
@@ -41,8 +42,14 @@ runner with the `shipfox` label.
   </Step>
 </Steps>
 
-An instance admin provisions a push webhook from the organization to Shipfox.
-Pushes to repositories in the organization then deliver the `push` event.
+An instance admin provisions a push-only webhook from the organization to
+Shipfox. Configure its shared secret with the `GITEA_WEBHOOK_SECRET` value used
+by the Shipfox deployment. Unsigned or incorrectly signed deliveries receive
+HTTP 401.
+
+Signed non-push deliveries are recorded for deduplication and acknowledged
+without starting a workflow. Branch-deletion pushes are also acknowledged
+without publishing a `push` event.
 
 ## Add a test workflow
 

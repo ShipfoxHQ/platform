@@ -1,5 +1,7 @@
 import {z} from 'zod';
 
+export const giteaWebhookEventNames = ['push'] as const;
+
 export const giteaPushPayloadSchema = z.object({
   ref: z.string().min(1),
   after: z.string().min(1),

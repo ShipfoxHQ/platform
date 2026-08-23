@@ -52,7 +52,7 @@ export const registeredIntegrationProviders: readonly RegisteredIntegrationProvi
   {
     slug: 'gitea',
     kind: 'catalog',
-    capabilities: ['events'],
+    capabilities: ['source_control', 'events'],
   },
   {
     slug: 'cron',

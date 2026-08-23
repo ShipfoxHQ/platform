@@ -16,6 +16,12 @@ const resourceLabels = {
   Cycle: 'cycle',
 } as const satisfies Record<(typeof linearWebhookResourceTypes)[number], string>;
 
+const dataEventSummaryByAction = {
+  create: 'is created.',
+  update: 'changes.',
+  remove: 'is removed.',
+} as const satisfies Record<(typeof linearWebhookActions)[number], string>;
+
 const agentSessionDetails = {
   'agentSession.created': {
     summary: 'A Linear agent session is created.',
@@ -54,8 +60,6 @@ export const linearEventCatalog = {
   ],
 } as const satisfies IntegrationEventCatalog;
 
-function dataEventSummary(resource: string, action: string): string {
-  if (action === 'create') return `A Linear ${resource} is created.`;
-  if (action === 'update') return `A Linear ${resource} changes.`;
-  return `A Linear ${resource} is removed.`;
+function dataEventSummary(resource: string, action: (typeof linearWebhookActions)[number]): string {
+  return `A Linear ${resource} ${dataEventSummaryByAction[action]}`;
 }
