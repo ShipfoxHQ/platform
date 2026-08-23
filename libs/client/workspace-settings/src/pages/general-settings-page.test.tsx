@@ -1,6 +1,14 @@
 import {configureApiClient} from '@shipfox/client-api';
+import {
+  dismissWorkspaceSetupChecklist,
+  isWorkspaceSetupChecklistDismissed,
+} from '@shipfox/client-shell/runtime';
 import {fireEvent, screen, waitFor} from '@testing-library/react';
-import {jsonResponse, renderWorkspaceSettingsPage} from '#test/pages.js';
+import {
+  jsonResponse,
+  renderWorkspaceSettingsPage,
+  WORKSPACE_SETTINGS_TEST_WID,
+} from '#test/pages.js';
 import {GeneralSettingsPage} from './general-settings-page.js';
 
 describe('GeneralSettingsPage', () => {
@@ -75,6 +83,41 @@ describe('GeneralSettingsPage', () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+});
+
+describe('setup guide re-entry link', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  test('is absent while the setup guide is not dismissed', async () => {
+    configureApiClient({baseUrl: 'https://api.example.test'});
+
+    renderWorkspaceSettingsPage('/w/acme/settings/general', <GeneralSettingsPage />);
+
+    expect(await screen.findByLabelText('Workspace name')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Show the setup guide'})).not.toBeInTheDocument();
+  });
+
+  test('is present while the setup guide is dismissed', async () => {
+    dismissWorkspaceSetupChecklist(WORKSPACE_SETTINGS_TEST_WID);
+    configureApiClient({baseUrl: 'https://api.example.test'});
+
+    renderWorkspaceSettingsPage('/w/acme/settings/general', <GeneralSettingsPage />);
+
+    expect(await screen.findByRole('button', {name: 'Show the setup guide'})).toBeInTheDocument();
+  });
+
+  test('clears the dismissal flag on click', async () => {
+    dismissWorkspaceSetupChecklist(WORKSPACE_SETTINGS_TEST_WID);
+    configureApiClient({baseUrl: 'https://api.example.test'});
+
+    renderWorkspaceSettingsPage('/w/acme/settings/general', <GeneralSettingsPage />);
+    fireEvent.click(await screen.findByRole('button', {name: 'Show the setup guide'}));
+
+    expect(isWorkspaceSetupChecklistDismissed(WORKSPACE_SETTINGS_TEST_WID)).toBe(false);
+    expect(screen.queryByRole('button', {name: 'Show the setup guide'})).not.toBeInTheDocument();
   });
 });
 
