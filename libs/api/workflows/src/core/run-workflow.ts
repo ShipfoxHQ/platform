@@ -44,7 +44,7 @@ export async function runWorkflow(
   return createWorkflowRun({
     workspaceId: params.workspaceId,
     projectId: params.projectId,
-    definitionId: definition.id,
+    definitionId: definition.workflowId,
     name: definition.name,
     model,
     triggerPayload: params.triggerPayload,
