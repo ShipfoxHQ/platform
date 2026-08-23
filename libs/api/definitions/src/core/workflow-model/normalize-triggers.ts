@@ -27,7 +27,7 @@ export function normalizeTriggers(
     .filter(([, trigger]) => trigger.source === manualTriggerSource)
     .map(([sourceKey]) => sourceKey);
   const usedTriggerIds = new Map<string, string>();
-  let activeManualTriggerSeen = false;
+  let manualTriggerSeen = false;
 
   return Object.entries(triggers).flatMap(([sourceKey, trigger]) => {
     const id = stableId(sourceKey);
@@ -46,21 +46,6 @@ export function normalizeTriggers(
     }
     usedTriggerIds.set(id, sourceKey);
 
-    if (trigger.source === manualTriggerSource) {
-      if (activeManualTriggerSeen) {
-        issues.push(
-          issue({
-            code: 'multiple-manual-triggers',
-            message: `A workflow may declare at most one manual trigger; found ${manualTriggerKeys.length}: ${manualTriggerKeys.join(', ')}. This trigger is inert because it is not the first manual trigger in document order.`,
-            path: ['triggers', sourceKey],
-            details: {manualTriggerKeys},
-            scope: 'trigger',
-          }),
-        );
-        return [];
-      }
-    }
-
     const triggerIssues: WorkflowModelValidationIssue[] = [];
     validateTriggerFilter({sourceKey, trigger, issues: triggerIssues});
     const normalizedTrigger = normalizeTriggerEntry(trigger, {
@@ -68,13 +53,24 @@ export function normalizeTriggers(
       issues: triggerIssues,
       integrationValidationContext,
     });
+    if (trigger.source === manualTriggerSource && manualTriggerSeen) {
+      triggerIssues.push(
+        issue({
+          code: 'multiple-manual-triggers',
+          message: `A workflow may declare at most one manual trigger; found ${manualTriggerKeys.length}: ${manualTriggerKeys.join(', ')}. This trigger is inert because it is not the first manual trigger in document order.`,
+          path: ['triggers', sourceKey],
+          details: {manualTriggerKeys},
+          scope: 'trigger',
+        }),
+      );
+    }
     issues.push(...triggerIssues);
     const triggerIsInert = triggerIssues.some(
       (candidate) => candidate.scope === 'trigger' && candidate.severity === 'error',
     );
     if (trigger.source !== cronTriggerSource) {
+      if (trigger.source === manualTriggerSource) manualTriggerSeen = true;
       if (triggerIsInert) return [];
-      if (trigger.source === manualTriggerSource) activeManualTriggerSeen = true;
       return [
         {
           id,
@@ -160,11 +156,11 @@ export function normalizeTriggerEntry(
   // time, so materialize their built-in name when the author omitted it.
   // Integration sources keep the event absent, which becomes a source
   // subscription (NULL row) on the write path.
-  const event = builtinEventForSource(trigger.source, trigger.event);
+  const event = builtinEventForSource(trigger.source, trigger.event?.trim());
   if (options?.issues !== undefined && options.path !== undefined) {
     validateTriggerSourceEvent({
       source: trigger.source,
-      event: trigger.event,
+      event,
       path: options.path,
       issues: options.issues,
       integrationValidationContext: options.integrationValidationContext,
@@ -196,8 +192,22 @@ export function validateTriggerSourceEvent(params: {
   readonly issues: WorkflowModelValidationIssue[];
   readonly integrationValidationContext?: IntegrationValidationContext | undefined;
 }): void {
-  const {source, event, path, issues} = params;
+  const {source, path, issues} = params;
+  const event = params.event?.trim();
   const eventPath: readonly WorkflowModelValidationIssuePathSegment[] = [...path, 'event'];
+
+  if (event === '') {
+    issues.push(
+      issue({
+        code: 'invalid-trigger-event',
+        message: `A ${source} trigger event cannot be blank.`,
+        path: eventPath,
+        details: {event, source},
+        scope: 'trigger',
+      }),
+    );
+    return;
+  }
 
   if (source === manualTriggerSource) {
     if (event !== undefined && event !== 'fire') {
@@ -260,15 +270,17 @@ export function validateTriggerSourceEvent(params: {
   if (integrationValidationContext.fixedEventProviders.has(provider)) {
     // Shipfox-minted event name (custom webhook `received` today): any other
     // explicit value is provably never delivered, so the trigger is inert.
-    if (catalog !== undefined && !catalog.has(event)) {
-      const singleEvent = catalog.size === 1 ? [...catalog][0] : undefined;
+    if (catalog === undefined || !catalog.has(event)) {
+      const singleEvent = catalog?.size === 1 ? [...catalog][0] : undefined;
       issues.push(
         issue({
           code: 'invalid-trigger-event',
           message:
-            singleEvent === undefined
-              ? `Event "${event}" is never delivered by provider "${provider}".`
-              : `A ${provider} trigger must use event "${singleEvent}"; found "${event}".`,
+            catalog === undefined
+              ? `Provider "${provider}" has no fixed event catalog; event "${event}" cannot be validated.`
+              : singleEvent === undefined
+                ? `Event "${event}" is never delivered by provider "${provider}".`
+                : `A ${provider} trigger must use event "${singleEvent}"; found "${event}".`,
           path: eventPath,
           details: {event, source, provider},
           scope: 'trigger',

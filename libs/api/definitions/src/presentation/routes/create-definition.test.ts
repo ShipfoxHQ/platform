@@ -17,11 +17,11 @@ describe('POST /api/definitions', () => {
   let projectId: string;
   let sourceConnectionId: string;
 
-  beforeAll(async () => {
-    app = Fastify();
-    app.setValidatorCompiler(validatorCompiler);
-    app.setSerializerCompiler(serializerCompiler);
-    app.addHook('onRequest', (request, _reply, done) => {
+  const createApp = async (integrations?: IntegrationsModuleClient) => {
+    const testApp = Fastify();
+    testApp.setValidatorCompiler(validatorCompiler);
+    testApp.setSerializerCompiler(serializerCompiler);
+    testApp.addHook('onRequest', (request, _reply, done) => {
       setUserContext(
         request,
         buildUserContext({
@@ -32,14 +32,20 @@ describe('POST /api/definitions', () => {
       );
       done();
     });
-    app.post(
+    testApp.post(
       '/api/definitions',
       buildCreateDefinitionRoute({
         projects: projects as ProjectsModuleClient,
         agent: agent as never,
+        ...(integrations === undefined ? {} : {integrations}),
       }),
     );
-    await app.ready();
+    await testApp.ready();
+    return testApp;
+  };
+
+  beforeAll(async () => {
+    app = await createApp();
   });
 
   beforeEach(() => {
@@ -83,32 +89,9 @@ jobs:
 
   test('skips connection snapshot loading when YAML has no integrations', async () => {
     const getAgentToolsContext = vi.fn();
-    const appWithOptions = Fastify();
-    appWithOptions.setValidatorCompiler(validatorCompiler);
-    appWithOptions.setSerializerCompiler(serializerCompiler);
-    appWithOptions.addHook('onRequest', (request, _reply, done) => {
-      setUserContext(
-        request,
-        buildUserContext({
-          userId: crypto.randomUUID(),
-          email: 'user@example.com',
-          memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
-        }),
-      );
-      done();
-    });
-    appWithOptions.post(
-      '/api/definitions',
-      buildCreateDefinitionRoute({
-        projects: projects as ProjectsModuleClient,
-        agent: agent as never,
-        integrations: {getAgentToolsContext} as Pick<
-          IntegrationsModuleClient,
-          'getAgentToolsContext'
-        > as IntegrationsModuleClient,
-      }),
-    );
-    await appWithOptions.ready();
+    const appWithOptions = await createApp({
+      getAgentToolsContext,
+    } as Pick<IntegrationsModuleClient, 'getAgentToolsContext'> as IntegrationsModuleClient);
 
     const res = await appWithOptions.inject({
       method: 'POST',
@@ -158,32 +141,9 @@ jobs:
         },
       }),
     );
-    const appWithOptions = Fastify();
-    appWithOptions.setValidatorCompiler(validatorCompiler);
-    appWithOptions.setSerializerCompiler(serializerCompiler);
-    appWithOptions.addHook('onRequest', (request, _reply, done) => {
-      setUserContext(
-        request,
-        buildUserContext({
-          userId: crypto.randomUUID(),
-          email: 'user@example.com',
-          memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
-        }),
-      );
-      done();
-    });
-    appWithOptions.post(
-      '/api/definitions',
-      buildCreateDefinitionRoute({
-        projects: projects as ProjectsModuleClient,
-        agent: agent as never,
-        integrations: {getAgentToolsContext} as Pick<
-          IntegrationsModuleClient,
-          'getAgentToolsContext'
-        > as IntegrationsModuleClient,
-      }),
-    );
-    await appWithOptions.ready();
+    const appWithOptions = await createApp({
+      getAgentToolsContext,
+    } as Pick<IntegrationsModuleClient, 'getAgentToolsContext'> as IntegrationsModuleClient);
 
     const res = await appWithOptions.inject({
       method: 'POST',
@@ -242,7 +202,7 @@ jobs:
     expect(res.json().code).toBe('invalid-workflow-definition');
   });
 
-  test('trigger-scoped validation errors remain client errors on create', async () => {
+  test('stores trigger-scoped validation errors inert on create', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/definitions',
@@ -266,15 +226,105 @@ jobs:
       },
     });
 
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
-      code: 'invalid-workflow-definition',
-      details: [
+      diagnostics: [
         {
+          code: 'invalid-cron-schedule',
           message: 'Cron trigger schedule must be a valid 5-field cron expression.',
           path: 'triggers.nightly.config.schedule',
+          severity: 'error',
         },
       ],
+      workflow_model: {triggers: []},
+    });
+  });
+
+  test('stores an invalid manual trigger inert and returns its diagnostic', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/definitions',
+      payload: {
+        project_id: projectId,
+        config_path: 'invalid-manual.yml',
+        yaml: `
+name: Invalid manual trigger
+runner: ubuntu-latest
+triggers:
+  on_demand:
+    source: manual
+    event: run
+jobs:
+  build:
+    steps:
+      - run: echo hello
+`,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      diagnostics: [
+        {
+          code: 'invalid-trigger-event',
+          path: 'triggers.on_demand.event',
+          severity: 'error',
+        },
+      ],
+      manual_trigger: null,
+      workflow_model: {triggers: []},
+    });
+  });
+
+  test('loads trigger context and returns unknown-source warnings on create', async () => {
+    const getAgentToolsContext = vi.fn(() =>
+      Promise.resolve({
+        selectionCatalogs: [],
+        catalogs: [],
+        workspaceConnections: [],
+        eventCatalogs: [],
+        fixedEventProviders: [],
+        defaultConnection: null,
+      }),
+    );
+    const appWithOptions = await createApp({
+      getAgentToolsContext,
+    } as Pick<IntegrationsModuleClient, 'getAgentToolsContext'> as IntegrationsModuleClient);
+
+    const res = await appWithOptions.inject({
+      method: 'POST',
+      url: '/api/definitions',
+      payload: {
+        project_id: projectId,
+        config_path: 'unknown-trigger.yml',
+        yaml: `
+name: Unknown trigger source
+runner: ubuntu-latest
+triggers:
+  on_deploy:
+    source: unknown_slug
+    event: received
+jobs:
+  build:
+    steps:
+      - run: echo hello
+`,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(getAgentToolsContext).toHaveBeenCalledTimes(1);
+    expect(res.json()).toMatchObject({
+      diagnostics: [
+        {
+          code: 'unknown-trigger-source',
+          path: 'triggers.on_deploy',
+          severity: 'warning',
+        },
+      ],
+      workflow_model: {
+        triggers: [{source: 'unknown_slug', event: 'received'}],
+      },
     });
   });
 

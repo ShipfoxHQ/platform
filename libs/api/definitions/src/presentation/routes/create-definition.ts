@@ -13,8 +13,8 @@ import {loadIntegrationValidationContext} from '#core/integrations.js';
 import {needsIntegrationValidationContext} from '#core/needs-integration-validation-context.js';
 import {
   type ParseDefinitionOptions,
+  type ParsedDefinition,
   parseDefinitionWithDiagnostics,
-  stripDefinitionDiagnostics,
 } from '#core/parse-definition.js';
 import {upsertDefinition} from '#db/definitions.js';
 import {toDefinitionDto} from '#presentation/dto/index.js';
@@ -84,20 +84,23 @@ export function buildCreateDefinitionRoute(options: CreateDefinitionRouteOptions
         ref,
       });
 
-      return toDefinitionDto(definition);
+      return {...toDefinitionDto(definition), diagnostics: parsed.diagnostics};
     },
   });
 }
 
-function parseDefinitionForCreate(yamlString: string, options: ParseDefinitionOptions) {
+function parseDefinitionForCreate(
+  yamlString: string,
+  options: ParseDefinitionOptions,
+): ParsedDefinition {
   const parsed = parseDefinitionWithDiagnostics(yamlString, options);
-  const errors = parsed.diagnostics
-    .filter((diagnostic) => diagnostic.severity === 'error')
-    .map(({message, path}) => ({message, ...(path === undefined ? {} : {path})}));
+  const errors = parsed.issues
+    .filter((issue) => issue.severity === 'error' && issue.scope === 'definition')
+    .map(({message, path}) => ({message, ...(path.length === 0 ? {} : {path: path.join('.')})}));
 
   if (errors.length > 0) {
     throw new DefinitionParseError(errors[0]?.message ?? 'Invalid definition', errors);
   }
 
-  return stripDefinitionDiagnostics(parsed);
+  return parsed;
 }

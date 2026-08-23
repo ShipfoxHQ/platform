@@ -25,6 +25,7 @@ describe('parseDefinitionWithDiagnostics', () => {
           severity: 'error',
         },
       ],
+      issues: [],
     });
 
     const parsed = parseDefinitionWithDiagnostics('name: Workflow', {agentValidationCatalog});

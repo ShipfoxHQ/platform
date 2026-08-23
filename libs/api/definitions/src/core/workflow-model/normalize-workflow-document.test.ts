@@ -4389,6 +4389,48 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.triggers).toEqual([]);
   });
 
+  it('makes a fixed-provider trigger inert when its event catalog is unavailable', () => {
+    const document: WorkflowDocument = {
+      name: 'webhook trigger without catalog',
+      triggers: {
+        on_deploy: {
+          source: 'deploy-hook',
+          event: 'deployed',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+    const contextWithoutWebhookCatalog = {
+      ...integrationValidationContext,
+      eventCatalogs: new Map(
+        [...integrationValidationContext.eventCatalogs].filter(
+          ([provider]) => provider !== 'webhook',
+        ),
+      ),
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext: contextWithoutWebhookCatalog,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'invalid-trigger-event',
+        message:
+          'Provider "webhook" has no fixed event catalog; event "deployed" cannot be validated.',
+        path: ['triggers', 'on_deploy', 'event'],
+        details: {event: 'deployed', source: 'deploy-hook', provider: 'webhook'},
+        severity: 'error',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([]);
+  });
+
   it('warns about an unlisted GitHub event and keeps the trigger active', () => {
     const document: WorkflowDocument = {
       name: 'github trigger',
@@ -4422,6 +4464,65 @@ describe('normalizeWorkflowDocument', () => {
     ]);
     expect(model.triggers).toEqual([
       {id: 'on-deploy', key: 'on_deploy', source: 'github-main', event: 'deployment.created'},
+    ]);
+  });
+
+  it('makes a whitespace-only event inert', () => {
+    const document: WorkflowDocument = {
+      name: 'blank event',
+      triggers: {
+        on_push: {
+          source: 'github-main',
+          event: '   ',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'invalid-trigger-event',
+        message: 'A github-main trigger event cannot be blank.',
+        path: ['triggers', 'on_push', 'event'],
+        details: {event: '', source: 'github-main'},
+        severity: 'error',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([]);
+  });
+
+  it('trims a padded event before catalog validation and persistence', () => {
+    const document: WorkflowDocument = {
+      name: 'padded event',
+      triggers: {
+        on_push: {
+          source: 'github-main',
+          event: ' push ',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model.triggers).toEqual([
+      {id: 'on-push', key: 'on_push', source: 'github-main', event: 'push'},
     ]);
   });
 
@@ -4727,7 +4828,7 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.triggers.map((trigger) => trigger.key)).toEqual(['one']);
   });
 
-  it('promotes the first valid manual trigger when an earlier one is inert', () => {
+  it('counts an earlier inert manual trigger toward the manual-trigger limit', () => {
     const document: WorkflowDocument = {
       name: 'manual triggers with an inert first trigger',
       triggers: {
@@ -4754,8 +4855,17 @@ describe('normalizeWorkflowDocument', () => {
         severity: 'error',
         scope: 'trigger',
       }),
+      {
+        code: 'multiple-manual-triggers',
+        message:
+          'A workflow may declare at most one manual trigger; found 2: broken, working. This trigger is inert because it is not the first manual trigger in document order.',
+        path: ['triggers', 'working'],
+        details: {manualTriggerKeys: ['broken', 'working']},
+        severity: 'error',
+        scope: 'trigger',
+      },
     ]);
-    expect(model.triggers.map((trigger) => trigger.key)).toEqual(['working']);
+    expect(model.triggers.map((trigger) => trigger.key)).toEqual([]);
   });
 
   it('accumulates independent semantic issues in one pass', () => {

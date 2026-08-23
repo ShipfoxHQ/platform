@@ -2,16 +2,22 @@ import type {WorkflowDocument} from '@shipfox/workflow-document';
 
 /**
  * Whether the document needs the integration validation context (connection
- * snapshot and provider event catalogs) to validate its triggers: any trigger,
- * listening `on` / `until` matcher, or agent-step integration. The manual and
- * cron checks are literal and context-free, but loading the context for every
- * trigger document keeps the gate simple and the slug checks uniform.
+ * snapshot and provider event catalogs) to validate an integration-source
+ * trigger, listening matcher, or agent-step integration. The manual and cron
+ * checks are literal and context-free.
  */
 export function needsIntegrationValidationContext(document: WorkflowDocument): boolean {
-  if (Object.keys(document.triggers ?? {}).length > 0) return true;
+  const topLevelTriggers = Object.values(document.triggers ?? {});
+  if (topLevelTriggers.some(isIntegrationTrigger)) return true;
 
   return Object.values(document.jobs).some(
     (job) =>
-      job.listening !== undefined || job.steps.some((step) => step.integrations !== undefined),
+      job.listening?.on.some(isIntegrationTrigger) === true ||
+      job.listening?.until?.some(isIntegrationTrigger) === true ||
+      job.steps.some((step) => step.integrations !== undefined),
   );
+}
+
+function isIntegrationTrigger(trigger: {source: string}): boolean {
+  return trigger.source !== 'manual' && trigger.source !== 'cron';
 }

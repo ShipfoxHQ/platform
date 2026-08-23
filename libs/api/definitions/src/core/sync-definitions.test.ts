@@ -78,6 +78,7 @@ const integrationValidationContext = {
   ]),
   workspaceConnectionSnapshot: new Map([
     ['github-main', {id: 'connection-1', provider: 'github', capabilities: ['agent_tools']}],
+    ['deploy-hook', {id: 'connection-2', provider: 'webhook', capabilities: []}],
   ]),
   eventCatalogs: new Map([
     ['github', new Set(['push', 'pull_request.opened'])],
@@ -531,6 +532,50 @@ jobs:
     expect(result[0]?.definition.model.triggers).toEqual([
       expect.objectContaining({source: 'unknown_slug', event: 'whatever'}),
     ]);
+  });
+
+  it('keeps invalid trigger events inert on the sync path', async () => {
+    const triggerYaml = `
+name: Invalid webhook event
+runner: ubuntu-latest
+triggers:
+  on_deploy:
+    source: deploy-hook
+    event: deployed
+jobs:
+  build:
+    steps:
+      - run: pnpm test
+`;
+    const loadIntegrationValidationContext = vi.fn(() =>
+      Promise.resolve(integrationValidationContext),
+    );
+
+    const result = await fetchAndParseWorkflows({
+      ...baseContext,
+      ref: 'main',
+      paths: ['.shipfox/workflows/ci.yml'],
+      sourceControl: sourceControl({
+        fetchFile: vi.fn(() =>
+          Promise.resolve({
+            path: '.shipfox/workflows/ci.yml',
+            ref: 'main',
+            content: triggerYaml,
+          }),
+        ),
+      }),
+      loadIntegrationValidationContext,
+    });
+
+    expect(result[0]?.diagnostics).toEqual([
+      {
+        code: 'invalid-trigger-event',
+        message: 'A webhook trigger must use event "received"; found "deployed".',
+        path: 'triggers.on_deploy.event',
+        severity: 'error',
+      },
+    ]);
+    expect(result[0]?.definition.model.triggers).toEqual([]);
   });
 
   it('rejects integration catalog issues after loading validation context', async () => {
