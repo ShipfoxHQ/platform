@@ -189,7 +189,7 @@ describe('GET /api/workflows/runs', () => {
   });
 
   test('filters runs by origin', async () => {
-    const synced = await createWorkflowRun({
+    await createWorkflowRun({
       workspaceId,
       projectId,
       definitionId: crypto.randomUUID(),
@@ -237,7 +237,6 @@ describe('GET /api/workflows/runs', () => {
         replay_of_event_id: null,
       },
     });
-    expect(synced.id).not.toBe(devRun.id);
   });
 
   test('returns empty array for project with no runs', async () => {

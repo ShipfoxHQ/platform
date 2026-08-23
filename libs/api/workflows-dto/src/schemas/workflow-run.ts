@@ -205,7 +205,7 @@ export const workflowRunJobSummaryDtoSchema = z.object({
   position: z.number().int().nonnegative(),
 });
 
-export type WorkflowRunJobSummaryDto = z.output<typeof workflowRunJobSummaryDtoSchema>;
+export type WorkflowRunJobSummaryDto = z.input<typeof workflowRunJobSummaryDtoSchema>;
 
 /**
  * How many jobs a run list row carries in graph order.
@@ -258,7 +258,12 @@ export const workflowRunListItemSchema = z
   })
   .superRefine(validateWorkflowRunOrigin);
 
-export type WorkflowRunListItemDto = z.output<typeof workflowRunListItemSchema>;
+type WorkflowRunListItemInput = z.input<typeof workflowRunListItemSchema>;
+
+export type WorkflowRunListItemDto = Omit<WorkflowRunListItemInput, 'origin' | 'dev_source'> & {
+  origin: WorkflowRunOriginDto;
+  dev_source: WorkflowRunDevSourceDto | null;
+};
 
 export const workflowRunListResponseSchema = z.object({
   runs: z.array(workflowRunListItemSchema),
@@ -266,7 +271,11 @@ export const workflowRunListResponseSchema = z.object({
   filtered_total_count: z.number().int().nonnegative().nullable(),
 });
 
-export type WorkflowRunListResponseDto = z.output<typeof workflowRunListResponseSchema>;
+type WorkflowRunListResponseInput = z.input<typeof workflowRunListResponseSchema>;
+
+export type WorkflowRunListResponseDto = Omit<WorkflowRunListResponseInput, 'runs'> & {
+  runs: WorkflowRunListItemDto[];
+};
 
 const aggregateBucketSchema = z.object({
   value: z.string(),

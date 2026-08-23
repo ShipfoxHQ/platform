@@ -32,7 +32,7 @@ export const workflowRunStatusEnum = pgEnum('workflows_run_status', [
 
 export const workflowRunRerunModeEnum = pgEnum('workflows_rerun_mode', ['all', 'failed']);
 
-interface WorkflowRunDevSourceDb {
+export interface WorkflowRunDevSourceDb {
   ref: string;
   commit: string;
   config_path: string;
