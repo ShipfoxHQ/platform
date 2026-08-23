@@ -161,4 +161,33 @@ describe('EventsPage', () => {
       expect(screen.queryByRole('button', {name: 'Back to events'})).not.toBeInTheDocument();
     });
   });
+
+  test('treats a later route selection as a deep link when no route callback is bound', async () => {
+    useTriggerEventsInfiniteQueryMock.mockReturnValue(makeListQuery([makeEvent()]));
+    const {rerender} = render(
+      <EventsPage workspaceId={WORKSPACE_ID} filters={{}} onFiltersChange={vi.fn()} />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', {name: 'Open details for github · push'}));
+    rerender(
+      <EventsPage
+        workspaceId={WORKSPACE_ID}
+        filters={{}}
+        selectedEventId={EVENT_ID}
+        onFiltersChange={vi.fn()}
+      />,
+    );
+
+    useTriggerEventsInfiniteQueryMock.mockReturnValue(makeListQuery([]));
+    rerender(
+      <EventsPage
+        workspaceId={WORKSPACE_ID}
+        filters={{}}
+        selectedEventId={EVENT_ID}
+        onFiltersChange={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole('button', {name: 'Back to events'})).toBeInTheDocument();
+  });
 });

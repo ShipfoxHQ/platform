@@ -220,7 +220,13 @@ export function workflowRunCommitLabel(
  */
 function workflowRunProvenanceSource(run: Pick<WorkflowRun, 'triggerReference' | 'devSource'>) {
   const triggerReference = run.triggerReference;
-  return triggerReference?.ref && triggerReference.commit ? triggerReference : run.devSource;
+  if (triggerReference?.ref && triggerReference.commit) return triggerReference;
+
+  const devSource = run.devSource;
+  if (devSource?.ref && devSource.commit) return devSource;
+
+  // Preserve partial trigger data for synced runs; there is no dev source to replace it with.
+  return triggerReference ?? devSource;
 }
 
 export function workflowRunActor(run: Pick<WorkflowRun, 'triggerReference'>): string | null {

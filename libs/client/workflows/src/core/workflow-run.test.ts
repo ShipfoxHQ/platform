@@ -769,6 +769,21 @@ describe('workflow run helpers', () => {
     expect(workflowRunDevSourceLabel(devRun)).toBe('fix-triage-prompt @ abcdef1');
   });
 
+  test('keeps a partial trigger ref for synced runs without a dev source', () => {
+    const syncedRun = workflowRunListItem({
+      origin: 'synced',
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        commit: null,
+        actor: 'octocat',
+      },
+    });
+
+    expect(workflowRunBranchLabel(syncedRun)).toBe('main');
+    expect(workflowRunCommitLabel(syncedRun)).toBeNull();
+  });
+
   test('formats the dev source as the same resolved ref @ commit shown in the list', () => {
     const devRun = workflowRunListItem({
       origin: 'dev',

@@ -75,7 +75,9 @@ export function EventsPage({
   ]);
 
   function selectEvent(eventId: string) {
-    pendingRouteSelectionRef.current = eventId;
+    // Router-bound callers acknowledge this selection through routeSelectedEventId. In a
+    // standalone render there is no route round trip to await, so do not leave a stale marker.
+    pendingRouteSelectionRef.current = onSelectedEventChange ? eventId : null;
     setSelectionIsFromRoute(false);
     setSelectedEventId(eventId);
     onSelectedEventChange?.(eventId);
