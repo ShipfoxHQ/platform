@@ -530,21 +530,34 @@ describe('definition queries', () => {
       expect(lineages[0]?.configPath).toBe('gone.yml');
     });
 
-    test('a definition without a config path gets its own lineage', async () => {
-      const definition = await upsertDefinition({
+    test('pathless manual definitions reuse the project lineage across saves', async () => {
+      const first = await upsertDefinition({
         projectId,
         workspaceId,
         name: 'No path',
         ...definitionFields('No path'),
       });
+      const second = await upsertDefinition({
+        projectId,
+        workspaceId,
+        name: 'No path updated',
+        ...definitionFields('No path updated'),
+      });
 
       const lineage = await db()
         .select()
         .from(workflowWorkflows)
-        .where(eq(workflowWorkflows.id, definition.workflowId));
+        .where(eq(workflowWorkflows.id, first.workflowId));
       expect(lineage).toHaveLength(1);
       expect(lineage[0]?.projectId).toBe(projectId);
-      expect(lineage[0]?.configPath).toBe(definition.workflowId);
+      expect(lineage[0]?.configPath).toBe(first.workflowId);
+      expect(second.workflowId).toBe(first.workflowId);
+
+      const projectLineages = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.projectId, projectId));
+      expect(projectLineages).toHaveLength(1);
     });
 
     test('getDefinitionById returns the workflowId', async () => {
@@ -691,6 +704,7 @@ describe('definition queries', () => {
       });
 
       expect(restored.id).toBe(original.id);
+      expect(restored.workflowId).toBe(original.workflowId);
       expect(restored.name).toBe('Recovered v2');
       expect(restored.deletedAt).toBeNull();
       const visible = await listDefinitionsByProject(projectId);

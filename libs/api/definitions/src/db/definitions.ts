@@ -5,7 +5,7 @@ import {
 } from '@shipfox/api-definitions-dto';
 import {writeOutboxEvent} from '@shipfox/node-outbox';
 import type {WorkflowDocument} from '@shipfox/workflow-document';
-import {and, asc, eq, gt, isNull, notInArray, or, type SQL, sql} from 'drizzle-orm';
+import {and, asc, eq, gt, inArray, isNull, notInArray, or, type SQL, sql} from 'drizzle-orm';
 import type {
   WorkflowDefinition,
   WorkflowDefinitionPayload,
@@ -36,15 +36,32 @@ export interface UpsertDefinitionParams {
 
 /**
  * Finds or creates the workflow lineage for (projectId, configPath) and returns
- * its id. A definition without a config path has no stable key, so it gets its
- * own lineage keyed by the lineage id; such rows have no unique arbiter today
- * and each upsert already inserts a fresh row.
+ * its id. Pathless manual definitions share a project-scoped lineage because
+ * their request has no more specific stable key.
  */
 async function findOrCreateWorkflow(
   tx: Tx,
   params: {projectId: string; configPath: string | null},
 ): Promise<string> {
   if (params.configPath === null) {
+    // Serialize the first pathless definition for a project so concurrent saves
+    // cannot create multiple project-scoped lineages.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${params.projectId}, 0))`);
+    const existing = await tx
+      .select({workflowId: workflowDefinitions.workflowId})
+      .from(workflowDefinitions)
+      .where(
+        and(
+          eq(workflowDefinitions.projectId, params.projectId),
+          isNull(workflowDefinitions.configPath),
+          eq(workflowDefinitions.source, 'manual'),
+        ),
+      )
+      .orderBy(asc(workflowDefinitions.createdAt), asc(workflowDefinitions.id))
+      .limit(1);
+    const existingRow = existing[0];
+    if (existingRow) return existingRow.workflowId;
+
     const id = crypto.randomUUID();
     await tx.insert(workflowWorkflows).values({
       id,
@@ -73,8 +90,46 @@ async function findOrCreateWorkflow(
     )
     .limit(1);
   const existingRow = existing[0];
-  if (!existingRow) throw new Error('Workflow lineage upsert returned no row');
+  if (!existingRow) {
+    throw new Error(
+      `Workflow lineage upsert returned no row for project ${params.projectId} and config path ${params.configPath}`,
+    );
+  }
   return existingRow.id;
+}
+
+async function findOrCreateWorkflows(
+  tx: Tx,
+  params: {projectId: string; configPaths: string[]},
+): Promise<Map<string, string>> {
+  const configPaths = [...new Set(params.configPaths)].sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0,
+  );
+  if (configPaths.length === 0) return new Map();
+
+  await tx
+    .insert(workflowWorkflows)
+    .values(configPaths.map((configPath) => ({projectId: params.projectId, configPath})))
+    .onConflictDoNothing();
+
+  const rows = await tx
+    .select({id: workflowWorkflows.id, configPath: workflowWorkflows.configPath})
+    .from(workflowWorkflows)
+    .where(
+      and(
+        eq(workflowWorkflows.projectId, params.projectId),
+        inArray(workflowWorkflows.configPath, configPaths),
+      ),
+    );
+  const workflowIds = new Map(rows.map((row) => [row.configPath, row.id]));
+  for (const configPath of configPaths) {
+    if (!workflowIds.has(configPath)) {
+      throw new Error(
+        `Workflow lineage upsert returned no row for project ${params.projectId} and config path ${configPath}`,
+      );
+    }
+  }
+  return workflowIds;
 }
 
 function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams & {workflowId: string}) {
@@ -98,6 +153,7 @@ function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams & {workflowId: 
   };
 
   const set = {
+    workflowId: params.workflowId,
     name: params.name,
     source,
     definition,
@@ -330,6 +386,10 @@ export async function applyVcsDefinitionsBatch(
 ): Promise<ApplyVcsDefinitionsBatchResult> {
   return await db().transaction(async (tx) => {
     let appliedCount = 0;
+    const prepared: Array<{
+      item: (typeof params.upserts)[number];
+      unchanged: boolean;
+    }> = [];
     for (const item of params.upserts) {
       const existing = await tx
         .select({
@@ -352,10 +412,23 @@ export async function applyVcsDefinitionsBatch(
         previous.deletedAt === null &&
         previous.contentHash === item.contentHash;
 
-      const workflowId = await findOrCreateWorkflow(tx, {
-        projectId: params.projectId,
-        configPath: item.configPath,
-      });
+      prepared.push({item, unchanged});
+    }
+
+    const workflowIds = await findOrCreateWorkflows(tx, {
+      projectId: params.projectId,
+      configPaths: prepared.filter(({unchanged}) => !unchanged).map(({item}) => item.configPath),
+    });
+
+    for (const {item, unchanged} of prepared) {
+      if (unchanged) continue;
+
+      const workflowId = workflowIds.get(item.configPath);
+      if (!workflowId) {
+        throw new Error(
+          `Workflow lineage missing for project ${params.projectId} and config path ${item.configPath}`,
+        );
+      }
       const rows = await buildUpsertQuery(tx, {
         projectId: params.projectId,
         workspaceId: params.workspaceId,
@@ -372,19 +445,17 @@ export async function applyVcsDefinitionsBatch(
       const row = rows[0];
       if (!row) throw new Error('Upsert returned no rows');
 
-      if (!unchanged) {
-        await writeOutboxEvent<DefinitionsEventMap>(tx, definitionsOutbox, {
-          type: DEFINITION_RESOLVED,
-          payload: {
-            definitionId: row.id,
-            projectId: row.projectId,
-            workspaceId: params.workspaceId,
-            configPath: row.configPath,
-            triggers: definitionTriggersFor(row.definition.model),
-          },
-        });
-        appliedCount += 1;
-      }
+      await writeOutboxEvent<DefinitionsEventMap>(tx, definitionsOutbox, {
+        type: DEFINITION_RESOLVED,
+        payload: {
+          definitionId: row.id,
+          projectId: row.projectId,
+          workspaceId: params.workspaceId,
+          configPath: row.configPath,
+          triggers: definitionTriggersFor(row.definition.model),
+        },
+      });
+      appliedCount += 1;
     }
 
     const keepConfigPaths = params.upserts.map((upsert) => upsert.configPath);
