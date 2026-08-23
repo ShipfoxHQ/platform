@@ -85,10 +85,9 @@ export async function createStepCheckoutSpec({
     },
     target,
   });
-  // A dev run operates on the branch that carries the workflow file; cross-project
-  // and cross-repository checkout targets keep their own default branch. The terms
-  // are split into variables: a nullish-coalescing chain with a parenthesized ??
-  // middle operand is mis-analyzed as always nullish by the TypeScript checker.
+  // Explicit step refs win, followed by same-project event commits (including
+  // replays), then the pinned dev commit for the run's own project. Other targets
+  // intentionally use the provider default branch.
   const triggerCommitRef =
     triggerReference?.project?.id === resolvedTarget.projectId
       ? (triggerReference.commit ?? undefined)
