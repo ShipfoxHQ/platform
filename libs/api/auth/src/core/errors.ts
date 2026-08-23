@@ -1,3 +1,5 @@
+import type {SignupDenialMessageFormat} from './ports.js';
+
 export class WorkspaceNotFoundError extends Error {
   constructor(workspaceId: string) {
     super(`Workspace not found: ${workspaceId}`);
@@ -48,7 +50,10 @@ export class EmailTakenError extends Error {
 }
 
 export class SignupNotAllowedError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly format?: SignupDenialMessageFormat,
+  ) {
     super(message);
     this.name = 'SignupNotAllowedError';
   }

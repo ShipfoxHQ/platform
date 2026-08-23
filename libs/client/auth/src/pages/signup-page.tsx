@@ -298,7 +298,9 @@ export function SignupPage() {
           <Callout role="alert" type="error">
             <CalloutContent>
               {formError.format === 'markdown' ? (
-                <Markdown className="[&>*:last-child]:mb-0">{formError.message}</Markdown>
+                <Markdown className="[&>*:last-child]:mb-0" headingLevelOffset={1}>
+                  {formError.message}
+                </Markdown>
               ) : (
                 formError.message
               )}

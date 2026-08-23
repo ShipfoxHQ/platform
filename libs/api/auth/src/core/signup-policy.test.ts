@@ -47,7 +47,11 @@ describe('createEnvironmentSignupPolicy', () => {
         emailVerified: true,
         source: 'oauth-google',
       }),
-    ).resolves.toEqual({allowed: false, message: DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE});
+    ).resolves.toEqual({
+      allowed: false,
+      message: DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE,
+      format: 'markdown',
+    });
   });
 
   test('returns the configured denial message for an unmatched address', async () => {
@@ -60,7 +64,11 @@ describe('createEnvironmentSignupPolicy', () => {
         emailVerified: true,
         source: 'oauth-google',
       }),
-    ).resolves.toEqual({allowed: false, message: 'Ask your administrator for access.'});
+    ).resolves.toEqual({
+      allowed: false,
+      message: 'Ask your administrator for access.',
+      format: 'markdown',
+    });
   });
 
   test('allows every address when the gate is disabled', async () => {

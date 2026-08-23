@@ -1,6 +1,7 @@
 ---
-"@shipfox/api-auth": patch
+"@shipfox/api-auth": minor
 "@shipfox/client-auth": patch
+"@shipfox/react-ui": minor
 ---
 
-Supports Markdown in configured signup denial messages.
+Supports server-declared Markdown in signup denial messages while keeping custom policy messages plain by default.

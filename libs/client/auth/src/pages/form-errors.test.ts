@@ -85,12 +85,26 @@ describe('signupErrorToFormError', () => {
       code: 'signup-not-allowed',
       message: 'Forbidden',
       status: 403,
-      details: {code: 'signup-not-allowed', details: {message}},
+      details: {code: 'signup-not-allowed', details: {message, format: 'markdown'}},
     });
 
     const result = signupErrorToFormError(error);
 
     expect(result).toEqual({kind: 'form', message, format: 'markdown'});
+  });
+
+  test('keeps unformatted signup policy messages as plain text', () => {
+    const message = 'Email <admin>@example.test for access.';
+    const error = new ApiError({
+      code: 'signup-not-allowed',
+      message: 'Forbidden',
+      status: 403,
+      details: {code: 'signup-not-allowed', details: {message}},
+    });
+
+    const result = signupErrorToFormError(error);
+
+    expect(result).toEqual({kind: 'form', message});
   });
 });
 

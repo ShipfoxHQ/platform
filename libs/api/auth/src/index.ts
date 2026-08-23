@@ -75,7 +75,7 @@ export {
   jobLeaseParamsFrom,
   verifyJobLeaseToken,
 } from '#core/job-lease-token.js';
-export type {SignupPolicy} from '#core/ports.js';
+export type {SignupDenialMessageFormat, SignupPolicy} from '#core/ports.js';
 export {
   issueRunnerSessionToken,
   verifyRunnerSessionToken,

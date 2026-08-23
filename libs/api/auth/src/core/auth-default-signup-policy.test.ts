@@ -28,6 +28,7 @@ describe('low-level account creation defaults', () => {
 
     await expect(signup({email, password: 'correct horse battery staple'})).rejects.toMatchObject({
       name: 'SignupNotAllowedError',
+      format: 'markdown',
     });
   });
 
@@ -44,6 +45,7 @@ describe('low-level account creation defaults', () => {
 
     await expect(provisionUser({email})).rejects.toMatchObject({
       name: 'SignupNotAllowedError',
+      format: 'markdown',
     });
   });
 

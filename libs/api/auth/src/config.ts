@@ -1,4 +1,5 @@
 import {bool, createConfig, num, str} from '@shipfox/config';
+import {SIGNUP_DENIAL_MESSAGE_MAX_LENGTH} from '#core/ports.js';
 
 export const config = createConfig({
   ADMIN_BOOTSTRAP_TOKEN: str({
@@ -46,7 +47,7 @@ export const config = createConfig({
     default: '',
   }),
   AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: str({
-    desc: 'Markdown message returned when the signup gate blocks an account. Optional. The default is This Shipfox deployment does not accept new accounts right now.',
+    desc: 'Markdown message returned when the signup gate blocks an account. Use at most 500 characters. Optional. The default is This Shipfox deployment does not accept new accounts right now.',
     default: undefined,
   }),
   CLIENT_BASE_URL: str({
@@ -62,6 +63,15 @@ if (
 ) {
   throw new Error(
     'AUTH_SIGNUP_GATE_ENABLED requires AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS or AUTH_SIGNUP_ALLOWED_EMAILS to be set.',
+  );
+}
+
+if (
+  config.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE !== undefined &&
+  config.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE.length > SIGNUP_DENIAL_MESSAGE_MAX_LENGTH
+) {
+  throw new Error(
+    `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE must contain at most ${SIGNUP_DENIAL_MESSAGE_MAX_LENGTH} characters.`,
   );
 }
 

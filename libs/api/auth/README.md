@@ -66,7 +66,7 @@ Required environment:
 | `AUTH_SIGNUP_GATE_ENABLED` | `false` | Restricts new account creation to the configured signup email allowlist. Requires `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` or `AUTH_SIGNUP_ALLOWED_EMAILS` to be set. |
 | `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` | none | Comma-separated email domains allowed to create accounts, such as `shipfox.io,acme.com`. |
 | `AUTH_SIGNUP_ALLOWED_EMAILS` | none | Comma-separated exact email addresses allowed to create accounts. |
-| `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE` | none | Markdown message returned when the signup gate blocks an account. Defaults to "This Shipfox deployment does not accept new accounts right now." |
+| `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE` | none | Markdown message returned when the signup gate blocks an account. Accepts at most 500 characters. Defaults to "This Shipfox deployment does not accept new accounts right now." |
 | `CLIENT_BASE_URL` | `http://localhost:5173` | Base URL used in email verification and password reset links. |
 | `ADMIN_BOOTSTRAP_TOKEN` | none | Deployment secret accepted once to create the first administrator owner. Set it before bootstrap and remove or rotate it after successful bootstrap. |
 
@@ -91,12 +91,17 @@ subdomains or wildcards. `createAuthModule` applies these settings by default;
 pass a `signupPolicy` to replace the environment-backed policy.
 
 The Shipfox client renders `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE` as sanitized
-Markdown. The signup response limits the message to 500 characters. Use an
-absolute HTTP or HTTPS URL for a link:
+Markdown. The setting accepts at most 500 characters, and startup fails when it
+is longer so the response does not cut a Markdown construct. Use an absolute
+HTTP or HTTPS URL for a link:
 
 ```sh
 AUTH_SIGNUP_NOT_ALLOWED_MESSAGE='New accounts require approval. [Request access](https://example.com/access).'
 ```
+
+The environment-backed policy declares its denial message as Markdown. A custom
+`signupPolicy` denial message stays plain text unless its result includes
+`format: 'markdown'`.
 
 When `AUTH_PASSWORD_ENABLED=false`, the module does not register signup, login, password-reset, password-change, or email-verification routes. Refresh, logout, and current-session routes stay available. Another module must contribute a login method before the API server starts.
 
@@ -329,7 +334,7 @@ It also exports lower-level pieces for tests and advanced integration:
 - `createLeaseTokenAuthMethod()`: the Fastify auth method for job lease tokens.
 - `issueRunnerSessionToken(claims)` / `verifyRunnerSessionToken(token)`: mint and verify runner session tokens.
 - `issueJobLeaseToken(claims)` / `verifyJobLeaseToken(token)`: mint and verify job lease tokens.
-- `createEnvironmentSignupPolicy()`: creates the environment-backed signup policy used by default. Pass `signupPolicy` to `createAuthModule` to replace it.
+- `createEnvironmentSignupPolicy()`: creates the environment-backed signup policy used by default. Pass `signupPolicy` to `createAuthModule` to replace it. A denied custom policy can opt into sanitized Markdown with `format: 'markdown'`; without a format, its message stays plain text.
 - `getClientContext(request)`: reads the authenticated user context from a Fastify request.
 - `getAuthenticatedSessionContext(request)`: reads the user ID and required refresh-session ID from verified access-token claims. It does not check whether the refresh session is still active.
 - `findUserByEmail({email})`: read-only lookup of the current owner of a normalized email; see below.

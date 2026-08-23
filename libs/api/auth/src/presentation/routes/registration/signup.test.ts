@@ -53,6 +53,27 @@ describe('POST /auth/signup', () => {
     });
   });
 
+  test('declares Markdown denial messages in the client error details', () => {
+    const errorHandler = createSignupRoute({} as WorkspacesInterModuleClient).errorHandler as (
+      error: unknown,
+    ) => never;
+    const message = 'Read the [access policy](https://example.test/access).';
+    let mapped: unknown;
+
+    try {
+      errorHandler(new SignupNotAllowedError(message, 'markdown'));
+    } catch (error) {
+      mapped = error;
+    }
+
+    expect(mapped).toMatchObject({
+      message,
+      status: 403,
+      code: 'signup-not-allowed',
+      details: {message, format: 'markdown'},
+    });
+  });
+
   afterAll(async () => {
     await app.close();
   });

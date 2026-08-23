@@ -237,7 +237,7 @@ describe('SignupPage', () => {
     expect(await screen.findByRole('heading', {name: 'Authenticated home'})).toBeInTheDocument();
   });
 
-  test('surfaces duplicate-email errors', async () => {
+  test('renders ordinary form errors as plain text', async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -245,7 +245,7 @@ describe('SignupPage', () => {
       )
       .mockResolvedValueOnce(
         jsonResponse(
-          {code: 'email-already-exists', message: 'Email already exists'},
+          {code: 'email-already-exists', message: 'Email *already* exists'},
           {status: 409},
         ),
       );
@@ -257,12 +257,14 @@ describe('SignupPage', () => {
     fireEvent.change(screen.getByLabelText('Password'), {target: {value: 'long secure password'}});
     fireEvent.click(screen.getByRole('button', {name: 'Create account'}));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Email already exists');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Email *already* exists');
+    expect(within(alert).queryByText('already', {selector: 'em'})).not.toBeInTheDocument();
   });
 
   test('renders configured signup denial messages as Markdown', async () => {
     const message = [
-      '## Signups require approval',
+      '# Signups require approval',
       '',
       '- Review the [access policy](https://example.test/access).',
     ].join('\n');
@@ -273,7 +275,11 @@ describe('SignupPage', () => {
       )
       .mockResolvedValueOnce(
         jsonResponse(
-          {code: 'signup-not-allowed', message: 'Forbidden', details: {message}},
+          {
+            code: 'signup-not-allowed',
+            message: 'Forbidden',
+            details: {message, format: 'markdown'},
+          },
           {status: 403},
         ),
       );

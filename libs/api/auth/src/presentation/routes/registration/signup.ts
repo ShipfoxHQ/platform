@@ -11,11 +11,9 @@ import {
   TokenExpiredError,
   TokenInvalidError,
 } from '#core/errors.js';
-import type {SignupPolicy} from '#core/ports.js';
+import {SIGNUP_DENIAL_MESSAGE_MAX_LENGTH, type SignupPolicy} from '#core/ports.js';
 import {setRefreshTokenCookie} from '#presentation/auth/refresh-cookie.js';
 import {toUserDto} from '#presentation/dto/user.js';
-
-const SIGNUP_NOT_ALLOWED_MESSAGE_MAX_LENGTH = 500;
 
 export function createSignupRoute(
   workspaces: WorkspacesInterModuleClient,
@@ -43,10 +41,10 @@ export function createSignupRoute(
         throw new ClientError('Email already registered', 'email-taken', {status: 409});
       }
       if (error instanceof SignupNotAllowedError) {
-        const message = error.message.slice(0, SIGNUP_NOT_ALLOWED_MESSAGE_MAX_LENGTH);
+        const message = error.message.slice(0, SIGNUP_DENIAL_MESSAGE_MAX_LENGTH);
         throw new ClientError(message, 'signup-not-allowed', {
           status: 403,
-          details: {message},
+          details: {message, ...(error.format ? {format: error.format} : {})},
         });
       }
       if (error instanceof TokenInvalidError) {

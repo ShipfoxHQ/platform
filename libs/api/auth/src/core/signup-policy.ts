@@ -28,6 +28,7 @@ export function createEnvironmentSignupPolicy(): SignupPolicy {
       return Promise.resolve({
         allowed: false,
         message: config.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE ?? DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE,
+        format: 'markdown',
       });
     },
   };
