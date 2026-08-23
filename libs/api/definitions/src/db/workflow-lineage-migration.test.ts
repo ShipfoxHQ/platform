@@ -23,8 +23,15 @@ async function applyMigration(client: pg.Client, fileName: string): Promise<void
     .split('--> statement-breakpoint')
     .map((statement) => statement.trim())
     .filter((statement) => statement.length > 0);
-  for (const statement of statements) {
-    await client.query(statement);
+  await client.query('BEGIN');
+  try {
+    for (const statement of statements) {
+      await client.query(statement);
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
   }
 }
 
@@ -56,8 +63,8 @@ async function insertDefinition(
   );
 }
 
-describe('workflow lineage schema migration (0003)', () => {
-  test('adds nullable lineage storage without backfilling existing definitions', async () => {
+describe('workflow lineage migrations', () => {
+  test('backfills existing definitions to stable lineage ids', async () => {
     const scratch = `api_test_lineage_${randomUUID().replaceAll('-', '')}`;
     const admin = await connectTo(ADMIN_DATABASE);
     let target: pg.Client | undefined;
@@ -125,9 +132,10 @@ describe('workflow lineage schema migration (0003)', () => {
       await insertDefinition(target, {id: rowNoPathSecond, projectId: projectB});
 
       await applyMigration(target, '0003_nebulous_nemesis.sql');
+      await applyMigration(target, '0004_backfill_workflow_lineage.sql');
 
       const rows = (
-        await target.query<{id: string; workflow_id: string | null; config_path: string | null}>(
+        await target.query<{id: string; workflow_id: string; config_path: string | null}>(
           `SELECT "id", "workflow_id", "config_path"
            FROM "definitions_workflow_definitions" ORDER BY "id"`,
         )
@@ -139,8 +147,32 @@ describe('workflow lineage schema migration (0003)', () => {
       ).rows;
 
       expect(rows).toHaveLength(8);
-      expect(rows.every((row) => row.workflow_id === null)).toBe(true);
-      expect(workflows).toHaveLength(0);
+      expect(workflows).toHaveLength(5);
+
+      const workflowIdByRow = new Map(rows.map((row) => [row.id, row.workflow_id]));
+      // The ref IS NOT NULL row wins when several rows share a path.
+      expect(workflowIdByRow.get(rowA)).toBe(rowA);
+      expect(workflowIdByRow.get(rowVcs)).toBe(rowVcs);
+      expect(workflowIdByRow.get(rowManual)).toBe(rowVcs);
+      // Ties between ref rows break on the smallest row id.
+      const branchWinner = rowBranchMain < rowBranchDev ? rowBranchMain : rowBranchDev;
+      expect(workflowIdByRow.get(rowBranchMain)).toBe(branchWinner);
+      expect(workflowIdByRow.get(rowBranchDev)).toBe(branchWinner);
+      // Soft-deleted rows keep their lineage.
+      expect(workflowIdByRow.get(rowGone)).toBe(rowGone);
+      // Rows without a config path share one project-scoped lineage.
+      const noPathWorkflowId = workflowIdByRow.get(rowNoPath);
+      expect(noPathWorkflowId).toBeDefined();
+      expect(workflowIdByRow.get(rowNoPathSecond)).toBe(noPathWorkflowId);
+
+      const lineageIds = new Set(workflows.map((workflow) => workflow.id));
+      for (const row of rows) {
+        expect(lineageIds.has(row.workflow_id)).toBe(true);
+      }
+      const noPathLineage = workflows.find((workflow) => workflow.id === noPathWorkflowId);
+      expect(noPathLineage).toBeDefined();
+      expect(workflows.find((workflow) => workflow.id === rowVcs)?.config_path).toBe('shared.yml');
+      expect(workflows.find((workflow) => workflow.id === rowGone)?.config_path).toBe('gone.yml');
 
       // The unique (project_id, config_path) constraint accepts a second project
       // with the same path.

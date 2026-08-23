@@ -5,19 +5,7 @@ import {
 } from '@shipfox/api-definitions-dto';
 import {writeOutboxEvent} from '@shipfox/node-outbox';
 import type {WorkflowDocument} from '@shipfox/workflow-document';
-import {
-  and,
-  asc,
-  eq,
-  gt,
-  inArray,
-  isNotNull,
-  isNull,
-  notInArray,
-  or,
-  type SQL,
-  sql,
-} from 'drizzle-orm';
+import {and, asc, eq, gt, inArray, isNull, notInArray, or, type SQL, sql} from 'drizzle-orm';
 import type {
   WorkflowDefinition,
   WorkflowDefinitionPayload,
@@ -26,7 +14,7 @@ import type {
 import type {WorkflowModel} from '#core/entities/workflow-model.js';
 import {db} from './db.js';
 import {definitionTriggersFor} from './definition-triggers.js';
-import {type DefinitionDb, toDefinition, workflowDefinitions} from './schema/definitions.js';
+import {toDefinition, workflowDefinitions} from './schema/definitions.js';
 import {definitionsOutbox} from './schema/outbox.js';
 import {workflowWorkflows} from './schema/workflows.js';
 
@@ -67,13 +55,12 @@ async function findOrCreateWorkflow(
           eq(workflowDefinitions.projectId, params.projectId),
           isNull(workflowDefinitions.configPath),
           eq(workflowDefinitions.source, 'manual'),
-          isNotNull(workflowDefinitions.workflowId),
         ),
       )
       .orderBy(asc(workflowDefinitions.createdAt), asc(workflowDefinitions.id))
       .limit(1);
     const existingRow = existing[0];
-    if (existingRow?.workflowId) return existingRow.workflowId;
+    if (existingRow) return existingRow.workflowId;
 
     const inserted = await tx
       .insert(workflowWorkflows)
@@ -162,36 +149,6 @@ async function findOrCreateWorkflows(
     }
   }
   return workflowIds;
-}
-
-async function ensureWorkflowId(
-  tx: Tx,
-  row: Pick<DefinitionDb, 'id' | 'projectId' | 'configPath' | 'workflowId'>,
-): Promise<string> {
-  if (row.workflowId !== null) return row.workflowId;
-
-  const workflowId = await findOrCreateWorkflow(tx, {
-    projectId: row.projectId,
-    configPath: row.configPath,
-  });
-  const updated = await tx
-    .update(workflowDefinitions)
-    .set({workflowId})
-    .where(and(eq(workflowDefinitions.id, row.id), isNull(workflowDefinitions.workflowId)))
-    .returning({workflowId: workflowDefinitions.workflowId});
-  const updatedRow = updated[0];
-  if (updatedRow?.workflowId) return updatedRow.workflowId;
-
-  const current = await tx
-    .select({workflowId: workflowDefinitions.workflowId})
-    .from(workflowDefinitions)
-    .where(eq(workflowDefinitions.id, row.id))
-    .limit(1);
-  const currentRow = current[0];
-  if (!currentRow?.workflowId) {
-    throw new Error(`Definition ${row.id} still has no workflow lineage after reconciliation`);
-  }
-  return currentRow.workflowId;
 }
 
 function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams & {workflowId: string}) {
@@ -308,18 +265,15 @@ export async function upsertDefinition(
 }
 
 export async function getDefinitionById(id: string): Promise<WorkflowDefinition | undefined> {
-  return await db().transaction(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(workflowDefinitions)
-      .where(and(eq(workflowDefinitions.id, id), isNull(workflowDefinitions.deletedAt)))
-      .limit(1);
-    const row = rows[0];
+  const rows = await db()
+    .select()
+    .from(workflowDefinitions)
+    .where(and(eq(workflowDefinitions.id, id), isNull(workflowDefinitions.deletedAt)))
+    .limit(1);
+  const row = rows[0];
 
-    if (!row) return undefined;
-    const workflowId = await ensureWorkflowId(tx, row);
-    return toDefinition({...row, workflowId});
-  });
+  if (!row) return undefined;
+  return toDefinition(row);
 }
 
 export interface DefinitionCursor {
@@ -349,35 +303,28 @@ function cursorWhere(cursor: DefinitionCursor | undefined): SQL | undefined {
 export async function listDefinitions(
   params: ListDefinitionsParams,
 ): Promise<ListDefinitionsResult> {
-  return await db().transaction(async (tx) => {
-    const conditions = [
-      eq(workflowDefinitions.projectId, params.projectId),
-      isNull(workflowDefinitions.deletedAt),
-    ];
-    const cursorCondition = cursorWhere(params.cursor);
-    if (cursorCondition) conditions.push(cursorCondition);
+  const conditions = [
+    eq(workflowDefinitions.projectId, params.projectId),
+    isNull(workflowDefinitions.deletedAt),
+  ];
+  const cursorCondition = cursorWhere(params.cursor);
+  if (cursorCondition) conditions.push(cursorCondition);
 
-    const rows = await tx
-      .select()
-      .from(workflowDefinitions)
-      .where(and(...conditions))
-      .orderBy(asc(workflowDefinitions.name), asc(workflowDefinitions.id))
-      .limit(params.limit + 1);
+  const rows = await db()
+    .select()
+    .from(workflowDefinitions)
+    .where(and(...conditions))
+    .orderBy(asc(workflowDefinitions.name), asc(workflowDefinitions.id))
+    .limit(params.limit + 1);
 
-    const hasMore = rows.length > params.limit;
-    const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
-    const last = pageRows.at(-1);
-    const definitions: WorkflowDefinition[] = [];
-    for (const row of pageRows) {
-      const workflowId = await ensureWorkflowId(tx, row);
-      definitions.push(toDefinition({...row, workflowId}));
-    }
+  const hasMore = rows.length > params.limit;
+  const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+  const last = pageRows.at(-1);
 
-    return {
-      definitions,
-      nextCursor: hasMore && last ? {value: last.name, id: last.id} : null,
-    };
-  });
+  return {
+    definitions: pageRows.map(toDefinition),
+    nextCursor: hasMore && last ? {value: last.name, id: last.id} : null,
+  };
 }
 
 export async function listDefinitionsByProject(projectId: string): Promise<WorkflowDefinition[]> {
@@ -461,7 +408,7 @@ export async function applyVcsDefinitionsBatch(
     const prepared: Array<{
       item: (typeof params.upserts)[number];
       unchanged: boolean;
-      workflowId: string | null | undefined;
+      workflowId: string | undefined;
     }> = [];
     for (const item of params.upserts) {
       const existing = await tx
@@ -495,13 +442,7 @@ export async function applyVcsDefinitionsBatch(
     });
 
     for (const {item, unchanged, workflowId: previousWorkflowId} of prepared) {
-      const workflowId = unchanged
-        ? (previousWorkflowId ??
-          (await findOrCreateWorkflow(tx, {
-            projectId: params.projectId,
-            configPath: item.configPath,
-          })))
-        : workflowIds.get(item.configPath);
+      const workflowId = unchanged ? previousWorkflowId : workflowIds.get(item.configPath);
       if (!workflowId) {
         throw new Error(
           `Workflow lineage missing for project ${params.projectId} and config path ${item.configPath}`,

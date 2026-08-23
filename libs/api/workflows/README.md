@@ -68,9 +68,10 @@ display label and workflow expression value.
 Run numbers are sequential within one workflow lineage, start at `1`, and are
 unique for `(definition_id, number)`. `workflow_runs.definition_id` carries the
 workflow lineage id: a stable identity per `(project_id, config_path)` shared by
-every definition row of one workflow file. Runs of a file keep one numbering
-sequence before and after the file merges. The column keeps its v1 name; a
-rename is a separate cleanup. The Workflows module allocates the number with a
+every definition row of one workflow file. Pathless manual definitions share one
+project-scoped lineage because they have no config path. Runs of a file keep one
+numbering sequence before and after the file merges. The column keeps its v1 name;
+a rename is a separate cleanup. The Workflows module allocates the number with a
 per-lineage counter inside the run-creation transaction. It resolves trigger
 idempotency before allocation, so a duplicate delivery returns the original run
 without consuming another number.
