@@ -3,7 +3,10 @@ import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module'
 import {checkoutTargetValidationIssues} from '@shipfox/workflow-document';
 import {z} from 'zod';
 import type {Step} from '#core/entities/step.js';
-import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
+import type {
+  WorkflowRunOriginState,
+  WorkflowRunTriggerReference,
+} from '#core/entities/workflow-run.js';
 import {CheckoutConfigInvalidError, CheckoutIntentUnresolvedError} from './errors.js';
 
 const checkoutConfigSchema = z
@@ -39,6 +42,7 @@ export async function createStepCheckoutSpec({
   workspaceId,
   projectId,
   triggerReference,
+  run,
   integrations,
   projects,
 }: {
@@ -46,6 +50,8 @@ export async function createStepCheckoutSpec({
   workspaceId: string;
   projectId: string;
   triggerReference?: WorkflowRunTriggerReference | null | undefined;
+  /** The run's origin state; a dev run checks out its dev commit by default. */
+  run: WorkflowRunOriginState;
   integrations: IntegrationsModuleClient;
   projects: ProjectsModuleClient;
 }): Promise<{
@@ -79,11 +85,19 @@ export async function createStepCheckoutSpec({
     },
     target,
   });
-  const ref =
-    checkout.ref ??
-    (triggerReference?.project?.id === resolvedTarget.projectId
+  // A dev run operates on the branch that carries the workflow file; cross-project
+  // and cross-repository checkout targets keep their own default branch. The terms
+  // are split into variables: a nullish-coalescing chain with a parenthesized ??
+  // middle operand is mis-analyzed as always nullish by the TypeScript checker.
+  const triggerCommitRef =
+    triggerReference?.project?.id === resolvedTarget.projectId
       ? (triggerReference.commit ?? undefined)
-      : undefined);
+      : undefined;
+  const devCommitRef =
+    run.origin === 'dev' && resolvedTarget.projectId === projectId
+      ? run.devSource.commit
+      : undefined;
+  const ref = checkout.ref ?? triggerCommitRef ?? devCommitRef;
   const response = await integrations.createCheckoutSpec({
     workspaceId,
     connectionId: resolvedTarget.connectionId,

@@ -3,8 +3,23 @@ import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module'
 import {projectFactory} from '#test/factories/project.js';
 import {createStepCheckoutSpec} from './checkout.js';
 import type {Step} from './entities/step.js';
-import type {WorkflowRunTriggerReference} from './entities/workflow-run.js';
+import type {WorkflowRunDevSource, WorkflowRunTriggerReference} from './entities/workflow-run.js';
 import {CheckoutConfigInvalidError, CheckoutIntentUnresolvedError} from './errors.js';
+
+const syncedRun = {origin: 'synced', devSource: null} as const;
+
+function devRun(commit: string): {origin: 'dev'; devSource: WorkflowRunDevSource} {
+  return {
+    origin: 'dev',
+    devSource: {
+      ref: 'fix-triage-prompt',
+      commit,
+      configPath: '.shipfox/workflows/triage-sentry.yml',
+      initiatedByUserId: crypto.randomUUID(),
+      replayOfEventId: null,
+    },
+  };
+}
 
 const getProjectById = vi.fn();
 const resolveCheckoutTarget = vi.fn();
@@ -46,6 +61,7 @@ describe('createStepCheckoutSpec', () => {
     });
 
     const result = await createStepCheckoutSpec({
+      run: syncedRun,
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -96,6 +112,7 @@ describe('createStepCheckoutSpec', () => {
     });
 
     const result = await createStepCheckoutSpec({
+      run: syncedRun,
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -134,6 +151,7 @@ describe('createStepCheckoutSpec', () => {
     });
 
     await createStepCheckoutSpec({
+      run: syncedRun,
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -167,6 +185,7 @@ describe('createStepCheckoutSpec', () => {
     });
 
     await createStepCheckoutSpec({
+      run: syncedRun,
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -200,6 +219,7 @@ describe('createStepCheckoutSpec', () => {
     });
 
     await createStepCheckoutSpec({
+      run: syncedRun,
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -232,6 +252,142 @@ describe('createStepCheckoutSpec', () => {
     });
 
     await createStepCheckoutSpec({
+      run: syncedRun,
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      triggerReference: triggerReferenceFor(project.id),
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: expect.any(String),
+      externalRepositoryId: 'github:412',
+      permissions: {contents: 'read'},
+    });
+  });
+
+  it('checks out the dev commit for a dev run without a trigger reference', async () => {
+    const project = projectFactory.build();
+    const devCommit = 'b'.repeat(40);
+    const step = checkoutStep({permissions: {contents: 'read'}});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: devCommit,
+    });
+
+    await createStepCheckoutSpec({
+      run: devRun(devCommit),
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      ref: devCommit,
+      permissions: {contents: 'read'},
+    });
+  });
+
+  it('prefers the event commit over the dev commit on a dev replay of a same-project push', async () => {
+    const project = projectFactory.build();
+    const eventCommit = 'c'.repeat(40);
+    const triggerReference = {...triggerReferenceFor(project.id), commit: eventCommit};
+    const step = checkoutStep({permissions: {contents: 'read'}});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: eventCommit,
+    });
+
+    await createStepCheckoutSpec({
+      run: devRun('b'.repeat(40)),
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      triggerReference,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      ref: eventCommit,
+      permissions: {contents: 'read'},
+    });
+  });
+
+  it('preserves an explicit ref on a dev run', async () => {
+    const project = projectFactory.build();
+    const explicitRef = 'refs/heads/feature/checkout';
+    const step = checkoutStep({ref: explicitRef, permissions: {contents: 'read'}});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: explicitRef,
+    });
+
+    await createStepCheckoutSpec({
+      run: devRun('b'.repeat(40)),
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      triggerReference: triggerReferenceFor(project.id),
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      ref: explicitRef,
+      permissions: {contents: 'read'},
+    });
+  });
+
+  it('keeps the provider default ref for a cross-project target in a dev run', async () => {
+    const project = projectFactory.build();
+    const targetProjectId = crypto.randomUUID();
+    const step = checkoutStep({project: targetProjectId});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: targetProjectId,
+      connectionId: crypto.randomUUID(),
+      externalRepositoryId: 'github:412',
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/target.git',
+      ref: 'main',
+    });
+
+    await createStepCheckoutSpec({
+      run: devRun('b'.repeat(40)),
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -263,6 +419,7 @@ describe('createStepCheckoutSpec', () => {
     });
 
     await createStepCheckoutSpec({
+      run: syncedRun,
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -294,6 +451,7 @@ describe('createStepCheckoutSpec', () => {
     });
 
     await createStepCheckoutSpec({
+      run: syncedRun,
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -330,6 +488,7 @@ describe('createStepCheckoutSpec', () => {
     });
 
     await createStepCheckoutSpec({
+      run: syncedRun,
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,
@@ -350,6 +509,7 @@ describe('createStepCheckoutSpec', () => {
     {connection: 'github'},
   ])('rejects invalid checkout target shape: %j', async (checkout) => {
     const act = createStepCheckoutSpec({
+      run: syncedRun,
       step: checkoutStep(checkout),
       workspaceId: crypto.randomUUID(),
       projectId: crypto.randomUUID(),
@@ -368,6 +528,7 @@ describe('createStepCheckoutSpec', () => {
     getProjectById.mockResolvedValue({project: null});
 
     const act = createStepCheckoutSpec({
+      run: syncedRun,
       step: checkoutStep({}),
       workspaceId: crypto.randomUUID(),
       projectId,
@@ -387,6 +548,7 @@ describe('createStepCheckoutSpec', () => {
     resolveConnection.mockResolvedValue(null);
 
     const act = createStepCheckoutSpec({
+      run: syncedRun,
       step,
       workspaceId: project.workspaceId,
       projectId: project.id,

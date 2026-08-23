@@ -210,6 +210,7 @@ describe('GET /runs/jobs/current/steps/:stepId/secrets', () => {
       workspaceId: run.workspaceId,
       projectId: run.projectId,
       triggerReference: null,
+      run: {origin: 'synced', devSource: null},
     });
   });
 });

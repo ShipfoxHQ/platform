@@ -170,7 +170,7 @@ export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
   };
 }
 
-function toWorkflowRunOriginState(
+export function toWorkflowRunOriginState(
   row: Pick<WorkflowRunDb, 'origin' | 'devSource'>,
 ): WorkflowRunOriginState {
   if (row.origin === 'synced') {
