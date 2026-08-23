@@ -5,6 +5,7 @@ Runs a Shipfox API server.
 ## What it does
 
 - **`defaultModules()`**: Returns the standard module list.
+- **`DefaultAgentModuleFactory`**: Builds the Agent module with the composed Secrets client.
 - **`DefaultAuthModuleFactory`**: Builds the Auth module with the composed Workspaces client.
 - **`createServer()`**: Builds an API server. The caller owns process signals.
 - **`runServer()`**: Starts the server. It listens for SIGTERM and SIGINT.
@@ -43,6 +44,18 @@ import {createAuthModule} from '@shipfox/api-auth';
 
 const modules = await defaultModules({
   authModule: ({workspaces}) => createAuthModule({workspaces, signupPolicy}),
+});
+```
+
+To replace the Agent module, use the Agent factory. It receives the composed
+Secrets client, and its returned module is included in the standard composition
+before presentation registration and transport sealing:
+
+```ts
+import {createAgentModule} from '@shipfox/api-agent';
+
+const modules = await defaultModules({
+  agentModule: ({secrets}) => createAgentModule({secrets, managedProvider}),
 });
 ```
 

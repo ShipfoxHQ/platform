@@ -315,6 +315,51 @@ describe('defaultModules', () => {
     expect(mocks.createAuthModule).toHaveBeenCalledWith({workspaces: expect.any(Object)});
   });
 
+  it('uses the default Agent module factory when none is supplied', async () => {
+    await defaultModules();
+
+    expect(mocks.createAgentModule).toHaveBeenCalledWith({secrets: expect.any(Object)});
+  });
+
+  it('composes Agent with the shared Secrets client and registers the supplied module', async () => {
+    const customAgentModule = mocks.createAgentModule();
+    mocks.createAgentModule.mockClear();
+    const agentModule = vi.fn(({secrets}: {secrets: SecretsInterModuleClient}) =>
+      mocks.createAgentModule({secrets}),
+    );
+
+    const modules = await defaultModules({agentModule});
+    const agentSecrets = agentModule.mock.calls[0]?.[0].secrets;
+
+    expect(agentModule).toHaveBeenCalledWith({secrets: expect.any(Object)});
+    expect(mocks.createAgentModule).toHaveBeenCalledWith({secrets: agentSecrets});
+    expect(mocks.createAgentModule).toHaveBeenCalledTimes(1);
+    expect(modules.filter((module) => module.name === 'agent')).toEqual([customAgentModule]);
+    expect(
+      modules
+        .flatMap((module) =>
+          (module.interModulePresentations ?? []).map(({contract}) => contract.module),
+        )
+        .filter((module) => module === agentInterModuleContract.module),
+    ).toEqual([agentInterModuleContract.module]);
+    expect(modules.map((module) => module.name)).toEqual([
+      'email-challenges',
+      'auth',
+      'workspaces',
+      'secrets',
+      'agent',
+      'integrations',
+      'projects',
+      'definitions',
+      'workflows',
+      'annotations',
+      'runners',
+      'logs',
+      'triggers',
+      'dispatcher',
+    ]);
+  });
+
   it('composes Auth with the shared Workspaces client and registers the supplied module', async () => {
     const signupPolicy = {isSignupAllowed: vi.fn().mockResolvedValue({allowed: true})};
     const customAuthModule = mocks.createAuthModule();

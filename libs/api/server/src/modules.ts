@@ -20,7 +20,10 @@ import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-modul
 import {createRunnersModule} from '@shipfox/api-runners';
 import {runnersInterModuleContract} from '@shipfox/api-runners-dto/inter-module';
 import {createSecretsModule} from '@shipfox/api-secrets';
-import {secretsInterModuleContract} from '@shipfox/api-secrets-dto/inter-module';
+import {
+  type SecretsInterModuleClient,
+  secretsInterModuleContract,
+} from '@shipfox/api-secrets-dto/inter-module';
 import {createTriggersModule} from '@shipfox/api-triggers';
 import {createWorkflowsModule} from '@shipfox/api-workflows';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
@@ -41,12 +44,16 @@ import {logger} from '@shipfox/node-opentelemetry';
 export interface DefaultModulesOptions {
   webhookDeliverySource?: WebhookDeliverySource | undefined;
   authModule?: DefaultAuthModuleFactory | undefined;
+  agentModule?: DefaultAgentModuleFactory | undefined;
   runnersModule?: DefaultRunnersModuleFactory | undefined;
   extension?: DefaultModulesExtension | undefined;
 }
 
 export type DefaultAuthModuleFactory = (options: {
   workspaces: WorkspacesInterModuleClient;
+}) => ShipfoxModule;
+export type DefaultAgentModuleFactory = (options: {
+  secrets: SecretsInterModuleClient;
 }) => ShipfoxModule;
 export type DefaultRunnersModuleFactory = (options: {auth: AuthInterModuleClient}) => ShipfoxModule;
 export type DefaultModulesExtension = (options: {
@@ -172,7 +179,7 @@ export async function defaultModules(
     (options.authModule ?? createAuthModule)({workspaces: workspacesClient}),
     createWorkspacesModule({auth: authClient, projects: projectsClient, runners: runnersClient}),
     createSecretsModule(projectsClient),
-    createAgentModule({secrets: secretsClient}),
+    (options.agentModule ?? createAgentModule)({secrets: secretsClient}),
     integrations.module,
     projectsModule,
     definitionsModule,
