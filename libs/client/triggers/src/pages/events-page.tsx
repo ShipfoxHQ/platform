@@ -1,6 +1,6 @@
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
 import {cn} from '@shipfox/react-ui/utils';
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {EventsList} from '#components/events-list.js';
 import {TriggerEventDetail} from '#components/trigger-event-detail.js';
 import type {TriggerEventFilters, TriggerEventSummary} from '#core/trigger-event.js';
@@ -36,6 +36,9 @@ export function EventsPage({
   const [selectionIsFromRoute, setSelectionIsFromRoute] = useState(
     routeSelectedEventId !== undefined,
   );
+  // A click updates local selection before the router reflects the same value. Remember that
+  // round trip so the route-sync effect does not turn a user selection into a deep link.
+  const pendingRouteSelectionRef = useRef<string | undefined | null>(null);
 
   const events = useMemo<TriggerEventSummary[]>(
     () => query.data?.pages.flatMap((page) => page.events) ?? [],
@@ -43,6 +46,11 @@ export function EventsPage({
   );
 
   useEffect(() => {
+    const pendingRouteSelection = pendingRouteSelectionRef.current;
+    if (pendingRouteSelection !== null) {
+      pendingRouteSelectionRef.current = null;
+      if (pendingRouteSelection === routeSelectedEventId) return;
+    }
     setSelectedEventId(routeSelectedEventId);
     setSelectionIsFromRoute(routeSelectedEventId !== undefined);
   }, [routeSelectedEventId]);
@@ -67,12 +75,14 @@ export function EventsPage({
   ]);
 
   function selectEvent(eventId: string) {
+    pendingRouteSelectionRef.current = eventId;
     setSelectionIsFromRoute(false);
     setSelectedEventId(eventId);
     onSelectedEventChange?.(eventId);
   }
 
   function clearSelectedEvent() {
+    pendingRouteSelectionRef.current = undefined;
     setSelectionIsFromRoute(false);
     setSelectedEventId(undefined);
     onSelectedEventChange?.(undefined);

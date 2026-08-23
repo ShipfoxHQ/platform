@@ -198,10 +198,7 @@ const PULL_REQUEST_REF_PATTERN = /^refs\/pull\/(\d+)\/head$/u;
 export function workflowRunBranchLabel(
   run: Pick<WorkflowRun, 'triggerReference' | 'devSource'>,
 ): string | null {
-  const ref =
-    run.triggerReference === null
-      ? (run.devSource?.ref ?? null)
-      : (run.triggerReference?.ref ?? null);
+  const ref = workflowRunProvenanceSource(run)?.ref ?? null;
   if (!ref) return null;
   const pullRequest = PULL_REQUEST_REF_PATTERN.exec(ref);
   if (pullRequest) return `#${pullRequest[1]}`;
@@ -213,11 +210,17 @@ export function workflowRunBranchLabel(
 export function workflowRunCommitLabel(
   run: Pick<WorkflowRun, 'triggerReference' | 'devSource'>,
 ): string | null {
-  const commit =
-    run.triggerReference === null
-      ? (run.devSource?.commit ?? null)
-      : (run.triggerReference?.commit ?? null);
+  const commit = workflowRunProvenanceSource(run)?.commit ?? null;
   return commit ? commit.slice(0, SHORT_COMMIT_LENGTH) : null;
+}
+
+/**
+ * A partial trigger reference cannot identify the executed source on its own. Keep ref and
+ * commit paired, falling back to the dev source when either trigger value is missing.
+ */
+function workflowRunProvenanceSource(run: Pick<WorkflowRun, 'triggerReference' | 'devSource'>) {
+  const triggerReference = run.triggerReference;
+  return triggerReference?.ref && triggerReference.commit ? triggerReference : run.devSource;
 }
 
 export function workflowRunActor(run: Pick<WorkflowRun, 'triggerReference'>): string | null {

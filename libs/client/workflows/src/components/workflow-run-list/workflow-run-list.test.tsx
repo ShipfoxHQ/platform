@@ -1,3 +1,4 @@
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useWorkflowRunsInfiniteQuery} from '#hooks/api/workflow-runs.js';
@@ -49,8 +50,11 @@ describe('WorkflowRunList', () => {
     } as unknown as ReturnType<typeof useWorkflowRunsInfiniteQuery>);
 
     const user = userEvent.setup();
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
     renderWithRouter(
-      <WorkflowRunList projectId={PROJECT_ID} workspaceSlug="acme" projectSlug="checkout-api" />,
+      <QueryClientProvider client={queryClient}>
+        <WorkflowRunList projectId={PROJECT_ID} workspaceSlug="acme" projectSlug="checkout-api" />
+      </QueryClientProvider>,
     );
 
     await screen.findByText('deploy-web');

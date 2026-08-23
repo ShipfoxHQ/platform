@@ -1,6 +1,6 @@
 ---
-"@shipfox/client-triggers": patch
-"@shipfox/client-workflows": patch
+"@shipfox/client-triggers": minor
+"@shipfox/client-workflows": minor
 ---
 
-Improve workflow-run provenance filtering and replay-event navigation.
+Add workflow-run provenance filtering and replay-event navigation.
