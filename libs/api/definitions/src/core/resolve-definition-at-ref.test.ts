@@ -5,7 +5,7 @@ import {
 } from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
-import {eq} from 'drizzle-orm';
+import {eq, sql} from 'drizzle-orm';
 import {DefinitionAtRefError} from '#core/errors.js';
 import {listDefinitionsAtRef, resolveDefinitionAtRef} from '#core/resolve-definition-at-ref.js';
 import {db} from '#db/db.js';
@@ -13,6 +13,12 @@ import {workflowDefinitions} from '#db/schema/definitions.js';
 import {definitionsOutbox} from '#db/schema/outbox.js';
 import {workflowWorkflows} from '#db/schema/workflows.js';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
+
+const metrics = vi.hoisted(() => ({
+  recordDefinitionRefResolution: vi.fn(),
+}));
+
+vi.mock('#metrics/index.js', () => metrics);
 
 const COMMIT = 'a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0';
 const CONFIG_PATH = '.shipfox/workflows/ci.yml';
@@ -97,6 +103,8 @@ const agentToolsContext = {
       capabilities: ['agent_tools'],
     },
   ],
+  eventCatalogs: [],
+  fixedEventProviders: [],
   defaultConnection: {id: 'connection-1', slug: 'github-main', provider: 'github'},
 };
 
@@ -168,8 +176,12 @@ async function countOutboxRows(projectId: string) {
   return await db()
     .select({id: definitionsOutbox.id})
     .from(definitionsOutbox)
-    .where(eq(definitionsOutbox.orderingKey, projectId));
+    .where(sql`${definitionsOutbox.payload}->>'projectId' = ${projectId}`);
 }
+
+beforeEach(() => {
+  metrics.recordDefinitionRefResolution.mockReset();
+});
 
 describe('resolveDefinitionAtRef', () => {
   test('resolves a valid definition at the pinned commit and creates only the lineage', async () => {
@@ -211,6 +223,7 @@ describe('resolveDefinitionAtRef', () => {
       .where(eq(workflowDefinitions.projectId, projectId));
     expect(definitions).toHaveLength(0);
     expect(await countOutboxRows(projectId)).toHaveLength(0);
+    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('resolved');
   });
 
   test('reuses the lineage across calls so dev runs share numbering', async () => {
@@ -323,10 +336,11 @@ describe('resolveDefinitionAtRef', () => {
   });
 
   test('answers ref-moved when expectedCommit no longer matches', async () => {
-    const clients = makeClients();
+    const projectId = crypto.randomUUID();
+    const clients = makeClients(projectId);
     const error = await expectRefError(
       resolveDefinitionAtRef({
-        projectId: crypto.randomUUID(),
+        projectId,
         ref: 'fix-branch',
         configPath: CONFIG_PATH,
         expectedCommit: '9'.repeat(40),
@@ -335,6 +349,8 @@ describe('resolveDefinitionAtRef', () => {
       'ref-moved',
     );
     expect(error.details).toEqual({ref: 'fix-branch', expectedCommit: '9'.repeat(40)});
+    expect(await countLineageRows(projectId)).toHaveLength(0);
+    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('ref-moved');
   });
 
   test('resolves when expectedCommit still matches', async () => {
@@ -418,7 +434,34 @@ describe('resolveDefinitionAtRef', () => {
     expect(error.details).toEqual({configPath: CONFIG_PATH});
   });
 
+  test('stops before creating lineage when the request is cancelled', async () => {
+    const projectId = crypto.randomUUID();
+    const controller = new AbortController();
+    const reason = new Error('cancelled');
+    const clients = withClients({
+      integrations: {
+        fetchSourceFile: () => {
+          controller.abort(reason);
+          return Promise.resolve({path: CONFIG_PATH, ref: COMMIT, content: validYaml});
+        },
+      },
+    });
+
+    await expect(
+      resolveDefinitionAtRef({
+        projectId,
+        ref: 'fix-branch',
+        configPath: CONFIG_PATH,
+        signal: controller.signal,
+        ...clients,
+      }),
+    ).rejects.toBe(reason);
+    expect(await countLineageRows(projectId)).toHaveLength(0);
+    expect(metrics.recordDefinitionRefResolution).not.toHaveBeenCalled();
+  });
+
   test('answers invalid-definition with the validate-route error shape', async () => {
+    const projectId = crypto.randomUUID();
     const clients = withClients({
       integrations: {
         fetchSourceFile: async () => ({path: CONFIG_PATH, ref: COMMIT, content: invalidYaml}),
@@ -426,7 +469,7 @@ describe('resolveDefinitionAtRef', () => {
     });
     const error = await expectRefError(
       resolveDefinitionAtRef({
-        projectId: crypto.randomUUID(),
+        projectId,
         ref: 'fix-branch',
         configPath: CONFIG_PATH,
         ...clients,
@@ -436,6 +479,8 @@ describe('resolveDefinitionAtRef', () => {
     expect(error.details.errors).toEqual(
       expect.arrayContaining([expect.objectContaining({message: expect.any(String)})]),
     );
+    expect(await countLineageRows(projectId)).toHaveLength(0);
+    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('invalid-definition');
   });
 
   test('runs the two-pass integration validation like sync', async () => {
@@ -479,6 +524,32 @@ describe('resolveDefinitionAtRef', () => {
     });
     expect(resolved.triggers).toEqual({});
     expect(validClients.integrations.getAgentToolsContext).toHaveBeenCalled();
+  });
+
+  test('answers source-unavailable when integration validation context loading fails', async () => {
+    const clients = withClients({
+      integrations: {
+        fetchSourceFile: async () => ({path: CONFIG_PATH, ref: COMMIT, content: integrationYaml}),
+        getAgentToolsContext: () => {
+          throw createInterModuleKnownError(
+            integrationsInterModuleContract.methods.getAgentToolsContext,
+            'connection-inactive',
+            {connectionId: crypto.randomUUID()},
+          );
+        },
+      },
+    });
+
+    await expectRefError(
+      resolveDefinitionAtRef({
+        projectId: crypto.randomUUID(),
+        ref: 'fix-branch',
+        configPath: CONFIG_PATH,
+        ...clients,
+      }),
+      'source-unavailable',
+    );
+    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('source-unavailable');
   });
 
   test('returns validation warnings for warning-only diagnostics', async () => {
@@ -599,7 +670,7 @@ describe('listDefinitionsAtRef', () => {
     });
   });
 
-  test('applies the 100-file sync limit', async () => {
+  test('answers too-many-files when the sync file limit is exceeded', async () => {
     const files = Array.from({length: 150}, (_, index) => ({
       path: `.shipfox/workflows/wf-${index}.yml`,
       type: 'file' as const,
@@ -611,12 +682,15 @@ describe('listDefinitionsAtRef', () => {
         fetchSourceFile: async ({path}) => ({path, ref: COMMIT, content: validYaml}),
       },
     });
-    const result = await listDefinitionsAtRef({
-      projectId: crypto.randomUUID(),
-      ref: 'fix-branch',
-      ...clients,
-    });
-    expect(result.files).toHaveLength(100);
+    await expectRefError(
+      listDefinitionsAtRef({
+        projectId: crypto.randomUUID(),
+        ref: 'fix-branch',
+        ...clients,
+      }),
+      'too-many-files',
+    );
+    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('too-many-files');
   });
 
   test('reports a file that fails to fetch as invalid', async () => {
@@ -638,6 +712,48 @@ describe('listDefinitionsAtRef', () => {
     });
     expect(result.files).toHaveLength(1);
     expect(result.files[0]).toMatchObject({valid: false, name: null});
+  });
+
+  test('answers source-unavailable when a listed file cannot reach the provider', async () => {
+    const clients = withClients({
+      integrations: {
+        fetchSourceFile: () => {
+          throw createInterModuleKnownError(
+            integrationsInterModuleContract.methods.fetchSourceFile,
+            'connection-inactive',
+            {connectionId: crypto.randomUUID()},
+          );
+        },
+      },
+    });
+
+    await expectRefError(
+      listDefinitionsAtRef({
+        projectId: crypto.randomUUID(),
+        ref: 'fix-branch',
+        ...clients,
+      }),
+      'source-unavailable',
+    );
+    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('source-unavailable');
+  });
+
+  test('returns validation warnings for warning-only listing entries', async () => {
+    const clients = withClients({
+      integrations: {
+        fetchSourceFile: async () => ({path: CONFIG_PATH, ref: COMMIT, content: warningYaml}),
+      },
+    });
+
+    const result = await listDefinitionsAtRef({
+      projectId: crypto.randomUUID(),
+      ref: 'fix-branch',
+      ...clients,
+    });
+
+    expect(result.files[0]?.warnings).toEqual([
+      expect.objectContaining({code: expect.any(String), message: expect.any(String)}),
+    ]);
   });
 
   test('answers the ref resolution errors', async () => {

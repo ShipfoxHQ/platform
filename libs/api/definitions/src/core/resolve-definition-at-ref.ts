@@ -16,7 +16,11 @@ import {definitionTriggersFor} from '#db/definition-triggers.js';
 import {findOrCreateWorkflowLineage} from '#db/definitions.js';
 import {recordDefinitionRefResolution} from '#metrics/index.js';
 import type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
-import {DefinitionAtRefError, DefinitionParseError} from './errors.js';
+import {
+  DefinitionAtRefError,
+  type DefinitionAtRefErrorCode,
+  DefinitionParseError,
+} from './errors.js';
 import {hasAgentStepIntegrations} from './has-agent-step-integrations.js';
 import {loadIntegrationValidationContext} from './integrations.js';
 import type {ParsedDefinition} from './parse-definition.js';
@@ -37,6 +41,7 @@ export interface ResolveDefinitionAtRefParams {
   projects: ProjectsModuleClient;
   agent: AgentInterModuleClient;
   integrations: IntegrationsModuleClient;
+  signal?: AbortSignal;
 }
 
 export interface ValidationWarning {
@@ -60,6 +65,7 @@ export interface ListDefinitionsAtRefParams {
   projects: ProjectsModuleClient;
   agent: AgentInterModuleClient;
   integrations: IntegrationsModuleClient;
+  signal?: AbortSignal;
 }
 
 export interface DefinitionAtRefFile {
@@ -105,12 +111,15 @@ export async function resolveDefinitionAtRef(
 async function resolveDefinitionAtRefUnsafe(
   params: ResolveDefinitionAtRefParams,
 ): Promise<ResolvedDefinitionAtRef> {
-  const source = await requireProjectSource(params.projects, params.projectId);
+  throwIfAborted(params.signal);
+  const source = await requireProjectSource(params.projects, params.projectId, params.signal);
   const commit = await resolveRefToCommit({
     integrations: params.integrations,
     source,
     ref: params.ref,
+    signal: params.signal,
   });
+  throwIfAborted(params.signal);
   if (params.expectedCommit !== undefined && commit !== params.expectedCommit) {
     throw new DefinitionAtRefError(
       'ref-moved',
@@ -125,6 +134,7 @@ async function resolveDefinitionAtRefUnsafe(
     commit,
     ref: params.ref,
     configPath: params.configPath,
+    signal: params.signal,
   });
   assertFileSize(snapshot.content, snapshot.path);
 
@@ -133,7 +143,9 @@ async function resolveDefinitionAtRefUnsafe(
     agent: params.agent,
     integrations: params.integrations,
     source,
+    signal: params.signal,
   });
+  throwIfAborted(params.signal);
   const workflowId = await findOrCreateWorkflowLineage({
     projectId: params.projectId,
     configPath: params.configPath,
@@ -175,37 +187,57 @@ type ListingEntry =
 async function listDefinitionsAtRefUnsafe(
   params: ListDefinitionsAtRefParams,
 ): Promise<DefinitionsAtRefListing> {
-  const source = await requireProjectSource(params.projects, params.projectId);
+  throwIfAborted(params.signal);
+  const source = await requireProjectSource(params.projects, params.projectId, params.signal);
   const commit = await resolveRefToCommit({
     integrations: params.integrations,
     source,
     ref: params.ref,
+    signal: params.signal,
   });
+  throwIfAborted(params.signal);
   const paths = await listWorkflowFilesAtCommit({
     integrations: params.integrations,
     source,
     commit,
+    signal: params.signal,
   });
 
   const fetched = await boundedMap(
     paths,
     FILE_FETCH_CONCURRENCY,
     (path) =>
-      fetchListingFile({integrations: params.integrations, source, commit, ref: params.ref, path}),
-    {stopOnError: true},
+      fetchListingFile({
+        integrations: params.integrations,
+        source,
+        commit,
+        ref: params.ref,
+        path,
+        signal: params.signal,
+      }),
+    {stopOnError: true, signal: params.signal},
   );
-  const agentValidationCatalog = await params.agent.getValidationCatalog({});
-  let entries = fetched.map((entry) => parseListingEntry(entry, {agentValidationCatalog}));
+  throwIfAborted(params.signal);
+  const agentValidationCatalog = await callWithSignal(
+    params.agent.getValidationCatalog,
+    {},
+    params.signal,
+  );
+  throwIfAborted(params.signal);
+  let entries = fetched.map((entry) => {
+    throwIfAborted(params.signal);
+    return parseListingEntry(entry, {agentValidationCatalog});
+  });
 
   const needsIntegrationContext = entries.some(
     (entry) => 'definition' in entry && hasAgentStepIntegrations(entry.definition.document),
   );
   if (needsIntegrationContext) {
-    const integrationValidationContext = await loadIntegrationValidationContext(
-      params.integrations,
-      source.workspaceId,
-      source.connectionId,
-    );
+    const integrationValidationContext = await loadAtRefIntegrationValidationContext({
+      integrations: params.integrations,
+      source,
+      signal: params.signal,
+    });
     entries = entries.map((entry) =>
       'definition' in entry && hasAgentStepIntegrations(entry.definition.document)
         ? parseListingEntry(
@@ -216,6 +248,7 @@ async function listDefinitionsAtRefUnsafe(
     );
   }
 
+  throwIfAborted(params.signal);
   recordDefinitionRefResolution('resolved');
   return {commit, files: entries.map((entry) => listingFileFor(entry))};
 }
@@ -223,8 +256,9 @@ async function listDefinitionsAtRefUnsafe(
 async function requireProjectSource(
   projects: ProjectsModuleClient,
   projectId: string,
+  signal: AbortSignal | undefined,
 ): Promise<ResolvedProjectSource> {
-  const {project} = await projects.getProjectById({projectId});
+  const {project} = await callWithSignal(projects.getProjectById, {projectId}, signal);
   if (project === null) {
     throw new DefinitionAtRefError('project-not-found', `Project not found: ${projectId}`, {
       projectId,
@@ -241,14 +275,19 @@ async function resolveRefToCommit(params: {
   integrations: IntegrationsModuleClient;
   source: ResolvedProjectSource;
   ref: string;
+  signal: AbortSignal | undefined;
 }): Promise<string> {
   try {
-    const resolved = await params.integrations.resolveSourceRef({
-      workspaceId: params.source.workspaceId,
-      connectionId: params.source.connectionId,
-      externalRepositoryId: params.source.externalRepositoryId,
-      ref: params.ref,
-    });
+    const resolved = await callWithSignal(
+      params.integrations.resolveSourceRef,
+      {
+        workspaceId: params.source.workspaceId,
+        connectionId: params.source.connectionId,
+        externalRepositoryId: params.source.externalRepositoryId,
+        ref: params.ref,
+      },
+      params.signal,
+    );
     return resolved.commit;
   } catch (error) {
     if (isInterModuleKnownError(integrationsInterModuleContract.methods.resolveSourceRef, error)) {
@@ -274,23 +313,35 @@ async function listWorkflowFilesAtCommit(params: {
   integrations: IntegrationsModuleClient;
   source: ResolvedProjectSource;
   commit: string;
+  signal: AbortSignal | undefined;
 }): Promise<string[]> {
+  let page: Awaited<ReturnType<IntegrationsModuleClient['listSourceFiles']>>;
   try {
-    const page = await params.integrations.listSourceFiles({
-      workspaceId: params.source.workspaceId,
-      connectionId: params.source.connectionId,
-      externalRepositoryId: params.source.externalRepositoryId,
-      ref: params.commit,
-      prefix: DEFAULT_WORKFLOW_PATH,
-      limit: MAX_WORKFLOW_FILES,
-    });
-    return page.files
-      .filter((file) => file.path.endsWith('.yml') || file.path.endsWith('.yaml'))
-      .slice(0, MAX_WORKFLOW_FILES)
-      .map((file) => file.path);
+    page = await callWithSignal(
+      params.integrations.listSourceFiles,
+      {
+        workspaceId: params.source.workspaceId,
+        connectionId: params.source.connectionId,
+        externalRepositoryId: params.source.externalRepositoryId,
+        ref: params.commit,
+        prefix: DEFAULT_WORKFLOW_PATH,
+        limit: MAX_WORKFLOW_FILES,
+      },
+      params.signal,
+    );
   } catch (error) {
+    throwIfAborted(params.signal);
     throw sourceUnavailable(error, 'The workflow files at the ref could not be listed');
   }
+  if (page.nextCursor) {
+    throw new DefinitionAtRefError(
+      'too-many-files',
+      `More than ${MAX_WORKFLOW_FILES} workflow files were found`,
+    );
+  }
+  return page.files
+    .filter((file) => file.path.endsWith('.yml') || file.path.endsWith('.yaml'))
+    .map((file) => file.path);
 }
 
 async function fetchFileAtCommit(params: {
@@ -299,16 +350,22 @@ async function fetchFileAtCommit(params: {
   commit: string;
   ref: string;
   configPath: string;
+  signal: AbortSignal | undefined;
 }): Promise<{path: string; content: string}> {
   try {
-    return await params.integrations.fetchSourceFile({
-      workspaceId: params.source.workspaceId,
-      connectionId: params.source.connectionId,
-      externalRepositoryId: params.source.externalRepositoryId,
-      ref: params.commit,
-      path: params.configPath,
-    });
+    return await callWithSignal(
+      params.integrations.fetchSourceFile,
+      {
+        workspaceId: params.source.workspaceId,
+        connectionId: params.source.connectionId,
+        externalRepositoryId: params.source.externalRepositoryId,
+        ref: params.commit,
+        path: params.configPath,
+      },
+      params.signal,
+    );
   } catch (error) {
+    throwIfAborted(params.signal);
     if (isInterModuleKnownError(integrationsInterModuleContract.methods.fetchSourceFile, error)) {
       if (error.code === 'provider-failure' && error.details.reason === 'file-not-found') {
         throw new DefinitionAtRefError(
@@ -338,16 +395,22 @@ async function parseDefinitionAtRef(params: {
   agent: AgentInterModuleClient;
   integrations: IntegrationsModuleClient;
   source: ResolvedProjectSource;
+  signal: AbortSignal | undefined;
 }): Promise<ParsedDefinition> {
-  const agentValidationCatalog = await params.agent.getValidationCatalog({});
+  const agentValidationCatalog = await callWithSignal(
+    params.agent.getValidationCatalog,
+    {},
+    params.signal,
+  );
+  throwIfAborted(params.signal);
   const firstPass = parseWorkflowDefinition(params.content, {agentValidationCatalog});
   if (!hasAgentStepIntegrations(firstPass.document)) return firstPass;
 
-  const integrationValidationContext = await loadIntegrationValidationContext(
-    params.integrations,
-    params.source.workspaceId,
-    params.source.connectionId,
-  );
+  const integrationValidationContext = await loadAtRefIntegrationValidationContext({
+    integrations: params.integrations,
+    source: params.source,
+    signal: params.signal,
+  });
   return parseWorkflowDefinition(params.content, {
     agentValidationCatalog,
     integrationValidationContext,
@@ -378,6 +441,7 @@ async function fetchListingFile(params: {
   commit: string;
   ref: string;
   path: string;
+  signal: AbortSignal | undefined;
 }): Promise<{path: string; content: string} | {path: string; errors: ValidationError[]}> {
   try {
     const snapshot = await fetchFileAtCommit({
@@ -386,11 +450,12 @@ async function fetchListingFile(params: {
       commit: params.commit,
       ref: params.ref,
       configPath: params.path,
+      signal: params.signal,
     });
     assertFileSize(snapshot.content, snapshot.path);
     return {path: snapshot.path, content: snapshot.content};
   } catch (error) {
-    if (error instanceof DefinitionAtRefError) {
+    if (error instanceof DefinitionAtRefError && isPerFileListingError(error.code)) {
       return {path: params.path, errors: [{message: error.message}]};
     }
     throw error;
@@ -442,6 +507,40 @@ function warningsFor(diagnostics: readonly ValidationDiagnostic[]): ValidationWa
       message: diagnostic.message,
       ...(diagnostic.path === undefined ? {} : {path: diagnostic.path}),
     }));
+}
+
+async function loadAtRefIntegrationValidationContext(params: {
+  integrations: IntegrationsModuleClient;
+  source: ResolvedProjectSource;
+  signal: AbortSignal | undefined;
+}) {
+  try {
+    return await loadIntegrationValidationContext(
+      params.integrations,
+      params.source.workspaceId,
+      params.source.connectionId,
+      params.signal,
+    );
+  } catch (error) {
+    throwIfAborted(params.signal);
+    throw sourceUnavailable(error, 'Integration validation context is unavailable');
+  }
+}
+
+function isPerFileListingError(code: DefinitionAtRefErrorCode): boolean {
+  return code === 'file-not-found' || code === 'content-too-large' || code === 'invalid-definition';
+}
+
+function callWithSignal<Input, Output>(
+  method: (input: Input, options?: {signal?: AbortSignal}) => Promise<Output>,
+  input: Input,
+  signal: AbortSignal | undefined,
+): Promise<Output> {
+  return signal === undefined ? method(input) : method(input, {signal});
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw signal.reason ?? new Error('Operation aborted');
 }
 
 function sourceUnavailable(error: unknown, message: string): DefinitionAtRefError {

@@ -10,6 +10,14 @@ const refResolutionCount = meter.createCounter<{outcome: DefinitionRefResolution
   {description: 'Workflow definition resolutions at a git ref by outcome'},
 );
 
+function recordMetric(record: () => void): void {
+  try {
+    record();
+  } catch {
+    // Metrics must not affect definition resolution outcomes.
+  }
+}
+
 export function recordDefinitionRefResolution(outcome: DefinitionRefResolutionOutcome): void {
-  refResolutionCount.add(1, {outcome});
+  recordMetric(() => refResolutionCount.add(1, {outcome}));
 }

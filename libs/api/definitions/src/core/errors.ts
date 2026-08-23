@@ -28,6 +28,7 @@ export type DefinitionAtRefErrorCode =
   | 'file-not-found'
   | 'content-too-large'
   | 'invalid-definition'
+  | 'too-many-files'
   | 'source-unavailable';
 
 /**

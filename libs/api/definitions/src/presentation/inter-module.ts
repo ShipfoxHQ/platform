@@ -37,9 +37,9 @@ export function createDefinitionsInterModulePresentation(
         },
       };
     },
-    resolveDefinitionAtRef: async (input) => {
+    resolveDefinitionAtRef: async (input, context) => {
       try {
-        return await resolveDefinitionAtRef({...input, ...params});
+        return await resolveDefinitionAtRef({...input, ...params, signal: context.signal});
       } catch (error) {
         throw toDefinitionAtRefKnownError(
           definitionsInterModuleContract.methods.resolveDefinitionAtRef,
@@ -47,9 +47,9 @@ export function createDefinitionsInterModulePresentation(
         );
       }
     },
-    listDefinitionsAtRef: async (input) => {
+    listDefinitionsAtRef: async (input, context) => {
       try {
-        return await listDefinitionsAtRef({...input, ...params});
+        return await listDefinitionsAtRef({...input, ...params, signal: context.signal});
       } catch (error) {
         throw toDefinitionAtRefKnownError(
           definitionsInterModuleContract.methods.listDefinitionsAtRef,
@@ -90,6 +90,8 @@ function toDefinitionAtRefKnownError(method: InterModuleMethodContract, error: u
       return createInterModuleKnownError(method, 'invalid-definition', {
         errors: details.errors as Array<{message: string; path?: string}>,
       });
+    case 'too-many-files':
+      return createInterModuleKnownError(method, 'too-many-files', {});
     case 'source-unavailable':
       return createInterModuleKnownError(method, 'source-unavailable', {});
   }

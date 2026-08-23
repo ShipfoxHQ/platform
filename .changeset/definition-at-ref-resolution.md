@@ -1,5 +1,5 @@
 ---
-"@shipfox/api-definitions-dto": major
+"@shipfox/api-definitions-dto": minor
 "@shipfox/api-definitions": minor
 ---
 

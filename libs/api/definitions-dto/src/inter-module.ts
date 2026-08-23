@@ -34,6 +34,7 @@ const refListingErrors = {
   'project-not-found': z.object({projectId: idSchema}),
   'ref-not-found': z.object({ref: refSchema}),
   'ref-invalid': z.object({ref: refSchema}),
+  'too-many-files': z.object({}),
   'source-unavailable': z.object({}),
 };
 const resolvedDefinitionAtRefSchema = z.object({

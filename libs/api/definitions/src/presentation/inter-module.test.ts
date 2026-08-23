@@ -59,15 +59,21 @@ describe('definitions inter-module presentation', () => {
       warnings: [],
     };
     mocks.resolveDefinitionAtRef.mockResolvedValue(resolved);
+    const controller = new AbortController();
 
     const result = await presentation().handlers.resolveDefinitionAtRef(
       {projectId: PROJECT_ID, ref: REF, configPath: CONFIG_PATH},
-      {signal: new AbortController().signal},
+      {signal: controller.signal},
     );
 
     expect(result).toEqual(resolved);
     expect(mocks.resolveDefinitionAtRef).toHaveBeenCalledWith(
-      expect.objectContaining({projectId: PROJECT_ID, ref: REF, configPath: CONFIG_PATH}),
+      expect.objectContaining({
+        projectId: PROJECT_ID,
+        ref: REF,
+        configPath: CONFIG_PATH,
+        signal: controller.signal,
+      }),
     );
   });
 
@@ -149,5 +155,23 @@ describe('definitions inter-module presentation', () => {
     );
     expect(isInterModuleKnownError(method, error)).toBe(true);
     expect((error as {code: string}).code).toBe('ref-not-found');
+  });
+
+  it('maps the listing file-limit failure to its known error', async () => {
+    const method = definitionsInterModuleContract.methods.listDefinitionsAtRef;
+    mocks.listDefinitionsAtRef.mockRejectedValueOnce(
+      new DefinitionAtRefError('too-many-files', 'too many files'),
+    );
+
+    const error = await rejection(
+      presentation().handlers.listDefinitionsAtRef(
+        {projectId: PROJECT_ID, ref: REF},
+        {signal: new AbortController().signal},
+      ),
+    );
+
+    expect(isInterModuleKnownError(method, error)).toBe(true);
+    expect((error as {code: string}).code).toBe('too-many-files');
+    expect((error as {details: unknown}).details).toEqual({});
   });
 });
