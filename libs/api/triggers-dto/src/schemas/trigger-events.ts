@@ -1,6 +1,6 @@
 import {z} from 'zod';
 
-export const triggerEventOriginSchema = z.enum(['integration', 'manual', 'cron']);
+export const triggerEventOriginSchema = z.enum(['integration', 'manual', 'cron', 'dev']);
 export type TriggerEventOriginDto = z.infer<typeof triggerEventOriginSchema>;
 
 export const triggerEventOutcomeSchema = z.enum([
@@ -15,7 +15,7 @@ export type TriggerEventOutcomeDto = z.infer<typeof triggerEventOutcomeSchema>;
 export const triggerDecisionOutcomeSchema = z.enum(['triggered', 'filter-error', 'dispatch-error']);
 export type TriggerDecisionOutcomeDto = z.infer<typeof triggerDecisionOutcomeSchema>;
 
-export const triggerDecisionSubscriptionKindSchema = z.enum(['trigger', 'listener']);
+export const triggerDecisionSubscriptionKindSchema = z.enum(['trigger', 'listener', 'dev']);
 export type TriggerDecisionSubscriptionKindDto = z.infer<
   typeof triggerDecisionSubscriptionKindSchema
 >;
@@ -51,11 +51,12 @@ export const triggerEventDtoSchema = triggerEventListItemDtoSchema.extend({
 });
 export type TriggerEventDto = z.infer<typeof triggerEventDtoSchema>;
 
-export const triggerDecisionDtoSchema = z.object({
+const triggerDecisionDtoBaseSchema = z.object({
   id: z.string().uuid(),
   received_event_id: z.string().uuid(),
   subscription_kind: triggerDecisionSubscriptionKindSchema,
-  subscription_id: z.string().uuid(),
+  // Null for `dev` decisions: a dev journal entry has no subscription row.
+  subscription_id: z.string().uuid().nullable(),
   subscription_name: z.string(),
   workflow_definition_id: z.string().uuid().nullable(),
   project_id: z.string().uuid().nullable(),
@@ -68,6 +69,20 @@ export const triggerDecisionDtoSchema = z.object({
   run_name: z.string().nullable(),
   reason: z.string().nullable(),
   created_at: z.string(),
+});
+
+export const triggerDecisionDtoSchema = triggerDecisionDtoBaseSchema.superRefine((value, ctx) => {
+  const isDevDecision = value.subscription_kind === 'dev';
+  const hasNullSubscriptionId = value.subscription_id === null;
+  if (isDevDecision !== hasNullSubscriptionId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: isDevDecision
+        ? 'dev decisions must have a null subscription_id'
+        : 'trigger and listener decisions must have a subscription_id',
+      path: ['subscription_id'],
+    });
+  }
 });
 export type TriggerDecisionDto = z.infer<typeof triggerDecisionDtoSchema>;
 

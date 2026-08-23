@@ -6,7 +6,7 @@ import {pgTable} from './common.js';
 import {jobListenerMatcherKindEnum} from './job-listener-subscriptions.js';
 import {triggersReceivedEvents} from './received-events.js';
 
-const triggerDecisionSubscriptionKinds = ['trigger', 'listener'] as const;
+const triggerDecisionSubscriptionKinds = ['trigger', 'listener', 'dev'] as const;
 
 export const triggersDecisions = pgTable(
   'decisions',
@@ -16,7 +16,9 @@ export const triggersDecisions = pgTable(
       .notNull()
       .references(() => triggersReceivedEvents.id, {onDelete: 'cascade'}),
     subscriptionKind: text('subscription_kind', {enum: triggerDecisionSubscriptionKinds}).notNull(),
-    subscriptionId: uuid('subscription_id').notNull(),
+    // Null for `dev` decisions: the partial dev index enforces one decision
+    // per received event.
+    subscriptionId: uuid('subscription_id'),
     subscriptionName: text('subscription_name').notNull(),
     workflowDefinitionId: uuid('workflow_definition_id'),
     projectId: uuid('project_id'),
@@ -36,10 +38,17 @@ export const triggersDecisions = pgTable(
       table.subscriptionKind,
       table.subscriptionId,
     ),
+    uniqueIndex('triggers_decisions_dev_event_unique')
+      .on(table.receivedEventId)
+      .where(sql`${table.subscriptionKind} = 'dev'`),
     index('triggers_decisions_run_idx').on(table.runId),
     check(
       'triggers_decisions_subscription_kind_ck',
-      sql`${table.subscriptionKind} IN ('trigger', 'listener')`,
+      sql`${table.subscriptionKind} IN ('trigger', 'listener', 'dev')`,
+    ),
+    check(
+      'triggers_decisions_subscription_id_ck',
+      sql`(${table.subscriptionKind} = 'dev' AND ${table.subscriptionId} IS NULL) OR (${table.subscriptionKind} IN ('trigger', 'listener') AND ${table.subscriptionId} IS NOT NULL)`,
     ),
   ],
 );

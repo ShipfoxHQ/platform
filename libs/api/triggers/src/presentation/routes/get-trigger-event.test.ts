@@ -151,6 +151,44 @@ describe('GET /trigger-events/:id', () => {
     );
   });
 
+  test('serializes a dev decision with a null subscription id', async () => {
+    const event = await receivedEventFactory.create({
+      workspaceId,
+      origin: 'dev',
+      source: 'dev',
+      event: 'replay',
+      outcome: 'routed',
+      matchedCount: 1,
+    });
+    await decisionFactory.create({
+      receivedEventId: event.id,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_issue',
+      workflowDefinitionId: crypto.randomUUID(),
+      projectId: null,
+      decision: 'filter-error',
+      runId: null,
+      runName: null,
+      reason: 'filter is false',
+    });
+
+    const res = await app.inject({method: 'GET', url: `/trigger-events/${event.id}`});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      origin: 'dev',
+      decisions: [
+        {
+          subscription_kind: 'dev',
+          subscription_id: null,
+          decision: 'filter-error',
+          reason: 'filter is false',
+        },
+      ],
+    });
+  });
+
   test('returns an empty decisions list for a discarded event', async () => {
     const event = await receivedEventFactory.create({
       workspaceId,

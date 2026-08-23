@@ -201,6 +201,92 @@ describe('triggers_decisions schema', () => {
     await expect(duplicate).rejects.toThrow();
   });
 
+  test('stores a dev decision with a null subscription id', async () => {
+    const receivedEventId = await insertEvent();
+    const [inserted] = await db()
+      .insert(triggersDecisions)
+      .values({
+        receivedEventId,
+        subscriptionKind: 'dev',
+        subscriptionId: null,
+        subscriptionName: 'on_issue',
+        workflowDefinitionId: crypto.randomUUID(),
+        decision: 'triggered',
+        runId: crypto.randomUUID(),
+        runName: 'Dev run',
+      })
+      .returning({id: triggersDecisions.id});
+    if (!inserted) throw new Error('insert returned no rows');
+    const [row] = await db()
+      .select()
+      .from(triggersDecisions)
+      .where(eq(triggersDecisions.id, inserted.id));
+    if (!row) throw new Error('select returned no rows');
+
+    expect(row.subscriptionKind).toBe('dev');
+    expect(row.subscriptionId).toBeNull();
+    expect(row.subscriptionName).toBe('on_issue');
+    expect(row.runId).not.toBeNull();
+    expect(row.runName).toBe('Dev run');
+    expect(toTriggerDecision(row)).toMatchObject({
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      decision: 'triggered',
+    });
+  });
+
+  test('the dev decision index rejects a second decision for the same event', async () => {
+    const receivedEventId = await insertEvent();
+    await db().insert(triggersDecisions).values({
+      receivedEventId,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_issue',
+      workflowDefinitionId: crypto.randomUUID(),
+      decision: 'triggered',
+      runId: crypto.randomUUID(),
+      runName: 'Dev run',
+    });
+    await expect(
+      db().insert(triggersDecisions).values({
+        receivedEventId,
+        subscriptionKind: 'dev',
+        subscriptionId: null,
+        subscriptionName: 'on_issue',
+        workflowDefinitionId: crypto.randomUUID(),
+        decision: 'filter-error',
+        reason: 'filter is false',
+      }),
+    ).rejects.toThrow();
+  });
+
+  test('enforces subscription ids by decision kind', async () => {
+    const receivedEventId = await insertEvent();
+
+    await expect(
+      db().insert(triggersDecisions).values({
+        receivedEventId,
+        subscriptionKind: 'trigger',
+        subscriptionId: null,
+        subscriptionName: 'Deploy production',
+        workflowDefinitionId: crypto.randomUUID(),
+        projectId: crypto.randomUUID(),
+        decision: 'triggered',
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      db().insert(triggersDecisions).values({
+        receivedEventId,
+        subscriptionKind: 'dev',
+        subscriptionId: crypto.randomUUID(),
+        subscriptionName: 'on_issue',
+        workflowDefinitionId: crypto.randomUUID(),
+        decision: 'triggered',
+      }),
+    ).rejects.toThrow();
+  });
+
   test('allows trigger and listener decisions with the same subscription id', async () => {
     const receivedEventId = await insertEvent();
     const subscriptionId = crypto.randomUUID();
@@ -234,11 +320,14 @@ describe('triggers_decisions schema', () => {
   });
 
   test('declares a database check for valid subscription kinds', () => {
-    const subscriptionKindCheck = getTableConfig(triggersDecisions).checks.find(
-      (check) => check.name === 'triggers_decisions_subscription_kind_ck',
-    );
+    const checkNames = getTableConfig(triggersDecisions).checks.map((check) => check.name);
 
-    expect(subscriptionKindCheck).toBeDefined();
+    expect(checkNames).toEqual(
+      expect.arrayContaining([
+        'triggers_decisions_subscription_kind_ck',
+        'triggers_decisions_subscription_id_ck',
+      ]),
+    );
   });
 
   test('maps listener identity fields', async () => {

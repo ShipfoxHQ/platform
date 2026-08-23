@@ -17,6 +17,7 @@ describe('toTriggerReceivedEvent', () => {
       provider: 'github',
       source: 'github',
       event: 'push',
+      replayOfEventId: '019e98ab-b90f-7265-b13c-8b441c991380',
       deliveryId: 'delivery-1',
       connectionId: '019e98ab-b90f-7265-b13c-8b441c991382',
       connectionName: 'Acme Production',
@@ -38,6 +39,7 @@ describe('toTriggerReceivedEvent', () => {
       provider: 'github',
       source: 'github',
       event: 'push',
+      replayOfEventId: '019e98ab-b90f-7265-b13c-8b441c991380',
       deliveryId: 'delivery-1',
       connectionId: row.connectionId,
       connectionName: 'Acme Production',
@@ -59,6 +61,7 @@ describe('toTriggerReceivedEvent', () => {
       provider: null,
       source: 'manual',
       event: 'fire',
+      replayOfEventId: null,
       deliveryId: null,
       connectionId: null,
       connectionName: null,
@@ -77,6 +80,7 @@ describe('toTriggerReceivedEvent', () => {
     expect(result.connectionName).toBeNull();
     expect(result.payload).toBeNull();
     expect(result.processedAt).toBeNull();
+    expect(result.replayOfEventId).toBeNull();
   });
 });
 
@@ -131,5 +135,46 @@ describe('triggers_received_events schema', () => {
     const duplicate = db().insert(triggersReceivedEvents).values(values);
 
     await expect(duplicate).rejects.toThrow();
+  });
+
+  test('stores a dev origin with a replay_of_event_id link', async () => {
+    const source = await db()
+      .insert(triggersReceivedEvents)
+      .values({
+        eventRef: crypto.randomUUID(),
+        origin: 'integration',
+        workspaceId: crypto.randomUUID(),
+        source: 'github',
+        event: 'push',
+        receivedAt: new Date(),
+      })
+      .returning({id: triggersReceivedEvents.id});
+    if (!source[0]) throw new Error('insert returned no rows');
+
+    const values: TriggerReceivedEventInsertDb = {
+      eventRef: crypto.randomUUID(),
+      origin: 'dev',
+      workspaceId: crypto.randomUUID(),
+      source: 'github',
+      event: 'push',
+      replayOfEventId: source[0].id,
+      payload: {ref: 'refs/heads/main'},
+      receivedAt: new Date(),
+    };
+    const [inserted] = await db()
+      .insert(triggersReceivedEvents)
+      .values(values)
+      .returning({id: triggersReceivedEvents.id});
+    if (!inserted) throw new Error('insert returned no rows');
+    const [row] = await db()
+      .select()
+      .from(triggersReceivedEvents)
+      .where(eq(triggersReceivedEvents.id, inserted.id));
+
+    expect(row?.origin).toBe('dev');
+    expect(row?.replayOfEventId).toBe(source[0].id);
+    expect(toTriggerReceivedEvent(row as TriggerReceivedEventDb).replayOfEventId).toBe(
+      source[0].id,
+    );
   });
 });

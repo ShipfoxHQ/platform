@@ -278,3 +278,85 @@ function listenerSubscriptionName(subscription: JobListenerSubscription): string
   // A NULL event is a source subscription; `*` keeps the audit name unambiguous.
   return `listener ${subscription.kind}[${subscription.matcherOrdinal}] ${subscription.source}/${subscription.event ?? '*'}`;
 }
+
+export interface UpsertDevTriggeredDecisionParams {
+  receivedEventId: string;
+  triggerKey: string;
+  workflowDefinitionId: string;
+  run: {id: string; name: string};
+}
+
+// A dev journal entry has exactly one decision. Its partial unique index uses
+// received_event_id because NULL subscription ids do not conflict in the
+// regular subscription identity index.
+export async function upsertDevTriggeredDecision(
+  params: UpsertDevTriggeredDecisionParams,
+): Promise<void> {
+  await upsertDevDecision(params, {
+    decision: 'triggered',
+    runId: params.run.id,
+    runName: params.run.name,
+    reason: null,
+  });
+}
+
+export interface UpsertDevFilterErrorDecisionParams {
+  receivedEventId: string;
+  triggerKey: string;
+  workflowDefinitionId: string;
+  reason: string;
+}
+
+// Refusals before run creation (filter false or evaluation error on replay).
+export async function upsertDevFilterErrorDecision(
+  params: UpsertDevFilterErrorDecisionParams,
+): Promise<void> {
+  await upsertDevDecision(
+    params,
+    {
+      decision: 'filter-error',
+      runId: null,
+      runName: null,
+      reason: params.reason,
+    },
+    {preserveTriggered: true},
+  );
+}
+
+type DevDecisionValues = {
+  decision: 'triggered' | 'filter-error';
+  runId: string | null;
+  runName: string | null;
+  reason: string | null;
+};
+
+async function upsertDevDecision(
+  params: {
+    receivedEventId: string;
+    triggerKey: string;
+    workflowDefinitionId: string;
+  },
+  values: DevDecisionValues,
+  options: {preserveTriggered?: boolean} = {},
+): Promise<void> {
+  await db()
+    .insert(triggersDecisions)
+    .values({
+      receivedEventId: params.receivedEventId,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: params.triggerKey,
+      workflowDefinitionId: params.workflowDefinitionId,
+      projectId: null,
+      decision: values.decision,
+      runId: values.runId,
+      runName: values.runName,
+      reason: values.reason,
+    })
+    .onConflictDoUpdate({
+      target: triggersDecisions.receivedEventId,
+      targetWhere: sql`"subscription_kind" = 'dev'`,
+      set: values,
+      ...(options.preserveTriggered ? {setWhere: ne(triggersDecisions.decision, 'triggered')} : {}),
+    });
+}
