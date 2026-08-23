@@ -64,14 +64,18 @@ triggers:
   on_push:
     source: github_acme
     event: push
-    on: main
+    filter: event.ref == "refs/heads/main"
 ```
 
-Each source is an integration connection slug. Each map key is the trigger's `name`. A workflow may declare any number of
+Each source is an integration connection slug or a built-in source (`manual`, `cron`). Each map key is the trigger's `name`. A workflow may declare any number of
 integration triggers and at most one `source: manual` trigger; the manual
 invariant is enforced at parse time so the fire route stays unambiguous.
-The `event` field is optional when `source: manual` and defaults to
-`fire`.
+The `event` field is optional. Omitting it subscribes the trigger to every
+event the source delivers. A source that delivers one event receives that
+one: `manual` receives `fire`, `cron` receives `tick`, and a custom webhook
+connection receives `received`. The normalizer materializes `fire` and `tick`
+for the two built-in sources. An omitted event on an integration source
+becomes a source subscription that matches any event from that connection.
 
 Integration triggers may include a CEL `filter` predicate. Dispatch evaluates
 the predicate for every subscription that matches `(workspace_id, source,
@@ -152,9 +156,9 @@ Three words, used the same way at every layer.
 
 | Word | Meaning | Examples |
 | --- | --- | --- |
-| **source** | Where the trigger came from. | `github`, `gitlab`, `sentry`, `manual`, `cron` |
-| **event** | The specific thing that happened, scoped to a source. | `push`, `issue_comment`, `alert_triggered`, `fire`, `tick` |
-| **payload** | The data carried by the event, set by the producing integration. Triggers passes it through opaquely. | GitHub's raw webhook JSON for `(github, push)` |
+| **source** | Where the trigger came from: a connection slug or a built-in source. | `github_acme`, `gitlab_prod`, `sentry_prod`, `manual`, `cron` |
+| **event** | The specific thing that happened, scoped to a source. Omitted on a subscription means every event the source delivers. | `push`, `issue_comment`, `alert_triggered`, `fire`, `tick` |
+| **payload** | The data carried by the event, set by the producing integration. Triggers passes it through opaquely. | GitHub's raw webhook JSON for `(github_acme, push)` |
 
 The `name` field on a subscription is the YAML map key (for example
 `on_push`). It identifies the trigger inside a workflow definition and is

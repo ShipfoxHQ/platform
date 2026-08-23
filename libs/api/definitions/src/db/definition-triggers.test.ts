@@ -1,3 +1,4 @@
+import {definitionResolvedEventSchema} from '@shipfox/api-definitions-dto';
 import type {WorkflowModel, WorkflowModelTrigger} from '#core/entities/workflow-model.js';
 import {definitionTriggersFor} from './definition-triggers.js';
 
@@ -82,6 +83,49 @@ describe('definitionTriggersFor', () => {
           timezone: 'UTC',
         },
       },
+    });
+  });
+
+  it('passes an omitted event through for integration triggers', () => {
+    const model = workflowModelWithTriggers([
+      {
+        id: 'on_any_github_event',
+        key: 'on_any_github_event',
+        source: 'github_acme',
+      },
+    ]);
+
+    const result = definitionTriggersFor(model);
+
+    expect(result).toEqual({
+      on_any_github_event: {
+        source: 'github_acme',
+      },
+    });
+    expect(result.on_any_github_event).not.toHaveProperty('event');
+  });
+
+  it('round trips a trigger without an event through the definition event schema', () => {
+    const dto = definitionTriggersFor(
+      workflowModelWithTriggers([
+        {
+          id: 'on_any_github_event',
+          key: 'on_any_github_event',
+          source: 'github_acme',
+        },
+      ]),
+    );
+
+    const result = definitionResolvedEventSchema.parse({
+      definitionId: '019e98ab-6656-7ca1-b9ad-1ca4442c479d',
+      projectId: '019e98ab-b90f-7265-b13c-8b441c991381',
+      workspaceId: '019e98ab-b90f-7265-b13c-8b441c991382',
+      configPath: '.shipfox/workflows/ci.yml',
+      triggers: dto,
+    });
+
+    expect(result.triggers).toEqual({
+      on_any_github_event: {source: 'github_acme'},
     });
   });
 

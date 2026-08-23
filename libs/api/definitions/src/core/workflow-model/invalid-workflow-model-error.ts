@@ -15,7 +15,6 @@ export type WorkflowModelValidationIssueCode =
   | 'integration-connection-not-capable'
   | 'integration-connection-not-found'
   | 'integration-write-not-allowed'
-  | 'invalid-cron-event'
   | 'invalid-cron-schedule'
   | 'invalid-cron-timezone'
   | 'invalid-provider'

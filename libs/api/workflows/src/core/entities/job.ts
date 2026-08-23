@@ -69,7 +69,7 @@ export interface Job {
 
 export interface JobListeningTrigger {
   readonly source: string;
-  readonly event: string;
+  readonly event?: string;
   readonly inputs?: Readonly<Record<string, unknown>>;
   readonly filter?: string;
 }

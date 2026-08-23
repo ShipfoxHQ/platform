@@ -6,7 +6,7 @@ export const resolutionReasonSchema = z.enum(['until', 'timeout', 'max_execution
 
 export const listeningTriggerSchema = z.object({
   source: z.string(),
-  event: z.string(),
+  event: z.string().optional(),
   inputs: z.record(z.string(), z.unknown()).optional(),
   filter: z.string().optional(),
 });

@@ -177,7 +177,7 @@ jobs:
     expect(() => parseDefinition(yaml)).toThrow(DefinitionParseError);
   });
 
-  test('manual trigger requires an explicit event', () => {
+  test('manual trigger without an explicit event parses and materializes fire', () => {
     const yaml = `name: Manual only
 runner: ubuntu-latest
 triggers:
@@ -189,7 +189,16 @@ jobs:
       - run: echo hello
 `;
 
-    expect(() => parseDefinition(yaml)).toThrow(DefinitionParseError);
+    const definition = parseDefinition(yaml);
+
+    expect(definition.model.triggers).toEqual([
+      {
+        id: 'on-demand',
+        key: 'on_demand',
+        source: 'manual',
+        event: 'fire',
+      },
+    ]);
   });
 
   test('declaring more than one manual trigger throws DefinitionParseError', () => {

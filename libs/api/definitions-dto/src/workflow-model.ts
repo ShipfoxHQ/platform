@@ -75,7 +75,7 @@ export interface WorkflowModelTrigger {
   readonly id: string;
   readonly key: string;
   readonly source: string;
-  readonly event: string;
+  readonly event?: string;
   readonly inputs?: Readonly<Record<string, unknown>>;
   readonly filter?: string;
   readonly config?: Readonly<Record<string, unknown>>;
@@ -112,7 +112,7 @@ export interface WorkflowModelJobListening {
 }
 export interface WorkflowModelListeningTrigger {
   readonly source: string;
-  readonly event: string;
+  readonly event?: string;
   readonly inputs?: Readonly<Record<string, unknown>>;
   readonly filter?: string;
 }
