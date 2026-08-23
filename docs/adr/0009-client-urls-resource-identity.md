@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-03
-- **Decision owners:** E1 platform composition seams and resource boundaries
+- **Decision owners:** Client composition maintainers and resource-boundary owners
 - **Linear issue:** [ENG-1452](https://linear.app/shipfox/issue/ENG-1452/docs-record-the-url-and-identifier-decisions-in-adr-0009)
 - **Related:** [ENG-1449](https://linear.app/shipfox/issue/ENG-1449/client-shell-move-client-urls-to) established the initial prefix decision.
 - **Amends:** [ADR 0001: Public client composition contract](0001-client-composition-contract.md)

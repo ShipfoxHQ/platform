@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-17
-- **Decision owners:** E1 platform composition seams
+- **Decision owners:** Client composition maintainers
 - **Linear issue:** [ENG-959](https://linear.app/shipfox/issue/ENG-959/author-the-client-composition-adr)
 - **Implementation issue:** [ENG-938](https://linear.app/shipfox/issue/ENG-938/implement-and-publish-the-client-composition-seam)
 - **Amended by:** [ADR 0009: Client URLs and resource identity](0009-client-urls-resource-identity.md)
@@ -605,7 +605,7 @@ route tree.
 
 ## Prototype findings
 
-ENG-960, ENG-961, and ENG-962 are complete. Their results changed both the final contract and the
+The prototype findings are complete. Their results changed both the final contract and the
 prototype code.
 
 ### Manifest evaluation
@@ -657,9 +657,9 @@ The linked and packed modes proved these behaviors:
 
 The packed mode also proves consumer type-checking from tarballs with no workspace fallback.
 
-## ENG-938 implementation record
+## Implementation record
 
-ENG-938 implemented the accepted contract through these slices.
+The implementation work established the accepted contract through these slices.
 
 ### 1. Graduate the shell
 

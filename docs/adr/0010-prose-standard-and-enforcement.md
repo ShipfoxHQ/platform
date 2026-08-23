@@ -82,8 +82,8 @@ relationship is more precise.
 describe shipped or connectable Preview behavior. The authoring standard does
 not use `status: "soon"`, coming-soon callouts, or unavailable-provider page
 templates. Existing Linear and Slack pages remain migration exceptions until
-their shipped-provider documentation lands under ENG-1460. They do not establish
-authoring precedent. A feature and its product documentation ship in the same
+their shipped-provider documentation lands with the corresponding provider work.
+They do not establish authoring precedent. A feature and its product documentation ship in the same
 slice.
 
 **`integration connection` is a fixed compound.** Authors do not place another
