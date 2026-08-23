@@ -54,7 +54,6 @@ export function normalizeTriggers(
         );
         return [];
       }
-      activeManualTriggerSeen = true;
     }
 
     const triggerIssues: WorkflowModelValidationIssue[] = [];
@@ -65,6 +64,7 @@ export function normalizeTriggers(
     const triggerIsInert = triggerIssues.some((candidate) => candidate.scope === 'trigger');
     if (trigger.source !== cronTriggerSource) {
       if (triggerIsInert) return [];
+      if (trigger.source === manualTriggerSource) activeManualTriggerSeen = true;
       return [
         {
           id,

@@ -4406,6 +4406,37 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.triggers.map((trigger) => trigger.key)).toEqual(['one']);
   });
 
+  it('promotes the first valid manual trigger when an earlier one is inert', () => {
+    const document: WorkflowDocument = {
+      name: 'manual triggers with an inert first trigger',
+      triggers: {
+        broken: {
+          source: 'manual',
+          event: 'fire',
+          filter: 'event.ref == "refs/heads/main"',
+        },
+        working: {source: 'manual', event: 'fire'},
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'invalid-trigger-filter',
+        path: ['triggers', 'broken', 'filter'],
+        severity: 'error',
+        scope: 'trigger',
+      }),
+    ]);
+    expect(model.triggers.map((trigger) => trigger.key)).toEqual(['working']);
+  });
+
   it('accumulates independent semantic issues in one pass', () => {
     const document: WorkflowDocument = {
       name: 'many issues',

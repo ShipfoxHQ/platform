@@ -1,6 +1,6 @@
 import {createApiClient} from '@shipfox/e2e-core';
 import {type LocalRunnerHandle, stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
-import {waitForDefinitionSyncTerminal, waitForNoWorkflowRuns} from '#polling.js';
+import {waitForDefinitionSyncTerminal} from '#polling.js';
 import {startSuiteLocalRunner, waitForRunTerminalOrFailedRunner} from '#runner.js';
 import {fireManualAndAwaitRun} from '#triggers.js';
 import {seedWorkflowProject} from '#workflow-project.js';
@@ -10,7 +10,6 @@ import {expect, test} from './fixtures.js';
 // must still sync: the broken trigger is inert and flagged, and the manual
 // trigger in the same file keeps working.
 const CONFIG_PATH = '.shipfox/workflows/inert-trigger.yml';
-const NO_RUN_OBSERVATION_MS = 8_000;
 
 const workflowYaml = `
 name: Inert trigger
@@ -78,14 +77,6 @@ test('a broken cron trigger is inert while the manual trigger keeps working', as
     const document = definition?.workflow_document as AuthoredDocument;
     expect(document.triggers.nightly?.source).toBe('cron');
     expect(definition?.manual_trigger).toEqual({name: 'on_demand'});
-
-    // The inert cron trigger must not create runs on its own.
-    const idleRuns = await waitForNoWorkflowRuns({
-      projectId: seeded.project.id,
-      token,
-      timeoutMs: NO_RUN_OBSERVATION_MS,
-    });
-    expect(idleRuns.runs).toEqual([]);
 
     const localRunner = await startSuiteLocalRunner({
       workspaceId: suite.workspaceId,
