@@ -8,6 +8,7 @@ const projectSchema = z.object({
   sourceConnectionId: idSchema,
   sourceExternalRepositoryId: z.string(),
   sourceRepositoryOwner: z.string().min(1).nullable().optional(),
+  sourceDefaultBranch: z.string().min(1).nullable().optional(),
   name: z.string(),
 });
 const workspaceProjectCountSchema = z.object({

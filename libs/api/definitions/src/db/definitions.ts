@@ -330,10 +330,45 @@ export async function getDefinitionById(id: string): Promise<WorkflowDefinition 
       .limit(1);
     const row = rows[0];
 
-    if (!row) return undefined;
-    const workflowId = await ensureWorkflowId(tx, row);
-    return toDefinition({...row, workflowId});
+    if (row) {
+      const workflowId = await ensureWorkflowId(tx, row);
+      return toDefinition({...row, workflowId});
+    }
+
+    return undefined;
   });
+}
+
+export async function getWorkflowLineageById(
+  id: string,
+): Promise<{id: string; projectId: string} | undefined> {
+  const rows = await db()
+    .select({id: workflowWorkflows.id, projectId: workflowWorkflows.projectId})
+    .from(workflowWorkflows)
+    .where(eq(workflowWorkflows.id, id))
+    .limit(1);
+
+  return rows[0];
+}
+
+export async function getDefinitionByWorkflowId(params: {
+  workflowId: string;
+  ref: string;
+}): Promise<WorkflowDefinition | undefined> {
+  const rows = await db()
+    .select()
+    .from(workflowDefinitions)
+    .where(
+      and(
+        eq(workflowDefinitions.workflowId, params.workflowId),
+        eq(workflowDefinitions.ref, params.ref),
+        isNull(workflowDefinitions.deletedAt),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+
+  return row ? toDefinition({...row, workflowId: params.workflowId}) : undefined;
 }
 
 export interface DefinitionCursor {
