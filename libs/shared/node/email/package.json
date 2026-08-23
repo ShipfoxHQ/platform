@@ -2,7 +2,7 @@
   "name": "@shipfox/node-email",
   "license": "MIT",
   "private": false,
-  "version": "0.3.4",
+  "version": "0.3.5",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

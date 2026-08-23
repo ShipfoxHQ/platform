@@ -1,5 +1,11 @@
 # @shipfox/api-integration-github
 
+## 13.1.0
+
+### Minor Changes
+
+- 7ae5396: Attributes new runner commits to the GitHub App bot account. Existing runner workspaces keep their first configured author until recreated. Update downstream author filters that match the previous App ID email address.
+
 ## 12.7.0
 
 ### Minor Changes

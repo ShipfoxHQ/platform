@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-integration-github",
   "license": "MIT",
-  "version": "12.7.0",
+  "version": "13.1.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

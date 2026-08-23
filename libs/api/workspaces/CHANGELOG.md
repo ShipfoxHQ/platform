@@ -1,5 +1,12 @@
 # @shipfox/api-workspaces
 
+## 13.1.0
+
+### Patch Changes
+
+- Updated dependencies [6366319]
+  - @shipfox/node-email@0.3.5
+
 ## 13.0.0
 
 ### Patch Changes
