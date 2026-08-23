@@ -188,6 +188,33 @@ describe('integration connection queries', () => {
     expect(result).toBe('github_manual');
   });
 
+  it.each([
+    'manual',
+    'cron',
+  ] as const)('refuses direct writes for reserved slug %s', async (slug) => {
+    await expect(
+      createIntegrationConnection({
+        workspaceId,
+        provider: 'github',
+        externalAccountId: `create-${slug}`,
+        slug,
+        displayName: 'GitHub',
+        capabilities: ['source_control'],
+      }),
+    ).rejects.toBeInstanceOf(ConnectionSlugConflictError);
+
+    await expect(
+      upsertIntegrationConnection({
+        workspaceId,
+        provider: 'gitea',
+        externalAccountId: `upsert-${slug}`,
+        slug,
+        displayName: 'Gitea',
+        capabilities: ['source_control'],
+      }),
+    ).rejects.toBeInstanceOf(ConnectionSlugConflictError);
+  });
+
   it('keeps the existing slug when resolving a reconnect', async () => {
     await upsertIntegrationConnection({
       workspaceId,

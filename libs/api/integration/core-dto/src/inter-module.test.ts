@@ -140,4 +140,17 @@ describe('integrationsInterModuleContract', () => {
     ]);
     expect(output.fixedEventProviders).toEqual(['webhook']);
   });
+
+  test('rejects empty fixed event provider identifiers', () => {
+    expect(() =>
+      integrationsInterModuleContract.methods.getAgentToolsContext.output.parse({
+        selectionCatalogs: [],
+        catalogs: [],
+        workspaceConnections: [],
+        eventCatalogs: [],
+        fixedEventProviders: [''],
+        defaultConnection: null,
+      }),
+    ).toThrow();
+  });
 });

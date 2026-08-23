@@ -1,4 +1,4 @@
-import {giteaProviderKind} from '@shipfox/api-integration-gitea-dto';
+import {giteaEventCatalog, giteaProviderKind} from '@shipfox/api-integration-gitea-dto';
 import type {
   GetIntegrationConnectionByIdFn,
   IntegrationConnection,
@@ -67,6 +67,7 @@ export function createGiteaIntegrationProvider(options: CreateGiteaIntegrationPr
   return {
     provider: giteaProviderKind,
     displayName: 'Gitea',
+    eventCatalog: giteaEventCatalog,
     adapters: {
       source_control: new GiteaSourceControlProvider(gitea),
     },
