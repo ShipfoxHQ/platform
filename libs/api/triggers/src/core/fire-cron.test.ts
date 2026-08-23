@@ -140,6 +140,26 @@ describe('fireCronSubscription', () => {
     expect(decisions[0]?.decision).toBe('dispatch-error');
   });
 
+  test('falls back to tick in history when a bad row stores a NULL event', async () => {
+    const subscription = await triggerSubscriptionFactory.create({
+      source: 'cron',
+      event: null,
+      config: {},
+    });
+    runWorkflow.mockResolvedValue({id: crypto.randomUUID(), name: 'Cron run'});
+
+    await fireCronSubscription({
+      workflows,
+      subscriptionId: subscription.id,
+      scheduledSlot: SLOT,
+    });
+
+    const [event] = await eventsForWorkspace(subscription.workspaceId);
+    if (!event) throw new Error('received event not found');
+    expect(event.event).toBe('tick');
+    expect(event.outcome).toBe('routed');
+  });
+
   test('throws and records nothing when the subscription is not a cron trigger', async () => {
     const subscription = await triggerSubscriptionFactory.create({
       source: 'manual',

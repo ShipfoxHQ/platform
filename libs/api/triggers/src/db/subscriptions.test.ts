@@ -55,6 +55,80 @@ describe('projectDefinitionTriggers', () => {
     });
   });
 
+  test('stores NULL for a trigger with no event', async () => {
+    await projectDefinitionTriggers({
+      workspaceId,
+      projectId,
+      workflowDefinitionId,
+      triggers: {
+        on_any: {source: 'github'},
+      },
+    });
+
+    const rows = await db()
+      .select()
+      .from(triggerSubscriptions)
+      .where(eq(triggerSubscriptions.workflowDefinitionId, workflowDefinitionId));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.source).toBe('github');
+    expect(rows[0]?.event).toBeNull();
+  });
+
+  test.each(['', '   '])('rejects a blank integration trigger event %j', async (event) => {
+    await expect(
+      projectDefinitionTriggers({
+        workspaceId,
+        projectId,
+        workflowDefinitionId,
+        triggers: {
+          invalid: {source: 'github', event},
+        },
+      }),
+    ).rejects.toThrow('A github subscription event cannot be blank');
+  });
+
+  test.each(['manual', 'cron'] as const)('rejects a blank %s trigger event', async (source) => {
+    await expect(
+      projectDefinitionTriggers({
+        workspaceId,
+        projectId,
+        workflowDefinitionId,
+        triggers: {
+          invalid: {source},
+        },
+      }),
+    ).rejects.toThrow(`A ${source} subscription requires an event`);
+  });
+
+  test('clears an exact event to NULL when a trigger drops its event across reconciliations', async () => {
+    await projectDefinitionTriggers({
+      workspaceId,
+      projectId,
+      workflowDefinitionId,
+      triggers: {
+        on_push: {source: 'github', event: 'push'},
+      },
+    });
+
+    await projectDefinitionTriggers({
+      workspaceId,
+      projectId,
+      workflowDefinitionId,
+      triggers: {
+        on_push: {source: 'github'},
+      },
+    });
+
+    const rows = await db()
+      .select()
+      .from(triggerSubscriptions)
+      .where(eq(triggerSubscriptions.workflowDefinitionId, workflowDefinitionId));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.event).toBeNull();
+  });
+
   test('removes rows whose trigger name is no longer in the map', async () => {
     await projectDefinitionTriggers({
       workspaceId,
@@ -194,6 +268,69 @@ describe('findMatchingSubscriptions', () => {
 
     expect(matches).toHaveLength(1);
     expect(matches[0]?.name).toBe('on_push');
+  });
+
+  test('a NULL event subscription matches any event from its source and none from another source', async () => {
+    await projectDefinitionTriggers({
+      workspaceId,
+      projectId,
+      workflowDefinitionId: crypto.randomUUID(),
+      triggers: {
+        on_any: {source: 'github'},
+      },
+    });
+
+    const pushMatches = await findMatchingSubscriptions({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+    });
+    const prMatches = await findMatchingSubscriptions({
+      workspaceId,
+      source: 'github',
+      event: 'pull_request',
+    });
+    const otherSourceMatches = await findMatchingSubscriptions({
+      workspaceId,
+      source: 'sentry',
+      event: 'push',
+    });
+    const otherWorkspaceMatches = await findMatchingSubscriptions({
+      workspaceId: crypto.randomUUID(),
+      source: 'github',
+      event: 'push',
+    });
+
+    expect(pushMatches.map((match) => match.name)).toEqual(['on_any']);
+    expect(prMatches.map((match) => match.name)).toEqual(['on_any']);
+    expect(otherSourceMatches).toHaveLength(0);
+    expect(otherWorkspaceMatches).toHaveLength(0);
+  });
+
+  test('exact-event subscriptions are unaffected by NULL event rows', async () => {
+    await projectDefinitionTriggers({
+      workspaceId,
+      projectId,
+      workflowDefinitionId: crypto.randomUUID(),
+      triggers: {
+        on_any: {source: 'github'},
+        on_push: {source: 'github', event: 'push'},
+      },
+    });
+
+    const pushMatches = await findMatchingSubscriptions({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+    });
+    const prMatches = await findMatchingSubscriptions({
+      workspaceId,
+      source: 'github',
+      event: 'pull_request',
+    });
+
+    expect(pushMatches.map((match) => match.name).sort()).toEqual(['on_any', 'on_push']);
+    expect(prMatches.map((match) => match.name)).toEqual(['on_any']);
   });
 
   test('matches connection-specific sources, not the provider id', async () => {

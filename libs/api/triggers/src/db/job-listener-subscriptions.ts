@@ -8,12 +8,13 @@ import {
   jobListenerSubscriptions,
   toJobListenerSubscription,
 } from './schema/job-listener-subscriptions.js';
+import {normalizeSubscriptionEvent, subscriptionEventCondition} from './subscription-event.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
 export interface ListenerMatcher {
   source: string;
-  event: string;
+  event?: string | undefined;
   inputs?: Readonly<Record<string, unknown>> | undefined;
   filter?: string | undefined;
   filter_snapshot?: Readonly<Record<string, unknown>> | undefined;
@@ -57,7 +58,7 @@ export async function projectJobListenerSubscriptions(
             kind,
             matcherOrdinal,
             source: matcher.source,
-            event: matcher.event,
+            event: normalizeSubscriptionEvent({source: matcher.source, event: matcher.event}),
             config,
           })
           .onConflictDoUpdate({
@@ -70,7 +71,7 @@ export async function projectJobListenerSubscriptions(
               workspaceId: params.workspaceId,
               workflowRunId: params.workflowRunId,
               source: matcher.source,
-              event: matcher.event,
+              event: normalizeSubscriptionEvent({source: matcher.source, event: matcher.event}),
               config,
             },
           });
@@ -130,7 +131,7 @@ export async function findMatchingJobListenerSubscriptions(
       and(
         eq(jobListenerSubscriptions.workspaceId, params.workspaceId),
         eq(jobListenerSubscriptions.source, params.source),
-        eq(jobListenerSubscriptions.event, params.event),
+        subscriptionEventCondition(jobListenerSubscriptions.event, params.event),
       ),
     );
   return rows.map(toJobListenerSubscription);

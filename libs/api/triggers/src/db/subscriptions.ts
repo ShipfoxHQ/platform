@@ -4,13 +4,18 @@ import type {TriggerSubscription} from '#core/entities/subscription.js';
 import {deleteCronScheduleForSubscription, syncCronSchedule} from './cron-schedules.js';
 import {db, type Executor, type Tx} from './db.js';
 import {toTriggerSubscription, triggerSubscriptions} from './schema/subscriptions.js';
+import {normalizeSubscriptionEvent, subscriptionEventCondition} from './subscription-event.js';
+
+interface ProjectDefinitionTrigger extends Omit<TriggerDto, 'event'> {
+  event?: string | undefined;
+}
 
 export interface ProjectDefinitionTriggersParams {
   tx?: Tx | undefined;
   workspaceId: string;
   projectId: string;
   workflowDefinitionId: string;
-  triggers: Record<string, TriggerDto>;
+  triggers: Record<string, ProjectDefinitionTrigger>;
 }
 
 export async function projectDefinitionTriggers(
@@ -49,7 +54,7 @@ export async function projectDefinitionTriggers(
           workflowDefinitionId: params.workflowDefinitionId,
           name,
           source: trigger.source,
-          event: trigger.event,
+          event: normalizeSubscriptionEvent({source: trigger.source, event: trigger.event}),
           config,
         })
         .onConflictDoUpdate({
@@ -58,7 +63,7 @@ export async function projectDefinitionTriggers(
             workspaceId: params.workspaceId,
             projectId: params.projectId,
             source: trigger.source,
-            event: trigger.event,
+            event: normalizeSubscriptionEvent({source: trigger.source, event: trigger.event}),
             config,
             updatedAt: new Date(),
           },
@@ -161,7 +166,7 @@ export async function findMatchingSubscriptions(
       and(
         eq(triggerSubscriptions.workspaceId, params.workspaceId),
         eq(triggerSubscriptions.source, params.source),
-        eq(triggerSubscriptions.event, params.event),
+        subscriptionEventCondition(triggerSubscriptions.event, params.event),
       ),
     );
   return rows.map(toTriggerSubscription);

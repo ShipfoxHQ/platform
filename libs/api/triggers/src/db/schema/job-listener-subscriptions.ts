@@ -27,7 +27,8 @@ export const jobListenerSubscriptions = pgTable(
     kind: jobListenerMatcherKindEnum('kind').notNull(),
     matcherOrdinal: integer('matcher_ordinal').notNull(),
     source: text('source').notNull(),
-    event: text('event').notNull(),
+    // NULL is a source subscription: matches every event the source delivers.
+    event: text('event'),
     config: jsonb('config').notNull().$type<Record<string, unknown>>(),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
   },

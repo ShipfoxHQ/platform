@@ -12,7 +12,8 @@ export const triggerSubscriptions = pgTable(
     workflowDefinitionId: uuid('workflow_definition_id').notNull(),
     name: text('name').notNull(),
     source: text('source').notNull(),
-    event: text('event').notNull(),
+    // NULL is a source subscription: matches every event the source delivers.
+    event: text('event'),
     config: jsonb('config').notNull(),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),

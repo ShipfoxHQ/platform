@@ -376,6 +376,16 @@ describe('decision upserts', () => {
     });
   });
 
+  it('names a NULL-event listener as a source wildcard', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const subscription = buildListenerSubscription({event: null});
+
+    await upsertListenerTriggeredDecision({receivedEventId, subscription});
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows[0]?.subscriptionName).toBe('listener on[0] github/*');
+  });
+
   it('flips a listener dispatch-error decision to triggered on a successful retry', async () => {
     const receivedEventId = await insertReceivedEvent(buildEventParams());
     const subscription = buildListenerSubscription();

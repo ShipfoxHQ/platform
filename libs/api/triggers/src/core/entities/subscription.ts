@@ -5,7 +5,8 @@ export interface TriggerSubscription {
   workflowDefinitionId: string;
   name: string;
   source: string;
-  event: string;
+  /** NULL is a source subscription: matches every event the source delivers. */
+  event: string | null;
   config: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
