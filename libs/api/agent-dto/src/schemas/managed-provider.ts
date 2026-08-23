@@ -1,5 +1,6 @@
 import type {AgentThinking} from '@shipfox/workflow-document';
 import {z} from 'zod';
+import {type CustomAgentModelDto, customAgentModelSchema} from './custom-model-provider.js';
 
 export const managedModelApiSchema = z.enum([
   'anthropic-messages',
@@ -9,17 +10,31 @@ export const managedModelApiSchema = z.enum([
 
 export type ManagedModelApi = z.infer<typeof managedModelApiSchema>;
 
-export interface ManagedModelEntry {
+export const managedModelMetadataSchema = customAgentModelSchema.omit({
+  id: true,
+  label: true,
+});
+
+export type ManagedModelMetadata = z.infer<typeof managedModelMetadataSchema>;
+
+/**
+ * Optional model metadata passed through to Pi's custom-provider adapter.
+ * Omitted properties retain the adapter's defaults.
+ */
+export interface ManagedModelEntry extends Readonly<ManagedModelMetadata> {
   readonly id: string;
   readonly label: string;
   readonly api: ManagedModelApi;
-  // Optional model metadata mirroring the custom model schema (customAgentModelSchema);
-  // pi reads these fields from the custom_provider.models entry, so a managed step
-  // behaves like the equivalent custom provider instead of the custom-model defaults.
-  readonly context_window?: number | undefined;
-  readonly max_output_tokens?: number | undefined;
-  readonly reasoning?: boolean | undefined;
-  readonly input_image?: boolean | undefined;
+}
+
+export function toCustomAgentModelDto(
+  model: Pick<ManagedModelEntry, 'id' | 'label'> & ManagedModelMetadata,
+): CustomAgentModelDto {
+  return {
+    id: model.id,
+    label: model.label,
+    ...managedModelMetadataSchema.parse(model),
+  };
 }
 
 export interface ManagedProviderRuntimeConfig {

@@ -1,7 +1,6 @@
 import type {
   AgentRuntimeCredentialsResponseDto,
   AgentThinking,
-  CustomAgentModelDto,
   Harness,
   ManagedModelProvider,
   ManagedProviderRuntimeConfig,
@@ -9,6 +8,7 @@ import type {
   SupportedModelProviderId,
   WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
+import {toCustomAgentModelDto} from '@shipfox/api-agent-dto';
 import {secretsInterModuleContract} from '@shipfox/api-secrets-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {config, workspaceProvidersPolicy} from '#config.js';
@@ -199,16 +199,7 @@ function toResponse(
 
   if (managed !== undefined) {
     const model = managed.provider.models.find((candidate) => candidate.id === params.model);
-    const modelDescriptor: CustomAgentModelDto = {
-      id: params.model,
-      label: model?.label ?? params.model,
-      ...(model?.context_window !== undefined && {context_window: model.context_window}),
-      ...(model?.max_output_tokens !== undefined && {
-        max_output_tokens: model.max_output_tokens,
-      }),
-      ...(model?.reasoning !== undefined && {reasoning: model.reasoning}),
-      ...(model?.input_image !== undefined && {input_image: model.input_image}),
-    };
+    const modelDescriptor = toCustomAgentModelDto(model ?? {id: params.model, label: params.model});
 
     if (params.harness === 'pi') {
       response.custom_provider = {

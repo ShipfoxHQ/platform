@@ -84,9 +84,12 @@ export {
 export {
   type ManagedModelApi,
   type ManagedModelEntry,
+  type ManagedModelMetadata,
   type ManagedModelProvider,
   type ManagedProviderRuntimeConfig,
   managedModelApiSchema,
+  managedModelMetadataSchema,
+  toCustomAgentModelDto,
 } from './managed-provider.js';
 export {
   AGENT_INTEGRATION_MCP_AUTH,
