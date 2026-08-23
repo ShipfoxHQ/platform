@@ -7,7 +7,7 @@ const eventDetails = {
   push: {
     summary: 'A Git reference receives one or more commits.',
     emittedWhen:
-      'Gitea sends a push webhook for a non-deleted branch in the connected organization.',
+      'Gitea sends a push webhook for a non-deleted Git reference in the connected organization.',
   },
 } as const satisfies Record<
   (typeof giteaWebhookEventNames)[number],
