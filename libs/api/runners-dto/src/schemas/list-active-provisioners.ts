@@ -11,7 +11,7 @@ export const activeProvisionerDtoSchema = z.object({
 
 export const listActiveProvisionersResponseSchema = z.object({
   provisioners: z.array(activeProvisionerDtoSchema),
-  installation_runners: installationRunnersStatusSchema,
+  installation_runners: installationRunnersStatusSchema.default('none'),
 });
 
 export type InstallationRunnersStatus = z.infer<typeof installationRunnersStatusSchema>;

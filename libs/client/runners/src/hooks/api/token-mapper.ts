@@ -55,10 +55,9 @@ export function toActiveProvisioner(dto: ActiveProvisionerDto): ActiveProvisione
 export function toActiveProvisionersResponse(
   dto: ListActiveProvisionersResponseDto,
 ): ActiveProvisioners {
-  return {
-    provisioners: dto.provisioners.map(toActiveProvisioner),
+  return Object.assign(dto.provisioners.map(toActiveProvisioner), {
     installationRunners: dto.installation_runners,
-  };
+  });
 }
 
 export function toCreatedManualRegistrationToken(

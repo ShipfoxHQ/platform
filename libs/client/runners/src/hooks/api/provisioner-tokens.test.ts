@@ -124,7 +124,8 @@ describe('provisioner token transports', () => {
     const result = await listActiveProvisioners({workspaceId});
 
     const request = fetchImpl.mock.calls[0]?.[0] as Request;
-    expect(result.provisioners).toHaveLength(1);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.name).toBe('Docker provisioner');
     expect(result.installationRunners).toBe('managed');
     expect(request.url).toBe(
       `https://api.example.test/workspaces/${workspaceId}/provisioners/active`,

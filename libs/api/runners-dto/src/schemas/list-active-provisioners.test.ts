@@ -34,11 +34,11 @@ describe('list active provisioners schemas', () => {
     expect(listActiveProvisionersResponseSchema.parse(response)).toEqual(response);
   });
 
-  it('rejects a response without installation_runners', () => {
-    const result = listActiveProvisionersResponseSchema.safeParse({
+  it('defaults installation_runners for responses from older servers', () => {
+    const result = listActiveProvisionersResponseSchema.parse({
       provisioners: [],
     });
 
-    expect(result.success).toBe(false);
+    expect(result).toEqual({provisioners: [], installation_runners: 'none'});
   });
 });
