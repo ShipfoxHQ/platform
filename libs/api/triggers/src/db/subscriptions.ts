@@ -1,13 +1,11 @@
 import type {TriggerDto} from '@shipfox/api-definitions-dto';
-import {and, eq, inArray, isNull, notInArray, or} from 'drizzle-orm';
+import {and, eq, inArray, notInArray} from 'drizzle-orm';
 import type {TriggerSubscription} from '#core/entities/subscription.js';
 import {deleteCronScheduleForSubscription, syncCronSchedule} from './cron-schedules.js';
 import {db, type Executor, type Tx} from './db.js';
 import {toTriggerSubscription, triggerSubscriptions} from './schema/subscriptions.js';
+import {normalizeSubscriptionEvent, subscriptionEventCondition} from './subscription-event.js';
 
-// The write path accepts an absent event (stored as NULL, meaning a source
-// subscription) ahead of the DTO relaxation. `TriggerDto.event` stays required
-// at the sync boundary; only the projection into subscription rows is optional.
 interface ProjectDefinitionTrigger extends Omit<TriggerDto, 'event'> {
   event?: string | undefined;
 }
@@ -56,9 +54,7 @@ export async function projectDefinitionTriggers(
           workflowDefinitionId: params.workflowDefinitionId,
           name,
           source: trigger.source,
-          // An absent event is stored as NULL: a source subscription matching
-          // every event the source delivers.
-          event: trigger.event ?? null,
+          event: normalizeSubscriptionEvent({source: trigger.source, event: trigger.event}),
           config,
         })
         .onConflictDoUpdate({
@@ -67,7 +63,7 @@ export async function projectDefinitionTriggers(
             workspaceId: params.workspaceId,
             projectId: params.projectId,
             source: trigger.source,
-            event: trigger.event ?? null,
+            event: normalizeSubscriptionEvent({source: trigger.source, event: trigger.event}),
             config,
             updatedAt: new Date(),
           },
@@ -159,8 +155,7 @@ export interface FindMatchingSubscriptionsParams {
 
 // Matches at workspace scope: an inbound integration event is a workspace-level
 // fact, not addressed to a project. Narrowing to a repo/project/branch is left to
-// user-defined per-workflow filters, not inferred here. A NULL subscription event
-// is a source subscription and matches every event the source delivers.
+// user-defined per-workflow filters, not inferred here.
 export async function findMatchingSubscriptions(
   params: FindMatchingSubscriptionsParams,
 ): Promise<TriggerSubscription[]> {
@@ -171,7 +166,7 @@ export async function findMatchingSubscriptions(
       and(
         eq(triggerSubscriptions.workspaceId, params.workspaceId),
         eq(triggerSubscriptions.source, params.source),
-        or(eq(triggerSubscriptions.event, params.event), isNull(triggerSubscriptions.event)),
+        subscriptionEventCondition(triggerSubscriptions.event, params.event),
       ),
     );
   return rows.map(toTriggerSubscription);

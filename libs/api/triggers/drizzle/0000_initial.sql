@@ -38,7 +38,7 @@ CREATE TABLE "triggers_job_listener_subscriptions" (
 	"kind" "triggers_job_listener_matcher_kind" NOT NULL,
 	"matcher_ordinal" integer NOT NULL,
 	"source" text NOT NULL,
-	"event" text,
+	"event" text NOT NULL,
 	"config" jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -83,7 +83,7 @@ CREATE TABLE "triggers_subscriptions" (
 	"workflow_definition_id" uuid NOT NULL,
 	"name" text NOT NULL,
 	"source" text NOT NULL,
-	"event" text,
+	"event" text NOT NULL,
 	"config" jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL

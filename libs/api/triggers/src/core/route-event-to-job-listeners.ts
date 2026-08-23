@@ -335,6 +335,8 @@ function listenerDisposition(subscription: JobListenerSubscription): 'fire' | 'r
 }
 
 function listenerMatcherSortKey(subscription: JobListenerSubscription): string {
+  // An until matcher wins over an on matcher, including when the until matcher
+  // is a source wildcard. Resolving the job intentionally suppresses delivery.
   const kindRank = subscription.kind === 'until' ? '0' : '1';
   return `${kindRank}:${subscription.matcherOrdinal.toString().padStart(10, '0')}`;
 }

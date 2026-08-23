@@ -1,6 +1,6 @@
 {
-  "id": "96a3c38e-b63d-4ab1-8519-4d2c0db11389",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "afe02293-9f01-43c2-ae93-9de4660f7697",
+  "prevId": "96a3c38e-b63d-4ab1-8519-4d2c0db11389",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -90,12 +90,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "triggers_decisions_subscription_kind_ck": {
-          "name": "triggers_decisions_subscription_kind_ck",
-          "value": "\"triggers_decisions\".\"subscription_kind\" IN ('trigger', 'listener')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.triggers_decisions": {
@@ -260,7 +255,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "triggers_decisions_subscription_kind_ck": {
+          "name": "triggers_decisions_subscription_kind_ck",
+          "value": "\"triggers_decisions\".\"subscription_kind\" IN ('trigger', 'listener')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.triggers_job_listener_subscriptions": {
@@ -315,7 +315,7 @@
           "name": "event",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "config": {
           "name": "config",
@@ -789,7 +789,7 @@
           "name": "event",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "config": {
           "name": "config",

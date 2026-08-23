@@ -46,8 +46,8 @@ export async function fireManualSubscription(
     workspaceId: subscription.workspaceId,
     provider: null,
     source: subscription.source,
-    // The normalizer always writes `fire` for manual; fall back so a bad NULL
-    // row cannot crash the fire path.
+    // Manual triggers have no inbound event. Keep the canonical history event
+    // for a row that bypassed the projection write-path validation.
     event: subscription.event ?? 'fire',
     deliveryId: null,
     connectionId: null,

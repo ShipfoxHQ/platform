@@ -75,6 +75,38 @@ describe('projectDefinitionTriggers', () => {
     expect(rows[0]?.event).toBeNull();
   });
 
+  test('normalizes blank trigger events to NULL', async () => {
+    await projectDefinitionTriggers({
+      workspaceId,
+      projectId,
+      workflowDefinitionId,
+      triggers: {
+        empty: {source: 'github', event: ''},
+        whitespace: {source: 'github', event: '   '},
+      },
+    });
+
+    const rows = await db()
+      .select()
+      .from(triggerSubscriptions)
+      .where(eq(triggerSubscriptions.workflowDefinitionId, workflowDefinitionId));
+
+    expect(rows.map((row) => row.event)).toEqual([null, null]);
+  });
+
+  test.each(['manual', 'cron'] as const)('rejects a blank %s trigger event', async (source) => {
+    await expect(
+      projectDefinitionTriggers({
+        workspaceId,
+        projectId,
+        workflowDefinitionId,
+        triggers: {
+          invalid: {source},
+        },
+      }),
+    ).rejects.toThrow(`A ${source} subscription requires an event`);
+  });
+
   test('clears an exact event to NULL when a trigger drops its event across reconciliations', async () => {
     await projectDefinitionTriggers({
       workspaceId,

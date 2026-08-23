@@ -337,6 +337,44 @@ describe('dispatchIntegrationEvent', () => {
     expect(event.outcome).toBe('routed');
   });
 
+  test('fans out mixed exact-event and NULL-event subscriptions by delivered event', async () => {
+    const workspaceId = crypto.randomUUID();
+    const exactSubscription = await triggerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+      config: {},
+    });
+    const wildcardSubscription = await triggerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: null,
+      config: {},
+    });
+    const pushEventRef = crypto.randomUUID();
+
+    await dispatch({workspaceId, event: 'push', eventRef: pushEventRef});
+
+    expect(runWorkflow).toHaveBeenCalledTimes(2);
+    expect(runWorkflow.mock.calls.map(([params]) => params.idempotencyKey)).toEqual(
+      expect.arrayContaining([
+        `${exactSubscription.id}:${pushEventRef}`,
+        `${wildcardSubscription.id}:${pushEventRef}`,
+      ]),
+    );
+
+    runWorkflow.mockClear();
+    const pullRequestEventRef = crypto.randomUUID();
+    await dispatch({workspaceId, event: 'pull_request', eventRef: pullRequestEventRef});
+
+    expect(runWorkflow).toHaveBeenCalledTimes(1);
+    expect(runWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: `${wildcardSubscription.id}:${pullRequestEventRef}`,
+      }),
+    );
+  });
+
   test('does not fire a NULL-event subscription for a different source or workspace', async () => {
     const workspaceId = crypto.randomUUID();
     await triggerSubscriptionFactory.create({

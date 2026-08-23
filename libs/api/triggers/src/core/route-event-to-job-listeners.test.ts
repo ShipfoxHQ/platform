@@ -194,7 +194,7 @@ describe('routeEventToJobListeners', () => {
     );
   });
 
-  it('delivers on and until NULL-event source subscriptions for any event from their source', async () => {
+  it('gives a NULL-event until matcher precedence over an exact on matcher', async () => {
     const workspaceId = crypto.randomUUID();
     const jobId = crypto.randomUUID();
     await jobListenerSubscriptionFactory.create({
@@ -203,7 +203,7 @@ describe('routeEventToJobListeners', () => {
       kind: 'on',
       matcherOrdinal: 0,
       source: 'github',
-      event: null,
+      event: 'pull_request',
     });
     await jobListenerSubscriptionFactory.create({
       workspaceId,

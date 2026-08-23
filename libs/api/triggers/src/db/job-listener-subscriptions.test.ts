@@ -74,6 +74,24 @@ describe('job listener subscriptions', () => {
     expect(rows.map((row) => row.event)).toEqual([null, null]);
   });
 
+  it('normalizes blank matcher events to NULL', async () => {
+    const jobId = crypto.randomUUID();
+
+    await projectJobListenerSubscriptions({
+      workspaceId: crypto.randomUUID(),
+      workflowRunId: crypto.randomUUID(),
+      jobId,
+      on: [
+        {source: 'github', event: ''},
+        {source: 'github', event: '   '},
+      ],
+      until: null,
+    });
+
+    const rows = await listJobSubscriptions(jobId);
+    expect(rows.map((row) => row.event)).toEqual([null, null]);
+  });
+
   it('clears an exact matcher event to NULL when the matcher drops its event', async () => {
     const jobId = crypto.randomUUID();
     const workflowRunId = crypto.randomUUID();

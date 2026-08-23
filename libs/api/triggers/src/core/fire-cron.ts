@@ -47,8 +47,8 @@ export async function fireCronSubscription(
     workspaceId: subscription.workspaceId,
     provider: null,
     source: subscription.source,
-    // The normalizer always writes `tick` for cron; fall back so a bad NULL
-    // row cannot crash the fire path.
+    // Cron has no inbound event. Keep the canonical history event for a row
+    // that bypassed the projection write-path validation.
     event: subscription.event ?? 'tick',
     deliveryId: null,
     connectionId: null,

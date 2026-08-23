@@ -1,4 +1,4 @@
-import {and, eq, isNull, notInArray, or} from 'drizzle-orm';
+import {and, eq, notInArray} from 'drizzle-orm';
 import type {
   JobListenerMatcherKind,
   JobListenerSubscription,
@@ -8,13 +8,12 @@ import {
   jobListenerSubscriptions,
   toJobListenerSubscription,
 } from './schema/job-listener-subscriptions.js';
+import {normalizeSubscriptionEvent, subscriptionEventCondition} from './subscription-event.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
 export interface ListenerMatcher {
   source: string;
-  // An absent event is stored as NULL: a source subscription matching every
-  // event the source delivers.
   event?: string | undefined;
   inputs?: Readonly<Record<string, unknown>> | undefined;
   filter?: string | undefined;
@@ -59,9 +58,7 @@ export async function projectJobListenerSubscriptions(
             kind,
             matcherOrdinal,
             source: matcher.source,
-            // An absent event is stored as NULL: a source subscription matching
-            // every event the source delivers.
-            event: matcher.event ?? null,
+            event: normalizeSubscriptionEvent({source: matcher.source, event: matcher.event}),
             config,
           })
           .onConflictDoUpdate({
@@ -74,7 +71,7 @@ export async function projectJobListenerSubscriptions(
               workspaceId: params.workspaceId,
               workflowRunId: params.workflowRunId,
               source: matcher.source,
-              event: matcher.event ?? null,
+              event: normalizeSubscriptionEvent({source: matcher.source, event: matcher.event}),
               config,
             },
           });
@@ -134,10 +131,7 @@ export async function findMatchingJobListenerSubscriptions(
       and(
         eq(jobListenerSubscriptions.workspaceId, params.workspaceId),
         eq(jobListenerSubscriptions.source, params.source),
-        or(
-          eq(jobListenerSubscriptions.event, params.event),
-          isNull(jobListenerSubscriptions.event),
-        ),
+        subscriptionEventCondition(jobListenerSubscriptions.event, params.event),
       ),
     );
   return rows.map(toJobListenerSubscription);
