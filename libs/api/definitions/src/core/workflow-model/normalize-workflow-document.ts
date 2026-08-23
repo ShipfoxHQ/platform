@@ -42,7 +42,7 @@ export function normalizeWorkflowDocument(
     issues,
   });
   const jobIdBySourceName = mapJobIds(document, issues);
-  const triggers = normalizeTriggers(document, issues);
+  const triggers = normalizeTriggers(document, issues, context.integrationValidationContext);
   const jobs = normalizeJobs(
     document,
     jobIdBySourceName,

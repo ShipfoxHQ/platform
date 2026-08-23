@@ -446,6 +446,93 @@ jobs:
     });
   });
 
+  it('loads integration validation context for a trigger-only document', async () => {
+    const triggerYaml = `
+name: Trigger only
+runner: ubuntu-latest
+triggers:
+  on_push:
+    source: github-main
+    event: push
+jobs:
+  build:
+    steps:
+      - run: pnpm test
+`;
+    const loadIntegrationValidationContext = vi.fn(() =>
+      Promise.resolve(integrationValidationContext),
+    );
+
+    const result = await fetchAndParseWorkflows({
+      ...baseContext,
+      ref: 'main',
+      paths: ['.shipfox/workflows/ci.yml'],
+      sourceControl: sourceControl({
+        fetchFile: vi.fn(() =>
+          Promise.resolve({
+            path: '.shipfox/workflows/ci.yml',
+            ref: 'main',
+            content: triggerYaml,
+          }),
+        ),
+      }),
+      loadIntegrationValidationContext,
+    });
+
+    expect(loadIntegrationValidationContext).toHaveBeenCalledTimes(1);
+    expect(result[0]?.definition.model.triggers).toEqual([
+      expect.objectContaining({source: 'github-main', event: 'push'}),
+    ]);
+    expect(result[0]?.diagnostics).toEqual([]);
+  });
+
+  it('reports trigger-scoped source and event diagnostics on the sync path', async () => {
+    const triggerYaml = `
+name: Unknown trigger source
+runner: ubuntu-latest
+triggers:
+  on_deploy:
+    source: unknown_slug
+    event: whatever
+jobs:
+  build:
+    steps:
+      - run: pnpm test
+`;
+    const loadIntegrationValidationContext = vi.fn(() =>
+      Promise.resolve(integrationValidationContext),
+    );
+
+    const result = await fetchAndParseWorkflows({
+      ...baseContext,
+      ref: 'main',
+      paths: ['.shipfox/workflows/ci.yml'],
+      sourceControl: sourceControl({
+        fetchFile: vi.fn(() =>
+          Promise.resolve({
+            path: '.shipfox/workflows/ci.yml',
+            ref: 'main',
+            content: triggerYaml,
+          }),
+        ),
+      }),
+      loadIntegrationValidationContext,
+    });
+
+    expect(result[0]?.diagnostics).toEqual([
+      {
+        code: 'unknown-trigger-source',
+        message:
+          'Source "unknown_slug" matches no connection in this workspace; the trigger stays active and fires once a connection with this slug exists.',
+        path: 'triggers.on_deploy',
+        severity: 'warning',
+      },
+    ]);
+    expect(result[0]?.definition.model.triggers).toEqual([
+      expect.objectContaining({source: 'unknown_slug', event: 'whatever'}),
+    ]);
+  });
+
   it('rejects integration catalog issues after loading validation context', async () => {
     const loadIntegrationValidationContext = vi.fn(() =>
       Promise.resolve(integrationValidationContext),

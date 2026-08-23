@@ -9,8 +9,8 @@ import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module'
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
 import {DefinitionParseError} from '#core/errors.js';
-import {hasAgentStepIntegrations} from '#core/has-agent-step-integrations.js';
 import {loadIntegrationValidationContext} from '#core/integrations.js';
+import {needsIntegrationValidationContext} from '#core/needs-integration-validation-context.js';
 import {
   type ParseDefinitionOptions,
   parseDefinitionWithDiagnostics,
@@ -60,7 +60,7 @@ export function buildCreateDefinitionRoute(options: CreateDefinitionRouteOptions
       const structurallyParsed = parseDefinitionForCreate(yamlString, {agentValidationCatalog});
       const {integrations} = options;
       const parsed =
-        integrations !== undefined && hasAgentStepIntegrations(structurallyParsed.document)
+        integrations !== undefined && needsIntegrationValidationContext(structurallyParsed.document)
           ? parseDefinitionForCreate(yamlString, {
               agentValidationCatalog,
               integrationValidationContext: await loadIntegrationValidationContext(
