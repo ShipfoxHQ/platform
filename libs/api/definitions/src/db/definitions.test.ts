@@ -15,7 +15,7 @@ import {
   registerPublisher as registerInRegistry,
   renewDispatchClaim as renewFromRegistry,
 } from '@shipfox/node-module';
-import {sql} from 'drizzle-orm';
+import {eq, sql} from 'drizzle-orm';
 import type {WorkflowDefinitionPayload} from '#core/entities/workflow-definition.js';
 import {normalizeWorkflowDocument} from '#core/workflow-model/index.js';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
@@ -30,6 +30,7 @@ import {
 } from './definitions.js';
 import {workflowDefinitions} from './schema/definitions.js';
 import {definitionsOutbox} from './schema/outbox.js';
+import {workflowWorkflows} from './schema/workflows.js';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1_000;
 let outboxRegistry = createOutboxRegistry();
@@ -390,6 +391,289 @@ describe('definition queries', () => {
     });
   });
 
+  describe('workflow lineage', () => {
+    test('upsertDefinition creates a lineage and returns its workflowId', async () => {
+      const definition = await upsertDefinition({
+        projectId,
+        workspaceId,
+        configPath: '.shipfox/workflows/lineage.yml',
+        name: 'Lineage',
+        ...definitionFields('Lineage'),
+        source: 'vcs',
+        ref: 'main',
+      });
+
+      expect(definition.workflowId).toBeDefined();
+      const lineages = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.projectId, projectId));
+      expect(lineages).toHaveLength(1);
+      expect(lineages[0]?.id).toBe(definition.workflowId);
+      expect(lineages[0]?.configPath).toBe('.shipfox/workflows/lineage.yml');
+    });
+
+    test('re-syncing the same config path reuses the lineage', async () => {
+      const first = await upsertDefinition({
+        projectId,
+        workspaceId,
+        configPath: 'a.yml',
+        name: 'A v1',
+        ...definitionFields('A v1'),
+        source: 'vcs',
+        ref: 'main',
+      });
+
+      const second = await upsertDefinition({
+        projectId,
+        workspaceId,
+        configPath: 'a.yml',
+        name: 'A v2',
+        ...definitionFields('A v2'),
+        source: 'vcs',
+        ref: 'main',
+      });
+
+      expect(second.workflowId).toBe(first.workflowId);
+      const lineages = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.projectId, projectId));
+      expect(lineages).toHaveLength(1);
+    });
+
+    test('manual and VCS rows at the same config path share one lineage', async () => {
+      const manual = await upsertDefinition({
+        projectId,
+        workspaceId,
+        configPath: 'shared.yml',
+        name: 'Shared manual',
+        ...definitionFields('Shared manual'),
+      });
+      const vcs = await upsertDefinition({
+        projectId,
+        workspaceId,
+        configPath: 'shared.yml',
+        name: 'Shared vcs',
+        ...definitionFields('Shared vcs'),
+        source: 'vcs',
+        ref: 'main',
+      });
+
+      expect(vcs.workflowId).toBe(manual.workflowId);
+    });
+
+    test('applyVcsDefinitionsBatch creates the lineage and reuses it across syncs', async () => {
+      await applyVcsDefinitionsBatch({
+        projectId,
+        workspaceId,
+        ref: 'main',
+        upserts: [
+          {
+            configPath: 'batch.yml',
+            name: 'Batch',
+            ...definitionFields('Batch'),
+            contentHash: 'h-1',
+          },
+        ],
+      });
+      const firstLineages = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.projectId, projectId));
+      expect(firstLineages).toHaveLength(1);
+
+      await applyVcsDefinitionsBatch({
+        projectId,
+        workspaceId,
+        ref: 'main',
+        upserts: [
+          {
+            configPath: 'batch.yml',
+            name: 'Batch v2',
+            ...definitionFields('Batch v2'),
+            contentHash: 'h-2',
+          },
+        ],
+      });
+      const secondLineages = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.projectId, projectId));
+      expect(secondLineages).toHaveLength(1);
+      expect(secondLineages[0]?.id).toBe(firstLineages[0]?.id);
+    });
+
+    test('soft-deleting a synced row keeps the lineage', async () => {
+      await applyVcsDefinitionsBatch({
+        projectId,
+        workspaceId,
+        ref: 'main',
+        upserts: [
+          {configPath: 'gone.yml', name: 'Gone', ...definitionFields('Gone'), contentHash: 'h-1'},
+        ],
+      });
+
+      const deletedCount = await softDeleteVcsDefinitionsNotIn({
+        projectId,
+        workspaceId,
+        ref: 'main',
+        keepConfigPaths: [],
+      });
+
+      expect(deletedCount).toBe(1);
+      const lineages = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.projectId, projectId));
+      expect(lineages).toHaveLength(1);
+      expect(lineages[0]?.configPath).toBe('gone.yml');
+    });
+
+    test('pathless manual definitions reuse the project lineage across saves', async () => {
+      const first = await upsertDefinition({
+        projectId,
+        workspaceId,
+        name: 'No path',
+        ...definitionFields('No path'),
+      });
+      const second = await upsertDefinition({
+        projectId,
+        workspaceId,
+        name: 'No path updated',
+        ...definitionFields('No path updated'),
+      });
+
+      const lineage = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.id, first.workflowId));
+      expect(lineage).toHaveLength(1);
+      expect(lineage[0]?.projectId).toBe(projectId);
+      expect(second.workflowId).toBe(first.workflowId);
+
+      const projectLineages = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.projectId, projectId));
+      expect(projectLineages).toHaveLength(1);
+    });
+
+    test('materializes a legacy row when it is read', async () => {
+      const legacyId = crypto.randomUUID();
+      await db()
+        .insert(workflowDefinitions)
+        .values({
+          id: legacyId,
+          projectId,
+          configPath: 'legacy.yml',
+          name: 'Legacy',
+          definition: definitionFields('Legacy'),
+        });
+
+      const definition = await getDefinitionById(legacyId);
+
+      expect(definition?.workflowId).toBeDefined();
+      const stored = await db()
+        .select({workflowId: workflowDefinitions.workflowId})
+        .from(workflowDefinitions)
+        .where(eq(workflowDefinitions.id, legacyId));
+      expect(stored[0]?.workflowId).toBe(definition?.workflowId);
+
+      const lineages = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.projectId, projectId));
+      expect(lineages).toHaveLength(1);
+      expect(lineages[0]?.configPath).toBe('legacy.yml');
+    });
+
+    test('materializes legacy pathless rows into one project lineage', async () => {
+      const firstId = crypto.randomUUID();
+      const secondId = crypto.randomUUID();
+      await db()
+        .insert(workflowDefinitions)
+        .values([
+          {
+            id: firstId,
+            projectId,
+            configPath: null,
+            name: 'Legacy one',
+            definition: definitionFields('Legacy one'),
+          },
+          {
+            id: secondId,
+            projectId,
+            configPath: null,
+            name: 'Legacy two',
+            definition: definitionFields('Legacy two'),
+          },
+        ]);
+
+      const definitions = await listDefinitionsByProject(projectId);
+
+      expect(definitions).toHaveLength(2);
+      expect(definitions[0]?.workflowId).toBe(definitions[1]?.workflowId);
+      const lineages = await db()
+        .select()
+        .from(workflowWorkflows)
+        .where(eq(workflowWorkflows.projectId, projectId));
+      expect(lineages).toHaveLength(1);
+      expect(lineages[0]?.configPath).toBeNull();
+    });
+
+    test('materializes an unchanged legacy VCS row during sync', async () => {
+      const legacyId = crypto.randomUUID();
+      await db()
+        .insert(workflowDefinitions)
+        .values({
+          id: legacyId,
+          projectId,
+          configPath: 'legacy-vcs.yml',
+          source: 'vcs',
+          ref: 'main',
+          name: 'Legacy VCS',
+          definition: definitionFields('Legacy VCS'),
+          contentHash: 'legacy-hash',
+        });
+
+      const result = await applyVcsDefinitionsBatch({
+        projectId,
+        workspaceId,
+        ref: 'main',
+        upserts: [
+          {
+            configPath: 'legacy-vcs.yml',
+            name: 'Legacy VCS',
+            ...definitionFields('Legacy VCS'),
+            contentHash: 'legacy-hash',
+          },
+        ],
+      });
+
+      expect(result.appliedCount).toBe(0);
+      const stored = await db()
+        .select({workflowId: workflowDefinitions.workflowId})
+        .from(workflowDefinitions)
+        .where(eq(workflowDefinitions.id, legacyId));
+      expect(stored[0]?.workflowId).toBeDefined();
+    });
+
+    test('getDefinitionById returns the workflowId', async () => {
+      const created = await upsertDefinition({
+        projectId,
+        workspaceId,
+        configPath: 'found.yml',
+        name: 'Found',
+        ...definitionFields('Found'),
+      });
+
+      const found = await getDefinitionById(created.id);
+
+      expect(found?.workflowId).toBe(created.workflowId);
+    });
+  });
+
   describe('getDefinitionById', () => {
     test('returns the definition when found', async () => {
       const created = await upsertDefinition({
@@ -519,6 +803,7 @@ describe('definition queries', () => {
       });
 
       expect(restored.id).toBe(original.id);
+      expect(restored.workflowId).toBe(original.workflowId);
       expect(restored.name).toBe('Recovered v2');
       expect(restored.deletedAt).toBeNull();
       const visible = await listDefinitionsByProject(projectId);
@@ -573,6 +858,11 @@ describe('definition queries', () => {
       expect(first.appliedCount).toBe(2);
       expect(await listOutboxRowsForProject(projectId)).toHaveLength(2);
 
+      await db()
+        .update(workflowDefinitions)
+        .set({fetchedAt: new Date(0), updatedAt: new Date(0)})
+        .where(eq(workflowDefinitions.projectId, projectId));
+
       const second = await applyVcsDefinitionsBatch({
         projectId,
         workspaceId,
@@ -585,6 +875,15 @@ describe('definition queries', () => {
 
       expect(second.appliedCount).toBe(1);
       expect(await listOutboxRowsForProject(projectId)).toHaveLength(3);
+
+      const refreshed = (
+        await db()
+          .select()
+          .from(workflowDefinitions)
+          .where(eq(workflowDefinitions.projectId, projectId))
+      ).find((row) => row.configPath === 'a.yml');
+      expect(refreshed?.fetchedAt.getTime()).toBeGreaterThan(0);
+      expect(refreshed?.updatedAt.getTime()).toBeGreaterThan(0);
     });
 
     test('softDeleteVcsDefinitionsNotIn writes a DEFINITION_DELETED event per pruned row', async () => {

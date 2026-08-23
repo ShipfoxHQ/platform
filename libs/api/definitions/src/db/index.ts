@@ -21,6 +21,7 @@ export {
 } from './definitions.js';
 export {definitionsOutbox} from './schema/outbox.js';
 export {definitionSyncStates} from './schema/sync-states.js';
+export {type WorkflowCreateDb, type WorkflowDb, workflowWorkflows} from './schema/workflows.js';
 export {
   type DefinitionSyncStateKey,
   getLatestDefinitionSyncState,

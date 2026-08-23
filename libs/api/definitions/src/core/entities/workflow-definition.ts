@@ -13,6 +13,8 @@ export interface WorkflowDefinitionPayload {
 
 export interface WorkflowDefinition {
   id: string;
+  /** Stable identity per project and config path; pathless manual rows share a project lineage. */
+  workflowId: string;
   projectId: string;
   configPath: string | null;
   source: 'manual' | 'vcs';

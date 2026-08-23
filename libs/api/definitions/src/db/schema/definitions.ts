@@ -6,6 +6,7 @@ import type {
   WorkflowDefinitionPayload,
 } from '#core/entities/workflow-definition.js';
 import {pgTable} from './common.js';
+import {workflowWorkflows} from './workflows.js';
 
 export const definitionSourceEnum = pgEnum('definitions_source', ['manual', 'vcs']);
 
@@ -13,6 +14,8 @@ export const workflowDefinitions = pgTable(
   'workflow_definitions',
   {
     id: uuidv7PrimaryKey(),
+    // Schema-only upgrades leave historical rows null until they are touched.
+    workflowId: uuid('workflow_id').references(() => workflowWorkflows.id),
     projectId: uuid('project_id').notNull(),
     configPath: text('config_path'),
     source: definitionSourceEnum('source').notNull().default('manual'),
@@ -55,8 +58,13 @@ export type DefinitionCreateDb = typeof workflowDefinitions.$inferInsert;
 export type DefinitionUpdateDb = Partial<DefinitionCreateDb>;
 
 export function toDefinition(row: DefinitionDb): WorkflowDefinition {
+  if (row.workflowId === null) {
+    throw new Error(`Definition ${row.id} has no workflow lineage`);
+  }
+
   return {
     id: row.id,
+    workflowId: row.workflowId,
     projectId: row.projectId,
     configPath: row.configPath,
     source: row.source,

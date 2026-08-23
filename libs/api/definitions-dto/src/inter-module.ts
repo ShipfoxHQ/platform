@@ -5,6 +5,7 @@ import {workflowModelSnapshotSchema} from './workflow-model.js';
 const idSchema = z.string().uuid();
 const definitionSnapshotSchema = z.object({
   id: idSchema,
+  workflowId: idSchema,
   projectId: idSchema,
   name: z.string(),
   model: workflowModelSnapshotSchema,

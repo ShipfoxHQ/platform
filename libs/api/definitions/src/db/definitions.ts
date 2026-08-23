@@ -5,7 +5,19 @@ import {
 } from '@shipfox/api-definitions-dto';
 import {writeOutboxEvent} from '@shipfox/node-outbox';
 import type {WorkflowDocument} from '@shipfox/workflow-document';
-import {and, asc, eq, gt, isNull, notInArray, or, type SQL, sql} from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  notInArray,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type {
   WorkflowDefinition,
   WorkflowDefinitionPayload,
@@ -14,8 +26,9 @@ import type {
 import type {WorkflowModel} from '#core/entities/workflow-model.js';
 import {db} from './db.js';
 import {definitionTriggersFor} from './definition-triggers.js';
-import {toDefinition, workflowDefinitions} from './schema/definitions.js';
+import {type DefinitionDb, toDefinition, workflowDefinitions} from './schema/definitions.js';
 import {definitionsOutbox} from './schema/outbox.js';
+import {workflowWorkflows} from './schema/workflows.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
@@ -33,7 +46,155 @@ export interface UpsertDefinitionParams {
   ref?: string | undefined;
 }
 
-function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams) {
+/**
+ * Finds or creates the workflow lineage for (projectId, configPath) and returns
+ * its id. Pathless manual definitions share a project-scoped lineage because
+ * their request has no more specific stable key.
+ */
+async function findOrCreateWorkflow(
+  tx: Tx,
+  params: {projectId: string; configPath: string | null},
+): Promise<string> {
+  if (params.configPath === null) {
+    // Serialize the first pathless definition for a project so concurrent saves
+    // cannot create multiple project-scoped lineages.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${params.projectId}, 0))`);
+    const existing = await tx
+      .select({workflowId: workflowDefinitions.workflowId})
+      .from(workflowDefinitions)
+      .where(
+        and(
+          eq(workflowDefinitions.projectId, params.projectId),
+          isNull(workflowDefinitions.configPath),
+          eq(workflowDefinitions.source, 'manual'),
+          isNotNull(workflowDefinitions.workflowId),
+        ),
+      )
+      .orderBy(asc(workflowDefinitions.createdAt), asc(workflowDefinitions.id))
+      .limit(1);
+    const existingRow = existing[0];
+    if (existingRow?.workflowId) return existingRow.workflowId;
+
+    const inserted = await tx
+      .insert(workflowWorkflows)
+      .values({projectId: params.projectId, configPath: null})
+      .onConflictDoNothing()
+      .returning({id: workflowWorkflows.id});
+    const insertedRow = inserted[0];
+    if (insertedRow) return insertedRow.id;
+
+    const existingLineage = await tx
+      .select({id: workflowWorkflows.id})
+      .from(workflowWorkflows)
+      .where(
+        and(
+          eq(workflowWorkflows.projectId, params.projectId),
+          isNull(workflowWorkflows.configPath),
+        ),
+      )
+      .limit(1);
+    const existingLineageRow = existingLineage[0];
+    if (!existingLineageRow) {
+      throw new Error(`Pathless workflow lineage missing for project ${params.projectId}`);
+    }
+    return existingLineageRow.id;
+  }
+
+  const inserted = await tx
+    .insert(workflowWorkflows)
+    .values({projectId: params.projectId, configPath: params.configPath})
+    .onConflictDoNothing()
+    .returning({id: workflowWorkflows.id});
+  const insertedRow = inserted[0];
+  if (insertedRow) return insertedRow.id;
+
+  const existing = await tx
+    .select({id: workflowWorkflows.id})
+    .from(workflowWorkflows)
+    .where(
+      and(
+        eq(workflowWorkflows.projectId, params.projectId),
+        eq(workflowWorkflows.configPath, params.configPath),
+      ),
+    )
+    .limit(1);
+  const existingRow = existing[0];
+  if (!existingRow) {
+    throw new Error(
+      `Workflow lineage upsert returned no row for project ${params.projectId} and config path ${params.configPath}`,
+    );
+  }
+  return existingRow.id;
+}
+
+async function findOrCreateWorkflows(
+  tx: Tx,
+  params: {projectId: string; configPaths: string[]},
+): Promise<Map<string, string>> {
+  const configPaths = [...new Set(params.configPaths)].sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0,
+  );
+  if (configPaths.length === 0) return new Map();
+
+  await tx
+    .insert(workflowWorkflows)
+    .values(configPaths.map((configPath) => ({projectId: params.projectId, configPath})))
+    .onConflictDoNothing();
+
+  const rows = await tx
+    .select({id: workflowWorkflows.id, configPath: workflowWorkflows.configPath})
+    .from(workflowWorkflows)
+    .where(
+      and(
+        eq(workflowWorkflows.projectId, params.projectId),
+        inArray(workflowWorkflows.configPath, configPaths),
+      ),
+    );
+  const workflowIds = new Map<string, string>();
+  for (const row of rows) {
+    if (row.configPath !== null) workflowIds.set(row.configPath, row.id);
+  }
+  for (const configPath of configPaths) {
+    if (!workflowIds.has(configPath)) {
+      throw new Error(
+        `Workflow lineage upsert returned no row for project ${params.projectId} and config path ${configPath}`,
+      );
+    }
+  }
+  return workflowIds;
+}
+
+async function ensureWorkflowId(
+  tx: Tx,
+  row: Pick<DefinitionDb, 'id' | 'projectId' | 'configPath' | 'workflowId'>,
+): Promise<string> {
+  if (row.workflowId !== null) return row.workflowId;
+
+  const workflowId = await findOrCreateWorkflow(tx, {
+    projectId: row.projectId,
+    configPath: row.configPath,
+  });
+  const updated = await tx
+    .update(workflowDefinitions)
+    .set({workflowId})
+    .where(and(eq(workflowDefinitions.id, row.id), isNull(workflowDefinitions.workflowId)))
+    .returning({workflowId: workflowDefinitions.workflowId});
+  const updatedRow = updated[0];
+  if (updatedRow?.workflowId) return updatedRow.workflowId;
+
+  const current = await tx
+    .select({workflowId: workflowDefinitions.workflowId})
+    .from(workflowDefinitions)
+    .where(eq(workflowDefinitions.id, row.id))
+    .limit(1);
+  const currentRow = current[0];
+  if (!currentRow?.workflowId) {
+    throw new Error(`Definition ${row.id} still has no workflow lineage after reconciliation`);
+  }
+  return currentRow.workflowId;
+}
+
+function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams & {workflowId: string}) {
   const source = params.source ?? 'manual';
   if (source === 'vcs' && !params.configPath) {
     throw new Error('configPath is required for VCS definitions');
@@ -54,6 +215,7 @@ function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams) {
   };
 
   const set = {
+    workflowId: params.workflowId,
     name: params.name,
     source,
     definition,
@@ -65,6 +227,7 @@ function buildUpsertQuery(tx: Tx, params: UpsertDefinitionParams) {
 
   const values = {
     projectId: params.projectId,
+    workflowId: params.workflowId,
     configPath: params.configPath ?? null,
     source,
     sha: params.sha ?? null,
@@ -121,7 +284,11 @@ export async function upsertDefinition(
   params: UpsertDefinitionParams,
 ): Promise<WorkflowDefinition> {
   return await db().transaction(async (tx) => {
-    const rows = await buildUpsertQuery(tx, params);
+    const workflowId = await findOrCreateWorkflow(tx, {
+      projectId: params.projectId,
+      configPath: params.configPath ?? null,
+    });
+    const rows = await buildUpsertQuery(tx, {...params, workflowId});
     const row = rows[0];
     if (!row) throw new Error('Upsert returned no rows');
 
@@ -141,15 +308,18 @@ export async function upsertDefinition(
 }
 
 export async function getDefinitionById(id: string): Promise<WorkflowDefinition | undefined> {
-  const rows = await db()
-    .select()
-    .from(workflowDefinitions)
-    .where(and(eq(workflowDefinitions.id, id), isNull(workflowDefinitions.deletedAt)))
-    .limit(1);
-  const row = rows[0];
+  return await db().transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(workflowDefinitions)
+      .where(and(eq(workflowDefinitions.id, id), isNull(workflowDefinitions.deletedAt)))
+      .limit(1);
+    const row = rows[0];
 
-  if (!row) return undefined;
-  return toDefinition(row);
+    if (!row) return undefined;
+    const workflowId = await ensureWorkflowId(tx, row);
+    return toDefinition({...row, workflowId});
+  });
 }
 
 export interface DefinitionCursor {
@@ -179,28 +349,35 @@ function cursorWhere(cursor: DefinitionCursor | undefined): SQL | undefined {
 export async function listDefinitions(
   params: ListDefinitionsParams,
 ): Promise<ListDefinitionsResult> {
-  const conditions = [
-    eq(workflowDefinitions.projectId, params.projectId),
-    isNull(workflowDefinitions.deletedAt),
-  ];
-  const cursorCondition = cursorWhere(params.cursor);
-  if (cursorCondition) conditions.push(cursorCondition);
+  return await db().transaction(async (tx) => {
+    const conditions = [
+      eq(workflowDefinitions.projectId, params.projectId),
+      isNull(workflowDefinitions.deletedAt),
+    ];
+    const cursorCondition = cursorWhere(params.cursor);
+    if (cursorCondition) conditions.push(cursorCondition);
 
-  const rows = await db()
-    .select()
-    .from(workflowDefinitions)
-    .where(and(...conditions))
-    .orderBy(asc(workflowDefinitions.name), asc(workflowDefinitions.id))
-    .limit(params.limit + 1);
+    const rows = await tx
+      .select()
+      .from(workflowDefinitions)
+      .where(and(...conditions))
+      .orderBy(asc(workflowDefinitions.name), asc(workflowDefinitions.id))
+      .limit(params.limit + 1);
 
-  const hasMore = rows.length > params.limit;
-  const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
-  const last = pageRows.at(-1);
+    const hasMore = rows.length > params.limit;
+    const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+    const last = pageRows.at(-1);
+    const definitions: WorkflowDefinition[] = [];
+    for (const row of pageRows) {
+      const workflowId = await ensureWorkflowId(tx, row);
+      definitions.push(toDefinition({...row, workflowId}));
+    }
 
-  return {
-    definitions: pageRows.map(toDefinition),
-    nextCursor: hasMore && last ? {value: last.name, id: last.id} : null,
-  };
+    return {
+      definitions,
+      nextCursor: hasMore && last ? {value: last.name, id: last.id} : null,
+    };
+  });
 }
 
 export async function listDefinitionsByProject(projectId: string): Promise<WorkflowDefinition[]> {
@@ -281,11 +458,17 @@ export async function applyVcsDefinitionsBatch(
 ): Promise<ApplyVcsDefinitionsBatchResult> {
   return await db().transaction(async (tx) => {
     let appliedCount = 0;
+    const prepared: Array<{
+      item: (typeof params.upserts)[number];
+      unchanged: boolean;
+      workflowId: string | null | undefined;
+    }> = [];
     for (const item of params.upserts) {
       const existing = await tx
         .select({
           contentHash: workflowDefinitions.contentHash,
           deletedAt: workflowDefinitions.deletedAt,
+          workflowId: workflowDefinitions.workflowId,
         })
         .from(workflowDefinitions)
         .where(
@@ -303,9 +486,31 @@ export async function applyVcsDefinitionsBatch(
         previous.deletedAt === null &&
         previous.contentHash === item.contentHash;
 
+      prepared.push({item, unchanged, workflowId: previous?.workflowId});
+    }
+
+    const workflowIds = await findOrCreateWorkflows(tx, {
+      projectId: params.projectId,
+      configPaths: prepared.filter(({unchanged}) => !unchanged).map(({item}) => item.configPath),
+    });
+
+    for (const {item, unchanged, workflowId: previousWorkflowId} of prepared) {
+      const workflowId = unchanged
+        ? (previousWorkflowId ??
+          (await findOrCreateWorkflow(tx, {
+            projectId: params.projectId,
+            configPath: item.configPath,
+          })))
+        : workflowIds.get(item.configPath);
+      if (!workflowId) {
+        throw new Error(
+          `Workflow lineage missing for project ${params.projectId} and config path ${item.configPath}`,
+        );
+      }
       const rows = await buildUpsertQuery(tx, {
         projectId: params.projectId,
         workspaceId: params.workspaceId,
+        workflowId,
         configPath: item.configPath,
         source: 'vcs',
         ref: params.ref,
