@@ -70,7 +70,7 @@ export function normalizeTriggers(
       timezone: cronConfig.timezone ?? cronTriggerDefaultTimezone,
     };
 
-    validateCronTrigger({config: cronConfig, sourceKey, issues});
+    validateCronTrigger({config: cronConfig, sourceKey, trigger, issues});
 
     return [
       {

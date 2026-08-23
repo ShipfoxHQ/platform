@@ -3945,6 +3945,37 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
+  it('reports a cron trigger with a non-tick event', () => {
+    const document: WorkflowDocument = {
+      name: 'nightly trigger',
+      triggers: {
+        nightly: {
+          source: 'cron',
+          event: 'push',
+          config: {schedule: '0 2 * * *'},
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const error = expectInvalid(document);
+
+    expect(error.issues).toEqual([
+      {
+        code: 'invalid-cron-event',
+        message: 'A cron trigger must use event "tick"; found "push".',
+        path: ['triggers', 'nightly', 'event'],
+        details: {event: 'push'},
+        severity: 'error',
+        scope: 'definition',
+      },
+    ]);
+  });
+
   it('keeps the event absent for integration triggers with the event omitted', () => {
     const document: WorkflowDocument = {
       name: 'source subscriptions',

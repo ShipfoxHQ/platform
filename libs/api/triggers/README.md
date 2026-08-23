@@ -73,9 +73,9 @@ invariant is enforced at parse time so the fire route stays unambiguous.
 The `event` field is optional. Omitting it subscribes the trigger to every
 event the source delivers. A source that delivers one event receives that
 one: `manual` receives `fire`, `cron` receives `tick`, and a custom webhook
-connection receives `received`. The normalizer materializes `fire` and `tick`
+integration connection receives `received`. The normalizer materializes `fire` and `tick`
 for the two built-in sources. An omitted event on an integration source
-becomes a source subscription that matches any event from that connection.
+becomes a source subscription that matches any event from that integration connection.
 
 Integration triggers may include a CEL `filter` predicate. Dispatch evaluates
 the predicate for every subscription that matches `(workspace_id, source,
@@ -156,7 +156,7 @@ Three words, used the same way at every layer.
 
 | Word | Meaning | Examples |
 | --- | --- | --- |
-| **source** | Where the trigger came from: a connection slug or a built-in source. | `github_acme`, `gitlab_prod`, `sentry_prod`, `manual`, `cron` |
+| **source** | Where the trigger came from: an integration connection slug or a built-in source. | `github_acme`, `gitlab_prod`, `sentry_prod`, `manual`, `cron` |
 | **event** | The specific thing that happened, scoped to a source. Omitted on a subscription means every event the source delivers. | `push`, `issue_comment`, `alert_triggered`, `fire`, `tick` |
 | **payload** | The data carried by the event, set by the producing integration. Triggers passes it through opaquely. | GitHub's raw webhook JSON for `(github_acme, push)` |
 
