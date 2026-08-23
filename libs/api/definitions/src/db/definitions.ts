@@ -8,6 +8,7 @@ import type {WorkflowDocument} from '@shipfox/workflow-document';
 import {
   and,
   asc,
+  desc,
   eq,
   gt,
   inArray,
@@ -316,9 +317,31 @@ export async function getDefinitionById(id: string): Promise<WorkflowDefinition 
       .limit(1);
     const row = rows[0];
 
-    if (!row) return undefined;
-    const workflowId = await ensureWorkflowId(tx, row);
-    return toDefinition({...row, workflowId});
+    if (row) {
+      const workflowId = await ensureWorkflowId(tx, row);
+      return toDefinition({...row, workflowId});
+    }
+
+    // The id may also be a workflow lineage id (run detail pages link by it).
+    // Resolve it to the synced row for that lineage: the row synced from the
+    // default branch (ref set, not deleted). A lineage whose file is not on
+    // the default branch has no such row and resolves to nothing.
+    const syncedRows = await tx
+      .select()
+      .from(workflowDefinitions)
+      .where(
+        and(
+          eq(workflowDefinitions.workflowId, id),
+          isNotNull(workflowDefinitions.ref),
+          isNull(workflowDefinitions.deletedAt),
+        ),
+      )
+      .orderBy(desc(workflowDefinitions.updatedAt), desc(workflowDefinitions.id))
+      .limit(1);
+    const syncedRow = syncedRows[0];
+    if (!syncedRow) return undefined;
+
+    return toDefinition({...syncedRow, workflowId: id});
   });
 }
 
