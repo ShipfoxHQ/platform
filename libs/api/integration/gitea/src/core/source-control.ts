@@ -210,21 +210,16 @@ export class GiteaSourceControlProvider
       : input.ref.startsWith(REFS_HEADS_PREFIX)
         ? [branchLookup]
         : [branchLookup, tagLookup];
-    let repositoryChecked = false;
-
     for (const lookup of lookups) {
       try {
         const resolved = await lookup();
         return {ref: input.ref, commit: resolved.commitSha};
       } catch (error) {
         if (!isRefNotFound(error)) throw error;
-        if (!repositoryChecked) {
-          await this.gitea.getRepository({owner, repo});
-          repositoryChecked = true;
-        }
       }
     }
 
+    await this.gitea.getRepository({owner, repo});
     throw new GiteaIntegrationProviderError(
       'ref-not-found',
       `Gitea ref ${formatRefForMessage(input.ref)} does not resolve to a branch or tag`,

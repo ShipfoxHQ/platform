@@ -280,6 +280,7 @@ describe('GiteaSourceControlProvider', () => {
       repo: 'platform',
       tag: 'feature/release',
     });
+    expect(gitea.getRepository).not.toHaveBeenCalled();
   });
 
   it('preserves repository-not-found when the repository is missing', async () => {
