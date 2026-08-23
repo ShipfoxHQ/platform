@@ -197,16 +197,38 @@ export function validateTriggerSourceEvent(params: {
   const eventPath: readonly WorkflowModelValidationIssuePathSegment[] = [...path, 'event'];
   const integrationValidationContext = params.integrationValidationContext;
 
-  // Integration-source checks are intentionally skipped when the caller has
-  // no workspace context. Keep that contract even for blank event values.
-  if (
-    source !== manualTriggerSource &&
-    source !== cronTriggerSource &&
-    integrationValidationContext === undefined
-  ) {
+  if (source === manualTriggerSource || source === cronTriggerSource) {
+    if (event === '') {
+      issues.push(
+        issue({
+          code: 'invalid-trigger-event',
+          message: `A ${source} trigger event cannot be blank.`,
+          path: eventPath,
+          details: {event, source},
+          scope: 'trigger',
+        }),
+      );
+      return;
+    }
+
+    const expectedEvent = source === manualTriggerSource ? 'fire' : 'tick';
+    if (event !== undefined && event !== expectedEvent) {
+      issues.push(
+        issue({
+          code: 'invalid-trigger-event',
+          message: `A ${source} trigger must use event "${expectedEvent}"; found "${event}".`,
+          path: eventPath,
+          details: {event, source},
+          scope: 'trigger',
+        }),
+      );
+    }
     return;
   }
 
+  // Integration-source checks are intentionally skipped when the caller has
+  // no workspace context. Keep that contract even for blank event values.
+  if (integrationValidationContext === undefined) return;
   if (event === '') {
     issues.push(
       issue({
@@ -219,40 +241,6 @@ export function validateTriggerSourceEvent(params: {
     );
     return;
   }
-
-  if (source === manualTriggerSource) {
-    if (event !== undefined && event !== 'fire') {
-      issues.push(
-        issue({
-          code: 'invalid-trigger-event',
-          message: `A manual trigger must use event "fire"; found "${event}".`,
-          path: eventPath,
-          details: {event, source},
-          scope: 'trigger',
-        }),
-      );
-    }
-    return;
-  }
-
-  if (source === cronTriggerSource) {
-    if (event !== undefined && event !== 'tick') {
-      issues.push(
-        issue({
-          code: 'invalid-trigger-event',
-          message: `A cron trigger must use event "tick"; found "${event}".`,
-          path: eventPath,
-          details: {event, source},
-          scope: 'trigger',
-        }),
-      );
-    }
-    return;
-  }
-
-  // Integration sources: slug resolution and event catalogs only exist when
-  // the document was parsed with an integration context.
-  if (integrationValidationContext === undefined) return;
 
   const connection = integrationValidationContext.workspaceConnectionSnapshot.get(source);
   if (connection === undefined) {
