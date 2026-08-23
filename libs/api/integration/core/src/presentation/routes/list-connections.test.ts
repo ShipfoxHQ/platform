@@ -40,7 +40,10 @@ describe('GET /integration-connections', () => {
   });
 
   it('drops connections whose provider misses the capability filter', async () => {
-    const app = await createTestApp([sourceProvider()]);
+    const app = await createTestApp([
+      sourceProvider(),
+      {provider: 'github', displayName: 'GitHub', adapters: {}},
+    ]);
     await upsertIntegrationConnection({
       workspaceId: context.workspaceId,
       provider: 'gitea',
