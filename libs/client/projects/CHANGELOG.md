@@ -1,5 +1,34 @@
 # @shipfox/client-projects
 
+## 23.0.0
+
+### Minor Changes
+
+- 693e656: Adds the workspace-setup chrome slots (including a first-panel checklist slot on the projects hub), the ClientAnalytics seam, and the shell-owned setup-checklist dismissal flag.
+
+### Patch Changes
+
+- f7b3db8: Replaces published definition warning exports and the sync `warnings` field with severity-aware diagnostics, including workflow file paths for the workflows UI.
+
+  Consumers must migrate from `warnings` to `diagnostics`; this release does not provide a legacy-field fallback.
+
+- Updated dependencies [693e656]
+- Updated dependencies [c0fc35b]
+- Updated dependencies [f7b3db8]
+- Updated dependencies [4f30864]
+- Updated dependencies [18e9bad]
+- Updated dependencies [a4df8d9]
+- Updated dependencies [aeaa0de]
+- Updated dependencies [c44641f]
+- Updated dependencies [1b71a66]
+  - @shipfox/client-shell@23.0.0
+  - @shipfox/api-definitions-dto@14.0.0
+  - @shipfox/api-integration-core-dto@14.0.0
+  - @shipfox/api-projects-dto@14.0.0
+  - @shipfox/client-agent@23.0.0
+  - @shipfox/client-auth@23.0.0
+  - @shipfox/client-integrations@23.0.0
+
 ## 22.0.3
 
 ### Patch Changes

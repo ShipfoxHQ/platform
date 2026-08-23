@@ -1,5 +1,11 @@
 # @shipfox/api-projects-dto
 
+## 14.0.0
+
+### Minor Changes
+
+- a4df8d9: Resolves a workflow lineage id on GET /definitions/:id by selecting the project's default-branch row, or 404 when the file is not on that branch.
+
 ## 12.2.0
 
 ### Minor Changes

@@ -1,5 +1,26 @@
 # @shipfox/api-definitions-dto
 
+## 14.0.0
+
+### Major Changes
+
+- f7b3db8: Replaces published definition warning exports and the sync `warnings` field with severity-aware diagnostics, including workflow file paths for the workflows UI.
+
+  Consumers must migrate from `warnings` to `diagnostics`; this release does not provide a legacy-field fallback.
+
+- aeaa0de: Adds stable workflow lineage identifiers to definition records and the definitions inter-module contract. Existing definitions are reconciled when read or synchronized, so the schema migration does not backfill historical rows.
+
+### Minor Changes
+
+- c0fc35b: Adds `resolveDefinitionAtRef` and `listDefinitionsAtRef` inter-module methods that resolve and validate workflow definitions at a git ref without persisting them.
+- 4f30864: Trigger `event` is now optional end to end. An omitted event subscribes to every event from its source. Explicit events continue to work unchanged. Built-in manual and scheduled triggers use `fire` and `tick`, respectively.
+
+### Patch Changes
+
+- Updated dependencies [4f30864]
+  - @shipfox/workflow-document@3.1.0
+  - @shipfox/expression@2.2.1
+
 ## 12.3.0
 
 ### Patch Changes

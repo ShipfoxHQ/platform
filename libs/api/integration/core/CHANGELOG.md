@@ -1,5 +1,36 @@
 # @shipfox/api-integration-core
 
+## 14.0.0
+
+### Major Changes
+
+- 18e9bad: Adds source-control ref resolution that pins branch and tag names to commits.
+
+### Minor Changes
+
+- 1b71a66: Exposes each provider's event catalog and the fixed-event providers on the integration validation context. Every provider now refuses the reserved `manual` and `cron` connection slugs.
+
+### Patch Changes
+
+- c44641f: Adds provider capabilities to the `integrations.connection.available` event, so subscribers can tell a tool connection from a source-control connection. The publisher now carries the capabilities the connection DTO already exposes.
+- Updated dependencies [09924ca]
+- Updated dependencies [4f30864]
+- Updated dependencies [18e9bad]
+- Updated dependencies [c44641f]
+- Updated dependencies [1b71a66]
+- Updated dependencies [b766ee3]
+  - @shipfox/api-agent-dto@14.0.0
+  - @shipfox/api-workflows-dto@14.0.0
+  - @shipfox/api-integration-spi@2.0.0
+  - @shipfox/api-integration-core-dto@14.0.0
+  - @shipfox/api-integration-gitea@14.0.0
+  - @shipfox/api-integration-github@14.0.0
+  - @shipfox/api-integration-sentry@14.0.0
+  - @shipfox/api-integration-slack@14.0.0
+  - @shipfox/api-integration-jira@14.0.0
+  - @shipfox/api-integration-linear@14.0.0
+  - @shipfox/api-integration-webhook@14.0.0
+
 ## 13.1.0
 
 ### Patch Changes

@@ -1,5 +1,40 @@
 # @shipfox/api-definitions
 
+## 14.0.0
+
+### Major Changes
+
+- f7b3db8: Replaces published definition warning exports and the sync `warnings` field with severity-aware diagnostics, including workflow file paths for the workflows UI.
+
+  Consumers must migrate from `warnings` to `diagnostics`; this release does not provide a legacy-field fallback.
+
+### Minor Changes
+
+- c0fc35b: Adds `resolveDefinitionAtRef` and `listDefinitionsAtRef` inter-module methods that resolve and validate workflow definitions at a git ref without persisting them.
+- 4f30864: Trigger `event` is now optional end to end. An omitted event subscribes to every event from its source. Explicit events continue to work unchanged. Built-in manual and scheduled triggers use `fire` and `tick`, respectively.
+- aeaa0de: Adds stable workflow lineage identifiers to definition records and the definitions inter-module contract. Existing definitions are reconciled when read or synchronized, so the schema migration does not backfill historical rows.
+- 1b71a66: Exposes each provider's event catalog and the fixed-event providers on the integration validation context. Every provider now refuses the reserved `manual` and `cron` connection slugs.
+
+### Patch Changes
+
+- a97890f: Makes trigger-scoped validation errors inert. Reports broken triggers as error diagnostics with their paths while the definition and its other triggers keep syncing.
+- a4df8d9: Resolves a workflow lineage id on GET /definitions/:id by selecting the project's default-branch row, or 404 when the file is not on that branch.
+- Updated dependencies [c0fc35b]
+- Updated dependencies [f7b3db8]
+- Updated dependencies [09924ca]
+- Updated dependencies [4f30864]
+- Updated dependencies [18e9bad]
+- Updated dependencies [a4df8d9]
+- Updated dependencies [aeaa0de]
+- Updated dependencies [c44641f]
+- Updated dependencies [1b71a66]
+  - @shipfox/api-definitions-dto@14.0.0
+  - @shipfox/api-agent-dto@14.0.0
+  - @shipfox/workflow-document@3.1.0
+  - @shipfox/api-integration-core-dto@14.0.0
+  - @shipfox/api-projects-dto@14.0.0
+  - @shipfox/expression@2.2.1
+
 ## 13.1.0
 
 ### Patch Changes

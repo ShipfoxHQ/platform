@@ -1,5 +1,11 @@
 # @shipfox/workflow-document
 
+## 3.1.0
+
+### Minor Changes
+
+- 4f30864: Trigger `event` is now optional end to end. An omitted event subscribes to every event from its source. Explicit events continue to work unchanged. Built-in manual and scheduled triggers use `fire` and `tick`, respectively.
+
 ## 3.0.1
 
 ### Patch Changes

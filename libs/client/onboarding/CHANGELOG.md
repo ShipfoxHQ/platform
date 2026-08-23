@@ -1,5 +1,22 @@
 # @shipfox/client-onboarding
 
+## 23.0.0
+
+### Minor Changes
+
+- f64c66f: Adds `deriveIntegrationReadiness` and `deriveSetupChecklist`, which derive
+  per-provider integration-connected and attention state and the workspace
+  Get-started setup checklist.
+
+### Patch Changes
+
+- Updated dependencies [693e656]
+- Updated dependencies [f7b3db8]
+  - @shipfox/client-shell@23.0.0
+  - @shipfox/client-projects@23.0.0
+  - @shipfox/client-agent@23.0.0
+  - @shipfox/client-integrations@23.0.0
+
 ## 22.0.3
 
 ### Patch Changes

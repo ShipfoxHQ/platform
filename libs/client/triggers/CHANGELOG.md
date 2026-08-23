@@ -1,5 +1,21 @@
 # @shipfox/client-triggers
 
+## 23.0.0
+
+### Minor Changes
+
+- 05c7c4d: Adds dev-run and replay-link support to trigger journal interfaces and client types.
+
+### Patch Changes
+
+- Updated dependencies [693e656]
+- Updated dependencies [05c7c4d]
+- Updated dependencies [f7b3db8]
+- Updated dependencies [b6c7871]
+  - @shipfox/client-shell@23.0.0
+  - @shipfox/client-projects@23.0.0
+  - @shipfox/api-triggers-dto@14.0.0
+
 ## 22.0.3
 
 ### Patch Changes

@@ -1,5 +1,30 @@
 # @shipfox/client-workflows
 
+## 23.0.0
+
+### Minor Changes
+
+- 4f30864: Trigger `event` is now optional end to end. An omitted event subscribes to every event from its source. Explicit events continue to work unchanged. Built-in manual and scheduled triggers use `fire` and `tick`, respectively.
+
+### Patch Changes
+
+- f7b3db8: Replaces published definition warning exports and the sync `warnings` field with severity-aware diagnostics, including workflow file paths for the workflows UI.
+
+  Consumers must migrate from `warnings` to `diagnostics`; this release does not provide a legacy-field fallback.
+
+- Updated dependencies [693e656]
+- Updated dependencies [c0fc35b]
+- Updated dependencies [05c7c4d]
+- Updated dependencies [f7b3db8]
+- Updated dependencies [4f30864]
+- Updated dependencies [aeaa0de]
+- Updated dependencies [b766ee3]
+  - @shipfox/client-shell@23.0.0
+  - @shipfox/client-projects@23.0.0
+  - @shipfox/api-definitions-dto@14.0.0
+  - @shipfox/client-triggers@23.0.0
+  - @shipfox/api-workflows-dto@14.0.0
+
 ## 22.0.3
 
 ### Patch Changes

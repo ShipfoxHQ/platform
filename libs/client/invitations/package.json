@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/client-invitations",
   "license": "MIT",
-  "version": "22.0.3",
+  "version": "23.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

@@ -1,5 +1,17 @@
 # @shipfox/api-workflows-dto
 
+## 14.0.0
+
+### Minor Changes
+
+- 4f30864: Trigger `event` is now optional end to end. An omitted event subscribes to every event from its source. Explicit events continue to work unchanged. Built-in manual and scheduled triggers use `fire` and `tick`, respectively.
+- b766ee3: Adds `origin` and `dev_source` to workflow runs, with an `origin` facet on the run list and aggregates endpoints. Existing runs read as `synced`. Dev runs check out their pinned source commit by default, while same-project replay event commits retain precedence.
+
+### Patch Changes
+
+- Updated dependencies [09924ca]
+  - @shipfox/api-agent-dto@14.0.0
+
 ## 13.1.0
 
 ### Minor Changes

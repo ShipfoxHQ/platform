@@ -1,5 +1,16 @@
 # @shipfox/api-agent
 
+## 14.0.0
+
+### Minor Changes
+
+- 09924ca: Adds optional model metadata (`context_window`, `max_output_tokens`, `reasoning`, `input_image`) to managed model entries and passes it through to the pi `custom_provider` contract so managed steps carry the same model descriptor as custom providers.
+
+### Patch Changes
+
+- Updated dependencies [09924ca]
+  - @shipfox/api-agent-dto@14.0.0
+
 ## 13.1.0
 
 ### Minor Changes

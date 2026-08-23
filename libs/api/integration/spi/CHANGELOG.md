@@ -1,5 +1,22 @@
 # @shipfox/api-integration-spi
 
+## 2.0.0
+
+### Major Changes
+
+- 18e9bad: Adds source-control ref resolution that pins branch and tag names to commits.
+
+### Minor Changes
+
+- 1b71a66: Exposes each provider's event catalog and the fixed-event providers on the integration validation context. Every provider now refuses the reserved `manual` and `cron` connection slugs.
+
+### Patch Changes
+
+- Updated dependencies [18e9bad]
+- Updated dependencies [c44641f]
+- Updated dependencies [1b71a66]
+  - @shipfox/api-integration-core-dto@14.0.0
+
 ## 1.1.1
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @shipfox/api-triggers-dto
 
+## 14.0.0
+
+### Minor Changes
+
+- 05c7c4d: Adds dev-run and replay-link support to trigger journal interfaces and client types.
+- b6c7871: Adds `origin` and `replayable` filters to the trigger events list, an `origins` facet, and `replay_of_event_id` with a `replays` list on the event detail response.
+
 ## 9.0.2
 
 ### Patch Changes

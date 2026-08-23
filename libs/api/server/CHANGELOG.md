@@ -1,5 +1,47 @@
 # @shipfox/api-server
 
+## 14.0.0
+
+### Minor Changes
+
+- 98597b7: Adds an `agentModule` factory option to `DefaultModulesOptions` so hosts can replace the standard Agent module while keeping a scoped Secrets client and a single inter-module transport.
+
+### Patch Changes
+
+- Updated dependencies [c0fc35b]
+- Updated dependencies [05c7c4d]
+- Updated dependencies [f7b3db8]
+- Updated dependencies [a97890f]
+- Updated dependencies [69a92c4]
+- Updated dependencies [09924ca]
+- Updated dependencies [110e8dd]
+- Updated dependencies [4f30864]
+- Updated dependencies [18e9bad]
+- Updated dependencies [5e87483]
+- Updated dependencies [a4df8d9]
+- Updated dependencies [aeaa0de]
+- Updated dependencies [c44641f]
+- Updated dependencies [b6c7871]
+- Updated dependencies [1b71a66]
+- Updated dependencies [b766ee3]
+  - @shipfox/api-definitions-dto@14.0.0
+  - @shipfox/api-definitions@14.0.0
+  - @shipfox/api-triggers@14.0.0
+  - @shipfox/api-runners-dto@14.0.0
+  - @shipfox/api-runners@14.0.0
+  - @shipfox/api-agent-dto@14.0.0
+  - @shipfox/api-agent@14.0.0
+  - @shipfox/api-workflows@14.0.0
+  - @shipfox/api-workflows-dto@14.0.0
+  - @shipfox/api-integration-core@14.0.0
+  - @shipfox/api-integration-core-dto@14.0.0
+  - @shipfox/api-projects-dto@14.0.0
+  - @shipfox/api-dispatcher@12.2.0
+  - @shipfox/api-workspaces@14.0.0
+  - @shipfox/api-logs@14.0.0
+  - @shipfox/api-projects@14.0.0
+  - @shipfox/api-secrets@14.0.0
+
 ## 13.1.0
 
 ### Patch Changes

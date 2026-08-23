@@ -1,5 +1,14 @@
 # @shipfox/client-agent
 
+## 23.0.0
+
+### Patch Changes
+
+- Updated dependencies [693e656]
+- Updated dependencies [09924ca]
+  - @shipfox/client-shell@23.0.0
+  - @shipfox/api-agent-dto@14.0.0
+
 ## 22.0.3
 
 ### Patch Changes
