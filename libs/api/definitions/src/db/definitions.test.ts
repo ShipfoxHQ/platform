@@ -550,7 +550,6 @@ describe('definition queries', () => {
         .where(eq(workflowWorkflows.id, first.workflowId));
       expect(lineage).toHaveLength(1);
       expect(lineage[0]?.projectId).toBe(projectId);
-      expect(lineage[0]?.configPath).toBe(first.workflowId);
       expect(second.workflowId).toBe(first.workflowId);
 
       const projectLineages = await db()
@@ -759,6 +758,11 @@ describe('definition queries', () => {
       expect(first.appliedCount).toBe(2);
       expect(await listOutboxRowsForProject(projectId)).toHaveLength(2);
 
+      await db()
+        .update(workflowDefinitions)
+        .set({fetchedAt: new Date(0), updatedAt: new Date(0)})
+        .where(eq(workflowDefinitions.projectId, projectId));
+
       const second = await applyVcsDefinitionsBatch({
         projectId,
         workspaceId,
@@ -771,6 +775,15 @@ describe('definition queries', () => {
 
       expect(second.appliedCount).toBe(1);
       expect(await listOutboxRowsForProject(projectId)).toHaveLength(3);
+
+      const refreshed = (
+        await db()
+          .select()
+          .from(workflowDefinitions)
+          .where(eq(workflowDefinitions.projectId, projectId))
+      ).find((row) => row.configPath === 'a.yml');
+      expect(refreshed?.fetchedAt.getTime()).toBeGreaterThan(0);
+      expect(refreshed?.updatedAt.getTime()).toBeGreaterThan(0);
     });
 
     test('softDeleteVcsDefinitionsNotIn writes a DEFINITION_DELETED event per pruned row', async () => {

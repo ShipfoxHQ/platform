@@ -20,6 +20,9 @@ import {workflowWorkflows} from './schema/workflows.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 
+// Reserved in the lineage table for manual definitions without a config path.
+const PATHLESS_WORKFLOW_CONFIG_PATH = '__shipfox_internal_pathless__';
+
 export interface UpsertDefinitionParams {
   projectId: string;
   workspaceId: string;
@@ -62,13 +65,29 @@ async function findOrCreateWorkflow(
     const existingRow = existing[0];
     if (existingRow) return existingRow.workflowId;
 
-    const id = crypto.randomUUID();
-    await tx.insert(workflowWorkflows).values({
-      id,
-      projectId: params.projectId,
-      configPath: id,
-    });
-    return id;
+    const inserted = await tx
+      .insert(workflowWorkflows)
+      .values({projectId: params.projectId, configPath: PATHLESS_WORKFLOW_CONFIG_PATH})
+      .onConflictDoNothing()
+      .returning({id: workflowWorkflows.id});
+    const insertedRow = inserted[0];
+    if (insertedRow) return insertedRow.id;
+
+    const existingLineage = await tx
+      .select({id: workflowWorkflows.id})
+      .from(workflowWorkflows)
+      .where(
+        and(
+          eq(workflowWorkflows.projectId, params.projectId),
+          eq(workflowWorkflows.configPath, PATHLESS_WORKFLOW_CONFIG_PATH),
+        ),
+      )
+      .limit(1);
+    const existingLineageRow = existingLineage[0];
+    if (!existingLineageRow) {
+      throw new Error(`Pathless workflow lineage missing for project ${params.projectId}`);
+    }
+    return existingLineageRow.id;
   }
 
   const inserted = await tx
@@ -389,12 +408,14 @@ export async function applyVcsDefinitionsBatch(
     const prepared: Array<{
       item: (typeof params.upserts)[number];
       unchanged: boolean;
+      workflowId: string | undefined;
     }> = [];
     for (const item of params.upserts) {
       const existing = await tx
         .select({
           contentHash: workflowDefinitions.contentHash,
           deletedAt: workflowDefinitions.deletedAt,
+          workflowId: workflowDefinitions.workflowId,
         })
         .from(workflowDefinitions)
         .where(
@@ -412,7 +433,7 @@ export async function applyVcsDefinitionsBatch(
         previous.deletedAt === null &&
         previous.contentHash === item.contentHash;
 
-      prepared.push({item, unchanged});
+      prepared.push({item, unchanged, workflowId: previous?.workflowId});
     }
 
     const workflowIds = await findOrCreateWorkflows(tx, {
@@ -420,10 +441,8 @@ export async function applyVcsDefinitionsBatch(
       configPaths: prepared.filter(({unchanged}) => !unchanged).map(({item}) => item.configPath),
     });
 
-    for (const {item, unchanged} of prepared) {
-      if (unchanged) continue;
-
-      const workflowId = workflowIds.get(item.configPath);
+    for (const {item, unchanged, workflowId: previousWorkflowId} of prepared) {
+      const workflowId = unchanged ? previousWorkflowId : workflowIds.get(item.configPath);
       if (!workflowId) {
         throw new Error(
           `Workflow lineage missing for project ${params.projectId} and config path ${item.configPath}`,
@@ -445,17 +464,19 @@ export async function applyVcsDefinitionsBatch(
       const row = rows[0];
       if (!row) throw new Error('Upsert returned no rows');
 
-      await writeOutboxEvent<DefinitionsEventMap>(tx, definitionsOutbox, {
-        type: DEFINITION_RESOLVED,
-        payload: {
-          definitionId: row.id,
-          projectId: row.projectId,
-          workspaceId: params.workspaceId,
-          configPath: row.configPath,
-          triggers: definitionTriggersFor(row.definition.model),
-        },
-      });
-      appliedCount += 1;
+      if (!unchanged) {
+        await writeOutboxEvent<DefinitionsEventMap>(tx, definitionsOutbox, {
+          type: DEFINITION_RESOLVED,
+          payload: {
+            definitionId: row.id,
+            projectId: row.projectId,
+            workspaceId: params.workspaceId,
+            configPath: row.configPath,
+            triggers: definitionTriggersFor(row.definition.model),
+          },
+        });
+        appliedCount += 1;
+      }
     }
 
     const keepConfigPaths = params.upserts.map((upsert) => upsert.configPath);

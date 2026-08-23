@@ -78,6 +78,7 @@ describe('workflow lineage backfill migration (0003)', () => {
       const rowBranchDev = randomUUID();
       const rowGone = randomUUID();
       const rowNoPath = randomUUID();
+      const rowNoPathSecond = randomUUID();
 
       await insertDefinition(target, {
         id: rowA,
@@ -121,6 +122,7 @@ describe('workflow lineage backfill migration (0003)', () => {
         deleted: true,
       });
       await insertDefinition(target, {id: rowNoPath, projectId: projectB});
+      await insertDefinition(target, {id: rowNoPathSecond, projectId: projectB});
 
       await applyMigration(target, '0003_nebulous_nemesis.sql');
 
@@ -136,7 +138,7 @@ describe('workflow lineage backfill migration (0003)', () => {
         )
       ).rows;
 
-      expect(rows).toHaveLength(7);
+      expect(rows).toHaveLength(8);
       expect(workflows).toHaveLength(5);
 
       const workflowIdByRow = new Map(rows.map((row) => [row.id, row.workflow_id]));
@@ -150,15 +152,17 @@ describe('workflow lineage backfill migration (0003)', () => {
       expect(workflowIdByRow.get(rowBranchDev)).toBe(branchWinner);
       // Soft-deleted rows keep their lineage.
       expect(workflowIdByRow.get(rowGone)).toBe(rowGone);
-      // Rows without a config path get their own lineage.
-      expect(workflowIdByRow.get(rowNoPath)).toBe(rowNoPath);
+      // Rows without a config path share one project-scoped lineage.
+      const noPathWorkflowId = workflowIdByRow.get(rowNoPath);
+      expect(noPathWorkflowId).toBeDefined();
+      expect(workflowIdByRow.get(rowNoPathSecond)).toBe(noPathWorkflowId);
 
       const lineageIds = new Set(workflows.map((workflow) => workflow.id));
       for (const row of rows) {
         expect(lineageIds.has(row.workflow_id)).toBe(true);
       }
-      const noPathLineage = workflows.find((workflow) => workflow.id === rowNoPath);
-      expect(noPathLineage?.config_path).toBe(rowNoPath);
+      const noPathLineage = workflows.find((workflow) => workflow.id === noPathWorkflowId);
+      expect(noPathLineage).toBeDefined();
       expect(workflows.find((workflow) => workflow.id === rowVcs)?.config_path).toBe('shared.yml');
       expect(workflows.find((workflow) => workflow.id === rowGone)?.config_path).toBe('gone.yml');
 
