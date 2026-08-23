@@ -19,7 +19,7 @@
           "name": "workflow_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "project_id": {
           "name": "project_id",
