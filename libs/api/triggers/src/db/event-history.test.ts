@@ -9,6 +9,8 @@ import {
   markReceivedEventErrored,
   markReceivedEventFailed,
   markReceivedEventRouted,
+  upsertDevFilterErrorDecision,
+  upsertDevTriggeredDecision,
   upsertDispatchErrorDecision,
   upsertFilterErrorDecision,
   upsertListenerDispatchErrorDecision,
@@ -254,6 +256,61 @@ describe('received-event outcome transitions', () => {
     expect(row?.outcome).toBe('errored');
     expect(row?.matchedCount).toBe(2);
     expect(row?.processedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe('dev decision inserts', () => {
+  it('records a dev triggered decision with a null subscription id', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const workflowDefinitionId = crypto.randomUUID();
+    const run = {id: crypto.randomUUID(), name: 'Dev run'};
+
+    await upsertDevTriggeredDecision({
+      receivedEventId,
+      triggerKey: 'on_issue',
+      workflowDefinitionId,
+      run,
+    });
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_issue',
+      workflowDefinitionId,
+      projectId: null,
+      decision: 'triggered',
+      runId: run.id,
+      runName: run.name,
+      reason: null,
+    });
+  });
+
+  it('records a dev filter-error decision with the reason and no run', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const workflowDefinitionId = crypto.randomUUID();
+
+    await upsertDevFilterErrorDecision({
+      receivedEventId,
+      triggerKey: 'on_push',
+      workflowDefinitionId,
+      reason: 'filter is false',
+    });
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_push',
+      workflowDefinitionId,
+      projectId: null,
+      decision: 'filter-error',
+      runId: null,
+      runName: null,
+      reason: 'filter is false',
+    });
   });
 });
 

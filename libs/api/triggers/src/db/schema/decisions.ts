@@ -6,7 +6,7 @@ import {pgTable} from './common.js';
 import {jobListenerMatcherKindEnum} from './job-listener-subscriptions.js';
 import {triggersReceivedEvents} from './received-events.js';
 
-const triggerDecisionSubscriptionKinds = ['trigger', 'listener'] as const;
+const triggerDecisionSubscriptionKinds = ['trigger', 'listener', 'dev'] as const;
 
 export const triggersDecisions = pgTable(
   'decisions',
@@ -16,7 +16,9 @@ export const triggersDecisions = pgTable(
       .notNull()
       .references(() => triggersReceivedEvents.id, {onDelete: 'cascade'}),
     subscriptionKind: text('subscription_kind', {enum: triggerDecisionSubscriptionKinds}).notNull(),
-    subscriptionId: uuid('subscription_id').notNull(),
+    // Null for `dev` decisions: the unique index treats repeated nulls as
+    // distinct, so a dev journal entry holds exactly one decision.
+    subscriptionId: uuid('subscription_id'),
     subscriptionName: text('subscription_name').notNull(),
     workflowDefinitionId: uuid('workflow_definition_id'),
     projectId: uuid('project_id'),
@@ -39,7 +41,7 @@ export const triggersDecisions = pgTable(
     index('triggers_decisions_run_idx').on(table.runId),
     check(
       'triggers_decisions_subscription_kind_ck',
-      sql`${table.subscriptionKind} IN ('trigger', 'listener')`,
+      sql`${table.subscriptionKind} IN ('trigger', 'listener', 'dev')`,
     ),
   ],
 );

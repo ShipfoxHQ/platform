@@ -21,6 +21,9 @@ export const triggersReceivedEvents = pgTable(
     provider: text('provider'),
     source: text('source').notNull(),
     event: text('event').notNull(),
+    // Source event this entry replays (dev runs only); no foreign key: the
+    // source row may be pruned while its replay link must stay.
+    replayOfEventId: uuid('replay_of_event_id'),
     deliveryId: text('delivery_id'),
     connectionId: uuid('connection_id'),
     connectionName: text('connection_name'),
@@ -41,6 +44,8 @@ export const triggersReceivedEvents = pgTable(
     // Back the workspace-scoped facet group-by (distinct source / event values).
     index('triggers_received_events_workspace_source_idx').on(table.workspaceId, table.source),
     index('triggers_received_events_workspace_event_idx').on(table.workspaceId, table.event),
+    // Back the replay link direction: which events replayed a given source event.
+    index('triggers_received_events_replay_of_event_id_idx').on(table.replayOfEventId),
   ],
 );
 
@@ -56,6 +61,7 @@ export function toTriggerReceivedEvent(row: TriggerReceivedEventDb): TriggerRece
     provider: row.provider,
     source: row.source,
     event: row.event,
+    replayOfEventId: row.replayOfEventId,
     deliveryId: row.deliveryId,
     connectionId: row.connectionId,
     connectionName: row.connectionName,
@@ -76,6 +82,7 @@ export const triggerReceivedEventSummaryColumns = {
   provider: triggersReceivedEvents.provider,
   source: triggersReceivedEvents.source,
   event: triggersReceivedEvents.event,
+  replayOfEventId: triggersReceivedEvents.replayOfEventId,
   deliveryId: triggersReceivedEvents.deliveryId,
   connectionId: triggersReceivedEvents.connectionId,
   connectionName: triggersReceivedEvents.connectionName,

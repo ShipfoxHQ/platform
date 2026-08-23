@@ -4,6 +4,8 @@ const runWorkflow = vi.fn();
 const insertReceivedEvent = vi.fn();
 const markReceivedEventRouted = vi.fn();
 const upsertTriggeredDecision = vi.fn();
+const upsertDevTriggeredDecision = vi.fn();
+const upsertDevFilterErrorDecision = vi.fn();
 
 vi.mock('#db/event-history.js', () => ({
   insertReceivedEvent: (...args: unknown[]) => insertReceivedEvent(...args),
@@ -12,6 +14,8 @@ vi.mock('#db/event-history.js', () => ({
   markReceivedEventFailed: vi.fn(),
   markReceivedEventErrored: vi.fn(),
   upsertTriggeredDecision: (...args: unknown[]) => upsertTriggeredDecision(...args),
+  upsertDevTriggeredDecision: (...args: unknown[]) => upsertDevTriggeredDecision(...args),
+  upsertDevFilterErrorDecision: (...args: unknown[]) => upsertDevFilterErrorDecision(...args),
   upsertDispatchErrorDecision: vi.fn(),
   upsertFilterErrorDecision: vi.fn(),
   upsertListenerTriggeredDecision: vi.fn(),
@@ -51,6 +55,12 @@ describe('trigger history is best-effort and never blocks triggering', () => {
 
     await expect(
       recorder.triggered(subscription, {id: crypto.randomUUID(), name: 'r'}),
+    ).resolves.toBeUndefined();
+    await expect(
+      recorder.devTriggered('on_issue', crypto.randomUUID(), {id: crypto.randomUUID(), name: 'r'}),
+    ).resolves.toBeUndefined();
+    await expect(
+      recorder.devFilterErrored('on_issue', crypto.randomUUID(), 'filter is false'),
     ).resolves.toBeUndefined();
     await expect(recorder.dispatchErrored(subscription, 'boom')).resolves.toBeUndefined();
     await expect(recorder.filterErrored(subscription, 'bad filter')).resolves.toBeUndefined();
@@ -123,6 +133,74 @@ describe('a per-write failure after a successful insert is swallowed', () => {
     // missing-id no-op), so the assertions exercise the swallow path they claim to.
     expect(upsertTriggeredDecision).toHaveBeenCalledTimes(1);
     expect(markReceivedEventRouted).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('dev recorder variants', () => {
+  beforeEach(() => {
+    insertReceivedEvent.mockReset();
+    upsertDevTriggeredDecision.mockReset();
+    upsertDevFilterErrorDecision.mockReset();
+    insertReceivedEvent.mockResolvedValue(crypto.randomUUID());
+  });
+
+  test('devTriggered writes a dev decision with the trigger key, lineage id, and run', async () => {
+    const recorder = await beginTriggerHistory({
+      eventRef: crypto.randomUUID(),
+      origin: 'dev',
+      workspaceId: crypto.randomUUID(),
+      provider: null,
+      source: 'manual',
+      event: 'fire',
+      deliveryId: null,
+      connectionId: null,
+      connectionName: null,
+      payload: null,
+      receivedAt: new Date(),
+    });
+    const run = {id: crypto.randomUUID(), name: 'Dev run'};
+
+    await recorder.devTriggered('on_issue', '019e98ab-0000-0000-0000-000000000001', run);
+
+    // The dev decision carries no subscription row: the trigger key stands in
+    // for subscription_name and the lineage id for workflow_definition_id.
+    expect(upsertDevTriggeredDecision).toHaveBeenCalledTimes(1);
+    expect(upsertDevTriggeredDecision).toHaveBeenCalledWith({
+      receivedEventId: expect.any(String),
+      triggerKey: 'on_issue',
+      workflowDefinitionId: '019e98ab-0000-0000-0000-000000000001',
+      run,
+    });
+  });
+
+  test('devFilterErrored writes a dev filter-error decision with the reason', async () => {
+    const recorder = await beginTriggerHistory({
+      eventRef: crypto.randomUUID(),
+      origin: 'dev',
+      workspaceId: crypto.randomUUID(),
+      provider: null,
+      source: 'github',
+      event: 'push',
+      deliveryId: null,
+      connectionId: null,
+      connectionName: null,
+      payload: null,
+      receivedAt: new Date(),
+    });
+
+    await recorder.devFilterErrored(
+      'on_push',
+      '019e98ab-0000-0000-0000-000000000002',
+      'filter is false',
+    );
+
+    expect(upsertDevFilterErrorDecision).toHaveBeenCalledTimes(1);
+    expect(upsertDevFilterErrorDecision).toHaveBeenCalledWith({
+      receivedEventId: expect.any(String),
+      triggerKey: 'on_push',
+      workflowDefinitionId: '019e98ab-0000-0000-0000-000000000002',
+      reason: 'filter is false',
+    });
   });
 });
 

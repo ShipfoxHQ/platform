@@ -1,6 +1,6 @@
 import {z} from 'zod';
 
-export const triggerEventOriginSchema = z.enum(['integration', 'manual', 'cron']);
+export const triggerEventOriginSchema = z.enum(['integration', 'manual', 'cron', 'dev']);
 export type TriggerEventOriginDto = z.infer<typeof triggerEventOriginSchema>;
 
 export const triggerEventOutcomeSchema = z.enum([
@@ -15,7 +15,7 @@ export type TriggerEventOutcomeDto = z.infer<typeof triggerEventOutcomeSchema>;
 export const triggerDecisionOutcomeSchema = z.enum(['triggered', 'filter-error', 'dispatch-error']);
 export type TriggerDecisionOutcomeDto = z.infer<typeof triggerDecisionOutcomeSchema>;
 
-export const triggerDecisionSubscriptionKindSchema = z.enum(['trigger', 'listener']);
+export const triggerDecisionSubscriptionKindSchema = z.enum(['trigger', 'listener', 'dev']);
 export type TriggerDecisionSubscriptionKindDto = z.infer<
   typeof triggerDecisionSubscriptionKindSchema
 >;
@@ -55,7 +55,8 @@ export const triggerDecisionDtoSchema = z.object({
   id: z.string().uuid(),
   received_event_id: z.string().uuid(),
   subscription_kind: triggerDecisionSubscriptionKindSchema,
-  subscription_id: z.string().uuid(),
+  // Null for `dev` decisions: a dev journal entry has no subscription row.
+  subscription_id: z.string().uuid().nullable(),
   subscription_name: z.string(),
   workflow_definition_id: z.string().uuid().nullable(),
   project_id: z.string().uuid().nullable(),

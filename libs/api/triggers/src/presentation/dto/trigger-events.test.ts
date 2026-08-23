@@ -17,6 +17,7 @@ const baseSummary: TriggerReceivedEventSummary = {
   provider: null,
   source: 'manual',
   event: 'fire',
+  replayOfEventId: null,
   deliveryId: null,
   connectionId: null,
   connectionName: null,

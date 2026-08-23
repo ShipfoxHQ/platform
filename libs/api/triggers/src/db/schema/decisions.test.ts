@@ -201,6 +201,69 @@ describe('triggers_decisions schema', () => {
     await expect(duplicate).rejects.toThrow();
   });
 
+  test('stores a dev decision with a null subscription id', async () => {
+    const receivedEventId = await insertEvent();
+    const [inserted] = await db()
+      .insert(triggersDecisions)
+      .values({
+        receivedEventId,
+        subscriptionKind: 'dev',
+        subscriptionId: null,
+        subscriptionName: 'on_issue',
+        workflowDefinitionId: crypto.randomUUID(),
+        decision: 'triggered',
+        runId: crypto.randomUUID(),
+        runName: 'Dev run',
+      })
+      .returning({id: triggersDecisions.id});
+    if (!inserted) throw new Error('insert returned no rows');
+    const [row] = await db()
+      .select()
+      .from(triggersDecisions)
+      .where(eq(triggersDecisions.id, inserted.id));
+    if (!row) throw new Error('select returned no rows');
+
+    expect(row.subscriptionKind).toBe('dev');
+    expect(row.subscriptionId).toBeNull();
+    expect(row.subscriptionName).toBe('on_issue');
+    expect(row.runId).not.toBeNull();
+    expect(row.runName).toBe('Dev run');
+    expect(toTriggerDecision(row)).toMatchObject({
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      decision: 'triggered',
+    });
+  });
+
+  test('the unique index allows repeated null subscription ids on the same event', async () => {
+    const receivedEventId = await insertEvent();
+    await db().insert(triggersDecisions).values({
+      receivedEventId,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_issue',
+      workflowDefinitionId: crypto.randomUUID(),
+      decision: 'triggered',
+      runId: crypto.randomUUID(),
+      runName: 'Dev run',
+    });
+    await db().insert(triggersDecisions).values({
+      receivedEventId,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_issue',
+      workflowDefinitionId: crypto.randomUUID(),
+      decision: 'filter-error',
+      reason: 'filter is false',
+    });
+
+    const rows = await db()
+      .select()
+      .from(triggersDecisions)
+      .where(eq(triggersDecisions.receivedEventId, receivedEventId));
+    expect(rows).toHaveLength(2);
+  });
+
   test('allows trigger and listener decisions with the same subscription id', async () => {
     const receivedEventId = await insertEvent();
     const subscriptionId = crypto.randomUUID();

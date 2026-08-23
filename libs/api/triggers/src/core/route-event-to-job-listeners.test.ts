@@ -66,6 +66,8 @@ function route(overrides: RouteOverrides = {}) {
 function buildHistory(): TriggerHistoryRecorder {
   return {
     triggered: vi.fn(),
+    devTriggered: vi.fn(),
+    devFilterErrored: vi.fn(),
     filterErrored: vi.fn(),
     dispatchErrored: vi.fn(),
     listenerTriggered,

@@ -1,4 +1,4 @@
-export const triggerEventOrigins = ['integration', 'manual', 'cron'] as const;
+export const triggerEventOrigins = ['integration', 'manual', 'cron', 'dev'] as const;
 export type TriggerEventOrigin = (typeof triggerEventOrigins)[number];
 
 export const triggerEventOutcomes = [
@@ -18,6 +18,8 @@ export interface TriggerReceivedEvent {
   provider: string | null;
   source: string;
   event: string;
+  /** The source event this entry replays, when origin is `dev`. */
+  replayOfEventId: string | null;
   deliveryId: string | null;
   connectionId: string | null;
   connectionName: string | null;

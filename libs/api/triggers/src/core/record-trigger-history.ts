@@ -9,6 +9,8 @@ import {
   markReceivedEventErrored,
   markReceivedEventFailed,
   markReceivedEventRouted,
+  upsertDevFilterErrorDecision,
+  upsertDevTriggeredDecision,
   upsertDispatchErrorDecision,
   upsertFilterErrorDecision,
   upsertListenerDispatchErrorDecision,
@@ -38,6 +40,10 @@ export interface TriggerRun {
 
 export interface TriggerHistoryRecorder {
   triggered(subscription: TriggerSubscription, run: TriggerRun): Promise<void>;
+  // Dev journal entries carry no subscription row: subscription_name is the
+  // trigger key and workflow_definition_id the workflow lineage id.
+  devTriggered(triggerKey: string, workflowDefinitionId: string, run: TriggerRun): Promise<void>;
+  devFilterErrored(triggerKey: string, workflowDefinitionId: string, reason: string): Promise<void>;
   filterErrored(subscription: TriggerSubscription, reason: string): Promise<void>;
   dispatchErrored(subscription: TriggerSubscription, reason: string): Promise<void>;
   listenerTriggered(subscription: JobListenerSubscription): Promise<void>;
@@ -87,6 +93,19 @@ export async function beginTriggerHistory(
         'triggered-decision',
         (id) => upsertTriggeredDecision({receivedEventId: id, subscription, run}),
         subscription.id,
+      ),
+    devTriggered: (triggerKey, workflowDefinitionId, run) =>
+      record('dev-triggered-decision', (id) =>
+        upsertDevTriggeredDecision({receivedEventId: id, triggerKey, workflowDefinitionId, run}),
+      ),
+    devFilterErrored: (triggerKey, workflowDefinitionId, reason) =>
+      record('dev-filter-error-decision', (id) =>
+        upsertDevFilterErrorDecision({
+          receivedEventId: id,
+          triggerKey,
+          workflowDefinitionId,
+          reason,
+        }),
       ),
     filterErrored: (subscription, reason) =>
       record(

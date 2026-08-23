@@ -278,3 +278,56 @@ function listenerSubscriptionName(subscription: JobListenerSubscription): string
   // A NULL event is a source subscription; `*` keeps the audit name unambiguous.
   return `listener ${subscription.kind}[${subscription.matcherOrdinal}] ${subscription.source}/${subscription.event ?? '*'}`;
 }
+
+export interface UpsertDevTriggeredDecisionParams {
+  receivedEventId: string;
+  triggerKey: string;
+  workflowDefinitionId: string;
+  run: {id: string; name: string};
+}
+
+// A dev journal entry has exactly one decision. The unique index
+// (received_event_id, subscription_kind, subscription_id) treats NULL
+// subscription ids as distinct, so there is no conflict target to upsert on;
+// the caller writes the single decision per entry.
+export async function upsertDevTriggeredDecision(
+  params: UpsertDevTriggeredDecisionParams,
+): Promise<void> {
+  await db().insert(triggersDecisions).values({
+    receivedEventId: params.receivedEventId,
+    subscriptionKind: 'dev',
+    subscriptionId: null,
+    subscriptionName: params.triggerKey,
+    workflowDefinitionId: params.workflowDefinitionId,
+    projectId: null,
+    decision: 'triggered',
+    runId: params.run.id,
+    runName: params.run.name,
+    reason: null,
+  });
+}
+
+export interface UpsertDevFilterErrorDecisionParams {
+  receivedEventId: string;
+  triggerKey: string;
+  workflowDefinitionId: string;
+  reason: string;
+}
+
+// Refusals before run creation (filter false or evaluation error on replay).
+export async function upsertDevFilterErrorDecision(
+  params: UpsertDevFilterErrorDecisionParams,
+): Promise<void> {
+  await db().insert(triggersDecisions).values({
+    receivedEventId: params.receivedEventId,
+    subscriptionKind: 'dev',
+    subscriptionId: null,
+    subscriptionName: params.triggerKey,
+    workflowDefinitionId: params.workflowDefinitionId,
+    projectId: null,
+    decision: 'filter-error',
+    runId: null,
+    runName: null,
+    reason: params.reason,
+  });
+}

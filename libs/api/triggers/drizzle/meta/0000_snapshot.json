@@ -90,12 +90,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "triggers_decisions_subscription_kind_ck": {
-          "name": "triggers_decisions_subscription_kind_ck",
-          "value": "\"triggers_decisions\".\"subscription_kind\" IN ('trigger', 'listener')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.triggers_decisions": {
@@ -125,7 +120,7 @@
           "name": "subscription_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "subscription_name": {
           "name": "subscription_name",
@@ -260,7 +255,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "triggers_decisions_subscription_kind_ck": {
+          "name": "triggers_decisions_subscription_kind_ck",
+          "value": "\"triggers_decisions\".\"subscription_kind\" IN ('trigger', 'listener', 'dev')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.triggers_job_listener_subscriptions": {
@@ -584,6 +584,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "replay_of_event_id": {
+          "name": "replay_of_event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "delivery_id": {
           "name": "delivery_id",
           "type": "text",
@@ -726,6 +732,21 @@
             },
             {
               "expression": "event",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "triggers_received_events_replay_of_event_id_idx": {
+          "name": "triggers_received_events_replay_of_event_id_idx",
+          "columns": [
+            {
+              "expression": "replay_of_event_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

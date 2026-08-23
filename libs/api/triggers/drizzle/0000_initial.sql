@@ -14,7 +14,7 @@ CREATE TABLE "triggers_decisions" (
 	"id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
 	"received_event_id" uuid NOT NULL,
 	"subscription_kind" text NOT NULL,
-	"subscription_id" uuid NOT NULL,
+	"subscription_id" uuid,
 	"subscription_name" text NOT NULL,
 	"workflow_definition_id" uuid,
 	"project_id" uuid,
@@ -27,7 +27,7 @@ CREATE TABLE "triggers_decisions" (
 	"run_name" text,
 	"reason" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "triggers_decisions_subscription_kind_ck" CHECK ("triggers_decisions"."subscription_kind" IN ('trigger', 'listener'))
+	CONSTRAINT "triggers_decisions_subscription_kind_ck" CHECK ("triggers_decisions"."subscription_kind" IN ('trigger', 'listener', 'dev'))
 );
 --> statement-breakpoint
 CREATE TABLE "triggers_job_listener_subscriptions" (
@@ -65,6 +65,7 @@ CREATE TABLE "triggers_received_events" (
 	"provider" text,
 	"source" text NOT NULL,
 	"event" text NOT NULL,
+	"replay_of_event_id" uuid,
 	"delivery_id" text,
 	"connection_id" uuid,
 	"connection_name" text,
@@ -104,6 +105,7 @@ CREATE INDEX "triggers_received_events_workspace_received_idx" ON "triggers_rece
 CREATE INDEX "triggers_received_events_prune_idx" ON "triggers_received_events" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "triggers_received_events_workspace_source_idx" ON "triggers_received_events" USING btree ("workspace_id","source");--> statement-breakpoint
 CREATE INDEX "triggers_received_events_workspace_event_idx" ON "triggers_received_events" USING btree ("workspace_id","event");--> statement-breakpoint
+CREATE INDEX "triggers_received_events_replay_of_event_id_idx" ON "triggers_received_events" USING btree ("replay_of_event_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "triggers_subscriptions_definition_name_unique" ON "triggers_subscriptions" USING btree ("workflow_definition_id","name");--> statement-breakpoint
 CREATE INDEX "triggers_subscriptions_match_idx" ON "triggers_subscriptions" USING btree ("workspace_id","source","event");--> statement-breakpoint
 CREATE INDEX "triggers_subscriptions_definition_idx" ON "triggers_subscriptions" USING btree ("workflow_definition_id");

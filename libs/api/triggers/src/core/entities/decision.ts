@@ -2,13 +2,14 @@ import type {JobListenerMatcherKind} from './job-listener-subscription.js';
 
 export const triggerDecisionOutcomes = ['triggered', 'filter-error', 'dispatch-error'] as const;
 export type TriggerDecisionOutcome = (typeof triggerDecisionOutcomes)[number];
-export type TriggerDecisionSubscriptionKind = 'trigger' | 'listener';
+export type TriggerDecisionSubscriptionKind = 'trigger' | 'listener' | 'dev';
 
 export interface TriggerDecision {
   id: string;
   receivedEventId: string;
   subscriptionKind: TriggerDecisionSubscriptionKind;
-  subscriptionId: string;
+  /** Null for `dev` decisions: a dev journal entry has no subscription row. */
+  subscriptionId: string | null;
   subscriptionName: string;
   workflowDefinitionId: string | null;
   projectId: string | null;
