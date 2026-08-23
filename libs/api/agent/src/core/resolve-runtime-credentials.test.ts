@@ -78,7 +78,54 @@ describe('resolveRuntimeCredentials', () => {
         base_url: 'https://gateway.example.test',
         headers: [],
         secret_header_names: [],
-        models: [{id: 'responses-model', label: 'Responses model'}],
+        models: [
+          {
+            id: 'responses-model',
+            label: 'Responses model',
+            context_window: 1_000_000,
+            max_output_tokens: 65_536,
+            reasoning: true,
+            input_image: true,
+          },
+        ],
+        requires_api_key: true,
+      },
+    });
+  });
+
+  it('omits optional model metadata when the managed model entry does not carry it', async () => {
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'openai-completions',
+      baseUrl: 'https://gateway.example.test',
+      credentials: {api_key: 'managed-token'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'pi',
+        provider: 'shipfox',
+        model: 'plain-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(result).toEqual({
+      harness: 'pi',
+      provider_id: 'shipfox',
+      model: 'plain-model',
+      thinking: 'high',
+      credentials: {api_key: 'managed-token'},
+      custom_provider: {
+        api: 'openai-completions',
+        base_url: 'https://gateway.example.test',
+        headers: [],
+        secret_header_names: [],
+        models: [{id: 'plain-model', label: 'Plain model'}],
         requires_api_key: true,
       },
     });
@@ -476,7 +523,16 @@ function managedProvider(
     label: 'Shipfox',
     models: [
       {id: 'claude-model', label: 'Claude model', api: 'anthropic-messages'},
-      {id: 'responses-model', label: 'Responses model', api: 'openai-responses'},
+      {
+        id: 'responses-model',
+        label: 'Responses model',
+        api: 'openai-responses',
+        context_window: 1_000_000,
+        max_output_tokens: 65_536,
+        reasoning: true,
+        input_image: true,
+      },
+      {id: 'plain-model', label: 'Plain model', api: 'openai-completions'},
     ],
     defaultModel: 'responses-model',
     resolveCredentials,

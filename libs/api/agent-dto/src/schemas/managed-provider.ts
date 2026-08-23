@@ -13,6 +13,13 @@ export interface ManagedModelEntry {
   readonly id: string;
   readonly label: string;
   readonly api: ManagedModelApi;
+  // Optional model metadata mirroring the custom model schema (customAgentModelSchema);
+  // pi reads these fields from the custom_provider.models entry, so a managed step
+  // behaves like the equivalent custom provider instead of the custom-model defaults.
+  readonly context_window?: number | undefined;
+  readonly max_output_tokens?: number | undefined;
+  readonly reasoning?: boolean | undefined;
+  readonly input_image?: boolean | undefined;
 }
 
 export interface ManagedProviderRuntimeConfig {

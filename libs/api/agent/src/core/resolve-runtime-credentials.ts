@@ -1,6 +1,7 @@
 import type {
   AgentRuntimeCredentialsResponseDto,
   AgentThinking,
+  CustomAgentModelDto,
   Harness,
   ManagedModelProvider,
   ManagedProviderRuntimeConfig,
@@ -198,7 +199,16 @@ function toResponse(
 
   if (managed !== undefined) {
     const model = managed.provider.models.find((candidate) => candidate.id === params.model);
-    const modelDescriptor = {id: params.model, label: model?.label ?? params.model};
+    const modelDescriptor: CustomAgentModelDto = {
+      id: params.model,
+      label: model?.label ?? params.model,
+      ...(model?.context_window !== undefined && {context_window: model.context_window}),
+      ...(model?.max_output_tokens !== undefined && {
+        max_output_tokens: model.max_output_tokens,
+      }),
+      ...(model?.reasoning !== undefined && {reasoning: model.reasoning}),
+      ...(model?.input_image !== undefined && {input_image: model.input_image}),
+    };
 
     if (params.harness === 'pi') {
       response.custom_provider = {
