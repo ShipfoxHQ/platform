@@ -3,7 +3,7 @@ import {
   listInvitationsQueryOptions,
   listMembersQueryKey,
   listMembersQueryOptions,
-} from '@shipfox/client-workspace-settings';
+} from './index.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 
