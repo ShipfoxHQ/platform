@@ -102,7 +102,7 @@ export function WorkflowRunSummary({
               </Badge>
 
               {isDevRun ? (
-                <Badge variant="info" size="xs">
+                <Badge variant="feature" size="xs">
                   Dev
                 </Badge>
               ) : null}

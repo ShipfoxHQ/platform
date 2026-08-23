@@ -476,7 +476,7 @@ describe('WorkflowRunSummary', () => {
 
     const summary = await screen.findByRole('region', {name: 'deploy-web'});
 
-    expect(within(summary).getByText(DEV_BADGE_TEXT)).toBeInTheDocument();
+    expect(within(summary).getByText(DEV_BADGE_TEXT)).toHaveClass('bg-tag-purple-bg');
     expect(within(summary).getByText('fix-triage-prompt @ abcdef1')).toBeInTheDocument();
     // Without auth context the initiator reads as the short user id.
     expect(within(summary).getByText('99999999')).toBeInTheDocument();
