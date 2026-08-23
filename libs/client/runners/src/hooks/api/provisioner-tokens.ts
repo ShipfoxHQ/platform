@@ -13,13 +13,13 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import type {
-  ActiveProvisioner,
+  ActiveProvisioners,
   CreatedProvisionerToken,
   CreateTokenCommand,
   ProvisionerToken,
 } from '#core/token.js';
 import {
-  toActiveProvisioner,
+  toActiveProvisionersResponse,
   toCreatedProvisionerToken,
   toCreateTokenBody,
   toProvisionerToken,
@@ -42,9 +42,9 @@ type ProvisionerTokensQueryOptions = FetchQueryOptions<
 >;
 
 type ActiveProvisionersQueryOptions = FetchQueryOptions<
-  ActiveProvisioner[],
+  ActiveProvisioners,
   Error,
-  ActiveProvisioner[],
+  ActiveProvisioners,
   ReturnType<typeof provisionerTokenQueryKeys.active>
 >;
 
@@ -99,13 +99,13 @@ export async function listActiveProvisioners({
 }: {
   workspaceId: string;
   signal?: AbortSignal;
-}): Promise<ActiveProvisioner[]> {
+}): Promise<ActiveProvisioners> {
   const response = await checkedApiRequest(
     listActiveProvisionersResponseSchema,
     `/workspaces/${workspaceId}/provisioners/active`,
     {signal},
   );
-  return response.provisioners.map(toActiveProvisioner);
+  return toActiveProvisionersResponse(response);
 }
 
 export function provisionerTokensQueryOptions(workspaceId: string): ProvisionerTokensQueryOptions {

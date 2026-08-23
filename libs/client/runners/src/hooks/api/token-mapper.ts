@@ -2,18 +2,19 @@ import type {
   ActiveProvisionerDto,
   CreateManualRegistrationTokenResponseDto,
   CreateProvisionerTokenResponseDto,
+  ListActiveProvisionersResponseDto,
   ManualRegistrationTokenDto,
   ProvisionerTokenDto,
 } from '@shipfox/api-runners-dto';
 import type {
   ActiveProvisioner,
+  ActiveProvisioners,
   CreatedManualRegistrationToken,
   CreatedProvisionerToken,
   CreateTokenCommand,
   ManualRegistrationToken,
   ProvisionerToken,
 } from '#core/token.js';
-
 export function toCreateTokenBody(command: CreateTokenCommand) {
   return {
     ...(command.name ? {name: command.name} : {}),
@@ -49,6 +50,15 @@ export function toProvisionerToken(dto: ProvisionerTokenDto): ProvisionerToken {
 
 export function toActiveProvisioner(dto: ActiveProvisionerDto): ActiveProvisioner {
   return {id: dto.id, name: dto.name, prefix: dto.prefix, lastSeenAt: dto.last_seen_at};
+}
+
+export function toActiveProvisionersResponse(
+  dto: ListActiveProvisionersResponseDto,
+): ActiveProvisioners {
+  return {
+    provisioners: dto.provisioners.map(toActiveProvisioner),
+    installationRunners: dto.installation_runners,
+  };
 }
 
 export function toCreatedManualRegistrationToken(

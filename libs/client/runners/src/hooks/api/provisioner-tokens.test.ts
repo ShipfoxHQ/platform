@@ -105,7 +105,7 @@ describe('provisioner token transports', () => {
     expect(request.method).toBe('POST');
   });
 
-  test('lists active provisioners', async () => {
+  test('lists active provisioners with their installation runners status', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
         provisioners: [
@@ -116,6 +116,7 @@ describe('provisioner token transports', () => {
             last_seen_at: '2026-05-08T01:00:00.000Z',
           },
         ],
+        installation_runners: 'managed',
       }),
     );
     configureApiClient({fetchImpl});
@@ -123,7 +124,8 @@ describe('provisioner token transports', () => {
     const result = await listActiveProvisioners({workspaceId});
 
     const request = fetchImpl.mock.calls[0]?.[0] as Request;
-    expect(result).toHaveLength(1);
+    expect(result.provisioners).toHaveLength(1);
+    expect(result.installationRunners).toBe('managed');
     expect(request.url).toBe(
       `https://api.example.test/workspaces/${workspaceId}/provisioners/active`,
     );

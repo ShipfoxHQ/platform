@@ -35,7 +35,7 @@ export function WorkspaceProvisionerTokensSettingsSection({workspaceId}: {worksp
   const [createdToken, setCreatedToken] = useState<CreatedProvisionerToken | null>(null);
   const tokens = tokensQuery.data ?? [];
   const activeIds = useMemo(
-    () => new Set(activeProvisionersQuery.data?.map((provisioner) => provisioner.id)),
+    () => new Set(activeProvisionersQuery.data?.provisioners.map((provisioner) => provisioner.id)),
     [activeProvisionersQuery.data],
   );
 

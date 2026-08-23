@@ -141,7 +141,21 @@ describe('provisioner token routes', () => {
             last_seen_at: expect.any(String),
           }),
         ],
+        // The test environment configures RUNNER_RESERVED_LABELS, so the
+        // installation always reports managed runner capacity.
+        installation_runners: 'managed',
       });
+    });
+
+    it('reports managed installation runners from the reserved labels signal alone', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/workspaces/${workspaceId}/provisioners/active`,
+        headers: {authorization: 'Bearer user'},
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().installation_runners).toBe('managed');
     });
   });
 

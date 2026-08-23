@@ -1,5 +1,7 @@
 import {z} from 'zod';
 
+export const installationRunnersStatusSchema = z.enum(['managed', 'none']);
+
 export const activeProvisionerDtoSchema = z.object({
   id: z.string().uuid(),
   name: z.string().nullable(),
@@ -9,8 +11,10 @@ export const activeProvisionerDtoSchema = z.object({
 
 export const listActiveProvisionersResponseSchema = z.object({
   provisioners: z.array(activeProvisionerDtoSchema),
+  installation_runners: installationRunnersStatusSchema,
 });
 
+export type InstallationRunnersStatus = z.infer<typeof installationRunnersStatusSchema>;
 export type ActiveProvisionerDto = z.infer<typeof activeProvisionerDtoSchema>;
 export type ListActiveProvisionersResponseDto = z.infer<
   typeof listActiveProvisionersResponseSchema

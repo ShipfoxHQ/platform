@@ -1,5 +1,6 @@
 import {
   toActiveProvisioner,
+  toActiveProvisionersResponse,
   toCreatedManualRegistrationToken,
   toCreatedProvisionerToken,
   toCreateTokenBody,
@@ -80,6 +81,34 @@ describe('toActiveProvisioner', () => {
       name: 'Docker provisioner',
       prefix: 'sf_pt_test',
       lastSeenAt: '2026-07-22T09:00:00.000Z',
+    });
+  });
+});
+
+describe('toActiveProvisionersResponse', () => {
+  test('maps the transport response to its package-owned model', () => {
+    const result = toActiveProvisionersResponse({
+      provisioners: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          name: 'Docker provisioner',
+          prefix: 'sf_pt_test',
+          last_seen_at: '2026-07-22T09:00:00.000Z',
+        },
+      ],
+      installation_runners: 'none',
+    });
+
+    expect(result).toEqual({
+      provisioners: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          name: 'Docker provisioner',
+          prefix: 'sf_pt_test',
+          lastSeenAt: '2026-07-22T09:00:00.000Z',
+        },
+      ],
+      installationRunners: 'none',
     });
   });
 });

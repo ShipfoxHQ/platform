@@ -86,7 +86,7 @@ describe('WorkspaceProvisionerTokensSettingsSection', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
       if (request.url.endsWith('/provisioners/active')) {
-        return Promise.resolve(jsonResponse({provisioners: []}));
+        return Promise.resolve(jsonResponse({provisioners: [], installation_runners: 'none'}));
       }
       return Promise.resolve(jsonResponse({tokens: []}));
     });
@@ -106,7 +106,7 @@ describe('WorkspaceProvisionerTokensSettingsSection', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
       if (request.url.endsWith('/provisioners/active')) {
-        return Promise.resolve(jsonResponse({provisioners: []}));
+        return Promise.resolve(jsonResponse({provisioners: [], installation_runners: 'none'}));
       }
       if (request.method === 'POST' && request.url.endsWith('/provisioners/tokens')) {
         tokens = [provisionerToken({name: 'Docker provisioner'})];
@@ -145,7 +145,7 @@ describe('WorkspaceProvisionerTokensSettingsSection', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
       if (request.url.endsWith('/provisioners/active')) {
-        return Promise.resolve(jsonResponse({provisioners: []}));
+        return Promise.resolve(jsonResponse({provisioners: [], installation_runners: 'none'}));
       }
       return Promise.resolve(
         jsonResponse({
@@ -181,7 +181,7 @@ describe('WorkspaceProvisionerTokensSettingsSection', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
       if (request.url.endsWith('/provisioners/active')) {
-        return Promise.resolve(jsonResponse({provisioners: []}));
+        return Promise.resolve(jsonResponse({provisioners: [], installation_runners: 'none'}));
       }
       return Promise.resolve(jsonResponse({tokens: [provisionerToken({name: tokenName})]}));
     });
@@ -206,7 +206,7 @@ describe('WorkspaceProvisionerTokensSettingsSection', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
       if (request.url.endsWith('/provisioners/active')) {
-        return Promise.resolve(jsonResponse({provisioners: []}));
+        return Promise.resolve(jsonResponse({provisioners: [], installation_runners: 'none'}));
       }
       if (request.method === 'POST' && request.url.endsWith('/provisioners/tokens')) {
         return Promise.resolve(
@@ -241,6 +241,7 @@ describe('WorkspaceProvisionerTokensSettingsSection', () => {
         return Promise.resolve(
           jsonResponse({
             provisioners: [activeProvisioner({id: activeId, name: 'Active provisioner'})],
+            installation_runners: 'none',
           }),
         );
       }
@@ -306,7 +307,7 @@ describe('WorkspaceProvisionerTokensSettingsSection', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
       if (request.url.endsWith('/provisioners/active')) {
-        return Promise.resolve(jsonResponse({provisioners: []}));
+        return Promise.resolve(jsonResponse({provisioners: [], installation_runners: 'none'}));
       }
       if (request.method === 'POST' && request.url.includes('/revoke')) {
         tokens = [];
@@ -339,7 +340,7 @@ describe('WorkspaceProvisionerTokensSettingsSection', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
       if (request.url.endsWith('/provisioners/active')) {
-        return Promise.resolve(jsonResponse({provisioners: []}));
+        return Promise.resolve(jsonResponse({provisioners: [], installation_runners: 'none'}));
       }
       if (request.method === 'POST' && request.url.includes('/revoke')) {
         return Promise.resolve(
