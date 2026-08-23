@@ -236,6 +236,41 @@ describe('createStepCheckoutSpec', () => {
     });
   });
 
+  it('falls through to the dev commit when a same-project trigger has no commit', async () => {
+    const project = projectFactory.build();
+    const devCommit = 'b'.repeat(40);
+    const triggerReference = {...triggerReferenceFor(project.id), commit: null};
+    const step = checkoutStep({permissions: {contents: 'read'}});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: devCommit,
+    });
+
+    await createStepCheckoutSpec({
+      run: devRun(devCommit),
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      triggerReference,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      ref: devCommit,
+      permissions: {contents: 'read'},
+    });
+  });
+
   it('keeps the provider default ref for a cross-repository target', async () => {
     const project = projectFactory.build();
     const targetProjectId = crypto.randomUUID();
