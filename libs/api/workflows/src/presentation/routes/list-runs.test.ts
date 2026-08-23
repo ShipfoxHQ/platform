@@ -216,19 +216,7 @@ describe('GET /api/workflows/runs', () => {
       },
     });
     const initiatedByUserId = crypto.randomUUID();
-    await db()
-      .update(workflowRuns)
-      .set({
-        origin: 'dev',
-        devSource: {
-          ref: 'fix-triage-prompt',
-          commit: 'abc123',
-          configPath: '.shipfox/workflows/triage-sentry.yml',
-          initiatedByUserId,
-          replayOfEventId: null,
-        },
-      })
-      .where(eq(workflowRuns.id, devRun.id));
+    await markDevRun(devRun.id, initiatedByUserId);
 
     const res = await app.inject({
       method: 'GET',
@@ -345,6 +333,67 @@ describe('GET /api/workflows/runs', () => {
     expect(next.json().runs.map((run: {id: string}) => run.id)).toEqual([first.id]);
   });
 
+  test('keeps the origin filter across cursor pages', async () => {
+    const devFirst = await createRunAt({
+      workspaceId,
+      projectId,
+      name: 'Dev first',
+      createdAt: new Date('2026-05-07T00:00:00.000Z'),
+    });
+    await markDevRun(devFirst.id);
+    await createRunAt({
+      workspaceId,
+      projectId,
+      name: 'Synced middle one',
+      createdAt: new Date('2026-05-07T01:00:00.000Z'),
+    });
+    const devSecond = await createRunAt({
+      workspaceId,
+      projectId,
+      name: 'Dev second',
+      createdAt: new Date('2026-05-07T02:00:00.000Z'),
+    });
+    await markDevRun(devSecond.id);
+    await createRunAt({
+      workspaceId,
+      projectId,
+      name: 'Synced middle two',
+      createdAt: new Date('2026-05-07T03:00:00.000Z'),
+    });
+    const devThird = await createRunAt({
+      workspaceId,
+      projectId,
+      name: 'Dev third',
+      createdAt: new Date('2026-05-07T04:00:00.000Z'),
+    });
+    await markDevRun(devThird.id);
+
+    const firstPage = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs?project_id=${projectId}&origin=dev&limit=2`,
+    });
+
+    expect(firstPage.statusCode).toBe(200);
+    const firstBody = firstPage.json();
+    expect(firstBody.runs.map((run: {name: string}) => run.name)).toEqual([
+      'Dev third',
+      'Dev second',
+    ]);
+    expect(firstBody.runs.every((run: {origin: string}) => run.origin === 'dev')).toBe(true);
+    expect(firstBody.filtered_total_count).toBe(3);
+
+    const secondPage = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs?project_id=${projectId}&origin=dev&limit=2&cursor=${firstBody.next_cursor}`,
+    });
+
+    expect(secondPage.statusCode).toBe(200);
+    const secondBody = secondPage.json();
+    expect(secondBody.runs.map((run: {name: string}) => run.name)).toEqual(['Dev first']);
+    expect(secondBody.runs.every((run: {origin: string}) => run.origin === 'dev')).toBe(true);
+    expect(secondBody.next_cursor).toBeNull();
+  });
+
   test('invalid cursor returns stable client error', async () => {
     const res = await app.inject({
       method: 'GET',
@@ -396,4 +445,20 @@ async function createRunAt({
     .where(eq(workflowRuns.id, run.id));
 
   return {...run, createdAt, updatedAt: createdAt};
+}
+
+async function markDevRun(runId: string, initiatedByUserId = crypto.randomUUID()) {
+  await db()
+    .update(workflowRuns)
+    .set({
+      origin: 'dev',
+      devSource: {
+        ref: 'fix-triage-prompt',
+        commit: 'abc123',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: initiatedByUserId,
+        replay_of_event_id: null,
+      },
+    })
+    .where(eq(workflowRuns.id, runId));
 }

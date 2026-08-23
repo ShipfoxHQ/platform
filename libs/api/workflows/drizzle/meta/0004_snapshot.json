@@ -1666,6 +1666,14 @@
         "workflows_wr_current_attempt_positive_ck": {
           "name": "workflows_wr_current_attempt_positive_ck",
           "value": "\"workflows_workflow_runs\".\"current_attempt\" > 0"
+        },
+        "workflows_wr_origin_ck": {
+          "name": "workflows_wr_origin_ck",
+          "value": "\"workflows_workflow_runs\".\"origin\" in ('synced', 'dev')"
+        },
+        "workflows_wr_dev_source_ck": {
+          "name": "workflows_wr_dev_source_ck",
+          "value": "(\n        (\"workflows_workflow_runs\".\"origin\" = 'synced' and \"workflows_workflow_runs\".\"dev_source\" is null)\n        or (\n          \"workflows_workflow_runs\".\"origin\" = 'dev'\n          and \"workflows_workflow_runs\".\"dev_source\" is not null\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\") = 'object'\n          and \"workflows_workflow_runs\".\"dev_source\" ?& array[\n            'ref',\n            'commit',\n            'config_path',\n            'initiated_by_user_id',\n            'replay_of_event_id'\n          ]\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'ref') = 'string'\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'commit') = 'string'\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'config_path') = 'string'\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'initiated_by_user_id') = 'string'\n          and \"workflows_workflow_runs\".\"dev_source\"->>'initiated_by_user_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n          and (\n            jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'replay_of_event_id') = 'null'\n            or (\n              jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'replay_of_event_id') = 'string'\n              and \"workflows_workflow_runs\".\"dev_source\"->>'replay_of_event_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n            )\n          )\n        )\n      )"
         }
       },
       "isRLSEnabled": false

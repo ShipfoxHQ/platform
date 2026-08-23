@@ -155,9 +155,9 @@ describe('GET /api/workflows/runs/aggregates', () => {
         devSource: {
           ref: 'fix-triage-prompt',
           commit: 'abc123',
-          configPath: '.shipfox/workflows/triage-sentry.yml',
-          initiatedByUserId: crypto.randomUUID(),
-          replayOfEventId: null,
+          config_path: '.shipfox/workflows/triage-sentry.yml',
+          initiated_by_user_id: crypto.randomUUID(),
+          replay_of_event_id: null,
         },
       })
       .where(eq(workflowRuns.id, devRun.id));

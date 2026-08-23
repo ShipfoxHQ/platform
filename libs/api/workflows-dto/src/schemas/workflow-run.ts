@@ -114,7 +114,7 @@ export const workflowRunTriggerReferenceSchema = z.object({
 
 export type WorkflowRunTriggerReferenceDto = z.infer<typeof workflowRunTriggerReferenceSchema>;
 
-export const workflowRunDtoSchema = z.object({
+export const workflowRunDtoFields = {
   id: z.string().uuid(),
   project_id: z.string().uuid(),
   definition_id: z.string().uuid(),
@@ -122,8 +122,9 @@ export const workflowRunDtoSchema = z.object({
   name: z.string(),
   workflow_name: z.string(),
   status: workflowRunStatusSchema,
-  origin: workflowRunOriginSchema,
-  dev_source: workflowRunDevSourceSchema.nullable(),
+  // These defaults keep the response contract compatible while API and web deploys overlap.
+  origin: workflowRunOriginSchema.optional().default('synced'),
+  dev_source: workflowRunDevSourceSchema.nullable().optional().default(null),
   current_attempt: z.number().int().positive(),
   latest_attempt: z.number().int().positive(),
   trigger_provider: z.string().nullable(),
@@ -137,7 +138,31 @@ export const workflowRunDtoSchema = z.object({
   updated_at: z.string(),
   started_at: z.string().nullable(),
   finished_at: z.string().nullable(),
-});
+};
+
+export function validateWorkflowRunOrigin(
+  value: {origin: WorkflowRunOriginDto; dev_source: WorkflowRunDevSourceDto | null},
+  ctx: z.RefinementCtx,
+) {
+  if (value.origin === 'synced' && value.dev_source !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Synced runs cannot include dev_source',
+      path: ['dev_source'],
+    });
+  }
+  if (value.origin === 'dev' && value.dev_source === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Dev runs require dev_source',
+      path: ['dev_source'],
+    });
+  }
+}
+
+export const workflowRunDtoSchema = z
+  .object(workflowRunDtoFields)
+  .superRefine(validateWorkflowRunOrigin);
 
 export type WorkflowRunDto = z.infer<typeof workflowRunDtoSchema>;
 
@@ -180,7 +205,7 @@ export const workflowRunJobSummaryDtoSchema = z.object({
   position: z.number().int().nonnegative(),
 });
 
-export type WorkflowRunJobSummaryDto = z.input<typeof workflowRunJobSummaryDtoSchema>;
+export type WorkflowRunJobSummaryDto = z.output<typeof workflowRunJobSummaryDtoSchema>;
 
 /**
  * How many jobs a run list row carries in graph order.
@@ -210,27 +235,30 @@ export type WorkflowRunJobDisplayStatusCountDto = z.infer<
   typeof workflowRunJobDisplayStatusCountDtoSchema
 >;
 
-export const workflowRunListItemSchema = workflowRunResponseSchema.extend({
-  /** Up to `WORKFLOW_RUN_JOB_PREVIEW_LIMIT` jobs in graph order, not the whole set. */
-  jobs: z.array(workflowRunJobSummaryDtoSchema).max(WORKFLOW_RUN_JOB_PREVIEW_LIMIT),
-  /** Persisted verdict counts, kept stable so older web clients can consume new responses. */
-  job_status_counts: z.array(workflowRunJobStatusCountDtoSchema),
-  /**
-   * Display-state counts over every job of the attempt, including those past the preview.
-   * Optional so a new web client can consume an older API response during rollout.
-   */
-  job_display_status_counts: z.array(workflowRunJobDisplayStatusCountDtoSchema).optional(),
-  /**
-   * Whether any job execution in the attempt reached its runner. A `cancelled` job does not say
-   * this on its own, so the counts above cannot answer it.
-   *
-   * Defaults to started, so an older API response during a rollout keeps the reading a run had
-   * before this field existed rather than claiming work that ran never began.
-   */
-  has_started_job_execution: z.boolean().optional().default(true),
-});
+export const workflowRunListItemSchema = z
+  .object({
+    ...workflowRunDtoFields,
+    /** Up to `WORKFLOW_RUN_JOB_PREVIEW_LIMIT` jobs in graph order, not the whole set. */
+    jobs: z.array(workflowRunJobSummaryDtoSchema).max(WORKFLOW_RUN_JOB_PREVIEW_LIMIT),
+    /** Persisted verdict counts, kept stable so older web clients can consume new responses. */
+    job_status_counts: z.array(workflowRunJobStatusCountDtoSchema),
+    /**
+     * Display-state counts over every job of the attempt, including those past the preview.
+     * Optional so a new web client can consume an older API response during rollout.
+     */
+    job_display_status_counts: z.array(workflowRunJobDisplayStatusCountDtoSchema).optional(),
+    /**
+     * Whether any job execution in the attempt reached its runner. A `cancelled` job does not say
+     * this on its own, so the counts above cannot answer it.
+     *
+     * Defaults to started, so an older API response during a rollout keeps the reading a run had
+     * before this field existed rather than claiming work that ran never began.
+     */
+    has_started_job_execution: z.boolean().optional().default(true),
+  })
+  .superRefine(validateWorkflowRunOrigin);
 
-export type WorkflowRunListItemDto = z.input<typeof workflowRunListItemSchema>;
+export type WorkflowRunListItemDto = z.output<typeof workflowRunListItemSchema>;
 
 export const workflowRunListResponseSchema = z.object({
   runs: z.array(workflowRunListItemSchema),
@@ -238,7 +266,7 @@ export const workflowRunListResponseSchema = z.object({
   filtered_total_count: z.number().int().nonnegative().nullable(),
 });
 
-export type WorkflowRunListResponseDto = z.input<typeof workflowRunListResponseSchema>;
+export type WorkflowRunListResponseDto = z.output<typeof workflowRunListResponseSchema>;
 
 const aggregateBucketSchema = z.object({
   value: z.string(),

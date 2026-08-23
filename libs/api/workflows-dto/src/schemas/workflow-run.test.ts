@@ -34,6 +34,8 @@ const baseRun = {
   finished_at: null,
 };
 
+const {origin: _origin, dev_source: _devSource, ...legacyRun} = baseRun;
+
 describe('workflow source snapshot schemas', () => {
   test('accepts YAML source snapshots', () => {
     const result = workflowSourceSnapshotSchema.parse({
@@ -104,8 +106,8 @@ describe('workflow run trigger reference schema', () => {
 });
 
 describe('workflow run origin schemas', () => {
-  test('defaults to synced runs with no dev provenance', () => {
-    const result = workflowRunDtoSchema.parse({...baseRun, source_snapshot: null});
+  test('defaults missing origin fields for a legacy response', () => {
+    const result = workflowRunDtoSchema.parse({...legacyRun, source_snapshot: null});
 
     expect(result.origin).toBe('synced');
     expect(result.dev_source).toBeNull();
@@ -149,6 +151,33 @@ describe('workflow run origin schemas', () => {
     expect(result.dev_source?.replay_of_event_id).toBeNull();
   });
 
+  test('rejects synced runs with dev provenance', () => {
+    const result = workflowRunDtoSchema.safeParse({
+      ...baseRun,
+      source_snapshot: null,
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abc123',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '55555555-5555-4555-8555-555555555555',
+        replay_of_event_id: null,
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects dev runs without provenance', () => {
+    const result = workflowRunDtoSchema.safeParse({
+      ...baseRun,
+      source_snapshot: null,
+      origin: 'dev',
+      dev_source: null,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   test('rejects an unknown origin value', () => {
     const result = workflowRunDtoSchema.safeParse({...baseRun, origin: 'staging'});
 
@@ -182,6 +211,23 @@ describe('workflow run origin schemas', () => {
         config_path: '.shipfox/workflows/triage-sentry.yml',
         initiated_by_user_id: 'not-a-uuid',
         replay_of_event_id: null,
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects a non-uuid replayed event id', () => {
+    const result = workflowRunDtoSchema.safeParse({
+      ...baseRun,
+      source_snapshot: null,
+      origin: 'dev',
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abc123',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '55555555-5555-4555-8555-555555555555',
+        replay_of_event_id: 'not-a-uuid',
       },
     });
 

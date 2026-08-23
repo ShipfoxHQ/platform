@@ -19,6 +19,10 @@ export interface WorkflowRunDevSource {
   replayOfEventId: string | null;
 }
 
+export type WorkflowRunOriginState =
+  | {origin: 'synced'; devSource: null}
+  | {origin: 'dev'; devSource: WorkflowRunDevSource};
+
 export type TerminalWorkflowRunStatus = Extract<
   WorkflowRunStatus,
   'succeeded' | 'failed' | 'cancelled'
@@ -74,7 +78,7 @@ export type TriggerPayload =
       data: unknown;
     };
 
-export interface WorkflowRun {
+export type WorkflowRun = WorkflowRunOriginState & {
   id: string;
   workspaceId: string;
   projectId: string;
@@ -87,10 +91,6 @@ export interface WorkflowRun {
   /** Nullable resolved override retained for rerun fidelity. */
   nameOverride: string | null;
   status: WorkflowRunStatus;
-  /** Where the run's definition came from: a synced default-branch file or a dev ref. */
-  origin: WorkflowRunOrigin;
-  /** Dev provenance; null for synced runs. */
-  devSource: WorkflowRunDevSource | null;
   currentAttempt: number;
   triggerProvider: string | null;
   triggerSource: string;
@@ -107,7 +107,7 @@ export interface WorkflowRun {
   updatedAt: Date;
   startedAt: Date | null;
   finishedAt: Date | null;
-}
+};
 
 export interface StepDetail extends Step {
   attempts: StepAttempt[];
@@ -121,11 +121,11 @@ export interface WorkflowJobDetail extends Job {
   jobExecutions: JobExecutionDetail[];
 }
 
-export interface WorkflowRunDetail extends WorkflowRun {
+export type WorkflowRunDetail = WorkflowRun & {
   runAttempt: WorkflowRunAttempt;
   latestAttempt: number;
   jobs: WorkflowJobDetail[];
   /** Whether any job execution of this attempt reached its runner, decided here so the detail
    * and the list cannot answer it differently. */
   hasStartedJobExecution: boolean;
-}
+};
