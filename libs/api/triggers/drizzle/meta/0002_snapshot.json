@@ -1,6 +1,6 @@
 {
-  "id": "96a3c38e-b63d-4ab1-8519-4d2c0db11389",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "8b1be2f7-0c61-47f4-a738-a35ee1e04a3a",
+  "prevId": "afe02293-9f01-43c2-ae93-9de4660f7697",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -90,12 +90,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "triggers_decisions_subscription_kind_ck": {
-          "name": "triggers_decisions_subscription_kind_ck",
-          "value": "\"triggers_decisions\".\"subscription_kind\" IN ('trigger', 'listener')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.triggers_decisions": {
@@ -125,7 +120,7 @@
           "name": "subscription_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "subscription_name": {
           "name": "subscription_name",
@@ -230,6 +225,22 @@
           "method": "btree",
           "with": {}
         },
+        "triggers_decisions_dev_event_unique": {
+          "name": "triggers_decisions_dev_event_unique",
+          "columns": [
+            {
+              "expression": "received_event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"triggers_decisions\".\"subscription_kind\" = 'dev'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "triggers_decisions_run_idx": {
           "name": "triggers_decisions_run_idx",
           "columns": [
@@ -260,7 +271,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "triggers_decisions_subscription_kind_ck": {
+          "name": "triggers_decisions_subscription_kind_ck",
+          "value": "\"triggers_decisions\".\"subscription_kind\" IN ('trigger', 'listener', 'dev')"
+        },
+        "triggers_decisions_subscription_id_ck": {
+          "name": "triggers_decisions_subscription_id_ck",
+          "value": "(\"triggers_decisions\".\"subscription_kind\" = 'dev' AND \"triggers_decisions\".\"subscription_id\" IS NULL) OR (\"triggers_decisions\".\"subscription_kind\" IN ('trigger', 'listener') AND \"triggers_decisions\".\"subscription_id\" IS NOT NULL)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.triggers_job_listener_subscriptions": {
@@ -315,7 +335,7 @@
           "name": "event",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "config": {
           "name": "config",
@@ -584,6 +604,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "replay_of_event_id": {
+          "name": "replay_of_event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "delivery_id": {
           "name": "delivery_id",
           "type": "text",
@@ -735,6 +761,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "triggers_received_events_replay_of_event_id_idx": {
+          "name": "triggers_received_events_replay_of_event_id_idx",
+          "columns": [
+            {
+              "expression": "replay_of_event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"triggers_received_events\".\"replay_of_event_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -789,7 +831,7 @@
           "name": "event",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "config": {
           "name": "config",

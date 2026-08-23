@@ -15,6 +15,13 @@
       "when": 1787484039797,
       "tag": "0001_nullable_subscription_events",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787490844783,
+      "tag": "0002_dev_trigger_journal",
+      "breakpoints": true
     }
   ]
 }

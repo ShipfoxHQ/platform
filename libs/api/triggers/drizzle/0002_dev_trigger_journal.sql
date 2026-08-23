@@ -1,0 +1,7 @@
+ALTER TABLE "triggers_decisions" DROP CONSTRAINT "triggers_decisions_subscription_kind_ck";--> statement-breakpoint
+ALTER TABLE "triggers_decisions" ALTER COLUMN "subscription_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "triggers_received_events" ADD COLUMN "replay_of_event_id" uuid;--> statement-breakpoint
+CREATE UNIQUE INDEX "triggers_decisions_dev_event_unique" ON "triggers_decisions" USING btree ("received_event_id") WHERE "triggers_decisions"."subscription_kind" = 'dev';--> statement-breakpoint
+CREATE INDEX "triggers_received_events_replay_of_event_id_idx" ON "triggers_received_events" USING btree ("replay_of_event_id") WHERE "triggers_received_events"."replay_of_event_id" IS NOT NULL;--> statement-breakpoint
+ALTER TABLE "triggers_decisions" ADD CONSTRAINT "triggers_decisions_subscription_id_ck" CHECK (("triggers_decisions"."subscription_kind" = 'dev' AND "triggers_decisions"."subscription_id" IS NULL) OR ("triggers_decisions"."subscription_kind" IN ('trigger', 'listener') AND "triggers_decisions"."subscription_id" IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "triggers_decisions" ADD CONSTRAINT "triggers_decisions_subscription_kind_ck" CHECK ("triggers_decisions"."subscription_kind" IN ('trigger', 'listener', 'dev'));
