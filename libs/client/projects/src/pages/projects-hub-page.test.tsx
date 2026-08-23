@@ -12,9 +12,34 @@ const NEW_PROJECT_REGEX = /New project/i;
 const WORKSPACE_PROJECTS_NEW_HREF = `/w/${PROJECT_TEST_WSLUG}/projects/new`;
 const CONNECTION_ID = '33333333-3333-4333-8333-333333333333';
 
+function StubWorkspaceSetupChecklist() {
+  return <section aria-label="Workspace setup checklist">Workspace setup checklist</section>;
+}
+
 describe('ProjectsHubPage', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+  });
+
+  test('renders the workspace setup checklist before the projects panel', async () => {
+    configureApiClient({
+      fetchImpl: createHubFetch({
+        projects: jsonResponse({projects: [], next_cursor: null}),
+        modelProviders: jsonResponse(modelProviderConfigsDto()),
+      }),
+    });
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />, undefined, {
+      WorkspaceSetupChecklist: StubWorkspaceSetupChecklist,
+    });
+
+    expect(await screen.findByText('Create your first project')).toBeInTheDocument();
+    const checklist = screen.getByRole('region', {name: 'Workspace setup checklist'});
+    const projects = screen.getByRole('region', {name: 'Projects'});
+
+    expect(checklist.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   test('renders the Projects panel controls and empty state with create CTA', async () => {

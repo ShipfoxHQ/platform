@@ -5,6 +5,7 @@ import {
   IntegrationIcon,
   useIntegrationConnectionsQuery,
 } from '@shipfox/client-integrations';
+import {useChrome} from '@shipfox/client-shell/runtime';
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -29,6 +30,7 @@ import {useProjectsInfiniteQuery} from '#hooks/api/projects.js';
 
 export function ProjectsHubPage({search = ''}: {search?: string}) {
   const workspace = useActiveWorkspace();
+  const {WorkspaceSetupChecklist} = useChrome();
   const navigate = useNavigate();
   const query = useProjectsInfiniteQuery(workspace.id, search || undefined);
   const projects = query.data?.pages.flatMap((page) => page.projects) ?? [];
@@ -49,6 +51,7 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
 
   return (
     <div className="flex w-full flex-col gap-section">
+      {WorkspaceSetupChecklist ? <WorkspaceSetupChecklist /> : null}
       <ModelProviderReminderBanner workspaceId={workspace.id} />
 
       <section aria-label="Projects">

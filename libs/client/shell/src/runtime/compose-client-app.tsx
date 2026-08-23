@@ -17,6 +17,7 @@ import {composeClientFeatures} from '#compose/compose-client-features.js';
 import type {ClientFeature} from '#contract.js';
 import {useAuthState} from './auth.js';
 import {ChromeProvider, type ChromeSlots} from './chrome-context.js';
+import {type ClientAnalytics, ClientAnalyticsProvider} from './client-analytics.js';
 import {ShellProviderStack} from './provider-stack.js';
 import type {WorkspaceSetupGate} from './workspace-setup.js';
 
@@ -25,11 +26,13 @@ export function composeClientApp({
   router,
   chrome,
   workspaceSetup,
+  clientAnalytics,
 }: {
   features: readonly ClientFeature[];
   router: AnyRouter;
   chrome?: ChromeSlots;
   workspaceSetup?: WorkspaceSetupGate;
+  clientAnalytics?: ClientAnalytics;
 }) {
   const composition = composeClientFeatures(features);
   const config = loadConfig(composition.configShape, {
@@ -39,8 +42,9 @@ export function composeClientApp({
   if (config.ok) setLoadedConfig(config.config);
 
   return {
-    mount(element: HTMLElement): void {
+    mount(element: HTMLElement): () => void {
       const root = createRoot(element);
+      const unmount = () => root.unmount();
       if (!config.ok) {
         root.render(
           <StrictMode>
@@ -51,7 +55,7 @@ export function composeClientApp({
             </ThemeProvider>
           </StrictMode>,
         );
-        return;
+        return unmount;
       }
 
       configureApiClient({baseUrl: configApiUrl(config.config)});
@@ -59,18 +63,25 @@ export function composeClientApp({
       root.render(
         <StrictMode>
           <ChromeProvider chrome={chrome}>
-            <ShellProviderStack features={features} queryClient={queryClient} store={createStore()}>
-              <RoutedApp
-                router={router}
+            <ClientAnalyticsProvider {...(clientAnalytics ? {analytics: clientAnalytics} : {})}>
+              <ShellProviderStack
+                features={features}
                 queryClient={queryClient}
-                workspaceSetup={workspaceSetup}
-                projectSlugResolver={chrome?.projectSlugResolver}
-              />
-              <Toaster />
-            </ShellProviderStack>
+                store={createStore()}
+              >
+                <RoutedApp
+                  router={router}
+                  queryClient={queryClient}
+                  workspaceSetup={workspaceSetup}
+                  projectSlugResolver={chrome?.projectSlugResolver}
+                />
+                <Toaster />
+              </ShellProviderStack>
+            </ClientAnalyticsProvider>
           </ChromeProvider>
         </StrictMode>,
       );
+      return unmount;
     },
   };
 }

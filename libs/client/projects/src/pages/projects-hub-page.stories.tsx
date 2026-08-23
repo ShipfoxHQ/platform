@@ -1,5 +1,6 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {type AuthState, authStateAtom} from '@shipfox/client-auth';
+import {ChromeProvider} from '@shipfox/client-shell/runtime';
 import {Toaster} from '@shipfox/react-ui/toast';
 import type {Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -50,16 +51,23 @@ function ProjectsHubPageStory({scenario}: {scenario: Scenario}) {
   const router = useMemo(() => createStoryRouter(), []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <JotaiProvider store={store}>
-        <div className="min-h-screen bg-background-subtle-base px-24 py-32">
-          <div className="mx-auto w-full max-w-[1120px]">
-            <RouterProvider router={router} />
+    <ChromeProvider
+      chrome={{
+        ProjectBreadcrumb: () => null,
+        projectSlugResolver: async () => undefined,
+      }}
+    >
+      <QueryClientProvider client={queryClient}>
+        <JotaiProvider store={store}>
+          <div className="min-h-screen bg-background-subtle-base px-24 py-32">
+            <div className="mx-auto w-full max-w-[1120px]">
+              <RouterProvider router={router} />
+            </div>
           </div>
-        </div>
-        <Toaster />
-      </JotaiProvider>
-    </QueryClientProvider>
+          <Toaster />
+        </JotaiProvider>
+      </QueryClientProvider>
+    </ChromeProvider>
   );
 }
 

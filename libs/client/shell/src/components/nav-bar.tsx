@@ -7,7 +7,7 @@ import {WorkspaceCrumb} from './workspace-crumb.js';
 
 export function NavBar({hideProjectNavigation = false}: {hideProjectNavigation?: boolean}) {
   const workspace = useActiveWorkspace();
-  const {ProjectBreadcrumb} = useChrome();
+  const {ProjectBreadcrumb, WorkspaceSetupIndicator} = useChrome();
   return (
     <header className="sticky top-0 z-30 h-56 px-row flex items-center gap-cluster bg-background-subtle-base border-b border-border-neutral-base shrink-0">
       <Link
@@ -32,6 +32,7 @@ export function NavBar({hideProjectNavigation = false}: {hideProjectNavigation?:
             /
           </span>
           <ProjectBreadcrumb />
+          {WorkspaceSetupIndicator ? <WorkspaceSetupIndicator /> : undefined}
         </>
       )}
       <div className="flex-1" />

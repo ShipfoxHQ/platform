@@ -2,7 +2,7 @@
 
 - **Status:** Accepted.
 - **Date:** 2026-08-10.
-- **Decision owners:** E1 platform composition seams and client architecture.
+- **Decision owners:** Client composition maintainers and client architecture.
 - **Linear issue:** [ENG-1582](https://linear.app/shipfox/issue/ENG-1582/declare-a-frame-on-every-route).
 - **Amends:** [ADR 0001: Public client composition contract](0001-client-composition-contract.md).
 
