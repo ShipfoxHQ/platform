@@ -3,10 +3,11 @@ import {createContext, useContext, useMemo} from 'react';
 
 /**
  * Application-provided UI analytics. Call `capture` from an effect or event
- * handler, not during render. The provider isolates implementation failures.
+ * handler, not during render. The provider isolates synchronous and
+ * asynchronous implementation failures.
  */
 export interface ClientAnalytics {
-  capture(event: string, properties?: Record<string, unknown>): void;
+  capture(event: string, properties?: Record<string, unknown>): void | PromiseLike<void>;
 }
 
 /** Analytics that discards every event; the default for self-hosted builds. */
@@ -42,7 +43,7 @@ function createSafeClientAnalytics(analytics: ClientAnalytics): ClientAnalytics 
   return {
     capture(event, properties) {
       try {
-        analytics.capture(event, properties);
+        void Promise.resolve(analytics.capture(event, properties)).catch(() => undefined);
       } catch {
         // Optional analytics must not interrupt a feature render or user action.
       }

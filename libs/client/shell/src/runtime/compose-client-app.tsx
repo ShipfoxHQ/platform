@@ -42,8 +42,9 @@ export function composeClientApp({
   if (config.ok) setLoadedConfig(config.config);
 
   return {
-    mount(element: HTMLElement): void {
+    mount(element: HTMLElement): () => void {
       const root = createRoot(element);
+      const unmount = () => root.unmount();
       if (!config.ok) {
         root.render(
           <StrictMode>
@@ -54,7 +55,7 @@ export function composeClientApp({
             </ThemeProvider>
           </StrictMode>,
         );
-        return;
+        return unmount;
       }
 
       configureApiClient({baseUrl: configApiUrl(config.config)});
@@ -80,6 +81,7 @@ export function composeClientApp({
           </ChromeProvider>
         </StrictMode>,
       );
+      return unmount;
     },
   };
 }

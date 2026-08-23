@@ -4,7 +4,7 @@ import {act, screen} from '@testing-library/react';
 import {useEffect} from 'react';
 import {defineClientFeature} from '#contract.js';
 import {composeClientApp} from '#runtime/compose-client-app.js';
-import {noopClientAnalytics, useClientAnalytics} from '#runtime/index.js';
+import {type ClientAnalytics, noopClientAnalytics, useClientAnalytics} from '#runtime/index.js';
 import {renderComposedShell} from '#test/render.js';
 import {defineRoute} from './define-route.js';
 
@@ -23,9 +23,7 @@ function analyticsFeature() {
   });
 }
 
-async function renderAnalyticsProbe(options: {
-  capture?: (event: string, properties?: Record<string, unknown>) => void;
-}) {
+async function renderAnalyticsProbe(options: {capture?: ClientAnalytics['capture']}) {
   await renderComposedShell({
     features: [analyticsFeature()],
     initialPath: '/w/workspace/analytics',
@@ -61,26 +59,41 @@ describe('ClientAnalytics', () => {
     expect(capture).toHaveBeenCalledWith('probe_event', {source: 'probe'});
   });
 
-  test('wires injected analytics through composeClientApp', async () => {
-    const capture = vi.fn();
-    const element = await renderComposedApp({capture});
+  test('contains failures from an asynchronously rejected implementation', async () => {
+    const capture = vi.fn(() => Promise.reject(new Error('analytics unavailable asynchronously')));
+    await renderAnalyticsProbe({capture});
 
     expect(await screen.findByRole('heading', {name: 'Analytics probe'})).toBeVisible();
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(capture).toHaveBeenCalledWith('probe_event', {source: 'probe'});
-    element.remove();
+  });
+
+  test('wires injected analytics through composeClientApp', async () => {
+    const capture = vi.fn();
+    const dispose = renderComposedApp({capture});
+
+    try {
+      expect(await screen.findByRole('heading', {name: 'Analytics probe'})).toBeVisible();
+      expect(capture).toHaveBeenCalledWith('probe_event', {source: 'probe'});
+    } finally {
+      dispose();
+    }
   });
 
   test('uses the no-op analytics implementation when composeClientApp receives none', async () => {
-    const element = await renderComposedApp({});
+    const dispose = renderComposedApp({});
 
-    expect(await screen.findByRole('heading', {name: 'Analytics probe'})).toBeVisible();
-    element.remove();
+    try {
+      expect(await screen.findByRole('heading', {name: 'Analytics probe'})).toBeVisible();
+    } finally {
+      dispose();
+    }
   });
 });
 
-async function renderComposedApp(options: {
-  capture?: (event: string, properties?: Record<string, unknown>) => void;
-}) {
+function renderComposedApp(options: {capture?: ClientAnalytics['capture']}): () => void {
   window.__SHIPFOX_CONFIG__ = {API_URL: 'https://api.example.test'};
   const element = document.createElement('div');
   document.body.append(element);
@@ -95,6 +108,12 @@ async function renderComposedApp(options: {
     ...(options.capture ? {clientAnalytics: {capture: options.capture}} : {}),
   });
 
-  await act(async () => app.mount(element));
-  return element;
+  let unmount!: () => void;
+  act(() => {
+    unmount = app.mount(element);
+  });
+  return () => {
+    unmount();
+    element.remove();
+  };
 }

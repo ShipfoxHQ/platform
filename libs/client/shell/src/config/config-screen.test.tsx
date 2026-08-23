@@ -15,11 +15,18 @@ describe('composed config', () => {
       router: {} as never,
     });
 
-    await act(async () => app.mount(element));
+    let unmount!: () => void;
+    act(() => {
+      unmount = app.mount(element);
+    });
 
-    expect(await screen.findByRole('heading', {name: 'Configuration error'})).toBeVisible();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    element.remove();
+    try {
+      expect(await screen.findByRole('heading', {name: 'Configuration error'})).toBeVisible();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+      element.remove();
+    }
   });
 
   test('loads a present feature config value into the shared config', () => {
