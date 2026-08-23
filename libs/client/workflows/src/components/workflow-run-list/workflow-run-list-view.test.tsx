@@ -173,6 +173,42 @@ describe('WorkflowRunListView', () => {
       expect(trigger).toHaveAccessibleName('Status: Failed filter');
     });
 
+    test('narrows the list to the dev origin and clears back to all on re-select', async () => {
+      const user = userEvent.setup();
+      renderListView([
+        run('succeeded', 'deploy-web', 'run-1'),
+        run('succeeded', 'triage-sentry', 'run-2', devRunOverrides()),
+      ]);
+
+      await selectFilterOption(user, 'Origin', 'Dev');
+
+      expect(screen.getByText('triage-sentry')).toBeInTheDocument();
+      expect(screen.queryByText('deploy-web')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', {name: filterTrigger('Origin')})).toHaveTextContent(
+        'Origin: Dev',
+      );
+
+      // The origin facet is single-valued: picking Dev again returns to "all".
+      await selectFilterOption(user, 'Origin', 'Dev');
+
+      expect(screen.getByText('deploy-web')).toBeInTheDocument();
+      expect(screen.getByText('triage-sentry')).toBeInTheDocument();
+    });
+
+    test('replaces the dev origin with synced instead of stacking selections', async () => {
+      const user = userEvent.setup();
+      renderListView([
+        run('succeeded', 'deploy-web', 'run-1'),
+        run('succeeded', 'triage-sentry', 'run-2', devRunOverrides()),
+      ]);
+
+      await selectFilterOption(user, 'Origin', 'Dev');
+      await selectFilterOption(user, 'Origin', 'Synced');
+
+      expect(screen.getByText('deploy-web')).toBeInTheDocument();
+      expect(screen.queryByText('triage-sentry')).not.toBeInTheDocument();
+    });
+
     test('restores every row after the filters are cleared', async () => {
       const user = userEvent.setup();
       renderListView([
@@ -323,6 +359,26 @@ describe('WorkflowRunListView', () => {
       expect(await screen.findByText('release/v2')).toBeInTheDocument();
       expect(screen.getByText('abcdef1')).toBeInTheDocument();
       expect(screen.getByText('octocat')).toBeInTheDocument();
+    });
+
+    test('labels a dev run with a Dev badge and its ref and commit from the dev source', async () => {
+      renderListView([run('succeeded', 'triage-sentry', 'run-1', devRunOverrides())]);
+
+      expect(await screen.findByText('triage-sentry')).toBeInTheDocument();
+      expect(screen.getByText('Dev')).toBeInTheDocument();
+      // No trigger reference: the row's branch and commit come from the dev source.
+      expect(screen.getByText('fix-triage-prompt')).toBeInTheDocument();
+      expect(screen.getByText('abcdef1')).toBeInTheDocument();
+      expect(
+        screen.getByRole('link', {name: (name) => name.includes('dev run')}),
+      ).toBeInTheDocument();
+    });
+
+    test('shows no Dev badge on a synced run', async () => {
+      renderListView([run('succeeded', 'deploy-web', 'run-1')]);
+
+      expect(await screen.findByText('deploy-web')).toBeInTheDocument();
+      expect(screen.queryByText('Dev')).not.toBeInTheDocument();
     });
 
     test('shows a pull request ref by number rather than as a raw ref', async () => {
@@ -665,6 +721,20 @@ function reference(overrides: Partial<NonNullable<WorkflowRunListItem['triggerRe
     commit: 'abcdef1234567890',
     actor: 'octocat',
     ...overrides,
+  };
+}
+
+function devRunOverrides(): NonNullable<Parameters<typeof workflowRunListItem>[0]> {
+  return {
+    origin: 'dev',
+    trigger_reference: null,
+    dev_source: {
+      ref: 'fix-triage-prompt',
+      commit: 'abcdef1234567890abcdef1234567890abcdef12',
+      config_path: '.shipfox/workflows/triage-sentry.yml',
+      initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+      replay_of_event_id: null,
+    },
   };
 }
 

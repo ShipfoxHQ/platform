@@ -1,5 +1,15 @@
+import {authStateAtom} from '@shipfox/client-shell/runtime';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
 import {render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import {createStore, Provider as JotaiProvider} from 'jotai';
 import type {workflowRunDetailDto} from '#test/fixtures/workflow-run.js';
 import {
   workflowJobDto,
@@ -12,6 +22,9 @@ const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const RELATIVE_TIME_TEXT_PATTERN = /ago$/;
 const OLD_ROOT_TIME_TEXT_PATTERN = /(?:1d|24h) ago/;
 const COPY_RUN_BUTTON_NAME = /Copy run/;
+const DEV_BADGE_TEXT = 'Dev';
+const AT_SIGN_TEXT = /@/;
+const REPLAY_OF_TEXT = /Replay of/;
 
 const originalScrollWidth = Object.getOwnPropertyDescriptor(
   window.HTMLElement.prototype,
@@ -427,6 +440,110 @@ describe('WorkflowRunSummary', () => {
     expect(screen.queryByRole('button', {name: 'Re-run workflow'})).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Re-run jobs'})).not.toBeInTheDocument();
   });
+
+  test('keeps a synced run free of dev provenance', async () => {
+    renderSummary();
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).queryByText(DEV_BADGE_TEXT)).not.toBeInTheDocument();
+    expect(within(summary).queryByText(AT_SIGN_TEXT)).not.toBeInTheDocument();
+    expect(within(summary).queryByText('You')).not.toBeInTheDocument();
+    expect(within(summary).queryByText(REPLAY_OF_TEXT)).not.toBeInTheDocument();
+  });
+
+  test('shows branch and commit on the summary line of a synced run', async () => {
+    renderSummary({
+      trigger_source: 'github_acme',
+      trigger_event: 'push',
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        actor: 'octocat',
+      },
+    });
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getByText('main')).toBeInTheDocument();
+    expect(within(summary).getByText('abcdef1')).toBeInTheDocument();
+    expect(within(summary).queryByText(DEV_BADGE_TEXT)).not.toBeInTheDocument();
+  });
+
+  test('labels a dev run with the badge, ref @ commit, and its initiator', async () => {
+    renderSummary(devRunOverrides());
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getByText(DEV_BADGE_TEXT)).toBeInTheDocument();
+    expect(within(summary).getByText('fix-triage-prompt @ abcdef1')).toBeInTheDocument();
+    // Without auth context the initiator reads as the short user id.
+    expect(within(summary).getByText('99999999')).toBeInTheDocument();
+    expect(within(summary).queryByText('You')).not.toBeInTheDocument();
+    expect(within(summary).queryByText(REPLAY_OF_TEXT)).not.toBeInTheDocument();
+  });
+
+  test('reads the dev initiator as You for the current user', async () => {
+    const store = createStore();
+    store.set(authStateAtom, {
+      status: 'authenticated',
+      token: 'token',
+      user: {id: '99999999-9999-4999-8999-999999999999', email: 'me@example.com'},
+    });
+    const run = workflowRunDetail({...devRunOverrides()});
+
+    render(
+      <JotaiProvider store={store}>
+        <WorkflowRunSummary run={run} />
+      </JotaiProvider>,
+    );
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getByText('You')).toBeInTheDocument();
+    expect(within(summary).queryByText('99999999')).not.toBeInTheDocument();
+  });
+
+  test('links a dev replay run to its source event', async () => {
+    const EVENT_ID = '88888888-8888-4888-8888-888888888888';
+    const run = workflowRunDetail({
+      ...devRunOverrides(),
+      dev_source: {...devSourceDto(), replay_of_event_id: EVENT_ID},
+    });
+
+    renderSummaryWithRouter({run, workspaceSlug: 'acme', projectSlug: 'project'});
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    const link = within(summary).getByRole('link', {name: 'Replay of fire'});
+    expect(link).toHaveAttribute('href', '/w/acme/settings/events');
+  });
+
+  test('renders the replay provenance as text without navigation context', async () => {
+    const EVENT_ID = '88888888-8888-4888-8888-888888888888';
+    renderSummary({
+      ...devRunOverrides(),
+      dev_source: {...devSourceDto(), replay_of_event_id: EVENT_ID},
+    });
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).getByText('Replay of fire')).toBeInTheDocument();
+    expect(within(summary).queryByRole('link', {name: REPLAY_OF_TEXT})).not.toBeInTheDocument();
+  });
+
+  test('omits the replay provenance when the dev run replays no event', async () => {
+    renderSummaryWithRouter({
+      run: workflowRunDetail(devRunOverrides()),
+      workspaceSlug: 'acme',
+      projectSlug: 'project',
+    });
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(within(summary).queryByText(REPLAY_OF_TEXT)).not.toBeInTheDocument();
+  });
 });
 
 function renderSummary(
@@ -448,6 +565,57 @@ function renderSummary(
 
   // These cases never mount the attempt switcher links, so no router is needed.
   render(<WorkflowRunSummary run={run} {...props} />);
+}
+
+function devSourceDto() {
+  return {
+    ref: 'fix-triage-prompt',
+    commit: 'abcdef1234567890abcdef1234567890abcdef12',
+    config_path: '.shipfox/workflows/triage-sentry.yml',
+    initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+    replay_of_event_id: null,
+  };
+}
+
+function devRunOverrides(): Parameters<typeof workflowRunDetailDto>[0] {
+  return {
+    origin: 'dev',
+    trigger_reference: null,
+    dev_source: devSourceDto(),
+  };
+}
+
+/** Mounts the summary under a router that also carries the events settings route. */
+function renderSummaryWithRouter({
+  run,
+  workspaceSlug,
+  projectSlug,
+}: {
+  run: ReturnType<typeof workflowRunDetail>;
+  workspaceSlug: string;
+  projectSlug: string;
+}) {
+  const rootRoute = createRootRoute({component: Outlet});
+  const runRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
+    component: () => (
+      <WorkflowRunSummary run={run} workspaceSlug={workspaceSlug} projectSlug={projectSlug} />
+    ),
+  });
+  const eventsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/w/$workspaceSlug/settings/events',
+    component: () => null,
+  });
+  const router = createRouter({
+    history: createMemoryHistory({
+      initialEntries: [`/w/${workspaceSlug}/p/${projectSlug}/runs/${RUN_ID}`],
+    }),
+    routeTree: rootRoute.addChildren([runRoute, eventsRoute]),
+  });
+
+  render(<RouterProvider router={router} />);
 }
 
 function runningAttemptDto() {

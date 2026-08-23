@@ -17,7 +17,10 @@ export function WorkflowRunList({
   isFetchNextPageError,
   onLoadMore,
 }: WorkflowRunListProps) {
-  const query = useWorkflowRunsInfiniteQuery(projectId, {});
+  // The origin facet is the one filter the API honors (it is a column with an index, and the
+  // aggregates follow it); the rest stay client-side over the loaded pages. Passing it here
+  // keeps the facet working across full history instead of only the fetched window.
+  const query = useWorkflowRunsInfiniteQuery(projectId, {origin: search?.origin});
   const handleLoadMore = useCallback(() => {
     void query.fetchNextPage();
   }, [query.fetchNextPage]);

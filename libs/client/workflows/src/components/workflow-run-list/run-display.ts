@@ -9,7 +9,7 @@ import type {WorkflowRunListStatus, WorkflowRunsSearch} from '#routes/inputs.js'
 
 export type WorkflowRunFilterCriteria = Pick<
   WorkflowRunsSearch,
-  'search' | 'status' | 'branch' | 'actor' | 'event' | 'after' | 'before'
+  'search' | 'status' | 'origin' | 'branch' | 'actor' | 'event' | 'after' | 'before'
 >;
 
 /** The dimensions whose options are read off the loaded runs rather than a fixed enum. */
@@ -64,6 +64,9 @@ export function runMatchesFilters(
   criteria: WorkflowRunFilterCriteria,
 ): boolean {
   if (!runMatchesStatusFilter(run.status, criteria.status)) return false;
+  // The origin facet is also sent to the API, so this predicate only ever sees matching runs
+  // on the live page; it keeps the standalone view honest (stories, isolated tests).
+  if (criteria.origin && run.origin !== criteria.origin) return false;
   if (!matchesFacet(criteria.branch, workflowRunBranchLabel(run))) return false;
   if (!matchesFacet(criteria.actor, workflowRunActor(run))) return false;
   if (!matchesFacet(criteria.event, run.triggerEvent)) return false;

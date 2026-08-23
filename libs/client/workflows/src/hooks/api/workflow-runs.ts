@@ -29,6 +29,7 @@ import {
   type WorkflowRunDetail,
   type WorkflowRunListItem,
   type WorkflowRunListPage,
+  type WorkflowRunOrigin,
   type WorkflowRunRecord,
   type WorkflowRunStatus,
 } from '#core/workflow-run.js';
@@ -41,6 +42,7 @@ import {
 
 export interface WorkflowRunFilters {
   status?: WorkflowRunStatus | undefined;
+  origin?: WorkflowRunOrigin | undefined;
   definitionId?: string | undefined;
   triggerSource?: string | undefined;
   createdFrom?: string | undefined;
@@ -90,6 +92,7 @@ type WorkflowRunAttemptsQueryOptions = UseQueryOptions<
 function normalizeFilters(filters: WorkflowRunFilters) {
   return {
     status: filters.status ?? null,
+    origin: filters.origin ?? null,
     definitionId: filters.definitionId ?? null,
     triggerSource: filters.triggerSource ?? null,
     createdFrom: filters.createdFrom ?? null,
@@ -99,6 +102,7 @@ function normalizeFilters(filters: WorkflowRunFilters) {
 
 function appendFilters(params: URLSearchParams, filters: WorkflowRunFilters) {
   if (filters.status) params.set('status', filters.status);
+  if (filters.origin) params.set('origin', filters.origin);
   if (filters.definitionId) params.set('definition_id', filters.definitionId);
   if (filters.triggerSource) params.set('trigger_source', filters.triggerSource);
   if (filters.createdFrom) params.set('created_from', filters.createdFrom);
@@ -316,6 +320,9 @@ function filtersAcceptManualPendingRun(
   now: Date,
 ): boolean {
   if (filters.status && filters.status !== 'pending') return false;
+  // A manual fire of a synced definition is a synced run, so a dev-only list must not show
+  // the optimistic pending row.
+  if (filters.origin === 'dev') return false;
   if (filters.definitionId && filters.definitionId !== definitionId) return false;
   if (filters.triggerSource && filters.triggerSource !== 'manual') return false;
   if (filters.createdFrom && Date.parse(filters.createdFrom) > now.getTime()) return false;
@@ -339,6 +346,8 @@ function buildTempRun({
     id,
     projectId,
     definitionId,
+    origin: 'synced',
+    devSource: null,
     number: null,
     name,
     workflowName: name,
@@ -475,6 +484,7 @@ function readFiltersFromKey(queryKey: readonly unknown[]): WorkflowRunFilters | 
   const obj = normalized as Record<string, unknown>;
   return {
     status: (obj.status as WorkflowRunStatus | null) ?? undefined,
+    origin: (obj.origin as WorkflowRunOrigin | null) ?? undefined,
     definitionId: (obj.definitionId as string | null) ?? undefined,
     triggerSource: (obj.triggerSource as string | null) ?? undefined,
     createdFrom: (obj.createdFrom as string | null) ?? undefined,

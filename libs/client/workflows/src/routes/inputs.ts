@@ -9,6 +9,14 @@ export const WORKFLOW_RUN_LIST_STATUSES = ['succeeded', 'failed', 'running', 'ca
 
 export type WorkflowRunListStatus = (typeof WORKFLOW_RUN_LIST_STATUSES)[number];
 
+/**
+ * Origins the run list can filter by. Absent means all, matching the server's `origin`
+ * query parameter being optional; there is deliberately no `all` value.
+ */
+export const WORKFLOW_RUN_LIST_ORIGINS = ['synced', 'dev'] as const;
+
+export type WorkflowRunListOrigin = (typeof WORKFLOW_RUN_LIST_ORIGINS)[number];
+
 export const WORKFLOW_RUN_TABS = ['summary', 'jobs', 'annotations', 'source'] as const;
 
 export type WorkflowRunTab = (typeof WORKFLOW_RUN_TABS)[number];
@@ -24,6 +32,7 @@ export type WorkflowRunAnnotationSeverity = RunAnnotationSeverity;
 export interface WorkflowRunsSearch extends WorkflowRunSelectionInput {
   search?: string;
   status?: WorkflowRunListStatus[];
+  origin?: WorkflowRunListOrigin;
   branch?: string[];
   actor?: string[];
   event?: string[];
@@ -39,6 +48,7 @@ export interface WorkflowRunsSearch extends WorkflowRunSelectionInput {
 export type WorkflowJobSearch = Omit<WorkflowRunSelectionInput, 'jobId'>;
 
 const STATUS_VALUES = new Set<string>(WORKFLOW_RUN_LIST_STATUSES);
+const ORIGIN_VALUES = new Set<string>(WORKFLOW_RUN_LIST_ORIGINS);
 const TAB_VALUES = new Set<string>(WORKFLOW_RUN_TABS);
 const ANNOTATION_SEVERITY_VALUES = new Set<string>(WORKFLOW_RUN_ANNOTATION_SEVERITIES);
 const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
@@ -53,6 +63,11 @@ const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 export function validateWorkflowRunsSearch(input: Record<string, unknown>): WorkflowRunsSearch {
   const search = string(input.search);
   const status = repeatable(input.status).filter(isWorkflowRunListStatus);
+  const originValue = string(input.origin);
+  const origin =
+    originValue && ORIGIN_VALUES.has(originValue)
+      ? (originValue as WorkflowRunListOrigin)
+      : undefined;
   const branch = repeatable(input.branch);
   const actor = repeatable(input.actor);
   const event = repeatable(input.event);
@@ -70,6 +85,7 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
   return {
     ...(search ? {search} : {}),
     ...(status.length > 0 ? {status} : {}),
+    ...(origin ? {origin} : {}),
     ...(branch.length > 0 ? {branch} : {}),
     ...(actor.length > 0 ? {actor} : {}),
     ...(event.length > 0 ? {event} : {}),
@@ -101,6 +117,7 @@ export function workflowRunSearchParams(
   return {
     ...(search.search ? {search: search.search} : {}),
     ...(search.status?.length ? {status: search.status} : {}),
+    ...(search.origin ? {origin: search.origin} : {}),
     ...(search.branch?.length ? {branch: search.branch} : {}),
     ...(search.actor?.length ? {actor: search.actor} : {}),
     ...(search.event?.length ? {event: search.event} : {}),
@@ -139,6 +156,7 @@ export function workflowRunListSearchParams(search: WorkflowRunsSearch) {
 export interface WorkflowRunFilterPatch {
   search?: string | undefined;
   status?: WorkflowRunListStatus[] | undefined;
+  origin?: WorkflowRunListOrigin | undefined;
   branch?: string[] | undefined;
   actor?: string[] | undefined;
   event?: string[] | undefined;
@@ -160,6 +178,7 @@ export function applyWorkflowRunFilterPatch(
   const next: WorkflowRunsSearch = {...search};
   if ('search' in patch) setOrDelete(next, 'search', patch.search || undefined);
   if ('status' in patch) setOrDelete(next, 'status', nonEmptyList(patch.status));
+  if ('origin' in patch) setOrDelete(next, 'origin', patch.origin || undefined);
   if ('branch' in patch) setOrDelete(next, 'branch', nonEmptyList(patch.branch));
   if ('actor' in patch) setOrDelete(next, 'actor', nonEmptyList(patch.actor));
   if ('event' in patch) setOrDelete(next, 'event', nonEmptyList(patch.event));
@@ -173,6 +192,7 @@ export function clearWorkflowRunFilters(search: WorkflowRunsSearch): WorkflowRun
   return applyWorkflowRunFilterPatch(search, {
     search: undefined,
     status: undefined,
+    origin: undefined,
     branch: undefined,
     actor: undefined,
     event: undefined,
@@ -186,6 +206,7 @@ export function hasWorkflowRunFilters(search: WorkflowRunsSearch): boolean {
   return Boolean(
     search.search ||
       search.status?.length ||
+      search.origin ||
       search.branch?.length ||
       search.actor?.length ||
       search.event?.length ||

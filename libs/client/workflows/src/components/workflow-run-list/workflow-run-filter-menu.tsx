@@ -20,6 +20,12 @@ export interface WorkflowRunFilterMenuProps {
   onChange: (next: string[]) => void;
   /** Shown in place of the option list when nothing is loaded to filter by. */
   emptyMessage: string;
+  /**
+   * Single-select mode: picking an option replaces the selection, and picking the option
+   * already selected clears it back to "everything". Facets whose vocabulary is a fixed
+   * enum (origin) are single-valued on the server, so a multi-select would have no URL.
+   */
+  single?: boolean | undefined;
   className?: string | undefined;
 }
 
@@ -36,12 +42,17 @@ export function WorkflowRunFilterMenu({
   selected,
   onChange,
   emptyMessage,
+  single = false,
   className,
 }: WorkflowRunFilterMenuProps) {
   const active = selected.length > 0;
   const triggerText = triggerLabel(label, options, selected);
 
   function toggle(value: string) {
+    if (single) {
+      onChange(selected.includes(value) ? [] : [value]);
+      return;
+    }
     onChange(
       selected.includes(value) ? selected.filter((entry) => entry !== value) : [...selected, value],
     );
