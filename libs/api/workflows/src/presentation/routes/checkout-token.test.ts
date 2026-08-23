@@ -179,6 +179,35 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     });
   });
 
+  test('defaults a dev run checkout to its pinned source commit', async () => {
+    const devCommit = 'b'.repeat(40);
+    const {project, job, step} = await createRunningCheckoutStep({devCommit});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue({...githubSpec('ghs-dev-token'), ref: devCommit});
+    const token = await mintActiveLeaseToken({jobId: job.id});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ref: devCommit});
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      ref: devCommit,
+      permissions: {contents: 'read'},
+    });
+  });
+
   test('returns checkout-unavailable when the run project no longer resolves', async () => {
     const {job, step} = await createRunningCheckoutStep({kind: 'checkout'});
     getProjectById.mockResolvedValue({project: null});
@@ -521,6 +550,7 @@ async function createRunningCheckoutStep(
   options: {
     kind?: 'setup' | 'checkout' | 'run';
     checkout?: CheckoutConfig;
+    devCommit?: string;
     status?: StepStatus;
   } = {},
 ) {
@@ -546,6 +576,21 @@ async function createRunningCheckoutStep(
       userId: crypto.randomUUID(),
     },
   });
+  if (options.devCommit) {
+    await db()
+      .update(workflowRuns)
+      .set({
+        origin: 'dev',
+        devSource: {
+          ref: 'feature/checkout',
+          commit: options.devCommit,
+          config_path: '.shipfox/workflows/checkout.yml',
+          initiated_by_user_id: crypto.randomUUID(),
+          replay_of_event_id: null,
+        },
+      })
+      .where(eq(workflowRuns.id, run.id));
+  }
   const [job] = await getJobsByWorkflowRunId(run.id);
   if (!job) throw new Error('Expected workflow job');
   await db().update(jobsTable).set({status: 'running'}).where(eq(jobsTable.id, job.id));

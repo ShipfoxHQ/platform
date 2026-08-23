@@ -2,7 +2,10 @@ import {type LeasedJobContext, requireLeasedJobContext} from '@shipfox/api-auth-
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import {ClientError} from '@shipfox/node-fastify';
 import type {Step} from '#core/entities/step.js';
-import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
+import type {
+  WorkflowRunOriginState,
+  WorkflowRunTriggerReference,
+} from '#core/entities/workflow-run.js';
 import {getJobScope, getStepByIdForJobExecution} from '#db/index.js';
 
 export interface LoadedRunningLeasedStep {
@@ -11,6 +14,8 @@ export interface LoadedRunningLeasedStep {
   workspaceId: string;
   projectId: string;
   triggerReference: WorkflowRunTriggerReference | null;
+  /** The run's origin state, forwarded for checkout fallbacks. */
+  run: WorkflowRunOriginState;
 }
 
 export async function loadRunningLeasedStep(params: {
@@ -59,5 +64,6 @@ export async function loadRunningLeasedStep(params: {
     workspaceId: scope.workspaceId,
     projectId: scope.projectId,
     triggerReference: scope.triggerReference,
+    run: scope.run,
   };
 }

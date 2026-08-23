@@ -5,7 +5,10 @@ import {and, asc, desc, eq, inArray, notInArray, sql} from 'drizzle-orm';
 import {isJobTerminal, type Job, type JobStatus, type JobStatusReason} from '#core/entities/job.js';
 import type {JobExecution} from '#core/entities/job-execution.js';
 import type {PersistedEvaluationTraceEntry} from '#core/entities/step.js';
-import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
+import type {
+  WorkflowRunOriginState,
+  WorkflowRunTriggerReference,
+} from '#core/entities/workflow-run.js';
 import {JobNotFoundError} from '#core/errors.js';
 import {
   type DeriveJobSuccessResult,
@@ -21,7 +24,7 @@ import {writeWorkflowsOutboxEvent} from '../outbox-writes.js';
 import {jobExecutions, toJobExecution} from '../schema/job-executions.js';
 import {jobs, toJob} from '../schema/jobs.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
-import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
+import {toWorkflowRun, toWorkflowRunOriginState, workflowRuns} from '../schema/workflow-runs.js';
 import {getWorkflowRunById} from './queries.js';
 import {getWorkflowContextForJob, optimisticLockRetry, TERMINAL_JOB_STATUSES} from './shared.js';
 
@@ -71,6 +74,8 @@ export interface JobScope {
   workspaceId: string;
   projectId: string;
   triggerReference: WorkflowRunTriggerReference | null;
+  /** The run's origin state, so checkout fallbacks can read the dev source. */
+  run: WorkflowRunOriginState;
 }
 
 export async function getJobScope(jobId: string): Promise<JobScope | undefined> {
@@ -79,13 +84,22 @@ export async function getJobScope(jobId: string): Promise<JobScope | undefined> 
       workspaceId: workflowRuns.workspaceId,
       projectId: workflowRuns.projectId,
       triggerReference: workflowRuns.triggerReference,
+      origin: workflowRuns.origin,
+      devSource: workflowRuns.devSource,
     })
     .from(jobs)
     .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
     .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
     .where(eq(jobs.id, jobId))
     .limit(1);
-  return rows[0];
+  const row = rows[0];
+  if (!row) return undefined;
+  return {
+    workspaceId: row.workspaceId,
+    projectId: row.projectId,
+    triggerReference: row.triggerReference,
+    run: toWorkflowRunOriginState(row),
+  };
 }
 
 export async function getDirectDependencyJobContexts(
