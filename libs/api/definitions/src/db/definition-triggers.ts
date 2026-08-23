@@ -6,7 +6,7 @@ export function definitionTriggersFor(model: WorkflowModel): Record<string, Trig
     model.triggers.map((trigger) => {
       const dto: TriggerDto = {
         source: trigger.source,
-        event: trigger.event,
+        ...(trigger.event === undefined ? {} : {event: trigger.event}),
       };
       if (trigger.inputs !== undefined) dto.with = trigger.inputs;
       if (trigger.filter !== undefined) dto.filter = trigger.filter;

@@ -528,6 +528,26 @@ describe('workflowDocumentSchema', () => {
     }
   });
 
+  it('parses triggers with the event omitted', () => {
+    const workflowDocument = {
+      name: 'source subscription',
+      triggers: {
+        on_any_github_event: {
+          source: 'github_acme',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const result = workflowDocumentSchema.parse(workflowDocument);
+
+    expect(result.triggers?.on_any_github_event).toEqual({source: 'github_acme'});
+  });
+
   it('keeps trigger filters as strings', () => {
     const workflowDocument = {
       name: 'simple build',
@@ -919,14 +939,6 @@ describe('workflowDocumentSchema', () => {
       {
         name: 'simple build',
         triggers: {github: {source: 'github', event: 'push', on: 'pull_request'}},
-        jobs: {build: {steps: [{run: 'npm test'}]}},
-      },
-    ],
-    [
-      'trigger without event',
-      {
-        name: 'simple build',
-        triggers: {github: {source: 'github'}},
         jobs: {build: {steps: [{run: 'npm test'}]}},
       },
     ],

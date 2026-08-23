@@ -70,7 +70,7 @@ export function normalizeTriggers(
       timezone: cronConfig.timezone ?? cronTriggerDefaultTimezone,
     };
 
-    validateCronTrigger({trigger, config: cronConfig, sourceKey, issues});
+    validateCronTrigger({config: cronConfig, sourceKey, trigger, issues});
 
     return [
       {
@@ -116,14 +116,25 @@ function validateTriggerFilter(params: {
 
 export function normalizeTriggerEntry(trigger: {
   readonly source: string;
-  readonly event: string;
+  readonly event?: string | undefined;
   readonly with?: Readonly<Record<string, unknown>> | undefined;
   readonly filter?: string | undefined;
 }): WorkflowModelListeningTrigger {
+  // `manual` and `cron` have no delivered event to resolve against at fire
+  // time, so materialize their built-in name when the author omitted it.
+  // Integration sources keep the event absent, which becomes a source
+  // subscription (NULL row) on the write path.
+  const event = builtinEventForSource(trigger.source, trigger.event);
   return {
     source: trigger.source,
-    event: trigger.event,
+    ...(event === undefined ? {} : {event}),
     ...(trigger.with === undefined ? {} : {inputs: trigger.with}),
     ...(trigger.filter === undefined ? {} : {filter: trigger.filter}),
   };
+}
+
+function builtinEventForSource(source: string, event: string | undefined): string | undefined {
+  if (source === manualTriggerSource) return event ?? 'fire';
+  if (source === cronTriggerSource) return event ?? 'tick';
+  return event;
 }

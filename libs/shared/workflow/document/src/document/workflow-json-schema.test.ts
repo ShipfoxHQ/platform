@@ -88,6 +88,19 @@ describe('buildWorkflowJsonSchema', () => {
     expect(requiredAlternatives(batch)).toEqual(['debounce', 'max_size', 'max_wait']);
   });
 
+  it('keeps trigger event optional in the JSON schema', () => {
+    const schema = buildWorkflowJsonSchema();
+    const triggers = object(object(schema.properties).triggers);
+    const trigger = object(triggers.additionalProperties);
+
+    expect(strings(trigger.required)).not.toContain('event');
+    expect(object(trigger.properties).event).toMatchObject({
+      type: 'string',
+      description:
+        'Event name that starts the workflow. Omit it to accept every event the source delivers. Sources that deliver one event, such as `manual`, `cron`, and custom webhooks, do not need it.',
+    });
+  });
+
   it('publishes the supported job checkout subset and full checkout-step fields', () => {
     const schema = buildWorkflowJsonSchema();
     const root = object(schema.properties);

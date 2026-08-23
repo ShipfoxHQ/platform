@@ -28,13 +28,13 @@ export type JobStatusReason =
 export interface JobListening {
   on: Array<{
     source: string;
-    event: string;
+    event?: string | undefined;
     inputs?: Record<string, unknown> | undefined;
     filter?: string | undefined;
   }>;
   until: Array<{
     source: string;
-    event: string;
+    event?: string | undefined;
     inputs?: Record<string, unknown> | undefined;
     filter?: string | undefined;
   }> | null;

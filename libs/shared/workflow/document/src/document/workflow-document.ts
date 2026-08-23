@@ -206,8 +206,9 @@ const triggerSourceConfigSchemaRegistry: Readonly<Record<string, z.ZodType>> =
 export const workflowDocumentTriggerSchema = z
   .strictObject({
     ...workflowDocumentTriggerBaseSchema,
-    event: z.string().min(1).meta({
-      description: 'Provider event name that starts the workflow.',
+    event: z.string().min(1).optional().meta({
+      description:
+        'Event name that starts the workflow. Omit it to accept every event the source delivers. Sources that deliver one event, such as `manual`, `cron`, and custom webhooks, do not need it.',
     }),
   })
   .superRefine((trigger, ctx) => {

@@ -95,7 +95,7 @@ export function normalizeJobListening(params: {
 function normalizeListeningTrigger(params: {
   trigger: {
     readonly source: string;
-    readonly event: string;
+    readonly event?: string | undefined;
     readonly with?: Readonly<Record<string, unknown>> | undefined;
     readonly filter?: string | undefined;
   };

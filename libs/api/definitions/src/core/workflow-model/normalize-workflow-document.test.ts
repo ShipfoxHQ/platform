@@ -3888,6 +3888,63 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
+  it('materializes fire for a manual trigger with the event omitted', () => {
+    const document: WorkflowDocument = {
+      name: 'manual trigger',
+      triggers: {
+        manual: {source: 'manual'},
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+
+    expect(model.triggers).toEqual([
+      {
+        id: 'manual',
+        key: 'manual',
+        source: 'manual',
+        event: 'fire',
+      },
+    ]);
+  });
+
+  it('materializes tick for a cron trigger with the event omitted', () => {
+    const document: WorkflowDocument = {
+      name: 'nightly trigger',
+      triggers: {
+        nightly: {
+          source: 'cron',
+          config: {schedule: '0 2 * * *'},
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+
+    expect(model.triggers).toEqual([
+      {
+        id: 'nightly',
+        key: 'nightly',
+        source: 'cron',
+        event: 'tick',
+        config: {
+          schedule: '0 2 * * *',
+          timezone: 'UTC',
+        },
+      },
+    ]);
+  });
+
   it('reports a cron trigger with a non-tick event', () => {
     const document: WorkflowDocument = {
       name: 'nightly trigger',
@@ -3917,6 +3974,42 @@ describe('normalizeWorkflowDocument', () => {
         scope: 'definition',
       },
     ]);
+  });
+
+  it('keeps the event absent for integration triggers with the event omitted', () => {
+    const document: WorkflowDocument = {
+      name: 'source subscriptions',
+      triggers: {
+        on_any_deploy: {
+          source: 'deploy_hook',
+        },
+        on_any_github_event: {
+          source: 'github_acme',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+
+    expect(model.triggers).toEqual([
+      {
+        id: 'on-any-deploy',
+        key: 'on_any_deploy',
+        source: 'deploy_hook',
+      },
+      {
+        id: 'on-any-github-event',
+        key: 'on_any_github_event',
+        source: 'github_acme',
+      },
+    ]);
+    expect(model.triggers[0]).not.toHaveProperty('event');
+    expect(model.triggers[1]).not.toHaveProperty('event');
   });
 
   it('reports a cron trigger without a schedule', () => {

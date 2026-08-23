@@ -278,6 +278,23 @@ describe('activateJobListener', () => {
     expect(result.executionCount).toBe(2);
   });
 
+  it('projects matchers with the event omitted', async () => {
+    const job = await createInactiveListeningJobWithMatchers({
+      on: [{source: 'github_acme'}],
+      until: [{source: 'github_acme', filter: 'event.action == "closed"'}],
+    });
+
+    await activateJobListener({jobId: job.id, expectedVersion: job.version});
+
+    const payload = await activatedPayload(job.id);
+    expectListeningPayload(payload);
+    expect(payload.on[0]).toEqual({source: 'github_acme'});
+    expect(payload.until?.[0]).toEqual({
+      source: 'github_acme',
+      filter: 'event.action == "closed"',
+    });
+  });
+
   it('omits filter snapshots for matchers without non-event roots', async () => {
     const job = await createInactiveListeningJobWithMatchers({
       on: [{source: 'github', event: 'pull_request'}],

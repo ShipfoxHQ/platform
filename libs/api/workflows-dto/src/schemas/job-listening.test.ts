@@ -22,6 +22,27 @@ describe('jobListeningSchema', () => {
 
     expect(result).toEqual(input);
   });
+
+  it('parses listener matchers with the event omitted', () => {
+    const input = {
+      on: [{source: 'github_acme'}],
+      until: [{source: 'github_acme', filter: 'event.action == "closed"'}],
+      timeout_ms: 1000,
+      max_executions: 3,
+      batch: null,
+      on_resolve: 'finish',
+      execution_timeout_ms: null,
+      name: null,
+    };
+
+    const result = jobListeningSchema.parse(input);
+
+    expect(result.on).toEqual([{source: 'github_acme'}]);
+    expect(result.until?.[0]).toEqual({
+      source: 'github_acme',
+      filter: 'event.action == "closed"',
+    });
+  });
 });
 
 describe('execution context schemas', () => {
