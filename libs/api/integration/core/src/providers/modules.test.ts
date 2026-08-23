@@ -1,5 +1,12 @@
+import {INTEGRATION_CONNECTION_AVAILABLE} from '@shipfox/api-integration-core-dto';
+import {closeApp, createApp} from '@shipfox/node-fastify';
+import {sql} from 'drizzle-orm';
+import {db} from '#db/db.js';
+import {integrationsOutbox} from '#db/schema/outbox.js';
+
 describe('loadEnabledProviderModules', () => {
-  afterEach(() => {
+  afterEach(async () => {
+    await closeApp();
     vi.unstubAllEnvs();
     vi.resetModules();
   });
@@ -62,5 +69,51 @@ describe('loadEnabledProviderModules', () => {
 
     expect(parts.map((part) => part.provider.provider)).toEqual(['jira', 'cron', 'webhook']);
     expect(parts[0]?.provider).toMatchObject({provider: 'jira', displayName: 'Jira'});
+  });
+
+  it('publishes registry-derived capabilities for a GitHub connect flow', async () => {
+    vi.stubEnv('INTEGRATIONS_ENABLE_GITHUB_PROVIDER', 'true');
+    vi.resetModules();
+
+    const {createPostgresClient} = await import('@shipfox/node-postgres');
+    createPostgresClient();
+    const {loadEnabledProviderModules} = await import('#providers/modules.js');
+    const parts = await loadEnabledProviderModules();
+    const githubPart = parts.find((part) => part.provider.provider === 'github');
+    if (!githubPart?.e2eRoutes) throw new Error('GitHub E2E routes are not configured');
+
+    const workspaceId = crypto.randomUUID();
+    const installationId = Number.parseInt(crypto.randomUUID().replaceAll('-', '').slice(0, 8), 16);
+    const app = await createApp({routes: githubPart.e2eRoutes, swagger: false});
+    const response = await app.inject({
+      method: 'POST',
+      url: '/integrations/github-connections',
+      payload: {
+        workspace_id: workspaceId,
+        installation_id: installationId,
+        account_login: 'shipfox-e2e',
+        display_name: 'GitHub E2E',
+        installer_user_id: crypto.randomUUID(),
+      },
+    });
+    const connection = response.json();
+
+    expect(response.statusCode).toBe(201);
+    expect(connection).toMatchObject({id: expect.any(String)});
+
+    const [event] = await db()
+      .select({payload: integrationsOutbox.payload})
+      .from(integrationsOutbox)
+      .where(
+        sql`${integrationsOutbox.eventType} = ${INTEGRATION_CONNECTION_AVAILABLE} AND ${integrationsOutbox.payload}->>'connectionId' = ${connection.id}`,
+      );
+
+    expect(event?.payload).toEqual({
+      provider: 'github',
+      workspaceId,
+      connectionId: connection.id,
+      slug: 'github_shipfox_e2e',
+      capabilities: ['source_control', 'agent_tools'],
+    });
   });
 });
