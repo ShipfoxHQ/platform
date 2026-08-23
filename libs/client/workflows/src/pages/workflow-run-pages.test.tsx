@@ -140,7 +140,7 @@ describe('WorkflowRunPages', () => {
     expect(router.state.location.searchStr).toBe('?status=failed&status=running');
   });
 
-  test('round-trips the origin facet through the URL search state', async () => {
+  test('honors an origin deep link and clears it without exposing an Origin filter', async () => {
     const user = userEvent.setup();
     const fetchImpl = createMixedOriginRunsFetch();
     configureApiClient({fetchImpl});
@@ -157,27 +157,15 @@ describe('WorkflowRunPages', () => {
       }),
     ).toBe(true);
 
-    // Picking Synced replaces the facet in the URL instead of stacking a second value.
-    await user.click(await screen.findByRole('button', {name: ORIGIN_FILTER_RE}));
-    await user.click(await screen.findByRole('menuitemradio', {name: 'Synced'}));
-    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('button', {name: ORIGIN_FILTER_RE})).not.toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(currentSearch(router).origin).toBe('synced');
-    });
-    expect(router.state.location.searchStr).toBe('?origin=synced');
-    expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
-    expect(screen.queryByRole('link', {name: TRIAGE_SENTRY_RE})).not.toBeInTheDocument();
-
-    // Re-selecting the active value clears back to all origins.
-    await user.click(await screen.findByRole('button', {name: ORIGIN_FILTER_RE}));
-    await user.click(await screen.findByRole('menuitemradio', {name: 'Synced'}));
-    await user.keyboard('{Escape}');
-
+    await user.click(screen.getByRole('button', {name: 'Clear filters'}));
     await waitFor(() => {
       expect(currentSearch(router).origin).toBeUndefined();
     });
     expect(router.state.location.searchStr).toBe('');
+    expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: TRIAGE_SENTRY_RE})).toBeInTheDocument();
   });
 
   test('replaces history on a filter change so back leaves the list', async () => {

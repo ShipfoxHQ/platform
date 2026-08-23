@@ -83,7 +83,7 @@ export function WorkflowRunRow({
     <>
       <WorkflowStatusIcon status={status} size={14} className="shrink-0" />
       {run.origin === 'dev' ? (
-        <Badge variant="info" size="2xs">
+        <Badge variant="feature" size="2xs">
           Dev
         </Badge>
       ) : null}

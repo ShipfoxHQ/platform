@@ -1,7 +1,6 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {screen, waitFor, within} from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import {screen} from '@testing-library/react';
 import {workflowRunDto, workflowRunListResponseDto} from '#test/fixtures/workflow-run.js';
 import {renderWithRouter} from '#test/render.js';
 import {WorkflowRunList} from './workflow-run-list.js';
@@ -10,7 +9,7 @@ const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
 const ORIGIN_FILTER_RE = /^Origin\b.*filter$/u;
 
 describe('WorkflowRunList', () => {
-  test('sends an uncontrolled origin selection back to the server query', async () => {
+  test('shows all run origins without exposing an Origin filter', async () => {
     const syncedRun = workflowRunDto({
       id: '66666666-6666-4666-8666-000000000001',
       name: 'deploy-web',
@@ -28,16 +27,18 @@ describe('WorkflowRunList', () => {
       },
     });
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
-      const url = new URL(requestInputUrl(input));
-      const runs = url.searchParams.get('origin') === 'dev' ? [devRun] : [syncedRun, devRun];
-
+      expect(new URL(requestInputUrl(input)).searchParams.get('origin')).toBeNull();
       return Promise.resolve(
-        jsonResponse(workflowRunListResponseDto({runs, filtered_total_count: runs.length})),
+        jsonResponse(
+          workflowRunListResponseDto({
+            runs: [syncedRun, devRun],
+            filtered_total_count: 2,
+          }),
+        ),
       );
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
-    const user = userEvent.setup();
     const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
     renderWithRouter(
       <QueryClientProvider client={queryClient}>
@@ -46,24 +47,13 @@ describe('WorkflowRunList', () => {
     );
 
     await screen.findByText('deploy-web');
+    expect(screen.getByText('triage-sentry')).toBeInTheDocument();
     expect(
-      fetchImpl.mock.calls.some(
+      fetchImpl.mock.calls.every(
         ([input]) => new URL(requestInputUrl(input)).searchParams.get('origin') === null,
       ),
     ).toBe(true);
-    await user.click(await screen.findByRole('button', {name: ORIGIN_FILTER_RE}));
-    const menu = await screen.findByRole('menu');
-    await user.click(within(menu).getByRole('menuitemradio', {name: 'Dev'}));
-
-    await waitFor(() =>
-      expect(
-        fetchImpl.mock.calls.some(
-          ([input]) => new URL(requestInputUrl(input)).searchParams.get('origin') === 'dev',
-        ),
-      ).toBe(true),
-    );
-    expect(screen.getByText('triage-sentry')).toBeInTheDocument();
-    expect(screen.queryByText('deploy-web')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: ORIGIN_FILTER_RE})).not.toBeInTheDocument();
   });
 });
 

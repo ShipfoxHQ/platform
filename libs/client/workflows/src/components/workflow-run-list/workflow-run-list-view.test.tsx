@@ -65,6 +65,9 @@ describe('WorkflowRunListView', () => {
         within(header as HTMLElement).getByRole('button', {name: filterTrigger('Event')}),
       ).toBeInTheDocument();
       expect(
+        within(header as HTMLElement).queryByRole('button', {name: filterTrigger('Origin')}),
+      ).not.toBeInTheDocument();
+      expect(
         within(header as HTMLElement).getByLabelText('Filter runs by creation date'),
       ).toBeInTheDocument();
       expect(within(body as HTMLElement).getByText('build-image')).toBeInTheDocument();
@@ -171,54 +174,6 @@ describe('WorkflowRunListView', () => {
       expect(trigger).toHaveTextContent('Status: Failed');
       // The value is in the accessible name too, not just the visible label.
       expect(trigger).toHaveAccessibleName('Status: Failed filter');
-    });
-
-    test('narrows the list to the dev origin and clears back to all on re-select', async () => {
-      const user = userEvent.setup();
-      renderListView([
-        run('succeeded', 'deploy-web', 'run-1'),
-        run('succeeded', 'triage-sentry', 'run-2', devRunOverrides()),
-      ]);
-
-      await selectFilterOption(user, 'Origin', 'Dev');
-
-      expect(screen.getByText('triage-sentry')).toBeInTheDocument();
-      expect(screen.queryByText('deploy-web')).not.toBeInTheDocument();
-      expect(screen.getByRole('button', {name: filterTrigger('Origin')})).toHaveTextContent(
-        'Origin: Dev',
-      );
-
-      // The origin facet is single-valued: picking Dev again returns to "all".
-      await selectFilterOption(user, 'Origin', 'Dev');
-
-      expect(screen.getByText('deploy-web')).toBeInTheDocument();
-      expect(screen.getByText('triage-sentry')).toBeInTheDocument();
-    });
-
-    test('replaces the dev origin with synced instead of stacking selections', async () => {
-      const user = userEvent.setup();
-      renderListView([
-        run('succeeded', 'deploy-web', 'run-1'),
-        run('succeeded', 'triage-sentry', 'run-2', devRunOverrides()),
-      ]);
-
-      await selectFilterOption(user, 'Origin', 'Dev');
-      await selectFilterOption(user, 'Origin', 'Synced');
-
-      expect(screen.getByText('deploy-web')).toBeInTheDocument();
-      expect(screen.queryByText('triage-sentry')).not.toBeInTheDocument();
-    });
-
-    test('announces the single-select origin options as radio items', async () => {
-      const user = userEvent.setup();
-      renderListView([run('succeeded', 'deploy-web')]);
-
-      await user.click(await screen.findByRole('button', {name: filterTrigger('Origin')}));
-
-      const menu = await screen.findByRole('menu');
-      expect(within(menu).getByRole('menuitemradio', {name: 'Synced'})).toBeInTheDocument();
-      expect(within(menu).getByRole('menuitemradio', {name: 'Dev'})).toBeInTheDocument();
-      expect(within(menu).queryByRole('menuitemcheckbox')).not.toBeInTheDocument();
     });
 
     test('includes origin when a controlled consumer uses the default clear path', async () => {
@@ -394,7 +349,7 @@ describe('WorkflowRunListView', () => {
       renderListView([run('succeeded', 'triage-sentry', 'run-1', devRunOverrides())]);
 
       expect(await screen.findByText('triage-sentry')).toBeInTheDocument();
-      expect(screen.getByText('Dev')).toBeInTheDocument();
+      expect(screen.getByText('Dev')).toHaveClass('bg-tag-purple-bg');
       // No trigger reference: the row's branch and commit come from the dev source.
       expect(screen.getByText('fix-triage-prompt')).toBeInTheDocument();
       expect(screen.getByText('abcdef1')).toBeInTheDocument();
@@ -739,10 +694,7 @@ async function selectFilterOption(
 ) {
   await user.click(await screen.findByRole('button', {name: filterTrigger(label)}));
   const menu = await screen.findByRole('menu');
-  const item =
-    label === 'Origin'
-      ? within(menu).getByRole('menuitemradio', {name: option})
-      : within(menu).getByRole('menuitemcheckbox', {name: option});
+  const item = within(menu).getByRole('menuitemcheckbox', {name: option});
   await user.click(item);
   await user.keyboard('{Escape}');
 }

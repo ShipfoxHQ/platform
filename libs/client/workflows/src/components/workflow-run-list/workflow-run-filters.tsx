@@ -15,10 +15,8 @@ import {
 import {useState} from 'react';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {
-  WORKFLOW_RUN_LIST_ORIGINS,
   WORKFLOW_RUN_LIST_STATUSES,
   type WorkflowRunFilterPatch,
-  type WorkflowRunListOrigin,
   type WorkflowRunListStatus,
   type WorkflowRunsSearch,
 } from '#routes/inputs.js';
@@ -28,11 +26,6 @@ import {WorkflowRunFilterMenu, type WorkflowRunFilterOption} from './workflow-ru
 const STATUS_OPTIONS: WorkflowRunFilterOption[] = WORKFLOW_RUN_LIST_STATUSES.map((status) => ({
   value: status,
   label: getWorkflowStatusVisual(status).label,
-}));
-
-const ORIGIN_OPTIONS: WorkflowRunFilterOption[] = WORKFLOW_RUN_LIST_ORIGINS.map((origin) => ({
-  value: origin,
-  label: origin === 'dev' ? 'Dev' : 'Synced',
 }));
 
 export interface WorkflowRunFiltersProps {
@@ -141,15 +134,6 @@ function WorkflowRunFilterControls({
         selected={search.status ?? []}
         onChange={(next) => onChange({status: next as WorkflowRunListStatus[]})}
         emptyMessage="No statuses available."
-        className={controlClassName}
-      />
-      <WorkflowRunFilterMenu
-        label="Origin"
-        options={ORIGIN_OPTIONS}
-        selected={search.origin ? [search.origin] : []}
-        onChange={(next) => onChange({origin: next[0] as WorkflowRunListOrigin | undefined})}
-        emptyMessage="No origins available."
-        single
         className={controlClassName}
       />
       <WorkflowRunFilterMenu
