@@ -11,7 +11,11 @@ import {z} from 'zod';
 import {DefinitionParseError} from '#core/errors.js';
 import {hasAgentStepIntegrations} from '#core/has-agent-step-integrations.js';
 import {loadIntegrationValidationContext} from '#core/integrations.js';
-import {parseDefinition} from '#core/parse-definition.js';
+import {
+  type ParseDefinitionOptions,
+  parseDefinitionWithDiagnostics,
+  stripDefinitionDiagnostics,
+} from '#core/parse-definition.js';
 import {upsertDefinition} from '#db/definitions.js';
 import {toDefinitionDto} from '#presentation/dto/index.js';
 import {requireProjectAccess} from './project-access.js';
@@ -53,11 +57,11 @@ export function buildCreateDefinitionRoute(options: CreateDefinitionRouteOptions
       const project = await requireProjectAccess(request, projectId, options.projects);
 
       const agentValidationCatalog = await options.agent.getValidationCatalog({});
-      const structurallyParsed = parseDefinition(yamlString, {agentValidationCatalog});
+      const structurallyParsed = parseDefinitionForCreate(yamlString, {agentValidationCatalog});
       const {integrations} = options;
       const parsed =
         integrations !== undefined && hasAgentStepIntegrations(structurallyParsed.document)
-          ? parseDefinition(yamlString, {
+          ? parseDefinitionForCreate(yamlString, {
               agentValidationCatalog,
               integrationValidationContext: await loadIntegrationValidationContext(
                 integrations,
@@ -83,4 +87,17 @@ export function buildCreateDefinitionRoute(options: CreateDefinitionRouteOptions
       return toDefinitionDto(definition);
     },
   });
+}
+
+function parseDefinitionForCreate(yamlString: string, options: ParseDefinitionOptions) {
+  const parsed = parseDefinitionWithDiagnostics(yamlString, options);
+  const errors = parsed.diagnostics
+    .filter((diagnostic) => diagnostic.severity === 'error')
+    .map(({message, path}) => ({message, ...(path === undefined ? {} : {path})}));
+
+  if (errors.length > 0) {
+    throw new DefinitionParseError(errors[0]?.message ?? 'Invalid definition', errors);
+  }
+
+  return stripDefinitionDiagnostics(parsed);
 }

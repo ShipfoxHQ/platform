@@ -240,6 +240,42 @@ jobs:
     expect(res.json().code).toBe('invalid-workflow-definition');
   });
 
+  test('trigger-scoped validation errors remain client errors on create', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/definitions',
+      payload: {
+        project_id: projectId,
+        config_path: 'test.yml',
+        yaml: `
+name: Broken trigger
+runner: ubuntu-latest
+triggers:
+  nightly:
+    source: cron
+    event: tick
+    config:
+      schedule: "not a cron"
+jobs:
+  build:
+    steps:
+      - run: echo hello
+`,
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      code: 'invalid-workflow-definition',
+      details: [
+        {
+          message: 'Cron trigger schedule must be a valid 5-field cron expression.',
+          path: 'triggers.nightly.config.schedule',
+        },
+      ],
+    });
+  });
+
   test('cyclic DAG returns 400 with dag error code', async () => {
     const cyclicYaml = `
 name: Cyclic
