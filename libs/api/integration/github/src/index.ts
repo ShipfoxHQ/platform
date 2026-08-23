@@ -1,3 +1,4 @@
+import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import type {
   GetIntegrationConnectionByIdFn,
   PublishIntegrationEventReceivedFn,
@@ -102,6 +103,7 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
   return {
     provider: 'github' as const,
     displayName: 'GitHub',
+    eventCatalog: githubEventCatalog,
     adapters: {
       source_control: new GithubSourceControlProvider(github),
       agent_tools: new GithubAgentToolsProvider({

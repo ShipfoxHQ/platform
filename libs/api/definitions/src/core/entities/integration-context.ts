@@ -25,5 +25,9 @@ export interface IntegrationValidationContext {
       readonly capabilities: readonly IntegrationCapability[];
     }
   >;
+  /** Documented event names per provider; provider-minted names are never a closed set. */
+  readonly eventCatalogs: ReadonlyMap<IntegrationProviderKind, ReadonlySet<string>>;
+  /** Providers whose single event name is Shipfox-minted (`webhook` today). */
+  readonly fixedEventProviders: ReadonlySet<IntegrationProviderKind>;
   readonly defaultConnectionSlug?: string | undefined;
 }

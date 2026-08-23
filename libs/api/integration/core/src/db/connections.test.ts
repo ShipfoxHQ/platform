@@ -153,6 +153,41 @@ describe('integration connection queries', () => {
     expect(result).toBe('debug');
   });
 
+  it.each([
+    'github',
+    'gitea',
+    'sentry',
+    'slack',
+    'jira',
+    'linear',
+    'webhook',
+  ] as const)('refuses the reserved source slugs for provider %s', async (provider) => {
+    // Sync classifies a trigger source by literal: `manual` and `cron` are
+    // built-in sources, never connection slugs, so every provider must refuse
+    // to allocate them.
+    for (const baseSlug of ['manual', 'cron'] as const) {
+      await expect(
+        resolveUniqueConnectionSlug({
+          workspaceId,
+          provider,
+          externalAccountId: 'external-account',
+          baseSlug,
+        }),
+      ).rejects.toBeInstanceOf(ConnectionSlugConflictError);
+    }
+  });
+
+  it('still allocates provider-prefixed slugs derived from reserved words', async () => {
+    const result = await resolveUniqueConnectionSlug({
+      workspaceId,
+      provider: 'github',
+      externalAccountId: 'external-account',
+      baseSlug: 'github_manual',
+    });
+
+    expect(result).toBe('github_manual');
+  });
+
   it('keeps the existing slug when resolving a reconnect', async () => {
     await upsertIntegrationConnection({
       workspaceId,

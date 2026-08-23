@@ -2,6 +2,7 @@ import {
   CONNECTION_SLUG_MAX_LENGTH,
   INTEGRATION_CONNECTION_AVAILABLE,
   type IntegrationsEventMap,
+  RESERVED_CONNECTION_SLUGS,
 } from '@shipfox/api-integration-core-dto';
 import {ConnectionSlugConflictError} from '@shipfox/api-integration-spi';
 import {writeOutboxEvent} from '@shipfox/node-outbox';
@@ -194,6 +195,11 @@ export async function resolveUniqueConnectionSlug(
   params: ResolveUniqueConnectionSlugParams,
   options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<string> {
+  if ((RESERVED_CONNECTION_SLUGS as readonly string[]).includes(params.baseSlug)) {
+    throw new ConnectionSlugConflictError(
+      new Error(`Slug "${params.baseSlug}" is reserved for a built-in trigger source`),
+    );
+  }
   const executor = options.tx ?? db();
   const [existing] = await executor
     .select({slug: integrationConnections.slug})

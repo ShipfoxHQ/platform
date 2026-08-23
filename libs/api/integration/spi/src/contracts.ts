@@ -238,6 +238,13 @@ export interface IntegrationProvider<
 > {
   provider: ProviderKind;
   displayName: string;
+  /**
+   * The event names this provider's handler forwards in this version.
+   * Provider-minted names are never treated as a closed set by validation;
+   * the catalog only improves diagnostics. Providers without a documented
+   * catalog omit it.
+   */
+  eventCatalog?: import('@shipfox/api-integration-core-dto').IntegrationEventCatalog | undefined;
   adapters?: IntegrationProviderAdapters<Connection> | undefined;
   routes?: Route[] | undefined;
   connectionExternalUrl?(connection: Connection): Promise<string | undefined>;

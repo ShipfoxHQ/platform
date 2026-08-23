@@ -1,4 +1,4 @@
-import {JIRA_PROVIDER} from '@shipfox/api-integration-jira-dto';
+import {JIRA_PROVIDER, jiraEventCatalog} from '@shipfox/api-integration-jira-dto';
 import {
   createJiraAgentToolsClient,
   createJiraApiClient,
@@ -232,6 +232,7 @@ export function createJiraIntegrationProvider(options: CreateJiraIntegrationProv
   return {
     provider: JIRA_PROVIDER,
     displayName: 'Jira',
+    eventCatalog: jiraEventCatalog,
     adapters,
     async connectionExternalUrl(connection: {id: string}): Promise<string | undefined> {
       return (await getInstallationByConnectionId(connection.id))?.siteUrl;

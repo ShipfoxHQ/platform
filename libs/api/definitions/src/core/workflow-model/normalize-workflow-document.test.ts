@@ -86,6 +86,13 @@ const integrationValidationContext = {
     ['linear-main', {id: 'conn_3', provider: 'linear', capabilities: ['agent_tools']}],
     ['jira-main', {id: 'conn_4', provider: 'jira', capabilities: ['agent_tools']}],
   ]),
+  eventCatalogs: new Map([
+    ['github', new Set(['push', 'pull_request.opened'])],
+    ['sentry', new Set(['issue.created'])],
+    ['linear', new Set(['Issue'])],
+    ['jira', new Set(['jira:issue_created'])],
+  ]),
+  fixedEventProviders: new Set(['webhook']),
   defaultConnectionSlug: 'github-main',
 } satisfies IntegrationValidationContext;
 

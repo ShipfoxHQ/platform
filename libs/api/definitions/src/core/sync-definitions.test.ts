@@ -79,6 +79,11 @@ const integrationValidationContext = {
   workspaceConnectionSnapshot: new Map([
     ['github-main', {id: 'connection-1', provider: 'github', capabilities: ['agent_tools']}],
   ]),
+  eventCatalogs: new Map([
+    ['github', new Set(['push', 'pull_request.opened'])],
+    ['webhook', new Set(['received'])],
+  ]),
+  fixedEventProviders: new Set(['webhook']),
 } satisfies IntegrationValidationContext;
 
 function sourceControl(
