@@ -48,6 +48,45 @@ describe('workflow run queries', () => {
   });
 
   describe('createWorkflowRun', () => {
+    test('enforces the workflow run origin and dev source relationship at the database boundary', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      await expect(
+        db().execute(
+          sql`UPDATE ${workflowRuns} SET origin = 'dev', dev_source = '{}'::jsonb WHERE ${workflowRuns.id} = ${run.id}`,
+        ),
+      ).resolves.toBeDefined();
+
+      await expect(
+        db().update(workflowRuns).set({origin: 'synced'}).where(eq(workflowRuns.id, run.id)),
+      ).rejects.toThrow();
+
+      await db()
+        .update(workflowRuns)
+        .set({
+          origin: 'dev',
+          devSource: {
+            ref: 'main',
+            commit: 'abc123',
+            config_path: '.shipfox/workflows.yml',
+            initiated_by_user_id: crypto.randomUUID(),
+            replay_of_event_id: null,
+          },
+        })
+        .where(eq(workflowRuns.id, run.id));
+    });
+
     test('persists normalized integration trigger facts alongside the payload', async () => {
       const triggerConnectionId = crypto.randomUUID();
       const integrations = {

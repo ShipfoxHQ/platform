@@ -2,4 +2,4 @@
 "@shipfox/api-workflows": patch
 ---
 
-Keeps workflow run provenance validation consistent across database and API boundaries.
+Validates workflow run provenance (origin and dev_source) at the API boundary; database constraints now only enforce the origin/source relationship.

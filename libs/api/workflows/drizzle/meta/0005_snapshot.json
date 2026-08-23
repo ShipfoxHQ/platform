@@ -1,6 +1,6 @@
 {
-  "id": "c2dbf70f-d203-45d0-bc3c-af83d838ec80",
-  "prevId": "7fc1dd61-d6c6-445b-a15d-44522482203b",
+  "id": "8ecaa2cc-653e-4edf-ba5c-59fefc794272",
+  "prevId": "c2dbf70f-d203-45d0-bc3c-af83d838ec80",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1673,7 +1673,7 @@
         },
         "workflows_wr_dev_source_ck": {
           "name": "workflows_wr_dev_source_ck",
-          "value": "(\n        (\"workflows_workflow_runs\".\"origin\" = 'synced' and \"workflows_workflow_runs\".\"dev_source\" is null)\n        or (\n          \"workflows_workflow_runs\".\"origin\" = 'dev'\n          and \"workflows_workflow_runs\".\"dev_source\" is not null\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\") = 'object'\n          and \"workflows_workflow_runs\".\"dev_source\" ?& array[\n            'ref',\n            'commit',\n            'config_path',\n            'initiated_by_user_id',\n            'replay_of_event_id'\n          ]\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'ref') = 'string'\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'commit') = 'string'\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'config_path') = 'string'\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'initiated_by_user_id') = 'string'\n          and \"workflows_workflow_runs\".\"dev_source\"->>'initiated_by_user_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n          and (\n            jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'replay_of_event_id') = 'null'\n            or (\n              jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\"->'replay_of_event_id') = 'string'\n              and \"workflows_workflow_runs\".\"dev_source\"->>'replay_of_event_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n            )\n          )\n        )\n      )"
+          "value": "(\n        (\"workflows_workflow_runs\".\"origin\" = 'synced' and \"workflows_workflow_runs\".\"dev_source\" is null)\n        or (\n          \"workflows_workflow_runs\".\"origin\" = 'dev'\n          and \"workflows_workflow_runs\".\"dev_source\" is not null\n          and jsonb_typeof(\"workflows_workflow_runs\".\"dev_source\") = 'object'\n        )\n      )"
         }
       },
       "isRLSEnabled": false
