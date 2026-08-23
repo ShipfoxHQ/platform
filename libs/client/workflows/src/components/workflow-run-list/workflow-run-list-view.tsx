@@ -101,6 +101,7 @@ export function WorkflowRunListView({
 const CLEAR_ALL_FILTERS: WorkflowRunFilterPatch = {
   search: undefined,
   status: undefined,
+  origin: undefined,
   branch: undefined,
   actor: undefined,
   event: undefined,

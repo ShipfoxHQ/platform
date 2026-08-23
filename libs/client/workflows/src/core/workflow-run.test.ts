@@ -746,7 +746,7 @@ describe('workflow run helpers', () => {
     expect(workflowRunCommitLabel(replayedDevRun)).toBe('0123456');
   });
 
-  test('formats the dev source as ref @ commit', () => {
+  test('formats the dev source as the same resolved ref @ commit shown in the list', () => {
     const devRun = workflowRunListItem({
       origin: 'dev',
       dev_source: {
@@ -759,6 +759,25 @@ describe('workflow run helpers', () => {
     });
 
     expect(workflowRunDevSourceLabel(devRun)).toBe('fix-triage-prompt @ abcdef1');
+
+    const replayedDevRun = workflowRunListItem({
+      origin: 'dev',
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/tags/v2.14.0',
+        commit: '0123456789abcdef0123456789abcdef01234567',
+        actor: 'octocat',
+      },
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: '88888888-8888-4888-8888-888888888888',
+      },
+    });
+
+    expect(workflowRunDevSourceLabel(replayedDevRun)).toBe('v2.14.0 @ 0123456');
     expect(workflowRunDevSourceLabel(workflowRunListItem())).toBeNull();
   });
 

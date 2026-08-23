@@ -29,6 +29,8 @@ export function runMatchesSearch(run: WorkflowRunListItem, query: string): boole
     run.number?.toString(),
     workflowRunBranchLabel(run),
     workflowRunCommitLabel(run),
+    run.devSource?.ref,
+    run.devSource?.commit,
     workflowRunActor(run),
   ]
     .filter(Boolean)

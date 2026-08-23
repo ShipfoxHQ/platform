@@ -3,6 +3,8 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@shipfox/react-ui/dropdown-menu';
 import {Text} from '@shipfox/react-ui/typography';
@@ -79,6 +81,19 @@ export function WorkflowRunFilterMenu({
           <Text as="p" size="xs" className="px-tight py-[6px] text-foreground-neutral-muted">
             {emptyMessage}
           </Text>
+        ) : single ? (
+          <DropdownMenuRadioGroup value={selected[0] ?? ''}>
+            {options.map((option) => (
+              <DropdownMenuRadioItem
+                key={option.value}
+                value={option.value}
+                closeOnSelect={false}
+                onSelect={() => toggle(option.value)}
+              >
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
         ) : (
           options.map((option) => (
             <DropdownMenuCheckboxItem

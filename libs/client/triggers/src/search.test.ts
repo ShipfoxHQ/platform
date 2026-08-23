@@ -6,6 +6,7 @@ describe('validateTriggerEventsSearch', () => {
       source: ['github', 'gitea'],
       event: ['push', 'pull_request'],
       outcome: ['routed', 'failed'],
+      eventId: '22222222-2222-4222-8222-222222222222',
       from: '2026-06-01T00:00:00.000Z',
       to: '2026-06-22T00:00:00.000Z',
     });
@@ -14,6 +15,7 @@ describe('validateTriggerEventsSearch', () => {
       source: ['github', 'gitea'],
       event: ['push', 'pull_request'],
       outcome: ['routed', 'failed'],
+      eventId: '22222222-2222-4222-8222-222222222222',
       from: '2026-06-01T00:00:00.000Z',
       to: '2026-06-22T00:00:00.000Z',
     });
@@ -62,5 +64,9 @@ describe('validateTriggerEventsSearch', () => {
 
     expect(search.from).toBe('2026-06-01T00:00:00.000Z');
     expect(search.to).toBe('2026-06-22T23:59:59.999Z');
+  });
+
+  test('drops an invalid selected event id', () => {
+    expect(validateTriggerEventsSearch({eventId: 'not-an-id'}).eventId).toBeUndefined();
   });
 });

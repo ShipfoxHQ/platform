@@ -348,6 +348,7 @@ describe('workflow run API hooks', () => {
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     const {result, queryClient} = renderWithQueryClient(() => useFireManualWorkflowMutation());
     const allListKey = workflowRunsQueryKeys.list(PROJECT_ID, {});
+    const syncedListKey = workflowRunsQueryKeys.list(PROJECT_ID, {origin: 'synced'});
     const devListKey = workflowRunsQueryKeys.list(PROJECT_ID, {origin: 'dev'});
     queryClient.setQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(allListKey, {
       pages: [
@@ -356,6 +357,12 @@ describe('workflow run API hooks', () => {
       pageParams: [undefined],
     });
     queryClient.setQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(devListKey, {
+      pages: [
+        toWorkflowRunListPage(workflowRunListResponseDto({runs: [], filtered_total_count: 0})),
+      ],
+      pageParams: [undefined],
+    });
+    queryClient.setQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(syncedListKey, {
       pages: [
         toWorkflowRunListPage(workflowRunListResponseDto({runs: [], filtered_total_count: 0})),
       ],
@@ -376,6 +383,14 @@ describe('workflow run API hooks', () => {
         devSource: null,
         status: 'pending',
       });
+    });
+    const syncedCached =
+      queryClient.getQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(
+        syncedListKey,
+      );
+    expect(syncedCached?.pages[0]?.runs[0]).toMatchObject({
+      origin: 'synced',
+      status: 'pending',
     });
     const devCached =
       queryClient.getQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(devListKey);

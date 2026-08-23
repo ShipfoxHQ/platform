@@ -138,7 +138,7 @@ export function WorkflowRunSummary({
             </div>
           ) : null}
 
-          <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-cluster overflow-hidden text-foreground-neutral-subtle max-[480px]:col-span-1 max-[480px]:row-start-auto">
+          <div className="col-span-2 row-start-2 flex min-w-0 flex-nowrap items-center gap-cluster overflow-hidden text-foreground-neutral-subtle max-[480px]:col-span-1 max-[480px]:row-start-auto max-[480px]:flex-wrap max-[480px]:overflow-visible">
             {run.number !== null ? (
               <>
                 <WorkflowRunNumberLabel run={run} />
@@ -191,11 +191,9 @@ export function WorkflowRunSummary({
               <RunProvenanceItems
                 devSourceLabel={devSourceLabel}
                 initiator={initiator}
-                initiatorFullId={run.devSource?.initiatedByUserId}
                 replayOfEventId={replayOfEvent}
                 replayOfEventLabel={run.triggerDisplayLabel}
                 workspaceSlug={workspaceSlug}
-                projectSlug={projectSlug}
                 preceded={metadataHasLeading}
               />
             ) : (
@@ -203,7 +201,6 @@ export function WorkflowRunSummary({
                 branch={branch}
                 commit={commit}
                 workspaceSlug={workspaceSlug}
-                projectSlug={projectSlug}
                 preceded={metadataHasLeading}
               />
             )}
@@ -331,8 +328,8 @@ function canRenderWorkflowRunAction(
 
 /**
  * The provenance run of the summary line: branch and commit for a synced run (from the
- * trigger reference), and for a dev run the `ref @ commit` the definition came from, the
- * member who started it, and the replay link to the source event when the run replays one.
+ * trigger reference), and for a dev run the effective `ref @ commit`, the member who started
+ * it, and the replay link to the source event when the run replays one.
  *
  * Each item is followed by a separator; the line's other segments already do the same, so
  * the whole metadata row reads as one separated list.
@@ -342,38 +339,31 @@ function RunProvenanceItems({
   commit,
   devSourceLabel,
   initiator,
-  initiatorFullId,
   replayOfEventId,
   replayOfEventLabel,
   workspaceSlug,
-  projectSlug,
   preceded,
 }: {
   branch?: string | null | undefined;
   commit?: string | null | undefined;
   devSourceLabel?: string | null | undefined;
   initiator?: string | null | undefined;
-  initiatorFullId?: string | undefined;
   replayOfEventId?: string | null | undefined;
   replayOfEventLabel?: string | undefined;
   workspaceSlug?: string | undefined;
-  projectSlug?: string | undefined;
   preceded: boolean;
 }) {
   const items: ReactElement[] = [
     branch ? <BranchLabel key="branch" branch={branch} /> : null,
     commit ? <CommitLabel key="commit" commit={commit} /> : null,
     devSourceLabel ? <DevSourceLabel key="dev-source" label={devSourceLabel} /> : null,
-    initiator ? (
-      <InitiatorLabel key="initiator" label={initiator} fullId={initiatorFullId} />
-    ) : null,
+    initiator ? <InitiatorLabel key="initiator" label={initiator} /> : null,
     replayOfEventId ? (
       <ReplayOfEventLabel
         key="replay"
         eventId={replayOfEventId}
         eventLabel={replayOfEventLabel}
         workspaceSlug={workspaceSlug}
-        projectSlug={projectSlug}
       />
     ) : null,
   ].filter((item): item is ReactElement => item !== null);
@@ -404,7 +394,12 @@ function ProvenanceChip({
   children: string;
 }) {
   return (
-    <span className="flex min-w-0 shrink-0 items-center gap-tight" title={title}>
+    <span
+      role="img"
+      aria-label={title}
+      className="flex min-w-0 shrink-0 items-center gap-tight"
+      title={title}
+    >
       <Icon name={icon} className="size-12 shrink-0 text-foreground-neutral-muted" aria-hidden />
       <Code as="span" variant="label" className="min-w-0 truncate">
         {children}
@@ -439,40 +434,35 @@ function CommitLabel({commit}: {commit: string}) {
  */
 function DevSourceLabel({label}: {label: string}) {
   return (
-    <ProvenanceChip icon="gitBranchLine" title={label}>
+    <ProvenanceChip icon="gitBranchLine" title={`Dev source ${label}`}>
       {label}
     </ProvenanceChip>
   );
 }
 
-function InitiatorLabel({label, fullId}: {label: string; fullId?: string | undefined}) {
+function InitiatorLabel({label}: {label: string}) {
   return (
-    <ProvenanceChip
-      icon="userLine"
-      title={fullId ? `Initiated by ${fullId}` : `Initiated by ${label}`}
-    >
+    <ProvenanceChip icon="userLine" title={`Initiated by ${label}`}>
       {label}
     </ProvenanceChip>
   );
 }
 
 /**
- * The link back to the journaled event a dev run replays. It needs the workspace and
- * project slugs to navigate; without them (isolated renders) it reads as plain text.
+ * The link back to the journaled event a dev run replays. It needs the workspace slug to
+ * navigate; without it (isolated renders) it reads as plain text.
  */
 function ReplayOfEventLabel({
   eventId,
   eventLabel,
   workspaceSlug,
-  projectSlug,
 }: {
   eventId: string;
   eventLabel?: string | undefined;
   workspaceSlug?: string | undefined;
-  projectSlug?: string | undefined;
 }) {
   const label = `Replay of ${eventLabel || eventId.slice(0, 8)}`;
-  if (!workspaceSlug || !projectSlug) {
+  if (!workspaceSlug) {
     return (
       <Text as="span" size="xs" className="text-foreground-neutral-subtle">
         {label}
@@ -483,6 +473,7 @@ function ReplayOfEventLabel({
     <Link
       to="/w/$workspaceSlug/settings/events"
       params={{workspaceSlug}}
+      search={{eventId}}
       className="inline-flex items-center gap-tight text-foreground-neutral-subtle outline-none transition-colors hover:text-foreground-neutral-base focus-visible:shadow-button-neutral-focus"
     >
       <Icon name="historyLine" className="size-12 shrink-0" aria-hidden />

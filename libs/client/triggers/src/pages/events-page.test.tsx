@@ -104,4 +104,20 @@ describe('EventsPage', () => {
       expect(screen.queryByRole('button', {name: 'Back to events'})).not.toBeInTheDocument();
     });
   });
+
+  test('opens a selected event from route state even when it is outside the loaded page', async () => {
+    useTriggerEventsInfiniteQueryMock.mockReturnValue(makeListQuery([]));
+
+    render(
+      <EventsPage
+        workspaceId={WORKSPACE_ID}
+        filters={{}}
+        selectedEventId={EVENT_ID}
+        onFiltersChange={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole('button', {name: 'Back to events'})).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Events'})).toBeInTheDocument();
+  });
 });

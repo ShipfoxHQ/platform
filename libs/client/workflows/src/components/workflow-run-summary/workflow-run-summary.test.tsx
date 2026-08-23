@@ -484,6 +484,36 @@ describe('WorkflowRunSummary', () => {
     expect(within(summary).queryByText(REPLAY_OF_TEXT)).not.toBeInTheDocument();
   });
 
+  test('gives summary provenance chips an accessible kind and truncated initiator value', async () => {
+    renderSummary(devRunOverrides());
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+
+    expect(
+      within(summary).getByRole('img', {name: 'Dev source fix-triage-prompt @ abcdef1'}),
+    ).toBeInTheDocument();
+    expect(within(summary).getByRole('img', {name: 'Initiated by 99999999'})).toBeInTheDocument();
+    expect(summary).not.toHaveTextContent('99999999-9999-4999-8999-999999999999');
+    expect(summary.querySelector('[title*="99999999-9999-4999-8999-999999999999"]')).toBeNull();
+  });
+
+  test('does not start a bare dev provenance line with a separator', async () => {
+    const run = workflowRunDetail({
+      ...devRunOverrides(),
+      trigger_source: '',
+      trigger_event: '',
+    });
+    run.number = null;
+    render(<WorkflowRunSummary run={run} />);
+
+    const summary = await screen.findByRole('region', {name: 'deploy-web'});
+    const provenance = within(summary).getByRole('img', {
+      name: 'Dev source fix-triage-prompt @ abcdef1',
+    });
+
+    expect(provenance.previousElementSibling).toBeNull();
+  });
+
   test('reads the dev initiator as You for the current user', async () => {
     const store = createStore();
     store.set(authStateAtom, {
@@ -517,7 +547,10 @@ describe('WorkflowRunSummary', () => {
     const summary = await screen.findByRole('region', {name: 'deploy-web'});
 
     const link = within(summary).getByRole('link', {name: 'Replay of fire'});
-    expect(link).toHaveAttribute('href', '/w/acme/settings/events');
+    expect(link).toHaveAttribute(
+      'href',
+      '/w/acme/settings/events?eventId=88888888-8888-4888-8888-888888888888',
+    );
   });
 
   test('renders the replay provenance as text without navigation context', async () => {

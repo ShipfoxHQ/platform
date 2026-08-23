@@ -209,6 +209,35 @@ describe('WorkflowRunListView', () => {
       expect(screen.queryByText('triage-sentry')).not.toBeInTheDocument();
     });
 
+    test('announces the single-select origin options as radio items', async () => {
+      const user = userEvent.setup();
+      renderListView([run('succeeded', 'deploy-web')]);
+
+      await user.click(await screen.findByRole('button', {name: filterTrigger('Origin')}));
+
+      const menu = await screen.findByRole('menu');
+      expect(within(menu).getByRole('menuitemradio', {name: 'Synced'})).toBeInTheDocument();
+      expect(within(menu).getByRole('menuitemradio', {name: 'Dev'})).toBeInTheDocument();
+      expect(within(menu).queryByRole('menuitemcheckbox')).not.toBeInTheDocument();
+    });
+
+    test('includes origin when a controlled consumer uses the default clear path', async () => {
+      const user = userEvent.setup();
+      const onFiltersChange = vi.fn();
+      renderWithRouter(
+        <WorkflowRunListView
+          runs={[run('succeeded', 'triage-sentry', 'run-2', devRunOverrides())]}
+          query={loadedQuery()}
+          search={{origin: 'dev'}}
+          onFiltersChange={onFiltersChange}
+        />,
+      );
+
+      await user.click(await screen.findByRole('button', {name: 'Clear filters'}));
+
+      expect(onFiltersChange).toHaveBeenCalledWith(expect.objectContaining({origin: undefined}));
+    });
+
     test('restores every row after the filters are cleared', async () => {
       const user = userEvent.setup();
       renderListView([
@@ -710,7 +739,11 @@ async function selectFilterOption(
 ) {
   await user.click(await screen.findByRole('button', {name: filterTrigger(label)}));
   const menu = await screen.findByRole('menu');
-  await user.click(within(menu).getByRole('menuitemcheckbox', {name: option}));
+  const item =
+    label === 'Origin'
+      ? within(menu).getByRole('menuitemradio', {name: option})
+      : within(menu).getByRole('menuitemcheckbox', {name: option});
+  await user.click(item);
   await user.keyboard('{Escape}');
 }
 

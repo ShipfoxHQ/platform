@@ -22,8 +22,12 @@ export default defineRoute({
     const workspace = useActiveWorkspace();
     const search = routeApi.useSearch();
     const navigate = routeApi.useNavigate();
+    const {eventId, ...filters} = search;
     const onFiltersChange = (patch: Partial<TriggerEventFilters>) => {
       void navigate({search: {...search, ...patch}, replace: true});
+    };
+    const onSelectedEventChange = (nextEventId: string | undefined) => {
+      void navigate({search: {...search, eventId: nextEventId}, replace: true});
     };
     return (
       <div className="flex min-w-0 flex-col gap-section">
@@ -31,8 +35,10 @@ export default defineRoute({
         <EventsPage
           workspaceId={workspace.id}
           workspaceSlug={workspace.slug}
-          filters={search}
+          filters={filters}
           onFiltersChange={onFiltersChange}
+          selectedEventId={eventId}
+          onSelectedEventChange={onSelectedEventChange}
         />
       </div>
     );

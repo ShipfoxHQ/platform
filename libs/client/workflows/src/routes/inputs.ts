@@ -1,4 +1,5 @@
 import {RUN_ANNOTATION_SEVERITIES, type RunAnnotationSeverity} from '#core/run-annotation.js';
+import {WORKFLOW_RUN_ORIGINS, type WorkflowRunOrigin} from '#core/workflow-run.js';
 import type {WorkflowRunSelectionInput} from '#core/workflow-run-url-state.js';
 
 /**
@@ -13,9 +14,9 @@ export type WorkflowRunListStatus = (typeof WORKFLOW_RUN_LIST_STATUSES)[number];
  * Origins the run list can filter by. Absent means all, matching the server's `origin`
  * query parameter being optional; there is deliberately no `all` value.
  */
-export const WORKFLOW_RUN_LIST_ORIGINS = ['synced', 'dev'] as const;
+export const WORKFLOW_RUN_LIST_ORIGINS = WORKFLOW_RUN_ORIGINS;
 
-export type WorkflowRunListOrigin = (typeof WORKFLOW_RUN_LIST_ORIGINS)[number];
+export type WorkflowRunListOrigin = WorkflowRunOrigin;
 
 export const WORKFLOW_RUN_TABS = ['summary', 'jobs', 'annotations', 'source'] as const;
 

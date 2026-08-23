@@ -14,7 +14,9 @@ export type WorkflowRunRerunMode = 'all' | 'failed';
 export type WorkflowStatus = WorkflowRunStatus | (typeof WORKFLOW_JOB_STATUSES)[number];
 
 /** Where a run's definition came from: the synced default branch, or a dev run from a ref. */
-export type WorkflowRunOrigin = 'synced' | 'dev';
+export const WORKFLOW_RUN_ORIGINS = ['synced', 'dev'] as const;
+
+export type WorkflowRunOrigin = (typeof WORKFLOW_RUN_ORIGINS)[number];
 
 /**
  * Dev-run provenance: the ref and pinned commit the definition came from, the file that
@@ -223,14 +225,18 @@ export function workflowRunActor(run: Pick<WorkflowRun, 'triggerReference'>): st
 }
 
 /**
- * The dev source as one label: `ref @ commit`, the branch or tag the definition came from
- * pinned to the commit that ran. The commit is shortened like the list row's commit label.
+ * The dev run's effective provenance as one label: `ref @ commit`. Replayed runs use the
+ * trigger reference shown by the list; other dev runs use the dev source. The commit is
+ * shortened like the list row's commit label.
  */
 export function workflowRunDevSourceLabel(
-  run: Pick<WorkflowRun, 'origin' | 'devSource'>,
+  run: Pick<WorkflowRun, 'origin' | 'devSource' | 'triggerReference'>,
 ): string | null {
   if (run.origin !== 'dev' || !run.devSource) return null;
-  return `${run.devSource.ref} @ ${run.devSource.commit.slice(0, SHORT_COMMIT_LENGTH)}`;
+  const ref = workflowRunBranchLabel(run);
+  const commit = workflowRunCommitLabel(run);
+  if (!ref || !commit) return null;
+  return `${ref} @ ${commit}`;
 }
 
 /**

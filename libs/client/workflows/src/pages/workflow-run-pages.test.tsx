@@ -159,7 +159,7 @@ describe('WorkflowRunPages', () => {
 
     // Picking Synced replaces the facet in the URL instead of stacking a second value.
     await user.click(await screen.findByRole('button', {name: ORIGIN_FILTER_RE}));
-    await user.click(await screen.findByRole('menuitemcheckbox', {name: 'Synced'}));
+    await user.click(await screen.findByRole('menuitemradio', {name: 'Synced'}));
     await user.keyboard('{Escape}');
 
     await waitFor(() => {
@@ -171,7 +171,7 @@ describe('WorkflowRunPages', () => {
 
     // Re-selecting the active value clears back to all origins.
     await user.click(await screen.findByRole('button', {name: ORIGIN_FILTER_RE}));
-    await user.click(await screen.findByRole('menuitemcheckbox', {name: 'Synced'}));
+    await user.click(await screen.findByRole('menuitemradio', {name: 'Synced'}));
     await user.keyboard('{Escape}');
 
     await waitFor(() => {

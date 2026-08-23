@@ -14,6 +14,8 @@ export interface EventsPageProps {
   workspaceSlug?: string | undefined;
   filters: TriggerEventFilters;
   onFiltersChange: (patch: Partial<TriggerEventFilters>) => void;
+  selectedEventId?: string | undefined;
+  onSelectedEventChange?: ((eventId: string | undefined) => void) | undefined;
 }
 
 /**
@@ -25,10 +27,15 @@ export function EventsPage({
   workspaceSlug,
   filters,
   onFiltersChange,
+  selectedEventId: routeSelectedEventId,
+  onSelectedEventChange,
 }: EventsPageProps) {
   const query = useTriggerEventsInfiniteQuery(workspaceId, filters);
   const facetsQuery = useTriggerEventFacetsQuery(workspaceId);
-  const [selectedEventId, setSelectedEventId] = useState<string | undefined>();
+  const [selectedEventId, setSelectedEventId] = useState<string | undefined>(routeSelectedEventId);
+  const [selectionIsFromRoute, setSelectionIsFromRoute] = useState(
+    routeSelectedEventId !== undefined,
+  );
 
   const events = useMemo<TriggerEventSummary[]>(
     () => query.data?.pages.flatMap((page) => page.events) ?? [],
@@ -36,9 +43,40 @@ export function EventsPage({
   );
 
   useEffect(() => {
-    if (!selectedEventId || query.isPending || query.isFetching || query.isError) return;
+    setSelectedEventId(routeSelectedEventId);
+    setSelectionIsFromRoute(routeSelectedEventId !== undefined);
+  }, [routeSelectedEventId]);
+
+  useEffect(() => {
+    if (
+      !selectedEventId ||
+      selectionIsFromRoute ||
+      query.isPending ||
+      query.isFetching ||
+      query.isError
+    )
+      return;
     if (!events.some((event) => event.id === selectedEventId)) setSelectedEventId(undefined);
-  }, [events, query.isError, query.isFetching, query.isPending, selectedEventId]);
+  }, [
+    events,
+    query.isError,
+    query.isFetching,
+    query.isPending,
+    selectedEventId,
+    selectionIsFromRoute,
+  ]);
+
+  function selectEvent(eventId: string) {
+    setSelectionIsFromRoute(false);
+    setSelectedEventId(eventId);
+    onSelectedEventChange?.(eventId);
+  }
+
+  function clearSelectedEvent() {
+    setSelectionIsFromRoute(false);
+    setSelectedEventId(undefined);
+    onSelectedEventChange?.(undefined);
+  }
 
   return (
     <RelativeTimeProvider>
@@ -58,14 +96,14 @@ export function EventsPage({
                 void query.fetchNextPage();
               }}
               selectedEventId={selectedEventId}
-              onSelectEvent={setSelectedEventId}
+              onSelectEvent={selectEvent}
             />
           </div>
           <TriggerEventDetail
             workspaceId={workspaceId}
             workspaceSlug={workspaceSlug}
             eventId={selectedEventId}
-            onBack={() => setSelectedEventId(undefined)}
+            onBack={clearSelectedEvent}
           />
         </div>
       </section>
