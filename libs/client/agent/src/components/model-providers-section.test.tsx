@@ -66,7 +66,11 @@ describe('WorkspaceModelProvidersSection', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       if (requestPath(input).endsWith('/agent/model-provider-catalog')) {
         return Promise.resolve(
-          jsonResponse(modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled')),
+          jsonResponse(
+            modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled', {
+              managedProviderId: 'shipfox',
+            }),
+          ),
         );
       }
       return Promise.resolve(

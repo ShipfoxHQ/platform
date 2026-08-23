@@ -5,9 +5,35 @@ import {
   modelProviderCatalogEntrySchema,
   type WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
+import {config} from '#config.js';
 import {listPiProviderModels} from './harness/pi.js';
 
 let cachedCatalog: readonly ModelProviderCatalogEntryDto[] | undefined;
+
+export interface ModelProviderCatalogResponse {
+  readonly providers: readonly ModelProviderCatalogEntryDto[];
+  readonly workspace_providers: WorkspaceProvidersPolicy;
+  readonly managed_provider_id: string | null;
+  readonly instance_default_provider_id: string | null;
+}
+
+export function buildModelProviderCatalogResponse(
+  options: {
+    managedProvider?: ManagedModelProvider | undefined;
+    workspaceProviders?: WorkspaceProvidersPolicy | undefined;
+  } = {},
+): ModelProviderCatalogResponse {
+  const workspaceProviders = options.workspaceProviders ?? 'enabled';
+  return {
+    providers: buildModelProviderCatalog({
+      managedProvider: options.managedProvider,
+      workspaceProviders,
+    }),
+    workspace_providers: workspaceProviders,
+    managed_provider_id: options.managedProvider?.id ?? null,
+    instance_default_provider_id: config.AGENT_DEFAULT_PROVIDER ?? null,
+  };
+}
 
 export function buildModelProviderCatalog(
   options: {

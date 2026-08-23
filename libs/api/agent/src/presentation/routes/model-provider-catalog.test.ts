@@ -38,6 +38,7 @@ describe('model provider catalog route', () => {
 
   afterEach(async () => {
     await closeApp();
+    vi.unstubAllEnvs();
   });
 
   describe('GET /agent/model-provider-catalog', () => {
@@ -58,6 +59,11 @@ describe('model provider catalog route', () => {
       });
 
       expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        workspace_providers: 'enabled',
+        managed_provider_id: null,
+        instance_default_provider_id: null,
+      });
       expect(res.json().providers).toHaveLength(37);
       for (const provider of res.json().providers) {
         if (provider.support_status === 'supported') {
@@ -92,6 +98,8 @@ describe('model provider catalog route', () => {
       expect(res.statusCode, res.body).toBe(200);
       expect(res.json()).toMatchObject({
         workspace_providers: 'disabled',
+        managed_provider_id: 'shipfox',
+        instance_default_provider_id: null,
         providers: [
           expect.objectContaining({
             id: 'shipfox',
@@ -101,6 +109,65 @@ describe('model provider catalog route', () => {
             models: [{id: 'managed-claude', label: 'Managed Claude', api: 'anthropic-messages'}],
           }),
         ],
+      });
+    });
+
+    it('appends the managed provider to the full catalog with its id under the enabled policy', async () => {
+      await closeApp();
+      app = await createApp({
+        auth: [fakeUserAuth],
+        routes: createAgentRoutes(undefined as never, {
+          managedProvider: managedProvider(),
+          workspaceProviders: 'enabled',
+        }),
+        swagger: false,
+      });
+      await app.ready();
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/agent/model-provider-catalog',
+        headers: {authorization: 'Bearer user'},
+      });
+
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({
+        workspace_providers: 'enabled',
+        managed_provider_id: 'shipfox',
+        instance_default_provider_id: null,
+      });
+      expect(res.json().providers).toHaveLength(38);
+      expect(res.json().providers.at(-1)).toMatchObject({
+        id: 'shipfox',
+        support_status: 'supported',
+        credential_fields: [],
+      });
+    });
+
+    it('returns the instance default provider id when AGENT_DEFAULT_PROVIDER is set', async () => {
+      vi.resetModules();
+      vi.stubEnv('AGENT_DEFAULT_PROVIDER', 'anthropic');
+      const {createAgentRoutes: freshCreateAgentRoutes} = await import('./index.js');
+
+      await closeApp();
+      app = await createApp({
+        auth: [fakeUserAuth],
+        routes: freshCreateAgentRoutes(undefined as never),
+        swagger: false,
+      });
+      await app.ready();
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/agent/model-provider-catalog',
+        headers: {authorization: 'Bearer user'},
+      });
+
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({
+        workspace_providers: 'enabled',
+        managed_provider_id: null,
+        instance_default_provider_id: 'anthropic',
       });
     });
   });

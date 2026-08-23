@@ -21,8 +21,13 @@ export function isManagedOnlyCatalog(catalog: ProviderCatalog | undefined): bool
 export function managedProviderFromCatalog(
   catalog: ProviderCatalog | undefined,
 ): SupportedProvider | undefined {
-  if (!isManagedOnlyCatalog(catalog)) return undefined;
-  return catalog?.providers.find(isSupportedProvider);
+  const providers = catalog?.providers;
+  const managedProviderId = catalog?.managedProviderId;
+  if (providers === undefined || managedProviderId === null || managedProviderId === undefined) {
+    return undefined;
+  }
+  const managedEntry = providers.find((provider) => provider.id === managedProviderId);
+  return managedEntry !== undefined && isSupportedProvider(managedEntry) ? managedEntry : undefined;
 }
 
 export function availableProviders(

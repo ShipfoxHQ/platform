@@ -79,6 +79,8 @@ export type ProviderConfig = BuiltinProviderConfig | CustomProviderConfig;
 export interface ProviderCatalog {
   readonly providers: readonly ProviderCatalogEntry[];
   readonly workspaceProviders: WorkspaceProvidersPolicy;
+  readonly managedProviderId: string | null;
+  readonly instanceDefaultProviderId: string | null;
 }
 
 export interface ProviderConfiguration {

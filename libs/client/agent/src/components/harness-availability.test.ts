@@ -44,7 +44,9 @@ describe('harness availability', () => {
 
   test('marks harnesses available from a managed-only catalog without workspace configs', () => {
     const catalog = toProviderCatalog(
-      modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled'),
+      modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled', {
+        managedProviderId: 'shipfox',
+      }),
     );
 
     expect(isHarnessAvailable(getHarness('pi'), [], catalog)).toBe(true);
@@ -61,6 +63,7 @@ describe('harness availability', () => {
           }),
         ],
         'disabled',
+        {managedProviderId: 'shipfox'},
       ),
     );
 

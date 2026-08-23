@@ -125,6 +125,8 @@ export type ModelProviderCatalogEntryDto = z.infer<typeof modelProviderCatalogEn
 export const modelProviderCatalogResponseSchema = z.object({
   providers: z.array(modelProviderCatalogEntrySchema),
   workspace_providers: workspaceProvidersPolicySchema.optional(),
+  managed_provider_id: z.string().min(1).nullable().default(null),
+  instance_default_provider_id: z.string().min(1).nullable().default(null),
 });
 
 export type ModelProviderCatalogResponseDto = z.infer<typeof modelProviderCatalogResponseSchema>;
