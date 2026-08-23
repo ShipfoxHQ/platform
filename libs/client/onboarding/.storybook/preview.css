@@ -1,0 +1,7 @@
+@import "@shipfox/react-ui/index.css";
+
+/* The `@import` supplies design-system tokens and base styles. Tailwind v4 only emits
+   utilities from scanned source, so include package stories plus the react-ui components
+   the setup checklist renders. */
+@source "../src";
+@source "../../../shared/react/ui/src";
