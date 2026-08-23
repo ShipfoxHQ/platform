@@ -89,8 +89,9 @@ slug-availability route is a namespace check that returns only a boolean. It doe
 not identify or authorize a workspace.
 
 Workflow run numbers follow the same boundary. The number is allocated per
-workflow definition and is exposed for display and workflow expressions. It is
-never resolved by an HTTP route. Run and job addresses remain UUIDs. See
+workflow lineage, including one project-scoped lineage for pathless manual
+definitions, and is exposed for display and workflow expressions. It is never
+resolved by an HTTP route. Run and job addresses remain UUIDs. See
 [ADR 0009](../adr/0009-client-urls-resource-identity.md) for the decision and
 rejected alternatives.
 

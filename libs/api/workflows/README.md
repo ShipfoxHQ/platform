@@ -65,11 +65,18 @@ display label and workflow expression value.
 
 ## Behavior Notes
 
-Run numbers are sequential within one workflow definition, start at `1`, and
-are unique for `(definition_id, number)`. The Workflows module allocates the
-number with a per-definition counter inside the run-creation transaction. It
-resolves trigger idempotency before allocation, so a duplicate delivery returns
-the original run without consuming another number.
+Run numbers are sequential within one workflow lineage, start at `1`, and are
+unique for `(definition_id, number)`. `workflow_runs.definition_id` carries the
+workflow lineage id: a stable identity per `(project_id, config_path)` shared by
+every definition row of one workflow file. Pathless manual definitions share one
+project-scoped lineage because they have no config path. Runs of a file keep one
+numbering sequence before and after the file merges. The column keeps its v1 name;
+a rename is a separate cleanup. Legacy definition rows are reconciled when read
+or synchronized; the schema migration only adds nullable lineage storage. The
+Workflows module allocates the number with a per-lineage counter inside the
+run-creation transaction. It resolves trigger
+idempotency before allocation, so a duplicate delivery returns the original run
+without consuming another number.
 
 Gaps are acceptable because the number is a label and monotonicity matters more
 than density. Counter rows stay after a definition is removed, and reruns create

@@ -80,7 +80,7 @@ describe('runWorkflow', () => {
 
     expect(run.id).toBeDefined();
     expect(run.projectId).toBe(projectId);
-    expect(run.definitionId).toBe(definition.id);
+    expect(run.definitionId).toBe(definition.workflowId);
     expect(run.name).toBe(definition.name);
     expect(run.status).toBe('pending');
     expect(run.triggerProvider).toBeNull();
@@ -150,6 +150,48 @@ describe('runWorkflow', () => {
     });
 
     expect(run.sourceSnapshot).toEqual(sourceSnapshot);
+  });
+
+  test('numbers runs by the workflow lineage id, not the definition row id', async () => {
+    const lineageId = crypto.randomUUID();
+    // A lineage whose id differs from the definition row id, as happens after
+    // the backfill when a lineage id diverges from the synced row it was born from.
+    const definition = buildDefinition({projectId, id: crypto.randomUUID(), workflowId: lineageId});
+    definitionResponse = definition;
+
+    const first = await runWorkflow(definitions, {
+      workspaceId,
+      projectId,
+      definitionId: definition.id,
+      triggerPayload: manualPayload(),
+      agent,
+    });
+    const second = await runWorkflow(definitions, {
+      workspaceId,
+      projectId,
+      definitionId: definition.id,
+      triggerPayload: manualPayload(),
+      agent,
+    });
+
+    expect(first.definitionId).toBe(lineageId);
+    expect(second.definitionId).toBe(lineageId);
+    expect(first.number).toBe(1);
+    expect(second.number).toBe(2);
+
+    // A later definition row that resolves to the same lineage continues the sequence.
+    const resynced = buildDefinition({projectId, id: crypto.randomUUID(), workflowId: lineageId});
+    definitionResponse = resynced;
+    const third = await runWorkflow(definitions, {
+      workspaceId,
+      projectId,
+      definitionId: resynced.id,
+      triggerPayload: manualPayload(),
+      agent,
+    });
+
+    expect(third.definitionId).toBe(lineageId);
+    expect(third.number).toBe(3);
   });
 
   test('throws DefinitionNotFoundError for unknown definition', async () => {
