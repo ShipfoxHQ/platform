@@ -25,6 +25,7 @@ export function validateCronTrigger(params: {
         message: `A cron trigger must use event "tick"; found "${trigger.event}".`,
         path: ['triggers', sourceKey, 'event'],
         details: {event: trigger.event},
+        scope: 'trigger',
       }),
     );
   }
@@ -35,6 +36,7 @@ export function validateCronTrigger(params: {
         code: 'missing-cron-schedule',
         message: 'A cron trigger requires a schedule.',
         path: ['triggers', sourceKey, 'config', 'schedule'],
+        scope: 'trigger',
       }),
     );
   } else if (!isValidCronExpression(config.schedule)) {
@@ -44,6 +46,7 @@ export function validateCronTrigger(params: {
         message: 'Cron trigger schedule must be a valid 5-field cron expression.',
         path: ['triggers', sourceKey, 'config', 'schedule'],
         details: {schedule: config.schedule},
+        scope: 'trigger',
       }),
     );
   }
@@ -55,6 +58,7 @@ export function validateCronTrigger(params: {
         message: 'Cron trigger timezone must be a valid IANA time zone.',
         path: ['triggers', sourceKey, 'config', 'timezone'],
         details: {timezone: config.timezone},
+        scope: 'trigger',
       }),
     );
   }

@@ -272,6 +272,54 @@ describe('fetchAndParseWorkflows', () => {
     expect(result[0]?.definition.model.jobs[0]?.steps).toHaveLength(1);
   });
 
+  it('keeps definitions with inert trigger-scoped errors available to the sync path', async () => {
+    const brokenTriggerYaml = `
+name: Broken trigger
+runner: ubuntu-latest
+triggers:
+  nightly:
+    source: cron
+    event: tick
+    config:
+      schedule: "not a cron"
+  on_demand:
+    source: manual
+    event: fire
+jobs:
+  build:
+    steps:
+      - run: pnpm test
+`;
+
+    const result = await fetchAndParseWorkflows({
+      ...baseContext,
+      ref: 'main',
+      paths: ['.shipfox/workflows/broken-trigger.yml'],
+      sourceControl: sourceControl({
+        fetchFile: vi.fn(() =>
+          Promise.resolve({
+            path: '.shipfox/workflows/broken-trigger.yml',
+            ref: 'main',
+            content: brokenTriggerYaml,
+          }),
+        ),
+      }),
+    });
+
+    expect(result[0]?.diagnostics).toEqual([
+      {
+        code: 'invalid-cron-schedule',
+        message: 'Cron trigger schedule must be a valid 5-field cron expression.',
+        path: 'triggers.nightly.config.schedule',
+        severity: 'error',
+      },
+    ]);
+    // The broken cron trigger is inert; the manual trigger stays active.
+    expect(result[0]?.definition.model.triggers.map((trigger) => trigger.key)).toEqual([
+      'on_demand',
+    ]);
+  });
+
   it('produces stable content hashes for identical content', async () => {
     const sourceControlA = sourceControl();
     const sourceControlB = sourceControl();

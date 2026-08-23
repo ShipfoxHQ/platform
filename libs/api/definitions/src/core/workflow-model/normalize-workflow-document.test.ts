@@ -2,7 +2,11 @@ import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
 import type {WorkflowDocument} from '@shipfox/workflow-document';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
 import type {IntegrationValidationContext} from '../entities/integration-context.js';
-import {InvalidWorkflowModelError} from './invalid-workflow-model-error.js';
+import type {WorkflowModel} from '../entities/workflow-model.js';
+import {
+  InvalidWorkflowModelError,
+  type WorkflowModelValidationIssue,
+} from './invalid-workflow-model-error.js';
 import {DEFAULT_JOB_CHECKOUT} from './normalize-job-checkout.js';
 import {normalizeWorkflowDocument as normalizeWorkflowDocumentBase} from './normalize-workflow-document.js';
 
@@ -32,6 +36,16 @@ function expectInvalid(
     expect(error).toBeInstanceOf(InvalidWorkflowModelError);
     return error as InvalidWorkflowModelError;
   }
+}
+
+function normalizeWithDiagnostics(
+  document: WorkflowDocument,
+  options?: Omit<Parameters<typeof normalizeWorkflowDocumentBase>[1], 'agentValidationCatalog'> &
+    Partial<Pick<Parameters<typeof normalizeWorkflowDocumentBase>[1], 'agentValidationCatalog'>>,
+): {model: WorkflowModel; diagnostics: WorkflowModelValidationIssue[]} {
+  const diagnostics: WorkflowModelValidationIssue[] = [];
+  const model = normalizeWorkflowDocument(document, {...options, diagnostics});
+  return {model, diagnostics};
 }
 
 function interpolation(source: string): string {
@@ -1446,6 +1460,78 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
+  it('reports missing resolution sources when every until matcher is inert', () => {
+    const document: WorkflowDocument = {
+      name: 'listen forever',
+      jobs: {
+        review: {
+          listening: {
+            on: [{source: 'github', event: 'pull_request_review'}],
+            until: [{source: 'github', event: 'pull_request', filter: 'event.action'}],
+          },
+          steps: [{run: 'echo ok'}],
+        },
+      },
+    };
+
+    const diagnostics: WorkflowModelValidationIssue[] = [];
+    let error: InvalidWorkflowModelError | undefined;
+    try {
+      normalizeWorkflowDocument(document, {diagnostics});
+      expect.fail('Expected InvalidWorkflowModelError');
+    } catch (caught) {
+      expect(caught).toBeInstanceOf(InvalidWorkflowModelError);
+      error = caught as InvalidWorkflowModelError;
+    }
+
+    expect(error?.issues).toEqual([
+      expect.objectContaining({
+        code: 'listening-job-missing-resolution-source',
+        path: ['jobs', 'review', 'listening'],
+      }),
+    ]);
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'invalid-listener-filter',
+        path: ['jobs', 'review', 'listening', 'until', 0, 'filter'],
+        severity: 'error',
+        scope: 'trigger',
+      }),
+    ]);
+  });
+
+  it('drops inert until matchers from the model when a timeout resolves the job', () => {
+    const document: WorkflowDocument = {
+      name: 'listen with timeout',
+      jobs: {
+        review: {
+          listening: {
+            on: [{source: 'github', event: 'pull_request_review'}],
+            until: [{source: 'github', event: 'pull_request', filter: 'event.action'}],
+            timeout: '1h',
+          },
+          steps: [{run: 'echo ok'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'invalid-listener-filter',
+        path: ['jobs', 'review', 'listening', 'until', 0, 'filter'],
+        severity: 'error',
+        scope: 'trigger',
+      }),
+    ]);
+    expect(model.jobs[0]?.listening).toMatchObject({
+      on: [{source: 'github', event: 'pull_request_review'}],
+      timeoutMs: 60 * 60 * 1000,
+    });
+    expect(model.jobs[0]?.listening).not.toHaveProperty('until');
+  });
+
   it('reports listening timeouts above the run timeout', () => {
     const document: WorkflowDocument = {
       name: 'too long',
@@ -1515,7 +1601,6 @@ describe('normalizeWorkflowDocument', () => {
     ['executions root', 'executions.size() > 0', 'context-unavailable-at-predicate-site'],
     ['matrix root', 'matrix.os == "linux"', 'context-unavailable-at-predicate-site'],
     ['runner root', 'runner.os == "linux"', 'runner-context-in-server-predicate'],
-    ['non-boolean source', 'event.action', 'invalid-listener-filter'],
   ] as const)('reports invalid listener on filters for %s', (_label, filter, code) => {
     const document: WorkflowDocument = {
       name: 'invalid listener filter',
@@ -1541,6 +1626,70 @@ describe('normalizeWorkflowDocument', () => {
           source: filter,
         }),
       }),
+    ]);
+  });
+
+  it('rejects a listening job whose only on matcher is inert', () => {
+    const document: WorkflowDocument = {
+      name: 'invalid listener filter',
+      jobs: {
+        review: {
+          listening: {
+            on: [{source: 'github', event: 'pull_request_review', filter: 'event.action'}],
+            max_executions: 1,
+          },
+          steps: [{run: 'echo ok'}],
+        },
+      },
+    };
+
+    const error = expectInvalid(document);
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'listening-job-no-active-matcher',
+        path: ['jobs', 'review', 'listening', 'on'],
+      }),
+    ]);
+  });
+
+  it('makes an invalid listener on matcher inert and keeps the others active', () => {
+    const document: WorkflowDocument = {
+      name: 'invalid listener filter',
+      jobs: {
+        review: {
+          listening: {
+            on: [
+              {source: 'github', event: 'pull_request_review', filter: 'event.action'},
+              {
+                source: 'github',
+                event: 'pull_request_review',
+                filter: 'event.action == "submitted"',
+              },
+            ],
+            max_executions: 1,
+          },
+          steps: [{run: 'echo ok'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'invalid-listener-filter',
+        path: ['jobs', 'review', 'listening', 'on', 0, 'filter'],
+        details: expect.objectContaining({
+          field: 'listener.on',
+          source: 'event.action',
+        }),
+        severity: 'error',
+        scope: 'trigger',
+      }),
+    ]);
+    expect(model.jobs[0]?.listening?.on).toEqual([
+      {source: 'github', event: 'pull_request_review', filter: 'event.action == "submitted"'},
     ]);
   });
 
@@ -3583,7 +3732,7 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
-  it('reports stable trigger id collisions', () => {
+  it('reports stable trigger id collisions with the later trigger inert', () => {
     const document: WorkflowDocument = {
       name: 'trigger collision',
       triggers: {
@@ -3597,9 +3746,9 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
 
-    expect(error.issues).toEqual([
+    expect(diagnostics).toEqual([
       {
         code: 'duplicate-trigger-id',
         message:
@@ -3607,9 +3756,10 @@ describe('normalizeWorkflowDocument', () => {
         path: ['triggers', 'main push'],
         details: {id: 'main-push', sourceKeys: ['main_push', 'main push']},
         severity: 'error',
-        scope: 'definition',
+        scope: 'trigger',
       },
     ]);
+    expect(model.triggers.map((trigger) => trigger.key)).toEqual(['main_push']);
   });
 
   it('reports stable step id collisions inside a job', () => {
@@ -3715,17 +3865,6 @@ describe('normalizeWorkflowDocument', () => {
         site: 'ingest',
       },
     ],
-    [
-      'non-boolean shape',
-      'event.ref',
-      'invalid-trigger-filter',
-      {
-        field: 'trigger.filter',
-        source: 'event.ref',
-        contextRoots: ['event'],
-        reason: 'Predicate source must be boolean-shaped.',
-      },
-    ],
   ] as const)('rejects trigger filters with %s', (_label, filter, code, details) => {
     const document: WorkflowDocument = {
       name: 'invalid trigger filter',
@@ -3757,7 +3896,44 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
-  it.each(['manual', 'cron'] as const)('rejects filters on %s triggers', (source) => {
+  it('makes a trigger with a non-boolean filter inert', () => {
+    const document: WorkflowDocument = {
+      name: 'invalid trigger filter',
+      triggers: {
+        main: {
+          source: 'github',
+          event: 'push',
+          filter: 'event.ref',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'invalid-trigger-filter',
+        message: expect.any(String),
+        path: ['triggers', 'main', 'filter'],
+        details: {
+          field: 'trigger.filter',
+          source: 'event.ref',
+          contextRoots: ['event'],
+          reason: 'Predicate source must be boolean-shaped.',
+        },
+        severity: 'error',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([]);
+  });
+
+  it.each(['manual', 'cron'] as const)('makes a %s trigger with a filter inert', (source) => {
     const document: WorkflowDocument = {
       name: 'unsupported trigger filter',
       triggers: {
@@ -3775,18 +3951,19 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
 
-    expect(error.issues).toEqual([
+    expect(diagnostics).toEqual([
       {
         code: 'invalid-trigger-filter',
         message: `A ${source} trigger cannot define a filter because it does not receive an event payload.`,
         path: ['triggers', 'main', 'filter'],
         details: {source: 'event.ref == "refs/heads/main"', triggerSource: source},
         severity: 'error',
-        scope: 'definition',
+        scope: 'trigger',
       },
     ]);
+    expect(model.triggers).toEqual([]);
   });
 
   it('maps trigger with values to model inputs', () => {
@@ -3945,7 +4122,7 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
-  it('reports a cron trigger with a non-tick event', () => {
+  it('makes a cron trigger with a non-tick event inert', () => {
     const document: WorkflowDocument = {
       name: 'nightly trigger',
       triggers: {
@@ -3962,18 +4139,19 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
 
-    expect(error.issues).toEqual([
+    expect(diagnostics).toEqual([
       {
         code: 'invalid-cron-event',
         message: 'A cron trigger must use event "tick"; found "push".',
         path: ['triggers', 'nightly', 'event'],
         details: {event: 'push'},
         severity: 'error',
-        scope: 'definition',
+        scope: 'trigger',
       },
     ]);
+    expect(model.triggers).toEqual([]);
   });
 
   it('keeps the event absent for integration triggers with the event omitted', () => {
@@ -4012,7 +4190,7 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.triggers[1]).not.toHaveProperty('event');
   });
 
-  it('reports a cron trigger without a schedule', () => {
+  it('makes a cron trigger without a schedule inert', () => {
     const document: WorkflowDocument = {
       name: 'nightly trigger',
       triggers: {
@@ -4028,24 +4206,25 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
 
-    expect(error.issues).toEqual([
+    expect(diagnostics).toEqual([
       {
         code: 'missing-cron-schedule',
         message: 'A cron trigger requires a schedule.',
         path: ['triggers', 'nightly', 'config', 'schedule'],
         severity: 'error',
-        scope: 'definition',
+        scope: 'trigger',
       },
     ]);
+    expect(model.triggers).toEqual([]);
   });
 
   it.each([
     ['malformed', 'not a cron'],
     ['6-field', '0 0 2 * * *'],
     ['preset', '@daily'],
-  ])('reports an invalid %s cron schedule', (_label, schedule) => {
+  ])('makes a cron trigger with an invalid %s schedule inert', (_label, schedule) => {
     const document: WorkflowDocument = {
       name: 'nightly trigger',
       triggers: {
@@ -4062,21 +4241,22 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
 
-    expect(error.issues).toEqual([
+    expect(diagnostics).toEqual([
       {
         code: 'invalid-cron-schedule',
         message: 'Cron trigger schedule must be a valid 5-field cron expression.',
         path: ['triggers', 'nightly', 'config', 'schedule'],
         details: {schedule},
         severity: 'error',
-        scope: 'definition',
+        scope: 'trigger',
       },
     ]);
+    expect(model.triggers).toEqual([]);
   });
 
-  it('reports an invalid cron timezone', () => {
+  it('makes a cron trigger with an invalid timezone inert', () => {
     const document: WorkflowDocument = {
       name: 'nightly trigger',
       triggers: {
@@ -4096,18 +4276,19 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
 
-    expect(error.issues).toEqual([
+    expect(diagnostics).toEqual([
       {
         code: 'invalid-cron-timezone',
         message: 'Cron trigger timezone must be a valid IANA time zone.',
         path: ['triggers', 'nightly', 'config', 'timezone'],
         details: {timezone: 'Not/A/Zone'},
         severity: 'error',
-        scope: 'definition',
+        scope: 'trigger',
       },
     ]);
+    expect(model.triggers).toEqual([]);
   });
 
   it('allows multiple cron triggers', () => {
@@ -4155,7 +4336,47 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.triggers).toMatchObject([{id: 'manual', source: 'manual', event: 'fire'}]);
   });
 
-  it('reports multiple manual triggers as a semantic rule', () => {
+  it('keeps other triggers active when a cron trigger is inert', () => {
+    const document: WorkflowDocument = {
+      name: 'partially broken triggers',
+      triggers: {
+        nightly: {
+          source: 'cron',
+          event: 'tick',
+          config: {schedule: 'not a cron'},
+        },
+        on_demand: {source: 'manual', event: 'fire'},
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'invalid-cron-schedule',
+        message: 'Cron trigger schedule must be a valid 5-field cron expression.',
+        path: ['triggers', 'nightly', 'config', 'schedule'],
+        details: {schedule: 'not a cron'},
+        severity: 'error',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([
+      {
+        id: 'on-demand',
+        key: 'on_demand',
+        source: 'manual',
+        event: 'fire',
+      },
+    ]);
+  });
+
+  it('keeps the first manual trigger active and makes later ones inert', () => {
     const document: WorkflowDocument = {
       name: 'manual triggers',
       triggers: {
@@ -4169,18 +4390,20 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const error = expectInvalid(document);
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
 
-    expect(error.issues).toEqual([
+    expect(diagnostics).toEqual([
       {
         code: 'multiple-manual-triggers',
-        message: 'A workflow may declare at most one manual trigger; found 2: one, two.',
-        path: ['triggers'],
+        message:
+          'A workflow may declare at most one manual trigger; found 2: one, two. This trigger is inert because it is not the first manual trigger in document order.',
+        path: ['triggers', 'two'],
         details: {manualTriggerKeys: ['one', 'two']},
         severity: 'error',
-        scope: 'definition',
+        scope: 'trigger',
       },
     ]);
+    expect(model.triggers.map((trigger) => trigger.key)).toEqual(['one']);
   });
 
   it('accumulates independent semantic issues in one pass', () => {

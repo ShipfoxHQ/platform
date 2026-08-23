@@ -39,8 +39,49 @@ export function normalizeJobListening(params: {
     issues: params.issues,
   });
 
+  const on = listening.on
+    .map((trigger, index) =>
+      normalizeListeningTrigger({
+        trigger,
+        field: 'listener.on',
+        path: [...path, 'listening', 'on', index, 'filter'],
+        issues: params.issues,
+        allowedJobReferences: params.allowedJobReferences,
+      }),
+    )
+    .filter((matcher): matcher is WorkflowModelJobListening['on'][number] => matcher !== undefined);
+
+  if (on.length === 0) {
+    params.issues.push(
+      issue({
+        code: 'listening-job-no-active-matcher',
+        message: `Listening job "${params.sourceName}" has no active "on" matcher; it can never execute.`,
+        path: [...path, 'listening', 'on'],
+      }),
+    );
+  }
+
+  const until =
+    listening.until === undefined
+      ? undefined
+      : listening.until
+          .map((trigger, index) =>
+            normalizeListeningTrigger({
+              trigger,
+              field: 'listener.until',
+              path: [...path, 'listening', 'until', index, 'filter'],
+              issues: params.issues,
+              allowedJobReferences: params.allowedJobReferences,
+            }),
+          )
+          .filter(
+            (matcher): matcher is WorkflowModelJobListening['on'][number] => matcher !== undefined,
+          );
+
+  // Inert `until` matchers do not resolve the listening job; the check runs on
+  // the matchers that stay active.
   if (
-    listening.until === undefined &&
+    (until === undefined || until.length === 0) &&
     listening.timeout === undefined &&
     listening.max_executions === undefined
   ) {
@@ -63,27 +104,11 @@ export function normalizeJobListening(params: {
         };
 
   return {
-    on: listening.on.map((trigger, index) =>
-      normalizeListeningTrigger({
-        trigger,
-        field: 'listener.on',
-        path: [...path, 'listening', 'on', index, 'filter'],
-        issues: params.issues,
-        allowedJobReferences: params.allowedJobReferences,
-      }),
-    ),
-    ...(listening.until === undefined
+    on,
+    ...(until === undefined || until.length === 0
       ? {}
       : {
-          until: listening.until.map((trigger, index) =>
-            normalizeListeningTrigger({
-              trigger,
-              field: 'listener.until',
-              path: [...path, 'listening', 'until', index, 'filter'],
-              issues: params.issues,
-              allowedJobReferences: params.allowedJobReferences,
-            }),
-          ),
+          until,
         }),
     ...(timeoutMs === undefined ? {} : {timeoutMs}),
     ...(listening.max_executions === undefined ? {} : {maxExecutions: listening.max_executions}),
@@ -103,7 +128,8 @@ function normalizeListeningTrigger(params: {
   path: readonly (string | number)[];
   issues: WorkflowModelValidationIssue[];
   allowedJobReferences: ReadonlySet<string>;
-}): WorkflowModelJobListening['on'][number] {
+}): WorkflowModelJobListening['on'][number] | undefined {
+  const matcherIssues: WorkflowModelValidationIssue[] = [];
   if (params.trigger.filter !== undefined) {
     validatePredicateExpression({
       field: params.field,
@@ -111,10 +137,16 @@ function normalizeListeningTrigger(params: {
       path: params.path,
       invalidCode: 'invalid-listener-filter',
       invalidMessage: `${params.field === 'listener.on' ? 'Listener on' : 'Listener until'} filter must be a valid CEL boolean expression.`,
-      issues: params.issues,
+      issues: matcherIssues,
       allowedJobReferences: params.allowedJobReferences,
+      scope: 'trigger',
     });
   }
+  params.issues.push(...matcherIssues);
+
+  // A matcher with a trigger-scoped issue is inert: excluded from the matcher
+  // list while the authored document entry stays untouched.
+  if (matcherIssues.some((candidate) => candidate.scope === 'trigger')) return undefined;
 
   return normalizeTriggerEntry(params.trigger);
 }
