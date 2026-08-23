@@ -113,7 +113,7 @@ describe('Sentry webhook processor', () => {
     expect(result).toMatchObject({outcome: 'processed'});
     expect(installation?.status).toBe('deleted');
     expect(updateConnectionLifecycleStatus).toHaveBeenCalledWith(
-      {id: connectionId, lifecycleStatus: 'disabled'},
+      {id: connectionId, lifecycleStatus: 'disabled', capabilities: []},
       expect.objectContaining({tx: expect.anything()}),
     );
   });

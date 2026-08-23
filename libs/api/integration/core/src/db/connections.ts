@@ -10,7 +10,7 @@ import type {
   IntegrationConnection,
   IntegrationConnectionLifecycleStatus,
 } from '#core/entities/connection.js';
-import type {IntegrationProviderKind} from '#core/entities/provider.js';
+import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/provider.js';
 import {IntegrationConnectionAlreadyExistsError} from '#core/errors.js';
 import {db} from './db.js';
 import {integrationConnections, toIntegrationConnection} from './schema/connections.js';
@@ -26,6 +26,7 @@ export interface UpsertIntegrationConnectionParams {
   slug: string;
   displayName: string;
   lifecycleStatus?: IntegrationConnectionLifecycleStatus | undefined;
+  capabilities: IntegrationCapability[];
 }
 
 export async function upsertIntegrationConnection(
@@ -91,7 +92,7 @@ export async function upsertIntegrationConnection(
   if (!row) throw new Error('Integration connection upsert returned no rows');
   const connection = toIntegrationConnection(row);
   if (becameAvailable) {
-    await writeConnectionAvailableEvent(executor, connection);
+    await writeConnectionAvailableEvent(executor, connection, params.capabilities);
   }
   return connection;
 }
@@ -103,6 +104,7 @@ export interface CreateIntegrationConnectionParams {
   slug: string;
   displayName: string;
   lifecycleStatus?: IntegrationConnectionLifecycleStatus | undefined;
+  capabilities: IntegrationCapability[];
 }
 
 const INTEGRATION_CONNECTION_EXTERNAL_UNIQUE_CONSTRAINT =
@@ -176,7 +178,7 @@ export async function createIntegrationConnection(
   if (!row) throw new Error('Integration connection insert returned no rows');
   const connection = toIntegrationConnection(row);
   if (connection.lifecycleStatus === 'active') {
-    await writeConnectionAvailableEvent(executor, connection);
+    await writeConnectionAvailableEvent(executor, connection, params.capabilities);
   }
   return connection;
 }
@@ -267,6 +269,7 @@ export type GetIntegrationConnectionBySlugFn = typeof getIntegrationConnectionBy
 export interface UpdateIntegrationConnectionLifecycleStatusParams {
   id: string;
   lifecycleStatus: IntegrationConnectionLifecycleStatus;
+  capabilities: IntegrationCapability[];
 }
 
 export async function updateIntegrationConnectionLifecycleStatus(
@@ -294,7 +297,7 @@ export async function updateIntegrationConnectionLifecycleStatus(
   if (!row) return undefined;
   const connection = toIntegrationConnection(row);
   if (existing.lifecycleStatus !== 'active' && connection.lifecycleStatus === 'active') {
-    await writeConnectionAvailableEvent(executor, connection);
+    await writeConnectionAvailableEvent(executor, connection, params.capabilities);
   }
   return connection;
 }
@@ -305,6 +308,7 @@ export type UpdateIntegrationConnectionLifecycleStatusFn =
 async function writeConnectionAvailableEvent(
   executor: IntegrationDb | IntegrationTx,
   connection: IntegrationConnection,
+  capabilities: IntegrationCapability[],
 ): Promise<void> {
   await writeOutboxEvent<IntegrationsEventMap>(executor, integrationsOutbox, {
     type: INTEGRATION_CONNECTION_AVAILABLE,
@@ -313,6 +317,7 @@ async function writeConnectionAvailableEvent(
       workspaceId: connection.workspaceId,
       connectionId: connection.id,
       slug: connection.slug,
+      capabilities,
     },
   });
 }

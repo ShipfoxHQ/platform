@@ -91,6 +91,7 @@ async function loadGithubModuleParts(
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
+            capabilities: ['source_control', 'agent_tools'],
           },
           {tx},
         );

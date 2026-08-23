@@ -75,6 +75,7 @@ async function loadSlackModuleParts(
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
+            capabilities: ['agent_tools'],
           },
           {tx},
         );

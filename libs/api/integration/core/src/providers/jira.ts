@@ -80,6 +80,7 @@ async function loadJiraModuleParts(
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
+            capabilities: ['agent_tools'],
           },
           {tx},
         );
@@ -169,6 +170,7 @@ async function loadJiraModuleParts(
       await updateIntegrationConnectionLifecycleStatus({
         id: connectionId,
         lifecycleStatus: 'error',
+        capabilities: ['agent_tools'],
       });
     },
   });
@@ -222,6 +224,7 @@ async function loadJiraModuleParts(
           {
             id: connectionId,
             lifecycleStatus: 'active',
+            capabilities: ['agent_tools'],
           },
           tx === undefined ? {} : {tx: tx as IntegrationTx},
         );
@@ -231,6 +234,7 @@ async function loadJiraModuleParts(
           {
             id: connectionId,
             lifecycleStatus: 'error',
+            capabilities: ['agent_tools'],
           },
           tx === undefined ? {} : {tx: tx as IntegrationTx},
         );

@@ -46,6 +46,7 @@ describe('jiraProviderModule', () => {
       externalAccountId: cloudId,
       slug: 'jira_acme',
       displayName: 'Jira Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertJiraInstallation({
       connectionId: connection.id,
@@ -88,6 +89,7 @@ describe('jiraProviderModule', () => {
       externalAccountId: cloudId,
       slug: `jira_${cloudId}`,
       displayName: 'Jira Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertJiraInstallation({
       connectionId: connection.id,
@@ -159,6 +161,7 @@ describe('jiraProviderModule', () => {
       externalAccountId: cloudId,
       slug: 'jira_acme_again',
       displayName: 'Jira Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertJiraInstallation({
       connectionId: replacement.id,

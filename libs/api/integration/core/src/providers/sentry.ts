@@ -54,6 +54,7 @@ async function loadSentryModuleParts(): Promise<IntegrationModuleParts> {
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
+            capabilities: [],
           },
           {tx},
         );

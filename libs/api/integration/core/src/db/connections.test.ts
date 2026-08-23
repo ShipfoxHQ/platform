@@ -40,6 +40,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
 
     const second = await upsertIntegrationConnection({
@@ -48,6 +49,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'gitea-owner',
       slug: 'debug_renamed',
       displayName: 'Renamed Debug',
+      capabilities: ['source_control'],
     });
 
     expect(second.id).toBe(first.id);
@@ -64,6 +66,7 @@ describe('integration connection queries', () => {
       slug: 'linear_acme',
       displayName: 'Linear Acme',
       lifecycleStatus: 'disabled',
+      capabilities: ['agent_tools'],
     });
 
     expect(await connectionEvents(connection.id)).toHaveLength(0);
@@ -75,6 +78,7 @@ describe('integration connection queries', () => {
       slug: 'linear_acme',
       displayName: 'Linear Acme',
       lifecycleStatus: 'active',
+      capabilities: ['agent_tools'],
     });
 
     expect(await connectionEvents(connection.id)).toHaveLength(1);
@@ -87,6 +91,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'debug-1',
       slug: 'debug_1',
       displayName: 'Debug One',
+      capabilities: ['source_control'],
     });
     await upsertIntegrationConnection({
       workspaceId,
@@ -94,6 +99,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'debug-2',
       slug: 'debug_2',
       displayName: 'Debug Two',
+      capabilities: ['source_control'],
     });
 
     const result = await listIntegrationConnections({workspaceId});
@@ -108,6 +114,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'debug-1',
       slug: 'github_main',
       displayName: 'GitHub',
+      capabilities: ['source_control', 'agent_tools'],
     });
 
     await expect(
@@ -125,6 +132,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'debug-1',
       slug: 'gitea_owner',
       displayName: 'Debug One',
+      capabilities: ['source_control'],
     });
     await upsertIntegrationConnection({
       workspaceId,
@@ -132,6 +140,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'debug-2',
       slug: 'debug_2',
       displayName: 'Debug Two',
+      capabilities: ['source_control', 'agent_tools'],
     });
 
     const result = await resolveUniqueConnectionSlug({
@@ -151,6 +160,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'install-uuid',
       slug: 'sentry_prod',
       displayName: 'Sentry',
+      capabilities: [],
     });
 
     const result = await resolveUniqueConnectionSlug({
@@ -170,6 +180,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'stripe',
       slug: 'stripe',
       displayName: 'Stripe',
+      capabilities: [],
     });
 
     const result = createIntegrationConnection({
@@ -178,6 +189,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'stripe',
       slug: 'stripe_renamed',
       displayName: 'Renamed Stripe',
+      capabilities: [],
     });
 
     await expect(result).rejects.toBeInstanceOf(IntegrationConnectionAlreadyExistsError);
@@ -195,6 +207,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'stripe',
       slug: 'stripe',
       displayName: 'Stripe',
+      capabilities: [],
     });
 
     const result = createIntegrationConnection({
@@ -203,6 +216,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'stripe-prod',
       slug: 'stripe',
       displayName: 'Stripe prod',
+      capabilities: [],
     });
 
     await expect(result).rejects.toBeInstanceOf(ConnectionSlugConflictError);
@@ -215,6 +229,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
     await upsertIntegrationConnection({
       workspaceId,
@@ -222,6 +237,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'team-1',
       slug: 'github_team_1',
       displayName: 'GitHub',
+      capabilities: ['source_control', 'agent_tools'],
     });
     await upsertIntegrationConnection({
       workspaceId,
@@ -230,6 +246,7 @@ describe('integration connection queries', () => {
       slug: 'github_installation_1',
       displayName: 'GitHub',
       lifecycleStatus: 'disabled',
+      capabilities: ['source_control', 'agent_tools'],
     });
 
     const result = await listIntegrationConnections({workspaceId});
@@ -249,6 +266,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
     const debugB = await upsertIntegrationConnection({
       workspaceId: otherWorkspaceId,
@@ -256,6 +274,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
     const github = await upsertIntegrationConnection({
       workspaceId,
@@ -263,6 +282,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'gh-1',
       slug: 'github_gh_1',
       displayName: 'GitHub',
+      capabilities: ['source_control', 'agent_tools'],
     });
 
     const result = await listIntegrationConnectionsByProvider({provider: 'gitea'});
@@ -280,11 +300,13 @@ describe('integration connection queries', () => {
       externalAccountId: 'install-uuid',
       slug: 'sentry_install_uuid',
       displayName: 'Sentry acme',
+      capabilities: [],
     });
 
     const updated = await updateIntegrationConnectionLifecycleStatus({
       id: connection.id,
       lifecycleStatus: 'disabled',
+      capabilities: [],
     });
 
     expect(updated?.lifecycleStatus).toBe('disabled');
@@ -301,6 +323,7 @@ describe('integration connection queries', () => {
       slug: 'linear_acme',
       displayName: 'Linear Acme',
       lifecycleStatus: 'disabled',
+      capabilities: ['agent_tools'],
     });
 
     expect(await connectionEvents(connection.id)).toHaveLength(0);
@@ -308,6 +331,7 @@ describe('integration connection queries', () => {
     await updateIntegrationConnectionLifecycleStatus({
       id: connection.id,
       lifecycleStatus: 'active',
+      capabilities: ['agent_tools'],
     });
 
     const events = await connectionEvents(connection.id);
@@ -317,6 +341,7 @@ describe('integration connection queries', () => {
       workspaceId,
       connectionId: connection.id,
       slug: 'linear_acme',
+      capabilities: ['agent_tools'],
     });
   });
 
@@ -327,11 +352,13 @@ describe('integration connection queries', () => {
       externalAccountId: 'linear-acme',
       slug: 'linear_acme',
       displayName: 'Linear Acme',
+      capabilities: ['agent_tools'],
     });
 
     await updateIntegrationConnectionLifecycleStatus({
       id: connection.id,
       lifecycleStatus: 'active',
+      capabilities: ['agent_tools'],
     });
 
     expect(await connectionEvents(connection.id)).toHaveLength(1);
@@ -341,6 +368,7 @@ describe('integration connection queries', () => {
     const result = await updateIntegrationConnectionLifecycleStatus({
       id: crypto.randomUUID(),
       lifecycleStatus: 'disabled',
+      capabilities: [],
     });
 
     expect(result).toBeUndefined();
@@ -353,6 +381,7 @@ describe('integration connection queries', () => {
       externalAccountId: 'stripe',
       slug: 'stripe',
       displayName: 'Stripe',
+      capabilities: [],
     });
 
     const deleted = await deleteIntegrationConnection({id: connection.id});
@@ -372,6 +401,7 @@ describe('integration connection queries', () => {
           externalAccountId: '123',
           slug: 'github_123',
           displayName: 'GitHub shipfox',
+          capabilities: ['source_control', 'agent_tools'],
         },
         {tx},
       );
@@ -400,5 +430,65 @@ describe('integration connection queries', () => {
         sql`${integrationsOutbox.eventType} = ${INTEGRATION_CONNECTION_AVAILABLE} AND ${integrationsOutbox.payload}->>'workspaceId' = ${workspaceId}`,
       );
     expect(events).toHaveLength(0);
+  });
+
+  it('publishes source-control and tool capabilities for a GitHub connection', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'github',
+      externalAccountId: 'gh-capabilities',
+      slug: 'github_capabilities',
+      displayName: 'GitHub',
+      capabilities: ['source_control', 'agent_tools'],
+    });
+
+    const [event] = await connectionEvents(connection.id);
+    expect(event?.payload).toEqual({
+      provider: 'github',
+      workspaceId,
+      connectionId: connection.id,
+      slug: 'github_capabilities',
+      capabilities: ['source_control', 'agent_tools'],
+    });
+  });
+
+  it('publishes agent-tool capabilities for a Linear connection', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'linear',
+      externalAccountId: 'linear-capabilities',
+      slug: 'linear_capabilities',
+      displayName: 'Linear',
+      capabilities: ['agent_tools'],
+    });
+
+    const [event] = await connectionEvents(connection.id);
+    expect(event?.payload).toEqual({
+      provider: 'linear',
+      workspaceId,
+      connectionId: connection.id,
+      slug: 'linear_capabilities',
+      capabilities: ['agent_tools'],
+    });
+  });
+
+  it('publishes an empty capabilities array for a webhook connection', async () => {
+    const connection = await createIntegrationConnection({
+      workspaceId,
+      provider: 'webhook',
+      externalAccountId: 'stripe-capabilities',
+      slug: 'stripe_capabilities',
+      displayName: 'Stripe',
+      capabilities: [],
+    });
+
+    const [event] = await connectionEvents(connection.id);
+    expect(event?.payload).toEqual({
+      provider: 'webhook',
+      workspaceId,
+      connectionId: connection.id,
+      slug: 'stripe_capabilities',
+      capabilities: [],
+    });
   });
 });

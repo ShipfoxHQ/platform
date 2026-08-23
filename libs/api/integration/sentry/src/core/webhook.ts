@@ -224,7 +224,7 @@ export async function handleSentryInstallationDeleted(
   );
   if (installation?.connectionId) {
     await params.updateConnectionLifecycleStatus(
-      {id: installation.connectionId, lifecycleStatus: 'disabled'},
+      {id: installation.connectionId, lifecycleStatus: 'disabled', capabilities: []},
       {tx: params.tx},
     );
   }

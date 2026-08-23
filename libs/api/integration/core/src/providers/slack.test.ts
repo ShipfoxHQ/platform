@@ -38,6 +38,7 @@ describe('slackProviderModule', () => {
       externalAccountId: teamId,
       slug: `slack_${teamId}`,
       displayName: 'Slack Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertSlackInstallation({
       connectionId: connection.id,
@@ -90,6 +91,7 @@ describe('slackProviderModule', () => {
       externalAccountId: teamId,
       slug: `slack_${teamId}`,
       displayName: 'Slack Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertSlackInstallation({
       connectionId: connection.id,
@@ -121,6 +123,7 @@ describe('slackProviderModule', () => {
       externalAccountId: teamId,
       slug: `slack_${teamId}_again`,
       displayName: 'Slack Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertSlackInstallation({
       connectionId: replacement.id,
@@ -167,6 +170,7 @@ describe('slackProviderModule', () => {
       externalAccountId: teamId,
       slug: `slack_${teamId}`,
       displayName: 'Slack Acme',
+      capabilities: ['agent_tools'],
     });
     await upsertSlackInstallation({
       connectionId: connection.id,

@@ -119,6 +119,7 @@ async function createCleanupConnection(
     externalAccountId: overrides.externalAccountId ?? crypto.randomUUID(),
     slug: `${overrides.provider ?? 'slack'}_${crypto.randomUUID()}`,
     displayName: overrides.provider ?? 'Slack',
+    capabilities: overrides.provider === 'gitea' ? ['source_control'] : ['agent_tools'],
   });
   await enqueueIntegrationSecretCleanup({connection});
   return connection;

@@ -40,6 +40,7 @@ describe('onIntegrationConnectionAvailable', () => {
       workspaceId: first.workspaceId,
       connectionId: crypto.randomUUID(),
       slug: 'linear_shipfox',
+      capabilities: ['agent_tools'],
     };
     const event: DomainEvent<IntegrationConnectionAvailableEvent> = {
       id: crypto.randomUUID(),
@@ -96,6 +97,7 @@ describe('onIntegrationConnectionAvailable', () => {
       workspaceId,
       connectionId: crypto.randomUUID(),
       slug: 'linear_shipfox',
+      capabilities: ['agent_tools'],
     };
 
     await expect(
@@ -118,6 +120,7 @@ describe('onIntegrationConnectionAvailable', () => {
       workspaceId: crypto.randomUUID(),
       connectionId: crypto.randomUUID(),
       slug: 'linear_shipfox',
+      capabilities: ['agent_tools'],
     };
 
     await expect(

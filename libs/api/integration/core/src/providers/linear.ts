@@ -72,6 +72,7 @@ async function loadLinearModuleParts(
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
+            capabilities: ['agent_tools'],
           },
           {tx},
         );

@@ -611,7 +611,7 @@ describe('Sentry webhook route', () => {
     expect((await readInstallation(installationUuid))?.status).toBe('deleted');
     expect(updateConnectionLifecycleStatus).toHaveBeenCalledTimes(1);
     expect(updateConnectionLifecycleStatus).toHaveBeenCalledWith(
-      {id: connectionId, lifecycleStatus: 'disabled'},
+      {id: connectionId, lifecycleStatus: 'disabled', capabilities: []},
       expect.objectContaining({tx: expect.anything()}),
     );
     expect(recordDeliveryOnly).toHaveBeenCalledTimes(1);

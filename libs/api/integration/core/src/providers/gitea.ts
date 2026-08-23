@@ -53,6 +53,7 @@ async function loadGiteaModuleParts(): Promise<IntegrationModuleParts> {
             slug,
             displayName: input.displayName,
             lifecycleStatus: 'active',
+            capabilities: ['source_control'],
           },
           {tx},
         );

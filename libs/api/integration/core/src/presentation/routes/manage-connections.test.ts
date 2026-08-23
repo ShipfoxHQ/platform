@@ -15,6 +15,7 @@ describe('PATCH /integration-connections/:connectionId', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
 
     const res = await app.inject({
@@ -53,6 +54,7 @@ describe('PATCH /integration-connections/:connectionId', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
 
     const res = await app.inject({
@@ -75,6 +77,7 @@ describe('PATCH /integration-connections/:connectionId', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
 
     const res = await app.inject({
@@ -100,6 +103,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'gitea-owner',
       slug: 'gitea_owner',
       displayName: 'Gitea',
+      capabilities: ['source_control'],
     });
 
     const res = await app.inject({
@@ -133,6 +137,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'T123',
       slug: 'slack_acme',
       displayName: 'Slack Acme',
+      capabilities: [],
     });
 
     const res = await app.inject({
@@ -183,6 +188,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'T123',
       slug: 'slack_acme',
       displayName: 'Slack Acme',
+      capabilities: [],
     });
 
     const res = await app.inject({
@@ -234,6 +240,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'T123',
       slug: 'slack_acme',
       displayName: 'Slack Acme',
+      capabilities: [],
     });
 
     const res = await app.inject({
@@ -264,6 +271,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'T123',
       slug: 'slack_acme',
       displayName: 'Slack Acme',
+      capabilities: [],
     });
 
     const res = await app.inject({
@@ -297,6 +305,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'T123',
       slug: 'slack_acme',
       displayName: 'Slack Acme',
+      capabilities: [],
     });
 
     const res = await app.inject({
@@ -328,6 +337,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'T123',
       slug: 'slack_acme',
       displayName: 'Slack Acme',
+      capabilities: [],
     });
 
     const res = await app.inject({
@@ -356,6 +366,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'T123',
       slug: 'slack_acme',
       displayName: 'Slack Acme',
+      capabilities: [],
     });
 
     const res = await app.inject({
@@ -396,6 +407,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'T123',
       slug: 'slack_acme',
       displayName: 'Slack Acme',
+      capabilities: [],
     });
 
     const res = await app.inject({
@@ -443,6 +455,7 @@ describe('DELETE /integration-connections/:connectionId', () => {
       externalAccountId: 'T123',
       slug: 'slack_acme',
       displayName: 'Slack Acme',
+      capabilities: [],
     });
 
     const res = await app.inject({

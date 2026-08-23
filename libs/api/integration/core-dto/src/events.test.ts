@@ -15,6 +15,7 @@ const validConnectionAvailable = {
   workspaceId: 'ws-1',
   connectionId: 'conn-1',
   slug: 'linear_shipfox',
+  capabilities: ['agent_tools'],
 };
 
 const validEventReceived = {
@@ -63,6 +64,24 @@ describe('integrationConnectionAvailableSchema', () => {
     expect(integrationConnectionAvailableSchema.parse(validConnectionAvailable)).toEqual(
       validConnectionAvailable,
     );
+  });
+
+  it('carries both capabilities for a source-control and tool provider', () => {
+    const input = {...validConnectionAvailable, capabilities: ['source_control', 'agent_tools']};
+
+    expect(integrationConnectionAvailableSchema.parse(input)).toEqual(input);
+  });
+
+  it('carries an empty capabilities array for a connection without adapters', () => {
+    const input = {...validConnectionAvailable, capabilities: []};
+
+    expect(integrationConnectionAvailableSchema.parse(input)).toEqual(input);
+  });
+
+  it('rejects a payload without capabilities', () => {
+    const {capabilities: _capabilities, ...withoutCapabilities} = validConnectionAvailable;
+
+    expect(() => integrationConnectionAvailableSchema.parse(withoutCapabilities)).toThrow();
   });
 
   it('rejects a payload without a connection slug', () => {
