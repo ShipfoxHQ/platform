@@ -3,7 +3,6 @@ import {mkdirSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {listHarnessDescriptors, MODEL_PROVIDER_CATALOG_SEED} from '@shipfox/api-agent-dto';
-import {giteaEventCatalog} from '@shipfox/api-integration-gitea-dto';
 import {
   githubAgentToolCatalog,
   githubAgentToolSelectionCatalog,
@@ -48,9 +47,6 @@ const dtoCatalogBySlug = {
     eventCatalog: githubEventCatalog,
     toolCatalog: githubAgentToolCatalog,
     toolSelectionCatalog: githubAgentToolSelectionCatalog,
-  },
-  gitea: {
-    eventCatalog: giteaEventCatalog,
   },
   jira: {
     eventCatalog: jiraEventCatalog,

@@ -12,7 +12,6 @@ export const INTEGRATION_CATALOG_CATEGORIES = [
 ] as const;
 export const INTEGRATION_CATALOG_ICONS = [
   'github',
-  'gitea',
   'sentry',
   'webhooks',
   'linear',

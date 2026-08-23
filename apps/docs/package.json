@@ -38,7 +38,6 @@
     "@shipfox/api-agent-dto": "workspace:*",
     "@shipfox/api-integration-core-dto": "workspace:*",
     "@shipfox/expression": "workspace:*",
-    "@shipfox/api-integration-gitea-dto": "workspace:*",
     "@shipfox/api-integration-github": "workspace:*",
     "@shipfox/api-integration-github-dto": "workspace:*",
     "@shipfox/api-integration-jira": "workspace:*",

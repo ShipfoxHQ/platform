@@ -35,8 +35,6 @@
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
     "depcruise": "shipfox-depcruise",
-    "test": "shipfox-vitest-run",
-    "test:watch": "shipfox-vitest-watch",
     "type": "shipfox-tsc-check",
     "type:emit": "shipfox-tsc-emit"
   },

@@ -39,7 +39,6 @@ const validInput: IntegrationDocsCompletenessInput = {
       eventCount: 6,
       toolCount: 11,
     },
-    gitea: {capabilities: ['source_control', 'events'], eventCount: 1, toolCount: 0},
   },
   integrationDirectories: {
     github: directory(
@@ -92,11 +91,6 @@ const validInput: IntegrationDocsCompletenessInput = {
         aliases: ['issues', 'tickets'],
       },
     ),
-    gitea: directory('gitea', ['index', 'setup', 'events'], ['index', 'setup', 'events'], {
-      capabilities: ['source_control', 'events'],
-      categories: ['source-control'],
-      aliases: ['git', 'vcs', 'forge'],
-    }),
   },
   triggerSources: '## Sources at a glance\n| Cron | `cron` | `tick` |\n\n## cron',
 };

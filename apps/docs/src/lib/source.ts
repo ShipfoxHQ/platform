@@ -4,11 +4,10 @@ import {loader} from 'fumadocs-core/source';
 import {statusBadgesPlugin} from 'fumadocs-core/source/status-badges';
 import {icons} from 'lucide-react';
 import {createElement} from 'react';
-import {siGitea, siGithub, siJira, siLinear, siSentry, siSlack} from 'simple-icons';
+import {siGithub, siJira, siLinear, siSentry, siSlack} from 'simple-icons';
 
 const simpleIcons = {
   github: siGithub,
-  gitea: siGitea,
   jira: siJira,
   sentry: siSentry,
   linear: siLinear,
