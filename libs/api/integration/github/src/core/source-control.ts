@@ -10,6 +10,7 @@ import {
   type IntegrationConnection,
   isRecord,
   isValidGitObjectId,
+  isValidResolvableRef,
   isValidTriggerRef,
   type ListFilesInput,
   type ListRepositoriesInput,
@@ -20,6 +21,8 @@ import {
   type RepositoryPage,
   type RepositorySnapshot,
   type RepositoryVisibility,
+  type ResolvedRef,
+  type ResolveRefInput,
   type ResolveRepositoryInput,
   type SourceControlProvider,
   type TriggerReference,
@@ -194,6 +197,37 @@ export class GithubSourceControlProvider
     };
   }
 
+  async resolveRef(input: ResolveRefInput<GithubIntegrationConnection>): Promise<ResolvedRef> {
+    if (!isValidResolvableRef(input.ref)) {
+      throw new GithubIntegrationProviderError(
+        'ref-invalid',
+        `GitHub ref ${formatRefForMessage(input.ref)} is not a resolvable branch or tag name`,
+      );
+    }
+    const installationId = await this.installationId(input.connection.id);
+    const {repositoryId} = parseGithubRepositoryLocator(input.externalRepositoryId);
+    const commits = await this.github.listRepositoryCommits({
+      installationId,
+      repositoryId,
+      ref: input.ref,
+    });
+    const commit = commits[0]?.sha;
+    if (!commit) {
+      throw new GithubIntegrationProviderError(
+        'ref-not-found',
+        `GitHub ref ${formatRefForMessage(input.ref)} does not resolve to a commit`,
+      );
+    }
+    if (!isValidGitObjectId(commit)) {
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        `GitHub ref ${formatRefForMessage(input.ref)} resolved to an invalid commit`,
+      );
+    }
+
+    return {ref: input.ref, commit};
+  }
+
   async createCheckoutSpec(
     input: CreateCheckoutSpecInput<GithubIntegrationConnection>,
   ): Promise<CheckoutSpec> {
@@ -254,6 +288,10 @@ function sameGithubRepository(
   const firstName = nonEmptyString(first.full_name);
   const secondName = nonEmptyString(second.full_name);
   return Boolean(firstName && secondName && firstName.toLowerCase() === secondName.toLowerCase());
+}
+
+function formatRefForMessage(ref: string): string {
+  return JSON.stringify(ref);
 }
 
 async function githubAppGitAuthor(

@@ -7,29 +7,40 @@ import {createGithubApiClient, mapGithubError} from './client.js';
 
 const GITHUB_INSTALLATION_TOKEN_PATTERN = /^ghs_[A-Za-z0-9._-]{36,}$/u;
 
-const {createInstallationAccessTokenMock, getByUsernameMock, octokitOptionsMock, RequestErrorMock} =
-  vi.hoisted(() => {
-    class RequestErrorMock extends Error {
-      constructor(
-        message: string,
-        public readonly status: number,
-      ) {
-        super(message);
-        this.name = 'HttpError';
-      }
+const {
+  authMock,
+  createInstallationAccessTokenMock,
+  getByUsernameMock,
+  listRepositoryCommitsMock,
+  octokitOptionsMock,
+  requestMock,
+  RequestErrorMock,
+} = vi.hoisted(() => {
+  class RequestErrorMock extends Error {
+    constructor(
+      message: string,
+      public readonly status: number,
+    ) {
+      super(message);
+      this.name = 'HttpError';
     }
+  }
 
-    return {
-      createInstallationAccessTokenMock: vi.fn(),
-      getByUsernameMock: vi.fn(),
-      octokitOptionsMock: vi.fn(),
-      RequestErrorMock,
-    };
-  });
+  return {
+    authMock: vi.fn(),
+    createInstallationAccessTokenMock: vi.fn(),
+    getByUsernameMock: vi.fn(),
+    listRepositoryCommitsMock: vi.fn(),
+    octokitOptionsMock: vi.fn(),
+    requestMock: vi.fn(),
+    RequestErrorMock,
+  };
+});
 
 vi.mock('octokit', () => ({
   App: class App {
     octokit = {
+      auth: authMock,
       rest: {
         apps: {createInstallationAccessToken: createInstallationAccessTokenMock},
         users: {getByUsername: getByUsernameMock},
@@ -37,7 +48,11 @@ vi.mock('octokit', () => ({
     };
   },
   Octokit: class Octokit {
-    rest = {users: {getByUsername: getByUsernameMock}};
+    rest = {
+      repos: {listCommits: listRepositoryCommitsMock},
+      users: {getByUsername: getByUsernameMock},
+    };
+    request = requestMock;
 
     constructor(options: unknown) {
       octokitOptionsMock(options);
@@ -248,6 +263,61 @@ describe('mapGithubError', () => {
     await expect(result).rejects.toMatchObject({
       reason: 'timeout',
       message: 'GitHub request timed out',
+    });
+  });
+});
+
+describe('OctokitGithubApiClient.listRepositoryCommits', () => {
+  beforeEach(() => {
+    authMock.mockReset();
+    listRepositoryCommitsMock.mockReset();
+    requestMock.mockReset();
+  });
+
+  it.each([
+    [404, 'repository-not-found'],
+    [409, 'ref-not-found'],
+    [422, 'ref-not-found'],
+  ] as const)('maps HTTP %i commit lookup failures to %s', async (status, reason) => {
+    authMock.mockResolvedValue({token: 'ghs_installationtoken'});
+    requestMock.mockResolvedValue({
+      data: {
+        id: 42,
+        owner: {login: 'shipfox'},
+        name: 'platform',
+        full_name: 'shipfox/platform',
+        default_branch: 'main',
+        private: true,
+        clone_url: 'https://github.com/shipfox/platform.git',
+        html_url: 'https://github.com/shipfox/platform',
+      },
+    });
+    listRepositoryCommitsMock.mockRejectedValue(
+      new RequestErrorMock('No commit found for SHA', status),
+    );
+    const client = createGithubApiClient();
+
+    const result = client.listRepositoryCommits({
+      installationId: 1,
+      repositoryId: 42,
+      ref: 'refs/heads/missing',
+    });
+
+    await expect(result).rejects.toMatchObject({
+      reason,
+      status,
+      message: 'No commit found for SHA',
+    });
+    expect(requestMock).toHaveBeenCalledWith('GET /repositories/{repository_id}', {
+      repository_id: 42,
+      request: {signal: expect.any(AbortSignal)},
+    });
+    expect(listRepositoryCommitsMock).toHaveBeenCalledWith({
+      owner: 'shipfox',
+      repo: 'platform',
+      sha: 'refs/heads/missing',
+      per_page: 1,
+      request: {signal: expect.any(AbortSignal)},
     });
   });
 });

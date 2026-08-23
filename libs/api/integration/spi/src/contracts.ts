@@ -53,6 +53,16 @@ export interface ResolveRepositoryInput<
   externalRepositoryId: string;
 }
 
+export interface ResolveRefInput<Connection extends IntegrationConnection = IntegrationConnection>
+  extends ResolveRepositoryInput<Connection> {
+  ref: string;
+}
+
+export interface ResolvedRef {
+  ref: string;
+  commit: string;
+}
+
 export interface FileSnapshot {
   path: string;
   ref: string;
@@ -129,6 +139,11 @@ export interface SourceControlProvider<
   listFiles(input: ListFilesInput<Connection>): Promise<FilePage>;
   fetchFile(input: FetchFileInput<Connection>): Promise<FileSnapshot>;
   resolveTriggerReference(payload: unknown): TriggerReference | null;
+  /**
+   * Pins a branch or tag name to the commit it currently points at.
+   * The snapshot can become unreachable before a caller uses it.
+   */
+  resolveRef(input: ResolveRefInput<Connection>): Promise<ResolvedRef>;
   createCheckoutSpec?(input: CreateCheckoutSpecInput<Connection>): Promise<CheckoutSpec>;
 }
 
@@ -249,6 +264,8 @@ export type IntegrationProviderErrorReason =
   | 'repository-not-found'
   | 'installation-not-found'
   | 'file-not-found'
+  | 'ref-not-found'
+  | 'ref-invalid'
   | 'access-denied'
   | 'rate-limited'
   | 'timeout'
@@ -363,6 +380,18 @@ export function positiveInteger(value: unknown): number | null {
 /** Validates a provider ref before it is passed to a git operation. */
 export function isValidTriggerRef(ref: string): boolean {
   return isValidGitRefName(ref);
+}
+
+/**
+ * Validates a ref the platform may resolve to a commit: any safe git ref name
+ * except pull-request refs. Raw object ids do not satisfy the safe git ref
+ * name rules because valid refs must contain a slash. `refs/pull/N/head` can
+ * point at a fork and providers serve any commit in the repository network by
+ * SHA, so accepting names only keeps resolutions on refs a member pushed to
+ * the project repository.
+ */
+export function isValidResolvableRef(ref: string): boolean {
+  return isValidTriggerRef(ref) && !ref.startsWith('refs/pull/');
 }
 
 export function isValidGitObjectId(value: string): boolean {

@@ -11,6 +11,7 @@ import {
   type IntegrationConnection,
   isRecord,
   isValidGitObjectId,
+  isValidResolvableRef,
   isValidTriggerRef,
   type ListFilesInput,
   type ListRepositoriesInput,
@@ -21,6 +22,8 @@ import {
   type RepositoryPage,
   type RepositorySnapshot,
   type RepositoryVisibility,
+  type ResolvedRef,
+  type ResolveRefInput,
   type ResolveRepositoryInput,
   type SourceControlProvider,
   type TriggerReference,
@@ -32,6 +35,8 @@ import {GiteaIntegrationProviderError} from './errors.js';
 type GiteaIntegrationConnection = IntegrationConnection<'gitea'>;
 
 const TRAILING_SLASHES_RE = /\/+$/;
+const REFS_HEADS_PREFIX = 'refs/heads/';
+const REFS_TAGS_PREFIX = 'refs/tags/';
 const SEARCH_PAGE_SIZE = 100;
 const SEARCH_MAX_PAGES_PER_REQUEST = 5;
 
@@ -183,6 +188,44 @@ export class GiteaSourceControlProvider
     };
   }
 
+  async resolveRef(input: ResolveRefInput<GiteaIntegrationConnection>): Promise<ResolvedRef> {
+    if (!isValidResolvableRef(input.ref)) {
+      throw new GiteaIntegrationProviderError(
+        'ref-invalid',
+        `Gitea ref ${formatRefForMessage(input.ref)} is not a resolvable branch or tag name`,
+      );
+    }
+    const {owner, repo} = parseGiteaRepositoryLocator(
+      input.externalRepositoryId,
+      input.connection.externalAccountId,
+    );
+
+    const providerRef = providerRefName(input.ref);
+    const branchLookup = () => this.gitea.getBranch({owner, repo, branch: providerRef});
+    const tagLookup = () => this.gitea.getTag({owner, repo, tag: providerRef});
+    const lookups: Array<() => Promise<{commitSha: string}>> = input.ref.startsWith(
+      REFS_TAGS_PREFIX,
+    )
+      ? [tagLookup]
+      : input.ref.startsWith(REFS_HEADS_PREFIX)
+        ? [branchLookup]
+        : [branchLookup, tagLookup];
+    for (const lookup of lookups) {
+      try {
+        const resolved = await lookup();
+        return {ref: input.ref, commit: resolved.commitSha};
+      } catch (error) {
+        if (!isRefNotFound(error)) throw error;
+      }
+    }
+
+    await this.gitea.getRepository({owner, repo});
+    throw new GiteaIntegrationProviderError(
+      'ref-not-found',
+      `Gitea ref ${formatRefForMessage(input.ref)} does not resolve to a branch or tag`,
+    );
+  }
+
   async createCheckoutSpec(
     input: CreateCheckoutSpecInput<GiteaIntegrationConnection>,
   ): Promise<CheckoutSpec> {
@@ -223,6 +266,20 @@ function giteaRepositoryId(repository: Record<string, unknown> | null): string |
 function giteaEventActor(payload: Record<string, unknown>): string | null {
   const sender = asRecord(payload.sender);
   return nonEmptyString(sender?.login) ?? nonEmptyString(sender?.username);
+}
+
+function isRefNotFound(error: unknown): boolean {
+  return error instanceof GiteaIntegrationProviderError && error.reason === 'ref-not-found';
+}
+
+function providerRefName(ref: string): string {
+  if (ref.startsWith(REFS_HEADS_PREFIX)) return ref.slice(REFS_HEADS_PREFIX.length);
+  if (ref.startsWith(REFS_TAGS_PREFIX)) return ref.slice(REFS_TAGS_PREFIX.length);
+  return ref;
+}
+
+function formatRefForMessage(ref: string): string {
+  return JSON.stringify(ref);
 }
 
 function sameGiteaRepository(

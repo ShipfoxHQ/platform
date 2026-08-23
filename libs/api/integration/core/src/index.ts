@@ -112,6 +112,8 @@ export type {
   RepositoryPage,
   RepositorySnapshot,
   RepositoryVisibility,
+  ResolvedRef,
+  ResolveRefInput,
   ResolveRepositoryInput,
   SourceControlProvider,
   TriggerReference,

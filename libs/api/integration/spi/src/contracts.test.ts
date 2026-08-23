@@ -3,6 +3,7 @@ import {
   IntegrationProviderError,
   isValidGitObjectId,
   isValidGitRefName,
+  isValidResolvableRef,
   isValidTriggerRef,
   parseProviderRepositoryId,
 } from './contracts.js';
@@ -29,12 +30,35 @@ describe('git ref names', () => {
     'refs/heads/.foo',
     'refs/heads/foo.',
     'refs/heads/foo@{bar',
+    'a'.repeat(40),
+    'b'.repeat(64),
+    '0'.repeat(40),
   ])('rejects %s', (ref) => {
     expect(isValidGitRefName(ref)).toBe(false);
   });
 
   it.each(['refs/tags/-evil', 'refs/heads/feature/-evil'])('accepts safe trigger ref %s', (ref) => {
     expect(isValidTriggerRef(ref)).toBe(true);
+  });
+});
+
+describe('resolvable refs', () => {
+  it.each([
+    'refs/heads/main',
+    'refs/heads/feature/review',
+    'refs/tags/v1.0.0',
+  ])('accepts %s', (ref) => {
+    expect(isValidResolvableRef(ref)).toBe(true);
+  });
+
+  it.each(['refs/pull/17/head'])('rejects %s', (ref) => {
+    expect(isValidResolvableRef(ref)).toBe(false);
+  });
+
+  it('rejects every name a trigger ref rejects', () => {
+    for (const ref of ['', 'HEAD', '-main', 'refs/heads/foo bar', 'refs/heads/foo..bar']) {
+      expect(isValidResolvableRef(ref)).toBe(false);
+    }
   });
 });
 

@@ -16,6 +16,8 @@ function giteaClient(repository: GiteaRepository): GiteaApiClient {
     listOrgRepositories: vi.fn(),
     getRepository: vi.fn(() => Promise.resolve(repository)),
     resolveRef: vi.fn(),
+    getBranch: vi.fn(),
+    getTag: vi.fn(),
     listTree: vi.fn(),
     fetchFileContent: vi.fn(),
     organizationExists: vi.fn(),

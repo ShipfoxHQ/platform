@@ -123,6 +123,7 @@ describe('defaultModules', () => {
             getAgentToolsContext: vi.fn(),
             listSourceFiles: vi.fn(),
             resolveConnection: vi.fn(),
+            resolveSourceRef: vi.fn(),
             resolveSourceRepository: vi.fn(),
             resolveTriggerReference: vi.fn(),
           }),

@@ -63,6 +63,10 @@ export interface GithubFileContent {
   size: number;
 }
 
+export interface GithubCommit {
+  sha: string;
+}
+
 export interface GithubUserInstallationPage {
   installationIds: number[];
   nextCursor: string | null;
@@ -104,6 +108,11 @@ export interface GithubApiClient extends Partial<GithubBotUserClient> {
     ref: string;
     path: string;
   }): Promise<GithubFileContent>;
+  listRepositoryCommits(input: {
+    installationId: number;
+    repositoryId: number;
+    ref: string;
+  }): Promise<GithubCommit[]>;
   createInstallationAccessToken(input: {
     installationId: number;
     repositoryId: number;
@@ -267,6 +276,7 @@ class OctokitGithubApiClient implements GithubApiClient, GithubBotUserClient {
     const response = await mapGithubError(() =>
       octokit.request('GET /repositories/{repository_id}', {
         repository_id: input.repositoryId,
+        request: {signal: AbortSignal.timeout(GITHUB_API_TIMEOUT_MS)},
       }),
     );
 
@@ -403,6 +413,40 @@ class OctokitGithubApiClient implements GithubApiClient, GithubBotUserClient {
       size: data.size,
       content: Buffer.from(data.content, 'base64').toString('utf8'),
     };
+  }
+
+  async listRepositoryCommits(input: {
+    installationId: number;
+    repositoryId: number;
+    ref: string;
+  }): Promise<GithubCommit[]> {
+    const octokit = await mapGithubError(() =>
+      getGithubInstallationOctokit(this.getApp(), input.installationId),
+    );
+    const repository = await this.getRepository({
+      installationId: input.installationId,
+      repositoryId: input.repositoryId,
+    });
+    const response = await mapGithubError(
+      () =>
+        octokit.rest.repos.listCommits({
+          owner: repository.ownerLogin,
+          repo: repository.name,
+          sha: input.ref,
+          per_page: 1,
+          request: {signal: AbortSignal.timeout(GITHUB_API_TIMEOUT_MS)},
+        }),
+      'ref-not-found',
+    );
+    return response.data.map((commit) => {
+      if (typeof commit.sha !== 'string') {
+        throw new GithubIntegrationProviderError(
+          'malformed-provider-response',
+          'GitHub commit response is missing the commit sha',
+        );
+      }
+      return {sha: commit.sha};
+    });
   }
 
   async createInstallationAccessToken(input: {
@@ -558,6 +602,7 @@ export async function mapGithubError<T>(
     | 'repository-not-found'
     | 'installation-not-found'
     | 'file-not-found'
+    | 'ref-not-found'
     | 'provider-rejected' = 'repository-not-found',
 ): Promise<T> {
   try {
@@ -570,7 +615,15 @@ export async function mapGithubError<T>(
     if (error instanceof RequestError) {
       if (error.status === 404) {
         throw new GithubIntegrationProviderError(
-          notFoundReason,
+          notFoundReason === 'ref-not-found' ? 'repository-not-found' : notFoundReason,
+          error.message,
+          undefined,
+          error.status,
+        );
+      }
+      if (notFoundReason === 'ref-not-found' && (error.status === 409 || error.status === 422)) {
+        throw new GithubIntegrationProviderError(
+          'ref-not-found',
           error.message,
           undefined,
           error.status,

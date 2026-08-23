@@ -52,6 +52,10 @@ describe('integration source-control service', () => {
         await Promise.resolve();
         return {path: '.shipfox/workflows/ci.yml', ref: 'main', content: 'name: CI'};
       },
+      resolveRef: async (input) => {
+        await Promise.resolve();
+        return {ref: input.ref, commit: 'a'.repeat(40)};
+      },
       resolveTriggerReference: () => null,
       createCheckoutSpec: async (input) => {
         await Promise.resolve();
@@ -114,6 +118,50 @@ describe('integration source-control service', () => {
       actor: 'octocat',
     });
     expect(resolveTriggerReference).toHaveBeenCalledWith({ref: 'refs/heads/main'});
+  });
+
+  it('resolves a ref to a pinned commit through an active source-control connection', async () => {
+    const service = createService();
+
+    const result = await service.resolveSourceRef({
+      workspaceId,
+      connectionId: connection.id,
+      externalRepositoryId: 'gitea:gitea-owner/platform',
+      ref: 'refs/heads/main',
+    });
+
+    expect(result).toEqual({ref: 'refs/heads/main', commit: 'a'.repeat(40)});
+  });
+
+  it('surfaces provider ref failures', async () => {
+    const service = createService({
+      resolveRef: async () => {
+        await Promise.resolve();
+        throw new IntegrationProviderError('ref-not-found', 'Ref not found');
+      },
+    });
+
+    const result = service.resolveSourceRef({
+      workspaceId,
+      connectionId: connection.id,
+      externalRepositoryId: 'gitea:gitea-owner/platform',
+      ref: 'refs/heads/missing',
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'ref-not-found'});
+  });
+
+  it('rejects source ref resolution for a connection in another workspace', async () => {
+    const service = createService();
+
+    const result = service.resolveSourceRef({
+      workspaceId: crypto.randomUUID(),
+      connectionId: connection.id,
+      externalRepositoryId: 'gitea:gitea-owner/platform',
+      ref: 'refs/heads/main',
+    });
+
+    await expect(result).rejects.toThrow('requested workspace');
   });
 
   it('rejects a missing connection', async () => {
