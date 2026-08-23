@@ -15,6 +15,7 @@ import {useForm} from '@tanstack/react-form';
 import {useNavigate} from '@tanstack/react-router';
 import {useState} from 'react';
 import {workspaceGeneralErrorToFormError} from '#components/general/form-errors.js';
+import {ShowSetupGuideLink} from '#components/show-setup-guide-link.js';
 import {WorkspaceSettingsShell} from '#components/workspace-settings-shell.js';
 
 interface WorkspaceGeneralValues {
@@ -184,6 +185,8 @@ function WorkspaceGeneralForm({workspace}: {workspace: ReturnType<typeof useActi
             </form>
           </PanelBody>
         </Panel>
+
+        <ShowSetupGuideLink workspaceId={workspace.id} />
       </div>
 
       <SlugChangeWarning
