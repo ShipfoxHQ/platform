@@ -3,4 +3,4 @@
 "@shipfox/api-definitions": minor
 ---
 
-Adds stable workflow lineage identifiers to definition records and the definitions inter-module contract. The schema migration backfills existing definitions before the lineage is used for run numbering, so existing run identifiers remain valid.
+Adds stable workflow lineage identifiers to definition records and the definitions inter-module contract. Existing definitions are reconciled when read or synchronized, so the schema migration does not backfill historical rows.

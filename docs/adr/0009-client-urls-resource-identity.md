@@ -152,10 +152,10 @@ workspace resources to project scope is separate work.
 Each workflow lineage owns a monotonic run counter. The first run starts at one,
 and the `(definitionId, number)` pair is unique for the lineage id carried by
 `workflow_runs.definition_id`. A lineage is stable per `(projectId, configPath)`;
-pathless manual definitions share one project-scoped lineage. Existing definition
-rows are backfilled to lineage ids before run numbering switches, so existing
-runs and counters keep their identifiers. Allocation occurs inside the
-run-creation transaction after trigger idempotency is resolved. A duplicate
+pathless manual definitions share one project-scoped lineage. Legacy definition
+rows are reconciled when read or synchronized; the schema migration only adds
+nullable lineage storage and does not rewrite historical rows. Allocation occurs
+inside the run-creation transaction after trigger idempotency is resolved. A duplicate
 trigger returns the existing run without consuming a number.
 
 Gaps are acceptable because the number is a label and monotonicity matters more
