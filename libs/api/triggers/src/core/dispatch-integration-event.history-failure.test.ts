@@ -24,6 +24,7 @@ const {dispatchIntegrationEvent} = await import('./dispatch-integration-event.js
 
 const workflows = {
   startRunFromTrigger: (...args: unknown[]) => runWorkflow(...args),
+  startDevRun: vi.fn(),
   deliverEventToJobListener: (...args: unknown[]) => deliverEventToListener(...args),
   resolveWorkflowRunTriggerReference: (...args: unknown[]) =>
     resolveWorkflowRunTriggerReference(...args),

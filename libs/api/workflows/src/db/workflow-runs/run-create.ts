@@ -21,6 +21,8 @@ import {
 import type {
   TriggerPayload,
   WorkflowRun,
+  WorkflowRunDevSource,
+  WorkflowRunOrigin,
   WorkflowSourceSnapshot,
 } from '#core/entities/workflow-run.js';
 import {InterpolationUnresolvableError} from '#core/errors.js';
@@ -40,7 +42,7 @@ import {
 import {db, type Tx} from '../db.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {workflowRunCounters} from '../schema/workflow-run-counters.js';
-import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
+import {toWorkflowRun, type WorkflowRunDevSourceDb, workflowRuns} from '../schema/workflow-runs.js';
 import {type MaterializedRunGraphJob, persistMaterializedRunGraph} from './run-graph.js';
 
 export type WorkflowModelJob = WorkflowModel['jobs'][number];
@@ -63,6 +65,9 @@ export interface CreateWorkflowRunParams {
   inputs?: Record<string, unknown> | undefined;
   sourceSnapshot?: WorkflowSourceSnapshot | null | undefined;
   triggerIdempotencyKey?: string | undefined;
+  /** Run provenance. Defaults to a synced run with no dev source. */
+  origin?: WorkflowRunOrigin | undefined;
+  devSource?: WorkflowRunDevSource | null | undefined;
   resolveAgentDefaults?: AgentDefaultsResolver | undefined;
   secrets?: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'> | undefined;
   integrations?: IntegrationsModuleClient | undefined;
@@ -132,6 +137,11 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
         inputs: params.inputs ?? null,
         sourceSnapshot: params.sourceSnapshot ?? null,
         triggerIdempotencyKey: params.triggerIdempotencyKey ?? null,
+        origin: params.origin ?? 'synced',
+        devSource:
+          params.devSource === undefined || params.devSource === null
+            ? null
+            : toWorkflowRunDevSourceDb(params.devSource),
       })
       .onConflictDoNothing({target: workflowRuns.triggerIdempotencyKey})
       .returning();
@@ -279,6 +289,18 @@ async function allocateWorkflowRunNumber(tx: Tx, definitionId: string): Promise<
     .returning({number: sql<number>`${workflowRunCounters.nextNumber} - 1`});
   if (!counterRow) throw new Error('Run counter allocation returned no rows');
   return counterRow.number;
+}
+
+// The run entity carries camelCase dev-source fields while the persisted jsonb uses
+// snake_case keys, so the write boundary maps explicitly rather than spreading.
+function toWorkflowRunDevSourceDb(source: WorkflowRunDevSource): WorkflowRunDevSourceDb {
+  return {
+    ref: source.ref,
+    commit: source.commit,
+    config_path: source.configPath,
+    initiated_by_user_id: source.initiatedByUserId,
+    replay_of_event_id: source.replayOfEventId,
+  };
 }
 
 export async function loadReferencedVariables(params: {

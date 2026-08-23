@@ -52,6 +52,7 @@ function localWorkflowsClient(): WorkflowsModuleClient {
           {definitionId},
         );
       },
+      startDevRun: ({workflowId}) => ({id: workflowId, name: 'Build'}),
       resolveWorkflowRunTriggerReference: () => null,
       deliverEventToJobListener: ({jobId}) => {
         if (jobId === listenerErrorInput.jobId) {

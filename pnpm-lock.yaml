@@ -4498,6 +4498,9 @@ importers:
       '@shipfox/api-agent-dto':
         specifier: workspace:*
         version: link:../agent-dto
+      '@shipfox/api-definitions-dto':
+        specifier: workspace:*
+        version: link:../definitions-dto
       '@shipfox/inter-module':
         specifier: workspace:*
         version: link:../../shared/common/inter-module

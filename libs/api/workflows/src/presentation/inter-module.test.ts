@@ -1,3 +1,4 @@
+import {createWorkflowModelSnapshot} from '@shipfox/api-definitions-dto';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
@@ -9,7 +10,13 @@ import {
   InterpolationUnresolvableError,
   ProjectMismatchError,
 } from '#core/index.js';
-import {createWorkflowsInterModulePresentation, toStartRunKnownError} from './inter-module.js';
+import {getWorkflowRunById} from '#db/workflow-runs.js';
+import {workflowModel} from '#test/index.js';
+import {
+  createWorkflowsInterModulePresentation,
+  toStartDevRunKnownError,
+  toStartRunKnownError,
+} from './inter-module.js';
 
 const mocks = vi.hoisted(() => ({
   deliverEventToListener: vi.fn(),
@@ -186,6 +193,129 @@ describe('Workflows inter-module presentation', () => {
       isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, error) &&
         error.code,
     ).toBe('workspace-not-found');
+  });
+
+  const devInput = {
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+    workflowId: '00000000-0000-4000-8000-000000000006',
+    model: createWorkflowModelSnapshot(
+      workflowModel({name: 'Dev Workflow', jobs: {build: {steps: [{run: 'echo dev'}]}}}),
+    ),
+    sourceSnapshot: {content: 'name: Dev Workflow\n', format: 'yaml' as const},
+    devSource: {
+      ref: 'fix-triage-prompt',
+      commit: 'a'.repeat(40),
+      configPath: '.shipfox/workflows/triage-sentry.yml',
+      initiatedByUserId: input.triggerPayload.userId,
+    },
+    triggerPayload: {
+      source: 'manual' as const,
+      event: 'fire' as const,
+      userId: input.triggerPayload.userId,
+    },
+  };
+
+  test.each([
+    ['agent-config-unresolvable', () => new AgentConfigUnresolvableError(devInput.workflowId)],
+    [
+      'agent-integration-materialization-failed',
+      () => new AgentIntegrationMaterializationError('integration unavailable'),
+    ],
+    [
+      'interpolation-unresolvable',
+      () =>
+        new InterpolationUnresolvableError(devInput.workflowId, {
+          field: 'env',
+          source: 'event.ref',
+          envKey: 'REF',
+        }),
+    ],
+    ['invalid-job-runner-labels', () => new InvalidJobRunnerLabelsError(['gpu'])],
+  ] as const)('maps %s to the published dev-run contract error', (code, error) => {
+    const result = toStartDevRunKnownError(error());
+
+    expect(
+      isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, result) &&
+        result.code,
+    ).toBe(code);
+  });
+
+  test.each([
+    ['definition-not-found', () => new DefinitionNotFoundError(devInput.workflowId)],
+    ['project-mismatch', () => new ProjectMismatchError(devInput.projectId, devInput.workflowId)],
+  ] as const)('does not map %s on the dev-run contract', (_code, error) => {
+    const result = toStartDevRunKnownError(error());
+
+    expect(isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, result)).toBe(
+      false,
+    );
+  });
+
+  test.each([
+    ['suspended', 'workspace-suspended'],
+    ['deleted', 'workspace-deleted'],
+  ] as const)('rejects dev runs for %s workspaces before creating a run', async (status, code) => {
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.startDevRun(devInput, {
+        signal: new AbortController().signal,
+      }),
+    ).catch((caught: unknown) => caught);
+
+    expect(getWorkspaceOperatingState).toHaveBeenCalledWith({workspaceId: devInput.workspaceId});
+    expect(
+      isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, error) &&
+        error.code,
+    ).toBe(code);
+  });
+
+  test('creates a dev run with dev provenance and lineage numbering', async () => {
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {
+        getWorkspaceOperatingState: vi.fn().mockResolvedValue({status: 'active'}),
+      } as never,
+    });
+    // A fresh lineage id keeps the assertion independent of counter rows left
+    // behind by earlier suite runs against the shared test database.
+    const workflowId = crypto.randomUUID();
+    const runInput = {...devInput, workflowId};
+
+    const first = await presentation.handlers.startDevRun(runInput, {
+      signal: new AbortController().signal,
+    });
+    const second = await presentation.handlers.startDevRun(runInput, {
+      signal: new AbortController().signal,
+    });
+
+    const firstRun = await getWorkflowRunById(first.id);
+    const secondRun = await getWorkflowRunById(second.id);
+    expect(firstRun).toMatchObject({
+      definitionId: workflowId,
+      origin: 'dev',
+      devSource: {...devInput.devSource, replayOfEventId: null},
+      number: 1,
+      name: 'Dev Workflow',
+      sourceSnapshot: devInput.sourceSnapshot,
+    });
+    // Each call is a distinct intent, so the lineage number sequence continues.
+    expect(secondRun).toMatchObject({definitionId: workflowId, origin: 'dev', number: 2});
   });
 
   test.each([

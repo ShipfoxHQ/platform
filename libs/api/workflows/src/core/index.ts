@@ -35,8 +35,8 @@ export {
   deriveJobSuccess,
   type JobActivationDecision,
 } from './job-transition/index.js';
-export type {RunWorkflowParams} from './run-workflow.js';
-export {runWorkflow} from './run-workflow.js';
+export type {RunDevWorkflowParams, RunWorkflowParams} from './run-workflow.js';
+export {runDevWorkflow, runWorkflow} from './run-workflow.js';
 export {
   type MaterializedWorkflowJob,
   type MaterializedWorkflowStep,

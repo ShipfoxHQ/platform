@@ -211,6 +211,7 @@ describe('appendLogs', () => {
       const workflows = createFakeInterModuleClients({
         workflows: defineInterModulePresentation(workflowsInterModuleContract, {
           startRunFromTrigger: vi.fn(),
+          startDevRun: vi.fn(),
           resolveWorkflowRunTriggerReference: vi.fn(),
           deliverEventToJobListener: vi.fn(),
           getStepLogContext: () => ({harness: 'claude' as const}),
@@ -257,6 +258,7 @@ describe('appendLogs', () => {
       const workflows = createFakeInterModuleClients({
         workflows: defineInterModulePresentation(workflowsInterModuleContract, {
           startRunFromTrigger: vi.fn(),
+          startDevRun: vi.fn(),
           resolveWorkflowRunTriggerReference: vi.fn(),
           deliverEventToJobListener: vi.fn(),
           getStepLogContext: () => ({harness: 'claude' as const}),
@@ -338,6 +340,7 @@ describe('appendLogs', () => {
       const workflows = createFakeInterModuleClients({
         workflows: defineInterModulePresentation(workflowsInterModuleContract, {
           startRunFromTrigger: vi.fn(),
+          startDevRun: vi.fn(),
           resolveWorkflowRunTriggerReference: vi.fn(),
           deliverEventToJobListener: vi.fn(),
           getStepLogContext: () => ({harness: 'claude' as const}),
@@ -396,6 +399,7 @@ describe('appendLogs', () => {
       const workflows = createFakeInterModuleClients({
         workflows: defineInterModulePresentation(workflowsInterModuleContract, {
           startRunFromTrigger: vi.fn(),
+          startDevRun: vi.fn(),
           resolveWorkflowRunTriggerReference: vi.fn(),
           deliverEventToJobListener: vi.fn(),
           getStepLogContext: () => ({harness: 'claude' as const}),

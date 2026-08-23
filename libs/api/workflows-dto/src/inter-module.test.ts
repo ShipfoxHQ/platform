@@ -88,6 +88,122 @@ describe('workflowsInterModuleContract', () => {
     expect(parsed).toEqual(details);
   });
 
+  const devInput = {
+    workspaceId: '00000000-0000-4000-8000-000000000001',
+    projectId: '00000000-0000-4000-8000-000000000002',
+    workflowId: '00000000-0000-4000-8000-000000000003',
+    model: {
+      version: 2 as const,
+      model: {
+        kind: 'workflow' as const,
+        name: 'Dev Workflow',
+        triggers: [],
+        jobs: [],
+        dependencies: [],
+      },
+    },
+    sourceSnapshot: {content: 'name: Dev Workflow\njobs: {}\n', format: 'yaml' as const},
+    devSource: {
+      ref: 'fix-triage-prompt',
+      commit: 'a'.repeat(40),
+      configPath: '.shipfox/workflows/triage-sentry.yml',
+      initiatedByUserId: '00000000-0000-4000-8000-000000000004',
+    },
+    triggerPayload: {
+      source: 'manual' as const,
+      event: 'fire' as const,
+      userId: '00000000-0000-4000-8000-000000000005',
+    },
+  };
+
+  test('accepts a dev run command with a manual payload that has no subscription id', () => {
+    const start = workflowsInterModuleContract.methods.startDevRun.input.parse(devInput);
+
+    expect(start.workflowId).toBe(devInput.workflowId);
+    expect(start.devSource).toEqual({...devInput.devSource, replayOfEventId: undefined});
+    expect(start.triggerPayload).toEqual(devInput.triggerPayload);
+  });
+
+  test('accepts a dev run command with a replay id, connection, inputs, and a cron payload without a schedule id', () => {
+    const start = workflowsInterModuleContract.methods.startDevRun.input.parse({
+      ...devInput,
+      devSource: {
+        ...devInput.devSource,
+        replayOfEventId: '00000000-0000-4000-8000-000000000006',
+      },
+      triggerConnectionId: '00000000-0000-4000-8000-000000000007',
+      triggerPayload: {source: 'cron' as const, event: 'tick' as const},
+      inputs: {env: 'staging'},
+    });
+
+    expect(start.devSource.replayOfEventId).toBe('00000000-0000-4000-8000-000000000006');
+    expect(start.triggerConnectionId).toBe('00000000-0000-4000-8000-000000000007');
+    expect(start.inputs).toEqual({env: 'staging'});
+  });
+
+  test('rejects a dev run command with an invalid replay event id', () => {
+    expect(
+      workflowsInterModuleContract.methods.startDevRun.input.safeParse({
+        ...devInput,
+        devSource: {...devInput.devSource, replayOfEventId: 'not-a-uuid'},
+      }).success,
+    ).toBe(false);
+  });
+
+  test('keeps the manual subscription id and cron schedule id populated on start-run commands', () => {
+    const manual = workflowsInterModuleContract.methods.startRunFromTrigger.input.parse({
+      workspaceId: devInput.workspaceId,
+      projectId: devInput.projectId,
+      definitionId: devInput.workflowId,
+      triggerPayload: {
+        provider: 'manual',
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: '00000000-0000-4000-8000-000000000008',
+        userId: devInput.devSource.initiatedByUserId,
+      },
+      idempotencyKey: 'manual-1',
+    });
+    const cron = workflowsInterModuleContract.methods.startRunFromTrigger.input.parse({
+      workspaceId: devInput.workspaceId,
+      projectId: devInput.projectId,
+      definitionId: devInput.workflowId,
+      triggerPayload: {
+        provider: 'cron',
+        source: 'cron',
+        event: 'tick',
+        scheduleId: '00000000-0000-4000-8000-000000000009',
+      },
+      idempotencyKey: 'cron-1',
+    });
+
+    expect(manual.triggerPayload).toMatchObject({subscriptionId: expect.any(String)});
+    expect(cron.triggerPayload).toMatchObject({scheduleId: expect.any(String)});
+  });
+
+  test.each([
+    ['workspace-not-found', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    ['workspace-suspended', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    ['workspace-deleted', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    ['agent-config-unresolvable', {definitionId: '00000000-0000-4000-8000-000000000001'}],
+    ['agent-integration-materialization-failed', {}],
+    [
+      'interpolation-unresolvable',
+      {
+        definitionId: '00000000-0000-4000-8000-000000000001',
+        field: 'env',
+        source: 'event.ref',
+        envKey: 'REF',
+      },
+    ],
+    ['invalid-job-runner-labels', {labels: ['linux', 'gpu']}],
+  ] as const)('defines the %s dev-run failure', (code, details) => {
+    const schema = workflowsInterModuleContract.methods.startDevRun.errors[code];
+    const parsed = schema.parse(details);
+
+    expect(parsed).toEqual(details);
+  });
+
   test.each([
     ['workspace-not-found', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
     ['workspace-suspended', {workspaceId: '00000000-0000-4000-8000-000000000010'}],

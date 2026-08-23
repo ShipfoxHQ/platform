@@ -31,6 +31,7 @@ suspension. Those jobs continue through execution.
 | Integration webhook to a workflow trigger | The enabled integration provider receives the webhook; Integrations publishes `INTEGRATION_EVENT_RECEIVED`; Triggers runs `dispatchIntegrationEvent` | Workflows | The same `startRunFromTrigger` presentation |
 | Integration webhook to a listening job | Integrations and Triggers route the event through `routeEventToJobListeners`; Workflows buffers and materializes the listener execution in `deliverEventToListener` | Workflows | `createWorkflowsInterModulePresentation.deliverEventToJobListener`, before materialization for `fire` deliveries; `resolve` deliveries intentionally bypass the gate |
 | User-requested rerun | Workflows route `POST /workflows/runs/:id/rerun` calls `createRerunWorkflowRun` | Workflows | `rerunRunRoute`, before `createRerunWorkflowRun` persists the new attempt graph |
+| Dev workflow run | Triggers route `POST /dev-runs` calls `workflows.startDevRun` | Workflows | `createWorkflowsInterModulePresentation.startDevRun`, before `runDevWorkflow` creates the run |
 
 The webhook intake family currently includes the generic webhook, GitHub,
 Gitea, Linear, Sentry, and Slack provider route groups. They validate and

@@ -52,6 +52,7 @@
   },
   "dependencies": {
     "@shipfox/api-agent-dto": "workspace:*",
+    "@shipfox/api-definitions-dto": "workspace:*",
     "@shipfox/inter-module": "workspace:*",
     "zod": "catalog:"
   },
