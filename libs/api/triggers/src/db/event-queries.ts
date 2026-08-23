@@ -1,9 +1,11 @@
 import {paginateTimestampIdRows, timestampIdCursorWhere} from '@shipfox/node-drizzle';
-import {and, asc, count, desc, eq, gte, inArray, lte, type SQL} from 'drizzle-orm';
+import {and, asc, count, desc, eq, gte, inArray, isNotNull, lte, type SQL} from 'drizzle-orm';
 import type {PgColumn} from 'drizzle-orm/pg-core';
 import type {TriggerDecision} from '#core/entities/decision.js';
 import type {
+  TriggerEventOrigin,
   TriggerEventOutcome,
+  TriggerEventReplay,
   TriggerReceivedEvent,
   TriggerReceivedEventSummary,
 } from '#core/entities/received-event.js';
@@ -24,7 +26,9 @@ export interface TriggerEventCursor {
 export interface TriggerEventListFilters {
   source?: string[] | undefined;
   event?: string[] | undefined;
+  origins?: TriggerEventOrigin[] | undefined;
   outcomes?: TriggerEventOutcome[] | undefined;
+  replayable?: boolean | undefined;
   from?: Date | undefined;
   to?: Date | undefined;
 }
@@ -53,8 +57,16 @@ function listConditions(params: ListTriggerEventsParams): SQL[] {
   if (filters?.source?.length)
     conditions.push(inArray(triggersReceivedEvents.source, filters.source));
   if (filters?.event?.length) conditions.push(inArray(triggersReceivedEvents.event, filters.event));
+  if (filters?.origins?.length)
+    conditions.push(inArray(triggersReceivedEvents.origin, filters.origins));
   if (filters?.outcomes?.length)
     conditions.push(inArray(triggersReceivedEvents.outcome, filters.outcomes));
+  // `replayable` is the picker's convenience filter: integration events with a
+  // stored payload are the only ones a dev run can replay.
+  if (filters?.replayable) {
+    conditions.push(eq(triggersReceivedEvents.origin, 'integration'));
+    conditions.push(isNotNull(triggersReceivedEvents.payload));
+  }
   if (filters?.from) conditions.push(gte(triggersReceivedEvents.receivedAt, filters.from));
   if (filters?.to) conditions.push(lte(triggersReceivedEvents.receivedAt, filters.to));
   return conditions;
@@ -97,6 +109,7 @@ export interface TriggerEventFacet {
 export interface ListTriggerEventFacetsResult {
   sources: TriggerEventFacet[];
   events: TriggerEventFacet[];
+  origins: TriggerEventFacet[];
 }
 
 // Distinct filter values for a workspace, capped so one noisy integration can't flood
@@ -119,11 +132,51 @@ async function listFacet(workspaceId: string, column: PgColumn): Promise<Trigger
 export async function listTriggerEventFacets(params: {
   workspaceId: string;
 }): Promise<ListTriggerEventFacetsResult> {
-  const [sources, events] = await Promise.all([
+  const [sources, events, origins] = await Promise.all([
     listFacet(params.workspaceId, triggersReceivedEvents.source),
     listFacet(params.workspaceId, triggersReceivedEvents.event),
+    listFacet(params.workspaceId, triggersReceivedEvents.origin),
   ]);
-  return {sources, events};
+  return {sources, events, origins};
+}
+
+// The workspace predicate mirrors the route's workspace gate: replay links are
+// deliberately FK-less, so the back-direction lookup must not surface a replay
+// row that another workspace's writer pointed at this event id.
+export async function listReplaysOfTriggerEvent(
+  eventId: string,
+  workspaceId: string,
+): Promise<TriggerEventReplay[]> {
+  const rows = await db()
+    .select({
+      id: triggersReceivedEvents.id,
+      receivedAt: triggersReceivedEvents.receivedAt,
+      outcome: triggersReceivedEvents.outcome,
+      runId: triggersDecisions.runId,
+    })
+    .from(triggersReceivedEvents)
+    .leftJoin(
+      triggersDecisions,
+      and(
+        eq(triggersDecisions.receivedEventId, triggersReceivedEvents.id),
+        eq(triggersDecisions.subscriptionKind, 'dev'),
+      ),
+    )
+    .where(
+      and(
+        eq(triggersReceivedEvents.replayOfEventId, eventId),
+        eq(triggersReceivedEvents.workspaceId, workspaceId),
+        eq(triggersReceivedEvents.origin, 'dev'),
+      ),
+    )
+    .orderBy(desc(triggersReceivedEvents.receivedAt), desc(triggersReceivedEvents.id));
+
+  return rows.map((row) => ({
+    id: row.id,
+    receivedAt: row.receivedAt,
+    outcome: row.outcome,
+    runId: row.runId,
+  }));
 }
 
 // `received_event_id` is a globally-unique uuid, so the parent-event lookup is the

@@ -1,0 +1,1 @@
+CREATE INDEX "triggers_received_events_workspace_origin_idx" ON "triggers_received_events" USING btree ("workspace_id","origin");

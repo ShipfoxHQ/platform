@@ -2,8 +2,16 @@ import {requireWorkspaceResourceAccess} from '@shipfox/api-auth-context';
 import {triggerEventDetailResponseSchema} from '@shipfox/api-triggers-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
-import {getTriggerEventById, listDecisionsByReceivedEventId} from '#db/index.js';
-import {toTriggerDecisionDto, toTriggerEventDto} from '#presentation/dto/trigger-events.js';
+import {
+  getTriggerEventById,
+  listDecisionsByReceivedEventId,
+  listReplaysOfTriggerEvent,
+} from '#db/index.js';
+import {
+  toTriggerDecisionDto,
+  toTriggerEventDto,
+  toTriggerEventReplayDto,
+} from '#presentation/dto/trigger-events.js';
 
 export const getTriggerEventRoute = defineRoute({
   method: 'GET',
@@ -32,11 +40,15 @@ export const getTriggerEventRoute = defineRoute({
       notFoundError: new ClientError('Trigger event not found', 'not-found', {status: 404}),
     });
 
-    const decisions = await listDecisionsByReceivedEventId(event.id);
+    const [decisions, replays] = await Promise.all([
+      listDecisionsByReceivedEventId(event.id),
+      listReplaysOfTriggerEvent(event.id, event.workspaceId),
+    ]);
 
     return {
       ...toTriggerEventDto(event),
       decisions: decisions.map(toTriggerDecisionDto),
+      replays: replays.map(toTriggerEventReplayDto),
     };
   },
 });

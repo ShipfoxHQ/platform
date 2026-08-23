@@ -178,6 +178,8 @@ describe('GET /trigger-events/:id', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
       origin: 'dev',
+      replay_of_event_id: null,
+      replays: [],
       decisions: [
         {
           subscription_kind: 'dev',
@@ -187,6 +189,145 @@ describe('GET /trigger-events/:id', () => {
         },
       ],
     });
+  });
+
+  test('returns replay_of_event_id on a dev event that replayed a source event', async () => {
+    const source = await receivedEventFactory.create({workspaceId});
+    const replay = await receivedEventFactory.create({
+      workspaceId,
+      origin: 'dev',
+      source: 'github',
+      event: 'push',
+      replayOfEventId: source.id,
+      payload: {ref: 'refs/heads/main'},
+    });
+    await decisionFactory.create({
+      receivedEventId: replay.id,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_push',
+      workflowDefinitionId: crypto.randomUUID(),
+      projectId: null,
+      decision: 'triggered',
+      runId: crypto.randomUUID(),
+      runName: 'dev-replay',
+    });
+
+    const res = await app.inject({method: 'GET', url: `/trigger-events/${replay.id}`});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      origin: 'dev',
+      replay_of_event_id: source.id,
+      source: 'github',
+      event: 'push',
+    });
+  });
+
+  test('returns the replays list of dev events that replayed the event', async () => {
+    const source = await receivedEventFactory.create({workspaceId});
+    const runId = crypto.randomUUID();
+    const replay = await receivedEventFactory.create({
+      workspaceId,
+      origin: 'dev',
+      source: 'github',
+      event: 'push',
+      replayOfEventId: source.id,
+      outcome: 'routed',
+      matchedCount: 1,
+      receivedAt: new Date('2026-05-07T00:00:00.000Z'),
+    });
+    await decisionFactory.create({
+      receivedEventId: replay.id,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_push',
+      workflowDefinitionId: crypto.randomUUID(),
+      projectId: null,
+      decision: 'triggered',
+      runId,
+      runName: 'dev-replay',
+    });
+
+    const res = await app.inject({method: 'GET', url: `/trigger-events/${source.id}`});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().replays).toEqual([
+      {
+        id: replay.id,
+        received_at: '2026-05-07T00:00:00.000Z',
+        outcome: 'routed',
+        run_id: runId,
+      },
+    ]);
+  });
+
+  test('replays list carries null run ids and the outcome for refused replays', async () => {
+    const source = await receivedEventFactory.create({workspaceId});
+    const refused = await receivedEventFactory.create({
+      workspaceId,
+      origin: 'dev',
+      source: 'github',
+      event: 'push',
+      replayOfEventId: source.id,
+      outcome: 'discarded',
+      matchedCount: 0,
+      receivedAt: new Date('2026-05-07T01:00:00.000Z'),
+    });
+    await decisionFactory.create({
+      receivedEventId: refused.id,
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_push',
+      workflowDefinitionId: crypto.randomUUID(),
+      projectId: null,
+      decision: 'filter-error',
+      runId: null,
+      runName: null,
+      reason: 'filter is false',
+    });
+
+    const res = await app.inject({method: 'GET', url: `/trigger-events/${source.id}`});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().replays).toEqual([
+      {
+        id: refused.id,
+        received_at: '2026-05-07T01:00:00.000Z',
+        outcome: 'discarded',
+        run_id: null,
+      },
+    ]);
+  });
+
+  test('does not surface replays from another workspace', async () => {
+    const source = await receivedEventFactory.create({workspaceId});
+    await receivedEventFactory.create({
+      workspaceId: crypto.randomUUID(),
+      origin: 'dev',
+      source: 'github',
+      event: 'push',
+      replayOfEventId: source.id,
+    });
+
+    const res = await app.inject({method: 'GET', url: `/trigger-events/${source.id}`});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().replays).toEqual([]);
+  });
+
+  test('does not surface non-dev events with a replay link', async () => {
+    const source = await receivedEventFactory.create({workspaceId});
+    await receivedEventFactory.create({
+      workspaceId,
+      origin: 'integration',
+      replayOfEventId: source.id,
+    });
+
+    const res = await app.inject({method: 'GET', url: `/trigger-events/${source.id}`});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().replays).toEqual([]);
   });
 
   test('returns an empty decisions list for a discarded event', async () => {

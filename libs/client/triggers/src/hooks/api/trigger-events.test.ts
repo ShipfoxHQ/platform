@@ -30,6 +30,7 @@ function triggerEventDto(overrides: Record<string, unknown> = {}) {
     provider: 'github',
     source: 'github',
     event: 'push',
+    replay_of_event_id: null,
     delivery_id: 'delivery-1',
     connection_id: '33333333-3333-4333-8333-333333333333',
     outcome: 'routed',
@@ -257,6 +258,7 @@ describe('getTriggerEvent', () => {
       jsonResponse({
         ...triggerEventDto({id, connection_name: null, payload: null}),
         decisions: [],
+        replays: [],
       }),
     );
     configureApiClient({fetchImpl});
@@ -276,7 +278,7 @@ describe('getTriggerEventFacets', () => {
 
   test('requests the workspace facets', async () => {
     const workspaceId = WORKSPACE_ID;
-    const fetchImpl = vi.fn(async () => jsonResponse({sources: [], events: []}));
+    const fetchImpl = vi.fn(async () => jsonResponse({sources: [], events: [], origins: []}));
     configureApiClient({fetchImpl});
 
     await getTriggerEventFacets({workspaceId});

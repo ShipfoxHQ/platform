@@ -171,6 +171,105 @@ describe('GET /trigger-events', () => {
     expect(eventIds(res)).toEqual([discarded.id]);
   });
 
+  test('filters by origin', async () => {
+    const integration = await receivedEventFactory.create({workspaceId, origin: 'integration'});
+    await receivedEventFactory.create({workspaceId, origin: 'manual'});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/trigger-events?workspace_id=${workspaceId}&origin=integration`,
+    });
+
+    expect(eventIds(res)).toEqual([integration.id]);
+  });
+
+  test('filters by repeated origin keys (IN-list)', async () => {
+    const dev = await receivedEventFactory.create({workspaceId, origin: 'dev'});
+    const manual = await receivedEventFactory.create({workspaceId, origin: 'manual'});
+    await receivedEventFactory.create({workspaceId, origin: 'integration'});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/trigger-events?workspace_id=${workspaceId}&origin=dev&origin=manual`,
+    });
+
+    expect(eventIds(res).sort()).toEqual([dev.id, manual.id].sort());
+  });
+
+  test('filters by comma-separated origins', async () => {
+    const dev = await receivedEventFactory.create({workspaceId, origin: 'dev'});
+    const manual = await receivedEventFactory.create({workspaceId, origin: 'manual'});
+    await receivedEventFactory.create({workspaceId, origin: 'integration'});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/trigger-events?workspace_id=${workspaceId}&origin=dev,manual`,
+    });
+
+    expect(eventIds(res).sort()).toEqual([dev.id, manual.id].sort());
+  });
+
+  test('rejects an unknown origin value', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/trigger-events?workspace_id=${workspaceId}&origin=bogus`,
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('filters replayable events to integration events with a stored payload', async () => {
+    const replayable = await receivedEventFactory.create({
+      workspaceId,
+      origin: 'integration',
+      payload: {ref: 'refs/heads/main'},
+    });
+    // A pruned integration event keeps its origin but lost its payload.
+    await receivedEventFactory.create({workspaceId, origin: 'integration', payload: null});
+    // A dev replay row carries a payload but is not itself replayable.
+    await receivedEventFactory.create({workspaceId, origin: 'dev', payload: {ref: 'main'}});
+    await receivedEventFactory.create({workspaceId, origin: 'manual', payload: {}});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/trigger-events?workspace_id=${workspaceId}&replayable=true`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(eventIds(res)).toEqual([replayable.id]);
+  });
+
+  test('rejects a non-true replayable value', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/trigger-events?workspace_id=${workspaceId}&replayable=false`,
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('exposes replay_of_event_id on list items', async () => {
+    const source = await receivedEventFactory.create({workspaceId});
+    const replay = await receivedEventFactory.create({
+      workspaceId,
+      origin: 'dev',
+      source: 'github',
+      event: 'push',
+      replayOfEventId: source.id,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/trigger-events?workspace_id=${workspaceId}`,
+    });
+
+    const items = res.json().trigger_events;
+    expect(items.find((item: {id: string}) => item.id === replay.id).replay_of_event_id).toBe(
+      source.id,
+    );
+    expect(items.find((item: {id: string}) => item.id === source.id).replay_of_event_id).toBeNull();
+  });
+
   test('filters and serializes the errored outcome', async () => {
     const errored = await receivedEventFactory.create({workspaceId, outcome: 'errored'});
 

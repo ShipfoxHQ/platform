@@ -9,7 +9,7 @@ import {listTriggerEventFacets} from '#db/index.js';
 export const listTriggerEventFacetsRoute = defineRoute({
   method: 'GET',
   path: '/facets',
-  description: 'Distinct source and event filter values (with counts) for a workspace.',
+  description: 'Distinct source, event, and origin filter values (with counts) for a workspace.',
   schema: {
     querystring: triggerEventFacetsQuerySchema,
     response: {

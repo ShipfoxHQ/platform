@@ -79,6 +79,7 @@ const routedEventDto: TriggerEventDetailResponseDto = {
   provider: 'github',
   source: 'github_acme',
   event: 'push',
+  replay_of_event_id: null,
   delivery_id: 'delivery-179',
   connection_id: '55555555-5555-4555-8555-555555555555',
   connection_name: 'ShipfoxHQ Production',
@@ -130,6 +131,7 @@ const routedEventDto: TriggerEventDetailResponseDto = {
       created_at: '2026-06-25T19:30:02.000Z',
     },
   ],
+  replays: [],
 };
 
 const discardedEventDto: TriggerEventDetailResponseDto = {

@@ -16,6 +16,7 @@ export {
   type ListTriggerEventsParams,
   type ListTriggerEventsResult,
   listDecisionsByReceivedEventId,
+  listReplaysOfTriggerEvent,
   listTriggerEventFacets,
   listTriggerEvents,
   type TriggerEventCursor,

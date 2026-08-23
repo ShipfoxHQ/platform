@@ -42,9 +42,10 @@ export const triggersReceivedEvents = pgTable(
       table.receivedAt.desc(),
     ),
     index('triggers_received_events_prune_idx').on(table.createdAt),
-    // Back the workspace-scoped facet group-by (distinct source / event values).
+    // Back the workspace-scoped facet group-by (distinct source / event / origin values).
     index('triggers_received_events_workspace_source_idx').on(table.workspaceId, table.source),
     index('triggers_received_events_workspace_event_idx').on(table.workspaceId, table.event),
+    index('triggers_received_events_workspace_origin_idx').on(table.workspaceId, table.origin),
     // Back the replay link direction: which events replayed a given source event.
     index('triggers_received_events_replay_of_event_id_idx')
       .on(table.replayOfEventId)

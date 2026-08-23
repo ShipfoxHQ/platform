@@ -15,6 +15,7 @@ function makeEvent(overrides: Partial<TriggerEventListItemDto> = {}) {
     provider: 'github',
     source: 'github_acme',
     event: 'push',
+    replay_of_event_id: null,
     delivery_id: 'delivery-1',
     connection_id: 'conn-1',
     outcome: 'routed',

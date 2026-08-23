@@ -32,6 +32,18 @@ export interface TriggerReceivedEvent {
 }
 
 /**
+ * A dev journal entry that replayed a source event. A missing run ID means
+ * that the replay has no recorded workflow run, including refusals and an
+ * incomplete or failed dev decision write.
+ */
+export interface TriggerEventReplay {
+  id: string;
+  receivedAt: Date;
+  outcome: TriggerEventOutcome;
+  runId: string | null;
+}
+
+/**
  * Trigger event shape for list read models.
  * It omits payload because webhook bodies can be large/untrusted and only detail views render them.
  */
