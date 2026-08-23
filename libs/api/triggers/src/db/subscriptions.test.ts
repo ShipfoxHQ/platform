@@ -75,23 +75,17 @@ describe('projectDefinitionTriggers', () => {
     expect(rows[0]?.event).toBeNull();
   });
 
-  test('normalizes blank trigger events to NULL', async () => {
-    await projectDefinitionTriggers({
-      workspaceId,
-      projectId,
-      workflowDefinitionId,
-      triggers: {
-        empty: {source: 'github', event: ''},
-        whitespace: {source: 'github', event: '   '},
-      },
-    });
-
-    const rows = await db()
-      .select()
-      .from(triggerSubscriptions)
-      .where(eq(triggerSubscriptions.workflowDefinitionId, workflowDefinitionId));
-
-    expect(rows.map((row) => row.event)).toEqual([null, null]);
+  test.each(['', '   '])('rejects a blank integration trigger event %j', async (event) => {
+    await expect(
+      projectDefinitionTriggers({
+        workspaceId,
+        projectId,
+        workflowDefinitionId,
+        triggers: {
+          invalid: {source: 'github', event},
+        },
+      }),
+    ).rejects.toThrow('A github subscription event cannot be blank');
   });
 
   test.each(['manual', 'cron'] as const)('rejects a blank %s trigger event', async (source) => {

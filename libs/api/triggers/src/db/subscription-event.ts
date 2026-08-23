@@ -5,11 +5,18 @@ export function normalizeSubscriptionEvent(params: {
   source: string;
   event: string | null | undefined;
 }): string | null {
-  const normalizedEvent = params.event?.trim();
-  if (!normalizedEvent && (params.source === 'manual' || params.source === 'cron')) {
-    throw new Error(`A ${params.source} subscription requires an event`);
+  if (params.event === undefined || params.event === null) {
+    if (params.source === 'manual' || params.source === 'cron') {
+      throw new Error(`A ${params.source} subscription requires an event`);
+    }
+    return null;
   }
-  return normalizedEvent || null;
+
+  const normalizedEvent = params.event.trim();
+  if (normalizedEvent === '') {
+    throw new Error(`A ${params.source} subscription event cannot be blank`);
+  }
+  return normalizedEvent;
 }
 
 export function subscriptionEventCondition(column: PgColumn, event: string) {

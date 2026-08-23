@@ -74,22 +74,18 @@ describe('job listener subscriptions', () => {
     expect(rows.map((row) => row.event)).toEqual([null, null]);
   });
 
-  it('normalizes blank matcher events to NULL', async () => {
+  it.each(['', '   '])('rejects a blank matcher event %j', async (event) => {
     const jobId = crypto.randomUUID();
 
-    await projectJobListenerSubscriptions({
-      workspaceId: crypto.randomUUID(),
-      workflowRunId: crypto.randomUUID(),
-      jobId,
-      on: [
-        {source: 'github', event: ''},
-        {source: 'github', event: '   '},
-      ],
-      until: null,
-    });
-
-    const rows = await listJobSubscriptions(jobId);
-    expect(rows.map((row) => row.event)).toEqual([null, null]);
+    await expect(
+      projectJobListenerSubscriptions({
+        workspaceId: crypto.randomUUID(),
+        workflowRunId: crypto.randomUUID(),
+        jobId,
+        on: [{source: 'github', event}],
+        until: null,
+      }),
+    ).rejects.toThrow('A github subscription event cannot be blank');
   });
 
   it('clears an exact matcher event to NULL when the matcher drops its event', async () => {
