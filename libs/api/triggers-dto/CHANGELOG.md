@@ -1,5 +1,16 @@
 # @shipfox/api-triggers-dto
 
+## 15.0.0
+
+### Minor Changes
+
+- 1801f46: Adds `POST /dev-runs` for manually and cron-triggered dev runs. Manual runs build inputs from the request body (overriding the trigger's `with`); cron runs take inputs from the trigger's `with` and reject body inputs. Pins the optional commit, answering 409 `ref-moved` on mismatch and 422 `replay-event-required` for integration-source triggers. Ships the request body schema and `201 {workflow_run_id, commit}` response DTOs in `@shipfox/api-triggers-dto`.
+- c6e7526: Adds targeted replay to `POST /dev-runs` for integration-source triggers.
+  Requests may provide `replay_event_id` to use the recorded payload and integration connection.
+  Manual and scheduled triggers reject `replay_event_id`.
+  Refusals return `trigger-filtered` (409), `replay-event-mismatch` (409), `replay-event-not-found` (404), or `replay-event-unavailable` (410).
+  Development journal entries retain `replay_of_event_id` for each replay attempt.
+
 ## 14.0.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @shipfox/client-secrets
 
+## 24.0.0
+
+### Patch Changes
+
+- @shipfox/client-ui@24.0.0
+- @shipfox/client-shell@24.0.0
+
 ## 23.0.0
 
 ### Patch Changes

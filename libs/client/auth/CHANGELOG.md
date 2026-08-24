@@ -1,5 +1,16 @@
 # @shipfox/client-auth
 
+## 24.0.0
+
+### Patch Changes
+
+- @shipfox/api-common-dto@15.0.0
+- @shipfox/client-ui@24.0.0
+- @shipfox/api-auth-dto@15.0.0
+- @shipfox/api-workspaces-dto@15.0.0
+- @shipfox/client-invitations@24.0.0
+- @shipfox/client-shell@24.0.0
+
 ## 23.0.0
 
 ### Patch Changes

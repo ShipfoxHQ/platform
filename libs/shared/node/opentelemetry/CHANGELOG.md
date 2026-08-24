@@ -1,5 +1,12 @@
 # @shipfox/node-opentelemetry
 
+## 0.6.5
+
+### Patch Changes
+
+- Updated dependencies [a7804a8]
+  - @shipfox/regex@0.3.0
+
 ## 0.6.4
 
 ### Patch Changes

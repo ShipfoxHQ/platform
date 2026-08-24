@@ -1,5 +1,28 @@
 # @shipfox/client-workflows
 
+## 24.0.0
+
+### Minor Changes
+
+- 65ee3ba: Adds client adapters and hooks for dev runs: listing workflow definitions at a git ref with the pinned commit, creating a dev run with an optimistic pending row in the project run lists and translated route errors, and filtering trigger events by origin and replayability for the event picker.
+- 57c1d28: Add workflow-run provenance filtering and replay-event navigation.
+
+### Patch Changes
+
+- Updated dependencies [a7804a8]
+- Updated dependencies [65ee3ba]
+- Updated dependencies [af095a4]
+- Updated dependencies [1801f46]
+- Updated dependencies [c6e7526]
+- Updated dependencies [57c1d28]
+  - @shipfox/api-definitions-dto@15.0.0
+  - @shipfox/client-triggers@24.0.0
+  - @shipfox/api-workflows-dto@15.0.0
+  - @shipfox/api-triggers-dto@15.0.0
+  - @shipfox/client-projects@24.0.0
+  - @shipfox/client-ui@24.0.0
+  - @shipfox/client-shell@24.0.0
+
 ## 23.0.0
 
 ### Minor Changes

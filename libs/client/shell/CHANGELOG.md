@@ -1,5 +1,13 @@
 # Changelog
 
+## 24.0.0
+
+### Patch Changes
+
+- @shipfox/client-ui@24.0.0
+- @shipfox/api-auth-dto@15.0.0
+- @shipfox/api-workspaces-dto@15.0.0
+
 ## 23.0.0
 
 ### Minor Changes

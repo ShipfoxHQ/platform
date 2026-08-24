@@ -1,5 +1,14 @@
 # @shipfox/api-email-challenges
 
+## 1.1.10
+
+### Patch Changes
+
+- @shipfox/api-common-dto@15.0.0
+- @shipfox/node-opentelemetry@0.6.5
+- @shipfox/node-mailer@0.2.6
+- @shipfox/node-module@1.0.7
+
 ## 1.1.9
 
 ### Patch Changes

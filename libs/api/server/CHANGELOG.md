@@ -1,5 +1,43 @@
 # @shipfox/api-server
 
+## 15.0.0
+
+### Patch Changes
+
+- Updated dependencies [a7804a8]
+- Updated dependencies [af095a4]
+- Updated dependencies [1801f46]
+- Updated dependencies [07410fe]
+- Updated dependencies [989eb11]
+- Updated dependencies [c6e7526]
+- Updated dependencies [75f6828]
+- Updated dependencies [050b796]
+- Updated dependencies [1d16b55]
+  - @shipfox/api-definitions-dto@15.0.0
+  - @shipfox/api-definitions@15.0.0
+  - @shipfox/api-workflows-dto@15.0.0
+  - @shipfox/api-workflows@15.0.0
+  - @shipfox/api-triggers@15.0.0
+  - @shipfox/api-agent-dto@15.0.0
+  - @shipfox/api-agent@15.0.0
+  - @shipfox/api-integration-core@15.0.0
+  - @shipfox/api-dispatcher@15.0.0
+  - @shipfox/api-logs@15.0.0
+  - @shipfox/api-runners@15.0.0
+  - @shipfox/api-integration-core-dto@15.0.0
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/api-auth@15.0.0
+  - @shipfox/api-auth-dto@15.0.0
+  - @shipfox/api-email-challenges@1.1.10
+  - @shipfox/api-projects@15.0.0
+  - @shipfox/api-projects-dto@15.0.0
+  - @shipfox/api-workspaces@15.0.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/api-secrets@15.0.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-module@1.0.7
+  - @shipfox/annotations@15.0.0
+
 ## 14.0.0
 
 ### Minor Changes

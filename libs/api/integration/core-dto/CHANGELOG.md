@@ -1,5 +1,12 @@
 # @shipfox/api-integration-core-dto
 
+## 15.0.0
+
+### Patch Changes
+
+- Updated dependencies [a7804a8]
+  - @shipfox/regex@0.3.0
+
 ## 14.0.0
 
 ### Major Changes

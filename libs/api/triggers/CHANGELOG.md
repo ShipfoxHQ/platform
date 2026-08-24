@@ -1,5 +1,41 @@
 # @shipfox/api-triggers
 
+## 15.0.0
+
+### Major Changes
+
+- 1801f46: Adds `POST /dev-runs` for manually and cron-triggered dev runs. Manual runs build inputs from the request body (overriding the trigger's `with`); cron runs take inputs from the trigger's `with` and reject body inputs. Pins the optional commit, answering 409 `ref-moved` on mismatch and 422 `replay-event-required` for integration-source triggers. Ships the request body schema and `201 {workflow_run_id, commit}` response DTOs in `@shipfox/api-triggers-dto`.
+
+### Minor Changes
+
+- c6e7526: Adds targeted replay to `POST /dev-runs` for integration-source triggers.
+  Requests may provide `replay_event_id` to use the recorded payload and integration connection.
+  Manual and scheduled triggers reject `replay_event_id`.
+  Refusals return `trigger-filtered` (409), `replay-event-mismatch` (409), `replay-event-not-found` (404), or `replay-event-unavailable` (410).
+  Development journal entries retain `replay_of_event_id` for each replay attempt.
+
+### Patch Changes
+
+- Updated dependencies [a7804a8]
+- Updated dependencies [af095a4]
+- Updated dependencies [1801f46]
+- Updated dependencies [b7d522a]
+- Updated dependencies [c6e7526]
+- Updated dependencies [050b796]
+- Updated dependencies [0b6addb]
+  - @shipfox/api-definitions-dto@15.0.0
+  - @shipfox/api-workflows-dto@15.0.0
+  - @shipfox/api-triggers-dto@15.0.0
+  - @shipfox/expression@2.3.0
+  - @shipfox/workflow-document@3.2.0
+  - @shipfox/api-integration-core-dto@15.0.0
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/api-projects-dto@15.0.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-module@1.0.7
+  - @shipfox/node-temporal@0.4.6
+  - @shipfox/api-auth-context@15.0.0
+
 ## 14.0.0
 
 ### Minor Changes

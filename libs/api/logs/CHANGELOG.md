@@ -1,5 +1,19 @@
 # @shipfox/api-logs
 
+## 15.0.0
+
+### Patch Changes
+
+- Updated dependencies [af095a4]
+- Updated dependencies [0b6addb]
+  - @shipfox/api-workflows-dto@15.0.0
+  - @shipfox/workflow-document@3.2.0
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-module@1.0.7
+  - @shipfox/node-temporal@0.4.6
+  - @shipfox/api-auth-context@15.0.0
+
 ## 14.0.0
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @shipfox/api-dispatcher
 
+## 15.0.0
+
+### Patch Changes
+
+- @shipfox/node-opentelemetry@0.6.5
+- @shipfox/node-module@1.0.7
+- @shipfox/node-temporal@0.4.6
+
 ## 12.2.0
 
 ### Patch Changes

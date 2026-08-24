@@ -1,5 +1,19 @@
 # @shipfox/api-workflows-dto
 
+## 15.0.0
+
+### Minor Changes
+
+- af095a4: Adds the `startDevRun` inter-module method that creates a workflow run from an inline model and snapshot with `origin: 'dev'` and dev provenance, numbered by the workflow lineage id. Manual `subscriptionId` and cron `scheduleId` trigger payload fields become optional so a dev trigger can fire without a subscription row.
+
+### Patch Changes
+
+- Updated dependencies [a7804a8]
+- Updated dependencies [07410fe]
+- Updated dependencies [989eb11]
+  - @shipfox/api-definitions-dto@15.0.0
+  - @shipfox/api-agent-dto@15.0.0
+
 ## 14.0.0
 
 ### Minor Changes

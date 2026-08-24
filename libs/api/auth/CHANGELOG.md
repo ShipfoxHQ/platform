@@ -1,5 +1,20 @@
 # @shipfox/api-auth
 
+## 15.0.0
+
+### Patch Changes
+
+- @shipfox/api-common-dto@15.0.0
+- @shipfox/node-opentelemetry@0.6.5
+- @shipfox/node-tokens@0.3.3
+- @shipfox/api-auth-dto@15.0.0
+- @shipfox/api-email-challenges@1.1.10
+- @shipfox/api-workspaces-dto@15.0.0
+- @shipfox/node-fastify@0.4.3
+- @shipfox/node-mailer@0.2.6
+- @shipfox/node-module@1.0.7
+- @shipfox/api-auth-context@15.0.0
+
 ## 13.1.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @shipfox/api-integration-webhook-dto
 
+## 15.0.0
+
+### Patch Changes
+
+- @shipfox/api-integration-core-dto@15.0.0
+
 ## 14.0.0
 
 ### Minor Changes

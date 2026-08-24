@@ -1,5 +1,12 @@
 # @shipfox/client-ui
 
+## 24.0.0
+
+### Patch Changes
+
+- Updated dependencies [a7804a8]
+  - @shipfox/regex@0.3.0
+
 ## 22.0.3
 
 ### Patch Changes

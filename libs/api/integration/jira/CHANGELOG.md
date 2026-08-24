@@ -1,5 +1,16 @@
 # @shipfox/api-integration-jira
 
+## 15.0.0
+
+### Patch Changes
+
+- @shipfox/node-opentelemetry@0.6.5
+- @shipfox/api-integration-jira-dto@15.0.0
+- @shipfox/api-integration-spi@2.0.1
+- @shipfox/node-fastify@0.4.3
+- @shipfox/node-module@1.0.7
+- @shipfox/api-auth-context@15.0.0
+
 ## 14.0.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @shipfox/api-common-dto
 
+## 15.0.0
+
+### Patch Changes
+
+- Updated dependencies [a7804a8]
+  - @shipfox/regex@0.3.0
+
 ## 12.0.0
 
 ### Minor Changes
