@@ -24,6 +24,9 @@ describe('buildWorkflowJsonSchema', () => {
         expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),
       ]),
     );
+    expect(objects(output.anyOf)).not.toContainEqual(
+      expect.objectContaining({type: 'string', minLength: 1}),
+    );
   });
 
   it('describes static and dynamic workflow and job name fields', () => {

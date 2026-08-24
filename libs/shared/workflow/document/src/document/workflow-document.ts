@@ -96,19 +96,10 @@ type WorkflowDocumentJsonValue =
   | WorkflowDocumentJsonValue[]
   | {[key: string]: WorkflowDocumentJsonValue};
 
-const workflowDocumentJsonValueSchema: z.ZodType<WorkflowDocumentJsonValue> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(workflowDocumentJsonValueSchema),
-    z.record(z.string(), workflowDocumentJsonValueSchema),
-  ]),
-);
-
 export const workflowDocumentToolStepWithSchema = z
-  .record(z.string().min(1), workflowDocumentJsonValueSchema)
+  // Validate nested values in an iterative refinement. A recursive Zod schema
+  // would traverse hostile depth before the tool-input limits can reject it.
+  .record(z.string().min(1), z.unknown())
   .superRefine((withValue, ctx) => {
     // The server injects `method` for `family.method` tools, so the author can
     // never set it.
@@ -121,22 +112,9 @@ export const workflowDocumentToolStepWithSchema = z
       });
     }
 
-    const serializedBytes = utf8Encoder.encode(JSON.stringify(withValue)).byteLength;
-    if (serializedBytes > WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `Tool \`with\` cannot serialize to more than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES} bytes.`,
-      });
-    }
-
-    const depth = maxJsonDepth(withValue);
-    if (depth > WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `Tool \`with\` cannot be nested deeper than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH} levels.`,
-      });
-    }
+    validateWorkflowDocumentToolWith(withValue, ctx);
   })
+  .transform((withValue) => withValue as Record<string, WorkflowDocumentJsonValue>)
   .meta({
     description:
       'Tool inputs as a JSON tree. The map allows up to ' +
@@ -146,9 +124,155 @@ export const workflowDocumentToolStepWithSchema = z
       ' nesting levels. Tool steps are not available yet.',
   });
 
+type WorkflowDocumentToolWithValidationTask =
+  | {kind: 'value'; value: unknown; depth: number; path: (string | number)[]}
+  | {kind: 'end'; value: object; byteLength: number}
+  | {kind: 'bytes'; byteLength: number};
+
+function validateWorkflowDocumentToolWith(
+  withValue: Readonly<Record<string, unknown>>,
+  ctx: z.RefinementCtx,
+) {
+  const activeObjects = new Set<object>();
+  const tasks: WorkflowDocumentToolWithValidationTask[] = [
+    {kind: 'value', value: withValue, depth: 1, path: []},
+  ];
+  let serializedBytes = 0;
+
+  const addSerializedBytes = (byteLength: number): boolean => {
+    serializedBytes += byteLength;
+    if (serializedBytes <= WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES) return true;
+
+    ctx.addIssue({
+      code: 'custom',
+      message: `Tool \`with\` cannot serialize to more than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES} bytes.`,
+    });
+    return false;
+  };
+
+  while (tasks.length > 0) {
+    const task = tasks.pop();
+    if (task === undefined) continue;
+
+    if (task.kind === 'bytes') {
+      if (!addSerializedBytes(task.byteLength)) return;
+      continue;
+    }
+
+    if (task.kind === 'end') {
+      activeObjects.delete(task.value);
+      if (!addSerializedBytes(task.byteLength)) return;
+      continue;
+    }
+
+    const {value, depth, path} = task;
+    if (value === null) {
+      if (!addSerializedBytes(4)) return;
+      continue;
+    }
+    if (typeof value === 'string' || typeof value === 'boolean') {
+      if (!addSerializedBytes(jsonPrimitiveByteLength(value))) return;
+      continue;
+    }
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) {
+        ctx.addIssue({
+          code: 'custom',
+          path,
+          message: 'Tool `with` values must be JSON-compatible.',
+        });
+        return;
+      }
+      if (!addSerializedBytes(jsonPrimitiveByteLength(value))) return;
+      continue;
+    }
+    if (typeof value !== 'object' || value === null) {
+      ctx.addIssue({
+        code: 'custom',
+        path,
+        message: 'Tool `with` values must be JSON-compatible.',
+      });
+      return;
+    }
+
+    if (depth > WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Tool \`with\` cannot be nested deeper than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH} levels.`,
+      });
+      return;
+    }
+    if (activeObjects.has(value)) {
+      ctx.addIssue({
+        code: 'custom',
+        path,
+        message: 'Tool `with` values must be a JSON tree.',
+      });
+      return;
+    }
+
+    activeObjects.add(value);
+    if (Array.isArray(value)) {
+      if (!addSerializedBytes(1)) return;
+      tasks.push({kind: 'end', value, byteLength: 1});
+      for (let index = value.length - 1; index >= 0; index -= 1) {
+        tasks.push({kind: 'value', value: value[index], depth: depth + 1, path: [...path, index]});
+        if (index > 0) tasks.push({kind: 'bytes', byteLength: 1});
+      }
+      continue;
+    }
+
+    if (!isJsonRecord(value)) {
+      ctx.addIssue({
+        code: 'custom',
+        path,
+        message: 'Tool `with` values must be a JSON tree.',
+      });
+      return;
+    }
+
+    if (!addSerializedBytes(1)) return;
+    tasks.push({kind: 'end', value, byteLength: 1});
+    const entries = Object.entries(value);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (entry === undefined) continue;
+      const [key, child] = entry;
+      tasks.push({kind: 'value', value: child, depth: depth + 1, path: [...path, key]});
+      tasks.push({kind: 'bytes', byteLength: jsonPrimitiveByteLength(key) + 1});
+      if (index > 0) tasks.push({kind: 'bytes', byteLength: 1});
+    }
+  }
+}
+
+function jsonPrimitiveByteLength(value: string | number | boolean): number {
+  return utf8Encoder.encode(JSON.stringify(value)).byteLength;
+}
+
+function jsonSerializedByteLength(value: unknown): number | undefined {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? undefined : utf8Encoder.encode(serialized).byteLength;
+  } catch {
+    return undefined;
+  }
+}
+
+function isJsonRecord(value: object): value is Record<string, unknown> {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 const workflowDocumentStepOutputTypeSchema = z.enum(workflowDocumentStepOutputTypes).meta({
   description: 'Declared output type. Use `json` when the output has a JSON Schema.',
 });
+
+const workflowDocumentToolStepOutputMappingValueSchema = z
+  .string()
+  .min(1)
+  .refine((value) => value.includes('$' + '{{'), {
+    message: 'Tool-step output mappings must use a $' + '{{ }} expression.',
+  });
 
 export const workflowDocumentStepOutputDeclarationSchema = z
   .union([
@@ -190,7 +314,16 @@ export const workflowDocumentStepOutputDeclarationSchema = z
       return;
     }
 
-    const serializedBytes = utf8Encoder.encode(JSON.stringify(schema)).byteLength;
+    const serializedBytes = jsonSerializedByteLength(schema);
+    if (serializedBytes === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['schema'],
+        message: 'Schema must be a serializable JSON Schema document.',
+      });
+      return;
+    }
+
     if (serializedBytes > WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_SERIALIZED_BYTES) {
       ctx.addIssue({
         code: 'custom',
@@ -210,7 +343,12 @@ export const workflowDocumentStepOutputDeclarationSchema = z
   });
 
 function stepOutputsAreMappingForm(outputs: Readonly<Record<string, unknown>>): boolean {
-  return Object.values(outputs).some((value) => typeof value === 'string');
+  const interpolationOpen = '$' + '{{';
+  const values = Object.values(outputs);
+  return (
+    values.length > 0 &&
+    values.every((value) => typeof value === 'string' && value.includes(interpolationOpen))
+  );
 }
 
 function stepOutputsRecordChecks(outputs: Readonly<Record<string, unknown>>, ctx: z.RefinementCtx) {
@@ -243,7 +381,7 @@ export const workflowDocumentStepOutputsSchema = z
 // over `result`. The expression layer validates the interpolation; the mapping
 // form is rejected with the reserved tool step fields until tool steps exist.
 export const workflowDocumentToolStepOutputsSchema = z
-  .record(z.string(), z.string().min(1))
+  .record(z.string(), workflowDocumentToolStepOutputMappingValueSchema)
   .superRefine((outputs, ctx) => stepOutputsRecordChecks(outputs, ctx))
   .meta({
     description:
@@ -258,7 +396,7 @@ export const workflowDocumentToolStepOutputsSchema = z
 // the step `superRefine` rejects the mapping form on every other step kind.
 const workflowDocumentStepOutputValueSchema = z.union([
   workflowDocumentStepOutputDeclarationSchema,
-  z.string().min(1),
+  workflowDocumentToolStepOutputMappingValueSchema,
 ]);
 
 const workflowDocumentStepOutputsFieldSchema = z
@@ -519,82 +657,89 @@ export const workflowDocumentAgentStepFields = [
 // keyword is declared only so the reserved-keyword case produces a clear
 // message instead of a generic "unrecognized key". The `tool`, `connection`,
 // `with`, and tool-step `outputs` mapping form are declared the same way: they
-// parse so their shape is checked, then any step carrying `tool` is rejected
-// until the tool step kind exists.
-export const workflowDocumentStepSchema = z
-  .strictObject({
-    key: z
-      .string()
-      .min(1)
-      .optional()
-      .meta({description: 'Stable step key for dependencies and outputs.'}),
-    if: z
-      .string()
-      .min(1)
-      .optional()
-      .meta({
-        description:
-          'CEL condition wrapped in exactly one $' +
-          '{{ }} interpolation. See [conditionals](/reference/expressions#syntax).',
-      }),
-    name: z.string().min(1).optional().meta({description: 'Human-readable step name.'}),
-    working_directory: z.string().min(1).optional().meta({
-      description: 'Working directory for the step, relative to the job workspace.',
-    }),
-    run: z.string().min(1).optional().meta({
-      description: 'Shell command for a run step. Do not combine it with agent-only fields.',
-    }),
-    checkout: workflowDocumentCheckoutSchema.optional().meta({
-      description: 'Repository checkout settings for this step.',
-    }),
-    model: z.string().min(1).optional().meta({
+// parse so their shape is checked, then any step carrying a reserved tool field
+// is rejected until the tool step kind exists.
+const workflowDocumentStepBaseSchema = z.strictObject({
+  key: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({description: 'Stable step key for dependencies and outputs.'}),
+  if: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
       description:
-        'Model ID for an agent step. It requires `prompt` and is not valid on a run step.',
+        'CEL condition wrapped in exactly one $' +
+        '{{ }} interpolation. See [conditionals](/reference/expressions#syntax).',
     }),
-    prompt: z.string().min(1).optional().meta({
-      description: 'Prompt for an agent step. It is required when any agent-only field is set.',
-    }),
-    harness: harnessSchema.optional().meta({
-      description:
-        'Agent harness. When omitted, Shipfox uses the workspace default harness, or `pi` when none is configured.',
-    }),
-    thinking: agentThinkingFieldSchema.optional(),
-    provider: z.string().min(1).optional().meta({
-      description:
-        'Model provider ID for an agent step. It requires `prompt` and is not valid on a run step.',
-    }),
-    tools: z.array(z.string().min(1)).min(1).optional().meta({
-      description:
-        'Built-in tool IDs for an agent step. It requires `prompt` and is not valid on a run step.',
-    }),
-    integrations: z.array(workflowDocumentStepIntegrationSchema).min(1).optional().meta({
-      description:
-        'Integration tools available to an agent step. It requires `prompt` and is not valid on a run step. See [integration tools](/how-to/author-workflows/use-integration-tools).',
-    }),
-    agent: z.unknown().optional().meta({
-      description: 'Reserved keyword. It is rejected; use `prompt` to define an agent step.',
-    }),
-    tool: z.string().min(1).optional().meta({
-      description:
-        'Literal integration tool id for a tool step. It is rejected; tool steps are not available yet.',
-    }),
-    connection: z.string().min(1).optional().meta({
-      description:
-        'Literal integration connection slug for a tool step. It is rejected; tool steps are not available yet.',
-    }),
-    with: workflowDocumentToolStepWithSchema.optional(),
-    gate: workflowDocumentStepGateSchema.optional().meta({
-      description: 'Success gate and optional restart behavior after the step runs.',
-    }),
-    env: workflowDocumentEnvSchema.optional().meta({
-      description: 'Environment variables for a run step. They are not valid on an agent step.',
-    }),
-    outputs: workflowDocumentStepOutputsFieldSchema.optional().meta({
-      description:
-        'Named output declarations produced by this step, or on a tool step a mapping of output keys to exactly one $' +
-        '{{ }} expression over `result`. Tool steps are not available yet.',
-    }),
-  })
+  name: z.string().min(1).optional().meta({description: 'Human-readable step name.'}),
+  working_directory: z.string().min(1).optional().meta({
+    description: 'Working directory for the step, relative to the job workspace.',
+  }),
+  run: z.string().min(1).optional().meta({
+    description: 'Shell command for a run step. Do not combine it with agent-only fields.',
+  }),
+  checkout: workflowDocumentCheckoutSchema.optional().meta({
+    description: 'Repository checkout settings for this step.',
+  }),
+  model: z.string().min(1).optional().meta({
+    description: 'Model ID for an agent step. It requires `prompt` and is not valid on a run step.',
+  }),
+  prompt: z.string().min(1).optional().meta({
+    description: 'Prompt for an agent step. It is required when any agent-only field is set.',
+  }),
+  harness: harnessSchema.optional().meta({
+    description:
+      'Agent harness. When omitted, Shipfox uses the workspace default harness, or `pi` when none is configured.',
+  }),
+  thinking: agentThinkingFieldSchema.optional(),
+  provider: z.string().min(1).optional().meta({
+    description:
+      'Model provider ID for an agent step. It requires `prompt` and is not valid on a run step.',
+  }),
+  tools: z.array(z.string().min(1)).min(1).optional().meta({
+    description:
+      'Built-in tool IDs for an agent step. It requires `prompt` and is not valid on a run step.',
+  }),
+  integrations: z.array(workflowDocumentStepIntegrationSchema).min(1).optional().meta({
+    description:
+      'Integration tools available to an agent step. It requires `prompt` and is not valid on a run step. See [integration tools](/how-to/author-workflows/use-integration-tools).',
+  }),
+  agent: z.unknown().optional().meta({
+    description: 'Reserved keyword. It is rejected; use `prompt` to define an agent step.',
+  }),
+  tool: z.string().min(1).optional().meta({
+    description:
+      'Literal integration tool id for a tool step. It is rejected; tool steps are not available yet.',
+  }),
+  connection: z.string().min(1).optional().meta({
+    description:
+      'Literal integration connection slug for a tool step. It is rejected; tool steps are not available yet.',
+  }),
+  with: workflowDocumentToolStepWithSchema.optional(),
+  gate: workflowDocumentStepGateSchema.optional().meta({
+    description: 'Success gate and optional restart behavior after the step runs.',
+  }),
+  env: workflowDocumentEnvSchema.optional().meta({
+    description: 'Environment variables for a run step. They are not valid on an agent step.',
+  }),
+  outputs: workflowDocumentStepOutputsFieldSchema.optional().meta({
+    description:
+      'Named output declarations produced by this step, or on a tool step a mapping of output keys to exactly one $' +
+      '{{ }} expression over `result`. Tool steps are not available yet.',
+  }),
+});
+
+type WorkflowDocumentStepSchemaOutput = Omit<
+  z.infer<typeof workflowDocumentStepBaseSchema>,
+  'outputs'
+> & {
+  outputs?: WorkflowDocumentStepOutputs;
+};
+
+export const workflowDocumentStepSchema = workflowDocumentStepBaseSchema
   .superRefine((step, ctx) => {
     if (step.agent !== undefined) {
       ctx.addIssue({
@@ -605,10 +750,12 @@ export const workflowDocumentStepSchema = z
       return;
     }
 
-    if (step.tool !== undefined) {
+    const reservedToolField =
+      step.tool !== undefined ? 'tool' : step.connection !== undefined ? 'connection' : undefined;
+    if (reservedToolField !== undefined || step.with !== undefined) {
       ctx.addIssue({
         code: 'custom',
-        path: ['tool'],
+        path: [reservedToolField ?? 'with'],
         message: 'Tool steps are not available yet.',
       });
       return;
@@ -686,7 +833,10 @@ export const workflowDocumentStepSchema = z
         message: 'An agent step requires "prompt".',
       });
     }
-  });
+  })
+  .transform<WorkflowDocumentStepSchemaOutput>(({outputs, ...step}) =>
+    outputs === undefined ? step : {...step, outputs: outputs as WorkflowDocumentStepOutputs},
+  );
 
 const workflowDocumentJobOutputsSchema = nonEmptyRecordSchema(z.string().min(1)).superRefine(
   (outputs, ctx) => {
@@ -767,26 +917,9 @@ export const workflowDocumentSchema = z.strictObject({
   }),
 });
 
-type WorkflowDocumentStepShape = z.infer<typeof workflowDocumentStepSchema>;
-type WorkflowDocumentJobShape = z.infer<typeof workflowDocumentJobSchema>;
-type WorkflowDocumentShape = z.infer<typeof workflowDocumentSchema>;
-
-// The schemas also parse the reserved tool-step `outputs` mapping form so a
-// reserved tool step is rejected with a clear message, but no parseable
-// document carries it: the mapping form is rejected on every step kind until
-// tool steps exist. The exported types therefore narrow the inferred shapes
-// back to the declaration form, which is the only form a parsed document can
-// contain. The mapping form has its own exported type
-// (`WorkflowDocumentToolStepOutputs`) until tool steps are enabled.
-export type WorkflowDocumentStep = Omit<WorkflowDocumentStepShape, 'outputs'> & {
-  outputs?: WorkflowDocumentStepOutputs;
-};
-export type WorkflowDocumentJob = Omit<WorkflowDocumentJobShape, 'steps'> & {
-  steps: WorkflowDocumentStep[];
-};
-export type WorkflowDocument = Omit<WorkflowDocumentShape, 'jobs'> & {
-  jobs: Record<string, WorkflowDocumentJob>;
-};
+export type WorkflowDocumentStep = z.infer<typeof workflowDocumentStepSchema>;
+export type WorkflowDocumentJob = z.infer<typeof workflowDocumentJobSchema>;
+export type WorkflowDocument = z.infer<typeof workflowDocumentSchema>;
 export type WorkflowDocumentCheckout = z.infer<typeof workflowDocumentCheckoutSchema>;
 export type WorkflowDocumentJobCheckout = z.infer<typeof workflowDocumentJobCheckoutSchema>;
 export type WorkflowDocumentEnv = z.infer<typeof workflowDocumentEnvSchema>;
@@ -800,15 +933,23 @@ export type WorkflowDocumentToolWith = z.infer<typeof workflowDocumentToolStepWi
 export type WorkflowDocumentTrigger = z.infer<typeof workflowDocumentTriggerSchema>;
 
 function maxJsonDepth(value: unknown): number {
-  if (value === null || typeof value !== 'object') return 0;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return 1;
-    return 1 + Math.max(...value.map(maxJsonDepth));
+  let maximumDepth = 0;
+  const seen = new WeakSet<object>();
+  const pending = [{value, depth: 0}];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) continue;
+    if (current.value === null || typeof current.value !== 'object') continue;
+    if (seen.has(current.value)) continue;
+    seen.add(current.value);
+
+    const depth = current.depth + 1;
+    maximumDepth = Math.max(maximumDepth, depth);
+    for (const child of Object.values(current.value)) pending.push({value: child, depth});
   }
 
-  const entries = Object.values(value);
-  if (entries.length === 0) return 1;
-  return 1 + Math.max(...entries.map(maxJsonDepth));
+  return maximumDepth;
 }
 
 function isJsonSchemaDocument(value: unknown): boolean {

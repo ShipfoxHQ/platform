@@ -1,4 +1,8 @@
-import type {WorkflowDocumentJobCheckout} from './workflow-document.js';
+import type {
+  WorkflowDocument,
+  WorkflowDocumentJobCheckout,
+  WorkflowDocumentStep,
+} from './workflow-document.js';
 import {
   WORKFLOW_DOCUMENT_ENV_MAX_ENTRIES,
   WORKFLOW_DOCUMENT_ENV_MAX_SERIALIZED_BYTES,
@@ -9,6 +13,8 @@ import {
   WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH,
   WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES,
   workflowDocumentSchema,
+  workflowDocumentStepSchema,
+  workflowDocumentToolStepWithSchema,
 } from './workflow-document.js';
 
 const interpolationOpen = '$' + '{{';
@@ -1228,6 +1234,28 @@ describe('workflowDocumentSchema', () => {
     expect(messages.some((message) => message.includes('not available yet'))).toBe(true);
   });
 
+  it.each([
+    ['run step connection', {run: 'npm test', connection: 'slack_acme'}, 'connection'],
+    ['agent step with', {prompt: 'Review the change.', with: {channel_id: 'C0ABC12345'}}, 'with'],
+    [
+      'checkout step connection',
+      {checkout: {repository: 'shipfox/platform'}, connection: 'slack_acme'},
+      'connection',
+    ],
+  ] as const)('rejects reserved %s without a tool field', (_label, step, field) => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'reserved tool field',
+      jobs: {build: {steps: [step]}},
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === `jobs.build.steps.0.${field}`,
+        );
+    expect(issue?.message).toBe('Tool steps are not available yet.');
+  });
+
   it('rejects a method key in a reserved tool step `with` map', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'tool build',
@@ -1290,6 +1318,57 @@ describe('workflowDocumentSchema', () => {
     );
   });
 
+  it('accepts a rich tool step `with` shape', () => {
+    const result = workflowDocumentToolStepWithSchema.safeParse({
+      text: 'value',
+      count: 2,
+      ready: true,
+      missing: null,
+      values: ['nested', 3, false],
+      record: {enabled: true},
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a tool step `with` map at the serialized byte cap', () => {
+    const key = 'message';
+    const emptyValueBytes = new TextEncoder().encode(JSON.stringify({[key]: ''})).byteLength;
+    const result = workflowDocumentToolStepWithSchema.safeParse({
+      [key]: 'x'.repeat(WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES - emptyValueBytes),
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a tool step `with` map at the nesting depth cap', () => {
+    const result = workflowDocumentToolStepWithSchema.safeParse(
+      nestedToolWith(WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH),
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects deeply nested tool inputs without throwing from safeParse', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'deep tool input',
+      jobs: {
+        build: {
+          steps: [{tool: 'send_message', with: nestedToolWith(1000)}],
+        },
+      },
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.build.steps.0.with',
+        );
+    expect(issue?.message).toBe(
+      `Tool \`with\` cannot be nested deeper than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH} levels.`,
+    );
+  });
+
   it('rejects the expression-mapped outputs form on non-tool steps', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'typed outputs',
@@ -1306,6 +1385,44 @@ describe('workflowDocumentSchema', () => {
           (candidate) => candidate.path.join('.') === 'jobs.build.steps.0.outputs',
         );
     expect(issue?.message).toBe('The `outputs` mapping form is reserved for tool steps.');
+  });
+
+  it('reports a non-expression output string at its value path', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'typed outputs',
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build', outputs: {sha: 'not a declaration'}}],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({path: ['jobs', 'build', 'steps', 0, 'outputs', 'sha']}),
+      );
+      expect(result.error.issues).not.toContainEqual(
+        expect.objectContaining({
+          message: 'The `outputs` mapping form is reserved for tool steps.',
+        }),
+      );
+    }
+  });
+
+  it('keeps exported document types aligned with schema parse results', () => {
+    const document: WorkflowDocument = workflowDocumentSchema.parse({
+      name: 'typed workflow',
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build', outputs: {status: 'string'}}],
+        },
+      },
+    });
+    const step: WorkflowDocumentStep = workflowDocumentStepSchema.parse({run: 'npm run build'});
+
+    expect(document.jobs.build?.steps[0]?.outputs).toEqual({status: {type: 'string'}});
+    expect(step.run).toBe('npm run build');
   });
 
   it('reports a missing-prompt message on the prompt path', () => {
@@ -1356,3 +1473,11 @@ describe('workflowDocumentSchema', () => {
     expect(runIssue?.message).toBe('"run" is not valid on a checkout step.');
   });
 });
+
+function nestedToolWith(depth: number): Record<string, unknown> {
+  let value: unknown = {leaf: 'value'};
+  for (let currentDepth = 1; currentDepth < depth; currentDepth += 1) {
+    value = {nested: value};
+  }
+  return value as Record<string, unknown>;
+}
