@@ -1,8 +1,10 @@
 import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {Navigate, Outlet, useLocation, useMatches} from '@tanstack/react-router';
+import {Component, type PropsWithChildren} from 'react';
 import type {NavTabEntry} from '#contract.js';
 import {useMaybeActiveWorkspace} from '#runtime/active-workspace.js';
 import {useAuthState} from '#runtime/auth.js';
+import {useChrome} from '#runtime/chrome-context.js';
 import type {RouteFrame} from '#runtime/route-frame.js';
 import {parseWorkspaceProjectParams, useRouteParams} from '#runtime/route-inputs.js';
 import {WorkspaceUnavailablePage} from '#runtime/workspace-setup.js';
@@ -22,6 +24,27 @@ const frameClassNames: Record<RouteFrame, string> = {
   focused: `${FOCUSED_FRAME_CONTENT_CLASS_NAME} px-frame py-frame`,
 };
 
+/** Fixed height of the reserved SessionBanner strip, in pixels (h-40 below). */
+const SESSION_BANNER_HEIGHT_PX = 40;
+
+type SessionBannerBoundaryState = {hasError: boolean};
+
+class SessionBannerBoundary extends Component<PropsWithChildren, SessionBannerBoundaryState> {
+  override state: SessionBannerBoundaryState = {hasError: false};
+
+  static getDerivedStateFromError(): SessionBannerBoundaryState {
+    return {hasError: true};
+  }
+
+  override componentDidCatch(error: unknown): void {
+    globalThis.reportError?.(new Error('Failed to render session banner.', {cause: error}));
+  }
+
+  override render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
+
 export function MainLayout({
   navigation,
   hideProjectNavigation = false,
@@ -34,6 +57,7 @@ export function MainLayout({
   const location = useLocation();
   const {projectSlug} = useRouteParams(parseWorkspaceProjectParams);
   const matches = useMatches();
+  const {SessionBanner} = useChrome();
   if (auth.isLoading) return <FullPageLoader />;
   if (!auth.isAuthenticated) {
     return (
@@ -45,12 +69,20 @@ export function MainLayout({
     (current, match) => match.staticData.frame ?? current,
     'content',
   );
+  const bannerHeight = SessionBanner ? SESSION_BANNER_HEIGHT_PX : 0;
   const appContentHeight = hideProjectNavigation
-    ? '[--app-content-h:calc(100dvh_-_56px)]'
-    : '[--app-content-h:calc(100dvh_-_96px)]';
+    ? `[--app-content-h:calc(100dvh_-_${56 + bannerHeight}px)]`
+    : `[--app-content-h:calc(100dvh_-_${96 + bannerHeight}px)]`;
   const isFullBleedFrame = frame === 'data';
   return (
     <div className="h-screen w-full flex flex-col bg-background-subtle-base">
+      {SessionBanner ? (
+        <div className="h-40 shrink-0 overflow-hidden bg-background-subtle-base">
+          <SessionBannerBoundary>
+            <SessionBanner />
+          </SessionBannerBoundary>
+        </div>
+      ) : undefined}
       <NavBar hideProjectNavigation={hideProjectNavigation} />
       {hideProjectNavigation ? undefined : (
         <NavTabs entries={navigation} scope={projectSlug ? 'project' : 'workspace'} />
