@@ -208,10 +208,21 @@ export const providerRunnerActivationOutcomeCount = meter.createCounter<{
   description: 'Demand-backed runner activation outcomes by recovery action',
 });
 
-export const reservationReleasedCount = meter.createCounter<Record<string, never>>(
-  'runners_reservation_released',
-  {description: 'Reservation units released from terminal provisioned runner reports'},
-);
+export type RunnerReservationReleaseSurface = 'first-claim' | 'terminal-report' | 'reconcile';
+
+export const reservationReleasedCount = meter.createCounter<{
+  surface: RunnerReservationReleaseSurface;
+}>('runners_reservation_released', {
+  description: 'Reservation units released by lifecycle surface',
+});
+
+export function recordRunnerReservationReleased(params: {
+  count: number;
+  surface: RunnerReservationReleaseSurface;
+}): void {
+  if (params.count <= 0) return;
+  recordMetric(() => reservationReleasedCount.add(params.count, {surface: params.surface}));
+}
 
 export type RunnerReservationPromotionFailureReason =
   | 'reservation-expired'

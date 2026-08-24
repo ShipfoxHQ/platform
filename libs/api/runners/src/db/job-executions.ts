@@ -35,6 +35,7 @@ import {
   type ProviderRunnerLifecycleObservation,
   recordJobExecutionQueueTime,
   recordProviderRunnerActivationToFirstClaim,
+  recordRunnerReservationReleased,
 } from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
@@ -231,6 +232,7 @@ export async function claimPendingJobExecution(params: {
 
   let activationToFirstClaimObservation: ProviderRunnerLifecycleObservation | null = null;
   let queueTimeObservation: JobExecutionQueueTimeObservation | null = null;
+  let firstClaimReservationReleaseCount = 0;
   const result = await db().transaction(async (tx) => {
     let provisionerId: string | null = null;
     let providerRunnerId: string | null = null;
@@ -419,7 +421,7 @@ export async function claimPendingJobExecution(params: {
             )
             .limit(1);
           if (reservation)
-            await releaseReservationUnits(tx, {
+            firstClaimReservationReleaseCount += await releaseReservationUnits(tx, {
               workspaceId: reservation.workspaceId,
               provisionerId: releasedRunner.provisionerId,
               releases: [{reservationId, count: 1}],
@@ -469,6 +471,10 @@ export async function claimPendingJobExecution(params: {
       jobExecutionId: row.jobExecutionId,
       projectId: row.projectId,
     };
+  });
+  recordRunnerReservationReleased({
+    count: firstClaimReservationReleaseCount,
+    surface: 'first-claim',
   });
   if (queueTimeObservation) recordJobExecutionQueueTime(queueTimeObservation);
   if (activationToFirstClaimObservation)

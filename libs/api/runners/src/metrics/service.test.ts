@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => {
     pendingJobExecutions: {},
     providerRunnersByPhase: {},
     providerRunnersByPhaseOldestAge: {},
+    reservationLeakUnits: {},
     runningJobExecutions: {},
   };
   const gaugeByName = {
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => {
     runners_pending_job_executions: gauges.pendingJobExecutions,
     runners_provider_runner_by_phase: gauges.providerRunnersByPhase,
     runners_provider_runner_by_phase_oldest_age: gauges.providerRunnersByPhaseOldestAge,
+    runners_reservation_leaked_units: gauges.reservationLeakUnits,
     runners_running_job_executions: gauges.runningJobExecutions,
   };
   return {
@@ -20,6 +22,7 @@ const mocks = vi.hoisted(() => {
     gauges,
     getMeter: vi.fn(),
     getJobExecutionQueueDepth: vi.fn(),
+    countLiveReservationLeakUnits: vi.fn(),
     listProviderRunnerByPhaseMetrics: vi.fn(),
     getServiceMetricsProvider: vi.fn(),
   };
@@ -33,6 +36,9 @@ vi.mock('#config.js', () => ({
 }));
 vi.mock('#db/job-executions.js', () => ({
   getJobExecutionQueueDepth: mocks.getJobExecutionQueueDepth,
+}));
+vi.mock('#db/reservations.js', () => ({
+  countLiveReservationLeakUnits: mocks.countLiveReservationLeakUnits,
 }));
 vi.mock('#db/runner-instances.js', () => ({
   countStaleEnrolledRunnerInstances: mocks.countStaleEnrolledRunnerInstances,
@@ -54,6 +60,7 @@ describe('registerRunnersServiceMetrics', () => {
     mocks.countStaleEnrolledRunnerInstances.mockReset();
     mocks.createObservableGauge.mockClear();
     mocks.getJobExecutionQueueDepth.mockReset();
+    mocks.countLiveReservationLeakUnits.mockReset();
     mocks.listProviderRunnerByPhaseMetrics.mockReset();
     mocks.getMeter.mockReset();
     mocks.getServiceMetricsProvider.mockReset();
@@ -61,6 +68,7 @@ describe('registerRunnersServiceMetrics', () => {
       pendingJobExecutions: 0,
       runningJobExecutions: 0,
     });
+    mocks.countLiveReservationLeakUnits.mockResolvedValue(0);
     mocks.listProviderRunnerByPhaseMetrics.mockResolvedValue([]);
     mocks.getMeter.mockReturnValue({
       createObservableGauge: mocks.createObservableGauge,
@@ -93,6 +101,22 @@ describe('registerRunnersServiceMetrics', () => {
     );
   });
 
+  it('observes live reservation units without an unclaimed runner', async () => {
+    mocks.countLiveReservationLeakUnits.mockResolvedValue(3);
+
+    registerRunnersServiceMetrics();
+    const callback = mocks.addBatchObservableCallback.mock.calls[0]?.[0];
+    if (typeof callback !== 'function') throw new Error('Expected metrics callback');
+    const observer = {observe: vi.fn()};
+
+    await callback(observer);
+
+    expect(mocks.createObservableGauge).toHaveBeenCalledWith('runners_reservation_leaked_units', {
+      description: 'Live reservation units without an unclaimed runner behind them',
+    });
+    expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.reservationLeakUnits, 3);
+  });
+
   it('keeps queue gauges observable when the enrolled-runner query fails', async () => {
     mocks.getJobExecutionQueueDepth.mockResolvedValue({
       pendingJobExecutions: 3,
@@ -109,7 +133,7 @@ describe('registerRunnersServiceMetrics', () => {
 
     expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.pendingJobExecutions, 3);
     expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.runningJobExecutions, 4);
-    expect(observer.observe).toHaveBeenCalledTimes(2);
+    expect(observer.observe).toHaveBeenCalledTimes(3);
   });
 
   it('observes provider runners by lifecycle phase', async () => {

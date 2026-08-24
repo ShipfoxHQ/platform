@@ -483,6 +483,7 @@ describe('claimPendingJobExecution', () => {
   });
 
   it('releases a provisioned runner reservation on its first claim only', async () => {
+    const reservationReleaseMetric = vi.spyOn(runnerMetrics.reservationReleasedCount, 'add');
     const provisionerId = crypto.randomUUID();
     const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
     const [reservation] = await db()
@@ -550,6 +551,11 @@ describe('claimPendingJobExecution', () => {
     expect(firstClaim?.jobExecutionId).toBe(firstPending.jobExecutionId);
     expect(afterFirstClaim?.count).toBe(1);
     expect(firstReleaseAt).toBeInstanceOf(Date);
+    expect(
+      reservationReleaseMetric.mock.calls.filter(
+        ([value, attributes]) => value === 1 && attributes?.surface === 'first-claim',
+      ),
+    ).toHaveLength(1);
     expect(secondClaim?.jobExecutionId).toBe(secondPending.jobExecutionId);
     expect(afterSecondClaim?.count).toBe(1);
     expect(runnerAfterSecondClaim?.reservationReleasedAt).toEqual(firstReleaseAt);

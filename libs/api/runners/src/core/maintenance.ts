@@ -4,7 +4,7 @@ import {expireStuckJobExecutions} from '#db/job-executions.js';
 import {deleteExpiredReservations} from '#db/reservations.js';
 import {reapStaleRunnerInstances as reapStaleRunnerInstancesDb} from '#db/runner-instances.js';
 import {deleteExpiredRunnerSessions as deleteExpiredRunnerSessionsDb} from '#db/runner-sessions.js';
-import {providerRunnerReapedCount, reservationReleasedCount} from '#metrics/instance.js';
+import {providerRunnerReapedCount, recordRunnerReservationReleased} from '#metrics/instance.js';
 import {STUCK_JOB_THRESHOLD_SECONDS} from './maintenance-policy.js';
 
 export interface DetectAndExpireStuckJobsParams {
@@ -41,9 +41,7 @@ export async function reapStaleRunnerInstances(params?: {
   });
 
   if (result.reaped > 0) providerRunnerReapedCount.add(result.reaped);
-  if (result.reservationsReleased > 0) {
-    reservationReleasedCount.add(result.reservationsReleased);
-  }
+  recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'reconcile'});
 
   return result;
 }

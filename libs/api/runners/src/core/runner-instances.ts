@@ -18,7 +18,7 @@ import {
   providerRunnerReportCount,
   providerRunnerTerminateIntentHonoredCount,
   providerRunnerTerminateIntentIssuedCount,
-  reservationReleasedCount,
+  recordRunnerReservationReleased,
 } from '#metrics/instance.js';
 import {config} from '../config.js';
 
@@ -103,7 +103,7 @@ export async function reportRunnerInstances(
   for (const intent of result.terminateIntentsHonored) {
     providerRunnerTerminateIntentHonoredCount.add(1, {reason: intent.reason});
   }
-  if (result.reservationsReleased > 0) reservationReleasedCount.add(result.reservationsReleased);
+  recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'terminal-report'});
 
   return result;
 }
@@ -116,7 +116,7 @@ export async function reconcileRunnerInstances(
     terminateGraceSeconds: config.RUNNER_RECONCILE_TERMINATE_GRACE_SECONDS,
   });
 
-  if (result.reservationsReleased > 0) reservationReleasedCount.add(result.reservationsReleased);
+  recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'reconcile'});
   providerRunnerReconcileCallCount.add(1);
   if (result.absentIds.length > 0) providerRunnerAbsentTerminatedCount.add(result.absentIds.length);
 

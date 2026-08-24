@@ -323,7 +323,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     expect(
       addSpy.mock.calls
         .slice(addCallsBefore)
-        .filter(([value, attributes]) => value === 2 && attributes === undefined),
+        .filter(([value, attributes]) => value === 2 && attributes?.surface === 'reconcile'),
     ).toHaveLength(1);
   });
 
