@@ -99,6 +99,52 @@ describe('evaluateWorkflowExpression', () => {
     expect(result).toEqual([2n, 4n, 6n]);
   });
 
+  it.each([
+    ['first', 'first'],
+    ['last', 'last'],
+  ] as const)('evaluates %s through the default workflow environment', (method, expected) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}()`,
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {
+            kind: 'object',
+            fields: {values: {kind: 'list', element: 'string'}},
+          },
+        },
+      },
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {values: ['first', 'last']},
+    });
+
+    expect(result).toBe(expected);
+  });
+
+  it.each([
+    'first',
+    'last',
+  ] as const)('reports %s on an empty list as an evaluation failure', (method) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}()`,
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {
+            kind: 'object',
+            fields: {values: {kind: 'list', element: 'string'}},
+          },
+        },
+      },
+    });
+
+    const evaluateEmpty = () => evaluateWorkflowExpression(expression, {event: {values: []}});
+
+    expect(evaluateEmpty).toThrow(WorkflowExpressionEvaluationError);
+  });
+
   it('gives each default-environment evaluation a full range budget', () => {
     const expression = createWorkflowExpression({
       source: 'range(1, 1000, 1).size()',

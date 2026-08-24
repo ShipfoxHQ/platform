@@ -15,6 +15,8 @@ const utf8Encoder = new TextEncoder();
 const RANGE_FUNCTION_SIGNATURE = 'range(dyn, dyn, dyn): list<int>';
 const TO_JSON_FUNCTION_SIGNATURE = 'toJson(dyn): string';
 const FROM_JSON_FUNCTION_SIGNATURE = 'fromJson(string): dyn';
+const FIRST_FUNCTION_SIGNATURE = 'list<T>.first(): T';
+const LAST_FUNCTION_SIGNATURE = 'list<T>.last(): T';
 
 interface WorkflowFunctionBudget {
   remainingRangeElements: number;
@@ -54,6 +56,20 @@ const workflowFunctionRegistry = [
     createHandler: (): RegisteredFunctionHandler => (value: unknown) => {
       if (typeof value !== 'string') throw new TypeError('fromJson() expects a JSON string');
       return JSON.parse(value, reviveJsonNumber) as unknown;
+    },
+  },
+  {
+    signature: FIRST_FUNCTION_SIGNATURE,
+    createHandler: (): RegisteredFunctionHandler => (value: readonly unknown[]) => {
+      if (value.length === 0) throw new RangeError('first() requires a non-empty list');
+      return value[0];
+    },
+  },
+  {
+    signature: LAST_FUNCTION_SIGNATURE,
+    createHandler: (): RegisteredFunctionHandler => (value: readonly unknown[]) => {
+      if (value.length === 0) throw new RangeError('last() requires a non-empty list');
+      return value[value.length - 1];
     },
   },
 ] satisfies readonly WorkflowFunctionDefinition[];
