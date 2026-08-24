@@ -305,6 +305,25 @@ export function projectExistenceQueryOptions(
   });
 }
 
+export async function readWorkspaceHasNoProject({
+  queryClient,
+  workspaceId,
+}: {
+  queryClient: QueryClient;
+  workspaceId: string;
+}): Promise<boolean> {
+  const options = projectExistenceQueryOptions(workspaceId);
+  try {
+    const data = await queryClient.fetchQuery(options);
+    return data.projects.length === 0;
+  } catch {
+    const cached = queryClient.getQueryData<ProjectList>(options.queryKey);
+    if (cached !== undefined) return cached.projects.length === 0;
+    // Unknown existence keeps the existing project navigation.
+    return false;
+  }
+}
+
 export function projectQueryOptions(projectId: string | undefined): ProjectDetailQueryOptions {
   return queryOptions({
     queryKey: projectId

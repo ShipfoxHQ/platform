@@ -24,7 +24,6 @@ import {
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link, useNavigate} from '@tanstack/react-router';
-import {ModelProviderReminderBanner} from '#components/model-provider-reminder-banner.js';
 import type {Project} from '#core/project.js';
 import {useProjectsInfiniteQuery} from '#hooks/api/projects.js';
 
@@ -52,7 +51,6 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
   return (
     <div className="flex w-full flex-col gap-section">
       {WorkspaceSetupChecklist ? <WorkspaceSetupChecklist /> : null}
-      <ModelProviderReminderBanner workspaceId={workspace.id} />
 
       <section aria-label="Projects">
         <Panel>

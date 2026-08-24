@@ -19,12 +19,13 @@ import {Panel, PanelActions, PanelBody, PanelHeader, PanelTitle} from '@shipfox/
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
+import {useQueryClient} from '@tanstack/react-query';
 import {Link, Navigate, useNavigate} from '@tanstack/react-router';
 import {useEffect, useRef, useState} from 'react';
-import {ModelProviderReminderBanner} from '#components/model-provider-reminder-banner.js';
 import {type CreateProjectCommand, projectNameFromRepository} from '#core/project.js';
 import {
   getProject,
+  readWorkspaceHasNoProject,
   useCreateProjectMutation,
   useProjectSlugAvailability,
 } from '#hooks/api/projects.js';
@@ -37,6 +38,7 @@ function isSlugValid(value: string): boolean {
 export function CreateProjectPage() {
   const workspace = useMaybeActiveWorkspace();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const createProject = useCreateProjectMutation();
   const errorRef = useRef<HTMLDivElement>(null);
 
@@ -152,6 +154,12 @@ export function CreateProjectPage() {
     }
 
     try {
+      // Snapshot project existence before the mutation: after a successful
+      // create the workspace has one project and "first" is already false.
+      const wasFirstProject = await readWorkspaceHasNoProject({
+        queryClient,
+        workspaceId: workspace.id,
+      });
       const command: CreateProjectCommand = {
         workspaceId: workspace.id,
         name: projectName,
@@ -163,6 +171,15 @@ export function CreateProjectPage() {
       };
       const project = await createProject.mutateAsync(command);
       toast.success('Project created.');
+      if (wasFirstProject) {
+        // The setup checklist panel is the first thing on the home, so the
+        // first project lands where the Get-started guide lives.
+        await navigate({
+          to: '/w/$workspaceSlug',
+          params: {workspaceSlug: workspace.slug},
+        });
+        return;
+      }
       await navigate({
         to: '/w/$workspaceSlug/p/$projectSlug',
         params: {workspaceSlug: workspace.slug, projectSlug: project.slug},
@@ -204,8 +221,6 @@ export function CreateProjectPage() {
       <Header id="create-project-title" variant="h1">
         Create project
       </Header>
-
-      <ModelProviderReminderBanner workspaceId={workspace.id} />
 
       {connectionsQuery.isError ? (
         <Callout role="alert" type="error">
