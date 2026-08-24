@@ -61,10 +61,12 @@ async function captureHighlightedSourcePanel(
     },
     {timeout: 10_000},
   );
-  const loadedCodeFonts = await document.fonts.load('400 14px "Commit Mono"');
+  const codeContent = document.querySelector('.shiki-override')?.textContent ?? '';
+  const loadedCodeFonts = await document.fonts.load('400 14px "Commit Mono"', codeContent);
   if (!loadedCodeFonts.some((font) => font.status === 'loaded')) {
     throw new Error('Commit Mono has not loaded yet');
   }
+  await document.fonts.ready;
   await argosScreenshot(ctx, screenshotName);
 }
 
