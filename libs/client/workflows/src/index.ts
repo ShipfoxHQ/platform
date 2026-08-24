@@ -5,6 +5,14 @@ export type {
   DefinitionAtRefTrigger,
   DefinitionAtRefWarning,
 } from '#core/definitions-at-ref.js';
+export {
+  type RunFromBranchInputRow,
+  runFromBranchInputsFromWith,
+  runFromBranchInputsToObject,
+  runFromBranchInputValue,
+  runFromBranchTriggerKind,
+  runFromBranchTriggerSourceLabel,
+} from '#core/run-from-branch.js';
 export type {
   AgentConfigIssue,
   DevRunLaunch,
@@ -44,6 +52,11 @@ export {
   WORKFLOW_RUN_STATUSES,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
+export {
+  RunFromBranchDialog,
+  type RunFromBranchDialogProps,
+  type RunFromBranchFixedEvent,
+} from './components/run-from-branch/run-from-branch-dialog.js';
 export {
   type DefinitionsAtRefErrorCopy,
   definitionsAtRefErrorCopy,

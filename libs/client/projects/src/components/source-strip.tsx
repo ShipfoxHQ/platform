@@ -6,6 +6,7 @@ import {Panel} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Code, Text} from '@shipfox/react-ui/typography';
+import type {ReactNode} from 'react';
 import type {DefinitionSyncSummary} from '#core/definition.js';
 
 /**
@@ -19,11 +20,14 @@ export function SourceStrip({
   externalRepositoryId,
   sync,
   isPending,
+  actions,
 }: {
   connectionId: string;
   externalRepositoryId: string;
   sync: DefinitionSyncSummary | null | undefined;
   isPending: boolean;
+  /** Actions rendered next to the sync badge, such as the Run from branch button. */
+  actions?: ReactNode | undefined;
 }) {
   const workspace = useActiveWorkspace();
   const connectionsQuery = useSourceConnectionsQuery(workspace.id);
@@ -55,7 +59,8 @@ export function SourceStrip({
             </Tooltip>
           </div>
         </div>
-        <div className="shrink-0">
+        <div className="flex shrink-0 items-center gap-inline">
+          {actions}
           <SyncBadge sync={sync} isPending={isPending} />
         </div>
       </section>
