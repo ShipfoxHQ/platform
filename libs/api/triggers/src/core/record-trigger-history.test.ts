@@ -6,6 +6,7 @@ const markReceivedEventRouted = vi.fn();
 const upsertTriggeredDecision = vi.fn();
 const upsertDevTriggeredDecision = vi.fn();
 const upsertDevFilterErrorDecision = vi.fn();
+const upsertDevDispatchErrorDecision = vi.fn();
 
 vi.mock('#db/event-history.js', () => ({
   insertReceivedEvent: (...args: unknown[]) => insertReceivedEvent(...args),
@@ -16,6 +17,7 @@ vi.mock('#db/event-history.js', () => ({
   upsertTriggeredDecision: (...args: unknown[]) => upsertTriggeredDecision(...args),
   upsertDevTriggeredDecision: (...args: unknown[]) => upsertDevTriggeredDecision(...args),
   upsertDevFilterErrorDecision: (...args: unknown[]) => upsertDevFilterErrorDecision(...args),
+  upsertDevDispatchErrorDecision: (...args: unknown[]) => upsertDevDispatchErrorDecision(...args),
   upsertDispatchErrorDecision: vi.fn(),
   upsertFilterErrorDecision: vi.fn(),
   upsertListenerTriggeredDecision: vi.fn(),
@@ -61,6 +63,9 @@ describe('trigger history is best-effort and never blocks triggering', () => {
     ).resolves.toBeUndefined();
     await expect(
       recorder.devFilterErrored('on_issue', crypto.randomUUID(), 'filter is false'),
+    ).resolves.toBeUndefined();
+    await expect(
+      recorder.devDispatchErrored('on_issue', crypto.randomUUID(), 'dispatch boom'),
     ).resolves.toBeUndefined();
     await expect(recorder.dispatchErrored(subscription, 'boom')).resolves.toBeUndefined();
     await expect(recorder.filterErrored(subscription, 'bad filter')).resolves.toBeUndefined();
@@ -170,6 +175,36 @@ describe('dev recorder variants', () => {
       triggerKey: 'on_issue',
       workflowDefinitionId: '019e98ab-0000-0000-0000-000000000001',
       run,
+    });
+  });
+
+  test('devDispatchErrored writes a dev dispatch-error decision with the reason', async () => {
+    const recorder = await beginTriggerHistory({
+      eventRef: crypto.randomUUID(),
+      origin: 'dev',
+      workspaceId: crypto.randomUUID(),
+      provider: null,
+      source: 'manual',
+      event: 'fire',
+      deliveryId: null,
+      connectionId: null,
+      connectionName: null,
+      payload: null,
+      receivedAt: new Date(),
+    });
+
+    await recorder.devDispatchErrored(
+      'on_demand',
+      '019e98ab-0000-0000-0000-000000000003',
+      'workspace suspended',
+    );
+
+    expect(upsertDevDispatchErrorDecision).toHaveBeenCalledTimes(1);
+    expect(upsertDevDispatchErrorDecision).toHaveBeenCalledWith({
+      receivedEventId: expect.any(String),
+      triggerKey: 'on_demand',
+      workflowDefinitionId: '019e98ab-0000-0000-0000-000000000003',
+      reason: 'workspace suspended',
     });
   });
 

@@ -61,3 +61,30 @@ export class TriggerWorkspaceMismatchError extends Error {
     this.callerWorkspaceId = callerWorkspaceId;
   }
 }
+
+export class DevRunTriggerNotFoundError extends Error {
+  readonly triggerKey: string;
+
+  constructor(triggerKey: string) {
+    super(`Workflow definition has no trigger named '${triggerKey}'`);
+    this.name = 'DevRunTriggerNotFoundError';
+    this.triggerKey = triggerKey;
+  }
+}
+
+export class DevRunInputsNotAllowedError extends Error {
+  constructor() {
+    super('Cron dev runs do not accept request inputs; the trigger `with` block is used');
+    this.name = 'DevRunInputsNotAllowedError';
+  }
+}
+
+export class DevRunReplayEventRequiredError extends Error {
+  readonly source: string;
+
+  constructor(source: string) {
+    super(`Replaying a ${source} trigger requires a journaled event (replay_event_id)`);
+    this.name = 'DevRunReplayEventRequiredError';
+    this.source = source;
+  }
+}

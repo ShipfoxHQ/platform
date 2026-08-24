@@ -9,6 +9,7 @@ import {
   markReceivedEventErrored,
   markReceivedEventFailed,
   markReceivedEventRouted,
+  upsertDevDispatchErrorDecision,
   upsertDevFilterErrorDecision,
   upsertDevTriggeredDecision,
   upsertDispatchErrorDecision,
@@ -310,6 +311,32 @@ describe('dev decision inserts', () => {
       runId: null,
       runName: null,
       reason: 'filter is false',
+    });
+  });
+
+  it('records a dev dispatch-error decision with the reason and no run', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const workflowDefinitionId = crypto.randomUUID();
+
+    await upsertDevDispatchErrorDecision({
+      receivedEventId,
+      triggerKey: 'on_demand',
+      workflowDefinitionId,
+      reason: 'workspace suspended',
+    });
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_demand',
+      workflowDefinitionId,
+      projectId: null,
+      decision: 'dispatch-error',
+      runId: null,
+      runName: null,
+      reason: 'workspace suspended',
     });
   });
 

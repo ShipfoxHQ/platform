@@ -5,10 +5,12 @@ import {
   DEFINITION_RESOLVED,
   type DefinitionsEventMap,
 } from '@shipfox/api-definitions-dto';
+import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
 import {
   INTEGRATION_EVENT_RECEIVED,
   type IntegrationsEventMap,
 } from '@shipfox/api-integration-core-dto';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
   WORKFLOWS_JOB_ACTIVATED,
   WORKFLOWS_JOB_TERMINATED,
@@ -39,6 +41,10 @@ export type {
 } from '#core/entities/job-listener-subscription.js';
 export type {TriggerSubscription} from '#core/entities/subscription.js';
 export {
+  createDevRun,
+  DevRunInputsNotAllowedError,
+  DevRunReplayEventRequiredError,
+  DevRunTriggerNotFoundError,
   fireCronSubscription,
   fireManualSubscription,
   ManualTriggerNotFoundError,
@@ -70,13 +76,19 @@ const subscriber = subscriberFactory<
 
 export interface CreateTriggersModuleOptions {
   workflows: WorkflowsModuleClient;
+  definitions: DefinitionsInterModuleClient;
+  projects: ProjectsModuleClient;
 }
 
-export function createTriggersModule({workflows}: CreateTriggersModuleOptions): ShipfoxModule {
+export function createTriggersModule({
+  workflows,
+  definitions,
+  projects,
+}: CreateTriggersModuleOptions): ShipfoxModule {
   return {
     name: 'triggers',
     database: {db, migrationsPath, databaseNamespace: 'triggers'},
-    routes: createTriggerRoutes(workflows),
+    routes: createTriggerRoutes(workflows, definitions, projects),
     e2eRoutes: [triggersE2eRoutes],
     metrics: registerTriggersServiceMetrics,
     publishers: [{name: 'triggers', table: triggersOutbox, db}],

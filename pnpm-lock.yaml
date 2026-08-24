@@ -4225,6 +4225,9 @@ importers:
       '@shipfox/api-integration-core-dto':
         specifier: workspace:*
         version: link:../integration/core-dto
+      '@shipfox/api-projects-dto':
+        specifier: workspace:*
+        version: link:../projects-dto
       '@shipfox/api-triggers-dto':
         specifier: workspace:*
         version: link:../triggers-dto

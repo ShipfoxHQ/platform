@@ -7,6 +7,7 @@ import {isInterModuleKnownError} from '@shipfox/inter-module';
 export type {WorkflowsModuleClient};
 
 type StartRunKnownError = NonNullable<ReturnType<typeof startRunKnownError>>;
+type StartDevRunKnownError = NonNullable<ReturnType<typeof startDevRunKnownError>>;
 
 /**
  * Workflows declares only failures that can never succeed on retry for trigger
@@ -16,6 +17,11 @@ type StartRunKnownError = NonNullable<ReturnType<typeof startRunKnownError>>;
  */
 export function isPermanentStartRunError(error: unknown): error is StartRunKnownError {
   return isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, error);
+}
+
+/** Same guarantee for dev-run creation through `startDevRun`. */
+export function isPermanentStartDevRunError(error: unknown): error is StartDevRunKnownError {
+  return isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, error);
 }
 
 /** Known listener admission failures cannot succeed by replaying the same event. */
@@ -53,8 +59,45 @@ export function isInterpolationUnresolvableError(
   );
 }
 
+export function isDevWorkspaceSuspendedError(
+  error: unknown,
+): error is Extract<StartDevRunKnownError, {code: 'workspace-suspended'}> {
+  return isPermanentStartDevRunError(error) && error.code === 'workspace-suspended';
+}
+
+export function isDevWorkspaceNotFoundError(
+  error: unknown,
+): error is Extract<StartDevRunKnownError, {code: 'workspace-not-found'}> {
+  return isPermanentStartDevRunError(error) && error.code === 'workspace-not-found';
+}
+
+export function isDevWorkspaceDeletedError(
+  error: unknown,
+): error is Extract<StartDevRunKnownError, {code: 'workspace-deleted'}> {
+  return isPermanentStartDevRunError(error) && error.code === 'workspace-deleted';
+}
+
+export function isDevInterpolationUnresolvableError(
+  error: unknown,
+): error is Extract<
+  ReturnType<typeof startDevRunKnownError>,
+  {code: 'interpolation-unresolvable'}
+> {
+  return (
+    isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, error) &&
+    error.code === 'interpolation-unresolvable'
+  );
+}
+
 function startRunKnownError(error: unknown) {
   if (!isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, error)) {
+    return undefined;
+  }
+  return error;
+}
+
+function startDevRunKnownError(error: unknown) {
+  if (!isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, error)) {
     return undefined;
   }
   return error;

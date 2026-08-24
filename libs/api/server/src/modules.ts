@@ -212,7 +212,11 @@ export async function defaultModules(
       workflows: workflowsClient,
       jobLeaseTokenTtlSeconds: durationToSeconds(authConfig.AUTH_JOB_LEASE_TOKEN_EXPIRES_IN),
     }),
-    createTriggersModule({workflows: workflowsClient}),
+    createTriggersModule({
+      workflows: workflowsClient,
+      definitions: definitionsClient,
+      projects: projectsClient,
+    }),
     dispatcherModule,
     ...extensionModules,
   ];
