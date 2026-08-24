@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import {afterEach, describe, expect, test, vi} from '@shipfox/vitest/vi';
 import {act, render} from '@testing-library/react';
 import {SetupChecklistCompletion} from './setup-checklist-completion.js';
+import {CONFETTI_PARTICLE_COUNT} from './setup-checklist-confetti.js';
 
 const CONFETTI_START_TIME = 1000;
 const CONFETTI_DURATION_MS = 2000;
@@ -79,13 +80,13 @@ describe('SetupChecklistCompletion burst', () => {
 
     expect(onBurstComplete).toHaveBeenCalledTimes(1);
     expect(requestAnimationFrame).not.toHaveBeenCalled();
-    expect(context.fillRect).toHaveBeenCalledTimes(48);
+    expect(context.fillRect).toHaveBeenCalledTimes(CONFETTI_PARTICLE_COUNT);
 
     const clearCallsAfterDraw = context.clearRect.mock.calls.length;
     rerender(<SetupChecklistCompletion showBurst={false} onBurstComplete={onBurstComplete} />);
 
     expect(context.clearRect).toHaveBeenCalledTimes(clearCallsAfterDraw);
-    expect(context.fillRect).toHaveBeenCalledTimes(48);
+    expect(context.fillRect).toHaveBeenCalledTimes(CONFETTI_PARTICLE_COUNT);
   });
 
   test('animates and completes the burst when motion is allowed', () => {
@@ -109,7 +110,7 @@ describe('SetupChecklistCompletion burst', () => {
       frameCallback?.(CONFETTI_START_TIME + 16);
     });
 
-    expect(context.fillRect).toHaveBeenCalledTimes(48);
+    expect(context.fillRect).toHaveBeenCalledTimes(CONFETTI_PARTICLE_COUNT);
     expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
     expect(onBurstComplete).not.toHaveBeenCalled();
 

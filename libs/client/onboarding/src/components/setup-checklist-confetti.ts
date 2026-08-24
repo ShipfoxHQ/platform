@@ -1,4 +1,4 @@
-const CONFETTI_PARTICLE_COUNT = 48;
+export const CONFETTI_PARTICLE_COUNT = 48;
 
 interface ConfettiParticle {
   x: number;
