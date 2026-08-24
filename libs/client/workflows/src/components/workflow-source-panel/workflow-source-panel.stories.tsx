@@ -53,18 +53,21 @@ async function captureHighlightedSourcePanel(
   screenshotName: string,
 ) {
   await screen.findByRole('dialog', {name: 'Workflow source'});
-  await waitFor(
+  const codeContent = await waitFor(
     () => {
-      if (!document.querySelector('.shiki-override')) {
+      const content = document.querySelector('.shiki-override')?.textContent?.trim();
+      if (!content) {
         throw new Error('Shiki highlighting has not rendered yet');
       }
+      return content;
     },
     {timeout: 10_000},
   );
-  const loadedCodeFonts = await document.fonts.load('400 14px "Commit Mono"');
+  const loadedCodeFonts = await document.fonts.load('400 14px "Commit Mono"', codeContent);
   if (!loadedCodeFonts.some((font) => font.status === 'loaded')) {
     throw new Error('Commit Mono has not loaded yet');
   }
+  await document.fonts.ready;
   await argosScreenshot(ctx, screenshotName);
 }
 
