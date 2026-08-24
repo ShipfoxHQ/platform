@@ -7,6 +7,7 @@ import type {
 } from '@shipfox/api-integration-spi';
 import type {NodePgDatabase} from 'drizzle-orm/node-postgres';
 import {createGiteaApiClient, type GiteaApiClient} from '#api/client.js';
+import {GiteaAgentToolsProvider} from '#core/agent-tools-provider.js';
 import type {ConnectGiteaConnectionInput} from '#core/connect.js';
 import {giteaConnectionExternalUrl} from '#core/connection-url.js';
 import {GiteaSourceControlProvider} from '#core/source-control.js';
@@ -19,12 +20,25 @@ import {createGiteaWebhookRoutes} from '#presentation/routes/webhooks.js';
 export type {
   GiteaApiClient,
   GiteaFileContent,
+  GiteaIssue,
+  GiteaIssueComment,
   GiteaRepository,
   GiteaRepositoryPage,
   GiteaTree,
   GiteaTreeBlob,
 } from '#api/client.js';
 export {createGiteaApiClient} from '#api/client.js';
+export type {
+  GiteaAgentToolCatalogEntry,
+  GiteaAgentToolId,
+  GiteaAgentToolRequiredScope,
+} from '#core/agent-tools.js';
+export {giteaAgentToolCatalog, giteaAgentToolSelectionCatalog} from '#core/agent-tools.js';
+export type {
+  GiteaAgentToolsProviderOptions,
+  GiteaToolCallResult,
+} from '#core/agent-tools-provider.js';
+export {GiteaAgentToolsProvider} from '#core/agent-tools-provider.js';
 export type {ConnectGiteaConnectionInput} from '#core/connect.js';
 export {handleGiteaConnect} from '#core/connect.js';
 export {
@@ -70,6 +84,7 @@ export function createGiteaIntegrationProvider(options: CreateGiteaIntegrationPr
     eventCatalog: giteaEventCatalog,
     adapters: {
       source_control: new GiteaSourceControlProvider(gitea),
+      agent_tools: new GiteaAgentToolsProvider({gitea}),
     },
     connectionExternalUrl(connection: {externalAccountId: string}): Promise<string | undefined> {
       return Promise.resolve(giteaConnectionExternalUrl(connection.externalAccountId));

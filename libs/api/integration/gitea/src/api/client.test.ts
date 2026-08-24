@@ -422,4 +422,117 @@ describe('HttpGiteaApiClient', () => {
 
     await expect(result).rejects.toMatchObject({reason: 'access-denied'});
   });
+
+  it('gets an issue and maps its fields to camelCase', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: 7,
+        number: 3,
+        title: 'Broken checkout',
+        body: 'The checkout step times out.',
+        state: 'open',
+        comments: 2,
+        html_url: 'https://gitea.example.com/shipfox/platform/issues/3',
+        created_at: '2026-01-02T03:04:05Z',
+        updated_at: '2026-01-03T04:05:06Z',
+      }),
+    );
+    const client = createGiteaApiClient();
+
+    const result = await client.getIssue({owner: 'shipfox', repo: 'platform', index: 3});
+
+    expect(result).toEqual({
+      id: 7,
+      number: 3,
+      title: 'Broken checkout',
+      body: 'The checkout step times out.',
+      state: 'open',
+      comments: 2,
+      htmlUrl: 'https://gitea.example.com/shipfox/platform/issues/3',
+      createdAt: '2026-01-02T03:04:05Z',
+      updatedAt: '2026-01-03T04:05:06Z',
+    });
+    expect(requestedUrl().pathname).toBe('/api/v1/repos/shipfox/platform/issues/3');
+  });
+
+  it('maps a missing issue to repository-not-found', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({message: 'not found'}, {status: 404}));
+    const client = createGiteaApiClient();
+
+    const result = client.getIssue({owner: 'shipfox', repo: 'platform', index: 99});
+
+    await expect(result).rejects.toMatchObject({reason: 'repository-not-found'});
+  });
+
+  it('rejects an issue response missing required fields', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({id: 7, title: 'Broken checkout'}));
+    const client = createGiteaApiClient();
+
+    const result = client.getIssue({owner: 'shipfox', repo: 'platform', index: 3});
+
+    await expect(result).rejects.toMatchObject({reason: 'malformed-provider-response'});
+  });
+
+  it('creates an issue comment with a JSON body', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: 11,
+        html_url: 'https://gitea.example.com/shipfox/platform/issues/3#issuecomment-11',
+        body: 'Fixed in the next release.',
+        created_at: '2026-01-04T05:06:07Z',
+        updated_at: '2026-01-04T05:06:07Z',
+      }),
+    );
+    const client = createGiteaApiClient();
+
+    const result = await client.createIssueComment({
+      owner: 'shipfox',
+      repo: 'platform',
+      index: 3,
+      body: 'Fixed in the next release.',
+    });
+
+    expect(result).toEqual({
+      id: 11,
+      htmlUrl: 'https://gitea.example.com/shipfox/platform/issues/3#issuecomment-11',
+      body: 'Fixed in the next release.',
+      createdAt: '2026-01-04T05:06:07Z',
+      updatedAt: '2026-01-04T05:06:07Z',
+    });
+    const url = requestedUrl();
+    expect(url.pathname).toBe('/api/v1/repos/shipfox/platform/issues/3/comments');
+    expect(requestInit().method).toBe('POST');
+    expect((requestInit().headers as Record<string, string>)['content-type']).toBe(
+      'application/json',
+    );
+    expect(requestInit().body).toBe(JSON.stringify({body: 'Fixed in the next release.'}));
+  });
+
+  it('maps a missing comment target to repository-not-found', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({message: 'not found'}, {status: 404}));
+    const client = createGiteaApiClient();
+
+    const result = client.createIssueComment({
+      owner: 'shipfox',
+      repo: 'platform',
+      index: 99,
+      body: 'Hello',
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'repository-not-found'});
+  });
+
+  it('rejects a comment response missing required fields', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({id: 11, body: 'Hello'}));
+    const client = createGiteaApiClient();
+
+    const result = client.createIssueComment({
+      owner: 'shipfox',
+      repo: 'platform',
+      index: 3,
+      body: 'Hello',
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'malformed-provider-response'});
+  });
 });

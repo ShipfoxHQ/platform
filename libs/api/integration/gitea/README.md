@@ -2,7 +2,20 @@
 
 Shipfox API Integration Gitea connects a Gitea organization to a Shipfox
 workspace, receives organization push webhooks, and lets workflow runners check
-out repositories through Gitea's git HTTP endpoint.
+out repositories through Gitea's git HTTP endpoint. It also exposes a minimal
+agent tool catalog over the same Gitea REST API.
+
+## Agent tools
+
+The catalog holds two tools scoped to the connected organization:
+
+- `get_issue` reads a Gitea issue from a repository of the organization.
+- `comment_on_issue` adds a comment to a Gitea issue and returns the created
+  comment.
+
+The repository owner is always the connected organization; the provider
+injects it from the connection, so neither tool takes an `owner` input. Tool
+ids are standalone selectors in the `agent_tools` capability.
 
 ## Setup
 

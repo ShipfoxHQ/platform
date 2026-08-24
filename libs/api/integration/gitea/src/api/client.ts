@@ -45,6 +45,26 @@ export interface GiteaRefCommit {
   commitSha: string;
 }
 
+export interface GiteaIssue {
+  id: number;
+  number: number;
+  title: string;
+  body: string;
+  state: string;
+  comments: number;
+  htmlUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GiteaIssueComment {
+  id: number;
+  htmlUrl: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface GiteaApiClient {
   listOrgRepositories(input: {
     org: string;
@@ -62,6 +82,13 @@ export interface GiteaApiClient {
     path: string;
     ref: string;
   }): Promise<GiteaFileContent>;
+  getIssue(input: {owner: string; repo: string; index: number}): Promise<GiteaIssue>;
+  createIssueComment(input: {
+    owner: string;
+    repo: string;
+    index: number;
+    body: string;
+  }): Promise<GiteaIssueComment>;
   organizationExists(input: {org: string}): Promise<boolean>;
 }
 
@@ -228,6 +255,27 @@ class HttpGiteaApiClient implements GiteaApiClient {
     };
   }
 
+  async getIssue(input: {owner: string; repo: string; index: number}): Promise<GiteaIssue> {
+    const response = await this.request(
+      `repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.index}`,
+    );
+    return toGiteaIssue(await response.json());
+  }
+
+  async createIssueComment(input: {
+    owner: string;
+    repo: string;
+    index: number;
+    body: string;
+  }): Promise<GiteaIssueComment> {
+    const response = await this.request(
+      `repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.index}/comments`,
+      {},
+      {method: 'POST', body: {body: input.body}},
+    );
+    return toGiteaIssueComment(await response.json());
+  }
+
   async organizationExists(input: {org: string}): Promise<boolean> {
     const response = await this.requestRaw(`orgs/${encodeURIComponent(input.org)}`);
     if (response.ok) return true;
@@ -238,9 +286,13 @@ class HttpGiteaApiClient implements GiteaApiClient {
   private async request(
     path: string,
     searchParams: Record<string, string> = {},
-    options: {notFoundReason?: NotFoundReason} = {},
+    options: {notFoundReason?: NotFoundReason; method?: string; body?: unknown} = {},
   ): Promise<Response> {
-    const response = await this.requestRaw(path, {searchParams});
+    const response = await this.requestRaw(path, {
+      searchParams,
+      ...(options.method === undefined ? {} : {method: options.method}),
+      ...(options.body === undefined ? {} : {body: options.body}),
+    });
     if (!response.ok)
       throw giteaHttpError(response, options.notFoundReason ?? 'repository-not-found');
     return response;
@@ -373,6 +425,62 @@ function encodePath(path: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function toGiteaIssue(raw: unknown): GiteaIssue {
+  if (
+    !isRecord(raw) ||
+    typeof raw.id !== 'number' ||
+    typeof raw.number !== 'number' ||
+    typeof raw.title !== 'string' ||
+    typeof raw.body !== 'string' ||
+    typeof raw.state !== 'string' ||
+    typeof raw.comments !== 'number' ||
+    typeof raw.html_url !== 'string' ||
+    typeof raw.created_at !== 'string' ||
+    typeof raw.updated_at !== 'string'
+  ) {
+    throw new GiteaIntegrationProviderError(
+      'malformed-provider-response',
+      'Gitea issue response is missing required fields',
+    );
+  }
+
+  return {
+    id: raw.id,
+    number: raw.number,
+    title: raw.title,
+    body: raw.body,
+    state: raw.state,
+    comments: raw.comments,
+    htmlUrl: raw.html_url,
+    createdAt: raw.created_at,
+    updatedAt: raw.updated_at,
+  };
+}
+
+function toGiteaIssueComment(raw: unknown): GiteaIssueComment {
+  if (
+    !isRecord(raw) ||
+    typeof raw.id !== 'number' ||
+    typeof raw.html_url !== 'string' ||
+    typeof raw.body !== 'string' ||
+    typeof raw.created_at !== 'string' ||
+    typeof raw.updated_at !== 'string'
+  ) {
+    throw new GiteaIntegrationProviderError(
+      'malformed-provider-response',
+      'Gitea issue comment response is missing required fields',
+    );
+  }
+
+  return {
+    id: raw.id,
+    htmlUrl: raw.html_url,
+    body: raw.body,
+    createdAt: raw.created_at,
+    updatedAt: raw.updated_at,
+  };
 }
 
 function toGiteaRepository(raw: unknown): GiteaRepository {
