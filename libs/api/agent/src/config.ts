@@ -127,8 +127,10 @@ export const config = createConfig({
     default: true,
   }),
   AGENT_SESSION_ENCRYPTION_KEK: str({
+    // No default: envalid enforces this as a required variable at startup, and
+    // the module-level `decodeBase64SessionKek` below stays as the second layer
+    // that also rejects a malformed (non-canonical base64) value.
     desc: 'Master key used to wrap per-workspace session transcript data keys. Required. Generate a unique value per environment with openssl rand -base64 32 and provide it from a secret manager. The committed .env value is only for local development. Losing this key makes stored session transcripts unrecoverable. To rotate it, set AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS to the old value during the rotation window.',
-    default: undefined,
   }),
   AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS: str({
     desc: 'Previous master key, set only during a KEK rotation window so DEKs wrapped under the old key stay readable. Optional. Generate with openssl rand -base64 32 and provide it from a secret manager; clear it once every wrapped DEK has been rewrapped under the current key.',

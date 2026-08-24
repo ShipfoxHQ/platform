@@ -5,9 +5,11 @@ import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
 import {db} from '#db/db.js';
 import {
+  type ExpiredSessionsCursor,
   hasSessionReferencingObjectKey,
   listExpiredSessions,
   listSegmentPruneCandidates,
+  type PruneCandidatesCursor,
 } from '#db/retention.js';
 import {sessions, toAgentSession} from '#db/schema/sessions.js';
 import {parseSessionObjectKey, sessionObjectKeyPrefix} from './session-artifacts/object-key.js';
@@ -77,10 +79,9 @@ export async function runSessionRetentionSweep(
   };
   const graceMs = params.segmentGraceSeconds * 1000;
 
-  const skip = new Set<string>();
   // Runs one bounded batch pass; returns whether a further pass may find more work.
   const runPass = async (
-    list: (excludeIds: string[] | undefined) => Promise<AgentSession[]>,
+    list: () => Promise<AgentSession[]>,
     process: (session: AgentSession) => Promise<void>,
   ): Promise<boolean> => {
     if (now() >= deadline) {
@@ -88,7 +89,7 @@ export async function runSessionRetentionSweep(
       return false;
     }
 
-    const batch = await list(skip.size > 0 ? [...skip] : undefined);
+    const batch = await list();
     if (batch.length === 0) return false;
 
     for (const session of batch) {
@@ -102,7 +103,6 @@ export async function runSessionRetentionSweep(
         await process(session);
       } catch (error) {
         result.failed += 1;
-        skip.add(session.id);
         logger().error(
           {err: error, sessionId: session.id},
           'Failed to process agent session during retention sweep',
@@ -116,14 +116,29 @@ export async function runSessionRetentionSweep(
   };
 
   // Phase 1: expired sessions — objects before row, guarded on carried-over references.
+  // Cursor paging on `(retired_at, id)`: every pass advances past the previous
+  // batch, so a large backlog never re-selects the same rows and processed IDs
+  // are not accumulated in an ever-growing `NOT IN` list.
+  let expiredCursor: ExpiredSessionsCursor | undefined;
   while (result.iterations < params.maxIterations) {
     const more = await runPass(
-      (excludeIds) =>
-        listExpiredSessions({
+      async () => {
+        const batch = await listExpiredSessions({
           retentionDays: params.retentionDays,
           limit: params.batchLimit,
-          excludeIds,
-        }),
+          after: expiredCursor,
+        });
+        const last = batch[batch.length - 1];
+        if (last) {
+          if (last.retiredAt === null) {
+            // listExpiredSessions filters `retired_at is not null`, so this
+            // only guards the cursor type, never a real row.
+            throw new Error(`Expired session row missing retired_at: ${last.id}`);
+          }
+          expiredCursor = {retiredAt: last.retiredAt, id: last.id};
+        }
+        return batch;
+      },
       async (session) => {
         await deleteExpiredSession(session);
         result.sessionsDeleted += 1;
@@ -133,22 +148,27 @@ export async function runSessionRetentionSweep(
   }
 
   // Phases 2+3: superseded segments (grace-elapsed) and orphans (unclaimed, grace-elapsed).
+  // Same cursor paging on `(updated_at, id)`: pruning never touches the row, so
+  // without advancing the cursor the candidate query would re-select the same
+  // oldest-by-`updated_at` batch on every pass and a large backlog would never
+  // advance.
+  let pruneCursor: PruneCandidatesCursor | undefined;
   while (result.iterations < params.maxIterations) {
     const more = await runPass(
-      (excludeIds) =>
-        listSegmentPruneCandidates({
+      async () => {
+        const batch = await listSegmentPruneCandidates({
           graceSeconds: params.segmentGraceSeconds,
           limit: params.batchLimit,
-          excludeIds,
-        }),
+          after: pruneCursor,
+        });
+        const last = batch[batch.length - 1];
+        if (last) pruneCursor = {updatedAt: last.updatedAt, id: last.id};
+        return batch;
+      },
       async (session) => {
         const outcome = await pruneSessionSegments(session, now(), graceMs);
         result.supersededPruned += outcome.superseded;
         result.orphansPruned += outcome.orphans;
-        // A successfully pruned session stays done for the rest of this run.
-        // Without this, the candidate query re-selects the same oldest-by-
-        // `updated_at` batch on every pass and a large backlog never advances.
-        skip.add(session.id);
       },
     );
     if (!more) break;

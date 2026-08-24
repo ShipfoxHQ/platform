@@ -1,4 +1,4 @@
-import {eq} from 'drizzle-orm';
+import {eq, sql} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
 import {
@@ -99,41 +99,59 @@ function sessionPrefix(session: AgentSession): string {
 export function createSessionArtifactStore(params: {
   dekManager: SessionDekManager;
 }): SessionArtifactStore {
+  const sealAndPut = async (
+    input: PutSessionSegmentParams & {dek: Buffer},
+  ): Promise<PutSessionSegmentResult> => {
+    if (input.blob.length > config.AGENT_SESSION_BLOB_CAP_BYTES) {
+      throw new AgentSessionUnavailableError('blob_cap_exceeded');
+    }
+
+    const sealed = sealSessionBlob({
+      key: input.dek,
+      plaintext: input.blob,
+      aad: aadForSessionObject({
+        workspaceId: input.session.workspaceId,
+        sessionId: input.session.id,
+        segment: input.segment,
+      }),
+    });
+
+    const objectKey = sessionObjectKey(config.AGENT_SESSION_STORAGE_S3_PREFIX, {
+      workspaceId: input.session.workspaceId,
+      workflowRunAttemptId: input.session.workflowRunAttemptId,
+      sessionId: input.session.id,
+      segment: input.segment,
+    });
+
+    await putSessionObject({
+      key: objectKey,
+      body: sealed,
+      metadata: segmentManifestToMetadata(input.manifest),
+    });
+
+    return {objectKey, sizeBytes: input.blob.length};
+  };
+
   return {
     async putSegment({session, segment, blob, manifest}) {
-      if (blob.length > config.AGENT_SESSION_BLOB_CAP_BYTES) {
-        throw new AgentSessionUnavailableError('blob_cap_exceeded');
-      }
-
-      const dek = await params.dekManager.getPlaintextDek(session.workspaceId);
-      const sealed = sealSessionBlob({
-        key: dek,
-        plaintext: blob,
-        aad: aadForSessionObject({
-          workspaceId: session.workspaceId,
-          sessionId: session.id,
-          segment,
-        }),
-      });
-
-      const objectKey = sessionObjectKey(config.AGENT_SESSION_STORAGE_S3_PREFIX, {
-        workspaceId: session.workspaceId,
-        workflowRunAttemptId: session.workflowRunAttemptId,
-        sessionId: session.id,
+      return sealAndPut({
+        session,
         segment,
+        blob,
+        manifest,
+        dek: await params.dekManager.getPlaintextDek(session.workspaceId),
       });
-
-      await putSessionObject({
-        key: objectKey,
-        body: sealed,
-        metadata: segmentManifestToMetadata(manifest),
-      });
-
-      return {objectKey, sizeBytes: blob.length};
     },
 
     async commitSegment({session, stepAttemptId, baseSegment, blob, manifest, headRepoRef}) {
       const segment = baseSegment + 1;
+
+      // Resolve the workspace DEK before opening the commit transaction:
+      // `getPlaintextDek` may read or create the data-key row through the shared
+      // pool, which must not happen while the transaction already holds a pooled
+      // connection (concurrent first commits for one workspace could exhaust the
+      // pool waiting for a second connection).
+      const dek = await params.dekManager.getPlaintextDek(session.workspaceId);
 
       let committedSizeBytes: number | undefined;
       const result = await db().transaction(async (tx) => {
@@ -152,7 +170,7 @@ export function createSessionArtifactStore(params: {
           return {outcome: 'conflict', session: current} as const;
         }
 
-        const put = await this.putSegment({session: current, segment, blob, manifest});
+        const put = await sealAndPut({session: current, segment, blob, manifest, dek});
         committedSizeBytes = put.sizeBytes;
         return commitSessionHead(
           {
@@ -211,24 +229,45 @@ export function createSessionArtifactStore(params: {
     },
 
     async deleteSessionObjects(session) {
-      const prefix = sessionPrefix(session);
-      const keys = await listSessionObjectKeys(prefix);
+      await db().transaction(async (tx) => {
+        // Lock the source row through the reference check and the object
+        // deletion, mirroring the retention sweep's `deleteExpiredSession`: a
+        // concurrent carry-over (which locks the same source rows) can never
+        // copy this head pointer between the check and the deletion.
+        const [row] = await tx
+          .select({id: sessions.id})
+          .from(sessions)
+          .where(eq(sessions.id, session.id))
+          .for('update');
+        if (!row) return;
 
-      let deletable = keys;
-      if (session.headObjectKey !== null) {
-        if (await hasSessionReferencingObjectKey(db(), session.id, session.headObjectKey)) {
-          // A carried-over rerun row still references this head object; keep it
-          // until every referencing row is gone, mirroring the retention sweep's
-          // carried-over guard in deleteExpiredSession.
-          deletable = deletable.filter((key) => key !== session.headObjectKey);
-        } else if (!keys.includes(session.headObjectKey)) {
-          // Carried-over rows point at the source run attempt's prefix; the exact
-          // head key must be removed here because the source prefix is not ours.
-          deletable = [...deletable, session.headObjectKey];
+        if (session.headObjectKey !== null) {
+          // Serialize the shared-head ownership decision with concurrent sweeps
+          // and store-level deletions, exactly like the retention sweep does.
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${session.headObjectKey}, 0))`,
+          );
         }
-      }
 
-      if (deletable.length > 0) await deleteSessionObjects(deletable);
+        const prefix = sessionPrefix(session);
+        const keys = await listSessionObjectKeys(prefix);
+
+        let deletable = keys;
+        if (session.headObjectKey !== null) {
+          if (await hasSessionReferencingObjectKey(tx, session.id, session.headObjectKey)) {
+            // A carried-over rerun row still references this head object; keep it
+            // until every referencing row is gone, mirroring the retention sweep's
+            // carried-over guard in deleteExpiredSession.
+            deletable = deletable.filter((key) => key !== session.headObjectKey);
+          } else if (!keys.includes(session.headObjectKey)) {
+            // Carried-over rows point at the source run attempt's prefix; the exact
+            // head key must be removed here because the source prefix is not ours.
+            deletable = [...deletable, session.headObjectKey];
+          }
+        }
+
+        if (deletable.length > 0) await deleteSessionObjects(deletable);
+      });
     },
   };
 }

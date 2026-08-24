@@ -1,18 +1,33 @@
-import {and, asc, eq, isNotNull, isNull, lt, notInArray, sql} from 'drizzle-orm';
+import {and, asc, eq, isNotNull, isNull, lt, sql} from 'drizzle-orm';
 import type {AgentSession} from '#core/entities/agent-session.js';
 import {type Database, db, type Transaction} from './db.js';
 import {sessions, toAgentSession} from './schema/sessions.js';
 
+export interface ExpiredSessionsCursor {
+  retiredAt: Date;
+  id: string;
+}
+
+export interface PruneCandidatesCursor {
+  updatedAt: Date;
+  id: string;
+}
+
 /**
  * Lists sessions whose run attempt reached a terminal state more than
- * `retentionDays` ago. `excludeIds` keeps failed rows from starving younger
- * rows in the same sweep, and avoids cursoring on `retired_at`, whose
- * microsecond precision would be lost through JS `Date`.
+ * `retentionDays` ago, in `(retired_at, id)` order. `after` continues from the
+ * previous pass's last row (cursor paging) instead of accumulating processed
+ * IDs in an ever-growing `NOT IN` list, so a large backlog never makes the
+ * query heavier or trips the driver's bind-parameter limit. The cursor keeps
+ * the id tiebreak, so the millisecond truncation of a JS `Date` cannot skip or
+ * repeat rows: rows with a finer `retired_at` sort strictly after the
+ * truncated cursor value, and rows sharing the truncated value are resolved by
+ * id.
  */
 export async function listExpiredSessions(params: {
   retentionDays: number;
   limit: number;
-  excludeIds?: string[] | undefined;
+  after?: ExpiredSessionsCursor | undefined;
 }): Promise<AgentSession[]> {
   const rows = await db()
     .select()
@@ -21,8 +36,8 @@ export async function listExpiredSessions(params: {
       and(
         isNotNull(sessions.retiredAt),
         lt(sessions.retiredAt, sql`now() - make_interval(days => ${params.retentionDays})`),
-        params.excludeIds && params.excludeIds.length > 0
-          ? notInArray(sessions.id, params.excludeIds)
+        params.after
+          ? sql`(${sessions.retiredAt} > ${params.after.retiredAt} or (${sessions.retiredAt} = ${params.after.retiredAt} and ${sessions.id} > ${params.after.id}))`
           : undefined,
       ),
     )
@@ -36,15 +51,17 @@ export async function listExpiredSessions(params: {
 /**
  * Lists sessions whose last mutation (head flip, claim, or release) is older
  * than the segment grace, so their superseded segments and orphans may be
- * pruned. Orphan candidates are only collected while the session is unclaimed;
- * the sweep re-verifies the claim under a `FOR UPDATE` lock held through the
- * object deletion (see `pruneSessionSegments`), because a claim granted after
- * this list read could land an upload the sweep would otherwise delete.
+ * pruned, in `(updated_at, id)` order. `after` is the cursor for the next pass
+ * (see `listExpiredSessions`). Orphan candidates are only collected while the
+ * session is unclaimed; the sweep re-verifies the claim under a `FOR UPDATE`
+ * lock held through the object deletion (see `pruneSessionSegments`), because
+ * a claim granted after this list read could land an upload the sweep would
+ * otherwise delete.
  */
 export async function listSegmentPruneCandidates(params: {
   graceSeconds: number;
   limit: number;
-  excludeIds?: string[] | undefined;
+  after?: PruneCandidatesCursor | undefined;
 }): Promise<AgentSession[]> {
   const rows = await db()
     .select()
@@ -53,8 +70,8 @@ export async function listSegmentPruneCandidates(params: {
       and(
         lt(sessions.updatedAt, sql`now() - make_interval(secs => ${params.graceSeconds})`),
         sql`(${sessions.headSegment} >= 2 or ${sessions.claimedByStepAttempt} is null)`,
-        params.excludeIds && params.excludeIds.length > 0
-          ? notInArray(sessions.id, params.excludeIds)
+        params.after
+          ? sql`(${sessions.updatedAt} > ${params.after.updatedAt} or (${sessions.updatedAt} = ${params.after.updatedAt} and ${sessions.id} > ${params.after.id}))`
           : undefined,
       ),
     )

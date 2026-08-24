@@ -96,6 +96,7 @@ export {
   sealSessionDek,
   segmentManifestFromMetadata,
   segmentManifestToMetadata,
+  sessionKeyProvider,
   sessionObjectKey,
   sessionObjectKeyPrefix,
   sessionS3Client,

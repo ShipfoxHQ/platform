@@ -1,3 +1,4 @@
+export {sessionKeyProvider} from './composition.js';
 export {
   aadForSessionObject,
   decodeBase64SessionKek,
