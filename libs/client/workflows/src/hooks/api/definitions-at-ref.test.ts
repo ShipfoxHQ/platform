@@ -91,6 +91,7 @@ describe('definitionsAtRefQueryOptions', () => {
     expect(partial.enabled).toBe(false);
     expect(ready.enabled).toBe(true);
     expect(ready.queryKey).toEqual(definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF));
+    expect(ready.staleTime).toBe(30_000);
   });
 });
 

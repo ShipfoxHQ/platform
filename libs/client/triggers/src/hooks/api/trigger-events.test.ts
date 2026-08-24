@@ -124,10 +124,15 @@ describe('triggerEventsQueryKeys', () => {
     const withoutReplayable = triggerEventsQueryKeys.list(workspaceId, {
       origin: ['integration'],
     });
+    const explicitlyDisabled = triggerEventsQueryKeys.list(workspaceId, {
+      origin: ['integration'],
+      replayable: false,
+    });
 
     expect(replayable).toEqual(equivalent);
     expect(replayable[4]).toMatchObject({origin: ['integration'], replayable: true});
     expect(withoutReplayable[4]).toMatchObject({replayable: null});
+    expect(explicitlyDisabled).toEqual(withoutReplayable);
   });
 
   test('sorts and de-duplicates outcome so filter order does not split the cache', () => {

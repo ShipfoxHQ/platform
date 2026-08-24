@@ -88,7 +88,7 @@ export function normalizeTriggerEventFilters(filters: TriggerEventFilters) {
     outcome: normalizeTriggerEventFilterValues(filters.outcome),
     from: filters.from ?? null,
     to: filters.to ?? null,
-    replayable: filters.replayable ?? null,
+    replayable: filters.replayable ? true : null,
   };
 }
 

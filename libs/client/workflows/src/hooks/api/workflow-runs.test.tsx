@@ -23,6 +23,7 @@ import {
   useWorkflowRunQuery,
   useWorkflowRunsInfiniteQuery,
   workflowRunsQueryKeys,
+  workflowRunsRefetchInterval,
 } from './workflow-runs.js';
 
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
@@ -52,6 +53,29 @@ describe('workflow run API hooks', () => {
   afterEach(() => {
     cleanup();
     configureApiClient({baseUrl: '', fetchImpl: undefined});
+  });
+
+  test('does not poll rapidly for an optimistic row that is not on the server yet', () => {
+    const page = toWorkflowRunListPage(
+      workflowRunListResponseDto({runs: [workflowRunDto({status: 'running'})]}),
+    );
+    const firstRun = page.runs[0];
+    if (!firstRun) throw new Error('Expected a workflow run fixture');
+    const temporary = {...firstRun, id: 'temp-run', isTemporary: true};
+    const tempData = {
+      pages: [{...page, runs: [temporary]}],
+      pageParams: [undefined],
+    };
+    const activeData = {
+      pages: [page],
+      pageParams: [undefined],
+    };
+
+    expect(workflowRunsRefetchInterval(tempData)).toBe(30_000);
+    expect(workflowRunsRefetchInterval(activeData)).toBe(4_000);
+    expect(
+      workflowRunsRefetchInterval({pages: [page, page], pageParams: [undefined, 'cursor']}),
+    ).toBe(false);
   });
 
   test('sends the origin facet as the origin list query parameter', async () => {

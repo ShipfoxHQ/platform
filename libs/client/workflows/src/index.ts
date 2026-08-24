@@ -56,6 +56,7 @@ export {
   type CreateDevRunVariables,
   createDevRun,
   type DevRunErrorCopy,
+  type DevRunReplayEvent,
   devRunErrorCopy,
   useCreateDevRunMutation,
 } from './hooks/api/dev-runs.js';

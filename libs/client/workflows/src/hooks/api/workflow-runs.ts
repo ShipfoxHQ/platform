@@ -163,6 +163,85 @@ const IDLE_POLL_MS = 30_000;
 
 export type RunListInfinite = InfiniteData<WorkflowRunListPage, string | undefined>;
 
+export function insertTemporaryWorkflowRun({
+  queryClient,
+  projectId,
+  tempRun,
+  accepts,
+}: {
+  queryClient: ReturnType<typeof useQueryClient>;
+  projectId: string;
+  tempRun: WorkflowRunListItem;
+  accepts: (filters: WorkflowRunFilters) => boolean;
+}): Array<readonly unknown[]> {
+  const touchedQueryKeys: Array<readonly unknown[]> = [];
+  const entries = queryClient.getQueriesData<RunListInfinite>({
+    queryKey: workflowRunsQueryKeys.lists(projectId),
+  });
+
+  for (const [queryKey] of entries) {
+    const filters = readFiltersFromKey(queryKey);
+    if (!filters || !accepts(filters)) continue;
+
+    touchedQueryKeys.push(queryKey);
+    queryClient.setQueryData<RunListInfinite>(queryKey, (current) => {
+      if (!current || current.pages.length === 0) return current;
+      const firstPage = current.pages[0];
+      if (!firstPage || firstPage.runs.some((run) => run.id === tempRun.id)) return current;
+      const nextFirstPage: WorkflowRunListPage = {
+        ...firstPage,
+        runs: [tempRun, ...firstPage.runs],
+        filteredTotalCount:
+          firstPage.filteredTotalCount != null ? firstPage.filteredTotalCount + 1 : null,
+      };
+      return {...current, pages: [nextFirstPage, ...current.pages.slice(1)]};
+    });
+  }
+
+  return touchedQueryKeys;
+}
+
+export function removeTemporaryWorkflowRun(
+  queryClient: ReturnType<typeof useQueryClient>,
+  touchedQueryKeys: Array<readonly unknown[]>,
+  tempWorkflowRunId: string | undefined,
+): void {
+  if (!tempWorkflowRunId) return;
+  for (const queryKey of touchedQueryKeys) {
+    queryClient.setQueryData<RunListInfinite>(queryKey, (current) => {
+      if (!current) return current;
+      let removedCount = 0;
+      const pages = current.pages.map((page) => {
+        let pageRemovedCount = 0;
+        const runs = page.runs.filter((run) => {
+          if (run.id !== tempWorkflowRunId) return true;
+          pageRemovedCount += 1;
+          return false;
+        });
+        if (pageRemovedCount === 0) return page;
+        removedCount += pageRemovedCount;
+        return {
+          ...page,
+          runs,
+          filteredTotalCount:
+            page.filteredTotalCount != null
+              ? Math.max(0, page.filteredTotalCount - pageRemovedCount)
+              : null,
+        };
+      });
+      return removedCount === 0 ? current : {...current, pages};
+    });
+  }
+}
+
+export function workflowRunsRefetchInterval(data: RunListInfinite | undefined): false | number {
+  if (!data || data.pages.length > 1) return false;
+  const hasActive = data.pages.some((page) =>
+    page.runs.some((run) => !run.isTemporary && !isWorkflowRunTerminal(run.status)),
+  );
+  return hasActive ? ACTIVE_POLL_MS : IDLE_POLL_MS;
+}
+
 export function useWorkflowRunsInfiniteQuery(
   projectId: string | undefined,
   filters: WorkflowRunFilters,
@@ -199,14 +278,7 @@ export function workflowRunsInfiniteQueryOptions(
     placeholderData: keepPreviousData,
     staleTime: 2_000,
     refetchOnWindowFocus: true,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      if (!data || data.pages.length > 1) return false;
-      const hasActive = data.pages.some((page) =>
-        page.runs.some((run) => !isWorkflowRunTerminal(run.status)),
-      );
-      return hasActive ? ACTIVE_POLL_MS : IDLE_POLL_MS;
-    },
+    refetchInterval: (query) => workflowRunsRefetchInterval(query.state.data),
     refetchIntervalInBackground: false,
   });
 }
@@ -415,61 +487,28 @@ export function useFireManualWorkflowMutation() {
         createdAt,
       });
 
-      const listsKey = workflowRunsQueryKeys.lists(variables.projectId);
-      const touchedQueryKeys: Array<readonly unknown[]> = [];
-
-      const entries = queryClient.getQueriesData<RunListInfinite>({queryKey: listsKey});
       const now = new Date(createdAt);
-      for (const [queryKey] of entries) {
-        const filters = readFiltersFromKey(queryKey);
-        if (!filters) continue;
-        if (!filtersAcceptManualPendingRun(filters, variables.definitionId, now)) continue;
-
-        touchedQueryKeys.push(queryKey);
-        queryClient.setQueryData<RunListInfinite>(queryKey, (current) => {
-          if (!current || current.pages.length === 0) return current;
-          const firstPage = current.pages[0];
-          if (!firstPage) return current;
-          const nextFirstPage: WorkflowRunListPage = {
-            ...firstPage,
-            runs: [tempRun, ...firstPage.runs],
-            filteredTotalCount:
-              firstPage.filteredTotalCount != null ? firstPage.filteredTotalCount + 1 : null,
-          };
-          return {...current, pages: [nextFirstPage, ...current.pages.slice(1)]};
-        });
-      }
+      const touchedQueryKeys = insertTemporaryWorkflowRun({
+        queryClient,
+        projectId: variables.projectId,
+        tempRun,
+        accepts: (filters) => filtersAcceptManualPendingRun(filters, variables.definitionId, now),
+      });
 
       return {tempWorkflowRunId: tempRun.id, touchedQueryKeys};
     },
     onError: (_error, _variables, context) => {
       if (!context) return;
-      for (const queryKey of context.touchedQueryKeys) {
-        queryClient.setQueryData<RunListInfinite>(queryKey, (current) => {
-          if (!current) return current;
-          let removedCount = 0;
-          const pages = current.pages.map((page) => {
-            const runs = page.runs.filter((run) => {
-              if (run.id !== context.tempWorkflowRunId) return true;
-              removedCount += 1;
-              return false;
-            });
-            if (runs.length === page.runs.length) return page;
-            return {
-              ...page,
-              runs,
-              filteredTotalCount:
-                page.filteredTotalCount != null
-                  ? Math.max(0, page.filteredTotalCount - removedCount)
-                  : null,
-            };
-          });
-          if (removedCount === 0) return current;
-          return {...current, pages};
-        });
-      }
+      removeTemporaryWorkflowRun(queryClient, context.touchedQueryKeys, context.tempWorkflowRunId);
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (_data, variables, context) => {
+      if (context) {
+        removeTemporaryWorkflowRun(
+          queryClient,
+          context.touchedQueryKeys,
+          context.tempWorkflowRunId,
+        );
+      }
       void queryClient.invalidateQueries({
         queryKey: workflowRunsQueryKeys.lists(variables.projectId),
       });

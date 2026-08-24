@@ -1,17 +1,19 @@
-import {ApiError, checkedApiRequest, type StandardSchema} from '@shipfox/client-api';
+import {createDevRunResponseSchema} from '@shipfox/api-triggers-dto';
+import {ApiError, checkedApiRequest} from '@shipfox/client-api';
 import {useMutation, useQueryClient} from '@tanstack/react-query';
 import type {DefinitionAtRefListing, DefinitionAtRefTrigger} from '#core/definitions-at-ref.js';
-import type {DevRunLaunch, WorkflowRunListItem, WorkflowRunListPage} from '#core/workflow-run.js';
+import type {DevRunLaunch, WorkflowRunListItem} from '#core/workflow-run.js';
 import {
   WorkflowRunAttemptSummary,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
 import {definitionsAtRefQueryKeys} from './definitions-at-ref.js';
+import {sharedWorkflowErrorCopy} from './workflow-error-copy.js';
 import {
   cryptoRandomId,
-  type RunListInfinite,
-  readFiltersFromKey,
+  insertTemporaryWorkflowRun,
+  removeTemporaryWorkflowRun,
   type WorkflowRunFilters,
   workflowRunsQueryKeys,
 } from './workflow-runs.js';
@@ -21,7 +23,7 @@ export interface CreateDevRunVariables {
   /** Branch or tag name the definition is read from. */
   ref: string;
   /** The commit the ref resolved to when the picker listed the file; a mismatch answers `ref-moved`. */
-  commit?: string | undefined;
+  commit: string;
   configPath: string;
   /** Trigger key in the resolved workflow file's `triggers` map. */
   trigger: string;
@@ -29,26 +31,13 @@ export interface CreateDevRunVariables {
   inputs?: Record<string, unknown> | undefined;
   /** Integration triggers only: the journaled event to replay. */
   replayEventId?: string | undefined;
+  /** Event metadata selected with `replayEventId`, used for the optimistic row label. */
+  replayEvent?: DevRunReplayEvent | undefined;
 }
 
-const devRunResponseSchema: StandardSchema<unknown, {workflow_run_id: string; commit: string}> = {
-  '~standard': {
-    version: 1,
-    vendor: 'client-workflows',
-    validate: (value) => {
-      if (
-        typeof value === 'object' &&
-        value !== null &&
-        'workflow_run_id' in value &&
-        typeof value.workflow_run_id === 'string' &&
-        'commit' in value &&
-        typeof value.commit === 'string'
-      )
-        return {value: {workflow_run_id: value.workflow_run_id, commit: value.commit}};
-      return {issues: [{message: 'Expected workflow_run_id and commit.'}]};
-    },
-  },
-};
+export interface DevRunReplayEvent {
+  event: string;
+}
 
 /**
  * Create a dev run from a workflow file at a git ref. The server resolves the
@@ -57,12 +46,12 @@ const devRunResponseSchema: StandardSchema<unknown, {workflow_run_id: string; co
  */
 export async function createDevRun(variables: CreateDevRunVariables): Promise<DevRunLaunch> {
   const {projectId, ref, commit, configPath, trigger, inputs, replayEventId} = variables;
-  const response = await checkedApiRequest(devRunResponseSchema, '/dev-runs', {
+  const response = await checkedApiRequest(createDevRunResponseSchema, '/dev-runs', {
     method: 'POST',
     body: {
       project_id: projectId,
       ref,
-      ...(commit === undefined ? {} : {commit}),
+      commit,
       config_path: configPath,
       trigger,
       ...(inputs === undefined ? {} : {inputs}),
@@ -72,8 +61,13 @@ export async function createDevRun(variables: CreateDevRunVariables): Promise<De
   return {workflowRunId: response.workflow_run_id, commit: response.commit};
 }
 
-function devRunTriggerEvent(trigger: DefinitionAtRefTrigger | undefined, source: string): string {
+function devRunTriggerEvent(
+  trigger: DefinitionAtRefTrigger | undefined,
+  source: string,
+  replayEvent: DevRunReplayEvent | undefined,
+): string {
   if (trigger?.event) return trigger.event;
+  if (replayEvent?.event) return replayEvent.event;
   if (source === 'manual') return 'fire';
   if (source === 'cron') return 'tick';
   return '';
@@ -192,75 +186,54 @@ export function useCreateDevRunMutation() {
       const listing = lookupAtRefListing(queryClient, variables.projectId, variables.ref);
       const file = listing?.files.find((entry) => entry.configPath === variables.configPath);
       const trigger = file?.triggers[variables.trigger];
-      const triggerSource = trigger?.source ?? 'manual';
+      if (!listing || !file || !trigger) {
+        return {tempWorkflowRunId: undefined, touchedQueryKeys: []};
+      }
+
+      // An integration trigger without a declared event needs the selected
+      // event metadata to render the optimistic row accurately. The request
+      // can still proceed; omit only the speculative row when that metadata
+      // is unavailable.
+      if (trigger.source === 'integration' && variables.replayEventId && !variables.replayEvent) {
+        return {tempWorkflowRunId: undefined, touchedQueryKeys: []};
+      }
+
+      const triggerSource = trigger.source;
       const createdAt = new Date().toISOString();
       const tempRun = buildTempDevRun({
         projectId: variables.projectId,
         ref: variables.ref,
-        commit: variables.commit ?? listing?.commit ?? '',
+        commit: variables.commit,
         configPath: variables.configPath,
-        name: file?.name ?? 'New run',
+        name: file.name ?? 'New run',
         triggerSource,
-        triggerEvent: devRunTriggerEvent(trigger, triggerSource),
+        triggerEvent: devRunTriggerEvent(trigger, triggerSource, variables.replayEvent),
         replayEventId: variables.replayEventId,
         createdAt,
       });
 
-      const listsKey = workflowRunsQueryKeys.lists(variables.projectId);
-      const touchedQueryKeys: Array<readonly unknown[]> = [];
-
-      const entries = queryClient.getQueriesData<RunListInfinite>({queryKey: listsKey});
       const now = new Date(createdAt);
-      for (const [queryKey] of entries) {
-        const filters = readFiltersFromKey(queryKey);
-        if (!filters) continue;
-        if (!filtersAcceptDevPendingRun(filters, triggerSource, now)) continue;
-
-        touchedQueryKeys.push(queryKey);
-        queryClient.setQueryData<RunListInfinite>(queryKey, (current) => {
-          if (!current || current.pages.length === 0) return current;
-          const firstPage = current.pages[0];
-          if (!firstPage) return current;
-          const nextFirstPage: WorkflowRunListPage = {
-            ...firstPage,
-            runs: [tempRun, ...firstPage.runs],
-            filteredTotalCount:
-              firstPage.filteredTotalCount != null ? firstPage.filteredTotalCount + 1 : null,
-          };
-          return {...current, pages: [nextFirstPage, ...current.pages.slice(1)]};
-        });
-      }
+      const touchedQueryKeys = insertTemporaryWorkflowRun({
+        queryClient,
+        projectId: variables.projectId,
+        tempRun,
+        accepts: (filters) => filtersAcceptDevPendingRun(filters, triggerSource, now),
+      });
 
       return {tempWorkflowRunId: tempRun.id, touchedQueryKeys};
     },
     onError: (_error, _variables, context) => {
       if (!context) return;
-      for (const queryKey of context.touchedQueryKeys) {
-        queryClient.setQueryData<RunListInfinite>(queryKey, (current) => {
-          if (!current) return current;
-          let removedCount = 0;
-          const pages = current.pages.map((page) => {
-            const runs = page.runs.filter((run) => {
-              if (run.id !== context.tempWorkflowRunId) return true;
-              removedCount += 1;
-              return false;
-            });
-            if (runs.length === page.runs.length) return page;
-            return {
-              ...page,
-              runs,
-              filteredTotalCount:
-                page.filteredTotalCount != null
-                  ? Math.max(0, page.filteredTotalCount - removedCount)
-                  : null,
-            };
-          });
-          if (removedCount === 0) return current;
-          return {...current, pages};
-        });
-      }
+      removeTemporaryWorkflowRun(queryClient, context.touchedQueryKeys, context.tempWorkflowRunId);
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (_data, variables, context) => {
+      if (context) {
+        removeTemporaryWorkflowRun(
+          queryClient,
+          context.touchedQueryKeys,
+          context.tempWorkflowRunId,
+        );
+      }
       void queryClient.invalidateQueries({
         queryKey: workflowRunsQueryKeys.lists(variables.projectId),
       });
@@ -302,22 +275,10 @@ export function devRunErrorCopy(error: unknown): DevRunErrorCopy {
     };
   }
 
+  const sharedCopy = sharedWorkflowErrorCopy(error);
+  if (sharedCopy) return sharedCopy;
+
   switch (error.code) {
-    case 'network-error':
-      return {
-        title: 'Network problem',
-        message: 'We could not reach the API. Check your connection and try again.',
-      };
-    case 'ref-invalid':
-      return {
-        title: 'Ref is not a branch or tag',
-        message: 'Enter a branch or tag name in this repository.',
-      };
-    case 'ref-not-found':
-      return {
-        title: 'Ref not found',
-        message: 'This branch or tag no longer exists in the repository.',
-      };
     case 'ref-moved':
       return {
         title: 'Ref moved',
@@ -328,11 +289,6 @@ export function devRunErrorCopy(error: unknown): DevRunErrorCopy {
       return {
         title: 'Workflow file not found',
         message: 'This workflow file no longer exists at the ref.',
-      };
-    case 'project-not-found':
-      return {
-        title: 'Project not found',
-        message: 'This project does not exist, or you no longer have access to it.',
       };
     case 'invalid-workflow-definition':
       return {
@@ -394,11 +350,6 @@ export function devRunErrorCopy(error: unknown): DevRunErrorCopy {
       return {
         title: 'Workspace suspended',
         message: 'Your workspace is suspended. Runs cannot start until it is active again.',
-      };
-    case 'source-unavailable':
-      return {
-        title: 'Source repository unavailable',
-        message: 'Shipfox could not read the repository right now. Try again in a moment.',
       };
     default:
       return {

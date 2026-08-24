@@ -12,28 +12,109 @@ function apiError(code: string, status: number, details: unknown = {}) {
 
 describe('devRunErrorCopy', () => {
   test.each([
-    ['ref-invalid', 400],
-    ['ref-not-found', 404],
-    ['ref-moved', 409],
-    ['file-not-found', 404],
-    ['project-not-found', 404],
-    ['invalid-workflow-definition', 422],
-    ['content-too-large', 422],
-    ['trigger-not-found', 422],
-    ['replay-event-not-found', 404],
-    ['replay-event-required', 422],
-    ['replay-event-mismatch', 409],
-    ['replay-event-unavailable', 410],
-    ['inputs-not-allowed', 422],
-    ['workflow-interpolation-unresolvable', 422],
-    ['workspace-suspended', 409],
-    ['source-unavailable', 502],
-  ] as const)('translates %s into user-facing copy', (code, status) => {
+    [
+      'network-error',
+      0,
+      'Network problem',
+      'We could not reach the API. Check your connection and try again.',
+    ],
+    [
+      'ref-invalid',
+      400,
+      'Ref is not a branch or tag',
+      'Enter a branch or tag name in this repository.',
+    ],
+    ['ref-not-found', 404, 'Ref not found', 'This branch or tag does not exist in the repository.'],
+    [
+      'ref-moved',
+      409,
+      'Ref moved',
+      'The ref no longer points at the commit you selected. Confirm the new commit and try again.',
+    ],
+    [
+      'file-not-found',
+      404,
+      'Workflow file not found',
+      'This workflow file no longer exists at the ref.',
+    ],
+    [
+      'project-not-found',
+      404,
+      'Project not found',
+      'This project does not exist, or you no longer have access to it.',
+    ],
+    ['forbidden', 403, 'Access changed', 'You no longer have access to this workspace or project.'],
+    [
+      'rate-limited',
+      429,
+      'Provider rate limited',
+      'The provider is asking us to slow down. Try again shortly.',
+    ],
+    [
+      'invalid-workflow-definition',
+      422,
+      'Invalid workflow definition',
+      'The workflow file at this ref did not validate. Fix the errors on the branch and try again.',
+    ],
+    [
+      'content-too-large',
+      422,
+      'Workflow file too large',
+      'The workflow file at this ref is too large to run.',
+    ],
+    [
+      'trigger-not-found',
+      422,
+      'Trigger not found',
+      'This workflow file does not declare the selected trigger.',
+    ],
+    [
+      'replay-event-not-found',
+      404,
+      'Event not found',
+      'This event is no longer available for replay.',
+    ],
+    [
+      'replay-event-required',
+      422,
+      'Replay event required',
+      'Pick a journaled event to replay for this trigger.',
+    ],
+    [
+      'replay-event-mismatch',
+      409,
+      'Event does not match the trigger',
+      'This event does not match the trigger source and event.',
+    ],
+    [
+      'replay-event-unavailable',
+      410,
+      'Event no longer available',
+      "This event's payload was pruned and cannot be replayed.",
+    ],
+    ['inputs-not-allowed', 422, 'Inputs not allowed', 'This trigger does not accept inputs.'],
+    [
+      'workflow-interpolation-unresolvable',
+      422,
+      'Workflow inputs unresolved',
+      'The workflow references inputs that could not be resolved. Check the trigger inputs and try again.',
+    ],
+    [
+      'workspace-suspended',
+      409,
+      'Workspace suspended',
+      'Your workspace is suspended. Runs cannot start until it is active again.',
+    ],
+    [
+      'source-unavailable',
+      502,
+      'Source repository unavailable',
+      'Shipfox could not read the repository right now. Try again in a moment.',
+    ],
+  ] as const)('translates %s into the expected user-facing copy', (code, status, title, message) => {
     const copy = devRunErrorCopy(apiError(code, status));
 
-    expect(copy.title.length).toBeGreaterThan(0);
-    expect(copy.message.length).toBeGreaterThan(0);
-    expect(copy.message).not.toContain('Server message');
+    expect(copy).toEqual({title, message});
   });
 
   test('includes the filter reason for trigger-filtered', () => {

@@ -15,6 +15,7 @@ const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const REF = 'fix-triage-prompt';
 const CONFIG_PATH = '.shipfox/workflows/triage-sentry.yml';
 const COMMIT = 'abc123def456abc123def456abc123def456abc123';
+const REPLAY_EVENT_ID = '22222222-2222-4222-8222-222222222222';
 const TEMP_RUN_ID_PATTERN = /^temp-/;
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -93,7 +94,7 @@ describe('dev run API hooks', () => {
         configPath: CONFIG_PATH,
         trigger: 'on_issue',
         inputs: {env: 'production'},
-        replayEventId: '22222222-2222-4222-8222-222222222222',
+        replayEventId: REPLAY_EVENT_ID,
       });
     });
 
@@ -114,7 +115,7 @@ describe('dev run API hooks', () => {
     expect(request.method).toBe('POST');
   });
 
-  test('omits the commit, inputs, and replay event when absent', async () => {
+  test('omits optional inputs and replay event when absent', async () => {
     const postBodies: unknown[] = [];
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       postBodies.push(await (input as Request).clone().json());
@@ -128,13 +129,20 @@ describe('dev run API hooks', () => {
       await result.current.mutateAsync({
         projectId: PROJECT_ID,
         ref: REF,
+        commit: COMMIT,
         configPath: CONFIG_PATH,
         trigger: 'on_issue',
       });
     });
 
     expect(postBodies).toEqual([
-      {project_id: PROJECT_ID, ref: REF, config_path: CONFIG_PATH, trigger: 'on_issue'},
+      {
+        project_id: PROJECT_ID,
+        ref: REF,
+        commit: COMMIT,
+        config_path: CONFIG_PATH,
+        trigger: 'on_issue',
+      },
     ]);
   });
 
@@ -158,6 +166,7 @@ describe('dev run API hooks', () => {
       result.current.mutate({
         projectId: PROJECT_ID,
         ref: REF,
+        commit: COMMIT,
         configPath: CONFIG_PATH,
         trigger: 'on_issue',
       });
@@ -224,6 +233,7 @@ describe('dev run API hooks', () => {
       result.current.mutate({
         projectId: PROJECT_ID,
         ref: REF,
+        commit: COMMIT,
         configPath: CONFIG_PATH,
         trigger: 'on_issue',
       });
@@ -255,7 +265,106 @@ describe('dev run API hooks', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 
-  test('falls back to manual display when the at-ref cache is cold', async () => {
+  test('only inserts pending dev runs into compatible list filters', async () => {
+    let resolveRun: ((response: Response) => void) | undefined;
+    const fetchImpl = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveRun = resolve;
+        }),
+    );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {result, queryClient} = renderWithQueryClient(() => useCreateDevRunMutation());
+    queryClient.setQueryData(definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF), atRefListing());
+
+    const acceptedKey = workflowRunsQueryKeys.list(PROJECT_ID, {triggerSource: 'cron'});
+    const statusKey = workflowRunsQueryKeys.list(PROJECT_ID, {status: 'running'});
+    const sourceKey = workflowRunsQueryKeys.list(PROJECT_ID, {triggerSource: 'manual'});
+    const futureKey = workflowRunsQueryKeys.list(PROJECT_ID, {
+      createdFrom: '2999-01-01T00:00:00.000Z',
+    });
+    const pastKey = workflowRunsQueryKeys.list(PROJECT_ID, {
+      createdTo: '2000-01-01T00:00:00.000Z',
+    });
+    for (const key of [acceptedKey, statusKey, sourceKey, futureKey, pastKey]) {
+      seedRunList(queryClient, key);
+    }
+
+    act(() => {
+      result.current.mutate({
+        projectId: PROJECT_ID,
+        ref: REF,
+        commit: COMMIT,
+        configPath: CONFIG_PATH,
+        trigger: 'on_issue',
+      });
+    });
+
+    await waitFor(() => {
+      const accepted = queryClient.getQueryData<InfiniteData<WorkflowRunListPage>>(acceptedKey);
+      expect(accepted?.pages[0]?.runs).toHaveLength(1);
+    });
+    for (const key of [statusKey, sourceKey, futureKey, pastKey]) {
+      const cached = queryClient.getQueryData<InfiniteData<WorkflowRunListPage>>(key);
+      expect(cached?.pages[0]?.runs).toHaveLength(0);
+      expect(cached?.pages[0]?.filteredTotalCount).toBe(0);
+    }
+
+    if (!resolveRun) throw new Error('Expected dev run request');
+    act(() => {
+      resolveRun?.(jsonResponse({workflow_run_id: RUN_ID, commit: COMMIT}, {status: 201}));
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+
+  test('keeps replay provenance for an integration trigger without a declared event', async () => {
+    let resolveRun: ((response: Response) => void) | undefined;
+    const fetchImpl = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveRun = resolve;
+        }),
+    );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {result, queryClient} = renderWithQueryClient(() => useCreateDevRunMutation());
+    queryClient.setQueryData(
+      definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF),
+      atRefListing({triggers: {on_issue: {source: 'integration'}}}),
+    );
+    const allListKey = workflowRunsQueryKeys.list(PROJECT_ID, {});
+    seedRunList(queryClient, allListKey);
+
+    act(() => {
+      result.current.mutate({
+        projectId: PROJECT_ID,
+        ref: REF,
+        commit: COMMIT,
+        configPath: CONFIG_PATH,
+        trigger: 'on_issue',
+        replayEventId: REPLAY_EVENT_ID,
+        replayEvent: {event: 'issue.created'},
+      });
+    });
+
+    await waitFor(() => {
+      const cached = queryClient.getQueryData<InfiniteData<WorkflowRunListPage>>(allListKey);
+      expect(cached?.pages[0]?.runs[0]).toMatchObject({
+        triggerSource: 'integration',
+        triggerEvent: 'issue.created',
+        triggerDisplayLabel: 'issue.created',
+        triggerLabel: 'integration · issue.created',
+        devSource: {replayOfEventId: REPLAY_EVENT_ID},
+      });
+    });
+
+    if (!resolveRun) throw new Error('Expected dev run request');
+    act(() => {
+      resolveRun?.(jsonResponse({workflow_run_id: RUN_ID, commit: COMMIT}, {status: 201}));
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+
+  test('does not create a guessed optimistic row when the at-ref cache is cold', async () => {
     let resolveRun: ((response: Response) => void) | undefined;
     const fetchImpl = vi.fn(
       () =>
@@ -272,6 +381,7 @@ describe('dev run API hooks', () => {
       result.current.mutate({
         projectId: PROJECT_ID,
         ref: REF,
+        commit: COMMIT,
         configPath: CONFIG_PATH,
         trigger: 'on_issue',
       });
@@ -280,13 +390,7 @@ describe('dev run API hooks', () => {
     await waitFor(() => {
       const cached =
         queryClient.getQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(allListKey);
-      expect(cached?.pages[0]?.runs[0]).toMatchObject({
-        workflowName: 'New run',
-        origin: 'dev',
-        devSource: {ref: REF, commit: '', configPath: CONFIG_PATH},
-        triggerSource: 'manual',
-        triggerEvent: 'fire',
-      });
+      expect(cached?.pages[0]?.runs).toHaveLength(0);
     });
 
     if (!resolveRun) throw new Error('Expected dev run request');
@@ -309,6 +413,7 @@ describe('dev run API hooks', () => {
       await result.current.mutateAsync({
         projectId: PROJECT_ID,
         ref: REF,
+        commit: COMMIT,
         configPath: CONFIG_PATH,
         trigger: 'on_issue',
       });
@@ -337,6 +442,7 @@ describe('dev run API hooks', () => {
       result.current.mutate({
         projectId: PROJECT_ID,
         ref: REF,
+        commit: COMMIT,
         configPath: CONFIG_PATH,
         trigger: 'on_issue',
       });
@@ -349,6 +455,7 @@ describe('dev run API hooks', () => {
       result.current.mutate({
         projectId: PROJECT_ID,
         ref: REF,
+        commit: COMMIT,
         configPath: CONFIG_PATH,
         trigger: 'on_issue',
       });

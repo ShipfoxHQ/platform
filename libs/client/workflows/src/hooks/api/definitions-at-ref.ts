@@ -6,6 +6,7 @@ import {
 import {ApiError, checkedApiRequest} from '@shipfox/client-api';
 import {queryOptions, type UseQueryOptions, useQuery} from '@tanstack/react-query';
 import type {DefinitionAtRefFile, DefinitionAtRefListing} from '#core/definitions-at-ref.js';
+import {sharedWorkflowErrorCopy} from './workflow-error-copy.js';
 
 export const definitionsAtRefQueryKeys = {
   all: ['definitions-at-ref'] as const,
@@ -83,6 +84,7 @@ export function definitionsAtRefQueryOptions(
     enabled: Boolean(projectId && ref),
     queryFn: ({signal}) =>
       listDefinitionsAtRef({projectId: projectId ?? '', ref: ref ?? '', signal}),
+    staleTime: 30_000,
   });
 }
 
@@ -103,27 +105,10 @@ export function definitionsAtRefErrorCopy(error: unknown): DefinitionsAtRefError
     };
   }
 
+  const sharedCopy = sharedWorkflowErrorCopy(error);
+  if (sharedCopy) return sharedCopy;
+
   switch (error.code) {
-    case 'network-error':
-      return {
-        title: 'Network problem',
-        message: 'We could not reach the API. Check your connection and try again.',
-      };
-    case 'ref-invalid':
-      return {
-        title: 'Ref is not a branch or tag',
-        message: 'Enter a branch or tag name in this repository.',
-      };
-    case 'ref-not-found':
-      return {
-        title: 'Ref not found',
-        message: 'This branch or tag does not exist in the repository.',
-      };
-    case 'project-not-found':
-      return {
-        title: 'Project not found',
-        message: 'This project does not exist, or you no longer have access to it.',
-      };
     case 'too-many-files':
       return {
         title: 'Too many workflow files',
@@ -139,21 +124,6 @@ export function definitionsAtRefErrorCopy(error: unknown): DefinitionsAtRefError
       return {
         title: 'Source connection not found',
         message: 'Reconnect source control and try again.',
-      };
-    case 'forbidden':
-      return {
-        title: 'Access changed',
-        message: 'You no longer have access to this workspace or project.',
-      };
-    case 'rate-limited':
-      return {
-        title: 'Provider rate limited',
-        message: 'The provider is asking us to slow down. Try again shortly.',
-      };
-    case 'source-unavailable':
-      return {
-        title: 'Source repository unavailable',
-        message: 'Shipfox could not read the repository right now. Try again in a moment.',
       };
     default:
       return {

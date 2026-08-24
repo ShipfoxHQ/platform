@@ -32,6 +32,12 @@ describe('trigger event policies', () => {
 
   test('treats replayable as an active filter', () => {
     expect(hasTriggerEventFilters({replayable: true})).toBe(true);
+    expect(normalizeTriggerEventFilters({replayable: false}).replayable).toBe(null);
+    expect(normalizeTriggerEventFilters({}).replayable).toBe(null);
+    expect(normalizeTriggerEventFilters({replayable: false})).toEqual(
+      normalizeTriggerEventFilters({}),
+    );
+    expect(hasTriggerEventFilters({replayable: false})).toBe(false);
     expect(hasTriggerEventFilters({origin: []})).toBe(false);
   });
 
