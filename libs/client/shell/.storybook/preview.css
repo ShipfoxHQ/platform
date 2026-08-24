@@ -1,0 +1,9 @@
+@import "@shipfox/react-ui/index.css";
+
+/* The `@import` pulls in the full design-system theme (tokens, preflight, base layer)
+   from react-ui. Tailwind v4 only emits utilities for classes it finds in scanned
+   source, and these stories render shell and react-ui components whose classes live
+   in their own source trees. Scanning both keeps them styled, the same way
+   apps/client/src/styles.css scans every package it renders. */
+@source "../src";
+@source "../../../shared/react/ui/src";

@@ -1,12 +1,20 @@
 {
   "extends": "./tsconfig.build.json",
   "compilerOptions": {
-    "rootDir": "."
+    // The shared storybook helper is intentionally part of this type program:
+    // it is the single source of truth for the workspace-source vite config, so
+    // rootDir spans the shared .storybook directory. The test program never
+    // emits, so it opts out of the composite/emitDeclarationOnly build flags
+    // inherited from @shipfox/ts-config/react instead of conflicting with them.
+    "rootDir": "../..",
+    "noEmit": true,
+    "composite": false,
+    "emitDeclarationOnly": false
   },
   "include": [
     "src",
     "test",
-    ".storybook/workspace-source.ts",
+    "../.storybook/workspace-source.ts",
     "vitest.config.ts",
     "node_modules/@shipfox/vitest/globals.d.ts"
   ],

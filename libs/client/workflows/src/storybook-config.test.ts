@@ -1,5 +1,5 @@
 import {describe, expect, it} from '@shipfox/vitest/vi';
-import {withWorkspaceSource} from '../.storybook/workspace-source';
+import {withWorkspaceSource} from '../../.storybook/workspace-source';
 
 describe('client-workflows Storybook Vite configuration', () => {
   it('keeps workspace-source active for client and SSR package resolution', () => {
