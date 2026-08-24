@@ -407,7 +407,10 @@ function expressionTypeToJsonSchema(type: ExpressionType): Readonly<Record<strin
     case 'null':
       return {type: 'null'};
     case 'timestamp':
-      return {type: 'string', format: 'date-time'};
+      // `jsonSchemaToExpressionType` reads only `type` and ignores `format`, so
+      // claiming `format: 'date-time'` here would degrade timestamps to strings
+      // on the next round trip. Keep the reverse conversion honest.
+      return {type: 'string'};
     default:
       switch (type.kind) {
         case 'object':
