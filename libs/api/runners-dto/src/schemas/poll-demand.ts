@@ -26,7 +26,7 @@ export const demandStatSchema = z.object({
     .int()
     .min(0)
     .describe(
-      'Demand units currently masked by live unclaimed reservation runners or reserved by this poll; advisory.',
+      'Queued jobs for this label set covered by unclaimed reserved runners or reservations created in this poll; advisory scheduling estimate.',
     ),
   oldest_queued_at: z.string().datetime(),
 });
