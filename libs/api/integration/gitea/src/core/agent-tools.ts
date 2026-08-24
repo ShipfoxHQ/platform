@@ -21,7 +21,10 @@ const repoSchema = stringSchema(
   'Repository name within the connected Gitea organization, such as platform',
 );
 const issueIndexSchema = integerSchema('Issue number, such as 12');
-const commentBodySchema = stringSchema('Comment body, written as Markdown');
+const commentBodySchema = {
+  ...stringSchema('Comment body, written as Markdown'),
+  maxLength: 12_000,
+};
 
 // Gitea connections are organization-scoped, so every tool call targets a
 // repository in the connected organization and the server injects the owner
@@ -106,6 +109,46 @@ export const GITEA_TOOL_OPERATIONS = {
 export const giteaAgentToolSelectionCatalog =
   buildGiteaAgentToolSelectionCatalog(giteaAgentToolCatalog);
 
+export function validateGiteaToolArguments(
+  tool: GiteaAgentToolCatalogEntry,
+  args: Record<string, unknown>,
+): string | undefined {
+  const required = Array.isArray(tool.inputSchema.required) ? tool.inputSchema.required : [];
+  for (const name of required) {
+    if (typeof name === 'string' && args[name] === undefined) {
+      return `Missing required parameter: ${name}`;
+    }
+  }
+
+  const properties = tool.inputSchema.properties;
+  if (!isRecord(properties)) return undefined;
+
+  for (const [name, value] of Object.entries(args)) {
+    const schema = properties[name];
+    if (!isRecord(schema)) return `Unknown parameter: ${name}`;
+
+    if (schema.type === 'string') {
+      if (typeof value !== 'string') return `Parameter ${name} must be a string`;
+      if (value.trim().length === 0) return `Parameter ${name} must not be empty`;
+      if (typeof schema.maxLength === 'number' && value.length > schema.maxLength) {
+        return `Parameter ${name} must be at most ${schema.maxLength} characters`;
+      }
+      if (name === 'repo' && !isSafeRepositoryName(value)) {
+        return `Parameter ${name} must be a repository name`;
+      }
+    }
+
+    if (schema.type === 'integer') {
+      if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+        return `Parameter ${name} must be an integer`;
+      }
+      if (value < 1) return `Parameter ${name} must be a positive integer`;
+    }
+  }
+
+  return undefined;
+}
+
 function buildGiteaAgentToolSelectionCatalog(
   catalog: readonly GiteaAgentToolCatalogEntry[],
 ): AgentToolSelectionCatalog {
@@ -127,12 +170,20 @@ function tool<const Entry extends GiteaAgentToolCatalogInput>(input: Entry): Ent
 
 function stringArgument(args: Record<string, unknown>, name: string): string {
   const value = args[name];
-  return typeof value === 'string' ? value : String(value ?? '');
+  if (typeof value !== 'string') throw new TypeError(`Parameter ${name} must be a string`);
+  return value;
 }
 
 function integerArgument(args: Record<string, unknown>, name: string): number {
   const value = args[name];
-  return typeof value === 'number' ? value : Number(value ?? 0);
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+    throw new TypeError(`Parameter ${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function isSafeRepositoryName(value: string): boolean {
+  return value !== '.' && value !== '..' && !value.includes('/') && !value.includes('\\');
 }
 
 function objectSchema(
@@ -152,5 +203,9 @@ function stringSchema(description?: string): AgentToolJsonSchema {
 }
 
 function integerSchema(description: string): AgentToolJsonSchema {
-  return {type: 'integer', description};
+  return {type: 'integer', minimum: 1, description};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

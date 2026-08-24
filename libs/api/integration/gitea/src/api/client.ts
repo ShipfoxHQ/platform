@@ -258,6 +258,8 @@ class HttpGiteaApiClient implements GiteaApiClient {
   async getIssue(input: {owner: string; repo: string; index: number}): Promise<GiteaIssue> {
     const response = await this.request(
       `repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.index}`,
+      {},
+      {notFoundMessage: 'Gitea issue request returned 404'},
     );
     return toGiteaIssue(await response.json());
   }
@@ -271,7 +273,11 @@ class HttpGiteaApiClient implements GiteaApiClient {
     const response = await this.request(
       `repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.index}/comments`,
       {},
-      {method: 'POST', body: {body: input.body}},
+      {
+        method: 'POST',
+        body: {body: input.body},
+        notFoundMessage: 'Gitea issue comment request returned 404',
+      },
     );
     return toGiteaIssueComment(await response.json());
   }
@@ -280,13 +286,18 @@ class HttpGiteaApiClient implements GiteaApiClient {
     const response = await this.requestRaw(`orgs/${encodeURIComponent(input.org)}`);
     if (response.ok) return true;
     if (response.status === 404) return false;
-    throw giteaHttpError(response);
+    throw await giteaHttpError(response);
   }
 
   private async request(
     path: string,
     searchParams: Record<string, string> = {},
-    options: {notFoundReason?: NotFoundReason; method?: string; body?: unknown} = {},
+    options: {
+      notFoundReason?: NotFoundReason;
+      notFoundMessage?: string;
+      method?: string;
+      body?: unknown;
+    } = {},
   ): Promise<Response> {
     const response = await this.requestRaw(path, {
       searchParams,
@@ -294,7 +305,11 @@ class HttpGiteaApiClient implements GiteaApiClient {
       ...(options.body === undefined ? {} : {body: options.body}),
     });
     if (!response.ok)
-      throw giteaHttpError(response, options.notFoundReason ?? 'repository-not-found');
+      throw await giteaHttpError(
+        response,
+        options.notFoundReason ?? 'repository-not-found',
+        options.notFoundMessage,
+      );
     return response;
   }
 
@@ -357,28 +372,73 @@ class HttpGiteaApiClient implements GiteaApiClient {
 }
 
 type NotFoundReason = 'repository-not-found' | 'file-not-found' | 'ref-not-found';
+const MAX_PROVIDER_ERROR_MESSAGE_LENGTH = 500;
 
-function giteaHttpError(
+async function giteaHttpError(
   response: Response,
   notFoundReason: NotFoundReason = 'repository-not-found',
-): GiteaIntegrationProviderError {
+  notFoundMessage?: string,
+): Promise<GiteaIntegrationProviderError> {
   const status = response.status;
+  const message = await giteaResponseErrorMessage(
+    response,
+    status === 404 && notFoundMessage ? notFoundMessage : `Gitea responded ${status}`,
+  );
   if (status === 404) {
-    return new GiteaIntegrationProviderError(notFoundReason, `Gitea responded ${status}`);
+    return new GiteaIntegrationProviderError(notFoundReason, message, undefined, status);
   }
   if (isRateLimited(response)) {
     return new GiteaIntegrationProviderError(
       'rate-limited',
-      `Gitea responded ${status}`,
+      message,
       retryAfterSeconds(response),
+      status,
     );
   }
   if (status === 401 || status === 403) {
-    return new GiteaIntegrationProviderError('access-denied', `Gitea responded ${status}`);
+    return new GiteaIntegrationProviderError('access-denied', message, undefined, status);
+  }
+  if (status >= 400 && status < 500) {
+    return new GiteaIntegrationProviderError('provider-rejected', message, undefined, status);
   }
   // Server errors and any other unexpected status mean the provider could not
   // serve the request; surface it as unavailable rather than leaking a raw error.
-  return new GiteaIntegrationProviderError('provider-unavailable', `Gitea responded ${status}`);
+  return new GiteaIntegrationProviderError('provider-unavailable', message, undefined, status);
+}
+
+async function giteaResponseErrorMessage(response: Response, fallback: string): Promise<string> {
+  let body: string;
+  try {
+    body = await response.clone().text();
+  } catch {
+    return fallback;
+  }
+
+  const trimmedBody = body.trim();
+  if (!trimmedBody) return fallback;
+
+  try {
+    const parsed: unknown = JSON.parse(trimmedBody);
+    if (isRecord(parsed)) {
+      const providerMessage =
+        typeof parsed.message === 'string'
+          ? parsed.message
+          : typeof parsed.error === 'string'
+            ? parsed.error
+            : undefined;
+      if (providerMessage?.trim()) return `${fallback}: ${truncate(providerMessage)}`;
+    }
+  } catch {
+    // Fall through to the bounded raw response text below.
+  }
+
+  return `${fallback}: ${truncate(trimmedBody)}`;
+}
+
+function truncate(value: string): string {
+  return value.length > MAX_PROVIDER_ERROR_MESSAGE_LENGTH
+    ? `${value.slice(0, MAX_PROVIDER_ERROR_MESSAGE_LENGTH - 3)}...`
+    : value;
 }
 
 function isRateLimited(response: Response): boolean {

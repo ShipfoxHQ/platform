@@ -274,6 +274,8 @@ describe('HttpGiteaApiClient', () => {
     [403, 'access-denied'],
     [404, 'repository-not-found'],
     [429, 'rate-limited'],
+    [400, 'provider-rejected'],
+    [422, 'provider-rejected'],
     [500, 'provider-unavailable'],
     [503, 'provider-unavailable'],
   ])('maps HTTP %s to the %s reason', async (status, reason) => {
@@ -455,13 +457,17 @@ describe('HttpGiteaApiClient', () => {
     expect(requestedUrl().pathname).toBe('/api/v1/repos/shipfox/platform/issues/3');
   });
 
-  it('maps a missing issue to repository-not-found', async () => {
+  it('names the issue target when a Gitea issue request returns 404', async () => {
     fetchMock.mockResolvedValue(jsonResponse({message: 'not found'}, {status: 404}));
     const client = createGiteaApiClient();
 
     const result = client.getIssue({owner: 'shipfox', repo: 'platform', index: 99});
 
-    await expect(result).rejects.toMatchObject({reason: 'repository-not-found'});
+    await expect(result).rejects.toMatchObject({
+      reason: 'repository-not-found',
+      message: 'Gitea issue request returned 404: not found',
+      status: 404,
+    });
   });
 
   it('rejects an issue response missing required fields', async () => {
@@ -508,7 +514,7 @@ describe('HttpGiteaApiClient', () => {
     expect(requestInit().body).toBe(JSON.stringify({body: 'Fixed in the next release.'}));
   });
 
-  it('maps a missing comment target to repository-not-found', async () => {
+  it('names the issue target when a Gitea comment request returns 404', async () => {
     fetchMock.mockResolvedValue(jsonResponse({message: 'not found'}, {status: 404}));
     const client = createGiteaApiClient();
 
@@ -519,7 +525,26 @@ describe('HttpGiteaApiClient', () => {
       body: 'Hello',
     });
 
-    await expect(result).rejects.toMatchObject({reason: 'repository-not-found'});
+    await expect(result).rejects.toMatchObject({
+      reason: 'repository-not-found',
+      message: 'Gitea issue comment request returned 404: not found',
+      status: 404,
+    });
+  });
+
+  it('maps a client rejection to provider-rejected with the provider message and status', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({message: 'comment body is invalid'}, {status: 422}));
+    const client = createGiteaApiClient();
+
+    const result = client.createIssueComment({
+      owner: 'shipfox',
+      repo: 'platform',
+      index: 3,
+      body: 'Hello',
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'provider-rejected', status: 422});
+    await expect(result).rejects.toThrow('Gitea responded 422: comment body is invalid');
   });
 
   it('rejects a comment response missing required fields', async () => {

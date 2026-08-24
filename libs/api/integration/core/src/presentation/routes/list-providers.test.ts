@@ -88,9 +88,11 @@ describe('GET /integration-providers', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().providers.map((entry: {provider: string}) => entry.provider)).toContain(
-      'gitea',
-    );
+    expect(res.json().providers).toContainEqual({
+      provider: 'gitea',
+      display_name: 'Gitea',
+      capabilities: ['source_control', 'agent_tools'],
+    });
   });
 
   it('surfaces the Linear provider with agent tools once its module is registered', async () => {

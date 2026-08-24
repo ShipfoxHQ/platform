@@ -161,6 +161,7 @@ describe('GiteaAgentToolsProvider', () => {
     expect(result).toEqual({
       isError: true,
       content: [{type: 'text', text: 'Unknown Gitea tool: comment_on_issue'}],
+      structuredContent: {code: 'invalid-request'},
     });
     expect(options.gitea.createIssueComment).not.toHaveBeenCalled();
   });
@@ -177,11 +178,77 @@ describe('GiteaAgentToolsProvider', () => {
     expect(result).toEqual({
       isError: true,
       content: [{type: 'text', text: 'Missing required parameter: body'}],
+      structuredContent: {code: 'invalid-request'},
     });
     expect(options.gitea.createIssueComment).not.toHaveBeenCalled();
   });
 
-  it('maps a missing issue to a stable not-found code', async () => {
+  it.each([
+    {
+      toolId: 'get_issue',
+      arguments: {repo: 'platform', index: 'abc'},
+      message: 'Parameter index must be an integer',
+    },
+    {
+      toolId: 'get_issue',
+      arguments: {repo: 'platform', index: null},
+      message: 'Parameter index must be an integer',
+    },
+    {
+      toolId: 'get_issue',
+      arguments: {repo: 'platform', index: 0},
+      message: 'Parameter index must be a positive integer',
+    },
+    {
+      toolId: 'get_issue',
+      arguments: {repo: {name: 'platform'}, index: 3},
+      message: 'Parameter repo must be a string',
+    },
+    {
+      toolId: 'get_issue',
+      arguments: {repo: '..', index: 3},
+      message: 'Parameter repo must be a repository name',
+    },
+    {
+      toolId: 'comment_on_issue',
+      arguments: {repo: 'platform', index: 3, body: {text: 'Hello'}},
+      message: 'Parameter body must be a string',
+    },
+    {
+      toolId: 'comment_on_issue',
+      arguments: {repo: 'platform', index: 3, body: ' '},
+      message: 'Parameter body must not be empty',
+    },
+    {
+      toolId: 'comment_on_issue',
+      arguments: {repo: 'platform', index: 3, body: 'x'.repeat(12_001)},
+      message: 'Parameter body must be at most 12000 characters',
+    },
+    {
+      toolId: 'comment_on_issue',
+      arguments: {repo: 'platform', index: 3, body: 'Hello', owner: 'other-org'},
+      message: 'Unknown parameter: owner',
+    },
+  ])('rejects invalid $toolId arguments before dispatch', async ({
+    toolId,
+    arguments: callArguments,
+    message,
+  }) => {
+    const options = providerOptions();
+    const session = await openSession(options, [toolId]);
+
+    const result = await session.call({toolId, arguments: callArguments});
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: message}],
+      structuredContent: {code: 'invalid-request'},
+    });
+    expect(options.gitea.getIssue).not.toHaveBeenCalled();
+    expect(options.gitea.createIssueComment).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a missing issue as a stable not-found provider error', async () => {
     const options = providerOptions({
       getIssue: vi.fn(() =>
         Promise.reject(
@@ -191,19 +258,18 @@ describe('GiteaAgentToolsProvider', () => {
     });
     const session = await openSession(options, ['get_issue']);
 
-    const result = await session.call({
+    const result = session.call({
       toolId: 'get_issue',
       arguments: {repo: 'platform', index: 99},
     });
 
-    expect(result).toEqual({
-      isError: true,
-      content: [{type: 'text', text: 'Gitea responded 404'}],
-      structuredContent: {code: 'repository-not-found'},
+    await expect(result).rejects.toMatchObject({
+      reason: 'repository-not-found',
+      message: 'Gitea responded 404',
     });
   });
 
-  it('preserves retry details from a transport-level rate limit', async () => {
+  it('rethrows retry details from a transport-level rate limit', async () => {
     const options = providerOptions({
       getIssue: vi.fn(() =>
         Promise.reject(new GiteaIntegrationProviderError('rate-limited', 'Try again later', 19)),
@@ -211,19 +277,19 @@ describe('GiteaAgentToolsProvider', () => {
     });
     const session = await openSession(options, ['get_issue']);
 
-    const result = await session.call({
+    const result = session.call({
       toolId: 'get_issue',
       arguments: {repo: 'platform', index: 3},
     });
 
-    expect(result).toMatchObject({
-      isError: true,
-      content: [{type: 'text', text: 'Try again later'}],
-      structuredContent: {code: 'rate-limited', retryAfterSeconds: 19},
+    await expect(result).rejects.toMatchObject({
+      reason: 'rate-limited',
+      message: 'Try again later',
+      retryAfterSeconds: 19,
     });
   });
 
-  it('maps an access failure to a stable access-denied code', async () => {
+  it('rethrows an access failure as a stable access-denied provider error', async () => {
     const options = providerOptions({
       createIssueComment: vi.fn(() =>
         Promise.reject(new GiteaIntegrationProviderError('access-denied', 'Gitea responded 403')),
@@ -231,15 +297,12 @@ describe('GiteaAgentToolsProvider', () => {
     });
     const session = await openSession(options, ['comment_on_issue']);
 
-    const result = await session.call({
+    const result = session.call({
       toolId: 'comment_on_issue',
       arguments: {repo: 'platform', index: 3, body: 'Hello'},
     });
 
-    expect(result).toMatchObject({
-      isError: true,
-      structuredContent: {code: 'access-denied'},
-    });
+    await expect(result).rejects.toMatchObject({reason: 'access-denied'});
   });
 
   it('rethrows an unexpected client failure', async () => {

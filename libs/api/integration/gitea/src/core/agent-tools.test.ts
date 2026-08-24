@@ -50,7 +50,7 @@ describe('giteaAgentToolCatalog', () => {
     });
     expect(commentOnIssue?.inputSchema).toMatchObject({
       required: ['repo', 'index', 'body'],
-      properties: {body: {type: 'string'}},
+      properties: {body: {type: 'string', maxLength: 12_000}},
     });
   });
 

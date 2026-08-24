@@ -2,4 +2,4 @@
 "@shipfox/api-integration-gitea": minor
 ---
 
-Adds a minimal gitea agent tools catalog with `get_issue` (read) and `comment_on_issue` (write) tools behind the existing agent-tools SPI.
+Adds Gitea agent tools `get_issue` (read) and `comment_on_issue` (write) for issue access and comments. The Gitea client now exposes the matching issue operations.
