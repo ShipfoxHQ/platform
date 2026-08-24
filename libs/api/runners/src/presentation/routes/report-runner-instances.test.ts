@@ -17,9 +17,13 @@ import {vi} from '@shipfox/vitest/vi';
 import {and, eq} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {db} from '#db/db.js';
+import {reservations} from '#db/schema/reservations.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
-import {providerRunnerTerminateIntentHonoredCount} from '#metrics/instance.js';
+import {
+  providerRunnerTerminateIntentHonoredCount,
+  reservationReleasedCount,
+} from '#metrics/instance.js';
 import {providerRunnerFactory, runnerSessionFactory, runnersTestAuthClient} from '#test/index.js';
 import {createRunnerRoutes} from './index.js';
 
@@ -238,6 +242,97 @@ describe('POST /provisioners/runner-instances/report', () => {
           value === 1 && JSON.stringify(attributes) === JSON.stringify({reason: 'job-cancelled'}),
       );
     expect(honoredCalls).toHaveLength(1);
+  });
+
+  it('records the terminal-report reservation release surface for a released unit', async () => {
+    const releasedSpy = vi.spyOn(reservationReleasedCount, 'add');
+    try {
+      const [reservation] = await db()
+        .insert(reservations)
+        .values({
+          workspaceId,
+          provisionerId: provisionerTokenId,
+          requiredLabels: ['linux'],
+          count: 1,
+          expiresAt: new Date(Date.now() + 60_000),
+        })
+        .returning({id: reservations.id});
+      if (!reservation) throw new Error('Expected reservation');
+
+      await providerRunnerFactory.create({
+        workspaceId,
+        provisionerId: provisionerTokenId,
+        providerRunnerId: 'reservation-linked-runner',
+        reservationId: reservation.id,
+        state: 'running',
+      });
+      const callsBefore = releasedSpy.mock.calls.length;
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/provisioners/runner-instances/report',
+        headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+        payload: {
+          events: [
+            {
+              provider_runner_id: 'reservation-linked-runner',
+              labels: ['linux'],
+              state: 'terminated',
+              reported_at: new Date().toISOString(),
+            },
+          ],
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({accepted: 1, reservations_released: 1});
+      expect(
+        releasedSpy.mock.calls
+          .slice(callsBefore)
+          .filter(([, attributes]) => attributes?.surface === 'terminal-report'),
+      ).toEqual([[1, {surface: 'terminal-report'}]]);
+    } finally {
+      releasedSpy.mockRestore();
+    }
+  });
+
+  it('does not emit the terminal-report reservation release metric for zero releases', async () => {
+    const releasedSpy = vi.spyOn(reservationReleasedCount, 'add');
+    try {
+      await providerRunnerFactory.create({
+        workspaceId,
+        provisionerId: provisionerTokenId,
+        providerRunnerId: 'unlinked-runner',
+        state: 'running',
+      });
+      const callsBefore = releasedSpy.mock.calls.length;
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/provisioners/runner-instances/report',
+        headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+        payload: {
+          events: [
+            {
+              provider_runner_id: 'unlinked-runner',
+              labels: ['linux'],
+              state: 'terminated',
+              reported_at: new Date().toISOString(),
+            },
+          ],
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({accepted: 1, reservations_released: 0});
+      expect(
+        releasedSpy.mock.calls
+          .slice(callsBefore)
+          .filter(([, attributes]) => attributes?.surface === 'terminal-report'),
+      ).toEqual([]);
+    } finally {
+      releasedSpy.mockRestore();
+    }
   });
 
   it('returns 400 for provider-sensitive extra fields', async () => {

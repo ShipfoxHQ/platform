@@ -150,6 +150,76 @@ describe('pollDemandAndReserve', () => {
     }
   }, 10_000);
 
+  it('counts leaked units across live reservation lifecycle states', async () => {
+    const leakedUnitsBefore = await countLiveReservationLeakUnits();
+    await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const partialReservation = await createIntendedReservation({
+      workspaceId,
+      count: 2,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: partialReservation.id,
+      firstClaimedAt: null,
+    });
+
+    const claimedReservation = await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: claimedReservation.id,
+      firstClaimedAt: new Date(),
+    });
+
+    const terminalReservation = await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: terminalReservation.id,
+      state: 'terminated',
+    });
+
+    const releasedReservation = await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: releasedReservation.id,
+      reservationReleasedAt: new Date(),
+    });
+
+    const coveredReservation = await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: coveredReservation.id,
+      firstClaimedAt: null,
+    });
+    await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+
+    expect(await countLiveReservationLeakUnits()).toBe(leakedUnitsBefore + 5);
+  });
+
   it('does not create a bound reservation when no idle runner can be rebound', async () => {
     await createPendingJobs(1, ['linux']);
 
@@ -2085,6 +2155,7 @@ describe('pollDemandAndReserve', () => {
 
   async function createIntendedReservation(params: {
     workspaceId: string;
+    count?: number;
     expiresAt: Date;
   }): Promise<{id: string}> {
     const [reservation] = await db()
@@ -2093,7 +2164,7 @@ describe('pollDemandAndReserve', () => {
         workspaceId: params.workspaceId,
         provisionerId,
         requiredLabels: ['linux'],
-        count: 1,
+        count: params.count ?? 1,
         expiresAt: params.expiresAt,
       })
       .returning({id: reservations.id});
