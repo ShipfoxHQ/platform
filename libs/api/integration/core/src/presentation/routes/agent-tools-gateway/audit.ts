@@ -7,10 +7,10 @@ import {
 } from '#metrics/index.js';
 import type {AuthorizedIntegrationTool} from './resolve-authorized-tools.js';
 
+export {NO_METHOD_LABEL} from '#core/tool-call-service.js';
 export type {IntegrationAgentToolCallErrorCode} from '#metrics/index.js';
 
 export const UNKNOWN_TOOL_LABEL = 'unknown';
-export const NO_METHOD_LABEL = 'none';
 export const INVALID_METHOD_LABEL = 'invalid';
 
 export interface IntegrationToolArgumentSummary {
