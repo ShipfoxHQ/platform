@@ -36,6 +36,8 @@ function giteaClient(overrides: Partial<GiteaApiClient> = {}): GiteaApiClient {
       }),
     ),
     getBranch: vi.fn(() => Promise.resolve({commitSha: 'branch-head'})),
+    getIssue: vi.fn(),
+    createIssueComment: vi.fn(),
     getTag: vi.fn(() => Promise.reject(new Error('not used'))),
     organizationExists: vi.fn(() => Promise.resolve(true)),
     ...overrides,

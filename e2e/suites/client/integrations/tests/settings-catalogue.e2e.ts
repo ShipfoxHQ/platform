@@ -17,7 +17,7 @@ const CATALOGUE_PROVIDERS: ListIntegrationProvidersResponseDto = {
     {provider: 'github', display_name: 'GitHub', capabilities: ['source_control']},
     {provider: 'sentry', display_name: 'Sentry', capabilities: []},
     {provider: 'linear', display_name: 'Linear', capabilities: ['agent_tools']},
-    {provider: 'gitea', display_name: 'Gitea', capabilities: ['source_control']},
+    {provider: 'gitea', display_name: 'Gitea', capabilities: ['source_control', 'agent_tools']},
   ],
 };
 

@@ -1,7 +1,11 @@
-import {createGiteaIntegrationProvider, GiteaSourceControlProvider} from '#index.js';
+import {
+  createGiteaIntegrationProvider,
+  GiteaAgentToolsProvider,
+  GiteaSourceControlProvider,
+} from '#index.js';
 
 describe('createGiteaIntegrationProvider', () => {
-  it('exposes the gitea source-control adapter and the connection + webhook route groups', () => {
+  it('exposes the gitea adapters and the connection + webhook route groups', () => {
     const provider = createGiteaIntegrationProvider({
       getExistingGiteaConnection: vi.fn(() => Promise.resolve(undefined)),
       connectGiteaConnection: vi.fn() as never,
@@ -15,6 +19,7 @@ describe('createGiteaIntegrationProvider', () => {
     expect(provider.displayName).toBe('Gitea');
     expect(provider.eventCatalog?.events.map((event) => event.name)).toEqual(['push']);
     expect(provider.adapters.source_control).toBeInstanceOf(GiteaSourceControlProvider);
+    expect(provider.adapters.agent_tools).toBeInstanceOf(GiteaAgentToolsProvider);
     expect(provider.routes).toHaveLength(2);
     expect(provider.routes.map((group) => group.prefix)).toEqual([
       '/integrations/gitea',

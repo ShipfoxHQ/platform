@@ -10,6 +10,8 @@ function giteaClient(): GiteaApiClient {
     getTag: vi.fn(() => Promise.reject(new Error('not used'))),
     listTree: vi.fn(() => Promise.reject(new Error('not used'))),
     fetchFileContent: vi.fn(() => Promise.reject(new Error('not used'))),
+    getIssue: vi.fn(() => Promise.reject(new Error('not used'))),
+    createIssueComment: vi.fn(() => Promise.reject(new Error('not used'))),
     organizationExists: vi.fn(() => Promise.reject(new Error('not used'))),
   };
 }

@@ -20,6 +20,8 @@ function giteaClient(repository: GiteaRepository): GiteaApiClient {
     getTag: vi.fn(),
     listTree: vi.fn(),
     fetchFileContent: vi.fn(),
+    getIssue: vi.fn(),
+    createIssueComment: vi.fn(),
     organizationExists: vi.fn(),
   };
 }

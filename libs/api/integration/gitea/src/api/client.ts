@@ -45,6 +45,26 @@ export interface GiteaRefCommit {
   commitSha: string;
 }
 
+export interface GiteaIssue {
+  id: number;
+  number: number;
+  title: string;
+  body: string;
+  state: string;
+  comments: number;
+  htmlUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GiteaIssueComment {
+  id: number;
+  htmlUrl: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface GiteaApiClient {
   listOrgRepositories(input: {
     org: string;
@@ -62,6 +82,13 @@ export interface GiteaApiClient {
     path: string;
     ref: string;
   }): Promise<GiteaFileContent>;
+  getIssue(input: {owner: string; repo: string; index: number}): Promise<GiteaIssue>;
+  createIssueComment(input: {
+    owner: string;
+    repo: string;
+    index: number;
+    body: string;
+  }): Promise<GiteaIssueComment>;
   organizationExists(input: {org: string}): Promise<boolean>;
 }
 
@@ -228,21 +255,61 @@ class HttpGiteaApiClient implements GiteaApiClient {
     };
   }
 
+  async getIssue(input: {owner: string; repo: string; index: number}): Promise<GiteaIssue> {
+    const response = await this.request(
+      `repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.index}`,
+      {},
+      {notFoundMessage: 'Gitea issue request returned 404'},
+    );
+    return toGiteaIssue(await response.json());
+  }
+
+  async createIssueComment(input: {
+    owner: string;
+    repo: string;
+    index: number;
+    body: string;
+  }): Promise<GiteaIssueComment> {
+    const response = await this.request(
+      `repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.index}/comments`,
+      {},
+      {
+        method: 'POST',
+        body: {body: input.body},
+        notFoundMessage: 'Gitea issue comment request returned 404',
+      },
+    );
+    return toGiteaIssueComment(await response.json());
+  }
+
   async organizationExists(input: {org: string}): Promise<boolean> {
     const response = await this.requestRaw(`orgs/${encodeURIComponent(input.org)}`);
     if (response.ok) return true;
     if (response.status === 404) return false;
-    throw giteaHttpError(response);
+    throw await giteaHttpError(response);
   }
 
   private async request(
     path: string,
     searchParams: Record<string, string> = {},
-    options: {notFoundReason?: NotFoundReason} = {},
+    options: {
+      notFoundReason?: NotFoundReason;
+      notFoundMessage?: string;
+      method?: string;
+      body?: unknown;
+    } = {},
   ): Promise<Response> {
-    const response = await this.requestRaw(path, {searchParams});
+    const response = await this.requestRaw(path, {
+      searchParams,
+      ...(options.method === undefined ? {} : {method: options.method}),
+      ...(options.body === undefined ? {} : {body: options.body}),
+    });
     if (!response.ok)
-      throw giteaHttpError(response, options.notFoundReason ?? 'repository-not-found');
+      throw await giteaHttpError(
+        response,
+        options.notFoundReason ?? 'repository-not-found',
+        options.notFoundMessage,
+      );
     return response;
   }
 
@@ -305,28 +372,116 @@ class HttpGiteaApiClient implements GiteaApiClient {
 }
 
 type NotFoundReason = 'repository-not-found' | 'file-not-found' | 'ref-not-found';
+const MAX_PROVIDER_ERROR_BODY_BYTES = 8 * 1024;
+const MAX_PROVIDER_ERROR_MESSAGE_LENGTH = 500;
 
-function giteaHttpError(
+async function giteaHttpError(
   response: Response,
   notFoundReason: NotFoundReason = 'repository-not-found',
-): GiteaIntegrationProviderError {
+  notFoundMessage?: string,
+): Promise<GiteaIntegrationProviderError> {
   const status = response.status;
+  const fallback =
+    status === 404 && notFoundMessage ? notFoundMessage : `Gitea responded ${status}`;
+  const message =
+    status >= 400 && status < 500 ? await giteaResponseErrorMessage(response, fallback) : fallback;
   if (status === 404) {
-    return new GiteaIntegrationProviderError(notFoundReason, `Gitea responded ${status}`);
+    return new GiteaIntegrationProviderError(notFoundReason, message, undefined, status);
   }
   if (isRateLimited(response)) {
     return new GiteaIntegrationProviderError(
       'rate-limited',
-      `Gitea responded ${status}`,
+      message,
       retryAfterSeconds(response),
+      status,
     );
   }
   if (status === 401 || status === 403) {
-    return new GiteaIntegrationProviderError('access-denied', `Gitea responded ${status}`);
+    return new GiteaIntegrationProviderError('access-denied', message, undefined, status);
+  }
+  if (status >= 400 && status < 500) {
+    return new GiteaIntegrationProviderError('provider-rejected', message, undefined, status);
   }
   // Server errors and any other unexpected status mean the provider could not
   // serve the request; surface it as unavailable rather than leaking a raw error.
-  return new GiteaIntegrationProviderError('provider-unavailable', `Gitea responded ${status}`);
+  return new GiteaIntegrationProviderError('provider-unavailable', message, undefined, status);
+}
+
+async function giteaResponseErrorMessage(response: Response, fallback: string): Promise<string> {
+  let body: string;
+  try {
+    body = await readBoundedResponseText(response);
+  } catch {
+    return fallback;
+  }
+
+  const trimmedBody = body.trim();
+  if (!trimmedBody) return fallback;
+
+  try {
+    const parsed: unknown = JSON.parse(trimmedBody);
+    if (isRecord(parsed)) {
+      const providerMessage =
+        typeof parsed.message === 'string'
+          ? parsed.message
+          : typeof parsed.error === 'string'
+            ? parsed.error
+            : undefined;
+      if (providerMessage?.trim()) return `${fallback}: ${truncate(providerMessage)}`;
+    }
+  } catch {
+    // Fall through to the bounded raw response text below.
+  }
+
+  return `${fallback}: ${truncate(trimmedBody)}`;
+}
+
+async function readBoundedResponseText(response: Response): Promise<string> {
+  const body = response.body;
+  if (!body) return '';
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+
+  try {
+    while (byteLength < MAX_PROVIDER_ERROR_BODY_BYTES) {
+      const {done, value} = await reader.read();
+      if (done || !value || value.byteLength === 0) break;
+
+      const remaining = MAX_PROVIDER_ERROR_BODY_BYTES - byteLength;
+      if (value.byteLength > remaining) {
+        chunks.push(value.subarray(0, remaining));
+        byteLength += remaining;
+        await reader.cancel();
+        break;
+      }
+
+      chunks.push(value);
+      byteLength += value.byteLength;
+      if (byteLength >= MAX_PROVIDER_ERROR_BODY_BYTES) {
+        await reader.cancel();
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+function truncate(value: string): string {
+  const codePoints = [...value];
+  return codePoints.length > MAX_PROVIDER_ERROR_MESSAGE_LENGTH
+    ? `${codePoints.slice(0, MAX_PROVIDER_ERROR_MESSAGE_LENGTH - 3).join('')}...`
+    : value;
 }
 
 function isRateLimited(response: Response): boolean {
@@ -373,6 +528,62 @@ function encodePath(path: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function toGiteaIssue(raw: unknown): GiteaIssue {
+  if (
+    !isRecord(raw) ||
+    typeof raw.id !== 'number' ||
+    typeof raw.number !== 'number' ||
+    typeof raw.title !== 'string' ||
+    typeof raw.body !== 'string' ||
+    typeof raw.state !== 'string' ||
+    typeof raw.comments !== 'number' ||
+    typeof raw.html_url !== 'string' ||
+    typeof raw.created_at !== 'string' ||
+    typeof raw.updated_at !== 'string'
+  ) {
+    throw new GiteaIntegrationProviderError(
+      'malformed-provider-response',
+      'Gitea issue response is missing required fields',
+    );
+  }
+
+  return {
+    id: raw.id,
+    number: raw.number,
+    title: raw.title,
+    body: raw.body,
+    state: raw.state,
+    comments: raw.comments,
+    htmlUrl: raw.html_url,
+    createdAt: raw.created_at,
+    updatedAt: raw.updated_at,
+  };
+}
+
+function toGiteaIssueComment(raw: unknown): GiteaIssueComment {
+  if (
+    !isRecord(raw) ||
+    typeof raw.id !== 'number' ||
+    typeof raw.html_url !== 'string' ||
+    typeof raw.body !== 'string' ||
+    typeof raw.created_at !== 'string' ||
+    typeof raw.updated_at !== 'string'
+  ) {
+    throw new GiteaIntegrationProviderError(
+      'malformed-provider-response',
+      'Gitea issue comment response is missing required fields',
+    );
+  }
+
+  return {
+    id: raw.id,
+    htmlUrl: raw.html_url,
+    body: raw.body,
+    createdAt: raw.created_at,
+    updatedAt: raw.updated_at,
+  };
 }
 
 function toGiteaRepository(raw: unknown): GiteaRepository {
