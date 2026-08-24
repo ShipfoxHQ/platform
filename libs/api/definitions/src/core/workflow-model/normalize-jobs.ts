@@ -29,6 +29,7 @@ import type {
   WorkflowEnvTemplates,
   WorkflowFieldTemplate,
   WorkflowModelAgentStep,
+  WorkflowModelAgentStepSession,
   WorkflowModelCheckoutStep,
   WorkflowModelJob,
   WorkflowModelRunStep,
@@ -893,6 +894,15 @@ function normalizeAgentStep(params: {
           allowedJobReferences: params.allowedJobReferences,
           typeOverlay: params.typeOverlay,
         });
+  const session = normalizeAgentStepSession({
+    step: params.step,
+    sourceName: params.sourceName,
+    stepIndex: params.stepIndex,
+    issues: params.issues,
+    fillSite: params.fillSite,
+    allowedJobReferences: params.allowedJobReferences,
+    typeOverlay: params.typeOverlay,
+  });
   validateAgentStep({
     step: params.step,
     sourceName: params.sourceName,
@@ -928,9 +938,42 @@ function normalizeAgentStep(params: {
     ...(params.step.provider === undefined ? {} : {provider: params.step.provider}),
     prompt: params.step.prompt,
     ...(params.step.thinking === undefined ? {} : {thinking: params.step.thinking}),
+    ...(session === undefined ? {} : {session}),
     ...(params.step.tools === undefined ? {} : {tools: params.step.tools}),
     ...(integrations === undefined ? {} : {integrations}),
     ...(templates === undefined ? {} : {templates}),
+  };
+}
+
+function normalizeAgentStepSession(params: {
+  step: WorkflowDocumentStep;
+  sourceName: string;
+  stepIndex: number;
+  issues: WorkflowModelValidationIssue[];
+  fillSite: AvailabilitySite;
+  allowedJobReferences: ReadonlySet<string>;
+  typeOverlay?: ExpressionTypeEnvironment | undefined;
+}): WorkflowModelAgentStepSession | undefined {
+  const session = params.step.session;
+  if (session === undefined) return undefined;
+
+  const keySource = typeof session === 'string' ? session : session.key;
+  const template = parseInterpolationField({
+    field: 'agent.session',
+    source: keySource,
+    path:
+      typeof session === 'string'
+        ? ['jobs', params.sourceName, 'steps', params.stepIndex, 'session']
+        : ['jobs', params.sourceName, 'steps', params.stepIndex, 'session', 'key'],
+    issues: params.issues,
+    fillSite: params.fillSite,
+    allowedJobReferences: params.allowedJobReferences,
+    typeOverlay: params.typeOverlay,
+  });
+
+  return {
+    key: template ?? [{kind: 'literal' as const, value: keySource}],
+    mode: typeof session === 'string' ? 'resume' : (session.mode ?? 'resume'),
   };
 }
 

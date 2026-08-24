@@ -1103,6 +1103,13 @@ describe('workflowDocumentSchema', () => {
       },
     ],
     [
+      'checkout step with a session',
+      {
+        name: 'simple build',
+        jobs: {build: {steps: [{checkout: {}, session: 'main'}]}},
+      },
+    ],
+    [
       'checkout step with environment variables',
       {
         name: 'simple build',
@@ -1140,6 +1147,9 @@ describe('workflowDocumentSchema', () => {
     ['inline agent step', {model: 'claude-opus-4-8', prompt: 'Fix the failing tests.'}],
     ['agent step with harness', {harness: 'claude', model: 'claude-opus-4-8', prompt: 'Fix it.'}],
     ['agent step with thinking', {model: 'claude-opus-4-8', prompt: 'Fix it.', thinking: 'low'}],
+    ['agent step with session', {model: 'claude-opus-4-8', prompt: 'Fix it.', session: 'main'}],
+    ['agent step with session object', {prompt: 'Fix it.', session: {key: 'main'}}],
+    ['agent step with fork session', {prompt: 'Fix it.', session: {key: 'main', mode: 'fork'}}],
     ['agent step with provider', {model: 'gpt-5.5-pro', prompt: 'Fix it.', provider: 'openai'}],
     ['agent step with provider only', {provider: 'openai', prompt: 'Fix it.'}],
     [
@@ -1198,6 +1208,8 @@ describe('workflowDocumentSchema', () => {
     ],
     ['tool step on a run step', {run: 'npm test', tool: 'send_message'}],
     ['thinking on a run step', {run: 'npm test', thinking: 'high'}],
+    ['session on a run step', {run: 'npm test', session: 'main'}],
+    ['session on a checkout step', {checkout: {}, session: {key: 'main', mode: 'fork'}}],
     ['harness on a run step', {run: 'npm test', harness: 'pi'}],
     ['provider on a run step', {run: 'npm test', provider: 'openai'}],
     ['tools on a run step', {run: 'npm test', tools: ['read']}],
@@ -1223,6 +1235,10 @@ describe('workflowDocumentSchema', () => {
     ],
     ['unknown harness value', {model: 'claude-opus-4-8', prompt: 'Fix.', harness: 'codex'}],
     ['unknown thinking value', {model: 'claude-opus-4-8', prompt: 'Fix.', thinking: 'ultra'}],
+    ['unknown session mode', {prompt: 'Fix.', session: {key: 'main', mode: 'parallel'}}],
+    ['empty session string', {prompt: 'Fix.', session: ''}],
+    ['empty session key', {prompt: 'Fix.', session: {key: ''}}],
+    ['session object with unknown key', {prompt: 'Fix.', session: {key: 'main', extra: true}}],
     ['empty model string', {model: '', prompt: 'Fix.'}],
     ['empty provider string', {model: 'gpt-5.5-pro', prompt: 'Fix.', provider: ''}],
   ])('rejects %s', (_label, step) => {
@@ -1516,6 +1532,18 @@ describe('workflowDocumentSchema', () => {
       ? undefined
       : result.error.issues.find((issue) => issue.path.includes('integrations'));
     expect(integrationsIssue?.message).toBe('"integrations" is not valid on a run step.');
+  });
+
+  it('reports a run-step session message on the session path', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'agent build',
+      jobs: {fix: {steps: [{run: 'npm test', session: 'main'}]}},
+    });
+
+    const sessionIssue = result.success
+      ? undefined
+      : result.error.issues.find((issue) => issue.path.includes('session'));
+    expect(sessionIssue?.message).toBe('"session" is not valid on a run step.');
   });
 
   it('reports a checkout-step conflict on the conflicting field', () => {

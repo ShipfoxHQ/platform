@@ -470,6 +470,7 @@ export type WorkflowInterpolationField =
   | 'agent.model'
   | 'agent.provider'
   | 'agent.thinking'
+  | 'agent.session'
   | 'job.runner'
   | 'job.outputs'
   | 'workflow.run_name'
@@ -532,6 +533,10 @@ export const workflowInterpolationFieldPolicies: Readonly<
     failurePolicy: 'fail',
   },
   'agent.thinking': {
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'fail',
+  },
+  'agent.session': {
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
   },

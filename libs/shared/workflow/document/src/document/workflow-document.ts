@@ -636,6 +636,36 @@ export const workflowDocumentStepIntegrationSchema = z.strictObject({
   }),
 });
 
+// A session names an agent conversation that continues across steps of one run.
+// The shorthand string form names the session and resumes it; the long form
+// adds an explicit mode. The key is a field template, evaluated at step
+// dispatch with the same context roots the prompt sees.
+export const workflowDocumentSessionSchema = z
+  .union([
+    z
+      .string()
+      .min(1)
+      .meta({
+        description: 'Session key, or a $' + '{{ }} interpolation that resolves to one.',
+      }),
+    z.strictObject({
+      key: z
+        .string()
+        .min(1)
+        .meta({
+          description: 'Session key, or a $' + '{{ }} interpolation that resolves to one.',
+        }),
+      mode: z.enum(['resume', 'fork']).optional().meta({
+        description:
+          'Session mode. `resume` continues the session and writes back; `fork` reads a snapshot and never writes. Defaults to `resume`.',
+      }),
+    }),
+  ])
+  .meta({
+    description:
+      'Named agent session continued across steps of one workflow run. A string names the session and resumes it; an object adds the mode.',
+  });
+
 export const workflowDocumentAgentStepFields = [
   'model',
   'prompt',
@@ -644,6 +674,7 @@ export const workflowDocumentAgentStepFields = [
   'provider',
   'tools',
   'integrations',
+  'session',
 ] as const;
 
 // A step is a run step (`run`), an inline agent step (`prompt`), or a checkout
@@ -692,6 +723,7 @@ const workflowDocumentStepBaseSchema = z.strictObject({
       'Agent harness. When omitted, Shipfox uses the workspace default harness, or `pi` when none is configured.',
   }),
   thinking: agentThinkingFieldSchema.optional(),
+  session: workflowDocumentSessionSchema.optional(),
   provider: z.string().min(1).optional().meta({
     description:
       'Model provider ID for an agent step. It requires `prompt` and is not valid on a run step.',
@@ -927,6 +959,7 @@ export type WorkflowDocumentStepOutputType = (typeof workflowDocumentStepOutputT
 export type WorkflowDocumentStepOutputs = z.infer<typeof workflowDocumentStepOutputsSchema>;
 export type WorkflowDocumentToolStepOutputs = z.infer<typeof workflowDocumentToolStepOutputsSchema>;
 export type WorkflowDocumentToolWith = z.infer<typeof workflowDocumentToolStepWithSchema>;
+export type WorkflowDocumentSession = z.infer<typeof workflowDocumentSessionSchema>;
 export type WorkflowDocumentTrigger = z.infer<typeof workflowDocumentTriggerSchema>;
 
 type JsonDepthTask =

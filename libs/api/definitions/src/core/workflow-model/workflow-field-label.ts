@@ -16,6 +16,8 @@ export function workflowFieldLabel(
       return 'Agent provider interpolation';
     case 'agent.thinking':
       return 'Agent thinking';
+    case 'agent.session':
+      return 'Agent session key interpolation';
     case 'job.runner':
       return 'Job runner interpolation';
     case 'job.outputs':

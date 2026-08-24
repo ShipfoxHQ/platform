@@ -95,6 +95,32 @@ describe('buildWorkflowJsonSchema', () => {
     expect(requiredAlternatives(batch)).toEqual(['debounce', 'max_size', 'max_wait']);
   });
 
+  it('describes the session field with string and object forms', () => {
+    const schema = buildWorkflowJsonSchema();
+    const step = stepSchemaFor(schema);
+    const session = object(object(step.properties).session);
+    const discriminator = objects(step.allOf).find((constraint) => 'oneOf' in constraint);
+    const runBranch = objects(discriminator?.oneOf)[0];
+    const checkoutBranch = objects(discriminator?.oneOf)[2];
+
+    expect(session.description).toContain('session');
+    const objectForm = objects(session.anyOf).find((branch) => branch.type === 'object');
+    expect(objectForm).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      required: ['key'],
+    });
+    expect(object(object(objectForm?.properties).key).description).toContain('interpolation');
+    expect(object(object(objectForm?.properties).mode).enum).toEqual(['resume', 'fork']);
+    expect(strings(runBranch?.required)).toEqual(['run']);
+    expect(object(runBranch?.not).anyOf).toEqual(
+      expect.arrayContaining([expect.objectContaining({required: ['session']})]),
+    );
+    expect(object(checkoutBranch?.not).anyOf).toEqual(
+      expect.arrayContaining([expect.objectContaining({required: ['session']})]),
+    );
+  });
+
   it('keeps trigger event optional in the JSON schema', () => {
     const schema = buildWorkflowJsonSchema();
     const triggers = object(object(schema.properties).triggers);

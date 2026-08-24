@@ -156,6 +156,7 @@ export interface WorkflowModelAgentStep extends WorkflowModelStepBase {
   readonly tools?: readonly string[];
   readonly integrations?: readonly WorkflowModelStepIntegration[];
   readonly prompt: string;
+  readonly session?: WorkflowModelAgentStepSession;
   readonly templates?: {
     readonly prompt?: WorkflowFieldTemplate;
     readonly model?: WorkflowFieldTemplate;
@@ -178,6 +179,11 @@ export interface WorkflowModelStepIntegration {
   readonly include: readonly string[];
   readonly exclude?: readonly string[];
   readonly allowWrite: boolean;
+}
+/** A session key template plus the step's mode for that session. */
+export interface WorkflowModelAgentStepSession {
+  readonly key: WorkflowFieldTemplate;
+  readonly mode: 'resume' | 'fork';
 }
 export interface WorkflowSourceLocation {
   readonly startLine: number;

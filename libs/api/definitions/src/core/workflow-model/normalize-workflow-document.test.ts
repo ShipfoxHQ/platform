@@ -419,6 +419,89 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
+  it('normalizes agent step session shorthand into a resume session', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'session build',
+      jobs: {
+        plan: {
+          steps: [{key: 'plan', prompt: 'Draft a plan.', session: 'main'}],
+        },
+      },
+    });
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      id: 'plan-plan',
+      kind: 'agent',
+      session: {key: [{kind: 'literal', value: 'main'}], mode: 'resume'},
+    });
+  });
+
+  it('normalizes agent step session object forms with explicit and default modes', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'session build',
+      jobs: {
+        plan: {
+          steps: [
+            {key: 'resume', prompt: 'Plan.', session: {key: 'main', mode: 'resume'}},
+            {key: 'fork', prompt: 'Plan.', session: {key: 'main', mode: 'fork'}},
+            {key: 'default', prompt: 'Plan.', session: {key: 'main'}},
+          ],
+        },
+      },
+    });
+
+    const steps = model.jobs[0]?.steps;
+    expect(steps?.[0]).toMatchObject({
+      session: {key: [{kind: 'literal', value: 'main'}], mode: 'resume'},
+    });
+    expect(steps?.[1]).toMatchObject({
+      session: {key: [{kind: 'literal', value: 'main'}], mode: 'fork'},
+    });
+    expect(steps?.[2]).toMatchObject({
+      session: {key: [{kind: 'literal', value: 'main'}], mode: 'resume'},
+    });
+  });
+
+  it('parses interpolated agent session keys as step-dispatch templates', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'session build',
+      jobs: {
+        triage: {
+          steps: [{prompt: 'Triage.', session: `triage-${interpolation('event.issue.number')}`}],
+        },
+      },
+    });
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      session: {
+        key: [
+          {kind: 'literal', value: 'triage-'},
+          {kind: 'deferred', expression: {source: 'event.issue.number'}, roots: ['event']},
+        ],
+        mode: 'resume',
+      },
+    });
+  });
+
+  it('reports invalid interpolation in agent session keys on the session path', () => {
+    const error = expectInvalid({
+      name: 'session build',
+      jobs: {
+        triage: {
+          steps: [{prompt: 'Triage.', session: 'triage-${{ broken'}],
+        },
+      },
+    });
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-interpolation-template',
+        path: ['jobs', 'triage', 'steps', 0, 'session'],
+      }),
+    ]);
+  });
+
   it('normalizes agent step integrations after catalog validation', () => {
     const document: WorkflowDocument = {
       name: 'agent integrations',

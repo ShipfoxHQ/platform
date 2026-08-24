@@ -771,6 +771,7 @@ describe('workflow context registry', () => {
       expect(getWorkflowInterpolationFieldFailurePolicy('agent.model')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('agent.provider')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('agent.thinking')).toBe('fail');
+      expect(getWorkflowInterpolationFieldFailurePolicy('agent.session')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('job.runner')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('workflow.run_name')).toBe('degrade');
       expect(getWorkflowInterpolationFieldFailurePolicy('job.execution_name')).toBe('degrade');
@@ -1050,6 +1051,7 @@ describe('workflow interpolation field policies', () => {
       'agent.model',
       'agent.provider',
       'agent.thinking',
+      'agent.session',
       'job.runner',
       'job.outputs',
       'workflow.run_name',
@@ -1087,6 +1089,7 @@ describe('workflow interpolation field policies', () => {
     ['agent.model', ['server']],
     ['agent.provider', ['server']],
     ['agent.thinking', ['server']],
+    ['agent.session', ['server']],
     ['job.runner', ['server']],
     ['job.outputs', ['server']],
     ['workflow.run_name', ['server']],
